@@ -86,7 +86,7 @@ error 级日志里只看到系统侧噪声：
 
 | 文件 | 说明 | SHA-256 |
 |---|---|---|
-| `../app/build/outputs/apk/release/app-release.apk` | 正式证书签名 Release APK，GitHub Release 资产来源 | `c8b18b366fdccb7c455fac6ed7ed99ffc7ba477f6e01a89a6fa302dde27bd0f5` |
+| `../app/build/outputs/apk/release/app-release.apk` | 正式证书签名 Release APK，GitHub Release 资产来源 | 以 GitHub Release 资产和 release notes 为准 |
 
 签名证书：
 
