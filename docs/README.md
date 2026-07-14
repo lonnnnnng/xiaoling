@@ -12,5 +12,5 @@
 ## 当前产物
 
 - Release APK：发布到 GitHub Releases。
-- 本地 debug APK：`../app/build/outputs/apk/debug/app-debug.apk`
+- 本地 release APK：`../app/build/outputs/apk/release/app-release.apk`
 - 主 README：`../README.md`

@@ -33,7 +33,7 @@
 
 ## 使用方式
 
-1. 从 GitHub Release 下载并安装 APK，或本地执行构建后安装 `app/build/outputs/apk/debug/app-debug.apk`。
+1. 从 GitHub Release 下载并安装 APK，或本地执行构建后安装 `app/build/outputs/apk/release/app-release.apk`。
 2. 打开 App，填写：
    - 在“管理”页新增或选择模型提供方。
    - 填写 `Base URL`：例如 `https://api.example.com/v1` 或 `http://127.0.0.1:8765/v1`。
@@ -61,7 +61,7 @@ API Key: test-key
 ## 构建
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease
 ```
 
 ## 本次验证
@@ -78,5 +78,5 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDe
 ## 产物
 
 - Release：<https://github.com/lonnnnnng/endpoint-model-tester/releases>
-- 本地 debug APK：`app/build/outputs/apk/debug/app-debug.apk`
+- 本地 release APK：`app/build/outputs/apk/release/app-release.apk`
 - `outputs/` 目录不纳入版本控制。

@@ -15,7 +15,7 @@
 执行命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease
 ```
 
 结果：
@@ -29,21 +29,21 @@ BUILD SUCCESSFUL
 执行命令：
 
 ```zsh
-adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/release/app-release.apk
 ```
 
 结果：
 
 ```text
-Performing Streamed Install
-Success
+INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.longdev.endpointtester signatures do not match newer version
 ```
 
-设备上已安装包：
+原因：
 
-```text
-com.longdev.endpointtester
-```
+- 设备上已有 debug 签名的同包名应用。
+- Release APK 使用新生成的正式证书签名，Android 不允许不同签名覆盖安装。
+- 为避免清除本机配置，本次没有自动卸载旧 debug 版。
+- 干净安装或手动卸载旧 debug 版后可安装正式包。
 
 ## UI 与启动验证
 
@@ -86,7 +86,12 @@ error 级日志里只看到系统侧噪声：
 
 | 文件 | 说明 | SHA-256 |
 |---|---|---|
-| `../app/build/outputs/apk/debug/app-debug.apk` | 已验证 debug APK，Release 资产来源 | `547405328f665a122dad1b1bc0e1b22d4ec878059a8ddc11f282308849ed8645` |
+| `../app/build/outputs/apk/release/app-release.apk` | 正式证书签名 Release APK，GitHub Release 资产来源 | `c8b18b366fdccb7c455fac6ed7ed99ffc7ba477f6e01a89a6fa302dde27bd0f5` |
+
+签名证书：
+
+- DN：`CN=Endpoint Model Tester, OU=Endpoint Tester, O=Long, L=Shanghai, ST=Shanghai, C=CN`
+- SHA-256：`1b9a68dfc2c0a6d0d54cace169ec8ca1378f665ec83c77b0d9d36915a331e7c2`
 
 ## 清理状态
 

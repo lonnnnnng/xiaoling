@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val releaseSigningProperties = Properties().apply {
+    val signingFile = rootProject.file("local-signing/endpoint-release.env")
+    if (signingFile.exists()) {
+        signingFile.inputStream().use(::load)
+    }
 }
 
 android {
@@ -12,15 +21,27 @@ android {
         applicationId = "com.longdev.endpointtester"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("releaseLocal") {
+            // long: Release 包必须使用固定证书签名，后续版本才能覆盖安装；密钥只从本机未跟踪配置读取，避免把口令或 keystore 提交到仓库。
+            storeFile = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_STORE_FILE")
+                ?.let { rootProject.file(it) }
+            storePassword = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_STORE_PASSWORD")
+            keyAlias = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_KEY_ALIAS")
+            keyPassword = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_KEY_PASSWORD")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("releaseLocal")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
