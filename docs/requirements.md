@@ -12,15 +12,20 @@
 
 - `Base URL`
 - `API Key`
-- `Model ID`
-- 可选自定义 Headers
+- 模型提供方名称
+
+并通过上游模型列表勾选允许测试的 `Model ID`。
 
 然后 App 可以：
 
 - 请求 `GET /models` 获取可用模型列表。
 - 请求 `POST /chat/completions` 测试指定模型是否能正常返回。
+- 请求 `POST /responses` 测试 Responses API。
+- 按需启用 SSE streaming 流式响应。
 - 显示成功、错误类型、响应内容、耗时和最终请求地址。
 - 安全保存 API Key，方便重复测试。
+- 保存多个 Provider 配置，并支持为每个 Provider 勾选允许测试的上游模型。
+- 固定使用 `32768` 作为 `max_tokens` / `max_output_tokens`。
 
 ## MVP 范围
 
@@ -30,15 +35,14 @@
 - 用户粘贴完整接口地址时，自动归一化到 API 根路径，避免生成重复路径。
 - 支持明文 HTTP，便于测试局域网、Ollama、LM Studio、adb reverse、本机 mock 服务。
 - API Key 通过 Android Keystore + AES-GCM 加密保存。
-- 支持自定义 Header 覆盖默认鉴权头，方便 Azure、代理网关或非 Bearer 鉴权。
 - 对常见失败做可读分类：鉴权失败、404、429、超时、DNS、TLS、连接失败、响应格式错误。
+- UI 采用明亮、紧凑的双 Tab 结构：测试页负责选择模型并对话，管理页负责维护 Provider 和端点配置。
 
 ## 暂不做
 
 - 不做完整聊天历史。
 - 不做多轮 Agent、工具调用、MCP、自动化执行。
 - 不做 Provider 模板市场。
-- 不做模型参数高级面板。
 - 不做真实服务商账号的内置配置。
 - 不内置任何 API Key。
 
@@ -49,7 +53,7 @@
 - 工程能在 macOS 本地通过单元测试和 debug 构建。
 - APK 能安装到已连接 Android 真机。
 - 通过 adb reverse 访问电脑本机 mock OpenAI-compatible 服务。
-- 点击“获取模型”后能请求 `GET /v1/models`，并自动填入返回的 `mock-model`。
-- 点击“测试模型”后能请求 `POST /v1/chat/completions`，并显示 `模型可用`、`OK` 和耗时。
+- 管理页点击“获取上游模型”后能请求 `GET /v1/models`，展示返回的 `mock-model` 并允许勾选。
+- 保存后管理列表显示该 Provider 共多少个可测试模型。
+- 测试页只能选择已勾选模型，并在发送消息后显示模型回复。
 - logcat 没有应用崩溃、ANR 或关键异常。
-

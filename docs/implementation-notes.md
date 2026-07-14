@@ -14,31 +14,31 @@
 
 | 模块 | 职责 |
 |---|---|
-| UI | 单屏配置和测试界面，显示输入框、开关、按钮和结果卡片。 |
+| UI | 双 Tab 界面：“测试”页选择 Provider / 已勾选模型并对话，“管理”页维护 Provider、端点、密钥和可测试模型列表。 |
 | ViewModel | 维护页面状态，做表单校验，调用网络层，保存配置。 |
 | Network | 构造 OpenAI-compatible 请求，解析响应，分类错误。 |
-| Storage | 保存 Base URL、Model ID、Prompt、Headers，并加密保存 API Key。 |
-| Tests | 覆盖 URL 归一化和自定义 Header 解析。 |
+| Storage | 保存多 Provider 配置，并为每个配置加密保存 API Key。 |
+| Tests | 覆盖 URL 归一化、Responses 解析和 SSE 增量解析。 |
 
 ## 请求行为
 
 ### 获取模型
 
-用户点击“获取模型”后：
+用户在“管理”页点击“获取模型”后：
 
 1. 校验 `Base URL` 必须以 `http://` 或 `https://` 开头。
 2. 归一化 API 根路径。
 3. 请求 `GET <api-root>/models`。
 4. 从 `data[].id`、`data[].name`、`models[]` 或字符串数组中提取模型名。
-5. 如果当前没有手动填写模型，则自动选择第一个模型。
+5. 上游模型列表展示为复选项，只有勾选后的模型保存为可测试模型并出现在“测试”页。
 
 ### 测试模型
 
-用户点击“测试模型”后：
+用户在“测试”页选择 Provider 和模型，输入消息并发送后：
 
-1. 校验 `Base URL`、`Model ID` 和测试消息。
-2. 请求 `POST <api-root>/chat/completions`。
-3. 发送最小测试 payload：
+1. 校验 `Base URL`、已勾选模型和测试消息。
+2. 按当前 API 模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
+3. Chat Completions 模式发送测试 payload：
 
 ```json
 {
@@ -50,13 +50,17 @@
     }
   ],
   "temperature": 0,
-  "max_tokens": 32,
+  "top_p": 1,
+  "max_tokens": 32768,
   "stream": false
 }
 ```
 
-4. 从 `choices[0].message.content`、`choices[0].text` 或 `output_text` 提取文本。
-5. 显示响应内容、耗时和最终 endpoint。
+4. Responses API 模式发送 `model`、`input`、`temperature`、`top_p`、`max_output_tokens` 和 `stream`。
+5. 非流式响应从 `choices[0].message.content`、`choices[0].text`、`output_text` 或 `output[].content[].text` 提取文本。
+6. SSE streaming 响应读取 `data:` 行，并聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
+7. 显示响应内容、耗时和最终 endpoint。
+8. `max_tokens` / `max_output_tokens` 固定为 `32768`，不在 UI 中暴露配置项。
 
 ## URL 归一化
 
@@ -65,6 +69,7 @@
 - `https://api.example.com/v1`
 - `https://api.example.com/v1/models`
 - `https://api.example.com/v1/chat/completions`
+- `https://api.example.com/v1/responses`
 
 因此代码会先识别已知后缀，再回退到 API 根路径，避免生成：
 
@@ -74,24 +79,12 @@
 
 ## API Key 保存
 
-API Key 默认加密保存：
+API Key 按 Provider 配置加密保存：
 
 - 密钥生成并保存在 Android Keystore。
-- SharedPreferences 只保存 IV 和密文。
+- SharedPreferences 中的 Provider 配置只保存 IV 和密文。
 - 使用 AES-GCM。
-- 如果用户关闭“加密保存 API Key”，会清理已保存的密文。
-
 这个设计解决的是“避免明文落盘”，不是防止用户已解锁设备上的所有威胁模型。
-
-## 自定义 Headers
-
-自定义 Header 采用每行一个：
-
-```text
-Header-Name: Header Value
-```
-
-自定义 Header 最后写入请求，允许覆盖默认 `Authorization: Bearer <api-key>`。这样 Azure、代理网关或非 Bearer 鉴权可以直接测试。
 
 ## 错误分类
 
@@ -108,10 +101,6 @@ App 将网络和 HTTP 错误转成可读提示：
 
 ## 当前限制
 
-- 只测试非流式 Chat Completions。
-- 不支持 Responses API。
-- 不支持 SSE streaming。
-- 不做多 Provider 配置保存。
-- 不做模型参数高级配置。
+- SSE streaming 目前是聚合完成后展示，不做逐 token 实时 UI 刷新。
+- 不提供模板入口；新增或编辑模型提供方时只填写名称、URL 和 API Key。
 - 不做聊天历史。
-

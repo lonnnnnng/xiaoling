@@ -29,10 +29,55 @@ object OpenAiResponseParser {
             val content = message?.opt("content")
             parseContent(content)?.let { return it }
             choice?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
+            if (choice?.optString("finish_reason") == "length") {
+                throw ApiFailure(FailureKind.RESPONSE, "输出被截断，请调高 max tokens")
+            }
         }
 
         json.optString("output_text").takeIf { it.isNotBlank() }?.let { return it }
         throw ApiFailure(FailureKind.RESPONSE, "响应中没有 choices[0].message.content")
+    }
+
+    fun parseResponsesText(body: String): String {
+        val json = JSONObject(body)
+        json.optString("output_text").takeIf { it.isNotBlank() }?.let { return it }
+
+        val output = json.optJSONArray("output")
+        if (output != null) {
+            val texts = buildList {
+                for (outputIndex in 0 until output.length()) {
+                    val item = output.optJSONObject(outputIndex) ?: continue
+                    val content = item.optJSONArray("content") ?: continue
+                    for (contentIndex in 0 until content.length()) {
+                        val contentItem = content.optJSONObject(contentIndex) ?: continue
+                        contentItem.optString("text").takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }
+            }
+            texts.joinToString("\n").takeIf { it.isNotBlank() }?.let { return it }
+        }
+
+        throw ApiFailure(FailureKind.RESPONSE, "响应中没有 output_text 或 output[].content[].text")
+    }
+
+    fun parseStreamDelta(data: String): String? {
+        if (data == "[DONE]") return null
+        val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
+
+        json.optString("delta").takeIf { it.isNotBlank() }?.let { return it }
+        json.optString("text").takeIf { it.isNotBlank() }?.let { return it }
+
+        val choices = json.optJSONArray("choices")
+        if (choices != null && choices.length() > 0) {
+            val choice = choices.optJSONObject(0)
+            val delta = choice?.optJSONObject("delta")
+            parseContent(delta?.opt("content"))?.let { return it }
+            parseContent(choice?.optJSONObject("message")?.opt("content"))?.let { return it }
+            choice?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+
+        json.optString("output_text").takeIf { it.isNotBlank() }?.let { return it }
+        return null
     }
 
     private fun parseContent(content: Any?): String? = when (content) {

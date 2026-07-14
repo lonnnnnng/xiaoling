@@ -35,24 +35,23 @@ Star、提交日期、Release 日期会随 GitHub 改变。调研文件中的数
 
 | 文件 | 说明 |
 |---|---|
-| `../app/src/main/java/com/long/endpointtester/ui/EndpointTesterScreen.kt` | Compose 单屏界面，包含连接配置、模型选择、测试消息和结果展示。 |
-| `../app/src/main/java/com/long/endpointtester/ui/EndpointTesterViewModel.kt` | 表单状态、校验、模型获取、模型测试和配置保存入口。 |
+| `../app/src/main/java/com/long/endpointtester/ui/EndpointTesterScreen.kt` | Compose 双 Tab 界面，测试页负责选择已勾选模型并对话，管理页负责 Provider 列表、新增编辑、模型获取和勾选。 |
+| `../app/src/main/java/com/long/endpointtester/ui/EndpointTesterViewModel.kt` | Provider 状态、校验、模型获取、对话发送和配置保存入口。 |
 | `../app/src/main/java/com/long/endpointtester/network/OpenAiCompatibleClient.kt` | OpenAI-compatible HTTP 请求实现。 |
 | `../app/src/main/java/com/long/endpointtester/network/EndpointUrlBuilder.kt` | Base URL 校验和 `/models`、`/chat/completions` 地址归一化。 |
 | `../app/src/main/java/com/long/endpointtester/network/HeaderParser.kt` | 自定义 Header 解析。 |
 | `../app/src/main/java/com/long/endpointtester/network/OpenAiResponseParser.kt` | 模型列表和聊天补全文本解析。 |
 | `../app/src/main/java/com/long/endpointtester/storage/SecureConfigStore.kt` | Android Keystore + AES-GCM 加密保存 API Key。 |
 | `../app/src/test/java/com/long/endpointtester/network/EndpointUrlBuilderTest.kt` | URL 归一化单元测试。 |
-| `../app/src/test/java/com/long/endpointtester/network/HeaderParserTest.kt` | 自定义 Header 解析单元测试。 |
+| `../app/src/test/java/com/long/endpointtester/network/OpenAiResponseParserTest.kt` | Responses API 和 SSE 增量解析单元测试。 |
 
 ## 已验证事实
 
 - 本 App 已在 `wsvwypiz7xwslvl7` 真机安装。
-- 本机 mock 服务收到 `GET /v1/models` 和 `POST /v1/chat/completions`。
-- App 显示 `模型可用`、`OK`、`14 ms`。
-- APK 和截图保存在 `../outputs/`。
+- 测试页和管理页已完成启动、布局和基础导航验证。
+- logcat 未发现应用崩溃、ANR 或关键异常。
+- Release APK 发布到 GitHub Releases；`outputs/` 不再纳入版本控制。
 
 ## 候选来源
 
-完整 Agent 能力、Provider 模板、参数面板、多模型管理和本地模型管理可以继续参考前置调研中的项目，但这些能力没有进入当前 MVP，也没有在本 App 中实现。
-
+完整 Agent 能力、Provider 模板市场和本地模型文件管理可以继续参考前置调研中的项目；当前 App 已实现多 Provider 配置、上游模型获取、模型勾选和模型连接测试。

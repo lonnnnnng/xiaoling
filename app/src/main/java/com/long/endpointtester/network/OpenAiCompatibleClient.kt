@@ -1,6 +1,7 @@
 package com.longdev.endpointtester.network
 
 import android.os.SystemClock
+import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.EndpointConfig
 import com.longdev.endpointtester.model.ModelTestResult
 import kotlinx.coroutines.Dispatchers
@@ -35,26 +36,56 @@ class OpenAiCompatibleClient {
 
     suspend fun testModel(config: EndpointConfig, prompt: String): ModelTestResult = withContext(Dispatchers.IO) {
         require(config.model.isNotBlank()) { "请输入或选择模型名称" }
-        val endpoint = EndpointUrlBuilder.chatCompletionsUrl(config.baseUrl)
-        val payload = JSONObject()
-            .put("model", config.model.trim())
-            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
-            .put("temperature", 0)
-            .put("max_tokens", 32)
-            .put("stream", false)
+        val endpoint = when (config.apiMode) {
+            ApiMode.CHAT_COMPLETIONS -> EndpointUrlBuilder.chatCompletionsUrl(config.baseUrl)
+            ApiMode.RESPONSES -> EndpointUrlBuilder.responsesUrl(config.baseUrl)
+        }
+        val payload = when (config.apiMode) {
+            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, prompt)
+            ApiMode.RESPONSES -> responsesPayload(config, prompt)
+        }
 
         val request = requestBuilder(endpoint, config)
             .post(payload.toString().toRequestBody(jsonMediaType))
             .build()
-        val startedAt = SystemClock.elapsedRealtime()
-        val responseText = execute(request, OpenAiResponseParser::parseChatText)
+        val startedAtMs = SystemClock.elapsedRealtime()
+        val completion = if (config.streamingEnabled) {
+            executeStreaming(request, startedAtMs)
+        } else {
+            ModelCompletion(
+                text = execute(request) { body ->
+                    when (config.apiMode) {
+                        ApiMode.CHAT_COMPLETIONS -> OpenAiResponseParser.parseChatText(body)
+                        ApiMode.RESPONSES -> OpenAiResponseParser.parseResponsesText(body)
+                    }
+                },
+                firstTokenLatencyMs = null,
+            )
+        }
         ModelTestResult(
             endpoint = endpoint,
             model = config.model.trim(),
-            latencyMs = SystemClock.elapsedRealtime() - startedAt,
-            responseText = responseText,
+            latencyMs = SystemClock.elapsedRealtime() - startedAtMs,
+            firstTokenLatencyMs = completion.firstTokenLatencyMs,
+            responseText = completion.text,
         )
     }
+
+    private fun chatPayload(config: EndpointConfig, prompt: String): JSONObject = JSONObject()
+        .put("model", config.model.trim())
+        .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
+        .put("temperature", config.temperature)
+        .put("max_tokens", config.maxTokens)
+        .put("top_p", config.topP)
+        .put("stream", config.streamingEnabled)
+
+    private fun responsesPayload(config: EndpointConfig, prompt: String): JSONObject = JSONObject()
+        .put("model", config.model.trim())
+        .put("input", prompt)
+        .put("temperature", config.temperature)
+        .put("max_output_tokens", config.maxTokens)
+        .put("top_p", config.topP)
+        .put("stream", config.streamingEnabled)
 
     private fun requestBuilder(endpoint: String, config: EndpointConfig): Request.Builder {
         val url = endpoint.toHttpUrlOrNull()
@@ -89,4 +120,44 @@ class OpenAiCompatibleClient {
             throw ApiFailureClassifier.fromNetwork(error)
         }
     }
+
+    private fun executeStreaming(request: Request, startedAtMs: Long): ModelCompletion {
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw ApiFailureClassifier.fromHttp(response.code, response.body?.string().orEmpty())
+                }
+
+                val builder = StringBuilder()
+                var firstTokenLatencyMs: Long? = null
+                val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
+                body.charStream().buffered().useLines { lines ->
+                    lines.forEach { line ->
+                        val data = line.trim().removePrefix("data:").trim()
+                        if (data.isBlank()) return@forEach
+                        OpenAiResponseParser.parseStreamDelta(data)?.let { delta ->
+                            if (firstTokenLatencyMs == null) {
+                                // long: 流式测试需要区分“首字到达”和“完整返回”，这里在第一个可读 delta 抵达时记录首字耗时。
+                                firstTokenLatencyMs = SystemClock.elapsedRealtime() - startedAtMs
+                            }
+                            builder.append(delta)
+                        }
+                    }
+                }
+                return ModelCompletion(
+                    text = builder.toString().ifBlank {
+                    throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
+                    },
+                    firstTokenLatencyMs = firstTokenLatencyMs,
+                )
+            }
+        } catch (error: IOException) {
+            throw ApiFailureClassifier.fromNetwork(error)
+        }
+    }
+
+    private data class ModelCompletion(
+        val text: String,
+        val firstTokenLatencyMs: Long?,
+    )
 }

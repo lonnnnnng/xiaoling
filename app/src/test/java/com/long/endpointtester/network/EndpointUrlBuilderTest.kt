@@ -30,6 +30,22 @@ class EndpointUrlBuilderTest {
     }
 
     @Test
+    fun `responses endpoint can be built from api root`() {
+        assertEquals(
+            "https://api.example.com/v1/responses",
+            EndpointUrlBuilder.responsesUrl("https://api.example.com/v1"),
+        )
+    }
+
+    @Test
+    fun `full responses endpoint is not duplicated`() {
+        assertEquals(
+            "https://api.example.com/v1/responses",
+            EndpointUrlBuilder.responsesUrl("https://api.example.com/v1/responses"),
+        )
+    }
+
+    @Test
     fun `http and https inputs are accepted`() {
         assertNull(EndpointUrlBuilder.validate("http://192.168.1.2:11434/v1"))
         assertNull(EndpointUrlBuilder.validate("https://api.example.com/v1"))

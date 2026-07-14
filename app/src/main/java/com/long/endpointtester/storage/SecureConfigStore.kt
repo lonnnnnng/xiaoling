@@ -4,66 +4,101 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.longdev.endpointtester.model.ProviderProfile
+import org.json.JSONArray
+import org.json.JSONObject
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class StoredConfig(
-    val baseUrl: String,
-    val apiKey: String,
-    val model: String,
-    val customHeaders: String,
-    val prompt: String,
-    val rememberApiKey: Boolean,
+data class StoredProfiles(
+    val profiles: List<ProviderProfile>,
+    val selectedProfileId: String,
+)
+
+private data class EncryptedSecret(
+    val iv: String,
+    val ciphertext: String,
 )
 
 class SecureConfigStore(context: Context) {
     private val preferences = context.getSharedPreferences("endpoint_tester", Context.MODE_PRIVATE)
 
-    fun load(): StoredConfig {
-        val rememberApiKey = preferences.getBoolean(KEY_REMEMBER_API_KEY, true)
-        return StoredConfig(
-            baseUrl = preferences.getString(KEY_BASE_URL, "").orEmpty(),
-            apiKey = if (rememberApiKey) decryptApiKey() else "",
-            model = preferences.getString(KEY_MODEL, "").orEmpty(),
-            customHeaders = preferences.getString(KEY_CUSTOM_HEADERS, "").orEmpty(),
-            prompt = preferences.getString(KEY_PROMPT, DEFAULT_PROMPT).orEmpty().ifBlank { DEFAULT_PROMPT },
-            rememberApiKey = rememberApiKey,
-        )
+    fun load(): StoredProfiles {
+        val stored = preferences.getString(KEY_PROFILES_JSON, null)
+        val profiles = stored
+            ?.let(::decodeProfiles)
+            ?.takeIf { it.isNotEmpty() }
+            ?: listOf(ProviderProfile.blank())
+        val selected = preferences.getString(KEY_SELECTED_PROFILE_ID, null)
+            ?.takeIf { id -> profiles.any { it.id == id } }
+            ?: profiles.first().id
+        return StoredProfiles(profiles, selected)
     }
 
-    fun save(config: StoredConfig) {
+    fun save(profiles: List<ProviderProfile>, selectedProfileId: String) {
+        val safeProfiles = profiles.ifEmpty { listOf(ProviderProfile.blank()) }
         preferences.edit()
-            .putString(KEY_BASE_URL, config.baseUrl)
-            .putString(KEY_MODEL, config.model)
-            .putString(KEY_CUSTOM_HEADERS, config.customHeaders)
-            .putString(KEY_PROMPT, config.prompt)
-            .putBoolean(KEY_REMEMBER_API_KEY, config.rememberApiKey)
+            .putString(KEY_PROFILES_JSON, encodeProfiles(safeProfiles))
+            .putString(KEY_SELECTED_PROFILE_ID, selectedProfileId.takeIf { id -> safeProfiles.any { it.id == id } } ?: safeProfiles.first().id)
             .apply()
-
-        if (config.rememberApiKey && config.apiKey.isNotBlank()) {
-            encryptApiKey(config.apiKey)
-        } else {
-            clearApiKey()
-        }
     }
 
-    private fun encryptApiKey(value: String) {
+    private fun encodeProfiles(profiles: List<ProviderProfile>): String {
+        val array = JSONArray()
+        profiles.forEach { profile ->
+            val secret = profile.apiKey.takeIf { it.isNotBlank() }?.let(::encrypt)
+            array.put(
+                JSONObject()
+                    .put("id", profile.id)
+                    .put("name", profile.name)
+                    .put("baseUrl", profile.baseUrl)
+                    .put("model", profile.model)
+                    .put("availableModels", JSONArray(profile.availableModels))
+                    .put("enabledModels", JSONArray(profile.enabledModels))
+                    .put("apiKeyIv", secret?.iv.orEmpty())
+                    .put("apiKeyCiphertext", secret?.ciphertext.orEmpty()),
+            )
+        }
+        return array.toString()
+    }
+
+    private fun decodeProfiles(raw: String): List<ProviderProfile> = runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (index in 0 until array.length()) {
+                val json = array.optJSONObject(index) ?: continue
+                add(
+                    ProviderProfile(
+                        id = json.optString("id").ifBlank { "profile-$index" },
+                        name = json.optString("name").ifBlank { "配置 ${index + 1}" },
+                        baseUrl = json.optString("baseUrl"),
+                        apiKey = decrypt(json.optString("apiKeyIv"), json.optString("apiKeyCiphertext")),
+                        model = json.optString("model"),
+                        availableModels = json.optJSONArray("availableModels").toStringList(),
+                        enabledModels = json.optJSONArray("enabledModels").toStringList()
+                            .ifEmpty { json.optJSONArray("availableModels").toStringList() },
+                    ),
+                )
+            }
+        }
+    }.getOrElse { emptyList() }
+
+    private fun encrypt(value: String): EncryptedSecret {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
         val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        // long: IV 必须和密文一起保存；密钥只存在 Android Keystore，SharedPreferences 中没有可直接使用的 API Key。
-        preferences.edit()
-            .putString(KEY_API_KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString(KEY_API_KEY_CIPHERTEXT, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .apply()
+        // long: 每个 Provider 配置单独保存 IV，密钥留在 Android Keystore，避免多配置场景把 API Key 明文写入偏好文件。
+        return EncryptedSecret(
+            iv = Base64.encodeToString(cipher.iv, Base64.NO_WRAP),
+            ciphertext = Base64.encodeToString(encrypted, Base64.NO_WRAP),
+        )
     }
 
-    private fun decryptApiKey(): String {
-        val iv = preferences.getString(KEY_API_KEY_IV, null) ?: return ""
-        val ciphertext = preferences.getString(KEY_API_KEY_CIPHERTEXT, null) ?: return ""
+    private fun decrypt(iv: String, ciphertext: String): String {
+        if (iv.isBlank() || ciphertext.isBlank()) return ""
         return runCatching {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(
@@ -72,10 +107,7 @@ class SecureConfigStore(context: Context) {
                 GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)),
             )
             String(cipher.doFinal(Base64.decode(ciphertext, Base64.NO_WRAP)), Charsets.UTF_8)
-        }.getOrElse {
-            clearApiKey()
-            ""
-        }
+        }.getOrDefault("")
     }
 
     private fun getOrCreateSecretKey(): SecretKey {
@@ -96,23 +128,20 @@ class SecureConfigStore(context: Context) {
         }
     }
 
-    private fun clearApiKey() {
-        preferences.edit()
-            .remove(KEY_API_KEY_IV)
-            .remove(KEY_API_KEY_CIPHERTEXT)
-            .apply()
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        return buildList {
+            for (index in 0 until length()) {
+                optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }
     }
 
     companion object {
         const val DEFAULT_PROMPT = "请只回复 OK"
         private const val KEY_ALIAS = "endpoint_tester_api_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val KEY_BASE_URL = "base_url"
-        private const val KEY_MODEL = "model"
-        private const val KEY_CUSTOM_HEADERS = "custom_headers"
-        private const val KEY_PROMPT = "prompt"
-        private const val KEY_REMEMBER_API_KEY = "remember_api_key"
-        private const val KEY_API_KEY_IV = "api_key_iv"
-        private const val KEY_API_KEY_CIPHERTEXT = "api_key_ciphertext"
+        private const val KEY_PROFILES_JSON = "provider_profiles_json"
+        private const val KEY_SELECTED_PROFILE_ID = "selected_provider_profile_id"
     }
 }

@@ -1,6 +1,6 @@
 # 文档索引
 
-本目录汇总当前需求、资料来源、实现取舍和真机验证证据。父目录 `outputs/` 下的三份 GitHub 调研报告是原始研究产物，本项目文档只引用它们，不修改它们。
+本目录汇总当前需求、资料来源、实现取舍和真机验证证据。父目录 `outputs/` 下的三份 GitHub 调研报告是原始研究产物，本项目文档只引用它们，不修改它们；本仓库自身不再把 `outputs/` 纳入版本控制。
 
 ## 阅读顺序
 
@@ -11,7 +11,6 @@
 
 ## 当前产物
 
-- APK：`../outputs/endpoint-model-tester-debug.apk`
-- 真机验证截图：`../outputs/endpoint-tester-success.png`
+- Release APK：发布到 GitHub Releases。
+- 本地 debug APK：`../app/build/outputs/apk/debug/app-debug.apk`
 - 主 README：`../README.md`
-

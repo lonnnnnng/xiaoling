@@ -11,6 +11,8 @@ object EndpointUrlBuilder {
 
     fun chatCompletionsUrl(input: String): String = "${apiRoot(input)}/chat/completions"
 
+    fun responsesUrl(input: String): String = "${apiRoot(input)}/responses"
+
     fun validate(input: String): String? {
         val normalized = input.trim()
         if (normalized.isBlank()) return "请输入 Base URL"

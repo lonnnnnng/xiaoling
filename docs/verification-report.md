@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-14（北京时间）
+验证日期：2026-07-15（北京时间）
 
 ## 环境
 
@@ -45,50 +45,23 @@ Success
 com.longdev.endpointtester
 ```
 
-## 端到端验证
+## UI 与启动验证
 
-本地启动 OpenAI-compatible mock 服务，端口 `8765`，真机通过 adb reverse 访问：
+启动 App：
 
 ```zsh
-adb -s wsvwypiz7xwslvl7 reverse tcp:8765 tcp:8765
+adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.endpointtester/.MainActivity
 ```
 
-App 输入：
+已确认：
 
-```text
-Base URL: http://127.0.0.1:8765/v1
-API Key: test-key
-```
-
-### 获取模型
-
-mock 服务收到：
-
-```text
-GET /v1/models
-```
-
-App 行为：
-
-- 模型列表请求成功。
-- `Model ID` 自动填入 `mock-model`。
-
-### 测试模型
-
-mock 服务收到：
-
-```text
-POST /v1/chat/completions {"model":"mock-model","messages":[{"role":"user","content":"请只回复 OK"}],"temperature":0,"max_tokens":32,"stream":false}
-```
-
-App 显示：
-
-```text
-模型可用
-OK
-14 ms
-http://127.0.0.1:8765/v1/chat/completions
-```
+- 测试页展示固定标题“测试”。
+- 测试页展示 Provider / 已勾选模型选择区域。
+- 测试页展示 Chat / Responses 接口类型选择和流式开关。
+- 测试页底部输入区固定，发送按钮在输入区右下角。
+- 管理页展示固定标题“管理”。
+- 管理页 Provider 列表显示已勾选模型数量。
+- 底部 TabBar 位于页面底部并保持紧凑高度。
 
 ## 日志检查
 
@@ -113,12 +86,9 @@ error 级日志里只看到系统侧噪声：
 
 | 文件 | 说明 | SHA-256 |
 |---|---|---|
-| `../outputs/endpoint-model-tester-debug.apk` | 已验证 debug APK | `59f7fc4c2ab8fe25ed86d7ecdda87d4e0b4a17e480b2065b271debd0d14fa212` |
-| `../outputs/endpoint-tester-success.png` | 真机成功截图 | `74969b470b619d7cb887d1fe2678c044108f02d58ff9d2ac916e3f7ea5abd30b` |
+| `../app/build/outputs/apk/debug/app-debug.apk` | 已验证 debug APK，Release 资产来源 | `547405328f665a122dad1b1bc0e1b22d4ec878059a8ddc11f282308849ed8645` |
 
 ## 清理状态
 
-- 临时 mock 服务已停止。
-- `adb reverse tcp:8765` 已清理。
 - App 保留在真机上。
-
+- `outputs/` 目录不再纳入版本控制。
