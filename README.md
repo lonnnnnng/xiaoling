@@ -1,12 +1,12 @@
-# Endpoint Model Tester
+# 灵测
 
-一个简单的 Android 端 OpenAI-compatible 模型可用性测试工具。
+「灵测」是一个 Android 端 OpenAI-compatible 模型与端点测试工具，面向需要快速验证 Provider、模型、Chat Completions、Responses API 和 SSE streaming 的场景。
 
 ## 当前定位
 
 本项目来自前置调研结论：很多 Android AI Agent / AI 客户端都允许配置自定义 Provider、Base URL、API Key 和模型名，但如果只是想快速判断“某个自定义端点和模型到底能不能用”，完整 Agent 项目过重。
 
-所以本项目只做一个小而明确的垂直切片：在 Android 真机上维护模型提供方，选择已勾选的上游模型，并验证 Chat Completions / Responses 接口是否可用。
+所以「灵测」先做好一个小而明确的垂直切片：在 Android 真机上维护模型提供方，选择已勾选的上游模型，并验证 Chat Completions / Responses 接口是否可用。后续会继续扩展成更完整的移动端 AI API 工作台。
 
 ## 功能
 
@@ -17,6 +17,8 @@
 - 支持 `POST /responses` 测试 Responses API。
 - 支持 SSE streaming 流式响应测试。
 - 测试页可切换 Chat / Responses 和是否启用流式输出。
+- 支持多会话本地保存、会话上下文、LLM 摘要压缩和结构化消息元数据。
+- 支持 Markdown 渲染，覆盖表格、代码块、列表、引用和长输出等常见模型回答。
 - 固定 `max_tokens` / `max_output_tokens` 为 `32768`，避免每个 Provider 重复配置。
 - 流式输出显示首字耗时和总耗时，非流式输出显示总耗时。
 - API Key 使用 Android Keystore 加密保存。
@@ -67,16 +69,22 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
 ## 本次验证
 
 - 验证设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro，Android 14 / API 34。
+- 当前版本：`0.1.3`。
 - 构建结果：`BUILD SUCCESSFUL`。
 - 真机安装：`adb install -r` 成功。
 - 真机检查：
   - 测试页和管理页可正常启动。
   - 测试页展示固定标题、紧凑底部 TabBar、Provider / 模型选择、Chat / Responses 和流式开关。
   - 管理页展示固定标题、Provider 列表和模型数量。
+- 接口矩阵检查：
+  - Chat 非流式：10/10 成功。
+  - Chat 流式：10/10 成功。
+  - Responses 非流式：10/10 成功。
+  - Responses 流式：10/10 成功。
 - 崩溃检查：当前进程 logcat 未命中 `FATAL EXCEPTION`、`AndroidRuntime`、`ANR`、`crash`、`Exception` 等关键字。
 
 ## 产物
 
-- Release：<https://github.com/lonnnnnng/endpoint-model-tester/releases>
+- Release：<https://github.com/lonnnnnng/lingce/releases>
 - 本地 release APK：`app/build/outputs/apk/release/app-release.apk`
 - `outputs/` 目录不纳入版本控制。

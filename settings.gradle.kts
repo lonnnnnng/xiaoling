@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EndpointModelTester"
+rootProject.name = "LingCe"
 include(":app")

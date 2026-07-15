@@ -23,7 +23,7 @@ Star、提交日期、Release 日期会随 GitHub 改变。调研文件中的数
 
 ## 对本项目有直接启发的项目类型
 
-| 项目类型 | 代表仓库 | 对 Endpoint Model Tester 的启发 |
+| 项目类型 | 代表仓库 | 对「灵测」的启发 |
 |---|---|---|
 | 多 Provider Android 客户端 | RikkaHub、GPT Mobile、Maid、ChatterUI | Base URL、Model ID、API Key、Provider 配置应该直接暴露给用户，而不是硬编码。 |
 | OpenAI-compatible / Ollama 客户端 | ChatterUI、GPT Mobile、Reins、ollama-app、Conduit | `/models` 和 `/chat/completions` 是最小可用性测试路径。 |

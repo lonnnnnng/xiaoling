@@ -91,6 +91,7 @@ error 级日志里只看到系统侧噪声：
 签名证书：
 
 - DN：`CN=Endpoint Model Tester, OU=Endpoint Tester, O=Long, L=Shanghai, ST=Shanghai, C=CN`
+  - 当前 Android 应用展示名已改为「灵测」；证书 DN 保持不变，保证后续版本继续使用同一正式签名覆盖安装。
 - SHA-256：`1b9a68dfc2c0a6d0d54cace169ec8ca1378f665ec83c77b0d9d36915a331e7c2`
 
 ## 清理状态

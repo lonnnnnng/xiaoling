@@ -123,7 +123,7 @@ class OpenAiCompatibleClient {
         return Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "EndpointModelTester/0.1.0")
+            .header("User-Agent", "LingCe/0.1.3")
             .apply {
                 if (config.apiKey.isNotBlank()) {
                     header("Authorization", "Bearer ${config.apiKey.trim()}")
