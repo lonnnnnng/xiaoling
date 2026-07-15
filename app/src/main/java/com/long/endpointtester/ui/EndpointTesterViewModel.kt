@@ -19,13 +19,19 @@ import com.longdev.endpointtester.storage.ConversationStore
 import com.longdev.endpointtester.storage.SecureConfigStore
 import com.longdev.endpointtester.storage.StoredConversation
 import com.longdev.endpointtester.storage.StoredConversationMessage
+import com.longdev.endpointtester.storage.StoredMessageMeta
 import com.longdev.endpointtester.storage.StoredConversations
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
+
+private fun newChatMessageId(): String = "message-${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
 data class TesterUiState(
     val profiles: List<ProviderProfile> = emptyList(),
@@ -66,13 +72,35 @@ data class ProviderEditDraft(
 data class ChatMessage(
     val role: String,
     val text: String,
-    val footer: String? = null,
+    val id: String = newChatMessageId(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val meta: MessageMeta? = null,
+)
+
+data class MessageMeta(
+    val providerId: String? = null,
+    val providerName: String? = null,
+    val model: String? = null,
+    val apiMode: ApiMode? = null,
+    val streaming: Boolean? = null,
+    val endpoint: String? = null,
+    val firstTokenLatencyMs: Long? = null,
+    val latencyMs: Long? = null,
+    val promptTokens: Int? = null,
+    val completionTokens: Int? = null,
+    val totalTokens: Int? = null,
+    val finishReason: String? = null,
+    val errorKind: String? = null,
+    val errorMessage: String? = null,
 )
 
 data class ConversationSession(
     val id: String,
     val title: String,
     val summary: String,
+    val summaryUntilMessageId: String?,
+    val summaryUpdatedAt: Long?,
+    val summaryModel: String?,
     val messages: List<ChatMessage>,
     val createdAt: Long,
     val updatedAt: Long,
@@ -87,10 +115,34 @@ data class OperationResult(
     val firstTokenLatencyMs: Long? = null,
 )
 
+private data class PreparedRequestContext(
+    val requestMessages: List<RequestMessage>,
+    val summary: String,
+    val summaryUntilMessageId: String?,
+    val summaryUpdatedAt: Long?,
+    val summaryModel: String?,
+) {
+    companion object {
+        fun fromConversation(
+            conversation: ConversationSession?,
+        ): PreparedRequestContext {
+            return PreparedRequestContext(
+                requestMessages = emptyList(),
+                summary = conversation?.summary.orEmpty(),
+                summaryUntilMessageId = conversation?.summaryUntilMessageId,
+                summaryUpdatedAt = conversation?.summaryUpdatedAt,
+                summaryModel = conversation?.summaryModel,
+            )
+        }
+    }
+}
+
 class EndpointTesterViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = SecureConfigStore(application)
     private val conversationStore = ConversationStore(application)
     private val client = OpenAiCompatibleClient()
+    private var streamingThrottleJob: Job? = null
+    private var pendingStreamingUpdate: StreamDeltaUpdate? = null
 
     var uiState by mutableStateOf(
         configStore.load()
@@ -205,6 +257,9 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
             id = "conversation-$now",
             title = "新会话",
             summary = "",
+            summaryUntilMessageId = null,
+            summaryUpdatedAt = null,
+            summaryModel = null,
             messages = emptyList(),
             createdAt = now,
             updatedAt = now,
@@ -241,6 +296,9 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
                 id = "conversation-$now",
                 title = "新会话",
                 summary = "",
+                summaryUntilMessageId = null,
+                summaryUpdatedAt = null,
+                summaryModel = null,
                 messages = emptyList(),
                 createdAt = now,
                 updatedAt = now,
@@ -427,56 +485,96 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
             showValidation("请输入消息")
             return
         }
+        val profileSnapshot = selectedProfile()
+        val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
         val userMessage = uiState.prompt.trim()
-        val userChatMessage = ChatMessage("user", userMessage, nowTimeText())
+        val userChatMessage = ChatMessage(
+            role = "user",
+            text = userMessage,
+            createdAt = System.currentTimeMillis(),
+        )
         val messagesWithUser = uiState.chatMessages + userChatMessage
-        val summaryForRequest = summarizeOlderMessages(messagesWithUser)
-        val requestMessages = buildRequestMessages(messagesWithUser, summaryForRequest)
+        var preparedContext = PreparedRequestContext.fromConversation(currentConversation)
         uiState = uiState.copy(
             testingModel = true,
             result = null,
             prompt = "",
-        ).withUpdatedCurrentConversation(messagesWithUser, summaryForRequest)
-        saveConversationSelection()
+        ).withUpdatedCurrentConversation(
+            messages = messagesWithUser,
+            summary = preparedContext.summary,
+            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+            summaryModel = preparedContext.summaryModel,
+        )
         viewModelScope.launch {
             runCatching {
-                client.testModel(config, requestMessages) { update ->
+                preparedContext = prepareRequestContext(config, messagesWithUser, currentConversation)
+                withContext(Dispatchers.Main.immediate) {
+                    uiState = uiState
+                        .withUpdatedCurrentConversation(
+                            messages = messagesWithUser,
+                            summary = preparedContext.summary,
+                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                            summaryModel = preparedContext.summaryModel,
+                        )
+                        .copy(result = null)
+                }
+                client.testModel(config, preparedContext.requestMessages) { update ->
                     withContext(Dispatchers.Main.immediate) {
-                        updateStreamingAssistant(update)
+                        scheduleStreamingAssistant(update, config.toBaseMessageMeta(profileSnapshot))
                     }
                 }
             }
                 .onSuccess { test ->
-                    val timingFooter = if (config.streamingEnabled) {
-                        "首字 ${test.firstTokenLatencyMs?.toSecondsText() ?: "-"} · 耗时 ${test.latencyMs.toSecondsText()}"
-                    } else {
-                        "耗时 ${test.latencyMs.toSecondsText()}"
-                    }
+                    flushStreamingAssistant(config.toBaseMessageMeta(profileSnapshot))
                     val finalMessages = uiState.chatMessages.upsertLastAssistant(
                         text = test.responseText,
-                        footer = timingFooter,
+                        meta = config.toBaseMessageMeta(profileSnapshot).copy(
+                            endpoint = test.endpoint,
+                            firstTokenLatencyMs = test.firstTokenLatencyMs,
+                            latencyMs = test.latencyMs,
+                        ),
                     )
                     uiState = uiState
-                        .withUpdatedCurrentConversation(finalMessages, summarizeOlderMessages(finalMessages))
+                        .withUpdatedCurrentConversation(
+                            messages = finalMessages,
+                            summary = preparedContext.summary,
+                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                            summaryModel = preparedContext.summaryModel,
+                        )
                         .copy(
-                        testingModel = false,
-                        result = null,
-                    )
+                            testingModel = false,
+                            result = null,
+                        )
                     saveConversationSelection()
                     saveCurrentProfileSelection()
                 }
                 .onFailure { error ->
+                    flushStreamingAssistant(config.toBaseMessageMeta(profileSnapshot))
+                    val failure = error as? ApiFailure
                     val failedMessages = uiState.chatMessages + ChatMessage(
                         role = "error",
                         text = error.toConversationErrorText(),
-                        footer = "请求失败",
+                        createdAt = System.currentTimeMillis(),
+                        meta = config.toBaseMessageMeta(profileSnapshot).copy(
+                            errorKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title,
+                            errorMessage = error.message ?: "未知错误",
+                        ),
                     )
                     uiState = uiState
-                        .withUpdatedCurrentConversation(failedMessages, summarizeOlderMessages(failedMessages))
+                        .withUpdatedCurrentConversation(
+                            messages = failedMessages,
+                            summary = preparedContext.summary,
+                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                            summaryModel = preparedContext.summaryModel,
+                        )
                         .copy(
-                        testingModel = false,
-                        result = null,
-                    )
+                            testingModel = false,
+                            result = null,
+                        )
                     saveConversationSelection()
                 }
         }
@@ -538,6 +636,9 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
     private fun TesterUiState.withUpdatedCurrentConversation(
         messages: List<ChatMessage>,
         summary: String,
+        summaryUntilMessageId: String? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryUntilMessageId,
+        summaryUpdatedAt: Long? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryUpdatedAt,
+        summaryModel: String? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryModel,
     ): TesterUiState {
         val now = System.currentTimeMillis()
         val currentId = selectedConversationId.ifBlank { "conversation-$now" }
@@ -549,6 +650,9 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
             id = currentId,
             title = title,
             summary = summary,
+            summaryUntilMessageId = summaryUntilMessageId,
+            summaryUpdatedAt = summaryUpdatedAt,
+            summaryModel = summaryModel,
             messages = messages,
             createdAt = current?.createdAt ?: now,
             updatedAt = now,
@@ -567,18 +671,68 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
         )
     }
 
-    private fun summarizeOlderMessages(messages: List<ChatMessage>): String {
+    private suspend fun prepareRequestContext(
+        config: EndpointConfig,
+        messages: List<ChatMessage>,
+        conversation: ConversationSession?,
+    ): PreparedRequestContext {
         val contextMessages = messages.filter { it.role == "user" || it.role == "assistant" }
-        if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT) return ""
+        if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT && conversation?.summary.isNullOrBlank()) {
+            return PreparedRequestContext(
+                requestMessages = buildRequestMessages(contextMessages, summary = ""),
+                summary = "",
+                summaryUntilMessageId = null,
+                summaryUpdatedAt = null,
+                summaryModel = null,
+            )
+        }
+
         val olderMessages = contextMessages.dropLast(RECENT_CONTEXT_MESSAGE_LIMIT)
-        // long: 长会话继续完整发送会快速耗尽上下文窗口，这里把较早轮次压成本地摘要，实际请求只保留摘要和最近对话。
-        val transcript = olderMessages.joinToString("\n") { message ->
-            val label = if (message.role == "assistant") "assistant" else "user"
-            "$label: ${message.text.trim()}"
+        val targetSummaryMessage = olderMessages.lastOrNull()
+        val existingSummary = conversation?.summary.orEmpty()
+        if (targetSummaryMessage == null) {
+            return PreparedRequestContext(
+                requestMessages = buildRequestMessages(contextMessages, existingSummary),
+                summary = existingSummary,
+                summaryUntilMessageId = conversation?.summaryUntilMessageId,
+                summaryUpdatedAt = conversation?.summaryUpdatedAt,
+                summaryModel = conversation?.summaryModel,
+            )
         }
-        return transcript.takeLast(SUMMARY_MAX_CHARS).prependIndent("  ").let {
-            "较早对话摘要（由本地记录压缩生成，用于延续上下文）：\n$it"
+
+        if (existingSummary.isNotBlank() && conversation?.summaryUntilMessageId == targetSummaryMessage.id) {
+            return PreparedRequestContext(
+                requestMessages = buildRequestMessages(contextMessages, existingSummary),
+                summary = existingSummary,
+                summaryUntilMessageId = conversation.summaryUntilMessageId,
+                summaryUpdatedAt = conversation.summaryUpdatedAt,
+                summaryModel = conversation.summaryModel,
+            )
         }
+
+        val messagesToCompress = messagesNeedingCompression(
+            contextMessages = contextMessages,
+            previousSummaryUntilMessageId = conversation?.summaryUntilMessageId,
+            targetSummaryMessageId = targetSummaryMessage.id,
+        )
+        // long: 长会话压缩只处理“上次摘要边界之后、最近窗口之前”的旧消息，避免每轮都把完整历史重新塞给摘要模型。
+        val summary = runCatching {
+            generateConversationSummary(
+                config = config,
+                existingSummary = existingSummary,
+                messagesToCompress = messagesToCompress,
+            )
+        }.getOrElse {
+            localFallbackSummary(existingSummary, messagesToCompress)
+        }
+        val now = System.currentTimeMillis()
+        return PreparedRequestContext(
+            requestMessages = buildRequestMessages(contextMessages, summary),
+            summary = summary,
+            summaryUntilMessageId = targetSummaryMessage.id,
+            summaryUpdatedAt = now,
+            summaryModel = config.model.trim(),
+        )
     }
 
     private fun buildRequestMessages(
@@ -590,12 +744,15 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
             // long: 摘要作为 system 上下文放在最前面，让模型能参考早期信息，同时避免把全部历史反复塞进请求。
             requestMessages += RequestMessage(
                 role = "system",
-                content = summary,
+                content = "以下是较早对话的持续摘要，请在回答当前问题时一并参考：\n$summary",
             )
         }
-        messages
-            .filter { it.role == "user" || it.role == "assistant" }
-            .takeLast(RECENT_CONTEXT_MESSAGE_LIMIT)
+        val recentMessages = if (summary.isBlank() && messages.size <= RECENT_CONTEXT_MESSAGE_LIMIT) {
+            messages
+        } else {
+            messages.takeLast(RECENT_CONTEXT_MESSAGE_LIMIT)
+        }
+        recentMessages
             .forEach { message ->
                 requestMessages += RequestMessage(
                     role = message.role,
@@ -603,6 +760,78 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
         return requestMessages
+    }
+
+    private fun messagesNeedingCompression(
+        contextMessages: List<ChatMessage>,
+        previousSummaryUntilMessageId: String?,
+        targetSummaryMessageId: String,
+    ): List<ChatMessage> {
+        val targetIndex = contextMessages.indexOfFirst { it.id == targetSummaryMessageId }
+        if (targetIndex < 0) return emptyList()
+        val previousIndex = previousSummaryUntilMessageId
+            ?.let { id -> contextMessages.indexOfFirst { it.id == id } }
+            ?.takeIf { it >= 0 }
+            ?: -1
+        return contextMessages.subList(previousIndex + 1, targetIndex + 1)
+    }
+
+    private suspend fun generateConversationSummary(
+        config: EndpointConfig,
+        existingSummary: String,
+        messagesToCompress: List<ChatMessage>,
+    ): String {
+        if (messagesToCompress.isEmpty()) return existingSummary
+        val transcript = messagesToCompress.toSummaryTranscript()
+        val prompt = buildString {
+            appendLine("你是对话上下文压缩器。请把已有摘要和新增对话合并成一份稳定摘要，用于后续继续对话。")
+            appendLine()
+            appendLine("输出要求：")
+            appendLine("- 保留用户明确提到的偏好、目标、约束、已经确认的事实和未解决问题。")
+            appendLine("- 删除寒暄、重复表达和无业务价值的细节。")
+            appendLine("- 不要编造新增事实。")
+            appendLine("- 用中文输出，控制在 $SUMMARY_TARGET_CHARS 字以内。")
+            appendLine()
+            appendLine("已有摘要：")
+            appendLine(existingSummary.ifBlank { "无" })
+            appendLine()
+            appendLine("新增对话：")
+            appendLine(transcript)
+        }
+        val summaryConfig = config.copy(streamingEnabled = false)
+        val result = client.testModel(
+            config = summaryConfig,
+            messages = listOf(
+                RequestMessage(
+                    role = "system",
+                    content = "你只负责压缩对话上下文，输出可被下一轮模型直接参考的摘要。",
+                ),
+                RequestMessage(role = "user", content = prompt),
+            ),
+        )
+        return result.responseText.trim().take(SUMMARY_MAX_CHARS)
+    }
+
+    private fun localFallbackSummary(
+        existingSummary: String,
+        messagesToCompress: List<ChatMessage>,
+    ): String {
+        val transcript = messagesToCompress.toSummaryTranscript()
+        return buildString {
+            if (existingSummary.isNotBlank()) {
+                appendLine(existingSummary.trim())
+                appendLine()
+            }
+            appendLine("以下内容由本地记录压缩生成：")
+            append(transcript.takeLast(SUMMARY_MAX_CHARS))
+        }.trim().takeLast(SUMMARY_MAX_CHARS)
+    }
+
+    private fun List<ChatMessage>.toSummaryTranscript(): String {
+        return joinToString("\n") { message ->
+            val label = if (message.role == "assistant") "assistant" else "user"
+            "$label: ${message.text.trim()}"
+        }
     }
 
     private suspend fun syncStoredProfile(
@@ -741,10 +970,6 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
         )
     }
 
-    private fun Long.toSecondsText(): String = String.format(Locale.US, "%.2f s", this / 1000.0)
-
-    private fun nowTimeText(): String = SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date())
-
     private fun nowSyncTimeText(): String = SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date())
 
     private fun Throwable.toConversationErrorText(): String {
@@ -754,24 +979,53 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
         return "$title\n$detail"
     }
 
-    private fun updateStreamingAssistant(update: StreamDeltaUpdate) {
-        val footer = "首字 ${update.firstTokenLatencyMs.toSecondsText()} · 接收中"
+    private fun scheduleStreamingAssistant(update: StreamDeltaUpdate, baseMeta: MessageMeta) {
+        pendingStreamingUpdate = update
+        if (streamingThrottleJob?.isActive == true) return
+        // long: SSE delta 可能按 token 高频到达；UI 只保留最新累计文本并按 30ms 合并刷新，避免 Markdown 每个 token 都触发重组。
+        streamingThrottleJob = viewModelScope.launch {
+            delay(STREAMING_UI_THROTTLE_MS)
+            flushStreamingAssistant(baseMeta)
+        }
+    }
+
+    private fun flushStreamingAssistant(baseMeta: MessageMeta) {
+        val update = pendingStreamingUpdate ?: return
+        pendingStreamingUpdate = null
+        streamingThrottleJob?.cancel()
+        streamingThrottleJob = null
         val updatedMessages = uiState.chatMessages.upsertLastAssistant(
             text = update.accumulatedText,
-            footer = footer,
+            meta = baseMeta.copy(firstTokenLatencyMs = update.firstTokenLatencyMs),
         )
-        // long: 流式返回期间会持续刷新对话区，当前会话的内存快照也同步更新，避免切换会话或失败收尾时拿到旧消息。
+        // long: 流式期间只刷新内存 UI，不在这里写 SharedPreferences；最终成功或失败时再统一持久化完整会话。
         uiState = uiState
-            .withUpdatedCurrentConversation(updatedMessages, summarizeOlderMessages(updatedMessages))
+            .withUpdatedCurrentConversation(
+                messages = updatedMessages,
+                summary = uiState.conversationSummary,
+            )
             .copy(result = null)
     }
 
-    private fun List<ChatMessage>.upsertLastAssistant(text: String, footer: String?): List<ChatMessage> {
+    private fun EndpointConfig.toBaseMessageMeta(profile: ProviderProfile) = MessageMeta(
+        providerId = profile.id,
+        providerName = profile.name,
+        model = model.trim(),
+        apiMode = apiMode,
+        streaming = streamingEnabled,
+    )
+
+    private fun List<ChatMessage>.upsertLastAssistant(text: String, meta: MessageMeta?): List<ChatMessage> {
         val last = lastOrNull()
         return if (last?.role == "assistant") {
-            dropLast(1) + last.copy(text = text, footer = footer)
+            dropLast(1) + last.copy(text = text, meta = meta)
         } else {
-            this + ChatMessage("assistant", text, footer)
+            this + ChatMessage(
+                role = "assistant",
+                text = text,
+                createdAt = System.currentTimeMillis(),
+                meta = meta,
+            )
         }
     }
 
@@ -814,6 +1068,9 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
                         id = "conversation-$now",
                         title = "新会话",
                         summary = "",
+                        summaryUntilMessageId = null,
+                        summaryUpdatedAt = null,
+                        summaryModel = null,
                         messages = emptyList(),
                         createdAt = now,
                         updatedAt = now,
@@ -848,35 +1105,81 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
         id = id,
         title = title,
         summary = summary,
+        summaryUntilMessageId = summaryUntilMessageId,
+        summaryUpdatedAt = summaryUpdatedAt,
+        summaryModel = summaryModel,
         messages = messages.map { it.toChatMessage() },
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
 
     private fun StoredConversationMessage.toChatMessage() = ChatMessage(
+        id = id,
         role = role,
         text = text,
-        footer = footer,
+        createdAt = createdAt,
+        meta = meta?.toMessageMeta(),
     )
 
     private fun ConversationSession.toStored() = StoredConversation(
         id = id,
         title = title,
         summary = summary,
+        summaryUntilMessageId = summaryUntilMessageId,
+        summaryUpdatedAt = summaryUpdatedAt,
+        summaryModel = summaryModel,
         messages = messages.map { it.toStored() },
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
 
     private fun ChatMessage.toStored() = StoredConversationMessage(
+        id = id,
         role = role,
         text = text,
-        footer = footer,
+        createdAt = createdAt,
+        meta = meta?.toStoredMeta(),
+    )
+
+    private fun StoredMessageMeta.toMessageMeta() = MessageMeta(
+        providerId = providerId,
+        providerName = providerName,
+        model = model,
+        apiMode = apiMode?.let { runCatching { ApiMode.valueOf(it) }.getOrNull() },
+        streaming = streaming,
+        endpoint = endpoint,
+        firstTokenLatencyMs = firstTokenLatencyMs,
+        latencyMs = latencyMs,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        finishReason = finishReason,
+        errorKind = errorKind,
+        errorMessage = errorMessage,
+    )
+
+    private fun MessageMeta.toStoredMeta() = StoredMessageMeta(
+        providerId = providerId,
+        providerName = providerName,
+        model = model,
+        apiMode = apiMode?.name,
+        streaming = streaming,
+        endpoint = endpoint,
+        firstTokenLatencyMs = firstTokenLatencyMs,
+        latencyMs = latencyMs,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        finishReason = finishReason,
+        errorKind = errorKind,
+        errorMessage = errorMessage,
     )
 
     companion object {
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 16
         private const val SUMMARY_MAX_CHARS = 4_000
+        private const val SUMMARY_TARGET_CHARS = 1_200
+        private const val STREAMING_UI_THROTTLE_MS = 30L
     }
 }

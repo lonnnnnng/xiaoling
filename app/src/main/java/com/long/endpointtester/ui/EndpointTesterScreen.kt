@@ -96,7 +96,10 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @Suppress("DEPRECATION")
 @Composable
@@ -309,9 +312,14 @@ private fun TestPage(
     val lastChatItemIndex = state.chatMessages.size
     val lastChatMessage = state.chatMessages.lastOrNull()
 
-    LaunchedEffect(lastChatItemIndex, lastChatMessage?.text?.length, lastChatMessage?.footer) {
+    LaunchedEffect(
+        lastChatItemIndex,
+        lastChatMessage?.text?.length,
+        lastChatMessage?.meta?.firstTokenLatencyMs,
+        lastChatMessage?.meta?.latencyMs,
+    ) {
         if (lastChatItemIndex > 0) {
-            // long: 长回复的 footer 位于消息 item 底部，只滚到最后一条 item 顶部时 footer 可能仍被挡住；滚到尾部锚点保证耗时信息可见。
+            // long: 长回复的耗时信息位于消息 item 底部，只滚到最后一条 item 顶部时可能仍被挡住；滚到尾部锚点保证元数据可见。
             chatListState.scrollToItem(lastChatItemIndex)
         }
     }
@@ -706,6 +714,38 @@ private fun String.toFullSyncTimeLabel(): String {
     return value
 }
 
+private fun ChatMessage.footerLabel(): String? {
+    return when (role) {
+        "user" -> createdAt.toFullTimeLabel()
+        "assistant" -> assistantFooterLabel() ?: createdAt.toFullTimeLabel()
+        "error" -> "请求失败 · ${createdAt.toFullTimeLabel()}"
+        else -> createdAt.toFullTimeLabel()
+    }
+}
+
+private fun ChatMessage.assistantFooterLabel(): String? {
+    val messageMeta = meta ?: return null
+    val latency = messageMeta.latencyMs
+    val firstTokenLatency = messageMeta.firstTokenLatencyMs
+    return when {
+        messageMeta.streaming == true && firstTokenLatency != null && latency != null ->
+            "首字 ${firstTokenLatency.toSecondsText()} · 耗时 ${latency.toSecondsText()}"
+        messageMeta.streaming == true && latency != null ->
+            "首字 - · 耗时 ${latency.toSecondsText()}"
+        messageMeta.streaming == true && firstTokenLatency != null ->
+            "首字 ${firstTokenLatency.toSecondsText()} · 接收中"
+        latency != null ->
+            "耗时 ${latency.toSecondsText()}"
+        else -> null
+    }
+}
+
+private fun Long.toSecondsText(): String = String.format(Locale.US, "%.2f s", this / 1000.0)
+
+private fun Long.toFullTimeLabel(): String {
+    return SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date(this))
+}
+
 @Composable
 private fun ModelWaitingIndicator(modifier: Modifier = Modifier) {
     CircularProgressIndicator(
@@ -793,6 +833,8 @@ private fun ManagePage(
         }
     }
 }
+
+private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 @Composable
 private fun ManageHeader(
@@ -1377,7 +1419,7 @@ private fun ChatBubble(
                     message = message,
                     contentColor = contentColor,
                 )
-                message.footer?.let { footer ->
+                message.footerLabel()?.let { footer ->
                     Spacer(Modifier.height(5.dp))
                     Text(
                         text = footer,
