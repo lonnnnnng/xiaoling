@@ -70,17 +70,23 @@ object OpenAiResponseParser {
         }
     }
 
+    fun parseStreamFinalText(apiMode: ApiMode, data: String): String? {
+        if (apiMode != ApiMode.RESPONSES || data == "[DONE]") return null
+        val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
+        return parseResponsesStreamFinalText(json)
+    }
+
     private fun parseChatStreamDelta(json: JSONObject): String? {
-        json.optString("delta").takeIf { it.isNotBlank() }?.let { return it }
-        json.optString("text").takeIf { it.isNotBlank() }?.let { return it }
+        json.streamString("delta")?.let { return it }
+        json.streamString("text")?.let { return it }
 
         val choices = json.optJSONArray("choices")
         if (choices != null && choices.length() > 0) {
             val choice = choices.optJSONObject(0)
             val delta = choice?.optJSONObject("delta")
-            parseContent(delta?.opt("content"))?.let { return it }
-            parseContent(choice?.optJSONObject("message")?.opt("content"))?.let { return it }
-            choice?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
+            parseStreamContent(delta?.opt("content"))?.let { return it }
+            parseStreamContent(choice?.optJSONObject("message")?.opt("content"))?.let { return it }
+            choice?.streamString("text")?.let { return it }
         }
 
         return null
@@ -89,10 +95,21 @@ object OpenAiResponseParser {
     private fun parseResponsesStreamDelta(json: JSONObject): String? {
         val eventType = json.optString("type")
         if (eventType != "response.output_text.delta") return null
-        // long: Responses API 流式返回是 typed SSE，只有 output_text.delta 才是增量文本；completed 事件里的累计文本不能再次追加。
-        return json.optString("delta")
-            .takeIf { it.isNotBlank() }
-            ?: json.optString("text").takeIf { it.isNotBlank() }
+        // long: Responses API 的纯换行也会作为独立 delta 到达，Markdown 段落、列表和表格都依赖这些换行，不能用 isNotBlank 过滤掉。
+        return json.streamString("delta")
+            ?: json.streamString("text")
+    }
+
+    private fun parseResponsesStreamFinalText(json: JSONObject): String? {
+        return when (json.optString("type")) {
+            "response.output_text.done" -> json.streamString("text")
+            "response.content_part.done" -> json.optJSONObject("part")?.streamString("text")
+            "response.output_item.done" -> json.optJSONObject("item")?.parseOutputItemText()
+            "response.completed" -> json.optJSONObject("response")?.let { response ->
+                response.streamString("output_text") ?: runCatching { parseResponsesText(response.toString()) }.getOrNull()
+            }
+            else -> null
+        }
     }
 
     private fun parseContent(content: Any?): String? = when (content) {
@@ -104,5 +121,31 @@ object OpenAiResponseParser {
             }
         }.joinToString("\n").takeIf { it.isNotBlank() }
         else -> null
+    }
+
+    private fun parseStreamContent(content: Any?): String? = when (content) {
+        is String -> content.takeIf { it.isNotEmpty() }
+        is JSONArray -> buildString {
+            for (index in 0 until content.length()) {
+                val item = content.optJSONObject(index) ?: continue
+                item.streamString("text")?.let(::append)
+            }
+        }.takeIf { it.isNotEmpty() }
+        else -> null
+    }
+
+    private fun JSONObject.parseOutputItemText(): String? {
+        val content = optJSONArray("content") ?: return null
+        return buildList {
+            for (index in 0 until content.length()) {
+                val item = content.optJSONObject(index) ?: continue
+                item.streamString("text")?.let(::add)
+            }
+        }.joinToString("\n").takeIf { it.isNotEmpty() }
+    }
+
+    private fun JSONObject.streamString(name: String): String? {
+        if (!has(name) || isNull(name)) return null
+        return optString(name).takeIf { it.isNotEmpty() }
     }
 }

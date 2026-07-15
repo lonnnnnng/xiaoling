@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.longdev.endpointtester.model.AppThemeMode
 import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.EndpointConfig
 import com.longdev.endpointtester.model.ProviderProfile
@@ -21,6 +22,7 @@ import com.longdev.endpointtester.storage.StoredConversation
 import com.longdev.endpointtester.storage.StoredConversationMessage
 import com.longdev.endpointtester.storage.StoredMessageMeta
 import com.longdev.endpointtester.storage.StoredConversations
+import com.longdev.endpointtester.storage.UiPreferenceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,6 +36,7 @@ import java.util.UUID
 private fun newChatMessageId(): String = "message-${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
 data class TesterUiState(
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val profiles: List<ProviderProfile> = emptyList(),
     val selectedProfileId: String = "",
     val profileName: String = "",
@@ -140,6 +143,7 @@ private data class PreparedRequestContext(
 class EndpointTesterViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = SecureConfigStore(application)
     private val conversationStore = ConversationStore(application)
+    private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
@@ -147,7 +151,8 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
     var uiState by mutableStateOf(
         configStore.load()
             .toUiState()
-            .withConversations(conversationStore.load()),
+            .withConversations(conversationStore.load())
+            .copy(themeMode = uiPreferenceStore.loadThemeMode()),
     )
         private set
 
@@ -220,6 +225,12 @@ class EndpointTesterViewModel(application: Application) : AndroidViewModel(appli
 
     fun updateResponsesEnabled(value: Boolean) {
         updateApiMode(if (value) ApiMode.RESPONSES else ApiMode.CHAT_COMPLETIONS)
+    }
+
+    fun updateThemeMode(value: AppThemeMode) {
+        // long: 主题切换是即时视觉偏好，选择后立即保存，避免用户夜间重开应用又回到刺眼亮色。
+        uiState = uiState.copy(themeMode = value, result = null)
+        uiPreferenceStore.saveThemeMode(value)
     }
 
     fun openNewConversation() {

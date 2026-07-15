@@ -69,13 +69,17 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
 ## 本次验证
 
 - 验证设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro，Android 14 / API 34。
-- 当前版本：`0.1.3`。
+- 当前版本：`0.1.4`。
 - 构建结果：`BUILD SUCCESSFUL`。
-- 真机安装：`adb install -r` 成功。
+- Release APK：本地正式签名，`apksigner verify` 通过。
+- 真机冒烟：使用同代码 debug 包验证 UI；未卸载当前设备上的调试包，避免清空本地 Provider 和会话数据。
 - 真机检查：
   - 测试页和管理页可正常启动。
   - 测试页展示固定标题、紧凑底部 TabBar、Provider / 模型选择、Chat / Responses 和流式开关。
   - 管理页展示固定标题、Provider 列表和模型数量。
+  - 深色 / 亮色 / 自动主题切换可用。
+  - 新增模型提供方页面可打开 Base64 解码弹框，并复制解码后的明文。
+  - Responses 流式 Markdown 换行、表格和列表最终渲染正常。
 - 接口矩阵检查：
   - Chat 非流式：10/10 成功。
   - Chat 流式：10/10 成功。

@@ -169,12 +169,17 @@ class OpenAiCompatibleClient {
 
                 val builder = StringBuilder()
                 var firstTokenLatencyMs: Long? = null
+                var finalTextFromStream: String? = null
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
                 body.charStream().buffered().useLines { lines ->
                     lines.forEach { line ->
                         val data = line.trim().removePrefix("data:").trim()
                         if (data.isBlank()) return@forEach
                         NetworkDebugLogger.logStreamEvent(data)
+                        OpenAiResponseParser.parseStreamFinalText(apiMode, data)?.let { finalText ->
+                            // long: Responses API 的 done/completed 事件会给出服务端汇总后的完整文本；它能纠正部分网关把换行拆成独立 delta 时客户端漏拼的问题。
+                            finalTextFromStream = finalText
+                        }
                         OpenAiResponseParser.parseStreamDelta(apiMode, data)?.let { delta ->
                             val currentFirstTokenLatencyMs = firstTokenLatencyMs ?: run {
                                 // long: 流式测试需要区分“首字到达”和“完整返回”，这里在第一个可读 delta 抵达时记录首字耗时。
@@ -193,13 +198,14 @@ class OpenAiCompatibleClient {
                         }
                     }
                 }
+                val completedText = finalTextFromStream ?: builder.toString()
                 return ModelCompletion(
-                    text = builder.toString().ifBlank {
+                    text = completedText.ifBlank {
                         throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
                     },
                     firstTokenLatencyMs = firstTokenLatencyMs,
                 ).also {
-                    NetworkDebugLogger.logStreamCompleted(builder.toString())
+                    NetworkDebugLogger.logStreamCompleted(completedText)
                 }
             }
         } catch (error: IOException) {

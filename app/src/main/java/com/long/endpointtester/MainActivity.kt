@@ -4,15 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.longdev.endpointtester.ui.EndpointTesterScreen
-import com.longdev.endpointtester.ui.theme.EndpointTesterTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            EndpointTesterTheme {
-                EndpointTesterScreen()
-            }
+            EndpointTesterScreen()
         }
     }
 }

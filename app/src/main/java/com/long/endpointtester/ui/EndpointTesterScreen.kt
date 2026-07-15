@@ -1,6 +1,7 @@
 package com.longdev.endpointtester.ui
 
 import android.app.Activity
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -62,6 +63,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,8 +86,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.longdev.endpointtester.model.AppThemeMode
 import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.ProviderProfile
+import com.longdev.endpointtester.ui.theme.EndpointTesterTheme
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
@@ -105,6 +109,20 @@ import java.util.Locale
 @Composable
 fun EndpointTesterScreen(viewModel: EndpointTesterViewModel = viewModel()) {
     val state = viewModel.uiState
+    EndpointTesterTheme(themeMode = state.themeMode) {
+        EndpointTesterContent(
+            state = state,
+            viewModel = viewModel,
+        )
+    }
+}
+
+@Suppress("DEPRECATION")
+@Composable
+private fun EndpointTesterContent(
+    state: TesterUiState,
+    viewModel: EndpointTesterViewModel,
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
@@ -303,6 +321,52 @@ private fun PageTitle(text: String) {
 }
 
 @Composable
+private fun ThemeModeSelector(
+    themeMode: AppThemeMode,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(13.dp)
+    Box {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.52f),
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            shape = shape,
+            modifier = Modifier
+                .height(26.dp)
+                .clip(shape)
+                .clickable { expanded = true },
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 8.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = themeMode.label,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = "切换主题", modifier = Modifier.size(13.dp))
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            listOf(AppThemeMode.DARK, AppThemeMode.LIGHT, AppThemeMode.SYSTEM).forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.label, style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        onThemeModeChanged(mode)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun TestPage(
     state: TesterUiState,
     viewModel: EndpointTesterViewModel,
@@ -314,12 +378,16 @@ private fun TestPage(
 
     LaunchedEffect(
         lastChatItemIndex,
+        lastChatMessage?.id,
+        lastChatMessage?.role,
         lastChatMessage?.text?.length,
         lastChatMessage?.meta?.firstTokenLatencyMs,
         lastChatMessage?.meta?.latencyMs,
+        state.testingModel,
     ) {
         if (lastChatItemIndex > 0) {
-            // long: 长回复的耗时信息位于消息 item 底部，只滚到最后一条 item 顶部时可能仍被挡住；滚到尾部锚点保证元数据可见。
+            // long: 用户发送、模型首字到达、流式内容增长和最终耗时写入都会改变列表尾部；统一滚到尾部锚点，避免新消息被输入区遮住。
+            delay(24)
             chatListState.scrollToItem(lastChatItemIndex)
         }
     }
@@ -342,6 +410,7 @@ private fun TestPage(
                 onConversationSelected = viewModel::selectConversation,
                 onNewConversation = viewModel::openNewConversation,
                 onDeleteConversation = viewModel::deleteCurrentConversation,
+                onThemeModeChanged = viewModel::updateThemeMode,
             )
             ModelSelectionBar(
                 state = state,
@@ -408,6 +477,7 @@ private fun TestHeader(
     onConversationSelected: (String) -> Unit,
     onNewConversation: () -> Unit,
     onDeleteConversation: () -> Unit,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Row(
@@ -416,6 +486,10 @@ private fun TestHeader(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         PageTitle("测试")
+        ThemeModeSelector(
+            themeMode = state.themeMode,
+            onThemeModeChanged = onThemeModeChanged,
+        )
         Spacer(Modifier.weight(1f))
         Box {
             Surface(
@@ -594,6 +668,18 @@ private fun InputOptionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        CompactCheckOption(
+            text = "流式",
+            checked = state.streamingEnabled,
+            enabled = enabled,
+            onCheckedChange = onStreamingChanged,
+        )
+        CompactCheckOption(
+            text = "Resp",
+            checked = state.apiMode == ApiMode.RESPONSES,
+            enabled = enabled,
+            onCheckedChange = onResponsesChanged,
+        )
         Box(modifier = Modifier.widthIn(max = 164.dp)) {
             val modelShape = RoundedCornerShape(15.dp)
             val modelEnabled = enabled && state.enabledModels.isNotEmpty()
@@ -648,18 +734,6 @@ private fun InputOptionRow(
                 }
             }
         }
-        CompactCheckOption(
-            text = "Resp",
-            checked = state.apiMode == ApiMode.RESPONSES,
-            enabled = enabled,
-            onCheckedChange = onResponsesChanged,
-        )
-        CompactCheckOption(
-            text = "流式",
-            checked = state.streamingEnabled,
-            enabled = enabled,
-            onCheckedChange = onStreamingChanged,
-        )
     }
 }
 
@@ -778,7 +852,9 @@ private fun ManagePage(
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         ManageHeader(
+            themeMode = state.themeMode,
             syncing = state.syncingAllProfiles,
+            onThemeModeChanged = viewModel::updateThemeMode,
             onSyncAll = viewModel::syncAllProviders,
         )
         Box(modifier = Modifier.fillMaxSize()) {
@@ -838,7 +914,9 @@ private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 @Composable
 private fun ManageHeader(
+    themeMode: AppThemeMode,
     syncing: Boolean,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
     onSyncAll: () -> Unit,
 ) {
     Row(
@@ -847,6 +925,10 @@ private fun ManageHeader(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PageTitle("管理")
+        ThemeModeSelector(
+            themeMode = themeMode,
+            onThemeModeChanged = onThemeModeChanged,
+        )
         Spacer(Modifier.weight(1f))
         IconButton(
             onClick = onSyncAll,
@@ -875,6 +957,14 @@ private fun ProviderEditorPage(
     val clipboardManager = LocalClipboardManager.current
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let(viewModel::importDraftFromQr)
+    }
+    var base64DialogVisible by remember { mutableStateOf(false) }
+
+    if (base64DialogVisible) {
+        Base64DecodeDialog(
+            onDismiss = { base64DialogVisible = false },
+            onCopyPlainText = { plainText -> clipboardManager.setText(AnnotatedString(plainText)) },
+        )
     }
 
     Scaffold(
@@ -947,6 +1037,21 @@ private fun ProviderEditorPage(
                         modifier = Modifier.size(34.dp),
                     ) {
                         Icon(Icons.Default.ContentPaste, contentDescription = "从剪切板导入", modifier = Modifier.size(16.dp))
+                    }
+                    OutlinedButton(
+                        onClick = { base64DialogVisible = true },
+                        shape = RoundedCornerShape(7.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Text(
+                            text = "64",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                        )
                     }
                 }
             }
@@ -1319,6 +1424,92 @@ private fun LabelCopyButton(
 }
 
 @Composable
+private fun Base64DecodeDialog(
+    onDismiss: () -> Unit,
+    onCopyPlainText: (String) -> Unit,
+) {
+    var encodedText by remember { mutableStateOf("") }
+    val decodedResult = remember(encodedText) { decodeBase64PlainText(encodedText) }
+    val decodedText = decodedResult.getOrNull().orEmpty()
+    val decodeError = decodedResult.exceptionOrNull()?.message.orEmpty()
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Base64 解码",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = encodedText,
+                    onValueChange = { encodedText = it },
+                    label = { Text("Base64 密文", style = MaterialTheme.typography.labelSmall) },
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    minLines = 4,
+                    shape = RoundedCornerShape(7.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = when {
+                        encodedText.isBlank() -> ""
+                        decodeError.isNotBlank() -> decodeError
+                        else -> decodedText
+                    },
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("明文", style = MaterialTheme.typography.labelSmall) },
+                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                        color = if (decodeError.isNotBlank()) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    ),
+                    minLines = 4,
+                    shape = RoundedCornerShape(7.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onCopyPlainText(decodedText) },
+                enabled = decodedText.isNotBlank() && decodeError.isBlank(),
+            ) {
+                Text("复制明文", style = MaterialTheme.typography.labelSmall)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭", style = MaterialTheme.typography.labelSmall)
+            }
+        },
+    )
+}
+
+private fun decodeBase64PlainText(raw: String): Result<String> {
+    if (raw.isBlank()) return Result.success("")
+    val compact = raw.filterNot { it.isWhitespace() }
+    val flagCandidates = listOf(
+        Base64.DEFAULT,
+        Base64.NO_WRAP,
+        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+        Base64.URL_SAFE,
+    )
+    flagCandidates.forEach { flags ->
+        runCatching {
+            // long: Provider 二维码和第三方后台常见密文可能带换行、无 padding 或 URL-safe 字符，这里逐个兼容，避免用户手动改密文格式。
+            String(Base64.decode(compact, flags), Charsets.UTF_8)
+        }.onSuccess { return Result.success(it) }
+    }
+    return Result.failure(IllegalArgumentException("Base64 解码失败，请检查密文格式"))
+}
+
+@Composable
 private fun CompactTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -1391,14 +1582,14 @@ private fun ChatBubble(
     val clipboardManager = LocalClipboardManager.current
     var actionMenuExpanded by remember { mutableStateOf(false) }
     val containerColor = when {
-        isUser -> Color(0xFFDCEBFF)
+        isUser -> MaterialTheme.colorScheme.primaryContainer
         isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
-        else -> Color(0xFFEAF7EE)
+        else -> MaterialTheme.colorScheme.tertiaryContainer
     }
     val contentColor = when {
-        isUser -> Color(0xFF173B70)
+        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
         isError -> MaterialTheme.colorScheme.onErrorContainer
-        else -> Color(0xFF1F3D2B)
+        else -> MaterialTheme.colorScheme.onTertiaryContainer
     }
     Box(modifier = Modifier.fillMaxWidth()) {
         Surface(
@@ -1465,10 +1656,25 @@ private fun MessageBodyText(
         return
     }
 
+    if (message.isStreamingInProgress()) {
+        // long: 流式增量会让 Markdown AST 在“半截标题、半截表格、半截代码块”之间频繁变化，实时交给 Markdown 组件会反复重排闪烁；流式中先稳定展示文本，完成后再完整渲染 Markdown。
+        Text(
+            text = normalizeModelMarkdown(message.text),
+            style = MaterialTheme.typography.bodySmall,
+            color = contentColor,
+        )
+        return
+    }
+
     StreamingMarkdownText(
         markdown = message.text,
         contentColor = contentColor,
     )
+}
+
+private fun ChatMessage.isStreamingInProgress(): Boolean {
+    val messageMeta = meta ?: return false
+    return role == "assistant" && messageMeta.streaming == true && messageMeta.latencyMs == null
 }
 
 @Composable
@@ -1476,9 +1682,10 @@ private fun StreamingMarkdownText(
     markdown: String,
     contentColor: Color,
 ) {
+    val normalizedMarkdown = normalizeModelMarkdown(markdown)
     // long: 模型输出会覆盖表格、链接、引用、嵌套列表等常见 Markdown；继续维护自研解析器会让每一种语法都变成补丁，这里交给 GFM 渲染库统一处理。
     Markdown(
-        content = markdown.ifBlank { " " },
+        content = normalizedMarkdown.ifBlank { " " },
         modifier = Modifier.fillMaxWidth(),
         colors = markdownColor(
             text = contentColor,
@@ -1511,7 +1718,7 @@ private fun StreamingMarkdownText(
         loading = { Box(it) },
         error = {
             Text(
-                text = markdown,
+                text = normalizedMarkdown,
                 style = MaterialTheme.typography.bodySmall,
                 color = contentColor,
                 modifier = it,

@@ -64,4 +64,46 @@ class MarkdownVerificationSamplesTest {
             assertTrue("$name should not be blank", markdown.isNotBlank())
         }
     }
+
+    @Test
+    fun `model markdown without marker spaces is normalized`() {
+        assertEquals(
+            """
+                ### 怎么让我看你的环境
+                - 截图你的屏幕
+                1. 保存图片
+                > 发送给我
+            """.trimIndent(),
+            normalizeModelMarkdown(
+                """
+                    ###怎么让我看你的环境
+                    -截图你的屏幕
+                    1.保存图片
+                    >发送给我
+                """.trimIndent(),
+            ),
+        )
+    }
+
+    @Test
+    fun `markdown normalization keeps fenced code unchanged`() {
+        val markdown = """
+            ```markdown
+            ###不要改代码块里的标题
+            -不要改代码块里的列表
+            ```
+            ###外部标题
+        """.trimIndent()
+
+        assertEquals(
+            """
+                ```markdown
+                ###不要改代码块里的标题
+                -不要改代码块里的列表
+                ```
+                ### 外部标题
+            """.trimIndent(),
+            normalizeModelMarkdown(markdown),
+        )
+    }
 }

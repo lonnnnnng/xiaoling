@@ -6,10 +6,12 @@ import android.view.View
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.longdev.endpointtester.model.AppThemeMode
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF2563EB),
@@ -31,7 +34,9 @@ private val LightColors = lightColorScheme(
     tertiaryContainer = Color(0xFFCCFBF1),
     onTertiaryContainer = Color(0xFF134E4A),
     background = Color(0xFFF8FAFC),
+    onBackground = Color(0xFF0F172A),
     surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF0F172A),
     surfaceVariant = Color(0xFFF1F5F9),
     onSurfaceVariant = Color(0xFF475569),
     outline = Color(0xFFCBD5E1),
@@ -39,6 +44,32 @@ private val LightColors = lightColorScheme(
     error = Color(0xFFDC2626),
     errorContainer = Color(0xFFFEE2E2),
     onErrorContainer = Color(0xFF7F1D1D),
+)
+
+private val DarkColors = darkColorScheme(
+    primary = Color(0xFF93C5FD),
+    onPrimary = Color(0xFF07111F),
+    primaryContainer = Color(0xFF1E3A8A),
+    onPrimaryContainer = Color(0xFFDCEBFF),
+    secondary = Color(0xFFCBD5E1),
+    onSecondary = Color(0xFF0F172A),
+    secondaryContainer = Color(0xFF243244),
+    onSecondaryContainer = Color(0xFFE2E8F0),
+    tertiary = Color(0xFF5EEAD4),
+    onTertiary = Color(0xFF042F2E),
+    tertiaryContainer = Color(0xFF134E4A),
+    onTertiaryContainer = Color(0xFFD7FFF8),
+    background = Color(0xFF070B14),
+    onBackground = Color(0xFFE5EEF8),
+    surface = Color(0xFF101827),
+    onSurface = Color(0xFFE5EEF8),
+    surfaceVariant = Color(0xFF1B2637),
+    onSurfaceVariant = Color(0xFFB8C4D6),
+    outline = Color(0xFF64748B),
+    outlineVariant = Color(0xFF28364A),
+    error = Color(0xFFFCA5A5),
+    errorContainer = Color(0xFF7F1D1D),
+    onErrorContainer = Color(0xFFFFE4E6),
 )
 
 private val CompactTypography = Typography(
@@ -52,8 +83,16 @@ private val CompactTypography = Typography(
 
 @Suppress("DEPRECATION")
 @Composable
-fun EndpointTesterTheme(content: @Composable () -> Unit) {
-    val colorScheme = LightColors
+fun EndpointTesterTheme(
+    themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    content: @Composable () -> Unit,
+) {
+    val darkTheme = when (themeMode) {
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.DARK -> true
+        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+    val colorScheme = if (darkTheme) DarkColors else LightColors
     val view = LocalView.current
 
     if (!view.isInEditMode) {
@@ -68,8 +107,8 @@ fun EndpointTesterTheme(content: @Composable () -> Unit) {
                 window.isNavigationBarContrastEnforced = false
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                var flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                var flags = if (darkTheme) 0 else View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                if (!darkTheme && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
                 }
                 window.decorView.systemUiVisibility = flags
