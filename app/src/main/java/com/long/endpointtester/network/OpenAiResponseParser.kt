@@ -1,5 +1,6 @@
 package com.longdev.endpointtester.network
 
+import com.longdev.endpointtester.model.ApiMode
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -60,10 +61,16 @@ object OpenAiResponseParser {
         throw ApiFailure(FailureKind.RESPONSE, "响应中没有 output_text 或 output[].content[].text")
     }
 
-    fun parseStreamDelta(data: String): String? {
+    fun parseStreamDelta(apiMode: ApiMode, data: String): String? {
         if (data == "[DONE]") return null
         val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
+        return when (apiMode) {
+            ApiMode.CHAT_COMPLETIONS -> parseChatStreamDelta(json)
+            ApiMode.RESPONSES -> parseResponsesStreamDelta(json)
+        }
+    }
 
+    private fun parseChatStreamDelta(json: JSONObject): String? {
         json.optString("delta").takeIf { it.isNotBlank() }?.let { return it }
         json.optString("text").takeIf { it.isNotBlank() }?.let { return it }
 
@@ -76,8 +83,16 @@ object OpenAiResponseParser {
             choice?.optString("text")?.takeIf { it.isNotBlank() }?.let { return it }
         }
 
-        json.optString("output_text").takeIf { it.isNotBlank() }?.let { return it }
         return null
+    }
+
+    private fun parseResponsesStreamDelta(json: JSONObject): String? {
+        val eventType = json.optString("type")
+        if (eventType != "response.output_text.delta") return null
+        // long: Responses API 流式返回是 typed SSE，只有 output_text.delta 才是增量文本；completed 事件里的累计文本不能再次追加。
+        return json.optString("delta")
+            .takeIf { it.isNotBlank() }
+            ?: json.optString("text").takeIf { it.isNotBlank() }
     }
 
     private fun parseContent(content: Any?): String? = when (content) {

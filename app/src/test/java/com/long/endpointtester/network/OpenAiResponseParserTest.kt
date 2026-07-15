@@ -1,5 +1,6 @@
 package com.longdev.endpointtester.network
 
+import com.longdev.endpointtester.model.ApiMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.fail
@@ -28,7 +29,10 @@ class OpenAiResponseParserTest {
     fun `chat stream delta is parsed`() {
         assertEquals(
             "OK",
-            OpenAiResponseParser.parseStreamDelta("""{"choices":[{"delta":{"content":"OK"}}]}"""),
+            OpenAiResponseParser.parseStreamDelta(
+                ApiMode.CHAT_COMPLETIONS,
+                """{"choices":[{"delta":{"content":"OK"}}]}""",
+            ),
         )
     }
 
@@ -36,13 +40,26 @@ class OpenAiResponseParserTest {
     fun `responses stream delta is parsed`() {
         assertEquals(
             "OK",
-            OpenAiResponseParser.parseStreamDelta("""{"type":"response.output_text.delta","delta":"OK"}"""),
+            OpenAiResponseParser.parseStreamDelta(
+                ApiMode.RESPONSES,
+                """{"type":"response.output_text.delta","delta":"OK"}""",
+            ),
         )
     }
 
     @Test
     fun `done stream marker is ignored`() {
-        assertNull(OpenAiResponseParser.parseStreamDelta("[DONE]"))
+        assertNull(OpenAiResponseParser.parseStreamDelta(ApiMode.CHAT_COMPLETIONS, "[DONE]"))
+    }
+
+    @Test
+    fun `responses completed stream event is ignored to avoid duplicate accumulated text`() {
+        assertNull(
+            OpenAiResponseParser.parseStreamDelta(
+                ApiMode.RESPONSES,
+                """{"type":"response.completed","response":{"output_text":"OK"}}""",
+            ),
+        )
     }
 
     @Test

@@ -8,6 +8,7 @@ data class ProviderProfile(
     val model: String,
     val availableModels: List<String>,
     val enabledModels: List<String>,
+    val lastSyncedAt: String = "",
 ) {
     companion object {
         const val FIXED_MAX_TOKENS = 32768
@@ -20,6 +21,7 @@ data class ProviderProfile(
             model = "",
             availableModels = emptyList(),
             enabledModels = emptyList(),
+            lastSyncedAt = "",
         )
     }
 }

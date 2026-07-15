@@ -39,8 +39,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // long: 调试端点兼容性时保留 HTTP 日志能力，debug 包默认开启，便于通过 logcat 复盘请求和流式事件。
+            buildConfigField("boolean", "ENDPOINT_HTTP_LOGS_ENABLED", "true")
+        }
         release {
             isMinifyEnabled = false
+            // long: release 包默认关闭 HTTP 日志，避免用户的请求内容和模型返回进入生产日志。
+            buildConfigField("boolean", "ENDPOINT_HTTP_LOGS_ENABLED", "false")
             signingConfig = signingConfigs.getByName("releaseLocal")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -55,6 +61,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 

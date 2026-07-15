@@ -58,6 +58,7 @@ class SecureConfigStore(context: Context) {
                     .put("model", profile.model)
                     .put("availableModels", JSONArray(profile.availableModels))
                     .put("enabledModels", JSONArray(profile.enabledModels))
+                    .put("lastSyncedAt", profile.lastSyncedAt)
                     .put("apiKeyIv", secret?.iv.orEmpty())
                     .put("apiKeyCiphertext", secret?.ciphertext.orEmpty()),
             )
@@ -80,6 +81,7 @@ class SecureConfigStore(context: Context) {
                         availableModels = json.optJSONArray("availableModels").toStringList(),
                         enabledModels = json.optJSONArray("enabledModels").toStringList()
                             .ifEmpty { json.optJSONArray("availableModels").toStringList() },
+                        lastSyncedAt = json.optString("lastSyncedAt"),
                     ),
                 )
             }
@@ -138,7 +140,7 @@ class SecureConfigStore(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_PROMPT = "请只回复 OK"
+        const val DEFAULT_PROMPT = ""
         private const val KEY_ALIAS = "endpoint_tester_api_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val KEY_PROFILES_JSON = "provider_profiles_json"

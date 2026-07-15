@@ -3,8 +3,10 @@ package com.longdev.endpointtester.ui
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -31,11 +35,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Save
@@ -47,17 +54,13 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,16 +68,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -82,7 +91,8 @@ import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.ProviderProfile
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import java.util.Calendar
 
 @Suppress("DEPRECATION")
 @Composable
@@ -90,11 +100,10 @@ fun EndpointTesterScreen(viewModel: EndpointTesterViewModel = viewModel()) {
     val state = viewModel.uiState
     var selectedTab by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = selectedTab == 1 && state.manageDraft != null
     var lastRootBackAt by remember { mutableStateOf(0L) }
+    var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
 
     BackHandler(enabled = isProviderEditor) {
         viewModel.closeProviderEditor()
@@ -106,46 +115,102 @@ fun EndpointTesterScreen(viewModel: EndpointTesterViewModel = viewModel()) {
             (context as? Activity)?.finish()
         } else {
             lastRootBackAt = now
-            scope.launch {
-                snackbarHostState.showSnackbar("再返回一次退出应用")
-            }
+            centerNotice = CenterNotice("再返回一次退出应用")
         }
     }
 
     LaunchedEffect(transientResult) {
         transientResult?.let { result ->
-            // long: 保存、删除、校验和扫码导入都属于一次性操作反馈，显示后立即清理，避免回到管理列表时反复看到旧提示。
-            snackbarHostState.showSnackbar("${result.title}：${result.message}")
+            // long: 管理页保存、删除、获取模型等反馈只需要告知结果，不应该占用底部操作区，也不应该阻断用户继续点击页面。
+            centerNotice = CenterNotice(
+                text = "${result.title}：${result.message}",
+                success = result.success,
+            )
             viewModel.clearResult()
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            if (!isProviderEditor) {
-                CompactBottomTabBar(
-                    selectedTab = selectedTab,
-                    onSelected = { selectedTab = it },
+    LaunchedEffect(centerNotice?.id) {
+        val notice = centerNotice ?: return@LaunchedEffect
+        delay(1_450)
+        if (centerNotice?.id == notice.id) {
+            centerNotice = null
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                if (!isProviderEditor) {
+                    CompactBottomTabBar(
+                        selectedTab = selectedTab,
+                        onSelected = { selectedTab = it },
+                    )
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxSize(),
+        ) { innerPadding ->
+            if (selectedTab == 0) {
+                TestPage(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(innerPadding),
+                )
+            } else {
+                ManagePage(
+                    state = state,
+                    viewModel = viewModel,
+                    modifier = Modifier.padding(innerPadding),
                 )
             }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = MaterialTheme.colorScheme.background,
-        modifier = Modifier.fillMaxSize(),
-    ) { innerPadding ->
-        if (selectedTab == 0) {
-            TestPage(
-                state = state,
-                viewModel = viewModel,
-                modifier = Modifier.padding(innerPadding),
-            )
-        } else {
-            ManagePage(
-                state = state,
-                viewModel = viewModel,
-                modifier = Modifier.padding(innerPadding),
+        }
+
+        centerNotice?.let {
+            CenterNoticePopup(
+                notice = it,
+                modifier = Modifier.align(Alignment.Center),
             )
         }
+    }
+}
+
+private data class CenterNotice(
+    val text: String,
+    val success: Boolean = true,
+    val id: Long = System.nanoTime(),
+)
+
+@Composable
+private fun CenterNoticePopup(
+    notice: CenterNotice,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = if (notice.success) {
+        MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.86f)
+    } else {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.92f)
+    }
+    val contentColor = if (notice.success) {
+        MaterialTheme.colorScheme.inverseOnSurface
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
+    }
+    Surface(
+        color = containerColor,
+        contentColor = contentColor,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        modifier = modifier
+            .padding(horizontal = 36.dp),
+    ) {
+        // long: 轻提示只承担状态反馈，不绑定 clickable 或 pointerInput，避免提示出现时拦截页面点击。
+        Text(
+            text = notice.text,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+        )
     }
 }
 
@@ -164,7 +229,7 @@ private fun CompactBottomTabBar(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 44.dp, vertical = 3.dp),
+                .padding(start = 44.dp, top = 1.dp, end = 44.dp, bottom = 5.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -197,12 +262,14 @@ private fun CompactTabItem(
 ) {
     val container = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
     val content = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(18.dp)
     Surface(
         color = container,
         contentColor = content,
-        shape = RoundedCornerShape(18.dp),
+        shape = shape,
         modifier = modifier
             .height(30.dp)
+            .clip(shape)
             .clickable(onClick = onClick),
     ) {
         Row(
@@ -236,17 +303,21 @@ private fun TestPage(
 ) {
     val chatListState = rememberLazyListState()
     val lastChatItemIndex = state.chatMessages.size
+    val lastChatMessage = state.chatMessages.lastOrNull()
 
-    LaunchedEffect(state.chatMessages.size) {
+    LaunchedEffect(lastChatItemIndex, lastChatMessage?.text?.length, lastChatMessage?.footer) {
         if (lastChatItemIndex > 0) {
-            chatListState.animateScrollToItem(lastChatItemIndex - 1)
+            // long: 长回复的 footer 位于消息 item 底部，只滚到最后一条 item 顶部时 footer 可能仍被挡住；滚到尾部锚点保证耗时信息可见。
+            chatListState.scrollToItem(lastChatItemIndex)
         }
     }
+    val waitingForModelStart = state.testingModel && state.chatMessages.lastOrNull()
+        ?.takeIf { it.role == "assistant" }
+        ?.text
+        .isNullOrBlank()
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding(),
+        modifier = modifier.fillMaxSize(),
     ) {
         Column(
             modifier = Modifier
@@ -254,13 +325,15 @@ private fun TestPage(
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            PageTitle("测试")
+            TestHeader(
+                state = state,
+                onConversationSelected = viewModel::selectConversation,
+                onNewConversation = viewModel::openNewConversation,
+                onDeleteConversation = viewModel::deleteCurrentConversation,
+            )
             ModelSelectionBar(
                 state = state,
                 onProviderSelected = viewModel::selectProfile,
-                onModelSelected = viewModel::updateModel,
-                onApiModeSelected = viewModel::updateApiMode,
-                onStreamingChanged = viewModel::updateStreamingEnabled,
             )
 
             Surface(
@@ -274,7 +347,7 @@ private fun TestPage(
                 LazyColumn(
                     state = chatListState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     if (state.chatMessages.isEmpty()) {
@@ -287,22 +360,103 @@ private fun TestPage(
                         }
                     }
                     items(count = state.chatMessages.size) { index ->
-                        ChatBubble(state.chatMessages[index])
+                        ChatBubble(
+                            message = state.chatMessages[index],
+                            onReuseUserMessage = viewModel::updatePrompt,
+                        )
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(1.dp))
                     }
                 }
             }
 
             MessageInputBar(
+                state = state,
                 prompt = state.prompt,
                 testingModel = state.testingModel,
                 enabled = state.enabledModels.isNotEmpty(),
+                onModelSelected = viewModel::updateModel,
+                onResponsesChanged = viewModel::updateResponsesEnabled,
+                onStreamingChanged = viewModel::updateStreamingEnabled,
                 onPromptChange = viewModel::updatePrompt,
                 onSend = viewModel::testModel,
             )
         }
 
-        if (state.testingModel) {
+        if (waitingForModelStart) {
             ModelWaitingIndicator(modifier = Modifier.align(Alignment.Center))
+        }
+    }
+}
+
+@Composable
+private fun TestHeader(
+    state: TesterUiState,
+    onConversationSelected: (String) -> Unit,
+    onNewConversation: () -> Unit,
+    onDeleteConversation: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PageTitle("测试")
+        Spacer(Modifier.weight(1f))
+        Box {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .height(28.dp)
+                    .widthIn(max = 150.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { expanded = true },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = state.conversationTitle.ifBlank { "新会话" }.compactModelLabel(12),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "切换会话", modifier = Modifier.size(13.dp))
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                state.conversations.sortedByDescending { it.updatedAt }.forEach { conversation ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                conversation.title,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        onClick = {
+                            onConversationSelected(conversation.id)
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+        IconButton(onClick = onNewConversation, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.Add, contentDescription = "新建会话", modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onDeleteConversation, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Default.Delete, contentDescription = "删除当前会话", modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -311,11 +465,7 @@ private fun TestPage(
 private fun ModelSelectionBar(
     state: TesterUiState,
     onProviderSelected: (String) -> Unit,
-    onModelSelected: (String) -> Unit,
-    onApiModeSelected: (ApiMode) -> Unit,
-    onStreamingChanged: (Boolean) -> Unit,
 ) {
-    var modelMenuExpanded by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp),
@@ -327,48 +477,7 @@ private fun ModelSelectionBar(
             modifier = Modifier.padding(7.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    ProviderDropdown(state, onSelected = onProviderSelected)
-                }
-                Box(modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
-                        onClick = { modelMenuExpanded = true },
-                        enabled = state.enabledModels.isNotEmpty(),
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp),
-                    ) {
-                        Text(
-                            text = state.model.ifBlank { "没有已勾选模型" },
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = "选择模型", modifier = Modifier.size(15.dp))
-                    }
-                    DropdownMenu(
-                        expanded = modelMenuExpanded,
-                        onDismissRequest = { modelMenuExpanded = false },
-                    ) {
-                        state.enabledModels.forEach { model ->
-                            DropdownMenuItem(
-                                text = { Text(model, style = MaterialTheme.typography.bodySmall) },
-                                onClick = {
-                                    onModelSelected(model)
-                                    modelMenuExpanded = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
+            ProviderDropdown(state, onSelected = onProviderSelected)
             if (state.enabledModels.isEmpty()) {
                 Text(
                     text = "请先到管理页获取上游模型并勾选可测试模型。",
@@ -376,52 +485,19 @@ private fun ModelSelectionBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 32.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                    ApiModeButton(
-                        text = "Chat",
-                        selected = state.apiMode == ApiMode.CHAT_COMPLETIONS,
-                        onClick = { onApiModeSelected(ApiMode.CHAT_COMPLETIONS) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    ApiModeButton(
-                        text = "Responses",
-                        selected = state.apiMode == ApiMode.RESPONSES,
-                        onClick = { onApiModeSelected(ApiMode.RESPONSES) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Text(
-                        text = "流式",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Switch(
-                        checked = state.streamingEnabled,
-                        onCheckedChange = onStreamingChanged,
-                        modifier = Modifier.height(28.dp),
-                    )
-                }
-            }
         }
     }
 }
 
 @Composable
 private fun MessageInputBar(
+    state: TesterUiState,
     prompt: String,
     testingModel: Boolean,
     enabled: Boolean,
+    onModelSelected: (String) -> Unit,
+    onResponsesChanged: (Boolean) -> Unit,
+    onStreamingChanged: (Boolean) -> Unit,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
 ) {
@@ -446,7 +522,7 @@ private fun MessageInputBar(
                 textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 48.dp, bottom = 4.dp),
+                    .padding(end = 48.dp, bottom = 34.dp),
                 decorationBox = { innerTextField ->
                     Box(modifier = Modifier.fillMaxWidth()) {
                         if (prompt.isBlank()) {
@@ -459,6 +535,16 @@ private fun MessageInputBar(
                         innerTextField()
                     }
                 },
+            )
+            InputOptionRow(
+                state = state,
+                enabled = !testingModel && enabled,
+                onModelSelected = onModelSelected,
+                onResponsesChanged = onResponsesChanged,
+                onStreamingChanged = onStreamingChanged,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(end = 52.dp),
             )
             Button(
                 onClick = onSend,
@@ -475,10 +561,145 @@ private fun MessageInputBar(
                     .align(Alignment.BottomEnd)
                     .size(40.dp),
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "发送", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "发送", modifier = Modifier.size(22.dp))
             }
         }
     }
+}
+
+@Composable
+private fun InputOptionRow(
+    state: TesterUiState,
+    enabled: Boolean,
+    onModelSelected: (String) -> Unit,
+    onResponsesChanged: (Boolean) -> Unit,
+    onStreamingChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(modifier = Modifier.widthIn(max = 164.dp)) {
+            val modelShape = RoundedCornerShape(15.dp)
+            val modelEnabled = enabled && state.enabledModels.isNotEmpty()
+            Surface(
+                color = if (modelEnabled) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)
+                },
+                contentColor = if (modelEnabled) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.outline
+                },
+                shape = modelShape,
+                modifier = Modifier
+                    .height(28.dp)
+                    .clip(modelShape)
+                    .clickable(enabled = modelEnabled) { modelMenuExpanded = true },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Memory,
+                        contentDescription = "切换模型",
+                        modifier = Modifier.size(13.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = if (modelEnabled) 0.82f else 0.38f),
+                    )
+                    Text(
+                        text = state.model.ifBlank { "选择模型" }.compactModelLabel(),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = modelMenuExpanded,
+                onDismissRequest = { modelMenuExpanded = false },
+            ) {
+                state.enabledModels.forEach { model ->
+                    DropdownMenuItem(
+                        text = { Text(model, style = MaterialTheme.typography.bodySmall) },
+                        onClick = {
+                            onModelSelected(model)
+                            modelMenuExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+        CompactCheckOption(
+            text = "Resp",
+            checked = state.apiMode == ApiMode.RESPONSES,
+            enabled = enabled,
+            onCheckedChange = onResponsesChanged,
+        )
+        CompactCheckOption(
+            text = "流式",
+            checked = state.streamingEnabled,
+            enabled = enabled,
+            onCheckedChange = onStreamingChanged,
+        )
+    }
+}
+
+@Composable
+private fun CompactCheckOption(
+    text: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val shape = RoundedCornerShape(15.dp)
+    val container = when {
+        checked -> MaterialTheme.colorScheme.primary
+        enabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+    }
+    val content = when {
+        checked -> MaterialTheme.colorScheme.onPrimary
+        enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.outline
+    }
+    Surface(
+        color = container,
+        contentColor = content,
+        shape = shape,
+        modifier = Modifier
+            .height(28.dp)
+            .clip(shape)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) },
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+        )
+    }
+}
+
+private fun String.compactModelLabel(maxChars: Int = 16): String {
+    val value = trim()
+    if (value.length <= maxChars) return value
+    return value.take(maxChars - 1) + "…"
+}
+
+private fun String.toFullSyncTimeLabel(): String {
+    val value = trim()
+    if (value.isBlank()) return "未同步"
+    if (Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}""").matches(value)) return value
+    if (Regex("""\d{2}-\d{2} \d{2}:\d{2}""").matches(value)) {
+        return "${Calendar.getInstance().get(Calendar.YEAR)}-$value:00"
+    }
+    return value
 }
 
 @Composable
@@ -512,7 +733,10 @@ private fun ManagePage(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        PageTitle("管理")
+        ManageHeader(
+            syncing = state.syncingAllProfiles,
+            onSyncAll = viewModel::syncAllProviders,
+        )
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -537,6 +761,9 @@ private fun ManagePage(
                         ProviderListItem(
                             profile = state.profiles[index],
                             selected = state.profiles[index].id == state.selectedProfileId,
+                            syncing = state.syncingAllProfiles || state.profiles[index].id in state.syncingProfileIds,
+                            syncResult = state.batchSyncResults[state.profiles[index].id],
+                            onSync = { viewModel.syncProviderModels(state.profiles[index].id) },
                             onEdit = { viewModel.openEditProvider(state.profiles[index].id) },
                             onDelete = { viewModel.deleteProvider(state.profiles[index].id) },
                         )
@@ -544,13 +771,49 @@ private fun ManagePage(
                 }
             }
 
-            FloatingActionButton(
+            Button(
                 onClick = viewModel::openNewProvider,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+                contentPadding = PaddingValues(0.dp),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(12.dp),
+                    .padding(16.dp)
+                    .size(40.dp),
             ) {
-                Icon(Icons.Default.Add, contentDescription = "新增模型提供方")
+                Icon(Icons.Default.Add, contentDescription = "新增模型提供方", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManageHeader(
+    syncing: Boolean,
+    onSyncAll: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PageTitle("管理")
+        Spacer(Modifier.weight(1f))
+        IconButton(
+            onClick = onSyncAll,
+            enabled = !syncing,
+            modifier = Modifier.size(30.dp),
+        ) {
+            if (syncing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(15.dp),
+                    strokeWidth = 1.6.dp,
+                )
+            } else {
+                Icon(Icons.Default.CloudDownload, contentDescription = "批量同步", modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -570,6 +833,7 @@ private fun ProviderEditorPage(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 2.dp) {
                 Button(
@@ -594,8 +858,8 @@ private fun ProviderEditorPage(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .imePadding(),
-            contentPadding = PaddingValues(9.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 9.dp, top = 2.dp, end = 9.dp, bottom = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             item {
                 Row(
@@ -657,6 +921,13 @@ private fun ProviderEditorPage(
                         placeholder = "https://api.example.com/v1",
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        trailingLabelAction = {
+                            LabelCopyButton(
+                                enabled = draft.baseUrl.isNotBlank(),
+                                contentDescription = "复制 URL",
+                                onClick = { clipboardManager.setText(AnnotatedString(draft.baseUrl)) },
+                            )
+                        },
                     )
                     Spacer(Modifier.height(3.dp))
                     UnderlineTextField(
@@ -664,33 +935,41 @@ private fun ProviderEditorPage(
                         onValueChange = viewModel::updateDraftApiKey,
                         label = "API Key",
                         singleLine = true,
+                        trailingLabelAction = {
+                            LabelCopyButton(
+                                enabled = draft.apiKey.isNotBlank(),
+                                contentDescription = "复制 API Key",
+                                onClick = { clipboardManager.setText(AnnotatedString(draft.apiKey)) },
+                            )
+                        },
                     )
                 }
             }
 
             item {
-                CompactSection(title = "上游模型") {
-                    OutlinedButton(
-                        onClick = viewModel::fetchDraftModels,
-                        enabled = !draft.loadingModels,
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(40.dp),
-                    ) {
-                        if (draft.loadingModels) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(17.dp))
+                CompactSection(
+                    title = "上游模型",
+                    action = {
+                        OutlinedButton(
+                            onClick = viewModel::fetchDraftModels,
+                            enabled = !draft.loadingModels,
+                            shape = RoundedCornerShape(7.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp),
+                        ) {
+                            if (draft.loadingModels) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(13.dp),
+                                    strokeWidth = 1.6.dp,
+                                )
+                            } else {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            Text("获取", style = MaterialTheme.typography.labelSmall)
                         }
-                        Spacer(Modifier.width(6.dp))
-                        Text("获取上游模型", style = MaterialTheme.typography.labelMedium)
-                    }
-                    Spacer(Modifier.height(8.dp))
+                    },
+                ) {
                     if (draft.upstreamModels.isEmpty()) {
                         Text(
                             text = "获取成功后可以勾选允许在测试页使用的模型。",
@@ -730,6 +1009,9 @@ private fun ProviderEditorPage(
 private fun ProviderListItem(
     profile: ProviderProfile,
     selected: Boolean,
+    syncing: Boolean,
+    syncResult: String?,
+    onSync: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -758,16 +1040,49 @@ private fun ProviderListItem(
                 Text(profile.baseUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "共 ${profile.enabledModels.size} 个模型",
+                    text = buildString {
+                        append("共 ${profile.enabledModels.size} 个模型")
+                        syncResult?.let { append(" · $it") }
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = if (syncResult == "同步失败") {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
                 )
             }
-            IconButton(onClick = onEdit, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(18.dp))
-            }
-            IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(18.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onSync, enabled = !syncing, modifier = Modifier.size(28.dp)) {
+                        if (syncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 1.5.dp,
+                            )
+                        } else {
+                            Icon(Icons.Default.CloudDownload, contentDescription = "同步模型", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp))
+                    }
+                }
+                Text(
+                    text = profile.lastSyncedAt.toFullSyncTimeLabel(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, lineHeight = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -830,7 +1145,11 @@ private fun ProviderDropdown(state: TesterUiState, onSelected: (String) -> Unit)
 }
 
 @Composable
-private fun CompactSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun CompactSection(
+    title: String,
+    action: (@Composable () -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -840,7 +1159,28 @@ private fun CompactSection(title: String, content: @Composable ColumnScope.() ->
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
     ) {
         Column(modifier = Modifier.padding(7.dp)) {
-            Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (action == null) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    action()
+                    Spacer(Modifier.weight(1f))
+                }
+            }
             HorizontalDivider(modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
             content()
         }
@@ -857,13 +1197,26 @@ private fun UnderlineTextField(
     singleLine: Boolean = false,
     minLines: Int = 1,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    trailingLabelAction: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            trailingLabelAction?.let {
+                Spacer(Modifier.width(3.dp))
+                it()
+            }
+            Spacer(Modifier.weight(1f))
+        }
         Spacer(Modifier.height(1.dp))
         BasicTextField(
             value = value,
@@ -895,6 +1248,28 @@ private fun UnderlineTextField(
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     }
+}
+
+@Composable
+private fun LabelCopyButton(
+    enabled: Boolean,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Icon(
+        Icons.Default.ContentCopy,
+        contentDescription = contentDescription,
+        modifier = Modifier
+            .size(18.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(2.dp),
+        tint = if (enabled) {
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+        },
+    )
 }
 
 @Composable
@@ -959,38 +1334,311 @@ private fun ApiModeButton(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatBubble(message: ChatMessage) {
+private fun ChatBubble(
+    message: ChatMessage,
+    onReuseUserMessage: (String) -> Unit,
+) {
     val isUser = message.role == "user"
-    val containerColor = if (isUser) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
+    val isError = message.role == "error"
+    val clipboardManager = LocalClipboardManager.current
+    var actionMenuExpanded by remember { mutableStateOf(false) }
+    val containerColor = when {
+        isUser -> Color(0xFFDCEBFF)
+        isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
+        else -> Color(0xFFEAF7EE)
     }
-    val contentColor = if (isUser) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+    val contentColor = when {
+        isUser -> Color(0xFF173B70)
+        isError -> MaterialTheme.colorScheme.onErrorContainer
+        else -> Color(0xFF1F3D2B)
     }
-    Surface(
-        color = containerColor,
-        contentColor = contentColor,
-        shape = RoundedCornerShape(7.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp)) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            message.footer?.let { footer ->
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    text = footer,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
-                    color = contentColor.copy(alpha = 0.52f),
-                    modifier = Modifier.align(Alignment.End),
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            color = containerColor,
+            contentColor = contentColor,
+            shape = RoundedCornerShape(7.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        if (isUser) actionMenuExpanded = true
+                    },
+                ),
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp)) {
+                MessageBodyText(
+                    message = message,
+                    contentColor = contentColor,
                 )
+                message.footer?.let { footer ->
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        text = footer,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                        color = contentColor.copy(alpha = 0.52f),
+                        modifier = Modifier.align(Alignment.End),
+                    )
+                }
+            }
+        }
+        DropdownMenu(
+            expanded = actionMenuExpanded,
+            onDismissRequest = { actionMenuExpanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text("复制", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    clipboardManager.setText(AnnotatedString(message.text))
+                    actionMenuExpanded = false
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("填入重发", style = MaterialTheme.typography.bodySmall) },
+                onClick = {
+                    onReuseUserMessage(message.text)
+                    actionMenuExpanded = false
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MessageBodyText(
+    message: ChatMessage,
+    contentColor: Color,
+) {
+    if (message.role == "user") {
+        Text(
+            text = message.text,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        return
+    }
+
+    StreamingMarkdownText(
+        markdown = message.text,
+        contentColor = contentColor,
+    )
+}
+
+@Composable
+private fun StreamingMarkdownText(
+    markdown: String,
+    contentColor: Color,
+) {
+    val blocks = remember(markdown) { parseMarkdownBlocks(markdown) }
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        blocks.forEach { block ->
+            when (block) {
+                is MarkdownBlock.Paragraph -> {
+                    Text(
+                        text = renderInlineMarkdown(block.text, contentColor),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                is MarkdownBlock.Heading -> {
+                    Text(
+                        text = renderInlineMarkdown(block.text, contentColor),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = when (block.level) {
+                                1 -> 15.sp
+                                2 -> 14.sp
+                                else -> 13.sp
+                            },
+                            lineHeight = when (block.level) {
+                                1 -> 19.sp
+                                2 -> 18.sp
+                                else -> 17.sp
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                    )
+                }
+
+                is MarkdownBlock.ListItem -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(
+                            text = block.marker,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = contentColor.copy(alpha = 0.66f),
+                        )
+                        Text(
+                            text = renderInlineMarkdown(block.text, contentColor),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                is MarkdownBlock.Code -> {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                        contentColor = contentColor,
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            if (block.language.isNotBlank()) {
+                                Text(
+                                    text = block.language,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 9.sp,
+                                        lineHeight = 11.sp,
+                                    ),
+                                    color = contentColor.copy(alpha = 0.48f),
+                                )
+                                Spacer(Modifier.height(3.dp))
+                            }
+                            Text(
+                                text = block.text.ifBlank { " " },
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private sealed interface MarkdownBlock {
+    data class Paragraph(val text: String) : MarkdownBlock
+    data class Heading(val level: Int, val text: String) : MarkdownBlock
+    data class ListItem(val marker: String, val text: String) : MarkdownBlock
+    data class Code(val language: String, val text: String) : MarkdownBlock
+}
+
+private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
+    val blocks = mutableListOf<MarkdownBlock>()
+    val paragraphLines = mutableListOf<String>()
+    val codeLines = mutableListOf<String>()
+    var inCodeBlock = false
+    var codeLanguage = ""
+
+    fun flushParagraph() {
+        if (paragraphLines.isEmpty()) return
+        blocks += MarkdownBlock.Paragraph(paragraphLines.joinToString("\n").trim())
+        paragraphLines.clear()
+    }
+
+    markdown.lines().forEach { rawLine ->
+        val trimmed = rawLine.trim()
+
+        if (trimmed.startsWith("```")) {
+            if (inCodeBlock) {
+                blocks += MarkdownBlock.Code(
+                    language = codeLanguage,
+                    text = codeLines.joinToString("\n"),
+                )
+                codeLines.clear()
+                codeLanguage = ""
+                inCodeBlock = false
+            } else {
+                // long: 流式返回经常先收到代码块开头但还没有结束标记，这里先关闭普通段落，让未完成代码也能立即按代码样式渲染。
+                flushParagraph()
+                codeLanguage = trimmed.removePrefix("```").trim()
+                inCodeBlock = true
+            }
+            return@forEach
+        }
+
+        if (inCodeBlock) {
+            codeLines += rawLine
+            return@forEach
+        }
+
+        if (trimmed.isBlank()) {
+            flushParagraph()
+            return@forEach
+        }
+
+        val headingLevel = trimmed.takeWhile { it == '#' }.length
+        if (headingLevel in 1..3 && trimmed.getOrNull(headingLevel) == ' ') {
+            flushParagraph()
+            blocks += MarkdownBlock.Heading(
+                level = headingLevel,
+                text = trimmed.drop(headingLevel).trim(),
+            )
+            return@forEach
+        }
+
+        Regex("""^[-*]\s+(.+)""").find(trimmed)?.let { match ->
+            flushParagraph()
+            blocks += MarkdownBlock.ListItem(marker = "•", text = match.groupValues[1])
+            return@forEach
+        }
+
+        Regex("""^(\d+\.)\s+(.+)""").find(trimmed)?.let { match ->
+            flushParagraph()
+            blocks += MarkdownBlock.ListItem(marker = match.groupValues[1], text = match.groupValues[2])
+            return@forEach
+        }
+
+        paragraphLines += rawLine
+    }
+
+    flushParagraph()
+    if (inCodeBlock) {
+        // long: 未闭合代码块在流式过程中是正常中间态，先把已收到内容展示出来，等结束标记到达后会自动重算为完整代码块。
+        blocks += MarkdownBlock.Code(
+            language = codeLanguage,
+            text = codeLines.joinToString("\n"),
+        )
+    }
+    return blocks
+}
+
+private fun renderInlineMarkdown(
+    text: String,
+    contentColor: Color,
+): AnnotatedString = buildAnnotatedString {
+    var index = 0
+    while (index < text.length) {
+        when {
+            text.startsWith("**", index) -> {
+                val end = text.indexOf("**", startIndex = index + 2)
+                if (end == -1) {
+                    append("**")
+                    index += 2
+                } else {
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                        append(text.substring(index + 2, end))
+                    }
+                    index = end + 2
+                }
+            }
+
+            text[index] == '`' -> {
+                val end = text.indexOf('`', startIndex = index + 1)
+                if (end == -1) {
+                    append('`')
+                    index += 1
+                } else {
+                    withStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            color = contentColor,
+                            background = contentColor.copy(alpha = 0.10f),
+                        ),
+                    ) {
+                        append(text.substring(index + 1, end))
+                    }
+                    index = end + 1
+                }
+            }
+
+            else -> {
+                append(text[index])
+                index += 1
             }
         }
     }

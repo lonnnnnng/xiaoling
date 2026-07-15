@@ -1,6 +1,8 @@
 package com.longdev.endpointtester.network
 
 import android.os.SystemClock
+import android.util.Log
+import com.longdev.endpointtester.BuildConfig
 import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.EndpointConfig
 import com.longdev.endpointtester.model.ModelTestResult
@@ -34,23 +36,29 @@ class OpenAiCompatibleClient {
         }
     }
 
-    suspend fun testModel(config: EndpointConfig, prompt: String): ModelTestResult = withContext(Dispatchers.IO) {
+    suspend fun testModel(
+        config: EndpointConfig,
+        messages: List<RequestMessage>,
+        onStreamDelta: (suspend (StreamDeltaUpdate) -> Unit)? = null,
+    ): ModelTestResult = withContext(Dispatchers.IO) {
         require(config.model.isNotBlank()) { "请输入或选择模型名称" }
+        require(messages.isNotEmpty()) { "请输入消息" }
         val endpoint = when (config.apiMode) {
             ApiMode.CHAT_COMPLETIONS -> EndpointUrlBuilder.chatCompletionsUrl(config.baseUrl)
             ApiMode.RESPONSES -> EndpointUrlBuilder.responsesUrl(config.baseUrl)
         }
         val payload = when (config.apiMode) {
-            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, prompt)
-            ApiMode.RESPONSES -> responsesPayload(config, prompt)
+            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, messages)
+            ApiMode.RESPONSES -> responsesPayload(config, messages)
         }
 
         val request = requestBuilder(endpoint, config)
             .post(payload.toString().toRequestBody(jsonMediaType))
             .build()
+        NetworkDebugLogger.logRequest(request, payload)
         val startedAtMs = SystemClock.elapsedRealtime()
         val completion = if (config.streamingEnabled) {
-            executeStreaming(request, startedAtMs)
+            executeStreaming(config.apiMode, request, startedAtMs, onStreamDelta)
         } else {
             ModelCompletion(
                 text = execute(request) { body ->
@@ -71,21 +79,43 @@ class OpenAiCompatibleClient {
         )
     }
 
-    private fun chatPayload(config: EndpointConfig, prompt: String): JSONObject = JSONObject()
+    private fun chatPayload(config: EndpointConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
         .put("model", config.model.trim())
-        .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
+        .put(
+            "messages",
+            JSONArray().apply {
+                messages.forEach { message ->
+                    put(
+                        JSONObject()
+                            .put("role", message.role)
+                            .put("content", message.content),
+                    )
+                }
+            },
+        )
         .put("temperature", config.temperature)
         .put("max_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
 
-    private fun responsesPayload(config: EndpointConfig, prompt: String): JSONObject = JSONObject()
+    private fun responsesPayload(config: EndpointConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
         .put("model", config.model.trim())
-        .put("input", prompt)
+        .put("input", messages.toResponsesInput())
         .put("temperature", config.temperature)
         .put("max_output_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
+
+    private fun List<RequestMessage>.toResponsesInput(): String {
+        return joinToString("\n\n") { message ->
+            val label = when (message.role) {
+                "system" -> "系统上下文"
+                "assistant" -> "assistant"
+                else -> "user"
+            }
+            "$label:\n${message.content}"
+        }
+    }
 
     private fun requestBuilder(endpoint: String, config: EndpointConfig): Request.Builder {
         val url = endpoint.toHttpUrlOrNull()
@@ -107,6 +137,7 @@ class OpenAiCompatibleClient {
         try {
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
+                NetworkDebugLogger.logResponse(request, response.code, body)
                 if (!response.isSuccessful) throw ApiFailureClassifier.fromHttp(response.code, body)
                 return try {
                     parse(body)
@@ -121,11 +152,19 @@ class OpenAiCompatibleClient {
         }
     }
 
-    private fun executeStreaming(request: Request, startedAtMs: Long): ModelCompletion {
+    private suspend fun executeStreaming(
+        apiMode: ApiMode,
+        request: Request,
+        startedAtMs: Long,
+        onDelta: (suspend (StreamDeltaUpdate) -> Unit)?,
+    ): ModelCompletion {
         try {
             client.newCall(request).execute().use { response ->
+                NetworkDebugLogger.logStreamResponseStart(request, response.code)
                 if (!response.isSuccessful) {
-                    throw ApiFailureClassifier.fromHttp(response.code, response.body?.string().orEmpty())
+                    val errorBody = response.body?.string().orEmpty()
+                    NetworkDebugLogger.logResponse(request, response.code, errorBody)
+                    throw ApiFailureClassifier.fromHttp(response.code, errorBody)
                 }
 
                 val builder = StringBuilder()
@@ -135,21 +174,33 @@ class OpenAiCompatibleClient {
                     lines.forEach { line ->
                         val data = line.trim().removePrefix("data:").trim()
                         if (data.isBlank()) return@forEach
-                        OpenAiResponseParser.parseStreamDelta(data)?.let { delta ->
-                            if (firstTokenLatencyMs == null) {
+                        NetworkDebugLogger.logStreamEvent(data)
+                        OpenAiResponseParser.parseStreamDelta(apiMode, data)?.let { delta ->
+                            val currentFirstTokenLatencyMs = firstTokenLatencyMs ?: run {
                                 // long: 流式测试需要区分“首字到达”和“完整返回”，这里在第一个可读 delta 抵达时记录首字耗时。
-                                firstTokenLatencyMs = SystemClock.elapsedRealtime() - startedAtMs
+                                val latency = SystemClock.elapsedRealtime() - startedAtMs
+                                firstTokenLatencyMs = latency
+                                latency
                             }
                             builder.append(delta)
+                            onDelta?.invoke(
+                                StreamDeltaUpdate(
+                                    deltaText = delta,
+                                    accumulatedText = builder.toString(),
+                                    firstTokenLatencyMs = currentFirstTokenLatencyMs,
+                                ),
+                            )
                         }
                     }
                 }
                 return ModelCompletion(
                     text = builder.toString().ifBlank {
-                    throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
+                        throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
                     },
                     firstTokenLatencyMs = firstTokenLatencyMs,
-                )
+                ).also {
+                    NetworkDebugLogger.logStreamCompleted(builder.toString())
+                }
             }
         } catch (error: IOException) {
             throw ApiFailureClassifier.fromNetwork(error)
@@ -161,3 +212,59 @@ class OpenAiCompatibleClient {
         val firstTokenLatencyMs: Long?,
     )
 }
+
+private object NetworkDebugLogger {
+    private const val TAG = "EndpointHttp"
+    private val enabled: Boolean
+        get() = BuildConfig.ENDPOINT_HTTP_LOGS_ENABLED
+
+    fun logRequest(request: Request, payload: JSONObject) {
+        if (!enabled) return
+        // long: 调试模型兼容性时需要看到真实请求体，但鉴权头必须脱敏，避免 logcat 泄露用户密钥。
+        Log.d(TAG, "REQUEST ${request.method} ${request.url}")
+        Log.d(TAG, "REQUEST headers=${request.headers.redactedForLog()}")
+        Log.d(TAG, "REQUEST body=$payload")
+    }
+
+    fun logResponse(request: Request, code: Int, body: String) {
+        if (!enabled) return
+        Log.d(TAG, "RESPONSE ${request.method} ${request.url} code=$code")
+        Log.d(TAG, "RESPONSE body=$body")
+    }
+
+    fun logStreamResponseStart(request: Request, code: Int) {
+        if (!enabled) return
+        Log.d(TAG, "STREAM_RESPONSE ${request.method} ${request.url} code=$code")
+    }
+
+    fun logStreamEvent(data: String) {
+        if (!enabled) return
+        Log.d(TAG, "STREAM_EVENT data=$data")
+    }
+
+    fun logStreamCompleted(text: String) {
+        if (!enabled) return
+        Log.d(TAG, "STREAM_COMPLETED text=$text")
+    }
+
+    private fun okhttp3.Headers.redactedForLog(): Map<String, String> {
+        return names().associateWith { name ->
+            if (name.equals("authorization", ignoreCase = true) || name.contains("key", ignoreCase = true)) {
+                "***MASKED***"
+            } else {
+                values(name).joinToString(",")
+            }
+        }
+    }
+}
+
+data class StreamDeltaUpdate(
+    val deltaText: String,
+    val accumulatedText: String,
+    val firstTokenLatencyMs: Long,
+)
+
+data class RequestMessage(
+    val role: String,
+    val content: String,
+)
