@@ -76,14 +76,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -91,6 +88,13 @@ import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.ProviderProfile
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
+import com.mikepenz.markdown.compose.elements.highlightedCodeFence
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
@@ -1430,218 +1434,48 @@ private fun StreamingMarkdownText(
     markdown: String,
     contentColor: Color,
 ) {
-    val blocks = remember(markdown) { parseMarkdownBlocks(markdown) }
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        blocks.forEach { block ->
-            when (block) {
-                is MarkdownBlock.Paragraph -> {
-                    Text(
-                        text = renderInlineMarkdown(block.text, contentColor),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-
-                is MarkdownBlock.Heading -> {
-                    Text(
-                        text = renderInlineMarkdown(block.text, contentColor),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontSize = when (block.level) {
-                                1 -> 15.sp
-                                2 -> 14.sp
-                                else -> 13.sp
-                            },
-                            lineHeight = when (block.level) {
-                                1 -> 19.sp
-                                2 -> 18.sp
-                                else -> 17.sp
-                            },
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                    )
-                }
-
-                is MarkdownBlock.ListItem -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text(
-                            text = block.marker,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = contentColor.copy(alpha = 0.66f),
-                        )
-                        Text(
-                            text = renderInlineMarkdown(block.text, contentColor),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-
-                is MarkdownBlock.Code -> {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
-                        contentColor = contentColor,
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                            if (block.language.isNotBlank()) {
-                                Text(
-                                    text = block.language,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 9.sp,
-                                        lineHeight = 11.sp,
-                                    ),
-                                    color = contentColor.copy(alpha = 0.48f),
-                                )
-                                Spacer(Modifier.height(3.dp))
-                            }
-                            Text(
-                                text = block.text.ifBlank { " " },
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private sealed interface MarkdownBlock {
-    data class Paragraph(val text: String) : MarkdownBlock
-    data class Heading(val level: Int, val text: String) : MarkdownBlock
-    data class ListItem(val marker: String, val text: String) : MarkdownBlock
-    data class Code(val language: String, val text: String) : MarkdownBlock
-}
-
-private fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
-    val blocks = mutableListOf<MarkdownBlock>()
-    val paragraphLines = mutableListOf<String>()
-    val codeLines = mutableListOf<String>()
-    var inCodeBlock = false
-    var codeLanguage = ""
-
-    fun flushParagraph() {
-        if (paragraphLines.isEmpty()) return
-        blocks += MarkdownBlock.Paragraph(paragraphLines.joinToString("\n").trim())
-        paragraphLines.clear()
-    }
-
-    markdown.lines().forEach { rawLine ->
-        val trimmed = rawLine.trim()
-
-        if (trimmed.startsWith("```")) {
-            if (inCodeBlock) {
-                blocks += MarkdownBlock.Code(
-                    language = codeLanguage,
-                    text = codeLines.joinToString("\n"),
-                )
-                codeLines.clear()
-                codeLanguage = ""
-                inCodeBlock = false
-            } else {
-                // long: 流式返回经常先收到代码块开头但还没有结束标记，这里先关闭普通段落，让未完成代码也能立即按代码样式渲染。
-                flushParagraph()
-                codeLanguage = trimmed.removePrefix("```").trim()
-                inCodeBlock = true
-            }
-            return@forEach
-        }
-
-        if (inCodeBlock) {
-            codeLines += rawLine
-            return@forEach
-        }
-
-        if (trimmed.isBlank()) {
-            flushParagraph()
-            return@forEach
-        }
-
-        val headingLevel = trimmed.takeWhile { it == '#' }.length
-        if (headingLevel in 1..3 && trimmed.getOrNull(headingLevel) == ' ') {
-            flushParagraph()
-            blocks += MarkdownBlock.Heading(
-                level = headingLevel,
-                text = trimmed.drop(headingLevel).trim(),
+    // long: 模型输出会覆盖表格、链接、引用、嵌套列表等常见 Markdown；继续维护自研解析器会让每一种语法都变成补丁，这里交给 GFM 渲染库统一处理。
+    Markdown(
+        content = markdown.ifBlank { " " },
+        modifier = Modifier.fillMaxWidth(),
+        colors = markdownColor(
+            text = contentColor,
+            codeBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.74f),
+            inlineCodeBackground = contentColor.copy(alpha = 0.10f),
+            dividerColor = contentColor.copy(alpha = 0.18f),
+            tableBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.46f),
+        ),
+        typography = markdownTypography(
+            h1 = MaterialTheme.typography.bodySmall.copy(fontSize = 15.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold),
+            h2 = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold),
+            h3 = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold),
+            h4 = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            h5 = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            h6 = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+            text = MaterialTheme.typography.bodySmall,
+            paragraph = MaterialTheme.typography.bodySmall,
+            ordered = MaterialTheme.typography.bodySmall,
+            bullet = MaterialTheme.typography.bodySmall,
+            list = MaterialTheme.typography.bodySmall,
+            table = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+            code = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp),
+            inlineCode = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+        ),
+        imageTransformer = Coil3ImageTransformerImpl,
+        components = markdownComponents(
+            codeBlock = highlightedCodeBlock,
+            codeFence = highlightedCodeFence,
+        ),
+        loading = { Box(it) },
+        error = {
+            Text(
+                text = markdown,
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor,
+                modifier = it,
             )
-            return@forEach
-        }
-
-        Regex("""^[-*]\s+(.+)""").find(trimmed)?.let { match ->
-            flushParagraph()
-            blocks += MarkdownBlock.ListItem(marker = "•", text = match.groupValues[1])
-            return@forEach
-        }
-
-        Regex("""^(\d+\.)\s+(.+)""").find(trimmed)?.let { match ->
-            flushParagraph()
-            blocks += MarkdownBlock.ListItem(marker = match.groupValues[1], text = match.groupValues[2])
-            return@forEach
-        }
-
-        paragraphLines += rawLine
-    }
-
-    flushParagraph()
-    if (inCodeBlock) {
-        // long: 未闭合代码块在流式过程中是正常中间态，先把已收到内容展示出来，等结束标记到达后会自动重算为完整代码块。
-        blocks += MarkdownBlock.Code(
-            language = codeLanguage,
-            text = codeLines.joinToString("\n"),
-        )
-    }
-    return blocks
-}
-
-private fun renderInlineMarkdown(
-    text: String,
-    contentColor: Color,
-): AnnotatedString = buildAnnotatedString {
-    var index = 0
-    while (index < text.length) {
-        when {
-            text.startsWith("**", index) -> {
-                val end = text.indexOf("**", startIndex = index + 2)
-                if (end == -1) {
-                    append("**")
-                    index += 2
-                } else {
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                        append(text.substring(index + 2, end))
-                    }
-                    index = end + 2
-                }
-            }
-
-            text[index] == '`' -> {
-                val end = text.indexOf('`', startIndex = index + 1)
-                if (end == -1) {
-                    append('`')
-                    index += 1
-                } else {
-                    withStyle(
-                        SpanStyle(
-                            fontFamily = FontFamily.Monospace,
-                            color = contentColor,
-                            background = contentColor.copy(alpha = 0.10f),
-                        ),
-                    ) {
-                        append(text.substring(index + 1, end))
-                    }
-                    index = end + 1
-                }
-            }
-
-            else -> {
-                append(text[index])
-                index += 1
-            }
-        }
-    }
+        },
+    )
 }
 
 @Composable
