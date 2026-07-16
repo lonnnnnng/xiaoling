@@ -4,6 +4,7 @@ import android.content.Context
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
@@ -190,6 +191,29 @@ class RoomAgentRunRepository(
                 }
             }
             .filter { it.status == ApprovalRequestStatus.PENDING }
+    }
+
+    suspend fun recentRunDetails(limit: Int): List<AgentRunDetailRecord> {
+        val dao = database.agentRunDao()
+        // long: 任务中心只读 Room 里的审计数据，不从当前页面状态反推；这样历史 Run、审批和事件在应用重启后仍可追溯。
+        val runs = dao.getRecentRuns(limit)
+        if (runs.isEmpty()) return emptyList()
+        val runIds = runs.map { it.id }
+        // long: 运行记录页会一次展示最近多条 Run；步骤、审批和事件必须批量读取再内存分组，避免每条 Run 触发多次 Room 查询。
+        val stepsByRunId = dao.getStepsForRuns(runIds).groupBy { it.runId }
+        val eventsByRunId = dao.getEventsForRuns(runIds).groupBy { it.runId }
+        val approvalsByRunId = dao.getApprovalRequestsForRuns(runIds).groupBy { it.runId }
+        return runs.map { run ->
+            val snapshot = AgentRunSnapshot(
+                run = run.toRecord(),
+                steps = stepsByRunId[run.id].orEmpty().map { it.toRecord() },
+                events = eventsByRunId[run.id].orEmpty().map { it.toRecord() },
+            )
+            AgentRunDetailRecord(
+                snapshot = snapshot,
+                approvals = approvalsByRunId[run.id].orEmpty().map { it.toRecord() },
+            )
+        }
     }
 
     private suspend fun findStep(stepId: String): AgentStepEntity? {

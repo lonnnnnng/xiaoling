@@ -85,6 +85,11 @@ data class ApprovalRequestRecord(
     val decidedAt: Long?,
 )
 
+data class AgentRunDetailRecord(
+    val snapshot: AgentRunSnapshot,
+    val approvals: List<ApprovalRequestRecord>,
+)
+
 data class ToolCall(
     val id: String = "tool-call-${UUID.randomUUID()}",
     val name: String,

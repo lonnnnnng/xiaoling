@@ -55,8 +55,14 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE id = :runId")
     suspend fun getRun(runId: String): AgentRunEntity?
 
+    @Query("SELECT * FROM agent_runs ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getRecentRuns(limit: Int): List<AgentRunEntity>
+
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY sequence ASC")
     suspend fun getSteps(runId: String): List<AgentStepEntity>
+
+    @Query("SELECT * FROM agent_steps WHERE runId IN (:runIds) ORDER BY runId ASC, sequence ASC")
+    suspend fun getStepsForRuns(runIds: List<String>): List<AgentStepEntity>
 
     @Query("SELECT * FROM agent_steps WHERE id = :stepId")
     suspend fun getStep(stepId: String): AgentStepEntity?
@@ -67,6 +73,15 @@ interface AgentRunDao {
     @Query("SELECT * FROM approval_requests WHERE conversationId = :conversationId AND status = 'PENDING' ORDER BY createdAt DESC")
     suspend fun getPendingApprovalRequests(conversationId: String): List<ApprovalRequestEntity>
 
+    @Query("SELECT * FROM approval_requests WHERE runId = :runId ORDER BY createdAt ASC")
+    suspend fun getApprovalRequests(runId: String): List<ApprovalRequestEntity>
+
+    @Query("SELECT * FROM approval_requests WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC")
+    suspend fun getApprovalRequestsForRuns(runIds: List<String>): List<ApprovalRequestEntity>
+
     @Query("SELECT * FROM run_events WHERE runId = :runId ORDER BY createdAt ASC")
     suspend fun getEvents(runId: String): List<RunEventEntity>
+
+    @Query("SELECT * FROM run_events WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC")
+    suspend fun getEventsForRuns(runIds: List<String>): List<RunEventEntity>
 }

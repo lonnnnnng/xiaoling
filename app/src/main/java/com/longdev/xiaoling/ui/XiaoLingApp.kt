@@ -104,9 +104,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.agent.AgentCommand
+import com.longdev.xiaoling.agent.ApprovalRequestRecord
+import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.RunEventRecord
+import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -227,6 +232,10 @@ private fun XiaoLingContent(
                         viewModel = viewModel,
                         pane = settingsPane,
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
+                        onOpenAgentRunHistory = {
+                            viewModel.refreshAgentRunHistory()
+                            settingsPane = SettingsPane.AGENT_RUN_HISTORY
+                        },
                         onBackToSettings = { settingsPane = SettingsPane.ROOT },
                         modifier = Modifier.matchParentSize(),
                     )
@@ -246,6 +255,7 @@ private fun XiaoLingContent(
 private enum class SettingsPane {
     ROOT,
     PROVIDER_MANAGEMENT,
+    AGENT_RUN_HISTORY,
 }
 
 private data class CenterNotice(
@@ -1162,6 +1172,35 @@ private fun AgentStepStatus.toUiLabel(): String {
     }
 }
 
+private fun ApprovalRequestStatus.toUiLabel(): String {
+    return when (this) {
+        ApprovalRequestStatus.PENDING -> "待确认"
+        ApprovalRequestStatus.APPROVED -> "已批准"
+        ApprovalRequestStatus.DENIED -> "已拒绝"
+        ApprovalRequestStatus.EXPIRED -> "已过期"
+        ApprovalRequestStatus.CANCELLED -> "已取消"
+    }
+}
+
+@Composable
+private fun ApprovalRequestStatus.toUiColor(): Color {
+    return when (this) {
+        ApprovalRequestStatus.APPROVED -> MaterialTheme.colorScheme.primary
+        ApprovalRequestStatus.DENIED,
+        ApprovalRequestStatus.EXPIRED -> MaterialTheme.colorScheme.error
+        ApprovalRequestStatus.CANCELLED -> MaterialTheme.colorScheme.outline
+        ApprovalRequestStatus.PENDING -> MaterialTheme.colorScheme.tertiary
+    }
+}
+
+private fun ToolRisk.toUiLabel(): String {
+    return when (this) {
+        ToolRisk.SAFE -> "低风险"
+        ToolRisk.REQUIRES_APPROVAL -> "需确认"
+        ToolRisk.DANGEROUS -> "高风险"
+    }
+}
+
 @Composable
 private fun NewChatContentButton(
     onClick: () -> Unit,
@@ -1375,6 +1414,7 @@ private fun SettingsPage(
     viewModel: XiaoLingViewModel,
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
+    onOpenAgentRunHistory: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1399,10 +1439,17 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.AGENT_RUN_HISTORY -> AgentRunHistoryPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             else -> SettingsRootPage(
                 state = state,
                 onThemeModeChanged = viewModel::updateThemeMode,
                 onOpenProviderManagement = onOpenProviderManagement,
+                onOpenAgentRunHistory = onOpenAgentRunHistory,
                 modifier = Modifier.matchParentSize(),
             )
         }
@@ -1414,6 +1461,7 @@ private fun SettingsRootPage(
     state: XiaoLingUiState,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onOpenProviderManagement: () -> Unit,
+    onOpenAgentRunHistory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1442,6 +1490,16 @@ private fun SettingsRootPage(
                 "已配置 ${state.profiles.size} 个提供方 · 可对话模型 ${state.profiles.sumOf { it.enabledModels.size }} 个"
             },
             onClick = onOpenProviderManagement,
+        )
+
+        SettingsEntryCard(
+            title = "Agent 运行记录",
+            subtitle = if (state.agentRunHistory.isEmpty()) {
+                "查看最近 Agent Run 的步骤、审批和事件"
+            } else {
+                "最近 ${state.agentRunHistory.size} 条 · ${state.agentRunHistory.count { it.snapshot.run.status == AgentRunStatus.COMPLETED }} 条已完成"
+            },
+            onClick = onOpenAgentRunHistory,
         )
     }
 }
@@ -1486,6 +1544,343 @@ private fun SettingsEntryCard(
             }
             Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
         }
+    }
+}
+
+@Composable
+private fun AgentRunHistoryPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LaunchedEffect(Unit) {
+        if (state.agentRunHistory.isEmpty() && !state.loadingAgentRunHistory) {
+            viewModel.refreshAgentRunHistory()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        AgentRunHistoryHeader(
+            loading = state.loadingAgentRunHistory,
+            onBack = onBack,
+            onRefresh = viewModel::refreshAgentRunHistory,
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            when {
+                state.agentRunHistoryError != null -> item {
+                    CompactSection(title = "读取失败") {
+                        Text(
+                            text = state.agentRunHistoryError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                state.loadingAgentRunHistory && state.agentRunHistory.isEmpty() -> item {
+                    CompactSection(title = "Agent Run") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                            Text(
+                                text = "正在读取运行记录",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                state.agentRunHistory.isEmpty() -> item {
+                    CompactSection(title = "Agent Run") {
+                        Text(
+                            text = "还没有 Agent 运行记录。可以在对话框输入 /agent <目标> 触发一次演示任务。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                else -> items(
+                    count = state.agentRunHistory.size,
+                    key = { index -> state.agentRunHistory[index].snapshot.run.id },
+                ) { index ->
+                    val detail = state.agentRunHistory[index]
+                    val selected = detail.snapshot.run.id == state.selectedAgentRunId
+                    AgentRunHistoryItemCard(
+                        detail = detail,
+                        selected = selected,
+                        onClick = { viewModel.selectAgentRun(detail.snapshot.run.id) },
+                    )
+                    if (selected) {
+                        AgentRunDetailPanel(detail)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentRunHistoryHeader(
+    loading: Boolean,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+        }
+        PageTitle("Agent 运行记录")
+        Spacer(Modifier.weight(1f))
+        IconButton(
+            onClick = onRefresh,
+            enabled = !loading,
+            modifier = Modifier.size(30.dp),
+        ) {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+            } else {
+                Icon(Icons.Default.CloudDownload, contentDescription = "刷新运行记录", modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentRunHistoryItemCard(
+    detail: AgentRunDetailRecord,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val run = detail.snapshot.run
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.42f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(9.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.36f) else MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(9.dp),
+            )
+            .clip(RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                AgentStatusChip(run.status)
+                Text(
+                    text = run.goal.ifBlank { "未命名任务" },
+                    style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp, lineHeight = 15.sp),
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = run.updatedAt.toFullTimeLabel(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${detail.snapshot.steps.size} 步",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "${detail.approvals.size} 次审批",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                run.completedAt?.let {
+                    Text(
+                        text = "完成 ${it.toFullTimeLabel()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
+    val snapshot = detail.snapshot
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Text(
+                text = "Run ID：${snapshot.run.id}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            snapshot.run.errorMessage?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            AgentRunDetailSection("步骤") {
+                snapshot.steps.forEach { step ->
+                    AgentStepRow(status = step.status, title = step.title, detail = step.detail)
+                }
+            }
+
+            if (detail.approvals.isNotEmpty()) {
+                AgentRunDetailSection("审批") {
+                    detail.approvals.forEach { approval ->
+                        ApprovalRequestRecordRow(approval)
+                    }
+                }
+            }
+
+            if (snapshot.events.isNotEmpty()) {
+                AgentRunDetailSection("事件") {
+                    snapshot.events.forEach { event ->
+                        AgentRunEventRow(event)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentRunDetailSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        content()
+    }
+}
+
+@Composable
+private fun ApprovalRequestRecordRow(approval: ApprovalRequestRecord) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(
+                text = approval.status.toUiLabel(),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                color = approval.status.toUiColor(),
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${approval.toolName} · ${approval.risk.toUiLabel()}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = (approval.decidedAt ?: approval.createdAt).toFullTimeLabel(),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            )
+        }
+        approval.decisionReason?.takeIf { it.isNotBlank() }?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (approval.arguments.isNotEmpty()) {
+            Text(
+                text = approval.arguments.entries.joinToString(" · ") { "${it.key}=${it.value}" },
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentRunEventRow(event: RunEventRecord) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = event.type,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.tertiary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = event.createdAt.toFullTimeLabel(),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            )
+        }
+        Text(
+            text = event.message,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

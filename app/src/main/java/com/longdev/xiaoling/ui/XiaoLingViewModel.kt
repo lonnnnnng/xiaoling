@@ -10,6 +10,7 @@ import com.longdev.xiaoling.agent.AgentCommand
 import com.longdev.xiaoling.agent.AgentDemoUseCase
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
@@ -86,6 +87,10 @@ data class XiaoLingUiState(
     val batchSyncResults: Map<String, String> = emptyMap(),
     val activeAgentRun: AgentRunSnapshot? = null,
     val pendingAgentApproval: AgentApprovalUiState? = null,
+    val loadingAgentRunHistory: Boolean = false,
+    val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
+    val selectedAgentRunId: String? = null,
+    val agentRunHistoryError: String? = null,
     val result: OperationResult? = null,
 )
 
@@ -308,6 +313,38 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         // long: 停止生成是用户接管当前 Run 的入口，必须取消真实网络请求，而不是只隐藏 loading。
         pendingApprovalDecision?.cancel()
         sendMessageJob?.cancel()
+    }
+
+    fun refreshAgentRunHistory() {
+        if (uiState.loadingAgentRunHistory) return
+        uiState = uiState.copy(loadingAgentRunHistory = true, agentRunHistoryError = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    agentRunRepository.recentRunDetails(AGENT_RUN_HISTORY_LIMIT)
+                }
+            }.onSuccess { history ->
+                val selectedId = uiState.selectedAgentRunId
+                    ?.takeIf { id -> history.any { it.snapshot.run.id == id } }
+                    ?: history.firstOrNull()?.snapshot?.run?.id
+                uiState = uiState.copy(
+                    loadingAgentRunHistory = false,
+                    agentRunHistory = history,
+                    selectedAgentRunId = selectedId,
+                    agentRunHistoryError = null,
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    loadingAgentRunHistory = false,
+                    agentRunHistoryError = error.message ?: "无法读取 Agent 运行记录",
+                )
+            }
+        }
+    }
+
+    fun selectAgentRun(runId: String) {
+        if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
+        uiState = uiState.copy(selectedAgentRunId = runId)
     }
 
     fun approvePendingAgentTool() {
@@ -1662,5 +1699,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val SUMMARY_TARGET_CHARS = 1_200
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_APPROVAL_TIMEOUT_MS = 110_000L
+        private const val AGENT_RUN_HISTORY_LIMIT = 50
     }
 }
