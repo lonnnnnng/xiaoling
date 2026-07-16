@@ -72,7 +72,24 @@ data class ToolDefinition(
     val name: String,
     val description: String,
     val risk: ToolRisk,
-)
+    val inputSchema: List<ToolInputField> = emptyList(),
+    val timeoutMs: Long? = null,
+) {
+    init {
+        require(name.isNotBlank()) { "工具名称不能为空" }
+        require(timeoutMs == null || timeoutMs > 0) { "工具超时时间必须大于 0" }
+    }
+}
+
+data class ToolInputField(
+    val name: String,
+    val description: String,
+    val required: Boolean,
+) {
+    init {
+        require(name.isNotBlank()) { "工具参数名称不能为空" }
+    }
+}
 
 enum class ToolRisk {
     SAFE,
@@ -95,3 +112,21 @@ data class AgentRunSummary(
     val status: AgentRunStatus,
     val responseText: String,
 )
+
+data class AgentRuntimeOptions(
+    val maxToolCalls: Int = 4,
+    val runTimeoutMs: Long = 120_000,
+    val modelStepTimeoutMs: Long = 60_000,
+    val toolStepTimeoutMs: Long = 30_000,
+) {
+    init {
+        require(maxToolCalls >= 0) { "工具调用上限不能小于 0" }
+        require(runTimeoutMs > 0) { "Agent Run 超时时间必须大于 0" }
+        require(modelStepTimeoutMs > 0) { "模型步骤超时时间必须大于 0" }
+        require(toolStepTimeoutMs > 0) { "工具步骤超时时间必须大于 0" }
+    }
+}
+
+class AgentBudgetExceededException(message: String) : RuntimeException(message)
+
+class AgentTimeoutException(message: String) : RuntimeException(message)

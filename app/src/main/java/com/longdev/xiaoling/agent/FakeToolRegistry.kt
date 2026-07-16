@@ -11,6 +11,13 @@ class FakeToolRegistry : ToolRegistry {
         name = "fake.echo",
         description = "回显用户目标，用于验证 Agent Run、审批、工具执行和后置验证链路。",
         risk = ToolRisk.REQUIRES_APPROVAL,
+        inputSchema = listOf(
+            ToolInputField(
+                name = "goal",
+                description = "用户希望 Agent 完成或验证的目标。",
+                required = true,
+            ),
+        ),
     )
 
     override fun availableTools(): List<ToolDefinition> = listOf(echoTool)

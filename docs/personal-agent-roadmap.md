@@ -27,11 +27,12 @@
 - Android Keystore 密钥保护和网络错误分类。
 - 请求取消和停止生成。
 - `AgentRun / AgentStep / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
+- 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、必填参数校验、重复工具调用检测和结构化事件记录。
 
 ### 主要缺口
 
 - 还没有真实 LLM tool call、交互式确认卡片、运行恢复、步骤时间线 UI 和失败重试。
-- 还没有真实 Tool Registry、输入 Schema、权限策略和后置验证策略。
+- 还没有真实 Tool Registry、完整 JSON Schema、权限策略和可插拔后置验证策略。
 - 没有独立长期记忆，当前摘要只服务单个会话上下文。
 - 没有 Skill、Workflow、后台调度和执行日志。
 - 没有 AccessibilityService 或其他手机操作能力。
@@ -134,10 +135,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 ### 必须实现的运行约束
 
 - 普通问答走 direct chat fast path。
-- 最大工具步数、单步超时和整次 Run 超时均由应用配置。
-- 连续重复同一工具和相同参数时触发循环检测。
+- 最大工具步数、单步超时和整次 Run 超时均由应用配置。当前最小 Runtime 已有初版配置。
+- 连续重复同一工具和相同参数时触发循环检测。当前单工具链路已接入检测 seam。
 - 模型只能看到当前允许的少量工具，不在每轮注入全部 Tool Schema。
-- 工具参数先做 JSON Schema 和业务校验，再进入 Executor。
+- 工具参数先做 JSON Schema 和业务校验，再进入 Executor。当前先支持必填参数校验，完整类型和业务校验仍待补齐。
 - 风险和确认要求取自 `ToolDefinition`，忽略模型自己声明的风险级别。
 - Run 可取消；取消后不再接受迟到的流式事件或工具结果。
 - 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。
@@ -330,6 +331,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 1. 继续补 Room migration 测试和数据库导出/备份。
 2. 抽出 `LlmProviderAdapter` 和现有 OpenAI-compatible 实现。
 3. 增加 Agent 运行时间线 UI 和交互式审批卡片。
-4. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
+4. 把 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
+5. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
 
 完成这六项后，小灵才真正拥有可继续扩展的个人 Agent 骨架。

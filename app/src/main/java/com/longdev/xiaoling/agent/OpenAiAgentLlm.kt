@@ -28,12 +28,12 @@ class OpenAiAgentLlm(
                         用户目标：$goal
 
                         可用工具：
-                        ${tools.joinToString("\n") { "- ${it.name}: ${it.description}; risk=${it.risk.name}" }}
+                        ${tools.joinToString("\n") { tool -> tool.toPromptLine() }}
                     """.trimIndent(),
                 ),
             ),
         )
-        return parseToolCall(response.responseText, tools, goal)
+        return AgentToolCallParser.parse(response.responseText, tools)
     }
 
     override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
@@ -59,7 +59,17 @@ class OpenAiAgentLlm(
         ).responseText
     }
 
-    private fun parseToolCall(raw: String, tools: List<ToolDefinition>, goal: String): ToolCall {
+    private fun ToolDefinition.toPromptLine(): String {
+        val requiredFields = inputSchema
+            .filter { it.required }
+            .joinToString(", ") { it.name }
+            .ifBlank { "无" }
+        return "- $name: $description; risk=${risk.name}; required_args=$requiredFields"
+    }
+}
+
+internal object AgentToolCallParser {
+    fun parse(raw: String, tools: List<ToolDefinition>): ToolCall {
         val jsonText = raw.extractJsonObject()
         val json = runCatching { JSONObject(jsonText) }
             .getOrElse { error("模型没有返回有效工具调用 JSON：$raw") }
@@ -69,9 +79,8 @@ class OpenAiAgentLlm(
         val argumentsJson = json.optJSONObject("arguments") ?: JSONObject()
         val arguments = buildMap {
             argumentsJson.keys().forEach { key -> put(key, argumentsJson.optString(key)) }
-            if (!containsKey("goal")) put("goal", goal)
         }
-        // long: 模型只能提出工具名和参数，风险等级必须以应用注册表为准，避免模型把高风险工具伪装成 safe。
+        // long: 解析层保留模型原始参数，不替模型补必填字段；缺参必须交给 Runtime 的 tool.validate 失败，这样审计记录能反映真实模型输出。
         return ToolCall(
             name = definition.name,
             arguments = arguments,
