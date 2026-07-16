@@ -6,7 +6,10 @@ import com.longdev.xiaoling.BuildConfig
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ModelResponseResult
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -133,9 +136,13 @@ class OpenAiCompatibleClient {
             }
     }
 
-    private inline fun <T> execute(request: Request, parse: (String) -> T): T {
+    private suspend fun <T> execute(request: Request, parse: (String) -> T): T {
+        val call = client.newCall(request)
+        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
+        }
         try {
-            client.newCall(request).execute().use { response ->
+            call.execute().use { response ->
                 val body = response.body?.string().orEmpty()
                 NetworkDebugLogger.logResponse(request, response.code, body)
                 if (!response.isSuccessful) throw ApiFailureClassifier.fromHttp(response.code, body)
@@ -148,7 +155,10 @@ class OpenAiCompatibleClient {
                 }
             }
         } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
             throw ApiFailureClassifier.fromNetwork(error)
+        } finally {
+            cancellationHandle.dispose()
         }
     }
 
@@ -158,8 +168,12 @@ class OpenAiCompatibleClient {
         startedAtMs: Long,
         onDelta: (suspend (StreamDeltaUpdate) -> Unit)?,
     ): ModelCompletion {
+        val call = client.newCall(request)
+        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
+        }
         try {
-            client.newCall(request).execute().use { response ->
+            call.execute().use { response ->
                 NetworkDebugLogger.logStreamResponseStart(request, response.code)
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
@@ -173,6 +187,7 @@ class OpenAiCompatibleClient {
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
                 body.charStream().buffered().useLines { lines ->
                     lines.forEach { line ->
+                        currentCoroutineContext().ensureActive()
                         val data = line.trim().removePrefix("data:").trim()
                         if (data.isBlank()) return@forEach
                         NetworkDebugLogger.logStreamEvent(data)
@@ -209,7 +224,10 @@ class OpenAiCompatibleClient {
                 }
             }
         } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
             throw ApiFailureClassifier.fromNetwork(error)
+        } finally {
+            cancellationHandle.dispose()
         }
     }
 

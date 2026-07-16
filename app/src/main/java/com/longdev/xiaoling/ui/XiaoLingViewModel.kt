@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.longdev.xiaoling.agent.AgentCommand
+import com.longdev.xiaoling.agent.AgentDemoUseCase
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -16,15 +18,18 @@ import com.longdev.xiaoling.network.FailureKind
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.RequestMessage
 import com.longdev.xiaoling.network.StreamDeltaUpdate
-import com.longdev.xiaoling.storage.ConversationStore
+import com.longdev.xiaoling.storage.ConversationRepository
+import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.SecureConfigStore
 import com.longdev.xiaoling.storage.StoredConversation
 import com.longdev.xiaoling.storage.StoredConversationMessage
 import com.longdev.xiaoling.storage.StoredMessageMeta
 import com.longdev.xiaoling.storage.StoredConversations
+import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -141,25 +146,36 @@ private data class PreparedRequestContext(
 }
 
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application) {
-    private val configStore = SecureConfigStore(application)
-    private val conversationStore = ConversationStore(application)
+    private val configStore = ProviderRepository(application)
+    private val conversationStore = ConversationRepository(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
+    private val agentDemoUseCase = AgentDemoUseCase(application, client)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
+    private var sendMessageJob: Job? = null
+    private var saveProfilesJob: Job? = null
+    private var saveConversationsJob: Job? = null
 
-    var uiState by mutableStateOf(
-        configStore.load()
-            .toUiState()
-            .withConversations(conversationStore.load())
-            .copy(themeMode = uiPreferenceStore.loadThemeMode()),
-    )
+    var uiState by mutableStateOf(initialUiState(uiPreferenceStore.loadThemeMode()))
         private set
+
+    init {
+        viewModelScope.launch {
+            val storedProfiles = configStore.load()
+            val storedConversations = conversationStore.load()
+            // long: Room/Keystore 读取放在协程里执行，首屏先用安全的空白状态，避免应用启动阶段因为解密或数据库迁移阻塞主线程。
+            uiState = storedProfiles
+                .toUiState()
+                .withConversations(storedConversations)
+                .copy(themeMode = uiState.themeMode, result = uiState.result)
+        }
+    }
 
     fun selectProfile(profileId: String) {
         val profile = uiState.profiles.firstOrNull { it.id == profileId } ?: return
         uiState = uiState.fromProfile(profile, profileId)
-        configStore.save(uiState.profiles, profileId)
+        saveProfilesSnapshot(uiState.profiles, profileId)
     }
 
     fun updateModel(value: String) {
@@ -231,6 +247,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         // long: 主题切换是即时视觉偏好，选择后立即保存，避免用户夜间重开应用又回到刺眼亮色。
         uiState = uiState.copy(themeMode = value, result = null)
         uiPreferenceStore.saveThemeMode(value)
+    }
+
+    fun stopGenerating() {
+        // long: 停止生成是用户接管当前 Run 的入口，必须取消真实网络请求，而不是只隐藏 loading。
+        sendMessageJob?.cancel()
     }
 
     fun openNewConversation() {
@@ -471,7 +492,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 message = "${savedProfile.name} · ${savedProfile.enabledModels.size} 个模型",
             ),
         ).fromProfile(savedProfile, id)
-        configStore.save(profiles, id)
+        saveProfilesSnapshot(profiles, id)
     }
 
     fun deleteProvider(profileId: String) {
@@ -487,18 +508,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             manageDraft = null,
             result = OperationResult(true, "已删除", "模型提供方已删除"),
         ).fromProfile(nextProfile, nextId)
-        configStore.save(profiles, nextId)
+        saveProfilesSnapshot(profiles, nextId)
     }
 
     fun sendMessage() {
-        val config = validatedConfig() ?: return
+        if (uiState.sendingMessage) return
         if (uiState.prompt.isBlank()) {
             showValidation("请输入消息")
             return
         }
+        val userMessage = uiState.prompt.trim()
+        if (AgentCommand.matches(userMessage)) {
+            val config = validatedConfig() ?: return
+            sendAgentDemo(userMessage, config)
+            return
+        }
+        val config = validatedConfig() ?: return
         val profileSnapshot = selectedProfile()
         val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
-        val userMessage = uiState.prompt.trim()
         val userChatMessage = ChatMessage(
             role = "user",
             text = userMessage,
@@ -517,8 +544,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             summaryUpdatedAt = preparedContext.summaryUpdatedAt,
             summaryModel = preparedContext.summaryModel,
         )
-        viewModelScope.launch {
-            runCatching {
+        val baseMeta = config.toBaseMessageMeta(profileSnapshot)
+        sendMessageJob = viewModelScope.launch {
+            try {
                 preparedContext = prepareRequestContext(config, messagesWithUser, currentConversation)
                 withContext(Dispatchers.Main.immediate) {
                     uiState = uiState
@@ -533,61 +561,161 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 }
                 client.sendMessage(config, preparedContext.requestMessages) { update ->
                     withContext(Dispatchers.Main.immediate) {
-                        scheduleStreamingAssistant(update, config.toBaseMessageMeta(profileSnapshot))
+                        scheduleStreamingAssistant(update, baseMeta)
                     }
                 }
+                    .also { response ->
+                        flushStreamingAssistant(baseMeta)
+                        val finalMessages = uiState.chatMessages.upsertLastAssistant(
+                            text = response.responseText,
+                            meta = baseMeta.copy(
+                                requestUrl = response.requestUrl,
+                                firstTokenLatencyMs = response.firstTokenLatencyMs,
+                                latencyMs = response.latencyMs,
+                            ),
+                        )
+                        uiState = uiState
+                            .withUpdatedCurrentConversation(
+                                messages = finalMessages,
+                                summary = preparedContext.summary,
+                                summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                                summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                                summaryModel = preparedContext.summaryModel,
+                            )
+                            .copy(
+                                sendingMessage = false,
+                                result = null,
+                            )
+                        saveConversationSelection()
+                        saveCurrentProfileSelection()
+                    }
+            } catch (error: CancellationException) {
+                flushStreamingAssistant(baseMeta)
+                val stoppedMessages = uiState.chatMessages.withCancelledGeneration(baseMeta)
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = stoppedMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
+                    )
+                    .copy(
+                        sendingMessage = false,
+                        result = null,
+                    )
+                saveConversationSelection()
+            } catch (error: Throwable) {
+                flushStreamingAssistant(baseMeta)
+                val failure = error as? ApiFailure
+                val failedMessages = uiState.chatMessages + ChatMessage(
+                    role = "error",
+                    text = error.toConversationErrorText(),
+                    createdAt = System.currentTimeMillis(),
+                    meta = baseMeta.copy(
+                        errorKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title,
+                        errorMessage = error.message ?: "未知错误",
+                    ),
+                )
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = failedMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
+                    )
+                    .copy(
+                        sendingMessage = false,
+                        result = null,
+                    )
+                saveConversationSelection()
+            } finally {
+                sendMessageJob = null
             }
-                .onSuccess { response ->
-                    flushStreamingAssistant(config.toBaseMessageMeta(profileSnapshot))
-                    val finalMessages = uiState.chatMessages.upsertLastAssistant(
-                        text = response.responseText,
-                        meta = config.toBaseMessageMeta(profileSnapshot).copy(
-                            requestUrl = response.requestUrl,
-                            firstTokenLatencyMs = response.firstTokenLatencyMs,
-                            latencyMs = response.latencyMs,
-                        ),
+        }
+    }
+
+    private fun sendAgentDemo(userMessage: String, config: ProviderRequestConfig) {
+        val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
+        val userChatMessage = ChatMessage(
+            role = "user",
+            text = userMessage,
+            createdAt = System.currentTimeMillis(),
+        )
+        val messagesWithUser = uiState.chatMessages + userChatMessage
+        val preparedContext = PreparedRequestContext.fromConversation(currentConversation)
+        uiState = uiState.copy(
+            sendingMessage = true,
+            result = null,
+            prompt = "",
+        ).withUpdatedCurrentConversation(
+            messages = messagesWithUser,
+            summary = preparedContext.summary,
+            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+            summaryModel = preparedContext.summaryModel,
+        )
+        val conversationId = uiState.selectedConversationId
+        val goal = AgentCommand.goal(userMessage)
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val summary = agentDemoUseCase.run(
+                    conversationId = conversationId,
+                    userMessageId = userChatMessage.id,
+                    goal = goal,
+                    config = config,
+                )
+                val finalMessages = uiState.chatMessages + ChatMessage(
+                    role = "assistant",
+                    text = summary.responseText,
+                    createdAt = System.currentTimeMillis(),
+                )
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = finalMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
                     )
-                    uiState = uiState
-                        .withUpdatedCurrentConversation(
-                            messages = finalMessages,
-                            summary = preparedContext.summary,
-                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                            summaryModel = preparedContext.summaryModel,
-                        )
-                        .copy(
-                            sendingMessage = false,
-                            result = null,
-                        )
-                    saveConversationSelection()
-                    saveCurrentProfileSelection()
-                }
-                .onFailure { error ->
-                    flushStreamingAssistant(config.toBaseMessageMeta(profileSnapshot))
-                    val failure = error as? ApiFailure
-                    val failedMessages = uiState.chatMessages + ChatMessage(
-                        role = "error",
-                        text = error.toConversationErrorText(),
-                        createdAt = System.currentTimeMillis(),
-                        meta = config.toBaseMessageMeta(profileSnapshot).copy(
-                            errorKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title,
-                            errorMessage = error.message ?: "未知错误",
-                        ),
+                    .copy(sendingMessage = false, result = null)
+                saveConversationSelection()
+            } catch (error: CancellationException) {
+                val stoppedMessages = uiState.chatMessages + ChatMessage(
+                    role = "error",
+                    text = "已停止 Agent 任务",
+                    createdAt = System.currentTimeMillis(),
+                )
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = stoppedMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
                     )
-                    uiState = uiState
-                        .withUpdatedCurrentConversation(
-                            messages = failedMessages,
-                            summary = preparedContext.summary,
-                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                            summaryModel = preparedContext.summaryModel,
-                        )
-                        .copy(
-                            sendingMessage = false,
-                            result = null,
-                        )
-                    saveConversationSelection()
-                }
+                    .copy(sendingMessage = false, result = null)
+                saveConversationSelection()
+            } catch (error: Throwable) {
+                val failedMessages = uiState.chatMessages + ChatMessage(
+                    role = "error",
+                    text = "Agent 任务失败\n${error.message ?: "未知错误"}",
+                    createdAt = System.currentTimeMillis(),
+                )
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = failedMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
+                    )
+                    .copy(sendingMessage = false, result = null)
+                saveConversationSelection()
+            } finally {
+                sendMessageJob = null
+            }
         }
     }
 
@@ -637,11 +765,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             if (it.id == uiState.selectedProfileId) it.copy(model = uiState.model) else it
         }
         uiState = uiState.copy(profiles = profiles)
-        configStore.save(profiles, uiState.selectedProfileId)
+        saveProfilesSnapshot(profiles, uiState.selectedProfileId)
     }
 
     private fun saveConversationSelection() {
-        conversationStore.save(uiState.conversations.map { it.toStored() }, uiState.selectedConversationId)
+        saveConversationsSnapshot(uiState.conversations.map { it.toStored() }, uiState.selectedConversationId)
+    }
+
+    private fun saveProfilesSnapshot(profiles: List<ProviderProfile>, selectedProfileId: String) {
+        saveProfilesJob?.cancel()
+        saveProfilesJob = viewModelScope.launch {
+            // long: Provider 保存包含 Keystore 加密和 Room 写入，必须放到后台；只保留最后一次快照，避免快速切换模型时旧写入覆盖新选择。
+            configStore.save(profiles, selectedProfileId)
+        }
+    }
+
+    private fun saveConversationsSnapshot(conversations: List<StoredConversation>, selectedConversationId: String) {
+        saveConversationsJob?.cancel()
+        saveConversationsJob = viewModelScope.launch {
+            // long: 会话内容可能越来越长，保存全量快照不能卡 UI；取消前一次后台保存可以让最终落盘状态跟当前界面一致。
+            conversationStore.save(conversations, selectedConversationId)
+        }
     }
 
     private fun XiaoLingUiState.withUpdatedCurrentConversation(
@@ -1040,6 +1184,30 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private fun List<ChatMessage>.withCancelledGeneration(baseMeta: MessageMeta): List<ChatMessage> {
+        val last = lastOrNull()
+        return if (last?.role == "assistant") {
+            dropLast(1) + last.copy(
+                meta = (last.meta ?: baseMeta).copy(
+                    finishReason = "cancelled",
+                    errorKind = "已取消",
+                    errorMessage = "用户停止生成",
+                ),
+            )
+        } else {
+            this + ChatMessage(
+                role = "error",
+                text = "已停止生成",
+                createdAt = System.currentTimeMillis(),
+                meta = baseMeta.copy(
+                    finishReason = "cancelled",
+                    errorKind = "已取消",
+                    errorMessage = "用户停止生成",
+                ),
+            )
+        }
+    }
+
     private fun List<ChatMessage>.firstUserTitle(): String {
         return firstOrNull { it.role == "user" }
             ?.text
@@ -1059,6 +1227,34 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         enabledModels = profile.enabledModels,
         result = result,
     )
+
+    private fun initialUiState(themeMode: AppThemeMode): XiaoLingUiState {
+        val profile = ProviderProfile.blank()
+        val now = System.currentTimeMillis()
+        val conversation = StoredConversation(
+            id = "conversation-$now",
+            title = "新会话",
+            summary = "",
+            summaryUntilMessageId = null,
+            summaryUpdatedAt = null,
+            summaryModel = null,
+            messages = emptyList(),
+            createdAt = now,
+            updatedAt = now,
+        )
+        return StoredProfiles(
+            profiles = listOf(profile),
+            selectedProfileId = profile.id,
+        )
+            .toUiState()
+            .withConversations(
+                StoredConversations(
+                    conversations = listOf(conversation),
+                    selectedConversationId = conversation.id,
+                ),
+            )
+            .copy(themeMode = themeMode)
+    }
 
     private fun com.longdev.xiaoling.storage.StoredProfiles.toUiState(): XiaoLingUiState {
         val safeProfiles = profiles.ifEmpty { listOf(ProviderProfile.blank()) }

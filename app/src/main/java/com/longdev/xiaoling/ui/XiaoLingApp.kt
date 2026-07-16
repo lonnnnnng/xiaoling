@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentPaste
@@ -102,6 +103,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.longdev.xiaoling.agent.AgentCommand
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -653,6 +655,7 @@ private fun ConversationPage(
                 onStreamingChanged = viewModel::updateStreamingEnabled,
                 onPromptChange = viewModel::updatePrompt,
                 onSend = viewModel::sendMessage,
+                onStop = viewModel::stopGenerating,
             )
         }
 
@@ -777,8 +780,10 @@ private fun MessageInputBar(
     onStreamingChanged: (Boolean) -> Unit,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
+    onStop: () -> Unit,
 ) {
-    val canSend = !sendingMessage && enabled && prompt.isNotBlank()
+    val canRunAgent = AgentCommand.matches(prompt)
+    val canSend = !sendingMessage && prompt.isNotBlank() && (enabled || canRunAgent)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp),
@@ -825,8 +830,8 @@ private fun MessageInputBar(
                     .padding(end = 52.dp),
             )
             Button(
-                onClick = onSend,
-                enabled = canSend,
+                onClick = if (sendingMessage) onStop else onSend,
+                enabled = sendingMessage || canSend,
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -839,7 +844,11 @@ private fun MessageInputBar(
                     .align(Alignment.BottomEnd)
                     .size(36.dp),
             ) {
-                Icon(Icons.Default.ArrowUpward, contentDescription = "发送", modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = if (sendingMessage) Icons.Default.Close else Icons.Default.ArrowUpward,
+                    contentDescription = if (sendingMessage) "停止生成" else "发送",
+                    modifier = Modifier.size(if (sendingMessage) 18.dp else 20.dp),
+                )
             }
         }
     }

@@ -22,19 +22,20 @@
 - OpenAI-compatible Provider 管理和模型同步。
 - Chat Completions / Responses API。
 - SSE 流式输出和 30ms UI 节流。
-- 多会话、摘要压缩、本地持久化。
+- 多会话、摘要压缩、Room 本地持久化。
 - Provider、模型、接口模式、流式和耗时等消息元数据。
 - Android Keystore 密钥保护和网络错误分类。
+- 请求取消和停止生成。
+- `AgentRun / AgentStep / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
 
 ### 主要缺口
 
-- 没有 Agent Run 状态机和工具循环。
-- 没有 Tool Registry、输入 Schema、权限、确认和后置验证。
-- 没有请求取消、运行恢复、步骤时间线和失败重试。
+- 还没有真实 LLM tool call、交互式确认卡片、运行恢复、步骤时间线 UI 和失败重试。
+- 还没有真实 Tool Registry、输入 Schema、权限策略和后置验证策略。
 - 没有独立长期记忆，当前摘要只服务单个会话上下文。
 - 没有 Skill、Workflow、后台调度和执行日志。
 - 没有 AccessibilityService 或其他手机操作能力。
-- ViewModel 过重，SharedPreferences 难以支持后续关系数据。
+- ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
 
 ## 目标架构
 
@@ -326,11 +327,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 从里程碑 0 开始，第一批实际代码任务建议拆为：
 
-1. 引入 Room，迁移 Provider、Conversation、Message。
+1. 继续补 Room migration 测试和数据库导出/备份。
 2. 抽出 `LlmProviderAdapter` 和现有 OpenAI-compatible 实现。
-3. 为生成请求增加取消句柄和“停止生成”UI。
-4. 新增 `AgentRun`、`RunEvent` 数据模型与 Repository，但暂不接工具。
-5. 实现一个假的 Tool Registry 和确定性测试 Harness。
-6. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
+3. 增加 Agent 运行时间线 UI 和交互式审批卡片。
+4. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
 
 完成这六项后，小灵才真正拥有可继续扩展的个人 Agent 骨架。
