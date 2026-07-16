@@ -32,6 +32,16 @@ object MarkdownVerificationSamples {
 
             参考：[OpenAI](https://platform.openai.com/)
         """.trimIndent(),
+        "remote_image" to """
+            ![httpbin png](https://httpbin.org/image/png)
+        """.trimIndent(),
+        "sources_link_list" to """
+            ## Sources
+            [grok2api-sources]: #
+            - [World Cup | The Guardian](https://www.theguardian.com/football/world-cup-football)
+            - [World Cup LIVE: Turkey beat USA, Australia advance | Flashscore.com](https://www.flashscore.com/news/soccer-fifa-world-cup-2026-day-15-live-updates/EmMBTvy8/)
+            - [FIFA World Cup - TSN](https://www.tsn.ca/soccer/fifa-world-cup/;3614/)
+        """.trimIndent(),
         "partial_stream_table" to """
             | 字段 | 说明 |
             | --- | --- |
@@ -50,9 +60,11 @@ object MarkdownVerificationSamples {
 class MarkdownVerificationSamplesTest {
     @Test
     fun `markdown samples cover common model outputs`() {
-        assertEquals(7, MarkdownVerificationSamples.samples.size)
+        assertEquals(9, MarkdownVerificationSamples.samples.size)
         assertTrue(MarkdownVerificationSamples.samples.getValue("gfm_table").contains("| --- | --- | --- |"))
         assertTrue(MarkdownVerificationSamples.samples.getValue("code_fence").contains("```kotlin"))
+        assertTrue(MarkdownVerificationSamples.samples.getValue("remote_image").contains("https://httpbin.org/image/png"))
+        assertTrue(MarkdownVerificationSamples.samples.getValue("sources_link_list").contains("## Sources"))
         assertTrue(MarkdownVerificationSamples.samples.getValue("partial_stream_table").contains("| firstToken"))
         assertTrue(MarkdownVerificationSamples.samples.getValue("long_output").lines().size >= 80)
     }

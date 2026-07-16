@@ -34,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -42,7 +43,6 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -78,10 +78,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -249,12 +252,12 @@ private fun CompactBottomTabBar(
         tonalElevation = 1.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .height(38.dp),
+            .height(46.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 44.dp, top = 1.dp, end = 44.dp, bottom = 5.dp),
+                .padding(start = 42.dp, top = 4.dp, end = 42.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -293,7 +296,7 @@ private fun CompactTabItem(
         contentColor = content,
         shape = shape,
         modifier = modifier
-            .height(30.dp)
+            .height(36.dp)
             .clip(shape)
             .clickable(onClick = onClick),
     ) {
@@ -402,6 +405,8 @@ private fun TestPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // long: 部分厂商系统不会稳定执行 adjustResize；这里在 Compose 层消费 IME inset，让键盘弹出时只压缩对话区域并把输入框顶到键盘上方。
+                .imePadding()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
@@ -587,6 +592,7 @@ private fun MessageInputBar(
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
 ) {
+    val canSend = !testingModel && enabled && prompt.isNotBlank()
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp),
@@ -634,20 +640,20 @@ private fun MessageInputBar(
             )
             Button(
                 onClick = onSend,
-                enabled = !testingModel && enabled,
+                enabled = canSend,
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                     disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                     disabledContentColor = MaterialTheme.colorScheme.outline,
                 ),
                 contentPadding = PaddingValues(0.dp),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(40.dp),
+                    .size(36.dp),
             ) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "发送", modifier = Modifier.size(22.dp))
+                Icon(Icons.Default.ArrowUpward, contentDescription = "发送", modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -1706,6 +1712,15 @@ private fun StreamingMarkdownText(
             ordered = MaterialTheme.typography.bodySmall,
             bullet = MaterialTheme.typography.bodySmall,
             list = MaterialTheme.typography.bodySmall,
+            textLink = TextLinkStyles(
+                // long: Markdown 库默认链接使用 bodyLarge + Bold，Sources 这类引用列表会被放大成标题感；这里强制跟随正文小字号，只保留下划线表示可点击链接。
+                style = SpanStyle(
+                    color = contentColor,
+                    fontSize = MaterialTheme.typography.bodySmall.fontSize,
+                    fontWeight = FontWeight.Normal,
+                    textDecoration = TextDecoration.Underline,
+                ),
+            ),
             table = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
             code = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp),
             inlineCode = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
