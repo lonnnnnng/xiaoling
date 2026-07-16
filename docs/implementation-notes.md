@@ -8,99 +8,65 @@
 - Android Keystore
 - Gradle Wrapper
 
-包名：`com.longdev.endpointtester`
+包名：`com.longdev.xiaoling`
 
 ## 模块职责
 
-| 模块 | 职责 |
-|---|---|
-| UI | 双 Tab 界面：“测试”页选择 Provider / 已勾选模型并对话，“管理”页维护 Provider、端点、密钥和可测试模型列表。 |
-| ViewModel | 维护页面状态，做表单校验，调用网络层，保存配置。 |
-| Network | 构造 OpenAI-compatible 请求，解析响应，分类错误。 |
-| Storage | 保存多 Provider 配置，并为每个配置加密保存 API Key。 |
-| Tests | 覆盖 URL 归一化、Responses 解析和 SSE 增量解析。 |
+| 模块 | 关键文件 | 职责 |
+|---|---|---|
+| App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、模型选择、模型提供方配置页面和轻量反馈。 |
+| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、会话上下文、摘要压缩、模型同步、对话发送和配置保存。 |
+| Network | `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt` | 构造 OpenAI-compatible 请求，处理 Chat Completions、Responses API、SSE 流式输出和错误分类。 |
+| URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
+| Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | 保存 Provider、会话、消息元数据和 UI 偏好；API Key 使用 Android Keystore 加密。 |
+| Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
 
-## 请求行为
+## 对话请求
 
-### 获取模型
+用户在对话页输入消息并发送后：
 
-用户在“管理”页点击“获取模型”后：
-
-1. 校验 `Base URL` 必须以 `http://` 或 `https://` 开头。
-2. 归一化 API 根路径。
-3. 请求 `GET <api-root>/models`。
-4. 从 `data[].id`、`data[].name`、`models[]` 或字符串数组中提取模型名。
-5. 上游模型列表展示为复选项，只有勾选后的模型保存为可测试模型并出现在“测试”页。
-
-### 测试模型
-
-用户在“测试”页选择 Provider 和模型，输入消息并发送后：
-
-1. 校验 `Base URL`、已勾选模型和测试消息。
-2. 按当前 API 模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
-3. Chat Completions 模式发送测试 payload：
-
-```json
-{
-  "model": "mock-model",
-  "messages": [
-    {
-      "role": "user",
-      "content": "请只回复 OK"
-    }
-  ],
-  "temperature": 0,
-  "top_p": 1,
-  "max_tokens": 32768,
-  "stream": false
-}
-```
-
+1. 校验 `Base URL`、已启用模型和消息内容。
+2. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
+3. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
 4. Responses API 模式发送 `model`、`input`、`temperature`、`top_p`、`max_output_tokens` 和 `stream`。
-5. 非流式响应从 `choices[0].message.content`、`choices[0].text`、`output_text` 或 `output[].content[].text` 提取文本。
-6. SSE streaming 响应读取 `data:` 行，并聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
-7. 显示响应内容、耗时和最终 endpoint。
-8. `max_tokens` / `max_output_tokens` 固定为 `32768`，不在 UI 中暴露配置项。
+5. 非流式响应从常见字段中提取文本。
+6. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
+7. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
+8. 最终消息携带结构化 `MessageMeta`，包括模型、接口模式、是否流式、请求地址、首字耗时、总耗时和错误信息。
 
-## URL 归一化
+## 会话上下文
 
-用户可能填写：
+- 当前会话内的用户消息和模型回复会作为上下文参与下一轮请求。
+- 会话数量和消息内容保存在本地。
+- 当历史消息超过最近窗口时，较早内容会压缩成摘要，并作为 system 上下文放入后续请求。
+- 摘要失败时使用本地兜底摘要，保证主对话链路不中断。
 
-- `https://api.example.com/v1`
-- `https://api.example.com/v1/models`
-- `https://api.example.com/v1/chat/completions`
-- `https://api.example.com/v1/responses`
+## Provider 管理
 
-因此代码会先识别已知后缀，再回退到 API 根路径，避免生成：
+设置页二级入口「模型提供方管理」负责：
 
-```text
-/chat/completions/chat/completions
-```
+- 新增、编辑、删除模型提供方。
+- 通过二维码、剪切板和 Base64 解码辅助导入配置。
+- 请求 `GET <api-root>/models` 获取上游模型列表。
+- 手动勾选允许在对话页使用的模型。
+- 单个同步或批量同步模型列表。
 
-## API Key 保存
+## 本地存储
 
-API Key 按 Provider 配置加密保存：
+- Provider 配置保存在 `xiaoling` SharedPreferences。
+- 会话保存在 `xiaoling_conversations` SharedPreferences。
+- UI 偏好保存在 `xiaoling_ui` SharedPreferences。
+- API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
 
-- 密钥生成并保存在 Android Keystore。
-- SharedPreferences 中的 Provider 配置只保存 IV 和密文。
-- 使用 AES-GCM。
-这个设计解决的是“避免明文落盘”，不是防止用户已解锁设备上的所有威胁模型。
+## 日志
 
-## 错误分类
-
-App 将网络和 HTTP 错误转成可读提示：
-
-- `401` / `403`：鉴权失败
-- `404`：端点不存在
-- `429`：请求过多或额度限制
-- DNS 失败
-- TLS 失败
-- 连接失败
-- 超时
-- 响应 JSON 结构不符合预期
+- debug 包默认开启 HTTP 调试日志：`BuildConfig.XIAOLING_HTTP_LOGS_ENABLED = true`。
+- release 包默认关闭 HTTP 调试日志。
+- 日志会对 Authorization 和包含 key 的 Header 做脱敏。
 
 ## 当前限制
 
-- SSE streaming 目前是聚合完成后展示，不做逐 token 实时 UI 刷新。
-- 不提供模板入口；新增或编辑模型提供方时只填写名称、URL 和 API Key。
-- 不做聊天历史。
+- 暂不提供云同步和账号体系。
+- 暂不内置工具调用、MCP 和手机自动化执行。
+- 暂不提供 Provider 模板市场。
+- 更换 `applicationId` 后，旧版本本地数据不会自动迁移。

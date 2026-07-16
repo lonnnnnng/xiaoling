@@ -7,18 +7,18 @@ plugins {
 }
 
 val releaseSigningProperties = Properties().apply {
-    val signingFile = rootProject.file("local-signing/endpoint-release.env")
+    val signingFile = rootProject.file("local-signing/xiaoling-release.env")
     if (signingFile.exists()) {
         signingFile.inputStream().use(::load)
     }
 }
 
 android {
-    namespace = "com.longdev.endpointtester"
+    namespace = "com.longdev.xiaoling"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.longdev.endpointtester"
+        applicationId = "com.longdev.xiaoling"
         minSdk = 26
         targetSdk = 36
         versionCode = 7
@@ -30,23 +30,23 @@ android {
     signingConfigs {
         create("releaseLocal") {
             // long: Release 包必须使用固定证书签名，后续版本才能覆盖安装；密钥只从本机未跟踪配置读取，避免把口令或 keystore 提交到仓库。
-            storeFile = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_STORE_FILE")
+            storeFile = releaseSigningProperties.getProperty("XIAOLING_RELEASE_STORE_FILE")
                 ?.let { rootProject.file(it) }
-            storePassword = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_STORE_PASSWORD")
-            keyAlias = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_KEY_ALIAS")
-            keyPassword = releaseSigningProperties.getProperty("ENDPOINT_RELEASE_KEY_PASSWORD")
+            storePassword = releaseSigningProperties.getProperty("XIAOLING_RELEASE_STORE_PASSWORD")
+            keyAlias = releaseSigningProperties.getProperty("XIAOLING_RELEASE_KEY_ALIAS")
+            keyPassword = releaseSigningProperties.getProperty("XIAOLING_RELEASE_KEY_PASSWORD")
         }
     }
 
     buildTypes {
         debug {
-            // long: 调试端点兼容性时保留 HTTP 日志能力，debug 包默认开启，便于通过 logcat 复盘请求和流式事件。
-            buildConfigField("boolean", "ENDPOINT_HTTP_LOGS_ENABLED", "true")
+            // long: 调试上游接口兼容性时保留 HTTP 日志能力，debug 包默认开启，便于通过 logcat 复盘请求和流式事件。
+            buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "true")
         }
         release {
             isMinifyEnabled = false
             // long: release 包默认关闭 HTTP 日志，避免用户的请求内容和模型返回进入生产日志。
-            buildConfigField("boolean", "ENDPOINT_HTTP_LOGS_ENABLED", "false")
+            buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "false")
             signingConfig = signingConfigs.getByName("releaseLocal")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

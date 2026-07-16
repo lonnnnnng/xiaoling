@@ -1,49 +1,53 @@
-# 灵测
+# 小灵
 
-「灵测」是一个 Android 端 OpenAI-compatible 模型与端点测试工具，面向需要快速验证 Provider、模型、Chat Completions、Responses API 和 SSE streaming 的场景。
+「小灵」是一款 Android 端个人 Agent 应用。当前阶段先把个人 Agent 的基础底座做稳：多模型提供方配置、上游模型选择、多会话上下文、LLM 摘要压缩、Chat Completions / Responses API、SSE 流式输出、Markdown 渲染和本地安全存储。
+
+后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
 ## 当前定位
 
-本项目来自前置调研结论：很多 Android AI Agent / AI 客户端都允许配置自定义 Provider、Base URL、API Key 和模型名，但如果只是想快速判断“某个自定义端点和模型到底能不能用”，完整 Agent 项目过重。
+- 移动端个人 Agent 入口。
+- OpenAI-compatible Provider 优先，不绑定单一服务商。
+- 先保证模型接入、上下文、会话保存和输出渲染稳定，再扩展工具与自动化。
+- 更换了新的 `applicationId`：`com.longdev.xiaoling`。Android 会把它视为新应用，旧版本本地数据不会自动迁移。
 
-所以「灵测」先做好一个小而明确的垂直切片：在 Android 真机上维护模型提供方，选择已勾选的上游模型，并验证 Chat Completions / Responses 接口是否可用。后续会继续扩展成更完整的移动端 AI API 工作台。
+## 已有能力
 
-## 功能
+- 对话页
+  - 支持选择模型提供方和已启用模型。
+  - 支持 Chat Completions 与 Responses API。
+  - 支持 SSE 流式输出，展示首字耗时和总耗时。
+  - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
+  - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
+  - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
 
-- 管理多个模型提供方：名称、`Base URL`、`API Key`。
-- 支持 `GET /models` 获取模型列表。
-- 支持手动勾选允许在测试页使用的上游模型。
-- 支持 `POST /chat/completions` 发送测试消息。
-- 支持 `POST /responses` 测试 Responses API。
-- 支持 SSE streaming 流式响应测试。
-- 测试页可切换 Chat / Responses 和是否启用流式输出。
-- 支持多会话本地保存、会话上下文、LLM 摘要压缩和结构化消息元数据。
-- 支持 Markdown 渲染，覆盖表格、代码块、列表、引用和长输出等常见模型回答。
-- 固定 `max_tokens` / `max_output_tokens` 为 `32768`，避免每个 Provider 重复配置。
-- 流式输出显示首字耗时和总耗时，非流式输出显示总耗时。
-- API Key 使用 Android Keystore 加密保存。
-- 允许明文 HTTP，便于测试 Ollama、局域网端点和 adb reverse。
-- 对常见错误做分类提示，包括鉴权失败、404、429、超时、DNS、TLS、连接失败和响应格式错误。
+- 设置页
+  - 一级入口为「模型提供方管理」。
+  - 支持新增、编辑、删除模型提供方。
+  - 支持 `Base URL`、`API Key` 和名称配置。
+  - 支持扫码导入、剪切板解析和 Base64 解码辅助。
+  - 支持拉取上游模型列表，并手动勾选允许在对话页使用的模型。
+  - 支持单个同步和批量同步模型列表。
 
-## 文档
-
-- [文档索引](docs/README.md)
-- [需求汇总](docs/requirements.md)
-- [参考资料来源](docs/reference-sources.md)
-- [实现说明](docs/implementation-notes.md)
-- [验证报告](docs/verification-report.md)
+- 请求与安全
+  - 支持 `GET /models`。
+  - 支持 `POST /chat/completions`。
+  - 支持 `POST /responses`。
+  - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
+  - API Key 使用 Android Keystore + AES-GCM 加密保存。
+  - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
+  - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
 
 ## 使用方式
 
-1. 从 GitHub Release 下载并安装 APK，或本地执行构建后安装 `app/build/outputs/apk/release/app-release.apk`。
-2. 打开 App，填写：
-   - 在“管理”页新增或选择模型提供方。
-   - 填写 `Base URL`：例如 `https://api.example.com/v1` 或 `http://127.0.0.1:8765/v1`。
-   - 填写 `API Key`，服务需要鉴权时填写。
-   - 点“获取上游模型”确认 `/models` 是否可用，并勾选允许在测试页使用的模型。
-3. 保存后回到“测试”页，选择模型提供方和已勾选的具体模型。
-4. 按需选择 Chat Completions / Responses API、是否启用 SSE streaming。
-5. 输入消息并发送，确认 `/chat/completions` 或 `/responses` 是否可用。
+1. 打开「设置」页，进入「模型提供方管理」。
+2. 新增模型提供方，填写：
+   - 名称：可选，不填时根据 URL 兜底。
+   - `Base URL`：例如 `https://api.example.com/v1` 或 `http://127.0.0.1:8765/v1`。
+   - `API Key`：服务需要鉴权时填写。
+3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
+4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
+5. 输入消息开始对话。
 
 ## 本地 mock 调试
 
@@ -63,36 +67,40 @@ API Key: test-key
 ## 构建
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
 ```
 
-## 本次验证
+生成正式签名包：
 
-- 验证设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro，Android 14 / API 34。
-- 当前版本：`0.1.6`。
-- 构建结果：`BUILD SUCCESSFUL`。
-- Release APK：本地正式签名，`apksigner verify` 通过。
-- 真机冒烟：使用同代码 debug 包验证 UI；未卸载当前设备上的调试包，避免清空本地 Provider 和会话数据。
-- 真机检查：
-  - 测试页和管理页可正常启动。
-  - 测试页展示固定标题、紧凑底部 TabBar、Provider / 模型选择、Chat / Responses 和流式开关。
-  - 管理页展示固定标题、Provider 列表和模型数量。
-  - 深色 / 亮色 / 自动主题切换可用。
-  - 新增模型提供方页面可打开 Base64 解码弹框，并复制解码后的明文。
-  - Responses 流式 Markdown 换行、表格和列表最终渲染正常。
-  - Markdown 常见样式可正常渲染，包括标题、列表、引用、代码块、表格、链接、Sources 链接列表和远程图片。
-  - 测试页输入框弹出键盘时会随键盘上移；底部 TabBar 点击区域增大。
-  - 空消息不可发送；发送按钮使用蓝色圆形直上箭头样式。
-  - 对话记录区改为条件自动滚动：用户在底部时跟随新内容，用户翻看历史时显示轻量“新内容”按钮，点击后回到底部。
-- 接口矩阵检查：
-  - Chat 非流式：10/10 成功。
-  - Chat 流式：10/10 成功。
-  - Responses 非流式：10/10 成功。
-  - Responses 流式：10/10 成功。
-- 崩溃检查：当前进程 logcat 未命中 `FATAL EXCEPTION`、`AndroidRuntime`、`ANR`、`crash`、`Exception` 等关键字。
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease
+```
+
+本机 release 签名配置放在未跟踪目录：
+
+```text
+local-signing/xiaoling-release.env
+local-signing/xiaoling-release.jks
+```
+
+## 当前验证
+
+- `testDebugUnitTest assembleDebug`：通过。
+- `assembleRelease`：通过。
+- `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
+- 真机 `wsvwypiz7xwslvl7`：debug 包安装成功，`com.longdev.xiaoling/.MainActivity` 启动成功。
+- APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
+
+## 文档
+
+- [文档索引](docs/README.md)
+- [需求汇总](docs/requirements.md)
+- [参考资料来源](docs/reference-sources.md)
+- [实现说明](docs/implementation-notes.md)
+- [验证报告](docs/verification-report.md)
 
 ## 产物
 
-- Release：<https://github.com/lonnnnnng/lingce/releases>
+- 本地 debug APK：`app/build/outputs/apk/debug/app-debug.apk`
 - 本地 release APK：`app/build/outputs/apk/release/app-release.apk`
 - `outputs/` 目录不纳入版本控制。
