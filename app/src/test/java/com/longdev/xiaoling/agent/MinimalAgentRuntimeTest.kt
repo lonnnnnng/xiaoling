@@ -149,6 +149,40 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun rejectedApprovalMarksRunFailedAndKeepsDeniedEvent() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    return ApprovalDecision(
+                        approved = false,
+                        reason = "用户拒绝执行",
+                    )
+                }
+            },
+        )
+
+        var runId: String? = null
+        try {
+            runtime.runDemo("conversation-1", "message-1", "拒绝审批")
+        } catch (error: IllegalStateException) {
+            runId = ledger.lastRunId
+        }
+
+        val snapshot = ledger.snapshot(runId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("工具未获批准"))
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "approval" }.status)
+        assertTrue(snapshot.events.any { it.type == "approval.denied" && it.message.contains("用户拒绝执行") })
+    }
+
+    @Test
     fun missingRequiredToolArgumentFailsAtValidationStep() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(

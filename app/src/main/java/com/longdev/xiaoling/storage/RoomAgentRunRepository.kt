@@ -1,6 +1,8 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import com.longdev.xiaoling.agent.ApprovalRequestRecord
+import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
@@ -8,10 +10,15 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.RunEventRecord
+import com.longdev.xiaoling.agent.ToolCall
+import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentStepEntity
+import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.RunEventEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import org.json.JSONObject
 import java.util.UUID
 
 class RoomAgentRunRepository(
@@ -122,6 +129,69 @@ class RoomAgentRunRepository(
         )
     }
 
+    suspend fun createApprovalRequest(
+        conversationId: String,
+        runId: String,
+        toolCall: ToolCall,
+        definition: ToolDefinition,
+        expiresAt: Long,
+    ): ApprovalRequestRecord {
+        val now = System.currentTimeMillis()
+        val request = ApprovalRequestRecord(
+            id = "approval-${UUID.randomUUID()}",
+            runId = runId,
+            conversationId = conversationId,
+            toolCallId = toolCall.id,
+            toolName = toolCall.name,
+            toolDescription = definition.description,
+            risk = definition.risk,
+            arguments = toolCall.arguments,
+            status = ApprovalRequestStatus.PENDING,
+            decisionReason = null,
+            createdAt = now,
+            expiresAt = expiresAt,
+            decidedAt = null,
+        )
+        database.agentRunDao().upsertApprovalRequest(request.toEntity())
+        appendEvent(runId, "approval.requested", request.toEventMessage())
+        return request
+    }
+
+    suspend fun decideApprovalRequest(
+        requestId: String,
+        status: ApprovalRequestStatus,
+        reason: String,
+    ): ApprovalRequestRecord? {
+        val current = database.agentRunDao().getApprovalRequest(requestId)?.toRecord() ?: return null
+        val decided = current.copy(
+            status = status,
+            decisionReason = reason,
+            decidedAt = System.currentTimeMillis(),
+        )
+        database.agentRunDao().upsertApprovalRequest(decided.toEntity())
+        appendEvent(decided.runId, "approval.request_decided", decided.toEventMessage())
+        return decided
+    }
+
+    suspend fun pendingApprovalRequests(conversationId: String): List<ApprovalRequestRecord> {
+        val now = System.currentTimeMillis()
+        return database.agentRunDao()
+            .getPendingApprovalRequests(conversationId)
+            .map { it.toRecord() }
+            .map { request ->
+                if (request.expiresAt <= now) {
+                    decideApprovalRequest(
+                        requestId = request.id,
+                        status = ApprovalRequestStatus.EXPIRED,
+                        reason = "审批请求已过期",
+                    ) ?: request.copy(status = ApprovalRequestStatus.EXPIRED, decisionReason = "审批请求已过期", decidedAt = now)
+                } else {
+                    request
+                }
+            }
+            .filter { it.status == ApprovalRequestStatus.PENDING }
+    }
+
     private suspend fun findStep(stepId: String): AgentStepEntity? {
         return database.agentRunDao().getStep(stepId)
     }
@@ -151,6 +221,22 @@ class RoomAgentRunRepository(
         completedAt = completedAt,
     )
 
+    private fun ApprovalRequestRecord.toEntity() = ApprovalRequestEntity(
+        id = id,
+        runId = runId,
+        conversationId = conversationId,
+        toolCallId = toolCallId,
+        toolName = toolName,
+        toolDescription = toolDescription,
+        risk = risk.name,
+        argumentsJson = arguments.toJsonObject().toString(),
+        status = status.name,
+        decisionReason = decisionReason,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        decidedAt = decidedAt,
+    )
+
     private fun AgentRunEntity.toRecord() = AgentRunRecord(
         id = id,
         conversationId = conversationId,
@@ -176,6 +262,22 @@ class RoomAgentRunRepository(
         completedAt = completedAt,
     )
 
+    private fun ApprovalRequestEntity.toRecord() = ApprovalRequestRecord(
+        id = id,
+        runId = runId,
+        conversationId = conversationId,
+        toolCallId = toolCallId,
+        toolName = toolName,
+        toolDescription = toolDescription,
+        risk = runCatching { ToolRisk.valueOf(risk) }.getOrDefault(ToolRisk.REQUIRES_APPROVAL),
+        arguments = argumentsJson.toStringMap(),
+        status = runCatching { ApprovalRequestStatus.valueOf(status) }.getOrDefault(ApprovalRequestStatus.EXPIRED),
+        decisionReason = decisionReason,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        decidedAt = decidedAt,
+    )
+
     private fun RunEventEntity.toRecord() = RunEventRecord(
         id = id,
         runId = runId,
@@ -183,4 +285,31 @@ class RoomAgentRunRepository(
         message = message,
         createdAt = createdAt,
     )
+
+    private fun Map<String, String>.toJsonObject(): JSONObject {
+        val json = JSONObject()
+        toSortedMap().forEach { (key, value) -> json.put(key, value) }
+        return json
+    }
+
+    private fun String.toStringMap(): Map<String, String> {
+        return runCatching {
+            val json = JSONObject(this)
+            buildMap {
+                json.keys().forEach { key -> put(key, json.optString(key)) }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun ApprovalRequestRecord.toEventMessage(): String {
+        return JSONObject()
+            .put("id", id)
+            .put("tool", toolName)
+            .put("risk", risk.name)
+            .put("status", status.name)
+            .put("expiresAt", expiresAt)
+            .put("decisionReason", decisionReason)
+            .put("arguments", arguments.toJsonObject())
+            .toString()
+    }
 }

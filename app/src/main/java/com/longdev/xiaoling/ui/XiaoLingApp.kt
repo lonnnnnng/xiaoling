@@ -104,6 +104,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.agent.AgentCommand
+import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -560,7 +563,7 @@ private fun ConversationPage(
     val waitingForModelStart = state.sendingMessage && state.chatMessages.lastOrNull()
         ?.takeIf { it.role == "assistant" }
         ?.text
-        .isNullOrBlank()
+        .isNullOrBlank() && state.pendingAgentApproval == null
 
     Box(
         modifier = modifier.fillMaxSize(),
@@ -613,10 +616,22 @@ private fun ConversationPage(
                             }
                         }
                         items(count = state.chatMessages.size) { index ->
+                            val message = state.chatMessages[index]
                             ChatBubble(
-                                message = state.chatMessages[index],
+                                message = message,
                                 onReuseUserMessage = viewModel::updatePrompt,
                             )
+                            if (state.activeAgentRun?.run?.userMessageId == message.id) {
+                                Spacer(modifier = Modifier.height(7.dp))
+                                AgentRunTimelineCard(
+                                    snapshot = state.activeAgentRun,
+                                    approval = state.pendingAgentApproval?.takeIf {
+                                        it.runId == state.activeAgentRun.run.id
+                                    },
+                                    onApprove = viewModel::approvePendingAgentTool,
+                                    onReject = viewModel::rejectPendingAgentTool,
+                                )
+                            }
                         }
                         item {
                             Spacer(modifier = Modifier.height(1.dp))
@@ -851,6 +866,299 @@ private fun MessageInputBar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AgentRunTimelineCard(
+    snapshot: AgentRunSnapshot,
+    approval: AgentApprovalUiState?,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.28f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f),
+                RoundedCornerShape(10.dp),
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Icon(
+                    Icons.Default.Memory,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.tertiary,
+                )
+                Text(
+                    text = "Agent 运行",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                AgentStatusChip(snapshot.run.status)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = snapshot.run.updatedAt.toFullTimeLabel(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+            }
+
+            Text(
+                text = "目标：${snapshot.run.goal}",
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            approval?.let {
+                AgentApprovalCard(
+                    approval = it,
+                    onApprove = onApprove,
+                    onReject = onReject,
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                snapshot.steps.forEach { step ->
+                    AgentStepRow(
+                        status = step.status,
+                        title = step.title,
+                        detail = step.detail,
+                    )
+                }
+            }
+
+            snapshot.run.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentStatusChip(status: AgentRunStatus) {
+    val color = when (status) {
+        AgentRunStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+        AgentRunStatus.FAILED,
+        AgentRunStatus.BUDGET_EXHAUSTED -> MaterialTheme.colorScheme.error
+        AgentRunStatus.CANCELLED -> MaterialTheme.colorScheme.outline
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    Surface(
+        color = color.copy(alpha = 0.14f),
+        contentColor = color,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Text(
+            text = status.toUiLabel(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+        )
+    }
+}
+
+@Composable
+private fun AgentApprovalCard(
+    approval: AgentApprovalUiState,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "等待确认 · ${approval.riskLabel}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = approval.toolName,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                TextButton(
+                    onClick = onReject,
+                    enabled = !approval.deciding,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp),
+                ) {
+                    Text("拒绝", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp))
+                }
+                Button(
+                    onClick = onApprove,
+                    enabled = !approval.deciding,
+                    shape = RoundedCornerShape(13.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp),
+                ) {
+                    Text("批准执行", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp))
+                }
+            }
+            Text(
+                text = approval.toolDescription,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (approval.arguments.isNotEmpty()) {
+                Text(
+                    text = approval.arguments.entries.joinToString(" · ") { "${it.key}=${it.value}" },
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentStepRow(
+    status: AgentStepStatus,
+    title: String,
+    detail: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        AgentStepStatusIcon(status)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = status.toUiLabel(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = status.toUiColor(),
+        )
+    }
+}
+
+@Composable
+private fun AgentStepStatusIcon(status: AgentStepStatus) {
+    Box(
+        modifier = Modifier.size(14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (status) {
+            AgentStepStatus.RUNNING -> CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.5.dp,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            AgentStepStatus.COMPLETED -> Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            AgentStepStatus.FAILED -> Icon(
+                Icons.Default.Error,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.error,
+            )
+            AgentStepStatus.CANCELLED -> Icon(
+                Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.outline,
+            )
+            AgentStepStatus.PENDING -> Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentStepStatus.toUiColor(): Color {
+    return when (this) {
+        AgentStepStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+        AgentStepStatus.FAILED -> MaterialTheme.colorScheme.error
+        AgentStepStatus.CANCELLED -> MaterialTheme.colorScheme.outline
+        AgentStepStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
+        AgentStepStatus.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+
+private fun AgentRunStatus.toUiLabel(): String {
+    return when (this) {
+        AgentRunStatus.QUEUED -> "排队"
+        AgentRunStatus.THINKING -> "思考中"
+        AgentRunStatus.WAITING_APPROVAL -> "待确认"
+        AgentRunStatus.EXECUTING -> "执行中"
+        AgentRunStatus.VERIFYING -> "验证中"
+        AgentRunStatus.COMPLETED -> "已完成"
+        AgentRunStatus.FAILED -> "失败"
+        AgentRunStatus.CANCELLED -> "已取消"
+        AgentRunStatus.BUDGET_EXHAUSTED -> "预算耗尽"
+    }
+}
+
+private fun AgentStepStatus.toUiLabel(): String {
+    return when (this) {
+        AgentStepStatus.PENDING -> "待处理"
+        AgentStepStatus.RUNNING -> "进行中"
+        AgentStepStatus.COMPLETED -> "完成"
+        AgentStepStatus.FAILED -> "失败"
+        AgentStepStatus.CANCELLED -> "取消"
     }
 }
 

@@ -8,6 +8,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.agent.AgentCommand
 import com.longdev.xiaoling.agent.AgentDemoUseCase
+import com.longdev.xiaoling.agent.ApprovalRequestRecord
+import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.ApprovalDecision
+import com.longdev.xiaoling.agent.ApprovalGate
+import com.longdev.xiaoling.agent.ToolCall
+import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -26,19 +34,31 @@ import com.longdev.xiaoling.storage.StoredConversationMessage
 import com.longdev.xiaoling.storage.StoredMessageMeta
 import com.longdev.xiaoling.storage.StoredConversations
 import com.longdev.xiaoling.storage.StoredProfiles
+import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
 private fun newChatMessageId(): String = "message-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+
+private fun ToolRisk.toUiLabel(): String {
+    return when (this) {
+        ToolRisk.SAFE -> "低风险"
+        ToolRisk.REQUIRES_APPROVAL -> "需确认"
+        ToolRisk.DANGEROUS -> "高风险"
+    }
+}
 
 data class XiaoLingUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
@@ -64,6 +84,8 @@ data class XiaoLingUiState(
     val syncingProfileIds: Set<String> = emptySet(),
     val syncingAllProfiles: Boolean = false,
     val batchSyncResults: Map<String, String> = emptyMap(),
+    val activeAgentRun: AgentRunSnapshot? = null,
+    val pendingAgentApproval: AgentApprovalUiState? = null,
     val result: OperationResult? = null,
 )
 
@@ -123,6 +145,35 @@ data class OperationResult(
     val firstTokenLatencyMs: Long? = null,
 )
 
+data class AgentApprovalUiState(
+    val requestId: String,
+    val runId: String,
+    val conversationId: String,
+    val toolCallId: String,
+    val toolName: String,
+    val toolDescription: String,
+    val riskLabel: String,
+    val arguments: Map<String, String>,
+    val expiresAt: Long,
+    val deciding: Boolean = false,
+) {
+    companion object {
+        fun from(request: ApprovalRequestRecord): AgentApprovalUiState {
+            return AgentApprovalUiState(
+                requestId = request.id,
+                runId = request.runId,
+                conversationId = request.conversationId,
+                toolCallId = request.toolCallId,
+                toolName = request.toolName,
+                toolDescription = request.toolDescription,
+                riskLabel = request.risk.toUiLabel(),
+                arguments = request.arguments,
+                expiresAt = request.expiresAt,
+            )
+        }
+    }
+}
+
 private data class PreparedRequestContext(
     val requestMessages: List<RequestMessage>,
     val summary: String,
@@ -151,8 +202,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private val agentDemoUseCase = AgentDemoUseCase(application, client)
+    private val agentRunRepository = RoomAgentRunRepository(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
+    private var pendingApprovalDecision: CompletableDeferred<ApprovalDecision>? = null
+    private val activeAgentRunsByConversation = mutableMapOf<String, AgentRunSnapshot>()
+    private val pendingAgentApprovalsByConversation = mutableMapOf<String, AgentApprovalUiState>()
     private var sendMessageJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
@@ -251,7 +306,58 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun stopGenerating() {
         // long: 停止生成是用户接管当前 Run 的入口，必须取消真实网络请求，而不是只隐藏 loading。
+        pendingApprovalDecision?.cancel()
         sendMessageJob?.cancel()
+    }
+
+    fun approvePendingAgentTool() {
+        val pending = uiState.pendingAgentApproval ?: return
+        completePendingAgentApproval(
+            pending = pending,
+            status = ApprovalRequestStatus.APPROVED,
+            approved = true,
+            reason = "用户已批准：${pending.toolName}",
+        )
+    }
+
+    fun rejectPendingAgentTool() {
+        val pending = uiState.pendingAgentApproval ?: return
+        completePendingAgentApproval(
+            pending = pending,
+            status = ApprovalRequestStatus.DENIED,
+            approved = false,
+            reason = "用户已拒绝：${pending.toolName}",
+        )
+    }
+
+    private fun completePendingAgentApproval(
+        pending: AgentApprovalUiState,
+        status: ApprovalRequestStatus,
+        approved: Boolean,
+        reason: String,
+    ) {
+        val deferred = pendingApprovalDecision ?: return
+        val deciding = pending.copy(deciding = true)
+        rememberPendingApproval(deciding)
+        viewModelScope.launch {
+            withContext(NonCancellable + Dispatchers.IO) {
+                agentRunRepository.decideApprovalRequest(
+                    requestId = pending.requestId,
+                    status = status,
+                    reason = reason,
+                )
+            }
+            if (pendingApprovalDecision === deferred) {
+                pendingApprovalDecision = null
+                clearPendingApprovalForConversation(pending.conversationId)
+                deferred.complete(
+                    ApprovalDecision(
+                        approved = approved,
+                        reason = reason,
+                    ),
+                )
+            }
+        }
     }
 
     fun openNewConversation() {
@@ -262,6 +368,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 conversationTitle = current.title,
                 conversationSummary = current.summary,
                 chatMessages = emptyList(),
+                activeAgentRun = activeAgentRunsByConversation[current.id],
+                pendingAgentApproval = pendingAgentApprovalsByConversation[current.id],
                 result = null,
             )
             saveConversationSelection()
@@ -278,6 +386,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 conversationTitle = reusableEmptyConversation.title,
                 conversationSummary = reusableEmptyConversation.summary,
                 chatMessages = emptyList(),
+                activeAgentRun = activeAgentRunsByConversation[reusableEmptyConversation.id],
+                pendingAgentApproval = pendingAgentApprovalsByConversation[reusableEmptyConversation.id],
                 result = null,
             )
             saveConversationSelection()
@@ -302,6 +412,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversationTitle = conversation.title,
             conversationSummary = "",
             chatMessages = emptyList(),
+            activeAgentRun = null,
+            pendingAgentApproval = null,
             result = null,
         )
         saveConversationSelection()
@@ -314,6 +426,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversationTitle = conversation.title,
             conversationSummary = conversation.summary,
             chatMessages = conversation.messages,
+            activeAgentRun = activeAgentRunsByConversation[conversation.id],
+            pendingAgentApproval = pendingAgentApprovalsByConversation[conversation.id],
             result = null,
         )
         saveConversationSelection()
@@ -322,6 +436,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun deleteCurrentConversation() {
         val currentId = uiState.selectedConversationId
         val remaining = uiState.conversations.filterNot { it.id == currentId }
+        activeAgentRunsByConversation.remove(currentId)
+        pendingAgentApprovalsByConversation.remove(currentId)
         if (remaining.isEmpty()) {
             val now = System.currentTimeMillis()
             val conversation = ConversationSession(
@@ -341,6 +457,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 conversationTitle = conversation.title,
                 conversationSummary = "",
                 chatMessages = emptyList(),
+                activeAgentRun = null,
+                pendingAgentApproval = null,
                 result = null,
             )
             saveConversationSelection()
@@ -354,6 +472,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversationTitle = next.title,
             conversationSummary = next.summary,
             chatMessages = next.messages,
+            activeAgentRun = activeAgentRunsByConversation[next.id],
+            pendingAgentApproval = pendingAgentApprovalsByConversation[next.id],
             result = OperationResult(true, "已删除", "当前会话已删除"),
         )
         saveConversationSelection()
@@ -526,6 +646,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val config = validatedConfig() ?: return
         val profileSnapshot = selectedProfile()
         val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
+        clearAgentStateForConversation(uiState.selectedConversationId)
         val userChatMessage = ChatMessage(
             role = "user",
             text = userMessage,
@@ -537,6 +658,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
+            activeAgentRun = null,
+            pendingAgentApproval = null,
         ).withUpdatedCurrentConversation(
             messages = messagesWithUser,
             summary = preparedContext.summary,
@@ -637,7 +760,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun sendAgentDemo(userMessage: String, config: ProviderRequestConfig) {
-        val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
+        val conversationId = uiState.selectedConversationId.ifBlank { "conversation-${System.currentTimeMillis()}" }
+        val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
+        clearAgentStateForConversation(conversationId)
         val userChatMessage = ChatMessage(
             role = "user",
             text = userMessage,
@@ -649,30 +774,34 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
-        ).withUpdatedCurrentConversation(
+        ).withUpdatedConversation(
+            conversationId = conversationId,
             messages = messagesWithUser,
             summary = preparedContext.summary,
             summaryUntilMessageId = preparedContext.summaryUntilMessageId,
             summaryUpdatedAt = preparedContext.summaryUpdatedAt,
             summaryModel = preparedContext.summaryModel,
         )
-        val conversationId = uiState.selectedConversationId
         val goal = AgentCommand.goal(userMessage)
         sendMessageJob = viewModelScope.launch {
             try {
+                val approvalGate = interactiveAgentApprovalGate(conversationId)
                 val summary = agentDemoUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,
                     config = config,
+                    approvalGate = approvalGate,
+                    onSnapshot = ::publishAgentRunSnapshot,
                 )
-                val finalMessages = uiState.chatMessages + ChatMessage(
+                val finalMessages = messagesWithUser + ChatMessage(
                     role = "assistant",
                     text = summary.responseText,
                     createdAt = System.currentTimeMillis(),
                 )
                 uiState = uiState
-                    .withUpdatedCurrentConversation(
+                    .withUpdatedConversation(
+                        conversationId = conversationId,
                         messages = finalMessages,
                         summary = preparedContext.summary,
                         summaryUntilMessageId = preparedContext.summaryUntilMessageId,
@@ -680,15 +809,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
+                clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: CancellationException) {
-                val stoppedMessages = uiState.chatMessages + ChatMessage(
+                val stoppedMessages = messagesWithUser + ChatMessage(
                     role = "error",
                     text = "已停止 Agent 任务",
                     createdAt = System.currentTimeMillis(),
                 )
                 uiState = uiState
-                    .withUpdatedCurrentConversation(
+                    .withUpdatedConversation(
+                        conversationId = conversationId,
                         messages = stoppedMessages,
                         summary = preparedContext.summary,
                         summaryUntilMessageId = preparedContext.summaryUntilMessageId,
@@ -696,15 +827,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
+                clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: Throwable) {
-                val failedMessages = uiState.chatMessages + ChatMessage(
+                val failedMessages = messagesWithUser + ChatMessage(
                     role = "error",
                     text = "Agent 任务失败\n${error.message ?: "未知错误"}",
                     createdAt = System.currentTimeMillis(),
                 )
                 uiState = uiState
-                    .withUpdatedCurrentConversation(
+                    .withUpdatedConversation(
+                        conversationId = conversationId,
                         messages = failedMessages,
                         summary = preparedContext.summary,
                         summaryUntilMessageId = preparedContext.summaryUntilMessageId,
@@ -712,10 +845,128 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
+                clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } finally {
+                pendingApprovalDecision = null
                 sendMessageJob = null
             }
+        }
+    }
+
+    private fun interactiveAgentApprovalGate(conversationId: String): ApprovalGate {
+        return object : ApprovalGate {
+            override suspend fun requestApproval(
+                runId: String,
+                toolCall: ToolCall,
+                definition: ToolDefinition,
+            ): ApprovalDecision {
+                return awaitAgentApproval(
+                    conversationId = conversationId,
+                    runId = runId,
+                    toolCall = toolCall,
+                    definition = definition,
+                )
+            }
+        }
+    }
+
+    private suspend fun awaitAgentApproval(
+        conversationId: String,
+        runId: String,
+        toolCall: ToolCall,
+        definition: ToolDefinition,
+    ): ApprovalDecision {
+        val request = withContext(Dispatchers.IO) {
+            agentRunRepository.createApprovalRequest(
+                conversationId = conversationId,
+                runId = runId,
+                toolCall = toolCall,
+                definition = definition,
+                expiresAt = System.currentTimeMillis() + AGENT_APPROVAL_TIMEOUT_MS,
+            )
+        }
+        val deferred = CompletableDeferred<ApprovalDecision>()
+        withContext(Dispatchers.Main.immediate) {
+            // long: 审批请求是 Agent 从“模型建议”进入“真实执行”的安全闸口，UI 只展示 Runtime 已校验过的工具定义和参数，不接受模型自称的风险等级。
+            pendingApprovalDecision = deferred
+            rememberPendingApproval(AgentApprovalUiState.from(request))
+        }
+        var expired = false
+        return try {
+            withTimeoutOrNull(AGENT_APPROVAL_TIMEOUT_MS) {
+                deferred.await()
+            } ?: run {
+                expired = true
+                ApprovalDecision(
+                    approved = false,
+                    reason = "审批请求已过期",
+                )
+            }
+        } finally {
+            val unresolvedStatus = when {
+                expired -> ApprovalRequestStatus.EXPIRED
+                deferred.isCancelled -> ApprovalRequestStatus.CANCELLED
+                !deferred.isCompleted -> ApprovalRequestStatus.CANCELLED
+                else -> null
+            }
+            if (unresolvedStatus != null) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    agentRunRepository.decideApprovalRequest(
+                        requestId = request.id,
+                        status = unresolvedStatus,
+                        reason = if (unresolvedStatus == ApprovalRequestStatus.EXPIRED) {
+                            "审批请求已过期"
+                        } else {
+                            "审批等待已取消"
+                        },
+                    )
+                }
+            }
+            withContext(NonCancellable + Dispatchers.Main.immediate) {
+                if (pendingApprovalDecision === deferred) {
+                    pendingApprovalDecision = null
+                    clearPendingApprovalForConversation(conversationId)
+                }
+            }
+        }
+    }
+
+    private suspend fun publishAgentRunSnapshot(snapshot: AgentRunSnapshot) {
+        withContext(Dispatchers.Main.immediate) {
+            rememberAgentRun(snapshot)
+        }
+    }
+
+    private fun rememberAgentRun(snapshot: AgentRunSnapshot) {
+        activeAgentRunsByConversation[snapshot.run.conversationId] = snapshot
+        if (snapshot.run.conversationId == uiState.selectedConversationId) {
+            uiState = uiState.copy(activeAgentRun = snapshot)
+        }
+    }
+
+    private fun rememberPendingApproval(approval: AgentApprovalUiState) {
+        pendingAgentApprovalsByConversation[approval.conversationId] = approval
+        if (approval.conversationId == uiState.selectedConversationId) {
+            uiState = uiState.copy(pendingAgentApproval = approval)
+        }
+    }
+
+    private fun clearPendingApprovalForConversation(conversationId: String) {
+        pendingAgentApprovalsByConversation.remove(conversationId)
+        if (conversationId == uiState.selectedConversationId) {
+            uiState = uiState.copy(pendingAgentApproval = null)
+        }
+    }
+
+    private fun clearAgentStateForConversation(conversationId: String) {
+        activeAgentRunsByConversation.remove(conversationId)
+        pendingAgentApprovalsByConversation.remove(conversationId)
+        if (conversationId == uiState.selectedConversationId) {
+            uiState = uiState.copy(
+                activeAgentRun = null,
+                pendingAgentApproval = null,
+            )
         }
     }
 
@@ -795,8 +1046,26 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         summaryUpdatedAt: Long? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryUpdatedAt,
         summaryModel: String? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryModel,
     ): XiaoLingUiState {
+        return withUpdatedConversation(
+            conversationId = selectedConversationId,
+            messages = messages,
+            summary = summary,
+            summaryUntilMessageId = summaryUntilMessageId,
+            summaryUpdatedAt = summaryUpdatedAt,
+            summaryModel = summaryModel,
+        )
+    }
+
+    private fun XiaoLingUiState.withUpdatedConversation(
+        conversationId: String,
+        messages: List<ChatMessage>,
+        summary: String,
+        summaryUntilMessageId: String? = conversations.firstOrNull { it.id == conversationId }?.summaryUntilMessageId,
+        summaryUpdatedAt: Long? = conversations.firstOrNull { it.id == conversationId }?.summaryUpdatedAt,
+        summaryModel: String? = conversations.firstOrNull { it.id == conversationId }?.summaryModel,
+    ): XiaoLingUiState {
         val now = System.currentTimeMillis()
-        val currentId = selectedConversationId.ifBlank { "conversation-$now" }
+        val currentId = conversationId.ifBlank { "conversation-$now" }
         val current = conversations.firstOrNull { it.id == currentId }
         val title = current?.title
             ?.takeUnless { it == "新会话" && messages.any { message -> message.role == "user" } }
@@ -816,7 +1085,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversations.map { if (it.id == currentId) updatedConversation else it }
         } else {
             conversations + updatedConversation
-        }.collapseDuplicateEmptyConversations(currentId)
+        }.collapseDuplicateEmptyConversations(selectedConversationId.ifBlank { currentId })
+        // long: Agent Run 可能在用户切到其他会话后才完成；落库和会话消息必须回写发起 Run 的会话，不能污染用户当前正在看的会话。
+        if (currentId != selectedConversationId) {
+            return copy(conversations = updatedConversations)
+        }
         return copy(
             conversations = updatedConversations,
             selectedConversationId = currentId,
@@ -1388,5 +1661,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val SUMMARY_MAX_CHARS = 4_000
         private const val SUMMARY_TARGET_CHARS = 1_200
         private const val STREAMING_UI_THROTTLE_MS = 30L
+        private const val AGENT_APPROVAL_TIMEOUT_MS = 110_000L
     }
 }

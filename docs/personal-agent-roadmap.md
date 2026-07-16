@@ -26,12 +26,13 @@
 - Provider、模型、接口模式、流式和耗时等消息元数据。
 - Android Keystore 密钥保护和网络错误分类。
 - 请求取消和停止生成。
-- `AgentRun / AgentStep / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
+- `AgentRun / AgentStep / ApprovalRequest / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
 - 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、必填参数校验、重复工具调用检测和结构化事件记录。
+- 对话区已能显示当前 `/agent` Run 的最小时间线和审批卡片，批准后继续执行，拒绝后写入失败终态；审批请求已具备有效期和决定结果落库。
 
 ### 主要缺口
 
-- 还没有真实 LLM tool call、交互式确认卡片、运行恢复、步骤时间线 UI 和失败重试。
+- 还没有真实 LLM tool call、独立任务中心、进程重建后的运行恢复、失败重试和可展开工具结果。
 - 还没有真实 Tool Registry、完整 JSON Schema、权限策略和可插拔后置验证策略。
 - 没有独立长期记忆，当前摘要只服务单个会话上下文。
 - 没有 Skill、Workflow、后台调度和执行日志。
@@ -120,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 - `RunEvent`：状态变化、模型决策、工具调用、工具结果、确认、错误。
 - `ToolDefinition`：名称、描述、输入 Schema、风险、权限、确认和验证规则。
 - `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。
-- `ApprovalRequest`：待确认动作、风险说明、有效期和用户决定。
+- `ApprovalRequest`：待确认动作、风险说明、有效期和用户决定。当前已落地最小 Room 表，后续还需要接入任务中心和进程重建后的恢复策略。
 
 ### 运行状态
 
@@ -141,7 +142,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 工具参数先做 JSON Schema 和业务校验，再进入 Executor。当前先支持必填参数校验，完整类型和业务校验仍待补齐。
 - 风险和确认要求取自 `ToolDefinition`，忽略模型自己声明的风险级别。
 - Run 可取消；取消后不再接受迟到的流式事件或工具结果。
-- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。
+- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。当前已在对话流里显示最小时间线，后续需要升级为独立任务视图。
 
 ### 第一批工具
 
@@ -330,7 +331,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. 继续补 Room migration 测试和数据库导出/备份。
 2. 抽出 `LlmProviderAdapter` 和现有 OpenAI-compatible 实现。
-3. 增加 Agent 运行时间线 UI 和交互式审批卡片。
+3. 将当前对话内 Agent 时间线升级为独立任务中心，支持历史 Run 查看、工具结果展开和失败重试。
 4. 把 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
 5. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
 

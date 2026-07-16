@@ -89,6 +89,29 @@ data class AgentStepEntity(
 )
 
 @Entity(
+    tableName = "approval_requests",
+    indices = [
+        Index(value = ["conversationId", "status", "createdAt"]),
+        Index(value = ["runId", "createdAt"]),
+    ],
+)
+data class ApprovalRequestEntity(
+    @PrimaryKey val id: String,
+    val runId: String,
+    val conversationId: String,
+    val toolCallId: String,
+    val toolName: String,
+    val toolDescription: String,
+    val risk: String,
+    val argumentsJson: String,
+    val status: String,
+    val decisionReason: String?,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val decidedAt: Long?,
+)
+
+@Entity(
     tableName = "run_events",
     indices = [Index(value = ["runId", "createdAt"])],
 )

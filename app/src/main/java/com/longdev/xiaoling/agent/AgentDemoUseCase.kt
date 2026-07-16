@@ -9,16 +9,21 @@ class AgentDemoUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
 ) {
-    private val ledger = RoomAgentRunRepository(context)
+    private val baseLedger = RoomAgentRunRepository(context)
     private val toolRegistry = FakeToolRegistry()
-    private val approvalGate = AutoApprovalGate()
 
     suspend fun run(
         conversationId: String,
         userMessageId: String,
         goal: String,
         config: ProviderRequestConfig,
+        approvalGate: ApprovalGate = AutoApprovalGate(),
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
+        val ledger = ReportingAgentRunLedger(
+            delegate = baseLedger,
+            onSnapshot = onSnapshot,
+        )
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = toolRegistry,
@@ -30,5 +35,53 @@ class AgentDemoUseCase(
             userMessageId = userMessageId,
             goal = goal,
         )
+    }
+}
+
+private class ReportingAgentRunLedger(
+    private val delegate: AgentRunLedger,
+    private val onSnapshot: suspend (AgentRunSnapshot) -> Unit,
+) : AgentRunLedger {
+    private val stepRunIds = mutableMapOf<String, String>()
+
+    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {
+        val run = delegate.createRun(conversationId, userMessageId, goal)
+        emit(run.id)
+        return run
+    }
+
+    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) {
+        delegate.updateRunStatus(runId, status, result, errorMessage)
+        emit(runId)
+    }
+
+    override suspend fun appendStep(
+        runId: String,
+        type: String,
+        title: String,
+        detail: String,
+        status: AgentStepStatus,
+    ): AgentStepRecord {
+        val step = delegate.appendStep(runId, type, title, detail, status)
+        stepRunIds[step.id] = runId
+        emit(runId)
+        return step
+    }
+
+    override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) {
+        delegate.updateStep(stepId, status, detail)
+        stepRunIds[stepId]?.let { emit(it) }
+    }
+
+    override suspend fun appendEvent(runId: String, type: String, message: String) {
+        delegate.appendEvent(runId, type, message)
+        emit(runId)
+    }
+
+    override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
+
+    private suspend fun emit(runId: String) {
+        // long: 运行时间线依赖 Room 里的真实审计记录，而不是 UI 自己猜状态；每次落库后回读快照，保证界面展示和可追溯数据一致。
+        onSnapshot(delegate.snapshot(runId))
     }
 }

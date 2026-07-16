@@ -61,6 +61,30 @@ data class AgentRunSnapshot(
     val events: List<RunEventRecord>,
 )
 
+enum class ApprovalRequestStatus {
+    PENDING,
+    APPROVED,
+    DENIED,
+    EXPIRED,
+    CANCELLED,
+}
+
+data class ApprovalRequestRecord(
+    val id: String,
+    val runId: String,
+    val conversationId: String,
+    val toolCallId: String,
+    val toolName: String,
+    val toolDescription: String,
+    val risk: ToolRisk,
+    val arguments: Map<String, String>,
+    val status: ApprovalRequestStatus,
+    val decisionReason: String?,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val decidedAt: Long?,
+)
+
 data class ToolCall(
     val id: String = "tool-call-${UUID.randomUUID()}",
     val name: String,

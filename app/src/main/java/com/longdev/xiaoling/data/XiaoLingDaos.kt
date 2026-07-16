@@ -47,6 +47,9 @@ interface AgentRunDao {
     suspend fun upsertStep(step: AgentStepEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertApprovalRequest(request: ApprovalRequestEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvent(event: RunEventEntity)
 
     @Query("SELECT * FROM agent_runs WHERE id = :runId")
@@ -57,6 +60,12 @@ interface AgentRunDao {
 
     @Query("SELECT * FROM agent_steps WHERE id = :stepId")
     suspend fun getStep(stepId: String): AgentStepEntity?
+
+    @Query("SELECT * FROM approval_requests WHERE id = :requestId")
+    suspend fun getApprovalRequest(requestId: String): ApprovalRequestEntity?
+
+    @Query("SELECT * FROM approval_requests WHERE conversationId = :conversationId AND status = 'PENDING' ORDER BY createdAt DESC")
+    suspend fun getPendingApprovalRequests(conversationId: String): List<ApprovalRequestEntity>
 
     @Query("SELECT * FROM run_events WHERE runId = :runId ORDER BY createdAt ASC")
     suspend fun getEvents(runId: String): List<RunEventEntity>
