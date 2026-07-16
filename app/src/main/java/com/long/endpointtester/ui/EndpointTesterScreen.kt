@@ -4,6 +4,7 @@ import android.app.Activity
 import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -93,6 +94,7 @@ import com.longdev.endpointtester.model.AppThemeMode
 import com.longdev.endpointtester.model.ApiMode
 import com.longdev.endpointtester.model.ProviderProfile
 import com.longdev.endpointtester.ui.theme.EndpointTesterTheme
+import com.longdev.endpointtester.ui.theme.LocalChatBubblePalette
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
@@ -1587,21 +1589,34 @@ private fun ChatBubble(
     val isError = message.role == "error"
     val clipboardManager = LocalClipboardManager.current
     var actionMenuExpanded by remember { mutableStateOf(false) }
+    val palette = LocalChatBubblePalette.current
     val containerColor = when {
-        isUser -> MaterialTheme.colorScheme.primaryContainer
-        isError -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
-        else -> MaterialTheme.colorScheme.tertiaryContainer
+        isUser -> palette.userContainer
+        isError -> palette.errorContainer
+        else -> palette.assistantContainer
     }
     val contentColor = when {
-        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
-        isError -> MaterialTheme.colorScheme.onErrorContainer
-        else -> MaterialTheme.colorScheme.onTertiaryContainer
+        isUser -> palette.userContent
+        isError -> palette.errorContent
+        else -> palette.assistantContent
     }
+    val borderColor = when {
+        isUser -> palette.userBorder
+        isError -> palette.errorBorder
+        else -> palette.assistantBorder
+    }
+    val metaColor = when {
+        isUser -> palette.userMeta
+        isError -> palette.errorMeta
+        else -> palette.assistantMeta
+    }
+    val bubbleShape = RoundedCornerShape(10.dp)
     Box(modifier = Modifier.fillMaxWidth()) {
         Surface(
             color = containerColor,
             contentColor = contentColor,
-            shape = RoundedCornerShape(7.dp),
+            shape = bubbleShape,
+            border = BorderStroke(1.dp, borderColor),
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
@@ -1621,7 +1636,7 @@ private fun ChatBubble(
                     Text(
                         text = footer,
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
-                        color = contentColor.copy(alpha = 0.52f),
+                        color = metaColor,
                         modifier = Modifier.align(Alignment.End),
                     )
                 }

@@ -11,6 +11,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -72,6 +73,54 @@ private val DarkColors = darkColorScheme(
     onErrorContainer = Color(0xFFFFE4E6),
 )
 
+data class ChatBubblePalette(
+    val userContainer: Color,
+    val userContent: Color,
+    val userBorder: Color,
+    val userMeta: Color,
+    val assistantContainer: Color,
+    val assistantContent: Color,
+    val assistantBorder: Color,
+    val assistantMeta: Color,
+    val errorContainer: Color,
+    val errorContent: Color,
+    val errorBorder: Color,
+    val errorMeta: Color,
+)
+
+private val LightChatBubblePalette = ChatBubblePalette(
+    userContainer = Color(0xFFDCEBFF),
+    userContent = Color(0xFF102A56),
+    userBorder = Color(0xFFB8D2FF),
+    userMeta = Color(0xFF5E7AA8),
+    assistantContainer = Color(0xFFFFF7ED),
+    assistantContent = Color(0xFF2F2418),
+    assistantBorder = Color(0xFFF3D6AE),
+    assistantMeta = Color(0xFF8B6B47),
+    errorContainer = Color(0xFFFFE4E6),
+    errorContent = Color(0xFF7F1D1D),
+    errorBorder = Color(0xFFFDA4AF),
+    errorMeta = Color(0xFFA64B5C),
+)
+
+private val DarkChatBubblePalette = ChatBubblePalette(
+    userContainer = Color(0xFF173B69),
+    userContent = Color(0xFFEAF3FF),
+    userBorder = Color(0xFF2A5C92),
+    userMeta = Color(0xFFAFC7E8),
+    assistantContainer = Color(0xFF223027),
+    assistantContent = Color(0xFFF2F6EE),
+    assistantBorder = Color(0xFF3D5044),
+    assistantMeta = Color(0xFFB8C8B8),
+    errorContainer = Color(0xFF5A1B2B),
+    errorContent = Color(0xFFFFE8ED),
+    errorBorder = Color(0xFF8D3148),
+    errorMeta = Color(0xFFF2A8B8),
+)
+
+// long: 聊天记录区需要用角色专属色来建立阅读节奏；如果直接复用 Material 容器色，用户与模型消息在亮暗主题下都容易显得灰、脏或区分不足。
+val LocalChatBubblePalette = staticCompositionLocalOf { LightChatBubblePalette }
+
 private val CompactTypography = Typography(
     titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     labelLarge = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
@@ -93,6 +142,7 @@ fun EndpointTesterTheme(
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val colorScheme = if (darkTheme) DarkColors else LightColors
+    val chatBubblePalette = if (darkTheme) DarkChatBubblePalette else LightChatBubblePalette
     val view = LocalView.current
 
     if (!view.isInEditMode) {
@@ -116,7 +166,10 @@ fun EndpointTesterTheme(
         }
     }
 
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+    CompositionLocalProvider(
+        LocalMinimumInteractiveComponentSize provides 0.dp,
+        LocalChatBubblePalette provides chatBubblePalette,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = CompactTypography,
