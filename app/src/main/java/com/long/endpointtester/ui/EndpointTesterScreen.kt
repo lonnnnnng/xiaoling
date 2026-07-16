@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,8 +36,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
@@ -67,11 +69,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -105,6 +110,7 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -371,6 +377,23 @@ private fun ThemeModeSelector(
     }
 }
 
+private const val CHAT_TAIL_NEAR_THRESHOLD_PX = 96
+
+private data class ChatTailScrollSnapshot(
+    val scrolling: Boolean,
+    val nearTail: Boolean,
+    val firstVisibleItemIndex: Int,
+    val firstVisibleItemScrollOffset: Int,
+)
+
+private fun LazyListState.isNearChatTail(tailItemIndex: Int): Boolean {
+    if (tailItemIndex <= 0) return true
+    val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull() ?: return true
+    val itemBottom = lastVisibleItem.offset + lastVisibleItem.size
+    val distanceToViewportEnd = layoutInfo.viewportEndOffset - itemBottom
+    return lastVisibleItem.index >= tailItemIndex - 1 && distanceToViewportEnd >= -CHAT_TAIL_NEAR_THRESHOLD_PX
+}
+
 @Composable
 private fun TestPage(
     state: TesterUiState,
@@ -378,8 +401,51 @@ private fun TestPage(
     modifier: Modifier = Modifier,
 ) {
     val chatListState = rememberLazyListState()
+    val scrollScope = rememberCoroutineScope()
     val lastChatItemIndex = state.chatMessages.size
     val lastChatMessage = state.chatMessages.lastOrNull()
+    val isAtChatTail by remember(lastChatItemIndex) {
+        derivedStateOf { chatListState.isNearChatTail(lastChatItemIndex) }
+    }
+    var shouldFollowChatTail by remember { mutableStateOf(true) }
+    var showNewContentButton by remember { mutableStateOf(false) }
+    var programmaticScrollActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.selectedConversationId) {
+        // long: 切换会话相当于进入一段新的阅读上下文，默认展示最新消息，避免沿用上一个会话中“用户手动翻到上方”的状态。
+        shouldFollowChatTail = true
+        showNewContentButton = false
+        if (lastChatItemIndex > 0) {
+            delay(24)
+            programmaticScrollActive = true
+            try {
+                chatListState.scrollToItem(lastChatItemIndex)
+            } finally {
+                programmaticScrollActive = false
+            }
+        }
+    }
+
+    LaunchedEffect(chatListState, lastChatItemIndex) {
+        snapshotFlow {
+            ChatTailScrollSnapshot(
+                scrolling = chatListState.isScrollInProgress,
+                nearTail = chatListState.isNearChatTail(lastChatItemIndex),
+                firstVisibleItemIndex = chatListState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = chatListState.firstVisibleItemScrollOffset,
+            )
+        }.collect { snapshot ->
+            when {
+                snapshot.nearTail -> {
+                    shouldFollowChatTail = true
+                    showNewContentButton = false
+                }
+                snapshot.scrolling && !programmaticScrollActive -> {
+                    shouldFollowChatTail = false
+                }
+            }
+        }
+    }
 
     LaunchedEffect(
         lastChatItemIndex,
@@ -391,9 +457,31 @@ private fun TestPage(
         state.testingModel,
     ) {
         if (lastChatItemIndex > 0) {
-            // long: 用户发送、模型首字到达、流式内容增长和最终耗时写入都会改变列表尾部；统一滚到尾部锚点，避免新消息被输入区遮住。
-            delay(24)
-            chatListState.scrollToItem(lastChatItemIndex)
+            val forceScrollForUserMessage = lastChatMessage?.role == "user"
+            val shouldAutoScroll = forceScrollForUserMessage || shouldFollowChatTail || isAtChatTail
+            if (shouldAutoScroll) {
+                shouldFollowChatTail = true
+                showNewContentButton = false
+                delay(24)
+                programmaticScrollActive = true
+                try {
+                    chatListState.scrollToItem(lastChatItemIndex)
+                } finally {
+                    programmaticScrollActive = false
+                }
+                // long: 流式结束会把普通文本切换成完整 Markdown 渲染，图片、表格和代码块完成测量后高度可能再次变化；第二次尾部校准只在用户仍选择跟随时执行，避免把正在翻历史的用户拉回底部。
+                delay(if (lastChatMessage?.role == "assistant" && lastChatMessage.meta?.latencyMs != null) 180 else 64)
+                if (shouldFollowChatTail || chatListState.isNearChatTail(lastChatItemIndex)) {
+                    programmaticScrollActive = true
+                    try {
+                        chatListState.scrollToItem(lastChatItemIndex)
+                    } finally {
+                        programmaticScrollActive = false
+                    }
+                }
+            } else {
+                showNewContentButton = true
+            }
         }
     }
     val waitingForModelStart = state.testingModel && state.chatMessages.lastOrNull()
@@ -424,38 +512,63 @@ private fun TestPage(
                 onProviderSelected = viewModel::selectProfile,
             )
 
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(8.dp),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
+                    .weight(1f),
             ) {
-                LazyColumn(
-                    state = chatListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
                 ) {
-                    if (state.chatMessages.isEmpty()) {
-                        item {
-                            Text(
-                                text = "选择模型后输入消息开始测试。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    LazyColumn(
+                        state = chatListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        if (state.chatMessages.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "选择模型后输入消息开始测试。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        items(count = state.chatMessages.size) { index ->
+                            ChatBubble(
+                                message = state.chatMessages[index],
+                                onReuseUserMessage = viewModel::updatePrompt,
                             )
                         }
+                        item {
+                            Spacer(modifier = Modifier.height(1.dp))
+                        }
                     }
-                    items(count = state.chatMessages.size) { index ->
-                        ChatBubble(
-                            message = state.chatMessages[index],
-                            onReuseUserMessage = viewModel::updatePrompt,
-                        )
-                    }
-                    item {
-                        Spacer(modifier = Modifier.height(1.dp))
-                    }
+                }
+
+                if (showNewContentButton && state.chatMessages.isNotEmpty()) {
+                    NewChatContentButton(
+                        onClick = {
+                            shouldFollowChatTail = true
+                            showNewContentButton = false
+                            scrollScope.launch {
+                                programmaticScrollActive = true
+                                try {
+                                    chatListState.animateScrollToItem(lastChatItemIndex)
+                                } finally {
+                                    programmaticScrollActive = false
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 10.dp),
+                    )
                 }
             }
 
@@ -657,6 +770,37 @@ private fun MessageInputBar(
             ) {
                 Icon(Icons.Default.ArrowUpward, contentDescription = "发送", modifier = Modifier.size(20.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun NewChatContentButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.94f),
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = CircleShape,
+        shadowElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)),
+        modifier = modifier
+            .heightIn(min = 36.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowDownward,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+            )
+            Text("新内容", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

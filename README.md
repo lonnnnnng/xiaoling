@@ -69,7 +69,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
 ## 本次验证
 
 - 验证设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro，Android 14 / API 34。
-- 当前版本：`0.1.5`。
+- 当前版本：`0.1.6`。
 - 构建结果：`BUILD SUCCESSFUL`。
 - Release APK：本地正式签名，`apksigner verify` 通过。
 - 真机冒烟：使用同代码 debug 包验证 UI；未卸载当前设备上的调试包，避免清空本地 Provider 和会话数据。
@@ -83,6 +83,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
   - Markdown 常见样式可正常渲染，包括标题、列表、引用、代码块、表格、链接、Sources 链接列表和远程图片。
   - 测试页输入框弹出键盘时会随键盘上移；底部 TabBar 点击区域增大。
   - 空消息不可发送；发送按钮使用蓝色圆形直上箭头样式。
+  - 对话记录区改为条件自动滚动：用户在底部时跟随新内容，用户翻看历史时显示轻量“新内容”按钮，点击后回到底部。
 - 接口矩阵检查：
   - Chat 非流式：10/10 成功。
   - Chat 流式：10/10 成功。
