@@ -96,9 +96,10 @@ local-signing/xiaoling-release.jks
 ## 文档
 
 - [文档索引](docs/README.md)
-- [需求汇总](docs/requirements.md)
-- [参考资料来源](docs/reference-sources.md)
-- [实现说明](docs/implementation-notes.md)
+- [产品需求](docs/requirements.md)
+- [个人 Agent 路线图](docs/personal-agent-roadmap.md)
+- [参考项目分析](docs/reference-apps-analysis.md)
+- [当前实现说明](docs/implementation-notes.md)
 - [验证报告](docs/verification-report.md)
 
 ## 产物

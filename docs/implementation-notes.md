@@ -1,4 +1,4 @@
-# 实现说明
+# 当前实现说明
 
 ## 技术栈
 
@@ -20,6 +20,17 @@
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | 保存 Provider、会话、消息元数据和 UI 偏好；API Key 使用 Android Keystore 加密。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
+
+## 当前架构边界
+
+当前工程仍是单一 Android `app` 模块，业务状态和主要流程集中在 `XiaoLingViewModel`：
+
+- Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
+- `OpenAiCompatibleClient` 直接承担模型列表、两种生成接口、SSE 和日志，没有独立 Provider Adapter 或 Agent Engine。
+- 会话和 Provider 通过 SharedPreferences + JSON 保存，适合当前数据量，但不适合后续 Run、Tool Call、Memory、Skill 和 Workflow 的关联查询。
+- UI 以聊天消息为中心，还没有独立的任务时间线、确认卡片、工具结果、运行恢复和后台任务入口。
+
+因此，后续 Agent 功能不能继续堆进 `sendMessage()`。应先建立 domain、data、runtime 和 tool 边界，再逐步迁移现有聊天链路。
 
 ## 对话请求
 
@@ -67,6 +78,11 @@
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 暂不内置工具调用、MCP 和手机自动化执行。
+- 尚未内置工具调用、MCP、长期记忆和手机自动化执行。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
+- SharedPreferences 不适合未来 Agent 数据关系，需要在保持现有数据可迁移的前提下引入 Room。
+- Responses API 的历史消息当前被拼接为单一字符串，未来工具调用和多模态需要结构化输入。
+- 网络请求尚未暴露完整的取消句柄，UI 也没有“停止运行”和运行恢复状态。
+
+未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
