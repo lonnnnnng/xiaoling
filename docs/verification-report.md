@@ -69,7 +69,7 @@ aapt dump badging app/build/outputs/apk/debug/app-debug.apk
 关键结果：
 
 ```text
-package: name='com.longdev.xiaoling' versionCode='7' versionName='0.1.6'
+package: name='com.longdev.xiaoling' versionCode='8' versionName='0.1.7'
 application-label:'小灵'
 ```
 
