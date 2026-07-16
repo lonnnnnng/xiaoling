@@ -6,9 +6,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -50,6 +54,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -90,8 +95,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -135,9 +142,14 @@ private fun EndpointTesterContent(
     viewModel: EndpointTesterViewModel,
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var settingsPane by remember { mutableStateOf(SettingsPane.ROOT) }
     val context = LocalContext.current
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = selectedTab == 1 && state.manageDraft != null
+    val isSettingsSubPage = selectedTab == 1 && settingsPane != SettingsPane.ROOT
+    val hideBottomBar = isProviderEditor || isSettingsSubPage
+    val chatListState = rememberLazyListState()
+    val chatScrollState = remember(chatListState) { ChatScrollState(chatListState) }
     var lastRootBackAt by remember { mutableStateOf(0L) }
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
 
@@ -145,7 +157,11 @@ private fun EndpointTesterContent(
         viewModel.closeProviderEditor()
     }
 
-    BackHandler(enabled = !isProviderEditor) {
+    BackHandler(enabled = !isProviderEditor && isSettingsSubPage) {
+        settingsPane = SettingsPane.ROOT
+    }
+
+    BackHandler(enabled = !isProviderEditor && !isSettingsSubPage) {
         val now = System.currentTimeMillis()
         if (now - lastRootBackAt < 2_000) {
             (context as? Activity)?.finish()
@@ -157,7 +173,7 @@ private fun EndpointTesterContent(
 
     LaunchedEffect(transientResult) {
         transientResult?.let { result ->
-            // long: 管理页保存、删除、获取模型等反馈只需要告知结果，不应该占用底部操作区，也不应该阻断用户继续点击页面。
+            // long: 设置页保存、删除、获取模型等反馈只需要告知结果，不应该占用底部操作区，也不应该阻断用户继续点击页面。
             centerNotice = CenterNotice(
                 text = "${result.title}：${result.message}",
                 success = result.success,
@@ -177,7 +193,7 @@ private fun EndpointTesterContent(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
-                if (!isProviderEditor) {
+                if (!hideBottomBar) {
                     CompactBottomTabBar(
                         selectedTab = selectedTab,
                         onSelected = { selectedTab = it },
@@ -187,18 +203,29 @@ private fun EndpointTesterContent(
             containerColor = MaterialTheme.colorScheme.background,
             modifier = Modifier.fillMaxSize(),
         ) { innerPadding ->
-            if (selectedTab == 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+            ) {
                 TestPage(
                     state = state,
                     viewModel = viewModel,
-                    modifier = Modifier.padding(innerPadding),
+                    chatScrollState = chatScrollState,
+                    visible = selectedTab == 0,
+                    modifier = Modifier.matchParentSize(),
                 )
-            } else {
-                ManagePage(
-                    state = state,
-                    viewModel = viewModel,
-                    modifier = Modifier.padding(innerPadding),
-                )
+
+                if (selectedTab == 1) {
+                    SettingsPage(
+                        state = state,
+                        viewModel = viewModel,
+                        pane = settingsPane,
+                        onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
+                        onBackToSettings = { settingsPane = SettingsPane.ROOT },
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
             }
         }
 
@@ -209,6 +236,11 @@ private fun EndpointTesterContent(
             )
         }
     }
+}
+
+private enum class SettingsPane {
+    ROOT,
+    PROVIDER_MANAGEMENT,
 }
 
 private data class CenterNotice(
@@ -271,7 +303,7 @@ private fun CompactBottomTabBar(
         ) {
             CompactTabItem(
                 selected = selectedTab == 0,
-                label = "测试",
+                label = "对话",
                 icon = { Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp)) },
                 onClick = { onSelected(0) },
                 modifier = Modifier.weight(1f),
@@ -279,8 +311,8 @@ private fun CompactBottomTabBar(
             Spacer(Modifier.width(18.dp))
             CompactTabItem(
                 selected = selectedTab == 1,
-                label = "管理",
-                icon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(12.dp)) },
+                label = "设置",
+                icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(12.dp)) },
                 onClick = { onSelected(1) },
                 modifier = Modifier.weight(1f),
             )
@@ -386,6 +418,41 @@ private data class ChatTailScrollSnapshot(
     val firstVisibleItemScrollOffset: Int,
 )
 
+private data class ChatAutoScrollKey(
+    val conversationId: String,
+    val lastItemIndex: Int,
+    val lastMessageId: String?,
+    val lastMessageRole: String?,
+    val lastMessageTextLength: Int?,
+    val firstTokenLatencyMs: Long?,
+    val latencyMs: Long?,
+    val testingModel: Boolean,
+)
+
+private fun TesterUiState.chatAutoScrollKey(): ChatAutoScrollKey {
+    val lastMessage = chatMessages.lastOrNull()
+    return ChatAutoScrollKey(
+        conversationId = selectedConversationId,
+        lastItemIndex = chatMessages.size,
+        lastMessageId = lastMessage?.id,
+        lastMessageRole = lastMessage?.role,
+        lastMessageTextLength = lastMessage?.text?.length,
+        firstTokenLatencyMs = lastMessage?.meta?.firstTokenLatencyMs,
+        latencyMs = lastMessage?.meta?.latencyMs,
+        testingModel = testingModel,
+    )
+}
+
+private class ChatScrollState(
+    val listState: LazyListState,
+) {
+    var boundConversationId by mutableStateOf<String?>(null)
+    var handledAutoScrollKey by mutableStateOf<ChatAutoScrollKey?>(null)
+    var shouldFollowTail by mutableStateOf(true)
+    var showNewContentButton by mutableStateOf(false)
+    var programmaticScrollActive by mutableStateOf(false)
+}
+
 private fun LazyListState.isNearChatTail(tailItemIndex: Int): Boolean {
     if (tailItemIndex <= 0) return true
     val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull() ?: return true
@@ -398,35 +465,42 @@ private fun LazyListState.isNearChatTail(tailItemIndex: Int): Boolean {
 private fun TestPage(
     state: TesterUiState,
     viewModel: EndpointTesterViewModel,
+    chatScrollState: ChatScrollState,
+    visible: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val chatListState = rememberLazyListState()
+    val chatListState = chatScrollState.listState
     val scrollScope = rememberCoroutineScope()
     val lastChatItemIndex = state.chatMessages.size
     val lastChatMessage = state.chatMessages.lastOrNull()
+    val autoScrollKey = state.chatAutoScrollKey()
     val isAtChatTail by remember(lastChatItemIndex) {
         derivedStateOf { chatListState.isNearChatTail(lastChatItemIndex) }
     }
-    var shouldFollowChatTail by remember { mutableStateOf(true) }
-    var showNewContentButton by remember { mutableStateOf(false) }
-    var programmaticScrollActive by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.selectedConversationId) {
-        // long: 切换会话相当于进入一段新的阅读上下文，默认展示最新消息，避免沿用上一个会话中“用户手动翻到上方”的状态。
-        shouldFollowChatTail = true
-        showNewContentButton = false
+    LaunchedEffect(state.selectedConversationId, visible) {
+        if (!visible) return@LaunchedEffect
+        if (chatScrollState.boundConversationId == state.selectedConversationId) {
+            return@LaunchedEffect
+        }
+        chatScrollState.boundConversationId = state.selectedConversationId
+        chatScrollState.handledAutoScrollKey = null
+        // long: 只有真正切换会话时才重置阅读位置；底部 Tab 来回切换只是临时离开测试页，必须保留用户离开前的滚动位置。
+        chatScrollState.shouldFollowTail = true
+        chatScrollState.showNewContentButton = false
         if (lastChatItemIndex > 0) {
             delay(24)
-            programmaticScrollActive = true
+            chatScrollState.programmaticScrollActive = true
             try {
                 chatListState.scrollToItem(lastChatItemIndex)
             } finally {
-                programmaticScrollActive = false
+                chatScrollState.programmaticScrollActive = false
             }
         }
     }
 
-    LaunchedEffect(chatListState, lastChatItemIndex) {
+    LaunchedEffect(chatListState, lastChatItemIndex, visible) {
+        if (!visible) return@LaunchedEffect
         snapshotFlow {
             ChatTailScrollSnapshot(
                 scrolling = chatListState.isScrollInProgress,
@@ -437,50 +511,47 @@ private fun TestPage(
         }.collect { snapshot ->
             when {
                 snapshot.nearTail -> {
-                    shouldFollowChatTail = true
-                    showNewContentButton = false
+                    chatScrollState.shouldFollowTail = true
+                    chatScrollState.showNewContentButton = false
                 }
-                snapshot.scrolling && !programmaticScrollActive -> {
-                    shouldFollowChatTail = false
+                snapshot.scrolling && !chatScrollState.programmaticScrollActive -> {
+                    chatScrollState.shouldFollowTail = false
                 }
             }
         }
     }
 
-    LaunchedEffect(
-        lastChatItemIndex,
-        lastChatMessage?.id,
-        lastChatMessage?.role,
-        lastChatMessage?.text?.length,
-        lastChatMessage?.meta?.firstTokenLatencyMs,
-        lastChatMessage?.meta?.latencyMs,
-        state.testingModel,
-    ) {
+    LaunchedEffect(autoScrollKey, visible) {
+        if (!visible) return@LaunchedEffect
+        if (chatScrollState.handledAutoScrollKey == autoScrollKey) {
+            return@LaunchedEffect
+        }
+        chatScrollState.handledAutoScrollKey = autoScrollKey
         if (lastChatItemIndex > 0) {
             val forceScrollForUserMessage = lastChatMessage?.role == "user"
-            val shouldAutoScroll = forceScrollForUserMessage || shouldFollowChatTail || isAtChatTail
+            val shouldAutoScroll = forceScrollForUserMessage || chatScrollState.shouldFollowTail || isAtChatTail
             if (shouldAutoScroll) {
-                shouldFollowChatTail = true
-                showNewContentButton = false
+                chatScrollState.shouldFollowTail = true
+                chatScrollState.showNewContentButton = false
                 delay(24)
-                programmaticScrollActive = true
+                chatScrollState.programmaticScrollActive = true
                 try {
                     chatListState.scrollToItem(lastChatItemIndex)
                 } finally {
-                    programmaticScrollActive = false
+                    chatScrollState.programmaticScrollActive = false
                 }
                 // long: 流式结束会把普通文本切换成完整 Markdown 渲染，图片、表格和代码块完成测量后高度可能再次变化；第二次尾部校准只在用户仍选择跟随时执行，避免把正在翻历史的用户拉回底部。
                 delay(if (lastChatMessage?.role == "assistant" && lastChatMessage.meta?.latencyMs != null) 180 else 64)
-                if (shouldFollowChatTail || chatListState.isNearChatTail(lastChatItemIndex)) {
-                    programmaticScrollActive = true
+                if (chatScrollState.shouldFollowTail || chatListState.isNearChatTail(lastChatItemIndex)) {
+                    chatScrollState.programmaticScrollActive = true
                     try {
                         chatListState.scrollToItem(lastChatItemIndex)
                     } finally {
-                        programmaticScrollActive = false
+                        chatScrollState.programmaticScrollActive = false
                     }
                 }
             } else {
-                showNewContentButton = true
+                chatScrollState.showNewContentButton = true
             }
         }
     }
@@ -533,7 +604,7 @@ private fun TestPage(
                         if (state.chatMessages.isEmpty()) {
                             item {
                                 Text(
-                                    text = "选择模型后输入消息开始测试。",
+                                    text = "选择模型后输入消息开始对话。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -551,17 +622,17 @@ private fun TestPage(
                     }
                 }
 
-                if (showNewContentButton && state.chatMessages.isNotEmpty()) {
+                if (chatScrollState.showNewContentButton && state.chatMessages.isNotEmpty()) {
                     NewChatContentButton(
                         onClick = {
-                            shouldFollowChatTail = true
-                            showNewContentButton = false
+                            chatScrollState.shouldFollowTail = true
+                            chatScrollState.showNewContentButton = false
                             scrollScope.launch {
-                                programmaticScrollActive = true
+                                chatScrollState.programmaticScrollActive = true
                                 try {
                                     chatListState.animateScrollToItem(lastChatItemIndex)
                                 } finally {
-                                    programmaticScrollActive = false
+                                    chatScrollState.programmaticScrollActive = false
                                 }
                             }
                         },
@@ -605,7 +676,7 @@ private fun TestHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        PageTitle("测试")
+        PageTitle("对话")
         ThemeModeSelector(
             themeMode = state.themeMode,
             onThemeModeChanged = onThemeModeChanged,
@@ -686,7 +757,7 @@ private fun ModelSelectionBar(
             ProviderDropdown(state, onSelected = onProviderSelected)
             if (state.enabledModels.isEmpty()) {
                 Text(
-                    text = "请先到管理页获取上游模型并勾选可测试模型。",
+                    text = "请先到设置页获取上游模型并勾选可对话模型。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -982,31 +1053,141 @@ private fun ModelWaitingIndicator(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ManagePage(
+private fun SettingsPage(
     state: TesterUiState,
     viewModel: EndpointTesterViewModel,
+    pane: SettingsPane,
+    onOpenProviderManagement: () -> Unit,
+    onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    state.manageDraft?.let { draft ->
-        ProviderEditorPage(
-            draft = draft,
-            result = state.result,
-            viewModel = viewModel,
-            modifier = modifier,
-        )
-        return
+    val blocker = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            // long: 设置页覆盖在常驻对话页之上，空白区域也要吃掉点击，避免触发底层对话页的输入框和消息长按。
+            .clickable(interactionSource = blocker, indication = null) {},
+    ) {
+        when {
+            state.manageDraft != null -> ProviderEditorPage(
+                draft = state.manageDraft,
+                result = state.result,
+                viewModel = viewModel,
+                modifier = Modifier.matchParentSize(),
+            )
+            pane == SettingsPane.PROVIDER_MANAGEMENT -> ProviderManagementPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
+            else -> SettingsRootPage(
+                state = state,
+                onThemeModeChanged = viewModel::updateThemeMode,
+                onOpenProviderManagement = onOpenProviderManagement,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
+}
 
+@Composable
+private fun SettingsRootPage(
+    state: TesterUiState,
+    onThemeModeChanged: (AppThemeMode) -> Unit,
+    onOpenProviderManagement: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PageTitle("设置")
+            ThemeModeSelector(
+                themeMode = state.themeMode,
+                onThemeModeChanged = onThemeModeChanged,
+            )
+        }
+
+        SettingsEntryCard(
+            title = "模型提供方管理",
+            subtitle = if (state.profiles.isEmpty()) {
+                "还没有模型提供方"
+            } else {
+                "已配置 ${state.profiles.size} 个提供方 · 可对话模型 ${state.profiles.sumOf { it.enabledModels.size }} 个"
+            },
+            onClick = onOpenProviderManagement,
+        )
+    }
+}
+
+@Composable
+private fun SettingsEntryCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(9.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(9.dp))
+            .clip(RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                Icons.Default.Memory,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProviderManagementPage(
+    state: TesterUiState,
+    viewModel: EndpointTesterViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        ManageHeader(
-            themeMode = state.themeMode,
+        ProviderManagementHeader(
             syncing = state.syncingAllProfiles,
-            onThemeModeChanged = viewModel::updateThemeMode,
+            onBack = onBack,
             onSyncAll = viewModel::syncAllProviders,
         )
         Box(modifier = Modifier.fillMaxSize()) {
@@ -1062,13 +1243,10 @@ private fun ManagePage(
     }
 }
 
-private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
-
 @Composable
-private fun ManageHeader(
-    themeMode: AppThemeMode,
+private fun ProviderManagementHeader(
     syncing: Boolean,
-    onThemeModeChanged: (AppThemeMode) -> Unit,
+    onBack: () -> Unit,
     onSyncAll: () -> Unit,
 ) {
     Row(
@@ -1076,11 +1254,10 @@ private fun ManageHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        PageTitle("管理")
-        ThemeModeSelector(
-            themeMode = themeMode,
-            onThemeModeChanged = onThemeModeChanged,
-        )
+        IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+        }
+        PageTitle("模型提供方管理")
         Spacer(Modifier.weight(1f))
         IconButton(
             onClick = onSyncAll,
@@ -1098,6 +1275,8 @@ private fun ManageHeader(
         }
     }
 }
+
+private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 @Composable
 private fun ProviderEditorPage(
@@ -1275,7 +1454,7 @@ private fun ProviderEditorPage(
                 ) {
                     if (draft.upstreamModels.isEmpty()) {
                         Text(
-                            text = "获取成功后可以勾选允许在测试页使用的模型。",
+                            text = "获取成功后可以勾选允许在对话页使用的模型。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1888,6 +2067,14 @@ private fun StreamingMarkdownText(
         components = markdownComponents(
             codeBlock = highlightedCodeBlock,
             codeFence = highlightedCodeFence,
+            table = { model ->
+                val tableStart = model.node.startOffset.coerceIn(0, model.content.length)
+                val tableEnd = model.node.endOffset.coerceIn(tableStart, model.content.length)
+                BorderedMarkdownTable(
+                    rawTable = model.content.substring(tableStart, tableEnd),
+                    contentColor = contentColor,
+                )
+            },
         ),
         loading = { Box(it) },
         error = {
@@ -1899,6 +2086,111 @@ private fun StreamingMarkdownText(
             )
         },
     )
+}
+
+@Composable
+private fun BorderedMarkdownTable(
+    rawTable: String,
+    contentColor: Color,
+) {
+    val table = remember(rawTable) { parseMarkdownTableBlock(rawTable) }
+    if (table == null) {
+        Text(
+            text = rawTable,
+            style = MaterialTheme.typography.bodySmall,
+            color = contentColor,
+        )
+        return
+    }
+
+    val borderColor = contentColor.copy(alpha = 0.20f)
+    val tableShape = RoundedCornerShape(6.dp)
+    val cellWidth = markdownTableCellWidth(table.columnCount)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .clip(tableShape)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.38f))
+            .border(1.dp, borderColor, tableShape),
+    ) {
+        BorderedMarkdownTableRow(
+            cells = table.headers,
+            columnCount = table.columnCount,
+            alignments = table.alignments,
+            cellWidth = cellWidth,
+            borderColor = borderColor,
+            contentColor = contentColor,
+            header = true,
+        )
+        table.rows.forEachIndexed { index, row ->
+            BorderedMarkdownTableRow(
+                cells = row,
+                columnCount = table.columnCount,
+                alignments = table.alignments,
+                cellWidth = cellWidth,
+                borderColor = borderColor,
+                contentColor = contentColor,
+                header = false,
+                rowIndex = index,
+            )
+        }
+    }
+}
+
+@Composable
+private fun BorderedMarkdownTableRow(
+    cells: List<String>,
+    columnCount: Int,
+    alignments: List<TextAlign>,
+    cellWidth: Dp,
+    borderColor: Color,
+    contentColor: Color,
+    header: Boolean,
+    rowIndex: Int = 0,
+) {
+    Row {
+        repeat(columnCount) { columnIndex ->
+            val cellText = cells.getOrNull(columnIndex).orEmpty()
+            val textAlign = alignments.getOrNull(columnIndex) ?: TextAlign.Start
+            val cellBackground = when {
+                header -> contentColor.copy(alpha = 0.08f)
+                rowIndex % 2 == 1 -> contentColor.copy(alpha = 0.035f)
+                else -> Color.Transparent
+            }
+            Box(
+                modifier = Modifier
+                    .width(cellWidth)
+                    .heightIn(min = if (header) 34.dp else 32.dp)
+                    .background(cellBackground)
+                    .border(0.6.dp, borderColor)
+                    .padding(horizontal = 7.dp, vertical = 6.dp),
+                contentAlignment = when (textAlign) {
+                    TextAlign.Center -> Alignment.Center
+                    TextAlign.End, TextAlign.Right -> Alignment.CenterEnd
+                    else -> Alignment.CenterStart
+                },
+            ) {
+                // long: Markdown 表格在模型回复里主要承担结构化数据阅读，单元格边框和交替底色比装饰更重要；保持小字号和可横向滚动，避免多列表格挤压对话气泡。
+                Text(
+                    text = cellText,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+                        textAlign = textAlign,
+                    ),
+                    color = contentColor,
+                )
+            }
+        }
+    }
+}
+
+private fun markdownTableCellWidth(columnCount: Int): Dp = when {
+    columnCount <= 2 -> 136.dp
+    columnCount == 3 -> 108.dp
+    else -> 92.dp
 }
 
 @Composable

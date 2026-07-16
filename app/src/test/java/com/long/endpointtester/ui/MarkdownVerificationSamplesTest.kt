@@ -1,6 +1,7 @@
 package com.longdev.endpointtester.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,6 +76,42 @@ class MarkdownVerificationSamplesTest {
         MarkdownVerificationSamples.samples.forEach { (name, markdown) ->
             assertTrue("$name should not be blank", markdown.isNotBlank())
         }
+    }
+
+    @Test
+    fun `gfm table sample can be parsed for bordered rendering`() {
+        val table = parseMarkdownTableBlock(
+            """
+                | 字段 | 说明 |
+                | --- | --- |
+                | Provider | 已保存的模型提供方 |
+                | Model | 测试页面选中的上游模型 |
+            """.trimIndent(),
+        )
+
+        assertNotNull(table)
+        table!!
+        assertEquals(listOf("字段", "说明"), table.headers)
+        assertEquals(2, table.rows.size)
+        assertEquals("Provider", table.rows[0][0])
+        assertEquals("已保存的模型提供方", table.rows[0][1])
+    }
+
+    @Test
+    fun `table parser preserves common cell content as readable text`() {
+        val table = parseMarkdownTableBlock(
+            """
+                | 左对齐 | 居中 | 右对齐 |
+                | :--- | :---: | ---: |
+                | A\|B | [OpenAI](https://openai.com) | `code` 和 **重点** |
+            """.trimIndent(),
+        )
+
+        assertNotNull(table)
+        table!!
+        assertEquals("A|B", table.rows[0][0])
+        assertEquals("OpenAI", table.rows[0][1])
+        assertEquals("code 和 重点", table.rows[0][2])
     }
 
     @Test
