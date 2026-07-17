@@ -19,4 +19,5 @@
 - 新增参考项目时更新 `reference-apps-analysis.md`，结论必须附本地代码或项目文档路径。
 - 当前实现发生变化时同步更新 `implementation-notes.md`。
 - 每次发布或重要真机验证后更新 `verification-report.md`。
+- 项目根目录的 `AGENTS.md` 仅保存本机代理指令并排除 Git 跟踪；不得把其中的凭据复制到文档、日志或提交记录。
 - 临时调研产物放在仓库外或未跟踪的 `outputs/`，确认结论后再合并进上述长期文档。
