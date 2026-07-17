@@ -50,6 +50,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, MIGRATION_DATABASE_NAME)
+            .addMigrations(*XiaoLingDatabase.migrations())
             .allowMainThreadQueries()
             .build()
             .also { openedDatabase = it }
@@ -79,7 +80,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion7Database() = runBlocking {
+    fun createAndOpenFreshVersion8Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -87,7 +88,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(7, database.openHelper.writableDatabase.version)
+        assertEquals(8, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -120,6 +121,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, METADATA_MIGRATION_DATABASE_NAME)
+            .addMigrations(*XiaoLingDatabase.migrations())
             .allowMainThreadQueries()
             .build()
             .also { openedDatabase = it }
@@ -139,6 +141,49 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertEquals("memory.remember", approvalMetadata.toolName)
         assertEquals("用户确认保存", approvalMetadata.reason)
         assertEquals("审批状态已更新：memory.remember", approval.message)
+    }
+
+    @Test
+    fun migrate7To8PreservesLegacyRunAndInitializesRetryLink() {
+        migrationHelper.createDatabase(RETRY_LINK_MIGRATION_DATABASE_NAME, 7).apply {
+            execSQL(
+                "INSERT INTO agent_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "run-v7",
+                    "conversation-v7",
+                    "message-v7",
+                    "保留历史任务",
+                    "FAILED",
+                    "历史结果",
+                    "历史错误",
+                    100L,
+                    200L,
+                    200L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            RETRY_LINK_MIGRATION_DATABASE_NAME,
+            8,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT id, status, result, errorMessage, retryOfRunId FROM agent_runs WHERE id = ?",
+            arrayOf("run-v7"),
+        ).use { cursor ->
+            // long: v7 的 Run 没有重试来源；迁移只能补 null 关联，原状态、结果和错误必须原样保留，不能伪造一次重试。
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("run-v7", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+            assertEquals("FAILED", cursor.getString(cursor.getColumnIndexOrThrow("status")))
+            assertEquals("历史结果", cursor.getString(cursor.getColumnIndexOrThrow("result")))
+            assertEquals("历史错误", cursor.getString(cursor.getColumnIndexOrThrow("errorMessage")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("retryOfRunId")))
+        }
+        migrated.close()
     }
 
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
@@ -199,5 +244,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     companion object {
         private const val MIGRATION_DATABASE_NAME = "xiaoling-migration-test"
         private const val METADATA_MIGRATION_DATABASE_NAME = "xiaoling-metadata-migration-test"
+        private const val RETRY_LINK_MIGRATION_DATABASE_NAME = "xiaoling-retry-link-migration-test"
     }
 }

@@ -26,6 +26,7 @@ class AgentRunUseCase(
         goal: String,
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
+        retryOfRunId: String? = null,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -43,6 +44,7 @@ class AgentRunUseCase(
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,
+            retryOfRunId = retryOfRunId,
         )
     }
 }
@@ -53,8 +55,13 @@ private class ReportingAgentRunLedger(
 ) : AgentRunLedger {
     private val stepRunIds = mutableMapOf<String, String>()
 
-    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {
-        val run = delegate.createRun(conversationId, userMessageId, goal)
+    override suspend fun createRun(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String?,
+    ): AgentRunRecord {
+        val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
         emit(run.id)
         return run
     }

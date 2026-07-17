@@ -30,8 +30,8 @@ BUILD SUCCESSFUL
 Schema 生成方式：
 
 - Room compiler 使用 KSP `2.3.7`，通过 Room Gradle Plugin `2.8.4` 的 `schemaDirectory` 导出到 `app/schemas/`。
-- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 由当前源码生成。
-- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7` 顺序执行完整链路。
+- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 保存重试关联改造前结构，v8 由当前源码生成。
+- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7`、`MIGRATION_7_8` 顺序执行完整链路。
 
 单测试命令：
 
@@ -49,11 +49,12 @@ BUILD SUCCESSFUL
 
 已验证：
 
-- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v7，Room 最终 Schema 校验通过。
+- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v8，Room 最终 Schema 校验通过。
 - Provider、会话、用户/assistant 消息、Agent Run、Step、审批、Run Event、笔记和长期记忆均可通过 DAO 回读。
 - v4 旧消息迁移后 `origin=LEGACY`，`verifiedAgentContext=null`。
 - v6 中保存在 `RunEvent.message` 的旧 JSON object 会迁入 `metadataJson`，原 message 改为事件可读摘要；普通文本 message 不会被误标为结构化 metadata。
-- 全新 v7 内存数据库可以创建、打开并执行 DAO 查询。
+- v7 旧 Run 升级到 v8 后，状态、结果和错误保持不变，`retryOfRunId` 初始化为 `null`。
+- 全新 v8 内存数据库可以创建、打开并执行 DAO 查询。
 - Room 2.8.4 需要 kotlinx serialization 1.8.1；工程已统一该现有传递依赖版本，避免 KSP Schema 导出和 `room-testing` 运行时接口不一致。
 
 完整回归命令：
@@ -65,8 +66,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest connectedD
 结果：
 
 ```text
-Starting 7 tests on Redmi Note 8 Pro - 14
-Finished 7 tests on Redmi Note 8 Pro - 14
+Starting 9 tests on Redmi Note 8 Pro - 14
+Finished 9 tests on Redmi Note 8 Pro - 14
 BUILD SUCCESSFUL
 ```
 
@@ -104,9 +105,41 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 已验证：
 
 - ToolCall、ToolResult、审批、失败与恢复事件通过 sealed `RunEventMetadata` variants 暴露合法字段组合，新事件的 `message` 只保存可读摘要。
-- Room v7 使用独立 `metadataJson` 列，metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
-- 运行记录 UI 直接读取 typed metadata，不再解析数据库 JSON；纯文本历史事件继续回退显示原文。
+- Room v7 引入独立 `metadataJson` 列，当前 v8 中 metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
+- 任务中心 UI 直接读取 typed metadata，不再解析数据库 JSON；纯文本历史事件继续回退显示原文。
 - Responses `input` 可同时包含消息、`function_call` 和 `function_call_output`，调用与结果通过相同 `call_id` 关联。
+
+## Agent 任务中心与安全重新运行验证
+
+定向命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest --tests com.longdev.xiaoling.agent.AgentTaskRetryPolicyTest --console=plain
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.longdev.xiaoling.data.XiaoLingDatabaseMigrationInstrumentedTest#migrate7To8PreservesLegacyRunAndInitializesRetryLink,com.longdev.xiaoling.storage.RoomAgentRunRepositoryInstrumentedTest#retryCreatesLinkedRunWithoutChangingSourceRun --console=plain
+```
+
+已验证：
+
+- `FAILED / CANCELLED / BUDGET_EXHAUSTED` 可重试，其他状态不可重试。
+- 已成功执行非 SAFE 工具、启动恢复记录表明中断发生在 `EXECUTING/VERIFYING`，或 `tool.execute/tool.verify` 步骤以失败/取消结束时，重试策略要求二次确认。
+- 重试创建带 `retryOfRunId` 的新 Run；来源 Run 的状态、结果、步骤和事件快照完全不变。
+- Room v7→v8 迁移为旧 Run 初始化空关联，同时保留原状态、结果和错误。
+- Redmi Note 8 Pro 上覆盖安装 Debug 包成功，保留应用数据；v8 启动正常，crash buffer 为空。
+- UI 自动化通过 UI tree 派生坐标进入「设置 → Agent 任务中心」；1080×2340 视口下，全部/处理中/可重试/已完成筛选与空状态完整显示，无文字或控件重叠。
+- 使用真机已有 `gpt-5.5` Provider 在独立测试会话发起 `/agent remember test preference permanently__；模型提出 `memory.remember` 后，第一次审批被拒绝，来源 Run 正确进入 `FAILED`。
+- 任务中心展开来源 Run 后可查看步骤、审批参数和结构化事件；点击“重试”立即创建新 Run，新 Run 显示来源 Run ID，来源卡片显示“重试中”并禁用重复点击。
+- 新 Run 再次进入 `WAITING_APPROVAL`，说明写入工具没有继承旧审批；第二次审批也被拒绝，最终没有写入长期记忆，且没有遗留待处理任务。
+- 审查修复后再次从任务中心点击重试，应用自动切回来源会话；新 `/agent` 消息、实时步骤和审批卡均在当前屏幕可见。第三次写入审批同样被拒绝，任务收敛且 crash buffer 为空。
+
+完整回归结果：
+
+- `testDebugUnitTest`：77 条 JVM 单元测试通过。
+- `connectedDebugAndroidTest`：9 条 Redmi Note 8 Pro 真机测试通过。
+- `lintDebug` 与 `assembleDebug` 通过。
+
+当前验证边界：
+
+- 二次确认弹窗只在“已成功执行非 SAFE 工具”或“中断发生在 EXECUTING/VERIFYING”时出现；本轮真实 Provider 流程在工具执行前拒绝审批，因此该分支由策略单元测试覆盖，未在真机制造真实副作用后再验证。
 
 ## 签名验证
 

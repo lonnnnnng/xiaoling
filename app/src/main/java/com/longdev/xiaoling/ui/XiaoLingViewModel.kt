@@ -12,6 +12,8 @@ import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
 import com.longdev.xiaoling.agent.ToolCall
@@ -98,6 +100,9 @@ data class XiaoLingUiState(
     val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
     val selectedAgentRunId: String? = null,
     val agentRunHistoryError: String? = null,
+    val retryingAgentRunId: String? = null,
+    val pendingAgentRetryConfirmation: AgentRetryConfirmationUiState? = null,
+    val agentRetryNavigationConversationId: String? = null,
     val result: OperationResult? = null,
 )
 
@@ -187,6 +192,11 @@ data class AgentApprovalUiState(
         }
     }
 }
+
+data class AgentRetryConfirmationUiState(
+    val runId: String,
+    val goal: String,
+)
 
 private data class PreparedRequestContext(
     val requestMessages: List<RequestMessage>,
@@ -394,7 +404,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }.onFailure { error ->
                 uiState = uiState.copy(
                     loadingAgentRunHistory = false,
-                    agentRunHistoryError = error.message ?: "无法读取 Agent 运行记录",
+                    agentRunHistoryError = error.message ?: "无法读取 Agent 任务",
                 )
             }
         }
@@ -403,6 +413,78 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun selectAgentRun(runId: String) {
         if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
         uiState = uiState.copy(selectedAgentRunId = runId)
+    }
+
+    fun requestAgentRunRetry(runId: String) {
+        if (uiState.sendingMessage || uiState.retryingAgentRunId != null) {
+            showValidation("当前已有任务正在执行，请等待结束后再重试")
+            return
+        }
+        val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == runId }
+        if (detail == null) {
+            showValidation("找不到要重试的 Agent Run，请刷新任务中心")
+            return
+        }
+        when (val eligibility = AgentTaskRetryPolicy.evaluate(detail)) {
+            AgentTaskRetryEligibility.NotRetryable -> {
+                showValidation("当前状态不支持重试")
+            }
+            is AgentTaskRetryEligibility.Retryable -> {
+                if (eligibility.requiresConfirmation) {
+                    uiState = uiState.copy(
+                        pendingAgentRetryConfirmation = AgentRetryConfirmationUiState(
+                            runId = runId,
+                            goal = detail.snapshot.run.goal,
+                        ),
+                    )
+                } else {
+                    startAgentRunRetry(detail)
+                }
+            }
+        }
+    }
+
+    fun confirmAgentRunRetry() {
+        val pending = uiState.pendingAgentRetryConfirmation ?: return
+        uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+        val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
+        if (detail == null) {
+            showValidation("来源 Agent Run 已不存在，请刷新任务中心")
+            return
+        }
+        startAgentRunRetry(detail)
+    }
+
+    fun cancelAgentRunRetry() {
+        uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+    }
+
+    fun consumeAgentRetryNavigation() {
+        uiState = uiState.copy(agentRetryNavigationConversationId = null)
+    }
+
+    private fun startAgentRunRetry(detail: AgentRunDetailRecord) {
+        val sourceRun = detail.snapshot.run
+        val sourceConversation = uiState.conversations.firstOrNull { it.id == sourceRun.conversationId }
+        if (sourceConversation == null) {
+            showValidation("原会话已不存在，无法在正确上下文中重试")
+            return
+        }
+        val config = validatedConfig() ?: return
+        selectConversation(sourceRun.conversationId)
+        uiState = uiState.copy(
+            retryingAgentRunId = sourceRun.id,
+            pendingAgentRetryConfirmation = null,
+            selectedAgentRunId = sourceRun.id,
+            agentRetryNavigationConversationId = sourceRun.conversationId,
+        )
+        // long: 重试不是修改或续跑旧 Run，而是在原会话追加同一目标的新用户消息；同时回到来源会话，确保重新触发的写工具审批不会隐藏在任务中心后台。
+        sendAgentRun(
+            userMessage = "/agent " + sourceRun.goal,
+            config = config,
+            conversationId = sourceRun.conversationId,
+            retryOfRunId = sourceRun.id,
+        )
     }
 
     fun approvePendingAgentTool() {
@@ -854,8 +936,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun sendAgentRun(userMessage: String, config: ProviderRequestConfig) {
-        val conversationId = uiState.selectedConversationId.ifBlank { "conversation-${System.currentTimeMillis()}" }
+    private fun sendAgentRun(
+        userMessage: String,
+        config: ProviderRequestConfig,
+        conversationId: String = uiState.selectedConversationId.ifBlank { "conversation-" + System.currentTimeMillis() },
+        retryOfRunId: String? = null,
+    ) {
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
         val userChatMessage = ChatMessage(
@@ -863,7 +949,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             text = userMessage,
             createdAt = System.currentTimeMillis(),
         )
-        val messagesWithUser = uiState.chatMessages + userChatMessage
+        val messagesWithUser = currentConversation?.messages.orEmpty() + userChatMessage
         val preparedContext = PreparedRequestContext.fromConversation(currentConversation)
         uiState = uiState.copy(
             sendingMessage = true,
@@ -887,6 +973,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     goal = goal,
                     config = config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                    retryOfRunId = retryOfRunId,
                     approvalGate = approvalGate,
                     onSnapshot = ::publishAgentRunSnapshot,
                 )
@@ -948,6 +1035,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             } finally {
                 pendingApprovalDecision = null
                 sendMessageJob = null
+                if (retryOfRunId != null) {
+                    uiState = uiState.copy(retryingAgentRunId = null)
+                    refreshAgentRunHistory()
+                }
             }
         }
     }
@@ -1024,8 +1115,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun rememberAgentRun(snapshot: AgentRunSnapshot) {
         activeAgentRunsByConversation[snapshot.run.conversationId] = snapshot
+        val existingDetail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == snapshot.run.id }
+        val updatedHistory = if (uiState.agentRunHistory.isNotEmpty() || snapshot.run.retryOfRunId != null) {
+            listOf(
+                (existingDetail ?: AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList()))
+                    .copy(snapshot = snapshot),
+            ) + uiState.agentRunHistory.filterNot { it.snapshot.run.id == snapshot.run.id }
+        } else {
+            uiState.agentRunHistory
+        }
+        val selectedRetryRunId = snapshot.run.id.takeIf { snapshot.run.retryOfRunId != null }
         if (snapshot.run.conversationId == uiState.selectedConversationId) {
-            uiState = uiState.copy(activeAgentRun = snapshot)
+            uiState = uiState.copy(
+                activeAgentRun = snapshot,
+                agentRunHistory = updatedHistory,
+                selectedAgentRunId = selectedRetryRunId ?: uiState.selectedAgentRunId,
+            )
+        } else {
+            uiState = uiState.copy(
+                agentRunHistory = updatedHistory,
+                selectedAgentRunId = selectedRetryRunId ?: uiState.selectedAgentRunId,
+            )
         }
     }
 

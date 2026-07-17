@@ -20,7 +20,7 @@ import org.json.JSONObject
         AgentMemoryEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -169,6 +169,13 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 重试必须创建新 Run 并保留来源 Run；旧数据没有来源关联，新增可空列即可保持全部历史状态、结果和审计事件不变。
+                db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `retryOfRunId` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -176,6 +183,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

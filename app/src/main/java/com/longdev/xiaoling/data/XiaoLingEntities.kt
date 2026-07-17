@@ -64,6 +64,7 @@ data class MessageEntity(
 )
 data class AgentRunEntity(
     @PrimaryKey val id: String,
+    val retryOfRunId: String?,
     val conversationId: String,
     val userMessageId: String,
     val goal: String,

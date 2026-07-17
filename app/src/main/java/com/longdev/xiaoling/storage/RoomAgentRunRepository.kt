@@ -30,10 +30,16 @@ class RoomAgentRunRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentRunLedger {
-    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {
+    override suspend fun createRun(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String?,
+    ): AgentRunRecord {
         val now = System.currentTimeMillis()
         val run = AgentRunRecord(
             id = "run-${UUID.randomUUID()}",
+            retryOfRunId = retryOfRunId,
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,
@@ -264,6 +270,7 @@ class RoomAgentRunRepository(
 
     private fun AgentRunRecord.toEntity() = AgentRunEntity(
         id = id,
+        retryOfRunId = retryOfRunId,
         conversationId = conversationId,
         userMessageId = userMessageId,
         goal = goal,
@@ -305,6 +312,7 @@ class RoomAgentRunRepository(
 
     private fun AgentRunEntity.toRecord() = AgentRunRecord(
         id = id,
+        retryOfRunId = retryOfRunId,
         conversationId = conversationId,
         userMessageId = userMessageId,
         goal = goal,

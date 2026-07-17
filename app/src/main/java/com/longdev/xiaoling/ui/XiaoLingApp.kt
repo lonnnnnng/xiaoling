@@ -115,7 +115,10 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.RunEventRecord
+import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
@@ -168,6 +171,14 @@ private fun XiaoLingContent(
     val chatScrollState = remember(chatListState) { ChatScrollState(chatListState) }
     var lastRootBackAt by remember { mutableStateOf(0L) }
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
+
+    LaunchedEffect(state.agentRetryNavigationConversationId) {
+        val conversationId = state.agentRetryNavigationConversationId ?: return@LaunchedEffect
+        // long: 任务中心可以重试任意历史会话；新 Run 启动后必须回到来源对话，用户才能看到重新触发的审批卡和实时步骤。
+        selectedTab = 0
+        settingsPane = SettingsPane.ROOT
+        viewModel.consumeAgentRetryNavigation()
+    }
 
     BackHandler(enabled = isProviderEditor) {
         viewModel.closeProviderEditor()
@@ -257,6 +268,14 @@ private fun XiaoLingContent(
             )
         }
     }
+
+    state.pendingAgentRetryConfirmation?.let { pending ->
+        AgentRetryConfirmationDialog(
+            pending = pending,
+            onConfirm = viewModel::confirmAgentRunRetry,
+            onDismiss = viewModel::cancelAgentRunRetry,
+        )
+    }
 }
 
 private enum class SettingsPane {
@@ -264,6 +283,13 @@ private enum class SettingsPane {
     PROVIDER_MANAGEMENT,
     PROMPT_SETTINGS,
     AGENT_RUN_HISTORY,
+}
+
+private enum class AgentTaskFilter(val label: String) {
+    ALL("全部"),
+    ACTIVE("处理中"),
+    RETRYABLE("可重试"),
+    COMPLETED("已完成"),
 }
 
 private data class CenterNotice(
@@ -303,6 +329,51 @@ private fun CenterNoticePopup(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
         )
     }
+}
+
+@Composable
+private fun AgentRetryConfirmationDialog(
+    pending: AgentRetryConfirmationUiState,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "确认重新运行",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = pending.goal,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "该任务可能已经执行过有副作用的工具，或在执行/验证阶段被中断。重试会创建新 Run，旧 Run 保持不变；写入工具仍需重新审批。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("创建新 Run")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(8.dp),
+    )
 }
 
 @Composable
@@ -1517,7 +1588,7 @@ private fun SettingsRootPage(
         )
 
         SettingsEntryCard(
-            title = "Agent 运行记录",
+            title = "Agent 任务中心",
             subtitle = if (state.agentRunHistory.isEmpty()) {
                 "查看最近 Agent Run 的步骤、审批和事件"
             } else {
@@ -1746,10 +1817,14 @@ private fun AgentRunHistoryPage(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var taskFilter by remember { mutableStateOf(AgentTaskFilter.ALL) }
     LaunchedEffect(Unit) {
         if (state.agentRunHistory.isEmpty() && !state.loadingAgentRunHistory) {
             viewModel.refreshAgentRunHistory()
         }
+    }
+    val filteredHistory = remember(state.agentRunHistory, taskFilter) {
+        state.agentRunHistory.filter { detail -> detail.matches(taskFilter) }
     }
 
     Column(
@@ -1762,6 +1837,10 @@ private fun AgentRunHistoryPage(
             loading = state.loadingAgentRunHistory,
             onBack = onBack,
             onRefresh = viewModel::refreshAgentRunHistory,
+        )
+        AgentTaskFilterBar(
+            selected = taskFilter,
+            onSelected = { taskFilter = it },
         )
 
         LazyColumn(
@@ -1787,7 +1866,7 @@ private fun AgentRunHistoryPage(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
                             Text(
-                                text = "正在读取运行记录",
+                                text = "正在读取 Agent 任务",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1797,22 +1876,33 @@ private fun AgentRunHistoryPage(
                 state.agentRunHistory.isEmpty() -> item {
                     CompactSection(title = "Agent Run") {
                         Text(
-                            text = "还没有 Agent 运行记录。可以在对话框输入 /agent <目标> 触发一次演示任务。",
+                            text = "还没有 Agent 任务。可以在对话框输入 /agent <目标> 触发一次任务。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                filteredHistory.isEmpty() -> item {
+                    CompactSection(title = "当前筛选") {
+                        Text(
+                            text = "没有符合条件的 Agent 任务",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 else -> items(
-                    count = state.agentRunHistory.size,
-                    key = { index -> state.agentRunHistory[index].snapshot.run.id },
+                    count = filteredHistory.size,
+                    key = { index -> filteredHistory[index].snapshot.run.id },
                 ) { index ->
-                    val detail = state.agentRunHistory[index]
+                    val detail = filteredHistory[index]
                     val selected = detail.snapshot.run.id == state.selectedAgentRunId
                     AgentRunHistoryItemCard(
                         detail = detail,
                         selected = selected,
+                        retrying = state.retryingAgentRunId == detail.snapshot.run.id,
                         onClick = { viewModel.selectAgentRun(detail.snapshot.run.id) },
+                        onRetry = { viewModel.requestAgentRunRetry(detail.snapshot.run.id) },
                     )
                     if (selected) {
                         AgentRunDetailPanel(detail)
@@ -1820,6 +1910,59 @@ private fun AgentRunHistoryPage(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AgentTaskFilterBar(
+    selected: AgentTaskFilter,
+    onSelected: (AgentTaskFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        AgentTaskFilter.entries.forEach { filter ->
+            val active = filter == selected
+            Surface(
+                color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                border = BorderStroke(
+                    1.dp,
+                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { onSelected(filter) },
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                ) {
+                    Text(filter.label, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+private fun AgentRunDetailRecord.matches(filter: AgentTaskFilter): Boolean {
+    val status = snapshot.run.status
+    return when (filter) {
+        AgentTaskFilter.ALL -> true
+        AgentTaskFilter.ACTIVE -> status in setOf(
+            AgentRunStatus.QUEUED,
+            AgentRunStatus.THINKING,
+            AgentRunStatus.WAITING_APPROVAL,
+            AgentRunStatus.EXECUTING,
+            AgentRunStatus.VERIFYING,
+        )
+        AgentTaskFilter.RETRYABLE -> AgentTaskRetryPolicy.evaluate(this) is AgentTaskRetryEligibility.Retryable
+        AgentTaskFilter.COMPLETED -> status == AgentRunStatus.COMPLETED
     }
 }
 
@@ -1837,7 +1980,7 @@ private fun AgentRunHistoryHeader(
         IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
         }
-        PageTitle("Agent 运行记录")
+        PageTitle("Agent 任务中心")
         Spacer(Modifier.weight(1f))
         IconButton(
             onClick = onRefresh,
@@ -1847,7 +1990,7 @@ private fun AgentRunHistoryHeader(
             if (loading) {
                 CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
             } else {
-                Icon(Icons.Default.CloudDownload, contentDescription = "刷新运行记录", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.CloudDownload, contentDescription = "刷新 Agent 任务", modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -1857,9 +2000,12 @@ private fun AgentRunHistoryHeader(
 private fun AgentRunHistoryItemCard(
     detail: AgentRunDetailRecord,
     selected: Boolean,
+    retrying: Boolean,
     onClick: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     val run = detail.snapshot.run
+    val retryEligibility = AgentTaskRetryPolicy.evaluate(detail)
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
@@ -1919,12 +2065,29 @@ private fun AgentRunHistoryItemCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.weight(1f))
                 run.completedAt?.let {
                     Text(
                         text = "完成 ${it.toFullTimeLabel()}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                     )
+                }
+                if (retryEligibility is AgentTaskRetryEligibility.Retryable) {
+                    TextButton(
+                        onClick = onRetry,
+                        enabled = !retrying,
+                        contentPadding = PaddingValues(horizontal = 7.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        if (retrying) {
+                            CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 1.5.dp)
+                        } else {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp))
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (retrying) "重试中" else "重试", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
         }
@@ -1934,6 +2097,9 @@ private fun AgentRunHistoryItemCard(
 @Composable
 private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
     val snapshot = detail.snapshot
+    val toolResults = snapshot.events.mapNotNull { event ->
+        (event.metadata as? RunEventMetadata.ToolResult)?.let { metadata -> event to metadata }
+    }
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -1951,6 +2117,15 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            snapshot.run.retryOfRunId?.let { sourceRunId ->
+                Text(
+                    text = "来源 Run：$sourceRunId",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             snapshot.run.errorMessage?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     text = it,
@@ -1962,6 +2137,14 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
             AgentRunDetailSection("步骤") {
                 snapshot.steps.forEach { step ->
                     AgentStepRow(status = step.status, title = step.title, detail = step.detail)
+                }
+            }
+
+            if (toolResults.isNotEmpty()) {
+                AgentRunDetailSection("工具结果") {
+                    toolResults.forEach { (event, result) ->
+                        AgentToolResultRow(event = event, result = result)
+                    }
                 }
             }
 
@@ -1997,6 +2180,53 @@ private fun AgentRunDetailSection(
             color = MaterialTheme.colorScheme.onSurface,
         )
         content()
+    }
+}
+
+@Composable
+private fun AgentToolResultRow(
+    event: RunEventRecord,
+    result: RunEventMetadata.ToolResult,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text(
+                text = result.toolName,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = if (result.success) "成功" else "失败",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (result.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${result.durationMs}ms · ${event.createdAt.toFullTimeLabel()}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = "已验证：" + when (result.verified) {
+                true -> "是"
+                false -> "否"
+                null -> "未提供"
+            },
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = result.content.ifBlank { "(空结果)" },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
     }
 }
 

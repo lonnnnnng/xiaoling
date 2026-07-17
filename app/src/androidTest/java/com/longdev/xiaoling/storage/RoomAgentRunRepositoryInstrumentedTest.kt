@@ -161,4 +161,42 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals("应用重启后终止上次未完成 Agent 任务", metadata.reason)
         assertFalse(recovered.message.trimStart().startsWith("{"))
     }
+
+    @Test
+    fun retryCreatesLinkedRunWithoutChangingSourceRun() = runBlocking {
+        val sourceRun = repository.createRun(
+            conversationId = "conversation-retry",
+            userMessageId = "message-source",
+            goal = "完成可重试任务",
+        )
+        repository.appendEvent(
+            runId = sourceRun.id,
+            type = "tool.result",
+            message = "工具执行失败：fake.echo",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = "fake.echo",
+                content = "上游服务暂时不可用",
+                durationMs = 321L,
+                success = false,
+                verified = false,
+            ),
+        )
+        repository.updateRunStatus(
+            runId = sourceRun.id,
+            status = AgentRunStatus.FAILED,
+            result = "保留旧结果",
+            errorMessage = "网络超时",
+        )
+        val sourceBeforeRetry = repository.snapshot(sourceRun.id)
+
+        val retryRun = repository.createRun(
+            conversationId = sourceRun.conversationId,
+            userMessageId = "message-retry",
+            goal = sourceRun.goal,
+            retryOfRunId = sourceRun.id,
+        )
+
+        assertEquals(sourceRun.id, repository.snapshot(retryRun.id).run.retryOfRunId)
+        assertEquals(sourceBeforeRetry, repository.snapshot(sourceRun.id))
+    }
 }

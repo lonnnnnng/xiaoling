@@ -630,10 +630,16 @@ private class InMemoryAgentRunLedger : AgentRunLedger {
     var lastRunId: String? = null
         private set
 
-    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String): AgentRunRecord {
+    override suspend fun createRun(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String?,
+    ): AgentRunRecord {
         val now = System.currentTimeMillis()
         val run = AgentRunRecord(
             id = "run-${UUID.randomUUID()}",
+            retryOfRunId = retryOfRunId,
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,

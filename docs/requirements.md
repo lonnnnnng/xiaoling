@@ -33,12 +33,13 @@
 - 有界 Agent Runtime：工具调用预算、模型与工具超时、整次 Run 超时、取消、必填参数校验和重复调用检测。
 - 应用侧 Tool Registry、风险分级、交互审批、执行后验证和确定性结果渲染；模型不能修改工具风险或自行增加执行事实。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
-- 对话内 Run 时间线和审批卡片，以及设置页只读 Agent 运行记录、步骤、审批和结构化事件展示。
-- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记和长期记忆；RunEvent 使用独立 typed metadata 保存工具审计字段，旧 SharedPreferences 数据首次启动时迁入，v4→v7 升级已有 Schema 导出和真机自动化迁移测试保护。
+- 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。
+- 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
+- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记和长期记忆；RunEvent 使用独立 typed metadata 保存工具审计字段，旧 SharedPreferences 数据首次启动时迁入，v4→v8 升级已有 Schema 导出和真机自动化迁移测试保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
 
-当前仍未交付完整任务中心、进程重建后的继续执行、失败重试、长期记忆管理 UI、完整 JSON Schema、Skill、后台工作流和手机自动化。
+当前仍未交付进程重建后的原地继续执行、长期记忆管理 UI、完整 JSON Schema、Skill、后台工作流和手机自动化。现有“恢复”采用安全重新运行：创建新 Run、使用当前 Provider/模型、重新审批写入工具，不复用旧执行栈。
 
 当前实现详情见 [当前实现说明](implementation-notes.md)。
 

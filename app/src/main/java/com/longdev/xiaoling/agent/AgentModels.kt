@@ -22,6 +22,11 @@ enum class AgentStepStatus {
     CANCELLED,
 }
 
+object AgentStepTypes {
+    const val TOOL_EXECUTE = "tool.execute"
+    const val TOOL_VERIFY = "tool.verify"
+}
+
 data class AgentRunRecord(
     val id: String,
     val conversationId: String,
@@ -33,6 +38,7 @@ data class AgentRunRecord(
     val createdAt: Long,
     val updatedAt: Long,
     val completedAt: Long?,
+    val retryOfRunId: String? = null,
 )
 
 data class AgentStepRecord(

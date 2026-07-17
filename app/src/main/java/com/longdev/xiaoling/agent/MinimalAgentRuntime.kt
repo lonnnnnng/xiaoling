@@ -16,8 +16,13 @@ class MinimalAgentRuntime(
     private val approvalGate: ApprovalGate = AutoApprovalGate(),
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
 ) {
-    suspend fun run(conversationId: String, userMessageId: String, goal: String): AgentRunSummary {
-        val run = ledger.createRun(conversationId, userMessageId, goal)
+    suspend fun run(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String? = null,
+    ): AgentRunSummary {
+        val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
             AgentToolExecutionContext(
                 conversationId = conversationId,
@@ -118,7 +123,7 @@ class MinimalAgentRuntime(
             ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
             val execution = ledger.appendStep(
                 runId = run.id,
-                type = "tool.execute",
+                type = AgentStepTypes.TOOL_EXECUTE,
                 title = "执行工具",
                 detail = "正在执行 ${toolCall.name}",
                 status = AgentStepStatus.RUNNING,
@@ -148,7 +153,7 @@ class MinimalAgentRuntime(
             ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
             val verify = ledger.appendStep(
                 runId = run.id,
-                type = "tool.verify",
+                type = AgentStepTypes.TOOL_VERIFY,
                 title = "执行后验证",
                 detail = "检查工具是否返回可读结果。",
                 status = AgentStepStatus.RUNNING,

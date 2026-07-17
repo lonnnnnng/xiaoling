@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory。下一阶段重点不是立即增加大量手机工具，而是补齐任务恢复、失败重试、完整 Schema/权限策略、记忆管理和后台任务能力。
+小灵在 `v0.1.9` 之后的当前 `main__ 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；任务中心已支持失败终态安全重新运行。下一阶段重点不是立即增加大量手机工具，而是补齐长期记忆管理、完整 Schema/权限策略、真正的断点恢复和后台任务能力。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -29,12 +29,12 @@
 - `AgentRun / AgentStep / ApprovalRequest / RunEvent / AgentMemory` 初始数据模型，以及 `/agent` 模型规划 + 应用内低风险工具链路。
 - 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、必填参数校验、重复工具调用检测和结构化事件记录。
 - 对话区已能显示当前 `/agent` Run 的最小时间线和审批卡片，批准后继续执行，拒绝后写入失败终态；交互审批当前不主动过期，审批请求已具备待确认状态和决定结果落库。
-- 设置页已有最小 Agent 运行记录入口，可查看最近 Run、步骤、审批请求和结构化事件。
+- 设置页已有 Agent 任务中心，可按全部/处理中/可重试/已完成筛选，查看完整工具结果、步骤、审批和结构化事件，并为失败、取消或预算耗尽任务创建关联的新 Run。
 - 应用启动时会把进程重建前遗留的非终态 Run 收敛成 `CANCELLED`，避免任务中心出现不可继续的假活跃任务。
 
 ### 主要缺口
 
-- 还没有完整任务中心、进程重建后的继续执行恢复、失败重试和完整工具结果视图。
+- 当前重试采用安全重新运行而不是原地续跑：旧 Run 保持不变，新 Run 关联 `retryOfRunId` 并重新走模型规划、工具审批和验证；进程重建后的原地继续执行仍未交付。
 - 已有第一批真实 Tool Registry、风险分级和写入后验证，但 Schema 仍只覆盖必填字符串参数，Android 权限策略和可插拔业务验证器还没有完成。
 - 已有结构化长期记忆表以及 `memory.search / memory.remember`，但记忆管理 UI、FTS 检索、撤销、去重和引用审计还没有完成。
 - 没有 Skill、Workflow、后台调度和跨任务执行日志聚合；当前 `RunEvent` 只覆盖单次 Agent Run 审计。
@@ -95,7 +95,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v7 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items 和 `LlmProviderAdapter` 已完成；数据库备份和 ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v8 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items 和 `LlmProviderAdapter` 已完成；数据库备份和 ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -105,7 +105,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v7 migration 链、v6 JSON event metadata 迁移和全新 v7 建库。
+- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v8 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联迁移和全新 v8 建库。
 - 待完成：增加面向用户的数据库备份与恢复能力。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -120,7 +120,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 单工具闭环、运行预算、超时、取消、审批、后置验证、Run 时间线、RunEvent typed metadata、只读运行记录和第一批应用内工具已完成；独立 ToolCall/ToolResult 表、复杂 Schema、恢复和失败重试仍待完成。
+当前状态：`/agent` 单工具闭环、运行预算、超时、取消、审批、后置验证、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；独立 ToolCall/ToolResult 表、复杂 Schema 和真正的断点恢复仍待完成。
 
 ### 核心数据模型
 
@@ -129,7 +129,7 @@ com.longdev.xiaoling.ui.agent
 - `RunEvent`：状态变化、模型决策、工具调用、工具结果、确认、错误。
 - `ToolDefinition`：名称、描述、输入 Schema、风险、权限、确认和验证规则。
 - `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。
-- `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前交互审批不主动过期，已落地最小 Room 表和只读运行记录页；后续还需要接入完整任务中心和进程重建后的恢复策略。
+- `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前交互审批不主动过期，已落地 Room 表和任务中心；后续还需要接入进程重建后的原地恢复策略。
 
 ### 运行状态
 
@@ -150,7 +150,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 工具参数先做 JSON Schema 和业务校验，再进入 Executor。当前先支持必填参数校验，完整类型和业务校验仍待补齐。
 - 风险和确认要求取自 `ToolDefinition`，忽略模型自己声明的风险级别。
 - Run 可取消；取消后不再接受迟到的流式事件或工具结果。
-- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。当前已在对话流里显示最小时间线，并在设置页提供只读运行记录和结构化事件展示；后续需要升级为可操作任务视图。
+- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。当前已在对话流里显示最小时间线，并在设置页提供可筛选、可重试的任务中心；ToolResult 完整正文、成功/验证状态和耗时均可查看。
 
 ### 第一批工具
 
@@ -314,10 +314,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v7 与 event metadata 迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
-| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件和取消已完成；恢复/重试待完成 | 决定任务是否可靠、可观察 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v8、event metadata 与重试关联迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
+| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 第一批 Registry/风险/确认/验证已完成；完整 Schema 和权限策略待完成 | 决定执行边界和安全性 |
-| P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线和只读运行记录已完成 | 已形成第一条端到端 Agent 链路 |
+| P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 基础表与读写工具已完成；管理 UI/FTS 待完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 未开始 | 控制 Prompt 和工具面增长 |
 | P1 | Workflow Ledger 与后台调度 | 未开始 | 支持持续任务且可追溯 |
@@ -339,10 +339,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
-1. 将当前只读 Agent 运行记录升级为完整任务中心，支持完整工具结果视图、失败重试和恢复。
-2. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
-3. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
-4. 增加面向用户的数据库备份与恢复能力。
+1. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
+2. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
+3. 增加面向用户的数据库备份与恢复能力。
+4. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
 5. 多步 Agent、Skill 和后台任务在上述基础稳定后进入。
 
 完成这五项后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。
