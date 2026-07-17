@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunLedger
@@ -14,6 +15,7 @@ import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentStepEntity
 import com.longdev.xiaoling.data.ApprovalRequestEntity
@@ -135,7 +137,6 @@ class RoomAgentRunRepository(
         runId: String,
         toolCall: ToolCall,
         definition: ToolDefinition,
-        expiresAt: Long,
     ): ApprovalRequestRecord {
         val now = System.currentTimeMillis()
         val request = ApprovalRequestRecord(
@@ -150,7 +151,7 @@ class RoomAgentRunRepository(
             status = ApprovalRequestStatus.PENDING,
             decisionReason = null,
             createdAt = now,
-            expiresAt = expiresAt,
+            expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
             decidedAt = null,
         )
         database.agentRunDao().upsertApprovalRequest(request.toEntity())
@@ -175,22 +176,11 @@ class RoomAgentRunRepository(
     }
 
     suspend fun pendingApprovalRequests(conversationId: String): List<ApprovalRequestRecord> {
-        val now = System.currentTimeMillis()
-        return database.agentRunDao()
-            .getPendingApprovalRequests(conversationId)
-            .map { it.toRecord() }
-            .map { request ->
-                if (request.expiresAt <= now) {
-                    decideApprovalRequest(
-                        requestId = request.id,
-                        status = ApprovalRequestStatus.EXPIRED,
-                        reason = "审批请求已过期",
-                    ) ?: request.copy(status = ApprovalRequestStatus.EXPIRED, decisionReason = "审批请求已过期", decidedAt = now)
-                } else {
-                    request
-                }
-            }
-            .filter { it.status == ApprovalRequestStatus.PENDING }
+        return activePendingApprovalRequests(
+            database.agentRunDao()
+                .getPendingApprovalRequests(conversationId)
+                .map { it.toRecord() },
+        )
     }
 
     suspend fun closeInterruptedRuns(): Int {
@@ -374,4 +364,8 @@ class RoomAgentRunRepository(
             .put("arguments", arguments.toJsonObject())
             .toString()
     }
+}
+
+internal fun activePendingApprovalRequests(requests: List<ApprovalRequestRecord>): List<ApprovalRequestRecord> {
+    return requests.filter { it.isWaitingForInteractiveApprovalDecision() }
 }

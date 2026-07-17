@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.toApprovalExpiryPolicyLabel
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -52,7 +53,7 @@ private val approvalRequestFields = listOf(
     "状态" to "status",
     "原因" to "decisionReason",
     "参数" to "arguments",
-    "有效期" to "expiresAt",
+    "过期策略" to "expiresAt",
 )
 
 private val reasonFields = listOf("原因" to "reason")
@@ -74,6 +75,7 @@ private val eventDescriptors = mapOf(
     "approval.requested" to EventDescriptor("审批请求", approvalRequestFields),
     "approval.request_decided" to EventDescriptor("审批请求", approvalRequestFields),
     "approval.skipped" to EventDescriptor("跳过审批", approvalSkippedFields),
+    "llm.summarize.fallback" to EventDescriptor("模型总结兜底", reasonFields),
     "run.failed" to EventDescriptor("Run 失败", reasonFields),
     "run.timeout" to EventDescriptor("Run 超时", reasonFields),
     "run.cancelled" to EventDescriptor("Run 已取消", reasonFields),
@@ -144,7 +146,8 @@ private fun JSONObject.genericFields(): List<AgentRunEventField> {
 }
 
 private fun JSONObject.rawFallbackIfMissing(mapping: List<Pair<String, String>>, raw: String): String? {
-    val anyMissing = mapping.any { (_, key) -> key != "verified" && (!has(key) || isNull(key)) }
+    val optionalKeys = setOf("verified", "decisionReason")
+    val anyMissing = mapping.any { (_, key) -> key !in optionalKeys && (!has(key) || isNull(key)) }
     return if (anyMissing) raw else null
 }
 
@@ -153,7 +156,11 @@ private fun Any?.toDisplayText(key: String): String {
         null,
         JSONObject.NULL -> ""
         is Boolean -> if (this) "是" else "否"
-        is Number -> if (key == "durationMs") "${this}ms" else toString()
+        is Number -> when (key) {
+            "durationMs" -> "${this}ms"
+            "expiresAt" -> toLong().toApprovalExpiryPolicyLabel()
+            else -> toString()
+        }
         is JSONObject -> keys().asSequence()
             .toList()
             .sorted()

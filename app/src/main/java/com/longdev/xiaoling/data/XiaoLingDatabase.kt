@@ -49,7 +49,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // long: 审批请求必须独立成表，不能只藏在 RunEvent 文本里；这样用户确认动作才有有效期、决定结果和后续恢复依据。
+                // long: 审批请求必须独立成表，不能只藏在 RunEvent 文本里；这样用户确认动作才有过期策略、决定结果和后续恢复依据。
                 db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS `approval_requests` (

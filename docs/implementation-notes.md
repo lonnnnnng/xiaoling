@@ -61,17 +61,17 @@
 4. SAFE 工具跳过交互审批并写入 `approval.skipped` 审计事件；非 SAFE 工具进入 `WAITING_APPROVAL`，先写入 `ApprovalRequest`，再在对话区显示审批卡片；用户批准后继续执行，用户拒绝后 Run 进入失败终态。
 5. 执行工具，写入结构化 `RunEvent`，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。
 6. 进入 `VERIFYING`，检查工具结果可读。
-7. 将工具结果回传当前模型生成最终总结。
+7. 将工具结果回传当前模型生成最终总结；如果工具已经执行并验证成功，但模型总结超时或返回空内容，使用本地兜底总结保留已完成结果。
 8. 完成后将 Run 标记为 `COMPLETED`，并在对话区输出总结。
 
 当前最小 Runtime 已具备以下运行约束：
 
-- `AgentRuntimeOptions` 控制最大工具调用次数、整次 Run 超时、模型步骤超时和工具步骤超时。
+- `AgentRuntimeOptions` 控制最大工具调用次数、模型/工具执行预算、模型步骤超时和工具步骤超时；用户阅读审批卡片的等待时间不消耗执行预算。
 - 工具风险等级、必填参数和超时时间来自应用侧 `ToolDefinition`，不信任模型自己声明的风险。
 - 模型工具调用解析只保留模型返回的原始参数，不自动补齐必填字段；缺参必须由 `tool.validate` 写入失败终态，便于后续审计模型决策质量。
 - `AgentRunUseCase` 使用 reporting ledger 回读 Room 快照，ViewModel 将 `AgentRun / AgentStep / RunEvent` 渲染成当前对话内的运行时间线。
-- 审批使用 suspend `ApprovalGate` 挂起等待 UI 决策；`ApprovalRequest` 独立记录待确认工具、风险、参数、有效期、决定结果和决定原因。
-- 停止生成会取消等待并把当前审批请求写成 `CANCELLED`；超过审批有效期会写成 `EXPIRED`，不会继续执行工具。
+- 审批使用 suspend `ApprovalGate` 挂起等待 UI 决策；`ApprovalRequest` 独立记录待确认工具、风险、参数、过期策略、决定结果和决定原因。
+- 当前交互审批不按固定倒计时主动过期，只有用户批准、拒绝、停止生成或应用启动恢复收敛时改变状态；`EXPIRED` 保留给后续明确截止时间的工具策略。
 - 当前 ViewModel 会按 conversationId 缓存正在显示的 Run 时间线和审批卡片；仅切换会话/页面再返回不会丢失当前活跃卡片。
 - 设置页「Agent 运行记录」从 Room 读取最近 50 条 Run，展开后可查看步骤、审批请求和事件；事件里的工具调用、工具结果、审批和失败原因会先按 JSON 结构化展示，再对非 JSON 文本回退原文。该页面只做历史审计，不负责恢复、重试或后台执行。
 - 应用启动时会检查上次遗留的非终态 Run，将它们收敛为 `CANCELLED`，并把待审批请求写成 `CANCELLED`，避免进程重建后出现无法继续的假活跃任务。

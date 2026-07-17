@@ -69,6 +69,19 @@ enum class ApprovalRequestStatus {
     CANCELLED,
 }
 
+// long: 当前交互审批由用户明确批准、拒绝或任务取消来收敛，不按固定倒计时自动过期；保留 expiresAt 字段时用该哨兵值表达“无主动过期”。
+const val APPROVAL_REQUEST_NO_EXPIRY_AT: Long = Long.MAX_VALUE
+
+fun Long.isApprovalRequestWithoutActiveExpiry(): Boolean = this == APPROVAL_REQUEST_NO_EXPIRY_AT
+
+fun Long.toApprovalExpiryPolicyLabel(): String {
+    return if (isApprovalRequestWithoutActiveExpiry()) {
+        "无主动过期"
+    } else {
+        toString()
+    }
+}
+
 data class ApprovalRequestRecord(
     val id: String,
     val runId: String,
@@ -84,6 +97,11 @@ data class ApprovalRequestRecord(
     val expiresAt: Long,
     val decidedAt: Long?,
 )
+
+fun ApprovalRequestRecord.isWaitingForInteractiveApprovalDecision(): Boolean {
+    // long: 交互审批的待处理状态只看用户是否已经做出决定，不用 expiresAt 推导过期；这样旧数据或未来策略字段变化不会在读取列表时偷偷改写用户审批结果。
+    return status == ApprovalRequestStatus.PENDING
+}
 
 data class AgentRunDetailRecord(
     val snapshot: AgentRunSnapshot,

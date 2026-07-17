@@ -57,4 +57,16 @@ class AgentRunEventPresentationTest {
         assertEquals("THINKING", presentation.rawFallback)
         assertEquals(emptyList<AgentRunEventField>(), presentation.fields)
     }
+
+    @Test
+    fun approvalRequestNoActiveExpiryIsPresentedAsPolicyLabel() {
+        val presentation = presentAgentRunEvent(
+            type = "approval.requested",
+            message = """{"id":"approval-1","tool":"memory.remember","risk":"REQUIRES_APPROVAL","status":"PENDING","expiresAt":9223372036854775807,"arguments":{"note":"compact ui"}}""",
+        )
+
+        assertEquals("审批请求", presentation.summary)
+        assertEquals("无主动过期", presentation.fields.single { it.label == "过期策略" }.value)
+        assertNull(presentation.rawFallback)
+    }
 }

@@ -45,7 +45,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -924,7 +923,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 runId = runId,
                 toolCall = toolCall,
                 definition = definition,
-                expiresAt = System.currentTimeMillis() + AGENT_APPROVAL_TIMEOUT_MS,
             )
         }
         val deferred = CompletableDeferred<ApprovalDecision>()
@@ -933,20 +931,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             pendingApprovalDecision = deferred
             rememberPendingApproval(AgentApprovalUiState.from(request))
         }
-        var expired = false
         return try {
-            withTimeoutOrNull(AGENT_APPROVAL_TIMEOUT_MS) {
-                deferred.await()
-            } ?: run {
-                expired = true
-                ApprovalDecision(
-                    approved = false,
-                    reason = "审批请求已过期",
-                )
-            }
+            // long: 审批是用户确认真实副作用的安全闸口，等待时间不等同于 Agent 执行耗时；这里不主动过期，避免用户阅读工具参数稍久就把任务误判失败。
+            deferred.await()
         } finally {
             val unresolvedStatus = when {
-                expired -> ApprovalRequestStatus.EXPIRED
                 deferred.isCancelled -> ApprovalRequestStatus.CANCELLED
                 !deferred.isCompleted -> ApprovalRequestStatus.CANCELLED
                 else -> null
@@ -956,11 +945,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     agentRunRepository.decideApprovalRequest(
                         requestId = request.id,
                         status = unresolvedStatus,
-                        reason = if (unresolvedStatus == ApprovalRequestStatus.EXPIRED) {
-                            "审批请求已过期"
-                        } else {
-                            "审批等待已取消"
-                        },
+                        reason = "审批等待已取消",
                     )
                 }
             }
@@ -1702,7 +1687,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val SUMMARY_MAX_CHARS = 4_000
         private const val SUMMARY_TARGET_CHARS = 1_200
         private const val STREAMING_UI_THROTTLE_MS = 30L
-        private const val AGENT_APPROVAL_TIMEOUT_MS = 110_000L
         private const val AGENT_RUN_HISTORY_LIMIT = 50
     }
 }

@@ -236,6 +236,40 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun approvalWaitDoesNotConsumeExecutionTimeoutBudget() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    delay(2_000)
+                    return ApprovalDecision(
+                        approved = true,
+                        reason = "用户阅读审批详情后批准",
+                    )
+                }
+            },
+            options = AgentRuntimeOptions(
+                runTimeoutMs = 500,
+                modelStepTimeoutMs = 5_000,
+                toolStepTimeoutMs = 5_000,
+            ),
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "审批等待不计入执行预算")
+
+        val snapshot = ledger.snapshot(summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.type == "approval" }.status)
+        assertTrue(snapshot.events.any { it.type == "approval.granted" && it.message.contains("用户阅读审批详情后批准") })
+    }
+
+    @Test
     fun missingRequiredToolArgumentFailsAtValidationStep() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
@@ -325,6 +359,73 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("超时"))
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single().status)
+    }
+
+    @Test
+    fun summaryTimeoutAfterVerifiedToolUsesFallbackResponse() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    val tool = tools.first()
+                    return ToolCall(
+                        name = tool.name,
+                        arguments = mapOf("goal" to goal),
+                        risk = tool.risk,
+                    )
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
+                    delay(2_000)
+                    return "不应等到模型总结"
+                }
+            },
+            options = AgentRuntimeOptions(
+                runTimeoutMs = 5_000,
+                modelStepTimeoutMs = 1_000,
+            ),
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "总结超时兜底")
+
+        val snapshot = ledger.snapshot(summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertTrue(summary.responseText.contains("Agent 演示任务已完成"))
+        assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.type == "llm.summarize" }.status)
+        assertTrue(snapshot.events.any { it.type == "llm.summarize.fallback" && it.message.contains("模型总结") })
+    }
+
+    @Test
+    fun blankSummaryAfterVerifiedToolUsesFallbackResponse() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    val tool = tools.first()
+                    return ToolCall(
+                        name = tool.name,
+                        arguments = mapOf("goal" to goal),
+                        risk = tool.risk,
+                    )
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
+                    return ""
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "空总结兜底")
+
+        val snapshot = ledger.snapshot(summary.runId)
+        val summaryStep = snapshot.steps.single { it.type == "llm.summarize" }
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertTrue(summary.responseText.contains("Agent 演示任务已完成"))
+        assertEquals(AgentStepStatus.COMPLETED, summaryStep.status)
+        assertTrue(summaryStep.detail.contains("模型总结为空"))
+        assertTrue(snapshot.events.any { it.type == "llm.summarize.fallback" && it.message.contains("模型总结为空") })
     }
 
     @Test
