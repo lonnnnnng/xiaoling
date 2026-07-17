@@ -82,8 +82,8 @@ private class ReportingAgentRunLedger(
         stepRunIds[stepId]?.let { emit(it) }
     }
 
-    override suspend fun appendEvent(runId: String, type: String, message: String) {
-        delegate.appendEvent(runId, type, message)
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
+        delegate.appendEvent(runId, type, message, metadata)
         emit(runId)
     }
 

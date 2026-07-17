@@ -12,6 +12,8 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.RunEventRecord
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.RunEventMetadataCodec
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
@@ -110,13 +112,14 @@ class RoomAgentRunRepository(
         appendEvent(snapshot.runId, "step.status", "${snapshot.sequence}. ${snapshot.title} -> ${status.name}")
     }
 
-    override suspend fun appendEvent(runId: String, type: String, message: String) {
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
         database.agentRunDao().insertEvent(
             RunEventEntity(
                 id = "event-${UUID.randomUUID()}",
                 runId = runId,
                 type = type,
                 message = message,
+                metadataJson = metadata?.let(RunEventMetadataCodec::encode),
                 createdAt = System.currentTimeMillis(),
             ),
         )
@@ -155,7 +158,12 @@ class RoomAgentRunRepository(
             decidedAt = null,
         )
         database.agentRunDao().upsertApprovalRequest(request.toEntity())
-        appendEvent(runId, "approval.requested", request.toEventMessage())
+        appendEvent(
+            runId = runId,
+            type = "approval.requested",
+            message = "等待审批：${request.toolName}",
+            metadata = request.toEventMetadata(),
+        )
         return request
     }
 
@@ -171,7 +179,12 @@ class RoomAgentRunRepository(
             decidedAt = System.currentTimeMillis(),
         )
         database.agentRunDao().upsertApprovalRequest(decided.toEntity())
-        appendEvent(decided.runId, "approval.request_decided", decided.toEventMessage())
+        appendEvent(
+            runId = decided.runId,
+            type = "approval.request_decided",
+            message = "审批状态已更新：${decided.toolName} -> ${decided.status.name}",
+            metadata = decided.toEventMetadata(),
+        )
         return decided
     }
 
@@ -208,13 +221,14 @@ class RoomAgentRunRepository(
                     )
                 }
             appendEvent(
-                run.id,
-                "run.recovered",
-                JSONObject()
-                    .put("fromStatus", run.status)
-                    .put("toStatus", AgentRunStatus.CANCELLED.name)
-                    .put("reason", reason)
-                    .toString(),
+                runId = run.id,
+                type = "run.recovered",
+                message = reason,
+                metadata = RunEventMetadata.Recovery(
+                    fromStatus = AgentRunStatus.valueOf(run.status),
+                    toStatus = AgentRunStatus.CANCELLED,
+                    reason = reason,
+                ),
             )
             updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)
         }
@@ -336,6 +350,7 @@ class RoomAgentRunRepository(
         type = type,
         message = message,
         createdAt = createdAt,
+        metadata = RunEventMetadataCodec.decode(type, metadataJson),
     )
 
     private fun Map<String, String>.toJsonObject(): JSONObject {
@@ -353,16 +368,16 @@ class RoomAgentRunRepository(
         }.getOrDefault(emptyMap())
     }
 
-    private fun ApprovalRequestRecord.toEventMessage(): String {
-        return JSONObject()
-            .put("id", id)
-            .put("tool", toolName)
-            .put("risk", risk.name)
-            .put("status", status.name)
-            .put("expiresAt", expiresAt)
-            .put("decisionReason", decisionReason)
-            .put("arguments", arguments.toJsonObject())
-            .toString()
+    private fun ApprovalRequestRecord.toEventMetadata(): RunEventMetadata {
+        return RunEventMetadata.ApprovalRequest(
+            id = id,
+            toolName = toolName,
+            risk = risk,
+            arguments = arguments.toSortedMap(),
+            status = status,
+            expiresAt = expiresAt,
+            reason = decisionReason,
+        )
     }
 }
 

@@ -53,7 +53,65 @@ data class RunEventRecord(
     val type: String,
     val message: String,
     val createdAt: Long,
+    val metadata: RunEventMetadata? = null,
 )
+
+sealed interface RunEventMetadata {
+    data class ToolCall(
+        val id: String,
+        val toolName: String,
+        val risk: ToolRisk,
+        val arguments: Map<String, String>,
+    ) : RunEventMetadata
+
+    data class ToolResult(
+        val toolName: String,
+        val content: String,
+        val durationMs: Long,
+        val success: Boolean,
+        val verified: Boolean?,
+    ) : RunEventMetadata
+
+    data class ApprovalRequest(
+        val id: String,
+        val toolName: String,
+        val risk: ToolRisk,
+        val arguments: Map<String, String>,
+        val status: ApprovalRequestStatus,
+        val expiresAt: Long,
+        val reason: String?,
+    ) : RunEventMetadata
+
+    data class ApprovalDecision(
+        val toolName: String,
+        val approved: Boolean,
+        val reason: String,
+    ) : RunEventMetadata
+
+    data class ApprovalSkipped(
+        val toolName: String,
+        val reason: String,
+    ) : RunEventMetadata
+
+    data class ToolVerification(
+        val toolName: String,
+        val status: ToolVerificationStatus,
+    ) : RunEventMetadata
+
+    data class Reason(
+        val reason: String,
+    ) : RunEventMetadata
+
+    data class Recovery(
+        val fromStatus: AgentRunStatus,
+        val toStatus: AgentRunStatus,
+        val reason: String,
+    ) : RunEventMetadata
+}
+
+enum class ToolVerificationStatus {
+    PASSED,
+}
 
 data class AgentRunSnapshot(
     val run: AgentRunRecord,

@@ -35,7 +35,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4 与当前 v6 Schema；v4→v6 迁移测试通过正式 migration 列表和 DAO 回读验证用户数据。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6 与当前 v7 Schema；v4→v7 迁移测试通过正式 migration 列表和 DAO/Repository 回读验证用户数据。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页已有最小 Agent 运行记录入口，可以查看历史 Run、步骤、审批和事件，但还没有完整任务中心、运行恢复和后台任务入口。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -47,7 +47,7 @@
 1. 校验 `Base URL`、已启用模型和消息内容。
 2. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
 3. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
-4. Responses API 模式发送 `model`、结构化 `input` 消息数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；system/user/assistant 角色不再拼接进单一字符串。
+4. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；除 system/user/assistant 消息外，Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。
 5. 非流式响应从常见字段中提取文本。
 6. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
 7. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
@@ -64,7 +64,7 @@
 2. 请求当前模型只返回工具调用 JSON，应用侧只接受已注册工具。
 3. 进入 `tool.validate` 步骤，校验工具必填参数、工具调用预算和重复调用风险。
 4. SAFE 工具跳过交互审批并写入 `approval.skipped` 审计事件；非 SAFE 工具进入 `WAITING_APPROVAL`，先写入 `ApprovalRequest`，再在对话区显示审批卡片；用户批准后继续执行，用户拒绝后 Run 进入失败终态。
-5. 执行工具，写入结构化 `RunEvent`，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。
+5. 执行工具，写入可读 `RunEvent.message` 和独立 typed metadata，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。
 6. 进入 `VERIFYING`，检查工具结果可读。
 7. 模型根据用户提示偏好选择受限的详略和语气枚举，Runtime 使用真实工具字段渲染最终回复；样式选择超时、为空或返回非法内容时，使用确定性默认样式保留已完成结果。
 8. 完成后将 Run 标记为 `COMPLETED`，并在对话区输出总结。
@@ -78,10 +78,10 @@
 - 审批使用 suspend `ApprovalGate` 挂起等待 UI 决策；`ApprovalRequest` 独立记录待确认工具、风险、参数、过期策略、决定结果和决定原因。
 - 当前交互审批不按固定倒计时主动过期，只有用户批准、拒绝、停止生成或应用启动恢复收敛时改变状态；`EXPIRED` 保留给后续明确截止时间的工具策略。
 - 当前 ViewModel 会按 conversationId 缓存正在显示的 Run 时间线和审批卡片；仅切换会话/页面再返回不会丢失当前活跃卡片。
-- 设置页「Agent 运行记录」从 Room 读取最近 50 条 Run，展开后可查看步骤、审批请求和事件；事件里的工具调用、工具结果、审批和失败原因会先按 JSON 结构化展示，再对非 JSON 文本回退原文。该页面只做历史审计，不负责恢复、重试或后台执行。
+- 设置页「Agent 运行记录」从 Room 读取最近 50 条 Run，展开后可查看步骤、审批请求和事件；事件展示直接消费 Repository 解码后的 typed metadata，旧纯文本事件回退显示 `message`。该页面只做历史审计，不负责恢复、重试或后台执行。
 - 应用启动时会检查上次遗留的非终态 Run，将它们收敛为 `CANCELLED`，并把待审批请求写成 `CANCELLED`，避免进程重建后出现无法继续的假活跃任务。
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
-- `RunEvent` 目前仍复用 `message` 字段保存 JSON 字符串，运行记录页已做展示层解析，后续可以升级为独立 metadata 字段。
+- `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批。
 
 该链路的价值是先把 Run、Step、Event、审批、执行、验证、长期记忆和终态跑通，为后续更多真实工具和后台任务提供可测试 seam。
@@ -92,7 +92,7 @@
 - 普通对话每次固定注入不可覆盖 system 边界；用户原文、自定义模板、普通 assistant 回复和会话摘要都不能触发工具能力例外。
 - 消息通过 `MessageOrigin` 区分普通 assistant 与应用 Agent 回复，Runtime 审计使用 `VerifiedAgentContext` 领域类型，只在 Room / JSON 存储边界序列化。Agent 总结模型只能选择 `compact / detailed` 和 `neutral / friendly / formal`；Runtime 使用真实工具字段渲染回复，非法配置改用确定性默认样式。
 - 普通聊天历史和摘要转录由 `JSONObject / JSONArray` 生成外层来源结构，消息正文只进入转义后的 `content` 字段；用户或模型正文复述 `runtime_audit` / `application_agent_audit` 不能升级可信身份。
-- v5 数据库迁移补消息来源，v6 迁移补 Agent 审计上下文；旧消息设为 `LEGACY`，历史 assistant 按普通回复保守恢复，不推断旧 Agent 事实。
+- v5 数据库迁移补消息来源，v6 迁移补 Agent 审计上下文，v7 迁移补 RunEvent metadata；旧消息设为 `LEGACY`，历史 assistant 按普通回复保守恢复，不推断旧 Agent 事实。
 - 超出最近消息窗口的 Agent 结果最多保留 8 条结构化记录继续参与上下文，避免可信来源在压缩成普通摘要后丢失；这不代表当前轮次执行了新工具。
 - 会话数量和消息内容保存在本地。
 - 当历史消息超过最近窗口时，较早内容会压缩成摘要，并作为 system 上下文放入后续请求。
@@ -123,8 +123,8 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v6，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机创建带真实旧数据的 v4 数据库，再执行正式 v4→v5→v6 迁移并校验 Provider、会话、消息、Run、Step、审批、事件、笔记和记忆均保留。
-- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；测试同时覆盖全新 v6 数据库创建和打开。
+- 数据库当前版本为 v7，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机创建带真实旧数据的 v4/v6 数据库，再执行正式 v4→v5→v6→v7 迁移并校验 Provider、会话、消息、Run、Step、审批、事件 metadata、笔记和记忆均保留。
+- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；测试同时覆盖全新 v7 数据库创建和打开。
 - AgentMemory 当前保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用状态和时间戳；记忆管理 UI、FTS 和撤销入口仍在后续里程碑。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
 - 主题与三类提示词偏好保存在 `xiaoling_ui` SharedPreferences。
@@ -142,7 +142,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses API 当前已支持文本消息的结构化历史；Tool/Reasoning/Image/File 等 typed Items 仍未进入消息持久化模型。
+- Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具，运行记录页仍是只读历史审计；进程重建后会收敛中间态，但还没有继续执行和失败重试。
 - 工具 Schema 目前只覆盖必填字符串参数，还没有完整 JSON Schema、类型校验和业务校验器。
 - 运行恢复、后台任务、长期记忆管理 UI、Skill 和更多真实工具仍需按路线图继续补齐。

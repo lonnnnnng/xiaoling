@@ -1,5 +1,9 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
+import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.ToolRisk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -9,7 +13,14 @@ class AgentRunEventPresentationTest {
     fun toolResultJsonIsPresentedAsStructuredFields() {
         val presentation = presentAgentRunEvent(
             type = "tool.result",
-            message = """{"tool":"fake.echo","success":true,"content":"done","durationMs":42}""",
+            message = "工具执行成功：fake.echo",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = "fake.echo",
+                success = true,
+                content = "done",
+                durationMs = 42,
+                verified = null,
+            ),
         )
 
         assertEquals("工具执行成功", presentation.summary)
@@ -24,7 +35,13 @@ class AgentRunEventPresentationTest {
     fun toolCallArgumentsRemainReadableWhenNestedJsonIsUsed() {
         val presentation = presentAgentRunEvent(
             type = "tool.call.proposed",
-            message = """{"id":"fake-call-1","name":"fake.echo","risk":"REQUIRES_APPROVAL","arguments":{"goal":"hello","path":"/tmp/a"}}""",
+            message = "模型提出工具调用：fake.echo",
+            metadata = RunEventMetadata.ToolCall(
+                id = "fake-call-1",
+                toolName = "fake.echo",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+                arguments = mapOf("goal" to "hello", "path" to "/tmp/a"),
+            ),
         )
 
         assertEquals("模型提出工具调用", presentation.summary)
@@ -34,16 +51,17 @@ class AgentRunEventPresentationTest {
     }
 
     @Test
-    fun parsedJsonFallsBackToRawMessageWhenExpectedFieldsAreMissing() {
-        val raw = """{"tool":"fake.echo","content":"missing success"}"""
+    fun eventWithoutDecodableMetadataFallsBackToReadableMessage() {
+        val raw = "工具执行结果：fake.echo"
         val presentation = presentAgentRunEvent(
             type = "tool.result",
             message = raw,
+            metadata = null,
         )
 
         assertEquals("工具执行结果", presentation.summary)
         assertEquals(raw, presentation.rawFallback)
-        assertEquals("fake.echo", presentation.fields.single { it.label == "工具" }.value)
+        assertEquals(emptyList<AgentRunEventField>(), presentation.fields)
     }
 
     @Test
@@ -51,6 +69,7 @@ class AgentRunEventPresentationTest {
         val presentation = presentAgentRunEvent(
             type = "run.status",
             message = "THINKING",
+            metadata = null,
         )
 
         assertEquals("Run 状态变化", presentation.summary)
@@ -62,7 +81,16 @@ class AgentRunEventPresentationTest {
     fun approvalRequestNoActiveExpiryIsPresentedAsPolicyLabel() {
         val presentation = presentAgentRunEvent(
             type = "approval.requested",
-            message = """{"id":"approval-1","tool":"memory.remember","risk":"REQUIRES_APPROVAL","status":"PENDING","expiresAt":9223372036854775807,"arguments":{"note":"compact ui"}}""",
+            message = "等待审批：memory.remember",
+            metadata = RunEventMetadata.ApprovalRequest(
+                id = "approval-1",
+                toolName = "memory.remember",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+                status = ApprovalRequestStatus.PENDING,
+                expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+                arguments = mapOf("note" to "compact ui"),
+                reason = null,
+            ),
         )
 
         assertEquals("审批请求", presentation.summary)

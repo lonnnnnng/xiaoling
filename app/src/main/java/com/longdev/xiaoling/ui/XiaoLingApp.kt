@@ -2049,8 +2049,8 @@ private fun ApprovalRequestRecordRow(approval: ApprovalRequestRecord) {
 
 @Composable
 private fun AgentRunEventRow(event: RunEventRecord) {
-    val presentation = remember(event.type, event.message) {
-        presentAgentRunEvent(event.type, event.message)
+    val presentation = remember(event.type, event.message, event.metadata) {
+        presentAgentRunEvent(event.type, event.message, event.metadata)
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(

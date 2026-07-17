@@ -7,6 +7,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -32,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To6PreservesUserDataAndInitializesMessageTrustFields() = runBlocking {
+    fun migrate4To7PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -40,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            6,
+            7,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -70,12 +73,13 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertEquals(listOf("step-v4"), steps.map { it.id })
         assertEquals(listOf("approval-v4"), approvals.map { it.id })
         assertEquals(listOf("event-v4"), events.map { it.id })
+        assertNull(events.single().metadataJson)
         assertEquals(listOf("memory-v4"), memories.map { it.id })
         assertEquals("迁移测试笔记", note?.title)
     }
 
     @Test
-    fun createAndOpenFreshVersion6Database() = runBlocking {
+    fun createAndOpenFreshVersion7Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -83,8 +87,58 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(6, database.openHelper.writableDatabase.version)
+        assertEquals(7, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
+    }
+
+    @Test
+    fun migrate6To7MakesLegacyJsonEventMetadataReadableThroughRepository() = runBlocking {
+        val legacyPayload = """{"id":"tool-call-v6","name":"fake.echo","risk":"REQUIRES_APPROVAL","arguments":{"goal":"历史任务"}}"""
+        val legacyApprovalPayload = """{"id":"approval-v6","tool":"memory.remember","risk":"REQUIRES_APPROVAL","status":"APPROVED","expiresAt":9223372036854775807,"decisionReason":"用户确认保存","arguments":{"content":"紧凑界面"}}"""
+        migrationHelper.createDatabase(METADATA_MIGRATION_DATABASE_NAME, 6).apply {
+            execSQL(
+                "INSERT INTO agent_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("run-v6", "conversation-v6", "message-v6", "历史任务", "THINKING", null, null, 100L, 100L, null),
+            )
+            execSQL(
+                "INSERT INTO run_events VALUES (?, ?, ?, ?, ?)",
+                arrayOf<Any?>("event-v6", "run-v6", "tool.call.proposed", legacyPayload, 101L),
+            )
+            execSQL(
+                "INSERT INTO run_events VALUES (?, ?, ?, ?, ?)",
+                arrayOf<Any?>("approval-event-v6", "run-v6", "approval.request_decided", legacyApprovalPayload, 102L),
+            )
+            close()
+        }
+
+        migrationHelper.runMigrationsAndValidate(
+            METADATA_MIGRATION_DATABASE_NAME,
+            7,
+            true,
+            *XiaoLingDatabase.migrations(),
+        ).close()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, METADATA_MIGRATION_DATABASE_NAME)
+            .allowMainThreadQueries()
+            .build()
+            .also { openedDatabase = it }
+
+        val events = RoomAgentRunRepository(context, database)
+            .snapshot("run-v6")
+            .events
+        val event = events.single { it.id == "event-v6" }
+        val toolCall = event.metadata as RunEventMetadata.ToolCall
+        assertEquals("tool-call-v6", toolCall.id)
+        assertEquals("fake.echo", toolCall.toolName)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, toolCall.risk)
+        assertEquals("历史任务", toolCall.arguments["goal"])
+        assertEquals("模型提出工具调用：fake.echo", event.message)
+        val approval = events.single { it.id == "approval-event-v6" }
+        val approvalMetadata = approval.metadata as RunEventMetadata.ApprovalRequest
+        assertEquals("memory.remember", approvalMetadata.toolName)
+        assertEquals("用户确认保存", approvalMetadata.reason)
+        assertEquals("审批状态已更新：memory.remember", approval.message)
     }
 
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
@@ -144,5 +198,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
     companion object {
         private const val MIGRATION_DATABASE_NAME = "xiaoling-migration-test"
+        private const val METADATA_MIGRATION_DATABASE_NAME = "xiaoling-metadata-migration-test"
     }
 }

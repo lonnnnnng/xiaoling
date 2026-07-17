@@ -123,6 +123,7 @@ data class RunEventEntity(
     val runId: String,
     val type: String,
     val message: String,
+    val metadataJson: String?,
     val createdAt: Long,
 )
 

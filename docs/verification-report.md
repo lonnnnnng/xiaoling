@@ -30,8 +30,8 @@ BUILD SUCCESSFUL
 Schema 生成方式：
 
 - Room compiler 使用 KSP `2.3.7`，通过 Room Gradle Plugin `2.8.4` 的 `schemaDirectory` 导出到 `app/schemas/`。
-- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 Schema 从当前源码生成。
-- 当前提交历史中数据库版本直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6` 顺序执行完整链路。
+- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 由当前源码生成。
+- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7` 顺序执行完整链路。
 
 单测试命令：
 
@@ -42,17 +42,18 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 结果：
 
 ```text
-Starting 2 tests on Redmi Note 8 Pro - 14
-Finished 2 tests on Redmi Note 8 Pro - 14
+Starting 3 tests on Redmi Note 8 Pro - 14
+Finished 3 tests on Redmi Note 8 Pro - 14
 BUILD SUCCESSFUL
 ```
 
 已验证：
 
-- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v6，Room 最终 Schema 校验通过。
+- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v7，Room 最终 Schema 校验通过。
 - Provider、会话、用户/assistant 消息、Agent Run、Step、审批、Run Event、笔记和长期记忆均可通过 DAO 回读。
 - v4 旧消息迁移后 `origin=LEGACY`，`verifiedAgentContext=null`。
-- 全新 v6 内存数据库可以创建、打开并执行 DAO 查询。
+- v6 中保存在 `RunEvent.message` 的旧 JSON object 会迁入 `metadataJson`，原 message 改为事件可读摘要；普通文本 message 不会被误标为结构化 metadata。
+- 全新 v7 内存数据库可以创建、打开并执行 DAO 查询。
 - Room 2.8.4 需要 kotlinx serialization 1.8.1；工程已统一该现有传递依赖版本，避免 KSP Schema 导出和 `room-testing` 运行时接口不一致。
 
 完整回归命令：
@@ -64,8 +65,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest connectedD
 结果：
 
 ```text
-Starting 3 tests on Redmi Note 8 Pro - 14
-Finished 3 tests on Redmi Note 8 Pro - 14
+Starting 7 tests on Redmi Note 8 Pro - 14
+Finished 7 tests on Redmi Note 8 Pro - 14
 BUILD SUCCESSFUL
 ```
 
@@ -86,7 +87,26 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest --tests co
 - Responses 请求的 `input` 是 JSON 数组，system/user/assistant 的角色和正文逐条保留，不再拼接成单一字符串。
 - Chat Completions 继续使用 `/chat/completions`、`messages` 和 `max_tokens`，不会混入 Responses 字段。
 - `LlmProviderAdapter` 负责 Provider URL、payload 和响应映射，`OpenAiCompatibleClient` 负责 HTTP、取消、计时和 SSE 读取。
-- `testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug` 完整回归通过：69 条 JVM 单元测试、3 条 Redmi Note 8 Pro 真机测试全部通过，lint 与 debug 构建成功。
+- `testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug` 完整回归通过：70 条 JVM 单元测试、7 条 Redmi Note 8 Pro 真机测试全部通过，lint 与 debug 构建成功。
+
+## RunEvent metadata 与 Responses 函数 Items 验证
+
+实现依据：OpenAI 官方 Function calling 文档规定 Responses 的函数调用 Item 使用 `type=function_call`、`name`、JSON 字符串 `arguments` 和 `call_id`；执行结果使用 `type=function_call_output`、同一 `call_id` 与 `output`。参考：[Function calling](https://developers.openai.com/api/docs/guides/function-calling)。
+
+定向验证命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest --tests com.longdev.xiaoling.agent.MinimalAgentRuntimeTest --tests com.longdev.xiaoling.network.OpenAiCompatibleAdapterTest --tests com.longdev.xiaoling.ui.AgentRunEventPresentationTest
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.longdev.xiaoling.data.XiaoLingDatabaseMigrationInstrumentedTest
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.longdev.xiaoling.storage.RoomAgentRunRepositoryInstrumentedTest
+```
+
+已验证：
+
+- ToolCall、ToolResult、审批、失败与恢复事件通过 sealed `RunEventMetadata` variants 暴露合法字段组合，新事件的 `message` 只保存可读摘要。
+- Room v7 使用独立 `metadataJson` 列，metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
+- 运行记录 UI 直接读取 typed metadata，不再解析数据库 JSON；纯文本历史事件继续回退显示原文。
+- Responses `input` 可同时包含消息、`function_call` 和 `function_call_output`，调用与结果通过相同 `call_id` 关联。
 
 ## 签名验证
 

@@ -10,7 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.json.JSONObject
 import java.util.UUID
 
 class MinimalAgentRuntimeTest {
@@ -34,8 +33,12 @@ class MinimalAgentRuntimeTest {
         assertEquals(listOf("llm.plan", "tool.validate", "approval", "tool.execute", "tool.verify", "llm.summarize"), snapshot.steps.map { it.type })
         assertTrue(snapshot.steps.all { it.status == AgentStepStatus.COMPLETED })
         assertTrue(snapshot.events.any { it.type == "approval.granted" })
-        assertTrue(snapshot.events.any { it.type == "tool.call.proposed" && it.message.contains("\"name\":\"fake.echo\"") })
-        assertTrue(snapshot.events.any { it.type == "tool.result" && it.message.contains("\"success\":true") })
+        assertTrue(snapshot.events.any {
+            it.type == "tool.call.proposed" && (it.metadata as? RunEventMetadata.ToolCall)?.toolName == "fake.echo"
+        })
+        assertTrue(snapshot.events.any {
+            it.type == "tool.result" && (it.metadata as? RunEventMetadata.ToolResult)?.success == true
+        })
         assertTrue(summary.responseText.contains("执行后验证") || summary.responseText.contains("验证"))
         assertEquals("fake.echo", summary.verifiedContext.toolName)
         assertTrue(summary.verifiedContext.success)
@@ -120,7 +123,7 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
-    fun structuredRunEventsRemainValidJsonWhenArgumentsContainSpecialCharacters() = runTest {
+    fun structuredRunEventMetadataPreservesSpecialCharactersWithoutEncodingJsonInMessage() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
@@ -134,11 +137,15 @@ class MinimalAgentRuntimeTest {
         )
 
         val snapshot = ledger.snapshot(summary.runId)
-        val proposed = JSONObject(snapshot.events.single { it.type == "tool.call.proposed" }.message)
-        val result = JSONObject(snapshot.events.single { it.type == "tool.result" }.message)
-        assertEquals("fake.echo", proposed.getString("name"))
-        assertEquals("包含引号\"和换行\n的任务", proposed.getJSONObject("arguments").getString("goal"))
-        assertTrue(result.getBoolean("success"))
+        val proposed = snapshot.events.single { it.type == "tool.call.proposed" }
+        val result = snapshot.events.single { it.type == "tool.result" }
+        val proposedMetadata = proposed.metadata as RunEventMetadata.ToolCall
+        val resultMetadata = result.metadata as RunEventMetadata.ToolResult
+        assertEquals("fake.echo", proposedMetadata.toolName)
+        assertEquals("包含引号\"和换行\n的任务", proposedMetadata.arguments["goal"])
+        assertEquals(true, resultMetadata.success)
+        assertTrue(proposed.message.startsWith("模型提出工具调用"))
+        assertTrue(!proposed.message.trimStart().startsWith("{"))
     }
 
     @Test
@@ -312,7 +319,10 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("工具未获批准"))
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "approval" }.status)
-        assertTrue(snapshot.events.any { it.type == "approval.denied" && it.message.contains("用户拒绝执行") })
+        assertTrue(snapshot.events.any {
+            it.type == "approval.denied" &&
+                (it.metadata as? RunEventMetadata.ApprovalDecision)?.reason == "用户拒绝执行"
+        })
     }
 
     @Test
@@ -346,7 +356,10 @@ class MinimalAgentRuntimeTest {
         val snapshot = ledger.snapshot(summary.runId)
         assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
         assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.type == "approval" }.status)
-        assertTrue(snapshot.events.any { it.type == "approval.granted" && it.message.contains("用户阅读审批详情后批准") })
+        assertTrue(snapshot.events.any {
+            it.type == "approval.granted" &&
+                (it.metadata as? RunEventMetadata.ApprovalDecision)?.reason == "用户阅读审批详情后批准"
+        })
     }
 
     @Test
@@ -688,13 +701,14 @@ private class InMemoryAgentRunLedger : AgentRunLedger {
         appendEvent(current.runId, "step.status", status.name)
     }
 
-    override suspend fun appendEvent(runId: String, type: String, message: String) {
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
         val event = RunEventRecord(
             id = "event-${UUID.randomUUID()}",
             runId = runId,
             type = type,
             message = message,
             createdAt = System.currentTimeMillis(),
+            metadata = metadata,
         )
         events[event.id] = event
     }

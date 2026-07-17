@@ -12,7 +12,7 @@ interface LlmProviderAdapter {
 
     fun prepareGenerationRequest(
         config: ProviderRequestConfig,
-        messages: List<RequestMessage>,
+        messages: List<RequestInputItem>,
     ): LlmGenerationRequest
 
     fun parseGenerationResponse(apiMode: ApiMode, body: String): String
@@ -30,10 +30,32 @@ data class LlmStreamEvent(
     val finalText: String? = null,
 )
 
+sealed interface RequestInputItem
+
 data class RequestMessage(
     val role: String,
     val content: String,
-)
+) : RequestInputItem
+
+data class RequestFunctionCall(
+    val callId: String,
+    val name: String,
+    val arguments: Map<String, String>,
+) : RequestInputItem {
+    init {
+        require(callId.isNotBlank()) { "函数调用 callId 不能为空" }
+        require(name.isNotBlank()) { "函数调用名称不能为空" }
+    }
+}
+
+data class RequestFunctionCallOutput(
+    val callId: String,
+    val output: String,
+) : RequestInputItem {
+    init {
+        require(callId.isNotBlank()) { "函数调用结果 callId 不能为空" }
+    }
+}
 
 class OpenAiCompatibleAdapter : LlmProviderAdapter {
     override fun modelsUrl(config: ProviderRequestConfig): String =
@@ -44,7 +66,7 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
 
     override fun prepareGenerationRequest(
         config: ProviderRequestConfig,
-        messages: List<RequestMessage>,
+        messages: List<RequestInputItem>,
     ): LlmGenerationRequest {
         val requestUrl = when (config.apiMode) {
             ApiMode.CHAT_COMPLETIONS -> ProviderApiUrlBuilder.chatCompletionsUrl(config.baseUrl)
@@ -65,30 +87,57 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
     override fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? =
         OpenAiResponseParser.parseStreamEvent(apiMode, data)
 
-    private fun chatPayload(config: ProviderRequestConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
+    private fun chatPayload(config: ProviderRequestConfig, messages: List<RequestInputItem>): JSONObject = JSONObject()
         .put("model", config.model.trim())
-        .put("messages", messages.toStructuredMessages())
+        .put("messages", messages.toChatMessages())
         .put("temperature", config.temperature)
         .put("max_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
 
-    private fun responsesPayload(config: ProviderRequestConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
+    private fun responsesPayload(config: ProviderRequestConfig, messages: List<RequestInputItem>): JSONObject = JSONObject()
         .put("model", config.model.trim())
         // long: Responses 的消息数组必须保留每轮角色边界；拼成单一字符串会让 system、assistant 和 user 退化成不可审计的普通文本。
-        .put("input", messages.toStructuredMessages())
+        .put("input", messages.toResponsesItems())
         .put("temperature", config.temperature)
         .put("max_output_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
 
-    private fun List<RequestMessage>.toStructuredMessages(): JSONArray = JSONArray().apply {
-        forEach { message ->
+    private fun List<RequestInputItem>.toChatMessages(): JSONArray = JSONArray().apply {
+        forEach { item ->
+            require(item is RequestMessage) {
+                "Chat Completions 不支持 Responses typed Item：${item::class.simpleName}"
+            }
+            put(item.toMessageJson())
+        }
+    }
+
+    private fun List<RequestInputItem>.toResponsesItems(): JSONArray = JSONArray().apply {
+        forEach { item ->
             put(
-                JSONObject()
-                    .put("role", message.role)
-                    .put("content", message.content),
+                when (item) {
+                    is RequestMessage -> item.toMessageJson()
+                    is RequestFunctionCall -> JSONObject()
+                        .put("type", "function_call")
+                        // long: call_id 是函数调用与执行结果之间的协议主键，两类 Item 必须原样使用同一值，不能改用本地事件 id。
+                        .put("call_id", item.callId)
+                        .put("name", item.name)
+                        .put("arguments", item.arguments.toJsonObject().toString())
+                    is RequestFunctionCallOutput -> JSONObject()
+                        .put("type", "function_call_output")
+                        .put("call_id", item.callId)
+                        .put("output", item.output)
+                },
             )
         }
+    }
+
+    private fun RequestMessage.toMessageJson(): JSONObject = JSONObject()
+        .put("role", role)
+        .put("content", content)
+
+    private fun Map<String, String>.toJsonObject(): JSONObject = JSONObject().apply {
+        toSortedMap().forEach { (key, value) -> put(key, value) }
     }
 }

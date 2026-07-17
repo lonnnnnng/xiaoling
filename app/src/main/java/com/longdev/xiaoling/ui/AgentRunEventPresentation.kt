@@ -1,8 +1,7 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.toApprovalExpiryPolicyLabel
-import org.json.JSONArray
-import org.json.JSONObject
 
 internal data class AgentRunEventPresentation(
     val summary: String,
@@ -15,77 +14,34 @@ internal data class AgentRunEventField(
     val value: String,
 )
 
-private data class EventDescriptor(
-    val title: String,
-    val fields: List<Pair<String, String>> = emptyList(),
+private val eventTitles = mapOf(
+    "run.created" to "Run 已创建",
+    "run.status" to "Run 状态变化",
+    "step.created" to "步骤已创建",
+    "step.status" to "步骤状态变化",
+    "tool.verify" to "工具验证",
+    "tool.result" to "工具执行结果",
+    "tool.call.proposed" to "模型提出工具调用",
+    "tool.call.validated" to "工具调用已校验",
+    "approval.requested" to "审批请求",
+    "approval.request_decided" to "审批请求",
+    "approval.skipped" to "跳过审批",
+    "approval.granted" to "审批通过",
+    "approval.denied" to "审批拒绝",
+    "llm.summarize.fallback" to "模型总结兜底",
+    "run.failed" to "Run 失败",
+    "run.timeout" to "Run 超时",
+    "run.cancelled" to "Run 已取消",
+    "run.budget_exhausted" to "Run 预算耗尽",
+    "run.recovered" to "Run 恢复收敛",
 )
 
-private val toolCallFields = listOf(
-    "调用" to "id",
-    "工具" to "name",
-    "风险" to "risk",
-    "参数" to "arguments",
-)
-
-private val toolResultFields = listOf(
-    "工具" to "tool",
-    "结果" to "content",
-    "耗时" to "durationMs",
-    "成功" to "success",
-    "验证" to "verified",
-)
-
-private val approvalDecisionFields = listOf(
-    "工具" to "tool",
-    "决定" to "approved",
-    "原因" to "reason",
-)
-
-private val approvalSkippedFields = listOf(
-    "工具" to "tool",
-    "原因" to "reason",
-)
-
-private val approvalRequestFields = listOf(
-    "请求" to "id",
-    "工具" to "tool",
-    "风险" to "risk",
-    "状态" to "status",
-    "原因" to "decisionReason",
-    "参数" to "arguments",
-    "过期策略" to "expiresAt",
-)
-
-private val reasonFields = listOf("原因" to "reason")
-
-private val recoveredFields = listOf(
-    "原状态" to "fromStatus",
-    "新状态" to "toStatus",
-    "原因" to "reason",
-)
-
-private val eventDescriptors = mapOf(
-    "run.created" to EventDescriptor("Run 已创建"),
-    "run.status" to EventDescriptor("Run 状态变化"),
-    "step.created" to EventDescriptor("步骤已创建"),
-    "step.status" to EventDescriptor("步骤状态变化"),
-    "tool.verify" to EventDescriptor("工具验证"),
-    "tool.call.proposed" to EventDescriptor("模型提出工具调用", toolCallFields),
-    "tool.call.validated" to EventDescriptor("工具调用已校验", toolCallFields),
-    "approval.requested" to EventDescriptor("审批请求", approvalRequestFields),
-    "approval.request_decided" to EventDescriptor("审批请求", approvalRequestFields),
-    "approval.skipped" to EventDescriptor("跳过审批", approvalSkippedFields),
-    "llm.summarize.fallback" to EventDescriptor("模型总结兜底", reasonFields),
-    "run.failed" to EventDescriptor("Run 失败", reasonFields),
-    "run.timeout" to EventDescriptor("Run 超时", reasonFields),
-    "run.cancelled" to EventDescriptor("Run 已取消", reasonFields),
-    "run.budget_exhausted" to EventDescriptor("Run 预算耗尽", reasonFields),
-    "run.recovered" to EventDescriptor("Run 恢复收敛", recoveredFields),
-)
-
-internal fun presentAgentRunEvent(type: String, message: String): AgentRunEventPresentation {
-    val payload = runCatching { JSONObject(message) }.getOrNull()
-    if (payload == null) {
+internal fun presentAgentRunEvent(
+    type: String,
+    message: String,
+    metadata: RunEventMetadata?,
+): AgentRunEventPresentation {
+    if (metadata == null) {
         return AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
             fields = emptyList(),
@@ -93,83 +49,82 @@ internal fun presentAgentRunEvent(type: String, message: String): AgentRunEventP
         )
     }
 
-    // long: 当前 RunEvent.message 仍是 JSON 字符串，运行记录页先在 UI 层结构化展示；后续迁移独立 metadata 字段时可以复用这套展示模型。
-    return when (type) {
-        "tool.result" -> AgentRunEventPresentation(
-            summary = when {
-                payload.has("success") && payload.optBoolean("success", false) -> "工具执行成功"
-                payload.has("success") -> "工具执行失败"
-                else -> "工具执行结果"
-            },
-            fields = payload.fields(toolResultFields),
-            rawFallback = payload.rawFallbackIfMissing(toolResultFields, message),
-        )
-        "approval.granted",
-        "approval.denied" -> AgentRunEventPresentation(
-            summary = when {
-                payload.has("approved") && payload.optBoolean("approved", false) -> "审批通过"
-                payload.has("approved") -> "审批拒绝"
-                else -> "审批决定"
-            },
-            fields = payload.fields(approvalDecisionFields),
-            rawFallback = payload.rawFallbackIfMissing(approvalDecisionFields, message),
-        )
-        else -> AgentRunEventPresentation(
+    // long: sealed metadata 让每类事件只暴露合法字段组合；UI 不再按 type 猜测 JSON shape，未知历史载荷统一回退到可读 message。
+    return when (metadata) {
+        is RunEventMetadata.ToolCall -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
-            fields = eventDescriptors[type]?.fields?.let { payload.fields(it) } ?: payload.genericFields(),
-            rawFallback = eventDescriptors[type]?.fields?.let { payload.rawFallbackIfMissing(it, message) },
+            fields = fields(
+                "调用" to metadata.id,
+                "工具" to metadata.toolName,
+                "风险" to metadata.risk.name,
+                "参数" to metadata.arguments.toDisplayText(),
+            ),
+        )
+        is RunEventMetadata.ToolResult -> AgentRunEventPresentation(
+            summary = if (metadata.success) "工具执行成功" else "工具执行失败",
+            fields = fields(
+                "工具" to metadata.toolName,
+                "结果" to metadata.content,
+                "耗时" to "${metadata.durationMs}ms",
+                "成功" to metadata.success.toDisplayText(),
+                "验证" to metadata.verified?.toDisplayText(),
+            ),
+        )
+        is RunEventMetadata.ApprovalRequest -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "请求" to metadata.id,
+                "工具" to metadata.toolName,
+                "风险" to metadata.risk.name,
+                "状态" to metadata.status.name,
+                "原因" to metadata.reason,
+                "参数" to metadata.arguments.toDisplayText(),
+                "过期策略" to metadata.expiresAt.toApprovalExpiryPolicyLabel(),
+            ),
+        )
+        is RunEventMetadata.ApprovalDecision -> AgentRunEventPresentation(
+            summary = if (metadata.approved) "审批通过" else "审批拒绝",
+            fields = fields(
+                "工具" to metadata.toolName,
+                "决定" to metadata.approved.toDisplayText(),
+                "原因" to metadata.reason,
+            ),
+        )
+        is RunEventMetadata.ApprovalSkipped -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "工具" to metadata.toolName,
+                "原因" to metadata.reason,
+            ),
+        )
+        is RunEventMetadata.ToolVerification -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "工具" to metadata.toolName,
+                "状态" to metadata.status.name,
+            ),
+        )
+        is RunEventMetadata.Reason -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields("原因" to metadata.reason),
+        )
+        is RunEventMetadata.Recovery -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "原状态" to metadata.fromStatus.name,
+                "新状态" to metadata.toStatus.name,
+                "原因" to metadata.reason,
+            ),
         )
     }
 }
 
-private fun JSONObject.fields(mapping: List<Pair<String, String>>): List<AgentRunEventField> {
-    return mapping.mapNotNull { (label, key) ->
-        if (!has(key) || isNull(key)) {
-            null
-        } else {
-            AgentRunEventField(label = label, value = opt(key).toDisplayText(key))
-        }
-    }
-}
+private fun fields(vararg values: Pair<String, String?>): List<AgentRunEventField> =
+    values.mapNotNull { (label, value) -> value?.let { AgentRunEventField(label, it) } }
 
-private fun JSONObject.genericFields(): List<AgentRunEventField> {
-    return keys().asSequence()
-        .toList()
-        .sorted()
-        .mapNotNull { key ->
-            if (isNull(key)) {
-                null
-            } else {
-                AgentRunEventField(label = key, value = opt(key).toDisplayText(key))
-            }
-        }
-}
+private fun Map<String, String>.toDisplayText(): String =
+    if (isEmpty()) "无" else toSortedMap().entries.joinToString(" · ") { (key, value) -> "$key=$value" }
 
-private fun JSONObject.rawFallbackIfMissing(mapping: List<Pair<String, String>>, raw: String): String? {
-    val optionalKeys = setOf("verified", "decisionReason")
-    val anyMissing = mapping.any { (_, key) -> key !in optionalKeys && (!has(key) || isNull(key)) }
-    return if (anyMissing) raw else null
-}
+private fun Boolean.toDisplayText(): String = if (this) "是" else "否"
 
-private fun Any?.toDisplayText(key: String): String {
-    return when (this) {
-        null,
-        JSONObject.NULL -> ""
-        is Boolean -> if (this) "是" else "否"
-        is Number -> when (key) {
-            "durationMs" -> "${this}ms"
-            "expiresAt" -> toLong().toApprovalExpiryPolicyLabel()
-            else -> toString()
-        }
-        is JSONObject -> keys().asSequence()
-            .toList()
-            .sorted()
-            .joinToString(" · ") { nestedKey -> "$nestedKey=${opt(nestedKey).toDisplayText(nestedKey)}" }
-        is JSONArray -> (0 until length()).joinToString(" · ") { index -> opt(index).toDisplayText(key) }
-        else -> toString()
-    }
-}
-
-private fun String.toReadableEventTitle(): String {
-    return eventDescriptors[this]?.title ?: this
-}
+private fun String.toReadableEventTitle(): String = eventTitles[this] ?: this

@@ -115,6 +115,38 @@ class OpenAiCompatibleAdapterTest {
         )
     }
 
+    @Test
+    fun `responses request preserves function call and output typed items`() {
+        val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()
+
+        val request = adapter.prepareGenerationRequest(
+            config = requestConfig(ApiMode.RESPONSES),
+            messages = listOf(
+                RequestMessage(role = "user", content = "查询天气"),
+                RequestFunctionCall(
+                    callId = "call-weather-1",
+                    name = "get_weather",
+                    arguments = mapOf("city" to "上海"),
+                ),
+                RequestFunctionCallOutput(
+                    callId = "call-weather-1",
+                    output = "晴，28°C",
+                ),
+            ),
+        )
+
+        val input = JSONObject(request.body).getJSONArray("input")
+        val functionCall = input.getJSONObject(1)
+        val functionOutput = input.getJSONObject(2)
+        assertEquals("function_call", functionCall.getString("type"))
+        assertEquals("call-weather-1", functionCall.getString("call_id"))
+        assertEquals("get_weather", functionCall.getString("name"))
+        assertEquals("上海", JSONObject(functionCall.getString("arguments")).getString("city"))
+        assertEquals("function_call_output", functionOutput.getString("type"))
+        assertEquals("call-weather-1", functionOutput.getString("call_id"))
+        assertEquals("晴，28°C", functionOutput.getString("output"))
+    }
+
     private fun requestConfig(apiMode: ApiMode) = ProviderRequestConfig(
         baseUrl = "https://api.example.com/v1",
         apiKey = "test-key",

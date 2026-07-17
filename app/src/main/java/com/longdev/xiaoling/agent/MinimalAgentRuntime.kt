@@ -48,7 +48,12 @@ class MinimalAgentRuntime(
                 ?: error("模型选择了未注册工具：${proposedCall.name}")
             val toolCall = proposedCall.copy(risk = definition.risk)
             // long: 模型只负责“提出”工具调用，事件里记录原始参数；后续风险、校验和审批都以应用注册表为准。
-            ledger.appendEvent(run.id, "tool.call.proposed", AgentEventPayload.toolCall(toolCall))
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.call.proposed",
+                message = "模型提出工具调用：${toolCall.name}",
+                metadata = AgentEventMetadata.toolCall(toolCall),
+            )
             ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型选择工具：${toolCall.name}")
             activeStepId = null
 
@@ -63,16 +68,25 @@ class MinimalAgentRuntime(
             validateToolCall(definition, toolCall)
             checkToolBudget(executedToolCalls)
             checkLoopRisk(toolCall, toolCallFingerprints)
-            ledger.appendEvent(run.id, "tool.call.validated", AgentEventPayload.toolCall(toolCall))
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.call.validated",
+                message = "工具调用已校验：${toolCall.name}",
+                metadata = AgentEventMetadata.toolCall(toolCall),
+            )
             ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
             activeStepId = null
 
             if (definition.risk == ToolRisk.SAFE) {
                 // long: SAFE 工具只能读取低敏环境或本机记忆，不产生外部副作用；它仍写审计事件，但不打断用户当前对话去做确认。
                 ledger.appendEvent(
-                    run.id,
-                    "approval.skipped",
-                    AgentEventPayload.simple("tool" to toolCall.name, "reason" to "SAFE 工具无需审批"),
+                    runId = run.id,
+                    type = "approval.skipped",
+                    message = "SAFE 工具无需审批：${toolCall.name}",
+                    metadata = RunEventMetadata.ApprovalSkipped(
+                        toolName = toolCall.name,
+                        reason = "SAFE 工具无需审批",
+                    ),
                 )
             } else {
                 ledger.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
@@ -87,9 +101,14 @@ class MinimalAgentRuntime(
                 // long: 审批等待取决于用户阅读风险和做决定的时间，不属于模型推理或工具执行预算；否则用户稍慢点击批准就会把可恢复任务误记成预算耗尽。
                 val decision = approvalGate.requestApproval(run.id, toolCall, definition)
                 ledger.appendEvent(
-                    run.id,
-                    if (decision.approved) "approval.granted" else "approval.denied",
-                    AgentEventPayload.approval(toolCall, decision),
+                    runId = run.id,
+                    type = if (decision.approved) "approval.granted" else "approval.denied",
+                    message = if (decision.approved) {
+                        "工具审批通过：${toolCall.name}"
+                    } else {
+                        "工具审批拒绝：${toolCall.name}"
+                    },
+                    metadata = AgentEventMetadata.approval(toolCall, decision),
                 )
                 if (!decision.approved) error("工具未获批准：${decision.reason}")
                 ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
@@ -112,7 +131,16 @@ class MinimalAgentRuntime(
             }
             executedToolCalls += 1
             val toolDurationMs = System.currentTimeMillis() - toolStartedAt
-            ledger.appendEvent(run.id, "tool.result", AgentEventPayload.toolResult(toolCall, toolResult, toolDurationMs))
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.result",
+                message = if (toolResult.success) {
+                    "工具执行成功：${toolCall.name}"
+                } else {
+                    "工具执行失败：${toolCall.name}"
+                },
+                metadata = AgentEventMetadata.toolResult(toolCall, toolResult, toolDurationMs),
+            )
             if (!toolResult.success) error("工具执行失败：${toolResult.content}")
             ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
             activeStepId = null
@@ -128,7 +156,15 @@ class MinimalAgentRuntime(
             activeStepId = verify.id
             currentCoroutineContext().ensureActive()
             require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
-            ledger.appendEvent(run.id, "tool.verify", AgentEventPayload.simple("status" to "passed", "tool" to toolCall.name))
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.verify",
+                message = "工具验证通过：${toolCall.name}",
+                metadata = RunEventMetadata.ToolVerification(
+                    toolName = toolCall.name,
+                    status = ToolVerificationStatus.PASSED,
+                ),
+            )
             ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")
             activeStepId = null
 
@@ -166,9 +202,10 @@ class MinimalAgentRuntime(
             } ?: buildFallbackResponse(run.id, goal, toolCall, toolResult)
             val summaryDetail = if (summaryFallbackReason != null) {
                 ledger.appendEvent(
-                    run.id,
-                    "llm.summarize.fallback",
-                    AgentEventPayload.simple("reason" to summaryFallbackReason.orEmpty()),
+                    runId = run.id,
+                    type = "llm.summarize.fallback",
+                    message = summaryFallbackReason.orEmpty(),
+                    metadata = RunEventMetadata.Reason(summaryFallbackReason.orEmpty()),
                 )
                 "${summaryFallbackReason}，已使用本地兜底回复"
             } else {
@@ -186,7 +223,12 @@ class MinimalAgentRuntime(
         } catch (error: AgentBudgetExceededException) {
             withContext(NonCancellable) {
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
-                ledger.appendEvent(run.id, "run.budget_exhausted", AgentEventPayload.simple("reason" to error.message.orEmpty()))
+                ledger.appendEvent(
+                    run.id,
+                    "run.budget_exhausted",
+                    error.message.orEmpty(),
+                    RunEventMetadata.Reason(error.message.orEmpty()),
+                )
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
             }
             throw error
@@ -194,14 +236,24 @@ class MinimalAgentRuntime(
             val timeout = AgentTimeoutException("Agent Run 超时：${options.runTimeoutMs}ms")
             withContext(NonCancellable) {
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, timeout.message ?: "Agent Run 超时") }
-                ledger.appendEvent(run.id, "run.timeout", AgentEventPayload.simple("reason" to timeout.message.orEmpty()))
+                ledger.appendEvent(
+                    run.id,
+                    "run.timeout",
+                    timeout.message.orEmpty(),
+                    RunEventMetadata.Reason(timeout.message.orEmpty()),
+                )
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = timeout.message)
             }
             throw timeout
         } catch (error: AgentTimeoutException) {
             withContext(NonCancellable) {
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
-                ledger.appendEvent(run.id, "run.timeout", AgentEventPayload.simple("reason" to error.message.orEmpty()))
+                ledger.appendEvent(
+                    run.id,
+                    "run.timeout",
+                    error.message.orEmpty(),
+                    RunEventMetadata.Reason(error.message.orEmpty()),
+                )
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
             }
             throw error
@@ -209,7 +261,12 @@ class MinimalAgentRuntime(
             withContext(NonCancellable) {
                 // long: 取消本身会让当前协程进入 cancelled 状态，终态落库必须脱离取消上下文，否则 Room 写入也会被一起取消，Run 会卡在 THINKING/RUNNING。
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消 Agent 任务") }
-                ledger.appendEvent(run.id, "run.cancelled", AgentEventPayload.simple("reason" to "用户取消 Agent 任务"))
+                ledger.appendEvent(
+                    run.id,
+                    "run.cancelled",
+                    "用户取消 Agent 任务",
+                    RunEventMetadata.Reason("用户取消 Agent 任务"),
+                )
                 ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消 Agent 任务")
             }
             throw error
@@ -217,7 +274,8 @@ class MinimalAgentRuntime(
             withContext(NonCancellable) {
                 // long: 失败终态是后续审计和恢复任务的依据，即使上游异常叠加协程取消，也要尽量把当前 step 和 run 写成可追踪的 FAILED。
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
-                ledger.appendEvent(run.id, "run.failed", AgentEventPayload.simple("reason" to (error.message ?: "Agent 任务失败")))
+                val reason = error.message ?: "Agent 任务失败"
+                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
                 ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = error.message ?: "Agent 任务失败")
             }
             throw error
@@ -388,54 +446,31 @@ private object AgentSummaryPresentationParser {
     }
 }
 
-private object AgentEventPayload {
-    fun toolCall(call: ToolCall): String {
-        return json(
-            "id" to call.id,
-            "name" to call.name,
-            "risk" to call.risk.name,
-            "arguments" to call.arguments,
+private object AgentEventMetadata {
+    fun toolCall(call: ToolCall): RunEventMetadata {
+        return RunEventMetadata.ToolCall(
+            id = call.id,
+            toolName = call.name,
+            risk = call.risk,
+            arguments = call.arguments.toSortedMap(),
         )
     }
 
-    fun approval(call: ToolCall, decision: ApprovalDecision): String {
-        return json(
-            "tool" to call.name,
-            "approved" to decision.approved,
-            "reason" to decision.reason,
+    fun approval(call: ToolCall, decision: ApprovalDecision): RunEventMetadata {
+        return RunEventMetadata.ApprovalDecision(
+            toolName = call.name,
+            approved = decision.approved,
+            reason = decision.reason,
         )
     }
 
-    fun toolResult(call: ToolCall, result: ToolExecutionResult, durationMs: Long): String {
-        return json(
-            "tool" to call.name,
-            "success" to result.success,
-            "content" to result.content,
-            "verified" to result.verified,
-            "durationMs" to durationMs,
+    fun toolResult(call: ToolCall, result: ToolExecutionResult, durationMs: Long): RunEventMetadata {
+        return RunEventMetadata.ToolResult(
+            toolName = call.name,
+            success = result.success,
+            content = result.content,
+            verified = result.verified,
+            durationMs = durationMs,
         )
-    }
-
-    fun simple(vararg pairs: Pair<String, String>): String = json(*pairs)
-
-    private fun json(vararg pairs: Pair<String, Any?>): String {
-        val payload = JSONObject()
-        pairs.forEach { (key, value) ->
-            payload.put(key, value.toJsonValue())
-        }
-        return payload.toString()
-    }
-
-    private fun Any?.toJsonValue(): Any {
-        return when (this) {
-            null -> JSONObject.NULL
-            is Map<*, *> -> JSONObject().also { json ->
-                // long: 工具参数是审计事件的关键证据，按 key 排序写入可以让测试、日志和后续 diff 更稳定。
-                entries.sortedBy { it.key.toString() }.forEach { (key, value) ->
-                    json.put(key.toString(), value ?: JSONObject.NULL)
-                }
-            }
-            else -> this
-        }
     }
 }

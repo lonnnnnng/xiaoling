@@ -301,7 +301,7 @@
 截至 `v0.1.9`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
-- Chat Completions / Responses API，以及保留 system/user/assistant 边界的 Responses 结构化文本历史。
+- Chat Completions / Responses API，以及保留 system/user/assistant 边界的消息和通过 `call_id` 关联的函数调用/结果 typed Items。
 - SSE 流式输出与 30ms UI 节流。
 - 多轮会话、本地保存和摘要压缩。
 - Markdown、错误分类、结构化消息元数据。
@@ -311,7 +311,8 @@
 - 对话 Run 时间线、审批卡片和设置页只读运行记录。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
-- Room v4/v6 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v6 真机自动化迁移测试。
+- ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
+- Room v4/v6/v7 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v7 真机自动化迁移测试。
 
 现有关键实现位于：
 
@@ -330,11 +331,11 @@
 | 没有 AgentProfile | Provider/模型与“这个 Agent 是谁、能做什么”混在一起 |
 | Runtime 当前只执行单次工具调用 | 还不能完成真正的 2-3 步工具循环或根据上一步结果继续选择工具 |
 | Tool Schema 只覆盖必填字符串参数 | 缺少完整类型、业务校验、Android 权限和可插拔验证器 |
-| ToolCall/ToolResult 主要保存在 RunEvent JSON | 完整结构化查询、重放和恢复仍不方便 |
+| ToolCall/ToolResult 已进入 RunEvent metadata，但还没有独立表 | 可审计展示已结构化，跨步骤查询、重放和恢复仍不方便 |
 | 运行记录是只读审计视图 | 进程重建后只能收敛中间态，不能继续执行或失败重试 |
 | 长期记忆只有基础表和工具 | 缺少管理 UI、FTS、撤销、去重和实际引用审计 |
 | 没有后台任务账本 | 定时/长任务无法断点恢复，也无法聚合失败与待确认 |
-| 消息仍以单一文本为主 | Responses 文本历史已结构化，但 Tool/Reasoning/Image 等 typed Items 仍待实现 |
+| 消息仍以单一文本为主 | Responses 已支持函数调用/结果 Items，但 Reasoning/Image/File 和持久化消息 parts 仍待实现 |
 
 ## 6. 建议目标架构
 
@@ -357,7 +358,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room 基础迁移、Schema 导出、v4→v6 自动化迁移测试、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试和运行 UI 已完成；独立 ToolCall/ToolResult 结构、消息 parts、AgentProfile、完整 Schema、权限策略、恢复和重试仍待完成。
+当前状态：Room 基础迁移、Schema 导出、v4→v7 自动化迁移测试、RunEvent typed metadata、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试和运行 UI 已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile、完整 Schema、权限策略、恢复和重试仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

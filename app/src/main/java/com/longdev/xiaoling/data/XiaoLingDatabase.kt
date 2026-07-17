@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import org.json.JSONObject
 
 @Database(
     entities = [
@@ -19,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AgentMemoryEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -134,12 +135,47 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `run_events` ADD COLUMN `metadataJson` TEXT")
+                val legacyEvents = buildList {
+                    db.query("SELECT `id`, `type`, `message` FROM `run_events`").use { cursor ->
+                        val idIndex = cursor.getColumnIndexOrThrow("id")
+                        val typeIndex = cursor.getColumnIndexOrThrow("type")
+                        val messageIndex = cursor.getColumnIndexOrThrow("message")
+                        while (cursor.moveToNext()) {
+                            val message = cursor.getString(messageIndex)
+                            val metadata = runCatching { JSONObject(message) }.getOrNull()
+                            if (metadata != null) {
+                                val type = cursor.getString(typeIndex)
+                                add(
+                                    LegacyRunEventMigration(
+                                        id = cursor.getString(idIndex),
+                                        metadataJson = message,
+                                        readableMessage = metadata.toReadableRunEventMessage(type),
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+                // long: v6 把工具参数和结果编码在 message；仅迁移可解析的 JSON object，并把 message 改成可读摘要，普通状态文本保持原样。
+                legacyEvents.forEach { event ->
+                    db.execSQL(
+                        "UPDATE `run_events` SET `message` = ?, `metadataJson` = ? WHERE `id` = ?",
+                        arrayOf<Any?>(event.readableMessage, event.metadataJson, event.id),
+                    )
+                }
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {
@@ -175,5 +211,41 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $definition")
             }
         }
+
+        private fun JSONObject.toReadableRunEventMessage(type: String): String {
+            val toolName = optString("toolName")
+                .ifBlank { optString("name") }
+                .ifBlank { optString("tool") }
+            val toolSuffix = toolName.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
+            val reason = optString("reason").ifBlank { optString("decisionReason") }
+            return when (type) {
+                "tool.call.proposed" -> "模型提出工具调用$toolSuffix"
+                "tool.call.validated" -> "工具调用已校验$toolSuffix"
+                "tool.result" -> when {
+                    has("success") && optBoolean("success") -> "工具执行成功$toolSuffix"
+                    has("success") -> "工具执行失败$toolSuffix"
+                    else -> "工具执行结果$toolSuffix"
+                }
+                "tool.verify" -> "工具验证完成$toolSuffix"
+                "approval.requested" -> "等待审批$toolSuffix"
+                "approval.request_decided" -> "审批状态已更新$toolSuffix"
+                "approval.granted" -> "工具审批通过$toolSuffix"
+                "approval.denied" -> "工具审批拒绝$toolSuffix"
+                "approval.skipped" -> "跳过工具审批$toolSuffix"
+                "run.recovered",
+                "run.failed",
+                "run.timeout",
+                "run.cancelled",
+                "run.budget_exhausted",
+                "llm.summarize.fallback" -> reason.ifBlank { "已迁移事件：$type" }
+                else -> "已迁移事件：$type"
+            }
+        }
+
+        private data class LegacyRunEventMigration(
+            val id: String,
+            val metadataJson: String,
+            val readableMessage: String,
+        )
     }
 }

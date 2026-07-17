@@ -5,7 +5,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.ToolCall
+import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.runBlocking
@@ -70,5 +74,91 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(ApprovalRequestStatus.PENDING.name, stored?.status)
         assertEquals(eventsBeforeRead.size, eventsAfterRead.size)
         assertFalse(eventsAfterRead.any { it.type == "approval.request_decided" })
+    }
+
+    @Test
+    fun runEventMetadataRoundTripsThroughRepositorySnapshot() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-metadata",
+            userMessageId = "message-metadata",
+            goal = "保存结构化工具调用",
+        )
+        val metadata = RunEventMetadata.ToolCall(
+            id = "tool-call-1",
+            toolName = "fake.echo",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("goal" to "包含引号\"和换行\n的任务"),
+        )
+
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：fake.echo",
+            metadata = metadata,
+        )
+
+        val event = repository.snapshot(run.id).events.single { it.type == "tool.call.proposed" }
+        assertEquals(metadata, event.metadata)
+        assertEquals("模型提出工具调用：fake.echo", event.message)
+    }
+
+    @Test
+    fun approvalEventsUseReadableMessagesAndTypedMetadata() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-approval-metadata",
+            userMessageId = "message-approval-metadata",
+            goal = "保存审批审计字段",
+        )
+        val call = ToolCall(
+            id = "tool-call-approval",
+            name = "memory.remember",
+            arguments = mapOf("content" to "用户喜欢紧凑界面"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val request = repository.createApprovalRequest(
+            conversationId = "conversation-approval-metadata",
+            runId = run.id,
+            toolCall = call,
+            definition = ToolDefinition(
+                name = call.name,
+                description = "写入长期记忆",
+                risk = call.risk,
+            ),
+        )
+
+        repository.decideApprovalRequest(request.id, ApprovalRequestStatus.APPROVED, "用户确认保存")
+
+        val events = repository.snapshot(run.id).events
+        val requested = events.single { it.type == "approval.requested" }
+        val decided = events.single { it.type == "approval.request_decided" }
+        val requestedMetadata = requested.metadata as RunEventMetadata.ApprovalRequest
+        val decidedMetadata = decided.metadata as RunEventMetadata.ApprovalRequest
+        assertEquals(request.id, requestedMetadata.id)
+        assertEquals("memory.remember", requestedMetadata.toolName)
+        assertEquals("用户喜欢紧凑界面", requestedMetadata.arguments["content"])
+        assertEquals(ApprovalRequestStatus.PENDING, requestedMetadata.status)
+        assertFalse(requested.message.trimStart().startsWith("{"))
+        assertEquals(ApprovalRequestStatus.APPROVED, decidedMetadata.status)
+        assertEquals("用户确认保存", decidedMetadata.reason)
+        assertFalse(decided.message.trimStart().startsWith("{"))
+    }
+
+    @Test
+    fun interruptedRunRecoveryUsesTypedStatusMetadata() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-recovery-metadata",
+            userMessageId = "message-recovery-metadata",
+            goal = "恢复中断任务",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.THINKING)
+
+        assertEquals(1, repository.closeInterruptedRuns())
+
+        val recovered = repository.snapshot(run.id).events.single { it.type == "run.recovered" }
+        val metadata = recovered.metadata as RunEventMetadata.Recovery
+        assertEquals(AgentRunStatus.THINKING, metadata.fromStatus)
+        assertEquals(AgentRunStatus.CANCELLED, metadata.toStatus)
+        assertEquals("应用重启后终止上次未完成 Agent 任务", metadata.reason)
+        assertFalse(recovered.message.trimStart().startsWith("{"))
     }
 }
