@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-16（北京时间）
+验证日期：2026-07-17（北京时间）
 
 ## 环境
 
@@ -16,19 +16,7 @@
 执行命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --stacktrace
-```
-
-结果：
-
-```text
-BUILD SUCCESSFUL
-```
-
-Release 构建：
-
-```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease --stacktrace
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease --stacktrace
 ```
 
 结果：
@@ -42,12 +30,15 @@ BUILD SUCCESSFUL
 执行命令：
 
 ```zsh
-apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 ```
 
 结果：
 
 ```text
+Verifies
+Verified using v2 scheme (APK Signature Scheme v2): true
+Number of signers: 1
 Signer #1 certificate DN: CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN
 Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9
 ```
@@ -63,13 +54,13 @@ Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d7
 执行命令：
 
 ```zsh
-aapt dump badging app/build/outputs/apk/debug/app-debug.apk
+aapt dump badging app/build/outputs/apk/release/app-release.apk
 ```
 
 关键结果：
 
 ```text
-package: name='com.longdev.xiaoling' versionCode='8' versionName='0.1.7'
+package: name='com.longdev.xiaoling' versionCode='9' versionName='0.1.8'
 application-label:'小灵'
 ```
 
@@ -78,7 +69,7 @@ application-label:'小灵'
 执行命令：
 
 ```zsh
-adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s wsvwypiz7xwslvl7 install -r outputs/release/xiaoling-v0.1.8.apk
 adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 ```
 
@@ -86,7 +77,7 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 ```text
 Performing Streamed Install
-Success
+adb: failed to install outputs/release/xiaoling-v0.1.8.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.longdev.xiaoling signatures do not match newer version; ignoring!]
 Starting: Intent { cmp=com.longdev.xiaoling/.MainActivity }
 ```
 
@@ -98,11 +89,9 @@ com.longdev.xiaoling/com.longdev.xiaoling.MainActivity
 
 已确认：
 
-- 对话页可启动。
-- 顶部标题为「对话」。
-- 底部入口为「对话 / 设置」。
-- 首次安装时展示默认配置，并提示到设置页获取上游模型并勾选可对话模型。
-- 输入区、Resp、流式和模型选择控件可见。
+- 设备上已有同包名但不同签名的安装包，系统拒绝覆盖安装 release APK；未执行卸载或清数据。
+- 已有安装包的对话页可启动。
+- 本次未在该真机上覆盖安装 release 包；如需从 debug 签名切换到 release 签名，需要用户确认后卸载旧包或换干净设备验证。
 
 ## 日志检查
 
@@ -112,10 +101,11 @@ com.longdev.xiaoling/com.longdev.xiaoling.MainActivity
 
 | 文件 | 说明 |
 |---|---|
-| `../app/build/outputs/apk/debug/app-debug.apk` | debug 包，已安装到真机验证启动。 |
 | `../app/build/outputs/apk/release/app-release.apk` | release 包，已通过正式签名验证。 |
+| `../outputs/release/xiaoling-v0.1.8.apk` | GitHub Release 上传用 APK。 |
+| `../outputs/release/xiaoling-v0.1.8.apk.sha256` | APK SHA-256 校验文件。 |
 
 ## 清理状态
 
-- 新包名应用保留在真机上。
+- 真机上保留原有同包名安装包，未卸载、未清数据。
 - `outputs/` 目录不纳入版本控制。
