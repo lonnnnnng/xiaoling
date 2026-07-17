@@ -308,6 +308,7 @@
 - API Key 使用 Android Keystore + AES-GCM。
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
+- Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult 和失败终态安全重新运行。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
@@ -332,7 +333,6 @@
 |---|---|
 | 没有 AgentProfile | Provider/模型与“这个 Agent 是谁、能做什么”混在一起 |
 | Runtime 当前只执行单次工具调用 | 还不能完成真正的 2-3 步工具循环或根据上一步结果继续选择工具 |
-| Tool Schema 只覆盖必填字符串参数 | 缺少完整类型、业务校验、Android 权限和可插拔验证器 |
 | ToolCall/ToolResult 已进入 RunEvent metadata，但还没有独立表 | 可审计展示已结构化，跨步骤查询、重放和恢复仍不方便 |
 | 失败终态可安全重新运行，但没有原地恢复执行栈 | 进程重建后先收敛中间态，再由用户创建关联的新 Run；无法从原 ToolCall 位置继续 |
 | 长期记忆管理闭环已完成，但自动治理仍不完整 | 缺少候选记忆、敏感过滤、删除撤销、去重/冲突和实际引用审计 |
@@ -360,7 +360,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room 基础迁移、Schema 导出、v4→v9 自动化迁移测试、RunEvent typed metadata、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行和长期记忆管理闭环已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile、完整 Schema、权限策略和原地断点恢复仍待完成。
+当前状态：Room 基础迁移、Schema 导出、v4→v9 自动化迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行和长期记忆管理闭环已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile 和原地断点恢复仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

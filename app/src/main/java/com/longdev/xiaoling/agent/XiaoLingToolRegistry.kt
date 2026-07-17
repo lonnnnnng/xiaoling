@@ -30,6 +30,9 @@ class XiaoLingToolRegistry(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
                     required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
                 ),
             ),
             timeoutMs = 5_000,
@@ -43,11 +46,17 @@ class XiaoLingToolRegistry(
                     name = "query",
                     description = "搜索关键词。",
                     required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 200,
                 ),
                 ToolInputField(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
                     required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
                 ),
             ),
             timeoutMs = 5_000,
@@ -61,6 +70,9 @@ class XiaoLingToolRegistry(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
                     required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
                 ),
             ),
             timeoutMs = 5_000,
@@ -74,11 +86,17 @@ class XiaoLingToolRegistry(
                     name = "query",
                     description = "搜索关键词。",
                     required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 200,
                 ),
                 ToolInputField(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
                     required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
                 ),
             ),
             timeoutMs = 5_000,
@@ -92,13 +110,20 @@ class XiaoLingToolRegistry(
                     name = "title",
                     description = "笔记标题。",
                     required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 200,
                 ),
                 ToolInputField(
                     name = "content",
                     description = "笔记正文。",
                     required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 20_000,
                 ),
             ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -110,11 +135,16 @@ class XiaoLingToolRegistry(
                     name = "query",
                     description = "检索关键词；为空时返回最近记忆。",
                     required = false,
+                    type = ToolInputType.STRING,
+                    maxLength = 200,
                 ),
                 ToolInputField(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
                     required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
                 ),
             ),
             timeoutMs = 5_000,
@@ -128,21 +158,46 @@ class XiaoLingToolRegistry(
                     name = "note",
                     description = "要长期保留的具体事实或偏好，必须来自用户当前明确表达的内容。",
                     required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 2_000,
                 ),
                 ToolInputField(
                     name = "type",
                     description = "记忆类型：Preference、ProfileFact、Episode 或 Procedure。",
                     required = false,
+                    type = ToolInputType.STRING,
+                    enumValues = setOf("Preference", "ProfileFact", "Episode", "Procedure"),
                 ),
                 ToolInputField(
                     name = "tags",
                     description = "可选标签，多个标签用逗号分隔。",
                     required = false,
+                    type = ToolInputType.STRING,
+                    maxLength = 500,
                 ),
             ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    val tags = arguments["tags"].orEmpty()
+                        .split(',')
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                    when {
+                        tags.size > 10 -> listOf("长期记忆标签不能超过 10 个")
+                        tags.any { it.length > 50 } -> listOf("长期记忆单个标签不能超过 50 个字符")
+                        else -> emptyList()
+                    }
+                },
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 5_000,
         ),
     )
+
+    init {
+        ToolRegistryContract.requireValid(tools)
+    }
 
     override fun bindRunContext(context: AgentToolExecutionContext) {
         runContext = context
@@ -242,11 +297,28 @@ class XiaoLingToolRegistry(
             source = source,
             confidence = 0.8,
         )
+        val verified = memoryStore.get(record.id)?.takeIf { stored ->
+            stored.content == record.content &&
+                stored.tags == record.tags &&
+                stored.type == record.type &&
+                stored.sourceConversationId == record.sourceConversationId &&
+                stored.sourceRunId == record.sourceRunId &&
+                stored.enabled
+        }
         val tagText = record.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
-        return ToolExecutionResult(
-            success = true,
-            content = "已保存长期记忆：${record.content} · 类型：${record.type}$tagText · 来源：${record.sourceSummary}",
-        )
+        return if (verified == null) {
+            ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "长期记忆已写入但回读验证失败，不能确认保存成功：${record.content}",
+            )
+        } else {
+            ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已保存并验证长期记忆：${record.content} · 类型：${record.type}$tagText · 来源：${record.sourceSummary}",
+            )
+        }
     }
 
     private suspend fun searchMemory(call: ToolCall): ToolExecutionResult {

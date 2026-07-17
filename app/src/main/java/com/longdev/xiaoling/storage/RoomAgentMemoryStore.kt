@@ -55,6 +55,10 @@ class RoomAgentMemoryStore(
         )
     }
 
+    override suspend fun get(memoryId: String): AgentMemoryRecord? {
+        return database.agentMemoryDao().getMemory(memoryId)?.toRecord()
+    }
+
     override suspend fun list(query: String, filter: AgentMemoryFilter, limit: Int): List<AgentMemoryRecord> {
         val safeLimit = limit.coerceIn(1, 200)
         val enabledFilter = when (filter) {

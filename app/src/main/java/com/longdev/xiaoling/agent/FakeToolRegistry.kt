@@ -6,6 +6,18 @@ interface ToolRegistry {
     suspend fun execute(call: ToolCall): ToolExecutionResult
 }
 
+object ToolRegistryContract {
+    fun requireValid(definitions: List<ToolDefinition>) {
+        val duplicates = definitions
+            .groupingBy { it.name }
+            .eachCount()
+            .filterValues { it > 1 }
+            .keys
+            .sorted()
+        require(duplicates.isEmpty()) { "发现重复工具名称：${duplicates.joinToString(", ")}" }
+    }
+}
+
 class FakeToolRegistry : ToolRegistry {
     private val echoTool = ToolDefinition(
         name = "fake.echo",
@@ -19,6 +31,10 @@ class FakeToolRegistry : ToolRegistry {
             ),
         ),
     )
+
+    init {
+        ToolRegistryContract.requireValid(listOf(echoTool))
+    }
 
     override fun availableTools(): List<ToolDefinition> = listOf(echoTool)
 

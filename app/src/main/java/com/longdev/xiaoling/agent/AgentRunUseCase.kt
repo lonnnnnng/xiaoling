@@ -13,6 +13,7 @@ class AgentRunUseCase(
     private val client: OpenAiCompatibleClient,
 ) {
     private val baseLedger = RoomAgentRunRepository(context)
+    private val permissionChecker = AndroidToolPermissionChecker(context)
     private val toolRegistry = XiaoLingToolRegistry(
         clock = SystemAgentClock(),
         conversationStore = RoomAgentConversationStore(context.applicationContext),
@@ -39,12 +40,14 @@ class AgentRunUseCase(
             toolRegistry = toolRegistry,
             llm = OpenAiAgentLlm(client, config, summarySystemPrompt),
             approvalGate = approvalGate,
+            permissionChecker = permissionChecker,
         )
         return runtime.run(
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,
             retryOfRunId = retryOfRunId,
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
         )
     }
 }

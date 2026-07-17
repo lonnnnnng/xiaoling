@@ -62,18 +62,21 @@
 
 1. 创建 `AgentRun`，状态从 `QUEUED` 进入 `THINKING`。
 2. 请求当前模型只返回工具调用 JSON，应用侧只接受已注册工具。
-3. 进入 `tool.validate` 步骤，校验工具必填参数、工具调用预算和重复调用风险。
+3. 进入 `tool.validate` 步骤，校验 JSON Schema、未知参数、可插拔业务规则、Android 权限、工具调用预算和重复调用风险。
 4. SAFE 工具跳过交互审批并写入 `approval.skipped` 审计事件；非 SAFE 工具进入 `WAITING_APPROVAL`，先写入 `ApprovalRequest`，再在对话区显示审批卡片；用户批准后继续执行，用户拒绝后 Run 进入失败终态。
-5. 执行工具，写入可读 `RunEvent.message` 和独立 typed metadata，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。
-6. 进入 `VERIFYING`，检查工具结果可读。
+5. 执行工具，写入可读 `RunEvent.message` 和独立 typed metadata，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 与 `memory.remember` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。
+6. 进入 `VERIFYING`，按工具定义检查“结果可读”或“Executor 已回读验证”；需要回读的工具不能用普通成功文本替代验证证据。
 7. 模型根据用户提示偏好选择受限的详略和语气枚举，Runtime 使用真实工具字段渲染最终回复；样式选择超时、为空或返回非法内容时，使用确定性默认样式保留已完成结果。
 8. 完成后将 Run 标记为 `COMPLETED`，并在对话区输出总结。
 
 当前最小 Runtime 已具备以下运行约束：
 
 - `AgentRuntimeOptions` 控制最大工具调用次数、模型/工具执行预算、模型步骤超时和工具步骤超时；用户阅读审批卡片的等待时间不消耗执行预算。
-- 工具风险等级、必填参数和超时时间来自应用侧 `ToolDefinition`，不信任模型自己声明的风险。
-- 模型工具调用解析只保留模型返回的原始参数，不自动补齐必填字段；缺参必须由 `tool.validate` 写入失败终态，便于后续审计模型决策质量。
+- `ToolDefinition` 统一声明输入类型、长度/范围/枚举、业务校验器、风险、确认策略、Android 权限、后台能力、超时和验证策略；风险与确认不信任模型声明。
+- 模型提示使用 `object/properties/required/additionalProperties=false` JSON Schema；解析层先按原始 JSON primitive 拒绝错误类型和非 object `arguments`，再规范化到字符串 Map 供 Runtime 做长度/范围/枚举与业务校验，不自动补字段或接受未知字段。
+- `ToolPermissionChecker` 默认 fail-closed；生产链路使用 `ContextCompat.checkSelfPermission` 检查定义中的 Android 权限，权限不足时在审批和 Executor 之前失败。
+- Runtime 接收 `FOREGROUND / BACKGROUND` 执行来源；后台来源只能选择 `supportsBackground=true` 的工具，当前生产入口和全部首批工具均保持前台限定。
+- Registry 初始化会拒绝重复工具名；`memory.remember` 已通过可插拔业务校验器限制标签数量和单标签长度。
 - `AgentRunUseCase` 使用 reporting ledger 回读 Room 快照，ViewModel 将 `AgentRun / AgentStep / RunEvent` 渲染成当前对话内的运行时间线。
 - 审批使用 suspend `ApprovalGate` 挂起等待 UI 决策；`ApprovalRequest` 独立记录待确认工具、风险、参数、过期策略、决定结果和决定原因。
 - 当前交互审批不按固定倒计时主动过期，只有用户批准、拒绝、停止生成或应用启动恢复收敛时改变状态；`EXPIRED` 保留给后续明确截止时间的工具策略。
@@ -84,7 +87,7 @@
 - 应用启动时会检查上次遗留的非终态 Run，将它们收敛为 `CANCELLED`，并把待审批请求写成 `CANCELLED`，避免进程重建后出现无法继续的假活跃任务。
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
-- 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批。
+- 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
 
 该链路的价值是先把 Run、Step、Event、审批、执行、验证、长期记忆和终态跑通，为后续更多真实工具和后台任务提供可测试 seam。
 
@@ -148,7 +151,6 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行，但进程重建后仍会先把中间态收敛为 `CANCELLED`，不会原地恢复旧协程、模型调用或工具执行栈。
-- 工具 Schema 目前只覆盖必填字符串参数，还没有完整 JSON Schema、类型校验和业务校验器。
 - 原地断点恢复、候选记忆与敏感过滤、去重/冲突/撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

@@ -4,6 +4,7 @@ import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.RequestMessage
 import org.json.JSONObject
+import java.math.BigDecimal
 
 class OpenAiAgentLlm(
     private val client: OpenAiCompatibleClient,
@@ -20,8 +21,8 @@ class OpenAiAgentLlm(
                         你是小灵的工具规划器。只能从应用提供的工具中选择一个工具。
                         你必须只返回 JSON，不要返回 Markdown，不要解释。
                         JSON 格式：
-                        {"tool":"工具名","arguments":{"参数名":"参数值"}}
-                        arguments 只能包含所选工具定义中的参数。没有参数时返回空对象。
+                        {"tool":"工具名","arguments":{"文本参数":"内容","整数参数":1,"数值参数":0.5,"布尔参数":true}}
+                        arguments 必须满足所选工具的 inputSchema，不能增加未声明参数。没有参数时返回空对象。
                         只有当用户明确希望长期保存事实或偏好时，才选择 memory.remember。
                     """.trimIndent(),
                 ),
@@ -31,7 +32,7 @@ class OpenAiAgentLlm(
                         用户目标：$goal
 
                         可用工具：
-                        ${tools.joinToString("\n") { tool -> tool.toPromptLine() }}
+                        ${tools.joinToString("\n") { tool -> tool.toModelPromptLine() }}
                     """.trimIndent(),
                 ),
             ),
@@ -60,15 +61,6 @@ class OpenAiAgentLlm(
             ),
         ).responseText
     }
-
-    private fun ToolDefinition.toPromptLine(): String {
-        val fields = inputSchema
-            .joinToString(", ") { field ->
-                "${field.name}${if (field.required) "*" else ""}:${field.description}"
-            }
-            .ifBlank { "无参数" }
-        return "- $name: $description; risk=${risk.name}; args=$fields"
-    }
 }
 
 internal object AgentToolCallParser {
@@ -79,9 +71,18 @@ internal object AgentToolCallParser {
         val toolName = json.optString("tool").ifBlank { json.optString("name") }
         val definition = tools.firstOrNull { it.name == toolName }
             ?: error("模型选择了未注册工具：$toolName")
-        val argumentsJson = json.optJSONObject("arguments") ?: JSONObject()
+        val argumentsJson = when (val rawArguments = json.opt("arguments")) {
+            null, JSONObject.NULL -> JSONObject()
+            is JSONObject -> rawArguments
+            else -> error("工具 ${definition.name} 的 arguments 必须是 JSON object")
+        }
+        val fields = definition.inputSchema.associateBy { it.name }
         val arguments = buildMap {
-            argumentsJson.keys().forEach { key -> put(key, argumentsJson.optString(key)) }
+            argumentsJson.keys().forEach { key ->
+                val rawValue = argumentsJson.get(key)
+                val field = fields[key]
+                put(key, if (field == null) rawValue.toString() else field.normalizeJsonValue(rawValue))
+            }
         }
         // long: 解析层保留模型原始参数，不替模型补必填字段；缺参必须交给 Runtime 的 tool.validate 失败，这样审计记录能反映真实模型输出。
         return ToolCall(
@@ -100,5 +101,26 @@ internal object AgentToolCallParser {
         val end = trimmed.lastIndexOf('}')
         if (start >= 0 && end > start) return trimmed.substring(start, end + 1)
         return trimmed
+    }
+
+    private fun ToolInputField.normalizeJsonValue(rawValue: Any): String {
+        return when (type) {
+            ToolInputType.STRING -> (rawValue as? String)
+                ?: error("工具参数 $name 必须使用 JSON string")
+            ToolInputType.INTEGER -> {
+                val number = rawValue as? Number ?: error("工具参数 $name 必须使用 JSON integer")
+                runCatching { BigDecimal(number.toString()).longValueExact() }
+                    .getOrElse { error("工具参数 $name 必须是 Long 范围内的 JSON integer") }
+                    .toString()
+            }
+            ToolInputType.NUMBER -> {
+                val number = rawValue as? Number ?: error("工具参数 $name 必须使用 JSON number")
+                if (!number.toDouble().isFinite()) error("工具参数 $name 必须使用有限 JSON number")
+                number.toString()
+            }
+            ToolInputType.BOOLEAN -> (rawValue as? Boolean)
+                ?.toString()
+                ?: error("工具参数 $name 必须使用 JSON boolean")
+        }
     }
 }

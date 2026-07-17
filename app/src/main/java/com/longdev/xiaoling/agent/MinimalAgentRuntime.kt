@@ -14,6 +14,7 @@ class MinimalAgentRuntime(
     private val toolRegistry: ToolRegistry = FakeToolRegistry(),
     private val llm: AgentLlm,
     private val approvalGate: ApprovalGate = AutoApprovalGate(),
+    private val permissionChecker: ToolPermissionChecker = FailClosedToolPermissionChecker,
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
 ) {
     suspend fun run(
@@ -21,6 +22,7 @@ class MinimalAgentRuntime(
         userMessageId: String,
         goal: String,
         retryOfRunId: String? = null,
+        executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
@@ -66,11 +68,11 @@ class MinimalAgentRuntime(
                 runId = run.id,
                 type = "tool.validate",
                 title = "工具参数校验",
-                detail = "校验 ${toolCall.name} 的必填参数和循环风险。",
+                detail = "校验 ${toolCall.name} 的 JSON Schema、业务规则、Android 权限和循环风险。",
                 status = AgentStepStatus.RUNNING,
             )
             activeStepId = validation.id
-            validateToolCall(definition, toolCall)
+            validateToolCall(definition, toolCall, executionOrigin)
             checkToolBudget(executedToolCalls)
             checkLoopRisk(toolCall, toolCallFingerprints)
             ledger.appendEvent(
@@ -82,7 +84,7 @@ class MinimalAgentRuntime(
             ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
             activeStepId = null
 
-            if (definition.risk == ToolRisk.SAFE) {
+            if (definition.approvalPolicy == ToolApprovalPolicy.NONE) {
                 // long: SAFE 工具只能读取低敏环境或本机记忆，不产生外部副作用；它仍写审计事件，但不打断用户当前对话去做确认。
                 ledger.appendEvent(
                     runId = run.id,
@@ -155,12 +157,22 @@ class MinimalAgentRuntime(
                 runId = run.id,
                 type = AgentStepTypes.TOOL_VERIFY,
                 title = "执行后验证",
-                detail = "检查工具是否返回可读结果。",
+                detail = when (definition.verificationPolicy) {
+                    ToolVerificationPolicy.RESULT_READABLE -> "检查工具是否返回可读结果。"
+                    ToolVerificationPolicy.EXECUTOR_VERIFIED -> "检查 Executor 是否完成回读验证。"
+                },
                 status = AgentStepStatus.RUNNING,
             )
             activeStepId = verify.id
             currentCoroutineContext().ensureActive()
-            require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+            when (definition.verificationPolicy) {
+                ToolVerificationPolicy.RESULT_READABLE -> {
+                    require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+                }
+                ToolVerificationPolicy.EXECUTOR_VERIFIED -> {
+                    require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
+                }
+            }
             ledger.appendEvent(
                 runId = run.id,
                 type = "tool.verify",
@@ -203,8 +215,8 @@ class MinimalAgentRuntime(
                 summaryFallbackReason = "模型没有返回合法的总结样式配置"
             }
             val response = presentation?.let { selectedPresentation ->
-                buildVerifiedResponse(run.id, goal, toolCall, toolResult, selectedPresentation)
-            } ?: buildFallbackResponse(run.id, goal, toolCall, toolResult)
+                buildVerifiedResponse(run.id, goal, definition, toolCall, toolResult, selectedPresentation)
+            } ?: buildFallbackResponse(run.id, goal, definition, toolCall, toolResult)
             val summaryDetail = if (summaryFallbackReason != null) {
                 ledger.appendEvent(
                     runId = run.id,
@@ -290,12 +302,14 @@ class MinimalAgentRuntime(
     private fun buildFallbackResponse(
         runId: String,
         goal: String,
+        definition: ToolDefinition,
         toolCall: ToolCall,
         toolResult: ToolExecutionResult,
     ): String {
         return buildVerifiedResponse(
             runId = runId,
             goal = goal,
+            definition = definition,
             toolCall = toolCall,
             toolResult = toolResult,
             presentation = AgentSummaryPresentation(
@@ -308,6 +322,7 @@ class MinimalAgentRuntime(
     private fun buildVerifiedResponse(
         runId: String,
         goal: String,
+        definition: ToolDefinition,
         toolCall: ToolCall,
         toolResult: ToolExecutionResult,
         presentation: AgentSummaryPresentation,
@@ -331,9 +346,9 @@ class MinimalAgentRuntime(
             - Run ID：$runId
             - 目标：${goal.ifBlank { "未填写目标" }}
             - 工具：${toolCall.name}
-            - 审批：${if (toolCall.risk == ToolRisk.SAFE) "SAFE 工具无需审批" else "已通过应用侧审批"}
+            - 审批：${if (definition.approvalPolicy == ToolApprovalPolicy.NONE) "SAFE 工具无需审批" else "已通过应用侧审批"}
             - 执行结果：${toolResult.content}
-            - 验证：工具结果可读，任务进入 COMPLETED 终态
+            - 验证：${if (definition.verificationPolicy == ToolVerificationPolicy.EXECUTOR_VERIFIED) "Executor 回读验证通过" else "工具结果可读"}，任务进入 COMPLETED 终态
         """.trimIndent()
     }
 
@@ -367,13 +382,25 @@ class MinimalAgentRuntime(
         return executionBudget.run(label, timeoutMs, block)
     }
 
-    private fun validateToolCall(definition: ToolDefinition, toolCall: ToolCall) {
-        val missing = definition.inputSchema
-            .filter { it.required }
-            .map { it.name }
-            .filter { name -> toolCall.arguments[name].isNullOrBlank() }
-        require(missing.isEmpty()) {
-            "工具 ${definition.name} 缺少必填参数：${missing.joinToString(", ")}"
+    private fun validateToolCall(
+        definition: ToolDefinition,
+        toolCall: ToolCall,
+        executionOrigin: AgentExecutionOrigin,
+    ) {
+        val validation = definition.validateArguments(toolCall.arguments)
+        require(validation.isValid) {
+            "工具 ${definition.name} 参数校验失败：${validation.errors.joinToString("；")}"
+        }
+        // long: 后台任务不能继承前台工具能力；只有定义明确声明支持后台时才继续审批和执行，避免未来调度入口默认放大工具权限面。
+        check(executionOrigin != AgentExecutionOrigin.BACKGROUND || definition.permissionPolicy.supportsBackground) {
+            "工具 ${definition.name} 不允许后台执行"
+        }
+        val missingPermissions = permissionChecker
+            .missingPermissions(definition.permissionPolicy.requiredAndroidPermissions)
+            .sorted()
+        // long: 权限门禁在审批和 Executor 之前执行；检查器缺失时默认拒绝所有声明权限，防止新工具接入后因漏注入而 fail-open。
+        check(missingPermissions.isEmpty()) {
+            "工具 ${definition.name} 缺少 Android 权限：${missingPermissions.joinToString(", ")}"
         }
     }
 

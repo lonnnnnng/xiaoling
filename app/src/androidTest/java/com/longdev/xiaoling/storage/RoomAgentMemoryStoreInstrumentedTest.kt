@@ -73,6 +73,8 @@ class RoomAgentMemoryStoreInstrumentedTest {
             confidence = 0.7,
         )
 
+        assertEquals("conversation-1", store.get(compact.id)?.sourceConversationId)
+        assertEquals("run-1", store.get(compact.id)?.sourceRunId)
         assertEquals(listOf(compact.id), store.list("comp", AgentMemoryFilter.ALL).map { it.id })
         assertEquals(listOf(chinese.id), store.list("紧凑", AgentMemoryFilter.ALL).map { it.id })
         assertEquals(listOf(chinese.id), store.list("紧凑 界面", AgentMemoryFilter.ALL).map { it.id })

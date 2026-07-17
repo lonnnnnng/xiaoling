@@ -35,6 +35,40 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun productionToolsDeclareCompleteSchemaAndFailClosedPolicies() {
+        val tools = testRegistry().availableTools().associateBy { it.name }
+        val limitFields = listOf(
+            "app.list_conversations",
+            "app.search_conversations",
+            "notes.list",
+            "notes.search",
+            "memory.search",
+        ).map { name -> tools.getValue(name).inputSchema.single { it.name == "limit" } }
+
+        assertTrue(tools.values.all { it.timeoutMs == 5_000L })
+        assertTrue(tools.values.all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() })
+        assertTrue(tools.values.none { it.permissionPolicy.supportsBackground })
+        assertTrue(limitFields.all {
+            it.type == ToolInputType.INTEGER && it.minimum == 1.0 && it.maximum == 10.0
+        })
+        assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
+        assertEquals(
+            setOf("Preference", "ProfileFact", "Episode", "Procedure"),
+            tools.getValue("memory.remember").inputSchema.single { it.name == "type" }.enumValues,
+        )
+
+        val invalidTags = tools.getValue("memory.remember").validateArguments(
+            mapOf(
+                "note" to "用户喜欢紧凑界面",
+                "tags" to (1..11).joinToString(",") { "tag$it" },
+            ),
+        )
+        assertTrue(invalidTags.errors.contains("长期记忆标签不能超过 10 个"))
+    }
+
+    @Test
     fun currentTimeToolReturnsStableLocalTimeSnapshot() = runTest {
         val result = testRegistry().execute(ToolCall(name = "app.current_time", arguments = emptyMap(), risk = ToolRisk.SAFE))
 
@@ -145,11 +179,33 @@ class XiaoLingToolRegistryTest {
         )
 
         assertTrue(remember.success)
+        assertEquals(true, remember.verified)
         assertTrue(remember.content.contains("来源：由 /agent 任务写入：记住用户偏好"))
         assertTrue(search.success)
         assertTrue(search.content.contains("用户喜欢紧凑、明亮但不刺眼的 Android UI"))
         assertTrue(search.content.contains("Preference"))
         assertTrue(!search.content.contains("不应该被检索"))
+    }
+
+    @Test
+    fun memoryRememberMarksResultUnverifiedWhenReadBackFails() = runTest {
+        val registry = testRegistry(
+            memoryStore = object : InMemoryAgentMemoryStore() {
+                override suspend fun get(memoryId: String): AgentMemoryRecord? = null
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "memory.remember",
+                arguments = mapOf("note" to "需要回读确认的偏好"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertEquals(false, result.success)
+        assertEquals(false, result.verified)
+        assertTrue(result.content.contains("回读验证失败"))
     }
 
     private fun testRegistry(
@@ -223,7 +279,7 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
     open override suspend fun get(id: String): AgentNoteRecord? = records.firstOrNull { it.id == id }
 }
 
-private class InMemoryAgentMemoryStore : AgentMemoryStore {
+private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     val records = mutableListOf<AgentMemoryRecord>()
 
     override suspend fun remember(
@@ -249,6 +305,8 @@ private class InMemoryAgentMemoryStore : AgentMemoryStore {
         records += record
         return record
     }
+
+    open override suspend fun get(memoryId: String): AgentMemoryRecord? = records.firstOrNull { it.id == memoryId }
 
     override suspend fun search(query: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryRecord> {
         val normalized = query.trim()

@@ -164,6 +164,31 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - `connectedDebugAndroidTest`：11 条 Redmi Note 8 Pro 真机测试通过。
 - `lintDebug` 与 `assembleDebug` 通过。
 
+## Tool Schema 与权限策略验证
+
+定向测试覆盖：
+
+- 输入 Schema 支持字符串、整数、数值和布尔逻辑类型，以及必填、长度、数值范围和枚举约束；未知参数默认拒绝。
+- 模型可见 Schema 使用 `object/properties/required/additionalProperties=false`，不再依赖自然语言描述猜测类型。
+- 可插拔业务校验器已用于 `memory.remember` 标签数量和单标签长度限制；Schema 失败时不会继续运行业务规则。
+- 非 SAFE 工具不能把确认策略降级为 `NONE`；`notes.create` 与 `memory.remember` 要求 Executor 回读验证，只有普通成功文本时 Run 在 `tool.verify` 失败。
+- Registry 初始化拒绝重复工具名；当前 8 个生产工具均声明 5 秒超时、确认/验证策略、空 Android 权限集合和 `supportsBackground=false`。
+- Runtime 在审批和执行前检查 Android 权限；检查器未注入时默认 fail-closed，模型把风险伪报为 SAFE 也不能绕过定义侧风险和权限。
+- 模型返回的 integer/boolean JSON primitive 能通过参数解析进入逻辑类型校验；数组形式 `arguments`、字符串形式 integer、对象形式 STRING 和超出 Long 范围的整数均被解析层拒绝，非 STRING 字段不能声明字符串枚举。
+- 前台限定工具在 `BACKGROUND` 来源下于审批前失败。
+- 最终确定性回复按实际确认和验证策略渲染，不再根据风险或固定“结果可读”文案推断。
+
+真机验证：
+
+- `AndroidToolPermissionChecker` 在 Redmi Note 8 Pro 上把 manifest 中已授予的 `INTERNET` 识别为可用，并继续拒绝未声明权限。
+- 当前生产工具均为应用内能力，不触发 Android 运行时权限弹窗；真实系统工具的授权、撤销和后台策略仍需随对应工具单独做真机验收。
+
+本阶段完整回归结果：
+
+- `testDebugUnitTest`：94 条 JVM 单元测试通过。
+- `connectedDebugAndroidTest`：12 条 Redmi Note 8 Pro 真机测试通过。
+- `lintDebug` 与 `assembleDebug` 通过。
+
 ## 签名验证
 
 执行命令：

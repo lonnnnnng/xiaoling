@@ -14,6 +14,11 @@ enum class AgentRunStatus {
     BUDGET_EXHAUSTED,
 }
 
+enum class AgentExecutionOrigin {
+    FOREGROUND,
+    BACKGROUND,
+}
+
 enum class AgentStepStatus {
     PENDING,
     RUNNING,
@@ -184,22 +189,176 @@ data class ToolDefinition(
     val description: String,
     val risk: ToolRisk,
     val inputSchema: List<ToolInputField> = emptyList(),
+    val businessValidators: List<ToolBusinessValidator> = emptyList(),
+    val permissionPolicy: ToolPermissionPolicy = ToolPermissionPolicy(),
+    val approvalPolicy: ToolApprovalPolicy = risk.defaultApprovalPolicy(),
+    val verificationPolicy: ToolVerificationPolicy = ToolVerificationPolicy.RESULT_READABLE,
     val timeoutMs: Long? = null,
 ) {
     init {
         require(name.isNotBlank()) { "工具名称不能为空" }
+        require(description.isNotBlank()) { "工具描述不能为空" }
         require(timeoutMs == null || timeoutMs > 0) { "工具超时时间必须大于 0" }
+        require(inputSchema.map { it.name }.distinct().size == inputSchema.size) { "工具参数名称不能重复" }
+        require(risk == ToolRisk.SAFE || approvalPolicy == ToolApprovalPolicy.REQUIRE_CONFIRMATION) {
+            "非 SAFE 工具必须要求用户确认"
+        }
     }
+
+    fun validateArguments(arguments: Map<String, String>): ToolValidationResult {
+        val errors = mutableListOf<String>()
+        val declaredFields = inputSchema.associateBy { it.name }
+        arguments.keys
+            .filterNot(declaredFields::containsKey)
+            .sorted()
+            .forEach { errors += "参数 $it 未在 Schema 中声明" }
+
+        inputSchema.forEach { field ->
+            val rawValue = arguments[field.name]
+            if (rawValue.isNullOrBlank()) {
+                if (field.required) errors += "缺少必填参数 ${field.name}"
+                return@forEach
+            }
+            errors += field.validate(rawValue)
+        }
+        // long: 业务规则只接收已通过 Schema 的参数，避免每个校验器重复处理缺参、类型错误和未知字段。
+        if (errors.isEmpty()) {
+            businessValidators.forEach { validator -> errors += validator.validate(arguments) }
+        }
+        return ToolValidationResult(errors)
+    }
+}
+
+fun interface ToolBusinessValidator {
+    fun validate(arguments: Map<String, String>): List<String>
+}
+
+data class ToolPermissionPolicy(
+    val requiredAndroidPermissions: Set<String> = emptySet(),
+    val supportsBackground: Boolean = false,
+) {
+    init {
+        require(requiredAndroidPermissions.none { it.isBlank() }) { "Android 权限名称不能为空" }
+    }
+}
+
+fun interface ToolPermissionChecker {
+    fun missingPermissions(requiredPermissions: Set<String>): Set<String>
+}
+
+object FailClosedToolPermissionChecker : ToolPermissionChecker {
+    override fun missingPermissions(requiredPermissions: Set<String>): Set<String> = requiredPermissions
+}
+
+enum class ToolApprovalPolicy {
+    NONE,
+    REQUIRE_CONFIRMATION,
+}
+
+enum class ToolVerificationPolicy {
+    RESULT_READABLE,
+    EXECUTOR_VERIFIED,
+}
+
+private fun ToolRisk.defaultApprovalPolicy(): ToolApprovalPolicy {
+    return if (this == ToolRisk.SAFE) ToolApprovalPolicy.NONE else ToolApprovalPolicy.REQUIRE_CONFIRMATION
+}
+
+enum class ToolInputType {
+    STRING,
+    INTEGER,
+    NUMBER,
+    BOOLEAN,
 }
 
 data class ToolInputField(
     val name: String,
     val description: String,
     val required: Boolean,
+    val type: ToolInputType = ToolInputType.STRING,
+    val minLength: Int? = null,
+    val maxLength: Int? = null,
+    val minimum: Double? = null,
+    val maximum: Double? = null,
+    val enumValues: Set<String> = emptySet(),
 ) {
     init {
         require(name.isNotBlank()) { "工具参数名称不能为空" }
+        require(description.isNotBlank()) { "工具参数描述不能为空" }
+        require(minLength == null || minLength >= 0) { "字符串最小长度不能小于 0" }
+        require(maxLength == null || maxLength >= 0) { "字符串最大长度不能小于 0" }
+        require(minLength == null || maxLength == null || minLength <= maxLength) { "字符串最小长度不能大于最大长度" }
+        require(minimum == null || maximum == null || minimum <= maximum) { "数值最小值不能大于最大值" }
+        require(enumValues.none { it.isBlank() }) { "枚举值不能为空" }
+        require(enumValues.isEmpty() || type == ToolInputType.STRING) { "只有字符串参数可以声明枚举" }
+        require(minimum == null || minimum.isFinite()) { "数值最小值必须是有限数值" }
+        require(maximum == null || maximum.isFinite()) { "数值最大值必须是有限数值" }
+        require((minimum == null && maximum == null) || type == ToolInputType.INTEGER || type == ToolInputType.NUMBER) {
+            "只有整数或数值参数可以声明数值范围"
+        }
+        require((minLength == null && maxLength == null) || type == ToolInputType.STRING) {
+            "只有字符串参数可以声明长度范围"
+        }
+        require(type != ToolInputType.INTEGER || minimum == null || minimum % 1.0 == 0.0) {
+            "整数参数的最小值必须是整数"
+        }
+        require(type != ToolInputType.INTEGER || maximum == null || maximum % 1.0 == 0.0) {
+            "整数参数的最大值必须是整数"
+        }
     }
+
+    internal fun validate(rawValue: String): List<String> {
+        val value = rawValue.trim()
+        val errors = mutableListOf<String>()
+        when (type) {
+            ToolInputType.STRING -> {
+                minLength?.takeIf { value.length < it }?.let { errors += "参数 $name 长度不能小于 $it" }
+                maxLength?.takeIf { value.length > it }?.let { errors += "参数 $name 长度不能大于 $it" }
+            }
+            ToolInputType.INTEGER -> {
+                val number = value.toLongOrNull()
+                if (number == null) {
+                    errors += "参数 $name 必须是整数"
+                } else {
+                    errors += validateNumberRange(number.toDouble())
+                }
+            }
+            ToolInputType.NUMBER -> {
+                val number = value.toDoubleOrNull()
+                if (number == null || !number.isFinite()) {
+                    errors += "参数 $name 必须是有限数值"
+                } else {
+                    errors += validateNumberRange(number)
+                }
+            }
+            ToolInputType.BOOLEAN -> {
+                if (!value.equals("true", ignoreCase = true) && !value.equals("false", ignoreCase = true)) {
+                    errors += "参数 $name 必须是 true 或 false"
+                }
+            }
+        }
+        if (enumValues.isNotEmpty() && value !in enumValues) {
+            errors += "参数 $name 只能是 ${enumValues.joinToString("、")}"
+        }
+        return errors
+    }
+
+    private fun validateNumberRange(number: Double): List<String> {
+        val errors = mutableListOf<String>()
+        minimum?.takeIf { number < it }?.let { errors += "参数 $name 必须不小于 ${it.toConstraintLabel()}" }
+        maximum?.takeIf { number > it }?.let { errors += "参数 $name 必须不大于 ${it.toConstraintLabel()}" }
+        return errors
+    }
+}
+
+data class ToolValidationResult(
+    val errors: List<String>,
+) {
+    val isValid: Boolean get() = errors.isEmpty()
+}
+
+private fun Double.toConstraintLabel(): String {
+    return if (this % 1.0 == 0.0) toLong().toString() else toString()
 }
 
 enum class ToolRisk {
@@ -243,6 +402,7 @@ data class AgentMemorySource(
 
 interface AgentMemoryStore {
     suspend fun remember(content: String, tags: String, type: String, source: AgentMemorySource, confidence: Double): AgentMemoryRecord
+    suspend fun get(memoryId: String): AgentMemoryRecord?
     suspend fun search(query: String, limit: Int, enabledOnly: Boolean = true): List<AgentMemoryRecord>
 }
 

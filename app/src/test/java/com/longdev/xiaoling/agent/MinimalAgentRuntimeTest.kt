@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
@@ -163,6 +164,65 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun openAiToolCallParserKeepsJsonPrimitivesValidForLogicalSchemaTypes() {
+        val tool = ToolDefinition(
+            name = "test.typed",
+            description = "验证模型参数类型",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("limit", "条数", required = true, type = ToolInputType.INTEGER),
+                ToolInputField("enabled", "是否启用", required = true, type = ToolInputType.BOOLEAN),
+            ),
+        )
+
+        val call = AgentToolCallParser.parse(
+            raw = """{"tool":"test.typed","arguments":{"limit":5,"enabled":true}}""",
+            tools = listOf(tool),
+        )
+
+        assertEquals(mapOf("limit" to "5", "enabled" to "true"), call.arguments)
+        assertTrue(tool.validateArguments(call.arguments).isValid)
+    }
+
+    @Test
+    fun openAiToolCallParserRejectsArgumentsWithWrongJsonShapeOrPrimitiveType() {
+        val tool = ToolDefinition(
+            name = "test.typed",
+            description = "验证模型原始 JSON 类型",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("limit", "条数", required = true, type = ToolInputType.INTEGER),
+                ToolInputField("query", "关键词", required = true, type = ToolInputType.STRING),
+            ),
+        )
+
+        assertThrows(IllegalStateException::class.java) {
+            AgentToolCallParser.parse(
+                raw = """{"tool":"test.typed","arguments":[]}""",
+                tools = listOf(tool),
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            AgentToolCallParser.parse(
+                raw = """{"tool":"test.typed","arguments":{"limit":"5","query":"内容"}}""",
+                tools = listOf(tool),
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            AgentToolCallParser.parse(
+                raw = """{"tool":"test.typed","arguments":{"limit":5,"query":{"nested":true}}}""",
+                tools = listOf(tool),
+            )
+        }
+        assertThrows(IllegalStateException::class.java) {
+            AgentToolCallParser.parse(
+                raw = """{"tool":"test.typed","arguments":{"limit":18446744073709551621,"query":"内容"}}""",
+                tools = listOf(tool),
+            )
+        }
+    }
+
+    @Test
     fun failedToolMarksRunFailed() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
@@ -174,6 +234,13 @@ class MinimalAgentRuntimeTest {
                         name = "fake.echo",
                         description = "失败测试工具",
                         risk = ToolRisk.REQUIRES_APPROVAL,
+                        inputSchema = listOf(
+                            ToolInputField(
+                                name = "goal",
+                                description = "测试目标",
+                                required = true,
+                            ),
+                        ),
                     ),
                 )
 
@@ -394,6 +461,199 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("缺少必填参数"))
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "tool.validate" }.status)
+    }
+
+    @Test
+    fun missingAndroidPermissionFailsBeforeApprovalAndExecution() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var executed = false
+        val definition = ToolDefinition(
+            name = "device.camera_snapshot",
+            description = "读取相机画面",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf("android.permission.CAMERA"),
+                supportsBackground = false,
+            ),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = ToolRisk.SAFE)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("权限校验失败时不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executed = true
+                    return ToolExecutionResult(success = true, content = "不应执行")
+                }
+            },
+            permissionChecker = ToolPermissionChecker { requiredPermissions -> requiredPermissions },
+        )
+
+        var runId: String? = null
+        try {
+            runtime.run("conversation-1", "message-1", "拍摄照片")
+        } catch (error: IllegalStateException) {
+            runId = ledger.lastRunId
+        }
+
+        val snapshot = ledger.snapshot(runId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("缺少 Android 权限"))
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("android.permission.CAMERA"))
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "tool.validate" }.status)
+        assertTrue(!executed)
+        assertTrue(snapshot.events.none { it.type.startsWith("approval.") })
+    }
+
+    @Test
+    fun foregroundOnlyToolFailsClosedForBackgroundExecution() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var executed = false
+        val definition = ToolDefinition(
+            name = "app.local_read",
+            description = "仅允许前台读取",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("后台能力校验失败时不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executed = true
+                    return ToolExecutionResult(success = true, content = "不应执行")
+                }
+            },
+        )
+
+        var runId: String? = null
+        try {
+            runtime.run(
+                conversationId = "conversation-1",
+                userMessageId = "message-1",
+                goal = "后台读取",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+            )
+        } catch (error: IllegalStateException) {
+            runId = ledger.lastRunId
+        }
+
+        val snapshot = ledger.snapshot(runId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("不允许后台执行"))
+        assertTrue(!executed)
+    }
+
+    @Test
+    fun executorVerifiedPolicyRejectsReadableButUnverifiedResult() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建并回读笔记",
+            risk = ToolRisk.SAFE,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("回读验证失败时不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    return ToolExecutionResult(success = true, content = "写入已返回成功", verified = null)
+                }
+            },
+        )
+
+        var runId: String? = null
+        try {
+            runtime.run("conversation-1", "message-1", "创建笔记")
+        } catch (error: IllegalArgumentException) {
+            runId = ledger.lastRunId
+        }
+
+        val snapshot = ledger.snapshot(runId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("未通过 Executor 回读验证"))
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == AgentStepTypes.TOOL_VERIFY }.status)
+    }
+
+    @Test
+    fun finalResponseUsesActualApprovalAndVerificationPolicies() = runTest {
+        val definition = ToolDefinition(
+            name = "test.confirmed_read",
+            description = "需要确认并回读验证的测试工具",
+            risk = ToolRisk.SAFE,
+            approvalPolicy = ToolApprovalPolicy.REQUIRE_CONFIRMATION,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = InMemoryAgentRunLedger(),
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"detailed","tone":"neutral"}"""
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    return ToolExecutionResult(success = true, content = "读取成功", verified = true)
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "确认读取")
+
+        assertTrue(summary.responseText.contains("审批：已通过应用侧审批"))
+        assertTrue(summary.responseText.contains("验证：Executor 回读验证通过"))
     }
 
     @Test
