@@ -3,14 +3,22 @@ package com.longdev.xiaoling.agent
 import android.content.Context
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
+import com.longdev.xiaoling.storage.RoomAgentConversationStore
+import com.longdev.xiaoling.storage.RoomAgentMemoryStore
+import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 
-class AgentDemoUseCase(
+class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
 ) {
     private val baseLedger = RoomAgentRunRepository(context)
-    private val toolRegistry = FakeToolRegistry()
+    private val toolRegistry = XiaoLingToolRegistry(
+        clock = SystemAgentClock(),
+        conversationStore = RoomAgentConversationStore(context.applicationContext),
+        noteStore = RoomAgentNoteStore(context.applicationContext),
+        memoryStore = RoomAgentMemoryStore(context.applicationContext),
+    )
 
     suspend fun run(
         conversationId: String,
@@ -30,7 +38,7 @@ class AgentDemoUseCase(
             llm = OpenAiAgentLlm(client, config),
             approvalGate = approvalGate,
         )
-        return runtime.runDemo(
+        return runtime.run(
             conversationId = conversationId,
             userMessageId = userMessageId,
             goal = goal,

@@ -26,16 +26,17 @@
 - Provider、模型、接口模式、流式和耗时等消息元数据。
 - Android Keystore 密钥保护和网络错误分类。
 - 请求取消和停止生成。
-- `AgentRun / AgentStep / ApprovalRequest / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
+- `AgentRun / AgentStep / ApprovalRequest / RunEvent / AgentMemory` 初始数据模型，以及 `/agent` 模型规划 + 应用内低风险工具链路。
 - 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、必填参数校验、重复工具调用检测和结构化事件记录。
 - 对话区已能显示当前 `/agent` Run 的最小时间线和审批卡片，批准后继续执行，拒绝后写入失败终态；审批请求已具备有效期和决定结果落库。
 - 设置页已有最小 Agent 运行记录入口，可查看最近 Run、步骤、审批请求和结构化事件。
+- 应用启动时会把进程重建前遗留的非终态 Run 收敛成 `CANCELLED`，避免任务中心出现不可继续的假活跃任务。
 
 ### 主要缺口
 
-- 还没有真实 LLM tool call、完整任务中心、进程重建后的运行恢复、失败重试和完整工具结果视图。
+- 还没有完整任务中心、进程重建后的继续执行恢复、失败重试和完整工具结果视图。
 - 还没有真实 Tool Registry、完整 JSON Schema、权限策略和可插拔后置验证策略。
-- 没有独立长期记忆，当前摘要只服务单个会话上下文。
+- 已有第一批应用内 Tool Registry 和结构化长期记忆表，但权限策略、记忆管理 UI、FTS 检索和记忆撤销还没有完成。
 - 没有 Skill、Workflow、后台调度和执行日志。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
@@ -155,7 +156,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - `notes.list`
 - `notes.search`
 - `notes.create`，执行前确认，执行后重新读取验证
-- `memory.search`，在里程碑 2 接入真实长期记忆
+- `memory.search` / `memory.remember`，当前已接入最小长期记忆；里程碑 2 继续补管理 UI、FTS、撤销和引用审计。
 
 暂不做任意文件写入、Shell、应用安装、发送消息和系统设置修改。
 
@@ -180,7 +181,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ### 实现顺序
 
-1. Room 保存结构化 Memory，包含来源会话/Run、原文摘要、类型、置信度、更新时间和启用状态。
+1. Room 保存结构化 Memory，包含来源会话/Run、原文摘要、类型、置信度、更新时间和启用状态。当前已完成最小表结构，后续补管理 UI 和检索质量。
 2. 提供记忆管理页：搜索、查看来源、编辑、置顶、禁用和删除。
 3. 每轮结束后只生成“候选记忆”，由确定性规则过滤；敏感内容默认不自动写入。
 4. 第一版检索使用 Room FTS，验证召回质量后再考虑 Embedding 和向量索引。

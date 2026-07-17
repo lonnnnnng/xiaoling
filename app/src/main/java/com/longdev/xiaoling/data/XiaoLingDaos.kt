@@ -58,6 +58,9 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs ORDER BY createdAt DESC LIMIT :limit")
     suspend fun getRecentRuns(limit: Int): List<AgentRunEntity>
 
+    @Query("SELECT * FROM agent_runs WHERE status IN (:statuses) ORDER BY createdAt ASC")
+    suspend fun getRunsByStatuses(statuses: List<String>): List<AgentRunEntity>
+
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY sequence ASC")
     suspend fun getSteps(runId: String): List<AgentStepEntity>
 
@@ -84,4 +87,43 @@ interface AgentRunDao {
 
     @Query("SELECT * FROM run_events WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC")
     suspend fun getEventsForRuns(runIds: List<String>): List<RunEventEntity>
+}
+
+@Dao
+interface AgentMemoryDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMemory(memory: AgentMemoryEntity)
+
+    @Query(
+        """
+        SELECT * FROM agent_memories
+        WHERE (:enabledOnly = 0 OR enabled = 1)
+        AND (:pattern = '' OR content LIKE :pattern OR tags LIKE :pattern OR type LIKE :pattern OR sourceSummary LIKE :pattern)
+        ORDER BY createdAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun search(pattern: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryEntity>
+}
+
+@Dao
+interface AgentNoteDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertNote(note: AgentNoteEntity)
+
+    @Query("SELECT * FROM agent_notes WHERE id = :id")
+    suspend fun getNote(id: String): AgentNoteEntity?
+
+    @Query("SELECT * FROM agent_notes ORDER BY updatedAt DESC LIMIT :limit")
+    suspend fun list(limit: Int): List<AgentNoteEntity>
+
+    @Query(
+        """
+        SELECT * FROM agent_notes
+        WHERE title LIKE :pattern OR content LIKE :pattern
+        ORDER BY updatedAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun search(pattern: String, limit: Int): List<AgentNoteEntity>
 }

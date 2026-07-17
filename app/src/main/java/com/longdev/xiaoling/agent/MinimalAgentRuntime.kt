@@ -16,8 +16,16 @@ class MinimalAgentRuntime(
     private val approvalGate: ApprovalGate = AutoApprovalGate(),
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
 ) {
-    suspend fun runDemo(conversationId: String, userMessageId: String, goal: String): AgentRunSummary {
+    suspend fun run(conversationId: String, userMessageId: String, goal: String): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal)
+        (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = conversationId,
+                userMessageId = userMessageId,
+                runId = run.id,
+                goal = goal,
+            ),
+        )
         var activeStepId: String? = null
         var executedToolCalls = 0
         val toolCallFingerprints = mutableSetOf<String>()
@@ -59,24 +67,33 @@ class MinimalAgentRuntime(
                 ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
                 activeStepId = null
 
-                ledger.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
-                val approval = ledger.appendStep(
-                    runId = run.id,
-                    type = "approval",
-                    title = "应用侧审批",
-                    detail = "等待应用侧审批 ${toolCall.name}",
-                    status = AgentStepStatus.RUNNING,
-                )
-                activeStepId = approval.id
-                val decision = approvalGate.requestApproval(run.id, toolCall, definition)
-                ledger.appendEvent(
-                    run.id,
-                    if (decision.approved) "approval.granted" else "approval.denied",
-                    AgentEventPayload.approval(toolCall, decision),
-                )
-                if (!decision.approved) error("工具未获批准：${decision.reason}")
-                ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
-                activeStepId = null
+                if (definition.risk == ToolRisk.SAFE) {
+                    // long: SAFE 工具只能读取低敏环境或本机记忆，不产生外部副作用；它仍写审计事件，但不打断用户当前对话去做确认。
+                    ledger.appendEvent(
+                        run.id,
+                        "approval.skipped",
+                        AgentEventPayload.simple("tool" to toolCall.name, "reason" to "SAFE 工具无需审批"),
+                    )
+                } else {
+                    ledger.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+                    val approval = ledger.appendStep(
+                        runId = run.id,
+                        type = "approval",
+                        title = "应用侧审批",
+                        detail = "等待应用侧审批 ${toolCall.name}",
+                        status = AgentStepStatus.RUNNING,
+                    )
+                    activeStepId = approval.id
+                    val decision = approvalGate.requestApproval(run.id, toolCall, definition)
+                    ledger.appendEvent(
+                        run.id,
+                        if (decision.approved) "approval.granted" else "approval.denied",
+                        AgentEventPayload.approval(toolCall, decision),
+                    )
+                    if (!decision.approved) error("工具未获批准：${decision.reason}")
+                    ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
+                    activeStepId = null
+                }
 
                 ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
                 val execution = ledger.appendStep(
@@ -104,7 +121,7 @@ class MinimalAgentRuntime(
                     runId = run.id,
                     type = "tool.verify",
                     title = "执行后验证",
-                    detail = "检查 fake tool 是否返回可读结果。",
+                    detail = "检查工具是否返回可读结果。",
                     status = AgentStepStatus.RUNNING,
                 )
                 activeStepId = verify.id
@@ -186,7 +203,7 @@ class MinimalAgentRuntime(
             - Run ID：$runId
             - 目标：${goal.ifBlank { "未填写目标" }}
             - 工具：${toolCall.name}
-            - 审批：已通过应用侧审批
+            - 审批：${if (toolCall.risk == ToolRisk.SAFE) "SAFE 工具无需审批" else "已通过应用侧审批"}
             - 执行结果：${toolResult.content}
             - 验证：工具结果可读，任务进入 COMPLETED 终态
         """.trimIndent()
@@ -249,6 +266,7 @@ private object AgentEventPayload {
             "tool" to call.name,
             "success" to result.success,
             "content" to result.content,
+            "verified" to result.verified,
             "durationMs" to durationMs,
         )
     }

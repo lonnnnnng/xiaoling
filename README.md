@@ -23,7 +23,8 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
-  - 支持 `/agent <目标>` 最小 Agent 演示链路：当前模型提出工具调用并总结，应用侧审批后执行 `fake.echo`，写入 `AgentRun / AgentStep / RunEvent`。
+  - 支持 `/agent <目标>` 最小 Agent 链路：当前模型提出工具调用并总结，应用侧按风险决定是否审批，执行结果写入 `AgentRun / AgentStep / RunEvent`。
+  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
 
 - 设置页
   - 一级入口为「模型提供方管理」。
@@ -38,7 +39,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 `POST /chat/completions`。
   - 支持 `POST /responses`。
   - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
-  - Provider、会话、消息和 Agent Run 使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
+  - Provider、会话、消息、Agent Run、笔记和长期记忆使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
   - API Key 使用 Android Keystore + AES-GCM 加密保存。
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
   - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
@@ -52,7 +53,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
    - `API Key`：服务需要鉴权时填写。
 3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
-5. 输入消息开始对话；输入 `/agent 整理今天的计划` 可运行本地 fake tool 的最小 Agent 链路。
+5. 输入消息开始对话；输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路。
 
 ## 本地 mock 调试
 

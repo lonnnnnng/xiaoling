@@ -193,6 +193,44 @@ class RoomAgentRunRepository(
             .filter { it.status == ApprovalRequestStatus.PENDING }
     }
 
+    suspend fun closeInterruptedRuns(): Int {
+        val dao = database.agentRunDao()
+        val activeStatuses = listOf(
+            AgentRunStatus.QUEUED,
+            AgentRunStatus.THINKING,
+            AgentRunStatus.WAITING_APPROVAL,
+            AgentRunStatus.EXECUTING,
+            AgentRunStatus.VERIFYING,
+        )
+        val interruptedRuns = dao.getRunsByStatuses(activeStatuses.map { it.name })
+        if (interruptedRuns.isEmpty()) return 0
+        val reason = "应用重启后终止上次未完成 Agent 任务"
+        interruptedRuns.forEach { run ->
+            // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
+            dao.getApprovalRequests(run.id)
+                .map { it.toRecord() }
+                .filter { it.status == ApprovalRequestStatus.PENDING }
+                .forEach { request ->
+                    decideApprovalRequest(
+                        requestId = request.id,
+                        status = ApprovalRequestStatus.CANCELLED,
+                        reason = reason,
+                    )
+                }
+            appendEvent(
+                run.id,
+                "run.recovered",
+                JSONObject()
+                    .put("fromStatus", run.status)
+                    .put("toStatus", AgentRunStatus.CANCELLED.name)
+                    .put("reason", reason)
+                    .toString(),
+            )
+            updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)
+        }
+        return interruptedRuns.size
+    }
+
     suspend fun recentRunDetails(limit: Int): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         // long: 任务中心只读 Room 里的审计数据，不从当前页面状态反推；这样历史 Run、审批和事件在应用重启后仍可追溯。

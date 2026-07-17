@@ -19,7 +19,9 @@ class OpenAiAgentLlm(
                         你是小灵的工具规划器。只能从应用提供的工具中选择一个工具。
                         你必须只返回 JSON，不要返回 Markdown，不要解释。
                         JSON 格式：
-                        {"tool":"工具名","arguments":{"goal":"用户目标"}}
+                        {"tool":"工具名","arguments":{"参数名":"参数值"}}
+                        arguments 只能包含所选工具定义中的参数。没有参数时返回空对象。
+                        只有当用户明确希望长期保存事实或偏好时，才选择 memory.remember。
                     """.trimIndent(),
                 ),
                 RequestMessage(
@@ -60,11 +62,12 @@ class OpenAiAgentLlm(
     }
 
     private fun ToolDefinition.toPromptLine(): String {
-        val requiredFields = inputSchema
-            .filter { it.required }
-            .joinToString(", ") { it.name }
-            .ifBlank { "无" }
-        return "- $name: $description; risk=${risk.name}; required_args=$requiredFields"
+        val fields = inputSchema
+            .joinToString(", ") { field ->
+                "${field.name}${if (field.required) "*" else ""}:${field.description}"
+            }
+            .ifBlank { "无参数" }
+        return "- $name: $description; risk=${risk.name}; args=$fields"
     }
 }
 

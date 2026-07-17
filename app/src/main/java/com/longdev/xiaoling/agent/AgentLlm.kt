@@ -15,7 +15,7 @@ class AutoApprovalGate : ApprovalGate {
         toolCall: ToolCall,
         definition: ToolDefinition,
     ): ApprovalDecision {
-        // long: fake tool 只用于验证运行时闭环，因此当前自动批准；真实工具接入前必须把这里替换成交互式审批卡片。
+        // long: 自动审批只用于单元测试和非 UI 场景；生产对话链路会注入交互式审批 gate，写入类工具必须由用户明确确认。
         return ApprovalDecision(
             approved = definition.risk != ToolRisk.DANGEROUS,
             reason = if (definition.risk == ToolRisk.DANGEROUS) {

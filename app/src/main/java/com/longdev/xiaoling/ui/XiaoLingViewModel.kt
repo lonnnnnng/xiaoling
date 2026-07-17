@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.agent.AgentCommand
-import com.longdev.xiaoling.agent.AgentDemoUseCase
+import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -206,7 +206,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val conversationStore = ConversationRepository(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
-    private val agentDemoUseCase = AgentDemoUseCase(application, client)
+    private val agentRunUseCase = AgentRunUseCase(application, client)
     private val agentRunRepository = RoomAgentRunRepository(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
@@ -222,6 +222,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                // long: 进程重建后不恢复已经丢失的协程和网络请求；先把上次遗留的中间态 Run 收敛成可审计终态，再加载会话，避免 UI 展示不可继续的假活跃任务。
+                agentRunRepository.closeInterruptedRuns()
+            }
             val storedProfiles = configStore.load()
             val storedConversations = conversationStore.load()
             // long: Room/Keystore 读取放在协程里执行，首屏先用安全的空白状态，避免应用启动阶段因为解密或数据库迁移阻塞主线程。
@@ -677,7 +681,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val userMessage = uiState.prompt.trim()
         if (AgentCommand.matches(userMessage)) {
             val config = validatedConfig() ?: return
-            sendAgentDemo(userMessage, config)
+            sendAgentRun(userMessage, config)
             return
         }
         val config = validatedConfig() ?: return
@@ -796,7 +800,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun sendAgentDemo(userMessage: String, config: ProviderRequestConfig) {
+    private fun sendAgentRun(userMessage: String, config: ProviderRequestConfig) {
         val conversationId = uiState.selectedConversationId.ifBlank { "conversation-${System.currentTimeMillis()}" }
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
@@ -823,7 +827,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             try {
                 val approvalGate = interactiveAgentApprovalGate(conversationId)
-                val summary = agentDemoUseCase.run(
+                val summary = agentRunUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,

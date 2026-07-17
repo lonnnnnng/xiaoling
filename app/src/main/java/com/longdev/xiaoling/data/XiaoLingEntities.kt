@@ -122,3 +122,36 @@ data class RunEventEntity(
     val message: String,
     val createdAt: Long,
 )
+
+@Entity(
+    tableName = "agent_memories",
+    indices = [Index(value = ["createdAt"])],
+)
+data class AgentMemoryEntity(
+    @PrimaryKey val id: String,
+    val content: String,
+    val tags: String,
+    val type: String,
+    val sourceConversationId: String?,
+    val sourceRunId: String?,
+    val sourceSummary: String,
+    val confidence: Double,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "agent_notes",
+    indices = [
+        Index(value = ["createdAt"]),
+        Index(value = ["updatedAt"]),
+    ],
+)
+data class AgentNoteEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val content: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)

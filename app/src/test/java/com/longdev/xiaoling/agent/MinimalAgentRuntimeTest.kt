@@ -15,14 +15,14 @@ import java.util.UUID
 
 class MinimalAgentRuntimeTest {
     @Test
-    fun runDemoCompletesWithAuditableSteps() = runTest {
+    fun runCompletesWithAuditableSteps() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             llm = FakeAgentLlm(),
         )
 
-        val summary = runtime.runDemo(
+        val summary = runtime.run(
             conversationId = "conversation-1",
             userMessageId = "message-1",
             goal = "整理今天的计划",
@@ -47,7 +47,7 @@ class MinimalAgentRuntimeTest {
             llm = FakeAgentLlm(),
         )
 
-        val summary = runtime.runDemo(
+        val summary = runtime.run(
             conversationId = "conversation-1",
             userMessageId = "message-1",
             goal = "包含引号\"和换行\n的任务",
@@ -100,7 +100,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "失败场景")
+            runtime.run("conversation-1", "message-1", "失败场景")
         } catch (error: IllegalStateException) {
             runId = ledger.lastRunId
         }
@@ -110,6 +110,59 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("工具执行失败"))
         assertTrue(snapshot.steps.any { it.status == AgentStepStatus.FAILED })
+    }
+
+    @Test
+    fun safeToolExecutesWithoutInteractiveApproval() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    val tool = tools.single()
+                    return ToolCall(
+                        name = tool.name,
+                        arguments = emptyMap(),
+                        risk = tool.risk,
+                    )
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
+                    return toolResult.content
+                }
+            },
+            toolRegistry = object : ToolRegistry {
+                private val tool = ToolDefinition(
+                    name = "app.current_time",
+                    description = "读取当前时间",
+                    risk = ToolRisk.SAFE,
+                )
+
+                override fun availableTools(): List<ToolDefinition> = listOf(tool)
+
+                override fun definition(name: String): ToolDefinition? = tool.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    return ToolExecutionResult(success = true, content = "当前时间：2026-07-17 08:30:45")
+                }
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    error("SAFE 工具不应请求交互审批")
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "查看应用信息")
+
+        val snapshot = ledger.snapshot(summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertTrue(snapshot.steps.none { it.type == "approval" })
+        assertTrue(snapshot.events.any { it.type == "approval.skipped" && it.message.contains("SAFE") })
     }
 
     @Test
@@ -131,7 +184,7 @@ class MinimalAgentRuntimeTest {
         )
 
         val job = launch {
-            runtime.runDemo(
+            runtime.run(
                 conversationId = "conversation-1",
                 userMessageId = "message-1",
                 goal = "取消场景",
@@ -170,7 +223,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "拒绝审批")
+            runtime.run("conversation-1", "message-1", "拒绝审批")
         } catch (error: IllegalStateException) {
             runId = ledger.lastRunId
         }
@@ -205,7 +258,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "参数缺失")
+            runtime.run("conversation-1", "message-1", "参数缺失")
         } catch (error: IllegalArgumentException) {
             runId = ledger.lastRunId
         }
@@ -227,7 +280,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "预算耗尽")
+            runtime.run("conversation-1", "message-1", "预算耗尽")
         } catch (error: AgentBudgetExceededException) {
             runId = ledger.lastRunId
         }
@@ -263,7 +316,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "规划超时")
+            runtime.run("conversation-1", "message-1", "规划超时")
         } catch (error: AgentTimeoutException) {
             runId = ledger.lastRunId
         }
@@ -302,7 +355,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "整次超时")
+            runtime.run("conversation-1", "message-1", "整次超时")
         } catch (error: AgentTimeoutException) {
             runId = ledger.lastRunId
         }
@@ -341,7 +394,7 @@ class MinimalAgentRuntimeTest {
 
         var runId: String? = null
         try {
-            runtime.runDemo("conversation-1", "message-1", "工具超时")
+            runtime.run("conversation-1", "message-1", "工具超时")
         } catch (error: AgentTimeoutException) {
             runId = ledger.lastRunId
         }

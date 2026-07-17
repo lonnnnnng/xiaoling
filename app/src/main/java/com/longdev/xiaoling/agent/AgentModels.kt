@@ -129,7 +129,78 @@ enum class ToolRisk {
 data class ToolExecutionResult(
     val success: Boolean,
     val content: String,
+    val verified: Boolean? = null,
 )
+
+interface AgentClock {
+    fun nowMillis(): Long
+    fun formattedNow(): String
+    fun zoneId(): String
+}
+
+data class AgentMemoryRecord(
+    val id: String,
+    val content: String,
+    val tags: String,
+    val type: String,
+    val sourceConversationId: String?,
+    val sourceRunId: String?,
+    val sourceSummary: String,
+    val confidence: Double,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class AgentMemorySource(
+    val conversationId: String?,
+    val runId: String?,
+    val summary: String,
+)
+
+interface AgentMemoryStore {
+    suspend fun remember(content: String, tags: String, type: String, source: AgentMemorySource, confidence: Double): AgentMemoryRecord
+    suspend fun search(query: String, limit: Int, enabledOnly: Boolean = true): List<AgentMemoryRecord>
+}
+
+data class AgentConversationRecord(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val messageCount: Int,
+    val updatedAt: Long,
+)
+
+interface AgentConversationStore {
+    suspend fun list(limit: Int): List<AgentConversationRecord>
+    suspend fun search(query: String, limit: Int): List<AgentConversationRecord>
+}
+
+data class AgentNoteRecord(
+    val id: String,
+    val title: String,
+    val content: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+interface AgentNoteStore {
+    suspend fun list(limit: Int): List<AgentNoteRecord>
+    suspend fun search(query: String, limit: Int): List<AgentNoteRecord>
+    suspend fun create(title: String, content: String): AgentNoteRecord
+    suspend fun get(id: String): AgentNoteRecord?
+}
+
+data class AgentToolExecutionContext(
+    val conversationId: String,
+    val userMessageId: String,
+    val runId: String,
+    val goal: String,
+)
+
+interface AgentRunContextAwareToolRegistry {
+    fun bindRunContext(context: AgentToolExecutionContext)
+}
 
 data class ApprovalDecision(
     val approved: Boolean,
