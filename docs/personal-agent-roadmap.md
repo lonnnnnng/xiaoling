@@ -29,11 +29,11 @@
 - `AgentRun / AgentStep / ApprovalRequest / RunEvent` 初始数据模型，以及 `/agent` 模型规划 + fake tool 演示链路。
 - 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、必填参数校验、重复工具调用检测和结构化事件记录。
 - 对话区已能显示当前 `/agent` Run 的最小时间线和审批卡片，批准后继续执行，拒绝后写入失败终态；审批请求已具备有效期和决定结果落库。
-- 设置页已有最小 Agent 运行记录入口，可查看最近 Run、步骤、审批请求和事件。
+- 设置页已有最小 Agent 运行记录入口，可查看最近 Run、步骤、审批请求和结构化事件。
 
 ### 主要缺口
 
-- 还没有真实 LLM tool call、完整任务中心、进程重建后的运行恢复、失败重试和可展开工具结果。
+- 还没有真实 LLM tool call、完整任务中心、进程重建后的运行恢复、失败重试和完整工具结果视图。
 - 还没有真实 Tool Registry、完整 JSON Schema、权限策略和可插拔后置验证策略。
 - 没有独立长期记忆，当前摘要只服务单个会话上下文。
 - 没有 Skill、Workflow、后台调度和执行日志。
@@ -143,7 +143,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 工具参数先做 JSON Schema 和业务校验，再进入 Executor。当前先支持必填参数校验，完整类型和业务校验仍待补齐。
 - 风险和确认要求取自 `ToolDefinition`，忽略模型自己声明的风险级别。
 - Run 可取消；取消后不再接受迟到的流式事件或工具结果。
-- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。当前已在对话流里显示最小时间线，并在设置页提供只读运行记录；后续需要升级为可操作任务视图。
+- 所有状态变化写入 `RunEvent`，UI 显示简洁任务时间线。当前已在对话流里显示最小时间线，并在设置页提供只读运行记录和结构化事件展示；后续需要升级为可操作任务视图。
 
 ### 第一批工具
 
@@ -332,7 +332,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. 继续补 Room migration 测试和数据库导出/备份。
 2. 抽出 `LlmProviderAdapter` 和现有 OpenAI-compatible 实现。
-3. 将当前只读 Agent 运行记录升级为完整任务中心，支持工具结果展开、失败重试和恢复。
+3. 将当前只读 Agent 运行记录升级为完整任务中心，支持完整工具结果视图、失败重试和恢复。
 4. 把 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
 5. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
 

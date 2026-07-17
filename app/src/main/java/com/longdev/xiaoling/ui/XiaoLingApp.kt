@@ -1857,7 +1857,10 @@ private fun ApprovalRequestRecordRow(approval: ApprovalRequestRecord) {
 
 @Composable
 private fun AgentRunEventRow(event: RunEventRecord) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    val presentation = remember(event.type, event.message) {
+        presentAgentRunEvent(event.type, event.message)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1877,9 +1880,42 @@ private fun AgentRunEventRow(event: RunEventRecord) {
             )
         }
         Text(
-            text = event.message,
+            text = presentation.summary,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+        )
+        presentation.fields.forEach { field ->
+            AgentRunEventFieldRow(field)
+        }
+        presentation.rawFallback?.takeIf { it.isNotBlank() }?.let { raw ->
+            Text(
+                text = raw,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentRunEventFieldRow(field: AgentRunEventField) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = field.label,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(42.dp),
+        )
+        Text(
+            text = field.value,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
     }
 }
