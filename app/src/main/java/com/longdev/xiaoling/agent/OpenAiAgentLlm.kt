@@ -8,6 +8,7 @@ import org.json.JSONObject
 class OpenAiAgentLlm(
     private val client: OpenAiCompatibleClient,
     private val config: ProviderRequestConfig,
+    private val summarySystemPrompt: String,
 ) : AgentLlm {
     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
         val response = client.sendMessage(
@@ -44,7 +45,7 @@ class OpenAiAgentLlm(
             messages = listOf(
                 RequestMessage(
                     role = "system",
-                    content = "你是小灵的 Agent 总结器。根据工具执行结果，用中文简洁说明任务是否完成、调用了什么工具、结果是什么。",
+                    content = summarySystemPrompt,
                 ),
                 RequestMessage(
                     role = "user",

@@ -54,8 +54,11 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -71,6 +74,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,6 +91,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -115,6 +120,7 @@ import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
+import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
 import com.journeyapps.barcodescanner.ScanContract
@@ -232,6 +238,7 @@ private fun XiaoLingContent(
                         viewModel = viewModel,
                         pane = settingsPane,
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
+                        onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
                         onOpenAgentRunHistory = {
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
@@ -255,6 +262,7 @@ private fun XiaoLingContent(
 private enum class SettingsPane {
     ROOT,
     PROVIDER_MANAGEMENT,
+    PROMPT_SETTINGS,
     AGENT_RUN_HISTORY,
 }
 
@@ -1414,6 +1422,7 @@ private fun SettingsPage(
     viewModel: XiaoLingViewModel,
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
+    onOpenPromptSettings: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1439,6 +1448,12 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.PROMPT_SETTINGS -> PromptSettingsPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentRunHistoryPage(
                 state = state,
                 viewModel = viewModel,
@@ -1449,6 +1464,7 @@ private fun SettingsPage(
                 state = state,
                 onThemeModeChanged = viewModel::updateThemeMode,
                 onOpenProviderManagement = onOpenProviderManagement,
+                onOpenPromptSettings = onOpenPromptSettings,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
                 modifier = Modifier.matchParentSize(),
             )
@@ -1461,6 +1477,7 @@ private fun SettingsRootPage(
     state: XiaoLingUiState,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onOpenProviderManagement: () -> Unit,
+    onOpenPromptSettings: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1493,6 +1510,13 @@ private fun SettingsRootPage(
         )
 
         SettingsEntryCard(
+            title = "提示词设置",
+            subtitle = "普通对话 · 会话摘要 / 记忆 · Agent 回复总结",
+            icon = Icons.Default.Tune,
+            onClick = onOpenPromptSettings,
+        )
+
+        SettingsEntryCard(
             title = "Agent 运行记录",
             subtitle = if (state.agentRunHistory.isEmpty()) {
                 "查看最近 Agent Run 的步骤、审批和事件"
@@ -1508,6 +1532,7 @@ private fun SettingsRootPage(
 private fun SettingsEntryCard(
     title: String,
     subtitle: String,
+    icon: ImageVector = Icons.Default.Memory,
     onClick: () -> Unit,
 ) {
     Card(
@@ -1528,7 +1553,7 @@ private fun SettingsEntryCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(
-                Icons.Default.Memory,
+                icon,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -1543,6 +1568,173 @@ private fun SettingsEntryCard(
                 )
             }
             Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+private enum class PromptPreviewSection {
+    CHAT,
+    SUMMARY,
+    AGENT_SUMMARY,
+}
+
+@Composable
+private fun PromptSettingsPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var previewSection by remember { mutableStateOf<PromptPreviewSection?>(null) }
+    val settings = state.promptSettings
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+            }
+            PageTitle("提示词设置")
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = PaddingValues(bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                PromptEditorSection(
+                    title = "普通对话",
+                    enabled = settings.chatPromptEnabled,
+                    prompt = settings.chatPrompt,
+                    preview = PromptPolicy.chatSystemPrompt(settings),
+                    previewVisible = previewSection == PromptPreviewSection.CHAT,
+                    onEnabledChanged = viewModel::updateChatPromptEnabled,
+                    onPromptChanged = viewModel::updateChatPrompt,
+                    onRestore = viewModel::restoreChatPrompt,
+                    onTogglePreview = {
+                        previewSection = if (previewSection == PromptPreviewSection.CHAT) null else PromptPreviewSection.CHAT
+                    },
+                )
+            }
+            item {
+                PromptEditorSection(
+                    title = "会话摘要 / 记忆",
+                    enabled = settings.summaryPromptEnabled,
+                    prompt = settings.summaryPrompt,
+                    preview = PromptPolicy.summarySystemPrompt(settings),
+                    previewVisible = previewSection == PromptPreviewSection.SUMMARY,
+                    onEnabledChanged = viewModel::updateSummaryPromptEnabled,
+                    onPromptChanged = viewModel::updateSummaryPrompt,
+                    onRestore = viewModel::restoreSummaryPrompt,
+                    onTogglePreview = {
+                        previewSection = if (previewSection == PromptPreviewSection.SUMMARY) null else PromptPreviewSection.SUMMARY
+                    },
+                )
+            }
+            item {
+                PromptEditorSection(
+                    title = "Agent 回复总结",
+                    enabled = settings.agentSummaryPromptEnabled,
+                    prompt = settings.agentSummaryPrompt,
+                    preview = PromptPolicy.agentSummarySystemPrompt(settings),
+                    previewVisible = previewSection == PromptPreviewSection.AGENT_SUMMARY,
+                    onEnabledChanged = viewModel::updateAgentSummaryPromptEnabled,
+                    onPromptChanged = viewModel::updateAgentSummaryPrompt,
+                    onRestore = viewModel::restoreAgentSummaryPrompt,
+                    onTogglePreview = {
+                        previewSection = if (previewSection == PromptPreviewSection.AGENT_SUMMARY) null else PromptPreviewSection.AGENT_SUMMARY
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PromptEditorSection(
+    title: String,
+    enabled: Boolean,
+    prompt: String,
+    preview: String,
+    previewVisible: Boolean,
+    onEnabledChanged: (Boolean) -> Unit,
+    onPromptChanged: (String) -> Unit,
+    onRestore: () -> Unit,
+    onTogglePreview: () -> Unit,
+) {
+    CompactSection(
+        title = title,
+        action = {
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChanged,
+            )
+        },
+    ) {
+        CompactTextField(
+            value = prompt,
+            onValueChange = onPromptChanged,
+            label = "自定义模板",
+            minLines = 4,
+        )
+        Spacer(Modifier.height(7.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            OutlinedButton(
+                onClick = onRestore,
+                shape = RoundedCornerShape(7.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(34.dp),
+            ) {
+                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("恢复默认", style = MaterialTheme.typography.labelSmall)
+            }
+            OutlinedButton(
+                onClick = onTogglePreview,
+                shape = RoundedCornerShape(7.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(34.dp),
+            ) {
+                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (previewVisible) "收起预览" else "最终提示词", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (previewVisible) {
+            Spacer(Modifier.height(7.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                    .padding(8.dp),
+            ) {
+                Text(
+                    text = preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

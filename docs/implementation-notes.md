@@ -22,6 +22,7 @@
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、Conversation、Message、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 表。 |
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Repository seam、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
 | Agent | `app/src/main/java/com/longdev/xiaoling/agent/` | 最小 Agent Runtime、Run Ledger interface、真实低风险 Tool Registry、交互式审批 gate 和可审计运行链路。 |
+| Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
 
 ## 当前架构边界
@@ -84,9 +85,21 @@
 ## 会话上下文
 
 - 当前会话内的用户消息和模型回复会作为上下文参与下一轮请求。
+- 普通对话每次固定注入不可覆盖 system 边界；历史 assistant 回复会标记为普通对话文本，不能作为工具或长期记忆已经执行的证据。
 - 会话数量和消息内容保存在本地。
 - 当历史消息超过最近窗口时，较早内容会压缩成摘要，并作为 system 上下文放入后续请求。
+- 摘要 system prompt 可以追加用户模板，但禁止把普通 assistant 的工具声称写成已确认事实。
 - 摘要失败时使用本地兜底摘要，保证主对话链路不中断。
+
+## 提示词设置
+
+设置页二级入口「提示词设置」提供三类设备级模板：
+
+- 普通对话：控制日常回答风格；工具执行和长期记忆声称边界由应用固定追加。
+- 会话摘要 / 记忆：控制长会话压缩侧重点；事实来源边界由应用固定追加。
+- Agent 回复总结：控制工具执行后的汇报风格；只能陈述本次真实工具调用与结果。
+
+三类模板均支持独立开关、即时保存、恢复默认和最终 system prompt 预览。Agent 工具规划、工具风险、审批和安全策略仍由应用内部控制，不向用户开放覆盖。
 
 ## Provider 管理
 
@@ -103,7 +116,7 @@
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 保存在 Room 数据库 `xiaoling.db`。
 - AgentMemory 当前保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用状态和时间戳；记忆管理 UI、FTS 和撤销入口仍在后续里程碑。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
-- UI 偏好保存在 `xiaoling_ui` SharedPreferences。
+- 主题与三类提示词偏好保存在 `xiaoling_ui` SharedPreferences。
 - API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
 
 ## 日志

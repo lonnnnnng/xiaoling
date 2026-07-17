@@ -27,6 +27,9 @@ import com.longdev.xiaoling.network.FailureKind
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.RequestMessage
 import com.longdev.xiaoling.network.StreamDeltaUpdate
+import com.longdev.xiaoling.prompt.PromptDefaults
+import com.longdev.xiaoling.prompt.PromptPolicy
+import com.longdev.xiaoling.prompt.PromptSettings
 import com.longdev.xiaoling.storage.ConversationRepository
 import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.SecureConfigStore
@@ -62,6 +65,7 @@ private fun ToolRisk.toUiLabel(): String {
 
 data class XiaoLingUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val promptSettings: PromptSettings = PromptSettings(),
     val profiles: List<ProviderProfile> = emptyList(),
     val selectedProfileId: String = "",
     val profileName: String = "",
@@ -216,7 +220,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
 
-    var uiState by mutableStateOf(initialUiState(uiPreferenceStore.loadThemeMode()))
+    var uiState by mutableStateOf(
+        initialUiState(
+            themeMode = uiPreferenceStore.loadThemeMode(),
+            promptSettings = uiPreferenceStore.loadPromptSettings(),
+        ),
+    )
         private set
 
     init {
@@ -231,7 +240,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             uiState = storedProfiles
                 .toUiState()
                 .withConversations(storedConversations)
-                .copy(themeMode = uiState.themeMode, result = uiState.result)
+                .copy(
+                    themeMode = uiState.themeMode,
+                    promptSettings = uiState.promptSettings,
+                    result = uiState.result,
+                )
         }
     }
 
@@ -310,6 +323,42 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         // long: 主题切换是即时视觉偏好，选择后立即保存，避免用户夜间重开应用又回到刺眼亮色。
         uiState = uiState.copy(themeMode = value, result = null)
         uiPreferenceStore.saveThemeMode(value)
+    }
+
+    fun updateChatPromptEnabled(value: Boolean) = updatePromptSettings {
+        copy(chatPromptEnabled = value)
+    }
+
+    fun updateChatPrompt(value: String) = updatePromptSettings {
+        copy(chatPrompt = value)
+    }
+
+    fun restoreChatPrompt() = updatePromptSettings {
+        copy(chatPrompt = PromptDefaults.CHAT)
+    }
+
+    fun updateSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
+        copy(summaryPromptEnabled = value)
+    }
+
+    fun updateSummaryPrompt(value: String) = updatePromptSettings {
+        copy(summaryPrompt = value)
+    }
+
+    fun restoreSummaryPrompt() = updatePromptSettings {
+        copy(summaryPrompt = PromptDefaults.SUMMARY)
+    }
+
+    fun updateAgentSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
+        copy(agentSummaryPromptEnabled = value)
+    }
+
+    fun updateAgentSummaryPrompt(value: String) = updatePromptSettings {
+        copy(agentSummaryPrompt = value)
+    }
+
+    fun restoreAgentSummaryPrompt() = updatePromptSettings {
+        copy(agentSummaryPrompt = PromptDefaults.AGENT_SUMMARY)
     }
 
     fun stopGenerating() {
@@ -831,6 +880,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     userMessageId = userChatMessage.id,
                     goal = goal,
                     config = config,
+                    summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                     approvalGate = approvalGate,
                     onSnapshot = ::publishAgentRunSnapshot,
                 )
@@ -1065,6 +1115,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private inline fun updatePromptSettings(block: PromptSettings.() -> PromptSettings) {
+        val settings = uiState.promptSettings.block()
+        uiState = uiState.copy(promptSettings = settings, result = null)
+        uiPreferenceStore.savePromptSettings(settings)
+    }
+
     private fun XiaoLingUiState.withUpdatedCurrentConversation(
         messages: List<ChatMessage>,
         summary: String,
@@ -1193,7 +1249,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         messages: List<ChatMessage>,
         summary: String,
     ): List<RequestMessage> {
-        val requestMessages = mutableListOf<RequestMessage>()
+        val requestMessages = mutableListOf(
+            RequestMessage(
+                role = "system",
+                content = PromptPolicy.chatSystemPrompt(uiState.promptSettings),
+            ),
+        )
         if (summary.isNotBlank()) {
             // long: 摘要作为 system 上下文放在最前面，让模型能参考早期信息，同时避免把全部历史反复塞进请求。
             requestMessages += RequestMessage(
@@ -1210,7 +1271,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             .forEach { message ->
                 requestMessages += RequestMessage(
                     role = message.role,
-                    content = message.text,
+                    content = if (message.role == "assistant") {
+                        // long: 普通 assistant 历史只用于语言上下文，显式降级其证据身份，避免模型把旧回复中的工具幻觉当成本轮已执行事实。
+                        PromptPolicy.ordinaryAssistantHistory(message.text)
+                    } else {
+                        message.text
+                    },
                 )
             }
         return requestMessages
@@ -1238,14 +1304,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (messagesToCompress.isEmpty()) return existingSummary
         val transcript = messagesToCompress.toSummaryTranscript()
         val prompt = buildString {
-            appendLine("你是对话上下文压缩器。请把已有摘要和新增对话合并成一份稳定摘要，用于后续继续对话。")
-            appendLine()
-            appendLine("输出要求：")
-            appendLine("- 保留用户明确提到的偏好、目标、约束、已经确认的事实和未解决问题。")
-            appendLine("- 删除寒暄、重复表达和无业务价值的细节。")
-            appendLine("- 不要编造新增事实。")
-            appendLine("- 用中文输出，控制在 $SUMMARY_TARGET_CHARS 字以内。")
-            appendLine()
             appendLine("已有摘要：")
             appendLine(existingSummary.ifBlank { "无" })
             appendLine()
@@ -1258,7 +1316,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             messages = listOf(
                 RequestMessage(
                     role = "system",
-                    content = "你只负责压缩对话上下文，输出可被下一轮模型直接参考的摘要。",
+                    content = PromptPolicy.summarySystemPrompt(uiState.promptSettings),
                 ),
                 RequestMessage(role = "user", content = prompt),
             ),
@@ -1283,7 +1341,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun List<ChatMessage>.toSummaryTranscript(): String {
         return joinToString("\n") { message ->
-            val label = if (message.role == "assistant") "assistant" else "user"
+            val label = if (message.role == "assistant") {
+                "assistant（普通对话回复，不代表工具或记忆操作已经执行）"
+            } else {
+                "user"
+            }
             "$label: ${message.text.trim()}"
         }
     }
@@ -1527,7 +1589,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         result = result,
     )
 
-    private fun initialUiState(themeMode: AppThemeMode): XiaoLingUiState {
+    private fun initialUiState(themeMode: AppThemeMode, promptSettings: PromptSettings): XiaoLingUiState {
         val profile = ProviderProfile.blank()
         val now = System.currentTimeMillis()
         val conversation = StoredConversation(
@@ -1552,7 +1614,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     selectedConversationId = conversation.id,
                 ),
             )
-            .copy(themeMode = themeMode)
+            .copy(themeMode = themeMode, promptSettings = promptSettings)
     }
 
     private fun com.longdev.xiaoling.storage.StoredProfiles.toUiState(): XiaoLingUiState {
@@ -1685,7 +1747,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 16
         private const val SUMMARY_MAX_CHARS = 4_000
-        private const val SUMMARY_TARGET_CHARS = 1_200
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50
     }

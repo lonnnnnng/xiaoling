@@ -25,6 +25,7 @@ class AgentRunUseCase(
         userMessageId: String,
         goal: String,
         config: ProviderRequestConfig,
+        summarySystemPrompt: String,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -35,7 +36,7 @@ class AgentRunUseCase(
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = toolRegistry,
-            llm = OpenAiAgentLlm(client, config),
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt),
             approvalGate = approvalGate,
         )
         return runtime.run(

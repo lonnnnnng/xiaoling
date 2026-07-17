@@ -28,6 +28,8 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
 - 设置页
   - 一级入口为「模型提供方管理」。
+  - 提供「提示词设置」二级页，可分别配置普通对话、会话摘要 / 记忆和 Agent 回复总结模板。
+  - 每类模板支持独立启用、恢复默认和预览最终提示词；普通对话的工具边界、摘要事实边界和 Agent 审计边界不可被自定义模板覆盖。
   - 支持新增、编辑、删除模型提供方。
   - 支持 `Base URL`、`API Key` 和名称配置。
   - 支持扫码导入、剪切板解析和 Base64 解码辅助。
@@ -43,6 +45,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - API Key 使用 Android Keystore + AES-GCM 加密保存。
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
   - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
+  - 普通对话不具备工具执行能力，不得声称已经调用工具、操作设备、创建笔记或保存长期记忆；真实工具事实只来自可审计 Agent Run。
 
 ## 使用方式
 

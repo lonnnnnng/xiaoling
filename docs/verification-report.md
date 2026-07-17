@@ -97,6 +97,26 @@ com.longdev.xiaoling/com.longdev.xiaoling.MainActivity
 
 启动期间 logcat 未命中应用崩溃、`FATAL EXCEPTION`、`AndroidRuntime` 或 ANR。
 
+## 提示词设置增量验证
+
+执行命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:installDebug --console=plain
+adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
+```
+
+已验证：
+
+- 提示词策略单元测试通过，覆盖普通对话、会话摘要和 Agent 总结的不可覆盖边界。
+- debug 源集编译、APK 构建和真机覆盖安装成功。
+- 应用进程存活，任务栈包含 `com.longdev.xiaoling/.MainActivity`，crash buffer 为空。
+
+未完成验证：
+
+- 真机停留在 keyguard，`uiautomator` 只能读取锁屏节点；未尝试输入用户凭据，因此提示词设置页的点击、预览和重启持久化流程尚未完成可视验证。
+
 ## 产物
 
 | 文件 | 说明 |
