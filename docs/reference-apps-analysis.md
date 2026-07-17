@@ -298,7 +298,7 @@
 
 ## 5. 对小灵当前状态的判断
 
-小灵现在已经具备可靠聊天底座：
+截至 `v0.1.9`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
 - Chat Completions / Responses API。
@@ -306,30 +306,37 @@
 - 多轮会话、本地保存和摘要压缩。
 - Markdown、错误分类、结构化消息元数据。
 - API Key 使用 Android Keystore + AES-GCM。
+- `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
+- 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
+- 对话 Run 时间线、审批卡片和设置页只读运行记录。
+- `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 
 现有关键实现位于：
 
 - `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt`
 - `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt`
-- `app/src/main/java/com/longdev/xiaoling/storage/ConversationStore.kt`
+- `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
+- `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`
+- `app/src/main/java/com/longdev/xiaoling/storage/RoomAgentRunRepository.kt`
+- `app/src/main/java/com/longdev/xiaoling/prompt/PromptPolicy.kt`
 - `app/src/main/java/com/longdev/xiaoling/storage/SecureConfigStore.kt`
 
-但它仍然缺少个人 Agent 的关键闭环：
+最小闭环已经落地，但距离完整个人 Agent 仍有以下缺口：
 
 | 缺口 | 当前影响 |
 |---|---|
 | 没有 AgentProfile | Provider/模型与“这个 Agent 是谁、能做什么”混在一起 |
-| 没有统一 Tool 接口 | 模型只能返回文字，不能安全地产生真实效果 |
-| 没有 AgentRun/Step | 无法可靠展示、恢复、取消或审计多步骤任务 |
-| 没有风险与审批模型 | 一旦加入工具，很容易从“不能行动”直接跨到“权限过大” |
-| 没有执行后验证 | 工具成功返回不等于用户目标真的完成 |
-| 长期记忆边界不足 | 会话摘要不是可管理、可追溯、可删除的个人记忆 |
+| Runtime 当前只执行单次工具调用 | 还不能完成真正的 2-3 步工具循环或根据上一步结果继续选择工具 |
+| Tool Schema 只覆盖必填字符串参数 | 缺少完整类型、业务校验、Android 权限和可插拔验证器 |
+| ToolCall/ToolResult 主要保存在 RunEvent JSON | 完整结构化查询、重放和恢复仍不方便 |
+| 运行记录是只读审计视图 | 进程重建后只能收敛中间态，不能继续执行或失败重试 |
+| 长期记忆只有基础表和工具 | 缺少管理 UI、FTS、撤销、去重和实际引用审计 |
 | 没有后台任务账本 | 定时/长任务无法断点恢复，也无法聚合失败与待确认 |
-| SharedPreferences 继续扩展会吃力 | 多表查询、运行历史、工具步骤和任务状态应迁移到 Room |
+| 消息仍以单一文本为主 | Tool/Reasoning/Image 等 parts 和 Responses API 结构化历史仍待实现 |
 
 ## 6. 建议目标架构
 
-保持 Kotlin + Compose + OkHttp，不新增 Rust/Python/Flutter。新增 `agent/model`、`agent/runtime`、`agent/tools`、`agent/approval`、`agent/verification`、`agent/memory`、`agent/task` 和 `data/db`；继续复用现有 network 与 Keystore。
+保持 Kotlin + Compose + OkHttp，不新增 Rust/Python/Flutter。当前已形成 `agent`、`data`、`storage` 和 `prompt` 最小边界；后续继续细分 domain/runtime/tools/approval/verification/memory/task，并复用现有 network 与 Keystore。
 
 最小状态机为：`QUEUED -> THINKING -> WAITING_APPROVAL -> EXECUTING -> VERIFYING -> THINKING/COMPLETED`，并允许进入 `FAILED/CANCELLED/BUDGET_EXHAUSTED`。
 
@@ -348,6 +355,8 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
+当前状态：Room 基础迁移、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试和运行 UI 已完成；独立 ToolCall/ToolResult 结构、消息 parts、AgentProfile、完整 Schema、权限策略、恢复和重试仍待完成。
+
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
@@ -357,14 +366,15 @@
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |
 | 可观测运行 UI | 展示当前步骤、工具名、参数摘要、结果摘要、耗时和停止按钮 | 用户能区分“模型正在想”和“工具正在做” |
 
-首批工具只建议做：
+首批应用内工具现已完成：
 
-- `time.now`：当前时间/时区。
-- `app.info`：小灵版本与运行环境。
-- `conversation.search`：只读检索本地会话。
+- `app.current_time`：当前时间/时区。
+- `app.list_conversations` / `app.search_conversations`：只读列出和检索本地会话。
+- `notes.list` / `notes.search` / `notes.create`：本机笔记读取与确认后写入、回读验证。
 - `memory.search`：只读检索已授权记忆。
-- `web.fetch`：带域名/大小/重定向/超时限制的网页读取。
-- `ask_user`：缺少信息或需要用户选择时暂停任务。
+- `memory.remember`：确认后写入带来源的长期记忆。
+
+仍待评估的后续工具包括受限 `web.fetch`、显式 `ask_user` 和应用信息读取。
 
 ### P1：个人化、记忆和移动入口
 

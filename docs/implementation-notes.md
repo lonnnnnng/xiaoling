@@ -11,6 +11,8 @@
 
 包名：`com.longdev.xiaoling`
 
+当前发布版本：`v0.1.9`（`versionCode 10`）
+
 ## 模块职责
 
 | 模块 | 关键文件 | 职责 |
@@ -30,11 +32,11 @@
 当前工程仍是单一 Android `app` 模块，业务状态和主要流程集中在 `XiaoLingViewModel`：
 
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
-- `OpenAiCompatibleClient` 直接承担模型列表、两种生成接口、SSE 和日志，没有独立 Provider Adapter 或 Agent Engine。
+- `OpenAiCompatibleClient` 仍直接承担模型列表、两种生成接口、SSE 和日志，尚未抽出独立 Provider Adapter；Agent 路径已通过 `AgentLlm / MinimalAgentRuntime / ToolRegistry` 与普通聊天分流，但仍复用该网络客户端。
 - Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页已有最小 Agent 运行记录入口，可以查看历史 Run、步骤、审批和事件，但还没有完整任务中心、运行恢复和后台任务入口。
 
-因此，后续 Agent 功能不能继续堆进 `sendMessage()`。应先建立 domain、data、runtime 和 tool 边界，再逐步迁移现有聊天链路。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
 
 ## 对话请求
 
@@ -52,9 +54,9 @@
 
 ## 最小 Agent 链路
 
-当前提供一个最小 Agent 验证入口：在对话框输入 `/agent <目标>`。
+当前提供一个最小 Agent 执行入口：在对话框输入 `/agent <目标>`。
 
-这条链路使用当前选中的模型做工具规划和最终总结，使用 `XiaoLingToolRegistry` 执行应用内低风险工具：
+这条链路使用当前选中的模型做工具规划和受限回复样式选择，使用 `XiaoLingToolRegistry` 执行应用内低风险工具，最终事实由 Runtime 根据真实工具记录渲染：
 
 1. 创建 `AgentRun`，状态从 `QUEUED` 进入 `THINKING`。
 2. 请求当前模型只返回工具调用 JSON，应用侧只接受已注册工具。

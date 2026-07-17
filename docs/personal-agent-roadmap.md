@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵当前已经具备可靠的模型接入和多会话底座，但还不是可执行任务的个人 Agent。下一阶段最重要的不是立即增加大量手机工具，而是建立一套可取消、可确认、可验证、可恢复的 Agent Runtime，并把数据从聊天消息模型升级为 Run、Step、Tool Call、Approval 和 Memory 等明确实体。
+小灵在 `v0.1.9` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory。下一阶段重点不是立即增加大量手机工具，而是补齐任务恢复、失败重试、完整 Schema/权限策略、记忆管理和后台任务能力。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -35,9 +35,9 @@
 ### 主要缺口
 
 - 还没有完整任务中心、进程重建后的继续执行恢复、失败重试和完整工具结果视图。
-- 还没有真实 Tool Registry、完整 JSON Schema、权限策略和可插拔后置验证策略。
-- 已有第一批应用内 Tool Registry 和结构化长期记忆表，但权限策略、记忆管理 UI、FTS 检索和记忆撤销还没有完成。
-- 没有 Skill、Workflow、后台调度和执行日志。
+- 已有第一批真实 Tool Registry、风险分级和写入后验证，但 Schema 仍只覆盖必填字符串参数，Android 权限策略和可插拔业务验证器还没有完成。
+- 已有结构化长期记忆表以及 `memory.search / memory.remember`，但记忆管理 UI、FTS 检索、撤销、去重和引用审计还没有完成。
+- 没有 Skill、Workflow、后台调度和跨任务执行日志聚合；当前 `RunEvent` 只覆盖单次 Agent Run 审计。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
 
@@ -91,19 +91,21 @@ com.longdev.xiaoling.ui.agent
 
 不必立刻拆成多个 Gradle Module，但代码依赖方向必须先固定，避免 UI、网络、存储和工具互相直接调用。
 
-## 里程碑 0：稳定现有聊天底座
+## 里程碑 0：稳定现有聊天底座（部分完成）
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
+当前状态：请求取消、停止生成、Room 迁移和 Repository 已完成；Responses API 结构化历史、Provider Adapter、数据库导出/备份和 ViewModel 继续瘦身仍待完成。
+
 ### 要做什么
 
-- 给当前请求增加明确的取消能力和“停止生成”按钮。
-- Responses API 改为结构化消息输入，保留 system/user/assistant 边界。
-- 抽出 `LlmProviderAdapter`，先实现现有 OpenAI-compatible Adapter。
-- 抽出 `ChatRepository`、`ProviderRepository` 和 `ConversationRepository`。
-- 引入 Room，并为现有 Provider、Conversation、Message 数据编写一次性迁移。
-- 增加数据库导出/备份，迁移失败时保留原 SharedPreferences 数据。
-- 把 1196 行 ViewModel 中的存储、上下文和网络逻辑迁出，ViewModel 只负责 UI 状态编排。
+- 已完成：给当前请求增加明确的取消能力和“停止生成”按钮。
+- 待完成：Responses API 改为结构化消息输入，保留 system/user/assistant 边界。
+- 待完成：抽出 `LlmProviderAdapter`，先实现现有 OpenAI-compatible Adapter。
+- 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
+- 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
+- 待完成：增加数据库导出/备份和正式 Room migration 测试。
+- 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
 ### 验收标准
 
@@ -112,9 +114,11 @@ com.longdev.xiaoling.ui.agent
 - Chat Completions 与 Responses API 回归测试通过。
 - 进程重建后可以正确恢复会话，但不会把未完成请求当成功。
 
-## 里程碑 1：最小可用 Agent Runtime
+## 里程碑 1：最小可用 Agent Runtime（最小闭环已交付）
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
+
+当前状态：`/agent` 单工具闭环、运行预算、超时、取消、审批、后置验证、Run 时间线、只读运行记录和第一批应用内工具已完成；完整 ToolCall 持久化、复杂 Schema、恢复和失败重试仍待完成。
 
 ### 核心数据模型
 
@@ -168,9 +172,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 工具返回成功但后置读取不一致时，结果标记为“未验证”，不得宣称完成。
 - 状态机、循环检测、取消和确认都有确定性测试。
 
-## 里程碑 2：长期记忆
+## 里程碑 2：长期记忆（基础存储与工具已完成）
 
 目标：把“会话摘要”与“跨会话个人记忆”分开，让记忆可见、可控、可追溯。
+
+当前状态：Room 结构、来源会话/Run、类型、置信度、启用状态以及 `memory.search / memory.remember` 已完成；管理 UI、候选记忆、敏感过滤、FTS、去重和冲突处理仍待完成。
 
 ### 记忆类型
 
@@ -303,19 +309,19 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ## 优先级清单
 
-| 优先级 | 工作项 | 原因 |
-|---|---|---|
-| P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 后续 Agent 循环的基础协议 |
-| P0 | Room 与 Repository 迁移 | SharedPreferences 无法承载 Run/Tool/Memory 关系 |
-| P0 | AgentRun 状态机、事件日志和取消 | 决定任务是否可靠、可观察 |
-| P0 | Tool Registry、Schema、风险、确认和验证 | 决定执行边界和安全性 |
-| P1 | 应用内低风险工具和任务时间线 UI | 形成第一条端到端 Agent 链路 |
-| P1 | 长期记忆管理与 FTS 检索 | 形成个人化和跨会话连续性 |
-| P1 | Skill 按需加载 | 控制 Prompt 和工具面增长 |
-| P1 | Workflow Ledger 与后台调度 | 支持持续任务且可追溯 |
-| P2 | Accessibility 设备工具 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 提升输入输出能力 |
-| P3 | MCP、远程 Channel、多 Agent、本地模型 | 生态价值高，但复杂度和攻击面更大 |
+| 优先级 | 工作项 | 当前状态 | 原因 |
+|---|---|---|---|
+| P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 取消已完成；结构化 Responses 与 Adapter 待完成 | 后续 Agent 循环的基础协议 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository 已完成；迁移测试与导出待完成 | 保证升级和本地数据可恢复 |
+| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件和取消已完成；恢复/重试待完成 | 决定任务是否可靠、可观察 |
+| P0 | Tool Registry、Schema、风险、确认和验证 | 第一批 Registry/风险/确认/验证已完成；完整 Schema 和权限策略待完成 | 决定执行边界和安全性 |
+| P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线和只读运行记录已完成 | 已形成第一条端到端 Agent 链路 |
+| P1 | 长期记忆管理与 FTS 检索 | 基础表与读写工具已完成；管理 UI/FTS 待完成 | 形成个人化和跨会话连续性 |
+| P1 | Skill 按需加载 | 未开始 | 控制 Prompt 和工具面增长 |
+| P1 | Workflow Ledger 与后台调度 | 未开始 | 支持持续任务且可追溯 |
+| P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
+| P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
+| P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
 
@@ -329,12 +335,13 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ## 建议的下一项开发
 
-从里程碑 0 开始，第一批实际代码任务建议拆为：
+基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
 1. 继续补 Room migration 测试和数据库导出/备份。
-2. 抽出 `LlmProviderAdapter` 和现有 OpenAI-compatible 实现。
+2. 抽出 `LlmProviderAdapter`，并把 Responses API 历史改为结构化消息输入。
 3. 将当前只读 Agent 运行记录升级为完整任务中心，支持完整工具结果视图、失败重试和恢复。
 4. 把 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
-5. 接入 `app.current_time` 与 `notes.create`，跑通确认和后置验证。
+5. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
+6. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
 
-完成这六项后，小灵才真正拥有可继续扩展的个人 Agent 骨架。
+完成这六项后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。

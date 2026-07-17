@@ -45,9 +45,8 @@ Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d7
 
 说明：
 
-- 本次更换了 `applicationId`，Android 会把它视为新应用。
-- 本机 release keystore 已重新生成为小灵专用证书。
-- 旧证书文件已移到 `/tmp` 做临时备份，没有继续作为当前项目签名输入。
+- 从 `v0.1.8` 起应用使用 `com.longdev.xiaoling`；从旧 `applicationId` 升级时，Android 会把它视为新应用。
+- 本机 release keystore 为小灵专用证书，`v0.1.9` 与 `v0.1.8` 使用同一签名证书。
 
 ## APK 元数据
 
@@ -63,6 +62,15 @@ Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d7
 package: name='com.longdev.xiaoling' versionCode='10' versionName='0.1.9'
 application-label:'小灵'
 ```
+
+## GitHub Release
+
+- Release：[小灵 v0.1.9](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.9)
+- 标签：`v0.1.9`
+- 发布提交：`3059b4c53d4c063aaf929352e14cea040bb56287`
+- APK：[xiaoling-v0.1.9.apk](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.9/xiaoling-v0.1.9.apk)
+- 远端资产状态：APK 和 SHA-256 文件均为 `uploaded`，Release 不是 draft 或 prerelease。
+- 远端 APK digest：`sha256:b8a8c77e6e1f83543d3bd775ffda83615e7f06ad846b0c0f83cf9a1ac778c5b8`
 
 ## 真机安装与启动
 

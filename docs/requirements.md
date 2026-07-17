@@ -29,6 +29,16 @@
 - Provider、模型、请求模式、流式状态、首字耗时和总耗时等消息元数据。
 - API Key 的 Android Keystore + AES-GCM 加密存储。
 - 常见网络、鉴权、限流、模型和响应解析错误分类。
+- `/agent <目标>` 最小执行入口，以及 `AgentRun / AgentStep / ApprovalRequest / RunEvent` 可审计运行链路。
+- 有界 Agent Runtime：工具调用预算、模型与工具超时、整次 Run 超时、取消、必填参数校验和重复调用检测。
+- 应用侧 Tool Registry、风险分级、交互审批、执行后验证和确定性结果渲染；模型不能修改工具风险或自行增加执行事实。
+- 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
+- 对话内 Run 时间线和审批卡片，以及设置页只读 Agent 运行记录、步骤、审批和结构化事件展示。
+- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记和长期记忆；旧 SharedPreferences 数据首次启动时迁入。
+- 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
+- `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
+
+当前仍未交付完整任务中心、进程重建后的继续执行、失败重试、长期记忆管理 UI、完整 JSON Schema、Skill、后台工作流和手机自动化。
 
 当前实现详情见 [当前实现说明](implementation-notes.md)。
 
