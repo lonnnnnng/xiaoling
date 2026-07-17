@@ -232,6 +232,7 @@ data class AgentMemoryRecord(
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    val pinned: Boolean = false,
 )
 
 data class AgentMemorySource(
@@ -243,6 +244,27 @@ data class AgentMemorySource(
 interface AgentMemoryStore {
     suspend fun remember(content: String, tags: String, type: String, source: AgentMemorySource, confidence: Double): AgentMemoryRecord
     suspend fun search(query: String, limit: Int, enabledOnly: Boolean = true): List<AgentMemoryRecord>
+}
+
+enum class AgentMemoryFilter {
+    ALL,
+    ENABLED,
+    DISABLED,
+}
+
+data class AgentMemoryUpdate(
+    val content: String,
+    val tags: String,
+    val type: String,
+    val confidence: Double,
+)
+
+interface AgentMemoryManager {
+    suspend fun list(query: String, filter: AgentMemoryFilter, limit: Int = 100): List<AgentMemoryRecord>
+    suspend fun update(memoryId: String, update: AgentMemoryUpdate): AgentMemoryRecord?
+    suspend fun setEnabled(memoryId: String, enabled: Boolean): AgentMemoryRecord?
+    suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord?
+    suspend fun delete(memoryId: String): Boolean
 }
 
 data class AgentConversationRecord(

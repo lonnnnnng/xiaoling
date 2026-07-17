@@ -264,6 +264,19 @@ class RoomAgentRunRepository(
         }
     }
 
+    suspend fun runDetail(runId: String): AgentRunDetailRecord? {
+        val dao = database.agentRunDao()
+        val run = dao.getRun(runId)?.toRecord() ?: return null
+        return AgentRunDetailRecord(
+            snapshot = AgentRunSnapshot(
+                run = run,
+                steps = dao.getSteps(runId).map { it.toRecord() },
+                events = dao.getEvents(runId).map { it.toRecord() },
+            ),
+            approvals = dao.getApprovalRequests(runId).map { it.toRecord() },
+        )
+    }
+
     private suspend fun findStep(stepId: String): AgentStepEntity? {
         return database.agentRunDao().getStep(stepId)
     }

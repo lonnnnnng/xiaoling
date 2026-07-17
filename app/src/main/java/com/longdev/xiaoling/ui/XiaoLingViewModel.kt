@@ -7,6 +7,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.agent.AgentCommand
+import com.longdev.xiaoling.agent.AgentMemoryFilter
+import com.longdev.xiaoling.agent.AgentMemoryRecord
+import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
@@ -45,6 +48,7 @@ import com.longdev.xiaoling.storage.StoredMessageMeta
 import com.longdev.xiaoling.storage.StoredConversations
 import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
+import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +107,17 @@ data class XiaoLingUiState(
     val retryingAgentRunId: String? = null,
     val pendingAgentRetryConfirmation: AgentRetryConfirmationUiState? = null,
     val agentRetryNavigationConversationId: String? = null,
+    val loadingMemories: Boolean = false,
+    val memories: List<AgentMemoryRecord> = emptyList(),
+    val memorySearchQuery: String = "",
+    val memoryFilter: AgentMemoryFilter = AgentMemoryFilter.ALL,
+    val selectedMemoryId: String? = null,
+    val memoryError: String? = null,
+    val mutatingMemoryIds: Set<String> = emptySet(),
+    val editingMemory: AgentMemoryEditUiState? = null,
+    val pendingMemoryDelete: AgentMemoryRecord? = null,
+    val memorySourceConversationNavigationId: String? = null,
+    val memorySourceRunNavigationId: String? = null,
     val result: OperationResult? = null,
 )
 
@@ -198,6 +213,14 @@ data class AgentRetryConfirmationUiState(
     val goal: String,
 )
 
+data class AgentMemoryEditUiState(
+    val id: String,
+    val content: String,
+    val tags: String,
+    val type: String,
+    val confidence: Double,
+)
+
 private data class PreparedRequestContext(
     val requestMessages: List<RequestMessage>,
     val summary: String,
@@ -227,12 +250,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val client = OpenAiCompatibleClient()
     private val agentRunUseCase = AgentRunUseCase(application, client)
     private val agentRunRepository = RoomAgentRunRepository(application)
+    private val agentMemoryStore = RoomAgentMemoryStore(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
     private var pendingApprovalDecision: CompletableDeferred<ApprovalDecision>? = null
     private val activeAgentRunsByConversation = mutableMapOf<String, AgentRunSnapshot>()
     private val pendingAgentApprovalsByConversation = mutableMapOf<String, AgentApprovalUiState>()
     private var sendMessageJob: Job? = null
+    private var memoryLoadJob: Job? = null
+    private var memorySearchJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
 
@@ -413,6 +439,249 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun selectAgentRun(runId: String) {
         if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
         uiState = uiState.copy(selectedAgentRunId = runId)
+    }
+
+    fun refreshMemories() {
+        loadMemories()
+    }
+
+    fun updateMemorySearchQuery(query: String) {
+        uiState = uiState.copy(memorySearchQuery = query, memoryError = null)
+        memorySearchJob?.cancel()
+        memorySearchJob = viewModelScope.launch {
+            delay(MEMORY_SEARCH_DEBOUNCE_MS)
+            loadMemories()
+        }
+    }
+
+    fun updateMemoryFilter(filter: AgentMemoryFilter) {
+        if (filter == uiState.memoryFilter) return
+        uiState = uiState.copy(memoryFilter = filter, memoryError = null)
+        loadMemories()
+    }
+
+    fun selectMemory(memoryId: String) {
+        if (uiState.memories.none { it.id == memoryId }) return
+        uiState = uiState.copy(selectedMemoryId = memoryId)
+    }
+
+    fun openMemoryEdit(memoryId: String) {
+        val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
+        uiState = uiState.copy(
+            editingMemory = AgentMemoryEditUiState(
+                id = memory.id,
+                content = memory.content,
+                tags = memory.tags,
+                type = memory.type,
+                confidence = memory.confidence,
+            ),
+        )
+    }
+
+    fun updateMemoryEditContent(value: String) {
+        uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(content = value)) }
+    }
+
+    fun updateMemoryEditTags(value: String) {
+        uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(tags = value)) }
+    }
+
+    fun updateMemoryEditType(value: String) {
+        uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(type = value)) }
+    }
+
+    fun updateMemoryEditConfidence(value: Double) {
+        uiState.editingMemory?.let {
+            uiState = uiState.copy(editingMemory = it.copy(confidence = value.coerceIn(0.0, 1.0)))
+        }
+    }
+
+    fun cancelMemoryEdit() {
+        uiState = uiState.copy(editingMemory = null)
+    }
+
+    fun saveMemoryEdit() {
+        val draft = uiState.editingMemory ?: return
+        if (draft.content.isBlank()) {
+            showValidation("记忆内容不能为空")
+            return
+        }
+        mutateMemory(
+            memoryId = draft.id,
+            successMessage = "记忆内容和检索索引已更新",
+        ) {
+            agentMemoryStore.update(
+                memoryId = draft.id,
+                update = AgentMemoryUpdate(
+                    content = draft.content,
+                    tags = draft.tags,
+                    type = draft.type,
+                    confidence = draft.confidence,
+                ),
+            )
+        }
+    }
+
+    fun setMemoryEnabled(memoryId: String, enabled: Boolean) {
+        mutateMemory(
+            memoryId = memoryId,
+            successMessage = if (enabled) "记忆已启用" else "记忆已禁用，不再参与 Agent 检索",
+        ) {
+            agentMemoryStore.setEnabled(memoryId, enabled)
+        }
+    }
+
+    fun setMemoryPinned(memoryId: String, pinned: Boolean) {
+        mutateMemory(
+            memoryId = memoryId,
+            successMessage = if (pinned) "记忆已置顶" else "已取消置顶",
+        ) {
+            agentMemoryStore.setPinned(memoryId, pinned)
+        }
+    }
+
+    fun requestMemoryDelete(memoryId: String) {
+        val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
+        uiState = uiState.copy(pendingMemoryDelete = memory)
+    }
+
+    fun cancelMemoryDelete() {
+        uiState = uiState.copy(pendingMemoryDelete = null)
+    }
+
+    fun confirmMemoryDelete() {
+        val memory = uiState.pendingMemoryDelete ?: return
+        if (memory.id in uiState.mutatingMemoryIds) return
+        uiState = uiState.copy(
+            pendingMemoryDelete = null,
+            mutatingMemoryIds = uiState.mutatingMemoryIds + memory.id,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentMemoryStore.delete(memory.id) }
+            }.onSuccess { deleted ->
+                uiState = uiState.copy(
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    result = OperationResult(
+                        success = deleted,
+                        title = if (deleted) "已删除" else "删除失败",
+                        message = if (deleted) "记忆及其检索索引已删除" else "记忆不存在或已被删除",
+                    ),
+                )
+                loadMemories()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    memoryError = error.message ?: "删除记忆失败",
+                )
+            }
+        }
+    }
+
+    fun openMemorySourceConversation(memoryId: String) {
+        val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
+        val conversationId = memory.sourceConversationId
+        if (conversationId == null || uiState.conversations.none { it.id == conversationId }) {
+            showValidation("来源会话已不存在")
+            return
+        }
+        selectConversation(conversationId)
+        uiState = uiState.copy(memorySourceConversationNavigationId = conversationId)
+    }
+
+    fun openMemorySourceRun(memoryId: String) {
+        val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
+        val runId = memory.sourceRunId
+        if (runId.isNullOrBlank()) {
+            showValidation("这条记忆没有来源 Run")
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentRunRepository.runDetail(runId) }
+            }.onSuccess { detail ->
+                if (detail == null) {
+                    showValidation("来源 Run 已不存在")
+                } else {
+                    uiState = uiState.copy(
+                        agentRunHistory = listOf(detail) + uiState.agentRunHistory.filterNot {
+                            it.snapshot.run.id == runId
+                        },
+                        selectedAgentRunId = runId,
+                        memorySourceRunNavigationId = runId,
+                    )
+                }
+            }.onFailure { error ->
+                showValidation(error.message ?: "无法读取来源 Run")
+            }
+        }
+    }
+
+    fun consumeMemorySourceConversationNavigation() {
+        uiState = uiState.copy(memorySourceConversationNavigationId = null)
+    }
+
+    fun consumeMemorySourceRunNavigation() {
+        uiState = uiState.copy(memorySourceRunNavigationId = null)
+    }
+
+    private fun loadMemories() {
+        memoryLoadJob?.cancel()
+        val query = uiState.memorySearchQuery
+        val filter = uiState.memoryFilter
+        uiState = uiState.copy(loadingMemories = true, memoryError = null)
+        memoryLoadJob = viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    agentMemoryStore.list(query = query, filter = filter, limit = MEMORY_MANAGEMENT_LIMIT)
+                }
+            }.onSuccess { memories ->
+                val selectedId = uiState.selectedMemoryId
+                    ?.takeIf { id -> memories.any { it.id == id } }
+                    ?: memories.firstOrNull()?.id
+                uiState = uiState.copy(
+                    loadingMemories = false,
+                    memories = memories,
+                    selectedMemoryId = selectedId,
+                    memoryError = null,
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    loadingMemories = false,
+                    memoryError = error.message ?: "无法读取长期记忆",
+                )
+            }
+        }
+    }
+
+    private fun mutateMemory(
+        memoryId: String,
+        successMessage: String,
+        operation: suspend () -> AgentMemoryRecord?,
+    ) {
+        if (memoryId in uiState.mutatingMemoryIds) return
+        uiState = uiState.copy(mutatingMemoryIds = uiState.mutatingMemoryIds + memoryId)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { operation() }
+            }.onSuccess { updated ->
+                uiState = uiState.copy(
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memoryId,
+                    editingMemory = null,
+                    result = OperationResult(
+                        success = updated != null,
+                        title = if (updated != null) "已更新" else "更新失败",
+                        message = if (updated != null) successMessage else "记忆不存在",
+                    ),
+                )
+                loadMemories()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memoryId,
+                    memoryError = error.message ?: "更新记忆失败",
+                )
+            }
+        }
     }
 
     fun requestAgentRunRetry(runId: String) {
@@ -1868,5 +2137,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val SUMMARY_MAX_CHARS = 4_000
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50
+        private const val MEMORY_MANAGEMENT_LIMIT = 200
+        private const val MEMORY_SEARCH_DEBOUNCE_MS = 250L
     }
 }

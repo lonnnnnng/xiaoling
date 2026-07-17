@@ -312,7 +312,8 @@
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
-- Room v4/v6/v7/v8 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v8 真机自动化迁移测试；v8 用 `retryOfRunId` 关联新旧 Run。
+- 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
+- Room v4/v6/v7/v8/v9 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v9 真机自动化迁移测试；v8 用 `retryOfRunId` 关联新旧 Run，v9 为旧记忆回填 FTS 索引。
 
 现有关键实现位于：
 
@@ -321,6 +322,7 @@
 - `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`
 - `app/src/main/java/com/longdev/xiaoling/storage/RoomAgentRunRepository.kt`
+- `app/src/main/java/com/longdev/xiaoling/storage/RoomAgentMemoryStore.kt`
 - `app/src/main/java/com/longdev/xiaoling/prompt/PromptPolicy.kt`
 - `app/src/main/java/com/longdev/xiaoling/storage/SecureConfigStore.kt`
 
@@ -333,7 +335,7 @@
 | Tool Schema 只覆盖必填字符串参数 | 缺少完整类型、业务校验、Android 权限和可插拔验证器 |
 | ToolCall/ToolResult 已进入 RunEvent metadata，但还没有独立表 | 可审计展示已结构化，跨步骤查询、重放和恢复仍不方便 |
 | 失败终态可安全重新运行，但没有原地恢复执行栈 | 进程重建后先收敛中间态，再由用户创建关联的新 Run；无法从原 ToolCall 位置继续 |
-| 长期记忆只有基础表和工具 | 缺少管理 UI、FTS、撤销、去重和实际引用审计 |
+| 长期记忆管理闭环已完成，但自动治理仍不完整 | 缺少候选记忆、敏感过滤、删除撤销、去重/冲突和实际引用审计 |
 | 没有后台任务账本 | 定时/长任务无法断点恢复，也无法聚合失败与待确认 |
 | 消息仍以单一文本为主 | Responses 已支持函数调用/结果 Items，但 Reasoning/Image/File 和持久化消息 parts 仍待实现 |
 
@@ -358,7 +360,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room 基础迁移、Schema 导出、v4→v8 自动化迁移测试、RunEvent typed metadata、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试、任务中心和安全重新运行已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile、完整 Schema、权限策略和原地断点恢复仍待完成。
+当前状态：Room 基础迁移、Schema 导出、v4→v9 自动化迁移测试、RunEvent typed metadata、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行和长期记忆管理闭环已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile、完整 Schema、权限策略和原地断点恢复仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -383,11 +385,13 @@
 
 目标：小灵开始“认识用户”，但记忆必须透明可控。
 
+当前状态：记忆表、工具读写、来源审计、FTS4 + 中文兜底检索、管理页、编辑、置顶、启停和删除确认已完成；候选生成、敏感过滤、去重/冲突、删除撤销和本轮引用审计仍待完成。
+
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
-| 长期记忆 v1 | 从用户明确陈述中提取 preference/fact/project；先启发式候选，再由用户确认保存 | 默认关闭；每条记忆显示来源会话、时间、Agent，可编辑/删除/导出 |
+| 长期记忆 v1 | 已完成管理闭环；后续从用户明确陈述中生成 preference/fact/project 候选，再由用户确认保存 | 每条记忆显示来源会话/Run 和时间，可编辑、置顶、禁用、删除；候选功能默认关闭 |
 | 敏感过滤 | API Key、token、密码、银行卡、身份证、手机号等默认阻止进入记忆 | 固定敏感样例测试全部通过；命中时提示但不展示完整敏感值 |
-| 记忆召回 | 先做关键词 + 标签 + 时间衰减；数据规模扩大后再加 embedding | 每次回复可展开查看“使用了哪些记忆”；可关闭单次召回 |
+| 记忆召回 | 已完成 FTS4 + 中文子串兜底；后续增加时间衰减和本轮引用审计，数据规模扩大后再评估 embedding | 删除或禁用后不再召回；后续可展开查看“使用了哪些记忆”并关闭单次召回 |
 | 分享给小灵 | 支持 Android `ACTION_SEND` 文本、链接、图片，进入新任务草稿而非静默执行 | 分享后必须由用户确认发送；来源 App 和附件可见 |
 | 语音输入 | 先做系统 SpeechRecognizer/录音转写到输入框，不自动执行 | 用户可编辑转写文本后再发送；权限拒绝可正常降级 |
 | 快捷任务模板 | 用户保存 prompt + Agent + 默认参数，不保存高风险永久授权 | 模板执行前展示输入和将使用的 Agent/工具 |

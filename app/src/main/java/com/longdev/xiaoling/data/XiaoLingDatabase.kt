@@ -18,9 +18,10 @@ import org.json.JSONObject
         ApprovalRequestEntity::class,
         RunEventEntity::class,
         AgentMemoryEntity::class,
+        AgentMemoryFtsEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -176,6 +177,32 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `agent_memories` ADD COLUMN `pinned` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS `agent_memories_fts`
+                    USING FTS4(
+                        `memoryId` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `tags` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `sourceSummary` TEXT NOT NULL,
+                        tokenize=unicode61
+                    )
+                    """.trimIndent(),
+                )
+                // long: 旧记忆升级后必须立即可搜索；迁移一次性回填索引，后续新增、编辑、启停和删除由 Repository 事务同步主表与 FTS。
+                db.execSQL(
+                    """
+                    INSERT INTO `agent_memories_fts` (`memoryId`, `content`, `tags`, `type`, `sourceSummary`)
+                    SELECT `id`, `content`, `tags`, `type`, `sourceSummary` FROM `agent_memories`
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -184,6 +211,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

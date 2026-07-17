@@ -4,6 +4,8 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RawQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 
 @Dao
 interface ProviderDao {
@@ -94,16 +96,53 @@ interface AgentMemoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMemory(memory: AgentMemoryEntity)
 
+    @Insert
+    suspend fun insertMemoryIndex(memory: AgentMemoryFtsEntity)
+
+    @Query("SELECT * FROM agent_memories WHERE id = :memoryId")
+    suspend fun getMemory(memoryId: String): AgentMemoryEntity?
+
+    @Query(
+        """
+        SELECT * FROM agent_memories
+        WHERE (:enabledFilter IS NULL OR enabled = :enabledFilter)
+        ORDER BY pinned DESC, updatedAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun list(limit: Int, enabledFilter: Boolean?): List<AgentMemoryEntity>
+
     @Query(
         """
         SELECT * FROM agent_memories
         WHERE (:enabledOnly = 0 OR enabled = 1)
         AND (:pattern = '' OR content LIKE :pattern OR tags LIKE :pattern OR type LIKE :pattern OR sourceSummary LIKE :pattern)
-        ORDER BY createdAt DESC
+        ORDER BY pinned DESC, updatedAt DESC
         LIMIT :limit
         """,
     )
     suspend fun search(pattern: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryEntity>
+
+    @RawQuery
+    suspend fun searchForManagement(query: SupportSQLiteQuery): List<AgentMemoryEntity>
+
+    @Query(
+        """
+        SELECT agent_memories.* FROM agent_memories
+        JOIN agent_memories_fts ON agent_memories_fts.memoryId = agent_memories.id
+        WHERE agent_memories_fts MATCH :ftsQuery
+        AND (:enabledFilter IS NULL OR agent_memories.enabled = :enabledFilter)
+        ORDER BY agent_memories.pinned DESC, agent_memories.updatedAt DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchFts(ftsQuery: String, limit: Int, enabledFilter: Boolean?): List<AgentMemoryEntity>
+
+    @Query("DELETE FROM agent_memories_fts WHERE memoryId = :memoryId")
+    suspend fun deleteMemoryIndex(memoryId: String)
+
+    @Query("DELETE FROM agent_memories WHERE id = :memoryId")
+    suspend fun deleteMemory(memoryId: String): Int
 }
 
 @Dao

@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main__ 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；任务中心已支持失败终态安全重新运行。下一阶段重点不是立即增加大量手机工具，而是补齐长期记忆管理、完整 Schema/权限策略、真正的断点恢复和后台任务能力。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；任务中心已支持失败终态安全重新运行，长期记忆已可搜索和管理。下一阶段重点不是立即增加大量手机工具，而是补齐完整 Schema/权限策略、候选记忆与敏感过滤、真正的断点恢复和后台任务能力。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -36,7 +36,7 @@
 
 - 当前重试采用安全重新运行而不是原地续跑：旧 Run 保持不变，新 Run 关联 `retryOfRunId` 并重新走模型规划、工具审批和验证；进程重建后的原地继续执行仍未交付。
 - 已有第一批真实 Tool Registry、风险分级和写入后验证，但 Schema 仍只覆盖必填字符串参数，Android 权限策略和可插拔业务验证器还没有完成。
-- 已有结构化长期记忆表以及 `memory.search / memory.remember`，但记忆管理 UI、FTS 检索、撤销、去重和引用审计还没有完成。
+- 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索和管理 UI；候选记忆、敏感过滤、删除撤销、去重和冲突处理还没有完成。
 - 没有 Skill、Workflow、后台调度和跨任务执行日志聚合；当前 `RunEvent` 只覆盖单次 Agent Run 审计。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
@@ -95,7 +95,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v8 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items 和 `LlmProviderAdapter` 已完成；数据库备份和 ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v9 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items 和 `LlmProviderAdapter` 已完成；数据库备份和 ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -105,7 +105,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v8 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联迁移和全新 v8 建库。
+- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v9 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填和全新 v9 建库。
 - 待完成：增加面向用户的数据库备份与恢复能力。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -162,7 +162,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - `notes.list`
 - `notes.search`
 - `notes.create`，执行前确认，执行后重新读取验证
-- `memory.search` / `memory.remember`，当前已接入最小长期记忆；里程碑 2 继续补管理 UI、FTS、撤销和引用审计。
+- `memory.search` / `memory.remember`，以及长期记忆管理 UI、FTS、启停/删除和来源审计；里程碑 2 继续补候选记忆、敏感过滤、撤销、去重和冲突处理。
 
 暂不做任意文件写入、Shell、应用安装、发送消息和系统设置修改。
 
@@ -174,11 +174,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 工具返回成功但后置读取不一致时，结果标记为“未验证”，不得宣称完成。
 - 状态机、循环检测、取消和确认都有确定性测试。
 
-## 里程碑 2：长期记忆（基础存储与工具已完成）
+## 里程碑 2：长期记忆（管理闭环已完成）
 
 目标：把“会话摘要”与“跨会话个人记忆”分开，让记忆可见、可控、可追溯。
 
-当前状态：Room 结构、来源会话/Run、类型、置信度、启用状态以及 `memory.search / memory.remember` 已完成；管理 UI、候选记忆、敏感过滤、FTS、去重和冲突处理仍待完成。
+当前状态：Room 结构、来源会话/Run、类型、置信度、启用/置顶状态、`memory.search / memory.remember`、FTS4 + 中文兜底检索和管理 UI 已完成；候选记忆、敏感过滤、删除撤销、去重和冲突处理仍待完成。
 
 ### 记忆类型
 
@@ -189,10 +189,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ### 实现顺序
 
-1. Room 保存结构化 Memory，包含来源会话/Run、原文摘要、类型、置信度、更新时间和启用状态。当前已完成最小表结构，后续补管理 UI 和检索质量。
-2. 提供记忆管理页：搜索、查看来源、编辑、置顶、禁用和删除。
+1. 已完成：Room 保存结构化 Memory，包含来源会话/Run、原文摘要、类型、置信度、更新时间、启用和置顶状态。
+2. 已完成：提供记忆管理页，支持搜索、查看/跳转来源、编辑、置顶、禁用和删除确认。
 3. 每轮结束后只生成“候选记忆”，由确定性规则过滤；敏感内容默认不自动写入。
-4. 第一版检索使用 Room FTS，验证召回质量后再考虑 Embedding 和向量索引。
+4. 已完成：第一版使用 Room FTS4，并为中文和任意子串保留 `LIKE` 兜底；验证更大数据集召回质量后再考虑 Embedding 和向量索引。
 5. 将检索结果以有限条目注入上下文，记录本轮实际使用了哪些记忆。
 6. 增加去重、过期和冲突处理，不直接覆盖旧事实。
 
@@ -314,11 +314,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v8、event metadata 与重试关联迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v9、event metadata、重试关联与 Memory FTS 迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 第一批 Registry/风险/确认/验证已完成；完整 Schema 和权限策略待完成 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
-| P1 | 长期记忆管理与 FTS 检索 | 基础表与读写工具已完成；管理 UI/FTS 待完成 | 形成个人化和跨会话连续性 |
+| P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、启停/删除和来源审计已完成；候选/敏感过滤/去重/撤销待完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 未开始 | 控制 Prompt 和工具面增长 |
 | P1 | Workflow Ledger 与后台调度 | 未开始 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
@@ -339,8 +339,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
-1. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
-2. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
+1. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
+2. 增加候选记忆、敏感内容过滤、去重/冲突和删除撤销。
 3. 增加面向用户的数据库备份与恢复能力。
 4. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
 5. 多步 Agent、Skill 和后台任务在上述基础稳定后进入。

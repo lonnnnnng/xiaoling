@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To7PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To9PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            7,
+            9,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -80,7 +80,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion8Database() = runBlocking {
+    fun createAndOpenFreshVersion9Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -88,12 +88,12 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(8, database.openHelper.writableDatabase.version)
+        assertEquals(9, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
     @Test
-    fun migrate6To7MakesLegacyJsonEventMetadataReadableThroughRepository() = runBlocking {
+    fun migrate6To9MakesLegacyJsonEventMetadataReadableThroughRepository() = runBlocking {
         val legacyPayload = """{"id":"tool-call-v6","name":"fake.echo","risk":"REQUIRES_APPROVAL","arguments":{"goal":"历史任务"}}"""
         val legacyApprovalPayload = """{"id":"approval-v6","tool":"memory.remember","risk":"REQUIRES_APPROVAL","status":"APPROVED","expiresAt":9223372036854775807,"decisionReason":"用户确认保存","arguments":{"content":"紧凑界面"}}"""
         migrationHelper.createDatabase(METADATA_MIGRATION_DATABASE_NAME, 6).apply {
@@ -114,7 +114,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             METADATA_MIGRATION_DATABASE_NAME,
-            7,
+            9,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -186,6 +186,54 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate8To9PreservesMemoryAndBuildsSearchIndex() {
+        migrationHelper.createDatabase(MEMORY_FTS_MIGRATION_DATABASE_NAME, 8).apply {
+            execSQL(
+                "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "memory-v8",
+                    "User prefers compact dashboards",
+                    "ui compact",
+                    "Preference",
+                    "conversation-v8",
+                    "run-v8",
+                    "用户明确要求紧凑布局",
+                    0.9,
+                    1,
+                    100L,
+                    200L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            MEMORY_FTS_MIGRATION_DATABASE_NAME,
+            9,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT id, pinned FROM agent_memories WHERE id = ?",
+            arrayOf("memory-v8"),
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("memory-v8", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("pinned")))
+        }
+        migrated.query(
+            "SELECT memoryId FROM agent_memories_fts WHERE agent_memories_fts MATCH ?",
+            arrayOf("\"compact\"*"),
+        ).use { cursor ->
+            // long: v8 旧记忆升级后无需再次编辑即可被 FTS 找到，避免管理页上线后看似丢失历史内容。
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("memory-v8", cursor.getString(cursor.getColumnIndexOrThrow("memoryId")))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -245,5 +293,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MIGRATION_DATABASE_NAME = "xiaoling-migration-test"
         private const val METADATA_MIGRATION_DATABASE_NAME = "xiaoling-metadata-migration-test"
         private const val RETRY_LINK_MIGRATION_DATABASE_NAME = "xiaoling-retry-link-migration-test"
+        private const val MEMORY_FTS_MIGRATION_DATABASE_NAME = "xiaoling-memory-fts-migration-test"
     }
 }

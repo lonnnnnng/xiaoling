@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,6 +40,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -56,7 +58,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
@@ -73,6 +78,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -109,6 +115,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.agent.AgentCommand
+import com.longdev.xiaoling.agent.AgentMemoryFilter
+import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -178,6 +186,20 @@ private fun XiaoLingContent(
         selectedTab = 0
         settingsPane = SettingsPane.ROOT
         viewModel.consumeAgentRetryNavigation()
+    }
+
+    LaunchedEffect(state.memorySourceConversationNavigationId) {
+        state.memorySourceConversationNavigationId ?: return@LaunchedEffect
+        selectedTab = 0
+        settingsPane = SettingsPane.ROOT
+        viewModel.consumeMemorySourceConversationNavigation()
+    }
+
+    LaunchedEffect(state.memorySourceRunNavigationId) {
+        state.memorySourceRunNavigationId ?: return@LaunchedEffect
+        selectedTab = 1
+        settingsPane = SettingsPane.AGENT_RUN_HISTORY
+        viewModel.consumeMemorySourceRunNavigation()
     }
 
     BackHandler(enabled = isProviderEditor) {
@@ -250,6 +272,10 @@ private fun XiaoLingContent(
                         pane = settingsPane,
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
                         onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
+                        onOpenMemoryManagement = {
+                            viewModel.refreshMemories()
+                            settingsPane = SettingsPane.MEMORY_MANAGEMENT
+                        },
                         onOpenAgentRunHistory = {
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
@@ -276,12 +302,28 @@ private fun XiaoLingContent(
             onDismiss = viewModel::cancelAgentRunRetry,
         )
     }
+    state.editingMemory?.let { draft ->
+        AgentMemoryEditDialog(
+            draft = draft,
+            saving = draft.id in state.mutatingMemoryIds,
+            viewModel = viewModel,
+        )
+    }
+    state.pendingMemoryDelete?.let { memory ->
+        AgentMemoryDeleteDialog(
+            memory = memory,
+            deleting = memory.id in state.mutatingMemoryIds,
+            onConfirm = viewModel::confirmMemoryDelete,
+            onDismiss = viewModel::cancelMemoryDelete,
+        )
+    }
 }
 
 private enum class SettingsPane {
     ROOT,
     PROVIDER_MANAGEMENT,
     PROMPT_SETTINGS,
+    MEMORY_MANAGEMENT,
     AGENT_RUN_HISTORY,
 }
 
@@ -291,6 +333,8 @@ private enum class AgentTaskFilter(val label: String) {
     RETRYABLE("可重试"),
     COMPLETED("已完成"),
 }
+
+private val agentMemoryTypes = listOf("Preference", "ProfileFact", "Episode", "Procedure")
 
 private data class CenterNotice(
     val text: String,
@@ -371,6 +415,156 @@ private fun AgentRetryConfirmationDialog(
             TextButton(onClick = onDismiss) {
                 Text("取消")
             }
+        },
+        shape = RoundedCornerShape(8.dp),
+    )
+}
+
+@Composable
+private fun AgentMemoryEditDialog(
+    draft: AgentMemoryEditUiState,
+    saving: Boolean,
+    viewModel: XiaoLingViewModel,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!saving) viewModel.cancelMemoryEdit() },
+        title = {
+            Text(
+                text = "编辑长期记忆",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = draft.content,
+                    onValueChange = viewModel::updateMemoryEditContent,
+                    label = { Text("记忆内容") },
+                    minLines = 3,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = RoundedCornerShape(7.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                androidx.compose.material3.OutlinedTextField(
+                    value = draft.tags,
+                    onValueChange = viewModel::updateMemoryEditTags,
+                    label = { Text("标签") },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = RoundedCornerShape(7.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("类型", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    agentMemoryTypes.forEach { type ->
+                        val selected = type == draft.type
+                        Surface(
+                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(
+                                1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier
+                                .height(30.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(enabled = !saving) { viewModel.updateMemoryEditType(type) },
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 9.dp),
+                            ) {
+                                Text(type, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                Text(
+                    text = "置信度 " + (draft.confidence * 100).toInt() + "%",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Slider(
+                    value = draft.confidence.toFloat(),
+                    onValueChange = { viewModel.updateMemoryEditConfidence(it.toDouble()) },
+                    enabled = !saving,
+                    valueRange = 0f..1f,
+                    steps = 19,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = viewModel::saveMemoryEdit,
+                enabled = !saving && draft.content.isNotBlank(),
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+                } else {
+                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::cancelMemoryEdit, enabled = !saving) {
+                Text("取消")
+            }
+        },
+        shape = RoundedCornerShape(8.dp),
+    )
+}
+
+@Composable
+private fun AgentMemoryDeleteDialog(
+    memory: AgentMemoryRecord,
+    deleting: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!deleting) onDismiss() },
+        title = { Text("删除长期记忆", style = MaterialTheme.typography.titleSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = memory.content,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "删除后，该记忆及其检索索引会立即移除，之后不再参与 Agent 检索。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = !deleting,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("删除")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
         },
         shape = RoundedCornerShape(8.dp),
     )
@@ -1494,6 +1688,7 @@ private fun SettingsPage(
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
+    onOpenMemoryManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1525,6 +1720,12 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.MEMORY_MANAGEMENT -> AgentMemoryManagementPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentRunHistoryPage(
                 state = state,
                 viewModel = viewModel,
@@ -1536,6 +1737,7 @@ private fun SettingsPage(
                 onThemeModeChanged = viewModel::updateThemeMode,
                 onOpenProviderManagement = onOpenProviderManagement,
                 onOpenPromptSettings = onOpenPromptSettings,
+                onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
                 modifier = Modifier.matchParentSize(),
             )
@@ -1549,6 +1751,7 @@ private fun SettingsRootPage(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
+    onOpenMemoryManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1585,6 +1788,13 @@ private fun SettingsRootPage(
             subtitle = "普通对话 · 会话摘要 / 记忆 · Agent 回复总结",
             icon = Icons.Default.Tune,
             onClick = onOpenPromptSettings,
+        )
+
+        SettingsEntryCard(
+            title = "长期记忆",
+            subtitle = "搜索、编辑、禁用、删除并查看来源",
+            icon = Icons.Default.Memory,
+            onClick = onOpenMemoryManagement,
         )
 
         SettingsEntryCard(
@@ -1807,6 +2017,349 @@ private fun PromptEditorSection(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AgentMemoryManagementPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LaunchedEffect(Unit) {
+        if (state.memories.isEmpty() && !state.loadingMemories) {
+            viewModel.refreshMemories()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+            }
+            PageTitle("长期记忆")
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = viewModel::refreshMemories,
+                enabled = !state.loadingMemories,
+                modifier = Modifier.size(30.dp),
+            ) {
+                if (state.loadingMemories) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+                } else {
+                    Icon(Icons.Default.CloudDownload, contentDescription = "刷新长期记忆", modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+
+        androidx.compose.material3.OutlinedTextField(
+            value = state.memorySearchQuery,
+            onValueChange = viewModel::updateMemorySearchQuery,
+            placeholder = { Text("搜索内容、标签、类型或来源", style = MaterialTheme.typography.bodySmall) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            trailingIcon = {
+                if (state.memorySearchQuery.isNotEmpty()) {
+                    IconButton(onClick = { viewModel.updateMemorySearchQuery("") }, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "清空搜索", modifier = Modifier.size(16.dp))
+                    }
+                }
+            },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall,
+            shape = RoundedCornerShape(7.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        AgentMemoryFilterBar(
+            selected = state.memoryFilter,
+            onSelected = viewModel::updateMemoryFilter,
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            when {
+                state.memoryError != null -> item {
+                    CompactSection(title = "读取失败") {
+                        Text(
+                            text = state.memoryError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                state.loadingMemories && state.memories.isEmpty() -> item {
+                    CompactSection(title = "长期记忆") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                            Text("正在读取长期记忆", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                state.memories.isEmpty() -> item {
+                    CompactSection(title = "长期记忆") {
+                        Text(
+                            text = if (state.memorySearchQuery.isBlank() && state.memoryFilter == AgentMemoryFilter.ALL) {
+                                "还没有长期记忆。Agent 只有在用户批准 memory.remember 后才会写入。"
+                            } else {
+                                "没有符合当前搜索和筛选条件的记忆"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                else -> items(
+                    count = state.memories.size,
+                    key = { index -> state.memories[index].id },
+                ) { index ->
+                    val memory = state.memories[index]
+                    AgentMemoryItemCard(
+                        memory = memory,
+                        selected = memory.id == state.selectedMemoryId,
+                        mutating = memory.id in state.mutatingMemoryIds,
+                        onSelect = { viewModel.selectMemory(memory.id) },
+                        onPinnedChange = { viewModel.setMemoryPinned(memory.id, it) },
+                        onEnabledChange = { viewModel.setMemoryEnabled(memory.id, it) },
+                        onEdit = { viewModel.openMemoryEdit(memory.id) },
+                        onDelete = { viewModel.requestMemoryDelete(memory.id) },
+                        onOpenConversation = { viewModel.openMemorySourceConversation(memory.id) },
+                        onOpenRun = { viewModel.openMemorySourceRun(memory.id) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentMemoryFilterBar(
+    selected: AgentMemoryFilter,
+    onSelected: (AgentMemoryFilter) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        AgentMemoryFilter.entries.forEach { filter ->
+            val active = filter == selected
+            Surface(
+                color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                contentColor = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                border = BorderStroke(
+                    1.dp,
+                    if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { onSelected(filter) },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(filter.toUiLabel(), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+private fun AgentMemoryFilter.toUiLabel(): String = when (this) {
+    AgentMemoryFilter.ALL -> "全部"
+    AgentMemoryFilter.ENABLED -> "已启用"
+    AgentMemoryFilter.DISABLED -> "已禁用"
+}
+
+@Composable
+private fun AgentMemoryItemCard(
+    memory: AgentMemoryRecord,
+    selected: Boolean,
+    mutating: Boolean,
+    onSelect: () -> Unit,
+    onPinnedChange: (Boolean) -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenConversation: () -> Unit,
+    onOpenRun: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
+                RoundedCornerShape(8.dp),
+            )
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onSelect),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    text = memory.type,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { onPinnedChange(!memory.pinned) },
+                    enabled = !mutating,
+                    modifier = Modifier.size(30.dp),
+                ) {
+                    Icon(
+                        imageVector = if (memory.pinned) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = if (memory.pinned) "取消置顶" else "置顶",
+                        modifier = Modifier.size(17.dp),
+                        tint = if (memory.pinned) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = memory.enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = !mutating,
+                    modifier = Modifier.size(width = 44.dp, height = 28.dp),
+                )
+                IconButton(onClick = onEdit, enabled = !mutating, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "编辑记忆", modifier = Modifier.size(17.dp))
+                }
+                IconButton(onClick = onDelete, enabled = !mutating, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "删除记忆", modifier = Modifier.size(17.dp))
+                }
+            }
+
+            Text(
+                text = memory.content,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (memory.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = if (selected) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (memory.tags.isNotBlank()) {
+                Text(
+                    text = "标签：" + memory.tags,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (memory.enabled) "参与检索" else "已禁用",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (memory.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    text = "置信度 " + (memory.confidence * 100).toInt() + "%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = memory.updatedAt.toFullTimeLabel(),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (selected) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                memory.sourceSummary.takeIf { it.isNotBlank() }?.let {
+                    AgentMemoryAuditField(label = "来源摘要", value = it)
+                }
+                memory.sourceConversationId?.let {
+                    AgentMemoryAuditField(label = "会话", value = it)
+                }
+                memory.sourceRunId?.let {
+                    AgentMemoryAuditField(label = "Run", value = it)
+                }
+                AgentMemoryAuditField(label = "创建时间", value = memory.createdAt.toFullTimeLabel())
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    memory.sourceConversationId?.let {
+                        OutlinedButton(
+                            onClick = onOpenConversation,
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("来源会话", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    memory.sourceRunId?.let {
+                        OutlinedButton(
+                            onClick = onOpenRun,
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("来源 Run", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentMemoryAuditField(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(58.dp),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 

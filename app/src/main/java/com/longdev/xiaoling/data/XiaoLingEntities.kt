@@ -2,6 +2,8 @@ package com.longdev.xiaoling.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Fts4
+import androidx.room.FtsOptions
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -144,6 +146,17 @@ data class AgentMemoryEntity(
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "0") val pinned: Boolean,
+)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "agent_memories_fts")
+data class AgentMemoryFtsEntity(
+    val memoryId: String,
+    val content: String,
+    val tags: String,
+    val type: String,
+    val sourceSummary: String,
 )
 
 @Entity(

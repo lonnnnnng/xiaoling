@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-17（北京时间）
+验证日期：2026-07-18（北京时间）
 
 ## 环境
 
@@ -30,8 +30,8 @@ BUILD SUCCESSFUL
 Schema 生成方式：
 
 - Room compiler 使用 KSP `2.3.7`，通过 Room Gradle Plugin `2.8.4` 的 `schemaDirectory` 导出到 `app/schemas/`。
-- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 保存重试关联改造前结构，v8 由当前源码生成。
-- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7`、`MIGRATION_7_8` 顺序执行完整链路。
+- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 保存重试关联改造前结构，v8 保存 Memory FTS 改造前结构，v9 由当前源码生成。
+- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7`、`MIGRATION_7_8`、`MIGRATION_8_9` 顺序执行完整链路。
 
 单测试命令：
 
@@ -42,19 +42,20 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 结果：
 
 ```text
-Starting 3 tests on Redmi Note 8 Pro - 14
-Finished 3 tests on Redmi Note 8 Pro - 14
+Starting 5 tests on Redmi Note 8 Pro - 14
+Finished 5 tests on Redmi Note 8 Pro - 14
 BUILD SUCCESSFUL
 ```
 
 已验证：
 
-- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v8，Room 最终 Schema 校验通过。
+- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v9，Room 最终 Schema 校验通过。
 - Provider、会话、用户/assistant 消息、Agent Run、Step、审批、Run Event、笔记和长期记忆均可通过 DAO 回读。
 - v4 旧消息迁移后 `origin=LEGACY`，`verifiedAgentContext=null`。
 - v6 中保存在 `RunEvent.message` 的旧 JSON object 会迁入 `metadataJson`，原 message 改为事件可读摘要；普通文本 message 不会被误标为结构化 metadata。
 - v7 旧 Run 升级到 v8 后，状态、结果和错误保持不变，`retryOfRunId` 初始化为 `null`。
-- 全新 v8 内存数据库可以创建、打开并执行 DAO 查询。
+- v8 旧记忆升级到 v9 后，`pinned` 初始化为 `false`，FTS 索引立即可检索，无需再次编辑。
+- 全新 v9 内存数据库可以创建、打开并执行 DAO 查询。
 - Room 2.8.4 需要 kotlinx serialization 1.8.1；工程已统一该现有传递依赖版本，避免 KSP Schema 导出和 `room-testing` 运行时接口不一致。
 
 完整回归命令：
@@ -66,8 +67,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest connectedD
 结果：
 
 ```text
-Starting 9 tests on Redmi Note 8 Pro - 14
-Finished 9 tests on Redmi Note 8 Pro - 14
+Starting 11 tests on Redmi Note 8 Pro - 14
+Finished 11 tests on Redmi Note 8 Pro - 14
 BUILD SUCCESSFUL
 ```
 
@@ -105,7 +106,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 已验证：
 
 - ToolCall、ToolResult、审批、失败与恢复事件通过 sealed `RunEventMetadata` variants 暴露合法字段组合，新事件的 `message` 只保存可读摘要。
-- Room v7 引入独立 `metadataJson` 列，当前 v8 中 metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
+- Room v7 引入独立 `metadataJson` 列，当前 v9 中 metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
 - 任务中心 UI 直接读取 typed metadata，不再解析数据库 JSON；纯文本历史事件继续回退显示原文。
 - Responses `input` 可同时包含消息、`function_call` 和 `function_call_output`，调用与结果通过相同 `call_id` 关联。
 
@@ -140,6 +141,28 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 当前验证边界：
 
 - 二次确认弹窗只在“已成功执行非 SAFE 工具”或“中断发生在 EXECUTING/VERIFYING”时出现；本轮真实 Provider 流程在工具执行前拒绝审批，因此该分支由策略单元测试覆盖，未在真机制造真实副作用后再验证。
+
+## 长期记忆管理与 FTS 验证
+
+定向测试覆盖：
+
+- FTS4 英文/标签前缀查询和双引号转义。
+- 中文多词与任意子串的 `LIKE` 兜底召回，`%`、`_` 和反斜杠按字面搜索，不会扩大匹配范围。
+- 置顶优先、启用状态筛选，以及禁用后不再参与 `memory.search`。
+- 编辑内容时保留来源会话/Run；主表与 FTS 索引在新增、编辑和删除事务中保持一致。
+- v8→v9 迁移保留旧记忆并立即回填 FTS 索引。
+
+真机 UI 已验证：
+
+- Redmi Note 8 Pro 横屏下，空状态、记忆列表、英文搜索和“已禁用”筛选无文字或控件重叠。
+- 从“已禁用”筛选中重新启用记忆后，该条目立即移出当前列表。
+- 内容编辑保存、删除二次确认和来源审计信息正常；测试数据通过页面删除后，`agent_memories` 与 `agent_memories_fts` 均为空。
+
+本阶段完整回归结果：
+
+- `testDebugUnitTest`：79 条 JVM 单元测试通过。
+- `connectedDebugAndroidTest`：11 条 Redmi Note 8 Pro 真机测试通过。
+- `lintDebug` 与 `assembleDebug` 通过。
 
 ## 签名验证
 
@@ -192,32 +215,28 @@ application-label:'小灵'
 
 ### 当前 main debug 安装
 
-验证提交：`3690df60580aa2e0e75fafb31407177e2db259a3`
+验证基线：`433d43b` 之后的长期记忆管理工作区
 
 执行命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleDebug --console=plain
-adb -s wsvwypiz7xwslvl7 install app/build/outputs/apk/debug/app-debug.apk
-adb -s wsvwypiz7xwslvl7 shell am start -W -n com.longdev.xiaoling/com.longdev.xiaoling.MainActivity
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew installDebug --console=plain
+adb -s wsvwypiz7xwslvl7 shell monkey -p com.longdev.xiaoling -c android.intent.category.LAUNCHER 1
 ```
 
 结果：
 
 ```text
-Performing Streamed Install
-Success
-Status: ok
-LaunchState: COLD
-Activity: com.longdev.xiaoling/.MainActivity
+Installed on 1 device.
+Events injected: 1
 ```
 
 已确认：
 
 - APK 包名为 `com.longdev.xiaoling`，`versionName=0.1.9`，`versionCode=10`。
-- 用户先卸载旧包后重新安装，本次没有由自动化执行卸载或清数据命令。
+- instrumentation 回归后重新执行 `installDebug`，本次没有执行卸载或清数据命令。
 - `topResumedActivity` 为 `com.longdev.xiaoling/.MainActivity`，应用已在 Redmi Note 8 Pro 前台。
-- 本次冷启动日志未命中 `FATAL EXCEPTION`、`AndroidRuntime`、应用 ANR 或进程死亡。
+- 应用进程存活，启动后的 crash buffer 为空。
 
 ### v0.1.9 release 覆盖安装历史
 
