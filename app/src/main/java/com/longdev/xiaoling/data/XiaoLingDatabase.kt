@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AgentNoteEntity::class,
     ],
     version = 6,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun providerDao(): ProviderDao
@@ -40,7 +40,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                     XiaoLingDatabase::class.java,
                     "xiaoling.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(*migrations())
                     // long: 这是小灵首次引入 Room 的数据库；后续表结构变化必须补 Migration，不能再丢弃用户会话和运行记录。
                     .build()
                     .also { instance = it }
@@ -133,6 +133,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `messages` ADD COLUMN `verifiedAgentContext` TEXT")
             }
         }
+
+        fun migrations(): Array<Migration> = arrayOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+        )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {
             // long: 笔记是第一批可验证本地写入工具，独立成表后 notes.create 可以写入再回读验证，而不是把笔记混入普通聊天消息。

@@ -310,6 +310,7 @@
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
 - 对话 Run 时间线、审批卡片和设置页只读运行记录。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
+- Room v4/v6 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v6 真机自动化迁移测试。
 
 现有关键实现位于：
 
@@ -355,7 +356,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room 基础迁移、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试和运行 UI 已完成；独立 ToolCall/ToolResult 结构、消息 parts、AgentProfile、完整 Schema、权限策略、恢复和重试仍待完成。
+当前状态：Room 基础迁移、Schema 导出、v4→v6 自动化迁移测试、最小 ToolRegistry、AgentRuntime、审批/验证、确定性测试和运行 UI 已完成；独立 ToolCall/ToolResult 结构、消息 parts、AgentProfile、完整 Schema、权限策略、恢复和重试仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

@@ -6,6 +6,7 @@
 - Jetpack Compose
 - OkHttp
 - Room
+- KSP
 - Android Keystore
 - Gradle Wrapper
 
@@ -34,6 +35,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `OpenAiCompatibleClient` 仍直接承担模型列表、两种生成接口、SSE 和日志，尚未抽出独立 Provider Adapter；Agent 路径已通过 `AgentLlm / MinimalAgentRuntime / ToolRegistry` 与普通聊天分流，但仍复用该网络客户端。
 - Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4 与当前 v6 Schema；v4→v6 迁移测试通过正式 migration 列表和 DAO 回读验证用户数据。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页已有最小 Agent 运行记录入口，可以查看历史 Run、步骤、审批和事件，但还没有完整任务中心、运行恢复和后台任务入口。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -113,6 +115,7 @@
 
 - 新增、编辑、删除模型提供方。
 - 通过二维码、剪切板和 Base64 解码辅助导入配置。
+- 二维码导入申请相机权限，但 Manifest 将相机声明为可选硬件；无相机设备仍可使用手动配置和其他功能。
 - 请求 `GET <api-root>/models` 获取上游模型列表。
 - 手动勾选允许在对话页使用的模型。
 - 单个同步或批量同步模型列表。
@@ -120,6 +123,8 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 保存在 Room 数据库 `xiaoling.db`。
+- 数据库当前版本为 v6，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机创建带真实旧数据的 v4 数据库，再执行正式 v4→v5→v6 迁移并校验 Provider、会话、消息、Run、Step、审批、事件、笔记和记忆均保留。
+- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；测试同时覆盖全新 v6 数据库创建和打开。
 - AgentMemory 当前保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用状态和时间戳；记忆管理 UI、FTS 和撤销入口仍在后续里程碑。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
 - 主题与三类提示词偏好保存在 `xiaoling_ui` SharedPreferences。

@@ -25,6 +25,52 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
 BUILD SUCCESSFUL
 ```
 
+## Room Schema 与迁移自动化验证
+
+Schema 生成方式：
+
+- Room compiler 使用 KSP `2.3.7`，通过 Room Gradle Plugin `2.8.4` 的 `schemaDirectory` 导出到 `app/schemas/`。
+- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 Schema 从当前源码生成。
+- 当前提交历史中数据库版本直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6` 顺序执行完整链路。
+
+单测试命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.longdev.xiaoling.data.XiaoLingDatabaseMigrationInstrumentedTest
+```
+
+结果：
+
+```text
+Starting 2 tests on Redmi Note 8 Pro - 14
+Finished 2 tests on Redmi Note 8 Pro - 14
+BUILD SUCCESSFUL
+```
+
+已验证：
+
+- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v6，Room 最终 Schema 校验通过。
+- Provider、会话、用户/assistant 消息、Agent Run、Step、审批、Run Event、笔记和长期记忆均可通过 DAO 回读。
+- v4 旧消息迁移后 `origin=LEGACY`，`verifiedAgentContext=null`。
+- 全新 v6 内存数据库可以创建、打开并执行 DAO 查询。
+- Room 2.8.4 需要 kotlinx serialization 1.8.1；工程已统一该现有传递依赖版本，避免 KSP Schema 导出和 `room-testing` 运行时接口不一致。
+
+完整回归命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug
+```
+
+结果：
+
+```text
+Starting 3 tests on Redmi Note 8 Pro - 14
+Finished 3 tests on Redmi Note 8 Pro - 14
+BUILD SUCCESSFUL
+```
+
+补充说明：首次加入 `lintDebug` 时发现相机权限缺少可选硬件声明；已增加 `android.hardware.camera` 且 `required=false`，重跑完整命令后 lint 通过。
+
 ## 签名验证
 
 执行命令：

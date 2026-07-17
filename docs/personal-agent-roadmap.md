@@ -95,7 +95,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移和 Repository 已完成；Responses API 结构化历史、Provider Adapter、数据库导出/备份和 ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v6 自动化迁移测试和 Repository 已完成；Responses API 结构化历史、Provider Adapter、数据库备份和 ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -104,7 +104,8 @@ com.longdev.xiaoling.ui.agent
 - 待完成：抽出 `LlmProviderAdapter`，先实现现有 OpenAI-compatible Adapter。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 待完成：增加数据库导出/备份和正式 Room migration 测试。
+- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v6 migration 链和全新 v6 建库。
+- 待完成：增加面向用户的数据库备份与恢复能力。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
 ### 验收标准
@@ -298,7 +299,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 这些任务不属于单个功能，但必须贯穿所有里程碑：
 
-- 建立 Room migration 测试和数据库导出工具。
+- 已建立 Room Schema 导出和 migration 测试；继续补面向用户的数据库备份与恢复工具。
 - 建立脱敏结构化日志，统一 `runId`、`stepId`、`toolCallId`。
 - 为 Agent Runtime 提供假的 LLM 和 Tool Executor，做确定性状态机测试。
 - 建立工具契约测试：Schema、风险、权限、确认和验证信息不能缺失。
@@ -312,7 +313,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 取消已完成；结构化 Responses 与 Adapter 待完成 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository 已完成；迁移测试与导出待完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出和 v4→v6 迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件和取消已完成；恢复/重试待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 第一批 Registry/风险/确认/验证已完成；完整 Schema 和权限策略待完成 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线和只读运行记录已完成 | 已形成第一条端到端 Agent 链路 |
@@ -337,11 +338,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
-1. 继续补 Room migration 测试和数据库导出/备份。
-2. 抽出 `LlmProviderAdapter`，并把 Responses API 历史改为结构化消息输入。
+1. 抽出 `LlmProviderAdapter`，并把 Responses API 历史改为结构化消息输入。
+2. 把 ToolCall、ToolResult 与 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
 3. 将当前只读 Agent 运行记录升级为完整任务中心，支持完整工具结果视图、失败重试和恢复。
-4. 把 `RunEvent.message` 中的 JSON 字符串迁移为独立 metadata 字段。
-5. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
-6. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
+4. 增加长期记忆管理 UI、FTS、禁用/删除和来源引用审计。
+5. 把工具 Schema 从必填字符串扩展为完整类型和业务校验器，并补权限策略。
+6. 增加面向用户的数据库备份与恢复能力；多步 Agent、Skill 和后台任务在上述基础稳定后进入。
 
 完成这六项后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。

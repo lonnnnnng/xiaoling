@@ -34,7 +34,7 @@
 - 应用侧 Tool Registry、风险分级、交互审批、执行后验证和确定性结果渲染；模型不能修改工具风险或自行增加执行事实。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 对话内 Run 时间线和审批卡片，以及设置页只读 Agent 运行记录、步骤、审批和结构化事件展示。
-- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记和长期记忆；旧 SharedPreferences 数据首次启动时迁入。
+- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记和长期记忆；旧 SharedPreferences 数据首次启动时迁入，v4→v6 升级已有 Schema 导出和真机自动化迁移测试保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
 
