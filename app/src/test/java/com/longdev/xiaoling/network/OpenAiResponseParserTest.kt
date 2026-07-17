@@ -29,10 +29,10 @@ class OpenAiResponseParserTest {
     fun `chat stream delta is parsed`() {
         assertEquals(
             "OK",
-            OpenAiResponseParser.parseStreamDelta(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.CHAT_COMPLETIONS,
                 """{"choices":[{"delta":{"content":"OK"}}]}""",
-            ),
+            )?.deltaText,
         )
     }
 
@@ -40,10 +40,10 @@ class OpenAiResponseParserTest {
     fun `responses stream delta is parsed`() {
         assertEquals(
             "OK",
-            OpenAiResponseParser.parseStreamDelta(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.RESPONSES,
                 """{"type":"response.output_text.delta","delta":"OK"}""",
-            ),
+            )?.deltaText,
         )
     }
 
@@ -51,10 +51,10 @@ class OpenAiResponseParserTest {
     fun `responses stream newline delta is preserved`() {
         assertEquals(
             "\n\n",
-            OpenAiResponseParser.parseStreamDelta(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.RESPONSES,
                 """{"type":"response.output_text.delta","delta":"\n\n"}""",
-            ),
+            )?.deltaText,
         )
     }
 
@@ -62,25 +62,25 @@ class OpenAiResponseParserTest {
     fun `chat stream newline content is preserved`() {
         assertEquals(
             "\n",
-            OpenAiResponseParser.parseStreamDelta(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.CHAT_COMPLETIONS,
                 """{"choices":[{"delta":{"content":"\n"}}]}""",
-            ),
+            )?.deltaText,
         )
     }
 
     @Test
     fun `done stream marker is ignored`() {
-        assertNull(OpenAiResponseParser.parseStreamDelta(ApiMode.CHAT_COMPLETIONS, "[DONE]"))
+        assertNull(OpenAiResponseParser.parseStreamEvent(ApiMode.CHAT_COMPLETIONS, "[DONE]"))
     }
 
     @Test
     fun `responses completed stream event is ignored to avoid duplicate accumulated text`() {
         assertNull(
-            OpenAiResponseParser.parseStreamDelta(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.RESPONSES,
                 """{"type":"response.completed","response":{"output_text":"OK"}}""",
-            ),
+            )?.deltaText,
         )
     }
 
@@ -88,10 +88,10 @@ class OpenAiResponseParserTest {
     fun `responses output text done event exposes final text`() {
         assertEquals(
             "# Checklist\n\n1. [ ] Define the goal.",
-            OpenAiResponseParser.parseStreamFinalText(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.RESPONSES,
                 """{"type":"response.output_text.done","text":"# Checklist\n\n1. [ ] Define the goal."}""",
-            ),
+            )?.finalText,
         )
     }
 
@@ -99,10 +99,10 @@ class OpenAiResponseParserTest {
     fun `responses completed event exposes final output text`() {
         assertEquals(
             "# Report\n\n| Name | Status |\n| --- | --- |\n| Markdown | OK |",
-            OpenAiResponseParser.parseStreamFinalText(
+            OpenAiResponseParser.parseStreamEvent(
                 ApiMode.RESPONSES,
                 """{"type":"response.completed","response":{"output_text":"# Report\n\n| Name | Status |\n| --- | --- |\n| Markdown | OK |"}}""",
-            ),
+            )?.finalText,
         )
     }
 

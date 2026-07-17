@@ -24,7 +24,7 @@
 ## 当前已交付能力
 
 - 多 Provider、上游模型同步和模型选择。
-- Chat Completions、Responses API 和 SSE 流式输出。
+- Chat Completions、Responses API 和 SSE 流式输出；Responses 文本历史以结构化消息数组保留 system/user/assistant 角色边界。
 - 多会话、本地保存、会话摘要压缩和 Markdown 渲染。
 - Provider、模型、请求模式、流式状态、首字耗时和总耗时等消息元数据。
 - API Key 的 Android Keystore + AES-GCM 加密存储。

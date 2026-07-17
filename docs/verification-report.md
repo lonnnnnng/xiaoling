@@ -71,6 +71,23 @@ BUILD SUCCESSFUL
 
 补充说明：首次加入 `lintDebug` 时发现相机权限缺少可选硬件声明；已增加 `android.hardware.camera` 且 `required=false`，重跑完整命令后 lint 通过。
 
+## Provider Adapter 与 Responses 结构化历史验证
+
+实现依据：OpenAI 官方迁移文档确认 Responses API 的 `input` 可以直接接收消息列表，简单文本消息可复用 `role/content` 结构；system 或 developer guidance 也可以使用兼容消息 Item。参考：[Migrate to the Responses API](https://developers.openai.com/api/docs/guides/migrate-to-responses)。
+
+单测试命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest --tests com.longdev.xiaoling.network.OpenAiCompatibleAdapterTest
+```
+
+已验证：
+
+- Responses 请求的 `input` 是 JSON 数组，system/user/assistant 的角色和正文逐条保留，不再拼接成单一字符串。
+- Chat Completions 继续使用 `/chat/completions`、`messages` 和 `max_tokens`，不会混入 Responses 字段。
+- `LlmProviderAdapter` 负责 Provider URL、payload 和响应映射，`OpenAiCompatibleClient` 负责 HTTP、取消、计时和 SSE 读取。
+- `testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug` 完整回归通过：69 条 JVM 单元测试、3 条 Redmi Note 8 Pro 真机测试全部通过，lint 与 debug 构建成功。
+
 ## 签名验证
 
 执行命令：

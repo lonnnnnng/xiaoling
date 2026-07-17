@@ -20,7 +20,7 @@
 |---|---|---|
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、模型选择、模型提供方配置页面和轻量反馈。 |
 | ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、会话上下文、摘要压缩、模型同步、对话发送和配置保存。 |
-| Network | `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt` | 构造 OpenAI-compatible 请求，处理 Chat Completions、Responses API、SSE 流式输出和错误分类。 |
+| Network | `app/src/main/java/com/longdev/xiaoling/network/LlmProviderAdapter.kt`、`OpenAiCompatibleClient.kt` | Adapter 负责 OpenAI-compatible URL、payload 与响应协议；Client 负责 HTTP、鉴权 Header、取消、计时和 SSE 读取。 |
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、Conversation、Message、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 表。 |
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Repository seam、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
@@ -33,7 +33,7 @@
 当前工程仍是单一 Android `app` 模块，业务状态和主要流程集中在 `XiaoLingViewModel`：
 
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
-- `OpenAiCompatibleClient` 仍直接承担模型列表、两种生成接口、SSE 和日志，尚未抽出独立 Provider Adapter；Agent 路径已通过 `AgentLlm / MinimalAgentRuntime / ToolRegistry` 与普通聊天分流，但仍复用该网络客户端。
+- `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4 与当前 v6 Schema；v4→v6 迁移测试通过正式 migration 列表和 DAO 回读验证用户数据。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页已有最小 Agent 运行记录入口，可以查看历史 Run、步骤、审批和事件，但还没有完整任务中心、运行恢复和后台任务入口。
@@ -47,7 +47,7 @@
 1. 校验 `Base URL`、已启用模型和消息内容。
 2. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
 3. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
-4. Responses API 模式发送 `model`、`input`、`temperature`、`top_p`、`max_output_tokens` 和 `stream`。
+4. Responses API 模式发送 `model`、结构化 `input` 消息数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；system/user/assistant 角色不再拼接进单一字符串。
 5. 非流式响应从常见字段中提取文本。
 6. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
 7. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
@@ -142,7 +142,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses API 的历史消息当前被拼接为单一字符串，未来工具调用和多模态需要结构化输入。
+- Responses API 当前已支持文本消息的结构化历史；Tool/Reasoning/Image/File 等 typed Items 仍未进入消息持久化模型。
 - `/agent` 目前只接入第一批应用内低风险工具，运行记录页仍是只读历史审计；进程重建后会收敛中间态，但还没有继续执行和失败重试。
 - 工具 Schema 目前只覆盖必填字符串参数，还没有完整 JSON Schema、类型校验和业务校验器。
 - 运行恢复、后台任务、长期记忆管理 UI、Skill 和更多真实工具仍需按路线图继续补齐。

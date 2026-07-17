@@ -301,7 +301,7 @@
 截至 `v0.1.9`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
-- Chat Completions / Responses API。
+- Chat Completions / Responses API，以及保留 system/user/assistant 边界的 Responses 结构化文本历史。
 - SSE 流式输出与 30ms UI 节流。
 - 多轮会话、本地保存和摘要压缩。
 - Markdown、错误分类、结构化消息元数据。
@@ -310,6 +310,7 @@
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
 - 对话 Run 时间线、审批卡片和设置页只读运行记录。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
+- `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - Room v4/v6 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v6 真机自动化迁移测试。
 
 现有关键实现位于：
@@ -333,7 +334,7 @@
 | 运行记录是只读审计视图 | 进程重建后只能收敛中间态，不能继续执行或失败重试 |
 | 长期记忆只有基础表和工具 | 缺少管理 UI、FTS、撤销、去重和实际引用审计 |
 | 没有后台任务账本 | 定时/长任务无法断点恢复，也无法聚合失败与待确认 |
-| 消息仍以单一文本为主 | Tool/Reasoning/Image 等 parts 和 Responses API 结构化历史仍待实现 |
+| 消息仍以单一文本为主 | Responses 文本历史已结构化，但 Tool/Reasoning/Image 等 typed Items 仍待实现 |
 
 ## 6. 建议目标架构
 

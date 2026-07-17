@@ -61,19 +61,16 @@ object OpenAiResponseParser {
         throw ApiFailure(FailureKind.RESPONSE, "响应中没有 output_text 或 output[].content[].text")
     }
 
-    fun parseStreamDelta(apiMode: ApiMode, data: String): String? {
+    fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? {
         if (data == "[DONE]") return null
         val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
-        return when (apiMode) {
+        // long: 同一条 SSE 数据只解析一次，再同时提取增量和服务端最终文本，避免协议层重复反序列化并让 Client 依赖事件类型细节。
+        val deltaText = when (apiMode) {
             ApiMode.CHAT_COMPLETIONS -> parseChatStreamDelta(json)
             ApiMode.RESPONSES -> parseResponsesStreamDelta(json)
         }
-    }
-
-    fun parseStreamFinalText(apiMode: ApiMode, data: String): String? {
-        if (apiMode != ApiMode.RESPONSES || data == "[DONE]") return null
-        val json = runCatching { JSONObject(data) }.getOrNull() ?: return null
-        return parseResponsesStreamFinalText(json)
+        val finalText = if (apiMode == ApiMode.RESPONSES) parseResponsesStreamFinalText(json) else null
+        return if (deltaText == null && finalText == null) null else LlmStreamEvent(deltaText, finalText)
     }
 
     private fun parseChatStreamDelta(json: JSONObject): String? {

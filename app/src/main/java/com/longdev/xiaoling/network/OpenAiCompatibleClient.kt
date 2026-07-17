@@ -16,12 +16,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class OpenAiCompatibleClient {
+class OpenAiCompatibleClient(
+    private val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter(),
+) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -30,10 +30,10 @@ class OpenAiCompatibleClient {
         .build()
 
     suspend fun fetchModels(config: ProviderRequestConfig): List<String> = withContext(Dispatchers.IO) {
-        val requestUrl = ProviderApiUrlBuilder.modelsUrl(config.baseUrl)
+        val requestUrl = adapter.modelsUrl(config)
         val request = requestBuilder(requestUrl, config).get().build()
         execute(request) { body ->
-            OpenAiResponseParser.parseModels(body).ifEmpty {
+            adapter.parseModelsResponse(body).ifEmpty {
                 throw ApiFailure(FailureKind.RESPONSE, "服务器返回成功，但模型列表为空")
             }
         }
@@ -46,29 +46,21 @@ class OpenAiCompatibleClient {
     ): ModelResponseResult = withContext(Dispatchers.IO) {
         require(config.model.isNotBlank()) { "请输入或选择模型名称" }
         require(messages.isNotEmpty()) { "请输入消息" }
-        val requestUrl = when (config.apiMode) {
-            ApiMode.CHAT_COMPLETIONS -> ProviderApiUrlBuilder.chatCompletionsUrl(config.baseUrl)
-            ApiMode.RESPONSES -> ProviderApiUrlBuilder.responsesUrl(config.baseUrl)
-        }
-        val payload = when (config.apiMode) {
-            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, messages)
-            ApiMode.RESPONSES -> responsesPayload(config, messages)
-        }
+        val generationRequest = adapter.prepareGenerationRequest(config, messages)
+        val requestUrl = generationRequest.requestUrl
+        val body = generationRequest.body
 
         val request = requestBuilder(requestUrl, config)
-            .post(payload.toString().toRequestBody(jsonMediaType))
+            .post(body.toRequestBody(jsonMediaType))
             .build()
-        NetworkDebugLogger.logRequest(request, payload)
+        NetworkDebugLogger.logRequest(request, body)
         val startedAtMs = SystemClock.elapsedRealtime()
         val completion = if (config.streamingEnabled) {
             executeStreaming(config.apiMode, request, startedAtMs, onStreamDelta)
         } else {
             ModelCompletion(
                 text = execute(request) { body ->
-                    when (config.apiMode) {
-                        ApiMode.CHAT_COMPLETIONS -> OpenAiResponseParser.parseChatText(body)
-                        ApiMode.RESPONSES -> OpenAiResponseParser.parseResponsesText(body)
-                    }
+                    adapter.parseGenerationResponse(config.apiMode, body)
                 },
                 firstTokenLatencyMs = null,
             )
@@ -80,44 +72,6 @@ class OpenAiCompatibleClient {
             firstTokenLatencyMs = completion.firstTokenLatencyMs,
             responseText = completion.text,
         )
-    }
-
-    private fun chatPayload(config: ProviderRequestConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
-        .put("model", config.model.trim())
-        .put(
-            "messages",
-            JSONArray().apply {
-                messages.forEach { message ->
-                    put(
-                        JSONObject()
-                            .put("role", message.role)
-                            .put("content", message.content),
-                    )
-                }
-            },
-        )
-        .put("temperature", config.temperature)
-        .put("max_tokens", config.maxTokens)
-        .put("top_p", config.topP)
-        .put("stream", config.streamingEnabled)
-
-    private fun responsesPayload(config: ProviderRequestConfig, messages: List<RequestMessage>): JSONObject = JSONObject()
-        .put("model", config.model.trim())
-        .put("input", messages.toResponsesInput())
-        .put("temperature", config.temperature)
-        .put("max_output_tokens", config.maxTokens)
-        .put("top_p", config.topP)
-        .put("stream", config.streamingEnabled)
-
-    private fun List<RequestMessage>.toResponsesInput(): String {
-        return joinToString("\n\n") { message ->
-            val label = when (message.role) {
-                "system" -> "系统上下文"
-                "assistant" -> "assistant"
-                else -> "user"
-            }
-            "$label:\n${message.content}"
-        }
     }
 
     private fun requestBuilder(requestUrl: String, config: ProviderRequestConfig): Request.Builder {
@@ -191,11 +145,12 @@ class OpenAiCompatibleClient {
                         val data = line.trim().removePrefix("data:").trim()
                         if (data.isBlank()) return@forEach
                         NetworkDebugLogger.logStreamEvent(data)
-                        OpenAiResponseParser.parseStreamFinalText(apiMode, data)?.let { finalText ->
+                        val streamEvent = adapter.parseStreamEvent(apiMode, data) ?: return@forEach
+                        streamEvent.finalText?.let { finalText ->
                             // long: Responses API 的 done/completed 事件会给出服务端汇总后的完整文本；它能纠正部分网关把换行拆成独立 delta 时客户端漏拼的问题。
                             finalTextFromStream = finalText
                         }
-                        OpenAiResponseParser.parseStreamDelta(apiMode, data)?.let { delta ->
+                        streamEvent.deltaText?.let { delta ->
                             val currentFirstTokenLatencyMs = firstTokenLatencyMs ?: run {
                                 // long: 流式对话需要区分“首字到达”和“完整返回”，这里在第一个可读 delta 抵达时记录首字耗时。
                                 val latency = SystemClock.elapsedRealtime() - startedAtMs
@@ -242,12 +197,12 @@ private object NetworkDebugLogger {
     private val enabled: Boolean
         get() = BuildConfig.XIAOLING_HTTP_LOGS_ENABLED
 
-    fun logRequest(request: Request, payload: JSONObject) {
+    fun logRequest(request: Request, body: String) {
         if (!enabled) return
         // long: 调试模型兼容性时需要看到真实请求体，但鉴权头必须脱敏，避免 logcat 泄露用户密钥。
         Log.d(TAG, "REQUEST ${request.method} ${request.url}")
         Log.d(TAG, "REQUEST headers=${request.headers.redactedForLog()}")
-        Log.d(TAG, "REQUEST body=$payload")
+        Log.d(TAG, "REQUEST body=$body")
     }
 
     fun logResponse(request: Request, code: Int, body: String) {
@@ -286,9 +241,4 @@ data class StreamDeltaUpdate(
     val deltaText: String,
     val accumulatedText: String,
     val firstTokenLatencyMs: Long,
-)
-
-data class RequestMessage(
-    val role: String,
-    val content: String,
 )
