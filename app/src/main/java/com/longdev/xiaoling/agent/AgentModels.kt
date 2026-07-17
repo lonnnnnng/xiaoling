@@ -229,6 +229,7 @@ data class AgentRunSummary(
     val runId: String,
     val status: AgentRunStatus,
     val responseText: String,
+    val verifiedContext: VerifiedAgentContext,
 )
 
 data class AgentRuntimeOptions(

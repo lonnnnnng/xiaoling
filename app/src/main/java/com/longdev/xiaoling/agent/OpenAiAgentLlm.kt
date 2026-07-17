@@ -50,12 +50,11 @@ class OpenAiAgentLlm(
                 RequestMessage(
                     role = "user",
                     content = """
-                        用户目标：$goal
-                        工具：${toolCall.name}
-                        工具参数：${toolCall.arguments}
-                        工具结果：${toolResult.content}
+                        任务类型：${toolCall.name}
+                        结果长度：${toolResult.content.length} 字符
 
-                        请输出最终回复。
+                        根据 system 中的用户偏好选择展示配置。只返回 JSON：
+                        {"style":"compact","tone":"neutral"}
                     """.trimIndent(),
                 ),
             ),

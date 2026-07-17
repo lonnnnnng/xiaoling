@@ -17,8 +17,11 @@ import com.longdev.xiaoling.agent.ApprovalGate
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.VerifiedAgentContext
+import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.network.ApiFailure
@@ -28,6 +31,7 @@ import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.RequestMessage
 import com.longdev.xiaoling.network.StreamDeltaUpdate
 import com.longdev.xiaoling.prompt.PromptDefaults
+import com.longdev.xiaoling.prompt.PromptContextMessage
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.prompt.PromptSettings
 import com.longdev.xiaoling.storage.ConversationRepository
@@ -112,6 +116,8 @@ data class ChatMessage(
     val text: String,
     val id: String = newChatMessageId(),
     val createdAt: Long = System.currentTimeMillis(),
+    val origin: MessageOrigin = MessageOrigin.fromStored(value = null, role = role),
+    val verifiedAgentContext: VerifiedAgentContext? = null,
     val meta: MessageMeta? = null,
 )
 
@@ -888,6 +894,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     role = "assistant",
                     text = summary.responseText,
                     createdAt = System.currentTimeMillis(),
+                    origin = MessageOrigin.AGENT_RESULT,
+                    verifiedAgentContext = summary.verifiedContext,
                 )
                 uiState = uiState
                     .withUpdatedConversation(
@@ -1267,16 +1275,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         } else {
             messages.takeLast(RECENT_CONTEXT_MESSAGE_LIMIT)
         }
-        recentMessages
+        val olderVerifiedAgentResults = messages
+            .dropLast(recentMessages.size)
+            .filter { it.origin == MessageOrigin.AGENT_RESULT && it.verifiedAgentContext != null }
+            .takeLast(VERIFIED_AGENT_CONTEXT_LIMIT)
+        // long: 已压缩出最近窗口的 Agent 结果仍以结构化来源回传，避免可信工具事实进入普通摘要后丢失身份；数量受限以控制请求体积。
+        (olderVerifiedAgentResults + recentMessages)
             .forEach { message ->
                 requestMessages += RequestMessage(
                     role = message.role,
-                    content = if (message.role == "assistant") {
-                        // long: 普通 assistant 历史只用于语言上下文，显式降级其证据身份，避免模型把旧回复中的工具幻觉当成本轮已执行事实。
-                        PromptPolicy.ordinaryAssistantHistory(message.text)
-                    } else {
-                        message.text
-                    },
+                    // long: 消息是否具备工具事实身份由持久化来源字段决定；用户文本即使复述可信标记，也不会进入 Agent 结果分支。
+                    content = PromptPolicy.historyContent(message.toPromptContextMessage()),
                 )
             }
         return requestMessages
@@ -1328,27 +1337,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         existingSummary: String,
         messagesToCompress: List<ChatMessage>,
     ): String {
-        val transcript = messagesToCompress.toSummaryTranscript()
-        return buildString {
-            if (existingSummary.isNotBlank()) {
-                appendLine(existingSummary.trim())
-                appendLine()
-            }
-            appendLine("以下内容由本地记录压缩生成：")
-            append(transcript.takeLast(SUMMARY_MAX_CHARS))
-        }.trim().takeLast(SUMMARY_MAX_CHARS)
+        return PromptPolicy.localFallbackSummary(
+            existingSummary = existingSummary,
+            messages = messagesToCompress.map { it.toPromptContextMessage() },
+            maxChars = SUMMARY_MAX_CHARS,
+        ).trim()
     }
 
     private fun List<ChatMessage>.toSummaryTranscript(): String {
-        return joinToString("\n") { message ->
-            val label = if (message.role == "assistant") {
-                "assistant（普通对话回复，不代表工具或记忆操作已经执行）"
-            } else {
-                "user"
-            }
-            "$label: ${message.text.trim()}"
-        }
+        return PromptPolicy.summaryTranscript(map { it.toPromptContextMessage() })
     }
+
+    private fun ChatMessage.toPromptContextMessage() = PromptContextMessage(
+        origin = origin,
+        content = text,
+        verifiedAgentContext = verifiedAgentContext,
+    )
 
     private suspend fun syncStoredProfile(
         profile: ProviderProfile,
@@ -1686,6 +1690,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         role = role,
         text = text,
         createdAt = createdAt,
+        origin = MessageOrigin.fromStored(origin, role),
+        verifiedAgentContext = VerifiedAgentContextCodec.decode(verifiedAgentContext),
         meta = meta?.toMessageMeta(),
     )
 
@@ -1706,6 +1712,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         role = role,
         text = text,
         createdAt = createdAt,
+        origin = origin.name,
+        verifiedAgentContext = verifiedAgentContext?.let(VerifiedAgentContextCodec::encode),
         meta = meta?.toStoredMeta(),
     )
 
@@ -1746,6 +1754,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     companion object {
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 16
+        private const val VERIFIED_AGENT_CONTEXT_LIMIT = 8
         private const val SUMMARY_MAX_CHARS = 4_000
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50

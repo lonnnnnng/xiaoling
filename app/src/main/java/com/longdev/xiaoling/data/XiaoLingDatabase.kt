@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AgentMemoryEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 4,
+    version = 6,
     exportSchema = false,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -40,7 +40,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                     XiaoLingDatabase::class.java,
                     "xiaoling.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // long: 这是小灵首次引入 Room 的数据库；后续表结构变化必须补 Migration，不能再丢弃用户会话和运行记录。
                     .build()
                     .also { instance = it }
@@ -117,6 +117,20 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                 addColumnIfMissing(db, "agent_memories", "confidence", "REAL NOT NULL DEFAULT 0.8")
                 addColumnIfMissing(db, "agent_memories", "enabled", "INTEGER NOT NULL DEFAULT 1")
                 createAgentNotesTable(db)
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 消息来源决定普通回复能否作为工具事实使用；旧数据统一标为 LEGACY，再由业务层按角色保守降级，避免升级后错误放大历史幻觉。
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `origin` TEXT NOT NULL DEFAULT 'LEGACY'")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: Agent 模型总结与 Runtime 审计事实必须分开保存；可信上下文只读取该列中的确定性调用记录，不信任模型自由文本。
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `verifiedAgentContext` TEXT")
             }
         }
 

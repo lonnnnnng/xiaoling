@@ -26,6 +26,8 @@ data class StoredConversationMessage(
     val role: String,
     val text: String,
     val createdAt: Long,
+    val origin: String?,
+    val verifiedAgentContext: String?,
     val meta: StoredMessageMeta?,
 )
 
@@ -109,6 +111,8 @@ class ConversationStore(context: Context) {
                                         .put("role", message.role)
                                         .put("text", message.text)
                                         .put("createdAt", message.createdAt)
+                                        .put("origin", message.origin.orEmpty())
+                                        .put("verifiedAgentContext", message.verifiedAgentContext.orEmpty())
                                         .put("meta", message.meta.toJson()),
                                 )
                             }
@@ -156,6 +160,8 @@ class ConversationStore(context: Context) {
                         role = role,
                         text = text,
                         createdAt = json.optLong("createdAt", System.currentTimeMillis()),
+                        origin = json.optString("origin").takeIf { it.isNotBlank() },
+                        verifiedAgentContext = json.optString("verifiedAgentContext").takeIf { it.isNotBlank() },
                         meta = json.optJSONObject("meta")?.toStoredMessageMeta(),
                     ),
                 )

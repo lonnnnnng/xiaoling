@@ -2,6 +2,7 @@ package com.longdev.xiaoling.storage
 
 import com.longdev.xiaoling.data.MessageEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.model.MessageOrigin
 
 class MessageRepository(
     private val database: XiaoLingDatabase,
@@ -26,6 +27,8 @@ class MessageRepository(
         role = role,
         text = text,
         createdAt = createdAt,
+        origin = origin ?: MessageOrigin.LEGACY_VALUE,
+        verifiedAgentContext = verifiedAgentContext,
         providerId = meta?.providerId,
         providerName = meta?.providerName,
         model = meta?.model,
@@ -47,6 +50,8 @@ class MessageRepository(
         role = role,
         text = text,
         createdAt = createdAt,
+        origin = origin,
+        verifiedAgentContext = verifiedAgentContext,
         meta = StoredMessageMeta(
             providerId = providerId,
             providerName = providerName,

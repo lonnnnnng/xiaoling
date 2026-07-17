@@ -136,24 +136,34 @@ class MinimalAgentRuntime(
             val summaryStep = ledger.appendStep(
                 runId = run.id,
                 type = "llm.summarize",
-                title = "模型总结",
-                detail = "模型根据工具结果生成最终回复。",
+                title = "回复样式选择",
+                detail = "模型根据用户偏好选择回复详略和语气。",
                 status = AgentStepStatus.RUNNING,
             )
             activeStepId = summaryStep.id
             var summaryFallbackReason: String? = null
-            val response = try {
+            val summaryCandidate = try {
                 runTimedStep("模型总结", options.modelStepTimeoutMs, executionBudget) {
                     llm.summarize(goal, toolCall, toolResult)
                 }
             } catch (error: AgentTimeoutException) {
                 // long: 工具已经执行并验证成功时，最终总结只是展示层增强；上游总结超时不应把已经完成的本地写入任务改判失败，改用本地兜底回复保留可审计结果。
                 summaryFallbackReason = error.message ?: "模型总结超时"
-                buildFallbackResponse(run.id, goal, toolCall, toolResult)
-            }.ifBlank {
-                summaryFallbackReason = "模型总结为空"
-                buildFallbackResponse(run.id, goal, toolCall, toolResult)
+                null
+            }?.takeIf { it.isNotBlank() } ?: run {
+                if (summaryFallbackReason == null) {
+                    summaryFallbackReason = "模型总结为空"
+                }
+                null
             }
+            val presentation = summaryCandidate?.let(AgentSummaryPresentationParser::parse)
+            if (summaryCandidate != null && presentation == null) {
+                // long: 模型只能选择有限的展示样式，事实字段全部由 Runtime 填充；非法 JSON、额外字段和自由文本都不能进入用户可见回复。
+                summaryFallbackReason = "模型没有返回合法的总结样式配置"
+            }
+            val response = presentation?.let { selectedPresentation ->
+                buildVerifiedResponse(run.id, goal, toolCall, toolResult, selectedPresentation)
+            } ?: buildFallbackResponse(run.id, goal, toolCall, toolResult)
             val summaryDetail = if (summaryFallbackReason != null) {
                 ledger.appendEvent(
                     run.id,
@@ -162,12 +172,17 @@ class MinimalAgentRuntime(
                 )
                 "${summaryFallbackReason}，已使用本地兜底回复"
             } else {
-                "已生成最终回复"
+                "已按模型选择的安全样式生成最终回复"
             }
             ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, summaryDetail)
             activeStepId = null
             ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
-            AgentRunSummary(runId = run.id, status = AgentRunStatus.COMPLETED, responseText = response)
+            AgentRunSummary(
+                runId = run.id,
+                status = AgentRunStatus.COMPLETED,
+                responseText = response,
+                verifiedContext = buildVerifiedContext(run.id, toolCall, toolResult),
+            )
         } catch (error: AgentBudgetExceededException) {
             withContext(NonCancellable) {
                 activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
@@ -215,8 +230,40 @@ class MinimalAgentRuntime(
         toolCall: ToolCall,
         toolResult: ToolExecutionResult,
     ): String {
+        return buildVerifiedResponse(
+            runId = runId,
+            goal = goal,
+            toolCall = toolCall,
+            toolResult = toolResult,
+            presentation = AgentSummaryPresentation(
+                style = AgentSummaryStyle.DETAILED,
+                tone = AgentSummaryTone.NEUTRAL,
+            ),
+        )
+    }
+
+    private fun buildVerifiedResponse(
+        runId: String,
+        goal: String,
+        toolCall: ToolCall,
+        toolResult: ToolExecutionResult,
+        presentation: AgentSummaryPresentation,
+    ): String {
+        val heading = when (presentation.tone) {
+            AgentSummaryTone.NEUTRAL -> "Agent 任务已完成"
+            AgentSummaryTone.FRIENDLY -> "任务已完成，结果如下"
+            AgentSummaryTone.FORMAL -> "Agent 执行报告"
+        }
+        if (presentation.style == AgentSummaryStyle.COMPACT) {
+            return """
+                $heading
+
+                - 工具：${toolCall.name}
+                - 结果：${toolResult.content}
+            """.trimIndent()
+        }
         return """
-            Agent 演示任务已完成
+            $heading
 
             - Run ID：$runId
             - 目标：${goal.ifBlank { "未填写目标" }}
@@ -225,6 +272,27 @@ class MinimalAgentRuntime(
             - 执行结果：${toolResult.content}
             - 验证：工具结果可读，任务进入 COMPLETED 终态
         """.trimIndent()
+    }
+
+    private fun buildVerifiedContext(
+        runId: String,
+        toolCall: ToolCall,
+        toolResult: ToolExecutionResult,
+    ): VerifiedAgentContext {
+        val verificationStatus = when (toolResult.verified) {
+            true -> AgentVerificationStatus.VERIFIED
+            false -> AgentVerificationStatus.FAILED
+            null -> AgentVerificationStatus.READABLE_ONLY
+        }
+        // long: 后续对话只信任 Runtime 根据真实调用生成的审计块；模型总结可展示，但不能自行增加已执行工具或篡改成功、验证状态。
+        return VerifiedAgentContext(
+            runId = runId,
+            toolName = toolCall.name,
+            arguments = toolCall.arguments.toSortedMap(),
+            success = toolResult.success,
+            verificationStatus = verificationStatus,
+            rawResult = toolResult.content,
+        )
     }
 
     private suspend fun <T> runTimedStep(
@@ -288,6 +356,36 @@ private class AgentExecutionBudget(
     }
 
     private fun remainingMs(): Long = totalTimeoutMs - consumedMs
+}
+
+private enum class AgentSummaryStyle {
+    COMPACT,
+    DETAILED,
+}
+
+private enum class AgentSummaryTone {
+    NEUTRAL,
+    FRIENDLY,
+    FORMAL,
+}
+
+private data class AgentSummaryPresentation(
+    val style: AgentSummaryStyle,
+    val tone: AgentSummaryTone,
+)
+
+private object AgentSummaryPresentationParser {
+    fun parse(raw: String): AgentSummaryPresentation? {
+        return runCatching {
+            val json = JSONObject(raw.trim())
+            val keys = buildSet { json.keys().forEach(::add) }
+            require(keys == setOf("style", "tone"))
+            AgentSummaryPresentation(
+                style = AgentSummaryStyle.valueOf(json.getString("style").uppercase()),
+                tone = AgentSummaryTone.valueOf(json.getString("tone").uppercase()),
+            )
+        }.getOrNull()
+    }
 }
 
 private object AgentEventPayload {

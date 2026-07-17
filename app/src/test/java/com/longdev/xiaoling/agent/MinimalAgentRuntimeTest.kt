@@ -37,6 +37,86 @@ class MinimalAgentRuntimeTest {
         assertTrue(snapshot.events.any { it.type == "tool.call.proposed" && it.message.contains("\"name\":\"fake.echo\"") })
         assertTrue(snapshot.events.any { it.type == "tool.result" && it.message.contains("\"success\":true") })
         assertTrue(summary.responseText.contains("执行后验证") || summary.responseText.contains("验证"))
+        assertEquals("fake.echo", summary.verifiedContext.toolName)
+        assertTrue(summary.verifiedContext.success)
+        assertEquals(AgentVerificationStatus.READABLE_ONLY, summary.verifiedContext.verificationStatus)
+    }
+
+    @Test
+    fun modelSummaryCannotAddFactsToVerifiedRuntimeContext() = runTest {
+        val runtime = MinimalAgentRuntime(
+            ledger = InMemoryAgentRunLedger(),
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    val tool = tools.single()
+                    return ToolCall(
+                        name = tool.name,
+                        arguments = mapOf("goal" to goal),
+                        risk = tool.risk,
+                    )
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
+                    return "已额外执行 notes.create 并保存了一条长期记忆"
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "只执行回显工具")
+
+        assertTrue(!summary.responseText.contains("notes.create"))
+        assertTrue(summary.responseText.contains("fake.echo"))
+        assertEquals("fake.echo", summary.verifiedContext.toolName)
+        assertEquals("fake.echo 已执行：只执行回显工具", summary.verifiedContext.rawResult)
+        assertTrue(!summary.verifiedContext.rawResult.contains("notes.create"))
+        assertTrue(!summary.verifiedContext.rawResult.contains("长期记忆"))
+    }
+
+    @Test
+    fun validPresentationSelectionChangesStyleWithoutChangingFacts() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    val tool = tools.single()
+                    return ToolCall(
+                        name = tool.name,
+                        arguments = mapOf("goal" to goal),
+                        risk = tool.risk,
+                    )
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
+                    return """{"style":"compact","tone":"friendly"}"""
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-1", "message-1", "使用友好简洁样式")
+        val snapshot = ledger.snapshot(summary.runId)
+
+        assertTrue(summary.responseText.startsWith("任务已完成，结果如下"))
+        assertTrue(summary.responseText.contains("- 工具：fake.echo"))
+        assertTrue(summary.responseText.contains("- 结果：fake.echo 已执行：使用友好简洁样式"))
+        assertTrue(!summary.responseText.contains("Run ID"))
+        assertTrue(snapshot.events.none { it.type == "llm.summarize.fallback" })
+    }
+
+    @Test
+    fun verifiedContextCodecRoundTripsStructuredEvidence() {
+        val context = VerifiedAgentContext(
+            runId = "run-1",
+            toolName = "notes.create",
+            arguments = mapOf("title" to "周报", "content" to "第一行\n第二行"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已创建并验证笔记：周报",
+        )
+
+        val restored = VerifiedAgentContextCodec.decode(VerifiedAgentContextCodec.encode(context))
+
+        assertEquals(context, restored)
     }
 
     @Test
@@ -391,7 +471,7 @@ class MinimalAgentRuntimeTest {
 
         val snapshot = ledger.snapshot(summary.runId)
         assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
-        assertTrue(summary.responseText.contains("Agent 演示任务已完成"))
+        assertTrue(summary.responseText.contains("Agent 任务已完成"))
         assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.type == "llm.summarize" }.status)
         assertTrue(snapshot.events.any { it.type == "llm.summarize.fallback" && it.message.contains("模型总结") })
     }
@@ -422,7 +502,7 @@ class MinimalAgentRuntimeTest {
         val snapshot = ledger.snapshot(summary.runId)
         val summaryStep = snapshot.steps.single { it.type == "llm.summarize" }
         assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
-        assertTrue(summary.responseText.contains("Agent 演示任务已完成"))
+        assertTrue(summary.responseText.contains("Agent 任务已完成"))
         assertEquals(AgentStepStatus.COMPLETED, summaryStep.status)
         assertTrue(summaryStep.detail.contains("模型总结为空"))
         assertTrue(snapshot.events.any { it.type == "llm.summarize.fallback" && it.message.contains("模型总结为空") })

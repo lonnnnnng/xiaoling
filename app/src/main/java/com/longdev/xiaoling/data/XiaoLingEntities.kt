@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -39,6 +40,8 @@ data class MessageEntity(
     val role: String,
     val text: String,
     val createdAt: Long,
+    @ColumnInfo(defaultValue = "LEGACY") val origin: String,
+    val verifiedAgentContext: String?,
     val providerId: String?,
     val providerName: String?,
     val model: String?,
