@@ -16,7 +16,7 @@
 执行命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease --stacktrace
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRelease --stacktrace --console=plain
 ```
 
 结果：
@@ -30,7 +30,7 @@ BUILD SUCCESSFUL
 执行命令：
 
 ```zsh
-apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+/Users/long/Library/Android/sdk/build-tools/36.0.0/apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 ```
 
 结果：
@@ -54,13 +54,13 @@ Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d7
 执行命令：
 
 ```zsh
-aapt dump badging app/build/outputs/apk/release/app-release.apk
+/Users/long/Library/Android/sdk/build-tools/36.0.0/aapt dump badging app/build/outputs/apk/release/app-release.apk
 ```
 
 关键结果：
 
 ```text
-package: name='com.longdev.xiaoling' versionCode='9' versionName='0.1.8'
+package: name='com.longdev.xiaoling' versionCode='10' versionName='0.1.9'
 application-label:'小灵'
 ```
 
@@ -69,7 +69,7 @@ application-label:'小灵'
 执行命令：
 
 ```zsh
-adb -s wsvwypiz7xwslvl7 install -r outputs/release/xiaoling-v0.1.8.apk
+adb -s wsvwypiz7xwslvl7 install -r outputs/release/xiaoling-v0.1.9.apk
 adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 ```
 
@@ -77,7 +77,7 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 ```text
 Performing Streamed Install
-adb: failed to install outputs/release/xiaoling-v0.1.8.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.longdev.xiaoling signatures do not match newer version; ignoring!]
+adb: failed to install outputs/release/xiaoling-v0.1.9.apk: Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package com.longdev.xiaoling signatures do not match newer version; ignoring!]
 Starting: Intent { cmp=com.longdev.xiaoling/.MainActivity }
 ```
 
@@ -124,8 +124,8 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 | 文件 | 说明 |
 |---|---|
 | `../app/build/outputs/apk/release/app-release.apk` | release 包，已通过正式签名验证。 |
-| `../outputs/release/xiaoling-v0.1.8.apk` | GitHub Release 上传用 APK。 |
-| `../outputs/release/xiaoling-v0.1.8.apk.sha256` | APK SHA-256 校验文件。 |
+| `../outputs/release/xiaoling-v0.1.9.apk` | GitHub Release 上传用 APK，SHA-256：`b8a8c77e6e1f83543d3bd775ffda83615e7f06ad846b0c0f83cf9a1ac778c5b8`。 |
+| `../outputs/release/xiaoling-v0.1.9.apk.sha256` | APK SHA-256 校验文件。 |
 
 ## 清理状态
 
