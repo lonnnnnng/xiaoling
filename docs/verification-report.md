@@ -157,6 +157,37 @@ application-label:'小灵'
 
 ## 真机安装与启动
 
+### 当前 main debug 安装
+
+验证提交：`3690df60580aa2e0e75fafb31407177e2db259a3`
+
+执行命令：
+
+```zsh
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleDebug --console=plain
+adb -s wsvwypiz7xwslvl7 install app/build/outputs/apk/debug/app-debug.apk
+adb -s wsvwypiz7xwslvl7 shell am start -W -n com.longdev.xiaoling/com.longdev.xiaoling.MainActivity
+```
+
+结果：
+
+```text
+Performing Streamed Install
+Success
+Status: ok
+LaunchState: COLD
+Activity: com.longdev.xiaoling/.MainActivity
+```
+
+已确认：
+
+- APK 包名为 `com.longdev.xiaoling`，`versionName=0.1.9`，`versionCode=10`。
+- 用户先卸载旧包后重新安装，本次没有由自动化执行卸载或清数据命令。
+- `topResumedActivity` 为 `com.longdev.xiaoling/.MainActivity`，应用已在 Redmi Note 8 Pro 前台。
+- 本次冷启动日志未命中 `FATAL EXCEPTION`、`AndroidRuntime`、应用 ANR 或进程死亡。
+
+### v0.1.9 release 覆盖安装历史
+
 执行命令：
 
 ```zsh
