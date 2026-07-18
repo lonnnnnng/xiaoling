@@ -550,3 +550,17 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 第一版只支持 1 分钟至 7 天的一次性非精确计划，不支持 Daily/Weekly、AlarmManager、精确闹钟权限或 Foreground Service。
 - SAFE 后台白名单仅包含当前时间、会话查询、笔记查询和长期记忆查询；`notes.create / memory.remember` 等需审批工具不会继承前台授权，而是写入 Agent/Workflow/ScheduledTask `BLOCKED` 并提示用户以前台新 Run 重试。
 - WorkManager 业务结果不使用系统自动重试，避免复制可能已经执行过的 Agent Run；系统回收后的跨进程续跑仍是下一阶段验证项。
+
+真机覆盖安装与结构验证：
+
+- 实现提交 `ed8d7a5 实现一次性后台工作流调度` 已推送到 `origin/main`。
+- Debug APK SHA-256：`b6932e5135e96385272e3ecd29aefe9fc5690ff2aac7913e1d905b53edf6dbba`。
+- 使用 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 覆盖安装成功；未卸载、未清数据、未运行 instrumentation。
+- 安装后仍为 `versionName=0.1.9`、`versionCode=10`；应用进程 PID `7420`，`com.longdev.xiaoling/.MainActivity` 已进入 resumed 状态，crash buffer 为空。
+- 只读取非敏感结构信息确认 `PRAGMA user_version=14`；`workflows / workflow_runs / workflow_steps / scheduled_tasks` 四张表存在，`workflow_runs` 含 `plannedAt / scheduledTaskId`，初始 `scheduled_tasks` 记录数为 0。
+- 合并后的 Manifest 已注册 `androidx.startup.InitializationProvider` 和 WorkManager `SystemJobService`。
+
+未完成真机验收：
+
+- 手机仍停留在系统锁屏，`mCurrentFocus` 为 `NotificationShade`，没有绕过用户凭据；因此无法从工作流页创建一次性计划。
+- 设备为 Android 14（API 34），`POST_NOTIFICATIONS` 当前 `granted=false`、AppOps 为 `ignore`。没有替用户修改通知权限；完成/失败/blocked 通知只完成代码、单元测试和 Manifest/Channel 结构验证，尚未完成真机展示验收。

@@ -105,7 +105,7 @@ local-signing/xiaoling-release.jks
 - 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。
 - 真机顺序多步 Run：`app.list_conversations -> app.current_time -> complete` 在同一 Run 完成，两次工具执行和两次验证均有 Room 审计记录。
 - 真机 Room v12：debug 包覆盖安装后主库升级为 v12，`agent_skills` 表与索引存在；本轮未运行 instrumentation，锁屏状态下未完成 Skill 管理页可视验收。
-- Room v14 Schema 与 AndroidTest APK 已编译：新增 `scheduled_tasks`，并为 `workflow_runs` 增加 `scheduledTaskId / plannedAt`；真机迁移与一次性计划触发结果见验证报告。
+- 真机 Room v14：debug 包覆盖安装后主库升级为 v14，`scheduled_tasks` 与 `workflow_runs.scheduledTaskId / plannedAt` 均存在；设备锁屏且通知权限被拒绝，未完成一次性 SAFE/blocked 触发与通知展示验收。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档
