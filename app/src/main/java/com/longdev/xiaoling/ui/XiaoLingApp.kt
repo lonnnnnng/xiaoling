@@ -2045,7 +2045,8 @@ private fun WorkflowManagementPage(
                     key = { index -> state.workflows[index].id },
                 ) { index ->
                     val workflow = state.workflows[index]
-                    val latestRun = state.workflowRuns.firstOrNull { it.run.workflowId == workflow.id }
+                    val runs = state.workflowRuns.filter { it.run.workflowId == workflow.id }
+                    val latestRun = runs.firstOrNull()
                     WorkflowItem(
                         workflowName = workflow.name,
                         goal = workflow.goal,
@@ -2055,7 +2056,7 @@ private fun WorkflowManagementPage(
                             WorkflowRunStatus.QUEUED,
                             WorkflowRunStatus.RUNNING,
                         ),
-                        latestRun = latestRun,
+                        runs = runs,
                         onEnabledChange = { enabled -> viewModel.setWorkflowEnabled(workflow.id, enabled) },
                         onRun = { viewModel.runWorkflow(workflow.id) },
                     )
@@ -2082,11 +2083,12 @@ private fun WorkflowItem(
     enabled: Boolean,
     mutating: Boolean,
     running: Boolean,
-    latestRun: WorkflowRunDetail?,
+    runs: List<WorkflowRunDetail>,
     onEnabledChange: (Boolean) -> Unit,
     onRun: () -> Unit,
 ) {
     var expanded by remember(workflowName) { mutableStateOf(false) }
+    val latestRun = runs.firstOrNull()
     Surface(
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -2129,25 +2131,35 @@ private fun WorkflowItem(
                 )
             }
             Text(goal, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
-            if (expanded && latestRun != null) {
+            if (expanded && runs.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                latestRun.steps.forEach { step ->
+                runs.forEachIndexed { index, detail ->
                     Text(
-                        "${step.sequence}. ${step.title} · ${step.status.toWorkflowStepStatusLabel()}",
+                        "${detail.run.createdAt.toFullTimeLabel()} · ${detail.run.status.toWorkflowStatusLabel()}",
                         style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
                     )
-                }
-                latestRun.run.result?.takeIf { it.isNotBlank() }?.let { result ->
-                    Text("结果：$result", style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
-                }
-                latestRun.run.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
-                    Text(
-                        "失败：$error",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    detail.steps.forEach { step ->
+                        Text(
+                            "${step.sequence}. ${step.title} · ${step.status.toWorkflowStepStatusLabel()}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    detail.run.result?.takeIf { it.isNotBlank() }?.let { result ->
+                        Text("结果：$result", style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                    }
+                    detail.run.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+                        Text(
+                            "失败：$error",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (index != runs.lastIndex) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
                 }
             }
         }
@@ -2192,20 +2204,18 @@ private fun WorkflowCreateDialog(
     )
 }
 
-private fun WorkflowRunStatus.toWorkflowStatusLabel(): String = when (this) {
-    WorkflowRunStatus.QUEUED -> "等待"
-    WorkflowRunStatus.RUNNING -> "运行中"
-    WorkflowRunStatus.COMPLETED -> "已完成"
-    WorkflowRunStatus.FAILED -> "失败"
-    WorkflowRunStatus.CANCELLED -> "已取消"
-}
+private fun WorkflowRunStatus.toWorkflowStatusLabel(): String = workflowStatusLabel(name)
 
-private fun WorkflowStepStatus.toWorkflowStepStatusLabel(): String = when (this) {
-    WorkflowStepStatus.PENDING -> "等待"
-    WorkflowStepStatus.RUNNING -> "运行中"
-    WorkflowStepStatus.COMPLETED -> "已完成"
-    WorkflowStepStatus.FAILED -> "失败"
-    WorkflowStepStatus.CANCELLED -> "已取消"
+private fun WorkflowStepStatus.toWorkflowStepStatusLabel(): String = workflowStatusLabel(name)
+
+private fun workflowStatusLabel(status: String): String = when (status) {
+    WorkflowRunStatus.QUEUED.name,
+    WorkflowStepStatus.PENDING.name -> "等待"
+    WorkflowRunStatus.RUNNING.name -> "运行中"
+    WorkflowRunStatus.COMPLETED.name -> "已完成"
+    WorkflowRunStatus.FAILED.name -> "失败"
+    WorkflowRunStatus.CANCELLED.name -> "已取消"
+    else -> status
 }
 
 @Composable

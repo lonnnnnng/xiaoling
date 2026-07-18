@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.automation
 
+import com.longdev.xiaoling.agent.AgentRunStatus
+
 data class WorkflowRecord(
     val id: String,
     val name: String,
@@ -62,6 +64,19 @@ enum class WorkflowStepStatus {
     COMPLETED,
     FAILED,
     CANCELLED,
+}
+
+object WorkflowAgentRunStatusPolicy {
+    fun terminalStatus(agentStatus: AgentRunStatus): WorkflowRunStatus? {
+        // long: 前台执行、审批恢复和启动对账必须共享同一终态映射，新增 Agent 状态时不能让两条链路产生不同 Workflow 结论。
+        return when (agentStatus) {
+            AgentRunStatus.COMPLETED -> WorkflowRunStatus.COMPLETED
+            AgentRunStatus.CANCELLED -> WorkflowRunStatus.CANCELLED
+            AgentRunStatus.FAILED,
+            AgentRunStatus.BUDGET_EXHAUSTED -> WorkflowRunStatus.FAILED
+            else -> null
+        }
+    }
 }
 
 object WorkflowDefinitionPolicy {

@@ -23,6 +23,7 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentSkillDocumentCodec
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.ApprovalDecision
@@ -33,6 +34,7 @@ import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.automation.WorkflowRecord
+import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.model.AppThemeMode
@@ -336,7 +338,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
                 workflowRepository.reconcileInterruptedRuns()
-                workflowRepository.listWorkflows() to workflowRepository.recentRunDetails()
+                workflowRepository.listWorkflows() to workflowRepository.allRunDetails()
             }
             val latestDeletedMemory = withContext(Dispatchers.IO) {
                 // long: 删除撤销快照独立于页面内存；启动时与 Room 正式记录核对后恢复入口，保证进程重建不会丢失最近一次撤销机会。
@@ -597,7 +599,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         workflowLoadJob = viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    workflowRepository.listWorkflows() to workflowRepository.recentRunDetails()
+                    workflowRepository.listWorkflows() to workflowRepository.allRunDetails()
                 }
             }.onSuccess { (workflows, runs) ->
                 uiState = uiState.copy(
@@ -1400,13 +1402,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     approvalGate = interactiveAgentApprovalGate(source.conversationId),
                     onSnapshot = ::publishAgentRunSnapshot,
                 )
-                withContext(Dispatchers.IO) {
-                    workflowRepository.completeByAgentRunId(
-                        agentRunId = summary.runId,
-                        status = WorkflowRunStatus.COMPLETED,
-                        result = summary.responseText,
-                    )
-                }
+                settleWorkflowLedger(
+                    agentRunId = summary.runId,
+                    agentStatus = AgentRunStatus.COMPLETED,
+                    result = summary.responseText,
+                )
                 val finalMessages = conversation.messages + ChatMessage(
                     role = "assistant",
                     text = summary.responseText,
@@ -1431,18 +1431,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
                 saveConversationSelection()
             } catch (error: CancellationException) {
-                finishWorkflowRunByAgentRunIdSafely(
-                    agentRunId = source.id,
-                    status = WorkflowRunStatus.CANCELLED,
-                    errorMessage = "用户停止工作流执行",
-                )
+                reconcileWorkflowAfterResumeFailure(source.id, "用户停止工作流执行")
                 uiState = uiState.copy(sendingMessage = false, result = null)
             } catch (error: Throwable) {
-                finishWorkflowRunByAgentRunIdSafely(
-                    agentRunId = source.id,
-                    status = WorkflowRunStatus.FAILED,
-                    errorMessage = error.message ?: "未知错误",
-                )
+                reconcileWorkflowAfterResumeFailure(source.id, error.message ?: "未知错误")
                 uiState = uiState.copy(sendingMessage = false, result = null)
             } finally {
                 sendMessageJob = null
@@ -1462,15 +1454,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
                 agentRunRepository.updateRunStatus(
                     runId = pending.runId,
-                    status = com.longdev.xiaoling.agent.AgentRunStatus.FAILED,
-                    errorMessage = "用户拒绝恢复后的工具执行",
-                )
-                workflowRepository.completeByAgentRunId(
-                    agentRunId = pending.runId,
-                    status = WorkflowRunStatus.FAILED,
+                    status = AgentRunStatus.FAILED,
                     errorMessage = "用户拒绝恢复后的工具执行",
                 )
             }
+            settleWorkflowLedger(
+                agentRunId = pending.runId,
+                agentStatus = AgentRunStatus.FAILED,
+                errorMessage = "用户拒绝恢复后的工具执行",
+            )
             clearPendingApprovalForConversation(pending.conversationId)
             refreshAgentRunHistory()
             refreshWorkflows()
@@ -1939,15 +1931,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         publishAgentRunSnapshot(snapshot)
                     },
                 )
-                if (workflowRunId != null) {
-                    withContext(Dispatchers.IO) {
-                        workflowRepository.completeRun(
-                            workflowRunId = workflowRunId,
-                            status = WorkflowRunStatus.COMPLETED,
-                            result = summary.responseText,
-                        )
-                    }
-                }
+                settleWorkflowLedger(
+                    workflowRunId = workflowRunId,
+                    agentStatus = AgentRunStatus.COMPLETED,
+                    result = summary.responseText,
+                )
                 val finalMessages = messagesWithUser + ChatMessage(
                     role = "assistant",
                     text = summary.responseText,
@@ -1973,9 +1961,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: CancellationException) {
-                finishWorkflowRunSafely(
+                settleWorkflowLedger(
                     workflowRunId = workflowRunId,
-                    status = WorkflowRunStatus.CANCELLED,
+                    agentStatus = AgentRunStatus.CANCELLED,
                     errorMessage = "用户停止工作流执行",
                 )
                 val stoppedMessages = messagesWithUser + ChatMessage(
@@ -1996,9 +1984,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: Throwable) {
-                finishWorkflowRunSafely(
+                settleWorkflowLedger(
                     workflowRunId = workflowRunId,
-                    status = WorkflowRunStatus.FAILED,
+                    agentStatus = AgentRunStatus.FAILED,
                     errorMessage = error.message ?: "未知错误",
                 )
                 val failedMessages = messagesWithUser + ChatMessage(
@@ -2033,19 +2021,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun finishWorkflowRunSafely(
-        workflowRunId: String?,
-        status: WorkflowRunStatus,
-        errorMessage: String,
+    private suspend fun settleWorkflowLedger(
+        workflowRunId: String? = null,
+        agentRunId: String? = null,
+        agentStatus: AgentRunStatus,
+        result: String? = null,
+        errorMessage: String? = null,
     ) {
-        if (workflowRunId == null) return
+        if (workflowRunId == null && agentRunId == null) return
+        require(workflowRunId == null || agentRunId == null) { "工作流收敛只能使用一种关联 ID" }
+        // long: 所有前台与恢复分支只报告 Agent 真实终态；本方法统一映射并写入 Workflow Ledger，避免某条异常路径漏写或写成不同状态。
+        val workflowStatus = WorkflowAgentRunStatusPolicy.terminalStatus(agentStatus) ?: return
         runCatching {
             withContext(NonCancellable + Dispatchers.IO) {
-                workflowRepository.completeRun(
-                    workflowRunId = workflowRunId,
-                    status = status,
-                    errorMessage = errorMessage,
-                )
+                if (workflowRunId != null) {
+                    workflowRepository.completeRun(workflowRunId, workflowStatus, result, errorMessage)
+                } else {
+                    workflowRepository.completeByAgentRunId(requireNotNull(agentRunId), workflowStatus, result, errorMessage)
+                }
             }
         }.onFailure { ledgerError ->
             withContext(NonCancellable + Dispatchers.Main.immediate) {
@@ -2054,24 +2047,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun finishWorkflowRunByAgentRunIdSafely(
-        agentRunId: String,
-        status: WorkflowRunStatus,
-        errorMessage: String,
-    ) {
-        runCatching {
-            withContext(NonCancellable + Dispatchers.IO) {
-                workflowRepository.completeByAgentRunId(
-                    agentRunId = agentRunId,
-                    status = status,
-                    errorMessage = errorMessage,
-                )
-            }
-        }.onFailure { ledgerError ->
-            withContext(NonCancellable + Dispatchers.Main.immediate) {
-                uiState = uiState.copy(workflowError = ledgerError.message ?: "工作流 Ledger 收敛失败")
-            }
+    private suspend fun reconcileWorkflowAfterResumeFailure(agentRunId: String, fallbackError: String) {
+        val agentRun = withContext(NonCancellable + Dispatchers.IO) {
+            agentRunRepository.runDetail(agentRunId)?.snapshot?.run
+        } ?: return
+        if (agentRun.status == AgentRunStatus.WAITING_APPROVAL) {
+            // long: Skill 删除或升版会在批准决定落库前阻止恢复；Agent 与审批仍有效时，Workflow 必须继续等待用户处理，不能伪造失败终态。
+            return
         }
+        settleWorkflowLedger(
+            agentRunId = agentRunId,
+            agentStatus = agentRun.status,
+            result = agentRun.result,
+            errorMessage = agentRun.errorMessage ?: fallbackError,
+        )
     }
 
     private fun interactiveAgentApprovalGate(conversationId: String): ApprovalGate {

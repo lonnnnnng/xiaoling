@@ -13,6 +13,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -37,6 +38,10 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.QUEUED, created.run.status)
         assertEquals(WorkflowStepStatus.PENDING, created.steps.single().status)
         assertNull(created.run.agentRunId)
+        val duplicateError = runCatching {
+            repository.createManualRun(workflow.id, "conversation-1")
+        }.exceptionOrNull()
+        assertTrue(duplicateError is IllegalArgumentException)
 
         repository.markAgentRunStarted(created.run.id, "agent-run-1")
         repository.markAgentRunStarted(created.run.id, "agent-run-1")

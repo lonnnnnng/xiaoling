@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
+import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRecord
@@ -49,10 +50,12 @@ class RoomWorkflowRepository(
     }
 
     suspend fun createManualRun(workflowId: String, conversationId: String): WorkflowRunDetail {
+        // long: 定义校验、Run 和首个步骤必须在同一事务内建立；否则进程中断可能留下没有步骤的 Run，后续既无法展示也无法安全对账。
         return database.withTransaction {
             val dao = database.workflowDao()
             val workflow = dao.getWorkflow(workflowId) ?: error("工作流不存在：$workflowId")
             require(workflow.enabled) { "工作流已停用，不能执行" }
+            require(dao.getActiveRun(workflowId) == null) { "这个工作流已有未完成的 Run" }
             val now = System.currentTimeMillis()
             val run = WorkflowRunEntity(
                 id = "workflow-run-${UUID.randomUUID()}",
@@ -123,6 +126,7 @@ class RoomWorkflowRepository(
         errorMessage: String? = null,
     ): WorkflowRunRecord {
         require(status.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
+        // long: Run 与步骤共享一次终态提交，避免任务中心看到 Run 已完成但步骤仍在运行；重复回调只返回首次写入的终态结果。
         return database.withTransaction {
             val dao = database.workflowDao()
             val current = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
@@ -166,7 +170,15 @@ class RoomWorkflowRepository(
 
     suspend fun recentRunDetails(limit: Int = 50): List<WorkflowRunDetail> {
         val dao = database.workflowDao()
-        val runs = dao.recentRuns(limit)
+        return loadRunDetails(dao.recentRuns(limit))
+    }
+
+    suspend fun allRunDetails(): List<WorkflowRunDetail> {
+        return loadRunDetails(database.workflowDao().listRuns())
+    }
+
+    private suspend fun loadRunDetails(runs: List<WorkflowRunEntity>): List<WorkflowRunDetail> {
+        val dao = database.workflowDao()
         if (runs.isEmpty()) return emptyList()
         val stepsByRunId = dao.getStepsForRuns(runs.map { it.id }).groupBy { it.workflowRunId }
         return runs.map { run ->
@@ -193,24 +205,17 @@ class RoomWorkflowRepository(
                     reconciled += 1
                 }
                 agentRun.status == AgentRunStatus.WAITING_APPROVAL.name -> Unit
-                agentRun.status == AgentRunStatus.COMPLETED.name -> {
-                    completeRun(workflowRun.id, WorkflowRunStatus.COMPLETED, result = agentRun.result)
-                    reconciled += 1
-                }
-                agentRun.status == AgentRunStatus.CANCELLED.name -> {
-                    completeRun(workflowRun.id, WorkflowRunStatus.CANCELLED, errorMessage = agentRun.errorMessage)
-                    reconciled += 1
-                }
-                agentRun.status in setOf(AgentRunStatus.FAILED.name, AgentRunStatus.BUDGET_EXHAUSTED.name) -> {
-                    completeRun(workflowRun.id, WorkflowRunStatus.FAILED, errorMessage = agentRun.errorMessage)
-                    reconciled += 1
-                }
                 else -> {
-                    // long: 进程重建后旧协程不存在；除明确可恢复的审批等待外，工作流不能继续显示运行中或重新执行可能有副作用的步骤。
+                    val agentStatus = runCatching { AgentRunStatus.valueOf(agentRun.status) }.getOrNull()
+                    val workflowStatus = agentStatus?.let(WorkflowAgentRunStatusPolicy::terminalStatus)
+                        ?: WorkflowRunStatus.FAILED
+                    // long: 进程重建后旧协程不存在；除明确可恢复的审批等待外，活动状态按失败收敛，绝不重新执行可能有副作用的步骤。
                     completeRun(
                         workflowRun.id,
-                        WorkflowRunStatus.FAILED,
-                        errorMessage = "应用重启后无法恢复工作流执行栈",
+                        workflowStatus,
+                        result = agentRun.result.takeIf { workflowStatus == WorkflowRunStatus.COMPLETED },
+                        errorMessage = agentRun.errorMessage
+                            ?: "应用重启后无法恢复工作流执行栈".takeIf { workflowStatus != WorkflowRunStatus.COMPLETED },
                     )
                     reconciled += 1
                 }

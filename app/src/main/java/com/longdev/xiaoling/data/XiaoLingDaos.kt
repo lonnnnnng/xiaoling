@@ -226,8 +226,14 @@ interface WorkflowDao {
     @Query("SELECT * FROM workflow_runs WHERE agentRunId = :agentRunId")
     suspend fun getRunByAgentRunId(agentRunId: String): WorkflowRunEntity?
 
+    @Query("SELECT * FROM workflow_runs WHERE workflowId = :workflowId AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getActiveRun(workflowId: String): WorkflowRunEntity?
+
     @Query("SELECT * FROM workflow_runs ORDER BY createdAt DESC LIMIT :limit")
     suspend fun recentRuns(limit: Int): List<WorkflowRunEntity>
+
+    @Query("SELECT * FROM workflow_runs ORDER BY createdAt DESC")
+    suspend fun listRuns(): List<WorkflowRunEntity>
 
     @Query("SELECT * FROM workflow_runs WHERE status IN (:statuses) ORDER BY createdAt ASC")
     suspend fun runsByStatuses(statuses: List<String>): List<WorkflowRunEntity>

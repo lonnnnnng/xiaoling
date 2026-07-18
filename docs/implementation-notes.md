@@ -96,9 +96,9 @@
 
 ## Workflow Ledger
 
-- 设置页「工作流」可保存名称和 Agent 目标、启停定义、手动执行并查看最近一次运行与单步结果；同一工作流存在 `QUEUED / RUNNING` Run 时拒绝重复启动。
+- 设置页「工作流」可保存名称和 Agent 目标、启停定义、手动执行并展开查看已加载的全部运行与单步结果；同一工作流存在 `QUEUED / RUNNING` Run 时，Repository 在创建事务内拒绝重复启动，UI 检查只用于提前反馈。
 - 手动执行先原子创建 `WorkflowRun` 和一个 `AGENT_RUN` 步骤，再进入当前会话的现有前台 Agent Runtime。首个 Agent 快照只允许把该步骤关联到一个稳定 `agentRunId`，后续快照幂等复用，不能产生第二次执行。
-- Agent 完成、失败、取消和用户拒绝审批都会收敛 Workflow Run 与 Step；结果和失败原因独立保存，历史 Agent Run 继续保留完整工具审计。
+- Agent 完成、失败、取消和用户拒绝审批都会通过统一终态映射收敛 Workflow Run 与 Step；结果和失败原因独立保存，历史 Agent Run 继续保留完整工具审计。恢复前置校验失败但 Agent 仍为 `WAITING_APPROVAL` 时，Workflow 保持运行中等待用户处理。
 - 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中，其他 Run 根据关联 Agent 终态完成、失败或取消；缺少关联 Agent Run 时 fail-closed。
 - 当前只交付 `MANUAL` 前台触发，不依赖 WorkManager，也没有周期规则、通知、后台工具执行或后台审批；这些能力必须在 Ledger 语义稳定后单独接入。
 

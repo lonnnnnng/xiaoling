@@ -502,10 +502,10 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 构建与自动化验证：
 
-- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；138 项 Debug 单元测试通过，失败数为 0。
-- `WorkflowDefinitionPolicyTest` 覆盖合法定义、空名称和超长目标；`RoomWorkflowRepositoryInstrumentedTest` 已编译覆盖手动 Run/Step 原子创建、重复 Agent 快照幂等关联、完成结果，以及进程重建时保留审批等待并收敛已取消 Agent Run。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；139 项 Debug 单元测试通过，失败数为 0。
+- `WorkflowDefinitionPolicyTest` 覆盖合法定义、空名称、超长目标和 Agent→Workflow 共享终态映射；`RoomWorkflowRepositoryInstrumentedTest` 已编译覆盖手动 Run/Step 原子创建、事务内拒绝重复活动 Run、重复 Agent 快照幂等关联、完成结果，以及进程重建时保留审批等待并收敛已取消 Agent Run。
 - `XiaoLingDatabaseMigrationInstrumentedTest` 已编译覆盖 v4→v13、v9→v13、v12→v13 与全新 v13 建库。为保护设备 Keystore API Key，本轮没有执行 instrumentation。
-- Debug APK SHA-256：`dc9d87da444304449e7376f9d89f21e6f30a8cafb6517b7afd2b8c0213d6f122`。
+- Debug APK SHA-256：`66a3c3e94164fd5f6bc552d16a753caecf1cadb3f5d1d2bff4083afbb7e2a798`。
 
 真机验证：
 
@@ -517,5 +517,6 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 边界：
 
 - 当前每个 Workflow 固定为一个 `AGENT_RUN` 步骤，只支持 `MANUAL` 前台触发；同一 Workflow 有未完成 Run 时拒绝重复启动。
+- 重复活动 Run 的保护位于 Room 创建事务内；UI 展开工作流可查看已加载的多次历史 Run。恢复前置校验失败且 Agent 仍在等待审批时，不会提前把 Workflow 标为失败。
 - 工作流不创建新的工具授权层，所有工具继续执行现有 Schema、权限、风险、审批和后置验证策略。
 - 本轮没有引入 WorkManager、定时规则、通知、Foreground Service 或后台审批；这些能力将在下一阶段基于现有 Ledger 接入。
