@@ -361,7 +361,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 12. 已完成执行/验证中进程终止和 Android 权限运行中撤销故障注入：审批后执行前和工具返回后验证前都会复检权限；进程重建默认把旧 Run 与活动 Step 一致取消，只有显式白名单工具的完整历史证据可以进入受限恢复。
 13. 已完成：建立持久化 `ToolExecutionReceipt`、执行时 `ToolReplaySafety` 声明快照和纯证据判定 module；回执绑定 ToolCall，错配时 Runtime fail-closed，旧事件默认不可重放，当前定义升级不能放宽历史证据，任务中心不显示原始幂等键。
 14. 已完成：`notes.create` 使用 ToolCall ID 作为可审计的存储层唯一幂等键，同键同载荷在数据库重开后仍返回同一 operation ID，同键载荷漂移被拒绝；工具已声明 `IDEMPOTENT_BY_KEY`。Room v17 迁移保留旧笔记并把其幂等键留空，Pixel_9 与 Redmi 各 42 条 instrumentation 通过。
-15. 已完成：仅针对具有完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据的 `notes.create` 开放“验证阶段恢复”。从持久化 ToolResult 唯一还原 ToolCall，按 operation ID 回读原笔记，补齐 `tool.verify` 和本地 `recovery.summarize`；确定性进程中断、Room 重建和真实 Registry 不重复写入均已覆盖。旧模型协程、其他工具执行栈和 Workflow 后续步骤仍不恢复。
+15. 已完成：仅针对具有完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据的 `notes.create` 开放“验证阶段恢复”。从持久化 ToolResult 唯一还原 ToolCall，按 operation ID 回读原笔记，补齐 `tool.verify` 和本地 `recovery.summarize`；多工具 Run 会从历史验证事件重建成功前缀，Workflow 启动对账会保留候选直到当前步骤输出落库。确定性进程中断、Room 重建和真实 Registry 不重复写入均已覆盖。旧模型协程、其他工具执行栈和 Workflow 后续步骤仍不恢复。
 16. 下一步为 `memory.remember` 增加 ToolCall 级存储幂等证明：幂等键必须由 Room 唯一约束绑定记忆载荷，支持数据库重开后的同键同载荷复用并拒绝载荷漂移。完成证据切片后，再单独评估是否允许验证阶段恢复，不能直接复用 `notes.create` 的白名单。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

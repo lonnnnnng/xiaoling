@@ -896,7 +896,9 @@ class RoomWorkflowRepository(
         }
     }
 
-    suspend fun reconcileInterruptedRuns(): Int {
+    suspend fun reconcileInterruptedRuns(
+        resumableAgentRunIds: Set<String> = emptySet(),
+    ): Int {
         val dao = database.workflowDao()
         val active = dao.runsByStatuses(listOf(WorkflowRunStatus.QUEUED.name, WorkflowRunStatus.RUNNING.name))
         var reconciled = 0
@@ -910,6 +912,10 @@ class RoomWorkflowRepository(
                         errorMessage = "应用重启前未能恢复关联的 Agent Run",
                     )
                     reconciled += 1
+                }
+                agentRun.id in resumableAgentRunIds -> {
+                    // long: Agent 已通过幂等证据筛选时，Workflow 必须保持当前步骤运行中，等待只读验证写回输出后再决定后续步骤，不能在启动对账中提前判失败。
+                    Unit
                 }
                 agentRun.status == AgentRunStatus.WAITING_APPROVAL.name -> Unit
                 else -> {

@@ -477,6 +477,141 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun committedToolRecoveryKeepsPreviouslyVerifiedToolFacts() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val run = ledger.createRun(
+            conversationId = "conversation-multi-tool-recovery",
+            userMessageId = "message-multi-tool-recovery",
+            goal = "先读取时间再创建笔记",
+        )
+        val previousCall = ToolCall(
+            id = "tool-call-time-before-recovery",
+            name = "app.current_time",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${previousCall.name}",
+            RunEventMetadata.ToolCall(previousCall.id, previousCall.name, previousCall.risk, previousCall.arguments),
+        )
+        ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = previousCall.name,
+            status = AgentStepStatus.COMPLETED,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${previousCall.name}",
+            RunEventMetadata.ToolResult(
+                toolName = previousCall.name,
+                content = "当前时间：09:30",
+                durationMs = 5L,
+                success = true,
+                verified = null,
+                toolCallId = previousCall.id,
+            ),
+        )
+        ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_VERIFY,
+            title = "验证工具结果",
+            detail = previousCall.name,
+            status = AgentStepStatus.COMPLETED,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.verify",
+            "工具验证通过：${previousCall.name}",
+            RunEventMetadata.ToolVerification(previousCall.name, ToolVerificationStatus.PASSED),
+        )
+
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val currentCall = ToolCall(
+            id = "tool-call-note-after-time",
+            name = definition.name,
+            arguments = mapOf("title" to "时间记录", "content" to "当前时间 09:30"),
+            risk = definition.risk,
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = currentCall.id,
+            operationId = "note-after-time",
+            idempotencyKey = currentCall.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val recoveredResult = ToolExecutionResult(
+            success = true,
+            verified = true,
+            content = "已创建并验证笔记：时间记录",
+            executionReceipt = receipt,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${currentCall.name}",
+            RunEventMetadata.ToolCall(currentCall.id, currentCall.name, currentCall.risk, currentCall.arguments),
+        )
+        ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = currentCall.name,
+            status = AgentStepStatus.RUNNING,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${currentCall.name}",
+            RunEventMetadata.ToolResult(
+                toolName = currentCall.name,
+                content = recoveredResult.content,
+                durationMs = 7L,
+                success = true,
+                verified = true,
+                toolCallId = currentCall.id,
+                replaySafety = definition.replaySafety,
+                executionReceipt = receipt,
+            ),
+        )
+        ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult = error("不得重放写工具")
+            override suspend fun verifyCommittedEffect(
+                call: ToolCall,
+                receipt: ToolExecutionReceipt,
+            ): ToolExecutionResult = recoveredResult
+        }
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeCommittedToolRun(
+            AgentRunDetailRecord(snapshot = ledger.snapshot(run.id), approvals = emptyList()),
+        )
+
+        assertTrue(summary.responseText.contains("当前时间：09:30"))
+        assertTrue(summary.responseText.contains("时间记录"))
+        assertEquals(
+            listOf(previousCall.name, currentCall.name),
+            summary.verifiedContext.toolExecutions.map { it.toolName },
+        )
+    }
+
+    @Test
     fun processTerminationAfterCommittedToolResultLeavesRecoverableVerificationEvidence() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val definition = ToolDefinition(

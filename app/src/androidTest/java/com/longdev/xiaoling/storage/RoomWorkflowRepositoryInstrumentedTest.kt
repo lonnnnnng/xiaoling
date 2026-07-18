@@ -205,6 +205,22 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun reconcileKeepsCommittedToolRecoveryCandidateRunning() = runBlocking {
+        val workflow = repository.createWorkflow("恢复笔记验证", "创建并验证笔记")
+        val created = repository.createManualRun(workflow.id, "conversation-tool-recovery")
+        val agentRunId = "agent-run-tool-recovery"
+        repository.markAgentRunStarted(created.run.id, agentRunId)
+        database.agentRunDao().upsertRun(agentRun(agentRunId, AgentRunStatus.VERIFYING))
+
+        assertEquals(0, repository.reconcileInterruptedRuns(setOf(agentRunId)))
+
+        val preserved = repository.runDetail(created.run.id)!!
+        assertEquals(WorkflowRunStatus.RUNNING, preserved.run.status)
+        assertEquals(WorkflowStepStatus.RUNNING, preserved.steps.single().status)
+        assertEquals(agentRunId, preserved.run.agentRunId)
+    }
+
+    @Test
     fun reconcileKeepsCompletedPrefixAndClosesInterruptedMultiStepRun() = runBlocking {
         val workflow = repository.createWorkflow(
             name = "中断后可重试",

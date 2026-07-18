@@ -262,6 +262,8 @@ class MinimalAgentRuntime(
             runTimeoutMs = options.runTimeoutMs,
             activeStepId = recovery.verificationStepId ?: recovery.executionStepId,
         )
+        // long: 多工具 Run 的前序步骤已由历史 tool.verify 证明完成；恢复总结必须保留这些事实，不能只向用户展示最后一条笔记结果。
+        state.completedTools += recovery.verifiedPrefix
         return try {
             val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
             if (executionStep.status == AgentStepStatus.RUNNING) {
@@ -307,6 +309,7 @@ class MinimalAgentRuntime(
             state.completedTools += AgentToolExecution(recovery.toolCall, recoveredResult)
             completeRecoveredRun(run, state)
         } catch (error: CancellationException) {
+            // long: 用户取消恢复时必须同时关闭活动验证 Step 和原 Run，避免任务中心留下仍在验证的假状态。
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消恢复验证") }
                 ledger.appendEvent(
@@ -319,6 +322,7 @@ class MinimalAgentRuntime(
             }
             throw error
         } catch (error: Throwable) {
+            // long: operation 回读或证据核对失败时保留已提交事实，但把验证 Step 与 Run 明确标为失败，后续只能走带确认的新 Run 重试。
             withContext(NonCancellable) {
                 val reason = error.message ?: "已提交工具结果恢复验证失败"
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
@@ -587,7 +591,7 @@ class MinimalAgentRuntime(
         run: AgentRunRecord,
         state: AgentRuntimeExecutionState,
     ): AgentRunSummary {
-        require(state.completedTools.size == 1) { "验证阶段恢复只能总结一个已提交工具结果" }
+        require(state.completedTools.isNotEmpty()) { "验证阶段恢复缺少已验证工具结果" }
         val summaryStep = ledger.appendStep(
             runId = run.id,
             type = AgentStepTypes.RECOVERY_SUMMARIZE,

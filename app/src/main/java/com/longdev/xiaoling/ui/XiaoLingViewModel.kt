@@ -373,7 +373,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
-                workflowRepository.reconcileInterruptedRuns()
+                workflowRepository.reconcileInterruptedRuns(
+                    resumableAgentRunIds = resumableCommittedToolRuns
+                        .map { it.snapshot.run.id }
+                        .toSet(),
+                )
                 workflowRepository.reconcileInterruptedScheduledTasks()
                 workflowRepository.reconcileWorkflowSchedules().forEach { task ->
                     try {
@@ -2833,9 +2837,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     conversationsChanged = true
                 }
             } catch (error: CancellationException) {
+                // long: 恢复被取消后只按 Agent 的真实终态收敛 Workflow，绝不把当前步骤继续到后续工具。
                 reconcileWorkflowAfterResumeFailure(source.id, "验证阶段恢复已取消")
                 throw error
             } catch (error: Throwable) {
+                // long: 回读或验证失败时同步关闭关联 Workflow，避免 Agent 已失败但工作流仍显示 RUNNING 或继续执行下一步骤。
                 reconcileWorkflowAfterResumeFailure(source.id, error.message ?: "验证阶段恢复失败")
             }
         }
