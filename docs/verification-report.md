@@ -871,4 +871,4 @@ TDD、自动化与真机可用性：
 - JVM 测试覆盖结构化失败从 Registry 到 Runtime、JSON 往返、旧事件兼容、八类建议映射和任务中心呈现；Room instrumentation 覆盖 typed event 持久化往返。完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；205 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
 - Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 55 条 instrumentation，合计 110 条全部通过。
 - Redmi 临时构造 `MEMORY_DISABLED` 失败 Run，任务中心顶部状态带与事件字段均可见；UI tree 和截图确认无截断、重叠或横向溢出。临时 Run、Step、Event 已从生产库清理，查询结果为 0；应用最终 force-stop，Provider 数据未修改。
-- 最终 Debug APK SHA-256：`7e62e115fcd7ca1ff2016dad0feac8234f068e9d7a9170384549b9f79c98bf63`。
+- 最终 Debug APK SHA-256：`aff77af461833c49ad48c89d9a3f14923025c40c0dc738b4454d7508244f65b1`。
