@@ -27,6 +27,15 @@ data class ModelResponseResult(
     val requestUrl: String,
     val model: String,
     val latencyMs: Long,
+    val firstByteLatencyMs: Long? = null,
     val firstTokenLatencyMs: Long? = null,
+    val promptBytes: Int = 0,
+    val usage: ModelTokenUsage? = null,
     val responseText: String,
+)
+
+data class ModelTokenUsage(
+    val inputTokens: Long?,
+    val outputTokens: Long?,
+    val totalTokens: Long?,
 )

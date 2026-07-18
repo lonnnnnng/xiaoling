@@ -7,6 +7,13 @@ data class AgentRunMetrics(
     val modelCallCount: Int,
     val toolCallCount: Int,
     val approvalRequestCount: Int,
+    val modelLatencyMs: Long = 0L,
+    val averageFirstByteLatencyMs: Long? = null,
+    val promptBytes: Long = 0L,
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val tokenUsageRequestCount: Int = 0,
 )
 
 data class AgentRunHistoryMetrics(
@@ -18,6 +25,14 @@ data class AgentRunHistoryMetrics(
     val averageElapsedMs: Long?,
     val modelCallCount: Int,
     val toolCallCount: Int,
+    val modelLatencyMs: Long = 0L,
+    val averageFirstByteLatencyMs: Long? = null,
+    val promptBytes: Long = 0L,
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val tokenUsageRequestCount: Int = 0,
+    val failureCounts: Map<AgentRunStatus, Int> = emptyMap(),
 )
 
 object AgentRunMetricsPolicy {
@@ -26,6 +41,8 @@ object AgentRunMetricsPolicy {
     fun summarizeRun(detail: AgentRunDetailRecord, nowMs: Long): AgentRunMetrics {
         val snapshot = detail.snapshot
         val run = snapshot.run
+        val requests = snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.LlmRequest }
+        val firstByteLatencies = requests.mapNotNull { it.firstByteLatencyMs }
         val endAt = run.completedAt
             ?: run.updatedAt.takeIf { run.status.isTerminal }
             ?: nowMs
@@ -34,6 +51,13 @@ object AgentRunMetricsPolicy {
             modelCallCount = snapshot.steps.count { it.type in modelStepTypes },
             toolCallCount = snapshot.steps.count { it.type == AgentStepTypes.TOOL_EXECUTE },
             approvalRequestCount = detail.approvals.size,
+            modelLatencyMs = requests.sumOf { it.latencyMs },
+            averageFirstByteLatencyMs = firstByteLatencies.takeIf { it.isNotEmpty() }?.averageLong(),
+            promptBytes = requests.sumOf { it.promptBytes.toLong() },
+            inputTokens = requests.map { it.inputTokens }.sumOrNull(),
+            outputTokens = requests.map { it.outputTokens }.sumOrNull(),
+            totalTokens = requests.map { it.totalTokens }.sumOrNull(),
+            tokenUsageRequestCount = requests.count { it.totalTokens != null },
         )
     }
 
@@ -41,6 +65,10 @@ object AgentRunMetricsPolicy {
         val runMetrics = details.associateWith { summarizeRun(it, nowMs) }
         val terminalDetails = details.filter { it.snapshot.run.status.isTerminal }
         val completedCount = terminalDetails.count { it.snapshot.run.status == AgentRunStatus.COMPLETED }
+        val requests = details.flatMap { detail ->
+            detail.snapshot.events.mapNotNull { it.metadata as? RunEventMetadata.LlmRequest }
+        }
+        val firstByteLatencies = requests.mapNotNull { it.firstByteLatencyMs }
         // long: 活动 Run 尚未形成业务终态，不能进入成功率和平均耗时分母，否则刷新时会让历史质量指标无意义地波动。
         val successRate = terminalDetails.takeIf { it.isNotEmpty() }?.let {
             (completedCount * 100.0 / it.size).roundToInt()
@@ -57,6 +85,24 @@ object AgentRunMetricsPolicy {
             averageElapsedMs = averageElapsed,
             modelCallCount = runMetrics.values.sumOf { it.modelCallCount },
             toolCallCount = runMetrics.values.sumOf { it.toolCallCount },
+            modelLatencyMs = requests.sumOf { it.latencyMs },
+            averageFirstByteLatencyMs = firstByteLatencies.takeIf { it.isNotEmpty() }?.averageLong(),
+            promptBytes = requests.sumOf { it.promptBytes.toLong() },
+            inputTokens = requests.map { it.inputTokens }.sumOrNull(),
+            outputTokens = requests.map { it.outputTokens }.sumOrNull(),
+            totalTokens = requests.map { it.totalTokens }.sumOrNull(),
+            tokenUsageRequestCount = requests.count { it.totalTokens != null },
+            failureCounts = terminalDetails
+                .filter { it.snapshot.run.status != AgentRunStatus.COMPLETED }
+                .groupingBy { it.snapshot.run.status }
+                .eachCount(),
         )
     }
+}
+
+private fun List<Long>.averageLong(): Long = sum() / size
+
+private fun List<Long?>.sumOrNull(): Long? {
+    val values = filterNotNull()
+    return values.takeIf { it.isNotEmpty() }?.sum()
 }

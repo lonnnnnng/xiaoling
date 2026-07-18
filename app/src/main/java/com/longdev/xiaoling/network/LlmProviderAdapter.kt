@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ModelTokenUsage
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import org.json.JSONArray
 import org.json.JSONObject
@@ -16,6 +17,8 @@ interface LlmProviderAdapter {
     ): LlmGenerationRequest
 
     fun parseGenerationResponse(apiMode: ApiMode, body: String): String
+
+    fun parseTokenUsage(apiMode: ApiMode, body: String): ModelTokenUsage?
 
     fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent?
 }
@@ -83,6 +86,9 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
         ApiMode.CHAT_COMPLETIONS -> OpenAiResponseParser.parseChatText(body)
         ApiMode.RESPONSES -> OpenAiResponseParser.parseResponsesText(body)
     }
+
+    override fun parseTokenUsage(apiMode: ApiMode, body: String): ModelTokenUsage? =
+        OpenAiResponseParser.parseTokenUsage(body)
 
     override fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? =
         OpenAiResponseParser.parseStreamEvent(apiMode, data)

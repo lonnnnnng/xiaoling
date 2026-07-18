@@ -3840,6 +3840,22 @@ private fun AgentRunHistoryMetricsSummary(details: List<AgentRunDetailRecord>) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        presentation.telemetry?.let { telemetry ->
+            Text(
+                text = telemetry,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = presentation.failureDistribution,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -3935,6 +3951,7 @@ private fun AgentRunHistoryItemCard(
     onRetry: () -> Unit,
 ) {
     val run = detail.snapshot.run
+    val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
     val retryEligibility = AgentTaskRetryPolicy.evaluate(detail)
     Card(
         colors = CardDefaults.cardColors(
@@ -4021,14 +4038,21 @@ private fun AgentRunHistoryItemCard(
                 }
             }
             Text(
-                text = presentAgentRunMetrics(
-                    AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis()),
-                ),
+                text = presentAgentRunMetrics(metrics),
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            presentAgentRunLlmMetrics(metrics)?.let { telemetry ->
+                Text(
+                    text = telemetry,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -4036,6 +4060,7 @@ private fun AgentRunHistoryItemCard(
 @Composable
 private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
     val snapshot = detail.snapshot
+    val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
     val toolResults = snapshot.events.mapNotNull { event ->
         (event.metadata as? RunEventMetadata.ToolResult)?.let { metadata -> event to metadata }
     }
@@ -4075,12 +4100,17 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
 
             AgentRunDetailSection("运行指标") {
                 Text(
-                    text = presentAgentRunMetrics(
-                        AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis()),
-                    ),
+                    text = presentAgentRunMetrics(metrics),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                presentAgentRunLlmMetrics(metrics)?.let { telemetry ->
+                    Text(
+                        text = telemetry,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             AgentRunDetailSection("步骤") {

@@ -46,6 +46,15 @@ object AgentStepTypes {
     const val TOOL_VERIFY = "tool.verify"
 }
 
+object AgentEventTypes {
+    const val LLM_REQUEST_COMPLETED = "llm.request.completed"
+}
+
+enum class AgentLlmPhase {
+    PLAN,
+    SUMMARIZE,
+}
+
 data class AgentRunRecord(
     val id: String,
     val conversationId: String,
@@ -82,6 +91,17 @@ data class RunEventRecord(
 )
 
 sealed interface RunEventMetadata {
+    data class LlmRequest(
+        val phase: AgentLlmPhase,
+        val model: String,
+        val latencyMs: Long,
+        val firstByteLatencyMs: Long?,
+        val promptBytes: Int,
+        val inputTokens: Long?,
+        val outputTokens: Long?,
+        val totalTokens: Long?,
+    ) : RunEventMetadata
+
     data class ToolCall(
         val id: String,
         val toolName: String,

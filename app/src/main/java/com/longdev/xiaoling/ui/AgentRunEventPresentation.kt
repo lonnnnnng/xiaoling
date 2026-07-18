@@ -36,6 +36,7 @@ private val eventTitles = mapOf(
     "run.recovered" to "Run 恢复收敛",
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
+    "llm.request.completed" to "模型请求完成",
 )
 
 internal fun presentAgentRunEvent(
@@ -53,6 +54,19 @@ internal fun presentAgentRunEvent(
 
     // long: sealed metadata 让每类事件只暴露合法字段组合；UI 不再按 type 猜测 JSON shape，未知历史载荷统一回退到可读 message。
     return when (metadata) {
+        is RunEventMetadata.LlmRequest -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "阶段" to metadata.phase.name,
+                "模型" to metadata.model,
+                "总耗时" to "${metadata.latencyMs}ms",
+                "首字节" to metadata.firstByteLatencyMs?.let { "${it}ms" },
+                "Prompt" to "${metadata.promptBytes} B",
+                "输入 Token" to metadata.inputTokens?.toString(),
+                "输出 Token" to metadata.outputTokens?.toString(),
+                "总 Token" to metadata.totalTokens?.toString(),
+            ),
+        )
         is RunEventMetadata.ToolCall -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
             fields = fields(

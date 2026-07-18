@@ -1,19 +1,131 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.util.UUID
 
 class MinimalAgentRuntimeTest {
+    @Test
+    fun invalidPlanningJsonStillPersistsReturnedRequestTelemetry() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """
+                        {
+                          "choices":[{"message":{"content":"not-json"}}],
+                          "usage":{"prompt_tokens":20,"completion_tokens":2,"total_tokens":22}
+                        }
+                    """.trimIndent(),
+                ),
+            )
+            val ledger = InMemoryAgentRunLedger()
+            val runtime = MinimalAgentRuntime(
+                ledger = ledger,
+                llm = OpenAiAgentLlm(
+                    client = OpenAiCompatibleClient(),
+                    config = ProviderRequestConfig(
+                        baseUrl = server.url("/v1").toString(),
+                        apiKey = "test-key",
+                        model = "gpt-test",
+                    ),
+                    summarySystemPrompt = "只返回总结样式 JSON",
+                ),
+            )
+
+            runCatching {
+                runtime.run("conversation-invalid-plan", "message-invalid-plan", "回显失败遥测")
+            }
+
+            val snapshot = ledger.snapshot(ledger.lastRunId!!)
+            assertTrue(
+                "eventTypes=${snapshot.events.map { it.type }}",
+                snapshot.events.any { it.type == AgentEventTypes.LLM_REQUEST_COMPLETED },
+            )
+            val telemetry = snapshot.events.first { it.type == AgentEventTypes.LLM_REQUEST_COMPLETED }
+                .metadata as RunEventMetadata.LlmRequest
+            assertEquals(AgentLlmPhase.PLAN, telemetry.phase)
+            assertEquals(22L, telemetry.totalTokens)
+            assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun successfulModelCallsPersistRequestTelemetryForPlanAndSummary() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val delegate = FakeAgentLlm()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall =
+                    delegate.proposeToolCall(goal, tools)
+
+                override suspend fun proposeNextActionWithTelemetry(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentLlmCallResult<AgentPlanDecision> {
+                    val decision = if (completedTools.isEmpty()) {
+                        AgentPlanDecision.CallTool(delegate.proposeToolCall(goal, tools))
+                    } else {
+                        AgentPlanDecision.Complete
+                    }
+                    return AgentLlmCallResult(decision, telemetry(model = "gpt-plan"))
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+
+                override suspend fun summarizeWithTelemetry(
+                    goal: String,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentLlmCallResult<String> = AgentLlmCallResult(
+                    value = """{"style":"compact","tone":"neutral"}""",
+                    telemetry = telemetry(model = "gpt-summary"),
+                )
+
+                private fun telemetry(model: String) = AgentLlmRequestTelemetry(
+                    model = model,
+                    latencyMs = 1_250L,
+                    firstByteLatencyMs = 320L,
+                    promptBytes = 4_096,
+                    inputTokens = 120L,
+                    outputTokens = 30L,
+                    totalTokens = 150L,
+                )
+            },
+        )
+
+        val summary = runtime.run("conversation-telemetry", "message-telemetry", "回显遥测")
+        val telemetry = ledger.snapshot(summary.runId).events.mapNotNull { event ->
+            event.metadata as? RunEventMetadata.LlmRequest
+        }
+
+        assertEquals(listOf(AgentLlmPhase.PLAN, AgentLlmPhase.PLAN, AgentLlmPhase.SUMMARIZE), telemetry.map { it.phase })
+        assertEquals(listOf("gpt-plan", "gpt-plan", "gpt-summary"), telemetry.map { it.model })
+        assertEquals(450L, telemetry.sumOf { it.totalTokens ?: 0L })
+    }
+
     @Test
     fun runCompletesWithAuditableSteps() = runTest {
         val ledger = InMemoryAgentRunLedger()

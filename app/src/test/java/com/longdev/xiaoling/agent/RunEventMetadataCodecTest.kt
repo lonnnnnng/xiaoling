@@ -5,6 +5,27 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun llmRequestTelemetryRoundTripsWithoutInventingMissingUsage() {
+        val metadata = RunEventMetadata.LlmRequest(
+            phase = AgentLlmPhase.PLAN,
+            model = "gpt-test",
+            latencyMs = 1_250L,
+            firstByteLatencyMs = 320L,
+            promptBytes = 4_096,
+            inputTokens = 120L,
+            outputTokens = 30L,
+            totalTokens = 150L,
+        )
+
+        val decoded = RunEventMetadataCodec.decode(
+            type = "llm.request.completed",
+            raw = RunEventMetadataCodec.encode(metadata),
+        )
+
+        assertEquals(metadata, decoded)
+    }
+
+    @Test
     fun toolResultMemoryIdsRoundTrip() {
         val metadata = RunEventMetadata.ToolResult(
             toolName = "memory.search",

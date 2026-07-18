@@ -245,9 +245,16 @@ class MinimalAgentRuntime(
             )
             state.activeStepId = thinking.id
             currentCoroutineContext().ensureActive()
-            val planDecision = runTimedStep("模型规划", options.modelStepTimeoutMs, state.executionBudget) {
-                llm.proposeNextAction(goal, toolRegistry.availableTools(), state.completedTools.toList())
+            val planCall = try {
+                runTimedStep("模型规划", options.modelStepTimeoutMs, state.executionBudget) {
+                    llm.proposeNextActionWithTelemetry(goal, toolRegistry.availableTools(), state.completedTools.toList())
+                }
+            } catch (error: AgentLlmResponseException) {
+                appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
+                throw error
             }
+            appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, planCall.telemetry)
+            val planDecision = planCall.value
             if (planDecision == AgentPlanDecision.Complete) {
                 ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型确认任务工具步骤已完成")
                 state.activeStepId = null
@@ -429,15 +436,17 @@ class MinimalAgentRuntime(
         )
         state.activeStepId = summaryStep.id
         var summaryFallbackReason: String? = null
-        val summaryCandidate = try {
+        val summaryCall = try {
             runTimedStep("模型总结", options.modelStepTimeoutMs, state.executionBudget) {
-                llm.summarize(goal, state.completedTools)
+                llm.summarizeWithTelemetry(goal, state.completedTools)
             }
         } catch (error: AgentTimeoutException) {
             // long: 工具已经执行并验证成功时，最终总结只是展示层增强；上游总结超时不应把已经完成的本地写入任务改判失败。
             summaryFallbackReason = error.message ?: "模型总结超时"
             null
-        }?.takeIf { it.isNotBlank() } ?: run {
+        }
+        summaryCall?.let { appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, it.telemetry) }
+        val summaryCandidate = summaryCall?.value?.takeIf { it.isNotBlank() } ?: run {
             if (summaryFallbackReason == null) summaryFallbackReason = "模型总结为空"
             null
         }
@@ -464,6 +473,30 @@ class MinimalAgentRuntime(
             status = AgentRunStatus.COMPLETED,
             responseText = response,
             verifiedContext = buildVerifiedContext(run.id, state.completedTools),
+        )
+    }
+
+    private suspend fun appendLlmRequestEvent(
+        runId: String,
+        phase: AgentLlmPhase,
+        telemetry: AgentLlmRequestTelemetry?,
+    ) {
+        if (telemetry == null) return
+        // long: 事件只保存请求规模、计时和上游 usage，不保存 Prompt 正文；这样可以分析成本与性能，同时不复制用户内容和工具结果。
+        ledger.appendEvent(
+            runId = runId,
+            type = AgentEventTypes.LLM_REQUEST_COMPLETED,
+            message = "模型请求完成：${phase.name.lowercase()}",
+            metadata = RunEventMetadata.LlmRequest(
+                phase = phase,
+                model = telemetry.model,
+                latencyMs = telemetry.latencyMs,
+                firstByteLatencyMs = telemetry.firstByteLatencyMs,
+                promptBytes = telemetry.promptBytes,
+                inputTokens = telemetry.inputTokens,
+                outputTokens = telemetry.outputTokens,
+                totalTokens = telemetry.totalTokens,
+            ),
         )
     }
 

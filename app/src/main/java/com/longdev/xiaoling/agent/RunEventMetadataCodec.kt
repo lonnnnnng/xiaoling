@@ -6,6 +6,15 @@ import org.json.JSONObject
 internal object RunEventMetadataCodec {
     fun encode(metadata: RunEventMetadata): String {
         return when (metadata) {
+            is RunEventMetadata.LlmRequest -> JSONObject()
+                .put("phase", metadata.phase.name)
+                .put("model", metadata.model)
+                .put("latencyMs", metadata.latencyMs)
+                .put("firstByteLatencyMs", metadata.firstByteLatencyMs)
+                .put("promptBytes", metadata.promptBytes)
+                .put("inputTokens", metadata.inputTokens)
+                .put("outputTokens", metadata.outputTokens)
+                .put("totalTokens", metadata.totalTokens)
             is RunEventMetadata.ToolCall -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -50,6 +59,16 @@ internal object RunEventMetadataCodec {
         return runCatching {
             val json = JSONObject(raw)
             when (type) {
+                AgentEventTypes.LLM_REQUEST_COMPLETED -> RunEventMetadata.LlmRequest(
+                    phase = AgentLlmPhase.valueOf(json.requiredString("phase")),
+                    model = json.requiredString("model"),
+                    latencyMs = json.getLong("latencyMs"),
+                    firstByteLatencyMs = json.longOrNull("firstByteLatencyMs"),
+                    promptBytes = json.getInt("promptBytes"),
+                    inputTokens = json.longOrNull("inputTokens"),
+                    outputTokens = json.longOrNull("outputTokens"),
+                    totalTokens = json.longOrNull("totalTokens"),
+                )
                 "tool.call.proposed",
                 "tool.call.validated" -> RunEventMetadata.ToolCall(
                     id = json.requiredString("id"),
@@ -130,6 +149,9 @@ internal object RunEventMetadataCodec {
 
     private fun JSONObject.booleanOrNull(key: String): Boolean? =
         if (has(key) && !isNull(key)) getBoolean(key) else null
+
+    private fun JSONObject.longOrNull(key: String): Long? =
+        if (has(key) && !isNull(key)) getLong(key) else null
 
     private fun JSONObject.stringListOrEmpty(key: String): List<String> {
         // long: Android org.json 不会稳定地把 Kotlin List 包装成 JSONArray；显式数组是新格式，同时兼容早期已落库的字符串化 JSON 数组。

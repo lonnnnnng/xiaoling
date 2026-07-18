@@ -10,6 +10,30 @@ import org.junit.Test
 
 class AgentRunEventPresentationTest {
     @Test
+    fun llmRequestTelemetryIsPresentedWithoutPromptContent() {
+        val presentation = presentAgentRunEvent(
+            type = "llm.request.completed",
+            message = "模型请求完成：plan",
+            metadata = RunEventMetadata.LlmRequest(
+                phase = com.longdev.xiaoling.agent.AgentLlmPhase.PLAN,
+                model = "gpt-test",
+                latencyMs = 1_250L,
+                firstByteLatencyMs = 320L,
+                promptBytes = 4_096,
+                inputTokens = 120L,
+                outputTokens = 30L,
+                totalTokens = 150L,
+            ),
+        )
+
+        assertEquals("模型请求完成", presentation.summary)
+        assertEquals("PLAN", presentation.fields.single { it.label == "阶段" }.value)
+        assertEquals("4096 B", presentation.fields.single { it.label == "Prompt" }.value)
+        assertEquals("150", presentation.fields.single { it.label == "总 Token" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
     fun toolResultJsonIsPresentedAsStructuredFields() {
         val presentation = presentAgentRunEvent(
             type = "tool.result",

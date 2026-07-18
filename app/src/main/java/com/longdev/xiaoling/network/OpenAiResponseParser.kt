@@ -1,10 +1,24 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ModelTokenUsage
 import org.json.JSONArray
 import org.json.JSONObject
 
 object OpenAiResponseParser {
+    fun parseTokenUsage(body: String): ModelTokenUsage? {
+        val usage = runCatching { JSONObject(body).optJSONObject("usage") }.getOrNull() ?: return null
+        val inputTokens = usage.longOrNull("input_tokens") ?: usage.longOrNull("prompt_tokens")
+        val outputTokens = usage.longOrNull("output_tokens") ?: usage.longOrNull("completion_tokens")
+        val totalTokens = usage.longOrNull("total_tokens")
+            ?: if (inputTokens != null && outputTokens != null) inputTokens + outputTokens else null
+        return ModelTokenUsage(
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            totalTokens = totalTokens,
+        ).takeIf { inputTokens != null || outputTokens != null || totalTokens != null }
+    }
+
     fun parseModels(body: String): List<String> {
         val json = JSONObject(body)
         val models = json.optJSONArray("data") ?: json.optJSONArray("models") ?: JSONArray()
@@ -144,5 +158,10 @@ object OpenAiResponseParser {
     private fun JSONObject.streamString(name: String): String? {
         if (!has(name) || isNull(name)) return null
         return optString(name).takeIf { it.isNotEmpty() }
+    }
+
+    private fun JSONObject.longOrNull(name: String): Long? {
+        if (!has(name) || isNull(name)) return null
+        return runCatching { getLong(name) }.getOrNull()?.takeIf { it >= 0L }
     }
 }

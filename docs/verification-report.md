@@ -709,3 +709,28 @@ instrumentation 后可用性恢复：
 - 任务中心实测显示 `1 个 Run · 成功率 100% · 平均 13.28s` 和 `终态 1 · 非成功 0 · 模型 3 · 工具 1`；单 Run 卡片与详情均显示 `耗时 13.28s · 模型 3 · 工具 1 · 审批 0`。
 - 1080×2340 UI tree 与截图确认筛选栏、汇总带、Run 卡和展开详情没有文字或控件重叠；`com.longdev.xiaoling/.MainActivity` 保持前台，crash buffer 为空，后续仍需在更长历史列表上持续观察汇总性能。
 - 最终 Debug APK SHA-256：`c167e36f02f7a7a26d4b8f245857e2f9f59a7160cac484df8d48d9278bc6f6b1`。
+
+## 2026-07-19 Agent 请求遥测与失败分布验证
+
+实现与口径：
+
+- `ModelResponseResult` 记录最终 JSON 请求体 UTF-8 字节数、总耗时、首个响应 body 字节实际可读时的 TTFB，以及上游明确返回的 Token usage；Chat Completions 和 Responses 字段名统一映射，缺失 usage 保持空值。
+- `OpenAiAgentLlm` 把规划和总结请求遥测交给 Runtime，Runtime 以 `llm.request.completed` typed metadata 持久化阶段、模型、耗时、TTFB、Prompt 字节和 Token。规划 JSON 或工具语义解析失败时，已经返回的遥测先落库，随后 Run 再收敛为 `FAILED`。
+- 任务中心的汇总带、Run 卡和详情区使用同一指标策略展示模型总耗时、平均 TTFB、Prompt 字节、Token 总量与 usage 覆盖率；失败分布只统计 `FAILED / CANCELLED / BUDGET_EXHAUSTED / BLOCKED` 终态，活动 Run 不进入分母。
+
+自动化结果：
+
+- TDD 覆盖网络请求体字节、TTFB、Chat usage 解析、typed metadata 往返、规划解析失败仍保留遥测、Run/历史聚合、Token 覆盖率、失败分布和 UI 呈现；原始 `ServerSocket` 测试先发送响应头、延迟 200ms 再发送 body，确认 TTFB 必须包含 body 延迟。
+- `testDebugUnitTest`：182 条 JVM 测试通过；`lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。
+- `connectedDebugAndroidTest` 在 Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 38 条，合计 76 条全部通过。
+- Standards/Spec 双轴审查指出并验证修复两项问题：TTFB 不能在响应头返回时记录；规划语义解析失败不能丢失上游已返回 usage。修复后完整构建与两设备 instrumentation 重新通过。
+
+真实模型与 UI：
+
+- instrumentation 后重新安装最新 Debug APK，从未跟踪的本机配置恢复 Provider 并成功获取 6 个模型；凭据未进入文档、日志或提交。
+- `gpt-5.4-mini` 真实执行 `/agent Read current time and return telemetry result`，Run `run-1c833310-12c8-4dda-ad8e-dc2c7915475b` 调用 `app.current_time` 并进入 `COMPLETED`。
+- Room 回读确认 3 条 `llm.request.completed`：模型总耗时 `8274ms`、平均 TTFB `2755ms`、Prompt `4066B`、输入 Token `805`、输出 Token `215`、总 Token `1020`。
+- TTFB 文案和单调时钟修复包覆盖安装后，真实执行 `/agent Read current time with final TTFB`；Run `run-4dd3b467-7825-4b3f-8ef4-d7f66dbb1405` 进入 `COMPLETED`，3 条请求事件共计模型耗时 `10735ms`、平均 TTFB `3576ms`、Prompt `4042B`、总 Token `1171`。
+- 任务中心最终实测显示 `2 个 Run · 成功率 100% · 平均 11.06s`、`模型耗时 19.01s · TTFB 3.17s · Prompt 7.9KB · Token 2191（6/6）` 和 `失败分布 无`；汇总、Run 卡、详情及 typed Event 字段一致。
+- 1080×2340 UI tree 与截图确认新增四行汇总和两行 Run 指标没有重叠；`com.longdev.xiaoling/.MainActivity` 保持前台，crash buffer 为空。
+- 最终 Debug APK SHA-256：`cbbf2d16ae64a2f46b8ea901a3478a24ad7e00fbc32bbe6298389fb979a34976`。

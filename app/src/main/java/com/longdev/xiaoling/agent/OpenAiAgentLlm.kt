@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.model.ModelResponseResult
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.RequestMessage
 import org.json.JSONArray
@@ -14,7 +15,7 @@ class OpenAiAgentLlm(
     private val selectedSkills: List<AgentSkillDefinition> = emptyList(),
 ) : AgentLlm {
     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
-        return when (val decision = requestPlan(goal, tools, emptyList())) {
+        return when (val decision = requestPlan(goal, tools, emptyList()).value) {
             is AgentPlanDecision.CallTool -> decision.toolCall
             AgentPlanDecision.Complete -> error("Agent 尚未执行工具，模型不能直接结束")
         }
@@ -25,6 +26,14 @@ class OpenAiAgentLlm(
         tools: List<ToolDefinition>,
         completedTools: List<AgentToolExecution>,
     ): AgentPlanDecision {
+        return requestPlan(goal, tools, completedTools).value
+    }
+
+    override suspend fun proposeNextActionWithTelemetry(
+        goal: String,
+        tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>,
+    ): AgentLlmCallResult<AgentPlanDecision> {
         return requestPlan(goal, tools, completedTools)
     }
 
@@ -32,7 +41,7 @@ class OpenAiAgentLlm(
         goal: String,
         tools: List<ToolDefinition>,
         completedTools: List<AgentToolExecution>,
-    ): AgentPlanDecision {
+    ): AgentLlmCallResult<AgentPlanDecision> {
         val response = client.sendMessage(
             config = config.copy(streamingEnabled = false, temperature = 0.0),
             messages = listOf(
@@ -68,7 +77,18 @@ class OpenAiAgentLlm(
                 ),
             ),
         )
-        return AgentToolCallParser.parseDecision(response.responseText, tools)
+        val telemetry = response.toAgentTelemetry()
+        val decision = try {
+            AgentToolCallParser.parseDecision(response.responseText, tools)
+        } catch (error: Throwable) {
+            // long: 上游请求已经成功并返回 usage 时，规划 JSON 语义错误仍要携带遥测交给 Runtime 落库，不能因业务解析失败丢失成本证据。
+            throw AgentLlmResponseException(
+                message = error.message ?: "模型规划响应无法解析",
+                cause = error,
+                telemetry = telemetry,
+            )
+        }
+        return AgentLlmCallResult(value = decision, telemetry = telemetry)
     }
 
     override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
@@ -79,10 +99,24 @@ class OpenAiAgentLlm(
                     resultLength = toolResult.content.length,
                 ),
             ),
-        )
+        ).value
     }
 
     override suspend fun summarize(goal: String, completedTools: List<AgentToolExecution>): String {
+        return requestSummary(
+            executions = completedTools.map { execution ->
+                AgentExecutionSummary(
+                    toolName = execution.toolCall.name,
+                    resultLength = execution.toolResult.content.length,
+                )
+            },
+        ).value
+    }
+
+    override suspend fun summarizeWithTelemetry(
+        goal: String,
+        completedTools: List<AgentToolExecution>,
+    ): AgentLlmCallResult<String> {
         return requestSummary(
             executions = completedTools.map { execution ->
                 AgentExecutionSummary(
@@ -95,8 +129,8 @@ class OpenAiAgentLlm(
 
     private suspend fun requestSummary(
         executions: List<AgentExecutionSummary>,
-    ): String {
-        return client.sendMessage(
+    ): AgentLlmCallResult<String> {
+        val response = client.sendMessage(
             config = config.copy(streamingEnabled = false, temperature = 0.0),
             messages = listOf(
                 RequestMessage(
@@ -114,8 +148,24 @@ class OpenAiAgentLlm(
                     """.trimIndent(),
                 ),
             ),
-        ).responseText
+        )
+        return AgentLlmCallResult(
+            value = response.responseText,
+            telemetry = response.toAgentTelemetry(),
+        )
     }
+}
+
+private fun ModelResponseResult.toAgentTelemetry(): AgentLlmRequestTelemetry {
+    return AgentLlmRequestTelemetry(
+        model = model,
+        latencyMs = latencyMs,
+        firstByteLatencyMs = firstByteLatencyMs,
+        promptBytes = promptBytes,
+        inputTokens = usage?.inputTokens,
+        outputTokens = usage?.outputTokens,
+        totalTokens = usage?.totalTokens,
+    )
 }
 
 private data class AgentExecutionSummary(

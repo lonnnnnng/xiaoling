@@ -1,11 +1,11 @@
 package com.longdev.xiaoling.network
 
-import android.os.SystemClock
 import android.util.Log
 import com.longdev.xiaoling.BuildConfig
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ModelResponseResult
+import com.longdev.xiaoling.model.ModelTokenUsage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -54,22 +54,32 @@ class OpenAiCompatibleClient(
             .post(body.toRequestBody(jsonMediaType))
             .build()
         NetworkDebugLogger.logRequest(request, body)
-        val startedAtMs = SystemClock.elapsedRealtime()
+        val startedAtMs = monotonicNowMs()
         val completion = if (config.streamingEnabled) {
             executeStreaming(config.apiMode, request, startedAtMs, onStreamDelta)
         } else {
+            val execution = executeWithTiming(request, startedAtMs) { responseBody ->
+                ParsedCompletion(
+                    text = adapter.parseGenerationResponse(config.apiMode, responseBody),
+                    usage = adapter.parseTokenUsage(config.apiMode, responseBody),
+                )
+            }
             ModelCompletion(
-                text = execute(request) { body ->
-                    adapter.parseGenerationResponse(config.apiMode, body)
-                },
+                text = execution.value.text,
+                firstByteLatencyMs = execution.firstByteLatencyMs,
                 firstTokenLatencyMs = null,
+                usage = execution.value.usage,
             )
         }
         ModelResponseResult(
             requestUrl = requestUrl,
             model = config.model.trim(),
-            latencyMs = SystemClock.elapsedRealtime() - startedAtMs,
+            latencyMs = monotonicNowMs() - startedAtMs,
+            firstByteLatencyMs = completion.firstByteLatencyMs,
             firstTokenLatencyMs = completion.firstTokenLatencyMs,
+            // long: Prompt 大小以实际发送的最终 JSON UTF-8 字节计量，避免字符数在中文、转义和 typed item 下失真。
+            promptBytes = body.toByteArray(Charsets.UTF_8).size,
+            usage = completion.usage,
             responseText = completion.text,
         )
     }
@@ -91,18 +101,33 @@ class OpenAiCompatibleClient(
             }
     }
 
-    private suspend fun <T> execute(request: Request, parse: (String) -> T): T {
+    private suspend fun <T> execute(request: Request, parse: (String) -> T): T =
+        executeWithTiming(request, startedAtMs = null, parse = parse).value
+
+    private suspend fun <T> executeWithTiming(
+        request: Request,
+        startedAtMs: Long?,
+        parse: (String) -> T,
+    ): HttpExecution<T> {
         val call = client.newCall(request)
         val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
             if (cause != null) call.cancel()
         }
         try {
             call.execute().use { response ->
-                val body = response.body?.string().orEmpty()
+                val bodySource = response.body?.source()
+                val firstByteLatencyMs = if (startedAtMs != null && bodySource != null) {
+                    // long: call.execute() 只代表响应头已到达；主动请求首个 body 字节后再计时，避免把 TTFB 错记成响应头耗时。
+                    bodySource.request(1L)
+                    monotonicNowMs() - startedAtMs
+                } else {
+                    null
+                }
+                val body = bodySource?.readUtf8().orEmpty()
                 NetworkDebugLogger.logResponse(request, response.code, body)
                 if (!response.isSuccessful) throw ApiFailureClassifier.fromHttp(response.code, body)
                 return try {
-                    parse(body)
+                    HttpExecution(parse(body), firstByteLatencyMs)
                 } catch (error: ApiFailure) {
                     throw error
                 } catch (error: Exception) {
@@ -140,6 +165,9 @@ class OpenAiCompatibleClient(
                 var firstTokenLatencyMs: Long? = null
                 var finalTextFromStream: String? = null
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
+                // long: 流式响应也要在首个 SSE 字节实际可读后记录 TTFB；已缓冲字节仍由 charStream 消费，不会丢失首个事件。
+                body.source().request(1L)
+                val firstByteLatencyMs = monotonicNowMs() - startedAtMs
                 body.charStream().buffered().useLines { lines ->
                     lines.forEach { line ->
                         currentCoroutineContext().ensureActive()
@@ -154,7 +182,7 @@ class OpenAiCompatibleClient(
                         streamEvent.deltaText?.let { delta ->
                             val currentFirstTokenLatencyMs = firstTokenLatencyMs ?: run {
                                 // long: 流式对话需要区分“首字到达”和“完整返回”，这里在第一个可读 delta 抵达时记录首字耗时。
-                                val latency = SystemClock.elapsedRealtime() - startedAtMs
+                                val latency = monotonicNowMs() - startedAtMs
                                 firstTokenLatencyMs = latency
                                 latency
                             }
@@ -174,7 +202,9 @@ class OpenAiCompatibleClient(
                     text = completedText.ifBlank {
                         throw ApiFailure(FailureKind.RESPONSE, "流式响应没有返回可读文本")
                     },
+                    firstByteLatencyMs = firstByteLatencyMs,
                     firstTokenLatencyMs = firstTokenLatencyMs,
+                    usage = null,
                 ).also {
                     NetworkDebugLogger.logStreamCompleted(completedText)
                 }
@@ -189,9 +219,23 @@ class OpenAiCompatibleClient(
 
     private data class ModelCompletion(
         val text: String,
+        val firstByteLatencyMs: Long?,
         val firstTokenLatencyMs: Long?,
+        val usage: ModelTokenUsage?,
+    )
+
+    private data class ParsedCompletion(
+        val text: String,
+        val usage: ModelTokenUsage?,
+    )
+
+    private data class HttpExecution<T>(
+        val value: T,
+        val firstByteLatencyMs: Long?,
     )
 }
+
+private fun monotonicNowMs(): Long = System.nanoTime() / 1_000_000L
 
 private object NetworkDebugLogger {
     private const val TAG = "XiaoLingHttp"

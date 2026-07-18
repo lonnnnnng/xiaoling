@@ -15,6 +15,10 @@ class AgentRunMetricsPolicyTest {
             completedAt = 6_100L,
             stepTypes = listOf("llm.plan", AgentStepTypes.TOOL_EXECUTE, AgentStepTypes.TOOL_VERIFY, "llm.plan", "llm.summarize"),
             approvalCount = 1,
+            llmRequests = listOf(
+                llmRequest(phase = AgentLlmPhase.PLAN, latencyMs = 1_200L, firstByteLatencyMs = 200L, promptBytes = 2_000, totalTokens = 100L),
+                llmRequest(phase = AgentLlmPhase.SUMMARIZE, latencyMs = 800L, firstByteLatencyMs = 100L, promptBytes = 1_000, totalTokens = null),
+            ),
         )
 
         val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = 99_000L)
@@ -23,6 +27,11 @@ class AgentRunMetricsPolicyTest {
         assertEquals(3, metrics.modelCallCount)
         assertEquals(1, metrics.toolCallCount)
         assertEquals(1, metrics.approvalRequestCount)
+        assertEquals(2_000L, metrics.modelLatencyMs)
+        assertEquals(150L, metrics.averageFirstByteLatencyMs)
+        assertEquals(3_000L, metrics.promptBytes)
+        assertEquals(100L, metrics.totalTokens)
+        assertEquals(1, metrics.tokenUsageRequestCount)
     }
 
     @Test
@@ -64,6 +73,7 @@ class AgentRunMetricsPolicyTest {
         assertEquals(4_000L, metrics.averageElapsedMs)
         assertEquals(4, metrics.modelCallCount)
         assertEquals(2, metrics.toolCallCount)
+        assertEquals(mapOf(AgentRunStatus.FAILED to 1), metrics.failureCounts)
     }
 
     @Test
@@ -94,6 +104,7 @@ class AgentRunMetricsPolicyTest {
         completedAt: Long?,
         stepTypes: List<String>,
         approvalCount: Int = 0,
+        llmRequests: List<RunEventMetadata.LlmRequest> = emptyList(),
     ): AgentRunDetailRecord {
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
@@ -122,11 +133,37 @@ class AgentRunMetricsPolicyTest {
                         completedAt = completedAt,
                     )
                 },
-                events = emptyList(),
+                events = llmRequests.mapIndexed { index, metadata ->
+                    RunEventRecord(
+                        id = "event-$id-$index",
+                        runId = id,
+                        type = AgentEventTypes.LLM_REQUEST_COMPLETED,
+                        message = "模型请求完成",
+                        createdAt = createdAt + index,
+                        metadata = metadata,
+                    )
+                },
             ),
             approvals = List(approvalCount) { index -> approval(id, index) },
         )
     }
+
+    private fun llmRequest(
+        phase: AgentLlmPhase,
+        latencyMs: Long,
+        firstByteLatencyMs: Long?,
+        promptBytes: Int,
+        totalTokens: Long?,
+    ) = RunEventMetadata.LlmRequest(
+        phase = phase,
+        model = "gpt-test",
+        latencyMs = latencyMs,
+        firstByteLatencyMs = firstByteLatencyMs,
+        promptBytes = promptBytes,
+        inputTokens = totalTokens?.minus(20L),
+        outputTokens = totalTokens?.let { 20L },
+        totalTokens = totalTokens,
+    )
 
     private fun approval(runId: String, index: Int): ApprovalRequestRecord {
         return ApprovalRequestRecord(
