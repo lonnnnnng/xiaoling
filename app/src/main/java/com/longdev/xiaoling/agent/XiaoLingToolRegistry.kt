@@ -455,43 +455,63 @@ class XiaoLingToolRegistry(
         receipt: ToolExecutionReceipt,
         reason: AgentMemoryOperationVerificationFailure,
     ): ToolExecutionResult {
-        val detail = when (reason) {
-            AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND -> "找不到原记忆 operation"
-            AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE -> "历史 operation 缺少结果快照"
-            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH -> "原写入参数与持久化证据不一致"
-            AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH -> "工具回执与原 operation 不一致"
-            AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND -> "原长期记忆已删除"
-            AgentMemoryOperationVerificationFailure.MEMORY_CHANGED -> "原长期记忆业务字段已修改"
-            AgentMemoryOperationVerificationFailure.MEMORY_DISABLED -> "原长期记忆已禁用"
-            AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED -> "原长期记忆已过期"
-        }
-        val suggestedAction = when (reason) {
+        // long: 历史证据或当前记忆状态不再满足只读验证条件时，旧 Run 必须保持失败；这里把原因和新 Run 建议绑定，避免新增错误码时漏配任一字段。
+        val recoveryFailure = when (reason) {
             AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND ->
-                "请创建新 Run 重新保存这条记忆，原 operation 证据已不存在。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "找不到原记忆 operation",
+                    suggestedAction = "请创建新 Run 重新保存这条记忆，原 operation 证据已不存在。",
+                )
             AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE ->
-                "历史版本缺少结果快照，请创建新 Run 重新保存并建立完整证据。"
-            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH,
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "历史 operation 缺少结果快照",
+                    suggestedAction = "历史版本缺少结果快照，请创建新 Run 重新保存并建立完整证据。",
+                )
+            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH ->
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "原写入参数与持久化证据不一致",
+                    suggestedAction = "请创建新 Run 重新确认保存内容，不要继续使用当前旧 Run。",
+                )
             AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH ->
-                "请创建新 Run 重新确认保存内容，不要继续使用当前旧 Run。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "工具回执与原 operation 不一致",
+                    suggestedAction = "请创建新 Run 重新确认保存内容，不要继续使用当前旧 Run。",
+                )
             AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND ->
-                "如仍需保留该事实，请创建新 Run 重新保存。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "原长期记忆已删除",
+                    suggestedAction = "如仍需保留该事实，请创建新 Run 重新保存。",
+                )
             AgentMemoryOperationVerificationFailure.MEMORY_CHANGED ->
-                "请保留当前编辑结果，并创建新 Run 重新确认是否需要保存。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "原长期记忆业务字段已修改",
+                    suggestedAction = "请保留当前编辑结果，并创建新 Run 重新确认是否需要保存。",
+                )
             AgentMemoryOperationVerificationFailure.MEMORY_DISABLED ->
-                "请先在长期记忆管理中启用该记忆，再创建新 Run 重试。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "原长期记忆已禁用",
+                    suggestedAction = "请先在长期记忆管理中启用该记忆，再创建新 Run 重试。",
+                )
             AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED ->
-                "请先在长期记忆管理中更新过期时间，再创建新 Run 重试。"
+                ToolRecoveryFailure(
+                    code = reason.name,
+                    reason = "原长期记忆已过期",
+                    suggestedAction = "请先在长期记忆管理中更新过期时间，再创建新 Run 重试。",
+                )
         }
         return ToolExecutionResult(
             success = false,
             verified = false,
-            content = "长期记忆恢复验证失败：${reason.name}（$detail）",
+            content = "长期记忆恢复验证失败：${recoveryFailure.code}（${recoveryFailure.reason}）",
             executionReceipt = receipt,
-            recoveryFailure = ToolRecoveryFailure(
-                code = reason.name,
-                reason = detail,
-                suggestedAction = suggestedAction,
-            ),
+            recoveryFailure = recoveryFailure,
         )
     }
 
