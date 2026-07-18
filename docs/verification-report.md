@@ -172,7 +172,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - API Key（含 `sk-`、GitHub、Google、AWS 常见前缀）、token、密码、银行卡、身份证和手机号固定样例全部进入 `BLOCKED_SENSITIVE`，候选 content、normalized content、标签和来源摘要不包含原值。
 - 忽略空格、标点和大小写后相同的事实标记为 `DUPLICATE`；`memory.remember` 直接写入也复用旧记忆 ID，不产生重复行。
 - 同类型、同主题但内容不同的事实标记为 `CONFLICT` 并关联旧记忆；确认时另存新记录，不覆盖旧记录。
-- 删除返回完整快照并立即移除主表与 FTS；撤销后在同一事务中恢复主表、来源字段和 FTS。
+- 删除前原子保存最近一次完整快照并立即移除主表与 FTS；撤销后在同一事务中恢复主表、来源、置顶、生命周期字段和 FTS。
+- 新增跨 Store 实例测试模拟进程重建：删除后新实例可读取撤销快照并恢复；若快照已写但 Room 正式记忆仍存在，则清理陈旧快照而不重复提供撤销；损坏快照会被删除且不阻断记忆管理。
 - v9→v10 迁移保留已确认记忆并创建空候选表；全新 v10 数据库可打开。
 
 真机验证：

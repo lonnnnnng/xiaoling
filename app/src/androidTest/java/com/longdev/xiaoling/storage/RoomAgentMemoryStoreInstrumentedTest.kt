@@ -20,11 +20,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class RoomAgentMemoryStoreInstrumentedTest {
     private lateinit var database: XiaoLingDatabase
     private lateinit var store: RoomAgentMemoryStore
+    private lateinit var deleteUndoStore: AgentMemoryDeleteUndoStore
 
     @Before
     fun setUp() {
@@ -32,11 +34,14 @@ class RoomAgentMemoryStoreInstrumentedTest {
         database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        deleteUndoStore = AgentMemoryDeleteUndoStore(context)
+        deleteUndoStore.clear()
         store = RoomAgentMemoryStore(context, database)
     }
 
     @After
     fun tearDown() {
+        deleteUndoStore.clear()
         database.close()
     }
 
@@ -116,6 +121,56 @@ class RoomAgentMemoryStoreInstrumentedTest {
         val restored = store.restore(checkNotNull(deletedSnapshot))
         assertEquals(chinese.id, restored.id)
         assertTrue(store.list("信息密度", AgentMemoryFilter.ALL).any { it.id == chinese.id })
+    }
+
+    @Test
+    fun deletedMemoryUndoSurvivesStoreRecreationAndRejectsStaleSnapshot() = runBlocking {
+        val created = store.remember(
+            content = "跨进程撤销测试记忆",
+            tags = "undo process",
+            type = "Preference",
+            source = AgentMemorySource("conversation-undo", "run-undo", "用户确认保存"),
+            confidence = 0.92,
+        )
+        store.setPinned(created.id, true)
+        store.setExpiresAt(
+            created.id,
+            AgentMemoryDecayPolicy.expiresAt(AgentMemoryExpiryOption.NINETY_DAYS, System.currentTimeMillis()),
+        )
+        store.search("跨进程撤销", 10)
+        val beforeDelete = checkNotNull(store.get(created.id))
+        val deleted = checkNotNull(store.delete(created.id))
+
+        val restartedStore = RoomAgentMemoryStore(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        val recoveredUndo = checkNotNull(restartedStore.latestDeleted())
+        assertEquals(beforeDelete, deleted)
+        assertEquals(beforeDelete, recoveredUndo)
+        assertNull(restartedStore.get(created.id))
+        assertFalse(restartedStore.search("跨进程撤销", 10).any { it.id == created.id })
+
+        val restored = restartedStore.restore(recoveredUndo)
+        assertEquals(beforeDelete, restored)
+        assertTrue(restartedStore.search("跨进程撤销", 10).any { it.id == created.id })
+        assertNull(restartedStore.latestDeleted())
+
+        // long: 模拟快照落盘后、Room 删除前进程退出；正式记录仍存在时，启动恢复必须丢弃快照而不是重复提供撤销。
+        deleteUndoStore.save(restored)
+        assertNull(restartedStore.latestDeleted())
+        assertNull(deleteUndoStore.load())
+    }
+
+    @Test
+    fun corruptedUndoSnapshotIsDiscardedWithoutBlockingMemoryStore() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val corruptedFile = File(context.cacheDir, "corrupted-memory-undo.json")
+        corruptedFile.writeText("{broken", Charsets.UTF_8)
+        val corruptedStore = AgentMemoryDeleteUndoStore(context, corruptedFile)
+
+        assertNull(corruptedStore.load())
+        assertFalse(corruptedFile.exists())
     }
 
     @Test

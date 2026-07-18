@@ -123,7 +123,7 @@
 - 确定性规则只从明确偏好和个人事实陈述生成 `PENDING` 候选；普通问答不生成。候选保留来源会话和可选来源 Run，但不会进入正式记忆或 Agent 检索。
 - API Key（含 `sk-`、GitHub、Google、AWS 等常见前缀）、token、密码、银行卡、身份证和手机号命中后记录 `BLOCKED_SENSITIVE`；正文、标签和来源摘要均只保存类别和固定提示，原文与规范化内容不落库。
 - 规范化相同的正式记忆标记为 `DUPLICATE`，不会重复写入；同类型、同主题但内容不同的候选标记为 `CONFLICT`，保留旧记忆。用户可明确选择另存为新记忆，不会覆盖旧记录。
-- `memory.remember` 与候选确认共用敏感过滤和去重入口，避免工具绕过治理规则。删除正式记忆会返回完整快照，当前应用会话内可撤销并在 Room transaction 中恢复主表和 FTS；暂不承诺跨进程撤销。
+- `memory.remember` 与候选确认共用敏感过滤和去重入口，避免工具绕过治理规则。删除正式记忆前会把最近一次完整快照写入应用私有原子文件，再在 Room transaction 中删除主表和 FTS；应用重启后仍可撤销并完整恢复来源、置顶、生命周期和索引字段。
 
 ## Provider 管理
 
@@ -165,7 +165,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`，跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`；跨进程记忆删除撤销、记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付，后台任务、Skill 和更多真实工具仍需按路线图继续补齐。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

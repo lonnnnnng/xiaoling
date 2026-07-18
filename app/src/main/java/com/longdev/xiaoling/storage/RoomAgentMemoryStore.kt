@@ -25,6 +25,8 @@ class RoomAgentMemoryStore(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) : AgentMemoryStore, AgentMemoryManager, AgentMemoryCandidateManager {
+    private val deleteUndoStore = AgentMemoryDeleteUndoStore(context.applicationContext)
+
     override suspend fun remember(
         content: String,
         tags: String,
@@ -145,21 +147,41 @@ class RoomAgentMemoryStore(
     }
 
     override suspend fun delete(memoryId: String): AgentMemoryRecord? {
-        return database.withTransaction {
-            val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord()
-                ?: return@withTransaction null
-            database.agentMemoryDao().deleteMemoryIndex(memoryId)
-            database.agentMemoryDao().deleteMemory(memoryId)
-            current
+        return try {
+            database.withTransaction {
+                val current = database.agentMemoryDao().getMemory(memoryId)?.toRecord()
+                    ?: return@withTransaction null
+                // long: 先原子保存完整撤销快照再删除 Room 和 FTS；进程在任一步退出后，启动校验都能判断快照是否真实对应已删除记录。
+                deleteUndoStore.save(current)
+                database.agentMemoryDao().deleteMemoryIndex(memoryId)
+                database.agentMemoryDao().deleteMemory(memoryId)
+                current
+            }
+        } catch (error: Throwable) {
+            deleteUndoStore.clear(memoryId)
+            throw error
         }
     }
 
-    override suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord {
-        return database.withTransaction {
-            database.agentMemoryDao().upsertMemory(memory.toEntity())
-            replaceMemoryIndex(memory)
-            memory
+    override suspend fun latestDeleted(): AgentMemoryRecord? {
+        val staged = deleteUndoStore.load() ?: return null
+        if (database.agentMemoryDao().getMemory(staged.id) != null) {
+            // long: 快照写入后若进程在 Room 删除前退出，正式记忆仍存在；此时清理陈旧快照，避免 UI 把未删除记录显示成可撤销。
+            deleteUndoStore.clear(staged.id)
+            return null
         }
+        return staged
+    }
+
+    override suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord {
+        val staged = deleteUndoStore.load()?.takeIf { it.id == memory.id } ?: memory
+        val restored = database.withTransaction {
+            database.agentMemoryDao().upsertMemory(staged.toEntity())
+            replaceMemoryIndex(staged)
+            staged
+        }
+        deleteUndoStore.clear(restored.id)
+        return restored
     }
 
     override suspend fun createCandidate(

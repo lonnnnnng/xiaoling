@@ -296,6 +296,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 // long: 执行/验证中的旧协程和网络请求无法重建，启动时只保留策略允许的待审批 Run，其余中间态收敛成可审计终态。
                 agentRunRepository.closeInterruptedRuns()
             }
+            val latestDeletedMemory = withContext(Dispatchers.IO) {
+                // long: 删除撤销快照独立于页面内存；启动时与 Room 正式记录核对后恢复入口，保证进程重建不会丢失最近一次撤销机会。
+                agentMemoryStore.latestDeleted()
+            }
             val storedProfiles = configStore.load()
             val storedConversations = conversationStore.load()
             // long: Room/Keystore 读取放在协程里执行，首屏先用安全的空白状态，避免应用启动阶段因为解密或数据库迁移阻塞主线程。
@@ -306,6 +310,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     themeMode = uiState.themeMode,
                     promptSettings = uiState.promptSettings,
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
+                    deletedMemoryForUndo = latestDeletedMemory,
                     result = uiState.result,
                 )
             restoreRecoveredAgentRuns(resumableRuns)
@@ -680,7 +685,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     result = OperationResult(
                         success = deleted != null,
                         title = if (deleted != null) "已删除" else "删除失败",
-                        message = if (deleted != null) "记忆及其检索索引已删除，可在当前页面撤销" else "记忆不存在或已被删除",
+                        message = if (deleted != null) "记忆及其检索索引已删除，应用重启后仍可撤销" else "记忆不存在或已被删除",
                     ),
                 )
                 loadMemories()

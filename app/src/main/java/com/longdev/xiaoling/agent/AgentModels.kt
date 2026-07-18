@@ -469,6 +469,7 @@ interface AgentMemoryManager {
     suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord?
     suspend fun setExpiresAt(memoryId: String, expiresAt: Long?): AgentMemoryRecord?
     suspend fun delete(memoryId: String): AgentMemoryRecord?
+    suspend fun latestDeleted(): AgentMemoryRecord?
     suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord
 }
 
