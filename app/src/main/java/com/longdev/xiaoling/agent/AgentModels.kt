@@ -424,7 +424,8 @@ interface AgentMemoryManager {
     suspend fun update(memoryId: String, update: AgentMemoryUpdate): AgentMemoryRecord?
     suspend fun setEnabled(memoryId: String, enabled: Boolean): AgentMemoryRecord?
     suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord?
-    suspend fun delete(memoryId: String): Boolean
+    suspend fun delete(memoryId: String): AgentMemoryRecord?
+    suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord
 }
 
 data class AgentConversationRecord(

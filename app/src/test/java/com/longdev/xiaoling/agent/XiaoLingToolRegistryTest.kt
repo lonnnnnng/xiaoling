@@ -3,6 +3,7 @@ package com.longdev.xiaoling.agent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -180,7 +181,8 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(remember.success)
         assertEquals(true, remember.verified)
-        assertTrue(remember.content.contains("来源：由 /agent 任务写入：记住用户偏好"))
+        assertTrue(remember.content.contains("来源：由 /agent Run 写入（来源 Run 可查看）"))
+        assertFalse(remember.content.contains("记住用户偏好"))
         assertTrue(search.success)
         assertTrue(search.content.contains("用户喜欢紧凑、明亮但不刺眼的 Android UI"))
         assertTrue(search.content.contains("Preference"))

@@ -286,7 +286,7 @@ class XiaoLingToolRegistry(
             AgentMemorySource(
                 conversationId = it.conversationId,
                 runId = it.runId,
-                summary = "由 /agent 任务写入：${it.goal}",
+                summary = "由 /agent Run 写入（来源 Run 可查看）",
             )
         } ?: AgentMemorySource(conversationId = null, runId = null, summary = "来源未知")
         // long: 长期记忆写入要保存来源和启用状态，后续用户才能追问“为什么记住这件事”，并在管理页禁用或删除。

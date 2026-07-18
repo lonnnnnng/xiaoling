@@ -30,45 +30,45 @@ BUILD SUCCESSFUL
 Schema 生成方式：
 
 - Room compiler 使用 KSP `2.3.7`，通过 Room Gradle Plugin `2.8.4` 的 `schemaDirectory` 导出到 `app/schemas/`。
-- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 保存重试关联改造前结构，v8 保存 Memory FTS 改造前结构，v9 由当前源码生成。
-- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 `MIGRATION_4_5`、`MIGRATION_5_6`、`MIGRATION_6_7`、`MIGRATION_7_8`、`MIGRATION_8_9` 顺序执行完整链路。
+- v4 Schema 从固定历史提交 `425717b` 的数据库实体生成，v6 保存 RunEvent metadata 改造前结构，v7 保存重试关联改造前结构，v8 保存 Memory FTS 改造前结构，v9 保存候选表引入前结构，v10 由当前源码生成。
+- 历史中数据库版本曾直接从 v4 跳到 v6，因此没有可复现的独立 v5 源码快照；自动化测试仍按正式 migrations 顺序执行到 `MIGRATION_9_10`。
 
 单测试命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.longdev.xiaoling.data.XiaoLingDatabaseMigrationInstrumentedTest
+adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.data.XiaoLingDatabaseMigrationInstrumentedTest com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 结果：
 
 ```text
-Starting 5 tests on Redmi Note 8 Pro - 14
-Finished 5 tests on Redmi Note 8 Pro - 14
-BUILD SUCCESSFUL
+OK (6 tests)
 ```
 
 已验证：
 
-- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v9，Room 最终 Schema 校验通过。
+- 带真实旧数据的 v4 数据库通过正式 migrations 升级到 v10，Room 最终 Schema 校验通过。
 - Provider、会话、用户/assistant 消息、Agent Run、Step、审批、Run Event、笔记和长期记忆均可通过 DAO 回读。
 - v4 旧消息迁移后 `origin=LEGACY`，`verifiedAgentContext=null`。
 - v6 中保存在 `RunEvent.message` 的旧 JSON object 会迁入 `metadataJson`，原 message 改为事件可读摘要；普通文本 message 不会被误标为结构化 metadata。
 - v7 旧 Run 升级到 v8 后，状态、结果和错误保持不变，`retryOfRunId` 初始化为 `null`。
 - v8 旧记忆升级到 v9 后，`pinned` 初始化为 `false`，FTS 索引立即可检索，无需再次编辑。
-- 全新 v9 内存数据库可以创建、打开并执行 DAO 查询。
+- v9 正式记忆升级到 v10 后保持原内容和 FTS，新增候选表为空，不会要求用户重复确认历史记忆。
+- 全新 v10 内存数据库可以创建、打开并执行 DAO 查询。
 - Room 2.8.4 需要 kotlinx serialization 1.8.1；工程已统一该现有传递依赖版本，避免 KSP Schema 导出和 `room-testing` 运行时接口不一致。
 
 完整回归命令：
 
 ```zsh
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest connectedDebugAndroidTest lintDebug assembleDebug
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
+adb -s wsvwypiz7xwslvl7 shell am instrument -w -r com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
 结果：
 
 ```text
-Starting 11 tests on Redmi Note 8 Pro - 14
-Finished 11 tests on Redmi Note 8 Pro - 14
+99 JVM tests passed
+OK (15 Android tests)
 BUILD SUCCESSFUL
 ```
 
@@ -106,7 +106,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 已验证：
 
 - ToolCall、ToolResult、审批、失败与恢复事件通过 sealed `RunEventMetadata` variants 暴露合法字段组合，新事件的 `message` 只保存可读摘要。
-- Room v7 引入独立 `metadataJson` 列，当前 v9 中 metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
+- Room v7 引入独立 `metadataJson` 列，当前 v10 中 metadata 可以通过 Repository round-trip，v6 旧 JSON event 可迁移且特殊字符不丢失。
 - 任务中心 UI 直接读取 typed metadata，不再解析数据库 JSON；纯文本历史事件继续回退显示原文。
 - Responses `input` 可同时包含消息、`function_call` 和 `function_call_output`，调用与结果通过相同 `call_id` 关联。
 
@@ -163,6 +163,34 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - `testDebugUnitTest`：79 条 JVM 单元测试通过。
 - `connectedDebugAndroidTest`：11 条 Redmi Note 8 Pro 真机测试通过。
 - `lintDebug` 与 `assembleDebug` 通过。
+
+## 候选记忆、敏感过滤与删除撤销验证
+
+定向测试覆盖：
+
+- 明确偏好生成 `PENDING` 候选，普通问答不生成候选；候选确认前不进入正式记忆和 FTS。
+- API Key（含 `sk-`、GitHub、Google、AWS 常见前缀）、token、密码、银行卡、身份证和手机号固定样例全部进入 `BLOCKED_SENSITIVE`，候选 content、normalized content、标签和来源摘要不包含原值。
+- 忽略空格、标点和大小写后相同的事实标记为 `DUPLICATE`；`memory.remember` 直接写入也复用旧记忆 ID，不产生重复行。
+- 同类型、同主题但内容不同的事实标记为 `CONFLICT` 并关联旧记忆；确认时另存新记录，不覆盖旧记录。
+- 删除返回完整快照并立即移除主表与 FTS；撤销后在同一事务中恢复主表、来源字段和 FTS。
+- v9→v10 迁移保留已确认记忆并创建空候选表；全新 v10 数据库可打开。
+
+真机验证：
+
+- 使用 `adb install -r` 覆盖安装 debug 与 androidTest APK，再直接调用 `AndroidJUnitRunner`，未执行会清除设备配置的 Gradle connected 流程。
+- 完整真机套件 `OK (15 tests)`；执行后 Provider 记录、选中模型和 Keystore 密文仍存在。
+- Redmi Note 8 Pro 横屏下，「长期记忆」页候选开关默认显示“已关闭”；开关、搜索、筛选和空状态完整显示，无重叠或截断。
+- 实际数据库 `PRAGMA user_version=10`，应用覆盖安装、启动和 Room 迁移正常。
+
+本阶段完整回归结果：
+
+- `testDebugUnitTest`：99 条 JVM 单元测试通过。
+- 手动 `AndroidJUnitRunner`：15 条 Redmi Note 8 Pro 真机测试通过。
+- `lintDebug`、`assembleDebug` 与 `assembleDebugAndroidTest` 通过。
+
+外部服务边界：
+
+- 本机兜底 Provider 的模型列表与鉴权已验证成功；按本机指令选择 `gpt-5.5` 后，真实对话请求到达服务端但返回 `HTTP 503 · 无可用账号`。同端点小范围候选探测也返回 503/429/403，因此当前未取得真实回复成功证据，该结果不归因于应用实现。
 
 ## Tool Schema 与权限策略验证
 

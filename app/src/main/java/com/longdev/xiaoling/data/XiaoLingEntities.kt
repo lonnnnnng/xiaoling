@@ -160,6 +160,30 @@ data class AgentMemoryFtsEntity(
 )
 
 @Entity(
+    tableName = "agent_memory_candidates",
+    indices = [
+        Index(value = ["status", "createdAt"]),
+        Index(value = ["normalizedContent"]),
+    ],
+)
+data class AgentMemoryCandidateEntity(
+    @PrimaryKey val id: String,
+    val content: String,
+    val normalizedContent: String,
+    val type: String,
+    val topicKey: String,
+    val sourceConversationId: String?,
+    val sourceRunId: String?,
+    val sourceSummary: String,
+    val confidence: Double,
+    val status: String,
+    val sensitiveCategory: String?,
+    val relatedMemoryId: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
     tableName = "agent_notes",
     indices = [
         Index(value = ["createdAt"]),

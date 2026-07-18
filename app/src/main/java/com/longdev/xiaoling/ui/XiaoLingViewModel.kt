@@ -8,6 +8,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.agent.AgentCommand
 import com.longdev.xiaoling.agent.AgentMemoryFilter
+import com.longdev.xiaoling.agent.AgentMemoryCandidateRecord
+import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentRunUseCase
@@ -109,6 +111,10 @@ data class XiaoLingUiState(
     val agentRetryNavigationConversationId: String? = null,
     val loadingMemories: Boolean = false,
     val memories: List<AgentMemoryRecord> = emptyList(),
+    val memoryCandidatesEnabled: Boolean = false,
+    val loadingMemoryCandidates: Boolean = false,
+    val memoryCandidates: List<AgentMemoryCandidateRecord> = emptyList(),
+    val mutatingMemoryCandidateIds: Set<String> = emptySet(),
     val memorySearchQuery: String = "",
     val memoryFilter: AgentMemoryFilter = AgentMemoryFilter.ALL,
     val selectedMemoryId: String? = null,
@@ -116,6 +122,7 @@ data class XiaoLingUiState(
     val mutatingMemoryIds: Set<String> = emptySet(),
     val editingMemory: AgentMemoryEditUiState? = null,
     val pendingMemoryDelete: AgentMemoryRecord? = null,
+    val deletedMemoryForUndo: AgentMemoryRecord? = null,
     val memorySourceConversationNavigationId: String? = null,
     val memorySourceRunNavigationId: String? = null,
     val result: OperationResult? = null,
@@ -259,6 +266,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var sendMessageJob: Job? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
+    private var memoryCandidateLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
 
@@ -266,6 +274,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         initialUiState(
             themeMode = uiPreferenceStore.loadThemeMode(),
             promptSettings = uiPreferenceStore.loadPromptSettings(),
+            memoryCandidatesEnabled = uiPreferenceStore.loadMemoryCandidatesEnabled(),
         ),
     )
         private set
@@ -285,6 +294,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 .copy(
                     themeMode = uiState.themeMode,
                     promptSettings = uiState.promptSettings,
+                    memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
                     result = uiState.result,
                 )
         }
@@ -443,6 +453,29 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshMemories() {
         loadMemories()
+        loadMemoryCandidates()
+    }
+
+    fun updateMemoryCandidatesEnabled(enabled: Boolean) {
+        uiPreferenceStore.saveMemoryCandidatesEnabled(enabled)
+        uiState = uiState.copy(
+            memoryCandidatesEnabled = enabled,
+            memoryCandidates = if (enabled) uiState.memoryCandidates else emptyList(),
+            result = OperationResult(
+                success = true,
+                title = if (enabled) "候选记忆已开启" else "候选记忆已关闭",
+                message = if (enabled) "后续明确陈述只会生成候选，仍需你确认保存" else "后续对话不会生成新的候选记忆",
+            ),
+        )
+        if (enabled) loadMemoryCandidates()
+    }
+
+    fun acceptMemoryCandidate(candidateId: String) {
+        mutateMemoryCandidate(candidateId, accepted = true)
+    }
+
+    fun rejectMemoryCandidate(candidateId: String) {
+        mutateMemoryCandidate(candidateId, accepted = false)
     }
 
     fun updateMemorySearchQuery(query: String) {
@@ -562,10 +595,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }.onSuccess { deleted ->
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    deletedMemoryForUndo = deleted,
                     result = OperationResult(
-                        success = deleted,
-                        title = if (deleted) "已删除" else "删除失败",
-                        message = if (deleted) "记忆及其检索索引已删除" else "记忆不存在或已被删除",
+                        success = deleted != null,
+                        title = if (deleted != null) "已删除" else "删除失败",
+                        message = if (deleted != null) "记忆及其检索索引已删除，可在当前页面撤销" else "记忆不存在或已被删除",
                     ),
                 )
                 loadMemories()
@@ -573,6 +607,29 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 uiState = uiState.copy(
                     mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
                     memoryError = error.message ?: "删除记忆失败",
+                )
+            }
+        }
+    }
+
+    fun undoMemoryDelete() {
+        val memory = uiState.deletedMemoryForUndo ?: return
+        if (memory.id in uiState.mutatingMemoryIds) return
+        uiState = uiState.copy(mutatingMemoryIds = uiState.mutatingMemoryIds + memory.id)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentMemoryStore.restore(memory) }
+            }.onSuccess {
+                uiState = uiState.copy(
+                    deletedMemoryForUndo = null,
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    result = OperationResult(true, "已恢复", "记忆和检索索引已恢复"),
+                )
+                loadMemories()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingMemoryIds = uiState.mutatingMemoryIds - memory.id,
+                    memoryError = error.message ?: "恢复记忆失败",
                 )
             }
         }
@@ -649,6 +706,106 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 uiState = uiState.copy(
                     loadingMemories = false,
                     memoryError = error.message ?: "无法读取长期记忆",
+                )
+            }
+        }
+    }
+
+    private fun loadMemoryCandidates() {
+        memoryCandidateLoadJob?.cancel()
+        if (!uiState.memoryCandidatesEnabled) return
+        uiState = uiState.copy(loadingMemoryCandidates = true, memoryError = null)
+        memoryCandidateLoadJob = viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentMemoryStore.listCandidates(limit = MEMORY_CANDIDATE_LIMIT) }
+            }.onSuccess { candidates ->
+                uiState = uiState.copy(
+                    loadingMemoryCandidates = false,
+                    memoryCandidates = candidates,
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    loadingMemoryCandidates = false,
+                    memoryError = error.message ?: "无法读取候选记忆",
+                )
+            }
+        }
+    }
+
+    private suspend fun createMemoryCandidateAfterTurn(
+        userText: String,
+        conversationId: String,
+        runId: String?,
+    ) {
+        if (!uiState.memoryCandidatesEnabled) return
+        runCatching {
+            withContext(Dispatchers.IO) {
+                agentMemoryStore.createCandidate(
+                    userText = userText,
+                    source = com.longdev.xiaoling.agent.AgentMemorySource(
+                        conversationId = conversationId,
+                        runId = runId,
+                        summary = if (runId == null) "普通对话结束后生成的候选" else "Agent Run 结束后生成的候选",
+                    ),
+                )
+            }
+        }.onSuccess { candidate ->
+            if (candidate?.status == AgentMemoryCandidateStatus.BLOCKED_SENSITIVE) {
+                uiState = uiState.copy(
+                    result = OperationResult(
+                        success = false,
+                        title = "敏感内容未加入记忆",
+                        message = "检测到${candidate.sensitiveCategory?.displayName ?: "敏感信息"}，未保存原文",
+                    ),
+                )
+            }
+            if (candidate != null) loadMemoryCandidates()
+        }.onFailure { error ->
+            // long: 候选提取是聊天后的附加能力，失败时只记录记忆侧错误，不能把已经成功的普通回复或 Agent Run 改成失败。
+            uiState = uiState.copy(memoryError = error.message ?: "生成候选记忆失败")
+        }
+    }
+
+    private fun mutateMemoryCandidate(candidateId: String, accepted: Boolean) {
+        if (candidateId in uiState.mutatingMemoryCandidateIds) return
+        uiState = uiState.copy(
+            mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds + candidateId,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    if (accepted) {
+                        agentMemoryStore.acceptCandidate(candidateId)
+                    } else {
+                        agentMemoryStore.rejectCandidate(candidateId)
+                    }
+                }
+            }.onSuccess { candidate ->
+                val status = candidate?.status
+                uiState = uiState.copy(
+                    mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
+                    result = OperationResult(
+                        success = candidate != null,
+                        title = when (status) {
+                            AgentMemoryCandidateStatus.ACCEPTED -> "已保存记忆"
+                            AgentMemoryCandidateStatus.DUPLICATE -> "已有相同记忆"
+                            AgentMemoryCandidateStatus.REJECTED -> "已忽略候选"
+                            else -> "候选未更新"
+                        },
+                        message = when (status) {
+                            AgentMemoryCandidateStatus.ACCEPTED -> "候选已转为正式记忆并加入检索"
+                            AgentMemoryCandidateStatus.DUPLICATE -> "未重复写入，继续使用原有记忆"
+                            AgentMemoryCandidateStatus.REJECTED -> "该候选不会进入正式记忆"
+                            else -> "候选状态已变化，请刷新后重试"
+                        },
+                    ),
+                )
+                loadMemoryCandidates()
+                if (accepted) loadMemories()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
+                    memoryError = error.message ?: "更新候选记忆失败",
                 )
             }
         }
@@ -1155,6 +1312,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                                 sendingMessage = false,
                                 result = null,
                             )
+                        createMemoryCandidateAfterTurn(
+                            userText = userMessage,
+                            conversationId = uiState.selectedConversationId,
+                            runId = null,
+                        )
                         saveConversationSelection()
                         saveCurrentProfileSelection()
                     }
@@ -1263,6 +1425,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
+                createMemoryCandidateAfterTurn(
+                    userText = goal,
+                    conversationId = conversationId,
+                    runId = summary.runId,
+                )
                 clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: CancellationException) {
@@ -1972,7 +2139,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         result = result,
     )
 
-    private fun initialUiState(themeMode: AppThemeMode, promptSettings: PromptSettings): XiaoLingUiState {
+    private fun initialUiState(
+        themeMode: AppThemeMode,
+        promptSettings: PromptSettings,
+        memoryCandidatesEnabled: Boolean,
+    ): XiaoLingUiState {
         val profile = ProviderProfile.blank()
         val now = System.currentTimeMillis()
         val conversation = StoredConversation(
@@ -1997,7 +2168,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     selectedConversationId = conversation.id,
                 ),
             )
-            .copy(themeMode = themeMode, promptSettings = promptSettings)
+            .copy(
+                themeMode = themeMode,
+                promptSettings = promptSettings,
+                memoryCandidatesEnabled = memoryCandidatesEnabled,
+            )
     }
 
     private fun com.longdev.xiaoling.storage.StoredProfiles.toUiState(): XiaoLingUiState {
@@ -2138,6 +2313,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50
         private const val MEMORY_MANAGEMENT_LIMIT = 200
+        private const val MEMORY_CANDIDATE_LIMIT = 100
         private const val MEMORY_SEARCH_DEBOUNCE_MS = 250L
     }
 }

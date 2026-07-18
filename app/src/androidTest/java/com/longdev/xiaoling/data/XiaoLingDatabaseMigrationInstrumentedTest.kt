@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To9PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To10PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            9,
+            10,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -80,7 +80,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion9Database() = runBlocking {
+    fun createAndOpenFreshVersion10Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -88,7 +88,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(9, database.openHelper.writableDatabase.version)
+        assertEquals(10, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -234,6 +234,53 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate9To10PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+        migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
+            execSQL(
+                "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "memory-v9",
+                    "用户喜欢紧凑界面",
+                    "ui",
+                    "Preference",
+                    "conversation-v9",
+                    "run-v9",
+                    "用户明确表达偏好",
+                    0.95,
+                    1,
+                    100L,
+                    200L,
+                    1,
+                ),
+            )
+            execSQL(
+                "INSERT INTO agent_memories_fts (memoryId, content, tags, type, sourceSummary) VALUES (?, ?, ?, ?, ?)",
+                arrayOf<Any?>("memory-v9", "用户喜欢紧凑界面", "ui", "Preference", "用户明确表达偏好"),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
+            10,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT content, pinned FROM agent_memories WHERE id = 'memory-v9'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("用户喜欢紧凑界面", cursor.getString(cursor.getColumnIndexOrThrow("content")))
+            assertEquals(1, cursor.getInt(cursor.getColumnIndexOrThrow("pinned")))
+        }
+        migrated.query("SELECT COUNT(*) AS candidateCount FROM agent_memory_candidates").use { cursor ->
+            // long: 升级不能把历史正式记忆倒推成候选，否则用户会被要求重复确认已经存在的事实。
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("candidateCount")))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -294,5 +341,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val METADATA_MIGRATION_DATABASE_NAME = "xiaoling-metadata-migration-test"
         private const val RETRY_LINK_MIGRATION_DATABASE_NAME = "xiaoling-retry-link-migration-test"
         private const val MEMORY_FTS_MIGRATION_DATABASE_NAME = "xiaoling-memory-fts-migration-test"
+        private const val MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME = "xiaoling-memory-candidate-migration-test"
     }
 }

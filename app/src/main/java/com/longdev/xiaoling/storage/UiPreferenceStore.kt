@@ -20,6 +20,17 @@ class UiPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadMemoryCandidatesEnabled(): Boolean {
+        return preferences.getBoolean(KEY_MEMORY_CANDIDATES_ENABLED, false)
+    }
+
+    fun saveMemoryCandidatesEnabled(enabled: Boolean) {
+        // long: 候选记忆可能处理个人陈述，必须由用户主动开启并持久化选择；首次安装和旧版本升级都保持关闭。
+        preferences.edit()
+            .putBoolean(KEY_MEMORY_CANDIDATES_ENABLED, enabled)
+            .apply()
+    }
+
     fun loadPromptSettings(): PromptSettings {
         return PromptSettings(
             chatPromptEnabled = preferences.getBoolean(KEY_CHAT_PROMPT_ENABLED, false),
@@ -52,5 +63,6 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_SUMMARY_PROMPT = "summary_prompt"
         private const val KEY_AGENT_SUMMARY_PROMPT_ENABLED = "agent_summary_prompt_enabled"
         private const val KEY_AGENT_SUMMARY_PROMPT = "agent_summary_prompt"
+        private const val KEY_MEMORY_CANDIDATES_ENABLED = "memory_candidates_enabled"
     }
 }

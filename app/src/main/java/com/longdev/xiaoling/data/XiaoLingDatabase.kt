@@ -19,9 +19,10 @@ import org.json.JSONObject
         RunEventEntity::class,
         AgentMemoryEntity::class,
         AgentMemoryFtsEntity::class,
+        AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -203,6 +204,39 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 候选与正式记忆分表，升级后旧记忆继续保持已确认语义；新候选只有用户确认后才会进入 agent_memories 和 FTS。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_memory_candidates` (
+                        `id` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `normalizedContent` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `topicKey` TEXT NOT NULL,
+                        `sourceConversationId` TEXT,
+                        `sourceRunId` TEXT,
+                        `sourceSummary` TEXT NOT NULL,
+                        `confidence` REAL NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `sensitiveCategory` TEXT,
+                        `relatedMemoryId` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_memory_candidates_status_createdAt` ON `agent_memory_candidates` (`status`, `createdAt`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_memory_candidates_normalizedContent` ON `agent_memory_candidates` (`normalizedContent`)",
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -212,6 +246,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

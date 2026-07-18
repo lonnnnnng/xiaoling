@@ -112,6 +112,9 @@ interface AgentMemoryDao {
     )
     suspend fun list(limit: Int, enabledFilter: Boolean?): List<AgentMemoryEntity>
 
+    @Query("SELECT * FROM agent_memories ORDER BY pinned DESC, updatedAt DESC")
+    suspend fun listAllMemories(): List<AgentMemoryEntity>
+
     @Query(
         """
         SELECT * FROM agent_memories
@@ -143,6 +146,18 @@ interface AgentMemoryDao {
 
     @Query("DELETE FROM agent_memories WHERE id = :memoryId")
     suspend fun deleteMemory(memoryId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCandidate(candidate: AgentMemoryCandidateEntity)
+
+    @Query("SELECT * FROM agent_memory_candidates WHERE id = :candidateId")
+    suspend fun getCandidate(candidateId: String): AgentMemoryCandidateEntity?
+
+    @Query("SELECT * FROM agent_memory_candidates ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun listCandidates(limit: Int): List<AgentMemoryCandidateEntity>
+
+    @Query("SELECT * FROM agent_memory_candidates ORDER BY createdAt DESC")
+    suspend fun listAllCandidates(): List<AgentMemoryCandidateEntity>
 }
 
 @Dao

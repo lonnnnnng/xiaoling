@@ -116,6 +116,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.agent.AgentCommand
 import com.longdev.xiaoling.agent.AgentMemoryFilter
+import com.longdev.xiaoling.agent.AgentMemoryCandidateRecord
+import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
@@ -2032,6 +2034,9 @@ private fun AgentMemoryManagementPage(
             viewModel.refreshMemories()
         }
     }
+    val visibleCandidates = state.memoryCandidates.filter {
+        it.status in setOf(AgentMemoryCandidateStatus.PENDING, AgentMemoryCandidateStatus.CONFLICT)
+    }
 
     Column(
         modifier = modifier
@@ -2059,6 +2064,32 @@ private fun AgentMemoryManagementPage(
                 } else {
                     Icon(Icons.Default.CloudDownload, contentDescription = "刷新长期记忆", modifier = Modifier.size(18.dp))
                 }
+            }
+        }
+
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            shape = RoundedCornerShape(7.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.Memory, contentDescription = null, modifier = Modifier.size(17.dp))
+                Text("候选记忆", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = if (state.memoryCandidatesEnabled) "已开启" else "已关闭",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Switch(
+                    checked = state.memoryCandidatesEnabled,
+                    onCheckedChange = viewModel::updateMemoryCandidatesEnabled,
+                    modifier = Modifier.size(width = 44.dp, height = 28.dp),
+                )
             }
         }
 
@@ -2090,6 +2121,62 @@ private fun AgentMemoryManagementPage(
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            state.deletedMemoryForUndo?.let { deleted ->
+                item(key = "memory-delete-undo") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        shape = RoundedCornerShape(7.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("已删除：${deleted.content}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            TextButton(onClick = viewModel::undoMemoryDelete, modifier = Modifier.height(30.dp)) {
+                                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text("撤销", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+            if (state.memoryCandidatesEnabled) {
+                item(key = "memory-candidate-title") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("待处理候选", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                        if (state.loadingMemoryCandidates) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                        }
+                    }
+                }
+                if (!state.loadingMemoryCandidates && visibleCandidates.isEmpty()) {
+                    item(key = "memory-candidate-empty") {
+                        Text("暂无待处理候选", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                items(
+                    count = visibleCandidates.size,
+                    key = { index -> visibleCandidates[index].id },
+                ) { index ->
+                    val candidate = visibleCandidates[index]
+                    AgentMemoryCandidateCard(
+                        candidate = candidate,
+                        mutating = candidate.id in state.mutatingMemoryCandidateIds,
+                        onAccept = { viewModel.acceptMemoryCandidate(candidate.id) },
+                        onReject = { viewModel.rejectMemoryCandidate(candidate.id) },
+                    )
+                }
+                item(key = "confirmed-memory-title") {
+                    Text("正式记忆", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
             when {
                 state.memoryError != null -> item {
                     CompactSection(title = "读取失败") {
@@ -2178,6 +2265,97 @@ private fun AgentMemoryFilterBar(
             }
         }
     }
+}
+
+@Composable
+private fun AgentMemoryCandidateCard(
+    candidate: AgentMemoryCandidateRecord,
+    mutating: Boolean,
+    onAccept: () -> Unit,
+    onReject: () -> Unit,
+) {
+    val actionable = candidate.status in setOf(
+        AgentMemoryCandidateStatus.PENDING,
+        AgentMemoryCandidateStatus.CONFLICT,
+    )
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            1.dp,
+            if (candidate.status == AgentMemoryCandidateStatus.CONFLICT) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            },
+        ),
+        shape = RoundedCornerShape(7.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(candidate.type, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+                Text(
+                    text = candidate.status.toCandidateLabel(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (candidate.status) {
+                        AgentMemoryCandidateStatus.BLOCKED_SENSITIVE -> MaterialTheme.colorScheme.error
+                        AgentMemoryCandidateStatus.CONFLICT -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                )
+                Spacer(Modifier.weight(1f))
+                Text(candidate.createdAt.toFullTimeLabel(), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                text = if (candidate.status == AgentMemoryCandidateStatus.BLOCKED_SENSITIVE) {
+                    "检测到${candidate.sensitiveCategory?.displayName ?: "敏感信息"}，未保存原文"
+                } else {
+                    candidate.content
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (candidate.status == AgentMemoryCandidateStatus.BLOCKED_SENSITIVE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+            if (candidate.status == AgentMemoryCandidateStatus.CONFLICT) {
+                Text("关联旧记忆：${candidate.relatedMemoryId.orEmpty()}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (actionable) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Button(
+                        onClick = onAccept,
+                        enabled = !mutating,
+                        contentPadding = PaddingValues(horizontal = 9.dp),
+                        modifier = Modifier.height(30.dp),
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (candidate.status == AgentMemoryCandidateStatus.CONFLICT) "另存为新记忆" else "保存", style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = onReject,
+                        enabled = !mutating,
+                        contentPadding = PaddingValues(horizontal = 9.dp),
+                        modifier = Modifier.height(30.dp),
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("忽略", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun AgentMemoryCandidateStatus.toCandidateLabel(): String = when (this) {
+    AgentMemoryCandidateStatus.PENDING -> "待确认"
+    AgentMemoryCandidateStatus.ACCEPTED -> "已保存"
+    AgentMemoryCandidateStatus.REJECTED -> "已忽略"
+    AgentMemoryCandidateStatus.BLOCKED_SENSITIVE -> "敏感阻断"
+    AgentMemoryCandidateStatus.DUPLICATE -> "已有相同记忆"
+    AgentMemoryCandidateStatus.CONFLICT -> "与旧记忆冲突"
 }
 
 private fun AgentMemoryFilter.toUiLabel(): String = when (this) {
