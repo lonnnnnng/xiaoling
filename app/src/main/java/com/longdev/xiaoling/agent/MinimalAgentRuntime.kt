@@ -50,7 +50,6 @@ class MinimalAgentRuntime(
                     metadata = RunEventMetadata.Reason(selectedSkills.joinToString { it.id }),
                 )
             }
-            ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
             if (!memoryRecallEnabled) {
                 // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。
                 ledger.appendEvent(
@@ -60,153 +59,152 @@ class MinimalAgentRuntime(
                     metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
                 )
             }
-            val thinking = ledger.appendStep(
-                runId = run.id,
-                type = "llm.plan",
-                title = "模型规划",
-                detail = "模型正在根据可用工具提出工具调用。",
-                status = AgentStepStatus.RUNNING,
-            )
-            activeStepId = thinking.id
-            currentCoroutineContext().ensureActive()
-            val proposedCall = runTimedStep("模型规划", options.modelStepTimeoutMs, executionBudget) {
-                llm.proposeToolCall(goal, toolRegistry.availableTools())
-            }
-            val definition = toolRegistry.definition(proposedCall.name)
-                ?: error("模型选择了未注册工具：${proposedCall.name}")
-            val toolCall = proposedCall.copy(risk = definition.risk)
-            // long: 模型只负责“提出”工具调用，事件里记录原始参数；后续风险、校验和审批都以应用注册表为准。
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.call.proposed",
-                message = "模型提出工具调用：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall),
-            )
-            ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型选择工具：${toolCall.name}")
-            activeStepId = null
-
-            val validation = ledger.appendStep(
-                runId = run.id,
-                type = "tool.validate",
-                title = "工具参数校验",
-                detail = "校验 ${toolCall.name} 的 JSON Schema、业务规则、Android 权限和循环风险。",
-                status = AgentStepStatus.RUNNING,
-            )
-            activeStepId = validation.id
-            validateToolCall(definition, toolCall, executionOrigin)
-            checkToolBudget(executedToolCalls)
-            checkLoopRisk(toolCall, toolCallFingerprints)
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.call.validated",
-                message = "工具调用已校验：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall),
-            )
-            ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
-            activeStepId = null
-
-            if (definition.approvalPolicy == ToolApprovalPolicy.NONE) {
-                // long: SAFE 工具只能读取低敏环境或本机记忆，不产生外部副作用；它仍写审计事件，但不打断用户当前对话去做确认。
-                ledger.appendEvent(
+            val completedTools = mutableListOf<AgentToolExecution>()
+            while (true) {
+                ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
+                val thinking = ledger.appendStep(
                     runId = run.id,
-                    type = "approval.skipped",
-                    message = "SAFE 工具无需审批：${toolCall.name}",
-                    metadata = RunEventMetadata.ApprovalSkipped(
-                        toolName = toolCall.name,
-                        reason = "SAFE 工具无需审批",
-                    ),
-                )
-            } else {
-                ledger.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
-                val approval = ledger.appendStep(
-                    runId = run.id,
-                    type = "approval",
-                    title = "应用侧审批",
-                    detail = "等待应用侧审批 ${toolCall.name}",
+                    type = "llm.plan",
+                    title = "模型规划",
+                    detail = "模型正在根据目标和已验证结果决定下一步。",
                     status = AgentStepStatus.RUNNING,
                 )
-                activeStepId = approval.id
-                // long: 审批等待取决于用户阅读风险和做决定的时间，不属于模型推理或工具执行预算；否则用户稍慢点击批准就会把可恢复任务误记成预算耗尽。
-                val decision = approvalGate.requestApproval(run.id, toolCall, definition)
+                activeStepId = thinking.id
+                currentCoroutineContext().ensureActive()
+                val planDecision = runTimedStep("模型规划", options.modelStepTimeoutMs, executionBudget) {
+                    llm.proposeNextAction(goal, toolRegistry.availableTools(), completedTools.toList())
+                }
+                if (planDecision == AgentPlanDecision.Complete) {
+                    ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型确认任务工具步骤已完成")
+                    activeStepId = null
+                    break
+                }
+
+                val proposedCall = (planDecision as AgentPlanDecision.CallTool).toolCall
+                val definition = toolRegistry.definition(proposedCall.name)
+                    ?: error("模型选择了未注册工具：${proposedCall.name}")
+                val toolCall = proposedCall.copy(risk = definition.risk)
+                // long: 每轮模型只负责提出下一次工具调用；风险、校验、审批和验证仍逐步由应用代码决定，已执行结果不能放宽后续工具边界。
                 ledger.appendEvent(
                     runId = run.id,
-                    type = if (decision.approved) "approval.granted" else "approval.denied",
-                    message = if (decision.approved) {
-                        "工具审批通过：${toolCall.name}"
-                    } else {
-                        "工具审批拒绝：${toolCall.name}"
-                    },
-                    metadata = AgentEventMetadata.approval(toolCall, decision),
+                    type = "tool.call.proposed",
+                    message = "模型提出工具调用：${toolCall.name}",
+                    metadata = AgentEventMetadata.toolCall(toolCall),
                 )
-                if (!decision.approved) error("工具未获批准：${decision.reason}")
-                ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
+                ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型选择工具：${toolCall.name}")
                 activeStepId = null
-            }
 
-            ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
-            val execution = ledger.appendStep(
-                runId = run.id,
-                type = AgentStepTypes.TOOL_EXECUTE,
-                title = "执行工具",
-                detail = "正在执行 ${toolCall.name}",
-                status = AgentStepStatus.RUNNING,
-            )
-            activeStepId = execution.id
-            currentCoroutineContext().ensureActive()
-            val toolStartedAt = System.currentTimeMillis()
-            val toolResult = runTimedStep("工具执行 ${toolCall.name}", definition.timeoutMs ?: options.toolStepTimeoutMs, executionBudget) {
-                toolRegistry.execute(toolCall)
-            }
-            executedToolCalls += 1
-            val toolDurationMs = System.currentTimeMillis() - toolStartedAt
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.result",
-                message = if (toolResult.success) {
-                    "工具执行成功：${toolCall.name}"
+                val validation = ledger.appendStep(
+                    runId = run.id,
+                    type = "tool.validate",
+                    title = "工具参数校验",
+                    detail = "校验 ${toolCall.name} 的 JSON Schema、业务规则、Android 权限和循环风险。",
+                    status = AgentStepStatus.RUNNING,
+                )
+                activeStepId = validation.id
+                validateToolCall(definition, toolCall, executionOrigin)
+                checkToolBudget(executedToolCalls)
+                checkLoopRisk(toolCall, toolCallFingerprints)
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "tool.call.validated",
+                    message = "工具调用已校验：${toolCall.name}",
+                    metadata = AgentEventMetadata.toolCall(toolCall),
+                )
+                ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
+                activeStepId = null
+
+                if (definition.approvalPolicy == ToolApprovalPolicy.NONE) {
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = "approval.skipped",
+                        message = "SAFE 工具无需审批：${toolCall.name}",
+                        metadata = RunEventMetadata.ApprovalSkipped(
+                            toolName = toolCall.name,
+                            reason = "SAFE 工具无需审批",
+                        ),
+                    )
                 } else {
-                    "工具执行失败：${toolCall.name}"
-                },
-                metadata = AgentEventMetadata.toolResult(toolCall, toolResult, toolDurationMs),
-            )
-            if (!toolResult.success) error("工具执行失败：${toolResult.content}")
-            ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
-            activeStepId = null
+                    ledger.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+                    val approval = ledger.appendStep(
+                        runId = run.id,
+                        type = "approval",
+                        title = "应用侧审批",
+                        detail = "等待应用侧审批 ${toolCall.name}",
+                        status = AgentStepStatus.RUNNING,
+                    )
+                    activeStepId = approval.id
+                    // long: 每一步写操作都独立等待用户决定，前一步获批不代表后续副作用自动继承授权。
+                    val decision = approvalGate.requestApproval(run.id, toolCall, definition)
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = if (decision.approved) "approval.granted" else "approval.denied",
+                        message = if (decision.approved) "工具审批通过：${toolCall.name}" else "工具审批拒绝：${toolCall.name}",
+                        metadata = AgentEventMetadata.approval(toolCall, decision),
+                    )
+                    if (!decision.approved) error("工具未获批准：${decision.reason}")
+                    ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
+                    activeStepId = null
+                }
 
-            ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
-            val verify = ledger.appendStep(
-                runId = run.id,
-                type = AgentStepTypes.TOOL_VERIFY,
-                title = "执行后验证",
-                detail = when (definition.verificationPolicy) {
-                    ToolVerificationPolicy.RESULT_READABLE -> "检查工具是否返回可读结果。"
-                    ToolVerificationPolicy.EXECUTOR_VERIFIED -> "检查 Executor 是否完成回读验证。"
-                },
-                status = AgentStepStatus.RUNNING,
-            )
-            activeStepId = verify.id
-            currentCoroutineContext().ensureActive()
-            when (definition.verificationPolicy) {
-                ToolVerificationPolicy.RESULT_READABLE -> {
-                    require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+                ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+                val execution = ledger.appendStep(
+                    runId = run.id,
+                    type = AgentStepTypes.TOOL_EXECUTE,
+                    title = "执行工具",
+                    detail = "正在执行 ${toolCall.name}",
+                    status = AgentStepStatus.RUNNING,
+                )
+                activeStepId = execution.id
+                currentCoroutineContext().ensureActive()
+                val toolStartedAt = System.currentTimeMillis()
+                val toolResult = runTimedStep("工具执行 ${toolCall.name}", definition.timeoutMs ?: options.toolStepTimeoutMs, executionBudget) {
+                    toolRegistry.execute(toolCall)
                 }
-                ToolVerificationPolicy.EXECUTOR_VERIFIED -> {
-                    require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
+                executedToolCalls += 1
+                val toolDurationMs = System.currentTimeMillis() - toolStartedAt
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "tool.result",
+                    message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
+                    metadata = AgentEventMetadata.toolResult(toolCall, toolResult, toolDurationMs),
+                )
+                if (!toolResult.success) error("工具执行失败：${toolResult.content}")
+                ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
+                activeStepId = null
+
+                ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+                val verify = ledger.appendStep(
+                    runId = run.id,
+                    type = AgentStepTypes.TOOL_VERIFY,
+                    title = "执行后验证",
+                    detail = when (definition.verificationPolicy) {
+                        ToolVerificationPolicy.RESULT_READABLE -> "检查工具是否返回可读结果。"
+                        ToolVerificationPolicy.EXECUTOR_VERIFIED -> "检查 Executor 是否完成回读验证。"
+                    },
+                    status = AgentStepStatus.RUNNING,
+                )
+                activeStepId = verify.id
+                currentCoroutineContext().ensureActive()
+                when (definition.verificationPolicy) {
+                    ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+                    ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
                 }
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "tool.verify",
+                    message = "工具验证通过：${toolCall.name}",
+                    metadata = RunEventMetadata.ToolVerification(
+                        toolName = toolCall.name,
+                        status = ToolVerificationStatus.PASSED,
+                    ),
+                )
+                ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")
+                activeStepId = null
+                completedTools += AgentToolExecution(toolCall, toolResult)
             }
-            ledger.appendEvent(
-                runId = run.id,
-                type = "tool.verify",
-                message = "工具验证通过：${toolCall.name}",
-                metadata = RunEventMetadata.ToolVerification(
-                    toolName = toolCall.name,
-                    status = ToolVerificationStatus.PASSED,
-                ),
-            )
-            ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")
-            activeStepId = null
 
-            ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
+            require(completedTools.isNotEmpty()) { "模型未执行任何工具就结束了 Agent Run" }
             val summaryStep = ledger.appendStep(
                 runId = run.id,
                 type = "llm.summarize",
@@ -218,7 +216,7 @@ class MinimalAgentRuntime(
             var summaryFallbackReason: String? = null
             val summaryCandidate = try {
                 runTimedStep("模型总结", options.modelStepTimeoutMs, executionBudget) {
-                    llm.summarize(goal, toolCall, toolResult)
+                    llm.summarize(goal, completedTools)
                 }
             } catch (error: AgentTimeoutException) {
                 // long: 工具已经执行并验证成功时，最终总结只是展示层增强；上游总结超时不应把已经完成的本地写入任务改判失败，改用本地兜底回复保留可审计结果。
@@ -236,8 +234,8 @@ class MinimalAgentRuntime(
                 summaryFallbackReason = "模型没有返回合法的总结样式配置"
             }
             val response = presentation?.let { selectedPresentation ->
-                buildVerifiedResponse(run.id, goal, definition, toolCall, toolResult, selectedPresentation)
-            } ?: buildFallbackResponse(run.id, goal, definition, toolCall, toolResult)
+                buildVerifiedResponse(run.id, goal, completedTools, selectedPresentation)
+            } ?: buildFallbackResponse(run.id, goal, completedTools)
             val summaryDetail = if (summaryFallbackReason != null) {
                 ledger.appendEvent(
                     runId = run.id,
@@ -256,7 +254,7 @@ class MinimalAgentRuntime(
                 runId = run.id,
                 status = AgentRunStatus.COMPLETED,
                 responseText = response,
-                verifiedContext = buildVerifiedContext(run.id, toolCall, toolResult),
+                verifiedContext = buildVerifiedContext(run.id, completedTools),
             )
         } catch (error: AgentBudgetExceededException) {
             withContext(NonCancellable) {
@@ -510,6 +508,63 @@ class MinimalAgentRuntime(
     private fun buildFallbackResponse(
         runId: String,
         goal: String,
+        completedTools: List<AgentToolExecution>,
+    ): String {
+        return buildVerifiedResponse(
+            runId = runId,
+            goal = goal,
+            completedTools = completedTools,
+            presentation = AgentSummaryPresentation(
+                style = AgentSummaryStyle.DETAILED,
+                tone = AgentSummaryTone.NEUTRAL,
+            ),
+        )
+    }
+
+    private fun buildVerifiedResponse(
+        runId: String,
+        goal: String,
+        completedTools: List<AgentToolExecution>,
+        presentation: AgentSummaryPresentation,
+    ): String {
+        val finalExecution = completedTools.lastOrNull() ?: error("没有已完成工具，无法生成 Agent 回复")
+        if (completedTools.size == 1) {
+            val definition = toolRegistry.definition(finalExecution.toolCall.name)
+                ?: error("找不到已完成工具定义：${finalExecution.toolCall.name}")
+            return buildVerifiedResponse(
+                runId = runId,
+                goal = goal,
+                definition = definition,
+                toolCall = finalExecution.toolCall,
+                toolResult = finalExecution.toolResult,
+                presentation = presentation,
+            )
+        }
+        val heading = when (presentation.tone) {
+            AgentSummaryTone.NEUTRAL -> "Agent 任务已完成"
+            AgentSummaryTone.FRIENDLY -> "任务已完成，结果如下"
+            AgentSummaryTone.FORMAL -> "Agent 执行报告"
+        }
+        val resultLines = completedTools.mapIndexed { index, execution ->
+            "- 步骤 ${index + 1} · ${execution.toolCall.name}：${execution.toolResult.content}"
+        }.joinToString("\n")
+        if (presentation.style == AgentSummaryStyle.COMPACT) {
+            return "$heading\n\n$resultLines"
+        }
+        return """
+            $heading
+
+            - Run ID：$runId
+            - 目标：${goal.ifBlank { "未填写目标" }}
+            - 工具步骤：${completedTools.joinToString(" -> ") { it.toolCall.name }}
+            $resultLines
+            - 验证：全部 ${completedTools.size} 个工具步骤均已通过应用侧验证，任务进入 COMPLETED 终态
+        """.trimIndent()
+    }
+
+    private fun buildFallbackResponse(
+        runId: String,
+        goal: String,
         definition: ToolDefinition,
         toolCall: ToolCall,
         toolResult: ToolExecutionResult,
@@ -558,6 +613,43 @@ class MinimalAgentRuntime(
             - 执行结果：${toolResult.content}
             - 验证：${if (definition.verificationPolicy == ToolVerificationPolicy.EXECUTOR_VERIFIED) "Executor 回读验证通过" else "工具结果可读"}，任务进入 COMPLETED 终态
         """.trimIndent()
+    }
+
+    private fun buildVerifiedContext(
+        runId: String,
+        completedTools: List<AgentToolExecution>,
+    ): VerifiedAgentContext {
+        val executions = completedTools.map { execution ->
+            execution.toVerifiedToolExecution()
+        }
+        val finalExecution = executions.lastOrNull() ?: error("没有已完成工具，无法生成可信上下文")
+        // long: 顶层字段继续映射最后一步以兼容旧消息；完整列表才是多步 Run 的事实来源，顺序与 RunEvent 中的真实执行顺序一致。
+        return VerifiedAgentContext(
+            runId = runId,
+            toolName = finalExecution.toolName,
+            arguments = finalExecution.arguments,
+            success = executions.all { it.success },
+            verificationStatus = finalExecution.verificationStatus,
+            rawResult = finalExecution.rawResult,
+            memoryIdsUsed = executions.flatMap { it.memoryIdsUsed }.distinct(),
+            toolExecutions = executions,
+        )
+    }
+
+    private fun AgentToolExecution.toVerifiedToolExecution(): VerifiedToolExecution {
+        val verificationStatus = when (toolResult.verified) {
+            true -> AgentVerificationStatus.VERIFIED
+            false -> AgentVerificationStatus.FAILED
+            null -> AgentVerificationStatus.READABLE_ONLY
+        }
+        return VerifiedToolExecution(
+            toolName = toolCall.name,
+            arguments = toolCall.arguments.toSortedMap(),
+            success = toolResult.success,
+            verificationStatus = verificationStatus,
+            rawResult = toolResult.content,
+            memoryIdsUsed = toolResult.memoryIdsUsed,
+        )
     }
 
     private fun buildVerifiedContext(

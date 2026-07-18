@@ -31,7 +31,10 @@ class MinimalAgentRuntimeTest {
         val snapshot = ledger.snapshot(summary.runId)
         assertEquals(AgentRunStatus.COMPLETED, summary.status)
         assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
-        assertEquals(listOf("llm.plan", "tool.validate", "approval", "tool.execute", "tool.verify", "llm.summarize"), snapshot.steps.map { it.type })
+        assertEquals(
+            listOf("llm.plan", "tool.validate", "approval", "tool.execute", "tool.verify", "llm.plan", "llm.summarize"),
+            snapshot.steps.map { it.type },
+        )
         assertTrue(snapshot.steps.all { it.status == AgentStepStatus.COMPLETED })
         assertTrue(snapshot.events.any { it.type == "approval.granted" })
         assertTrue(snapshot.events.any {
@@ -296,6 +299,39 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun verifiedContextCodecRoundTripsMultiToolEvidence() {
+        val context = VerifiedAgentContext(
+            runId = "run-multi",
+            toolName = "notes.create",
+            arguments = mapOf("title" to "周报"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已创建周报",
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "notes.search",
+                    arguments = mapOf("query" to "本周"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "找到 2 条笔记",
+                    memoryIdsUsed = listOf("memory-1"),
+                ),
+                VerifiedToolExecution(
+                    toolName = "notes.create",
+                    arguments = mapOf("title" to "周报"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.VERIFIED,
+                    rawResult = "已创建周报",
+                ),
+            ),
+        )
+
+        val restored = VerifiedAgentContextCodec.decode(VerifiedAgentContextCodec.encode(context))
+
+        assertEquals(context, restored)
+    }
+
+    @Test
     fun structuredRunEventMetadataPreservesSpecialCharactersWithoutEncodingJsonInMessage() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
@@ -333,6 +369,16 @@ class MinimalAgentRuntimeTest {
         assertEquals("fake.echo", call.name)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, call.risk)
         assertTrue(call.arguments.isEmpty())
+    }
+
+    @Test
+    fun openAiPlanDecisionParserAcceptsExplicitCompletion() {
+        val decision = AgentToolCallParser.parseDecision(
+            raw = """{"action":"complete"}""",
+            tools = FakeToolRegistry().availableTools(),
+        )
+
+        assertEquals(AgentPlanDecision.Complete, decision)
     }
 
     @Test
@@ -1055,7 +1101,7 @@ private class FakeAgentLlm : AgentLlm {
     }
 }
 
-private class InMemoryAgentRunLedger : AgentRunLedger {
+internal class InMemoryAgentRunLedger : AgentRunLedger {
     private val runs = linkedMapOf<String, AgentRunRecord>()
     private val steps = linkedMapOf<String, AgentStepRecord>()
     private val events = linkedMapOf<String, RunEventRecord>()

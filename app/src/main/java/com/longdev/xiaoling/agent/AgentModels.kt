@@ -375,6 +375,16 @@ data class ToolExecutionResult(
     val memoryIdsUsed: List<String> = emptyList(),
 )
 
+data class AgentToolExecution(
+    val toolCall: ToolCall,
+    val toolResult: ToolExecutionResult,
+)
+
+sealed interface AgentPlanDecision {
+    data class CallTool(val toolCall: ToolCall) : AgentPlanDecision
+    data object Complete : AgentPlanDecision
+}
+
 interface AgentClock {
     fun nowMillis(): Long
     fun formattedNow(): String

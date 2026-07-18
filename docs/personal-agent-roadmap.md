@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 单工具闭环、运行预算、超时、取消、审批、后置验证、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；独立 ToolCall/ToolResult 表、复杂 Schema 和真正的断点恢复仍待完成。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；独立 ToolCall/ToolResult 表、并行调用和执行/验证中的原地断点恢复仍待完成。
 
 ### 核心数据模型
 
@@ -129,8 +129,8 @@ com.longdev.xiaoling.ui.agent
 - `AgentRun`：目标、来源、状态、开始/结束时间、当前步骤、最终结果。
 - `RunEvent`：状态变化、模型决策、工具调用、工具结果、确认、错误。
 - `ToolDefinition`：名称、描述、输入 Schema、风险、权限、确认和验证规则。
-- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。
-- `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前交互审批不主动过期，已落地 Room 表和任务中心；后续还需要接入进程重建后的原地恢复策略。
+- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。当前每一步先进入 Step/Event 审计，独立数据表仍待后续评估。
+- `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前每个非 SAFE 工具步骤独立审批且不主动过期；只有首个工具执行前的待审批边界允许原 Run 恢复。
 
 ### 运行状态
 
@@ -146,7 +146,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 - 普通问答走 direct chat fast path。
 - 最大工具步数、单步超时和整次 Run 超时均由应用配置。当前最小 Runtime 已有初版配置。
-- 连续重复同一工具和相同参数时触发循环检测。当前单工具链路已接入检测 seam。
+- 连续重复同一工具和相同参数时触发循环检测；顺序多步循环复用同一 Run 级指纹集合和工具调用预算。
 - 模型只能看到当前允许的少量工具，不在每轮注入全部 Tool Schema。
 - 已完成：工具参数先做 JSON Schema、未知参数、业务规则和 Android 权限校验，再进入审批与 Executor。
 - 风险和确认要求取自 `ToolDefinition`，忽略模型自己声明的风险级别。
@@ -211,7 +211,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：把可复用任务知识从系统提示词中移出，并避免工具数量增长后 Prompt 膨胀。
 
-当前状态：已交付会话检索、本机笔记、长期记忆和设备时间四类内置声明式 Skill；规则按目标稳定选择最多 3 个，工具白名单只能缩小已注册工具面，并写入 Run 审计。版本化文件格式、本地导入、启停/管理 UI 和多步 Skill 执行仍待完成。
+当前状态：已交付会话检索、本机笔记、长期记忆和设备时间四类内置声明式 Skill；规则按目标稳定选择最多 3 个，工具白名单只能缩小已注册工具面，并写入 Run 审计。顺序多步 Runtime 可以在多个已选 Skill 的工具并集中逐步执行；版本化文件格式、本地导入和启停/管理 UI 仍待完成。
 
 ### Skill 结构
 
@@ -347,6 +347,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. `WAITING_APPROVAL` 原 Run 恢复已完成不清理 Keystore 的真机验收；继续保持执行/验证中 Run 创建关联新 Run 的安全边界。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
-3. 下一步推进多步 Agent，再补本地 Skill 导入/管理和后台任务。
+3. 顺序多步 Agent 已完成；下一步优先补本地 Skill 文件格式、导入校验与启停/管理 UI，再进入后台任务。
 
 完成这些工作后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。

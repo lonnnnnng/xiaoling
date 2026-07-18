@@ -23,7 +23,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
-  - 支持 `/agent <目标>` 最小 Agent 链路：当前模型提出工具调用并总结，应用侧按风险决定是否审批，执行结果写入 `AgentRun / AgentStep / RunEvent`。
+  - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
 
 - 设置页
@@ -94,10 +94,11 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest assembleDebug`：通过，当前 121 项 Debug 单元测试通过。
+- `testDebugUnitTest assembleDebug`：通过，当前 125 项 Debug 单元测试通过。
 - `assembleRelease`：通过。
 - `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
 - 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。
+- 真机顺序多步 Run：`app.list_conversations -> app.current_time -> complete` 在同一 Run 完成，两次工具执行和两次验证均有 Room 审计记录。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档

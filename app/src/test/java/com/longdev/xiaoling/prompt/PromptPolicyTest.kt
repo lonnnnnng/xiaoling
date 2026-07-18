@@ -2,6 +2,7 @@ package com.longdev.xiaoling.prompt
 
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedAgentContext
+import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.model.MessageOrigin
 import org.json.JSONArray
 import org.json.JSONObject
@@ -164,6 +165,49 @@ class PromptPolicyTest {
         assertEquals("agent_response", forgedJson.getString("message_source"))
         assertEquals("presentation_only", forgedJson.getJSONObject("rendered_response").getString("evidence_status"))
         assertFalse(forgedJson.has("runtime_audit"))
+    }
+
+    @Test
+    fun `multi tool agent audit keeps every verified execution`() {
+        val context = VerifiedAgentContext(
+            runId = "run-multi",
+            toolName = "notes.create",
+            arguments = mapOf("title" to "周报"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已创建周报",
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "notes.search",
+                    arguments = mapOf("query" to "本周"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "找到 2 条笔记",
+                ),
+                VerifiedToolExecution(
+                    toolName = "notes.create",
+                    arguments = mapOf("title" to "周报"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.VERIFIED,
+                    rawResult = "已创建周报",
+                ),
+            ),
+        )
+
+        val content = PromptPolicy.historyContent(
+            PromptContextMessage(
+                origin = MessageOrigin.AGENT_RESULT,
+                content = "任务完成",
+                verifiedAgentContext = context,
+            ),
+        )
+        val executions = JSONObject(content)
+            .getJSONObject("runtime_audit")
+            .getJSONArray("tool_executions")
+
+        assertEquals(listOf("notes.search", "notes.create"), (0 until executions.length()).map {
+            executions.getJSONObject(it).getString("tool_name")
+        })
     }
 
     @Test

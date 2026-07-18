@@ -448,3 +448,25 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 原 Run 的步骤仍只有一次 `llm.plan`，恢复阶段没有新增规划事件或新 Run；同目标 Run 数量为 1，`retryOfRunId` 仍为 `NULL`。
 - 工具执行和回读验证均通过；记忆 `memory-fd3b356d-e8cc-434e-a9c9-0cd35374de26` 已写入，`sourceRunId` 指向原 Run，内容为 `process rebuild acceptance marker 20260718-1038`。
 - 最终 UI 显示 Agent 已完成，crash buffer 为空。
+
+## 2026-07-18 顺序多步 Agent 真机验收
+
+环境与构建：
+
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --console=plain`，125 项 Debug 单元测试通过。
+- 最终 Debug APK SHA-256：`c1fb9b3e04f81576a806002058229c74f4a5b8a03ecfe4e62a3dfee54e9a568c`。
+- 在 `wsvwypiz7xwslvl7` 使用 `adb install -r` 覆盖安装；未卸载、未清数据、未运行 instrumentation 测试，应用冷启动成功且 crash buffer 为空。
+
+真实流程：
+
+- Run `run-e055f8b5-572e-4068-ae14-1ddacc8ace8d`：目标要求先读取当前时间再列出最近会话；同一 Run 依次执行 `app.current_time -> app.list_conversations`，两次参数校验、SAFE 审批跳过、工具执行和后置验证均完成，第三次 `llm.plan` 返回完成决策。
+- Run `run-713e0101-cb53-431c-a388-a98a0885f9b0`：反向要求先列会话再读时间；同一 Run 依次执行 `app.list_conversations -> app.current_time` 后完成，证明生产规划器按目标和已验证历史选择下一步，不是固定工具脚本。
+- 两个 Run 都只创建一个 `AgentRun`，最终为 `COMPLETED`；UI 时间线显示 10 个步骤，最终回复按步骤包含两个真实工具结果。
+- 最终消息的 `VerifiedAgentContext.toolExecutions` 按真实执行顺序保存两个工具、参数、结果和验证状态；顶层旧字段映射最后一步。
+- 首次真机持久化发现 Android `org.json` 将 Kotlin 字符串列表写成字符串 `"[]"`；最终修复版显式构造 `JSONArray` 并兼容读取旧字符串化数组。第二个 Run 的数据库原文确认顶层和两个工具步骤的 `memoryIdsUsed` 均为 JSON 数组 `[]`。
+
+边界：
+
+- 首版仅支持顺序执行，不支持并行工具调用。
+- 任一步仍独立执行 Schema、权限、风险、审批和验证策略；前一步批准不能放宽后续工具。
+- 进程重建只允许尚未执行任何工具的首个 `WAITING_APPROVAL` 边界原地继续；已有工具执行/验证记录的多步 Run 仍安全收敛并通过关联新 Run 重试。

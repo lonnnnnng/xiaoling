@@ -2,7 +2,25 @@ package com.longdev.xiaoling.agent
 
 interface AgentLlm {
     suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall
+
+    suspend fun proposeNextAction(
+        goal: String,
+        tools: List<ToolDefinition>,
+        completedTools: List<AgentToolExecution>,
+    ): AgentPlanDecision {
+        return if (completedTools.isEmpty()) {
+            AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+        } else {
+            AgentPlanDecision.Complete
+        }
+    }
+
     suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String
+
+    suspend fun summarize(goal: String, completedTools: List<AgentToolExecution>): String {
+        val completed = completedTools.lastOrNull() ?: error("没有已完成工具，无法生成 Agent 总结")
+        return summarize(goal, completed.toolCall, completed.toolResult)
+    }
 }
 
 interface ApprovalGate {
