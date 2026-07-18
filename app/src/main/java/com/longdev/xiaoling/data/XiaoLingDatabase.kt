@@ -29,7 +29,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -42,7 +42,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 16
+        const val CURRENT_VERSION = 17
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -474,6 +474,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 旧笔记没有 ToolCall 来源，保持 null；新 notes.create 才写唯一幂等键，使进程中断后的同键重放返回原记录。
+                db.execSQL("ALTER TABLE `agent_notes` ADD COLUMN `idempotencyKey` TEXT")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_notes_idempotencyKey` ON `agent_notes` (`idempotencyKey`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -490,6 +498,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_13_14,
             MIGRATION_14_15,
             MIGRATION_15_16,
+            MIGRATION_16_17,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

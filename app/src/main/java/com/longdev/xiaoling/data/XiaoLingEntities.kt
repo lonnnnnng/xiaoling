@@ -190,6 +190,7 @@ data class AgentMemoryCandidateEntity(
     indices = [
         Index(value = ["createdAt"]),
         Index(value = ["updatedAt"]),
+        Index(value = ["idempotencyKey"], unique = true),
     ],
 )
 data class AgentNoteEntity(
@@ -198,6 +199,7 @@ data class AgentNoteEntity(
     val content: String,
     val createdAt: Long,
     val updatedAt: Long,
+    val idempotencyKey: String?,
 )
 
 @Entity(

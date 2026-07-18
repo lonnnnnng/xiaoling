@@ -70,6 +70,8 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
+        assertEquals(ToolReplaySafety.RESTART_REQUIRED, tools.getValue("memory.remember").replaySafety)
         assertEquals(
             setOf("Preference", "ProfileFact", "Episode", "Procedure"),
             tools.getValue("memory.remember").inputSchema.single { it.name == "type" }.enumValues,
@@ -130,11 +132,53 @@ class XiaoLingToolRegistryTest {
             ToolExecutionReceipt(
                 toolCallId = "tool-call-note-1",
                 operationId = "note-1",
-                idempotencyKey = null,
+                idempotencyKey = "tool-call-note-1",
                 status = ToolExecutionReceiptStatus.COMMITTED,
             ),
             result.executionReceipt,
         )
+    }
+
+    @Test
+    fun notesCreateRepeatedToolCallReturnsSameOperationId() = runTest {
+        val noteStore = InMemoryAgentNoteStore()
+        val registry = testRegistry(noteStore = noteStore)
+        val call = ToolCall(
+            id = "tool-call-note-idempotent",
+            name = "notes.create",
+            arguments = mapOf("title" to "幂等笔记", "content" to "同一个 ToolCall 只能创建一次。"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val first = registry.execute(call)
+        val replay = registry.execute(call)
+
+        assertEquals(1, noteStore.records.size)
+        assertEquals(first.executionReceipt?.operationId, replay.executionReceipt?.operationId)
+        assertEquals(call.id, first.executionReceipt?.idempotencyKey)
+        assertEquals(call.id, replay.executionReceipt?.idempotencyKey)
+    }
+
+    @Test
+    fun notesCreateRejectsPayloadDriftForExistingToolCall() = runTest {
+        val noteStore = InMemoryAgentNoteStore()
+        val registry = testRegistry(noteStore = noteStore)
+        val original = ToolCall(
+            id = "tool-call-note-conflict",
+            name = "notes.create",
+            arguments = mapOf("title" to "原始标题", "content" to "原始正文"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        registry.execute(original)
+
+        val error = runCatching {
+            registry.execute(original.copy(arguments = mapOf("title" to "被篡改标题", "content" to "原始正文")))
+        }.exceptionOrNull()
+
+        assertTrue(error is AgentNoteIdempotencyConflictException)
+        assertEquals(1, noteStore.records.size)
+        assertEquals("原始标题", noteStore.records.single().title)
+        assertEquals("原始正文", noteStore.records.single().content)
     }
 
     @Test
@@ -320,6 +364,7 @@ private class InMemoryAgentConversationStore : AgentConversationStore {
 
 private open class InMemoryAgentNoteStore : AgentNoteStore {
     val records = mutableListOf<AgentNoteRecord>()
+    private val recordsByIdempotencyKey = mutableMapOf<String, AgentNoteRecord>()
 
     override suspend fun list(limit: Int): List<AgentNoteRecord> = records.take(limit)
 
@@ -329,14 +374,23 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
             .take(limit)
     }
 
-    override suspend fun create(title: String, content: String): AgentNoteRecord {
+    override suspend fun create(title: String, content: String, idempotencyKey: String): AgentNoteRecord {
+        recordsByIdempotencyKey[idempotencyKey]?.let { existing ->
+            if (existing.title != title || existing.content != content) {
+                throw AgentNoteIdempotencyConflictException()
+            }
+            return existing
+        }
         return AgentNoteRecord(
             id = "note-${records.size + 1}",
             title = title,
             content = content,
             createdAt = 1_784_252_245_000 + records.size,
             updatedAt = 1_784_252_245_000 + records.size,
-        ).also { records += it }
+        ).also {
+            records += it
+            recordsByIdempotencyKey[idempotencyKey] = it
+        }
     }
 
     open override suspend fun get(id: String): AgentNoteRecord? = records.firstOrNull { it.id == id }

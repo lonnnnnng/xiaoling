@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To16PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To17PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -77,13 +77,14 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertNull(events.single().metadataJson)
         assertEquals(listOf("memory-v4"), memories.map { it.id })
         assertEquals("迁移测试笔记", note?.title)
+        assertNull(note?.idempotencyKey)
         // long: 老版本没有本地 Skill；升级只创建空表，内置定义由应用启动时同步，避免把运行时代码硬编码进迁移夹具。
         assertEquals(0, database.agentSkillDao().list().size)
         assertEquals(0, database.workflowDao().listWorkflows().size)
     }
 
     @Test
-    fun createAndOpenFreshVersion16Database() = runBlocking {
+    fun createAndOpenFreshVersion17Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -91,7 +92,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(16, database.openHelper.writableDatabase.version)
+        assertEquals(17, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -238,7 +239,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate9To16PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+    fun migrate9To17PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
         migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
             execSQL(
                 "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -266,7 +267,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -317,12 +318,12 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate12To16CreatesWorkflowAndScheduledTaskLedgerTables() {
+    fun migrate12To17CreatesWorkflowAndScheduledTaskLedgerTables() {
         migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             WORKFLOW_MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -340,7 +341,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate13To16AddsMultiStepLedgerWithoutChangingOldWorkflowRows() {
+    fun migrate13To17AddsMultiStepLedgerWithoutChangingOldWorkflowRows() {
         migrationHelper.createDatabase(SCHEDULED_TASK_MIGRATION_DATABASE_NAME, 13).apply {
             execSQL(
                 "INSERT INTO workflows VALUES (?, ?, ?, ?, ?, ?)",
@@ -358,7 +359,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             SCHEDULED_TASK_MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -382,7 +383,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate14To16PreservesOneTimeTasksAndCreatesMultiStepDefinition() {
+    fun migrate14To17PreservesOneTimeTasksAndCreatesMultiStepDefinition() {
         migrationHelper.createDatabase(RECURRING_SCHEDULE_MIGRATION_DATABASE_NAME, 14).apply {
             execSQL(
                 "INSERT INTO workflows VALUES (?, ?, ?, ?, ?, ?)",
@@ -400,7 +401,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             RECURRING_SCHEDULE_MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -423,7 +424,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate15To16BackfillsSingleStepDefinitionAndPreservesHistoricalRun() {
+    fun migrate15To17BackfillsSingleStepDefinitionAndPreservesHistoricalRun() {
         migrationHelper.createDatabase(MULTI_STEP_MIGRATION_DATABASE_NAME, 15).apply {
             execSQL(
                 "INSERT INTO workflows VALUES (?, ?, ?, ?, ?, ?)",
@@ -448,7 +449,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MULTI_STEP_MIGRATION_DATABASE_NAME,
-            16,
+            17,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -472,6 +473,33 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             assertEquals("COMPLETED", cursor.getString(cursor.getColumnIndexOrThrow("status")))
             assertEquals("当前时间 10:00", cursor.getString(cursor.getColumnIndexOrThrow("result")))
             assertNull(cursor.getString(cursor.getColumnIndexOrThrow("retryOfWorkflowRunId")))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate16To17PreservesExistingNoteWithNullIdempotencyKey() {
+        migrationHelper.createDatabase(NOTE_IDEMPOTENCY_MIGRATION_DATABASE_NAME, 16).apply {
+            execSQL(
+                "INSERT INTO agent_notes VALUES (?, ?, ?, ?, ?)",
+                arrayOf<Any?>("note-v16", "升级前笔记", "保留原始内容", 100L, 100L),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            NOTE_IDEMPOTENCY_MIGRATION_DATABASE_NAME,
+            17,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT id, title, content, idempotencyKey FROM agent_notes WHERE id = 'note-v16'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("note-v16", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+            assertEquals("升级前笔记", cursor.getString(cursor.getColumnIndexOrThrow("title")))
+            assertEquals("保留原始内容", cursor.getString(cursor.getColumnIndexOrThrow("content")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("idempotencyKey")))
         }
         migrated.close()
     }
@@ -542,5 +570,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val SCHEDULED_TASK_MIGRATION_DATABASE_NAME = "xiaoling-scheduled-task-migration-test"
         private const val RECURRING_SCHEDULE_MIGRATION_DATABASE_NAME = "xiaoling-recurring-schedule-migration-test"
         private const val MULTI_STEP_MIGRATION_DATABASE_NAME = "xiaoling-multi-step-migration-test"
+        private const val NOTE_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-note-idempotency-migration-test"
     }
 }

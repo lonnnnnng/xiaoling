@@ -776,3 +776,25 @@ TDD 与自动化结果：
 - 新增 Room instrumentation 验证 Android `org.json` 与 Room 快照能完整往返嵌套执行回执。最终代码在 Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 40 条，合计 80 条全部通过。
 - 最终 APK 覆盖安装后，真机 Provider 仍为 1 条，`com.longdev.xiaoling/.MainActivity` 为前台 Activity，crash buffer 为空；未创建临时真实笔记或记忆，避免为可由确定性测试覆盖的 contract 验收污染用户数据。
 - Debug APK SHA-256：`7a2ea0e569715f11b5bd0848727b4598c286190c9f4a143dac670d3d66491b26`。
+
+## 2026-07-19 `notes.create` 存储层幂等验证
+
+实现与恢复边界：
+
+- `AgentNoteStore.create` 强制接收幂等键，`notes.create` 使用当前 `ToolCall.id`；`agent_notes.idempotencyKey` 由 Room v17 可空唯一索引约束。
+- 同键同标题/正文在 Room 数据库重开后仍返回原笔记和同一 operation ID；同键不同载荷抛出幂等冲突，不覆盖也不新建记录。
+- `notes.create` 的执行回执现在包含 ToolCall 幂等键并声明 `IDEMPOTENT_BY_KEY`；`memory.remember` 仍保持 `RESTART_REQUIRED`。
+- 本阶段不接入 `AgentRunResumePolicy`；完整幂等证据只证明已提交副作用可识别，不代表通用旧协程、验证栈或其他工具可原地恢复。
+- v16→v17 迁移保留旧笔记内容并把其幂等键保持为 `NULL`；新 v17 Schema 已导出。
+
+自动化结果：
+
+- `testDebugUnitTest`：192 条 JVM 测试通过；`lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过，完整 Gradle 构建成功。
+- `XiaoLingToolRegistryTest` 覆盖重复 ToolCall 返回同一 operation ID、载荷漂移拒绝，以及 `notes.create / memory.remember` 的重放声明边界。
+- Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 42 条 instrumentation，合计 84 条全部通过。其中迁移类 12 条，新增 Room 笔记幂等定向测试 1 条。
+
+最终设备状态：
+
+- instrumentation 后重新覆盖安装最新 Debug APK，Pixel_9 和 Redmi 均冷启动成功，`com.longdev.xiaoling/.MainActivity` 为前台 Activity。
+- Redmi 只读回读确认 `PRAGMA user_version=17`、Provider 仍为 1 条、`index_agent_notes_idempotencyKey` 存在；最终 crash buffer 为空。
+- Debug APK SHA-256：`528e7e79f0b973420a1c5b9180f7bc46f9143ca0b6e15c6969541b979a657036`。

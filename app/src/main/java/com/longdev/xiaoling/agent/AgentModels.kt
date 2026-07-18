@@ -570,9 +570,13 @@ data class AgentNoteRecord(
 interface AgentNoteStore {
     suspend fun list(limit: Int): List<AgentNoteRecord>
     suspend fun search(query: String, limit: Int): List<AgentNoteRecord>
-    suspend fun create(title: String, content: String): AgentNoteRecord
+    suspend fun create(title: String, content: String, idempotencyKey: String): AgentNoteRecord
     suspend fun get(id: String): AgentNoteRecord?
 }
+
+class AgentNoteIdempotencyConflictException : IllegalStateException(
+    "笔记工具调用已绑定到其他内容",
+)
 
 data class AgentToolExecutionContext(
     val conversationId: String,

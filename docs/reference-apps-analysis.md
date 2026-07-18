@@ -309,13 +309,14 @@
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
+- 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 是首个生产 `IDEMPOTENT_BY_KEY` 工具，使用 ToolCall ID 的 Room 唯一索引保证同键只对应一条笔记，载荷漂移会被拒绝。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult 和失败终态安全重新运行。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - Workflow Ledger、一次性 WorkManager 非精确定时、计划/实际时间、结果通知，以及后台审批 `BLOCKED` 终态。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
-- Room v4、v6-v14 Schema 导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow 与 ScheduledTask 演进。当前 v14 用独立 `scheduled_tasks` 和 Workflow Run 关联字段保存后台计划账本。
+- Room v4、v6-v17 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、ScheduledTask、多步骤快照和笔记幂等索引演进。当前 v17 为新笔记保存可空唯一 `idempotencyKey`，旧笔记迁移后保持 `NULL`。
 
 现有关键实现位于：
 
@@ -361,7 +362,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v16 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，并由纯策略判定证据是否足够。生产写工具尚无幂等键，执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
+当前状态：Room v17 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，`notes.create` 已完成首个生产幂等写入切片。该证据尚未接入验证阶段恢复，执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

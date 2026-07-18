@@ -129,6 +129,7 @@ class XiaoLingToolRegistry(
                 ),
             ),
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -274,12 +275,12 @@ class XiaoLingToolRegistry(
             return ToolExecutionResult(success = false, content = "笔记标题和正文不能为空")
         }
         // long: notes.create 是第一批带本地写入副作用的工具，必须由 Runtime 先走审批；写入后立即回读，避免只凭 insert 成功就向用户宣称任务完成。
-        val created = noteStore.create(title = title, content = content)
-        // long: noteStore 已返回真实业务 ID，说明写入动作已经发生；回执不填幂等键，因为当前存储层还不能保证同一 ToolCall 重放只写入一次。
+        val created = noteStore.create(title = title, content = content, idempotencyKey = call.id)
+        // long: noteStore 用 ToolCall ID 原子去重；进程在写入后中断时，同一调用重放会返回原 note ID，不会创建第二条笔记。
         val receipt = ToolExecutionReceipt(
             toolCallId = call.id,
             operationId = created.id,
-            idempotencyKey = null,
+            idempotencyKey = call.id,
             status = ToolExecutionReceiptStatus.COMMITTED,
         )
         val verified = noteStore.get(created.id)

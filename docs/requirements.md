@@ -33,7 +33,7 @@
 - `/agent <目标>` 顺序多步执行入口，以及 `AgentRun / AgentStep / ApprovalRequest / RunEvent` 可审计运行链路。
 - 有界 Agent Runtime：同一 Run 最多 4 次工具调用，模型每轮返回继续调用或完成；具备模型与工具超时、整次 Run 超时、取消、完整输入 Schema/业务规则、重复调用检测，以及参数校验时、审批结束后执行前、工具返回后验证前的 Android 权限复检。任一检查点权限缺失都必须 fail-closed。兼容模型把同一个工具名同时写入 `action/tool` 时可以归一化，不一致动作仍拒绝。
 - 应用侧 Tool Registry 统一声明字符串/整数/数值/布尔类型、长度/范围/枚举、风险、确认、Android 权限、后台能力、超时和验证策略；Runtime 按前台/后台来源执行能力门禁，模型不能增加未知参数、修改工具风险或自行增加执行事实。
-- 工具执行证据使用 `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和提交状态，并把执行时的 `ToolReplaySafety` 声明快照随 `tool.result` typed metadata 持久化。Executor 提供的回执必须绑定当前 ToolCall；错配时 Runtime fail-closed。只有执行时快照和当前工具定义都显式声明 `IDEMPOTENT_BY_KEY`、回执状态为 `COMMITTED`、ToolCall 身份一致且幂等键存在时，证据策略才可判定已提交副作用可复用；旧事件缺少快照时默认 `RESTART_REQUIRED`。
+- 工具执行证据使用 `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和提交状态，并把执行时的 `ToolReplaySafety` 声明快照随 `tool.result` typed metadata 持久化。Executor 提供的回执必须绑定当前 ToolCall；错配时 Runtime fail-closed。只有执行时快照和当前工具定义都显式声明 `IDEMPOTENT_BY_KEY`、回执状态为 `COMMITTED`、ToolCall 身份一致且幂等键存在时，证据策略才可判定已提交副作用可复用；旧事件缺少快照时默认 `RESTART_REQUIRED`。`notes.create` 已使用 ToolCall ID 作为存储层唯一幂等键：同键同载荷返回原笔记，同键不同载荷必须拒绝且不覆盖旧数据。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 声明式 Skill 按需加载与管理：内置和本地 Skill 统一进入 Room Catalog；本地 `schemaVersion=1` JSON 经过字段白名单、工具注册表、风险与 Android 权限一致性校验后才可导入，设置页支持查看、启停和删除本地 Skill。Run 审计固定所选 Skill 的 ID/版本，审批恢复不得因期间停用、删除或升版而扩大工具面。
 - 多步骤 Workflow Ledger：用户可保存、编辑、启停和运行包含 1 至 8 个顺序 Agent 步骤的工作流；活动 Run 存在时禁止编辑，历史 Run 保留创建时的步骤定义、输入/输出快照、幂等键、触发来源、会话、关联 Agent Run、结果和失败原因。手动运行复用现有前台审批与验证链路，后台调度按相同顺序执行且不会绕过审批门禁；前台三步骤、后台三步骤和审批后继续下一步骤均已通过真实模型真机验收。
@@ -46,7 +46,7 @@
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
 - 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。当前筛选范围会基于持久化审计数据展示 Run 数、终态成功率、平均耗时、非成功数、模型/工具调用数、模型总耗时、平均 TTFB、Prompt 字节、上游 Token usage 覆盖率和失败终态分布；单 Run 使用同一持久化口径。活动 Run 不进入质量或失败分母，上游未返回 usage 时必须显示未返回，不能补零。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
-- Room v16 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v15→v16 会把旧 Workflow 回填为单步骤定义并保留历史 Run，v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库已有 Schema 与迁移测试源码保护。
+- Room v17 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v15→v16 会把旧 Workflow 回填为单步骤定义并保留历史 Run，v16→v17 为笔记增加可空唯一幂等键，旧笔记保持 `NULL`；v4/v9/v12/v13/v14/v15/v16→v17 和全新 v17 建库已有 Schema 与迁移测试源码保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
@@ -54,7 +54,7 @@
 - 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Agent Run 的原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract 与证据判定 module 已交付，但所有生产工具仍默认 `RESTART_REQUIRED`；`notes.create / memory.remember` 只记录真实 operation ID，存储层尚未实现 ToolCall 幂等键去重，因此原地恢复仍明确禁止。多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Agent Run 的通用原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract 与证据判定 module 已交付，`notes.create` 已完成 ToolCall 唯一幂等写入并声明 `IDEMPOTENT_BY_KEY`；`memory.remember` 仍无同等存储证明并保持 `RESTART_REQUIRED`。单个工具幂等并不等于旧执行栈可恢复，在验证阶段恢复规则和中断故障注入完成前，原地恢复仍明确禁止。多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
 补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；上述未交付项仅指执行/验证中断点以及尚未完成的后台一致性和自动化能力。
 
