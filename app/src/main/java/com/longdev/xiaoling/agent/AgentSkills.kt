@@ -274,4 +274,9 @@ class SkillScopedToolRegistry(
         }
         return delegate.verifyCommittedEffect(call, receipt)
     }
+
+    override fun supportsCommittedEffectVerification(toolName: String): Boolean {
+        return (allowedToolNames.isEmpty() || toolName in allowedToolNames) &&
+            delegate.supportsCommittedEffectVerification(toolName)
+    }
 }

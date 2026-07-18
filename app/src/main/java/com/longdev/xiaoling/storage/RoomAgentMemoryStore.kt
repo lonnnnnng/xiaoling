@@ -15,10 +15,13 @@ import com.longdev.xiaoling.agent.AgentMemoryStore
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentMemorySensitiveCategory
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
+import com.longdev.xiaoling.agent.AgentMemoryIdempotencyConflictException
 import com.longdev.xiaoling.data.AgentMemoryCandidateEntity
 import com.longdev.xiaoling.data.AgentMemoryEntity
 import com.longdev.xiaoling.data.AgentMemoryFtsEntity
+import com.longdev.xiaoling.data.AgentMemoryOperationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import java.security.MessageDigest
 import java.util.UUID
 
 class RoomAgentMemoryStore(
@@ -33,7 +36,12 @@ class RoomAgentMemoryStore(
         type: String,
         source: AgentMemorySource,
         confidence: Double,
+        idempotencyKey: String?,
     ): AgentMemoryRecord {
+        idempotencyKey?.let {
+            require(it.isNotBlank()) { "长期记忆幂等键不能为空" }
+            require(it.length <= 200) { "长期记忆幂等键不能超过 200 个字符" }
+        }
         return database.withTransaction {
             rememberInTransaction(
                 content = content,
@@ -41,6 +49,7 @@ class RoomAgentMemoryStore(
                 type = type,
                 source = source,
                 confidence = confidence,
+                idempotencyKey = idempotencyKey,
             )
         }
     }
@@ -305,17 +314,38 @@ class RoomAgentMemoryStore(
         type: String,
         source: AgentMemorySource,
         confidence: Double,
+        idempotencyKey: String? = null,
     ): AgentMemoryRecord {
         val dao = database.agentMemoryDao()
+        val normalizedContent = content.trim()
+        val normalizedTags = tags.trim()
+        val normalizedType = type.normalizeMemoryType()
+        val normalizedConfidence = confidence.coerceIn(0.0, 1.0)
+        val payloadHash = idempotencyKey?.let {
+            memoryOperationPayloadHash(
+                content = normalizedContent,
+                tags = normalizedTags,
+                type = normalizedType,
+                source = source,
+                confidence = normalizedConfidence,
+            )
+        }
+        if (idempotencyKey != null && payloadHash != null) {
+            dao.getMemoryOperation(idempotencyKey)?.let { operation ->
+                if (operation.payloadHash != payloadHash) throw AgentMemoryIdempotencyConflictException()
+                return dao.getMemory(operation.memoryId)?.toRecord()
+                    ?: error("长期记忆幂等操作指向的记录已不存在")
+            }
+        }
         val existingMemories = dao.listAllMemories().map { it.toRecord() }
         AgentMemoryCandidatePolicy.sensitiveCategoryIn(
-            listOf(content, tags, source.summary).joinToString("\n"),
+            listOf(normalizedContent, normalizedTags, source.summary).joinToString("\n"),
         )?.let { category ->
             throw IllegalArgumentException("检测到${category.displayName}，未保存原文")
         }
         val assessment = AgentMemoryCandidatePolicy.assessContent(
-            content = content,
-            type = type.normalizeMemoryType(),
+            content = normalizedContent,
+            type = normalizedType,
             source = source,
             existingMemories = existingMemories,
         )
@@ -325,18 +355,21 @@ class RoomAgentMemoryStore(
         assessment.relatedMemoryId
             ?.takeIf { assessment.status == AgentMemoryCandidateStatus.DUPLICATE }
             ?.let { duplicateId -> existingMemories.firstOrNull { it.id == duplicateId } }
-            ?.let { return it }
+            ?.let { duplicate ->
+                bindMemoryOperation(idempotencyKey, payloadHash, duplicate.id)
+                return duplicate
+            }
 
         val now = System.currentTimeMillis()
         val record = AgentMemoryRecord(
             id = "memory-${UUID.randomUUID()}",
             content = assessment.content,
-            tags = tags.trim(),
+            tags = normalizedTags,
             type = assessment.type,
             sourceConversationId = source.conversationId,
             sourceRunId = source.runId,
             sourceSummary = source.summary,
-            confidence = confidence.coerceIn(0.0, 1.0),
+            confidence = normalizedConfidence,
             enabled = true,
             createdAt = now,
             updatedAt = now,
@@ -344,7 +377,49 @@ class RoomAgentMemoryStore(
         // long: 无论来自候选确认还是 memory.remember，正式写入前都执行同一套敏感过滤与去重；这样工具入口不能绕过候选页的隐私边界。
         dao.upsertMemory(record.toEntity())
         replaceMemoryIndex(record)
+        bindMemoryOperation(idempotencyKey, payloadHash, record.id)
         return record
+    }
+
+    private suspend fun bindMemoryOperation(
+        idempotencyKey: String?,
+        payloadHash: String?,
+        memoryId: String,
+    ) {
+        if (idempotencyKey == null || payloadHash == null) return
+        // long: 映射与记忆写入处于同一 Room 事务；主键保证同一 ToolCall 只能绑定一个原始载荷和 operation，进程重建后不会重复创建。
+        database.agentMemoryDao().insertMemoryOperation(
+            AgentMemoryOperationEntity(
+                idempotencyKey = idempotencyKey,
+                memoryId = memoryId,
+                payloadHash = payloadHash,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    private fun memoryOperationPayloadHash(
+        content: String,
+        tags: String,
+        type: String,
+        source: AgentMemorySource,
+        confidence: Double,
+    ): String {
+        val fields = listOf(
+            content,
+            tags,
+            type,
+            source.conversationId,
+            source.runId,
+            source.summary,
+            confidence.toString(),
+        )
+        val canonical = fields.joinToString(separator = "") { field ->
+            field?.let { "${it.length}:$it" } ?: "-1:"
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
     private fun AgentMemoryRecord.toEntity() = AgentMemoryEntity(

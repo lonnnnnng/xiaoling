@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v17、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow 真机验收、Run 请求遥测与故障注入、执行回执/幂等证据 contract、`notes.create` ToolCall 级幂等写入，以及该工具在 `tool.result` 已提交、`tool.verify` 尚未落库时的验证阶段恢复。恢复只回读原 note operation、补齐验证并生成本地可信总结，不重放写工具或恢复旧模型协程。`memory.remember` 和其他工具仍为 `RESTART_REQUIRED`，通用执行栈与 Workflow 后续步骤继续采用关联新 Run 的 fail-closed 策略。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v18、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow 真机验收、Run 请求遥测与故障注入、执行回执/幂等证据 contract、`notes.create` 验证阶段恢复，以及 `memory.remember` ToolCall 级存储幂等证明。记忆 operation ledger 以唯一幂等键绑定原始载荷哈希和 memory ID，同键重放不会新增记录，载荷漂移会被拒绝；但启动恢复白名单仍只有 `notes.create`，通用执行栈、`memory.remember` 后置验证恢复和 Workflow 后续步骤继续 fail-closed。
 
 ## 推荐阅读顺序
 

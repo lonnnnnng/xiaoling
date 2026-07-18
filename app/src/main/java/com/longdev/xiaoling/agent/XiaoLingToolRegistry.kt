@@ -160,6 +160,7 @@ class XiaoLingToolRegistry(
             name = "memory.remember",
             description = "把用户明确希望长期保留的偏好、事实或备注写入本机长期记忆；写入前必须经过用户审批。",
             risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             inputSchema = listOf(
                 ToolInputField(
                     name = "note",
@@ -245,6 +246,11 @@ class XiaoLingToolRegistry(
             "notes.create" -> verifyCommittedNote(call, receipt)
             else -> null
         }
+    }
+
+    override fun supportsCommittedEffectVerification(toolName: String): Boolean {
+        // long: 幂等声明只证明副作用可按键识别；本阶段仍只允许 notes.create 进入只读恢复验证，memory.remember 需另行评估回读语义。
+        return toolName == "notes.create"
     }
 
     private fun currentTime(): ToolExecutionResult {
@@ -361,12 +367,13 @@ class XiaoLingToolRegistry(
             type = type,
             source = source,
             confidence = 0.8,
+            idempotencyKey = call.id,
         )
-        // long: 记忆记录 ID 是已发生写入的持久化证据；当前没有按 ToolCall 去重约束，因此只记录 operation ID，不宣称可以幂等重放。
+        // long: memoryStore 用独立 operation 映射把 ToolCall ID 绑定到原始载荷；同键重放返回原 memory ID，载荷漂移则在写入前失败。
         val receipt = ToolExecutionReceipt(
             toolCallId = call.id,
             operationId = record.id,
-            idempotencyKey = null,
+            idempotencyKey = call.id,
             status = ToolExecutionReceiptStatus.COMMITTED,
         )
         val verified = memoryStore.get(record.id)?.takeIf { stored ->

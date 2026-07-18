@@ -105,6 +105,12 @@ interface AgentMemoryDao {
     @Query("SELECT * FROM agent_memories WHERE id = :memoryId")
     suspend fun getMemory(memoryId: String): AgentMemoryEntity?
 
+    @Insert
+    suspend fun insertMemoryOperation(operation: AgentMemoryOperationEntity)
+
+    @Query("SELECT * FROM agent_memory_operations WHERE idempotencyKey = :idempotencyKey")
+    suspend fun getMemoryOperation(idempotencyKey: String): AgentMemoryOperationEntity?
+
     @Query(
         """
         SELECT * FROM agent_memories

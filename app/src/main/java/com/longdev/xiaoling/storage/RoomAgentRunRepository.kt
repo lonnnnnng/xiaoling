@@ -232,6 +232,7 @@ class RoomAgentRunRepository(
 
     suspend fun recoverCommittedToolRuns(
         definitionLookup: (String) -> ToolDefinition?,
+        committedVerificationSupport: (String) -> Boolean,
     ): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         val candidates = dao.getRunsByStatuses(
@@ -239,7 +240,7 @@ class RoomAgentRunRepository(
         )
         return candidates.mapNotNull { run ->
             val detail = loadDetail(run)
-            val assessment = AgentRunResumePolicy.assess(detail, definitionLookup)
+            val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
             if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
                 return@mapNotNull null
             }
@@ -263,6 +264,7 @@ class RoomAgentRunRepository(
 
     suspend fun closeInterruptedRuns(
         definitionLookup: (String) -> ToolDefinition? = { null },
+        committedVerificationSupport: (String) -> Boolean = { false },
     ): Int {
         val dao = database.agentRunDao()
         val activeStatuses = listOf(
@@ -278,7 +280,7 @@ class RoomAgentRunRepository(
         var closedCount = 0
         interruptedRuns.forEach { run ->
             val detail = loadDetail(run)
-            if (AgentRunResumePolicy.assess(detail, definitionLookup).canResumeInPlace) return@forEach
+            if (AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport).canResumeInPlace) return@forEach
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
             detail.snapshot.steps
                 .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }

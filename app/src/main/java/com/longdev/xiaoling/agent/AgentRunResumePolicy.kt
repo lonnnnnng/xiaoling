@@ -26,6 +26,7 @@ object AgentRunResumePolicy {
     fun assess(
         detail: AgentRunDetailRecord,
         definitionLookup: (String) -> ToolDefinition? = { null },
+        committedVerificationSupport: (String) -> Boolean = { false },
     ): AgentRunResumeAssessment {
         val snapshot = detail.snapshot
         if (snapshot.run.status == AgentRunStatus.WAITING_APPROVAL) {
@@ -37,7 +38,7 @@ object AgentRunResumePolicy {
                 reason = "只有等待用户审批且尚未执行工具的 Run 可以原地恢复",
             )
         }
-        return assessCommittedToolVerification(detail, definitionLookup)
+        return assessCommittedToolVerification(detail, definitionLookup, committedVerificationSupport)
     }
 
     private fun assessApprovalWait(detail: AgentRunDetailRecord): AgentRunResumeAssessment {
@@ -69,6 +70,7 @@ object AgentRunResumePolicy {
     private fun assessCommittedToolVerification(
         detail: AgentRunDetailRecord,
         definitionLookup: (String) -> ToolDefinition?,
+        committedVerificationSupport: (String) -> Boolean,
     ): AgentRunResumeAssessment {
         if (detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }) {
             return restartRequired("执行或验证中 Run 不能同时保留待审批请求")
@@ -128,6 +130,9 @@ object AgentRunResumePolicy {
         val persistedResult = toolResults.last()
         val toolCall = findUniqueToolCall(detail, persistedResult)
             ?: return restartRequired("工具结果无法唯一匹配原始 ToolCall")
+        if (!committedVerificationSupport(toolCall.name)) {
+            return restartRequired("工具未开放已提交结果的只读恢复验证")
+        }
         val definition = definitionLookup(toolCall.name)
             ?: return restartRequired("当前注册表中找不到历史工具定义")
         val evidence = ToolExecutionRecoveryEvidencePolicy.assess(definition, persistedResult)

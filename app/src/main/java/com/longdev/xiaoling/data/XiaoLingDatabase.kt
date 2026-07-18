@@ -18,6 +18,7 @@ import org.json.JSONObject
         ApprovalRequestEntity::class,
         RunEventEntity::class,
         AgentMemoryEntity::class,
+        AgentMemoryOperationEntity::class,
         AgentMemoryFtsEntity::class,
         AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
@@ -29,7 +30,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 17,
+    version = 18,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -42,7 +43,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 17
+        const val CURRENT_VERSION = 18
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -482,6 +483,24 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 记忆本身允许编辑和语义去重，ToolCall 幂等证据必须独立保存原始载荷哈希；旧记忆没有调用来源，因此新映射表保持为空。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_memory_operations` (
+                        `idempotencyKey` TEXT NOT NULL,
+                        `memoryId` TEXT NOT NULL,
+                        `payloadHash` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`idempotencyKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_memory_operations_memoryId` ON `agent_memory_operations` (`memoryId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -499,6 +518,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_14_15,
             MIGRATION_15_16,
             MIGRATION_16_17,
+            MIGRATION_17_18,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

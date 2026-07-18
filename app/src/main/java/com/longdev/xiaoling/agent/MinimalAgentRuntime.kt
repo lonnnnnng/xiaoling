@@ -237,7 +237,11 @@ class MinimalAgentRuntime(
     suspend fun resumeCommittedToolRun(
         detail: AgentRunDetailRecord,
     ): AgentRunSummary {
-        val assessment = AgentRunResumePolicy.assess(detail, toolRegistry::definition)
+        val assessment = AgentRunResumePolicy.assess(
+            detail,
+            toolRegistry::definition,
+            toolRegistry::supportsCommittedEffectVerification,
+        )
         require(assessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) { assessment.reason }
         val recovery = requireNotNull(assessment.committedTool) { "恢复策略缺少已提交工具证据" }
         val run = detail.snapshot.run

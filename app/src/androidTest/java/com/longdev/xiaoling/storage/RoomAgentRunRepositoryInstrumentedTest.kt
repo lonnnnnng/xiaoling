@@ -353,9 +353,15 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val restartedRepository = RoomAgentRunRepository(context, database)
 
         val recovered = restartedRepository
-            .recoverCommittedToolRuns(registry::definition)
+            .recoverCommittedToolRuns(
+                registry::definition,
+                registry::supportsCommittedEffectVerification,
+            )
             .single { it.snapshot.run.id == run.id }
-        val closedCount = restartedRepository.closeInterruptedRuns(registry::definition)
+        val closedCount = restartedRepository.closeInterruptedRuns(
+            registry::definition,
+            registry::supportsCommittedEffectVerification,
+        )
         val summary = MinimalAgentRuntime(
             ledger = restartedRepository,
             toolRegistry = registry,

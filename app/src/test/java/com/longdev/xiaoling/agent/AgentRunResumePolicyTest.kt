@@ -79,6 +79,7 @@ class AgentRunResumePolicyTest {
                 ),
             ),
             definitionLookup = { name -> definition.takeIf { it.name == name } },
+            committedVerificationSupport = { name -> name == definition.name },
         )
 
         assertEquals(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, assessment.kind)
@@ -86,6 +87,56 @@ class AgentRunResumePolicyTest {
         assertNotNull(assessment.committedTool)
         assertEquals(call, assessment.committedTool?.toolCall)
         assertEquals(result, assessment.committedTool?.persistedResult)
+    }
+
+    @Test
+    fun idempotentToolWithoutReadOnlyVerificationSupportStillRequiresRestart() {
+        val definition = ToolDefinition(
+            name = "memory.remember",
+            description = "写入长期记忆",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-memory-no-recovery",
+            name = definition.name,
+            arguments = mapOf("note" to "用户喜欢紧凑界面"),
+            risk = definition.risk,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                    event(
+                        "tool.result",
+                        RunEventMetadata.ToolResult(
+                            toolName = call.name,
+                            content = "已保存长期记忆",
+                            durationMs = 10L,
+                            success = true,
+                            verified = true,
+                            toolCallId = call.id,
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = ToolExecutionReceipt(
+                                toolCallId = call.id,
+                                operationId = "memory-1",
+                                idempotencyKey = call.id,
+                                status = ToolExecutionReceiptStatus.COMMITTED,
+                            ),
+                        ),
+                        2L,
+                    ),
+                ),
+            ),
+            definitionLookup = { name -> definition.takeIf { it.name == name } },
+            committedVerificationSupport = { false },
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("未开放"))
     }
 
     private fun detail(

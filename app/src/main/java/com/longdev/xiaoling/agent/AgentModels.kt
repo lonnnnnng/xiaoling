@@ -529,7 +529,14 @@ data class AgentMemorySource(
 )
 
 interface AgentMemoryStore {
-    suspend fun remember(content: String, tags: String, type: String, source: AgentMemorySource, confidence: Double): AgentMemoryRecord
+    suspend fun remember(
+        content: String,
+        tags: String,
+        type: String,
+        source: AgentMemorySource,
+        confidence: Double,
+        idempotencyKey: String? = null,
+    ): AgentMemoryRecord
     suspend fun get(memoryId: String): AgentMemoryRecord?
     suspend fun search(query: String, limit: Int, enabledOnly: Boolean = true): List<AgentMemoryRecord>
 }
@@ -588,6 +595,10 @@ interface AgentNoteStore {
 
 class AgentNoteIdempotencyConflictException : IllegalStateException(
     "笔记工具调用已绑定到其他内容",
+)
+
+class AgentMemoryIdempotencyConflictException : IllegalStateException(
+    "长期记忆工具调用已绑定到其他内容",
 )
 
 data class AgentToolExecutionContext(

@@ -822,3 +822,19 @@ TDD、自动化与真实恢复：
 - Redmi 回读 `PRAGMA user_version=17`、Provider 为 1 条、临时笔记为 0 条；使用未跟踪的本机兜底配置重新获取 6 个模型并选择 `gpt-5.4-mini`。
 - 真实普通对话冒烟请求返回 HTTP 200 和 `OK`；请求使用设置项中的默认 User-Agent，Authorization 日志保持脱敏。
 - Debug APK SHA-256：`aaf9cdeb087b0349d72ec4777526b26355ed06401a098874a5c53e373c6e2852`。
+
+## 2026-07-19 `memory.remember` ToolCall 级存储幂等验证
+
+实现与安全边界：
+
+- Room v18 新增 `agent_memory_operations`：`idempotencyKey` 为主键，映射 memory ID、原始请求载荷 SHA-256 和创建时间。操作映射与正式记忆/FTS 写入位于同一事务；旧记忆迁移后不伪造 ToolCall 来源。
+- `memory.remember` 使用 ToolCall ID 调用 Store，同键同载荷在数据库重开后返回原 memory operation，同键载荷漂移在写入前抛出冲突。独立 operation ledger 可承受记忆后续编辑和语义去重；目标被删除时明确失败，不重新创建第二条记忆。
+- 工具回执现在包含 ToolCall 幂等键并声明 `IDEMPOTENT_BY_KEY`。`ToolRegistry.supportsCommittedEffectVerification()` 独立表达只读恢复能力，生产 Registry 仍只对白名单 `notes.create` 开放；`memory.remember` 继续 `RESTART_REQUIRED`。
+
+TDD 与自动化：
+
+- Red/Green 覆盖 Registry 回执、同 ToolCall 重放、载荷漂移拒绝、数据库重开、v17→v18 迁移、旧记忆保留，以及“有幂等证据但无只读验证能力”仍不得进入原 Run 恢复。
+- 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；200 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机各执行 46 条 instrumentation，合计 92 条全部通过。
+- instrumentation 后向两台设备覆盖安装最终 Debug APK；Redmi 回读 `PRAGMA user_version=18`、Provider 为 1 条、临时笔记/记忆/记忆 operation 均为 0，重新同步 6 个模型并选择 `gpt-5.4-mini`。真实普通对话请求返回 HTTP 200 和 `OK`，默认 User-Agent 正确且 Authorization 日志保持脱敏。
+- 最终 Debug APK SHA-256：`b989507989b101796a4fb79e4a4daaa70fa9bebc9f0e608b9dc22da071a025ab`。

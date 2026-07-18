@@ -151,6 +151,17 @@ data class AgentMemoryEntity(
     val lastReferencedAt: Long?,
 )
 
+@Entity(
+    tableName = "agent_memory_operations",
+    indices = [Index(value = ["memoryId"])],
+)
+data class AgentMemoryOperationEntity(
+    @PrimaryKey val idempotencyKey: String,
+    val memoryId: String,
+    val payloadHash: String,
+    val createdAt: Long,
+)
+
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
 @Entity(tableName = "agent_memories_fts")
 data class AgentMemoryFtsEntity(

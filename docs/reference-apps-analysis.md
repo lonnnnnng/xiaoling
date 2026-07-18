@@ -316,7 +316,7 @@
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
-- Room v4、v6-v17 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、ScheduledTask、多步骤快照和笔记幂等索引演进。当前 v17 为新笔记保存可空唯一 `idempotencyKey`，旧笔记迁移后保持 `NULL`。
+- Room v4、v6-v18 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引和记忆 operation ledger 演进。v18 以独立主键映射保存 memory ToolCall 的原始载荷哈希，不改变旧记忆内容。
 
 现有关键实现位于：
 
@@ -362,7 +362,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v17 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，`notes.create` 已完成首个生产幂等写入切片及验证阶段恢复。恢复只回读原 operation、补齐验证并本地总结；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
+当前状态：Room v18 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`notes.create` 与 `memory.remember` 均具备 ToolCall 级存储幂等证明，但只有 `notes.create` 开放验证阶段恢复。存储重放声明与只读恢复能力已拆分，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

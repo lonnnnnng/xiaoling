@@ -455,6 +455,8 @@ class MinimalAgentRuntimeTest {
                 assertEquals("note-committed-recovery", receipt.operationId)
                 return persistedResult
             }
+
+            override fun supportsCommittedEffectVerification(toolName: String): Boolean = toolName == definition.name
         }
         val detail = AgentRunDetailRecord(snapshot = ledger.snapshot(run.id), approvals = emptyList())
 
@@ -593,6 +595,8 @@ class MinimalAgentRuntimeTest {
                 call: ToolCall,
                 receipt: ToolExecutionReceipt,
             ): ToolExecutionResult = recoveredResult
+
+            override fun supportsCommittedEffectVerification(toolName: String): Boolean = toolName == definition.name
         }
 
         val summary = MinimalAgentRuntime(
@@ -641,6 +645,8 @@ class MinimalAgentRuntimeTest {
                     status = ToolExecutionReceiptStatus.COMMITTED,
                 ),
             )
+
+            override fun supportsCommittedEffectVerification(toolName: String): Boolean = toolName == definition.name
         }
         val call = ToolCall(
             id = "tool-call-fault-injection",
@@ -680,7 +686,11 @@ class MinimalAgentRuntimeTest {
         assertEquals(0, snapshot.events.count { it.type == "tool.verify" })
         assertEquals(
             AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION,
-            AgentRunResumePolicy.assess(detail, registry::definition).kind,
+            AgentRunResumePolicy.assess(
+                detail,
+                registry::definition,
+                registry::supportsCommittedEffectVerification,
+            ).kind,
         )
     }
 

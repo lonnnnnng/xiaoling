@@ -8,6 +8,7 @@ interface ToolRegistry {
         call: ToolCall,
         receipt: ToolExecutionReceipt,
     ): ToolExecutionResult? = null
+    fun supportsCommittedEffectVerification(toolName: String): Boolean = false
 }
 
 object ToolRegistryContract {

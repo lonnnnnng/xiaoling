@@ -71,7 +71,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
-        assertEquals(ToolReplaySafety.RESTART_REQUIRED, tools.getValue("memory.remember").replaySafety)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
+        assertTrue(testRegistry().supportsCommittedEffectVerification("notes.create"))
+        assertFalse(testRegistry().supportsCommittedEffectVerification("memory.remember"))
         assertEquals(
             setOf("Preference", "ProfileFact", "Episode", "Procedure"),
             tools.getValue("memory.remember").inputSchema.single { it.name == "type" }.enumValues,
@@ -277,7 +279,7 @@ class XiaoLingToolRegistryTest {
             ToolExecutionReceipt(
                 toolCallId = "tool-call-memory-1",
                 operationId = "memory-1",
-                idempotencyKey = null,
+                idempotencyKey = "tool-call-memory-1",
                 status = ToolExecutionReceiptStatus.COMMITTED,
             ),
             remember.executionReceipt,
@@ -287,6 +289,29 @@ class XiaoLingToolRegistryTest {
         assertTrue(search.content.contains("Preference"))
         assertTrue(!search.content.contains("不应该被检索"))
         assertEquals(listOf("memory-1"), search.memoryIdsUsed)
+    }
+
+    @Test
+    fun memoryRememberReusesSameToolCallAndRejectsPayloadDrift() = runTest {
+        val memoryStore = InMemoryAgentMemoryStore()
+        val registry = testRegistry(memoryStore = memoryStore)
+        val call = ToolCall(
+            id = "tool-call-memory-idempotent",
+            name = "memory.remember",
+            arguments = mapOf("note" to "用户喜欢紧凑界面", "type" to "Preference"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val first = registry.execute(call)
+        val replay = registry.execute(call)
+        val conflict = runCatching {
+            registry.execute(call.copy(arguments = call.arguments + ("note" to "用户喜欢宽松界面")))
+        }.exceptionOrNull()
+
+        assertEquals(first.executionReceipt?.operationId, replay.executionReceipt?.operationId)
+        assertEquals(call.id, replay.executionReceipt?.idempotencyKey)
+        assertEquals(1, memoryStore.records.size)
+        assertTrue(conflict is AgentMemoryIdempotencyConflictException)
     }
 
     @Test
@@ -419,6 +444,7 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
 private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     val records = mutableListOf<AgentMemoryRecord>()
     val searchQueries = mutableListOf<String>()
+    private val recordsByIdempotencyKey = mutableMapOf<String, AgentMemoryRecord>()
 
     override suspend fun remember(
         content: String,
@@ -426,7 +452,20 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
         type: String,
         source: AgentMemorySource,
         confidence: Double,
+        idempotencyKey: String?,
     ): AgentMemoryRecord {
+        idempotencyKey?.let { key ->
+            recordsByIdempotencyKey[key]?.let { existing ->
+                if (
+                    existing.content != content || existing.tags != tags || existing.type != type ||
+                    existing.sourceConversationId != source.conversationId || existing.sourceRunId != source.runId ||
+                    existing.sourceSummary != source.summary || existing.confidence != confidence
+                ) {
+                    throw AgentMemoryIdempotencyConflictException()
+                }
+                return existing
+            }
+        }
         val record = AgentMemoryRecord(
             id = "memory-${records.size + 1}",
             content = content,
@@ -441,6 +480,7 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
             updatedAt = 1_784_252_245_000 + records.size,
         )
         records += record
+        idempotencyKey?.let { recordsByIdempotencyKey[it] = record }
         return record
     }
 

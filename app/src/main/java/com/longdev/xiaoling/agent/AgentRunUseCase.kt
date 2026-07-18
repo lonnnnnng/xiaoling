@@ -107,11 +107,17 @@ class AgentRunUseCase(
     }
 
     suspend fun recoverCommittedToolRuns(): List<AgentRunDetailRecord> {
-        return baseLedger.recoverCommittedToolRuns(toolRegistry::definition)
+        return baseLedger.recoverCommittedToolRuns(
+            toolRegistry::definition,
+            toolRegistry::supportsCommittedEffectVerification,
+        )
     }
 
     suspend fun closeInterruptedRuns(): Int {
-        return baseLedger.closeInterruptedRuns(toolRegistry::definition)
+        return baseLedger.closeInterruptedRuns(
+            toolRegistry::definition,
+            toolRegistry::supportsCommittedEffectVerification,
+        )
     }
 
     suspend fun resumeCommittedToolRun(
