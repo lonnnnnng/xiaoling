@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To11PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To12PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            11,
+            12,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -77,10 +77,12 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertNull(events.single().metadataJson)
         assertEquals(listOf("memory-v4"), memories.map { it.id })
         assertEquals("迁移测试笔记", note?.title)
+        // long: 老版本没有本地 Skill；升级只创建空表，内置定义由应用启动时同步，避免把运行时代码硬编码进迁移夹具。
+        assertEquals(0, database.agentSkillDao().list().size)
     }
 
     @Test
-    fun createAndOpenFreshVersion10Database() = runBlocking {
+    fun createAndOpenFreshVersion12Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -88,7 +90,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(10, database.openHelper.writableDatabase.version)
+        assertEquals(12, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -235,7 +237,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate9To11PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+    fun migrate9To12PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
         migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
             execSQL(
                 "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -263,7 +265,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
-            11,
+            12,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -277,6 +279,34 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             // long: 升级不能把历史正式记忆倒推成候选，否则用户会被要求重复确认已经存在的事实。
             assertEquals(true, cursor.moveToFirst())
             assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("candidateCount")))
+        }
+        migrated.query("SELECT COUNT(*) AS skillCount FROM agent_skills").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("skillCount")))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate11To12CreatesEmptySkillTableAndIndex() {
+        migrationHelper.createDatabase(SKILL_MIGRATION_DATABASE_NAME, 11).close()
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            SKILL_MIGRATION_DATABASE_NAME,
+            12,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_skills'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+        }
+        migrated.query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'index_agent_skills_source_enabled_updatedAt'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+        }
+        migrated.query("SELECT COUNT(*) AS skillCount FROM agent_skills").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("skillCount")))
         }
         migrated.close()
     }
@@ -342,5 +372,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val RETRY_LINK_MIGRATION_DATABASE_NAME = "xiaoling-retry-link-migration-test"
         private const val MEMORY_FTS_MIGRATION_DATABASE_NAME = "xiaoling-memory-fts-migration-test"
         private const val MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME = "xiaoling-memory-candidate-migration-test"
+        private const val SKILL_MIGRATION_DATABASE_NAME = "xiaoling-skill-migration-test"
     }
 }

@@ -7,6 +7,7 @@ import com.longdev.xiaoling.storage.RoomAgentConversationStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
+import com.longdev.xiaoling.storage.RoomAgentSkillStore
 
 class AgentRunUseCase(
     context: Context,
@@ -20,6 +21,10 @@ class AgentRunUseCase(
         noteStore = RoomAgentNoteStore(context.applicationContext),
         memoryStore = RoomAgentMemoryStore(context.applicationContext),
     )
+    private val skillCatalog = AgentSkillCatalog(
+        store = RoomAgentSkillStore(context.applicationContext),
+        registeredTools = toolRegistry::registeredTools,
+    )
 
     suspend fun run(
         conversationId: String,
@@ -32,7 +37,7 @@ class AgentRunUseCase(
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
-        val selectedSkills = BuiltInAgentSkillRegistry.select(goal)
+        val selectedSkills = skillCatalog.select(goal)
         val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
@@ -75,7 +80,7 @@ class AgentRunUseCase(
             status = ApprovalRequestStatus.APPROVED,
             reason = approvalReason,
         ) ?: error("审批请求不存在：${approval.id}")
-        val selectedSkills = BuiltInAgentSkillRegistry.select(detail.snapshot.run.goal)
+        val selectedSkills = skillCatalog.select(detail.snapshot.run.goal)
         val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
@@ -91,6 +96,16 @@ class AgentRunUseCase(
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
         )
     }
+
+    suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()
+
+    suspend fun importSkill(raw: String): AgentSkillRecord = skillCatalog.importDocument(raw)
+
+    suspend fun setSkillEnabled(skillId: String, enabled: Boolean): AgentSkillRecord? {
+        return skillCatalog.setEnabled(skillId, enabled)
+    }
+
+    suspend fun deleteLocalSkill(skillId: String): Boolean = skillCatalog.deleteLocal(skillId)
 }
 
 private class ReportingAgentRunLedger(

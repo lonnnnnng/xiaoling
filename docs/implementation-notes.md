@@ -34,8 +34,8 @@
 
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
-- Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6、v7、v8、v9、v10 与当前 v11 Schema；v4→v11 和 v9→v11 迁移测试通过正式 migration 列表和 DAO/Repository 回读验证用户数据。
+- Provider、会话、消息、最小 Agent Run、审批请求、长期记忆和声明式 Skill 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6、v7、v8、v9、v10、v11 与当前 v12 Schema；v4→v12、v9→v12 和 v11→v12 迁移测试通过正式 migration 列表和 DAO/SQL 回读验证用户数据与空 Skill 表初始化。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、查看完整工具结果/步骤/审批/事件，并对可重试终态创建关联的新 Run。后台任务入口仍未交付。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -89,7 +89,8 @@
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
-- `AgentRunUseCase` 会按目标规则选择最多 3 个内置声明式 Skill，并通过 `SkillScopedToolRegistry` 只向规划器暴露 Skill 声明的已注册工具；未命中 Skill 时保留原工具集。Skill 选择写入 `skill.selected` RunEvent，不能修改工具风险、审批、权限或验证策略。
+- `AgentRunUseCase` 通过 Room `AgentSkillCatalog` 合并内置和本地声明式 Skill，按目标规则选择最多 3 个已启用项，并通过 `SkillScopedToolRegistry` 只向规划器暴露 Skill 声明的已注册工具；未命中 Skill 时保留原工具集。Skill 选择写入 `skill.selected` RunEvent，不能修改工具风险、审批、权限或验证策略。
+- 设置页「Agent Skills」使用系统文件选择器导入 UTF-8 JSON。当前格式固定为 `schemaVersion=1`、`source=local`，最多 64 KiB；解析器拒绝未知字段和未注册工具，并要求文件声明的最高风险与 Android 权限和真实 `ToolDefinition` 完全一致。本地 Skill 不能覆盖内置 ID，同 ID 更新必须提升版本；用户可以启停全部 Skill，只能删除本地 Skill。可导入示例见 [`docs/examples/daily-review.skill.json`](examples/daily-review.skill.json)。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext.toolExecutions` 按执行顺序保存全部工具、参数、结果、验证状态和记忆 ID，顶层单工具字段继续映射最后一步以兼容旧消息；Android 持久化显式使用 JSON 数组，并兼容旧的字符串化数组。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
@@ -140,9 +141,9 @@
 
 ## 本地存储
 
-- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v11，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机执行正式 v4→v11 链路，并单独验证 v9→v11 保留正式记忆和 FTS、创建空候选表及新增可空生命周期字段。
-- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值。测试同时覆盖全新 v11 数据库创建和打开。
+- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentSkill 保存在 Room 数据库 `xiaoling.db`。
+- 数据库当前版本为 v12，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 编译覆盖正式 v4→v12、v9→v12 和 v11→v12 链路，验证历史数据保留、空 `agent_skills` 表与索引创建，以及全新 v12 数据库打开。
+- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
 - 设置页「长期记忆」支持候选开关与确认、搜索、启用状态筛选、编辑、置顶、启停、删除确认、当前会话撤销和来源审计；来源会话与来源 Run 存在时可直接跳转。
@@ -167,7 +168,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回，保证恢复审批卡片可以挂到原消息。恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`；顺序多步 Agent、跨进程记忆删除撤销和内置 Skill 按需选取已交付，本地 Skill 导入/管理、后台任务和更多真实工具仍需按路线图继续补齐。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回，保证恢复审批卡片可以挂到原消息。恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`；顺序多步 Agent、跨进程记忆删除撤销和本地 Skill 导入/管理已交付，后台任务和更多真实工具仍需按路线图继续补齐。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

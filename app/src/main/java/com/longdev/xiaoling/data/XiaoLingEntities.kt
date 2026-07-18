@@ -199,3 +199,26 @@ data class AgentNoteEntity(
     val createdAt: Long,
     val updatedAt: Long,
 )
+
+@Entity(
+    tableName = "agent_skills",
+    indices = [Index(value = ["source", "enabled", "updatedAt"])],
+)
+data class AgentSkillEntity(
+    @PrimaryKey val id: String,
+    val version: Int,
+    val name: String,
+    val description: String,
+    val instructions: String,
+    val toolNamesJson: String,
+    val keywordsJson: String,
+    val triggerExamplesJson: String,
+    val requiredAndroidPermissionsJson: String,
+    val declaredRisk: String,
+    val failureRecovery: String,
+    val completionCriteria: String,
+    val source: String,
+    val enabled: Boolean,
+    val importedAt: Long,
+    val updatedAt: Long,
+)

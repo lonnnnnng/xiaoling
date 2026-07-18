@@ -66,6 +66,73 @@ class AgentSkillsTest {
         }
     }
 
+    @Test
+    fun importedSkillCanBeSelectedAndDisabledButCannotReplaceBuiltInSkill() = runTest {
+        val store = TestAgentSkillStore()
+        val catalog = AgentSkillCatalog(
+            store = store,
+            registeredTools = { TestToolRegistry().availableTools() },
+        )
+
+        val imported = catalog.importDocument(localSkillDocument("custom-time"))
+        assertEquals(AgentSkillSource.LOCAL, imported.definition.source)
+        assertEquals(listOf("custom-time"), catalog.select("运行自定义检查").map { it.id })
+
+        catalog.setEnabled("custom-time", false)
+        assertTrue(catalog.select("运行自定义检查").none { it.id == "custom-time" })
+        val upgraded = catalog.importDocument(localSkillDocument("custom-time", version = 2))
+        assertEquals(2, upgraded.definition.version)
+        assertEquals(false, upgraded.enabled)
+        val collision = runCatching {
+            catalog.importDocument(localSkillDocument("device-time"))
+        }.exceptionOrNull()
+        assertTrue(collision is IllegalArgumentException)
+    }
+
+    private fun localSkillDocument(id: String, version: Int = 1) = """
+        {
+          "schemaVersion": 1,
+          "id": "$id",
+          "version": $version,
+          "name": "自定义时间检查",
+          "description": "读取设备时间。",
+          "source": "local",
+          "trigger": {"keywords": ["自定义检查"], "examples": ["运行自定义检查"]},
+          "tools": ["app.current_time"],
+          "requirements": {"androidPermissions": [], "risk": "SAFE"},
+          "instructions": "读取设备当前时间。",
+          "failureRecovery": "失败时停止。",
+          "completionCriteria": "时间结果可读。"
+        }
+    """.trimIndent()
+
+    private class TestAgentSkillStore : AgentSkillStore {
+        private val records = linkedMapOf<String, AgentSkillRecord>()
+
+        override suspend fun synchronizeBuiltIns(definitions: List<AgentSkillDefinition>) {
+            definitions.forEach { definition ->
+                records.putIfAbsent(
+                    definition.id,
+                    AgentSkillRecord(definition, enabled = true, importedAt = 0L, updatedAt = 0L),
+                )
+            }
+        }
+
+        override suspend fun list(): List<AgentSkillRecord> = records.values.toList()
+
+        override suspend fun upsert(record: AgentSkillRecord): AgentSkillRecord {
+            records[record.definition.id] = record
+            return record
+        }
+
+        override suspend fun setEnabled(skillId: String, enabled: Boolean): AgentSkillRecord? {
+            val current = records[skillId] ?: return null
+            return current.copy(enabled = enabled).also { records[skillId] = it }
+        }
+
+        override suspend fun deleteLocal(skillId: String): Boolean = records.remove(skillId) != null
+    }
+
     private class TestToolRegistry : ToolRegistry {
         private val tools = listOf(
             ToolDefinition("app.current_time", "读取时间", ToolRisk.SAFE),

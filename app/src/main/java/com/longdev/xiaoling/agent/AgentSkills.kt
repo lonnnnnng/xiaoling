@@ -8,7 +8,42 @@ data class AgentSkillDefinition(
     val instructions: String,
     val toolNames: Set<String>,
     val keywords: Set<String>,
+    val triggerExamples: List<String> = emptyList(),
+    val requiredAndroidPermissions: Set<String> = emptySet(),
+    val declaredRisk: ToolRisk = ToolRisk.SAFE,
+    val failureRecovery: String = "",
+    val completionCriteria: String = "",
+    val source: AgentSkillSource = AgentSkillSource.BUILT_IN,
 )
+
+enum class AgentSkillSource {
+    BUILT_IN,
+    LOCAL,
+}
+
+data class AgentSkillRecord(
+    val definition: AgentSkillDefinition,
+    val enabled: Boolean,
+    val importedAt: Long,
+    val updatedAt: Long,
+    val validationStatus: AgentSkillValidationStatus = when (definition.source) {
+        AgentSkillSource.BUILT_IN -> AgentSkillValidationStatus.TRUSTED_BUILT_IN
+        AgentSkillSource.LOCAL -> AgentSkillValidationStatus.VALIDATED_LOCAL
+    },
+)
+
+enum class AgentSkillValidationStatus {
+    TRUSTED_BUILT_IN,
+    VALIDATED_LOCAL,
+}
+
+interface AgentSkillStore {
+    suspend fun synchronizeBuiltIns(definitions: List<AgentSkillDefinition>)
+    suspend fun list(): List<AgentSkillRecord>
+    suspend fun upsert(record: AgentSkillRecord): AgentSkillRecord
+    suspend fun setEnabled(skillId: String, enabled: Boolean): AgentSkillRecord?
+    suspend fun deleteLocal(skillId: String): Boolean
+}
 
 interface AgentSkillRegistry {
     fun select(goal: String, limit: Int = 3): List<AgentSkillDefinition>
@@ -23,6 +58,10 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             instructions = "优先使用搜索定位相关会话；用户未给关键词时再列出最近会话。",
             toolNames = setOf("app.list_conversations", "app.search_conversations"),
             keywords = setOf("会话", "聊天", "历史", "之前", "找回", "conversation"),
+            triggerExamples = listOf("找一下之前关于某个主题的聊天", "列出最近会话"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "搜索无结果时返回最近会话；读取失败时停止并报告。",
+            completionCriteria = "返回可读的会话列表或明确说明未找到。",
         ),
         AgentSkillDefinition(
             id = "local-notes",
@@ -31,6 +70,10 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             instructions = "查找内容时先搜索笔记；只有用户明确要求记录时才创建笔记。",
             toolNames = setOf("notes.list", "notes.search", "notes.create"),
             keywords = setOf("笔记", "记录", "备忘", "note", "notes"),
+            triggerExamples = listOf("搜索本机笔记", "把这件事记成笔记"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "检索失败时停止；创建失败时不宣称笔记已保存。",
+            completionCriteria = "读取结果可读，或创建后完成回读验证。",
         ),
         AgentSkillDefinition(
             id = "personal-memory",
@@ -39,6 +82,10 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             instructions = "回答偏好和长期事实时检索记忆；只有用户明确要求记住时才写入。",
             toolNames = setOf("memory.search", "memory.remember"),
             keywords = setOf("记忆", "记住", "偏好", "习惯", "memory", "remember"),
+            triggerExamples = listOf("你记得我的偏好吗", "请记住这个习惯"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "检索失败不影响其他工具；写入失败时不生成已记住结论。",
+            completionCriteria = "检索结果可读，或写入后完成回读验证。",
         ),
         AgentSkillDefinition(
             id = "device-time",
@@ -47,20 +94,86 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             instructions = "涉及当前时间、日期或时区时读取设备时间，不根据模型训练时间猜测。",
             toolNames = setOf("app.current_time"),
             keywords = setOf("时间", "日期", "几点", "今天", "时区", "time", "date"),
+            triggerExamples = listOf("现在几点", "今天是什么日期"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "读取失败时停止并报告设备时间不可用。",
+            completionCriteria = "返回设备时间与时区。",
         ),
     )
 
     override fun select(goal: String, limit: Int): List<AgentSkillDefinition> {
-        val normalized = goal.trim().lowercase()
-        if (normalized.isBlank()) return emptyList()
-        // long: 规则只负责缩小提示词和工具面，不做业务决策；同分时按稳定 ID 排序，保证重试和进程恢复得到一致的 Skill 集合。
-        return skills
-            .map { skill -> skill to skill.keywords.count { keyword -> normalized.contains(keyword.lowercase()) } }
-            .filter { (_, score) -> score > 0 }
-            .sortedWith(compareByDescending<Pair<AgentSkillDefinition, Int>> { it.second }.thenBy { it.first.id })
-            .take(limit.coerceIn(1, 3))
-            .map { it.first }
+        return selectAgentSkills(goal, skills, limit)
     }
+
+    fun all(): List<AgentSkillDefinition> = skills
+}
+
+class AgentSkillCatalog(
+    private val store: AgentSkillStore,
+    private val registeredTools: () -> List<ToolDefinition>,
+) {
+    suspend fun list(): List<AgentSkillRecord> {
+        store.synchronizeBuiltIns(BuiltInAgentSkillRegistry.all())
+        return store.list().sortedWith(
+            compareBy<AgentSkillRecord> { it.definition.source.ordinal }
+                .thenBy { it.definition.name.lowercase() }
+                .thenBy { it.definition.id },
+        )
+    }
+
+    suspend fun select(goal: String, limit: Int = 3): List<AgentSkillDefinition> {
+        val enabled = list().filter { it.enabled }.map { it.definition }
+        return selectAgentSkills(goal, enabled, limit)
+    }
+
+    suspend fun importDocument(raw: String): AgentSkillRecord {
+        val definition = AgentSkillDocumentCodec.decode(raw, registeredTools())
+        val current = list().firstOrNull { it.definition.id == definition.id }
+        require(current?.definition?.source != AgentSkillSource.BUILT_IN) {
+            "本地 Skill 不能覆盖内置 Skill：${definition.id}"
+        }
+        if (current != null) {
+            require(definition.version > current.definition.version) {
+                "同 ID 的本地 Skill 只能导入更高版本"
+            }
+        }
+        val now = System.currentTimeMillis()
+        return store.upsert(
+            AgentSkillRecord(
+                definition = definition,
+                enabled = current?.enabled ?: true,
+                importedAt = current?.importedAt ?: now,
+                updatedAt = now,
+            ),
+        )
+    }
+
+    suspend fun setEnabled(skillId: String, enabled: Boolean): AgentSkillRecord? {
+        list()
+        return store.setEnabled(skillId, enabled)
+    }
+
+    suspend fun deleteLocal(skillId: String): Boolean {
+        val current = list().firstOrNull { it.definition.id == skillId } ?: return false
+        require(current.definition.source == AgentSkillSource.LOCAL) { "内置 Skill 不能删除" }
+        return store.deleteLocal(skillId)
+    }
+}
+
+private fun selectAgentSkills(
+    goal: String,
+    skills: List<AgentSkillDefinition>,
+    limit: Int,
+): List<AgentSkillDefinition> {
+    val normalized = goal.trim().lowercase()
+    if (normalized.isBlank()) return emptyList()
+    // long: 规则只负责缩小提示词和工具面，不做业务决策；同分时按稳定 ID 排序，保证重试和进程恢复得到一致的 Skill 集合。
+    return skills
+        .map { skill -> skill to skill.keywords.count { keyword -> normalized.contains(keyword.lowercase()) } }
+        .filter { (_, score) -> score > 0 }
+        .sortedWith(compareByDescending<Pair<AgentSkillDefinition, Int>> { it.second }.thenBy { it.first.id })
+        .take(limit.coerceIn(1, 3))
+        .map { it.first }
 }
 
 class SkillScopedToolRegistry(

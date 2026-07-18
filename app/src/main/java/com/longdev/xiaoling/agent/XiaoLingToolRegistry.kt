@@ -212,6 +212,8 @@ class XiaoLingToolRegistry(
         return tools
     }
 
+    fun registeredTools(): List<ToolDefinition> = tools
+
     override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {

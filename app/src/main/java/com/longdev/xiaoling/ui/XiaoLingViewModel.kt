@@ -15,6 +15,8 @@ import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentRunUseCase
+import com.longdev.xiaoling.agent.AgentSkillRecord
+import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -65,6 +67,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -140,6 +145,12 @@ data class XiaoLingUiState(
     val deletedMemoryForUndo: AgentMemoryRecord? = null,
     val memorySourceConversationNavigationId: String? = null,
     val memorySourceRunNavigationId: String? = null,
+    val loadingSkills: Boolean = false,
+    val importingSkill: Boolean = false,
+    val skills: List<AgentSkillRecord> = emptyList(),
+    val mutatingSkillIds: Set<String> = emptySet(),
+    val skillError: String? = null,
+    val pendingLocalSkillDelete: AgentSkillRecord? = null,
     val backupBusy: Boolean = false,
     val backupRestartRequired: Boolean = false,
     val result: OperationResult? = null,
@@ -286,6 +297,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
+    private var skillLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
 
@@ -539,6 +551,140 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun refreshMemories() {
         loadMemories()
         loadMemoryCandidates()
+    }
+
+    fun refreshSkills() {
+        skillLoadJob?.cancel()
+        uiState = uiState.copy(loadingSkills = true, skillError = null)
+        skillLoadJob = viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentRunUseCase.listSkills() }
+            }.onSuccess { skills ->
+                uiState = uiState.copy(loadingSkills = false, skills = skills, skillError = null)
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    loadingSkills = false,
+                    skillError = error.message ?: "无法读取 Skill",
+                )
+            }
+        }
+    }
+
+    fun importSkill(uri: android.net.Uri) {
+        if (uiState.importingSkill) return
+        uiState = uiState.copy(importingSkill = true, skillError = null, result = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val raw = readUtf8SkillDocument(uri)
+                    agentRunUseCase.importSkill(raw)
+                }
+            }.onSuccess { record ->
+                uiState = uiState.copy(
+                    importingSkill = false,
+                    result = OperationResult(
+                        true,
+                        "Skill 已导入",
+                        "${record.definition.name} v${record.definition.version} 已${if (record.enabled) "启用" else "保持停用"}",
+                    ),
+                )
+                refreshSkills()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    importingSkill = false,
+                    skillError = error.message ?: "Skill 导入失败",
+                    result = OperationResult(false, "Skill 导入失败", error.message ?: "文件校验未通过"),
+                )
+            }
+        }
+    }
+
+    fun setSkillEnabled(skillId: String, enabled: Boolean) {
+        if (skillId in uiState.mutatingSkillIds) return
+        uiState = uiState.copy(mutatingSkillIds = uiState.mutatingSkillIds + skillId, skillError = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentRunUseCase.setSkillEnabled(skillId, enabled) }
+            }.onSuccess { updated ->
+                uiState = uiState.copy(
+                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
+                    result = OperationResult(
+                        updated != null,
+                        if (enabled) "Skill 已启用" else "Skill 已停用",
+                        updated?.definition?.name ?: "Skill 不存在",
+                    ),
+                )
+                refreshSkills()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
+                    skillError = error.message ?: "无法更新 Skill",
+                )
+            }
+        }
+    }
+
+    fun requestLocalSkillDelete(skillId: String) {
+        val skill = uiState.skills.firstOrNull { it.definition.id == skillId } ?: return
+        if (skill.definition.source != AgentSkillSource.LOCAL) {
+            showValidation("内置 Skill 不能删除")
+            return
+        }
+        uiState = uiState.copy(pendingLocalSkillDelete = skill)
+    }
+
+    fun cancelLocalSkillDelete() {
+        uiState = uiState.copy(pendingLocalSkillDelete = null)
+    }
+
+    fun confirmLocalSkillDelete() {
+        val skill = uiState.pendingLocalSkillDelete ?: return
+        val skillId = skill.definition.id
+        if (skillId in uiState.mutatingSkillIds) return
+        uiState = uiState.copy(
+            pendingLocalSkillDelete = null,
+            mutatingSkillIds = uiState.mutatingSkillIds + skillId,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentRunUseCase.deleteLocalSkill(skillId) }
+            }.onSuccess { deleted ->
+                uiState = uiState.copy(
+                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
+                    result = OperationResult(
+                        deleted,
+                        if (deleted) "Skill 已删除" else "删除失败",
+                        if (deleted) skill.definition.name else "Skill 不存在或不是本地 Skill",
+                    ),
+                )
+                refreshSkills()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingSkillIds = uiState.mutatingSkillIds - skillId,
+                    skillError = error.message ?: "删除 Skill 失败",
+                )
+            }
+        }
+    }
+
+    private fun readUtf8SkillDocument(uri: android.net.Uri): String {
+        val resolver = getApplication<Application>().contentResolver
+        val bytes = resolver.openInputStream(uri)?.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8_192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                require(output.size() + count <= MAX_SKILL_DOCUMENT_BYTES) { "Skill 文件不能超过 64 KiB" }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        } ?: error("无法打开 Skill 文件")
+        return Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
     }
 
     fun updateMemoryCandidatesEnabled(enabled: Boolean) {
@@ -2565,5 +2711,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val MEMORY_MANAGEMENT_LIMIT = 200
         private const val MEMORY_CANDIDATE_LIMIT = 100
         private const val MEMORY_SEARCH_DEBOUNCE_MS = 250L
+        private const val MAX_SKILL_DOCUMENT_BYTES = 65_536
     }
 }

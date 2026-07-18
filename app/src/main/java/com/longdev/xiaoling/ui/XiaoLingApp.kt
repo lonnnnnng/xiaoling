@@ -127,6 +127,9 @@ import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentSkillRecord
+import com.longdev.xiaoling.agent.AgentSkillSource
+import com.longdev.xiaoling.agent.AgentSkillValidationStatus
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
@@ -183,6 +186,9 @@ private fun XiaoLingContent(
     val importBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> pendingBackupRestoreUri = uri }
+    val importSkillLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importSkill) }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = selectedTab == 1 && state.manageDraft != null
     val isSettingsSubPage = selectedTab == 1 && settingsPane != SettingsPane.ROOT
@@ -288,12 +294,17 @@ private fun XiaoLingContent(
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
                         },
+                        onOpenSkillManagement = {
+                            viewModel.refreshSkills()
+                            settingsPane = SettingsPane.SKILL_MANAGEMENT
+                        },
                         onOpenAgentRunHistory = {
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
                         },
                         onExportBackup = { exportBackupLauncher.launch(viewModel.defaultBackupFileName()) },
                         onImportBackup = { importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                        onImportSkill = { importSkillLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                         onBackToSettings = { settingsPane = SettingsPane.ROOT },
                         modifier = Modifier.matchParentSize(),
                     )
@@ -350,6 +361,14 @@ private fun XiaoLingContent(
             onDismiss = viewModel::cancelMemoryDelete,
         )
     }
+    state.pendingLocalSkillDelete?.let { skill ->
+        LocalSkillDeleteDialog(
+            skill = skill,
+            deleting = skill.definition.id in state.mutatingSkillIds,
+            onConfirm = viewModel::confirmLocalSkillDelete,
+            onDismiss = viewModel::cancelLocalSkillDelete,
+        )
+    }
 }
 
 private enum class SettingsPane {
@@ -357,6 +376,7 @@ private enum class SettingsPane {
     PROVIDER_MANAGEMENT,
     PROMPT_SETTINGS,
     MEMORY_MANAGEMENT,
+    SKILL_MANAGEMENT,
     AGENT_RUN_HISTORY,
 }
 
@@ -1747,9 +1767,11 @@ private fun SettingsPage(
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenSkillManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
+    onImportSkill: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1786,6 +1808,13 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.SKILL_MANAGEMENT -> AgentSkillManagementPage(
+                state = state,
+                viewModel = viewModel,
+                onImportSkill = onImportSkill,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentRunHistoryPage(
                 state = state,
                 viewModel = viewModel,
@@ -1798,6 +1827,7 @@ private fun SettingsPage(
                 onOpenProviderManagement = onOpenProviderManagement,
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenMemoryManagement = onOpenMemoryManagement,
+                onOpenSkillManagement = onOpenSkillManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
                 onExportBackup = onExportBackup,
                 onImportBackup = onImportBackup,
@@ -1814,6 +1844,7 @@ private fun SettingsRootPage(
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenSkillManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
@@ -1862,6 +1893,17 @@ private fun SettingsRootPage(
         )
 
         SettingsEntryCard(
+            title = "Agent Skills",
+            subtitle = if (state.skills.isEmpty()) {
+                "管理内置与本地 Skill"
+            } else {
+                "${state.skills.count { it.enabled }} 个启用 · ${state.skills.count { it.definition.source == AgentSkillSource.LOCAL }} 个本地"
+            },
+            icon = Icons.Default.Settings,
+            onClick = onOpenSkillManagement,
+        )
+
+        SettingsEntryCard(
             title = "Agent 任务中心",
             subtitle = if (state.agentRunHistory.isEmpty()) {
                 "查看最近 Agent Run 的步骤、审批和事件"
@@ -1892,6 +1934,195 @@ private fun SettingsRootPage(
             },
         )
     }
+}
+
+@Composable
+private fun AgentSkillManagementPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onImportSkill: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LaunchedEffect(Unit) {
+        if (state.skills.isEmpty() && !state.loadingSkills) viewModel.refreshSkills()
+    }
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+            }
+            PageTitle("Agent Skills")
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = viewModel::refreshSkills,
+                enabled = !state.loadingSkills,
+                modifier = Modifier.size(30.dp),
+            ) {
+                if (state.loadingSkills) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+                } else {
+                    Icon(Icons.Default.CloudDownload, contentDescription = "刷新 Skill", modifier = Modifier.size(18.dp))
+                }
+            }
+            OutlinedButton(
+                onClick = onImportSkill,
+                enabled = !state.importingSkill,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 9.dp),
+            ) {
+                if (state.importingSkill) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                } else {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("导入 JSON", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        state.skillError?.let { error ->
+            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(bottom = 8.dp),
+        ) {
+            when {
+                state.loadingSkills && state.skills.isEmpty() -> item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.6.dp)
+                    }
+                }
+                state.skills.isEmpty() -> item {
+                    Text(
+                        "没有可用 Skill",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+                else -> items(
+                    count = state.skills.size,
+                    key = { index -> state.skills[index].definition.id },
+                ) { index ->
+                    val skill = state.skills[index]
+                    AgentSkillItem(
+                        skill = skill,
+                        mutating = skill.definition.id in state.mutatingSkillIds,
+                        onEnabledChange = { enabled -> viewModel.setSkillEnabled(skill.definition.id, enabled) },
+                        onDelete = { viewModel.requestLocalSkillDelete(skill.definition.id) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentSkillItem(
+    skill: AgentSkillRecord,
+    mutating: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var expanded by remember(skill.definition.id) { mutableStateOf(false) }
+    val definition = skill.definition
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(7.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(7.dp))
+            .clickable { expanded = !expanded },
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(definition.name, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "${when (skill.validationStatus) {
+                            AgentSkillValidationStatus.TRUSTED_BUILT_IN -> "内置可信"
+                            AgentSkillValidationStatus.VALIDATED_LOCAL -> "本地已校验"
+                        }} · v${definition.version} · ${definition.declaredRisk.name}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (definition.source == AgentSkillSource.LOCAL) {
+                    IconButton(onClick = onDelete, enabled = !mutating, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除本地 Skill", modifier = Modifier.size(17.dp))
+                    }
+                }
+                Switch(
+                    checked = skill.enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = !mutating,
+                    modifier = Modifier.size(width = 44.dp, height = 28.dp),
+                )
+            }
+            Text(definition.description, style = MaterialTheme.typography.bodySmall)
+            Text(
+                definition.toolNames.joinToString(prefix = "工具："),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("触发词：${definition.keywords.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                Text("执行：${definition.instructions}", style = MaterialTheme.typography.bodySmall)
+                Text("完成：${definition.completionCriteria.ifBlank { "由工具结果验证" }}", style = MaterialTheme.typography.bodySmall)
+                Text("失败：${definition.failureRecovery.ifBlank { "停止并报告失败步骤" }}", style = MaterialTheme.typography.bodySmall)
+                if (definition.requiredAndroidPermissions.isNotEmpty()) {
+                    Text(
+                        "Android 权限：${definition.requiredAndroidPermissions.joinToString()}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalSkillDeleteDialog(
+    skill: AgentSkillRecord,
+    deleting: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!deleting) onDismiss() },
+        title = { Text("删除本地 Skill", style = MaterialTheme.typography.titleSmall) },
+        text = { Text(skill.definition.name, style = MaterialTheme.typography.bodySmall) },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !deleting) {
+                Text(if (deleting) "删除中" else "删除")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
+        },
+    )
 }
 
 @Composable

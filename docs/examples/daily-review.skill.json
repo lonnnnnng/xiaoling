@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "daily-review",
+  "version": 1,
+  "name": "每日回顾",
+  "description": "回顾最近会话并标注当前时间。",
+  "source": "local",
+  "trigger": {
+    "keywords": ["每日回顾", "回顾会话"],
+    "examples": ["帮我回顾今天的会话"]
+  },
+  "tools": ["app.list_conversations", "app.current_time"],
+  "requirements": {
+    "androidPermissions": [],
+    "risk": "SAFE"
+  },
+  "instructions": "先列出最近会话，再读取当前时间并生成简短回顾。",
+  "failureRecovery": "任一步失败时停止并报告失败步骤，不要猜测缺失结果。",
+  "completionCriteria": "会话列表和设备时间均已读取，并在最终答复中明确引用。"
+}

@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；任务中心已支持失败终态安全重新运行，长期记忆候选治理已可控，Tool Registry 已具备完整 Schema/业务校验/权限策略。下一阶段重点不是立即增加大量手机工具，而是补齐数据库备份、真正的断点恢复和后台任务能力。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；任务中心已支持失败终态安全重新运行，长期记忆候选治理已可控，声明式 Skill 已支持本地导入、校验、启停和管理。下一阶段重点不是立即增加大量手机工具，而是先交付可审计 Workflow Ledger，再接入受系统约束的后台调度。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -38,7 +38,7 @@
 - 首个工具执行前 `WAITING_APPROVAL` 的原地恢复已接入；执行任意工具后的审批等待，以及执行/验证中的旧协程、工具执行栈和验证栈仍不恢复。
 - 第一批真实 Tool Registry 已统一声明 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、后台能力、超时和验证策略；生产权限检查器默认 fail-closed，Runtime 已按前台/后台来源执行能力门禁。
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
-- 已有内置声明式 Skill 按需选取和工具白名单；本地 Skill 导入/管理、Workflow、后台调度和跨任务执行日志聚合尚未完成，当前 `RunEvent` 只覆盖单次 Agent Run 审计。
+- 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；Workflow、后台调度和跨任务执行日志聚合尚未完成，当前 `RunEvent` 只覆盖单次 Agent Run 审计。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
 
@@ -96,7 +96,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v11 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v12 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -106,7 +106,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v11 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填、v9 候选表迁移、v10 生命周期字段迁移和全新 v11 建库。
+- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v12 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填、v9 候选表迁移、v10 生命周期字段迁移、v11 Skill 表迁移和全新 v12 建库提供自动化覆盖；历史链路已真机验证，本轮 v12 测试先完成编译验证。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -211,7 +211,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：把可复用任务知识从系统提示词中移出，并避免工具数量增长后 Prompt 膨胀。
 
-当前状态：已交付会话检索、本机笔记、长期记忆和设备时间四类内置声明式 Skill；规则按目标稳定选择最多 3 个，工具白名单只能缩小已注册工具面，并写入 Run 审计。顺序多步 Runtime 可以在多个已选 Skill 的工具并集中逐步执行；版本化文件格式、本地导入和启停/管理 UI 仍待完成。
+当前状态：已交付会话检索、本机笔记、长期记忆和设备时间四类内置声明式 Skill，以及版本化本地 JSON 导入、严格静态校验、Room 持久化、启停和删除管理。规则按目标稳定选择最多 3 个已启用 Skill，工具白名单只能缩小已注册工具面并写入 Run 审计；顺序多步 Runtime 可以在多个已选 Skill 的工具并集中逐步执行。
 
 ### Skill 结构
 
@@ -226,10 +226,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ### 实现策略
 
-- 内置 Skill 由应用随包提供，使用稳定的 YAML/JSON 元数据加 Markdown 指令。
+- 内置 Skill 当前由 Kotlin 稳定定义并在启动时同步到 Room；本地 Skill 使用 `schemaVersion=1` JSON，后续如需将内置定义迁为 assets 文件必须保持同一验证契约。
 - 先通过轻量分类器或规则选择 1-3 个 Skill，再只加载其指令和工具。
 - Skill 不能直接获得未注册工具，也不能降低工具风险或绕过确认。
-- 第一版只允许导入本地文本 Skill，不执行任意代码。
+- 已完成：第一版只允许导入本地声明式 JSON Skill，不执行任意代码；未知字段、未注册工具、风险或权限不一致均拒绝导入。
 - “从成功任务生成 Skill”放到后期，生成后必须经过用户审核和静态校验。
 
 ### 首批 Skill
@@ -320,12 +320,12 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v11、event metadata、重试关联、Memory FTS、候选表迁移、生命周期字段和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v12、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill 表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
-| P1 | Skill 按需加载 | 内置声明式 Skill、规则选择、工具白名单和 Run 审计已完成；导入与管理 UI 待完成 | 控制 Prompt 和工具面增长 |
+| P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
 | P1 | Workflow Ledger 与后台调度 | 未开始 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
@@ -347,6 +347,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. `WAITING_APPROVAL` 原 Run 恢复已完成不清理 Keystore 的真机验收；继续保持执行/验证中 Run 创建关联新 Run 的安全边界。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
-3. 顺序多步 Agent 已完成；下一步优先补本地 Skill 文件格式、导入校验与启停/管理 UI，再进入后台任务。
+3. 已完成本地 Skill 文件格式、导入校验与启停/管理 UI。
+4. 下一步先建立不依赖调度器的 `Workflow / WorkflowRun / WorkflowStep` Ledger 和手动执行闭环，再接入 WorkManager；后台遇到审批时必须进入 blocked 状态，不得复用前台审批等待。
 
-完成这些工作后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。
+完成 Workflow Ledger 与手动执行后，再进入周期调度和系统回收场景验证，避免把调度可靠性与工作流语义一次性耦合。

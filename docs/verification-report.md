@@ -475,3 +475,23 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 首版仅支持顺序执行，不支持并行工具调用。
 - 任一步仍独立执行 Schema、权限、风险、审批和验证策略；前一步批准不能放宽后续工具。
 - 进程重建只允许尚未执行任何工具的首个 `WAITING_APPROVAL` 边界原地继续；已有工具执行/验证记录的多步 Run 仍安全收敛并通过关联新 Run 重试。
+
+## 2026-07-18 本地 Agent Skill 导入与管理验证
+
+构建与自动化验证：
+
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；133 项 Debug 单元测试通过，失败数为 0。
+- `AgentSkillDocumentCodecTest` 覆盖合法 v1 JSON、未知可执行字段、空触发词和 UTF-8 64 KiB 字节上限；`AgentSkillsTest` 覆盖本地导入、选择、停用、升级保持停用和禁止覆盖内置 ID。
+- AndroidTest APK 编译通过；迁移测试已扩展到 v4→v12、v9→v12、v11→v12 和全新 v12 建库，`RoomAgentSkillStoreInstrumentedTest` 覆盖内置定义升级后保留用户停用决定。本轮为保护设备 Keystore API Key，没有执行 instrumentation。
+- Debug APK SHA-256：`7b6e3e8345e6e886b564654193e2eb25b750ca0d3d8e42ba53ebf924b3fc4449`。
+
+真机验证：
+
+- 在 `wsvwypiz7xwslvl7` 使用 `adb install -r` 覆盖安装成功，未卸载、未清数据；安装后为 `versionName=0.1.9`、`versionCode=10`。
+- 应用启动触发主库升级；只读取非敏感结构信息确认 `PRAGMA user_version=12`、`agent_skills` 表和 `index_agent_skills_source_enabled_updatedAt` 索引存在，初始本地表记录数为 0；crash buffer 为空。
+- 手机停留在系统锁屏，ADB 无法关闭锁屏。因此本轮尚未完成「设置 -> Agent Skills」中 4 个内置 Skill 展示、导入 [`examples/daily-review.skill.json`](examples/daily-review.skill.json)、启停、`skill.selected` RunEvent 和删除后无残留的可视验收；不以单元测试替代这部分真机结论。
+
+安全边界：
+
+- 本地 Skill 只允许 `schemaVersion=1` 声明式 JSON，不执行脚本；字段白名单、工具注册、最高风险和 Android 权限必须全部匹配后才能写入 Room。
+- 本地 Skill 不能覆盖内置 ID，同 ID 更新必须提高版本；启停立即影响后续 Skill 选择，删除只允许 `source=LOCAL`。

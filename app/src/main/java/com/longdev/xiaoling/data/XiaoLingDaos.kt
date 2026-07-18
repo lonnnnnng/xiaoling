@@ -187,3 +187,21 @@ interface AgentNoteDao {
     )
     suspend fun search(pattern: String, limit: Int): List<AgentNoteEntity>
 }
+
+@Dao
+interface AgentSkillDao {
+    @Query("SELECT * FROM agent_skills ORDER BY source ASC, name COLLATE NOCASE ASC, id ASC")
+    suspend fun list(): List<AgentSkillEntity>
+
+    @Query("SELECT * FROM agent_skills WHERE id = :skillId")
+    suspend fun get(skillId: String): AgentSkillEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(skill: AgentSkillEntity)
+
+    @Query("UPDATE agent_skills SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :skillId")
+    suspend fun setEnabled(skillId: String, enabled: Boolean, updatedAt: Long): Int
+
+    @Query("DELETE FROM agent_skills WHERE id = :skillId AND source = 'LOCAL'")
+    suspend fun deleteLocal(skillId: String): Int
+}

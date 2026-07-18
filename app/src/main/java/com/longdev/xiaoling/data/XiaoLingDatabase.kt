@@ -21,8 +21,9 @@ import org.json.JSONObject
         AgentMemoryFtsEntity::class,
         AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
+        AgentSkillEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -31,9 +32,10 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentRunDao(): AgentRunDao
     abstract fun agentMemoryDao(): AgentMemoryDao
     abstract fun agentNoteDao(): AgentNoteDao
+    abstract fun agentSkillDao(): AgentSkillDao
 
     companion object {
-        const val CURRENT_VERSION = 11
+        const val CURRENT_VERSION = 12
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -255,6 +257,38 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: Skill 定义进入 Room 后，用户启停和本地导入才能随数据库备份恢复；表中只保存声明式文本，不保存脚本或任意可执行代码。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_skills` (
+                        `id` TEXT NOT NULL,
+                        `version` INTEGER NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `description` TEXT NOT NULL,
+                        `instructions` TEXT NOT NULL,
+                        `toolNamesJson` TEXT NOT NULL,
+                        `keywordsJson` TEXT NOT NULL,
+                        `triggerExamplesJson` TEXT NOT NULL,
+                        `requiredAndroidPermissionsJson` TEXT NOT NULL,
+                        `declaredRisk` TEXT NOT NULL,
+                        `failureRecovery` TEXT NOT NULL,
+                        `completionCriteria` TEXT NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `importedAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_skills_source_enabled_updatedAt` ON `agent_skills` (`source`, `enabled`, `updatedAt`)",
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -266,6 +300,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_8_9,
             MIGRATION_9_10,
             MIGRATION_10_11,
+            MIGRATION_11_12,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

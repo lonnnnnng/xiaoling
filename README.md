@@ -30,6 +30,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 一级入口为「模型提供方管理」。
   - 提供「提示词设置」二级页，可分别配置普通对话、会话摘要 / 记忆和 Agent 回复总结模板。
   - 每类模板支持独立启用、恢复默认和预览最终提示词；普通对话的工具边界、摘要事实边界和 Agent 审计边界不可被自定义模板覆盖。
+  - 提供「Agent Skills」管理页，展示内置与本地 Skill，可通过系统文件选择器导入版本化 JSON、启停能力并删除本地 Skill。
   - 支持新增、编辑、删除模型提供方。
   - 支持 `Base URL`、`API Key` 和名称配置。
   - 支持扫码导入、剪切板解析和 Base64 解码辅助。
@@ -41,7 +42,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 `POST /chat/completions`。
   - 支持 `POST /responses`。
   - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
-  - Provider、会话、消息、Agent Run、笔记和长期记忆使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
+  - Provider、会话、消息、Agent Run、笔记、长期记忆和 Skill 使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
   - API Key 使用 Android Keystore + AES-GCM 加密保存。
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
   - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
@@ -57,6 +58,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
 5. 输入消息开始对话；输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路。
+6. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
 
 ## 本地 mock 调试
 
@@ -94,11 +96,12 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest assembleDebug`：通过，当前 125 项 Debug 单元测试通过。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 133 项 Debug 单元测试通过。
 - `assembleRelease`：通过。
 - `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
 - 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。
 - 真机顺序多步 Run：`app.list_conversations -> app.current_time -> complete` 在同一 Run 完成，两次工具执行和两次验证均有 Room 审计记录。
+- 真机 Room v12：debug 包覆盖安装后主库升级为 v12，`agent_skills` 表与索引存在；本轮未运行 instrumentation，锁屏状态下未完成 Skill 管理页可视验收。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档
