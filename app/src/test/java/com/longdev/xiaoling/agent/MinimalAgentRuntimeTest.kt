@@ -1056,6 +1056,77 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun receiptFromAnotherToolCallFailsBeforePersistingSuccessfulResult() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.SAFE,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return error("多步入口应调用 proposeNextAction")
+                }
+
+                override suspend fun proposeNextAction(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentPlanDecision {
+                    return if (completedTools.isEmpty()) {
+                        AgentPlanDecision.CallTool(
+                            ToolCall(
+                                id = "tool-call-current",
+                                name = definition.name,
+                                arguments = emptyMap(),
+                                risk = definition.risk,
+                            ),
+                        )
+                    } else {
+                        AgentPlanDecision.Complete
+                    }
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = "{\"style\":\"compact\",\"tone\":\"neutral\"}"
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    return ToolExecutionResult(
+                        success = true,
+                        content = "已创建笔记",
+                        executionReceipt = ToolExecutionReceipt(
+                            toolCallId = "tool-call-other",
+                            operationId = "note-1",
+                            idempotencyKey = null,
+                            status = ToolExecutionReceiptStatus.COMMITTED,
+                        ),
+                    )
+                }
+            },
+        )
+
+        runCatching {
+            runtime.run("conversation-receipt-mismatch", "message-receipt-mismatch", "创建笔记")
+        }
+
+        val snapshot = ledger.snapshot(ledger.lastRunId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("执行回执不属于当前工具调用"))
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == AgentStepTypes.TOOL_EXECUTE }.status)
+        assertTrue(snapshot.events.none { it.type == "tool.result" })
+    }
+
+    @Test
     fun foregroundOnlyToolFailsClosedForBackgroundExecution() = runTest {
         val ledger = InMemoryAgentRunLedger()
         var executed = false

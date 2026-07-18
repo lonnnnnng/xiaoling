@@ -79,12 +79,18 @@ internal fun presentAgentRunEvent(
         is RunEventMetadata.ToolResult -> AgentRunEventPresentation(
             summary = if (metadata.success) "工具执行成功" else "工具执行失败",
             fields = fields(
+                "调用" to metadata.toolCallId,
                 "工具" to metadata.toolName,
                 "结果" to metadata.content,
                 "耗时" to "${metadata.durationMs}ms",
                 "成功" to metadata.success.toDisplayText(),
                 "验证" to metadata.verified?.toDisplayText(),
                 "使用记忆" to metadata.memoryIdsUsed.takeIf { it.isNotEmpty() }?.joinToString("、"),
+                "操作" to metadata.executionReceipt?.operationId,
+                "回执状态" to metadata.executionReceipt?.status?.name,
+                "幂等证明" to metadata.executionReceipt?.let { receipt ->
+                    if (receipt.idempotencyKey.isNullOrBlank()) "未记录" else "已记录"
+                },
             ),
         )
         is RunEventMetadata.ApprovalRequest -> AgentRunEventPresentation(

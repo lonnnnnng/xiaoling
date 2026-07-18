@@ -115,6 +115,7 @@ class XiaoLingToolRegistryTest {
 
         val result = registry.execute(
             ToolCall(
+                id = "tool-call-note-1",
                 name = "notes.create",
                 arguments = mapOf("title" to "发布检查", "content" to "发布前确认 release 签名和 SHA-256。"),
                 risk = ToolRisk.REQUIRES_APPROVAL,
@@ -125,6 +126,15 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("已创建并验证笔记：发布检查"))
         assertEquals("发布检查", noteStore.records.single().title)
         assertEquals(true, result.verified)
+        assertEquals(
+            ToolExecutionReceipt(
+                toolCallId = "tool-call-note-1",
+                operationId = "note-1",
+                idempotencyKey = null,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+            result.executionReceipt,
+        )
     }
 
     @Test
@@ -164,6 +174,7 @@ class XiaoLingToolRegistryTest {
 
         val remember = registry.execute(
             ToolCall(
+                id = "tool-call-memory-1",
                 name = "memory.remember",
                 arguments = mapOf(
                     "note" to "用户喜欢紧凑、明亮但不刺眼的 Android UI",
@@ -198,6 +209,15 @@ class XiaoLingToolRegistryTest {
         assertEquals(true, remember.verified)
         assertTrue(remember.content.contains("来源：由 /agent Run 写入（来源 Run 可查看）"))
         assertFalse(remember.content.contains("记住用户偏好"))
+        assertEquals(
+            ToolExecutionReceipt(
+                toolCallId = "tool-call-memory-1",
+                operationId = "memory-1",
+                idempotencyKey = null,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+            remember.executionReceipt,
+        )
         assertTrue(search.success)
         assertTrue(search.content.contains("用户喜欢紧凑、明亮但不刺眼的 Android UI"))
         assertTrue(search.content.contains("Preference"))

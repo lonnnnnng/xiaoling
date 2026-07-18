@@ -275,6 +275,13 @@ class XiaoLingToolRegistry(
         }
         // long: notes.create 是第一批带本地写入副作用的工具，必须由 Runtime 先走审批；写入后立即回读，避免只凭 insert 成功就向用户宣称任务完成。
         val created = noteStore.create(title = title, content = content)
+        // long: noteStore 已返回真实业务 ID，说明写入动作已经发生；回执不填幂等键，因为当前存储层还不能保证同一 ToolCall 重放只写入一次。
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = created.id,
+            idempotencyKey = null,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
         val verified = noteStore.get(created.id)
             ?.takeIf { it.title == title && it.content == content }
         return if (verified == null) {
@@ -282,12 +289,14 @@ class XiaoLingToolRegistry(
                 success = false,
                 verified = false,
                 content = "笔记已写入但回读验证失败，不能确认创建成功：$title",
+                executionReceipt = receipt,
             )
         } else {
             ToolExecutionResult(
                 success = true,
                 verified = true,
                 content = "已创建并验证笔记：${created.title}\n${created.content}",
+                executionReceipt = receipt,
             )
         }
     }
@@ -312,6 +321,13 @@ class XiaoLingToolRegistry(
             source = source,
             confidence = 0.8,
         )
+        // long: 记忆记录 ID 是已发生写入的持久化证据；当前没有按 ToolCall 去重约束，因此只记录 operation ID，不宣称可以幂等重放。
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = record.id,
+            idempotencyKey = null,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
         val verified = memoryStore.get(record.id)?.takeIf { stored ->
             stored.content == record.content &&
                 stored.tags == record.tags &&
@@ -326,12 +342,14 @@ class XiaoLingToolRegistry(
                 success = false,
                 verified = false,
                 content = "长期记忆已写入但回读验证失败，不能确认保存成功：${record.content}",
+                executionReceipt = receipt,
             )
         } else {
             ToolExecutionResult(
                 success = true,
                 verified = true,
                 content = "已保存并验证长期记忆：${record.content} · 类型：${record.type}$tagText · 来源：${record.sourceSummary}",
+                executionReceipt = receipt,
             )
         }
     }

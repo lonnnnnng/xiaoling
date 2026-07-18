@@ -27,6 +27,8 @@ internal object RunEventMetadataCodec {
                 .put("success", metadata.success)
                 .put("verified", metadata.verified)
                 .put("memoryIdsUsed", metadata.memoryIdsUsed.toStringJsonArray())
+                .put("toolCallId", metadata.toolCallId)
+                .put("executionReceipt", metadata.executionReceipt?.toJson())
             is RunEventMetadata.ApprovalRequest -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -83,6 +85,8 @@ internal object RunEventMetadataCodec {
                     success = json.getBoolean("success"),
                     verified = json.booleanOrNull("verified"),
                     memoryIdsUsed = json.stringListOrEmpty("memoryIdsUsed"),
+                    toolCallId = json.stringOrNull("toolCallId"),
+                    executionReceipt = json.executionReceiptOrNull(),
                 )
                 "approval.requested",
                 "approval.request_decided" -> RunEventMetadata.ApprovalRequest(
@@ -168,6 +172,23 @@ internal object RunEventMetadataCodec {
 
     private fun List<String>.toStringJsonArray(): JSONArray {
         return JSONArray().apply { this@toStringJsonArray.forEach(::put) }
+    }
+
+    private fun ToolExecutionReceipt.toJson(): JSONObject = JSONObject()
+        .put("toolCallId", toolCallId)
+        .put("operationId", operationId)
+        .put("idempotencyKey", idempotencyKey)
+        .put("status", status.name)
+
+    private fun JSONObject.executionReceiptOrNull(): ToolExecutionReceipt? {
+        // long: 旧 Run 没有执行回执时保持 null，不能从成功文本或工具名反推已经提交的副作用证据。
+        val receipt = optJSONObject("executionReceipt") ?: return null
+        return ToolExecutionReceipt(
+            toolCallId = receipt.requiredString("toolCallId"),
+            operationId = receipt.requiredString("operationId"),
+            idempotencyKey = receipt.stringOrNull("idempotencyKey"),
+            status = ToolExecutionReceiptStatus.valueOf(receipt.requiredString("status")),
+        )
     }
 
     private fun JSONObject.arguments(): Map<String, String> =

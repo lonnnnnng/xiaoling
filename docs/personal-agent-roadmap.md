@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台/后台与审批恢复已完成真实模型真机验收，任务中心已展示基于持久化审计的 Run 质量、模型 usage/TTFB/Prompt 和失败分布；网络响应中断、执行/验证中进程终止和 Android 权限运行中撤销均已进入确定性故障注入。当前恢复决策是：没有持久化执行回执与幂等副作用证明时不原地续跑旧执行栈。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台/后台与审批恢复已完成真实模型真机验收，任务中心已展示基于持久化审计的 Run 质量、模型 usage/TTFB/Prompt、失败分布和执行回执；网络响应中断、执行/验证中进程终止和 Android 权限运行中撤销均已进入确定性故障注入。执行回执/幂等证据 contract 已建立，但生产写工具尚无幂等键，因此仍不原地续跑旧执行栈。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断已明确采用 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表与并行调用仍待完成；原地断点恢复只有在持久化执行回执与幂等副作用证明可用后才重新评估。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断已明确采用 Run/活动 Step 一致取消和关联新 Run 重试。持久化执行回执 contract 已建立，生产幂等副作用证明仍不可用；独立 ToolCall/ToolResult 表与并行调用仍待完成，原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -359,6 +359,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 10. 已完成第一批 Run 性能指标和故障注入：任务中心展示总耗时、终态成功率、平均耗时、模型/工具/审批次数；网络响应中断归类为连接失败，取消、超时和重复回调测试保持通过。
 11. 已完成请求级审计：规划/总结成功后写入 usage、TTFB、最终 JSON Prompt 字节；规划语义解析失败仍保留已返回遥测；任务中心展示 Token 覆盖率和失败终态分布。
 12. 已完成执行/验证中进程终止和 Android 权限运行中撤销故障注入：审批后执行前和工具返回后验证前都会复检权限；进程重建会把旧 Run 与活动 Step 一致取消。当前没有副作用证明，继续要求二次确认并创建关联新 Run。
-13. 下一步为后台长任务补充可观测的耗时与系统终止样本，并设计持久化执行回执、工具级幂等键和副作用证明契约；证据不足前不引入原地续跑，也不因 Foreground Service 提高存活概率而放宽执行边界。
+13. 部分完成：已建立持久化 `ToolExecutionReceipt`、`ToolReplaySafety` 和纯证据判定 module；回执绑定 ToolCall，错配时 Runtime fail-closed，任务中心不显示原始幂等键。`notes.create / memory.remember` 已记录真实 operation ID，但没有按 ToolCall 去重，继续保持 `RESTART_REQUIRED`。
+14. 下一步以 `notes.create` 为首个垂直切片，在存储层增加可审计的 ToolCall 幂等键唯一约束，验证进程终止后同键重放只返回同一 operation ID；完成故障注入前不把工具改为 `IDEMPOTENT_BY_KEY`，也不接入原地恢复。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service，执行/验证中断仍保持 fail-closed 边界。

@@ -17,6 +17,8 @@ import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolExecutionReceipt
+import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.data.ApprovalRequestEntity
@@ -137,6 +139,41 @@ class RoomAgentRunRepositoryInstrumentedTest {
             .single { it.type == "tool.result" }
             .metadata as RunEventMetadata.ToolResult
         assertEquals(listOf("memory-1", "memory-2"), metadata.memoryIdsUsed)
+    }
+
+    @Test
+    fun toolExecutionReceiptRoundTripsThroughRepositorySnapshot() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-execution-receipt",
+            userMessageId = "message-execution-receipt",
+            goal = "保存工具执行回执",
+        )
+        val metadata = RunEventMetadata.ToolResult(
+            toolName = "notes.create",
+            content = "已创建笔记",
+            durationMs = 18L,
+            success = true,
+            verified = true,
+            toolCallId = "tool-call-receipt-1",
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = "tool-call-receipt-1",
+                operationId = "note-1",
+                idempotencyKey = null,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.result",
+            message = "工具执行成功：notes.create",
+            metadata = metadata,
+        )
+
+        val restored = repository.snapshot(run.id).events
+            .single { it.type == "tool.result" }
+            .metadata as RunEventMetadata.ToolResult
+        assertEquals(metadata, restored)
     }
 
     @Test

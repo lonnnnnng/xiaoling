@@ -380,6 +380,7 @@ class MinimalAgentRuntime(
         ) {
             toolRegistry.execute(toolCall)
         }
+        validateExecutionReceipt(toolCall, toolResult)
         state.executedToolCalls += 1
         val toolDurationMs = System.currentTimeMillis() - toolStartedAt
         ledger.appendEvent(
@@ -665,6 +666,17 @@ class MinimalAgentRuntime(
         }
     }
 
+    private fun validateExecutionReceipt(
+        toolCall: ToolCall,
+        result: ToolExecutionResult,
+    ) {
+        val receipt = result.executionReceipt ?: return
+        // long: Executor 可以不提供回执，但提供后必须绑定本次 ToolCall；错配回执不能作为当前副作用证据写入审计或驱动后续恢复判断。
+        check(receipt.toolCallId == toolCall.id) {
+            "执行回执不属于当前工具调用：expected=${toolCall.id}, actual=${receipt.toolCallId}"
+        }
+    }
+
     private fun checkToolBudget(executedToolCalls: Int) {
         if (executedToolCalls >= options.maxToolCalls) {
             throw AgentBudgetExceededException("工具调用次数超过上限：${options.maxToolCalls}")
@@ -778,6 +790,8 @@ private object AgentEventMetadata {
             verified = result.verified,
             durationMs = durationMs,
             memoryIdsUsed = result.memoryIdsUsed,
+            toolCallId = call.id,
+            executionReceipt = result.executionReceipt,
         )
     }
 }

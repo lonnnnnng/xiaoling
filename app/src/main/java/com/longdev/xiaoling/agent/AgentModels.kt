@@ -116,6 +116,8 @@ sealed interface RunEventMetadata {
         val success: Boolean,
         val verified: Boolean?,
         val memoryIdsUsed: List<String> = emptyList(),
+        val toolCallId: String? = null,
+        val executionReceipt: ToolExecutionReceipt? = null,
     ) : RunEventMetadata
 
     data class ApprovalRequest(
@@ -228,6 +230,7 @@ data class ToolDefinition(
     val permissionPolicy: ToolPermissionPolicy = ToolPermissionPolicy(),
     val approvalPolicy: ToolApprovalPolicy = risk.defaultApprovalPolicy(),
     val verificationPolicy: ToolVerificationPolicy = ToolVerificationPolicy.RESULT_READABLE,
+    val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
     val timeoutMs: Long? = null,
 ) {
     init {
@@ -402,11 +405,36 @@ enum class ToolRisk {
     DANGEROUS,
 }
 
+enum class ToolExecutionReceiptStatus {
+    COMMITTED,
+    NOT_COMMITTED,
+    UNKNOWN,
+}
+
+enum class ToolReplaySafety {
+    RESTART_REQUIRED,
+    IDEMPOTENT_BY_KEY,
+}
+
+data class ToolExecutionReceipt(
+    val toolCallId: String,
+    val operationId: String,
+    val idempotencyKey: String?,
+    val status: ToolExecutionReceiptStatus,
+) {
+    init {
+        require(toolCallId.isNotBlank()) { "执行回执的工具调用 ID 不能为空" }
+        require(operationId.isNotBlank()) { "执行回执的操作 ID 不能为空" }
+        require(idempotencyKey == null || idempotencyKey.isNotBlank()) { "执行回执的幂等键不能为空白" }
+    }
+}
+
 data class ToolExecutionResult(
     val success: Boolean,
     val content: String,
     val verified: Boolean? = null,
     val memoryIdsUsed: List<String> = emptyList(),
+    val executionReceipt: ToolExecutionReceipt? = null,
 )
 
 data class AgentToolExecution(

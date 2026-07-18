@@ -3,9 +3,12 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.ToolExecutionReceipt
+import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolRisk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunEventPresentationTest {
@@ -72,6 +75,34 @@ class AgentRunEventPresentationTest {
         assertEquals("fake-call-1", presentation.fields.single { it.label == "调用" }.value)
         assertEquals("fake.echo", presentation.fields.single { it.label == "工具" }.value)
         assertEquals("goal=hello · path=/tmp/a", presentation.fields.single { it.label == "参数" }.value)
+    }
+
+    @Test
+    fun toolResultReceiptShowsEvidenceWithoutExposingIdempotencyKey() {
+        val presentation = presentAgentRunEvent(
+            type = "tool.result",
+            message = "工具执行成功：notes.create",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = "notes.create",
+                success = true,
+                content = "已创建笔记",
+                durationMs = 42,
+                verified = true,
+                toolCallId = "tool-call-1",
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = "tool-call-1",
+                    operationId = "note-1",
+                    idempotencyKey = "private-idempotency-key",
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ),
+        )
+
+        assertEquals("tool-call-1", presentation.fields.single { it.label == "调用" }.value)
+        assertEquals("note-1", presentation.fields.single { it.label == "操作" }.value)
+        assertEquals("COMMITTED", presentation.fields.single { it.label == "回执状态" }.value)
+        assertEquals("已记录", presentation.fields.single { it.label == "幂等证明" }.value)
+        assertTrue(presentation.fields.none { it.value == "private-idempotency-key" })
     }
 
     @Test

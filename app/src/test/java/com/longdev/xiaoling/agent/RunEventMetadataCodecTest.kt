@@ -46,6 +46,32 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun toolExecutionReceiptRoundTripsWithToolCallIdentity() {
+        val metadata = RunEventMetadata.ToolResult(
+            toolName = "notes.create",
+            content = "已创建笔记",
+            durationMs = 12,
+            success = true,
+            verified = true,
+            toolCallId = "tool-call-1",
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = "tool-call-1",
+                operationId = "note-1",
+                idempotencyKey = "run-1:step-1",
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                type = "tool.result",
+                raw = RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
     fun legacyToolResultWithoutMemoryIdsRemainsReadable() {
         val metadata = RunEventMetadataCodec.decode(
             type = "tool.result",
@@ -53,6 +79,8 @@ class RunEventMetadataCodecTest {
         ) as RunEventMetadata.ToolResult
 
         assertEquals(emptyList<String>(), metadata.memoryIdsUsed)
+        assertEquals(null, metadata.toolCallId)
+        assertEquals(null, metadata.executionReceipt)
     }
 
     @Test
