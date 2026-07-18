@@ -4,11 +4,17 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.agent.AgentLlm
+import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
+import com.longdev.xiaoling.agent.FakeToolRegistry
+import com.longdev.xiaoling.agent.MinimalAgentRuntime
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -16,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -223,6 +230,72 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val metadata = recovered.metadata as RunEventMetadata.Recovery
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.fromStatus)
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.toStatus)
+    }
+
+    @Test
+    fun recoveredPendingApprovalCompletesOriginalRoomRun() = runBlocking {
+        val registry = FakeToolRegistry()
+        val definition = registry.definition("fake.echo")!!
+        val run = repository.createRun(
+            conversationId = "conversation-room-resume",
+            userMessageId = "message-room-resume",
+            goal = "从 Room 恢复执行",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        val approvalStep = repository.appendStep(
+            runId = run.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待应用侧审批 fake.echo",
+            status = AgentStepStatus.RUNNING,
+        )
+        val request = repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = ToolCall(
+                id = "tool-call-room-resume",
+                name = definition.name,
+                arguments = mapOf("goal" to run.goal),
+                risk = definition.risk,
+            ),
+            definition = definition,
+        )
+        // long: 新建 Repository 实例模拟进程重建后的组件重建，但继续复用同一 Room 数据，验证恢复不依赖旧内存对象。
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        val recovered = restartedRepository.recoverPendingApprovalRuns().single { it.snapshot.run.id == run.id }
+        restartedRepository.decideApprovalRequest(request.id, ApprovalRequestStatus.APPROVED, "用户确认继续")
+
+        val summary = MinimalAgentRuntime(
+            ledger = restartedRepository,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    error("恢复原 Run 不应重新规划工具")
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+        ).resumeApprovedRun(
+            detail = recovered,
+            approval = request,
+            approvalDecision = ApprovalDecision(approved = true, reason = "用户确认继续"),
+        )
+
+        val detail = restartedRepository.runDetail(run.id)!!
+        assertEquals(run.id, summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, detail.snapshot.run.status)
+        assertEquals(ApprovalRequestStatus.APPROVED, detail.approvals.single { it.id == request.id }.status)
+        assertEquals(AgentStepStatus.COMPLETED, detail.snapshot.steps.single { it.id == approvalStep.id }.status)
+        assertTrue(detail.snapshot.steps.none { it.type == "llm.plan" })
+        assertTrue(detail.snapshot.events.any { it.type == "tool.result" })
+        assertTrue(detail.snapshot.events.any { it.type == "tool.verify" })
     }
 
     @Test

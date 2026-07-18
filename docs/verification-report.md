@@ -221,7 +221,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 
 - `MinimalAgentRuntime.resumeApprovedRun` 只接受 `APPROVAL_WAIT` 评估结果，使用持久化审批中的工具名和参数，不重新调用模型规划。
 - 工具执行、后置验证、模型总结、`RunEvent` 和最终 `COMPLETED/FAILED` 状态均写回原 Run；新增 JVM 测试验证 Run ID 不变且不产生 `llm.plan` 步骤。
-- 当前环境仍未完成 Gradle、Room instrumentation、APK 和真机进程重建验证，不能把该入口报告为设备验收通过。
+- 新增 JVM 测试验证恢复工具失败写入原 Run `FAILED`，且重试策略要求二次确认；新增 Room instrumentation 测试用新 Repository 实例模拟组件重建，串起审批重建、批准、工具执行、验证和同 Run `COMPLETED`。
+- 已验证 Gradle 8.13 分发包可在临时 `GRADLE_USER_HOME` 启动，但进入构建仍因 `FileLockContentionHandler` 创建本地 Socket 被沙箱拒绝；新增测试尚未实际运行，APK 和真机进程重建验证也未执行，不能把该入口报告为设备验收通过。
 
 ## 记忆过期与时间衰减验证边界
 

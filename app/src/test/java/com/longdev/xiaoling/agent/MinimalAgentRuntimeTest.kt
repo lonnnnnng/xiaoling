@@ -103,6 +103,77 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun resumedToolFailureMarksOriginalRunFailedAndRequiresConfirmedRetry() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val created = ledger.createRun(
+            conversationId = "conversation-resume-failure",
+            userMessageId = "message-resume-failure",
+            goal = "恢复后工具执行失败",
+        )
+        ledger.updateRunStatus(created.id, AgentRunStatus.WAITING_APPROVAL)
+        ledger.appendStep(
+            runId = created.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待应用侧审批 fake.echo",
+            status = AgentStepStatus.RUNNING,
+        )
+        val approval = ApprovalRequestRecord(
+            id = "approval-resume-failure",
+            runId = created.id,
+            conversationId = created.conversationId,
+            toolCallId = "tool-call-resume-failure",
+            toolName = "fake.echo",
+            toolDescription = "回显任务",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("goal" to created.goal),
+            status = ApprovalRequestStatus.PENDING,
+            decisionReason = null,
+            createdAt = 1L,
+            expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+            decidedAt = null,
+        )
+        val detail = AgentRunDetailRecord(
+            snapshot = ledger.snapshot(created.id),
+            approvals = listOf(approval),
+        )
+        val failedRegistry = object : ToolRegistry {
+            private val tool = FakeToolRegistry().availableTools().single()
+            override fun availableTools(): List<ToolDefinition> = listOf(tool)
+            override fun definition(name: String): ToolDefinition? = tool.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                return ToolExecutionResult(success = false, content = "恢复后的工具执行失败")
+            }
+        }
+
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = ledger,
+                toolRegistry = failedRegistry,
+                llm = FakeAgentLlm(),
+            ).resumeApprovedRun(
+                detail = detail,
+                approval = approval,
+                approvalDecision = ApprovalDecision(approved = true, reason = "用户确认继续"),
+            )
+        }.exceptionOrNull()
+
+        val failedSnapshot = ledger.snapshot(created.id)
+        val retryEligibility = AgentTaskRetryPolicy.evaluate(
+            AgentRunDetailRecord(
+                snapshot = failedSnapshot,
+                approvals = listOf(approval.copy(status = ApprovalRequestStatus.APPROVED)),
+            ),
+        ) as AgentTaskRetryEligibility.Retryable
+        assertEquals(created.id, ledger.lastRunId)
+        assertNotNull(failure)
+        assertEquals(AgentRunStatus.FAILED, failedSnapshot.run.status)
+        assertTrue(failedSnapshot.steps.any { it.type == AgentStepTypes.TOOL_EXECUTE && it.status == AgentStepStatus.FAILED })
+        assertTrue(failedSnapshot.events.any { it.type == "run.failed" })
+        assertTrue(retryEligibility.requiresConfirmation)
+    }
+
+    @Test
     fun disablingMemoryRecallWritesAnAuditEventForThisRunOnly() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val summary = MinimalAgentRuntime(
