@@ -73,7 +73,7 @@ class MinimalAgentRuntimeTest {
 
         val selected = ledger.snapshot(summary.runId).events.single { it.type == "skill.selected" }
         assertTrue(selected.message.contains(skill.name))
-        assertEquals(skill.id, (selected.metadata as RunEventMetadata.Reason).reason)
+        assertEquals("${skill.id}@${skill.version}", (selected.metadata as RunEventMetadata.Reason).reason)
     }
 
     @Test

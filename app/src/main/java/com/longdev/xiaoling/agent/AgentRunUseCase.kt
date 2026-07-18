@@ -70,6 +70,16 @@ class AgentRunUseCase(
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
+        val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
+        val selectedSkills = if (selectionEvent == null) {
+            emptyList()
+        } else {
+            val selection = (selectionEvent.metadata as? RunEventMetadata.Reason)?.reason
+                ?: error("原 Run 的 Skill 选择审计无法读取，请创建新 Run 重试")
+            // long: 审批等待期间用户可以停用、升级或删除 Skill；恢复必须固定原 Run 的 ID 与版本，不能重新分类后意外扩大工具白名单。
+            skillCatalog.resolveSelection(AgentSkillSelectionCodec.decode(selection))
+        }
+        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -80,8 +90,6 @@ class AgentRunUseCase(
             status = ApprovalRequestStatus.APPROVED,
             reason = approvalReason,
         ) ?: error("审批请求不存在：${approval.id}")
-        val selectedSkills = skillCatalog.select(detail.snapshot.run.goal)
-        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,

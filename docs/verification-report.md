@@ -480,10 +480,10 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 构建与自动化验证：
 
-- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；133 项 Debug 单元测试通过，失败数为 0。
-- `AgentSkillDocumentCodecTest` 覆盖合法 v1 JSON、未知可执行字段、空触发词和 UTF-8 64 KiB 字节上限；`AgentSkillsTest` 覆盖本地导入、选择、停用、升级保持停用和禁止覆盖内置 ID。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；136 项 Debug 单元测试通过，失败数为 0。
+- `AgentSkillDocumentCodecTest` 覆盖合法 v1 JSON、未知可执行字段、空触发词和 UTF-8 64 KiB 字节上限；`AgentSkillsTest` 覆盖本地导入、关键词/触发示例选择、停用、升版保持停用、选择审计版本恢复和禁止覆盖内置 ID；`RunEventMetadataCodecTest` 覆盖 `skill.selected` 的 Room 编解码。
 - AndroidTest APK 编译通过；迁移测试已扩展到 v4→v12、v9→v12、v11→v12 和全新 v12 建库，`RoomAgentSkillStoreInstrumentedTest` 覆盖内置定义升级后保留用户停用决定。本轮为保护设备 Keystore API Key，没有执行 instrumentation。
-- Debug APK SHA-256：`7b6e3e8345e6e886b564654193e2eb25b750ca0d3d8e42ba53ebf924b3fc4449`。
+- Debug APK SHA-256：`20ed15241e3c9fe81bd54007c304a83fd2496393823fd39926cfc7983775cc69`。
 
 真机验证：
 
@@ -495,3 +495,4 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 - 本地 Skill 只允许 `schemaVersion=1` 声明式 JSON，不执行脚本；字段白名单、工具注册、最高风险和 Android 权限必须全部匹配后才能写入 Room。
 - 本地 Skill 不能覆盖内置 ID，同 ID 更新必须提高版本；启停立即影响后续 Skill 选择，删除只允许 `source=LOCAL`。
+- 新 Run 的 `skill.selected` 事件记录 `id@version`；恢复审批时只接受原版本仍存在的定义，Skill 在等待期间被删除或升版不会扩大工具面。

@@ -89,8 +89,9 @@
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
-- `AgentRunUseCase` 通过 Room `AgentSkillCatalog` 合并内置和本地声明式 Skill，按目标规则选择最多 3 个已启用项，并通过 `SkillScopedToolRegistry` 只向规划器暴露 Skill 声明的已注册工具；未命中 Skill 时保留原工具集。Skill 选择写入 `skill.selected` RunEvent，不能修改工具风险、审批、权限或验证策略。
+- `AgentRunUseCase` 通过 Room `AgentSkillCatalog` 合并内置和本地声明式 Skill，按目标关键词或触发示例稳定选择最多 3 个已启用项，并通过 `SkillScopedToolRegistry` 只向规划器暴露 Skill 声明的已注册工具；未命中 Skill 时保留原工具集。Skill 选择写入 `skill.selected` RunEvent，包含 `id@version` 审计引用，不能修改工具风险、审批、权限或验证策略。
 - 设置页「Agent Skills」使用系统文件选择器导入 UTF-8 JSON。当前格式固定为 `schemaVersion=1`、`source=local`，最多 64 KiB；解析器拒绝未知字段和未注册工具，并要求文件声明的最高风险与 Android 权限和真实 `ToolDefinition` 完全一致。本地 Skill 不能覆盖内置 ID，同 ID 更新必须提升版本；用户可以启停全部 Skill，只能删除本地 Skill。可导入示例见 [`docs/examples/daily-review.skill.json`](examples/daily-review.skill.json)。
+- 审批恢复不重新按当前目标选择 Skill：先读取原 Run 的 `skill.selected` ID/版本，停用不影响该 Run；本地 Skill 被删除或版本发生变化时，恢复在批准决定写入前失败并要求创建新 Run，避免等待期间工具白名单或指令漂移。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext.toolExecutions` 按执行顺序保存全部工具、参数、结果、验证状态和记忆 ID，顶层单工具字段继续映射最后一步以兼容旧消息；Android 持久化显式使用 JSON 数组，并兼容旧的字符串化数组。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。

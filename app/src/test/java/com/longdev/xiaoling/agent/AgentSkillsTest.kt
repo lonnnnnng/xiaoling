@@ -21,6 +21,17 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun triggerExampleCanSelectSkillWithoutExactKeyword() = runTest {
+        val catalog = AgentSkillCatalog(
+            store = TestAgentSkillStore(),
+            registeredTools = { TestToolRegistry().availableTools() },
+        )
+        catalog.importDocument(dailyReviewSkillDocument())
+
+        assertTrue(catalog.select("帮我回顾今天的会话").any { it.id == "daily-review" })
+    }
+
+    @Test
     fun scopedRegistryOnlyExposesToolsDeclaredBySelectedSkills() = runTest {
         val delegate = TestToolRegistry()
         val notesSkill = AgentSkillDefinition(
@@ -83,10 +94,24 @@ class AgentSkillsTest {
         val upgraded = catalog.importDocument(localSkillDocument("custom-time", version = 2))
         assertEquals(2, upgraded.definition.version)
         assertEquals(false, upgraded.enabled)
+        val restored = catalog.resolveSelection(listOf(AgentSkillReference("custom-time", version = 2)))
+        assertEquals(listOf("custom-time"), restored.map { it.id })
+        val versionError = runCatching {
+            catalog.resolveSelection(listOf(AgentSkillReference("custom-time", version = 1)))
+        }.exceptionOrNull()
+        assertTrue(versionError is IllegalArgumentException)
         val collision = runCatching {
             catalog.importDocument(localSkillDocument("device-time"))
         }.exceptionOrNull()
         assertTrue(collision is IllegalArgumentException)
+    }
+
+    @Test
+    fun selectionAuditCodecReadsLegacyIdsAndVersionedIds() {
+        assertEquals(
+            listOf(AgentSkillReference("legacy-skill", null), AgentSkillReference("current-skill", 3)),
+            AgentSkillSelectionCodec.decode("legacy-skill, current-skill@3"),
+        )
     }
 
     private fun localSkillDocument(id: String, version: Int = 1) = """
@@ -103,6 +128,23 @@ class AgentSkillsTest {
           "instructions": "读取设备当前时间。",
           "failureRecovery": "失败时停止。",
           "completionCriteria": "时间结果可读。"
+        }
+    """.trimIndent()
+
+    private fun dailyReviewSkillDocument() = """
+        {
+          "schemaVersion": 1,
+          "id": "daily-review",
+          "version": 1,
+          "name": "每日回顾",
+          "description": "回顾最近会话。",
+          "source": "local",
+          "trigger": {"keywords": ["每日回顾"], "examples": ["帮我回顾今天的会话"]},
+          "tools": ["app.current_time"],
+          "requirements": {"androidPermissions": [], "risk": "SAFE"},
+          "instructions": "读取时间并回顾会话。",
+          "failureRecovery": "失败时停止。",
+          "completionCriteria": "回顾结果可读。"
         }
     """.trimIndent()
 

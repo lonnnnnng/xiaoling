@@ -96,7 +96,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 133 项 Debug 单元测试通过。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 136 项 Debug 单元测试通过。
 - `assembleRelease`：通过。
 - `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
 - 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。

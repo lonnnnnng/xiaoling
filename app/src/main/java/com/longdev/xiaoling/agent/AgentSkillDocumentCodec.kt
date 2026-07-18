@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets
 
 object AgentSkillDocumentCodec {
     private const val SCHEMA_VERSION = 1
-    private const val MAX_DOCUMENT_BYTES = 65_536
+    const val MAX_DOCUMENT_BYTES = 65_536
     private val validId = Regex("[a-z0-9][a-z0-9._-]{2,63}")
 
     fun decode(raw: String, registeredTools: List<ToolDefinition>): AgentSkillDefinition {

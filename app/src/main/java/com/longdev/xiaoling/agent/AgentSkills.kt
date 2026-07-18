@@ -32,6 +32,37 @@ data class AgentSkillRecord(
     },
 )
 
+data class AgentSkillReference(
+    val id: String,
+    val version: Int?,
+)
+
+internal object AgentSkillSelectionCodec {
+    fun encode(definitions: List<AgentSkillDefinition>): String {
+        return definitions.joinToString(",") { definition -> "${definition.id}@${definition.version}" }
+    }
+
+    fun decode(raw: String): List<AgentSkillReference> {
+        require(raw.isNotBlank()) { "Skill 选择审计不能为空" }
+        val references = raw.split(',').map { token ->
+            val normalized = token.trim()
+            require(normalized.isNotBlank()) { "Skill 选择审计包含空 ID" }
+            val separator = normalized.lastIndexOf('@')
+            if (separator < 0) {
+                // long: v12 之前的内置 Skill 审计只记录 ID；保留无版本引用可继续恢复旧 Run，新 Run 必须同时记录版本防止等待期间能力漂移。
+                AgentSkillReference(normalized, version = null)
+            } else {
+                val id = normalized.substring(0, separator)
+                val version = normalized.substring(separator + 1).toIntOrNull()
+                require(id.isNotBlank() && version != null && version > 0) { "Skill 选择审计格式无效：$normalized" }
+                AgentSkillReference(id, version)
+            }
+        }
+        require(references.map { it.id }.distinct().size == references.size) { "Skill 选择审计包含重复 ID" }
+        return references
+    }
+}
+
 enum class AgentSkillValidationStatus {
     TRUSTED_BUILT_IN,
     VALIDATED_LOCAL,
@@ -126,9 +157,22 @@ class AgentSkillCatalog(
         return selectAgentSkills(goal, enabled, limit)
     }
 
+    suspend fun resolveSelection(references: List<AgentSkillReference>): List<AgentSkillDefinition> {
+        val recordsById = list().associateBy { it.definition.id }
+        return references.map { reference ->
+            val definition = recordsById[reference.id]?.definition
+                ?: error("原 Run 使用的 Skill 已不存在：${reference.id}，请创建新 Run 重试")
+            require(reference.version == null || reference.version == definition.version) {
+                "原 Run 使用的 Skill 版本已变化：${reference.id}，请创建新 Run 重试"
+            }
+            definition
+        }
+    }
+
     suspend fun importDocument(raw: String): AgentSkillRecord {
         val definition = AgentSkillDocumentCodec.decode(raw, registeredTools())
         val current = list().firstOrNull { it.definition.id == definition.id }
+        // long: 内置 ID 是应用审核过的能力边界，本地文件不能替换；本地升版保留用户启停决定，避免更新文本时悄悄恢复已撤回的能力。
         require(current?.definition?.source != AgentSkillSource.BUILT_IN) {
             "本地 Skill 不能覆盖内置 Skill：${definition.id}"
         }
@@ -169,7 +213,11 @@ private fun selectAgentSkills(
     if (normalized.isBlank()) return emptyList()
     // long: 规则只负责缩小提示词和工具面，不做业务决策；同分时按稳定 ID 排序，保证重试和进程恢复得到一致的 Skill 集合。
     return skills
-        .map { skill -> skill to skill.keywords.count { keyword -> normalized.contains(keyword.lowercase()) } }
+        .map { skill ->
+            val keywordScore = skill.keywords.count { keyword -> normalized.contains(keyword.lowercase()) }
+            val exampleScore = skill.triggerExamples.count { example -> normalized.contains(example.lowercase()) }
+            skill to (keywordScore + exampleScore)
+        }
         .filter { (_, score) -> score > 0 }
         .sortedWith(compareByDescending<Pair<AgentSkillDefinition, Int>> { it.second }.thenBy { it.first.id })
         .take(limit.coerceIn(1, 3))

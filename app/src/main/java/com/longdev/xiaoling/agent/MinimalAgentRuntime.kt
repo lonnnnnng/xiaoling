@@ -44,7 +44,7 @@ class MinimalAgentRuntime(
                     runId = run.id,
                     type = "skill.selected",
                     message = "已按目标选择 Skill：${selectedSkills.joinToString { it.name }}",
-                    metadata = RunEventMetadata.Reason(selectedSkills.joinToString { it.id }),
+                    metadata = RunEventMetadata.Reason(AgentSkillSelectionCodec.encode(selectedSkills)),
                 )
             }
             if (!memoryRecallEnabled) {

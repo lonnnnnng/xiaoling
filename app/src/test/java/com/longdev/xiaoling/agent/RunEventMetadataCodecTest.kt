@@ -33,4 +33,17 @@ class RunEventMetadataCodecTest {
 
         assertEquals(emptyList<String>(), metadata.memoryIdsUsed)
     }
+
+    @Test
+    fun skillSelectionReasonRemainsReadableAfterRoomRoundTrip() {
+        val metadata = RunEventMetadata.Reason("daily-review@2")
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                type = "skill.selected",
+                raw = RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
 }

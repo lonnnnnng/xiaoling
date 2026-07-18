@@ -90,6 +90,7 @@ internal object RunEventMetadataCodec {
                     status = ToolVerificationStatus.valueOf(json.requiredString("status").uppercase()),
                 )
                 "llm.summarize.fallback",
+                "skill.selected",
                 "run.failed",
                 "run.timeout",
                 "run.cancelled",

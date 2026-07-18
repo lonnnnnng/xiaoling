@@ -20,6 +20,7 @@ import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.AgentSkillDocumentCodec
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
@@ -675,7 +676,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             while (true) {
                 val count = input.read(buffer)
                 if (count < 0) break
-                require(output.size() + count <= MAX_SKILL_DOCUMENT_BYTES) { "Skill 文件不能超过 64 KiB" }
+                require(output.size() + count <= AgentSkillDocumentCodec.MAX_DOCUMENT_BYTES) { "Skill 文件不能超过 64 KiB" }
                 output.write(buffer, 0, count)
             }
             output.toByteArray()
@@ -2711,6 +2712,5 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val MEMORY_MANAGEMENT_LIMIT = 200
         private const val MEMORY_CANDIDATE_LIMIT = 100
         private const val MEMORY_SEARCH_DEBOUNCE_MS = 250L
-        private const val MAX_SKILL_DOCUMENT_BYTES = 65_536
     }
 }
