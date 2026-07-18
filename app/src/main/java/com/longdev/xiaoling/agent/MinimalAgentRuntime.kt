@@ -310,6 +310,193 @@ class MinimalAgentRuntime(
         }
     }
 
+    suspend fun resumeApprovedRun(
+        detail: AgentRunDetailRecord,
+        approval: ApprovalRequestRecord,
+        approvalDecision: ApprovalDecision,
+        executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        memoryRecallEnabled: Boolean = true,
+    ): AgentRunSummary {
+        val assessment = AgentRunResumePolicy.assess(detail)
+        require(assessment.canResumeInPlace) { assessment.reason }
+        require(approvalDecision.approved) { "未批准的审批请求不能进入恢复执行" }
+        require(approval.status == ApprovalRequestStatus.PENDING) { "审批请求已经处理，不能重复恢复 Agent Run" }
+        require(approval.runId == detail.snapshot.run.id) { "审批请求不属于当前 Agent Run" }
+        val run = detail.snapshot.run
+        val definition = toolRegistry.definition(approval.toolName)
+            ?: error("恢复时找不到已登记工具：${approval.toolName}")
+        val toolCall = ToolCall(
+            id = approval.toolCallId,
+            name = approval.toolName,
+            arguments = approval.arguments,
+            risk = definition.risk,
+        )
+        (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = run.conversationId,
+                userMessageId = run.userMessageId,
+                runId = run.id,
+                goal = run.goal,
+                memoryRecallEnabled = memoryRecallEnabled,
+            ),
+        )
+        var activeStepId: String? = detail.snapshot.steps
+            .lastOrNull { it.type == "approval" && it.status == AgentStepStatus.RUNNING }
+            ?.id
+        val executionBudget = AgentExecutionBudget(options.runTimeoutMs)
+        return try {
+            // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
+            ledger.appendEvent(
+                runId = run.id,
+                type = "approval.granted",
+                message = "工具审批通过：${toolCall.name}",
+                metadata = AgentEventMetadata.approval(toolCall, approvalDecision),
+            )
+            activeStepId?.let {
+                ledger.updateStep(it, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${approvalDecision.reason}")
+                activeStepId = null
+            }
+            validateToolCall(definition, toolCall, executionOrigin)
+            checkToolBudget(0)
+            ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+            val execution = ledger.appendStep(
+                runId = run.id,
+                type = AgentStepTypes.TOOL_EXECUTE,
+                title = "执行工具",
+                detail = "正在执行 ${toolCall.name}（从持久化审批恢复）",
+                status = AgentStepStatus.RUNNING,
+            )
+            activeStepId = execution.id
+            currentCoroutineContext().ensureActive()
+            val toolStartedAt = System.currentTimeMillis()
+            val toolResult = runTimedStep("工具执行 ${toolCall.name}", definition.timeoutMs ?: options.toolStepTimeoutMs, executionBudget) {
+                toolRegistry.execute(toolCall)
+            }
+            val toolDurationMs = System.currentTimeMillis() - toolStartedAt
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.result",
+                message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
+                metadata = AgentEventMetadata.toolResult(toolCall, toolResult, toolDurationMs),
+            )
+            if (!toolResult.success) error("工具执行失败：${toolResult.content}")
+            ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
+            activeStepId = null
+
+            ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            val verify = ledger.appendStep(
+                runId = run.id,
+                type = AgentStepTypes.TOOL_VERIFY,
+                title = "执行后验证",
+                detail = when (definition.verificationPolicy) {
+                    ToolVerificationPolicy.RESULT_READABLE -> "检查工具是否返回可读结果。"
+                    ToolVerificationPolicy.EXECUTOR_VERIFIED -> "检查 Executor 是否完成回读验证。"
+                },
+                status = AgentStepStatus.RUNNING,
+            )
+            activeStepId = verify.id
+            currentCoroutineContext().ensureActive()
+            when (definition.verificationPolicy) {
+                ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+                ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
+            }
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.verify",
+                message = "工具验证通过：${toolCall.name}",
+                metadata = RunEventMetadata.ToolVerification(
+                    toolName = toolCall.name,
+                    status = ToolVerificationStatus.PASSED,
+                ),
+            )
+            ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")
+            activeStepId = null
+
+            ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
+            val summaryStep = ledger.appendStep(
+                runId = run.id,
+                type = "llm.summarize",
+                title = "回复样式选择",
+                detail = "模型根据用户偏好选择回复详略和语气。",
+                status = AgentStepStatus.RUNNING,
+            )
+            activeStepId = summaryStep.id
+            var summaryFallbackReason: String? = null
+            val summaryCandidate = try {
+                runTimedStep("模型总结", options.modelStepTimeoutMs, executionBudget) {
+                    llm.summarize(run.goal, toolCall, toolResult)
+                }
+            } catch (error: AgentTimeoutException) {
+                summaryFallbackReason = error.message ?: "模型总结超时"
+                null
+            }?.takeIf { it.isNotBlank() } ?: run {
+                if (summaryFallbackReason == null) summaryFallbackReason = "模型总结为空"
+                null
+            }
+            val presentation = summaryCandidate?.let(AgentSummaryPresentationParser::parse)
+            if (summaryCandidate != null && presentation == null) summaryFallbackReason = "模型没有返回合法的总结样式配置"
+            val response = presentation?.let { buildVerifiedResponse(run.id, run.goal, definition, toolCall, toolResult, it) }
+                ?: buildFallbackResponse(run.id, run.goal, definition, toolCall, toolResult)
+            val summaryDetail = if (summaryFallbackReason != null) {
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "llm.summarize.fallback",
+                    message = summaryFallbackReason.orEmpty(),
+                    metadata = RunEventMetadata.Reason(summaryFallbackReason.orEmpty()),
+                )
+                "${summaryFallbackReason}，已使用本地兜底回复"
+            } else {
+                "已按模型选择的安全样式生成最终回复"
+            }
+            ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, summaryDetail)
+            activeStepId = null
+            ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
+            AgentRunSummary(
+                runId = run.id,
+                status = AgentRunStatus.COMPLETED,
+                responseText = response,
+                verifiedContext = buildVerifiedContext(run.id, toolCall, toolResult),
+            )
+        } catch (error: AgentBudgetExceededException) {
+            withContext(NonCancellable) {
+                activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
+                ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
+            }
+            throw error
+        } catch (error: TimeoutCancellationException) {
+            val timeout = AgentTimeoutException("Agent Run 超时：${options.runTimeoutMs}ms")
+            withContext(NonCancellable) {
+                activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, timeout.message ?: "Agent Run 超时") }
+                ledger.appendEvent(run.id, "run.timeout", timeout.message.orEmpty(), RunEventMetadata.Reason(timeout.message.orEmpty()))
+                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = timeout.message)
+            }
+            throw timeout
+        } catch (error: AgentTimeoutException) {
+            withContext(NonCancellable) {
+                activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
+                ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
+            }
+            throw error
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消 Agent 任务") }
+                ledger.appendEvent(run.id, "run.cancelled", "用户取消 Agent 任务", RunEventMetadata.Reason("用户取消 Agent 任务"))
+                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消 Agent 任务")
+            }
+            throw error
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
+                val reason = error.message ?: "Agent 任务失败"
+                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            }
+            throw error
+        }
+    }
+
     private fun buildFallbackResponse(
         runId: String,
         goal: String,

@@ -1354,14 +1354,14 @@ private fun AgentApprovalCard(
                     modifier = Modifier.height(26.dp),
                 ) {
                     Text(
-                        if (approval.restoredFromProcess) "安全重试" else "批准执行",
+                        if (approval.restoredFromProcess) "批准并继续" else "批准执行",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
                     )
                 }
             }
             Text(
                 text = if (approval.restoredFromProcess) {
-                    "旧执行栈已丢失，操作会关闭旧 Run 并创建关联的新 Run。"
+                    "将使用持久化工具参数，从原 Run 的审批步骤继续执行。"
                 } else {
                     approval.toolDescription
                 },

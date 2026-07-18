@@ -52,6 +52,40 @@ class AgentRunUseCase(
             memoryRecallEnabled = memoryRecallEnabled,
         )
     }
+
+    suspend fun resumeApprovedRun(
+        detail: AgentRunDetailRecord,
+        approval: ApprovalRequestRecord,
+        config: ProviderRequestConfig,
+        summarySystemPrompt: String,
+        memoryRecallEnabled: Boolean = true,
+        approvalReason: String,
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+    ): AgentRunSummary {
+        val ledger = ReportingAgentRunLedger(
+            delegate = baseLedger,
+            onSnapshot = onSnapshot,
+        )
+        // long: 批准决定先写入 Room，再进入同一 Run 的执行入口；应用崩溃时至少能区分“已批准但尚未执行”和“执行中断”。
+        baseLedger.decideApprovalRequest(
+            requestId = approval.id,
+            status = ApprovalRequestStatus.APPROVED,
+            reason = approvalReason,
+        ) ?: error("审批请求不存在：${approval.id}")
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = toolRegistry,
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt),
+            permissionChecker = permissionChecker,
+        )
+        return runtime.resumeApprovedRun(
+            detail = detail,
+            approval = approval,
+            approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            memoryRecallEnabled = memoryRecallEnabled,
+        )
+    }
 }
 
 private class ReportingAgentRunLedger(

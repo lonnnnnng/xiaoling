@@ -209,13 +209,19 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - `WAITING_APPROVAL` 且存在 `PENDING` 审批、没有 `tool.execute` / `tool.verify` 步骤或结果时，评估为 `APPROVAL_WAIT`，允许后续接入原 Run 审批恢复。
 - 已出现工具执行或验证记录，或 Run 处于其他状态时，评估为 `RESTART_REQUIRED`，必须创建新 Run，旧 Run 不修改。
 - 已新增 JVM 单元测试覆盖上述三条边界；本环境 Gradle 仍被沙箱阻止，未能重新运行测试。
-- 本轮只落地确定性策略，尚未恢复旧协程、模型请求、工具执行或验证栈；启动协调器仍采用中间态收敛为 `CANCELLED` 的保守实现。
+- 本轮先落地确定性恢复策略；启动协调器对执行/验证中 Run 仍采用收敛为 `CANCELLED` 的保守实现，待审批 Run 可继续进入原 Run 执行入口。
 
 本轮进一步接入启动协调器：
 
-- Room 中符合 `APPROVAL_WAIT` 的 Run 会在启动后重建到对应会话和审批卡片；恢复卡片的继续动作显式转为安全重试，并通过 `retryOfRunId` 关联旧 Run。
+- Room 中符合 `APPROVAL_WAIT` 的 Run 会在启动后重建到对应会话和审批卡片；批准后从原审批步骤继续执行同一 Run，不创建 `retryOfRunId`。
 - 已进入工具执行/验证阶段的 Run 仍由启动收敛逻辑关闭；新增 instrumentation 测试覆盖待审批 Run 保持 `WAITING_APPROVAL`、审批保持 `PENDING` 和恢复事件 typed metadata。
 - 当前环境仍无法运行 Gradle，因此新增 JVM/Room/UI 编译和真机进程重建验证未执行。
+
+本轮新增原 Run 执行入口：
+
+- `MinimalAgentRuntime.resumeApprovedRun` 只接受 `APPROVAL_WAIT` 评估结果，使用持久化审批中的工具名和参数，不重新调用模型规划。
+- 工具执行、后置验证、模型总结、`RunEvent` 和最终 `COMPLETED/FAILED` 状态均写回原 Run；新增 JVM 测试验证 Run ID 不变且不产生 `llm.plan` 步骤。
+- 当前环境仍未完成 Gradle、Room instrumentation、APK 和真机进程重建验证，不能把该入口报告为设备验收通过。
 
 ## 记忆过期与时间衰减验证边界
 

@@ -165,6 +165,6 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 当前仍未接入旧协程、模型调用或工具执行栈的真正重建；启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话，执行/验证中 Run 继续收敛为 `CANCELLED`。恢复审批卡片的继续动作会关闭旧 Run 并创建关联的新 Run 安全重试，不伪造原协程续跑。跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`，跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

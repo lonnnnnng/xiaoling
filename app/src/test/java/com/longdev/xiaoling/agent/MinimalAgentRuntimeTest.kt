@@ -47,6 +47,62 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun approvedPendingRunResumesOnSameRunWithoutReplanning() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val created = ledger.createRun(
+            conversationId = "conversation-resume",
+            userMessageId = "message-resume",
+            goal = "恢复待审批回显任务",
+        )
+        ledger.updateRunStatus(created.id, AgentRunStatus.WAITING_APPROVAL)
+        val approvalStep = ledger.appendStep(
+            runId = created.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待应用侧审批 fake.echo",
+            status = AgentStepStatus.RUNNING,
+        )
+        val detail = AgentRunDetailRecord(
+            snapshot = ledger.snapshot(created.id),
+            approvals = listOf(
+                ApprovalRequestRecord(
+                    id = "approval-resume",
+                    runId = created.id,
+                    conversationId = created.conversationId,
+                    toolCallId = "tool-call-resume",
+                    toolName = "fake.echo",
+                    toolDescription = "回显任务",
+                    risk = ToolRisk.REQUIRES_APPROVAL,
+                    arguments = mapOf("goal" to created.goal),
+                    status = ApprovalRequestStatus.PENDING,
+                    decisionReason = null,
+                    createdAt = 1L,
+                    expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+                    decidedAt = null,
+                ),
+            ),
+        )
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+        ).resumeApprovedRun(
+            detail = detail,
+            approval = detail.approvals.single(),
+            approvalDecision = ApprovalDecision(approved = true, reason = "用户确认继续"),
+        )
+
+        val snapshot = ledger.snapshot(created.id)
+        assertEquals(created.id, summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.id == approvalStep.id }.status)
+        assertTrue(snapshot.steps.none { it.type == "llm.plan" })
+        assertTrue(snapshot.events.any { it.type == "approval.granted" })
+        assertTrue(snapshot.events.any { it.type == "tool.result" })
+        assertTrue(snapshot.events.any { it.type == "tool.verify" })
+    }
+
+    @Test
     fun disablingMemoryRecallWritesAnAuditEventForThisRunOnly() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val summary = MinimalAgentRuntime(

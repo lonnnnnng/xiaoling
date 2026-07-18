@@ -997,7 +997,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun approvePendingAgentTool() {
         val pending = uiState.pendingAgentApproval ?: return
         if (pending.restoredFromProcess) {
-            restartRecoveredAgentRun(pending)
+            resumeRecoveredAgentRun(pending)
             return
         }
         completePendingAgentApproval(
@@ -1052,28 +1052,74 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun restartRecoveredAgentRun(pending: AgentApprovalUiState) {
+    private fun resumeRecoveredAgentRun(pending: AgentApprovalUiState) {
         val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
         if (detail == null) {
             showValidation("找不到待恢复的 Agent Run，请刷新任务中心")
             return
         }
+        val approval = detail.approvals.firstOrNull { it.id == pending.requestId }
+        if (approval == null || approval.status != ApprovalRequestStatus.PENDING) {
+            showValidation("审批请求已处理，请刷新任务中心")
+            return
+        }
         val source = detail.snapshot.run
-        viewModelScope.launch {
-            withContext(NonCancellable + Dispatchers.IO) {
-                agentRunRepository.decideApprovalRequest(
-                    requestId = pending.requestId,
-                    status = ApprovalRequestStatus.CANCELLED,
-                    reason = "进程重建后执行栈不可恢复，转为安全重新运行",
+        val conversation = uiState.conversations.firstOrNull { it.id == source.conversationId }
+        if (conversation == null) {
+            showValidation("原会话已不存在，无法恢复 Agent Run")
+            return
+        }
+        val config = validatedConfig() ?: return
+        val preparedContext = PreparedRequestContext.fromConversation(conversation)
+        selectConversation(source.conversationId)
+        clearPendingApprovalForConversation(source.conversationId)
+        uiState = uiState.copy(
+            sendingMessage = true,
+            result = null,
+            retryingAgentRunId = null,
+            selectedAgentRunId = source.id,
+        )
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val summary = agentRunUseCase.resumeApprovedRun(
+                    detail = detail,
+                    approval = approval,
+                    config = config,
+                    summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                    approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
+                    onSnapshot = ::publishAgentRunSnapshot,
                 )
-                agentRunRepository.updateRunStatus(
-                    runId = source.id,
-                    status = com.longdev.xiaoling.agent.AgentRunStatus.CANCELLED,
-                    errorMessage = "进程重建后执行栈不可恢复，已转为安全重新运行",
+                val finalMessages = conversation.messages + ChatMessage(
+                    role = "assistant",
+                    text = summary.responseText,
+                    createdAt = System.currentTimeMillis(),
+                    origin = MessageOrigin.AGENT_RESULT,
+                    verifiedAgentContext = summary.verifiedContext,
                 )
+                uiState = uiState
+                    .withUpdatedConversation(
+                        conversationId = source.conversationId,
+                        messages = finalMessages,
+                        summary = preparedContext.summary,
+                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                        summaryModel = preparedContext.summaryModel,
+                    )
+                    .copy(sendingMessage = false, result = null)
+                createMemoryCandidateAfterTurn(
+                    userText = source.goal,
+                    conversationId = source.conversationId,
+                    runId = summary.runId,
+                )
+                saveConversationSelection()
+            } catch (_: CancellationException) {
+                uiState = uiState.copy(sendingMessage = false, result = null)
+            } catch (_: Throwable) {
+                uiState = uiState.copy(sendingMessage = false, result = null)
+            } finally {
+                sendMessageJob = null
+                refreshAgentRunHistory()
             }
-            clearPendingApprovalForConversation(pending.conversationId)
-            startAgentRunRetry(detail)
         }
     }
 
