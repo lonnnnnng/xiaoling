@@ -85,6 +85,12 @@ class MinimalAgentRuntimeTest {
             goal = "恢复待审批回显任务",
         )
         ledger.updateRunStatus(created.id, AgentRunStatus.WAITING_APPROVAL)
+        ledger.appendEvent(
+            runId = created.id,
+            type = "memory.recall.disabled",
+            message = "本次 Run 已关闭长期记忆召回",
+            metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+        )
         val approvalStep = ledger.appendStep(
             runId = created.id,
             type = "approval",
@@ -113,8 +119,22 @@ class MinimalAgentRuntimeTest {
             ),
         )
 
+        var restoredRunContext: AgentToolExecutionContext? = null
+        val delegateRegistry = FakeToolRegistry()
+        val contextAwareRegistry = object : ToolRegistry, AgentRunContextAwareToolRegistry {
+            override fun bindRunContext(context: AgentToolExecutionContext) {
+                restoredRunContext = context
+            }
+
+            override fun availableTools(): List<ToolDefinition> = delegateRegistry.availableTools()
+
+            override fun definition(name: String): ToolDefinition? = delegateRegistry.definition(name)
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult = delegateRegistry.execute(call)
+        }
         val summary = MinimalAgentRuntime(
             ledger = ledger,
+            toolRegistry = contextAwareRegistry,
             llm = object : AgentLlm {
                 override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
                     error("恢复入口不能重新规划已经批准的第一个工具")
@@ -157,6 +177,7 @@ class MinimalAgentRuntimeTest {
         assertEquals(2, snapshot.events.count { it.type == "approval.granted" })
         assertEquals(2, snapshot.events.count { it.type == "tool.result" })
         assertEquals(2, snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(false, restoredRunContext?.memoryRecallEnabled)
         assertEquals(listOf(created.goal, "恢复后的第二步"), summary.verifiedContext.toolExecutions.map {
             it.arguments.getValue("goal")
         })

@@ -51,7 +51,7 @@ class MinimalAgentRuntime(
                 // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。
                 ledger.appendEvent(
                     runId = run.id,
-                    type = "memory.recall.disabled",
+                    type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
                     message = "本次 Run 已关闭长期记忆召回",
                     metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
                 )
@@ -125,7 +125,6 @@ class MinimalAgentRuntime(
         approval: ApprovalRequestRecord,
         approvalDecision: ApprovalDecision,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
-        memoryRecallEnabled: Boolean = true,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(detail)
         require(assessment.canResumeInPlace) { assessment.reason }
@@ -141,6 +140,10 @@ class MinimalAgentRuntime(
             arguments = approval.arguments,
             risk = definition.risk,
         )
+        // long: 单次记忆开关属于原 Run 的安全边界；进程重建后必须从持久化事件还原，不能使用当前 UI 默认值重新开放 memory.search。
+        val memoryRecallEnabled = detail.snapshot.events.none { event ->
+            event.type == MEMORY_RECALL_DISABLED_EVENT_TYPE
+        }
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
             AgentToolExecutionContext(
                 conversationId = run.conversationId,
@@ -601,6 +604,8 @@ class MinimalAgentRuntime(
         }
     }
 }
+
+private const val MEMORY_RECALL_DISABLED_EVENT_TYPE = "memory.recall.disabled"
 
 private class AgentRuntimeExecutionState(
     runTimeoutMs: Long,

@@ -61,7 +61,6 @@ class AgentRunUseCase(
         approval: ApprovalRequestRecord,
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
-        memoryRecallEnabled: Boolean = true,
         approvalReason: String,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
@@ -90,7 +89,6 @@ class AgentRunUseCase(
             approval = approval,
             approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
-            memoryRecallEnabled = memoryRecallEnabled,
         )
     }
 }

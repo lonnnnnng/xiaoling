@@ -454,7 +454,7 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 环境与构建：
 
 - 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --console=plain`，审查修复后的最终版本有 128 项 Debug 单元测试通过。
-- 最终 Debug APK SHA-256：`74039c174f8a6e19d9f1dd67a17f72757673f2c6d7d40ebde9f8aa2975b1c353`。
+- 最终 Debug APK SHA-256：`b83390ed8966bffcc16b1dfbaa39a1aadb2a2842637a9a838890c270cf85f710`。
 - 在 `wsvwypiz7xwslvl7` 使用 `adb install -r` 覆盖安装；未卸载、未清数据、未运行 instrumentation 测试，应用冷启动成功且 crash buffer 为空。
 
 真实流程：
@@ -467,6 +467,8 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 审查修复后的最终 APK 新建 Run `run-c8c6abdd-2c06-48dd-8b16-efeb08dc53be`，再次完成 `app.current_time -> app.list_conversations -> complete`；数据库确认 10 个步骤全部完成，最终可信上下文包含两个有序工具执行项。
 - Run `run-0c6c64be-1605-4733-9de3-d7e759dde7ae` 在首步 `memory.remember` 审批前强制停止进程；冷启动后 UI 重建“进程重建后待恢复”审批卡片，批准后同一 Run 继续 `memory.remember -> app.current_time -> complete`，11 个步骤全部完成且未创建替代 Run。
 - 另一 Run 在 `memory.search` 已完成、`memory.remember` 等待审批时强制停止进程，启动协调器按安全策略把原 Run 和审批分别收敛为 `CANCELLED`，验证“已有任意工具执行记录则不原地恢复”。本轮写入的恢复测试记忆已通过长期记忆管理 UI 删除，主表与 FTS 索引均确认无残留。
+- 双轴审查发现首步审批恢复曾使用默认 `memoryRecallEnabled=true`；最终修复版改为从原 Run 的 `memory.recall.disabled` 持久化事件还原开关，并由单元测试确认恢复后的 Tool Registry Context 仍为关闭召回，避免后续步骤重新暴露 `memory.search`。
+- 最终修复 APK 再次通过真机进程重建验收：Run `run-cb007d20-4a6b-4f26-b1c2-8b5183658719` 在关闭单次记忆召回后停在首步 `memory.remember` 审批；冷启动批准后，同一 Run 完成 `memory.remember -> app.current_time -> complete`。恢复后的实际规划请求工具清单只含 `app.current_time` 和 `memory.remember`，不含 `memory.search`；测试记忆已通过管理 UI 删除，主表与 FTS 均无残留。
 
 边界：
 
