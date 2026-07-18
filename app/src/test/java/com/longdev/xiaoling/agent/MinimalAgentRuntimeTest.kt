@@ -77,7 +77,7 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
-    fun approvedPendingRunResumesOnSameRunWithoutReplanning() = runTest {
+    fun approvedPendingRunResumesFirstToolThenContinuesPlanningOnSameRun() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val created = ledger.createRun(
             conversationId = "conversation-resume",
@@ -115,7 +115,34 @@ class MinimalAgentRuntimeTest {
 
         val summary = MinimalAgentRuntime(
             ledger = ledger,
-            llm = FakeAgentLlm(),
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    error("恢复入口不能重新规划已经批准的第一个工具")
+                }
+
+                override suspend fun proposeNextAction(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentPlanDecision {
+                    return when (completedTools.size) {
+                        1 -> AgentPlanDecision.CallTool(
+                            ToolCall(
+                                name = "fake.echo",
+                                arguments = mapOf("goal" to "恢复后的第二步"),
+                                risk = ToolRisk.REQUIRES_APPROVAL,
+                            ),
+                        )
+                        else -> AgentPlanDecision.Complete
+                    }
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
         ).resumeApprovedRun(
             detail = detail,
             approval = detail.approvals.single(),
@@ -126,10 +153,16 @@ class MinimalAgentRuntimeTest {
         assertEquals(created.id, summary.runId)
         assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
         assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.id == approvalStep.id }.status)
-        assertTrue(snapshot.steps.none { it.type == "llm.plan" })
-        assertTrue(snapshot.events.any { it.type == "approval.granted" })
-        assertTrue(snapshot.events.any { it.type == "tool.result" })
-        assertTrue(snapshot.events.any { it.type == "tool.verify" })
+        assertEquals(2, snapshot.steps.count { it.type == "llm.plan" })
+        assertEquals(2, snapshot.events.count { it.type == "approval.granted" })
+        assertEquals(2, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(2, snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(listOf(created.goal, "恢复后的第二步"), summary.verifiedContext.toolExecutions.map {
+            it.arguments.getValue("goal")
+        })
+        val firstPlanningSequence = snapshot.steps.first { it.type == "llm.plan" }.sequence
+        val firstVerifySequence = snapshot.steps.first { it.type == AgentStepTypes.TOOL_VERIFY }.sequence
+        assertTrue(firstPlanningSequence > firstVerifySequence)
     }
 
     @Test

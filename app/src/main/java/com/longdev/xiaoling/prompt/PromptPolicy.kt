@@ -234,6 +234,7 @@ object PromptPolicy {
 
     private fun VerifiedAgentContext.effectiveToolExecutions(): List<VerifiedToolExecution> {
         if (toolExecutions.isNotEmpty()) return toolExecutions
+        // long: 多步字段上线前，可信上下文只保存顶层单工具字段；这里合成为一个执行项，让旧 Agent 消息继续以真实审计证据参与上下文。
         return listOf(
             VerifiedToolExecution(
                 toolName = toolName,

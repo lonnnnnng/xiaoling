@@ -58,6 +58,108 @@ class MultiStepAgentRuntimeTest {
         assertTrue(summary.responseText.contains("test.second:second"))
     }
 
+    @Test
+    fun fifthToolCallIsRejectedByRunBudget() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RecordingMultiStepToolRegistry()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = scriptedLlm { completedTools ->
+                val step = completedTools.size + 1
+                AgentPlanDecision.CallTool(call(if (step % 2 == 0) "test.second" else "test.first", "step-$step"))
+            },
+            options = AgentRuntimeOptions(maxToolCalls = 4),
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-budget", "message-budget", "连续执行五个步骤")
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(ledger.lastRunId!!)
+
+        assertTrue(failure is AgentBudgetExceededException)
+        assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, snapshot.run.status)
+        assertEquals(4, registry.executedToolNames.size)
+        assertEquals(4, snapshot.events.count { it.type == "tool.result" })
+    }
+
+    @Test
+    fun repeatedToolFingerprintAcrossPlanningRoundsIsRejected() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RecordingMultiStepToolRegistry()
+        val repeated = call("test.first", "same")
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = scriptedLlm { AgentPlanDecision.CallTool(repeated) },
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-loop", "message-loop", "重复相同工具")
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(ledger.lastRunId!!)
+
+        assertTrue(failure is AgentBudgetExceededException)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("重复工具调用"))
+        assertEquals(listOf("test.first"), registry.executedToolNames)
+    }
+
+    @Test
+    fun eachNonSafeToolStepRequiresIndependentApproval() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RecordingMultiStepToolRegistry(risk = ToolRisk.REQUIRES_APPROVAL)
+        val approvedTools = mutableListOf<String>()
+        val approvalGate = object : ApprovalGate {
+            override suspend fun requestApproval(
+                runId: String,
+                toolCall: ToolCall,
+                definition: ToolDefinition,
+            ): ApprovalDecision {
+                approvedTools += toolCall.name
+                return ApprovalDecision(approved = true, reason = "逐步确认")
+            }
+        }
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = scriptedLlm { completedTools ->
+                when (completedTools.size) {
+                    0 -> AgentPlanDecision.CallTool(call("test.first", "first"))
+                    1 -> AgentPlanDecision.CallTool(call("test.second", "second"))
+                    else -> AgentPlanDecision.Complete
+                }
+            },
+            approvalGate = approvalGate,
+        ).run("conversation-approval", "message-approval", "执行两个写步骤")
+
+        val snapshot = ledger.snapshot(summary.runId)
+        assertEquals(listOf("test.first", "test.second"), approvedTools)
+        assertEquals(2, snapshot.events.count { it.type == "approval.granted" })
+        assertEquals(2, snapshot.steps.count { it.type == "approval" && it.status == AgentStepStatus.COMPLETED })
+    }
+
+    private fun scriptedLlm(
+        decide: (List<AgentToolExecution>) -> AgentPlanDecision,
+    ): AgentLlm {
+        return object : AgentLlm {
+            override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                error("多步测试必须走 proposeNextAction")
+            }
+
+            override suspend fun proposeNextAction(
+                goal: String,
+                tools: List<ToolDefinition>,
+                completedTools: List<AgentToolExecution>,
+            ): AgentPlanDecision = decide(completedTools)
+
+            override suspend fun summarize(
+                goal: String,
+                toolCall: ToolCall,
+                toolResult: ToolExecutionResult,
+            ): String = """{"style":"compact","tone":"neutral"}"""
+        }
+    }
+
     private fun call(name: String, value: String) = ToolCall(
         name = name,
         arguments = mapOf("value" to value),
@@ -65,7 +167,9 @@ class MultiStepAgentRuntimeTest {
     )
 }
 
-private class RecordingMultiStepToolRegistry : ToolRegistry {
+private class RecordingMultiStepToolRegistry(
+    private val risk: ToolRisk = ToolRisk.SAFE,
+) : ToolRegistry {
     private val tools = listOf(
         toolDefinition("test.first"),
         toolDefinition("test.second"),
@@ -84,7 +188,7 @@ private class RecordingMultiStepToolRegistry : ToolRegistry {
     private fun toolDefinition(name: String) = ToolDefinition(
         name = name,
         description = "多步 Runtime 测试工具 $name",
-        risk = ToolRisk.SAFE,
+        risk = risk,
         inputSchema = listOf(
             ToolInputField(
                 name = "value",

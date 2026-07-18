@@ -106,6 +106,7 @@ object VerifiedAgentContextCodec {
     }
 
     private fun JSONObject.readStringList(name: String): List<String> {
+        // long: 早期 Android org.json 会把 Kotlin List 按字符串写成 "[]"；读取时兼容该历史格式，避免升级后丢失旧消息中的记忆引用审计。
         val array = optJSONArray(name) ?: optString(name)
             .takeIf { it.startsWith("[") }
             ?.let { raw -> runCatching { JSONArray(raw) }.getOrNull() }

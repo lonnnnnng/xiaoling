@@ -63,6 +63,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         memoryRecallEnabled: Boolean = true,
         approvalReason: String,
+        approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
         val ledger = ReportingAgentRunLedger(
@@ -75,10 +76,13 @@ class AgentRunUseCase(
             status = ApprovalRequestStatus.APPROVED,
             reason = approvalReason,
         ) ?: error("审批请求不存在：${approval.id}")
+        val selectedSkills = BuiltInAgentSkillRegistry.select(detail.snapshot.run.goal)
+        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
-            toolRegistry = toolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt),
+            toolRegistry = scopedToolRegistry,
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills),
+            approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )
         return runtime.resumeApprovedRun(

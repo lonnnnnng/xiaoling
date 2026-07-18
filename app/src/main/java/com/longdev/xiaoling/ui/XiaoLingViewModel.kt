@@ -1103,6 +1103,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     config = config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                     approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
+                    approvalGate = interactiveAgentApprovalGate(source.conversationId),
                     onSnapshot = ::publishAgentRunSnapshot,
                 )
                 val finalMessages = conversation.messages + ChatMessage(

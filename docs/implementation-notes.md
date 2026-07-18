@@ -85,7 +85,7 @@
 - 设置页「Agent 任务中心」从 Room 读取最近 50 条 Run，支持全部、处理中、可重试、已完成四档筛选；展开后可查看完整 ToolResult content/success/verified/duration、步骤、审批请求和事件。事件展示直接消费 Repository 解码后的 typed metadata，旧纯文本事件回退显示 `message`。
 - `FAILED / CANCELLED / BUDGET_EXHAUSTED` 可重新运行。重试在来源会话追加新的 `/agent <goal>` 消息，使用当前 Provider/模型并创建带 `retryOfRunId` 的新 Run；旧 Run 的状态、结果、步骤和事件不修改。成功执行过非 SAFE 工具、恢复记录表明中断发生在 `EXECUTING/VERIFYING`，或 `tool.execute/tool.verify` 步骤以失败/取消结束时，UI 会先要求二次确认。
 - 重试正式启动时 ViewModel 选中来源会话并发出一次性导航信号，根 UI 回到对话页；重新触发的写工具仍走正常审批，审批卡不会隐藏在任务中心后台。
-- 应用启动时会保留尚未执行任何工具的 `WAITING_APPROVAL` Run；已经进入任意工具执行/验证步骤的多步 Run 会安全收敛为 `CANCELLED`，后续通过关联新 Run 重试，避免重复执行前面步骤。
+- 应用启动时会保留尚未执行任何工具的 `WAITING_APPROVAL` Run；批准后先执行持久化的首个工具，再携带其已验证结果继续同一 Run 的多步规划。已经进入任意工具执行/验证步骤的多步 Run（包括第一步完成、第二步等待审批）会安全收敛为 `CANCELLED`，后续通过关联新 Run 重试，避免重复执行前面步骤。
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。

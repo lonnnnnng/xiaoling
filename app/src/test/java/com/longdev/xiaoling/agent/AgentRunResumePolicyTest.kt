@@ -19,7 +19,10 @@ class AgentRunResumePolicyTest {
         val assessment = AgentRunResumePolicy.assess(
             detail(
                 status = AgentRunStatus.WAITING_APPROVAL,
-                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                steps = listOf(
+                    step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED),
+                    step("approval", AgentStepStatus.RUNNING, sequence = 2),
+                ),
             ),
         )
 
@@ -75,10 +78,10 @@ class AgentRunResumePolicyTest {
         approvals = approvals,
     )
 
-    private fun step(type: String, status: AgentStepStatus) = AgentStepRecord(
-        id = "step-1",
+    private fun step(type: String, status: AgentStepStatus, sequence: Int = 1) = AgentStepRecord(
+        id = "step-$sequence",
         runId = "run-1",
-        sequence = 1,
+        sequence = sequence,
         type = type,
         status = status,
         title = "执行工具",

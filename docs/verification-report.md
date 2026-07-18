@@ -453,8 +453,8 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 环境与构建：
 
-- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --console=plain`，125 项 Debug 单元测试通过。
-- 最终 Debug APK SHA-256：`c1fb9b3e04f81576a806002058229c74f4a5b8a03ecfe4e62a3dfee54e9a568c`。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --console=plain`，审查修复后的最终版本有 128 项 Debug 单元测试通过。
+- 最终 Debug APK SHA-256：`74039c174f8a6e19d9f1dd67a17f72757673f2c6d7d40ebde9f8aa2975b1c353`。
 - 在 `wsvwypiz7xwslvl7` 使用 `adb install -r` 覆盖安装；未卸载、未清数据、未运行 instrumentation 测试，应用冷启动成功且 crash buffer 为空。
 
 真实流程：
@@ -464,6 +464,9 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 两个 Run 都只创建一个 `AgentRun`，最终为 `COMPLETED`；UI 时间线显示 10 个步骤，最终回复按步骤包含两个真实工具结果。
 - 最终消息的 `VerifiedAgentContext.toolExecutions` 按真实执行顺序保存两个工具、参数、结果和验证状态；顶层旧字段映射最后一步。
 - 首次真机持久化发现 Android `org.json` 将 Kotlin 字符串列表写成字符串 `"[]"`；最终修复版显式构造 `JSONArray` 并兼容读取旧字符串化数组。第二个 Run 的数据库原文确认顶层和两个工具步骤的 `memoryIdsUsed` 均为 JSON 数组 `[]`。
+- 审查修复后的最终 APK 新建 Run `run-c8c6abdd-2c06-48dd-8b16-efeb08dc53be`，再次完成 `app.current_time -> app.list_conversations -> complete`；数据库确认 10 个步骤全部完成，最终可信上下文包含两个有序工具执行项。
+- Run `run-0c6c64be-1605-4733-9de3-d7e759dde7ae` 在首步 `memory.remember` 审批前强制停止进程；冷启动后 UI 重建“进程重建后待恢复”审批卡片，批准后同一 Run 继续 `memory.remember -> app.current_time -> complete`，11 个步骤全部完成且未创建替代 Run。
+- 另一 Run 在 `memory.search` 已完成、`memory.remember` 等待审批时强制停止进程，启动协调器按安全策略把原 Run 和审批分别收敛为 `CANCELLED`，验证“已有任意工具执行记录则不原地恢复”。本轮写入的恢复测试记忆已通过长期记忆管理 UI 删除，主表与 FTS 索引均确认无残留。
 
 边界：
 

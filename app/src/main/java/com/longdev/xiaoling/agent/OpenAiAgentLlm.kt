@@ -73,21 +73,28 @@ class OpenAiAgentLlm(
 
     override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String {
         return requestSummary(
-            toolLabels = listOf(toolCall.name),
-            resultLengths = listOf(toolResult.content.length),
+            executions = listOf(
+                AgentExecutionSummary(
+                    toolName = toolCall.name,
+                    resultLength = toolResult.content.length,
+                ),
+            ),
         )
     }
 
     override suspend fun summarize(goal: String, completedTools: List<AgentToolExecution>): String {
         return requestSummary(
-            toolLabels = completedTools.map { it.toolCall.name },
-            resultLengths = completedTools.map { it.toolResult.content.length },
+            executions = completedTools.map { execution ->
+                AgentExecutionSummary(
+                    toolName = execution.toolCall.name,
+                    resultLength = execution.toolResult.content.length,
+                )
+            },
         )
     }
 
     private suspend fun requestSummary(
-        toolLabels: List<String>,
-        resultLengths: List<Int>,
+        executions: List<AgentExecutionSummary>,
     ): String {
         return client.sendMessage(
             config = config.copy(streamingEnabled = false, temperature = 0.0),
@@ -99,8 +106,8 @@ class OpenAiAgentLlm(
                 RequestMessage(
                     role = "user",
                     content = """
-                        工具步骤：${toolLabels.joinToString(" -> ")}
-                        各步骤结果长度：${resultLengths.joinToString()} 字符
+                        工具步骤：${executions.joinToString(" -> ") { it.toolName }}
+                        各步骤结果长度：${executions.joinToString { "${it.resultLength} 字符" }}
 
                         根据 system 中的用户偏好选择展示配置。只返回 JSON：
                         {"style":"compact","tone":"neutral"}
@@ -110,6 +117,11 @@ class OpenAiAgentLlm(
         ).responseText
     }
 }
+
+private data class AgentExecutionSummary(
+    val toolName: String,
+    val resultLength: Int,
+)
 
 private fun List<AgentToolExecution>.toPlannerHistoryJson(): String {
     return JSONArray().apply {
@@ -145,6 +157,7 @@ internal object AgentToolCallParser {
             require(keys == setOf("action")) { "完成决策不能包含额外字段：${keys.sorted()}" }
             return AgentPlanDecision.Complete
         }
+        // long: 旧版规划器只返回 tool/name/arguments，没有 action 字段；升级后继续接受这类输出，避免已配置的兼容模型在协议切换后全部失败。
         require(action.isBlank() || action == "tool") { "未知 Agent 规划动作：$action" }
         return AgentPlanDecision.CallTool(parse(raw, tools))
     }
