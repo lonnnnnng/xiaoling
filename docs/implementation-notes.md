@@ -100,6 +100,7 @@
 - 设置页「工作流」可保存和编辑 1 至 8 个顺序 Agent 目标、启停定义、手动执行并展开查看定义与全部运行快照；同一工作流存在 `QUEUED / RUNNING` Run 时，Repository 在事务内拒绝重复启动和编辑。
 - Room v16 将未来定义保存到 `workflow_step_definitions`。每次创建 Run 时原子物化独立 `WorkflowStep`，冻结定义步骤 ID、顺序、幂等键、目标和输入快照；后续定义编辑只影响未来 Run，历史 Run 不回写。
 - 前台和 WorkManager 后台都按步骤顺序创建独立 Agent Run。每一步启动前把连续成功前缀的已验证输出冻结进输入快照，完成后写入输出快照；后续步骤通过 `WorkflowStepPromptPolicy` 接收这些输出，同时继续独立执行 Schema、权限、风险、审批和验证。
+- 旧单步骤兼容入口收到同一 Agent Run 的重复快照回调时，优先命中已经关联该 Run 的步骤，再执行幂等状态刷新；不会因为步骤已经进入 `RUNNING` 就错误关联到后续步骤。
 - `BLOCKED / FAILED / CANCELLED` Workflow Run 可创建新 Run 重试。新 Run 通过 `retryOfWorkflowRunId` 关联来源，把连续成功前缀标为 `SKIPPED` 并记录 `reusedFromStepId`，首个未完成步骤及后续步骤恢复为 `PENDING`；旧 Run 不修改。
 - 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
 - Room v14 新增结构化 `ScheduledTask`，Room v15 新增唯一 `workflow_schedules` 规则，Room v16 新增 Workflow 步骤定义、运行重试来源和步骤输入/输出/复用快照。
@@ -109,7 +110,7 @@
 - 启动恢复会先把无法重建执行栈的 RUNNING ScheduledTask 按关联 Workflow Run 终态收敛，再为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
 - Worker 使用同一 `AgentRunUseCase`，但强制传入 `AgentExecutionOrigin.BACKGROUND`。SAFE 后台工具可完成原有校验与验证；需要审批的工具写入 Agent/Workflow/ScheduledTask `BLOCKED` 终态并通知用户以前台新 Run 重试，绝不等待前台审批卡或继承临时授权。
 - Android 8+ 使用稳定通知 Channel；Android 13+ 从用户创建计划的操作中请求 `POST_NOTIFICATIONS`。完成、失败、阻断和系统取消都会写入 Ledger；通知被拒绝时不影响任务终态。
-- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。
+- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-19 的真实后台三步骤从 `02:06:11` 到 `02:06:42` 完成，约 31 秒，当前继续使用普通 WorkManager 即可；Foreground Service 仅在后续长任务证据表明需要持续运行通知和停止入口时引入。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext.toolExecutions` 按执行顺序保存全部工具、参数、结果、验证状态和记忆 ID，顶层单工具字段继续映射最后一步以兼容旧消息；Android 持久化显式使用 JSON 数组，并兼容旧的字符串化数组。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
@@ -187,7 +188,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 仍安全收敛；多步骤 Workflow、步骤快照和安全重试已交付，后台执行栈断点续跑、Foreground Service 和更多真实工具仍需按路线图继续补齐。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 仍安全收敛；多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收。后台执行栈断点续跑和更多真实工具仍需按路线图继续补齐，Foreground Service 暂无真实耗时依据支持引入。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

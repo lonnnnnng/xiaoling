@@ -130,7 +130,9 @@ class RoomAgentRunRepositoryInstrumentedTest {
             ),
         )
 
-        val metadata = repository.snapshot(run.id).events.single().metadata as RunEventMetadata.ToolResult
+        val metadata = repository.snapshot(run.id).events
+            .single { it.type == "tool.result" }
+            .metadata as RunEventMetadata.ToolResult
         assertEquals(listOf("memory-1", "memory-2"), metadata.memoryIdsUsed)
     }
 
@@ -293,7 +295,8 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.COMPLETED, detail.snapshot.run.status)
         assertEquals(ApprovalRequestStatus.APPROVED, detail.approvals.single { it.id == request.id }.status)
         assertEquals(AgentStepStatus.COMPLETED, detail.snapshot.steps.single { it.id == approvalStep.id }.status)
-        assertTrue(detail.snapshot.steps.none { it.type == "llm.plan" })
+        // long: 恢复入口不重新规划已批准工具；工具完成后仍需一次规划确认是否继续，这是多步骤 Agent 的正常后续决策。
+        assertEquals(1, detail.snapshot.steps.count { it.type == "llm.plan" })
         assertTrue(detail.snapshot.events.any { it.type == "tool.result" })
         assertTrue(detail.snapshot.events.any { it.type == "tool.verify" })
     }

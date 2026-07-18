@@ -611,9 +611,11 @@ class RoomWorkflowRepository(
     }
 
     suspend fun markAgentRunStarted(workflowRunId: String, agentRunId: String): WorkflowRunRecord {
-        val step = WorkflowStepExecutionPolicy.nextExecutableStep(
-            database.workflowDao().getSteps(workflowRunId).map { it.toRecord() },
-        ) ?: error("工作流没有可执行步骤")
+        val steps = database.workflowDao().getSteps(workflowRunId).map { it.toRecord() }
+        val step = steps.firstOrNull { it.agentRunId == agentRunId }
+            ?: WorkflowStepExecutionPolicy.nextExecutableStep(steps)
+            ?: error("工作流没有可执行步骤")
+        // long: 旧单步骤调用方可能随 Agent 快照重复回调同一 Run ID；优先找已关联步骤，确保幂等刷新不会被 RUNNING 状态误判为越序执行。
         return markAgentRunStarted(workflowRunId, step.id, agentRunId)
     }
 

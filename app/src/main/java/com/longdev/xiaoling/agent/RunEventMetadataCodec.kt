@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal object RunEventMetadataCodec {
@@ -16,7 +17,7 @@ internal object RunEventMetadataCodec {
                 .put("durationMs", metadata.durationMs)
                 .put("success", metadata.success)
                 .put("verified", metadata.verified)
-                .put("memoryIdsUsed", metadata.memoryIdsUsed)
+                .put("memoryIdsUsed", metadata.memoryIdsUsed.toStringJsonArray())
             is RunEventMetadata.ApprovalRequest -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -131,12 +132,20 @@ internal object RunEventMetadataCodec {
         if (has(key) && !isNull(key)) getBoolean(key) else null
 
     private fun JSONObject.stringListOrEmpty(key: String): List<String> {
-        val values = optJSONArray(key) ?: return emptyList()
+        // long: Android org.json 不会稳定地把 Kotlin List 包装成 JSONArray；显式数组是新格式，同时兼容早期已落库的字符串化 JSON 数组。
+        val values = optJSONArray(key) ?: optString(key)
+            .takeIf { it.startsWith("[") }
+            ?.let { raw -> runCatching { JSONArray(raw) }.getOrNull() }
+            ?: return emptyList()
         return buildList {
             for (index in 0 until values.length()) {
                 values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
             }
         }
+    }
+
+    private fun List<String>.toStringJsonArray(): JSONArray {
+        return JSONArray().apply { this@toStringJsonArray.forEach(::put) }
     }
 
     private fun JSONObject.arguments(): Map<String, String> =

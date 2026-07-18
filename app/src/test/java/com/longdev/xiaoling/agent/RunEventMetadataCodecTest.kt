@@ -35,6 +35,16 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun legacyStringifiedMemoryIdsRemainReadable() {
+        val metadata = RunEventMetadataCodec.decode(
+            type = "tool.result",
+            raw = """{"toolName":"memory.search","content":"旧结果","durationMs":3,"success":true,"verified":true,"memoryIdsUsed":"[\"memory-1\",\"memory-2\"]"}""",
+        ) as RunEventMetadata.ToolResult
+
+        assertEquals(listOf("memory-1", "memory-2"), metadata.memoryIdsUsed)
+    }
+
+    @Test
     fun skillSelectionReasonRemainsReadableAfterRoomRoundTrip() {
         val metadata = RunEventMetadata.Reason("daily-review@2")
 

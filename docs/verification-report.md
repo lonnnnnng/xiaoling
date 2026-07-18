@@ -426,7 +426,8 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 ## 清理状态
 
-- 真机上保留原有同包名安装包，未卸载、未清数据。
+- 2026-07-19 完整 instrumentation 按测试框架语义重置了应用数据；随后已重新安装最新 Debug APK，从未跟踪的本机配置恢复 Provider，获取 6 个上游模型，并用指定模型完成真实 `OK` 冒烟响应。
+- 审批恢复验收创建的临时长期记忆已通过管理 UI 删除，数据库确认残留数为 0。
 - `outputs/` 目录不纳入版本控制。
 
 ## 2026-07-18 待审批 Run 真机进程重建验收
@@ -651,3 +652,36 @@ BUILD SUCCESSFUL
 - 本轮没有确认真实重试，也没有创建或运行多步骤模型任务；前台/后台顺序执行、成功前缀复用和审批恢复继续下一步骤仍以 JVM 测试、已编译 instrumentation 源码和 Room v16 结构验证为依据。
 
 Debug APK SHA-256：`4bf39cd1d69bc03c120ecb0f22cc0339bf8ac9d70d8ec7f3dec126178319cdaa`。
+
+## 2026-07-19 多步骤 Workflow 完整真机验收
+
+环境与自动化回归：
+
+- 设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro，Android 14。
+- `testDebugUnitTest`：165 条 JVM 测试通过。
+- `connectedDebugAndroidTest`：38 条真机 instrumentation 全部通过；同时通过 `lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest`。
+- 本轮修复了旧单步骤 Workflow 兼容入口重复关联同一 Agent Run 时的幂等问题，并让 `RunEventMetadata.ToolResult.memoryIdsUsed` 在 Android `org.json` 中显式编码为 `JSONArray`，读取端兼容早期字符串化数组。
+
+前台失败与安全重试：
+
+- 来源 Run `workflow-run-984dcb6f-b10f-4e88-90b4-73cd04fd573d` 使用不兼容响应失败，最终保持 `FAILED`，后续两个步骤保持 `CANCELLED`。
+- 重试 Run `workflow-run-85981ac4-a060-44ca-8f3b-619336a4d455` 的 `retryOfWorkflowRunId` 正确指向来源 Run，三个步骤分别创建独立 Agent Run 并全部 `COMPLETED`。
+- 第 1 步调用 `app.current_time`，第 2 步调用 `app.list_conversations`，第 3 步再次调用 `app.current_time`；第 2、3 步输入快照逐项包含连续成功前缀输出。
+- 完成后把未来定义第 1 步改为带 `FUTURE_EDIT` 标记，已完成 Run 的 `detail`、`inputSnapshot` 和 `outputSnapshot` 均保持原值，确认历史快照冻结成立。
+
+真实后台 WorkManager：
+
+- 一次性任务 `scheduled-task-d72e18e6-e02d-4aa2-b3dd-957d6e739f74` 在应用位于桌面后台时由系统调度启动。
+- Workflow Run `workflow-run-38a1b2a2-b445-4b1b-b00a-0498ac3cec47` 于 `02:06:11` 开始、`02:06:42` 完成；三个 SAFE 步骤及其独立 Agent Run 全部 `COMPLETED`，总耗时约 31 秒。
+- 当前耗时没有形成引入 Foreground Service 的证据；继续使用普通 WorkManager，后续只有在长任务或持续可见停止入口成为真实需求时再评估。
+
+审批后继续下一步骤：
+
+- Workflow Run `workflow-run-992e234c-baeb-4259-9481-55a59168e2b0` 的第 1 步选择 `memory.remember` 并进入待审批，第 2 步保持 `PENDING`。
+- Approval `approval-fcbd9d77-4e5e-4c10-bd19-a4f57fd9b852` 批准后，第 1 步完成，系统自动创建第 2 个 Agent Run 执行 `app.current_time`，最终两个步骤和 Workflow Run 均为 `COMPLETED`。
+- 临时记忆 `QA_APPROVAL_RESUME_20260719` 已通过长期记忆页面删除，数据库确认无残留。
+
+instrumentation 后可用性恢复：
+
+- 测试完成后重新安装最新 Debug APK，从未跟踪的本机配置恢复 Base URL 和 API Key；文档、日志和提交均未包含凭据。
+- 上游模型列表成功返回 6 项，配置指定模型完成真实普通对话请求，应用显示精确回复 `OK`。
