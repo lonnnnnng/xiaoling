@@ -18,11 +18,16 @@ import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRecord
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
+import com.longdev.xiaoling.automation.WorkflowStepDefinitionRecord
+import com.longdev.xiaoling.automation.WorkflowStepExecutionPolicy
 import com.longdev.xiaoling.automation.WorkflowStepRecord
+import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.WorkflowTrigger
 import com.longdev.xiaoling.data.WorkflowEntity
 import com.longdev.xiaoling.data.WorkflowRunEntity
+import com.longdev.xiaoling.data.WorkflowStepDefinitionEntity
 import com.longdev.xiaoling.data.WorkflowStepEntity
 import com.longdev.xiaoling.data.WorkflowScheduleEntity
 import com.longdev.xiaoling.data.ScheduledTaskEntity
@@ -38,24 +43,88 @@ class RoomWorkflowRepository(
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) {
     suspend fun listWorkflows(): List<WorkflowRecord> {
-        return database.workflowDao().listWorkflows().map { it.toRecord() }
+        val dao = database.workflowDao()
+        val stepsByWorkflow = dao.listWorkflowStepDefinitions().groupBy { it.workflowId }
+        return dao.listWorkflows().map { workflow ->
+            workflow.toRecord(stepsByWorkflow[workflow.id].orEmpty())
+        }
     }
 
     suspend fun createWorkflow(name: String, goal: String): WorkflowRecord {
+        return createWorkflow(name, listOf(WorkflowStepDefinitionInput(goal)))
+    }
+
+    suspend fun createWorkflow(name: String, steps: List<WorkflowStepDefinitionInput>): WorkflowRecord {
         val normalizedName = name.trim()
-        val normalizedGoal = goal.trim()
-        WorkflowDefinitionPolicy.validate(normalizedName, normalizedGoal)
-        val now = System.currentTimeMillis()
-        val workflow = WorkflowEntity(
-            id = "workflow-${UUID.randomUUID()}",
-            name = normalizedName,
-            goal = normalizedGoal,
-            enabled = true,
-            createdAt = now,
-            updatedAt = now,
-        )
-        database.workflowDao().upsertWorkflow(workflow)
-        return workflow.toRecord()
+        val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
+        WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val now = System.currentTimeMillis()
+            val workflowId = "workflow-${UUID.randomUUID()}"
+            val workflow = WorkflowEntity(
+                id = workflowId,
+                name = normalizedName,
+                // long: legacy goal 继续保存首步目标，兼容旧备份与仍读取该列的版本；多步骤真实定义以 workflow_step_definitions 为准。
+                goal = normalizedSteps.first().goal,
+                enabled = true,
+                createdAt = now,
+                updatedAt = now,
+            )
+            val definitions = normalizedSteps.mapIndexed { index, step ->
+                val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
+                WorkflowStepDefinitionEntity(
+                    id = definitionId,
+                    workflowId = workflowId,
+                    sequence = index + 1,
+                    goal = step.goal,
+                    idempotencyKey = definitionId,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+            dao.upsertWorkflow(workflow)
+            dao.upsertWorkflowStepDefinitions(definitions)
+            workflow.toRecord(definitions)
+        }
+    }
+
+    suspend fun updateWorkflow(
+        workflowId: String,
+        name: String,
+        steps: List<WorkflowStepDefinitionInput>,
+    ): WorkflowRecord {
+        val normalizedName = name.trim()
+        val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
+        WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val current = dao.getWorkflow(workflowId) ?: error("工作流不存在：$workflowId")
+            require(dao.getActiveRun(workflowId) == null) { "工作流有未完成的 Run，结束后才能编辑" }
+            val now = System.currentTimeMillis()
+            val definitions = normalizedSteps.mapIndexed { index, step ->
+                val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
+                WorkflowStepDefinitionEntity(
+                    id = definitionId,
+                    workflowId = workflowId,
+                    sequence = index + 1,
+                    goal = step.goal,
+                    idempotencyKey = definitionId,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            }
+            val updated = current.copy(
+                name = normalizedName,
+                // long: 编辑只替换后续 Run 使用的定义；历史 Run 已持有自己的步骤快照，因此不会被定义变化改写。
+                goal = normalizedSteps.first().goal,
+                updatedAt = now,
+            )
+            dao.upsertWorkflow(updated)
+            dao.deleteWorkflowStepDefinitions(workflowId)
+            dao.upsertWorkflowStepDefinitions(definitions)
+            updated.toRecord(definitions)
+        }
     }
 
     suspend fun setEnabled(workflowId: String, enabled: Boolean): WorkflowRecord? {
@@ -67,7 +136,7 @@ class RoomWorkflowRepository(
                 // long: 停用工作流同时关闭周期规则，但保留当前待执行任务给调用方取消系统队列；Worker 即使抢先启动也会因工作流停用而拒绝领取。
                 dao.disableWorkflowScheduleForWorkflow(workflowId, now)
             }
-            dao.getWorkflow(workflowId)?.toRecord()
+            dao.getWorkflow(workflowId)?.toRecord(dao.getWorkflowStepDefinitions(workflowId))
         }
     }
 
@@ -78,6 +147,8 @@ class RoomWorkflowRepository(
             val workflow = dao.getWorkflow(workflowId) ?: error("工作流不存在：$workflowId")
             require(workflow.enabled) { "工作流已停用，不能执行" }
             require(dao.getActiveRun(workflowId) == null) { "这个工作流已有未完成的 Run" }
+            val definitions = dao.getWorkflowStepDefinitions(workflowId)
+            require(definitions.isNotEmpty()) { "工作流没有可执行步骤" }
             val now = System.currentTimeMillis()
             val run = WorkflowRunEntity(
                 id = "workflow-run-${UUID.randomUUID()}",
@@ -93,25 +164,12 @@ class RoomWorkflowRepository(
                 createdAt = now,
                 startedAt = null,
                 completedAt = null,
+                retryOfWorkflowRunId = null,
             )
-            val step = WorkflowStepEntity(
-                id = "workflow-step-${UUID.randomUUID()}",
-                workflowRunId = run.id,
-                sequence = 1,
-                type = AGENT_RUN_STEP_TYPE,
-                status = WorkflowStepStatus.PENDING.name,
-                title = "执行 Agent 目标",
-                detail = workflow.goal,
-                agentRunId = null,
-                result = null,
-                errorMessage = null,
-                createdAt = now,
-                startedAt = null,
-                completedAt = null,
-            )
+            val runSteps = definitions.map { definition -> definition.toRunStep(run.id, now, background = false) }
             dao.upsertRun(run)
-            dao.upsertStep(step)
-            WorkflowRunDetail(run.toRecord(), listOf(step.toRecord()))
+            runSteps.forEach { dao.upsertStep(it) }
+            WorkflowRunDetail(run.toRecord(), runSteps.map { it.toRecord() })
         }
     }
 
@@ -124,7 +182,8 @@ class RoomWorkflowRepository(
     }
 
     suspend fun getWorkflow(workflowId: String): WorkflowRecord? {
-        return database.workflowDao().getWorkflow(workflowId)?.toRecord()
+        val dao = database.workflowDao()
+        return dao.getWorkflow(workflowId)?.toRecord(dao.getWorkflowStepDefinitions(workflowId))
     }
 
     suspend fun getScheduledTask(taskId: String): ScheduledTaskRecord? {
@@ -424,6 +483,19 @@ class RoomWorkflowRepository(
 
             val conversationId = "conversation-scheduled-${UUID.randomUUID()}"
             val userMessageId = "message-scheduled-${UUID.randomUUID()}"
+            val definitions = dao.getWorkflowStepDefinitions(workflow.id)
+            if (definitions.isEmpty()) {
+                dao.upsertScheduledTask(
+                    task.copy(
+                        status = ScheduledTaskStatus.FAILED.name,
+                        actualStartedAt = now,
+                        completedAt = now,
+                        errorMessage = "工作流没有可执行步骤",
+                        updatedAt = now,
+                    ),
+                )
+                return@withTransaction null
+            }
             val run = WorkflowRunEntity(
                 id = "workflow-run-${UUID.randomUUID()}",
                 workflowId = workflow.id,
@@ -438,22 +510,9 @@ class RoomWorkflowRepository(
                 createdAt = now,
                 startedAt = now,
                 completedAt = null,
+                retryOfWorkflowRunId = null,
             )
-            val step = WorkflowStepEntity(
-                id = "workflow-step-${UUID.randomUUID()}",
-                workflowRunId = run.id,
-                sequence = 1,
-                type = AGENT_RUN_STEP_TYPE,
-                status = WorkflowStepStatus.PENDING.name,
-                title = "后台执行 Agent 目标",
-                detail = workflow.goal,
-                agentRunId = null,
-                result = null,
-                errorMessage = null,
-                createdAt = now,
-                startedAt = null,
-                completedAt = null,
-            )
+            val runSteps = definitions.map { definition -> definition.toRunStep(run.id, now, background = true) }
             val updatedTask = task.copy(
                 status = ScheduledTaskStatus.RUNNING.name,
                 workflowRunId = run.id,
@@ -461,7 +520,7 @@ class RoomWorkflowRepository(
                 updatedAt = now,
             )
             dao.upsertRun(run)
-            dao.upsertStep(step)
+            runSteps.forEach { dao.upsertStep(it) }
             dao.upsertScheduledTask(updatedTask)
             database.conversationDao().insertConversations(
                 listOf(
@@ -478,12 +537,12 @@ class RoomWorkflowRepository(
                 ),
             )
             database.conversationDao().insertMessages(
-                listOf(backgroundMessage(userMessageId, conversationId, "user", "/agent ${workflow.goal}", now, MessageOrigin.USER)),
+                listOf(backgroundMessage(userMessageId, conversationId, "user", "/agent ${definitions.first().goal}", now, MessageOrigin.USER)),
             )
             ScheduledWorkflowClaim(
                 task = updatedTask.toRecord(),
-                workflow = workflow.toRecord(),
-                run = WorkflowRunDetail(run.toRecord(), listOf(step.toRecord())),
+                workflow = workflow.toRecord(definitions),
+                run = WorkflowRunDetail(run.toRecord(), runSteps.map { it.toRecord() }),
                 userMessageId = userMessageId,
             )
         }
@@ -537,30 +596,110 @@ class RoomWorkflowRepository(
         }
     }
 
+    suspend fun appendScheduledStepPrompt(conversationId: String, goal: String): String {
+        val messageId = "message-scheduled-${UUID.randomUUID()}"
+        val now = System.currentTimeMillis()
+        database.withTransaction {
+            val conversation = database.conversationDao().getConversation(conversationId)
+                ?: error("后台工作流会话不存在：$conversationId")
+            database.conversationDao().insertMessages(
+                listOf(backgroundMessage(messageId, conversationId, "user", "/agent $goal", now, MessageOrigin.USER)),
+            )
+            database.conversationDao().insertConversations(listOf(conversation.copy(updatedAt = now)))
+        }
+        return messageId
+    }
+
     suspend fun markAgentRunStarted(workflowRunId: String, agentRunId: String): WorkflowRunRecord {
+        val step = WorkflowStepExecutionPolicy.nextExecutableStep(
+            database.workflowDao().getSteps(workflowRunId).map { it.toRecord() },
+        ) ?: error("工作流没有可执行步骤")
+        return markAgentRunStarted(workflowRunId, step.id, agentRunId)
+    }
+
+    suspend fun prepareWorkflowStep(workflowRunId: String, workflowStepId: String): WorkflowStepRecord {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val run = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
+            require(run.status !in TERMINAL_RUN_STATUSES) { "工作流 Run 已结束" }
+            val steps = dao.getSteps(workflowRunId)
+            val step = steps.firstOrNull { it.id == workflowStepId } ?: error("工作流步骤不存在：$workflowStepId")
+            val expected = WorkflowStepExecutionPolicy.nextExecutableStep(steps.map { it.toRecord() })
+            require(expected?.id == step.id) { "工作流步骤必须按顺序准备" }
+            val previousOutputs = steps
+                .filter { it.sequence < step.sequence && it.status in SUCCESSFUL_STEP_STATUSES }
+                .sortedBy { it.sequence }
+                .mapNotNull { it.outputSnapshot ?: it.result }
+            val updated = step.copy(
+                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(step.detail, previousOutputs),
+            )
+            dao.upsertStep(updated)
+            updated.toRecord()
+        }
+    }
+
+    suspend fun markAgentRunStarted(
+        workflowRunId: String,
+        workflowStepId: String,
+        agentRunId: String,
+    ): WorkflowRunRecord {
         return database.withTransaction {
             val dao = database.workflowDao()
             val current = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
             if (current.status in TERMINAL_RUN_STATUSES) return@withTransaction current.toRecord()
-            require(current.agentRunId == null || current.agentRunId == agentRunId) {
-                "工作流 Run 已关联其他 Agent Run，不能重复执行"
-            }
+            val steps = dao.getSteps(workflowRunId)
+            val step = steps.firstOrNull { it.id == workflowStepId } ?: error("工作流步骤不存在：$workflowStepId")
+            val expected = WorkflowStepExecutionPolicy.nextExecutableStep(steps.map { it.toRecord() })
+            require(expected?.id == step.id || step.agentRunId == agentRunId) { "工作流步骤必须按顺序执行" }
+            require(step.agentRunId == null || step.agentRunId == agentRunId) { "工作流步骤已关联其他 Agent Run" }
             val now = System.currentTimeMillis()
+            val previousOutputs = steps
+                .filter { it.sequence < step.sequence && it.status in SUCCESSFUL_STEP_STATUSES }
+                .sortedBy { it.sequence }
+                .mapNotNull { it.outputSnapshot ?: it.result }
             val updated = current.copy(
                 agentRunId = agentRunId,
                 status = WorkflowRunStatus.RUNNING.name,
                 startedAt = current.startedAt ?: now,
             )
-            val step = dao.getSteps(workflowRunId).single()
-            // long: 当前前台与后台工作流都只有一个 Agent 步骤；重复快照只能刷新同一关联，不能创建第二个执行或覆盖已有结果。
+            // long: 每个步骤只能关联一个 Agent Run；输入快照在真正启动时冻结前序输出，后续定义编辑或页面刷新都不能改变本次执行上下文。
             dao.upsertRun(updated)
             dao.upsertStep(
                 step.copy(
                     status = WorkflowStepStatus.RUNNING.name,
                     agentRunId = agentRunId,
                     startedAt = step.startedAt ?: now,
+                    inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(step.detail, previousOutputs),
                 ),
             )
+            updated.toRecord()
+        }
+    }
+
+    suspend fun completeWorkflowStep(
+        workflowRunId: String,
+        workflowStepId: String,
+        status: WorkflowStepStatus,
+        result: String? = null,
+        errorMessage: String? = null,
+    ): WorkflowStepRecord {
+        require(status in TERMINAL_STEP_STATUSES) { "工作流步骤只能收敛到终态" }
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val run = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
+            require(run.status !in TERMINAL_RUN_STATUSES) { "工作流 Run 已结束" }
+            val step = dao.getStep(workflowStepId) ?: error("工作流步骤不存在：$workflowStepId")
+            require(step.workflowRunId == workflowRunId) { "工作流步骤不属于当前 Run" }
+            if (step.status in TERMINAL_STEP_STATUSES.map { it.name }) return@withTransaction step.toRecord()
+            val now = System.currentTimeMillis()
+            val updated = step.copy(
+                status = status.name,
+                result = result,
+                errorMessage = errorMessage,
+                outputSnapshot = result,
+                completedAt = now,
+            )
+            dao.upsertStep(updated)
             updated.toRecord()
         }
     }
@@ -572,7 +711,7 @@ class RoomWorkflowRepository(
         errorMessage: String? = null,
     ): WorkflowRunRecord {
         require(status.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
-        // long: Run 与步骤共享一次终态提交，避免任务中心看到 Run 已完成但步骤仍在运行；重复回调只返回首次写入的终态结果。
+        // long: Run 终态与尚未完成步骤在同一事务内收敛；已完成或从来源 Run 复用的步骤保持原结果，旧执行证据不能被最终错误覆盖。
         return database.withTransaction {
             val dao = database.workflowDao()
             val current = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
@@ -584,23 +723,50 @@ class RoomWorkflowRepository(
                 errorMessage = errorMessage,
                 completedAt = now,
             )
-            val stepStatus = when (status) {
-                WorkflowRunStatus.COMPLETED -> WorkflowStepStatus.COMPLETED
+            val terminalStepStatus = when (status) {
+                WorkflowRunStatus.COMPLETED -> null
                 WorkflowRunStatus.BLOCKED -> WorkflowStepStatus.BLOCKED
                 WorkflowRunStatus.CANCELLED -> WorkflowStepStatus.CANCELLED
                 WorkflowRunStatus.FAILED -> WorkflowStepStatus.FAILED
                 else -> error("非终态不能完成工作流步骤")
             }
-            val step = dao.getSteps(workflowRunId).single()
+            val steps = dao.getSteps(workflowRunId)
+            if (status == WorkflowRunStatus.COMPLETED) {
+                val unfinished = steps.filter { it.status !in SUCCESSFUL_STEP_STATUSES }
+                if (steps.size == 1 && unfinished.size == 1) {
+                    // long: 兼容 v15 单步骤调用方直接收敛 Run；多步骤执行必须逐步完成，不能用最终回调一次性伪造所有步骤成功。
+                    val onlyStep = unfinished.single()
+                    dao.upsertStep(
+                        onlyStep.copy(
+                            status = WorkflowStepStatus.COMPLETED.name,
+                            result = result,
+                            outputSnapshot = result,
+                            completedAt = now,
+                        ),
+                    )
+                } else {
+                    require(unfinished.isEmpty()) { "工作流仍有未完成步骤" }
+                }
+            }
             dao.upsertRun(updated)
-            dao.upsertStep(
-                step.copy(
-                    status = stepStatus.name,
-                    result = result,
-                    errorMessage = errorMessage,
-                    completedAt = now,
-                ),
-            )
+            if (terminalStepStatus != null) {
+                var terminalAssigned = false
+                steps.filter { it.status !in TERMINAL_STEP_STATUSES.map { statusValue -> statusValue.name } }.forEach { step ->
+                    val stepStatus = if (!terminalAssigned && step.status == WorkflowStepStatus.RUNNING.name) {
+                        terminalAssigned = true
+                        terminalStepStatus
+                    } else {
+                        WorkflowStepStatus.CANCELLED
+                    }
+                    dao.upsertStep(
+                        step.copy(
+                            status = stepStatus.name,
+                            errorMessage = errorMessage,
+                            completedAt = now,
+                        ),
+                    )
+                }
+            }
             updated.toRecord()
         }
     }
@@ -611,8 +777,30 @@ class RoomWorkflowRepository(
         result: String? = null,
         errorMessage: String? = null,
     ): WorkflowRunRecord? {
-        val workflowRun = database.workflowDao().getRunByAgentRunId(agentRunId) ?: return null
-        return completeRun(workflowRun.id, status, result, errorMessage)
+        val dao = database.workflowDao()
+        val workflowRun = dao.getRunByAgentRunId(agentRunId) ?: return null
+        val step = dao.getStepByAgentRunId(agentRunId) ?: return completeRun(workflowRun.id, status, result, errorMessage)
+        val stepStatus = when (status) {
+            WorkflowRunStatus.COMPLETED -> WorkflowStepStatus.COMPLETED
+            WorkflowRunStatus.BLOCKED -> WorkflowStepStatus.BLOCKED
+            WorkflowRunStatus.CANCELLED -> WorkflowStepStatus.CANCELLED
+            WorkflowRunStatus.FAILED -> WorkflowStepStatus.FAILED
+            else -> return workflowRun.toRecord()
+        }
+        completeWorkflowStep(workflowRun.id, step.id, stepStatus, result, errorMessage)
+        val refreshedSteps = dao.getSteps(workflowRun.id).map { it.toRecord() }
+        val nextStep = WorkflowStepExecutionPolicy.nextExecutableStep(refreshedSteps)
+        return if (status == WorkflowRunStatus.COMPLETED && nextStep != null) {
+            dao.getRun(workflowRun.id)?.toRecord()
+        } else {
+            val workflowResult = if (status == WorkflowRunStatus.COMPLETED) {
+                // long: 审批恢复可能完成最后一步；最终结果必须重新聚合全部步骤快照，不能只保留刚恢复的单步输出。
+                refreshedSteps.mapNotNull { it.outputSnapshot ?: it.result }.joinToString(separator = "\n\n")
+            } else {
+                result
+            }
+            completeRun(workflowRun.id, status, workflowResult, errorMessage)
+        }
     }
 
     suspend fun recentRunDetails(limit: Int = 50): List<WorkflowRunDetail> {
@@ -622,6 +810,76 @@ class RoomWorkflowRepository(
 
     suspend fun allRunDetails(): List<WorkflowRunDetail> {
         return loadRunDetails(database.workflowDao().listRuns())
+    }
+
+    suspend fun runDetail(workflowRunId: String): WorkflowRunDetail? {
+        val dao = database.workflowDao()
+        val run = dao.getRun(workflowRunId) ?: return null
+        return WorkflowRunDetail(
+            run = run.toRecord(),
+            steps = dao.getSteps(workflowRunId).map { it.toRecord() },
+        )
+    }
+
+    suspend fun retryRun(sourceWorkflowRunId: String, conversationId: String): WorkflowRunDetail {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val source = dao.getRun(sourceWorkflowRunId) ?: error("来源工作流 Run 不存在：$sourceWorkflowRunId")
+            require(source.status in TERMINAL_RUN_STATUSES) { "只有已结束的工作流 Run 可以重试" }
+            val workflow = dao.getWorkflow(source.workflowId) ?: error("工作流不存在：${source.workflowId}")
+            require(workflow.enabled) { "工作流已停用，不能重试" }
+            require(dao.getActiveRun(source.workflowId) == null) { "这个工作流已有未完成的 Run" }
+            val sourceSteps = dao.getSteps(sourceWorkflowRunId)
+            require(sourceSteps.isNotEmpty()) { "来源工作流没有步骤快照" }
+            require(sourceSteps.any { it.status !in SUCCESSFUL_STEP_STATUSES }) { "来源工作流没有可重试步骤" }
+            val now = System.currentTimeMillis()
+            val run = WorkflowRunEntity(
+                id = "workflow-run-${UUID.randomUUID()}",
+                workflowId = source.workflowId,
+                trigger = WorkflowTrigger.MANUAL.name,
+                scheduledTaskId = null,
+                plannedAt = null,
+                conversationId = conversationId,
+                agentRunId = null,
+                status = WorkflowRunStatus.QUEUED.name,
+                result = null,
+                errorMessage = null,
+                createdAt = now,
+                startedAt = null,
+                completedAt = null,
+                retryOfWorkflowRunId = sourceWorkflowRunId,
+            )
+            var reachedIncompleteStep = false
+            val retrySteps = sourceSteps.sortedBy { it.sequence }.map { sourceStep ->
+                val reusable = !reachedIncompleteStep && sourceStep.status in SUCCESSFUL_STEP_STATUSES
+                if (!reusable) reachedIncompleteStep = true
+                WorkflowStepEntity(
+                    id = "workflow-step-${UUID.randomUUID()}",
+                    workflowRunId = run.id,
+                    sequence = sourceStep.sequence,
+                    type = sourceStep.type,
+                    status = if (reusable) WorkflowStepStatus.SKIPPED.name else WorkflowStepStatus.PENDING.name,
+                    title = sourceStep.title,
+                    detail = sourceStep.detail,
+                    agentRunId = null,
+                    result = sourceStep.result.takeIf { reusable },
+                    errorMessage = null,
+                    createdAt = now,
+                    startedAt = null,
+                    completedAt = now.takeIf { reusable },
+                    definitionStepId = sourceStep.definitionStepId,
+                    idempotencyKey = sourceStep.idempotencyKey,
+                    inputSnapshot = sourceStep.inputSnapshot.takeIf { reusable }
+                        ?: WorkflowStepSnapshotCodec.encodeInput(sourceStep.detail, emptyList()),
+                    outputSnapshot = sourceStep.outputSnapshot.takeIf { reusable },
+                    reusedFromStepId = sourceStep.id.takeIf { reusable },
+                )
+            }
+            // long: 新 Run 只复用来源 Run 已落库的成功输出；失败步骤即使可能产生过副作用也不会被标成完成，后续 UI 需按风险提示用户确认重试。
+            dao.upsertRun(run)
+            retrySteps.forEach { dao.upsertStep(it) }
+            WorkflowRunDetail(run.toRecord(), retrySteps.map { it.toRecord() })
+        }
     }
 
     private suspend fun loadRunDetails(runs: List<WorkflowRunEntity>): List<WorkflowRunDetail> {
@@ -656,14 +914,27 @@ class RoomWorkflowRepository(
                     val agentStatus = runCatching { AgentRunStatus.valueOf(agentRun.status) }.getOrNull()
                     val workflowStatus = agentStatus?.let(WorkflowAgentRunStatusPolicy::terminalStatus)
                         ?: WorkflowRunStatus.FAILED
-                    // long: 进程重建后旧协程不存在；除明确可恢复的审批等待外，活动状态按失败收敛，绝不重新执行可能有副作用的步骤。
-                    completeRun(
-                        workflowRun.id,
-                        workflowStatus,
+                    val settled = completeByAgentRunId(
+                        agentRunId = agentRun.id,
+                        status = workflowStatus,
                         result = agentRun.result.takeIf { workflowStatus == WorkflowRunStatus.COMPLETED },
                         errorMessage = agentRun.errorMessage
                             ?: "应用重启后无法恢复工作流执行栈".takeIf { workflowStatus != WorkflowRunStatus.COMPLETED },
                     )
+                    if (settled?.status == WorkflowRunStatus.RUNNING) {
+                        val preservedResult = dao.getSteps(workflowRun.id)
+                            .filter { it.status in SUCCESSFUL_STEP_STATUSES }
+                            .sortedBy { it.sequence }
+                            .mapNotNull { it.outputSnapshot ?: it.result }
+                            .joinToString(separator = "\n\n")
+                        // long: 当前 Agent 已成功时先保留步骤输出，再关闭丢失执行栈的旧 Run；用户重试会复用完成前缀，但不会自动重放后续副作用。
+                        completeRun(
+                            workflowRun.id,
+                            WorkflowRunStatus.FAILED,
+                            result = preservedResult,
+                            errorMessage = "应用重启时当前步骤已完成，但后续步骤尚未执行；请重试此 Run",
+                        )
+                    }
                     reconciled += 1
                 }
             }
@@ -671,7 +942,52 @@ class RoomWorkflowRepository(
         return reconciled
     }
 
-    private fun WorkflowEntity.toRecord() = WorkflowRecord(id, name, goal, enabled, createdAt, updatedAt)
+    private fun WorkflowEntity.toRecord(
+        definitions: List<WorkflowStepDefinitionEntity> = emptyList(),
+    ) = WorkflowRecord(
+        id = id,
+        name = name,
+        goal = definitions.firstOrNull()?.goal ?: goal,
+        enabled = enabled,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        steps = definitions.sortedBy { it.sequence }.map { it.toRecord() },
+    )
+
+    private fun WorkflowStepDefinitionEntity.toRecord() = WorkflowStepDefinitionRecord(
+        id = id,
+        workflowId = workflowId,
+        sequence = sequence,
+        goal = goal,
+        idempotencyKey = idempotencyKey,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+    private fun WorkflowStepDefinitionEntity.toRunStep(
+        workflowRunId: String,
+        now: Long,
+        background: Boolean,
+    ) = WorkflowStepEntity(
+        id = "workflow-step-${UUID.randomUUID()}",
+        workflowRunId = workflowRunId,
+        sequence = sequence,
+        type = AGENT_RUN_STEP_TYPE,
+        status = WorkflowStepStatus.PENDING.name,
+        title = if (background) "后台步骤 $sequence" else "步骤 $sequence",
+        detail = goal,
+        agentRunId = null,
+        result = null,
+        errorMessage = null,
+        createdAt = now,
+        startedAt = null,
+        completedAt = null,
+        definitionStepId = id,
+        idempotencyKey = idempotencyKey,
+        inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(goal, emptyList()),
+        outputSnapshot = null,
+        reusedFromStepId = null,
+    )
 
     private fun WorkflowRunEntity.toRecord() = WorkflowRunRecord(
         id = id,
@@ -687,6 +1003,7 @@ class RoomWorkflowRepository(
         createdAt = createdAt,
         startedAt = startedAt,
         completedAt = completedAt,
+        retryOfWorkflowRunId = retryOfWorkflowRunId,
     )
 
     private fun WorkflowStepEntity.toRecord() = WorkflowStepRecord(
@@ -703,6 +1020,11 @@ class RoomWorkflowRepository(
         createdAt = createdAt,
         startedAt = startedAt,
         completedAt = completedAt,
+        definitionStepId = definitionStepId,
+        idempotencyKey = idempotencyKey,
+        inputSnapshot = inputSnapshot,
+        outputSnapshot = outputSnapshot,
+        reusedFromStepId = reusedFromStepId,
     )
 
     private fun ScheduledTaskEntity.toRecord() = ScheduledTaskRecord(
@@ -737,6 +1059,17 @@ class RoomWorkflowRepository(
 
     companion object {
         const val AGENT_RUN_STEP_TYPE = "AGENT_RUN"
+        private val SUCCESSFUL_STEP_STATUSES = setOf(
+            WorkflowStepStatus.COMPLETED.name,
+            WorkflowStepStatus.SKIPPED.name,
+        )
+        private val TERMINAL_STEP_STATUSES = setOf(
+            WorkflowStepStatus.BLOCKED,
+            WorkflowStepStatus.COMPLETED,
+            WorkflowStepStatus.SKIPPED,
+            WorkflowStepStatus.FAILED,
+            WorkflowStepStatus.CANCELLED,
+        )
 
         private val TERMINAL_RUN_STATUSES = setOf(
             WorkflowRunStatus.COMPLETED.name,

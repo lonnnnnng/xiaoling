@@ -36,8 +36,8 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、会话、消息、最小 Agent Run、审批请求、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v14 与当前 v15 Schema；迁移测试源码覆盖 v4→v15、v9→v15、v12→v15、v13→v15、v14→v15 和全新 v15 建库。
-- UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、查看完整工具结果/步骤/审批/事件，并对可重试终态创建关联的新 Run。工作流页提供一次、每日、每周计划入口、周期规则摘要和停用入口。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v15 与当前 v16 Schema；迁移测试源码覆盖 v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库。
+- UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、查看完整工具结果/步骤/审批/事件，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
 
@@ -97,11 +97,12 @@
 
 ## Workflow Ledger
 
-- 设置页「工作流」可保存名称和 Agent 目标、启停定义、手动执行并展开查看已加载的全部运行与单步结果；同一工作流存在 `QUEUED / RUNNING` Run 时，Repository 在创建事务内拒绝重复启动，UI 检查只用于提前反馈。
-- 手动执行先原子创建 `WorkflowRun` 和一个 `AGENT_RUN` 步骤，再进入当前会话的现有前台 Agent Runtime。首个 Agent 快照只允许把该步骤关联到一个稳定 `agentRunId`，后续快照幂等复用，不能产生第二次执行。
-- Agent 完成、失败、取消和用户拒绝审批都会通过统一终态映射收敛 Workflow Run 与 Step；结果和失败原因独立保存，历史 Agent Run 继续保留完整工具审计。恢复前置校验失败但 Agent 仍为 `WAITING_APPROVAL` 时，Workflow 保持运行中等待用户处理。
-- 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中，其他 Run 根据关联 Agent 终态完成、失败或取消；缺少关联 Agent Run 时 fail-closed。
-- Room v14 新增结构化 `ScheduledTask`，保存计划类型、计划时间、WorkRequest ID、实际启动时间、关联 Workflow Run、终态和失败原因；调度 Run 同时在 `workflow_runs` 保存 `scheduledTaskId / plannedAt`。Room v15 新增每个 Workflow 唯一的 `workflow_schedules` 规则，并用 `scheduled_tasks.scheduleId` 关联每次物化实例。
+- 设置页「工作流」可保存和编辑 1 至 8 个顺序 Agent 目标、启停定义、手动执行并展开查看定义与全部运行快照；同一工作流存在 `QUEUED / RUNNING` Run 时，Repository 在事务内拒绝重复启动和编辑。
+- Room v16 将未来定义保存到 `workflow_step_definitions`。每次创建 Run 时原子物化独立 `WorkflowStep`，冻结定义步骤 ID、顺序、幂等键、目标和输入快照；后续定义编辑只影响未来 Run，历史 Run 不回写。
+- 前台和 WorkManager 后台都按步骤顺序创建独立 Agent Run。每一步启动前把连续成功前缀的已验证输出冻结进输入快照，完成后写入输出快照；后续步骤通过 `WorkflowStepPromptPolicy` 接收这些输出，同时继续独立执行 Schema、权限、风险、审批和验证。
+- `BLOCKED / FAILED / CANCELLED` Workflow Run 可创建新 Run 重试。新 Run 通过 `retryOfWorkflowRunId` 关联来源，把连续成功前缀标为 `SKIPPED` 并记录 `reusedFromStepId`，首个未完成步骤及后续步骤恢复为 `PENDING`；旧 Run 不修改。
+- 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
+- Room v14 新增结构化 `ScheduledTask`，Room v15 新增唯一 `workflow_schedules` 规则，Room v16 新增 Workflow 步骤定义、运行重试来源和步骤输入/输出/复用快照。
 - 工作流页可创建 1 分钟至 7 天的一次性计划并取消尚未执行的计划。`OneTimeWorkRequest.setInitialDelay` 配合联网约束和唯一工作名提供非精确调度；产品文案明确系统可能延迟，不承诺准点。
 - Daily/Weekly 规则保存本地墙上时间、`ZoneId` 和可选周几。实现不使用 `PeriodicWorkRequest`：规则只维护一个未来 OneTime 实例；实例进入任意终态后，按规则时区计算并物化下一未来实例，每次实例均使用新的 ScheduledTask、WorkRequest、Workflow Run 和 Agent Run ID。
 - 同一 Workflow 最多一个周期规则。替换规则在 Room 事务内取消旧待执行实例并创建新实例，再同步取消旧唯一工作；停用规则或 Workflow 会清空 `nextTaskId / nextPlannedAt` 并取消 WorkManager。周期实例不暴露一次性任务取消入口，避免留下仍会继续生成下一实例的启用规则。
@@ -159,8 +160,8 @@
 
 ## 本地存储
 
-- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、Workflow、WorkflowRun、WorkflowStep、WorkflowSchedule 和 ScheduledTask 保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v15，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 编译覆盖正式 v4→v15、v9→v15、v12→v15、v13→v15、v14→v15 和全新 v15 建库，验证历史 Workflow/ScheduledTask 保持不变并创建空周期规则表。
+- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule 和 ScheduledTask 保存在 Room 数据库 `xiaoling.db`。
+- 数据库当前版本为 v16，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 编译覆盖正式 v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库。v15 的单步骤 Workflow 会回填定义，历史 Run 状态、结果和步骤保持不变，新增重试关联默认为空。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -186,7 +187,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Run 仍收敛为 `CANCELLED`；顺序多步 Agent、跨进程记忆删除撤销、本地 Skill 管理、Workflow Ledger、一次性与 Daily/Weekly 后台调度已交付，多步骤 Workflow、后台执行中的断点续跑和更多真实工具仍需按路线图继续补齐。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 仍安全收敛；多步骤 Workflow、步骤快照和安全重试已交付，后台执行栈断点续跑、Foreground Service 和更多真实工具仍需按路线图继续补齐。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

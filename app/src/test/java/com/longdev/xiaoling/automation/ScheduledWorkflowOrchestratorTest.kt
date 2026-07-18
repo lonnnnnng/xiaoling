@@ -19,7 +19,7 @@ class ScheduledWorkflowOrchestratorTest {
         val events = mutableListOf<String>()
         val orchestrator = orchestrator(
             claim = claim,
-            runAgent = { _, onAgentRunId ->
+            runAgent = { _, _, onAgentRunId ->
                 onAgentRunId("agent-run-1")
                 completedSummary()
             },
@@ -28,7 +28,40 @@ class ScheduledWorkflowOrchestratorTest {
 
         orchestrator.execute(claim.task.id)
 
-        assertEquals(listOf("agent:agent-run-1", "settle:COMPLETED", "notify:COMPLETED"), events)
+        assertEquals(
+            listOf("agent:1:agent-run-1", "step:1:COMPLETED", "settle:COMPLETED", "notify:COMPLETED"),
+            events,
+        )
+    }
+
+    @Test
+    fun multipleStepsRunSequentiallyAndNotifyOnce() = runTest {
+        val claim = testClaim(stepCount = 3)
+        val events = mutableListOf<String>()
+        val orchestrator = orchestrator(
+            claim = claim,
+            runAgent = { _, step, onAgentRunId ->
+                onAgentRunId("agent-run-${step.sequence}")
+                completedSummary(step.sequence)
+            },
+            events = events,
+        )
+
+        orchestrator.execute(claim.task.id)
+
+        assertEquals(
+            listOf(
+                "agent:1:agent-run-1",
+                "step:1:COMPLETED",
+                "agent:2:agent-run-2",
+                "step:2:COMPLETED",
+                "agent:3:agent-run-3",
+                "step:3:COMPLETED",
+                "settle:COMPLETED",
+                "notify:COMPLETED",
+            ),
+            events,
+        )
     }
 
     @Test
@@ -37,7 +70,7 @@ class ScheduledWorkflowOrchestratorTest {
         val events = mutableListOf<String>()
         val orchestrator = orchestrator(
             claim = claim,
-            runAgent = { _, _ -> throw AgentBackgroundApprovalRequiredException("notes.create") },
+            runAgent = { _, _, _ -> throw AgentBackgroundApprovalRequiredException("notes.create") },
             events = events,
         )
 
@@ -52,7 +85,7 @@ class ScheduledWorkflowOrchestratorTest {
         val events = mutableListOf<String>()
         val orchestrator = orchestrator(
             claim = claim,
-            runAgent = { _, _ -> error("上游不可用") },
+            runAgent = { _, _, _ -> error("上游不可用") },
             events = events,
         )
 
@@ -67,7 +100,7 @@ class ScheduledWorkflowOrchestratorTest {
         val events = mutableListOf<String>()
         val orchestrator = orchestrator(
             claim = claim,
-            runAgent = { _, _ -> throw CancellationException("stop") },
+            runAgent = { _, _, _ -> throw CancellationException("stop") },
             events = events,
         )
 
@@ -82,8 +115,9 @@ class ScheduledWorkflowOrchestratorTest {
         val events = mutableListOf<String>()
         val orchestrator = ScheduledWorkflowOrchestrator(
             claimTask = { null },
-            runAgent = { _, _ -> error("领取失败后不应执行") },
-            markAgentRunStarted = { _, _ -> error("领取失败后不应关联 Agent Run") },
+            runAgent = { _, _, _ -> error("领取失败后不应执行") },
+            markAgentRunStarted = { _, _, _ -> error("领取失败后不应关联 Agent Run") },
+            completeStep = { _, _, _ -> error("领取失败后不应完成步骤") },
             settle = { _, _ -> error("领取失败后不应写执行终态") },
             notify = { _, _, _ -> error("领取失败后不应发送成功通知") },
             onClaimRejected = { events += "claim-rejected:$it" },
@@ -96,12 +130,20 @@ class ScheduledWorkflowOrchestratorTest {
 
     private fun orchestrator(
         claim: ScheduledWorkflowClaim,
-        runAgent: suspend (ScheduledWorkflowClaim, suspend (String) -> Unit) -> AgentRunSummary,
+        runAgent: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, suspend (String) -> Unit) -> AgentRunSummary,
         events: MutableList<String>,
     ) = ScheduledWorkflowOrchestrator(
         claimTask = { claim },
         runAgent = runAgent,
-        markAgentRunStarted = { _, agentRunId -> events += "agent:$agentRunId" },
+        markAgentRunStarted = { _, step, agentRunId -> events += "agent:${step.sequence}:$agentRunId" },
+        completeStep = { _, step, summary ->
+            events += "step:${step.sequence}:COMPLETED"
+            step.copy(
+                status = WorkflowStepStatus.COMPLETED,
+                result = summary.responseText,
+                outputSnapshot = summary.responseText,
+            )
+        },
         settle = { current, outcome ->
             val status = when (outcome) {
                 is ScheduledExecutionOutcome.Completed -> ScheduledTaskStatus.COMPLETED
@@ -116,7 +158,7 @@ class ScheduledWorkflowOrchestratorTest {
         onClaimRejected = { events += "claim-rejected:$it" },
     )
 
-    private fun testClaim(): ScheduledWorkflowClaim {
+    private fun testClaim(stepCount: Int = 1): ScheduledWorkflowClaim {
         val task = ScheduledTaskRecord(
             id = "scheduled-task-1",
             workflowId = "workflow-1",
@@ -148,30 +190,35 @@ class ScheduledWorkflowOrchestratorTest {
             startedAt = 1_100L,
             completedAt = null,
         )
-        val step = WorkflowStepRecord(
-            id = "workflow-step-1",
-            workflowRunId = run.id,
-            sequence = 1,
-            type = "AGENT_RUN",
-            status = WorkflowStepStatus.PENDING,
-            title = "后台执行 Agent 目标",
-            detail = workflow.goal,
-            agentRunId = null,
-            result = null,
-            errorMessage = null,
-            createdAt = 1_100L,
-            startedAt = null,
-            completedAt = null,
-        )
-        return ScheduledWorkflowClaim(task, workflow, WorkflowRunDetail(run, listOf(step)), "message-1")
+        val steps = (1..stepCount).map { sequence ->
+            WorkflowStepRecord(
+                id = "workflow-step-$sequence",
+                workflowRunId = run.id,
+                sequence = sequence,
+                type = "AGENT_RUN",
+                status = WorkflowStepStatus.PENDING,
+                title = "后台步骤 $sequence",
+                detail = "目标 $sequence",
+                agentRunId = null,
+                result = null,
+                errorMessage = null,
+                createdAt = 1_100L,
+                startedAt = null,
+                completedAt = null,
+                definitionStepId = "definition-$sequence",
+                idempotencyKey = "definition-$sequence",
+                inputSnapshot = "{}",
+            )
+        }
+        return ScheduledWorkflowClaim(task, workflow, WorkflowRunDetail(run, steps), "message-1")
     }
 
-    private fun completedSummary() = AgentRunSummary(
-        runId = "agent-run-1",
+    private fun completedSummary(sequence: Int = 1) = AgentRunSummary(
+        runId = "agent-run-$sequence",
         status = AgentRunStatus.COMPLETED,
-        responseText = "读取完成",
+        responseText = "步骤 $sequence 完成",
         verifiedContext = VerifiedAgentContext(
-            runId = "agent-run-1",
+            runId = "agent-run-$sequence",
             toolName = "app.current_time",
             arguments = emptyMap(),
             success = true,

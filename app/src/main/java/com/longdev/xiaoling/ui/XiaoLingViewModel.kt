@@ -36,9 +36,16 @@ import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
+import com.longdev.xiaoling.automation.WorkflowRunRetryEligibility
+import com.longdev.xiaoling.automation.WorkflowRunRetryPolicy
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
+import com.longdev.xiaoling.automation.WorkflowStepExecutionPolicy
+import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
+import com.longdev.xiaoling.automation.WorkflowStepPromptPolicy
+import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
+import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
@@ -175,6 +182,7 @@ data class XiaoLingUiState(
     val mutatingWorkflowScheduleIds: Set<String> = emptySet(),
     val schedulingWorkflowId: String? = null,
     val runningWorkflowId: String? = null,
+    val pendingWorkflowRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
     val workflowError: String? = null,
     val workflowNavigationConversationId: String? = null,
     val backupBusy: Boolean = false,
@@ -280,6 +288,13 @@ data class AgentApprovalUiState(
 data class AgentRetryConfirmationUiState(
     val runId: String,
     val goal: String,
+)
+
+data class WorkflowRetryConfirmationUiState(
+    val runId: String,
+    val workflowName: String,
+    val retryFromSequence: Int,
+    val reusedStepCount: Int,
 )
 
 data class AgentMemoryEditUiState(
@@ -667,10 +682,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createWorkflow(name: String, goal: String) {
+    fun createWorkflow(name: String, stepGoals: List<String>) {
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { workflowRepository.createWorkflow(name, goal) }
+                withContext(Dispatchers.IO) {
+                    workflowRepository.createWorkflow(name, stepGoals.map(::WorkflowStepDefinitionInput))
+                }
             }.onSuccess { workflow ->
                 uiState = uiState.copy(
                     result = OperationResult(true, "工作流已保存", workflow.name),
@@ -679,6 +696,163 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 refreshWorkflows()
             }.onFailure { error ->
                 uiState = uiState.copy(workflowError = error.message ?: "保存工作流失败")
+            }
+        }
+    }
+
+    fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>) {
+        if (workflowId in uiState.mutatingWorkflowIds) return
+        uiState = uiState.copy(
+            mutatingWorkflowIds = uiState.mutatingWorkflowIds + workflowId,
+            workflowError = null,
+        )
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    workflowRepository.updateWorkflow(
+                        workflowId = workflowId,
+                        name = name,
+                        steps = stepGoals.map(::WorkflowStepDefinitionInput),
+                    )
+                }
+            }.onSuccess { workflow ->
+                uiState = uiState.copy(
+                    mutatingWorkflowIds = uiState.mutatingWorkflowIds - workflowId,
+                    result = OperationResult(true, "工作流已更新", workflow.name),
+                    workflowError = null,
+                )
+                refreshWorkflows()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingWorkflowIds = uiState.mutatingWorkflowIds - workflowId,
+                    workflowError = error.message ?: "更新工作流失败",
+                )
+            }
+        }
+    }
+
+    fun requestWorkflowRunRetry(runId: String) {
+        if (uiState.sendingMessage || uiState.runningWorkflowId != null) {
+            showValidation("当前已有任务正在执行，请等待结束后再重试")
+            return
+        }
+        val detail = uiState.workflowRuns.firstOrNull { it.run.id == runId }
+        if (detail == null) {
+            showValidation("找不到要重试的 Workflow Run，请刷新后再试")
+            return
+        }
+        val workflow = uiState.workflows.firstOrNull { it.id == detail.run.workflowId }
+        if (workflow == null || !workflow.enabled) {
+            showValidation("工作流不存在或已停用，不能重试")
+            return
+        }
+        val hasActiveRun = uiState.workflowRuns.any {
+            it.run.workflowId == detail.run.workflowId &&
+                it.run.id != detail.run.id &&
+                it.run.status in setOf(WorkflowRunStatus.QUEUED, WorkflowRunStatus.RUNNING)
+        }
+        when (val eligibility = WorkflowRunRetryPolicy.evaluate(detail, hasActiveRun)) {
+            is WorkflowRunRetryEligibility.NotRetryable -> showValidation(eligibility.reason)
+            is WorkflowRunRetryEligibility.Retryable -> {
+                val workflowName = workflow.name
+                if (eligibility.requiresConfirmation) {
+                    uiState = uiState.copy(
+                        pendingWorkflowRetryConfirmation = WorkflowRetryConfirmationUiState(
+                            runId = runId,
+                            workflowName = workflowName,
+                            retryFromSequence = eligibility.retryFromSequence,
+                            reusedStepCount = eligibility.reusedStepCount,
+                        ),
+                    )
+                } else {
+                    startWorkflowRunRetry(detail)
+                }
+            }
+        }
+    }
+
+    fun confirmWorkflowRunRetry() {
+        val pending = uiState.pendingWorkflowRetryConfirmation ?: return
+        uiState = uiState.copy(pendingWorkflowRetryConfirmation = null)
+        val detail = uiState.workflowRuns.firstOrNull { it.run.id == pending.runId }
+        if (detail == null) {
+            showValidation("来源 Workflow Run 已不存在，请刷新后再试")
+            return
+        }
+        startWorkflowRunRetry(detail)
+    }
+
+    fun cancelWorkflowRunRetry() {
+        uiState = uiState.copy(pendingWorkflowRetryConfirmation = null)
+    }
+
+    private fun startWorkflowRunRetry(sourceDetail: WorkflowRunDetail) {
+        val sourceRun = sourceDetail.run
+        val conversation = uiState.conversations.firstOrNull { it.id == sourceRun.conversationId }
+        if (conversation == null) {
+            showValidation("来源会话已不存在，无法在原上下文中重试")
+            return
+        }
+        val config = validatedConfig() ?: return
+        selectConversation(sourceRun.conversationId)
+        uiState = uiState.copy(
+            runningWorkflowId = sourceRun.workflowId,
+            pendingWorkflowRetryConfirmation = null,
+            workflowError = null,
+            workflowNavigationConversationId = sourceRun.conversationId,
+            sendingMessage = true,
+        )
+        clearAgentStateForConversation(sourceRun.conversationId)
+        sendMessageJob = viewModelScope.launch {
+            var retryDetail: WorkflowRunDetail? = null
+            try {
+                retryDetail = withContext(Dispatchers.IO) {
+                    workflowRepository.retryRun(sourceRun.id, sourceRun.conversationId)
+                }
+                // long: 重试记录先进入 UI，再启动首个未完成步骤；来源 Run 与复用步骤引用始终保留，便于用户核对新旧执行证据。
+                uiState = uiState.copy(workflowRuns = listOf(retryDetail) + uiState.workflowRuns)
+                executeForegroundWorkflow(retryDetail, config, sourceRun.conversationId)
+            } catch (error: CancellationException) {
+                retryDetail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.CANCELLED,
+                            errorMessage = "用户停止工作流重试",
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    sourceRun.conversationId,
+                    ChatMessage(role = "error", text = "已停止工作流重试", createdAt = System.currentTimeMillis()),
+                )
+            } catch (error: Throwable) {
+                val failure = error.message ?: "工作流重试失败"
+                retryDetail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.FAILED,
+                            errorMessage = failure,
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    sourceRun.conversationId,
+                    ChatMessage(
+                        role = "error",
+                        text = "工作流重试失败\n$failure",
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+                uiState = uiState.copy(workflowError = failure)
+            } finally {
+                pendingApprovalDecision = null
+                clearPendingApprovalForConversation(sourceRun.conversationId)
+                uiState = uiState.copy(runningWorkflowId = null, sendingMessage = false)
+                sendMessageJob = null
+                refreshWorkflows()
+                saveConversationSelection()
             }
         }
     }
@@ -945,26 +1119,145 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             runningWorkflowId = workflowId,
             workflowError = null,
             workflowNavigationConversationId = conversationId,
+            sendingMessage = true,
         )
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { workflowRepository.createManualRun(workflowId, conversationId) }
-            }.onSuccess { detail ->
-                // long: 手动工作流仍进入当前会话的前台 Agent 链路，敏感工具继续显示原审批卡；Ledger 只关联执行，不绕过 Runtime 安全策略。
-                sendAgentRun(
-                    userMessage = "/agent ${workflow.goal}",
-                    config = config,
-                    conversationId = conversationId,
-                    workflowRunId = detail.run.id,
-                )
+        clearAgentStateForConversation(conversationId)
+        sendMessageJob = viewModelScope.launch {
+            var detail: WorkflowRunDetail? = null
+            try {
+                detail = withContext(Dispatchers.IO) { workflowRepository.createManualRun(workflowId, conversationId) }
                 uiState = uiState.copy(workflowRuns = listOf(detail) + uiState.workflowRuns)
-            }.onFailure { error ->
+                executeForegroundWorkflow(detail, config, conversationId)
+            } catch (error: CancellationException) {
+                detail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.CANCELLED,
+                            errorMessage = "用户停止工作流执行",
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(role = "error", text = "已停止工作流", createdAt = System.currentTimeMillis()),
+                )
+            } catch (error: Throwable) {
+                detail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.FAILED,
+                            errorMessage = error.message ?: "工作流执行失败",
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(
+                        role = "error",
+                        text = "工作流失败\n${error.message ?: "未知错误"}",
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+                uiState = uiState.copy(workflowError = error.message ?: "工作流执行失败")
+            } finally {
+                pendingApprovalDecision = null
+                clearPendingApprovalForConversation(conversationId)
                 uiState = uiState.copy(
                     runningWorkflowId = null,
-                    workflowError = error.message ?: "创建工作流 Run 失败",
+                    sendingMessage = false,
                 )
+                sendMessageJob = null
+                refreshWorkflows()
+                saveConversationSelection()
             }
         }
+    }
+
+    private suspend fun executeForegroundWorkflow(
+        initialDetail: WorkflowRunDetail,
+        config: ProviderRequestConfig,
+        conversationId: String,
+    ) {
+        var detail = initialDetail
+        val approvalGate = interactiveAgentApprovalGate(conversationId)
+        while (true) {
+            val step = WorkflowStepExecutionPolicy.nextExecutableStep(detail.steps) ?: break
+            val preparedStep = withContext(Dispatchers.IO) {
+                workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
+            }
+            val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
+            val executionGoal = WorkflowStepPromptPolicy.build(input.goal, input.previousOutputs)
+            val userMessage = ChatMessage(
+                role = "user",
+                text = "/agent ${preparedStep.detail}",
+                createdAt = System.currentTimeMillis(),
+            )
+            appendWorkflowMessage(conversationId, userMessage)
+            saveConversationSelection()
+            // long: 每个 Workflow 步骤仍是独立 Agent Run，继续执行原有逐工具审批与验证；前序输出只作为本步骤已冻结的输入上下文。
+            val summary = agentRunUseCase.run(
+                conversationId = conversationId,
+                userMessageId = userMessage.id,
+                goal = executionGoal,
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                approvalGate = approvalGate,
+                onSnapshot = { snapshot ->
+                    withContext(Dispatchers.IO) {
+                        workflowRepository.markAgentRunStarted(detail.run.id, preparedStep.id, snapshot.run.id)
+                    }
+                    publishAgentRunSnapshot(snapshot)
+                },
+            )
+            withContext(Dispatchers.IO) {
+                workflowRepository.completeWorkflowStep(
+                    workflowRunId = detail.run.id,
+                    workflowStepId = preparedStep.id,
+                    status = WorkflowStepStatus.COMPLETED,
+                    result = summary.responseText,
+                )
+            }
+            appendWorkflowMessage(
+                conversationId,
+                ChatMessage(
+                    role = "assistant",
+                    text = summary.responseText,
+                    createdAt = System.currentTimeMillis(),
+                    origin = MessageOrigin.AGENT_RESULT,
+                    verifiedAgentContext = summary.verifiedContext,
+                ),
+            )
+            createMemoryCandidateAfterTurn(
+                userText = preparedStep.detail,
+                conversationId = conversationId,
+                runId = summary.runId,
+            )
+            saveConversationSelection()
+            detail = withContext(Dispatchers.IO) {
+                workflowRepository.runDetail(detail.run.id) ?: error("工作流 Run 已丢失")
+            }
+        }
+        require(detail.steps.all { it.status in setOf(WorkflowStepStatus.COMPLETED, WorkflowStepStatus.SKIPPED) }) {
+            "工作流仍有未完成步骤"
+        }
+        val result = detail.steps.mapNotNull { it.outputSnapshot ?: it.result }.joinToString(separator = "\n\n")
+        withContext(Dispatchers.IO) {
+            workflowRepository.completeRun(detail.run.id, WorkflowRunStatus.COMPLETED, result = result)
+        }
+    }
+
+    private fun appendWorkflowMessage(conversationId: String, message: ChatMessage) {
+        val conversation = uiState.conversations.firstOrNull { it.id == conversationId } ?: return
+        uiState = uiState.withUpdatedConversation(
+            conversationId = conversationId,
+            messages = conversation.messages + message,
+            summary = conversation.summary,
+            summaryUntilMessageId = conversation.summaryUntilMessageId,
+            summaryUpdatedAt = conversation.summaryUpdatedAt,
+            summaryModel = conversation.summaryModel,
+        )
     }
 
     fun consumeWorkflowNavigation() {
@@ -1643,6 +1936,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             selectedAgentRunId = source.id,
         )
         sendMessageJob = viewModelScope.launch {
+            var workflowRunIdToSettle: String? = null
             try {
                 val summary = agentRunUseCase.resumeApprovedRun(
                     detail = detail,
@@ -1653,11 +1947,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     approvalGate = interactiveAgentApprovalGate(source.conversationId),
                     onSnapshot = ::publishAgentRunSnapshot,
                 )
-                settleWorkflowLedger(
-                    agentRunId = summary.runId,
-                    agentStatus = AgentRunStatus.COMPLETED,
-                    result = summary.responseText,
-                )
+                val workflowContinuation = withContext(NonCancellable + Dispatchers.IO) {
+                    val workflowRun = workflowRepository.completeByAgentRunId(
+                        agentRunId = summary.runId,
+                        status = WorkflowRunStatus.COMPLETED,
+                        result = summary.responseText,
+                    )
+                    workflowRun
+                        ?.takeIf { it.status == WorkflowRunStatus.RUNNING }
+                        ?.let { workflowRepository.runDetail(it.id) }
+                }
+                workflowRunIdToSettle = workflowContinuation?.run?.id
                 val finalMessages = conversation.messages + ChatMessage(
                     role = "assistant",
                     text = summary.responseText,
@@ -1681,13 +1981,36 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     runId = summary.runId,
                 )
                 saveConversationSelection()
+                if (workflowContinuation != null) {
+                    // long: 进程恢复只续接已经由用户批准的当前步骤；步骤结果落库后继续同一 Run 的后续快照，避免留下永久 RUNNING 的 Workflow。
+                    uiState = uiState.copy(runningWorkflowId = workflowContinuation.run.workflowId)
+                    executeForegroundWorkflow(workflowContinuation, config, source.conversationId)
+                }
             } catch (error: CancellationException) {
-                reconcileWorkflowAfterResumeFailure(source.id, "用户停止工作流执行")
-                uiState = uiState.copy(sendingMessage = false, result = null)
+                workflowRunIdToSettle?.let { workflowRunId ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            workflowRunId,
+                            WorkflowRunStatus.CANCELLED,
+                            errorMessage = "用户停止工作流执行",
+                        )
+                    }
+                } ?: reconcileWorkflowAfterResumeFailure(source.id, "用户停止工作流执行")
+                uiState = uiState.copy(sendingMessage = false, runningWorkflowId = null, result = null)
             } catch (error: Throwable) {
-                reconcileWorkflowAfterResumeFailure(source.id, error.message ?: "未知错误")
-                uiState = uiState.copy(sendingMessage = false, result = null)
+                val failure = error.message ?: "未知错误"
+                workflowRunIdToSettle?.let { workflowRunId ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            workflowRunId,
+                            WorkflowRunStatus.FAILED,
+                            errorMessage = failure,
+                        )
+                    }
+                } ?: reconcileWorkflowAfterResumeFailure(source.id, failure)
+                uiState = uiState.copy(sendingMessage = false, runningWorkflowId = null, result = null)
             } finally {
+                uiState = uiState.copy(sendingMessage = false, runningWorkflowId = null)
                 sendMessageJob = null
                 refreshAgentRunHistory()
                 refreshWorkflows()

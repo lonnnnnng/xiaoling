@@ -23,12 +23,13 @@ import org.json.JSONObject
         AgentNoteEntity::class,
         AgentSkillEntity::class,
         WorkflowEntity::class,
+        WorkflowStepDefinitionEntity::class,
         WorkflowRunEntity::class,
         WorkflowStepEntity::class,
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -41,7 +42,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 15
+        const val CURRENT_VERSION = 16
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -418,6 +419,61 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 工作流定义步骤与历史运行步骤分离保存；编辑定义只影响未来 Run，旧 Run 继续保留当时的顺序、目标和结果。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workflow_step_definitions` (
+                        `id` TEXT NOT NULL,
+                        `workflowId` TEXT NOT NULL,
+                        `sequence` INTEGER NOT NULL,
+                        `goal` TEXT NOT NULL,
+                        `idempotencyKey` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_step_definitions_workflowId_sequence` ON `workflow_step_definitions` (`workflowId`, `sequence`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_step_definitions_workflowId_idempotencyKey` ON `workflow_step_definitions` (`workflowId`, `idempotencyKey`)")
+                db.execSQL(
+                    """
+                    INSERT INTO `workflow_step_definitions` (`id`, `workflowId`, `sequence`, `goal`, `idempotencyKey`, `createdAt`, `updatedAt`)
+                    SELECT 'workflow-definition-step-' || `id`, `id`, 1, `goal`, 'legacy:' || `id` || ':1', `createdAt`, `updatedAt`
+                    FROM `workflows`
+                    """.trimIndent(),
+                )
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `retryOfWorkflowRunId` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflow_runs_retryOfWorkflowRunId` ON `workflow_runs` (`retryOfWorkflowRunId`)")
+                db.execSQL("ALTER TABLE `workflow_steps` ADD COLUMN `definitionStepId` TEXT")
+                db.execSQL("ALTER TABLE `workflow_steps` ADD COLUMN `idempotencyKey` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `workflow_steps` ADD COLUMN `inputSnapshot` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `workflow_steps` ADD COLUMN `outputSnapshot` TEXT")
+                db.execSQL("ALTER TABLE `workflow_steps` ADD COLUMN `reusedFromStepId` TEXT")
+                // long: v15 每个 Run 只有一个步骤；用 Run ID 生成旧记录唯一键，并原样保留 detail/result 作为迁移前输入输出快照。
+                db.execSQL(
+                    """
+                    UPDATE `workflow_steps`
+                    SET `definitionStepId` = (
+                            SELECT `workflow_step_definitions`.`id`
+                            FROM `workflow_step_definitions`
+                            JOIN `workflow_runs` ON `workflow_runs`.`workflowId` = `workflow_step_definitions`.`workflowId`
+                            WHERE `workflow_runs`.`id` = `workflow_steps`.`workflowRunId`
+                              AND `workflow_step_definitions`.`sequence` = 1
+                        ),
+                        `idempotencyKey` = `workflowRunId` || ':legacy:1',
+                        `inputSnapshot` = `detail`,
+                        `outputSnapshot` = `result`
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_steps_workflowRunId_idempotencyKey` ON `workflow_steps` (`workflowRunId`, `idempotencyKey`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_steps_agentRunId` ON `workflow_steps` (`agentRunId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflow_steps_reusedFromStepId` ON `workflow_steps` (`reusedFromStepId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -433,6 +489,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_12_13,
             MIGRATION_13_14,
             MIGRATION_14_15,
+            MIGRATION_15_16,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

@@ -35,7 +35,8 @@
 - 应用侧 Tool Registry 统一声明字符串/整数/数值/布尔类型、长度/范围/枚举、风险、确认、Android 权限、后台能力、超时和验证策略；Runtime 按前台/后台来源执行能力门禁，模型不能增加未知参数、修改工具风险或自行增加执行事实。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 声明式 Skill 按需加载与管理：内置和本地 Skill 统一进入 Room Catalog；本地 `schemaVersion=1` JSON 经过字段白名单、工具注册表、风险与 Android 权限一致性校验后才可导入，设置页支持查看、启停和删除本地 Skill。Run 审计固定所选 Skill 的 ID/版本，审批恢复不得因期间停用、删除或升版而扩大工具面。
-- Workflow Ledger 与前台手动执行：用户可保存、启停和运行可重复 Agent 目标；每次运行独立记录 `WorkflowRun / WorkflowStep`、触发来源、会话、关联 Agent Run、结果和失败原因。手动运行复用现有前台审批与验证链路，进程重建后只保留可恢复审批，其他执行按关联 Agent Run 终态收敛。
+- 多步骤 Workflow Ledger：用户可保存、编辑、启停和运行包含 1 至 8 个顺序 Agent 步骤的工作流；活动 Run 存在时禁止编辑，历史 Run 保留创建时的步骤定义、输入/输出快照、幂等键、触发来源、会话、关联 Agent Run、结果和失败原因。手动运行复用现有前台审批与验证链路，后台调度按相同顺序执行且不会绕过审批门禁。
+- Workflow 安全重试：`BLOCKED / FAILED / CANCELLED` Run 可创建带 `retryOfWorkflowRunId` 的新 Run；只复用来源 Run 连续成功前缀的输出，首个未完成步骤及后续步骤重新执行。已启动过的失败步骤重试前必须二次确认，旧 Run 和步骤快照保持不变。
 - 一次性非精确定时：用户可为已启用 Workflow 创建或取消 1 分钟至 7 天的一次性计划；`ScheduledTask` 记录计划时间、实际启动时间、WorkRequest 和关联 Workflow Run。后台只允许显式开放的 SAFE 只读工具，需审批工具进入 `BLOCKED` 并通知用户以前台新 Run 继续；真机已验证触发前进程被回收后由 WorkManager 冷启动执行并收敛 Ledger。
 - Daily/Weekly 周期规则：用户可按当前系统时区保存每日或每周墙上时间；每次只物化一个独立的 OneTime `ScheduledTask`，终态后再生成下一未来实例，不补跑错过的历史周期。替换规则会取消旧待执行实例，停用规则或 Workflow 会同步取消系统队列；每次触发仍建立独立 Workflow/Agent Run，旧 Run 和历史实例保持不变。
 - 设置页长期记忆管理：FTS4 + 中文子串兜底搜索、全部/启用/禁用筛选、内容/标签/类型/置信度编辑、置顶、启停、删除确认、跨进程撤销和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
@@ -44,7 +45,7 @@
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
 - 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
-- Room v15 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入，v4→v15、v9→v15、v12→v15、v13→v15 与 v14→v15 升级已有 Schema 和迁移测试源码保护。
+- Room v16 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v15→v16 会把旧 Workflow 回填为单步骤定义并保留历史 Run，v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库已有 Schema 与迁移测试源码保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
@@ -52,7 +53,7 @@
 - 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Run 的原地恢复、并行工具调用、多步骤 Workflow 编辑、后台执行中的断点续跑、精确定时、Foreground Service 和手机自动化；顺序多步 Agent、待审批 Run 原地继续、声明式 Skill 本地导入与管理、Workflow Ledger、一次性与 Daily/Weekly WorkManager 非精确调度、触发前进程回收后的冷启动执行、后台 `BLOCKED` 与结果通知、跨进程记忆删除撤销、记忆过期、时间衰减、实际引用审计与单次召回关闭已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Agent Run 的原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
 补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；上述未交付项仅指执行/验证中断点以及尚未完成的后台一致性和自动化能力。
 

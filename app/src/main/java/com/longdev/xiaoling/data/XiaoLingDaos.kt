@@ -220,13 +220,32 @@ interface WorkflowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWorkflow(workflow: WorkflowEntity)
 
+    @Query("SELECT * FROM workflow_step_definitions WHERE workflowId = :workflowId ORDER BY sequence ASC")
+    suspend fun getWorkflowStepDefinitions(workflowId: String): List<WorkflowStepDefinitionEntity>
+
+    @Query("SELECT * FROM workflow_step_definitions ORDER BY workflowId ASC, sequence ASC")
+    suspend fun listWorkflowStepDefinitions(): List<WorkflowStepDefinitionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkflowStepDefinitions(steps: List<WorkflowStepDefinitionEntity>)
+
+    @Query("DELETE FROM workflow_step_definitions WHERE workflowId = :workflowId")
+    suspend fun deleteWorkflowStepDefinitions(workflowId: String)
+
     @Query("UPDATE workflows SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :workflowId")
     suspend fun setWorkflowEnabled(workflowId: String, enabled: Boolean, updatedAt: Long): Int
 
     @Query("SELECT * FROM workflow_runs WHERE id = :workflowRunId")
     suspend fun getRun(workflowRunId: String): WorkflowRunEntity?
 
-    @Query("SELECT * FROM workflow_runs WHERE agentRunId = :agentRunId")
+    @Query(
+        """
+        SELECT workflow_runs.* FROM workflow_runs
+        JOIN workflow_steps ON workflow_steps.workflowRunId = workflow_runs.id
+        WHERE workflow_steps.agentRunId = :agentRunId
+        LIMIT 1
+        """,
+    )
     suspend fun getRunByAgentRunId(agentRunId: String): WorkflowRunEntity?
 
     @Query("SELECT * FROM workflow_runs WHERE workflowId = :workflowId AND status IN ('QUEUED', 'RUNNING') ORDER BY createdAt DESC LIMIT 1")
@@ -246,6 +265,12 @@ interface WorkflowDao {
 
     @Query("SELECT * FROM workflow_steps WHERE workflowRunId = :workflowRunId ORDER BY sequence ASC")
     suspend fun getSteps(workflowRunId: String): List<WorkflowStepEntity>
+
+    @Query("SELECT * FROM workflow_steps WHERE id = :stepId")
+    suspend fun getStep(stepId: String): WorkflowStepEntity?
+
+    @Query("SELECT * FROM workflow_steps WHERE agentRunId = :agentRunId LIMIT 1")
+    suspend fun getStepByAgentRunId(agentRunId: String): WorkflowStepEntity?
 
     @Query("SELECT * FROM workflow_steps WHERE workflowRunId IN (:workflowRunIds) ORDER BY workflowRunId ASC, sequence ASC")
     suspend fun getStepsForRuns(workflowRunIds: List<String>): List<WorkflowStepEntity>

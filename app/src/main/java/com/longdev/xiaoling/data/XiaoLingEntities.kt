@@ -237,12 +237,30 @@ data class WorkflowEntity(
 )
 
 @Entity(
+    tableName = "workflow_step_definitions",
+    indices = [
+        Index(value = ["workflowId", "sequence"], unique = true),
+        Index(value = ["workflowId", "idempotencyKey"], unique = true),
+    ],
+)
+data class WorkflowStepDefinitionEntity(
+    @PrimaryKey val id: String,
+    val workflowId: String,
+    val sequence: Int,
+    val goal: String,
+    val idempotencyKey: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
     tableName = "workflow_runs",
     indices = [
         Index(value = ["workflowId", "createdAt"]),
         Index(value = ["status", "createdAt"]),
         Index(value = ["agentRunId"], unique = true),
         Index(value = ["scheduledTaskId"], unique = true),
+        Index(value = ["retryOfWorkflowRunId"]),
     ],
 )
 data class WorkflowRunEntity(
@@ -259,6 +277,7 @@ data class WorkflowRunEntity(
     val createdAt: Long,
     val startedAt: Long?,
     val completedAt: Long?,
+    val retryOfWorkflowRunId: String?,
 )
 
 @Entity(
@@ -311,7 +330,12 @@ data class WorkflowScheduleEntity(
 
 @Entity(
     tableName = "workflow_steps",
-    indices = [Index(value = ["workflowRunId", "sequence"], unique = true)],
+    indices = [
+        Index(value = ["workflowRunId", "sequence"], unique = true),
+        Index(value = ["workflowRunId", "idempotencyKey"], unique = true),
+        Index(value = ["agentRunId"], unique = true),
+        Index(value = ["reusedFromStepId"]),
+    ],
 )
 data class WorkflowStepEntity(
     @PrimaryKey val id: String,
@@ -327,4 +351,9 @@ data class WorkflowStepEntity(
     val createdAt: Long,
     val startedAt: Long?,
     val completedAt: Long?,
+    val definitionStepId: String?,
+    val idempotencyKey: String,
+    val inputSnapshot: String,
+    val outputSnapshot: String?,
+    val reusedFromStepId: String?,
 )

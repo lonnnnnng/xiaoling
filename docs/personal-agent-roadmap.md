@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持前台手动执行，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。一次性 SAFE、后台 blocked、结果通知、触发前进程回收后的冷启动执行和 Daily/Weekly 规则替换/停用均已通过真机验收，下一阶段进入多步骤 Workflow 与后台中断后的安全重新运行设计，而不是立即增加大量手机工具。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。下一阶段应验证多步骤真机链路并评估长任务 Foreground Service，而不是立即增加大量手机工具。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -38,7 +38,7 @@
 - 首个工具执行前 `WAITING_APPROVAL` 的原地恢复已接入；执行任意工具后的审批等待，以及执行/验证中的旧协程、工具执行栈和验证栈仍不恢复。
 - 第一批真实 Tool Registry 已统一声明 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、后台能力、超时和验证策略；生产权限检查器默认 fail-closed，Runtime 已按前台/后台来源执行能力门禁。
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
-- 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；Workflow 定义、前台手动运行、一次性和 Daily/Weekly 后台调度、通知和审批 blocked 状态已完成，多步骤 Workflow 编排尚未完成。
+- 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
 
@@ -96,7 +96,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v15 迁移测试源码、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v16 迁移测试源码、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -106,7 +106,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v15 migration 链、v6 JSON event metadata、v7 Run 重试关联、v8 Memory FTS、v9 候选表、v10 生命周期、v11 Skill、v12 Workflow、v13 ScheduledTask、v14 WorkflowSchedule 迁移和全新 v15 建库提供自动化测试源码；本轮未在保存 Keystore 凭据的真机执行 instrumentation。
+- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v16 migration 链、v6 JSON event metadata、v7 Run 重试关联、v8 Memory FTS、v9 候选表、v10 生命周期、v11 Skill、v12 Workflow、v13 ScheduledTask、v14 WorkflowSchedule、v15 多步骤 Workflow 迁移和全新 v16 建库提供自动化测试源码；为保护 Keystore 凭据不在真机执行 instrumentation。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -244,16 +244,16 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：让用户保存可重复任务，并能查看每次执行结果。
 
-当前状态：已交付 `Workflow / WorkflowRun / WorkflowStep / WorkflowSchedule / ScheduledTask` Room Ledger、设置页创建/启停/手动执行、一次性与 Daily/Weekly 计划、关联 Agent Run、计划与实际时间、结果通知和后台 blocked 审批；真机已验证触发前进程回收后由 WorkManager 冷启动并收敛 Ledger，以及周期实例完成后生成下一实例、规则替换和停用。当前每个 Workflow 只有一个 `AGENT_RUN` 步骤；多步骤编辑和后台执行中的断点续跑仍待完成。
+当前状态：已交付 `Workflow / WorkflowStepDefinition / WorkflowRun / WorkflowStep / WorkflowSchedule / ScheduledTask` Room Ledger、1 至 8 步创建/编辑、前台与后台顺序执行、步骤级输入/输出快照和幂等键、失败新 Run 重试、一次性与 Daily/Weekly 计划、结果通知和后台 blocked 审批。后台执行栈断点续跑、Foreground Service 和精确定时仍待评估。
 
 ### 要做什么
 
-- 已完成：`Workflow`、`WorkflowRun`、`WorkflowStep`、`WorkflowSchedule` 与一次性/周期 `ScheduledTask` 数据表及关联字段。
+- 已完成：`Workflow`、`WorkflowStepDefinition`、`WorkflowRun`、`WorkflowStep`、`WorkflowSchedule` 与一次性/周期 `ScheduledTask` 数据表及关联字段。
 - 已完成第一版：WorkManager 负责带联网约束的一次性可延迟任务；Daily/Weekly 规则每次物化一个未来 OneTime 实例，确需准确时间时再评估 AlarmManager 和精确闹钟权限。
-- 执行时才启动 Foreground Service，并展示明确的运行通知和停止入口。
-- 每次执行保存 Ledger：计划时间、实际时间、步骤、重试、结果和失败原因。
-- 工作流步骤必须幂等；重试前检查上一步是否已经产生结果。
-- 后台任务遇到需要用户确认的敏感操作时进入 blocked 状态，不得静默执行。
+- 待评估：长时间执行时才启动 Foreground Service，并展示明确的运行通知和停止入口。
+- 已完成：每次执行保存计划/实际时间、步骤定义快照、输入/输出、重试来源、结果和失败原因。
+- 已完成：步骤使用稳定幂等键；重试只复用连续成功前缀，旧 Run 保持不变，已启动失败步骤需要二次确认。
+- 已完成：后台任务遇到需要用户确认的敏感操作时进入 blocked 状态，不得静默执行。
 
 ### 第一批自动化
 
@@ -322,13 +322,13 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v15、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/ScheduledTask/WorkflowSchedule 表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v16、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/ScheduledTask/WorkflowSchedule/WorkflowStepDefinition 表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
-| P1 | Workflow Ledger 与后台调度 | 前台手动、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知、规则替换/停用及触发前进程回收真机验收已完成；多步骤 Workflow、执行中断点恢复和 Foreground Service 待评估 | 支持持续任务且可追溯 |
+| P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真机验收、执行中断点恢复和 Foreground Service 待评估 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
@@ -354,6 +354,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 5. 已完成结构化 `ScheduledTask`、WorkManager 一次性非精确调度、计划/实际时间、结果通知和后台 blocked 审批。
 6. 已完成：真机一次性 SAFE/blocked、完成/失败/blocked 通知，以及触发前进程回收后的 WorkManager 冷启动执行验证。
 7. 已完成 Daily/Weekly 周期规则：每次触发创建独立 ScheduledTask/Workflow Run，规则替换和停用同步取消 WorkManager，周期触发不复用前台审批等待。
-8. 下一步设计多步骤 Workflow 定义与步骤级幂等键；后台中断继续收敛旧 Run 并创建可重试的新执行，不在没有副作用证明时原地续跑。
+8. 已完成多步骤 Workflow 定义、编辑、步骤级幂等键、输入/输出快照和安全新 Run 重试；后台中断继续收敛旧 Run，不在没有副作用证明时原地续跑。
+9. 下一步完成多步骤前台/后台真机验收，验证编辑冻结历史快照、审批恢复后继续下一步骤和失败前缀复用；随后再以真实耗时决定是否引入 Foreground Service。
 
-Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。后续多步骤 Workflow 必须先补步骤级输入/输出快照、幂等键和重试策略，再评估 Foreground Service，避免把“系统继续运行”等同于“旧执行栈可以安全恢复”。
+Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复，仍需保持当前 fail-closed 边界。

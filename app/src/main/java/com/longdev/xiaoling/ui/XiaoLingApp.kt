@@ -143,10 +143,13 @@ import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.automation.WorkflowRunDetail
+import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepStatus
+import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
+import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
@@ -364,6 +367,13 @@ private fun XiaoLingContent(
             onDismiss = viewModel::cancelAgentRunRetry,
         )
     }
+    state.pendingWorkflowRetryConfirmation?.let { pending ->
+        WorkflowRetryConfirmationDialog(
+            pending = pending,
+            onConfirm = viewModel::confirmWorkflowRunRetry,
+            onDismiss = viewModel::cancelWorkflowRunRetry,
+        )
+    }
     pendingBackupRestoreUri?.let { uri ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { pendingBackupRestoreUri = null },
@@ -507,6 +517,41 @@ private fun AgentRetryConfirmationDialog(
                 Text("取消")
             }
         },
+        shape = RoundedCornerShape(8.dp),
+    )
+}
+
+@Composable
+private fun WorkflowRetryConfirmationDialog(
+    pending: WorkflowRetryConfirmationUiState,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("确认重试工作流", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(pending.workflowName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "将从步骤 ${pending.retryFromSequence} 重新执行，复用前 ${pending.reusedStepCount} 个已完成步骤。新 Run 会保留来源 Run ID，旧 Run 和历史快照不会修改。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "待重试步骤可能已产生部分外部副作用；写入工具仍会重新请求审批。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("创建新 Run")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
         shape = RoundedCornerShape(8.dp),
     )
 }
@@ -2037,6 +2082,7 @@ private fun WorkflowManagementPage(
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    var editingWorkflow by remember { mutableStateOf<WorkflowRecord?>(null) }
     var schedulingWorkflowId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (state.workflows.isEmpty() && !state.loadingWorkflows) viewModel.refreshWorkflows()
@@ -2107,9 +2153,7 @@ private fun WorkflowManagementPage(
                     val schedule = state.workflowSchedules.firstOrNull { it.workflowId == workflow.id }
                     val latestRun = runs.firstOrNull()
                     WorkflowItem(
-                        workflowName = workflow.name,
-                        goal = workflow.goal,
-                        enabled = workflow.enabled,
+                        workflow = workflow,
                         mutating = workflow.id in state.mutatingWorkflowIds,
                         scheduling = state.schedulingWorkflowId == workflow.id,
                         running = state.runningWorkflowId == workflow.id || latestRun?.run?.status in setOf(
@@ -2122,7 +2166,9 @@ private fun WorkflowManagementPage(
                         mutatingScheduledTaskIds = state.mutatingScheduledTaskIds,
                         mutatingWorkflowScheduleIds = state.mutatingWorkflowScheduleIds,
                         onEnabledChange = { enabled -> viewModel.setWorkflowEnabled(workflow.id, enabled) },
+                        onEdit = { editingWorkflow = workflow },
                         onRun = { viewModel.runWorkflow(workflow.id) },
+                        onRetryRun = viewModel::requestWorkflowRunRetry,
                         onSchedule = { schedulingWorkflowId = workflow.id },
                         onCancelScheduledTask = viewModel::cancelScheduledTask,
                         onCancelWorkflowSchedule = viewModel::cancelWorkflowSchedule,
@@ -2133,12 +2179,23 @@ private fun WorkflowManagementPage(
     }
 
     if (showCreateDialog) {
-        WorkflowCreateDialog(
-            onConfirm = { name, goal ->
-                viewModel.createWorkflow(name, goal)
+        WorkflowEditorDialog(
+            workflow = null,
+            onConfirm = { name, stepGoals ->
+                viewModel.createWorkflow(name, stepGoals)
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+    editingWorkflow?.let { workflow ->
+        WorkflowEditorDialog(
+            workflow = workflow,
+            onConfirm = { name, stepGoals ->
+                viewModel.updateWorkflow(workflow.id, name, stepGoals)
+                editingWorkflow = null
+            },
+            onDismiss = { editingWorkflow = null },
         )
     }
     schedulingWorkflowId?.let { workflowId ->
@@ -2166,9 +2223,7 @@ private fun WorkflowManagementPage(
 
 @Composable
 private fun WorkflowItem(
-    workflowName: String,
-    goal: String,
-    enabled: Boolean,
+    workflow: WorkflowRecord,
     mutating: Boolean,
     scheduling: Boolean,
     running: Boolean,
@@ -2178,12 +2233,14 @@ private fun WorkflowItem(
     mutatingScheduledTaskIds: Set<String>,
     mutatingWorkflowScheduleIds: Set<String>,
     onEnabledChange: (Boolean) -> Unit,
+    onEdit: () -> Unit,
     onRun: () -> Unit,
+    onRetryRun: (String) -> Unit,
     onSchedule: () -> Unit,
     onCancelScheduledTask: (String) -> Unit,
     onCancelWorkflowSchedule: (String) -> Unit,
 ) {
-    var expanded by remember(workflowName) { mutableStateOf(false) }
+    var expanded by remember(workflow.id) { mutableStateOf(false) }
     val latestRun = runs.firstOrNull()
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -2200,7 +2257,7 @@ private fun WorkflowItem(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(workflowName, style = MaterialTheme.typography.titleSmall)
+                    Text(workflow.name, style = MaterialTheme.typography.titleSmall)
                     Text(
                         latestRun?.run?.let { "最近：${it.status.toWorkflowStatusLabel()} · ${it.createdAt.toFullTimeLabel()}" }
                             ?: "尚未执行",
@@ -2209,8 +2266,15 @@ private fun WorkflowItem(
                     )
                 }
                 IconButton(
+                    onClick = onEdit,
+                    enabled = !mutating && !running,
+                    modifier = Modifier.size(30.dp),
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = "编辑工作流", modifier = Modifier.size(17.dp))
+                }
+                IconButton(
                     onClick = onRun,
-                    enabled = enabled && !mutating && !running,
+                    enabled = workflow.enabled && !mutating && !running,
                     modifier = Modifier.size(30.dp),
                 ) {
                     if (running) {
@@ -2221,7 +2285,7 @@ private fun WorkflowItem(
                 }
                 IconButton(
                     onClick = onSchedule,
-                    enabled = enabled && !mutating && !scheduling,
+                    enabled = workflow.enabled && !mutating && !scheduling,
                     modifier = Modifier.size(30.dp),
                 ) {
                     if (scheduling) {
@@ -2231,13 +2295,28 @@ private fun WorkflowItem(
                     }
                 }
                 Switch(
-                    checked = enabled,
+                    checked = workflow.enabled,
                     onCheckedChange = onEnabledChange,
                     enabled = !mutating && !running,
                     modifier = Modifier.size(width = 44.dp, height = 28.dp),
                 )
             }
-            Text(goal, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                workflow.steps.firstOrNull()?.goal ?: workflow.goal,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (expanded) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("步骤定义", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                workflow.steps.sortedBy { it.sequence }.forEach { definition ->
+                    Text(
+                        "${definition.sequence}. ${definition.goal}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             workflowSchedule?.takeIf { it.enabled }?.let { schedule ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2306,16 +2385,61 @@ private fun WorkflowItem(
             if (expanded && runs.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 runs.forEachIndexed { index, detail ->
-                    Text(
-                        "${detail.run.createdAt.toFullTimeLabel()} · ${detail.run.status.toWorkflowStatusLabel()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${detail.run.createdAt.toFullTimeLabel()} · ${detail.run.status.toWorkflowStatusLabel()}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text("Run：${detail.run.id}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            detail.run.retryOfWorkflowRunId?.let { sourceRunId ->
+                                Text("来源 Run：$sourceRunId", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        if (detail.run.status in setOf(WorkflowRunStatus.BLOCKED, WorkflowRunStatus.FAILED, WorkflowRunStatus.CANCELLED)) {
+                            IconButton(
+                                onClick = { onRetryRun(detail.run.id) },
+                                enabled = !running,
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(Icons.Default.Restore, contentDescription = "重试 Workflow Run", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
                     detail.steps.forEach { step ->
+                        val input = runCatching { WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot) }.getOrNull()
                         Text(
                             "${step.sequence}. ${step.title} · ${step.status.toWorkflowStepStatusLabel()}",
                             style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
                         )
+                        Text("目标：${input?.goal ?: step.detail}", style = MaterialTheme.typography.labelSmall)
+                        input?.previousOutputs?.takeIf { it.isNotEmpty() }?.let { outputs ->
+                            Text(
+                                "前序输入：${outputs.joinToString(separator = "\n")}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        (step.outputSnapshot ?: step.result)?.takeIf { it.isNotBlank() }?.let { output ->
+                            Text(
+                                "输出：$output",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        step.reusedFromStepId?.let { sourceStepId ->
+                            Text("复用步骤：$sourceStepId", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     detail.run.result?.takeIf { it.isNotBlank() }?.let { result ->
                         Text("结果：$result", style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
@@ -2476,17 +2600,29 @@ private enum class WorkflowScheduleMode(val label: String) {
 }
 
 @Composable
-private fun WorkflowCreateDialog(
-    onConfirm: (String, String) -> Unit,
+private fun WorkflowEditorDialog(
+    workflow: WorkflowRecord?,
+    onConfirm: (String, List<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var goal by remember { mutableStateOf("") }
+    var name by remember(workflow?.id) { mutableStateOf(workflow?.name.orEmpty()) }
+    var stepGoals by remember(workflow?.id) {
+        mutableStateOf(
+            workflow?.steps?.sortedBy { it.sequence }?.map { it.goal }
+                ?.ifEmpty { listOf(workflow.goal) }
+                ?: listOf(""),
+        )
+    }
+    val normalizedGoals = stepGoals.map(String::trim)
+    val valid = name.isNotBlank() && normalizedGoals.isNotEmpty() && normalizedGoals.all(String::isNotBlank)
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建工作流", style = MaterialTheme.typography.titleSmall) },
+        title = { Text(if (workflow == null) "新建工作流" else "编辑工作流", style = MaterialTheme.typography.titleSmall) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 CompactTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -2494,19 +2630,65 @@ private fun WorkflowCreateDialog(
                     placeholder = "例如：每日回顾",
                     singleLine = true,
                 )
-                CompactTextField(
-                    value = goal,
-                    onValueChange = { goal = it },
-                    label = "Agent 目标",
-                    placeholder = "描述每次运行要完成的目标",
-                    minLines = 3,
-                )
+                stepGoals.forEachIndexed { index, goal ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("步骤 ${index + 1}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(
+                            onClick = {
+                                stepGoals = stepGoals.toMutableList().also { goals ->
+                                    val current = goals.removeAt(index)
+                                    goals.add(index - 1, current)
+                                }
+                            },
+                            enabled = index > 0,
+                            modifier = Modifier.size(28.dp),
+                        ) { Icon(Icons.Default.ArrowUpward, contentDescription = "步骤上移", modifier = Modifier.size(15.dp)) }
+                        IconButton(
+                            onClick = {
+                                stepGoals = stepGoals.toMutableList().also { goals ->
+                                    val current = goals.removeAt(index)
+                                    goals.add(index + 1, current)
+                                }
+                            },
+                            enabled = index < stepGoals.lastIndex,
+                            modifier = Modifier.size(28.dp),
+                        ) { Icon(Icons.Default.ArrowDownward, contentDescription = "步骤下移", modifier = Modifier.size(15.dp)) }
+                        IconButton(
+                            onClick = { stepGoals = stepGoals.toMutableList().also { it.removeAt(index) } },
+                            enabled = stepGoals.size > 1,
+                            modifier = Modifier.size(28.dp),
+                        ) { Icon(Icons.Default.Delete, contentDescription = "删除步骤", modifier = Modifier.size(15.dp)) }
+                    }
+                    CompactTextField(
+                        value = goal,
+                        onValueChange = { value ->
+                            stepGoals = stepGoals.toMutableList().also { it[index] = value }
+                        },
+                        label = "Agent 目标",
+                        placeholder = "描述这个步骤要完成的目标",
+                        minLines = 2,
+                    )
+                }
+                OutlinedButton(
+                    onClick = { stepGoals = stepGoals + "" },
+                    enabled = stepGoals.size < WorkflowDefinitionPolicy.MAX_STEPS,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("添加步骤")
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(name.trim(), goal.trim()) },
-                enabled = name.isNotBlank() && goal.isNotBlank(),
+                onClick = { onConfirm(name.trim(), normalizedGoals) },
+                enabled = valid,
             ) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
@@ -2545,6 +2727,7 @@ private fun workflowStatusLabel(status: String): String = when (status) {
     WorkflowRunStatus.BLOCKED.name,
     WorkflowStepStatus.BLOCKED.name -> "待处理"
     WorkflowRunStatus.COMPLETED.name -> "已完成"
+    WorkflowStepStatus.SKIPPED.name -> "已复用"
     WorkflowRunStatus.FAILED.name -> "失败"
     WorkflowRunStatus.CANCELLED.name -> "已取消"
     else -> status

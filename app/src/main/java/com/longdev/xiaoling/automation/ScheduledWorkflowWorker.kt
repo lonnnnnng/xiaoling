@@ -57,9 +57,10 @@ class ScheduledWorkflowExecutor(
     private val orchestrator = ScheduledWorkflowOrchestrator(
         claimTask = workflowRepository::claimScheduledRun,
         runAgent = ::runAgent,
-        markAgentRunStarted = { claim, agentRunId ->
-            workflowRepository.markAgentRunStarted(claim.run.run.id, agentRunId)
+        markAgentRunStarted = { claim, step, agentRunId ->
+            workflowRepository.markAgentRunStarted(claim.run.run.id, step.id, agentRunId)
         },
+        completeStep = ::completeStep,
         settle = ::settle,
         notify = { claim, task, outcome ->
             notifier.notify(claim.workflow.name, task, outcome.notificationDetail)
@@ -90,19 +91,47 @@ class ScheduledWorkflowExecutor(
 
     private suspend fun runAgent(
         claim: ScheduledWorkflowClaim,
+        step: WorkflowStepRecord,
         onAgentRunId: suspend (String) -> Unit,
     ): AgentRunSummary {
         val config = selectedBackgroundConfig()
+        val preparedStep = workflowRepository.prepareWorkflowStep(claim.run.run.id, step.id)
+        val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
+        val executionGoal = WorkflowStepPromptPolicy.build(input.goal, input.previousOutputs)
         return agentRunUseCase.run(
             conversationId = claim.run.run.conversationId,
-            userMessageId = claim.userMessageId,
-            goal = claim.workflow.goal,
+            userMessageId = if (step.sequence == 1) {
+                claim.userMessageId
+            } else {
+                workflowRepository.appendScheduledStepPrompt(claim.run.run.conversationId, preparedStep.detail)
+            },
+            goal = executionGoal,
             config = config,
             summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiPreferenceStore.loadPromptSettings()),
             executionOrigin = AgentExecutionOrigin.BACKGROUND,
             approvalGate = RejectingBackgroundApprovalGate,
             onSnapshot = { snapshot -> onAgentRunId(snapshot.run.id) },
         )
+    }
+
+    private suspend fun completeStep(
+        claim: ScheduledWorkflowClaim,
+        step: WorkflowStepRecord,
+        summary: AgentRunSummary,
+    ): WorkflowStepRecord {
+        val completed = workflowRepository.completeWorkflowStep(
+            workflowRunId = claim.run.run.id,
+            workflowStepId = step.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = summary.responseText,
+        )
+        workflowRepository.appendScheduledConversationResult(
+            conversationId = claim.run.run.conversationId,
+            text = summary.responseText,
+            origin = MessageOrigin.AGENT_RESULT,
+            verifiedAgentContext = VerifiedAgentContextCodec.encode(summary.verifiedContext),
+        )
+        return completed
     }
 
     private suspend fun settle(
@@ -162,17 +191,13 @@ internal sealed interface ScheduledExecutionOutcome {
     val notificationDetail: String
     val conversationResult: ScheduledConversationResult?
 
-    data class Completed(val summary: AgentRunSummary) : ScheduledExecutionOutcome {
+    data class Completed(val stepResults: List<String>) : ScheduledExecutionOutcome {
         override val workflowStatus = WorkflowRunStatus.COMPLETED
         override val taskStatus = ScheduledTaskStatus.COMPLETED
-        override val workflowResult = summary.responseText
+        override val workflowResult = stepResults.joinToString(separator = "\n\n")
         override val errorMessage: String? = null
-        override val notificationDetail = summary.responseText
-        override val conversationResult = ScheduledConversationResult(
-            text = summary.responseText,
-            origin = MessageOrigin.AGENT_RESULT,
-            verifiedAgentContext = VerifiedAgentContextCodec.encode(summary.verifiedContext),
-        )
+        override val notificationDetail = workflowResult.ifBlank { "工作流步骤已完成" }
+        override val conversationResult: ScheduledConversationResult? = null
     }
 
     data class Blocked(val reason: String) : ScheduledExecutionOutcome {
@@ -219,9 +244,11 @@ internal class ScheduledWorkflowOrchestrator(
     private val claimTask: suspend (String) -> ScheduledWorkflowClaim?,
     private val runAgent: suspend (
         ScheduledWorkflowClaim,
+        WorkflowStepRecord,
         suspend (String) -> Unit,
     ) -> AgentRunSummary,
-    private val markAgentRunStarted: suspend (ScheduledWorkflowClaim, String) -> Unit,
+    private val markAgentRunStarted: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, String) -> Unit,
+    private val completeStep: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, AgentRunSummary) -> WorkflowStepRecord,
     private val settle: suspend (ScheduledWorkflowClaim, ScheduledExecutionOutcome) -> ScheduledTaskRecord,
     private val notify: (ScheduledWorkflowClaim, ScheduledTaskRecord, ScheduledExecutionOutcome) -> Unit,
     private val onClaimRejected: suspend (String) -> Unit,
@@ -233,9 +260,23 @@ internal class ScheduledWorkflowOrchestrator(
             return
         }
         val outcome = try {
-            ScheduledExecutionOutcome.Completed(
-                runAgent(claim) { agentRunId -> markAgentRunStarted(claim, agentRunId) },
-            )
+            val results = mutableListOf<String>()
+            var steps = claim.run.steps
+            while (true) {
+                val step = WorkflowStepExecutionPolicy.nextExecutableStep(steps) ?: break
+                val summary = runAgent(claim, step) { agentRunId ->
+                    markAgentRunStarted(claim, step, agentRunId)
+                }
+                val completed = completeStep(claim, step, summary)
+                steps = steps.map { current -> if (current.id == completed.id) completed else current }
+                results += summary.responseText
+            }
+            val unfinished = steps.any { it.status !in setOf(WorkflowStepStatus.COMPLETED, WorkflowStepStatus.SKIPPED) }
+            if (unfinished) {
+                ScheduledExecutionOutcome.Failed("工作流步骤未按顺序完成")
+            } else {
+                ScheduledExecutionOutcome.Completed(results)
+            }
         } catch (error: AgentBackgroundApprovalRequiredException) {
             ScheduledExecutionOutcome.Blocked(error.message ?: "后台任务需要用户确认")
         } catch (error: CancellationException) {

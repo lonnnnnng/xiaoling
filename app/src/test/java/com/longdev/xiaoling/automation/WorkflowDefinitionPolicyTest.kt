@@ -13,6 +13,37 @@ class WorkflowDefinitionPolicyTest {
     }
 
     @Test
+    fun multiStepDefinitionAcceptsOrderedAgentGoals() {
+        WorkflowDefinitionPolicy.validate(
+            name = "会话回顾",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("列出最近会话"),
+                WorkflowStepDefinitionInput("根据前两步结果生成回顾"),
+            ),
+        )
+    }
+
+    @Test
+    fun multiStepDefinitionRejectsEmptyTooManyAndBlankSteps() {
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkflowDefinitionPolicy.validate("空工作流", emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkflowDefinitionPolicy.validate(
+                "步骤过多",
+                List(WorkflowDefinitionPolicy.MAX_STEPS + 1) { WorkflowStepDefinitionInput("步骤 ${it + 1}") },
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkflowDefinitionPolicy.validate(
+                "空步骤",
+                listOf(WorkflowStepDefinitionInput("读取时间"), WorkflowStepDefinitionInput(" ")),
+            )
+        }
+    }
+
+    @Test
     fun blankNameAndOversizedGoalAreRejected() {
         assertThrows(IllegalArgumentException::class.java) {
             WorkflowDefinitionPolicy.validate(" ", "读取时间")

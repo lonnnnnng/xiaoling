@@ -607,3 +607,47 @@ Daily 执行与下一实例：
 - `ProviderRequestConfig` 新增设备级 `userAgent`，默认值为 `Codex Desktop/0.145.0-alpha.18 (Mac OS 14.7.4; arm64) unknown (Codex Desktop; 26.715.31251)`；设置页可编辑并恢复默认，空白值自动回退。
 - `OpenAiCompatibleClient` 的统一 Request Builder 对模型列表、Chat Completions、Responses、前台 Agent 和 WorkManager 后台 Agent 写入同一 `User-Agent` Header。
 - `OpenAiCompatibleClientTest` 使用 MockWebServer 读取真实收到的请求 Header，已验证自定义值原样发送和空白配置回退默认值；测试不访问外部服务。
+
+## 2026-07-18 多步骤 Workflow、步骤快照与安全重试验证
+
+实现范围：
+
+- Room 升级到 v16，新增 `workflow_step_definitions`、`workflow_runs.retryOfWorkflowRunId`，以及 Workflow Step 的定义 ID、幂等键、输入/输出快照和复用来源字段。
+- Workflow 支持 1 至 8 个顺序 Agent 步骤；设置页可创建、编辑、增删和排序步骤，活动 Run 存在时 Repository 拒绝编辑。历史 Run 使用创建时物化的步骤快照，不受后续定义变化影响。
+- 前台和 WorkManager 后台均逐步创建独立 Agent Run，后续步骤只接收已落库的连续成功前缀输出；每一步继续使用现有 Schema、权限、审批和后置验证链路。
+- `BLOCKED / FAILED / CANCELLED` Run 可创建新 Run 重试。连续成功前缀在新 Run 中标记为 `SKIPPED` 并保留 `reusedFromStepId`，首个未完成步骤及后续步骤重新执行；旧 Run 保持不变。
+- 进程重建时若当前 Agent 已完成但后续步骤尚未启动，先保存当前输出，再把旧 Workflow Run 收敛为失败；重试可复用该完成前缀。恢复审批完成当前步骤后，继续同一 Workflow Run 的后续步骤，不留下永久 `RUNNING` 状态。
+
+本地自动化验证：
+
+- `WorkflowDefinitionPolicyTest`、`WorkflowStepExecutionPolicyTest` 和 `ScheduledWorkflowOrchestratorTest` 覆盖步骤数量、顺序门禁、输入快照、前序输出提示词、重试资格/二次确认和后台多步骤执行。
+- `RoomWorkflowRepositoryInstrumentedTest` 源码覆盖定义物化、编辑冻结历史 Run、活动 Run 拒绝编辑、完成前缀复用、来源 Run 不变、恢复终态聚合和进程重建后的失败收敛。
+- `XiaoLingDatabaseMigrationInstrumentedTest` 源码覆盖 v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库；`app/schemas/.../16.json` 已生成并通过 JSON 结构检查。
+- 为保护真机 Android Keystore 中的 Provider API Key，本轮未执行 instrumentation；AndroidTest 源码编译和 APK 组装均通过。
+
+执行命令：
+
+```zsh
+./gradlew testDebugUnitTest compileDebugAndroidTestKotlin lintDebug assembleDebug assembleDebugAndroidTest
+```
+
+结果：
+
+```text
+164 JVM tests passed
+lintDebug passed
+assembleDebug passed
+assembleDebugAndroidTest passed
+BUILD SUCCESSFUL
+```
+
+真机覆盖安装与 UI 验收：
+
+- 使用 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 覆盖安装成功，未卸载、未清数据；Provider、会话、历史 Workflow 和 Keystore 配置保持存在。
+- 应用启动后 PID 存活，`com.longdev.xiaoling/.MainActivity` 为前台 Activity，crash buffer 为空。
+- 只读确认 `PRAGMA user_version=16`，`workflow_step_definitions` 表存在；v15 的两个历史 Workflow 均回填单步骤定义，旧 Run 状态和结果仍可展开查看。
+- 通过 UI tree 派生坐标进入「设置 -> 工作流」：编辑弹窗可增加第二步，步骤上移/下移/删除状态正确，空步骤时保存按钮禁用；取消后没有修改原定义。
+- 展开历史卡片可见步骤定义、Run ID、目标/错误快照和重试入口。点击已启动过的 blocked Run 后显示二次确认，明确“新 Run 保留来源 ID、旧 Run 不修改、写工具重新审批”；取消后数据库中 `retryOfWorkflowRunId IS NOT NULL` 的记录数仍为 0。
+- 本轮没有确认真实重试，也没有创建或运行多步骤模型任务；前台/后台顺序执行、成功前缀复用和审批恢复继续下一步骤仍以 JVM 测试、已编译 instrumentation 源码和 Room v16 结构验证为依据。
+
+Debug APK SHA-256：`4bf39cd1d69bc03c120ecb0f22cc0339bf8ac9d70d8ec7f3dec126178319cdaa`。
