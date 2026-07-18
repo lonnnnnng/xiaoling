@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentMemoryFilter
+import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
+import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemorySource
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
@@ -178,5 +180,45 @@ class RoomAgentMemoryStoreInstrumentedTest {
             )
         }.exceptionOrNull()
         assertTrue(edited is IllegalArgumentException)
+    }
+
+    @Test
+    fun expiredMemoryIsHiddenFromAgentSearchButVisibleInManagement() = runBlocking {
+        val memory = store.remember(
+            content = "临时项目偏好",
+            tags = "temporary",
+            type = "Episode",
+            source = AgentMemorySource("conversation-expiry", "run-expiry", "临时事实"),
+            confidence = 0.7,
+        )
+        val expired = store.setExpiresAt(memory.id, System.currentTimeMillis() + 1)
+        Thread.sleep(5)
+
+        assertTrue(store.search("临时项目", 10).none { it.id == memory.id })
+        assertTrue(store.list("临时项目", AgentMemoryFilter.ALL).any { it.id == memory.id })
+        assertTrue(AgentMemoryDecayPolicy.isExpired(checkNotNull(expired), System.currentTimeMillis()))
+
+        val restored = store.setExpiresAt(memory.id, AgentMemoryDecayPolicy.expiresAt(AgentMemoryExpiryOption.NINETY_DAYS, System.currentTimeMillis()))
+        assertTrue(store.search("临时项目", 10).any { it.id == memory.id })
+        assertTrue(restored?.expiresAt ?: 0L > System.currentTimeMillis())
+    }
+
+    @Test
+    fun searchUpdatesLastReferencedAtWithoutChangingMemoryContent() = runBlocking {
+        val memory = store.remember(
+            content = "引用时间测试",
+            tags = "audit",
+            type = "Preference",
+            source = AgentMemorySource("conversation-reference", null, "审计测试"),
+            confidence = 0.8,
+        )
+        val before = store.get(memory.id)
+
+        val result = store.search("引用时间", 10)
+        val after = store.get(memory.id)
+
+        assertEquals(listOf(memory.id), result.map { it.id })
+        assertEquals(before?.content, after?.content)
+        assertTrue((after?.lastReferencedAt ?: 0L) >= (before?.lastReferencedAt ?: 0L))
     }
 }

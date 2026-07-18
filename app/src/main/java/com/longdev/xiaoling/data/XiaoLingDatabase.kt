@@ -22,7 +22,7 @@ import org.json.JSONObject
         AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -33,7 +33,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentNoteDao(): AgentNoteDao
 
     companion object {
-        const val CURRENT_VERSION = 10
+        const val CURRENT_VERSION = 11
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -247,6 +247,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 过期和最近引用都是可空字段，旧记忆默认永久保留且不伪造引用时间，保证升级不会静默改变用户事实的生命周期。
+                db.execSQL("ALTER TABLE `agent_memories` ADD COLUMN `expiresAt` INTEGER")
+                db.execSQL("ALTER TABLE `agent_memories` ADD COLUMN `lastReferencedAt` INTEGER")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -257,6 +265,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_7_8,
             MIGRATION_8_9,
             MIGRATION_9_10,
+            MIGRATION_10_11,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

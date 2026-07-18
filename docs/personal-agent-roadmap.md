@@ -95,7 +95,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v10 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v11 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -105,7 +105,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v10 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填、v9 候选表迁移和全新 v10 建库。
+- 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v11 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填、v9 候选表迁移、v10 生命周期字段迁移和全新 v11 建库。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -178,7 +178,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：把“会话摘要”与“跨会话个人记忆”分开，让记忆可见、可控、可追溯。
 
-当前状态：Room 结构、来源审计、`memory.search / memory.remember`、FTS4 + 中文兜底、管理 UI、默认关闭的候选生成、敏感阻断、去重/冲突、当前应用会话删除撤销、实际引用 ID 审计和单次召回关闭已完成；记忆过期和跨进程撤销仍待完成。
+当前状态：Room 结构、来源审计、`memory.search / memory.remember`、FTS4 + 中文兜底、管理 UI、默认关闭的候选生成、敏感阻断、去重/冲突、当前应用会话删除撤销、实际引用 ID 审计、单次召回关闭、可空过期策略和时间衰减排序已完成；跨进程撤销仍待完成。
 
 ### 记忆类型
 
@@ -195,7 +195,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 4. 已完成：第一版使用 Room FTS4，并为中文和任意子串保留 `LIKE` 兜底；验证更大数据集召回质量后再考虑 Embedding 和向量索引。
 5. 已完成：将检索结果以有限条目注入 Agent 工具结果，并在 `ToolResult`、任务中心和 `VerifiedAgentContext` 记录本轮实际使用的 memory ID；旧事件按空列表兼容。
 6. 已完成：对话输入区的 `/agent` 单次「记忆」开关；关闭后从规划器工具清单移除 `memory.search`，执行层保留二次保护并写入关闭召回审计事件，发送后自动恢复默认开启。
-7. 已完成规范化去重和同主题冲突标记，不直接覆盖旧事实；过期策略仍待实现。
+7. 已完成：规范化去重和同主题冲突标记，不直接覆盖旧事实；过期字段默认为空，管理页可选择永久、30 天、90 天或 1 年，启用检索排除过期项，置顶项不参与时间衰减。
 
 ### 验收标准
 
@@ -317,11 +317,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v10、event metadata、重试关联、Memory FTS、候选表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v11、event metadata、重试关联、Memory FTS、候选表迁移、生命周期字段和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
-| P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、当前会话撤销、引用 ID 审计和单次召回关闭已完成；过期和跨进程撤销待完成 | 形成个人化和跨会话连续性 |
+| P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、当前会话撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成；跨进程撤销待完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 未开始 | 控制 Prompt 和工具面增长 |
 | P1 | Workflow Ledger 与后台调度 | 未开始 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
@@ -342,8 +342,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
-1. 增加记忆过期和时间衰减策略，不直接修改旧事实，并定义置顶/禁用/过期的检索优先级。
-2. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
+1. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
+2. 补齐跨进程删除撤销和记忆治理的后台一致性边界。
 3. 多步 Agent、Skill 和后台任务在上述基础稳定后进入。
 
 完成这些工作后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。

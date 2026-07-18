@@ -147,6 +147,8 @@ data class AgentMemoryEntity(
     val createdAt: Long,
     val updatedAt: Long,
     @ColumnInfo(defaultValue = "0") val pinned: Boolean,
+    val expiresAt: Long?,
+    val lastReferencedAt: Long?,
 )
 
 @Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)

@@ -120,6 +120,8 @@ import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.AgentMemoryCandidateRecord
 import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemoryRecord
+import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
+import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -2295,6 +2297,7 @@ private fun AgentMemoryManagementPage(
                         onSelect = { viewModel.selectMemory(memory.id) },
                         onPinnedChange = { viewModel.setMemoryPinned(memory.id, it) },
                         onEnabledChange = { viewModel.setMemoryEnabled(memory.id, it) },
+                        onExpirationChange = { viewModel.setMemoryExpiry(memory.id, it) },
                         onEdit = { viewModel.openMemoryEdit(memory.id) },
                         onDelete = { viewModel.requestMemoryDelete(memory.id) },
                         onOpenConversation = { viewModel.openMemorySourceConversation(memory.id) },
@@ -2444,11 +2447,13 @@ private fun AgentMemoryItemCard(
     onSelect: () -> Unit,
     onPinnedChange: (Boolean) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    onExpirationChange: (AgentMemoryExpiryOption) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenConversation: () -> Unit,
     onOpenRun: () -> Unit,
 ) {
+    val expired = AgentMemoryDecayPolicy.isExpired(memory, System.currentTimeMillis())
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
@@ -2533,9 +2538,13 @@ private fun AgentMemoryItemCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (memory.enabled) "参与检索" else "已禁用",
+                    text = when {
+                        !memory.enabled -> "已禁用"
+                        expired -> "已过期，不参与检索"
+                        else -> "参与检索"
+                    },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (memory.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    color = if (memory.enabled && !expired) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 )
                 Text(
                     text = "置信度 " + (memory.confidence * 100).toInt() + "%",
@@ -2550,8 +2559,34 @@ private fun AgentMemoryItemCard(
                 )
             }
 
+            Text(
+                text = "过期策略：" + when {
+                    memory.expiresAt == null -> "永久保留"
+                    expired -> "已过期（${memory.expiresAt?.toFullTimeLabel().orEmpty()}）"
+                    else -> memory.expiresAt?.toFullTimeLabel().orEmpty()
+                },
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = if (expired) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             if (selected) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("过期策略", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    AgentMemoryExpiryOption.entries.forEach { option ->
+                        OutlinedButton(
+                            onClick = { onExpirationChange(option) },
+                            enabled = !mutating,
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(30.dp),
+                        ) {
+                            Text(option.label, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
                 memory.sourceSummary.takeIf { it.isNotBlank() }?.let {
                     AgentMemoryAuditField(label = "来源摘要", value = it)
                 }

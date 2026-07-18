@@ -39,12 +39,12 @@
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
 - 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
-- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆和候选记忆；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入，v4→v10 与 v9→v10 升级已有 Schema 导出和真机自动化迁移测试保护。
+- Room 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆和候选记忆；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入，v4→v11 与 v9→v11 升级已有 Schema 导出和真机自动化迁移测试保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
 
-当前仍未交付进程重建后的原地继续执行、记忆过期、跨进程删除撤销、Skill、后台工作流和手机自动化；本轮实际引用审计与单次召回关闭已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。现有 Agent “恢复”采用安全重新运行：创建新 Run、使用当前 Provider/模型、重新审批写入工具，不复用旧执行栈。
+当前仍未交付进程重建后的原地继续执行、跨进程删除撤销、Skill、后台工作流和手机自动化；记忆过期、时间衰减、实际引用审计与单次召回关闭已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。现有 Agent “恢复”采用安全重新运行：创建新 Run、使用当前 Provider/模型、重新审批写入工具，不复用旧执行栈。
 
 当前实现详情见 [当前实现说明](implementation-notes.md)。
 

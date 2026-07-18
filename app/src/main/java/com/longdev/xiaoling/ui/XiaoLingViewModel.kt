@@ -11,6 +11,8 @@ import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.AgentMemoryCandidateRecord
 import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemoryRecord
+import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
+import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
@@ -632,6 +634,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             successMessage = if (pinned) "记忆已置顶" else "已取消置顶",
         ) {
             agentMemoryStore.setPinned(memoryId, pinned)
+        }
+    }
+
+    fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) {
+        mutateMemory(
+            memoryId = memoryId,
+            successMessage = "记忆过期策略已更新",
+        ) {
+            agentMemoryStore.setExpiresAt(
+                memoryId = memoryId,
+                expiresAt = AgentMemoryDecayPolicy.expiresAt(option, System.currentTimeMillis()),
+            )
         }
     }
 

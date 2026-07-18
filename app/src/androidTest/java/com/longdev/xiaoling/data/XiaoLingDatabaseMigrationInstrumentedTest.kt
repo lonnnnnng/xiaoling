@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To10PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To11PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            10,
+            11,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -235,7 +235,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate9To10PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+    fun migrate9To11PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
         migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
             execSQL(
                 "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -263,7 +263,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
-            10,
+            11,
             true,
             *XiaoLingDatabase.migrations(),
         )

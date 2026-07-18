@@ -394,7 +394,48 @@ data class AgentMemoryRecord(
     val createdAt: Long,
     val updatedAt: Long,
     val pinned: Boolean = false,
+    val expiresAt: Long? = null,
+    val lastReferencedAt: Long? = null,
 )
+
+enum class AgentMemoryExpiryOption(val label: String) {
+    NEVER("永久保留"),
+    THIRTY_DAYS("30 天"),
+    NINETY_DAYS("90 天"),
+    ONE_YEAR("1 年"),
+}
+
+object AgentMemoryDecayPolicy {
+    const val DAY_MILLIS = 86_400_000L
+
+    fun isExpired(memory: AgentMemoryRecord, nowMillis: Long): Boolean {
+        return memory.expiresAt?.let { it <= nowMillis } == true
+    }
+
+    fun expiresAt(option: AgentMemoryExpiryOption, nowMillis: Long): Long? {
+        return when (option) {
+            AgentMemoryExpiryOption.NEVER -> null
+            AgentMemoryExpiryOption.THIRTY_DAYS -> nowMillis + 30 * DAY_MILLIS
+            AgentMemoryExpiryOption.NINETY_DAYS -> nowMillis + 90 * DAY_MILLIS
+            AgentMemoryExpiryOption.ONE_YEAR -> nowMillis + 365 * DAY_MILLIS
+        }
+    }
+
+    fun score(memory: AgentMemoryRecord, nowMillis: Long): Double {
+        if (memory.pinned) return Double.MAX_VALUE
+        val referenceAt = memory.lastReferencedAt ?: memory.updatedAt
+        val ageDays = (nowMillis - referenceAt).coerceAtLeast(0L).toDouble() / DAY_MILLIS
+        val halfLifeDays = when (memory.type) {
+            "ProfileFact" -> 730.0
+            "Preference" -> 365.0
+            "Procedure" -> 180.0
+            "Episode" -> 90.0
+            else -> 180.0
+        }
+        // long: 时间衰减只改变召回排序，不删除或改写用户事实；置顶记忆在上层优先级中保持稳定。
+        return memory.confidence.coerceIn(0.0, 1.0) * Math.pow(0.5, ageDays / halfLifeDays)
+    }
+}
 
 data class AgentMemorySource(
     val conversationId: String?,
@@ -426,6 +467,7 @@ interface AgentMemoryManager {
     suspend fun update(memoryId: String, update: AgentMemoryUpdate): AgentMemoryRecord?
     suspend fun setEnabled(memoryId: String, enabled: Boolean): AgentMemoryRecord?
     suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord?
+    suspend fun setExpiresAt(memoryId: String, expiresAt: Long?): AgentMemoryRecord?
     suspend fun delete(memoryId: String): AgentMemoryRecord?
     suspend fun restore(memory: AgentMemoryRecord): AgentMemoryRecord
 }

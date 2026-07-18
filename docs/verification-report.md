@@ -202,6 +202,12 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug`：`105` 条 JVM 测试通过。
 - `memoryIdsUsed` 只来自执行器返回的真实记录，不接受模型总结自由文本伪造；未执行真机 Agent 请求，Provider 上游状态不影响本轮本地契约验证。
 
+## 记忆过期与时间衰减验证边界
+
+本轮实现新增 Room v10→v11 迁移、可空 `expiresAt` / `lastReferencedAt`、过期检索过滤、引用时间回写、置顶保护和按类型半衰期排序，并在长期记忆管理页提供永久、30 天、90 天和 1 年策略。
+
+当前环境的 Gradle Wrapper 和直接 Gradle 均被沙箱阻止启动本地 `FileLockContentionHandler` Socket，关键错误为 `java.net.SocketException: Operation not permitted`。因此本轮新增 JVM、Room instrumentation、lint 和 APK 构建尚未能在当前环境重新执行；`git diff --check` 和 schema JSON 结构检查已通过。未运行会清理设备数据的 connected instrumentation。
+
 外部服务边界：
 
 - 本机兜底 Provider 的模型列表与鉴权已验证成功；按本机指令选择 `gpt-5.5` 后，真实对话请求到达服务端但返回 `HTTP 503 · 无可用账号`。同端点小范围候选探测也返回 503/429/403，因此当前未取得真实回复成功证据，该结果不归因于应用实现。

@@ -14,6 +14,7 @@ import com.longdev.xiaoling.agent.AgentMemorySource
 import com.longdev.xiaoling.agent.AgentMemoryStore
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentMemorySensitiveCategory
+import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.data.AgentMemoryCandidateEntity
 import com.longdev.xiaoling.data.AgentMemoryEntity
 import com.longdev.xiaoling.data.AgentMemoryFtsEntity
@@ -43,11 +44,15 @@ class RoomAgentMemoryStore(
     }
 
     override suspend fun search(query: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryRecord> {
-        return list(
+        val now = System.currentTimeMillis()
+        val records = list(
             query = query,
             filter = if (enabledOnly) AgentMemoryFilter.ENABLED else AgentMemoryFilter.ALL,
             limit = limit.coerceIn(1, 10),
         )
+        if (!enabledOnly || records.isEmpty()) return records
+        database.agentMemoryDao().touchReferenced(records.map { it.id }, now)
+        return records.map { it.copy(lastReferencedAt = now) }
     }
 
     override suspend fun get(memoryId: String): AgentMemoryRecord? {
@@ -62,16 +67,29 @@ class RoomAgentMemoryStore(
             AgentMemoryFilter.DISABLED -> false
         }
         val normalizedQuery = query.trim()
+        val now = System.currentTimeMillis()
+        val activeOnly = filter == AgentMemoryFilter.ENABLED
         val dao = database.agentMemoryDao()
         if (normalizedQuery.isBlank()) {
-            return dao.list(limit = safeLimit, enabledFilter = enabledFilter).map { it.toRecord() }
+            return dao.list(
+                limit = safeLimit,
+                enabledFilter = enabledFilter,
+                activeOnly = activeOnly,
+                now = now,
+            ).map { it.toRecord() }.sortByDecay(now)
         }
         val searchTerms = splitAgentMemorySearchTerms(normalizedQuery)
         val ftsMatches = buildAgentMemoryFtsQuery(searchTerms)
             .takeIf { it.isNotBlank() }
             ?.let { ftsQuery ->
                 runCatching {
-                    dao.searchFts(ftsQuery = ftsQuery, limit = safeLimit, enabledFilter = enabledFilter)
+                    dao.searchFts(
+                        ftsQuery = ftsQuery,
+                        limit = safeLimit,
+                        enabledFilter = enabledFilter,
+                        activeOnly = activeOnly,
+                        now = now,
+                    )
                 }.getOrDefault(emptyList())
             }
             .orEmpty()
@@ -79,6 +97,8 @@ class RoomAgentMemoryStore(
             buildAgentMemoryLikeQuery(
                 terms = searchTerms,
                 enabledFilter = enabledFilter,
+                activeOnly = activeOnly,
+                now = now,
                 limit = safeLimit,
             ),
         )
@@ -86,7 +106,7 @@ class RoomAgentMemoryStore(
         return (ftsMatches + likeMatches)
             .distinctBy { it.id }
             .map { it.toRecord() }
-            .sortedWith(compareByDescending<AgentMemoryRecord> { it.pinned }.thenByDescending { it.updatedAt })
+            .sortByDecay(now)
             .take(safeLimit)
     }
 
@@ -117,6 +137,11 @@ class RoomAgentMemoryStore(
 
     override suspend fun setPinned(memoryId: String, pinned: Boolean): AgentMemoryRecord? {
         return mutate(memoryId) { copy(pinned = pinned, updatedAt = System.currentTimeMillis()) }
+    }
+
+    override suspend fun setExpiresAt(memoryId: String, expiresAt: Long?): AgentMemoryRecord? {
+        require(expiresAt == null || expiresAt > System.currentTimeMillis()) { "过期时间必须晚于当前时间" }
+        return mutate(memoryId) { copy(expiresAt = expiresAt, updatedAt = System.currentTimeMillis()) }
     }
 
     override suspend fun delete(memoryId: String): AgentMemoryRecord? {
@@ -313,6 +338,8 @@ class RoomAgentMemoryStore(
         createdAt = createdAt,
         updatedAt = updatedAt,
         pinned = pinned,
+        expiresAt = expiresAt,
+        lastReferencedAt = lastReferencedAt,
     )
 
     private fun AgentMemoryRecord.toFtsEntity() = AgentMemoryFtsEntity(
@@ -336,6 +363,8 @@ class RoomAgentMemoryStore(
         createdAt = createdAt,
         updatedAt = updatedAt,
         pinned = pinned,
+        expiresAt = expiresAt,
+        lastReferencedAt = lastReferencedAt,
     )
 
     private fun AgentMemoryCandidateRecord.toEntity() = AgentMemoryCandidateEntity(
@@ -420,6 +449,8 @@ private fun buildAgentMemoryLikePatterns(terms: List<String>): List<String> {
 private fun buildAgentMemoryLikeQuery(
     terms: List<String>,
     enabledFilter: Boolean?,
+    activeOnly: Boolean,
+    now: Long,
     limit: Int,
 ): SimpleSQLiteQuery {
     val clauses = mutableListOf<String>()
@@ -427,6 +458,10 @@ private fun buildAgentMemoryLikeQuery(
     enabledFilter?.let { enabled ->
         clauses += "enabled = ?"
         arguments += if (enabled) 1L else 0L
+    }
+    if (activeOnly) {
+        clauses += "(expiresAt IS NULL OR expiresAt > ?)"
+        arguments += now
     }
     buildAgentMemoryLikePatterns(terms).forEach { pattern ->
         clauses += """
@@ -445,5 +480,13 @@ private fun buildAgentMemoryLikeQuery(
     return SimpleSQLiteQuery(
         "SELECT * FROM agent_memories WHERE $whereClause ORDER BY pinned DESC, updatedAt DESC LIMIT ?",
         arguments.toTypedArray(),
+    )
+}
+
+private fun List<AgentMemoryRecord>.sortByDecay(now: Long): List<AgentMemoryRecord> {
+    return sortedWith(
+        compareByDescending<AgentMemoryRecord> { it.pinned }
+            .thenByDescending { AgentMemoryDecayPolicy.score(it, now) }
+            .thenByDescending { it.updatedAt },
     )
 }

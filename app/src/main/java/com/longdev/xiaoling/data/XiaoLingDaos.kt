@@ -106,11 +106,12 @@ interface AgentMemoryDao {
         """
         SELECT * FROM agent_memories
         WHERE (:enabledFilter IS NULL OR enabled = :enabledFilter)
+        AND (:activeOnly = 0 OR expiresAt IS NULL OR expiresAt > :now)
         ORDER BY pinned DESC, updatedAt DESC
         LIMIT :limit
         """,
     )
-    suspend fun list(limit: Int, enabledFilter: Boolean?): List<AgentMemoryEntity>
+    suspend fun list(limit: Int, enabledFilter: Boolean?, activeOnly: Boolean = false, now: Long = Long.MAX_VALUE): List<AgentMemoryEntity>
 
     @Query("SELECT * FROM agent_memories ORDER BY pinned DESC, updatedAt DESC")
     suspend fun listAllMemories(): List<AgentMemoryEntity>
@@ -119,12 +120,13 @@ interface AgentMemoryDao {
         """
         SELECT * FROM agent_memories
         WHERE (:enabledOnly = 0 OR enabled = 1)
+        AND (:activeOnly = 0 OR expiresAt IS NULL OR expiresAt > :now)
         AND (:pattern = '' OR content LIKE :pattern OR tags LIKE :pattern OR type LIKE :pattern OR sourceSummary LIKE :pattern)
         ORDER BY pinned DESC, updatedAt DESC
         LIMIT :limit
         """,
     )
-    suspend fun search(pattern: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryEntity>
+    suspend fun search(pattern: String, limit: Int, enabledOnly: Boolean, activeOnly: Boolean = false, now: Long = Long.MAX_VALUE): List<AgentMemoryEntity>
 
     @RawQuery
     suspend fun searchForManagement(query: SupportSQLiteQuery): List<AgentMemoryEntity>
@@ -135,17 +137,21 @@ interface AgentMemoryDao {
         JOIN agent_memories_fts ON agent_memories_fts.memoryId = agent_memories.id
         WHERE agent_memories_fts MATCH :ftsQuery
         AND (:enabledFilter IS NULL OR agent_memories.enabled = :enabledFilter)
+        AND (:activeOnly = 0 OR agent_memories.expiresAt IS NULL OR agent_memories.expiresAt > :now)
         ORDER BY agent_memories.pinned DESC, agent_memories.updatedAt DESC
         LIMIT :limit
         """,
     )
-    suspend fun searchFts(ftsQuery: String, limit: Int, enabledFilter: Boolean?): List<AgentMemoryEntity>
+    suspend fun searchFts(ftsQuery: String, limit: Int, enabledFilter: Boolean?, activeOnly: Boolean, now: Long): List<AgentMemoryEntity>
 
     @Query("DELETE FROM agent_memories_fts WHERE memoryId = :memoryId")
     suspend fun deleteMemoryIndex(memoryId: String)
 
     @Query("DELETE FROM agent_memories WHERE id = :memoryId")
     suspend fun deleteMemory(memoryId: String): Int
+
+    @Query("UPDATE agent_memories SET lastReferencedAt = :referencedAt WHERE id IN (:memoryIds)")
+    suspend fun touchReferenced(memoryIds: List<String>, referencedAt: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCandidate(candidate: AgentMemoryCandidateEntity)

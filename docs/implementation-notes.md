@@ -35,7 +35,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、会话、消息、最小 Agent Run、审批请求和长期记忆已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6、v7、v8、v9 与当前 v10 Schema；v4→v10 和 v9→v10 迁移测试通过正式 migration 列表和 DAO/Repository 回读验证用户数据。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6、v7、v8、v9、v10 与当前 v11 Schema；v4→v11 和 v9→v11 迁移测试通过正式 migration 列表和 DAO/Repository 回读验证用户数据。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、查看完整工具结果/步骤/审批/事件，并对可重试终态创建关联的新 Run。后台任务入口仍未交付。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -139,10 +139,10 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote 和 AgentMemory 保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v10，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机执行正式 v4→v10 链路，并单独验证 v9→v10 保留正式记忆和 FTS、创建空候选表。
-- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选。测试同时覆盖全新 v10 数据库创建和打开。
-- AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
-- 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；主表与 FTS 的新增、编辑和删除在同一 Room transaction 中同步。
+- 数据库当前版本为 v11，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 在 Android 真机执行正式 v4→v11 链路，并单独验证 v9→v11 保留正式记忆和 FTS、创建空候选表及新增可空生命周期字段。
+- 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值。测试同时覆盖全新 v11 数据库创建和打开。
+- AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
+- 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
 - 设置页「长期记忆」支持候选开关与确认、搜索、启用状态筛选、编辑、置顶、启停、删除确认、当前会话撤销和来源审计；来源会话与来源 Run 存在时可直接跳转。
 - 设置页「数据备份与恢复」通过 Android SAF 导出/导入 ZIP；备份包含 Room 主库和 schema/app manifest，导入先校验 manifest 与真实 SQLite `user_version`，再关闭 Room、保留 `.pre-restore` 安全副本并替换数据库，完成后必须重启应用。
 - 备份不导出 API Key 明文；Provider 表中的密文仍依赖当前 Android Keystore，跨设备或密钥丢失时不能仅凭数据库恢复凭据。未来可增加不含凭据的 Provider 元数据迁移向导。
@@ -165,6 +165,6 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行，但进程重建后仍会先把中间态收敛为 `CANCELLED`，不会原地恢复旧协程、模型调用或工具执行栈。
-- 原地断点恢复、记忆过期、跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；单次召回关闭与实际引用 ID 审计已交付。
+- 原地断点恢复、跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
