@@ -211,6 +211,12 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - 已新增 JVM 单元测试覆盖上述三条边界；本环境 Gradle 仍被沙箱阻止，未能重新运行测试。
 - 本轮只落地确定性策略，尚未恢复旧协程、模型请求、工具执行或验证栈；启动协调器仍采用中间态收敛为 `CANCELLED` 的保守实现。
 
+本轮进一步接入启动协调器：
+
+- Room 中符合 `APPROVAL_WAIT` 的 Run 会在启动后重建到对应会话和审批卡片；恢复卡片的继续动作显式转为安全重试，并通过 `retryOfRunId` 关联旧 Run。
+- 已进入工具执行/验证阶段的 Run 仍由启动收敛逻辑关闭；新增 instrumentation 测试覆盖待审批 Run 保持 `WAITING_APPROVAL`、审批保持 `PENDING` 和恢复事件 typed metadata。
+- 当前环境仍无法运行 Gradle，因此新增 JVM/Room/UI 编译和真机进程重建验证未执行。
+
 ## 记忆过期与时间衰减验证边界
 
 本轮实现新增 Room v10→v11 迁移、可空 `expiresAt` / `lastReferencedAt`、过期检索过滤、引用时间回写、置顶保护和按类型半衰期排序，并在长期记忆管理页提供永久、30 天、90 天和 1 年策略。

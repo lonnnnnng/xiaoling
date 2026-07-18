@@ -203,6 +203,7 @@ data class AgentApprovalUiState(
     val arguments: Map<String, String>,
     val expiresAt: Long,
     val deciding: Boolean = false,
+    val restoredFromProcess: Boolean = false,
 ) {
     companion object {
         fun from(request: ApprovalRequestRecord): AgentApprovalUiState {
@@ -288,8 +289,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
+            val resumableRuns = withContext(Dispatchers.IO) {
+                agentRunRepository.recoverPendingApprovalRuns()
+            }
             withContext(Dispatchers.IO) {
-                // long: 进程重建后不恢复已经丢失的协程和网络请求；先把上次遗留的中间态 Run 收敛成可审计终态，再加载会话，避免 UI 展示不可继续的假活跃任务。
+                // long: 执行/验证中的旧协程和网络请求无法重建，启动时只保留策略允许的待审批 Run，其余中间态收敛成可审计终态。
                 agentRunRepository.closeInterruptedRuns()
             }
             val storedProfiles = configStore.load()
@@ -304,6 +308,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
                     result = uiState.result,
                 )
+            restoreRecoveredAgentRuns(resumableRuns)
         }
     }
 
@@ -991,6 +996,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun approvePendingAgentTool() {
         val pending = uiState.pendingAgentApproval ?: return
+        if (pending.restoredFromProcess) {
+            restartRecoveredAgentRun(pending)
+            return
+        }
         completePendingAgentApproval(
             pending = pending,
             status = ApprovalRequestStatus.APPROVED,
@@ -1001,6 +1010,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun rejectPendingAgentTool() {
         val pending = uiState.pendingAgentApproval ?: return
+        if (pending.restoredFromProcess) {
+            rejectRecoveredAgentApproval(pending)
+            return
+        }
         completePendingAgentApproval(
             pending = pending,
             status = ApprovalRequestStatus.DENIED,
@@ -1036,6 +1049,50 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     ),
                 )
             }
+        }
+    }
+
+    private fun restartRecoveredAgentRun(pending: AgentApprovalUiState) {
+        val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
+        if (detail == null) {
+            showValidation("找不到待恢复的 Agent Run，请刷新任务中心")
+            return
+        }
+        val source = detail.snapshot.run
+        viewModelScope.launch {
+            withContext(NonCancellable + Dispatchers.IO) {
+                agentRunRepository.decideApprovalRequest(
+                    requestId = pending.requestId,
+                    status = ApprovalRequestStatus.CANCELLED,
+                    reason = "进程重建后执行栈不可恢复，转为安全重新运行",
+                )
+                agentRunRepository.updateRunStatus(
+                    runId = source.id,
+                    status = com.longdev.xiaoling.agent.AgentRunStatus.CANCELLED,
+                    errorMessage = "进程重建后执行栈不可恢复，已转为安全重新运行",
+                )
+            }
+            clearPendingApprovalForConversation(pending.conversationId)
+            startAgentRunRetry(detail)
+        }
+    }
+
+    private fun rejectRecoveredAgentApproval(pending: AgentApprovalUiState) {
+        viewModelScope.launch {
+            withContext(NonCancellable + Dispatchers.IO) {
+                agentRunRepository.decideApprovalRequest(
+                    requestId = pending.requestId,
+                    status = ApprovalRequestStatus.DENIED,
+                    reason = "用户拒绝恢复后的工具执行",
+                )
+                agentRunRepository.updateRunStatus(
+                    runId = pending.runId,
+                    status = com.longdev.xiaoling.agent.AgentRunStatus.FAILED,
+                    errorMessage = "用户拒绝恢复后的工具执行",
+                )
+            }
+            clearPendingApprovalForConversation(pending.conversationId)
+            refreshAgentRunHistory()
         }
     }
 
@@ -1663,6 +1720,30 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (approval.conversationId == uiState.selectedConversationId) {
             uiState = uiState.copy(pendingAgentApproval = approval)
         }
+    }
+
+    private fun restoreRecoveredAgentRuns(details: List<AgentRunDetailRecord>) {
+        if (details.isEmpty()) return
+        details.forEach { detail ->
+            val run = detail.snapshot.run
+            activeAgentRunsByConversation[run.conversationId] = detail.snapshot
+            detail.approvals
+                .firstOrNull { it.status == ApprovalRequestStatus.PENDING }
+                ?.let { request ->
+                    pendingAgentApprovalsByConversation[run.conversationId] =
+                        AgentApprovalUiState.from(request).copy(restoredFromProcess = true)
+                }
+        }
+        val selectedConversationId = uiState.selectedConversationId
+        uiState = uiState.copy(
+            activeAgentRun = activeAgentRunsByConversation[selectedConversationId],
+            pendingAgentApproval = pendingAgentApprovalsByConversation[selectedConversationId],
+            agentRunHistory = details + uiState.agentRunHistory.filterNot { existing ->
+                details.any { it.snapshot.run.id == existing.snapshot.run.id }
+            },
+            selectedAgentRunId = uiState.selectedAgentRunId
+                ?: details.firstOrNull()?.snapshot?.run?.id,
+        )
     }
 
     private fun clearPendingApprovalForConversation(conversationId: String) {

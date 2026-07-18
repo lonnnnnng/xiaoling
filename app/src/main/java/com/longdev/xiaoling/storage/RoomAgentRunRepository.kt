@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.RunEventRecord
@@ -202,6 +203,37 @@ class RoomAgentRunRepository(
         )
     }
 
+    suspend fun recoverPendingApprovalRuns(): List<AgentRunDetailRecord> {
+        val dao = database.agentRunDao()
+        val activeStatuses = listOf(
+            AgentRunStatus.QUEUED,
+            AgentRunStatus.THINKING,
+            AgentRunStatus.WAITING_APPROVAL,
+            AgentRunStatus.EXECUTING,
+            AgentRunStatus.VERIFYING,
+        )
+        val resumable = dao.getRunsByStatuses(activeStatuses.map { it.name })
+            .mapNotNull { run ->
+                val detail = loadDetail(run)
+                if (!AgentRunResumePolicy.assess(detail).canResumeInPlace) {
+                    return@mapNotNull null
+                }
+                // long: 进程重建后只保留尚未执行工具的审批边界，并记录一次恢复审计；旧协程不存在，批准后的继续执行由 UI 转为安全重试。
+                appendEvent(
+                    runId = run.id,
+                    type = "run.recovered",
+                    message = "已恢复待审批 Run，等待用户决定",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.WAITING_APPROVAL,
+                        toStatus = AgentRunStatus.WAITING_APPROVAL,
+                        reason = "仅保留待审批且尚未执行工具的 Run",
+                    ),
+                )
+                loadDetail(run)
+            }
+        return resumable
+    }
+
     suspend fun closeInterruptedRuns(): Int {
         val dao = database.agentRunDao()
         val activeStatuses = listOf(
@@ -214,7 +246,10 @@ class RoomAgentRunRepository(
         val interruptedRuns = dao.getRunsByStatuses(activeStatuses.map { it.name })
         if (interruptedRuns.isEmpty()) return 0
         val reason = "应用重启后终止上次未完成 Agent 任务"
+        var closedCount = 0
         interruptedRuns.forEach { run ->
+            val detail = loadDetail(run)
+            if (AgentRunResumePolicy.assess(detail).canResumeInPlace) return@forEach
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
             dao.getApprovalRequests(run.id)
                 .map { it.toRecord() }
@@ -237,8 +272,9 @@ class RoomAgentRunRepository(
                 ),
             )
             updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)
+            closedCount += 1
         }
-        return interruptedRuns.size
+        return closedCount
     }
 
     suspend fun recentRunDetails(limit: Int): List<AgentRunDetailRecord> {
@@ -266,14 +302,19 @@ class RoomAgentRunRepository(
 
     suspend fun runDetail(runId: String): AgentRunDetailRecord? {
         val dao = database.agentRunDao()
-        val run = dao.getRun(runId)?.toRecord() ?: return null
+        val run = dao.getRun(runId) ?: return null
+        return loadDetail(run)
+    }
+
+    private suspend fun loadDetail(run: AgentRunEntity): AgentRunDetailRecord {
+        val dao = database.agentRunDao()
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
-                run = run,
-                steps = dao.getSteps(runId).map { it.toRecord() },
-                events = dao.getEvents(runId).map { it.toRecord() },
+                run = run.toRecord(),
+                steps = dao.getSteps(run.id).map { it.toRecord() },
+                events = dao.getEvents(run.id).map { it.toRecord() },
             ),
-            approvals = dao.getApprovalRequests(runId).map { it.toRecord() },
+            approvals = dao.getApprovalRequests(run.id).map { it.toRecord() },
         )
     }
 

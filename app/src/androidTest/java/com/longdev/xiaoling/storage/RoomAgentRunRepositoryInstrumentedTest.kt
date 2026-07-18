@@ -188,6 +188,44 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun pendingApprovalRunSurvivesProcessRecoveryBoundary() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-pending-recovery",
+            userMessageId = "message-pending-recovery",
+            goal = "恢复待审批任务",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        val request = repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = ToolCall(
+                id = "tool-call-pending-recovery",
+                name = "memory.remember",
+                arguments = mapOf("content" to "用户喜欢紧凑界面"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+            definition = ToolDefinition(
+                name = "memory.remember",
+                description = "写入长期记忆",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        val resumable = repository.recoverPendingApprovalRuns()
+        val closedCount = repository.closeInterruptedRuns()
+        val snapshot = repository.snapshot(run.id)
+
+        assertEquals(listOf(run.id), resumable.map { it.snapshot.run.id })
+        assertEquals(0, closedCount)
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, snapshot.run.status)
+        assertEquals(ApprovalRequestStatus.PENDING, repository.pendingApprovalRequests(run.conversationId).single { it.id == request.id }.status)
+        val recovered = snapshot.events.last { it.type == "run.recovered" }
+        val metadata = recovered.metadata as RunEventMetadata.Recovery
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.fromStatus)
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.toStatus)
+    }
+
+    @Test
     fun retryCreatesLinkedRunWithoutChangingSourceRun() = runBlocking {
         val sourceRun = repository.createRun(
             conversationId = "conversation-retry",

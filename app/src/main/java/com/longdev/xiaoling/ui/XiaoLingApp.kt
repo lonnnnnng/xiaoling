@@ -1321,7 +1321,11 @@ private fun AgentApprovalCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "等待确认 · ${approval.riskLabel}",
+                        text = if (approval.restoredFromProcess) {
+                            "进程重建后待恢复 · ${approval.riskLabel}"
+                        } else {
+                            "等待确认 · ${approval.riskLabel}"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary,
@@ -1349,11 +1353,18 @@ private fun AgentApprovalCard(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     modifier = Modifier.height(26.dp),
                 ) {
-                    Text("批准执行", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp))
+                    Text(
+                        if (approval.restoredFromProcess) "安全重试" else "批准执行",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                    )
                 }
             }
             Text(
-                text = approval.toolDescription,
+                text = if (approval.restoredFromProcess) {
+                    "旧执行栈已丢失，操作会关闭旧 Run 并创建关联的新 Run。"
+                } else {
+                    approval.toolDescription
+                },
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
