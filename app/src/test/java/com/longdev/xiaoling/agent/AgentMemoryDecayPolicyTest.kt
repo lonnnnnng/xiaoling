@@ -38,7 +38,7 @@ class AgentMemoryDecayPolicyTest {
     }
 
     private fun memory(
-        expiresAt: Long?,
+        expiresAt: Long? = null,
         updatedAt: Long = NOW,
         pinned: Boolean = false,
     ) = AgentMemoryRecord(

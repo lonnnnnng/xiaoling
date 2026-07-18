@@ -94,10 +94,10 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest assembleDebug`：通过。
+- `testDebugUnitTest assembleDebug`：通过，当前 121 项 Debug 单元测试通过。
 - `assembleRelease`：通过。
 - `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
-- 真机 `wsvwypiz7xwslvl7`：debug 包安装成功，`com.longdev.xiaoling/.MainActivity` 启动成功。
+- 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档

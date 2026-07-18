@@ -18,6 +18,7 @@ import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
@@ -76,6 +77,16 @@ private fun ToolRisk.toUiLabel(): String {
         ToolRisk.REQUIRES_APPROVAL -> "需确认"
         ToolRisk.DANGEROUS -> "高风险"
     }
+}
+
+internal fun List<ChatMessage>.withRecoveredAgentUserMessage(run: AgentRunRecord): List<ChatMessage> {
+    if (any { it.id == run.userMessageId }) return this
+    return (this + ChatMessage(
+        id = run.userMessageId,
+        role = "user",
+        text = "/agent ${run.goal}",
+        createdAt = run.createdAt,
+    )).sortedBy(ChatMessage::createdAt)
 }
 
 data class XiaoLingUiState(
@@ -1584,6 +1595,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             summaryUpdatedAt = preparedContext.summaryUpdatedAt,
             summaryModel = preparedContext.summaryModel,
         )
+        // long: 待审批 Run 可能在用户决定前经历进程重建；先持久化发起消息，恢复后的审批卡片才能继续锚定到原消息和原 Run。
+        saveConversationSelection()
         val goal = AgentCommand.goal(userMessage)
         sendMessageJob = viewModelScope.launch {
             try {
@@ -1775,8 +1788,26 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun restoreRecoveredAgentRuns(details: List<AgentRunDetailRecord>) {
         if (details.isEmpty()) return
+        var restoredMissingUserMessage = false
         details.forEach { detail ->
             val run = detail.snapshot.run
+            uiState.conversations
+                .firstOrNull { it.id == run.conversationId }
+                ?.let { conversation ->
+                    val recoveredMessages = conversation.messages.withRecoveredAgentUserMessage(run)
+                    if (recoveredMessages != conversation.messages) {
+                        // long: 旧版本可能只持久化了 Run 和审批；用 Run 中的稳定消息 ID 补回 UI 锚点，避免审批存在但用户无入口继续。
+                        uiState = uiState.withUpdatedConversation(
+                            conversationId = conversation.id,
+                            messages = recoveredMessages,
+                            summary = conversation.summary,
+                            summaryUntilMessageId = conversation.summaryUntilMessageId,
+                            summaryUpdatedAt = conversation.summaryUpdatedAt,
+                            summaryModel = conversation.summaryModel,
+                        )
+                        restoredMissingUserMessage = true
+                    }
+                }
             activeAgentRunsByConversation[run.conversationId] = detail.snapshot
             detail.approvals
                 .firstOrNull { it.status == ApprovalRequestStatus.PENDING }
@@ -1795,6 +1826,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             selectedAgentRunId = uiState.selectedAgentRunId
                 ?: details.firstOrNull()?.snapshot?.run?.id,
         )
+        if (restoredMissingUserMessage) {
+            saveConversationSelection()
+        }
     }
 
     private fun clearPendingApprovalForConversation(conversationId: String) {

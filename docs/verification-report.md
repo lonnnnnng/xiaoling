@@ -428,3 +428,23 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 - 真机上保留原有同包名安装包，未卸载、未清数据。
 - `outputs/` 目录不纳入版本控制。
+
+## 2026-07-18 待审批 Run 真机进程重建验收
+
+环境与构建：
+
+- 设备：`wsvwypiz7xwslvl7`，Redmi Note 8 Pro；应用 `com.longdev.xiaoling`，`versionName=0.1.9`，`versionCode=10`。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug --console=plain`，121 项 Debug 单元测试通过。
+- Debug APK SHA-256：`1c85b53715c1ffd5d519513a1b8b74e0c5665d70bfb2c53426fb45d525dfe899`。
+- 使用 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 覆盖安装；未卸载、未清数据、未运行 instrumentation 测试，Provider、历史会话和 Keystore 凭据保持可用。
+
+真实流程：
+
+- 输入 `/agent remember process rebuild acceptance marker 20260718-1038`，模型选择 `memory.remember`。
+- Run：`run-b6dc92d7-19b8-4b25-a189-a34d4e815297`；Approval：`approval-f8669cc6-1244-4820-ac06-3ff5e4388b5a`。
+- 审批前数据库为 `WAITING_APPROVAL / PENDING / retryOfRunId=NULL`；执行 `am force-stop` 后 PID 消失，Run 和审批状态保持不变。
+- 首次重启发现 Run 已恢复但用户消息尚未持久化，导致审批卡片没有 UI 锚点；修复为发送 Agent 后立即保存消息，并在恢复旧数据时按 `userMessageId / goal / createdAt` 补回缺失锚点。
+- 覆盖安装修复包后，UI 显示“进程重建后待恢复”和“批准并继续”；批准后原 Run 依次进入 `EXECUTING / VERIFYING / THINKING / COMPLETED`。
+- 原 Run 的步骤仍只有一次 `llm.plan`，恢复阶段没有新增规划事件或新 Run；同目标 Run 数量为 1，`retryOfRunId` 仍为 `NULL`。
+- 工具执行和回读验证均通过；记忆 `memory-fd3b356d-e8cc-434e-a9c9-0cd35374de26` 已写入，`sourceRunId` 指向原 Run，内容为 `process rebuild acceptance marker 20260718-1038`。
+- 最终 UI 显示 Agent 已完成，crash buffer 为空。
