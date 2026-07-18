@@ -225,6 +225,14 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - 新增 JVM 测试验证恢复工具失败写入原 Run `FAILED`，且重试策略要求二次确认；新增 Room instrumentation 测试用新 Repository 实例模拟组件重建，串起审批重建、批准、工具执行、验证和同 Run `COMPLETED`。
 - 已验证 Gradle 8.13 分发包可在临时 `GRADLE_USER_HOME` 启动，但进入构建仍因 `FileLockContentionHandler` 创建本地 Socket 被沙箱拒绝；新增测试尚未实际运行，APK 和真机进程重建验证也未执行，不能把该入口报告为设备验收通过。
 
+## 内置 Skill 按需加载验证边界
+
+本轮新增四类内置声明式 Skill、稳定关键词选择、最多 3 个 Skill 限制、工具白名单包装和 `skill.selected` RunEvent：
+
+- 单元测试覆盖多意图目标的稳定选择、未命中时保留原工具集、Skill 不能引用未注册工具，以及执行层拒绝越过 Skill 白名单。
+- `AgentRunUseCase` 已把选中 Skill 的指令和收窄后的工具定义传给规划器；工具风险、审批、权限和验证仍取自原 `ToolDefinition`。
+- 当前环境的 Gradle 与 ADB 都因本地 Socket 权限被沙箱阻止，新增测试、APK 构建和真机行为尚未执行；本轮不包含 Skill 导入、管理 UI、多步工具循环或后台执行。
+
 ## 记忆过期与时间衰减验证边界
 
 本轮实现新增 Room v10→v11 迁移、可空 `expiresAt` / `lastReferencedAt`、过期检索过滤、引用时间回写、置顶保护和按类型半衰期排序，并在长期记忆管理页提供永久、30 天、90 天和 1 年策略。

@@ -47,6 +47,33 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun selectedSkillsAreWrittenToRunAudit() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val skill = AgentSkillDefinition(
+            id = "fake-echo-skill",
+            name = "回显测试",
+            description = "测试 Skill 审计",
+            instructions = "使用回显工具。",
+            toolNames = setOf("fake.echo"),
+            keywords = setOf("回显"),
+        )
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+        ).run(
+            conversationId = "conversation-skill-audit",
+            userMessageId = "message-skill-audit",
+            goal = "回显 Skill 审计",
+            selectedSkills = listOf(skill),
+        )
+
+        val selected = ledger.snapshot(summary.runId).events.single { it.type == "skill.selected" }
+        assertTrue(selected.message.contains(skill.name))
+        assertEquals(skill.id, (selected.metadata as RunEventMetadata.Reason).reason)
+    }
+
+    @Test
     fun approvedPendingRunResumesOnSameRunWithoutReplanning() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val created = ledger.createRun(

@@ -32,14 +32,16 @@ class AgentRunUseCase(
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
+        val selectedSkills = BuiltInAgentSkillRegistry.select(goal)
+        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
         )
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
-            toolRegistry = toolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt),
+            toolRegistry = scopedToolRegistry,
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )
@@ -50,6 +52,7 @@ class AgentRunUseCase(
             retryOfRunId = retryOfRunId,
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
             memoryRecallEnabled = memoryRecallEnabled,
+            selectedSkills = selectedSkills,
         )
     }
 

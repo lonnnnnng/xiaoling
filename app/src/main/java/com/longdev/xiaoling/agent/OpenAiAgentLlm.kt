@@ -10,6 +10,7 @@ class OpenAiAgentLlm(
     private val client: OpenAiCompatibleClient,
     private val config: ProviderRequestConfig,
     private val summarySystemPrompt: String,
+    private val selectedSkills: List<AgentSkillDefinition> = emptyList(),
 ) : AgentLlm {
     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
         val response = client.sendMessage(
@@ -33,6 +34,9 @@ class OpenAiAgentLlm(
 
                         可用工具：
                         ${tools.joinToString("\n") { tool -> tool.toModelPromptLine() }}
+
+                        按目标选中的 Skill：
+                        ${selectedSkills.toModelPromptBlock()}
                     """.trimIndent(),
                 ),
             ),
@@ -60,6 +64,13 @@ class OpenAiAgentLlm(
                 ),
             ),
         ).responseText
+    }
+}
+
+private fun List<AgentSkillDefinition>.toModelPromptBlock(): String {
+    if (isEmpty()) return "未命中专用 Skill，按可用工具定义处理。"
+    return joinToString("\n") { skill ->
+        "- ${skill.name}：${skill.instructions}"
     }
 }
 

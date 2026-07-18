@@ -34,6 +34,7 @@ private val eventTitles = mapOf(
     "run.cancelled" to "Run 已取消",
     "run.budget_exhausted" to "Run 预算耗尽",
     "run.recovered" to "Run 恢复收敛",
+    "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
 )
 

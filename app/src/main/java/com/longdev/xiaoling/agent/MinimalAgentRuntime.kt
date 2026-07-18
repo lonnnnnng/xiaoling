@@ -24,6 +24,7 @@ class MinimalAgentRuntime(
         retryOfRunId: String? = null,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         memoryRecallEnabled: Boolean = true,
+        selectedSkills: List<AgentSkillDefinition> = emptyList(),
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
@@ -40,6 +41,15 @@ class MinimalAgentRuntime(
         val toolCallFingerprints = mutableSetOf<String>()
         val executionBudget = AgentExecutionBudget(options.runTimeoutMs)
         return try {
+            if (selectedSkills.isNotEmpty()) {
+                // long: Skill 选择必须进入 Run 审计，方便用户确认本轮为何只暴露部分工具；指令文本不改变工具定义中的风险和审批策略。
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "skill.selected",
+                    message = "已按目标选择 Skill：${selectedSkills.joinToString { it.name }}",
+                    metadata = RunEventMetadata.Reason(selectedSkills.joinToString { it.id }),
+                )
+            }
             ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
             if (!memoryRecallEnabled) {
                 // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。

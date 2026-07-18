@@ -88,6 +88,7 @@
 - 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
+- `AgentRunUseCase` 会按目标规则选择最多 3 个内置声明式 Skill，并通过 `SkillScopedToolRegistry` 只向规划器暴露 Skill 声明的已注册工具；未命中 Skill 时保留原工具集。Skill 选择写入 `skill.selected` RunEvent，不能修改工具风险、审批、权限或验证策略。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext` 也保存同一组 ID，后续会话不会把“模型声称用过记忆”当成审计证据。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
@@ -165,7 +166,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`；跨进程记忆删除撤销、记忆过期、时间衰减、单次召回关闭与实际引用 ID 审计已交付，后台任务、Skill 和更多真实工具仍需按路线图继续补齐。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；恢复审批批准后，Runtime 使用持久化工具参数从原审批步骤继续执行、验证和总结，并把事件与终态写回原 Run。执行/验证中 Run 仍收敛为 `CANCELLED`；跨进程记忆删除撤销和内置 Skill 按需选取已交付，本地 Skill 导入/管理、多步 Agent、后台任务和更多真实工具仍需按路线图继续补齐。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
