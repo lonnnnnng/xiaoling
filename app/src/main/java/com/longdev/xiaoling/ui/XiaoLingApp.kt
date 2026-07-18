@@ -982,6 +982,7 @@ private fun ConversationPage(
                 onModelSelected = viewModel::updateModel,
                 onResponsesChanged = viewModel::updateResponsesEnabled,
                 onStreamingChanged = viewModel::updateStreamingEnabled,
+                onAgentMemoryRecallChanged = viewModel::updateAgentMemoryRecallEnabled,
                 onPromptChange = viewModel::updatePrompt,
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGenerating,
@@ -1107,6 +1108,7 @@ private fun MessageInputBar(
     onModelSelected: (String) -> Unit,
     onResponsesChanged: (Boolean) -> Unit,
     onStreamingChanged: (Boolean) -> Unit,
+    onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -1154,6 +1156,8 @@ private fun MessageInputBar(
                 onModelSelected = onModelSelected,
                 onResponsesChanged = onResponsesChanged,
                 onStreamingChanged = onStreamingChanged,
+                agentCommand = canRunAgent,
+                onAgentMemoryRecallChanged = onAgentMemoryRecallChanged,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(end = 52.dp),
@@ -1543,6 +1547,8 @@ private fun InputOptionRow(
     onModelSelected: (String) -> Unit,
     onResponsesChanged: (Boolean) -> Unit,
     onStreamingChanged: (Boolean) -> Unit,
+    agentCommand: Boolean,
+    onAgentMemoryRecallChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
@@ -1563,6 +1569,14 @@ private fun InputOptionRow(
             enabled = enabled,
             onCheckedChange = onResponsesChanged,
         )
+        if (agentCommand) {
+            CompactCheckOption(
+                text = "记忆",
+                checked = state.agentMemoryRecallEnabled,
+                enabled = !state.sendingMessage,
+                onCheckedChange = onAgentMemoryRecallChanged,
+            )
+        }
         Box(modifier = Modifier.widthIn(max = 164.dp)) {
             val modelShape = RoundedCornerShape(15.dp)
             val modelEnabled = enabled && state.enabledModels.isNotEmpty()
@@ -3010,6 +3024,13 @@ private fun AgentToolResultRow(
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (result.memoryIdsUsed.isNotEmpty()) {
+            Text(
+                text = "本次使用记忆：${result.memoryIdsUsed.joinToString("、")}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
         Text(
             text = result.content.ifBlank { "(空结果)" },
             style = MaterialTheme.typography.bodySmall,

@@ -34,6 +34,7 @@ private val eventTitles = mapOf(
     "run.cancelled" to "Run 已取消",
     "run.budget_exhausted" to "Run 预算耗尽",
     "run.recovered" to "Run 恢复收敛",
+    "memory.recall.disabled" to "关闭记忆召回",
 )
 
 internal fun presentAgentRunEvent(
@@ -68,6 +69,7 @@ internal fun presentAgentRunEvent(
                 "耗时" to "${metadata.durationMs}ms",
                 "成功" to metadata.success.toDisplayText(),
                 "验证" to metadata.verified?.toDisplayText(),
+                "使用记忆" to metadata.memoryIdsUsed.takeIf { it.isNotEmpty() }?.joinToString("、"),
             ),
         )
         is RunEventMetadata.ApprovalRequest -> AgentRunEventPresentation(

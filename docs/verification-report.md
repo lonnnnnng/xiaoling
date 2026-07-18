@@ -188,6 +188,20 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - 手动 `AndroidJUnitRunner`：15 条 Redmi Note 8 Pro 真机测试通过。
 - `lintDebug`、`assembleDebug` 与 `assembleDebugAndroidTest` 通过。
 
+## 记忆引用审计与单次召回关闭验证
+
+本轮 JVM 定向测试覆盖：
+
+- `memory.search` 返回真实命中的 `memoryIdsUsed`；关闭记忆召回时不访问 Store，规划器工具清单移除 `memory.search`。
+- `RunEventMetadata.ToolResult` 和 `VerifiedAgentContext` 的 memory ID 编解码；旧 JSON 缺少字段时兼容为空列表。
+- `memory.recall.disabled` 事件在单次 Run 写入，关闭只影响读取，不绕过 `memory.remember` 的审批链路。
+- 任务中心工具结果展示实际使用的 memory ID，历史事件和普通工具结果保持原有展示。
+
+本轮验证结果：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug`：`105` 条 JVM 测试通过。
+- `memoryIdsUsed` 只来自执行器返回的真实记录，不接受模型总结自由文本伪造；未执行真机 Agent 请求，Provider 上游状态不影响本轮本地契约验证。
+
 外部服务边界：
 
 - 本机兜底 Provider 的模型列表与鉴权已验证成功；按本机指令选择 `gpt-5.5` 后，真实对话请求到达服务端但返回 `HTTP 503 · 无可用账号`。同端点小范围候选探测也返回 503/429/403，因此当前未取得真实回复成功证据，该结果不归因于应用实现。

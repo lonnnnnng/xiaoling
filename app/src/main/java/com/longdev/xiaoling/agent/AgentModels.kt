@@ -81,6 +81,7 @@ sealed interface RunEventMetadata {
         val durationMs: Long,
         val success: Boolean,
         val verified: Boolean?,
+        val memoryIdsUsed: List<String> = emptyList(),
     ) : RunEventMetadata
 
     data class ApprovalRequest(
@@ -371,6 +372,7 @@ data class ToolExecutionResult(
     val success: Boolean,
     val content: String,
     val verified: Boolean? = null,
+    val memoryIdsUsed: List<String> = emptyList(),
 )
 
 interface AgentClock {
@@ -461,6 +463,7 @@ data class AgentToolExecutionContext(
     val userMessageId: String,
     val runId: String,
     val goal: String,
+    val memoryRecallEnabled: Boolean = true,
 )
 
 interface AgentRunContextAwareToolRegistry {

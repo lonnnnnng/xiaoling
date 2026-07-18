@@ -103,6 +103,31 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun toolResultMemoryIdsRoundTripThroughRepositorySnapshot() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-memory-audit",
+            userMessageId = "message-memory-audit",
+            goal = "记录实际使用的记忆",
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.result",
+            message = "工具执行成功：memory.search",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = "memory.search",
+                content = "长期记忆：...",
+                durationMs = 18L,
+                success = true,
+                verified = null,
+                memoryIdsUsed = listOf("memory-1", "memory-2"),
+            ),
+        )
+
+        val metadata = repository.snapshot(run.id).events.single().metadata as RunEventMetadata.ToolResult
+        assertEquals(listOf("memory-1", "memory-2"), metadata.memoryIdsUsed)
+    }
+
+    @Test
     fun approvalEventsUseReadableMessagesAndTypedMetadata() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-approval-metadata",

@@ -28,6 +28,7 @@ class AgentRunUseCase(
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
         retryOfRunId: String? = null,
+        memoryRecallEnabled: Boolean = true,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -48,6 +49,7 @@ class AgentRunUseCase(
             goal = goal,
             retryOfRunId = retryOfRunId,
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            memoryRecallEnabled = memoryRecallEnabled,
         )
     }
 }

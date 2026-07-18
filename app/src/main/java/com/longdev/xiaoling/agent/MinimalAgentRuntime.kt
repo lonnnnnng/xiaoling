@@ -23,6 +23,7 @@ class MinimalAgentRuntime(
         goal: String,
         retryOfRunId: String? = null,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        memoryRecallEnabled: Boolean = true,
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
@@ -31,6 +32,7 @@ class MinimalAgentRuntime(
                 userMessageId = userMessageId,
                 runId = run.id,
                 goal = goal,
+                memoryRecallEnabled = memoryRecallEnabled,
             ),
         )
         var activeStepId: String? = null
@@ -39,6 +41,15 @@ class MinimalAgentRuntime(
         val executionBudget = AgentExecutionBudget(options.runTimeoutMs)
         return try {
             ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
+            if (!memoryRecallEnabled) {
+                // long: 单次 Run 关闭记忆召回只阻止读取长期记忆，仍保留审计事件，方便用户确认本轮没有使用记忆上下文。
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = "memory.recall.disabled",
+                    message = "本次 Run 已关闭长期记忆召回",
+                    metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+                )
+            }
             val thinking = ledger.appendStep(
                 runId = run.id,
                 type = "llm.plan",
@@ -370,6 +381,7 @@ class MinimalAgentRuntime(
             success = toolResult.success,
             verificationStatus = verificationStatus,
             rawResult = toolResult.content,
+            memoryIdsUsed = toolResult.memoryIdsUsed,
         )
     }
 
@@ -503,6 +515,7 @@ private object AgentEventMetadata {
             content = result.content,
             verified = result.verified,
             durationMs = durationMs,
+            memoryIdsUsed = result.memoryIdsUsed,
         )
     }
 }

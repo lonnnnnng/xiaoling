@@ -203,7 +203,14 @@ class XiaoLingToolRegistry(
         runContext = context
     }
 
-    override fun availableTools(): List<ToolDefinition> = tools
+    override fun availableTools(): List<ToolDefinition> {
+        val context = runContext
+        if (context?.memoryRecallEnabled == false) {
+            // long: 关闭单次记忆召回时从规划器工具清单移除 memory.search，避免模型先提出调用再由执行器拒绝造成误导性审计。
+            return tools.filterNot { it.name == "memory.search" }
+        }
+        return tools
+    }
 
     override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
 
@@ -322,6 +329,9 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun searchMemory(call: ToolCall): ToolExecutionResult {
+        if (runContext?.memoryRecallEnabled == false) {
+            return ToolExecutionResult(success = true, content = "本次 Run 已关闭长期记忆召回。")
+        }
         val memories = memoryStore.search(
             query = call.arguments["query"].orEmpty().trim(),
             limit = call.limit(),
@@ -330,6 +340,7 @@ class XiaoLingToolRegistry(
         if (memories.isEmpty()) return ToolExecutionResult(success = true, content = "未找到匹配长期记忆。")
         return ToolExecutionResult(
             success = true,
+            memoryIdsUsed = memories.map { it.id },
             content = memories.joinToString(separator = "\n", prefix = "长期记忆：\n") { memory ->
                 val tags = memory.tags.takeIf { it.isNotBlank() }?.let { "[$it] " }.orEmpty()
                 "- $tags${memory.content} · 类型：${memory.type} · 来源：${memory.sourceSummary}"

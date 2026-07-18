@@ -47,6 +47,23 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun disablingMemoryRecallWritesAnAuditEventForThisRunOnly() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+        ).run(
+            conversationId = "conversation-1",
+            userMessageId = "message-1",
+            goal = "本轮不使用记忆",
+            memoryRecallEnabled = false,
+        )
+
+        val event = ledger.snapshot(summary.runId).events.single { it.type == "memory.recall.disabled" }
+        assertEquals("用户关闭本次 Run 的长期记忆召回", (event.metadata as RunEventMetadata.Reason).reason)
+    }
+
+    @Test
     fun modelSummaryCannotAddFactsToVerifiedRuntimeContext() = runTest {
         val runtime = MinimalAgentRuntime(
             ledger = InMemoryAgentRunLedger(),
@@ -116,6 +133,7 @@ class MinimalAgentRuntimeTest {
             success = true,
             verificationStatus = AgentVerificationStatus.VERIFIED,
             rawResult = "已创建并验证笔记：周报",
+            memoryIdsUsed = listOf("memory-1", "memory-2"),
         )
 
         val restored = VerifiedAgentContextCodec.decode(VerifiedAgentContextCodec.encode(context))

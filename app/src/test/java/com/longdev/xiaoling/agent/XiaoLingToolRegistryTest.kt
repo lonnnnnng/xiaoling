@@ -187,6 +187,32 @@ class XiaoLingToolRegistryTest {
         assertTrue(search.content.contains("用户喜欢紧凑、明亮但不刺眼的 Android UI"))
         assertTrue(search.content.contains("Preference"))
         assertTrue(!search.content.contains("不应该被检索"))
+        assertEquals(listOf("memory-1"), search.memoryIdsUsed)
+    }
+
+    @Test
+    fun disabledMemoryRecallHidesSearchToolAndDoesNotReadStore() = runTest {
+        val memoryStore = InMemoryAgentMemoryStore()
+        val registry = testRegistry(memoryStore = memoryStore).also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-1",
+                    userMessageId = "message-1",
+                    runId = "run-1",
+                    goal = "不使用记忆",
+                    memoryRecallEnabled = false,
+                ),
+            )
+        }
+
+        assertTrue(registry.availableTools().none { it.name == "memory.search" })
+        val result = registry.execute(
+            ToolCall(name = "memory.search", arguments = mapOf("query" to "Android"), risk = ToolRisk.SAFE),
+        )
+        assertTrue(result.success)
+        assertTrue(result.memoryIdsUsed.isEmpty())
+        assertTrue(result.content.contains("关闭长期记忆召回"))
+        assertTrue(memoryStore.searchQueries.isEmpty())
     }
 
     @Test
@@ -283,6 +309,7 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
 
 private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     val records = mutableListOf<AgentMemoryRecord>()
+    val searchQueries = mutableListOf<String>()
 
     override suspend fun remember(
         content: String,
@@ -311,6 +338,7 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     open override suspend fun get(memoryId: String): AgentMemoryRecord? = records.firstOrNull { it.id == memoryId }
 
     override suspend fun search(query: String, limit: Int, enabledOnly: Boolean): List<AgentMemoryRecord> {
+        searchQueries += query
         val normalized = query.trim()
         return records
             .filter { !enabledOnly || it.enabled }

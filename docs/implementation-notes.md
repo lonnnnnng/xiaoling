@@ -89,6 +89,9 @@
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
 
+- `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext` 也保存同一组 ID，后续会话不会把“模型声称用过记忆”当成审计证据。
+- 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
+
 该链路的价值是先把 Run、Step、Event、审批、执行、验证、长期记忆和终态跑通，为后续更多真实工具和后台任务提供可测试 seam。
 
 ## 会话上下文
@@ -143,6 +146,7 @@
 - 设置页「长期记忆」支持候选开关与确认、搜索、启用状态筛选、编辑、置顶、启停、删除确认、当前会话撤销和来源审计；来源会话与来源 Run 存在时可直接跳转。
 - 设置页「数据备份与恢复」通过 Android SAF 导出/导入 ZIP；备份包含 Room 主库和 schema/app manifest，导入先校验 manifest 与真实 SQLite `user_version`，再关闭 Room、保留 `.pre-restore` 安全副本并替换数据库，完成后必须重启应用。
 - 备份不导出 API Key 明文；Provider 表中的密文仍依赖当前 Android Keystore，跨设备或密钥丢失时不能仅凭数据库恢复凭据。未来可增加不含凭据的 Provider 元数据迁移向导。
+- 长期记忆的引用审计目前落在 Agent Run 的 ToolResult 和 VerifiedAgentContext；删除或禁用记忆后新 Run 不会产生对应 ID，历史 Run 保留原始审计快照，不回写旧事件。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
 - 主题、候选记忆开关与三类提示词偏好保存在 `xiaoling_ui` SharedPreferences。
 - API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
@@ -161,6 +165,6 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 仍使用提示词 JSON 规划单次工具调用，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行，但进程重建后仍会先把中间态收敛为 `CANCELLED`，不会原地恢复旧协程、模型调用或工具执行栈。
-- 原地断点恢复、记忆过期与本轮引用审计、跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐。
+- 原地断点恢复、记忆过期、跨进程删除撤销、后台任务、Skill 和更多真实工具仍需按路线图继续补齐；单次召回关闭与实际引用 ID 审计已交付。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

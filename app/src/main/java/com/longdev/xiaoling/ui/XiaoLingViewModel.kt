@@ -102,6 +102,7 @@ data class XiaoLingUiState(
     val syncingAllProfiles: Boolean = false,
     val batchSyncResults: Map<String, String> = emptyMap(),
     val activeAgentRun: AgentRunSnapshot? = null,
+    val agentMemoryRecallEnabled: Boolean = true,
     val pendingAgentApproval: AgentApprovalUiState? = null,
     val loadingAgentRunHistory: Boolean = false,
     val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
@@ -322,6 +323,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun updatePrompt(value: String) {
         uiState = uiState.copy(prompt = value, result = null)
+    }
+
+    fun updateAgentMemoryRecallEnabled(value: Boolean) {
+        uiState = uiState.copy(agentMemoryRecallEnabled = value, result = null)
     }
 
     fun openNewProvider() {
@@ -1300,7 +1305,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val userMessage = uiState.prompt.trim()
         if (AgentCommand.matches(userMessage)) {
             val config = validatedConfig() ?: return
-            sendAgentRun(userMessage, config)
+            sendAgentRun(
+                userMessage = userMessage,
+                config = config,
+                memoryRecallEnabled = uiState.agentMemoryRecallEnabled,
+            )
             return
         }
         val config = validatedConfig() ?: return
@@ -1429,6 +1438,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         config: ProviderRequestConfig,
         conversationId: String = uiState.selectedConversationId.ifBlank { "conversation-" + System.currentTimeMillis() },
         retryOfRunId: String? = null,
+        memoryRecallEnabled: Boolean = true,
     ) {
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
@@ -1443,6 +1453,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
+            agentMemoryRecallEnabled = true,
         ).withUpdatedConversation(
             conversationId = conversationId,
             messages = messagesWithUser,
@@ -1462,6 +1473,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     config = config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                     retryOfRunId = retryOfRunId,
+                    memoryRecallEnabled = memoryRecallEnabled,
                     approvalGate = approvalGate,
                     onSnapshot = ::publishAgentRunSnapshot,
                 )

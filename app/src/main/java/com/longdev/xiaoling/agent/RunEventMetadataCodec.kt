@@ -16,6 +16,7 @@ internal object RunEventMetadataCodec {
                 .put("durationMs", metadata.durationMs)
                 .put("success", metadata.success)
                 .put("verified", metadata.verified)
+                .put("memoryIdsUsed", metadata.memoryIdsUsed)
             is RunEventMetadata.ApprovalRequest -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -61,6 +62,7 @@ internal object RunEventMetadataCodec {
                     durationMs = json.getLong("durationMs"),
                     success = json.getBoolean("success"),
                     verified = json.booleanOrNull("verified"),
+                    memoryIdsUsed = json.stringListOrEmpty("memoryIdsUsed"),
                 )
                 "approval.requested",
                 "approval.request_decided" -> RunEventMetadata.ApprovalRequest(
@@ -126,6 +128,15 @@ internal object RunEventMetadataCodec {
 
     private fun JSONObject.booleanOrNull(key: String): Boolean? =
         if (has(key) && !isNull(key)) getBoolean(key) else null
+
+    private fun JSONObject.stringListOrEmpty(key: String): List<String> {
+        val values = optJSONArray(key) ?: return emptyList()
+        return buildList {
+            for (index in 0 until values.length()) {
+                values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }
+    }
 
     private fun JSONObject.arguments(): Map<String, String> =
         optJSONObject("arguments")?.toStringMap().orEmpty()

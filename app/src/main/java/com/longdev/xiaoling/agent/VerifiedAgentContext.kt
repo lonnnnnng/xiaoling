@@ -15,6 +15,7 @@ data class VerifiedAgentContext(
     val success: Boolean,
     val verificationStatus: AgentVerificationStatus,
     val rawResult: String,
+    val memoryIdsUsed: List<String> = emptyList(),
 )
 
 object VerifiedAgentContextCodec {
@@ -26,6 +27,7 @@ object VerifiedAgentContextCodec {
             .put("success", context.success)
             .put("verificationStatus", context.verificationStatus.name)
             .put("rawResult", context.rawResult)
+            .put("memoryIdsUsed", context.memoryIdsUsed)
             .toString()
     }
 
@@ -44,6 +46,9 @@ object VerifiedAgentContextCodec {
                 success = json.getBoolean("success"),
                 verificationStatus = AgentVerificationStatus.valueOf(json.getString("verificationStatus")),
                 rawResult = json.getString("rawResult"),
+                memoryIdsUsed = json.optJSONArray("memoryIdsUsed")?.let { ids ->
+                    buildList { for (index in 0 until ids.length()) add(ids.getString(index)) }
+                }.orEmpty(),
             )
         }.getOrNull()
     }
