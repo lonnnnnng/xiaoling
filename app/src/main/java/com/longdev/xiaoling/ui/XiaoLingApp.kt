@@ -4,6 +4,7 @@ import android.app.Activity
 import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -173,6 +174,13 @@ private fun XiaoLingContent(
     var selectedTab by remember { mutableIntStateOf(0) }
     var settingsPane by remember { mutableStateOf(SettingsPane.ROOT) }
     val context = LocalContext.current
+    var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri -> uri?.let(viewModel::exportBackup) }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> pendingBackupRestoreUri = uri }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = selectedTab == 1 && state.manageDraft != null
     val isSettingsSubPage = selectedTab == 1 && settingsPane != SettingsPane.ROOT
@@ -282,6 +290,8 @@ private fun XiaoLingContent(
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
                         },
+                        onExportBackup = { exportBackupLauncher.launch(viewModel.defaultBackupFileName()) },
+                        onImportBackup = { importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                         onBackToSettings = { settingsPane = SettingsPane.ROOT },
                         modifier = Modifier.matchParentSize(),
                     )
@@ -302,6 +312,25 @@ private fun XiaoLingContent(
             pending = pending,
             onConfirm = viewModel::confirmAgentRunRetry,
             onDismiss = viewModel::cancelAgentRunRetry,
+        )
+    }
+    pendingBackupRestoreUri?.let { uri ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingBackupRestoreUri = null },
+            title = { Text("恢复本地备份") },
+            text = { Text("这会替换当前 Room 数据库，并要求退出后重新打开应用。Provider API Key 只能在原设备 Keystore 仍存在时解密。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingBackupRestoreUri = null
+                        viewModel.restoreBackup(uri)
+                    },
+                    enabled = !state.backupBusy,
+                ) { Text("确认恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBackupRestoreUri = null }) { Text("取消") }
+            },
         )
     }
     state.editingMemory?.let { draft ->
@@ -1692,6 +1721,8 @@ private fun SettingsPage(
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1741,6 +1772,8 @@ private fun SettingsPage(
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
+                onExportBackup = onExportBackup,
+                onImportBackup = onImportBackup,
                 modifier = Modifier.matchParentSize(),
             )
         }
@@ -1755,6 +1788,8 @@ private fun SettingsRootPage(
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1808,6 +1843,27 @@ private fun SettingsRootPage(
             },
             onClick = onOpenAgentRunHistory,
         )
+
+        SettingsEntryCard(
+            title = "数据备份与恢复",
+            subtitle = if (state.backupBusy) {
+                "正在处理备份..."
+            } else {
+                "导出或恢复 Room 数据；API Key 依赖当前设备 Keystore"
+            },
+            icon = Icons.Default.Save,
+            onClick = onExportBackup,
+            trailing = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onExportBackup, enabled = !state.backupBusy, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Save, contentDescription = "导出备份", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onImportBackup, enabled = !state.backupBusy, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Restore, contentDescription = "恢复备份", modifier = Modifier.size(18.dp))
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -1817,6 +1873,7 @@ private fun SettingsEntryCard(
     subtitle: String,
     icon: ImageVector = Icons.Default.Memory,
     onClick: () -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1850,7 +1907,8 @@ private fun SettingsEntryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
+            trailing?.invoke()
+                ?: Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
         }
     }
 }

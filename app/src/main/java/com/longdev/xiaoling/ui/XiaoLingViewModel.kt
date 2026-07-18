@@ -51,6 +51,7 @@ import com.longdev.xiaoling.storage.StoredConversations
 import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
+import com.longdev.xiaoling.storage.XiaoLingBackupManager
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -125,6 +126,8 @@ data class XiaoLingUiState(
     val deletedMemoryForUndo: AgentMemoryRecord? = null,
     val memorySourceConversationNavigationId: String? = null,
     val memorySourceRunNavigationId: String? = null,
+    val backupBusy: Boolean = false,
+    val backupRestartRequired: Boolean = false,
     val result: OperationResult? = null,
 )
 
@@ -258,6 +261,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentRunUseCase = AgentRunUseCase(application, client)
     private val agentRunRepository = RoomAgentRunRepository(application)
     private val agentMemoryStore = RoomAgentMemoryStore(application)
+    private val backupManager = XiaoLingBackupManager(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
     private var pendingApprovalDecision: CompletableDeferred<ApprovalDecision>? = null
@@ -355,6 +359,59 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun clearResult() {
         uiState = uiState.copy(result = null)
+    }
+
+    fun defaultBackupFileName(): String {
+        return "xiaoling-backup-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.zip"
+    }
+
+    fun exportBackup(uri: android.net.Uri) {
+        if (uiState.backupBusy) return
+        uiState = uiState.copy(backupBusy = true, result = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { backupManager.export(uri) }
+            }.onSuccess { manifest ->
+                uiState = uiState.copy(
+                    backupBusy = false,
+                    result = OperationResult(
+                        success = true,
+                        title = "备份已导出",
+                        message = "Room v${manifest.schemaVersion} 数据已写入所选文件；Provider 密文仍依赖当前设备 Keystore",
+                    ),
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    backupBusy = false,
+                    result = OperationResult(false, "备份导出失败", error.message ?: "无法导出备份"),
+                )
+            }
+        }
+    }
+
+    fun restoreBackup(uri: android.net.Uri) {
+        if (uiState.backupBusy) return
+        uiState = uiState.copy(backupBusy = true, result = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { backupManager.restore(uri) }
+            }.onSuccess { restored ->
+                uiState = uiState.copy(
+                    backupBusy = false,
+                    backupRestartRequired = restored.restartRequired,
+                    result = OperationResult(
+                        success = true,
+                        title = "备份已恢复",
+                        message = "Room v${restored.manifest.schemaVersion} 已替换当前数据库，请退出并重新打开应用；Keystore 密文只能在原设备密钥仍存在时解密",
+                    ),
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    backupBusy = false,
+                    result = OperationResult(false, "备份恢复失败", error.message ?: "无法恢复备份"),
+                )
+            }
+        }
     }
 
     fun updateDraftName(value: String) = updateDraft { copy(name = value) }

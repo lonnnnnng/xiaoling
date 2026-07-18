@@ -33,6 +33,9 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentNoteDao(): AgentNoteDao
 
     companion object {
+        const val CURRENT_VERSION = 10
+        const val DATABASE_NAME = "xiaoling.db"
+
         @Volatile
         private var instance: XiaoLingDatabase? = null
 
@@ -41,12 +44,19 @@ abstract class XiaoLingDatabase : RoomDatabase() {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     XiaoLingDatabase::class.java,
-                    "xiaoling.db",
+                    DATABASE_NAME,
                 )
                     .addMigrations(*migrations())
                     // long: 这是小灵首次引入 Room 的数据库；后续表结构变化必须补 Migration，不能再丢弃用户会话和运行记录。
                     .build()
                     .also { instance = it }
+            }
+        }
+
+        fun resetInstanceForRestore() {
+            synchronized(this) {
+                instance?.close()
+                instance = null
             }
         }
 

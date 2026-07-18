@@ -95,7 +95,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v10 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items 和 `LlmProviderAdapter` 已完成；数据库备份和 ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v10 自动化迁移测试、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -106,7 +106,7 @@ com.longdev.xiaoling.ui.agent
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
 - 已完成：启用 Room Schema 导出，并在 Android 真机自动验证带旧数据的 v4→v10 migration 链、v6 JSON event metadata 迁移、v7 Run 重试关联、v8 Memory FTS 回填、v9 候选表迁移和全新 v10 建库。
-- 待完成：增加面向用户的数据库备份与恢复能力。
+- 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
 ### 验收标准
@@ -316,7 +316,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v10、event metadata、重试关联、Memory FTS 与候选表迁移测试已完成；用户备份/恢复待完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v10、event metadata、重试关联、Memory FTS、候选表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
@@ -341,9 +341,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
 
-1. 增加面向用户的数据库备份与恢复能力，并明确 Keystore 密钥不能仅靠 Room 文件恢复。
-2. 增加记忆过期、实际引用审计和单次召回关闭能力。
-3. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
-4. 多步 Agent、Skill 和后台任务在上述基础稳定后进入。
+1. 增加记忆过期、实际引用审计和单次召回关闭能力。
+2. 设计进程重建后的原地断点恢复，明确哪些步骤可续跑、哪些必须创建新 Run。
+3. 多步 Agent、Skill 和后台任务在上述基础稳定后进入。
 
 完成这些工作后，小灵的最小 Agent 骨架才能从“可执行验证版”进入可持续扩展阶段。

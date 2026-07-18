@@ -67,7 +67,7 @@ adb -s wsvwypiz7xwslvl7 shell am instrument -w -r com.longdev.xiaoling.test/andr
 结果：
 
 ```text
-99 JVM tests passed
+101 JVM tests passed
 OK (15 Android tests)
 BUILD SUCCESSFUL
 ```
@@ -191,6 +191,25 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 外部服务边界：
 
 - 本机兜底 Provider 的模型列表与鉴权已验证成功；按本机指令选择 `gpt-5.5` 后，真实对话请求到达服务端但返回 `HTTP 503 · 无可用账号`。同端点小范围候选探测也返回 503/429/403，因此当前未取得真实回复成功证据，该结果不归因于应用实现。
+
+## 数据备份与恢复验证
+
+定向测试覆盖：
+
+- ZIP manifest 与 Room 主库字节可往返恢复，manifest 保存 schema/app 版本和 Keystore 依赖标记。
+- 未来 schema 在写入目标数据库前被拒绝；导入真实 SQLite 前再次校验 `PRAGMA user_version`。
+- 导出前执行 WAL checkpoint；恢复前关闭 Room，保留 `.pre-restore` 安全副本，清理 `-wal/-shm` 并提示重启。
+- API Key 不进入 manifest 或明文导出；Provider 表中的密文只能在原设备 Keystore 仍存在时解密。
+
+真机验证：
+
+- Redmi Note 8 Pro 横屏/竖屏下设置页显示「数据备份与恢复」，导出按钮进入系统 Create Document，默认文件名为 `xiaoling-backup-*.zip`。
+- 选择保存位置后显示“备份已导出”；Open Document 导入器可打开，实际替换恢复本轮仅完成确认前的文件选择验证，未覆盖当前设备数据库。
+
+本阶段完整回归结果：
+
+- `testDebugUnitTest`：101 条 JVM 单元测试通过。
+- `lintDebug`、`assembleDebug` 与 `assembleDebugAndroidTest` 通过。
 
 ## Tool Schema 与权限策略验证
 
