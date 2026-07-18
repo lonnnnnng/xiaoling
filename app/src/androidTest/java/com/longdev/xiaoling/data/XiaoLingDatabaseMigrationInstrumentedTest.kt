@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To12PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To13PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            12,
+            13,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -79,10 +79,11 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertEquals("迁移测试笔记", note?.title)
         // long: 老版本没有本地 Skill；升级只创建空表，内置定义由应用启动时同步，避免把运行时代码硬编码进迁移夹具。
         assertEquals(0, database.agentSkillDao().list().size)
+        assertEquals(0, database.workflowDao().listWorkflows().size)
     }
 
     @Test
-    fun createAndOpenFreshVersion12Database() = runBlocking {
+    fun createAndOpenFreshVersion13Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -90,7 +91,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(12, database.openHelper.writableDatabase.version)
+        assertEquals(13, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -237,7 +238,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate9To12PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+    fun migrate9To13PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
         migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
             execSQL(
                 "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -265,7 +266,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
-            12,
+            13,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -283,6 +284,10 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.query("SELECT COUNT(*) AS skillCount FROM agent_skills").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("skillCount")))
+        }
+        migrated.query("SELECT COUNT(*) AS workflowCount FROM workflows").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("workflowCount")))
         }
         migrated.close()
     }
@@ -307,6 +312,29 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.query("SELECT COUNT(*) AS skillCount FROM agent_skills").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("skillCount")))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate12To13CreatesEmptyWorkflowLedgerTables() {
+        migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            WORKFLOW_MIGRATION_DATABASE_NAME,
+            13,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        listOf("workflows", "workflow_runs", "workflow_steps").forEach { table ->
+            migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", arrayOf(table)).use { cursor ->
+                assertEquals(true, cursor.moveToFirst())
+            }
+        }
+        migrated.query("SELECT COUNT(*) AS workflowCount FROM workflows").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("workflowCount")))
         }
         migrated.close()
     }
@@ -373,5 +401,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MEMORY_FTS_MIGRATION_DATABASE_NAME = "xiaoling-memory-fts-migration-test"
         private const val MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME = "xiaoling-memory-candidate-migration-test"
         private const val SKILL_MIGRATION_DATABASE_NAME = "xiaoling-skill-migration-test"
+        private const val WORKFLOW_MIGRATION_DATABASE_NAME = "xiaoling-workflow-migration-test"
     }
 }

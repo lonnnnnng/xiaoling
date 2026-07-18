@@ -22,8 +22,11 @@ import org.json.JSONObject
         AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
         AgentSkillEntity::class,
+        WorkflowEntity::class,
+        WorkflowRunEntity::class,
+        WorkflowStepEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -33,9 +36,10 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentMemoryDao(): AgentMemoryDao
     abstract fun agentNoteDao(): AgentNoteDao
     abstract fun agentSkillDao(): AgentSkillDao
+    abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 12
+        const val CURRENT_VERSION = 13
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -289,6 +293,68 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 工作流定义、每次运行和步骤必须独立落库；先建立手动执行 Ledger，后续调度器只能追加触发来源，不能另建一套不可审计状态。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workflows` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `goal` TEXT NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflows_enabled_updatedAt` ON `workflows` (`enabled`, `updatedAt`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workflow_runs` (
+                        `id` TEXT NOT NULL,
+                        `workflowId` TEXT NOT NULL,
+                        `trigger` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `agentRunId` TEXT,
+                        `status` TEXT NOT NULL,
+                        `result` TEXT,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `startedAt` INTEGER,
+                        `completedAt` INTEGER,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflow_runs_workflowId_createdAt` ON `workflow_runs` (`workflowId`, `createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflow_runs_status_createdAt` ON `workflow_runs` (`status`, `createdAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_runs_agentRunId` ON `workflow_runs` (`agentRunId`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workflow_steps` (
+                        `id` TEXT NOT NULL,
+                        `workflowRunId` TEXT NOT NULL,
+                        `sequence` INTEGER NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `detail` TEXT NOT NULL,
+                        `agentRunId` TEXT,
+                        `result` TEXT,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `startedAt` INTEGER,
+                        `completedAt` INTEGER,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_steps_workflowRunId_sequence` ON `workflow_steps` (`workflowRunId`, `sequence`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -301,6 +367,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

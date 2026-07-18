@@ -222,3 +222,58 @@ data class AgentSkillEntity(
     val importedAt: Long,
     val updatedAt: Long,
 )
+
+@Entity(
+    tableName = "workflows",
+    indices = [Index(value = ["enabled", "updatedAt"])],
+)
+data class WorkflowEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val goal: String,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "workflow_runs",
+    indices = [
+        Index(value = ["workflowId", "createdAt"]),
+        Index(value = ["status", "createdAt"]),
+        Index(value = ["agentRunId"], unique = true),
+    ],
+)
+data class WorkflowRunEntity(
+    @PrimaryKey val id: String,
+    val workflowId: String,
+    val trigger: String,
+    val conversationId: String,
+    val agentRunId: String?,
+    val status: String,
+    val result: String?,
+    val errorMessage: String?,
+    val createdAt: Long,
+    val startedAt: Long?,
+    val completedAt: Long?,
+)
+
+@Entity(
+    tableName = "workflow_steps",
+    indices = [Index(value = ["workflowRunId", "sequence"], unique = true)],
+)
+data class WorkflowStepEntity(
+    @PrimaryKey val id: String,
+    val workflowRunId: String,
+    val sequence: Int,
+    val type: String,
+    val status: String,
+    val title: String,
+    val detail: String,
+    val agentRunId: String?,
+    val result: String?,
+    val errorMessage: String?,
+    val createdAt: Long,
+    val startedAt: Long?,
+    val completedAt: Long?,
+)

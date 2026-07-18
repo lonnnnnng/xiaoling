@@ -497,3 +497,25 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 本地 Skill 不能覆盖内置 ID，同 ID 更新必须提高版本；启停立即影响后续 Skill 选择，删除只允许 `source=LOCAL`。
 - 新 Run 的 `skill.selected` 事件记录 `id@version`；恢复审批时只接受原版本仍存在的定义，Skill 在等待期间被删除或升版不会扩大工具面。
 - 兼容旧 Run 时，无版本的 Skill 审计只允许解析为内置 Skill；本地 Skill 缺少版本记录时 fail-closed，并要求创建新 Run。
+
+## 2026-07-18 Workflow Ledger 与前台手动执行验证
+
+构建与自动化验证：
+
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；138 项 Debug 单元测试通过，失败数为 0。
+- `WorkflowDefinitionPolicyTest` 覆盖合法定义、空名称和超长目标；`RoomWorkflowRepositoryInstrumentedTest` 已编译覆盖手动 Run/Step 原子创建、重复 Agent 快照幂等关联、完成结果，以及进程重建时保留审批等待并收敛已取消 Agent Run。
+- `XiaoLingDatabaseMigrationInstrumentedTest` 已编译覆盖 v4→v13、v9→v13、v12→v13 与全新 v13 建库。为保护设备 Keystore API Key，本轮没有执行 instrumentation。
+- Debug APK SHA-256：`dc9d87da444304449e7376f9d89f21e6f30a8cafb6517b7afd2b8c0213d6f122`。
+
+真机验证：
+
+- 在 `wsvwypiz7xwslvl7` 使用 `adb install -r` 覆盖安装成功，未卸载、未清数据；安装后仍为 `versionName=0.1.9`、`versionCode=10`。
+- 首次在 Activity 刚启动时抢先读取数据库仍得到 v12，并出现 `no such table: workflows`；等待 Room 完成打开后重试，确认 `PRAGMA user_version=13`，`workflows / workflow_runs / workflow_steps` 三张表均存在且初始记录数为 0。
+- Activity 正常显示，Room Schema 校验日志完成，crash buffer 为空。
+- 手机仍停留在系统锁屏，`uiautomator` 只能读取 `com.android.systemui`。因此本轮尚未完成设置页新建/启停工作流、手动运行跳回会话、SAFE 完成、审批拒绝/批准以及 Ledger 结果展示的可视验收。
+
+边界：
+
+- 当前每个 Workflow 固定为一个 `AGENT_RUN` 步骤，只支持 `MANUAL` 前台触发；同一 Workflow 有未完成 Run 时拒绝重复启动。
+- 工作流不创建新的工具授权层，所有工具继续执行现有 Schema、权限、风险、审批和后置验证策略。
+- 本轮没有引入 WorkManager、定时规则、通知、Foreground Service 或后台审批；这些能力将在下一阶段基于现有 Ledger 接入。

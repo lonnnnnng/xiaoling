@@ -205,3 +205,42 @@ interface AgentSkillDao {
     @Query("DELETE FROM agent_skills WHERE id = :skillId AND source = 'LOCAL'")
     suspend fun deleteLocal(skillId: String): Int
 }
+
+@Dao
+interface WorkflowDao {
+    @Query("SELECT * FROM workflows ORDER BY updatedAt DESC, name COLLATE NOCASE ASC")
+    suspend fun listWorkflows(): List<WorkflowEntity>
+
+    @Query("SELECT * FROM workflows WHERE id = :workflowId")
+    suspend fun getWorkflow(workflowId: String): WorkflowEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkflow(workflow: WorkflowEntity)
+
+    @Query("UPDATE workflows SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :workflowId")
+    suspend fun setWorkflowEnabled(workflowId: String, enabled: Boolean, updatedAt: Long): Int
+
+    @Query("SELECT * FROM workflow_runs WHERE id = :workflowRunId")
+    suspend fun getRun(workflowRunId: String): WorkflowRunEntity?
+
+    @Query("SELECT * FROM workflow_runs WHERE agentRunId = :agentRunId")
+    suspend fun getRunByAgentRunId(agentRunId: String): WorkflowRunEntity?
+
+    @Query("SELECT * FROM workflow_runs ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun recentRuns(limit: Int): List<WorkflowRunEntity>
+
+    @Query("SELECT * FROM workflow_runs WHERE status IN (:statuses) ORDER BY createdAt ASC")
+    suspend fun runsByStatuses(statuses: List<String>): List<WorkflowRunEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRun(run: WorkflowRunEntity)
+
+    @Query("SELECT * FROM workflow_steps WHERE workflowRunId = :workflowRunId ORDER BY sequence ASC")
+    suspend fun getSteps(workflowRunId: String): List<WorkflowStepEntity>
+
+    @Query("SELECT * FROM workflow_steps WHERE workflowRunId IN (:workflowRunIds) ORDER BY workflowRunId ASC, sequence ASC")
+    suspend fun getStepsForRuns(workflowRunIds: List<String>): List<WorkflowStepEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertStep(step: WorkflowStepEntity)
+}

@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -136,6 +137,9 @@ import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.automation.WorkflowRunDetail
+import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -204,6 +208,13 @@ private fun XiaoLingContent(
         selectedTab = 0
         settingsPane = SettingsPane.ROOT
         viewModel.consumeAgentRetryNavigation()
+    }
+
+    LaunchedEffect(state.workflowNavigationConversationId) {
+        state.workflowNavigationConversationId ?: return@LaunchedEffect
+        selectedTab = 0
+        settingsPane = SettingsPane.ROOT
+        viewModel.consumeWorkflowNavigation()
     }
 
     LaunchedEffect(state.memorySourceConversationNavigationId) {
@@ -298,6 +309,10 @@ private fun XiaoLingContent(
                             viewModel.refreshSkills()
                             settingsPane = SettingsPane.SKILL_MANAGEMENT
                         },
+                        onOpenWorkflowManagement = {
+                            viewModel.refreshWorkflows()
+                            settingsPane = SettingsPane.WORKFLOW_MANAGEMENT
+                        },
                         onOpenAgentRunHistory = {
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
@@ -377,6 +392,7 @@ private enum class SettingsPane {
     PROMPT_SETTINGS,
     MEMORY_MANAGEMENT,
     SKILL_MANAGEMENT,
+    WORKFLOW_MANAGEMENT,
     AGENT_RUN_HISTORY,
 }
 
@@ -1768,6 +1784,7 @@ private fun SettingsPage(
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
+    onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
@@ -1815,6 +1832,12 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentRunHistoryPage(
                 state = state,
                 viewModel = viewModel,
@@ -1828,6 +1851,7 @@ private fun SettingsPage(
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenSkillManagement = onOpenSkillManagement,
+                onOpenWorkflowManagement = onOpenWorkflowManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
                 onExportBackup = onExportBackup,
                 onImportBackup = onImportBackup,
@@ -1845,6 +1869,7 @@ private fun SettingsRootPage(
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
+    onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
@@ -1853,6 +1878,7 @@ private fun SettingsRootPage(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1904,6 +1930,17 @@ private fun SettingsRootPage(
         )
 
         SettingsEntryCard(
+            title = "工作流",
+            subtitle = if (state.workflows.isEmpty()) {
+                "保存可重复的 Agent 目标并查看执行记录"
+            } else {
+                "${state.workflows.count { it.enabled }} 个启用 · ${state.workflowRuns.count { it.run.status == WorkflowRunStatus.RUNNING }} 个运行中"
+            },
+            icon = Icons.Default.PlayArrow,
+            onClick = onOpenWorkflowManagement,
+        )
+
+        SettingsEntryCard(
             title = "Agent 任务中心",
             subtitle = if (state.agentRunHistory.isEmpty()) {
                 "查看最近 Agent Run 的步骤、审批和事件"
@@ -1934,6 +1971,241 @@ private fun SettingsRootPage(
             },
         )
     }
+}
+
+@Composable
+private fun WorkflowManagementPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (state.workflows.isEmpty() && !state.loadingWorkflows) viewModel.refreshWorkflows()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+            }
+            PageTitle("工作流")
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = viewModel::refreshWorkflows,
+                enabled = !state.loadingWorkflows,
+                modifier = Modifier.size(30.dp),
+            ) {
+                if (state.loadingWorkflows) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = "刷新工作流", modifier = Modifier.size(18.dp))
+                }
+            }
+            IconButton(onClick = { showCreateDialog = true }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "新建工作流", modifier = Modifier.size(18.dp))
+            }
+        }
+
+        state.workflowError?.let { error ->
+            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            contentPadding = PaddingValues(bottom = 12.dp),
+        ) {
+            when {
+                state.loadingWorkflows && state.workflows.isEmpty() -> item {
+                    Box(Modifier.fillMaxWidth().padding(18.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.6.dp)
+                    }
+                }
+                state.workflows.isEmpty() -> item {
+                    Text(
+                        "还没有工作流",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+                else -> items(
+                    count = state.workflows.size,
+                    key = { index -> state.workflows[index].id },
+                ) { index ->
+                    val workflow = state.workflows[index]
+                    val latestRun = state.workflowRuns.firstOrNull { it.run.workflowId == workflow.id }
+                    WorkflowItem(
+                        workflowName = workflow.name,
+                        goal = workflow.goal,
+                        enabled = workflow.enabled,
+                        mutating = workflow.id in state.mutatingWorkflowIds,
+                        running = state.runningWorkflowId == workflow.id || latestRun?.run?.status in setOf(
+                            WorkflowRunStatus.QUEUED,
+                            WorkflowRunStatus.RUNNING,
+                        ),
+                        latestRun = latestRun,
+                        onEnabledChange = { enabled -> viewModel.setWorkflowEnabled(workflow.id, enabled) },
+                        onRun = { viewModel.runWorkflow(workflow.id) },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        WorkflowCreateDialog(
+            onConfirm = { name, goal ->
+                viewModel.createWorkflow(name, goal)
+                showCreateDialog = false
+            },
+            onDismiss = { showCreateDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun WorkflowItem(
+    workflowName: String,
+    goal: String,
+    enabled: Boolean,
+    mutating: Boolean,
+    running: Boolean,
+    latestRun: WorkflowRunDetail?,
+    onEnabledChange: (Boolean) -> Unit,
+    onRun: () -> Unit,
+) {
+    var expanded by remember(workflowName) { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(7.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(7.dp))
+            .clickable { expanded = !expanded },
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(workflowName, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        latestRun?.run?.let { "最近：${it.status.toWorkflowStatusLabel()} · ${it.createdAt.toFullTimeLabel()}" }
+                            ?: "尚未执行",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = onRun,
+                    enabled = enabled && !mutating && !running,
+                    modifier = Modifier.size(30.dp),
+                ) {
+                    if (running) {
+                        CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "手动运行", modifier = Modifier.size(18.dp))
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                    enabled = !mutating && !running,
+                    modifier = Modifier.size(width = 44.dp, height = 28.dp),
+                )
+            }
+            Text(goal, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+            if (expanded && latestRun != null) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                latestRun.steps.forEach { step ->
+                    Text(
+                        "${step.sequence}. ${step.title} · ${step.status.toWorkflowStepStatusLabel()}",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                latestRun.run.result?.takeIf { it.isNotBlank() }?.let { result ->
+                    Text("结果：$result", style = MaterialTheme.typography.bodySmall, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                }
+                latestRun.run.errorMessage?.takeIf { it.isNotBlank() }?.let { error ->
+                    Text(
+                        "失败：$error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkflowCreateDialog(
+    onConfirm: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var goal by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建工作流", style = MaterialTheme.typography.titleSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CompactTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = "名称",
+                    placeholder = "例如：每日回顾",
+                    singleLine = true,
+                )
+                CompactTextField(
+                    value = goal,
+                    onValueChange = { goal = it },
+                    label = "Agent 目标",
+                    placeholder = "描述每次运行要完成的目标",
+                    minLines = 3,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(name.trim(), goal.trim()) },
+                enabled = name.isNotBlank() && goal.isNotBlank(),
+            ) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
+private fun WorkflowRunStatus.toWorkflowStatusLabel(): String = when (this) {
+    WorkflowRunStatus.QUEUED -> "等待"
+    WorkflowRunStatus.RUNNING -> "运行中"
+    WorkflowRunStatus.COMPLETED -> "已完成"
+    WorkflowRunStatus.FAILED -> "失败"
+    WorkflowRunStatus.CANCELLED -> "已取消"
+}
+
+private fun WorkflowStepStatus.toWorkflowStepStatusLabel(): String = when (this) {
+    WorkflowStepStatus.PENDING -> "等待"
+    WorkflowStepStatus.RUNNING -> "运行中"
+    WorkflowStepStatus.COMPLETED -> "已完成"
+    WorkflowStepStatus.FAILED -> "失败"
+    WorkflowStepStatus.CANCELLED -> "已取消"
 }
 
 @Composable
