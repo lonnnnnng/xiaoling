@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentLlm
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentStepTypes
+import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.FakeToolRegistry
@@ -194,6 +197,63 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.CANCELLED, metadata.toStatus)
         assertEquals("应用重启后终止上次未完成 Agent 任务", metadata.reason)
         assertFalse(recovered.message.trimStart().startsWith("{"))
+    }
+
+    @Test
+    fun processRestartCancelsExecutingAndVerifyingStepsBeforeConfirmedRetry() = runBlocking {
+        val interrupted = listOf(
+            AgentRunStatus.EXECUTING to AgentStepTypes.TOOL_EXECUTE,
+            AgentRunStatus.VERIFYING to AgentStepTypes.TOOL_VERIFY,
+        ).mapIndexed { index, (status, stepType) ->
+            val run = repository.createRun(
+                conversationId = "conversation-process-$index",
+                userMessageId = "message-process-$index",
+                goal = "进程中断 ${status.name}",
+            )
+            repository.updateRunStatus(run.id, status)
+            val step = repository.appendStep(
+                runId = run.id,
+                type = stepType,
+                title = status.name,
+                detail = "进程终止前仍在运行",
+                status = AgentStepStatus.RUNNING,
+            )
+            Triple(run, step, status)
+        }
+        // long: 新 Repository 实例代表进程重建后的组件图；所有判断只读取 Room，不依赖旧 Runtime 的协程或内存状态。
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+
+        assertEquals(2, restartedRepository.closeInterruptedRuns())
+
+        interrupted.forEach { (sourceRun, sourceStep, interruptedStatus) ->
+            val closed = restartedRepository.runDetail(sourceRun.id)!!
+            assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+            assertEquals(
+                AgentStepStatus.CANCELLED,
+                closed.snapshot.steps.single { it.id == sourceStep.id }.status,
+            )
+            val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+                .metadata as RunEventMetadata.Recovery
+            assertEquals(interruptedStatus, recovery.fromStatus)
+            assertEquals(AgentRunStatus.CANCELLED, recovery.toStatus)
+            assertEquals(
+                AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+                AgentTaskRetryPolicy.evaluate(closed),
+            )
+
+            val sourceBeforeRetry = closed
+            val retry = restartedRepository.createRun(
+                conversationId = sourceRun.conversationId,
+                userMessageId = "retry-${sourceRun.userMessageId}",
+                goal = sourceRun.goal,
+                retryOfRunId = sourceRun.id,
+            )
+            assertEquals(sourceRun.id, retry.retryOfRunId)
+            assertEquals(sourceBeforeRetry, restartedRepository.runDetail(sourceRun.id))
+        }
     }
 
     @Test

@@ -734,3 +734,27 @@ instrumentation 后可用性恢复：
 - 任务中心最终实测显示 `2 个 Run · 成功率 100% · 平均 11.06s`、`模型耗时 19.01s · TTFB 3.17s · Prompt 7.9KB · Token 2191（6/6）` 和 `失败分布 无`；汇总、Run 卡、详情及 typed Event 字段一致。
 - 1080×2340 UI tree 与截图确认新增四行汇总和两行 Run 指标没有重叠；`com.longdev.xiaoling/.MainActivity` 保持前台，crash buffer 为空。
 - 最终 Debug APK SHA-256：`cbbf2d16ae64a2f46b8ea901a3478a24ad7e00fbc32bbe6298389fb979a34976`。
+
+## 2026-07-19 执行中断与 Android 权限撤销验证
+
+实现与恢复决策：
+
+- Runtime 在参数校验、审批结束后执行前、工具返回后验证前三个检查点读取 Android 权限。审批期间撤权时不创建 `tool.execute` 且不调用 Executor；工具执行期间撤权时保留成功 `tool.result`，执行步骤为 `COMPLETED`，验证步骤和 Run 为 `FAILED`，重试要求二次确认。
+- 启动恢复会把不可原地恢复的旧 Run 收敛为 `CANCELLED`，并把该 Run 下所有 `PENDING/RUNNING` Step 同步收敛为 `CANCELLED`；`run.recovered` 保留中断前状态。新 Run 通过 `retryOfRunId` 关联来源，旧 Run、Step 和事件保持不变。
+- 当前没有持久化执行回执或幂等副作用证明，因此 `EXECUTING/VERIFYING` 不原地恢复旧执行栈。只有未来工具契约能同时提供执行回执和幂等证明后才重新评估；Foreground Service 只提高存活概率，不改变此安全边界。
+
+自动化与系统故障注入：
+
+- `testDebugUnitTest`：184 条 JVM 测试通过；`lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。
+- `connectedDebugAndroidTest` 在 Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 39 条，合计 78 条全部通过。
+- 定向 Room instrumentation 覆盖 `EXECUTING/VERIFYING` 进程重建：旧 Run 和活动 Step 均进入 `CANCELLED`，重试策略返回 `requiresConfirmation=true`，创建关联新 Run 后来源快照不变。
+- 模拟器先授予 CAMERA，再用系统 `pm revoke` 从应用外部撤权；应用 PID `9479` 随即消失，确认系统会终止目标进程。权限状态回读为未授权，随后应用冷启动成功，crash buffer 为空。
+- 未保留调用 `UiAutomation.revokeRuntimePermission` 的自撤权 instrumentation：系统终止测试目标进程后测试框架只能报告 `shortMsg=Process crashed`，无法继续断言应用恢复状态；确定性 Runtime 测试与外部 `pm revoke` 分别覆盖业务边界和真实系统行为。
+
+真实模型与任务中心：
+
+- instrumentation 后覆盖安装最新 Debug APK 并恢复未跟踪的本机 Provider，成功获取 6 个模型；凭据未进入文档、日志或提交。
+- 首个 Chat Completions Run `run-d97266b5-8b0b-4f54-997b-4488ef628f1b` 因上游响应不含 `choices[0].message.content` 进入 `FAILED`，只创建 1 个失败的 `llm.plan` Step，工具未执行。旧 Run 保持原样，并在「可重试」筛选中显示重试入口。
+- 切换到 Responses API 与 `gpt-5.5` 后，新 Run `run-270704e9-048d-42a5-a8fc-d8a9518a01f7` 执行 `/agent Read current time after fault boundary retry`，依次完成规划、参数校验、`app.current_time` 执行、验证、完成判断和总结共 6 步，最终为 `COMPLETED`。
+- 成功 Run 的 3 条模型请求共计 `9915ms`、Prompt `4061B`、总 Token `942`，工具结果为 `当前时间：2026-07-19 04:11:28 · 时区：Asia/Shanghai`。任务中心实测显示 `2 个 Run · 成功率 50% · 平均 7.60s`、`模型耗时 9.92s · TTFB 3.30s · Prompt 4.0KB · Token 942（3/4）` 和 `失败分布 失败 1`；可重试筛选单独显示旧失败 Run。
+- `com.longdev.xiaoling/.MainActivity` 保持前台，最终 crash buffer 为空。Debug APK SHA-256：`8c94c9ff037e19076f6cf477304b72fe1cb94e303f688149997e1833fa35d357`。

@@ -360,6 +360,8 @@ class MinimalAgentRuntime(
             }
         }
 
+        // long: 用户查看审批时可能切到系统设置撤销权限；批准只表达副作用意愿，不能替代执行瞬间的 Android 授权状态。
+        validateRequiredAndroidPermissions(definition, checkpoint = "执行前")
         ledger.updateRunStatus(runId, AgentRunStatus.EXECUTING)
         val execution = ledger.appendStep(
             runId = runId,
@@ -403,6 +405,8 @@ class MinimalAgentRuntime(
         )
         state.activeStepId = verify.id
         currentCoroutineContext().ensureActive()
+        // long: Executor 运行期间系统权限仍可能被撤销；验证前再次检查，保留已发生的工具结果，同时拒绝把失去授权后的状态标记为已验证完成。
+        validateRequiredAndroidPermissions(definition, checkpoint = "验证前")
         when (definition.verificationPolicy) {
             ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
             ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
@@ -645,12 +649,19 @@ class MinimalAgentRuntime(
         check(executionOrigin != AgentExecutionOrigin.BACKGROUND || definition.permissionPolicy.supportsBackground) {
             "工具 ${definition.name} 不允许后台执行"
         }
+        validateRequiredAndroidPermissions(definition, checkpoint = "参数校验时")
+    }
+
+    private fun validateRequiredAndroidPermissions(
+        definition: ToolDefinition,
+        checkpoint: String,
+    ) {
         val missingPermissions = permissionChecker
             .missingPermissions(definition.permissionPolicy.requiredAndroidPermissions)
             .sorted()
-        // long: 权限门禁在审批和 Executor 之前执行；检查器缺失时默认拒绝所有声明权限，防止新工具接入后因漏注入而 fail-open。
+        // long: 每个权限检查点都只接受系统当前明确授予的权限；检查器缺失时默认拒绝，防止新工具因漏注入或运行中撤销而 fail-open。
         check(missingPermissions.isEmpty()) {
-            "工具 ${definition.name} 缺少 Android 权限：${missingPermissions.joinToString(", ")}"
+            "工具 ${definition.name} 在$checkpoint 缺少 Android 权限：${missingPermissions.joinToString(", ")}"
         }
     }
 

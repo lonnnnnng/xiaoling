@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台/后台与审批恢复已完成真实模型真机验收，任务中心已展示基于持久化审计的 Run 质量、模型 usage/TTFB/Prompt 和失败分布，网络中断已进入确定性故障分类；下一阶段应验证执行/验证中断恢复边界，而不是立即增加大量手机工具。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台/后台与审批恢复已完成真实模型真机验收，任务中心已展示基于持久化审计的 Run 质量、模型 usage/TTFB/Prompt 和失败分布；网络响应中断、执行/验证中进程终止和 Android 权限运行中撤销均已进入确定性故障注入。当前恢复决策是：没有持久化执行回执与幂等副作用证明时不原地续跑旧执行栈。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；独立 ToolCall/ToolResult 表、并行调用和执行/验证中的原地断点恢复仍待完成。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断已明确采用 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表与并行调用仍待完成；原地断点恢复只有在持久化执行回执与幂等副作用证明可用后才重新评估。
 
 ### 核心数据模型
 
@@ -314,7 +314,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 建立工具契约测试：Schema、风险、权限、确认和验证信息不能缺失。
 - 已完成当前可审计性能指标：任务中心展示 Run 总耗时、终态成功率、平均耗时、模型/工具/审批次数、模型总耗时、平均 TTFB、最终 JSON Prompt 字节、上游 Token usage 覆盖率和失败终态分布；未返回 usage 的请求不补零，Prompt 正文不重复落库。
 - 对低能力模型做回归，减少多阶段 LLM 调用和超长工具提示词。
-- 部分完成故障注入：用户取消、模型/工具/整次 Run 超时、网络响应中断和 Workflow 重复回调已有确定性测试；执行/验证中进程终止与 Android 权限运行中撤销待补。
+- 已完成当前故障注入基线：用户取消、模型/工具/整次 Run 超时、网络响应中断、Workflow 重复回调、执行/验证中进程终止，以及审批期间和工具执行期间 Android 权限撤销均有确定性测试；真机外部 `pm revoke` 同时确认系统会直接终止应用进程。
 - 每个涉及 Android 系统能力的里程碑都必须在真机验证，不以单元测试替代。
 
 ## 优先级清单
@@ -323,12 +323,12 @@ idle -> deciding -> waiting_model -> waiting_approval
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
 | P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v16、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/ScheduledTask/WorkflowSchedule/WorkflowStepDefinition 表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
-| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
+| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止和运行中撤权边界已完成；原地断点恢复待持久化执行回执与幂等证明后再评估 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
-| P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断点恢复待评估，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
+| P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
@@ -358,6 +358,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 9. 已完成多步骤前台/后台真实模型真机验收：编辑只影响未来定义，审批后继续下一步骤，失败来源 Run 保持不变，新 Run 正确关联来源并重新执行未完成步骤。
 10. 已完成第一批 Run 性能指标和故障注入：任务中心展示总耗时、终态成功率、平均耗时、模型/工具/审批次数；网络响应中断归类为连接失败，取消、超时和重复回调测试保持通过。
 11. 已完成请求级审计：规划/总结成功后写入 usage、TTFB、最终 JSON Prompt 字节；规划语义解析失败仍保留已返回遥测；任务中心展示 Token 覆盖率和失败终态分布。
-12. 下一步对执行/验证中进程终止和 Android 权限运行中撤销做故障注入，基于副作用证明决定安全续跑或继续创建关联新 Run。
+12. 已完成执行/验证中进程终止和 Android 权限运行中撤销故障注入：审批后执行前和工具返回后验证前都会复检权限；进程重建会把旧 Run 与活动 Step 一致取消。当前没有副作用证明，继续要求二次确认并创建关联新 Run。
+13. 下一步为后台长任务补充可观测的耗时与系统终止样本，并设计持久化执行回执、工具级幂等键和副作用证明契约；证据不足前不引入原地续跑，也不因 Foreground Service 提高存活概率而放宽执行边界。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service，执行/验证中断仍保持 fail-closed 边界。

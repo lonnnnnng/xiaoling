@@ -31,7 +31,7 @@
 - API Key 的 Android Keystore + AES-GCM 加密存储。
 - 常见网络、鉴权、限流、模型和响应解析错误分类。
 - `/agent <目标>` 顺序多步执行入口，以及 `AgentRun / AgentStep / ApprovalRequest / RunEvent` 可审计运行链路。
-- 有界 Agent Runtime：同一 Run 最多 4 次工具调用，模型每轮返回继续调用或完成；具备模型与工具超时、整次 Run 超时、取消、完整输入 Schema/业务规则/Android 权限校验和重复调用检测。兼容模型把同一个工具名同时写入 `action/tool` 时可以归一化，不一致动作仍拒绝。
+- 有界 Agent Runtime：同一 Run 最多 4 次工具调用，模型每轮返回继续调用或完成；具备模型与工具超时、整次 Run 超时、取消、完整输入 Schema/业务规则、重复调用检测，以及参数校验时、审批结束后执行前、工具返回后验证前的 Android 权限复检。任一检查点权限缺失都必须 fail-closed。兼容模型把同一个工具名同时写入 `action/tool` 时可以归一化，不一致动作仍拒绝。
 - 应用侧 Tool Registry 统一声明字符串/整数/数值/布尔类型、长度/范围/枚举、风险、确认、Android 权限、后台能力、超时和验证策略；Runtime 按前台/后台来源执行能力门禁，模型不能增加未知参数、修改工具风险或自行增加执行事实。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 声明式 Skill 按需加载与管理：内置和本地 Skill 统一进入 Room Catalog；本地 `schemaVersion=1` JSON 经过字段白名单、工具注册表、风险与 Android 权限一致性校验后才可导入，设置页支持查看、启停和删除本地 Skill。Run 审计固定所选 Skill 的 ID/版本，审批恢复不得因期间停用、删除或升版而扩大工具面。
@@ -50,10 +50,10 @@
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
 - 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。已经进入工具执行或验证的 Run 必须创建新 Run 安全重新运行，旧 Run 保持不变。
-- 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。
+- 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Agent Run 的原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Agent Run 的原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。现阶段没有持久化执行回执或幂等副作用证明，因此原地恢复不是待补实现，而是明确禁止的行为；只有未来具备这两类证据后才重新评估。多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
 补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；上述未交付项仅指执行/验证中断点以及尚未完成的后台一致性和自动化能力。
 

@@ -246,6 +246,12 @@ class RoomAgentRunRepository(
             val detail = loadDetail(run)
             if (AgentRunResumePolicy.assess(detail).canResumeInPlace) return@forEach
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
+            detail.snapshot.steps
+                .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
+                .forEach { step ->
+                    // long: Run 与活动步骤必须在同一次启动收敛中进入一致终态；保留 RUNNING 会误导用户并削弱重试的副作用判断。
+                    updateStep(step.id, AgentStepStatus.CANCELLED, reason)
+                }
             dao.getApprovalRequests(run.id)
                 .map { it.toRecord() }
                 .filter { it.status == ApprovalRequestStatus.PENDING }

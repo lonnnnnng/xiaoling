@@ -930,6 +930,132 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun permissionRevokedDuringApprovalFailsBeforeToolExecution() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var permissionGranted = true
+        var executed = false
+        val cameraPermission = "android.permission.CAMERA"
+        val definition = ToolDefinition(
+            name = "device.camera_snapshot",
+            description = "拍摄并返回当前画面",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(cameraPermission),
+            ),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("执行前权限撤销后不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executed = true
+                    return ToolExecutionResult(success = true, content = "不应执行")
+                }
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    permissionGranted = false
+                    return ApprovalDecision(approved = true, reason = "用户批准后系统权限被撤销")
+                }
+            },
+            permissionChecker = ToolPermissionChecker { requiredPermissions ->
+                if (permissionGranted) emptySet() else requiredPermissions
+            },
+        )
+
+        runCatching {
+            runtime.run("conversation-permission-approval", "message-permission-approval", "拍摄照片")
+        }
+
+        val snapshot = ledger.snapshot(ledger.lastRunId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("执行前"))
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains(cameraPermission))
+        assertTrue(snapshot.events.any { it.type == "approval.granted" })
+        assertTrue(snapshot.steps.none { it.type == AgentStepTypes.TOOL_EXECUTE })
+        assertTrue(!executed)
+    }
+
+    @Test
+    fun permissionRevokedDuringToolExecutionFailsVerificationAndRequiresConfirmedRetry() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var permissionGranted = true
+        val cameraPermission = "android.permission.CAMERA"
+        val definition = ToolDefinition(
+            name = "device.camera_snapshot",
+            description = "拍摄并返回当前画面",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(cameraPermission),
+            ),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("验证前权限撤销后不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    permissionGranted = false
+                    return ToolExecutionResult(success = true, content = "相机已返回一帧")
+                }
+            },
+            permissionChecker = ToolPermissionChecker { requiredPermissions ->
+                if (permissionGranted) emptySet() else requiredPermissions
+            },
+        )
+
+        runCatching {
+            runtime.run("conversation-permission-execute", "message-permission-execute", "拍摄照片")
+        }
+
+        val snapshot = ledger.snapshot(ledger.lastRunId!!)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("验证前"))
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains(cameraPermission))
+        assertEquals(AgentStepStatus.COMPLETED, snapshot.steps.single { it.type == AgentStepTypes.TOOL_EXECUTE }.status)
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == AgentStepTypes.TOOL_VERIFY }.status)
+        assertTrue(snapshot.events.any {
+            it.type == "tool.result" && (it.metadata as? RunEventMetadata.ToolResult)?.success == true
+        })
+        assertTrue(snapshot.events.none { it.type == "tool.verify" })
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList())),
+        )
+    }
+
+    @Test
     fun foregroundOnlyToolFailsClosedForBackgroundExecution() = runTest {
         val ledger = InMemoryAgentRunLedger()
         var executed = false
