@@ -46,14 +46,15 @@
 用户在对话页输入消息并发送后：
 
 1. 校验 `Base URL`、已启用模型和消息内容。
-2. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
-3. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
-4. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；除 system/user/assistant 消息外，Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。
-5. 非流式响应从常见字段中提取文本。
-6. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
-7. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
-8. 最终消息携带结构化 `MessageMeta`，包括模型、接口模式、是否流式、请求地址、首字耗时、总耗时和错误信息。
-9. 发送期间可以点击输入区右下角停止按钮，取消 ViewModel Job 和底层 OkHttp Call；流式迟到事件不会继续写入 UI。
+2. 从设备级网络偏好读取 `User-Agent`；默认模拟指定 Codex Desktop 版本，用户可在设置页修改或恢复默认。模型列表、Chat Completions、Responses 和后台 Agent 共用同一 Header 构造入口。
+3. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
+4. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
+5. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；除 system/user/assistant 消息外，Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。
+6. 非流式响应从常见字段中提取文本。
+7. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
+8. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
+9. 最终消息携带结构化 `MessageMeta`，包括模型、接口模式、是否流式、请求地址、首字耗时、总耗时和错误信息。
+10. 发送期间可以点击输入区右下角停止按钮，取消 ViewModel Job 和底层 OkHttp Call；流式迟到事件不会继续写入 UI。
 
 ## 最小 Agent 链路
 
@@ -168,7 +169,7 @@
 - 备份不导出 API Key 明文；Provider 表中的密文仍依赖当前 Android Keystore，跨设备或密钥丢失时不能仅凭数据库恢复凭据。未来可增加不含凭据的 Provider 元数据迁移向导。
 - 长期记忆的引用审计目前落在 Agent Run 的 ToolResult 和 VerifiedAgentContext；删除或禁用记忆后新 Run 不会产生对应 ID，历史 Run 保留原始审计快照，不回写旧事件。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
-- 主题、候选记忆开关与三类提示词偏好保存在 `xiaoling_ui` SharedPreferences。
+- 主题、候选记忆开关、三类提示词和 User-Agent 偏好保存在 `xiaoling_ui` SharedPreferences；UA 保存时移除换行并限制长度，空白值恢复默认配置。
 - API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
 
 ## 日志

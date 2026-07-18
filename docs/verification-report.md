@@ -601,3 +601,9 @@ Daily 执行与下一实例：
 
 - 本轮真机确认了外部模型可完成真实后台 SAFE 请求，但没有再次执行触发前杀进程的周期实例；周期启动恢复由单元测试、已编译的 Repository instrumentation 源码和此前一次性任务冷启动真机证据覆盖。
 - Daily/Weekly 仍不是精确定时，不使用 AlarmManager 或 Foreground Service；后台执行中断后不恢复旧 Agent 执行栈，旧 Run 保持可审计终态并只生成未来周期实例。
+
+## 2026-07-18 User-Agent 配置验证
+
+- `ProviderRequestConfig` 新增设备级 `userAgent`，默认值为 `Codex Desktop/0.145.0-alpha.18 (Mac OS 14.7.4; arm64) unknown (Codex Desktop; 26.715.31251)`；设置页可编辑并恢复默认，空白值自动回退。
+- `OpenAiCompatibleClient` 的统一 Request Builder 对模型列表、Chat Completions、Responses、前台 Agent 和 WorkManager 后台 Agent 写入同一 `User-Agent` Header。
+- `OpenAiCompatibleClientTest` 使用 MockWebServer 读取真实收到的请求 Header，已验证自定义值原样发送和空白配置回退默认值；测试不访问外部服务。

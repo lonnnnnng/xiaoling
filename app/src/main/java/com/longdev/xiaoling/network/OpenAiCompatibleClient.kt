@@ -80,7 +80,8 @@ class OpenAiCompatibleClient(
         return Request.Builder()
             .url(url)
             .header("Accept", "application/json")
-            .header("User-Agent", "XiaoLing/${BuildConfig.VERSION_NAME}")
+            // long: 部分兼容网关会按客户端 UA 选择协议或账号路径；空白自定义值必须回退稳定默认值，不能让 OkHttp 注入自己的 UA 改变上游行为。
+            .header("User-Agent", config.userAgent.trim().ifBlank { ProviderRequestConfig.DEFAULT_USER_AGENT })
             .apply {
                 if (config.apiKey.isNotBlank()) {
                     header("Authorization", "Bearer ${config.apiKey.trim()}")

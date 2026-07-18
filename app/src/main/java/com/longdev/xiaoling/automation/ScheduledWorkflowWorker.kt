@@ -139,6 +139,7 @@ class ScheduledWorkflowExecutor(
             baseUrl = profile.baseUrl.trim(),
             apiKey = profile.apiKey.trim(),
             model = profile.model.trim(),
+            userAgent = uiPreferenceStore.loadUserAgent(),
             apiMode = ApiMode.CHAT_COMPLETIONS,
             streamingEnabled = false,
             maxTokens = ProviderProfile.FIXED_MAX_TOKENS,

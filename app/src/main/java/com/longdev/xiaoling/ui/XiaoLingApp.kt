@@ -154,6 +154,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
+import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
@@ -1880,6 +1881,8 @@ private fun SettingsPage(
             else -> SettingsRootPage(
                 state = state,
                 onThemeModeChanged = viewModel::updateThemeMode,
+                onUserAgentChanged = viewModel::updateUserAgent,
+                onResetUserAgent = viewModel::resetUserAgent,
                 onOpenProviderManagement = onOpenProviderManagement,
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenMemoryManagement = onOpenMemoryManagement,
@@ -1898,6 +1901,8 @@ private fun SettingsPage(
 private fun SettingsRootPage(
     state: XiaoLingUiState,
     onThemeModeChanged: (AppThemeMode) -> Unit,
+    onUserAgentChanged: (String) -> Unit,
+    onResetUserAgent: () -> Unit,
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
@@ -1936,6 +1941,23 @@ private fun SettingsRootPage(
             },
             onClick = onOpenProviderManagement,
         )
+
+        CompactSection(
+            title = "网络请求",
+            action = {
+                IconButton(onClick = onResetUserAgent, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Restore, contentDescription = "恢复默认 User-Agent", modifier = Modifier.size(16.dp))
+                }
+            },
+        ) {
+            UnderlineTextField(
+                value = state.userAgent,
+                onValueChange = onUserAgentChanged,
+                label = "User-Agent",
+                placeholder = ProviderRequestConfig.DEFAULT_USER_AGENT,
+                singleLine = true,
+            )
+        }
 
         SettingsEntryCard(
             title = "提示词设置",

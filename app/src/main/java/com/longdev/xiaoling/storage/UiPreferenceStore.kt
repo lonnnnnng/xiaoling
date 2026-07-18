@@ -2,6 +2,7 @@ package com.longdev.xiaoling.storage
 
 import android.content.Context
 import com.longdev.xiaoling.model.AppThemeMode
+import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.prompt.PromptDefaults
 import com.longdev.xiaoling.prompt.PromptSettings
 
@@ -28,6 +29,25 @@ class UiPreferenceStore(context: Context) {
         // long: 候选记忆可能处理个人陈述，必须由用户主动开启并持久化选择；首次安装和旧版本升级都保持关闭。
         preferences.edit()
             .putBoolean(KEY_MEMORY_CANDIDATES_ENABLED, enabled)
+            .apply()
+    }
+
+    fun loadUserAgent(): String {
+        return preferences.getString(KEY_USER_AGENT, ProviderRequestConfig.DEFAULT_USER_AGENT)
+            ?.trim()
+            .orEmpty()
+            .ifBlank { ProviderRequestConfig.DEFAULT_USER_AGENT }
+    }
+
+    fun saveUserAgent(userAgent: String) {
+        // long: UA 会影响兼容网关的路由判断，作为设备级网络偏好独立保存；过滤换行可防止无效 Header 或 Header 注入。
+        val normalized = userAgent
+            .filterNot { it == '\r' || it == '\n' }
+            .take(MAX_USER_AGENT_LENGTH)
+            .trim()
+            .ifBlank { ProviderRequestConfig.DEFAULT_USER_AGENT }
+        preferences.edit()
+            .putString(KEY_USER_AGENT, normalized)
             .apply()
     }
 
@@ -64,5 +84,7 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_AGENT_SUMMARY_PROMPT_ENABLED = "agent_summary_prompt_enabled"
         private const val KEY_AGENT_SUMMARY_PROMPT = "agent_summary_prompt"
         private const val KEY_MEMORY_CANDIDATES_ENABLED = "memory_candidates_enabled"
+        private const val KEY_USER_AGENT = "user_agent"
+        private const val MAX_USER_AGENT_LENGTH = 512
     }
 }

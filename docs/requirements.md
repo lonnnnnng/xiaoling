@@ -24,6 +24,7 @@
 ## 当前已交付能力
 
 - 多 Provider、上游模型同步和模型选择。
+- 模型请求 User-Agent 可在设置页按设备自定义；默认值为 `Codex Desktop/0.145.0-alpha.18 (Mac OS 14.7.4; arm64) unknown (Codex Desktop; 26.715.31251)`，空白配置自动回退默认值，并统一用于模型列表、普通对话、Agent 和后台 Workflow 请求。
 - Chat Completions、Responses API 和 SSE 流式输出；Responses 输入支持保留 system/user/assistant 边界的消息，以及通过 `call_id` 关联的 `function_call / function_call_output` typed Items。
 - 多会话、本地保存、会话摘要压缩和 Markdown 渲染。
 - Provider、模型、请求模式、流式状态、首字耗时和总耗时等消息元数据。

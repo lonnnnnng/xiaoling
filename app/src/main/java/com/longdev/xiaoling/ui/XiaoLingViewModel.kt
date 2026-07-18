@@ -115,6 +115,7 @@ data class XiaoLingUiState(
     val profileName: String = "",
     val baseUrl: String = "",
     val apiKey: String = "",
+    val userAgent: String = ProviderRequestConfig.DEFAULT_USER_AGENT,
     val model: String = "",
     val prompt: String = SecureConfigStore.DEFAULT_PROMPT,
     val availableModels: List<String> = emptyList(),
@@ -341,6 +342,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             themeMode = uiPreferenceStore.loadThemeMode(),
             promptSettings = uiPreferenceStore.loadPromptSettings(),
             memoryCandidatesEnabled = uiPreferenceStore.loadMemoryCandidatesEnabled(),
+            userAgent = uiPreferenceStore.loadUserAgent(),
         ),
     )
         private set
@@ -383,6 +385,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     themeMode = uiState.themeMode,
                     promptSettings = uiState.promptSettings,
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
+                    userAgent = uiState.userAgent,
                     deletedMemoryForUndo = latestDeletedMemory,
                     workflows = workflowState.workflows,
                     workflowRuns = workflowState.runs,
@@ -511,6 +514,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun updateDraftName(value: String) = updateDraft { copy(name = value) }
     fun updateDraftBaseUrl(value: String) = updateDraft { copy(baseUrl = value) }
     fun updateDraftApiKey(value: String) = updateDraft { copy(apiKey = value) }
+    fun updateUserAgent(value: String) {
+        val normalized = value.filterNot { it == '\r' || it == '\n' }.take(512)
+        uiState = uiState.copy(userAgent = normalized, result = null)
+        uiPreferenceStore.saveUserAgent(normalized)
+    }
+
+    fun resetUserAgent() {
+        updateUserAgent(ProviderRequestConfig.DEFAULT_USER_AGENT)
+    }
     fun updateApiMode(value: ApiMode) {
         uiState = uiState.copy(apiMode = value, result = null)
     }
@@ -1879,6 +1891,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             baseUrl = draft.baseUrl.trim(),
             apiKey = draft.apiKey.trim(),
             model = "",
+            userAgent = uiState.userAgent,
         )
         updateDraft { copy(loadingModels = true) }
         viewModelScope.launch {
@@ -2490,6 +2503,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             baseUrl = profile.baseUrl.trim(),
             apiKey = profile.apiKey.trim(),
             model = profile.model.trim(),
+            userAgent = uiState.userAgent,
             apiMode = uiState.apiMode,
             streamingEnabled = uiState.streamingEnabled,
             maxTokens = ProviderProfile.FIXED_MAX_TOKENS,
@@ -2787,6 +2801,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             baseUrl = profile.baseUrl.trim(),
             apiKey = profile.apiKey.trim(),
             model = "",
+            userAgent = uiState.userAgent,
         )
         runCatching { client.fetchModels(config) }
             .onSuccess { models ->
@@ -3011,6 +3026,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         themeMode: AppThemeMode,
         promptSettings: PromptSettings,
         memoryCandidatesEnabled: Boolean,
+        userAgent: String,
     ): XiaoLingUiState {
         val profile = ProviderProfile.blank()
         val now = System.currentTimeMillis()
@@ -3040,6 +3056,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 themeMode = themeMode,
                 promptSettings = promptSettings,
                 memoryCandidatesEnabled = memoryCandidatesEnabled,
+                userAgent = userAgent,
             )
     }
 
