@@ -19,6 +19,7 @@ class ToolExecutionRecoveryEvidencePolicyTest {
             success = true,
             verified = true,
             toolCallId = "tool-call-1",
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             executionReceipt = ToolExecutionReceipt(
                 toolCallId = "tool-call-1",
                 operationId = "note-1",
@@ -47,6 +48,7 @@ class ToolExecutionRecoveryEvidencePolicyTest {
             success = true,
             verified = true,
             toolCallId = "tool-call-current",
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             executionReceipt = ToolExecutionReceipt(
                 toolCallId = "tool-call-other",
                 operationId = "note-1",
@@ -56,6 +58,35 @@ class ToolExecutionRecoveryEvidencePolicyTest {
         )
 
         val assessment = ToolExecutionRecoveryEvidencePolicy.assess(definition, result)
+
+        assertTrue(!assessment.canReuseCommittedEffect)
+    }
+
+    @Test
+    fun currentDefinitionCannotUpgradeHistoricalRestartRequiredEvidence() {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val historicalResult = RunEventMetadata.ToolResult(
+            toolName = definition.name,
+            content = "已创建笔记",
+            durationMs = 12,
+            success = true,
+            verified = true,
+            toolCallId = "tool-call-1",
+            replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = "tool-call-1",
+                operationId = "note-1",
+                idempotencyKey = "run-1:step-1",
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+
+        val assessment = ToolExecutionRecoveryEvidencePolicy.assess(definition, historicalResult)
 
         assertTrue(!assessment.canReuseCommittedEffect)
     }

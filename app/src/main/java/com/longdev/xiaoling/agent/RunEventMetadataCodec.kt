@@ -28,6 +28,7 @@ internal object RunEventMetadataCodec {
                 .put("verified", metadata.verified)
                 .put("memoryIdsUsed", metadata.memoryIdsUsed.toStringJsonArray())
                 .put("toolCallId", metadata.toolCallId)
+                .put("replaySafety", metadata.replaySafety.name)
                 .put("executionReceipt", metadata.executionReceipt?.toJson())
             is RunEventMetadata.ApprovalRequest -> JSONObject()
                 .put("id", metadata.id)
@@ -86,6 +87,10 @@ internal object RunEventMetadataCodec {
                     verified = json.booleanOrNull("verified"),
                     memoryIdsUsed = json.stringListOrEmpty("memoryIdsUsed"),
                     toolCallId = json.stringOrNull("toolCallId"),
+                    // long: 旧工具结果没有重放声明快照时必须按不可重放处理，不能使用升级后的当前定义反推历史保证。
+                    replaySafety = json.stringOrNull("replaySafety")
+                        ?.let(ToolReplaySafety::valueOf)
+                        ?: ToolReplaySafety.RESTART_REQUIRED,
                     executionReceipt = json.executionReceiptOrNull(),
                 )
                 "approval.requested",

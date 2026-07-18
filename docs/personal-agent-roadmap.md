@@ -359,7 +359,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 10. 已完成第一批 Run 性能指标和故障注入：任务中心展示总耗时、终态成功率、平均耗时、模型/工具/审批次数；网络响应中断归类为连接失败，取消、超时和重复回调测试保持通过。
 11. 已完成请求级审计：规划/总结成功后写入 usage、TTFB、最终 JSON Prompt 字节；规划语义解析失败仍保留已返回遥测；任务中心展示 Token 覆盖率和失败终态分布。
 12. 已完成执行/验证中进程终止和 Android 权限运行中撤销故障注入：审批后执行前和工具返回后验证前都会复检权限；进程重建会把旧 Run 与活动 Step 一致取消。当前没有副作用证明，继续要求二次确认并创建关联新 Run。
-13. 部分完成：已建立持久化 `ToolExecutionReceipt`、`ToolReplaySafety` 和纯证据判定 module；回执绑定 ToolCall，错配时 Runtime fail-closed，任务中心不显示原始幂等键。`notes.create / memory.remember` 已记录真实 operation ID，但没有按 ToolCall 去重，继续保持 `RESTART_REQUIRED`。
+13. 部分完成：已建立持久化 `ToolExecutionReceipt`、执行时 `ToolReplaySafety` 声明快照和纯证据判定 module；回执绑定 ToolCall，错配时 Runtime fail-closed，旧事件默认不可重放，当前定义升级不能放宽历史证据，任务中心不显示原始幂等键。`notes.create / memory.remember` 已记录真实 operation ID，但没有按 ToolCall 去重，继续保持 `RESTART_REQUIRED`。
 14. 下一步以 `notes.create` 为首个垂直切片，在存储层增加可审计的 ToolCall 幂等键唯一约束，验证进程终止后同键重放只返回同一 operation ID；完成故障注入前不把工具改为 `IDEMPOTENT_BY_KEY`，也不接入原地恢复。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service，执行/验证中断仍保持 fail-closed 边界。

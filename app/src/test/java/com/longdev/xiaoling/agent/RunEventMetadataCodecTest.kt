@@ -54,6 +54,7 @@ class RunEventMetadataCodecTest {
             success = true,
             verified = true,
             toolCallId = "tool-call-1",
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             executionReceipt = ToolExecutionReceipt(
                 toolCallId = "tool-call-1",
                 operationId = "note-1",
@@ -81,6 +82,7 @@ class RunEventMetadataCodecTest {
         assertEquals(emptyList<String>(), metadata.memoryIdsUsed)
         assertEquals(null, metadata.toolCallId)
         assertEquals(null, metadata.executionReceipt)
+        assertEquals(ToolReplaySafety.RESTART_REQUIRED, metadata.replaySafety)
     }
 
     @Test

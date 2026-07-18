@@ -20,6 +20,7 @@ import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolExecutionResult
+import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -155,6 +156,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
             success = true,
             verified = true,
             toolCallId = "tool-call-receipt-1",
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             executionReceipt = ToolExecutionReceipt(
                 toolCallId = "tool-call-receipt-1",
                 operationId = "note-1",

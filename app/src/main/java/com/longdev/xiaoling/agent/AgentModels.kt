@@ -117,6 +117,7 @@ sealed interface RunEventMetadata {
         val verified: Boolean?,
         val memoryIdsUsed: List<String> = emptyList(),
         val toolCallId: String? = null,
+        val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
         val executionReceipt: ToolExecutionReceipt? = null,
     ) : RunEventMetadata
 

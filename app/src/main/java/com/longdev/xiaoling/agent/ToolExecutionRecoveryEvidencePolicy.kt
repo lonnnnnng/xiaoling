@@ -16,6 +16,9 @@ object ToolExecutionRecoveryEvidencePolicy {
         if (definition.replaySafety != ToolReplaySafety.IDEMPOTENT_BY_KEY) {
             return insufficient("工具未声明按幂等键安全重放")
         }
+        if (result.replaySafety != ToolReplaySafety.IDEMPOTENT_BY_KEY) {
+            return insufficient("执行时的工具定义未声明按幂等键安全重放")
+        }
         if (!result.success) {
             return insufficient("工具结果未成功")
         }

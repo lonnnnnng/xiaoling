@@ -361,7 +361,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v16 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执，并由纯策略判定证据是否足够。生产写工具尚无幂等键，执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
+当前状态：Room v16 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，并由纯策略判定证据是否足够。生产写工具尚无幂等键，执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

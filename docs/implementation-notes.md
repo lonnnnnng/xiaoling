@@ -78,8 +78,8 @@
 - `ToolDefinition` 统一声明输入类型、长度/范围/枚举、业务校验器、风险、确认策略、Android 权限、后台能力、超时和验证策略；风险与确认不信任模型声明。
 - 模型提示使用 `object/properties/required/additionalProperties=false` JSON Schema；解析层先按原始 JSON primitive 拒绝错误类型和非 object `arguments`，再规范化到字符串 Map 供 Runtime 做长度/范围/枚举与业务校验，不自动补字段或接受未知字段。
 - `ToolPermissionChecker` 默认 fail-closed；生产链路使用 `ContextCompat.checkSelfPermission` 在参数校验、审批结束后执行前和工具返回后验证前三个检查点读取定义中的 Android 权限。审批期间撤权不会创建 `tool.execute`，工具执行期间撤权会保留成功结果审计但拒绝验证与总结。
-- `ToolExecutionReceipt` 位于现有执行 seam：Executor 可返回 ToolCall ID、业务 operation ID、可选幂等键和提交状态，Runtime 在成功 `tool.result` 落库前校验回执必须属于当前 ToolCall。回执随 typed metadata 持久化并在任务中心事件中显示调用、操作、状态和“幂等证明已记录/未记录”，原始幂等键不直接展示。
-- `ToolExecutionRecoveryEvidencePolicy` 是纯判定 module，只在工具声明 `IDEMPOTENT_BY_KEY`、结果成功、ToolCall 身份一致、回执为 `COMMITTED` 且幂等键存在时返回“可复用已提交副作用”。这个判定不恢复旧协程或验证栈，也尚未接入 `AgentRunResumePolicy`。
+- `ToolExecutionReceipt` 位于现有执行 seam：Executor 可返回 ToolCall ID、业务 operation ID、可选幂等键和提交状态，Runtime 在成功 `tool.result` 落库前校验回执必须属于当前 ToolCall。回执与执行时 `ToolReplaySafety` 声明快照随 typed metadata 持久化，并在任务中心事件中显示调用、操作、状态、重放声明和“幂等证明已记录/未记录”，原始幂等键不直接展示；旧事件没有快照时按 `RESTART_REQUIRED` 解码。
+- `ToolExecutionRecoveryEvidencePolicy` 是纯判定 module，只在执行时快照和当前工具定义都声明 `IDEMPOTENT_BY_KEY`、结果成功、ToolCall 身份一致、回执为 `COMMITTED` 且幂等键存在时返回“可复用已提交副作用”。这个判定不恢复旧协程或验证栈，也尚未接入 `AgentRunResumePolicy`。
 - Runtime 接收 `FOREGROUND / BACKGROUND` 执行来源；后台来源只能执行 `supportsBackground=true` 的工具。当前仅当前时间、会话查询、笔记查询和长期记忆查询这 6 个 SAFE 只读工具开放后台；`notes.create / memory.remember` 在后台规划到审批步骤时直接进入 `BLOCKED`，不会调用审批 Gate。
 - Registry 初始化会拒绝重复工具名；`memory.remember` 已通过可插拔业务校验器限制标签数量和单标签长度。
 - `AgentRunUseCase` 使用 reporting ledger 回读 Room 快照，ViewModel 将 `AgentRun / AgentStep / RunEvent` 渲染成当前对话内的运行时间线。

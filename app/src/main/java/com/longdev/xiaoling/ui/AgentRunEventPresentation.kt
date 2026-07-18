@@ -88,6 +88,7 @@ internal fun presentAgentRunEvent(
                 "使用记忆" to metadata.memoryIdsUsed.takeIf { it.isNotEmpty() }?.joinToString("、"),
                 "操作" to metadata.executionReceipt?.operationId,
                 "回执状态" to metadata.executionReceipt?.status?.name,
+                "重放声明" to metadata.replaySafety.name,
                 "幂等证明" to metadata.executionReceipt?.let { receipt ->
                     if (receipt.idempotencyKey.isNullOrBlank()) "未记录" else "已记录"
                 },

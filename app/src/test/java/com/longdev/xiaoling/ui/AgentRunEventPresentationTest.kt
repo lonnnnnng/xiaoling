@@ -5,6 +5,7 @@ import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
+import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -89,6 +90,7 @@ class AgentRunEventPresentationTest {
                 durationMs = 42,
                 verified = true,
                 toolCallId = "tool-call-1",
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
                 executionReceipt = ToolExecutionReceipt(
                     toolCallId = "tool-call-1",
                     operationId = "note-1",
@@ -101,6 +103,7 @@ class AgentRunEventPresentationTest {
         assertEquals("tool-call-1", presentation.fields.single { it.label == "调用" }.value)
         assertEquals("note-1", presentation.fields.single { it.label == "操作" }.value)
         assertEquals("COMMITTED", presentation.fields.single { it.label == "回执状态" }.value)
+        assertEquals("IDEMPOTENT_BY_KEY", presentation.fields.single { it.label == "重放声明" }.value)
         assertEquals("已记录", presentation.fields.single { it.label == "幂等证明" }.value)
         assertTrue(presentation.fields.none { it.value == "private-idempotency-key" })
     }

@@ -387,7 +387,7 @@ class MinimalAgentRuntime(
             runId = runId,
             type = "tool.result",
             message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
-            metadata = AgentEventMetadata.toolResult(toolCall, toolResult, toolDurationMs),
+            metadata = AgentEventMetadata.toolResult(definition, toolCall, toolResult, toolDurationMs),
         )
         if (!toolResult.success) error("工具执行失败：${toolResult.content}")
         ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
@@ -782,7 +782,12 @@ private object AgentEventMetadata {
         )
     }
 
-    fun toolResult(call: ToolCall, result: ToolExecutionResult, durationMs: Long): RunEventMetadata {
+    fun toolResult(
+        definition: ToolDefinition,
+        call: ToolCall,
+        result: ToolExecutionResult,
+        durationMs: Long,
+    ): RunEventMetadata {
         return RunEventMetadata.ToolResult(
             toolName = call.name,
             success = result.success,
@@ -791,6 +796,7 @@ private object AgentEventMetadata {
             durationMs = durationMs,
             memoryIdsUsed = result.memoryIdsUsed,
             toolCallId = call.id,
+            replaySafety = definition.replaySafety,
             executionReceipt = result.executionReceipt,
         )
     }

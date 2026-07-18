@@ -763,16 +763,16 @@ instrumentation 后可用性恢复：
 
 实现边界：
 
-- `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和 `COMMITTED / NOT_COMMITTED / UNKNOWN` 状态，并嵌入 `tool.result` typed metadata；旧事件没有回执时继续按 `null` 解码。
+- `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和 `COMMITTED / NOT_COMMITTED / UNKNOWN` 状态，并把执行时 `ToolReplaySafety` 声明快照嵌入 `tool.result` typed metadata；旧事件没有回执时继续按 `null` 解码，没有重放快照时默认 `RESTART_REQUIRED`。
 - Runtime 在写入成功 `tool.result` 前校验回执必须属于当前 ToolCall，错配回执使执行步骤和 Run fail-closed，且不会落库为成功结果。
-- `ToolExecutionRecoveryEvidencePolicy` 只有在工具声明 `IDEMPOTENT_BY_KEY`、结果成功、ToolCall 身份一致、回执为 `COMMITTED` 且幂等键存在时，才判定已提交副作用可复用；该判定不等于恢复旧协程，也尚未接入 `AgentRunResumePolicy`。
+- `ToolExecutionRecoveryEvidencePolicy` 只有在执行时快照和当前定义都声明 `IDEMPOTENT_BY_KEY`、结果成功、ToolCall 身份一致、回执为 `COMMITTED` 且幂等键存在时，才判定已提交副作用可复用；应用升级后的当前定义不能放宽历史证据。该判定不等于恢复旧协程，也尚未接入 `AgentRunResumePolicy`。
 - `notes.create / memory.remember` 使用真实 note/memory ID 记录 `COMMITTED` 回执；回读失败仍保留 operation ID。当前存储层没有按 ToolCall 去重，幂等键为 `null`，两项工具继续保持默认 `RESTART_REQUIRED`。
 - 任务中心 typed Event 显示调用 ID、operation ID、回执状态及“幂等证明已记录/未记录”，不展示原始幂等键。
 
 TDD 与自动化结果：
 
 - Red/Green 覆盖回执 JSON 往返、旧事件兼容、回执跨 ToolCall 错配拒绝、幂等工具完整证据判定、两类真实写工具 operation ID、任务中心脱敏呈现，以及 Runtime 在成功事件落库前拒绝错配回执。
-- `testDebugUnitTest`：189 条 JVM 测试通过；`lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。
+- `testDebugUnitTest`：190 条 JVM 测试通过；`lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。
 - 新增 Room instrumentation 验证 Android `org.json` 与 Room 快照能完整往返嵌套执行回执。最终代码在 Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 40 条，合计 80 条全部通过。
 - 最终 APK 覆盖安装后，真机 Provider 仍为 1 条，`com.longdev.xiaoling/.MainActivity` 为前台 Activity，crash buffer 为空；未创建临时真实笔记或记忆，避免为可由确定性测试覆盖的 contract 验收污染用户数据。
-- Debug APK SHA-256：`9a78e2003febd70fe954b55aad795d531fd7f936190ebf25e25c3f25a65531ca`。
+- Debug APK SHA-256：`7a2ea0e569715f11b5bd0848727b4598c286190c9f4a143dac670d3d66491b26`。
