@@ -15,6 +15,16 @@ enum class AgentRunStatus {
     BUDGET_EXHAUSTED,
 }
 
+val AgentRunStatus.isTerminal: Boolean
+    get() = when (this) {
+        AgentRunStatus.BLOCKED,
+        AgentRunStatus.COMPLETED,
+        AgentRunStatus.FAILED,
+        AgentRunStatus.CANCELLED,
+        AgentRunStatus.BUDGET_EXHAUSTED -> true
+        else -> false
+    }
+
 enum class AgentExecutionOrigin {
     FOREGROUND,
     BACKGROUND,
@@ -30,6 +40,8 @@ enum class AgentStepStatus {
 }
 
 object AgentStepTypes {
+    const val LLM_PLAN = "llm.plan"
+    const val LLM_SUMMARIZE = "llm.summarize"
     const val TOOL_EXECUTE = "tool.execute"
     const val TOOL_VERIFY = "tool.verify"
 }

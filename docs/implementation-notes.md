@@ -85,6 +85,7 @@
 - 当前交互审批不按固定倒计时主动过期，只有用户批准、拒绝、停止生成或应用启动恢复收敛时改变状态；`EXPIRED` 保留给后续明确截止时间的工具策略。
 - 当前 ViewModel 会按 conversationId 缓存正在显示的 Run 时间线和审批卡片；仅切换会话/页面再返回不会丢失当前活跃卡片。
 - 设置页「Agent 任务中心」从 Room 读取最近 50 条 Run，支持全部、处理中、可重试、已完成四档筛选；展开后可查看完整 ToolResult content/success/verified/duration、步骤、审批请求和事件。事件展示直接消费 Repository 解码后的 typed metadata，旧纯文本事件回退显示 `message`。
+- `AgentRunMetricsPolicy` 只根据持久化 Run、Step 和 Approval 汇总指标，不依赖页面瞬时状态：单 Run 统计创建到终态的耗时、`llm.plan / llm.summarize` 模型调用次数、`tool.execute` 工具调用次数和审批数；历史汇总只用终态 Run 计算成功率与平均耗时，活动 Run 不进入质量分母。任务中心的汇总带、列表卡和详情区使用同一纯呈现函数，避免三处口径漂移。
 - `FAILED / CANCELLED / BUDGET_EXHAUSTED` 可重新运行。重试在来源会话追加新的 `/agent <goal>` 消息，使用当前 Provider/模型并创建带 `retryOfRunId` 的新 Run；旧 Run 的状态、结果、步骤和事件不修改。成功执行过非 SAFE 工具、恢复记录表明中断发生在 `EXECUTING/VERIFYING`，或 `tool.execute/tool.verify` 步骤以失败/取消结束时，UI 会先要求二次确认。
 - 重试正式启动时 ViewModel 选中来源会话并发出一次性导航信号，根 UI 回到对话页；重新触发的写工具仍走正常审批，审批卡不会隐藏在任务中心后台。
 - 应用启动时会保留尚未执行任何工具的 `WAITING_APPROVAL` Run；批准后先执行持久化的首个工具，再携带其已验证结果继续同一 Run 的多步规划。已经进入任意工具执行/验证步骤的多步 Run（包括第一步完成、第二步等待审批）会安全收敛为 `CANCELLED`，后续通过关联新 Run 重试，避免重复执行前面步骤。
@@ -179,6 +180,7 @@
 - debug 包默认开启 HTTP 调试日志：`BuildConfig.XIAOLING_HTTP_LOGS_ENABLED = true`。
 - release 包默认关闭 HTTP 调试日志。
 - 日志会对 Authorization 和包含 key 的 Header 做脱敏。
+- 网络层把连接建立失败，以及带明确 EOF、connection reset、broken pipe 或 stream reset 标记的响应中断归类为 `CONNECTION`；其他 `ProtocolException` 归类为 `RESPONSE`，无法识别的 I/O 仍为 `UNKNOWN`，避免扩大后续自动重试范围。
 
 ## 当前限制
 
@@ -188,6 +190,7 @@
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；当前 Agent Runtime 使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环，Reasoning/Image/File Items 与完整消息 parts 持久化仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：只有仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复，其余中间态必须安全重新运行。
+- 当前 Agent 指标尚未记录请求级首字耗时、上游 token usage 和 Prompt 字节数；任务中心展示的模型/工具调用次数来自已落库步骤，成功率和平均耗时来自终态 Run，不伪造上游未返回的数据。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 仍安全收敛；多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收。后台执行栈断点续跑和更多真实工具仍需按路线图继续补齐，Foreground Service 暂无真实耗时依据支持引入。
 - 恢复测试同时覆盖同 Run 完成、恢复工具失败写入原 Run `FAILED`，以及失败后安全重试必须二次确认；Room instrumentation 测试覆盖持久化审批重建、批准和原 Run 完成的数据链路。
 

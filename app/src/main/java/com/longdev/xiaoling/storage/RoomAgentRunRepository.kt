@@ -19,6 +19,7 @@ import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
+import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentStepEntity
 import com.longdev.xiaoling.data.ApprovalRequestEntity
@@ -59,14 +60,7 @@ class RoomAgentRunRepository(
     override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) {
         val current = database.agentRunDao().getRun(runId) ?: return
         val now = System.currentTimeMillis()
-        val completedAt = when (status) {
-            AgentRunStatus.COMPLETED,
-            AgentRunStatus.BLOCKED,
-            AgentRunStatus.FAILED,
-            AgentRunStatus.CANCELLED,
-            AgentRunStatus.BUDGET_EXHAUSTED -> now
-            else -> current.completedAt
-        }
+        val completedAt = if (status.isTerminal) now else current.completedAt
         database.agentRunDao().upsertRun(
             current.copy(
                 status = status.name,

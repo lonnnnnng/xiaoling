@@ -685,3 +685,27 @@ instrumentation 后可用性恢复：
 
 - 测试完成后重新安装最新 Debug APK，从未跟踪的本机配置恢复 Base URL 和 API Key；文档、日志和提交均未包含凭据。
 - 上游模型列表成功返回 6 项，配置指定模型完成真实普通对话请求，应用显示精确回复 `OK`。
+
+## 2026-07-19 Agent Run 指标与网络故障注入验证
+
+实现范围：
+
+- 新增 `AgentRunMetricsPolicy`，从持久化 `AgentRunDetailRecord` 计算单 Run 耗时、模型调用、工具调用和审批次数；历史成功率与平均耗时只使用终态 Run，活动 Run 不进入质量分母。
+- 任务中心在当前筛选范围展示 Run 数、成功率、平均耗时、非成功数、模型调用和工具调用；列表卡与展开详情展示同一口径的单 Run 指标。
+- `OpenAiCompatibleClientTest` 使用 MockWebServer 在 HTTP 200 响应体中途主动断开，确认明确的流中断从 `UNKNOWN` 改为 `CONNECTION`；分类器测试同时确认非法 HTTP 协议仍为 `RESPONSE`，无法识别的 I/O 仍为 `UNKNOWN`。
+- 现有确定性测试继续覆盖用户取消、模型步骤超时、整次 Run 超时、工具执行超时，以及同一 Agent Run 重复回调时的 Workflow 幂等关联。
+
+自动化结果：
+
+- `testDebugUnitTest`：175 条 JVM 测试通过。
+- `lintDebug`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。
+- `connectedDebugAndroidTest` 在 Pixel_9 Android 15 模拟器和 Redmi Note 8 Pro Android 14 真机各执行 38 条，合计 76 条全部通过。
+- 双轴复核确认共享终态判断和 LLM 步骤类型已贯通 Runtime、Repository 与指标消费端；网络分类边界收窄后，`CONNECTION / RESPONSE / UNKNOWN` 均有确定性测试。复核修复后重新执行上述完整构建和 instrumentation，结果保持通过。
+
+真实模型与 UI：
+
+- instrumentation 后在 Redmi Note 8 Pro 重新安装最新 Debug APK，并从未跟踪的本机配置恢复 Provider；凭据未进入文档、日志或提交。
+- `gpt-5.4-mini` 真实执行 `/agent Read current time and return verified result`，Run `run-8880e351-0c00-4a91-b6cb-06a48f2e0410` 调用 `app.current_time` 并进入 `COMPLETED`。
+- 任务中心实测显示 `1 个 Run · 成功率 100% · 平均 13.28s` 和 `终态 1 · 非成功 0 · 模型 3 · 工具 1`；单 Run 卡片与详情均显示 `耗时 13.28s · 模型 3 · 工具 1 · 审批 0`。
+- 1080×2340 UI tree 与截图确认筛选栏、汇总带、Run 卡和展开详情没有文字或控件重叠；`com.longdev.xiaoling/.MainActivity` 保持前台，crash buffer 为空，后续仍需在更长历史列表上持续观察汇总性能。
+- 最终 Debug APK SHA-256：`c167e36f02f7a7a26d4b8f245857e2f9f59a7160cac484df8d48d9278bc6f6b1`。

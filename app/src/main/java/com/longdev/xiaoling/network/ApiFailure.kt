@@ -1,8 +1,10 @@
 package com.longdev.xiaoling.network
 
 import org.json.JSONObject
+import java.io.EOFException
 import java.io.IOException
 import java.net.ConnectException
+import java.net.ProtocolException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.ssl.SSLException
@@ -43,7 +45,29 @@ object ApiFailureClassifier {
         is SSLException -> ApiFailure(FailureKind.TLS, error.message ?: "TLS 握手失败")
         is ConnectException -> ApiFailure(FailureKind.CONNECTION, error.message ?: "连接被拒绝")
         is ApiFailure -> error
-        else -> ApiFailure(FailureKind.UNKNOWN, error.message ?: "未知网络错误")
+        is ProtocolException -> if (error.isConnectionInterruption()) {
+            ApiFailure(FailureKind.CONNECTION, error.message ?: "网络连接意外中断")
+        } else {
+            ApiFailure(FailureKind.RESPONSE, error.message ?: "HTTP 响应协议不兼容")
+        }
+        // long: 只有明确的 EOF、连接重置或流中断才归为连接失败；无法识别的 I/O 异常保留 UNKNOWN，避免把协议问题错误纳入自动重试范围。
+        else -> if (error.isConnectionInterruption()) {
+            ApiFailure(FailureKind.CONNECTION, error.message ?: "网络连接意外中断")
+        } else {
+            ApiFailure(FailureKind.UNKNOWN, error.message ?: "未知网络错误")
+        }
+    }
+
+    private fun IOException.isConnectionInterruption(): Boolean {
+        if (this is EOFException) return true
+        val reason = message.orEmpty()
+        return listOf(
+            "unexpected end of stream",
+            "connection reset",
+            "broken pipe",
+            "stream was reset",
+            "socket closed",
+        ).any { marker -> reason.contains(marker, ignoreCase = true) }
     }
 
     private fun extractServerMessage(body: String): String {

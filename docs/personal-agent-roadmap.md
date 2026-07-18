@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台重试、历史快照冻结、后台执行和审批后继续下一步骤已完成真实模型真机验收；下一阶段应补运行指标、故障注入和执行/验证中断恢复边界，而不是立即增加大量手机工具。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持 1 至 8 步编辑、顺序前台/后台执行、步骤快照和新 Run 重试，以及 WorkManager 一次性和 Daily/Weekly 非精确定时。多步骤前台/后台与审批恢复已完成真实模型真机验收，任务中心已展示基于持久化审计的耗时、成功率和调用量，网络中断已进入确定性故障分类；下一阶段应补请求级 usage/Prompt 指标和执行/验证中断恢复边界，而不是立即增加大量手机工具。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -312,9 +312,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 建立脱敏结构化日志，统一 `runId`、`stepId`、`toolCallId`。
 - 为 Agent Runtime 提供假的 LLM 和 Tool Executor，做确定性状态机测试。
 - 建立工具契约测试：Schema、风险、权限、确认和验证信息不能缺失。
-- 增加性能指标：首字时间、总耗时、模型调用次数、工具调用次数、Prompt 大小和失败率。
+- 部分完成性能指标：任务中心已展示 Run 总耗时、终态成功率、平均耗时、模型调用次数、工具调用次数和审批数；Agent 请求级首字时间、token usage、Prompt 字节数和失败类型分布待补。
 - 对低能力模型做回归，减少多阶段 LLM 调用和超长工具提示词。
-- 为进程终止、网络断开、权限撤销、工具超时和重复回调增加故障注入测试。
+- 部分完成故障注入：用户取消、模型/工具/整次 Run 超时、网络响应中断和 Workflow 重复回调已有确定性测试；执行/验证中进程终止与 Android 权限运行中撤销待补。
 - 每个涉及 Android 系统能力的里程碑都必须在真机验证，不以单元测试替代。
 
 ## 优先级清单
@@ -325,7 +325,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v16、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/ScheduledTask/WorkflowSchedule/WorkflowStepDefinition 表迁移和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消和安全重新运行已完成；原地断点恢复待完成 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
-| P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
+| P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断点恢复待评估，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
@@ -356,6 +356,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 7. 已完成 Daily/Weekly 周期规则：每次触发创建独立 ScheduledTask/Workflow Run，规则替换和停用同步取消 WorkManager，周期触发不复用前台审批等待。
 8. 已完成多步骤 Workflow 定义、编辑、步骤级幂等键、输入/输出快照和安全新 Run 重试；后台中断继续收敛旧 Run，不在没有副作用证明时原地续跑。
 9. 已完成多步骤前台/后台真实模型真机验收：编辑只影响未来定义，审批后继续下一步骤，失败来源 Run 保持不变，新 Run 正确关联来源并重新执行未完成步骤。
-10. 下一步补齐 Run 性能指标和故障注入，覆盖网络断开、进程终止、工具超时与重复回调；基于副作用证明评估执行/验证中断是安全续跑还是继续创建关联新 Run。
+10. 已完成第一批 Run 性能指标和故障注入：任务中心展示总耗时、终态成功率、平均耗时、模型/工具/审批次数；网络响应中断归类为连接失败，取消、超时和重复回调测试保持通过。
+11. 下一步把上游 usage、请求首字耗时和 Prompt 字节数写入 Agent 审计事件并展示失败类型分布；随后对执行/验证中进程终止和权限撤销做故障注入，基于副作用证明决定安全续跑或继续创建关联新 Run。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service，执行/验证中断仍保持 fail-closed 边界。

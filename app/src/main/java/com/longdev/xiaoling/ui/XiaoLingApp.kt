@@ -131,6 +131,7 @@ import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.AgentRunMetricsPolicy
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentSkillRecord
@@ -3786,25 +3787,59 @@ private fun AgentRunHistoryPage(
                         )
                     }
                 }
-                else -> items(
-                    count = filteredHistory.size,
-                    key = { index -> filteredHistory[index].snapshot.run.id },
-                ) { index ->
-                    val detail = filteredHistory[index]
-                    val selected = detail.snapshot.run.id == state.selectedAgentRunId
-                    AgentRunHistoryItemCard(
-                        detail = detail,
-                        selected = selected,
-                        retrying = state.retryingAgentRunId == detail.snapshot.run.id,
-                        onClick = { viewModel.selectAgentRun(detail.snapshot.run.id) },
-                        onRetry = { viewModel.requestAgentRunRetry(detail.snapshot.run.id) },
-                    )
-                    if (selected) {
-                        AgentRunDetailPanel(detail)
+                else -> {
+                    item(key = "agent-run-metrics") {
+                        AgentRunHistoryMetricsSummary(filteredHistory)
+                    }
+                    items(
+                        count = filteredHistory.size,
+                        key = { index -> filteredHistory[index].snapshot.run.id },
+                    ) { index ->
+                        val detail = filteredHistory[index]
+                        val selected = detail.snapshot.run.id == state.selectedAgentRunId
+                        AgentRunHistoryItemCard(
+                            detail = detail,
+                            selected = selected,
+                            retrying = state.retryingAgentRunId == detail.snapshot.run.id,
+                            onClick = { viewModel.selectAgentRun(detail.snapshot.run.id) },
+                            onRetry = { viewModel.requestAgentRunRetry(detail.snapshot.run.id) },
+                        )
+                        if (selected) {
+                            AgentRunDetailPanel(detail)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AgentRunHistoryMetricsSummary(details: List<AgentRunDetailRecord>) {
+    val presentation = presentAgentRunHistoryMetrics(
+        AgentRunMetricsPolicy.summarizeHistory(details, nowMs = System.currentTimeMillis()),
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = presentation.headline,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = presentation.detail,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -3985,6 +4020,15 @@ private fun AgentRunHistoryItemCard(
                     }
                 }
             }
+            Text(
+                text = presentAgentRunMetrics(
+                    AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis()),
+                ),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -4026,6 +4070,16 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                     text = it,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                     color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            AgentRunDetailSection("运行指标") {
+                Text(
+                    text = presentAgentRunMetrics(
+                        AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis()),
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 

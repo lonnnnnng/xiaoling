@@ -238,7 +238,7 @@ class MinimalAgentRuntime(
             ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
             val thinking = ledger.appendStep(
                 runId = run.id,
-                type = "llm.plan",
+                type = AgentStepTypes.LLM_PLAN,
                 title = "模型规划",
                 detail = "模型正在根据目标和已验证结果决定下一步。",
                 status = AgentStepStatus.RUNNING,
@@ -422,7 +422,7 @@ class MinimalAgentRuntime(
         require(state.completedTools.isNotEmpty()) { "模型未执行任何工具就结束了 Agent Run" }
         val summaryStep = ledger.appendStep(
             runId = run.id,
-            type = "llm.summarize",
+            type = AgentStepTypes.LLM_SUMMARIZE,
             title = "回复样式选择",
             detail = "模型根据用户偏好选择回复详略和语气。",
             status = AgentStepStatus.RUNNING,

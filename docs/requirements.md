@@ -43,7 +43,7 @@
 - 默认关闭的候选记忆：成功轮次结束后只从明确陈述生成候选，由用户确认或忽略；API Key、token、密码、银行卡、身份证和手机号只记录敏感类别，不保存原值。
 - 记忆治理：规范化相同事实复用旧记忆，同类型同主题的不同事实标记冲突并保留旧记录；`memory.remember` 同样执行敏感过滤和去重。
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
-- 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。
+- 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。当前筛选范围会基于持久化审计数据展示 Run 数、终态成功率、平均耗时、非成功数、模型调用数和工具调用数；单 Run 展示耗时、模型调用、工具调用和审批次数。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
 - Room v16 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v15→v16 会把旧 Workflow 回填为单步骤定义并保留历史 Run，v4/v9/v12/v13/v14→v16、v15→v16 和全新 v16 建库已有 Schema 与迁移测试源码保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
