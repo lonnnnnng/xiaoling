@@ -100,6 +100,10 @@ class AgentSkillsTest {
             catalog.resolveSelection(listOf(AgentSkillReference("custom-time", version = 1)))
         }.exceptionOrNull()
         assertTrue(versionError is IllegalArgumentException)
+        val legacyLocalError = runCatching {
+            catalog.resolveSelection(listOf(AgentSkillReference("custom-time", version = null)))
+        }.exceptionOrNull()
+        assertTrue(legacyLocalError is IllegalArgumentException)
         val collision = runCatching {
             catalog.importDocument(localSkillDocument("device-time"))
         }.exceptionOrNull()

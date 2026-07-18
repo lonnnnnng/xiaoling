@@ -162,8 +162,14 @@ class AgentSkillCatalog(
         return references.map { reference ->
             val definition = recordsById[reference.id]?.definition
                 ?: error("原 Run 使用的 Skill 已不存在：${reference.id}，请创建新 Run 重试")
-            require(reference.version == null || reference.version == definition.version) {
-                "原 Run 使用的 Skill 版本已变化：${reference.id}，请创建新 Run 重试"
+            if (reference.version == null) {
+                require(definition.source == AgentSkillSource.BUILT_IN) {
+                    "原 Run 的本地 Skill 缺少版本审计，请创建新 Run 重试：${reference.id}"
+                }
+            } else {
+                require(reference.version == definition.version) {
+                    "原 Run 使用的 Skill 版本已变化：${reference.id}，请创建新 Run 重试"
+                }
             }
             definition
         }
