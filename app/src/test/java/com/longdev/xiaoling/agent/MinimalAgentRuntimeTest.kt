@@ -436,6 +436,33 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun openAiPlanDecisionParserAcceptsToolNameRepeatedAsAction() {
+        val tool = FakeToolRegistry().availableTools().single()
+
+        val decision = AgentToolCallParser.parseDecision(
+            raw = """{"action":"fake.echo","tool":"fake.echo","arguments":{"goal":"兼容模型"}}""",
+            tools = listOf(tool),
+        )
+
+        val call = (decision as AgentPlanDecision.CallTool).toolCall
+        assertEquals("fake.echo", call.name)
+        assertEquals(mapOf("goal" to "兼容模型"), call.arguments)
+    }
+
+    @Test
+    fun openAiPlanDecisionParserRejectsActionThatDoesNotMatchDeclaredTool() {
+        val failure = runCatching {
+            AgentToolCallParser.parseDecision(
+                raw = """{"action":"notes.search","tool":"fake.echo","arguments":{"goal":"不一致"}}""",
+                tools = FakeToolRegistry().availableTools(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("未知 Agent 规划动作"))
+    }
+
+    @Test
     fun openAiToolCallParserKeepsJsonPrimitivesValidForLogicalSchemaTypes() {
         val tool = ToolDefinition(
             name = "test.typed",

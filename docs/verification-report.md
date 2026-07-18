@@ -538,7 +538,8 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 构建与自动化验证：
 
-- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；148 项 Debug 单元测试通过，失败数为 0。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；150 项 Debug 单元测试通过，失败数为 0。
+- `AgentToolCallParser` 新增兼容测试：当模型把同一个已声明工具名同时写入 `action` 与 `tool` 时归一化为工具调用；两者不一致时仍拒绝，后续继续执行注册表、Schema、风险、后台能力和审批门禁。
 - `MinimalAgentRuntimeTest` 覆盖后台 SAFE 工具仅在显式 `supportsBackground=true` 时执行，以及需审批工具在调用 Gate/Executor 前进入 Agent `BLOCKED`。
 - `ScheduledWorkflowOrchestratorTest` 覆盖完成、失败、blocked、系统取消和领取拒绝；确认各业务终态先写入 Ledger，再发送对应通知，取消在 `NonCancellable` 中收敛后继续向 WorkManager 传播。
 - `RoomWorkflowRepositoryInstrumentedTest` 已编译覆盖一次性 ScheduledTask 创建、WorkRequest 关联、原子领取、计划/实际时间、Workflow/Agent Run 关联和 blocked 终态。
@@ -549,18 +550,25 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 
 - 第一版只支持 1 分钟至 7 天的一次性非精确计划，不支持 Daily/Weekly、AlarmManager、精确闹钟权限或 Foreground Service。
 - SAFE 后台白名单仅包含当前时间、会话查询、笔记查询和长期记忆查询；`notes.create / memory.remember` 等需审批工具不会继承前台授权，而是写入 Agent/Workflow/ScheduledTask `BLOCKED` 并提示用户以前台新 Run 重试。
-- WorkManager 业务结果不使用系统自动重试，避免复制可能已经执行过的 Agent Run；系统回收后的跨进程续跑仍是下一阶段验证项。
+- WorkManager 业务结果不使用系统自动重试，避免复制可能已经执行过的 Agent Run；触发前进程回收后的冷启动执行已验证，后台执行中的断点续跑仍未实现。
 
 真机覆盖安装与结构验证：
 
 - 实现提交 `ed8d7a5 实现一次性后台工作流调度` 已推送到 `origin/main`。
-- Debug APK SHA-256：`b6932e5135e96385272e3ecd29aefe9fc5690ff2aac7913e1d905b53edf6dbba`。
+- 最新 Debug APK SHA-256：`1d485174f3dd508528e811f418dc7185c83f8839943a6708fd74eb2dffe13394`。
 - 使用 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 覆盖安装成功；未卸载、未清数据、未运行 instrumentation。
 - 安装后仍为 `versionName=0.1.9`、`versionCode=10`；应用进程 PID `7420`，`com.longdev.xiaoling/.MainActivity` 已进入 resumed 状态，crash buffer 为空。
 - 只读取非敏感结构信息确认 `PRAGMA user_version=14`；`workflows / workflow_runs / workflow_steps / scheduled_tasks` 四张表存在，`workflow_runs` 含 `plannedAt / scheduledTaskId`，初始 `scheduled_tasks` 记录数为 0。
 - 合并后的 Manifest 已注册 `androidx.startup.InitializationProvider` 和 WorkManager `SystemJobService`。
 
-未完成真机验收：
+真机一次性调度与通知验收：
 
-- 手机仍停留在系统锁屏，`mCurrentFocus` 为 `NotificationShade`，没有绕过用户凭据；因此无法从工作流页创建一次性计划。
-- 设备为 Android 14（API 34），`POST_NOTIFICATIONS` 当前 `granted=false`、AppOps 为 `ignore`。没有替用户修改通知权限；完成/失败/blocked 通知只完成代码、单元测试和 Manifest/Channel 结构验证，尚未完成真机展示验收。
+- 用户解锁手机后，从「设置 → 工作流」创建 `SAFE_time_test` 与 `BLOCKED_note_test`，并通过应用触发的 Android 14 系统弹窗授予 `POST_NOTIFICATIONS`；没有使用 shell 强改权限。
+- 首条 SAFE 计划在权限授予前因上游 `HTTP 503` 收敛为 `FAILED`；第二条计划 `20:50:04.940` 入队，`20:50:05.022` 实际启动，偏差 `82ms`，`20:50:15.385` 完成。ScheduledTask、Workflow Run、Workflow Step、Agent Run 和 WorkRequest 全部关联，工具结果为 `app.current_time`，第一条失败 Run 保持不变。
+- 成功通知真实写入 `workflow_results` Channel，标题为「工作流已完成 · SAFE_time_test」，正文包含受验证的当前时间结果；后续上游 `HTTP 502` 失败通知标题为「工作流执行失败 · BLOCKED_note_test」。
+- 在另一条已入队计划触发前退到桌面并执行 `am kill com.longdev.xiaoling`，确认旧 PID 消失；WorkManager 随后由 `SystemJobService` 冷启动 PID `9845`，创建并收敛新的 Ledger。该次因上游返回 `HTTP 401` 进入 `FAILED`，但 Authorization 仍存在且没有 Keystore 解密错误，证明进程回收未破坏密钥或丢失计划。
+- 更新后的外部模型独立健康探测返回 HTTP 200。该模型曾把合法工具名重复写入 `action/tool`，新增受限归一化后覆盖安装 Debug 包，保留 Provider、工作流、通知权限和 Room v14 数据。
+- 最终 blocked 计划 `21:48:33.823` 入队，`21:48:34.016` 实际启动，偏差 `193ms`，`21:48:39.374` 收敛。Agent Run、Workflow Run、Workflow Step 和 ScheduledTask 均为 `BLOCKED`，错误为「后台任务需要用户确认工具：notes.create」。
+- blocked Run 的 `ApprovalRequest` 数量为 `0`，目标正文 `blocked_background_test_20260718` 的笔记数量为 `0`，证明后台没有等待前台审批、没有继承临时授权且没有执行写入。
+- blocked 通知真实显示在锁屏通知区，标题为「工作流需要你处理 · BLOCKED_note_test」，正文提示打开应用以前台重试。
+- 全程未卸载、未清数据、未执行 instrumentation；最终 crash buffer 为空。Daily/Weekly、精确定时、Foreground Service 和后台执行中的断点续跑仍未验收。

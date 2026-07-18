@@ -62,7 +62,7 @@
 这条链路使用当前选中的模型做工具规划和受限回复样式选择，使用 `XiaoLingToolRegistry` 执行应用内低风险工具，最终事实由 Runtime 根据真实工具记录渲染：
 
 1. 创建 `AgentRun`，状态从 `QUEUED` 进入 `THINKING`。
-2. 请求当前模型只返回 `action=tool` 或 `action=complete` JSON；规划器每轮只选择一个已注册工具，并接收前面已经执行和验证的结构化结果。
+2. 请求当前模型只返回 `action=tool` 或 `action=complete` JSON；规划器每轮只选择一个已注册工具，并接收前面已经执行和验证的结构化结果。兼容模型若把同一个已声明工具名同时写入 `action` 与 `tool`，解析器只在两者完全一致时归一化为工具调用；未知动作或不一致工具名仍拒绝。
 3. 进入 `tool.validate` 步骤，校验 JSON Schema、未知参数、可插拔业务规则、Android 权限、工具调用预算和重复调用风险。
 4. SAFE 工具跳过交互审批并写入 `approval.skipped` 审计事件；非 SAFE 工具进入 `WAITING_APPROVAL`，先写入 `ApprovalRequest`，再在对话区显示审批卡片；用户批准后继续执行，用户拒绝后 Run 进入失败终态。
 5. 执行工具，写入可读 `RunEvent.message` 和独立 typed metadata，包括工具名、参数、结果、耗时、成功状态和可选验证状态；`notes.create` 与 `memory.remember` 会在写入后回读验证，回读不一致时记录 `verified=false`，不会宣称完成。

@@ -157,8 +157,13 @@ internal object AgentToolCallParser {
             require(keys == setOf("action")) { "完成决策不能包含额外字段：${keys.sorted()}" }
             return AgentPlanDecision.Complete
         }
+        val declaredToolName = json.optString("tool")
+        // long: 部分兼容模型会把工具名同时写进 action 和 tool；只有两者完全一致时才按工具调用归一化，工具注册、参数校验和风险门禁仍由 Runtime 执行。
+        val repeatsDeclaredToolName = declaredToolName.isNotBlank() && action == declaredToolName
         // long: 旧版规划器只返回 tool/name/arguments，没有 action 字段；升级后继续接受这类输出，避免已配置的兼容模型在协议切换后全部失败。
-        require(action.isBlank() || action == "tool") { "未知 Agent 规划动作：$action" }
+        require(action.isBlank() || action == "tool" || repeatsDeclaredToolName) {
+            "未知 Agent 规划动作：$action"
+        }
         return AgentPlanDecision.CallTool(parse(raw, tools))
     }
 

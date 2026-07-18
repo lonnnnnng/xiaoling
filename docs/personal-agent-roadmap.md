@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持前台手动执行和 WorkManager 一次性非精确定时。下一阶段重点是验证系统回收边界，再扩展周期规则，而不是立即增加大量手机工具。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；长期记忆与声明式 Skill 已可管理，Workflow Ledger 已支持前台手动执行和 WorkManager 一次性非精确定时。一次性 SAFE、后台 blocked、结果通知和触发前进程回收后的冷启动执行均已通过真机验收，下一阶段进入 Daily/Weekly 周期规则设计，而不是立即增加大量手机工具。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -244,7 +244,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：让用户保存可重复任务，并能查看每次执行结果。
 
-当前状态：已交付 `Workflow / WorkflowRun / WorkflowStep / ScheduledTask` Room Ledger、设置页创建/启停/手动执行/一次性计划、关联 Agent Run、计划与实际时间、结果通知和后台 blocked 审批。当前每个 Workflow 只有一个 `AGENT_RUN` 步骤；周期规则、多步骤编辑和系统回收续跑仍待完成。
+当前状态：已交付 `Workflow / WorkflowRun / WorkflowStep / ScheduledTask` Room Ledger、设置页创建/启停/手动执行/一次性计划、关联 Agent Run、计划与实际时间、结果通知和后台 blocked 审批；真机已验证触发前进程回收后由 WorkManager 冷启动并收敛 Ledger。当前每个 Workflow 只有一个 `AGENT_RUN` 步骤；周期规则、多步骤编辑和后台执行中的断点续跑仍待完成。
 
 ### 要做什么
 
@@ -328,7 +328,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果和失败重试已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
-| P1 | Workflow Ledger 与后台调度 | 前台手动和一次性 WorkManager 调度已完成；周期规则、系统回收恢复和 Foreground Service 待评估 | 支持持续任务且可追溯 |
+| P1 | Workflow Ledger 与后台调度 | 前台手动、一次性 WorkManager、SAFE/blocked/通知及触发前进程回收真机验收已完成；周期规则、执行中断点恢复和 Foreground Service 待评估 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
@@ -352,6 +352,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 3. 已完成本地 Skill 文件格式、导入校验与启停/管理 UI。
 4. 已完成：不依赖调度器的 `Workflow / WorkflowRun / WorkflowStep` Ledger 和前台手动执行闭环。
 5. 已完成结构化 `ScheduledTask`、WorkManager 一次性非精确调度、计划/实际时间、结果通知和后台 blocked 审批。
-6. 下一步完成真机一次性 SAFE/blocked 场景与系统回收验证，再设计 Daily/Weekly 周期规则；周期触发仍不得复用前台审批等待。
+6. 已完成：真机一次性 SAFE/blocked、完成/失败/blocked 通知，以及触发前进程回收后的 WorkManager 冷启动执行验证。
+7. 下一步设计 Daily/Weekly 周期规则；每次触发必须创建独立 ScheduledTask/Workflow Run，周期触发仍不得复用前台审批等待。
 
-完成非精确调度、通知和系统回收场景验证后，再评估周期规则与 Foreground Service，避免把精确时间承诺带入 WorkManager v1。
+Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间；先完成跨重启的下一次触发计算、停用/取消和去重，再评估 Foreground Service，避免把精确时间承诺带入 WorkManager v1。
