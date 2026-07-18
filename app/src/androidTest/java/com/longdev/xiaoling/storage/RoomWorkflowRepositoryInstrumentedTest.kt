@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowStepStatus
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.runBlocking
@@ -68,6 +69,29 @@ class RoomWorkflowRepositoryInstrumentedTest {
         database.agentRunDao().upsertRun(agentRun("agent-run-2", AgentRunStatus.CANCELLED))
         assertEquals(1, repository.reconcileInterruptedRuns())
         assertEquals(WorkflowRunStatus.CANCELLED, repository.recentRunDetails().single().run.status)
+    }
+
+    @Test
+    fun oneTimeTaskCreatesClaimLinksRunAndSettlesBlocked() = runBlocking {
+        val workflow = repository.createWorkflow("定时笔记", "创建一条笔记")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-1")
+
+        val claim = repository.claimScheduledRun(task.id)!!
+        repository.markAgentRunStarted(claim.run.run.id, "agent-run-scheduled-1")
+        repository.completeRun(claim.run.run.id, WorkflowRunStatus.BLOCKED, errorMessage = "需要用户确认")
+        repository.finishScheduledTask(task.id, ScheduledTaskStatus.BLOCKED, "需要用户确认")
+
+        val storedTask = repository.listScheduledTasks().single()
+        val storedRun = repository.recentRunDetails().single()
+        assertEquals(ScheduledTaskStatus.BLOCKED, storedTask.status)
+        assertEquals(task.plannedAt, storedRun.run.plannedAt)
+        assertEquals(task.id, storedRun.run.scheduledTaskId)
+        assertEquals(storedRun.run.id, storedTask.workflowRunId)
+        assertTrue(storedTask.actualStartedAt != null)
+        assertEquals("agent-run-scheduled-1", storedRun.run.agentRunId)
+        assertEquals(WorkflowRunStatus.BLOCKED, storedRun.run.status)
+        assertEquals(WorkflowStepStatus.BLOCKED, storedRun.steps.single().status)
     }
 
     private fun agentRun(id: String, status: AgentRunStatus) = AgentRunEntity(

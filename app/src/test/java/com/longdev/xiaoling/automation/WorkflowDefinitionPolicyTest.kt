@@ -32,6 +32,10 @@ class WorkflowDefinitionPolicyTest {
             WorkflowRunStatus.FAILED,
             WorkflowAgentRunStatusPolicy.terminalStatus(AgentRunStatus.BUDGET_EXHAUSTED),
         )
+        assertEquals(
+            WorkflowRunStatus.BLOCKED,
+            WorkflowAgentRunStatusPolicy.terminalStatus(AgentRunStatus.BLOCKED),
+        )
         assertNull(WorkflowAgentRunStatusPolicy.terminalStatus(AgentRunStatus.WAITING_APPROVAL))
     }
 }

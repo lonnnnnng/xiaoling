@@ -61,6 +61,7 @@ class RoomAgentRunRepository(
         val now = System.currentTimeMillis()
         val completedAt = when (status) {
             AgentRunStatus.COMPLETED,
+            AgentRunStatus.BLOCKED,
             AgentRunStatus.FAILED,
             AgentRunStatus.CANCELLED,
             AgentRunStatus.BUDGET_EXHAUSTED -> now

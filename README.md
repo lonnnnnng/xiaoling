@@ -1,6 +1,6 @@
 # 小灵
 
-「小灵」是一款 Android 端个人 Agent 应用。当前阶段先把个人 Agent 的基础底座做稳：多模型提供方配置、上游模型选择、多会话上下文、LLM 摘要压缩、Chat Completions / Responses API、SSE 流式输出、Markdown 渲染、Room 本地存储和可审计 Agent Run。
+「小灵」是一款 Android 端个人 Agent 应用。当前阶段先把个人 Agent 的基础底座做稳：多模型提供方配置、多会话上下文、Chat Completions / Responses API、Room 本地存储、可审计 Agent Run，以及基于 WorkManager 的一次性非精确定时工作流。
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
@@ -31,7 +31,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 提供「提示词设置」二级页，可分别配置普通对话、会话摘要 / 记忆和 Agent 回复总结模板。
   - 每类模板支持独立启用、恢复默认和预览最终提示词；普通对话的工具边界、摘要事实边界和 Agent 审计边界不可被自定义模板覆盖。
   - 提供「Agent Skills」管理页，展示内置与本地 Skill，可通过系统文件选择器导入版本化 JSON、启停能力并删除本地 Skill。
-  - 提供「工作流」管理页，可保存、启停和手动运行可重复 Agent 目标，并查看最近一次 Workflow Run 与步骤结果。
+  - 提供「工作流」管理页，可保存、启停、手动运行或创建 1 分钟至 7 天的一次性非精确计划，并查看计划时间、实际启动时间、Workflow Run 与步骤结果。
   - 支持新增、编辑、删除模型提供方。
   - 支持 `Base URL`、`API Key` 和名称配置。
   - 支持扫码导入、剪切板解析和 Base64 解码辅助。
@@ -43,7 +43,8 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 `POST /chat/completions`。
   - 支持 `POST /responses`。
   - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
-  - Provider、会话、消息、Agent Run、笔记、长期记忆、Skill 和 Workflow Ledger 使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
+  - Provider、会话、消息、Agent Run、笔记、长期记忆、Skill、Workflow Ledger 和 ScheduledTask 使用 Room 保存；旧 SharedPreferences 数据首次启动时迁入。
+  - 后台计划只允许显式声明 `supportsBackground=true` 的 SAFE 只读工具；需要审批的工具在执行前进入 `BLOCKED` 并发送通知，不创建或继承前台临时授权。
   - API Key 使用 Android Keystore + AES-GCM 加密保存。
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
   - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
@@ -60,7 +61,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
 5. 输入消息开始对话；输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路。
 6. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
-7. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行；执行会回到当前会话，敏感工具仍使用原审批卡。
+7. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
 
 ## 本地 mock 调试
 
@@ -98,13 +99,13 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 139 项 Debug 单元测试通过。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 148 项 Debug 单元测试通过。
 - `assembleRelease`：通过。
 - `apksigner verify --print-certs`：通过，证书主体为 `CN=XiaoLing, OU=XiaoLing, O=Long, L=Shanghai, ST=Shanghai, C=CN`。
 - 真机 `wsvwypiz7xwslvl7`：debug 包覆盖安装和启动成功；`WAITING_APPROVAL` Run 经进程强制停止、冷启动、批准后在原 Run 完成，未创建重试 Run。
 - 真机顺序多步 Run：`app.list_conversations -> app.current_time -> complete` 在同一 Run 完成，两次工具执行和两次验证均有 Room 审计记录。
 - 真机 Room v12：debug 包覆盖安装后主库升级为 v12，`agent_skills` 表与索引存在；本轮未运行 instrumentation，锁屏状态下未完成 Skill 管理页可视验收。
-- 真机 Room v13：debug 包覆盖安装后主库升级为 v13，`workflows / workflow_runs / workflow_steps` 表存在；锁屏状态下未完成工作流管理页可视验收。
+- Room v14 Schema 与 AndroidTest APK 已编译：新增 `scheduled_tasks`，并为 `workflow_runs` 增加 `scheduledTaskId / plannedAt`；真机迁移与一次性计划触发结果见验证报告。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档

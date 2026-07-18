@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To13PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To14PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            13,
+            14,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -83,7 +83,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion13Database() = runBlocking {
+    fun createAndOpenFreshVersion14Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -91,7 +91,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(13, database.openHelper.writableDatabase.version)
+        assertEquals(14, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -238,7 +238,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate9To13PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
+    fun migrate9To14PreservesConfirmedMemoryAndCreatesEmptyCandidateTable() {
         migrationHelper.createDatabase(MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME, 9).apply {
             execSQL(
                 "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -266,7 +266,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME,
-            13,
+            14,
             true,
             *XiaoLingDatabase.migrations(),
         )
@@ -317,17 +317,17 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate12To13CreatesEmptyWorkflowLedgerTables() {
+    fun migrate12To14CreatesWorkflowAndScheduledTaskLedgerTables() {
         migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
 
         val migrated = migrationHelper.runMigrationsAndValidate(
             WORKFLOW_MIGRATION_DATABASE_NAME,
-            13,
+            14,
             true,
             *XiaoLingDatabase.migrations(),
         )
 
-        listOf("workflows", "workflow_runs", "workflow_steps").forEach { table ->
+        listOf("workflows", "workflow_runs", "workflow_steps", "scheduled_tasks").forEach { table ->
             migrated.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", arrayOf(table)).use { cursor ->
                 assertEquals(true, cursor.moveToFirst())
             }
@@ -335,6 +335,43 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.query("SELECT COUNT(*) AS workflowCount FROM workflows").use { cursor ->
             assertEquals(true, cursor.moveToFirst())
             assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("workflowCount")))
+        }
+        migrated.close()
+    }
+
+    @Test
+    fun migrate13To14AddsScheduledTaskLedgerWithoutChangingOldWorkflowRows() {
+        migrationHelper.createDatabase(SCHEDULED_TASK_MIGRATION_DATABASE_NAME, 13).apply {
+            execSQL(
+                "INSERT INTO workflows VALUES (?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("workflow-v13", "历史工作流", "读取当前时间", 1, 100L, 100L),
+            )
+            execSQL(
+                "INSERT INTO workflow_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "workflow-run-v13", "workflow-v13", "MANUAL", "conversation-v13", null,
+                    "COMPLETED", "完成", null, 101L, 102L, 103L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            SCHEDULED_TASK_MIGRATION_DATABASE_NAME,
+            14,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT scheduledTaskId, plannedAt, result FROM workflow_runs WHERE id = 'workflow-run-v13'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("scheduledTaskId")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("plannedAt")))
+            assertEquals("完成", cursor.getString(cursor.getColumnIndexOrThrow("result")))
+        }
+        migrated.query("SELECT COUNT(*) AS taskCount FROM scheduled_tasks").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("taskCount")))
         }
         migrated.close()
     }
@@ -402,5 +439,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME = "xiaoling-memory-candidate-migration-test"
         private const val SKILL_MIGRATION_DATABASE_NAME = "xiaoling-skill-migration-test"
         private const val WORKFLOW_MIGRATION_DATABASE_NAME = "xiaoling-workflow-migration-test"
+        private const val SCHEDULED_TASK_MIGRATION_DATABASE_NAME = "xiaoling-scheduled-task-migration-test"
     }
 }

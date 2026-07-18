@@ -34,6 +34,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         retryOfRunId: String? = null,
         memoryRecallEnabled: Boolean = true,
+        executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -55,7 +56,7 @@ class AgentRunUseCase(
             userMessageId = userMessageId,
             goal = goal,
             retryOfRunId = retryOfRunId,
-            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            executionOrigin = executionOrigin,
             memoryRecallEnabled = memoryRecallEnabled,
             selectedSkills = selectedSkills,
         )

@@ -35,13 +35,14 @@
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 声明式 Skill 按需加载与管理：内置和本地 Skill 统一进入 Room Catalog；本地 `schemaVersion=1` JSON 经过字段白名单、工具注册表、风险与 Android 权限一致性校验后才可导入，设置页支持查看、启停和删除本地 Skill。Run 审计固定所选 Skill 的 ID/版本，审批恢复不得因期间停用、删除或升版而扩大工具面。
 - Workflow Ledger 与前台手动执行：用户可保存、启停和运行可重复 Agent 目标；每次运行独立记录 `WorkflowRun / WorkflowStep`、触发来源、会话、关联 Agent Run、结果和失败原因。手动运行复用现有前台审批与验证链路，进程重建后只保留可恢复审批，其他执行按关联 Agent Run 终态收敛。
+- 一次性非精确定时：用户可为已启用 Workflow 创建或取消 1 分钟至 7 天的一次性计划；`ScheduledTask` 记录计划时间、实际启动时间、WorkRequest 和关联 Workflow Run。后台只允许显式开放的 SAFE 只读工具，需审批工具进入 `BLOCKED` 并通知用户以前台新 Run 继续。
 - 设置页长期记忆管理：FTS4 + 中文子串兜底搜索、全部/启用/禁用筛选、内容/标签/类型/置信度编辑、置顶、启停、删除确认、跨进程撤销和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
 - 默认关闭的候选记忆：成功轮次结束后只从明确陈述生成候选，由用户确认或忽略；API Key、token、密码、银行卡、身份证和手机号只记录敏感类别，不保存原值。
 - 记忆治理：规范化相同事实复用旧记忆，同类型同主题的不同事实标记冲突并保留旧记录；`memory.remember` 同样执行敏感过滤和去重。
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
 - 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
-- Room v13 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill 和 Workflow Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入，v4→v13、v9→v13、v11→v12 与 v12→v13 升级已有 Schema 和迁移测试保护。
+- Room v14 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、Skill、Workflow 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入，v4→v14、v9→v14、v12→v14 与 v13→v14 升级已有 Schema 和迁移测试源码保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
@@ -49,7 +50,7 @@
 - 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Run 的原地恢复、并行工具调用、WorkManager 定时调度、后台通知/审批 blocked 状态和手机自动化；顺序多步 Agent、待审批 Run 原地继续、声明式 Skill 本地导入与管理、Workflow Ledger 前台手动执行、跨进程记忆删除撤销、记忆过期、时间衰减、实际引用审计与单次召回关闭已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Run 的原地恢复、并行工具调用、周期调度、系统回收后的后台原地续跑、精确定时、Foreground Service 和手机自动化；顺序多步 Agent、待审批 Run 原地继续、声明式 Skill 本地导入与管理、Workflow Ledger、一次性 WorkManager 非精确调度、后台 `BLOCKED` 与结果通知、跨进程记忆删除撤销、记忆过期、时间衰减、实际引用审计与单次召回关闭已交付。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
 补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；上述未交付项仅指执行/验证中断点以及尚未完成的后台一致性和自动化能力。
 

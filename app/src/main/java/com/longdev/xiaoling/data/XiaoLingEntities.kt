@@ -242,12 +242,15 @@ data class WorkflowEntity(
         Index(value = ["workflowId", "createdAt"]),
         Index(value = ["status", "createdAt"]),
         Index(value = ["agentRunId"], unique = true),
+        Index(value = ["scheduledTaskId"], unique = true),
     ],
 )
 data class WorkflowRunEntity(
     @PrimaryKey val id: String,
     val workflowId: String,
     val trigger: String,
+    val scheduledTaskId: String?,
+    val plannedAt: Long?,
     val conversationId: String,
     val agentRunId: String?,
     val status: String,
@@ -256,6 +259,30 @@ data class WorkflowRunEntity(
     val createdAt: Long,
     val startedAt: Long?,
     val completedAt: Long?,
+)
+
+@Entity(
+    tableName = "scheduled_tasks",
+    indices = [
+        Index(value = ["workflowId", "plannedAt"]),
+        Index(value = ["status", "plannedAt"]),
+        Index(value = ["workRequestId"], unique = true),
+        Index(value = ["workflowRunId"], unique = true),
+    ],
+)
+data class ScheduledTaskEntity(
+    @PrimaryKey val id: String,
+    val workflowId: String,
+    val type: String,
+    val status: String,
+    val plannedAt: Long,
+    val workRequestId: String?,
+    val workflowRunId: String?,
+    val actualStartedAt: Long?,
+    val completedAt: Long?,
+    val errorMessage: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
 )
 
 @Entity(

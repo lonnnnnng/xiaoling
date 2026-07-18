@@ -520,3 +520,33 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 重复活动 Run 的保护位于 Room 创建事务内；UI 展开工作流可查看已加载的多次历史 Run。恢复前置校验失败且 Agent 仍在等待审批时，不会提前把 Workflow 标为失败。
 - 工作流不创建新的工具授权层，所有工具继续执行现有 Schema、权限、风险、审批和后置验证策略。
 - 本轮没有引入 WorkManager、定时规则、通知、Foreground Service 或后台审批；这些能力将在下一阶段基于现有 Ledger 接入。
+
+## 2026-07-18 一次性非精确定时工作流自动化验证
+
+官方依据：
+
+- Android WorkManager 官方文档确认 `OneTimeWorkRequest.setInitialDelay` 只保证任务在最小延迟后具备执行资格，实际时间仍受系统优化与约束影响；实现和 UI 均不承诺准点。
+- WorkManager 使用唯一工作名和 `ExistingWorkPolicy.KEEP` 防止同一 ScheduledTask 重复入队，并要求联网后才执行 Agent 请求。
+- Android 8.0+ 通知使用稳定 Channel；Android 13+ 从用户创建计划的操作中请求 `POST_NOTIFICATIONS`，通知被拒绝不改变 Room 中的业务终态。
+
+来源：
+
+- <https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work>
+- <https://developer.android.com/reference/kotlin/androidx/work/WorkManager>
+- <https://developer.android.com/develop/ui/views/notifications/notification-permission>
+- <https://developer.android.com/develop/ui/views/notifications/channels>
+
+构建与自动化验证：
+
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；148 项 Debug 单元测试通过，失败数为 0。
+- `MinimalAgentRuntimeTest` 覆盖后台 SAFE 工具仅在显式 `supportsBackground=true` 时执行，以及需审批工具在调用 Gate/Executor 前进入 Agent `BLOCKED`。
+- `ScheduledWorkflowOrchestratorTest` 覆盖完成、失败、blocked、系统取消和领取拒绝；确认各业务终态先写入 Ledger，再发送对应通知，取消在 `NonCancellable` 中收敛后继续向 WorkManager 传播。
+- `RoomWorkflowRepositoryInstrumentedTest` 已编译覆盖一次性 ScheduledTask 创建、WorkRequest 关联、原子领取、计划/实际时间、Workflow/Agent Run 关联和 blocked 终态。
+- `XiaoLingDatabaseMigrationInstrumentedTest` 已编译覆盖 v4→v14、v9→v14、v12→v14、v13→v14 与全新 v14 建库；Room 导出的 `14.json` 包含 `scheduled_tasks` 及 `workflow_runs.scheduledTaskId / plannedAt`。
+- 为保护真机 Keystore 中的 Provider API Key，本轮仍未执行 instrumentation；AndroidTest 只完成源码编译和 APK 组装。
+
+当前边界：
+
+- 第一版只支持 1 分钟至 7 天的一次性非精确计划，不支持 Daily/Weekly、AlarmManager、精确闹钟权限或 Foreground Service。
+- SAFE 后台白名单仅包含当前时间、会话查询、笔记查询和长期记忆查询；`notes.create / memory.remember` 等需审批工具不会继承前台授权，而是写入 Agent/Workflow/ScheduledTask `BLOCKED` 并提示用户以前台新 Run 重试。
+- WorkManager 业务结果不使用系统自动重试，避免复制可能已经执行过的 Agent Run；系统回收后的跨进程续跑仍是下一阶段验证项。

@@ -48,7 +48,22 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(tools.values.all { it.timeoutMs == 5_000L })
         assertTrue(tools.values.all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() })
-        assertTrue(tools.values.none { it.permissionPolicy.supportsBackground })
+        val backgroundTools = tools.values
+            .filter { it.permissionPolicy.supportsBackground }
+            .map { it.name }
+            .toSet()
+        assertEquals(
+            setOf(
+                "app.current_time",
+                "app.list_conversations",
+                "app.search_conversations",
+                "notes.list",
+                "notes.search",
+                "memory.search",
+            ),
+            backgroundTools,
+        )
+        assertTrue(tools.values.filter { it.risk != ToolRisk.SAFE }.none { it.permissionPolicy.supportsBackground })
         assertTrue(limitFields.all {
             it.type == ToolInputType.INTEGER && it.minimum == 1.0 && it.maximum == 10.0
         })

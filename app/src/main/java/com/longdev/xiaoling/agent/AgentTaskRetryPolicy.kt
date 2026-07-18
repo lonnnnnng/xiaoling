@@ -38,6 +38,7 @@ object AgentTaskRetryPolicy {
     }
 
     private val retryableStatuses = setOf(
+        AgentRunStatus.BLOCKED,
         AgentRunStatus.FAILED,
         AgentRunStatus.CANCELLED,
         AgentRunStatus.BUDGET_EXHAUSTED,

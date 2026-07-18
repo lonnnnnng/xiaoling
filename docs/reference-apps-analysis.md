@@ -311,10 +311,11 @@
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult 和失败终态安全重新运行。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
+- Workflow Ledger、一次性 WorkManager 非精确定时、计划/实际时间、结果通知，以及后台审批 `BLOCKED` 终态。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
-- Room v4/v6/v7/v8/v9/v10 Schema 导出，以及带 Provider、会话、消息、Run、审批、笔记和记忆旧数据的 v4→v10 真机自动化迁移测试；v8 用 `retryOfRunId` 关联新旧 Run，v9 为旧记忆回填 FTS，v10 增加独立候选表。
+- Room v4、v6-v14 Schema 导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow 与 ScheduledTask 演进。当前 v14 用独立 `scheduled_tasks` 和 Workflow Run 关联字段保存后台计划账本。
 
 现有关键实现位于：
 
@@ -336,14 +337,14 @@
 | ToolCall/ToolResult 已进入 RunEvent metadata，但还没有独立表 | 可审计展示已结构化，跨步骤查询、重放和恢复仍不方便 |
 | 失败终态可安全重新运行，但没有原地恢复执行栈 | 进程重建后先收敛中间态，再由用户创建关联的新 Run；无法从原 ToolCall 位置继续 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
-| 没有后台任务账本 | 定时/长任务无法断点恢复，也无法聚合失败与待确认 |
+| 一次性后台账本已完成，但系统回收续跑与周期规则未完成 | 可追溯一次性任务；长任务断点和 Daily/Weekly 规则仍需设计 |
 | 消息仍以单一文本为主 | Responses 已支持函数调用/结果 Items，但 Reasoning/Image/File 和持久化消息 parts 仍待实现 |
 
 ## 6. 建议目标架构
 
 保持 Kotlin + Compose + OkHttp，不新增 Rust/Python/Flutter。当前已形成 `agent`、`data`、`storage` 和 `prompt` 最小边界；后续继续细分 domain/runtime/tools/approval/verification/memory/task，并复用现有 network 与 Keystore。
 
-最小状态机为：`QUEUED -> THINKING -> WAITING_APPROVAL -> EXECUTING -> VERIFYING -> THINKING/COMPLETED`，并允许进入 `FAILED/CANCELLED/BUDGET_EXHAUSTED`。
+最小状态机为：`QUEUED -> THINKING -> WAITING_APPROVAL -> EXECUTING -> VERIFYING -> THINKING/COMPLETED`，并允许进入 `BLOCKED/FAILED/CANCELLED/BUDGET_EXHAUSTED`。后台规划到需审批工具时直接进入 `BLOCKED`，不进入交互审批等待。
 
 关键规则：
 
@@ -360,7 +361,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room 基础迁移、Schema 导出、v4→v10 自动化迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行和长期记忆候选治理闭环已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile 和原地断点恢复仍待完成。
+当前状态：Room v14 Schema、迁移测试源码、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性 Workflow 调度已完成；独立 ToolCall/ToolResult 表、消息 parts、AgentProfile 和原地断点恢复仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -400,12 +401,14 @@
 
 目标：支持长任务和计划任务，但不夸大 Android 后台可靠性。
 
+当前状态：Workflow/ScheduledTask Ledger、一次性非精确定时、取消、计划/实际时间和完成/失败/blocked 通知已交付；周期规则、系统回收续跑和聚合式“需要你处理”首页待完成。
+
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | TaskLedger | 保存 goal、steps、currentStep、priorResults、pendingApproval、status、retryCount | App 被杀后重新打开可看到任务状态；待确认动作能继续处理 |
 | Activity 首页 | 三段：需要你处理、运行中、最近完成；失败/逾期/待确认置顶 | 冷启动不会误显示旧聊天为正在运行 |
-| 定时任务 v1 | 常见计划用结构化 Hourly/Daily/Weekly/Monthly；WorkManager 承担非精确周期任务 | UI 明确“系统可能延迟”；展示预计下次运行和上次结果 |
-| 后台安全策略 | 后台默认只允许 `supportsBackground=true` 的只读工具，不继承前台临时授权 | 后台调用副作用工具时转为 WAITING_APPROVAL 并通知用户 |
+| 定时任务 v1 | 已完成一次性计划；下一步增加结构化 Daily/Weekly，WorkManager 继续承担非精确任务 | UI 明确“系统可能延迟”；展示预计下次运行和上次结果 |
+| 后台安全策略 | 已完成只允许 `supportsBackground=true` 的 SAFE 只读工具且不继承前台授权 | 后台调用需审批工具时转为 BLOCKED 并通知用户 |
 | 通知 | 完成/失败/待确认；低风险可快捷操作，高风险只允许打开 App/拒绝 | 通知 action 有单测；高风险不存在一键永久允许 |
 | 有界恢复 | 网络/临时失败最多重试两次并退避；权限拒绝等结构性失败不重试 | 不出现无限重试；失败原因和已完成步骤可见 |
 

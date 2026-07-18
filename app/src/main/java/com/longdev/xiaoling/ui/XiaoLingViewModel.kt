@@ -37,6 +37,10 @@ import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.ScheduledTaskRecord
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
+import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
@@ -161,7 +165,10 @@ data class XiaoLingUiState(
     val loadingWorkflows: Boolean = false,
     val workflows: List<WorkflowRecord> = emptyList(),
     val workflowRuns: List<WorkflowRunDetail> = emptyList(),
+    val scheduledTasks: List<ScheduledTaskRecord> = emptyList(),
     val mutatingWorkflowIds: Set<String> = emptySet(),
+    val mutatingScheduledTaskIds: Set<String> = emptySet(),
+    val schedulingWorkflowId: String? = null,
     val runningWorkflowId: String? = null,
     val workflowError: String? = null,
     val workflowNavigationConversationId: String? = null,
@@ -302,6 +309,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentRunRepository = RoomAgentRunRepository(application)
     private val agentMemoryStore = RoomAgentMemoryStore(application)
     private val workflowRepository = RoomWorkflowRepository(application)
+    private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(application)
     private val backupManager = XiaoLingBackupManager(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
@@ -338,7 +346,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
                 workflowRepository.reconcileInterruptedRuns()
-                workflowRepository.listWorkflows() to workflowRepository.allRunDetails()
+                Triple(
+                    workflowRepository.listWorkflows(),
+                    workflowRepository.allRunDetails(),
+                    workflowRepository.listScheduledTasks(),
+                )
             }
             val latestDeletedMemory = withContext(Dispatchers.IO) {
                 // long: 删除撤销快照独立于页面内存；启动时与 Room 正式记录核对后恢复入口，保证进程重建不会丢失最近一次撤销机会。
@@ -357,6 +369,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     deletedMemoryForUndo = latestDeletedMemory,
                     workflows = workflowState.first,
                     workflowRuns = workflowState.second,
+                    scheduledTasks = workflowState.third,
                     result = uiState.result,
                 )
             restoreRecoveredAgentRuns(resumableRuns)
@@ -599,13 +612,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         workflowLoadJob = viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    workflowRepository.listWorkflows() to workflowRepository.allRunDetails()
+                    Triple(
+                        workflowRepository.listWorkflows(),
+                        workflowRepository.allRunDetails(),
+                        workflowRepository.listScheduledTasks(),
+                    )
                 }
-            }.onSuccess { (workflows, runs) ->
+            }.onSuccess { (workflows, runs, tasks) ->
                 uiState = uiState.copy(
                     loadingWorkflows = false,
                     workflows = workflows,
                     workflowRuns = runs,
+                    scheduledTasks = tasks,
                     workflowError = null,
                 )
             }.onFailure { error ->
@@ -641,14 +659,40 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { workflowRepository.setEnabled(workflowId, enabled) }
-            }.onSuccess { updated ->
+                withContext(Dispatchers.IO) {
+                    val updated = workflowRepository.setEnabled(workflowId, enabled)
+                    val pendingTasks = if (!enabled && updated != null) {
+                        workflowRepository.listScheduledTasks().filter {
+                            it.workflowId == workflowId && it.status == ScheduledTaskStatus.SCHEDULED
+                        }
+                    } else {
+                        emptyList()
+                    }
+                    var workManagerCancelFailures = 0
+                    pendingTasks.forEach { task ->
+                        workflowRepository.cancelScheduledTask(task.id)
+                        try {
+                            scheduledTaskScheduler.cancel(task.id)
+                        } catch (_: Throwable) {
+                            // long: Room 已取消后 Worker 会在领取阶段跳过；系统取消失败只影响残留 WorkRequest，不得把已成功停用的工作流回报成失败。
+                            workManagerCancelFailures += 1
+                        }
+                    }
+                    Triple(updated, pendingTasks.size, workManagerCancelFailures)
+                }
+            }.onSuccess { (updated, cancelledTaskCount, workManagerCancelFailures) ->
                 uiState = uiState.copy(
                     mutatingWorkflowIds = uiState.mutatingWorkflowIds - workflowId,
                     result = OperationResult(
                         success = updated != null,
                         title = if (enabled) "工作流已启用" else "工作流已停用",
-                        message = updated?.name ?: "工作流不存在",
+                        message = updated?.let {
+                            when {
+                                workManagerCancelFailures > 0 -> "${it.name} · $cancelledTaskCount 个计划已在本地取消，系统队列稍后会安全跳过"
+                                cancelledTaskCount > 0 -> "${it.name} · 已取消 $cancelledTaskCount 个待执行计划"
+                                else -> it.name
+                            }
+                        } ?: "工作流不存在",
                     ),
                 )
                 refreshWorkflows()
@@ -657,6 +701,86 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     mutatingWorkflowIds = uiState.mutatingWorkflowIds - workflowId,
                     workflowError = error.message ?: "更新工作流失败",
                 )
+            }
+        }
+    }
+
+    fun scheduleWorkflowOnce(workflowId: String, delayMinutes: Int) {
+        if (uiState.schedulingWorkflowId != null) return
+        val workflow = uiState.workflows.firstOrNull { it.id == workflowId }
+        if (workflow == null || !workflow.enabled) {
+            showValidation("工作流不存在或已停用")
+            return
+        }
+        uiState = uiState.copy(schedulingWorkflowId = workflowId, workflowError = null)
+        viewModelScope.launch {
+            var task: ScheduledTaskRecord? = null
+            try {
+                task = withContext(Dispatchers.IO) {
+                    workflowRepository.createOneTimeScheduledTask(workflowId, delayMinutes)
+                }
+                val workRequestId = withContext(Dispatchers.IO) { scheduledTaskScheduler.enqueue(task) }
+                withContext(Dispatchers.IO) { workflowRepository.attachWorkRequest(task.id, workRequestId) }
+                uiState = uiState.copy(
+                    schedulingWorkflowId = null,
+                    result = OperationResult(
+                        true,
+                        "一次性计划已创建",
+                        "${workflow.name} · 系统将在计划时间后尽快执行",
+                    ),
+                )
+                refreshWorkflows()
+            } catch (error: Throwable) {
+                task?.let { created ->
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            workflowRepository.failScheduling(created.id, error.message ?: "WorkManager 入队失败")
+                        }
+                    }
+                }
+                uiState = uiState.copy(
+                    schedulingWorkflowId = null,
+                    workflowError = error.message ?: "创建一次性计划失败",
+                )
+                refreshWorkflows()
+            }
+        }
+    }
+
+    fun cancelScheduledTask(taskId: String) {
+        if (taskId in uiState.mutatingScheduledTaskIds) return
+        val task = uiState.scheduledTasks.firstOrNull { it.id == taskId }
+        if (task == null || task.status != ScheduledTaskStatus.SCHEDULED) return
+        uiState = uiState.copy(
+            mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds + taskId,
+            workflowError = null,
+        )
+        viewModelScope.launch {
+            try {
+                val systemCancelFailed = withContext(Dispatchers.IO) {
+                    workflowRepository.cancelScheduledTask(taskId)
+                    try {
+                        scheduledTaskScheduler.cancel(taskId)
+                        false
+                    } catch (_: Throwable) {
+                        true
+                    }
+                }
+                uiState = uiState.copy(
+                    mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds - taskId,
+                    result = OperationResult(
+                        true,
+                        "计划已取消",
+                        if (systemCancelFailed) "本地门禁已取消；残留系统任务到时会安全跳过" else "这个一次性计划不会再执行",
+                    ),
+                )
+                refreshWorkflows()
+            } catch (error: Throwable) {
+                uiState = uiState.copy(
+                    mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds - taskId,
+                    workflowError = error.message ?: "取消计划失败",
+                )
+                refreshWorkflows()
             }
         }
     }

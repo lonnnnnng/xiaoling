@@ -19,12 +19,14 @@ class XiaoLingToolRegistry(
             name = "app.current_time",
             description = "读取手机本地当前时间和时区，用于需要时间上下文的任务。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             timeoutMs = 5_000,
         ),
         ToolDefinition(
             name = "app.list_conversations",
             description = "列出最近的本地会话标题、消息数和更新时间，用于帮助用户回到历史对话。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             inputSchema = listOf(
                 ToolInputField(
                     name = "limit",
@@ -41,6 +43,7 @@ class XiaoLingToolRegistry(
             name = "app.search_conversations",
             description = "按关键词搜索本地会话标题、摘要和消息内容，用于查找旧会话。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             inputSchema = listOf(
                 ToolInputField(
                     name = "query",
@@ -65,6 +68,7 @@ class XiaoLingToolRegistry(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             inputSchema = listOf(
                 ToolInputField(
                     name = "limit",
@@ -81,6 +85,7 @@ class XiaoLingToolRegistry(
             name = "notes.search",
             description = "按关键词搜索本地笔记标题和正文。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             inputSchema = listOf(
                 ToolInputField(
                     name = "query",
@@ -130,6 +135,7 @@ class XiaoLingToolRegistry(
             name = "memory.search",
             description = "检索本机长期记忆，帮助回答用户偏好、历史事实或长期备注。",
             risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
             inputSchema = listOf(
                 ToolInputField(
                     name = "query",

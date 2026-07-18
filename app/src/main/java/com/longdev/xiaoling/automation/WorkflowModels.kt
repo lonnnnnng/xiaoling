@@ -15,6 +15,8 @@ data class WorkflowRunRecord(
     val id: String,
     val workflowId: String,
     val trigger: WorkflowTrigger,
+    val scheduledTaskId: String?,
+    val plannedAt: Long?,
     val conversationId: String,
     val agentRunId: String?,
     val status: WorkflowRunStatus,
@@ -48,11 +50,13 @@ data class WorkflowRunDetail(
 
 enum class WorkflowTrigger {
     MANUAL,
+    SCHEDULED,
 }
 
 enum class WorkflowRunStatus {
     QUEUED,
     RUNNING,
+    BLOCKED,
     COMPLETED,
     FAILED,
     CANCELLED,
@@ -61,6 +65,7 @@ enum class WorkflowRunStatus {
 enum class WorkflowStepStatus {
     PENDING,
     RUNNING,
+    BLOCKED,
     COMPLETED,
     FAILED,
     CANCELLED,
@@ -71,11 +76,52 @@ object WorkflowAgentRunStatusPolicy {
         // long: 前台执行、审批恢复和启动对账必须共享同一终态映射，新增 Agent 状态时不能让两条链路产生不同 Workflow 结论。
         return when (agentStatus) {
             AgentRunStatus.COMPLETED -> WorkflowRunStatus.COMPLETED
+            AgentRunStatus.BLOCKED -> WorkflowRunStatus.BLOCKED
             AgentRunStatus.CANCELLED -> WorkflowRunStatus.CANCELLED
             AgentRunStatus.FAILED,
             AgentRunStatus.BUDGET_EXHAUSTED -> WorkflowRunStatus.FAILED
             else -> null
         }
+    }
+}
+
+data class ScheduledTaskRecord(
+    val id: String,
+    val workflowId: String,
+    val type: ScheduledTaskType,
+    val status: ScheduledTaskStatus,
+    val plannedAt: Long,
+    val workRequestId: String?,
+    val workflowRunId: String?,
+    val actualStartedAt: Long?,
+    val completedAt: Long?,
+    val errorMessage: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+enum class ScheduledTaskType {
+    ONE_TIME,
+}
+
+enum class ScheduledTaskStatus {
+    SCHEDULED,
+    RUNNING,
+    BLOCKED,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
+}
+
+object ScheduledTaskPolicy {
+    const val MIN_DELAY_MINUTES = 1
+    const val MAX_DELAY_MINUTES = 7 * 24 * 60
+
+    fun plannedAt(now: Long, delayMinutes: Int): Long {
+        require(delayMinutes in MIN_DELAY_MINUTES..MAX_DELAY_MINUTES) {
+            "一次性调度延迟必须在 $MIN_DELAY_MINUTES 到 $MAX_DELAY_MINUTES 分钟之间"
+        }
+        return Math.addExact(now, Math.multiplyExact(delayMinutes.toLong(), 60_000L))
     }
 }
 

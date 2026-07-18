@@ -21,6 +21,9 @@ interface ProviderDao {
 
 @Dao
 interface ConversationDao {
+    @Query("SELECT * FROM conversations WHERE id = :conversationId")
+    suspend fun getConversation(conversationId: String): ConversationEntity?
+
     @Query("SELECT * FROM conversations")
     suspend fun getAllConversations(): List<ConversationEntity>
 
@@ -249,4 +252,13 @@ interface WorkflowDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStep(step: WorkflowStepEntity)
+
+    @Query("SELECT * FROM scheduled_tasks ORDER BY createdAt DESC")
+    suspend fun listScheduledTasks(): List<ScheduledTaskEntity>
+
+    @Query("SELECT * FROM scheduled_tasks WHERE id = :taskId")
+    suspend fun getScheduledTask(taskId: String): ScheduledTaskEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertScheduledTask(task: ScheduledTaskEntity)
 }

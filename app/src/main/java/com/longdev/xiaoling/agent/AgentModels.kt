@@ -8,6 +8,7 @@ enum class AgentRunStatus {
     WAITING_APPROVAL,
     EXECUTING,
     VERIFYING,
+    BLOCKED,
     COMPLETED,
     FAILED,
     CANCELLED,
@@ -22,6 +23,7 @@ enum class AgentExecutionOrigin {
 enum class AgentStepStatus {
     PENDING,
     RUNNING,
+    BLOCKED,
     COMPLETED,
     FAILED,
     CANCELLED,
@@ -552,3 +554,7 @@ data class AgentRuntimeOptions(
 class AgentBudgetExceededException(message: String) : RuntimeException(message)
 
 class AgentTimeoutException(message: String) : RuntimeException(message)
+
+class AgentBackgroundApprovalRequiredException(
+    val toolName: String,
+) : RuntimeException("后台任务需要用户确认工具：$toolName")

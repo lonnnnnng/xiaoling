@@ -95,6 +95,9 @@ class MinimalAgentRuntime(
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
             }
             throw error
+        } catch (error: AgentBackgroundApprovalRequiredException) {
+            settleBlockedRun(run.id, state, error)
+            throw error
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 // long: 取消本身会让当前协程进入 cancelled 状态，终态落库必须脱离取消上下文，否则 Room 写入也会被一起取消，Run 会卡在 THINKING/RUNNING。
@@ -204,6 +207,9 @@ class MinimalAgentRuntime(
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
             }
             throw error
+        } catch (error: AgentBackgroundApprovalRequiredException) {
+            settleBlockedRun(run.id, state, error)
+            throw error
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消 Agent 任务") }
@@ -293,7 +299,12 @@ class MinimalAgentRuntime(
         } else {
             null
         }
-        validateToolCall(definition, toolCall, executionOrigin)
+        validateToolArguments(definition, toolCall)
+        if (executionOrigin == AgentExecutionOrigin.BACKGROUND && definition.approvalPolicy != ToolApprovalPolicy.NONE) {
+            // long: 后台没有可见审批卡，任何需要确认的工具都在 Executor 之前收敛为 BLOCKED；前台 once/session 授权不会传入这条链路。
+            throw AgentBackgroundApprovalRequiredException(toolCall.name)
+        }
+        validateToolExecutionPolicy(definition, executionOrigin)
         checkToolBudget(state.executedToolCalls)
         checkLoopRisk(toolCall, state.toolCallFingerprints)
         if (validation != null) {
@@ -569,15 +580,34 @@ class MinimalAgentRuntime(
         return executionBudget.run(label, timeoutMs, block)
     }
 
-    private fun validateToolCall(
+    private suspend fun settleBlockedRun(
+        runId: String,
+        state: AgentRuntimeExecutionState,
+        error: AgentBackgroundApprovalRequiredException,
+    ) {
+        withContext(NonCancellable) {
+            val reason = error.message ?: "后台任务需要用户确认"
+            // long: 新 Run 与审批恢复入口共用同一 BLOCKED 收敛，避免步骤、事件和 Run 三层状态在后续扩展时发生分叉。
+            state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.BLOCKED, reason) }
+            ledger.appendEvent(runId, "run.blocked", reason, RunEventMetadata.Reason(reason))
+            ledger.updateRunStatus(runId, AgentRunStatus.BLOCKED, errorMessage = reason)
+        }
+    }
+
+    private fun validateToolArguments(
         definition: ToolDefinition,
         toolCall: ToolCall,
-        executionOrigin: AgentExecutionOrigin,
     ) {
         val validation = definition.validateArguments(toolCall.arguments)
         require(validation.isValid) {
             "工具 ${definition.name} 参数校验失败：${validation.errors.joinToString("；")}"
         }
+    }
+
+    private fun validateToolExecutionPolicy(
+        definition: ToolDefinition,
+        executionOrigin: AgentExecutionOrigin,
+    ) {
         // long: 后台任务不能继承前台工具能力；只有定义明确声明支持后台时才继续审批和执行，避免未来调度入口默认放大工具权限面。
         check(executionOrigin != AgentExecutionOrigin.BACKGROUND || definition.permissionPolicy.supportsBackground) {
             "工具 ${definition.name} 不允许后台执行"

@@ -25,8 +25,9 @@ import org.json.JSONObject
         WorkflowEntity::class,
         WorkflowRunEntity::class,
         WorkflowStepEntity::class,
+        ScheduledTaskEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -39,7 +40,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 13
+        const val CURRENT_VERSION = 14
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -355,6 +356,38 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `scheduledTaskId` TEXT")
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `plannedAt` INTEGER")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_runs_scheduledTaskId` ON `workflow_runs` (`scheduledTaskId`)")
+                // long: 一次性计划先独立保存系统 WorkRequest 与业务 Run 的关联，进程重建后仍能区分“已入队、已启动、已阻断”和最终结果。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `scheduled_tasks` (
+                        `id` TEXT NOT NULL,
+                        `workflowId` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `plannedAt` INTEGER NOT NULL,
+                        `workRequestId` TEXT,
+                        `workflowRunId` TEXT,
+                        `actualStartedAt` INTEGER,
+                        `completedAt` INTEGER,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_scheduled_tasks_workflowId_plannedAt` ON `scheduled_tasks` (`workflowId`, `plannedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_scheduled_tasks_status_plannedAt` ON `scheduled_tasks` (`status`, `plannedAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_scheduled_tasks_workRequestId` ON `scheduled_tasks` (`workRequestId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_scheduled_tasks_workflowRunId` ON `scheduled_tasks` (`workflowRunId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -368,6 +401,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_10_11,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

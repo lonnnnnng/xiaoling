@@ -844,6 +844,119 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun approvalToolBecomesBlockedInBackgroundWithoutCallingGateOrExecutor() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var approvalRequested = false
+        var executed = false
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建本地笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("后台审批阻断后不应进入总结")
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executed = true
+                    return ToolExecutionResult(success = true, content = "不应执行")
+                }
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    approvalRequested = true
+                    return ApprovalDecision(true, "不应请求")
+                }
+            },
+        )
+
+        var runId: String? = null
+        try {
+            runtime.run(
+                conversationId = "conversation-background-blocked",
+                userMessageId = "message-background-blocked",
+                goal = "后台创建笔记",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+            )
+        } catch (error: AgentBackgroundApprovalRequiredException) {
+            runId = ledger.lastRunId
+        }
+
+        val snapshot = ledger.snapshot(runId!!)
+        assertEquals(AgentRunStatus.BLOCKED, snapshot.run.status)
+        assertEquals(AgentStepStatus.BLOCKED, snapshot.steps.single { it.type == "tool.validate" }.status)
+        assertTrue(snapshot.events.any { it.type == "run.blocked" })
+        assertTrue(snapshot.events.none { it.type.startsWith("approval.") })
+        assertTrue(!approvalRequested)
+        assertTrue(!executed)
+    }
+
+    @Test
+    fun backgroundSafeToolRunsOnlyWhenExplicitlySupported() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var executed = false
+        val definition = ToolDefinition(
+            name = "app.current_time",
+            description = "读取当前时间",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(name = definition.name, arguments = emptyMap(), risk = definition.risk)
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"concise","tone":"neutral"}"""
+            },
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executed = true
+                    return ToolExecutionResult(success = true, content = "当前时间：12:00")
+                }
+            },
+        )
+
+        val summary = runtime.run(
+            conversationId = "conversation-background-safe",
+            userMessageId = "message-background-safe",
+            goal = "读取当前时间",
+            executionOrigin = AgentExecutionOrigin.BACKGROUND,
+        )
+
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertTrue(executed)
+    }
+
+    @Test
     fun executorVerifiedPolicyRejectsReadableButUnverifiedResult() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val definition = ToolDefinition(
@@ -1230,7 +1343,7 @@ internal class InMemoryAgentRunLedger : AgentRunLedger {
         steps[stepId] = current.copy(
             status = status,
             detail = detail ?: current.detail,
-            completedAt = if (status == AgentStepStatus.COMPLETED || status == AgentStepStatus.FAILED || status == AgentStepStatus.CANCELLED) {
+            completedAt = if (status in setOf(AgentStepStatus.COMPLETED, AgentStepStatus.BLOCKED, AgentStepStatus.FAILED, AgentStepStatus.CANCELLED)) {
                 System.currentTimeMillis()
             } else {
                 current.completedAt
@@ -1261,6 +1374,7 @@ internal class InMemoryAgentRunLedger : AgentRunLedger {
 
     private val terminalStatuses = setOf(
         AgentRunStatus.COMPLETED,
+        AgentRunStatus.BLOCKED,
         AgentRunStatus.FAILED,
         AgentRunStatus.CANCELLED,
         AgentRunStatus.BUDGET_EXHAUSTED,

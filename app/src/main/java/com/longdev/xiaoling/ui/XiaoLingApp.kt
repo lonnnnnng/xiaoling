@@ -1,6 +1,9 @@
 package com.longdev.xiaoling.ui
 
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,6 +64,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -140,6 +144,9 @@ import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowStepStatus
+import com.longdev.xiaoling.automation.ScheduledTaskRecord
+import com.longdev.xiaoling.automation.ScheduledTaskPolicy
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -193,6 +200,9 @@ private fun XiaoLingContent(
     val importSkillLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::importSkill) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = selectedTab == 1 && state.manageDraft != null
     val isSettingsSubPage = selectedTab == 1 && settingsPane != SettingsPane.ROOT
@@ -320,6 +330,13 @@ private fun XiaoLingContent(
                         onExportBackup = { exportBackupLauncher.launch(viewModel.defaultBackupFileName()) },
                         onImportBackup = { importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                         onImportSkill = { importSkillLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                        onRequestNotificationPermission = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
                         onBackToSettings = { settingsPane = SettingsPane.ROOT },
                         modifier = Modifier.matchParentSize(),
                     )
@@ -1318,6 +1335,7 @@ private fun AgentStatusChip(status: AgentRunStatus) {
         AgentRunStatus.COMPLETED -> MaterialTheme.colorScheme.primary
         AgentRunStatus.FAILED,
         AgentRunStatus.BUDGET_EXHAUSTED -> MaterialTheme.colorScheme.error
+        AgentRunStatus.BLOCKED -> MaterialTheme.colorScheme.tertiary
         AgentRunStatus.CANCELLED -> MaterialTheme.colorScheme.outline
         else -> MaterialTheme.colorScheme.tertiary
     }
@@ -1478,6 +1496,12 @@ private fun AgentStepStatusIcon(status: AgentStepStatus) {
                 modifier = Modifier.size(13.dp),
                 tint = MaterialTheme.colorScheme.error,
             )
+            AgentStepStatus.BLOCKED -> Icon(
+                Icons.Default.Error,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.tertiary,
+            )
             AgentStepStatus.CANCELLED -> Icon(
                 Icons.Default.Close,
                 contentDescription = null,
@@ -1499,6 +1523,7 @@ private fun AgentStepStatus.toUiColor(): Color {
     return when (this) {
         AgentStepStatus.COMPLETED -> MaterialTheme.colorScheme.primary
         AgentStepStatus.FAILED -> MaterialTheme.colorScheme.error
+        AgentStepStatus.BLOCKED -> MaterialTheme.colorScheme.tertiary
         AgentStepStatus.CANCELLED -> MaterialTheme.colorScheme.outline
         AgentStepStatus.RUNNING -> MaterialTheme.colorScheme.tertiary
         AgentStepStatus.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -1512,6 +1537,7 @@ private fun AgentRunStatus.toUiLabel(): String {
         AgentRunStatus.WAITING_APPROVAL -> "待确认"
         AgentRunStatus.EXECUTING -> "执行中"
         AgentRunStatus.VERIFYING -> "验证中"
+        AgentRunStatus.BLOCKED -> "待处理"
         AgentRunStatus.COMPLETED -> "已完成"
         AgentRunStatus.FAILED -> "失败"
         AgentRunStatus.CANCELLED -> "已取消"
@@ -1523,6 +1549,7 @@ private fun AgentStepStatus.toUiLabel(): String {
     return when (this) {
         AgentStepStatus.PENDING -> "待处理"
         AgentStepStatus.RUNNING -> "进行中"
+        AgentStepStatus.BLOCKED -> "待处理"
         AgentStepStatus.COMPLETED -> "完成"
         AgentStepStatus.FAILED -> "失败"
         AgentStepStatus.CANCELLED -> "取消"
@@ -1789,6 +1816,7 @@ private fun SettingsPage(
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onImportSkill: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1835,6 +1863,7 @@ private fun SettingsPage(
             pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
                 state = state,
                 viewModel = viewModel,
+                onRequestNotificationPermission = onRequestNotificationPermission,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -1977,10 +2006,12 @@ private fun SettingsRootPage(
 private fun WorkflowManagementPage(
     state: XiaoLingUiState,
     viewModel: XiaoLingViewModel,
+    onRequestNotificationPermission: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    var schedulingWorkflowId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (state.workflows.isEmpty() && !state.loadingWorkflows) viewModel.refreshWorkflows()
     }
@@ -2046,19 +2077,25 @@ private fun WorkflowManagementPage(
                 ) { index ->
                     val workflow = state.workflows[index]
                     val runs = state.workflowRuns.filter { it.run.workflowId == workflow.id }
+                    val tasks = state.scheduledTasks.filter { it.workflowId == workflow.id }
                     val latestRun = runs.firstOrNull()
                     WorkflowItem(
                         workflowName = workflow.name,
                         goal = workflow.goal,
                         enabled = workflow.enabled,
                         mutating = workflow.id in state.mutatingWorkflowIds,
+                        scheduling = state.schedulingWorkflowId == workflow.id,
                         running = state.runningWorkflowId == workflow.id || latestRun?.run?.status in setOf(
                             WorkflowRunStatus.QUEUED,
                             WorkflowRunStatus.RUNNING,
                         ),
                         runs = runs,
+                        scheduledTasks = tasks,
+                        mutatingScheduledTaskIds = state.mutatingScheduledTaskIds,
                         onEnabledChange = { enabled -> viewModel.setWorkflowEnabled(workflow.id, enabled) },
                         onRun = { viewModel.runWorkflow(workflow.id) },
+                        onSchedule = { schedulingWorkflowId = workflow.id },
+                        onCancelScheduledTask = viewModel::cancelScheduledTask,
                     )
                 }
             }
@@ -2074,6 +2111,21 @@ private fun WorkflowManagementPage(
             onDismiss = { showCreateDialog = false },
         )
     }
+    schedulingWorkflowId?.let { workflowId ->
+        val workflow = state.workflows.firstOrNull { it.id == workflowId }
+        if (workflow != null) {
+            WorkflowScheduleDialog(
+                workflowName = workflow.name,
+                scheduling = state.schedulingWorkflowId == workflowId,
+                onConfirm = { delayMinutes ->
+                    onRequestNotificationPermission()
+                    viewModel.scheduleWorkflowOnce(workflowId, delayMinutes)
+                    schedulingWorkflowId = null
+                },
+                onDismiss = { schedulingWorkflowId = null },
+            )
+        }
+    }
 }
 
 @Composable
@@ -2082,10 +2134,15 @@ private fun WorkflowItem(
     goal: String,
     enabled: Boolean,
     mutating: Boolean,
+    scheduling: Boolean,
     running: Boolean,
     runs: List<WorkflowRunDetail>,
+    scheduledTasks: List<ScheduledTaskRecord>,
+    mutatingScheduledTaskIds: Set<String>,
     onEnabledChange: (Boolean) -> Unit,
     onRun: () -> Unit,
+    onSchedule: () -> Unit,
+    onCancelScheduledTask: (String) -> Unit,
 ) {
     var expanded by remember(workflowName) { mutableStateOf(false) }
     val latestRun = runs.firstOrNull()
@@ -2123,6 +2180,17 @@ private fun WorkflowItem(
                         Icon(Icons.Default.PlayArrow, contentDescription = "手动运行", modifier = Modifier.size(18.dp))
                     }
                 }
+                IconButton(
+                    onClick = onSchedule,
+                    enabled = enabled && !mutating && !scheduling,
+                    modifier = Modifier.size(30.dp),
+                ) {
+                    if (scheduling) {
+                        CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(Icons.Default.Schedule, contentDescription = "创建一次性计划", modifier = Modifier.size(17.dp))
+                    }
+                }
                 Switch(
                     checked = enabled,
                     onCheckedChange = onEnabledChange,
@@ -2131,6 +2199,50 @@ private fun WorkflowItem(
                 )
             }
             Text(goal, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+            scheduledTasks.firstOrNull()?.let { task ->
+                Text(
+                    "计划：${task.plannedAt.toFullTimeLabel()} · ${task.status.toScheduledTaskStatusLabel()}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (task.status == ScheduledTaskStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded && scheduledTasks.isNotEmpty()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text("一次性计划", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                scheduledTasks.forEach { task ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "计划 ${task.plannedAt.toFullTimeLabel()} · ${task.status.toScheduledTaskStatusLabel()}",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            task.actualStartedAt?.let { actual ->
+                                Text(
+                                    "实际 ${actual.toFullTimeLabel()} · 偏差 ${formatScheduleDelay(actual - task.plannedAt)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            task.errorMessage?.let { error ->
+                                Text(error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        if (task.status == ScheduledTaskStatus.SCHEDULED) {
+                            IconButton(
+                                onClick = { onCancelScheduledTask(task.id) },
+                                enabled = task.id !in mutatingScheduledTaskIds,
+                                modifier = Modifier.size(28.dp),
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "取消计划", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
             if (expanded && runs.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 runs.forEachIndexed { index, detail ->
@@ -2164,6 +2276,47 @@ private fun WorkflowItem(
             }
         }
     }
+}
+
+@Composable
+private fun WorkflowScheduleDialog(
+    workflowName: String,
+    scheduling: Boolean,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var delayMinutes by remember(workflowName) { mutableStateOf("1") }
+    val parsedDelay = delayMinutes.toIntOrNull()
+    val valid = parsedDelay != null && parsedDelay in ScheduledTaskPolicy.MIN_DELAY_MINUTES..ScheduledTaskPolicy.MAX_DELAY_MINUTES
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { if (!scheduling) onDismiss() },
+        title = { Text("一次性计划", style = MaterialTheme.typography.titleSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(workflowName, style = MaterialTheme.typography.bodySmall)
+                CompactTextField(
+                    value = delayMinutes,
+                    onValueChange = { value -> delayMinutes = value.filter(Char::isDigit).take(5) },
+                    label = "延迟分钟",
+                    placeholder = "${ScheduledTaskPolicy.MIN_DELAY_MINUTES} - ${ScheduledTaskPolicy.MAX_DELAY_MINUTES}",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                Text(
+                    "这是非精确定时，系统可能在计划时间后延迟执行。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { parsedDelay?.let(onConfirm) },
+                enabled = valid && !scheduling,
+            ) { Text(if (scheduling) "创建中" else "创建") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !scheduling) { Text("取消") } },
+    )
 }
 
 @Composable
@@ -2212,10 +2365,30 @@ private fun workflowStatusLabel(status: String): String = when (status) {
     WorkflowRunStatus.QUEUED.name,
     WorkflowStepStatus.PENDING.name -> "等待"
     WorkflowRunStatus.RUNNING.name -> "运行中"
+    WorkflowRunStatus.BLOCKED.name,
+    WorkflowStepStatus.BLOCKED.name -> "待处理"
     WorkflowRunStatus.COMPLETED.name -> "已完成"
     WorkflowRunStatus.FAILED.name -> "失败"
     WorkflowRunStatus.CANCELLED.name -> "已取消"
     else -> status
+}
+
+private fun ScheduledTaskStatus.toScheduledTaskStatusLabel(): String = when (this) {
+    ScheduledTaskStatus.SCHEDULED -> "等待系统调度"
+    ScheduledTaskStatus.RUNNING -> "运行中"
+    ScheduledTaskStatus.BLOCKED -> "待处理"
+    ScheduledTaskStatus.COMPLETED -> "已完成"
+    ScheduledTaskStatus.FAILED -> "失败"
+    ScheduledTaskStatus.CANCELLED -> "已取消"
+}
+
+private fun formatScheduleDelay(delayMillis: Long): String {
+    val seconds = delayMillis / 1_000
+    return when {
+        seconds == 0L -> "0 秒"
+        seconds > 0L -> "+${seconds} 秒"
+        else -> "${seconds} 秒"
+    }
 }
 
 @Composable
