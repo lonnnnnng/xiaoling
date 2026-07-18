@@ -4,6 +4,10 @@ interface ToolRegistry {
     fun availableTools(): List<ToolDefinition>
     fun definition(name: String): ToolDefinition?
     suspend fun execute(call: ToolCall): ToolExecutionResult
+    suspend fun verifyCommittedEffect(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult? = null
 }
 
 object ToolRegistryContract {

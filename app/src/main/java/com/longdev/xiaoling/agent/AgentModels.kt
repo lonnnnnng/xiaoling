@@ -44,10 +44,12 @@ object AgentStepTypes {
     const val LLM_SUMMARIZE = "llm.summarize"
     const val TOOL_EXECUTE = "tool.execute"
     const val TOOL_VERIFY = "tool.verify"
+    const val RECOVERY_SUMMARIZE = "recovery.summarize"
 }
 
 object AgentEventTypes {
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
+    const val RECOVERY_SUMMARY = "run.recovery_summary"
 }
 
 enum class AgentLlmPhase {
@@ -437,6 +439,16 @@ data class ToolExecutionResult(
     val memoryIdsUsed: List<String> = emptyList(),
     val executionReceipt: ToolExecutionReceipt? = null,
 )
+
+fun interface AgentRuntimeFaultInjector {
+    fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult)
+}
+
+object NoOpAgentRuntimeFaultInjector : AgentRuntimeFaultInjector {
+    override fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
+}
+
+class AgentProcessTerminationSimulation : RuntimeException("模拟进程在工具结果落库后终止")
 
 data class AgentToolExecution(
     val toolCall: ToolCall,

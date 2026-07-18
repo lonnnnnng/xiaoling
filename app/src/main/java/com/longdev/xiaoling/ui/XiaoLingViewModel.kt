@@ -364,12 +364,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
-            val resumableRuns = withContext(Dispatchers.IO) {
-                agentRunRepository.recoverPendingApprovalRuns()
-            }
-            withContext(Dispatchers.IO) {
-                // long: 执行/验证中的旧协程和网络请求无法重建，启动时只保留策略允许的待审批 Run，其余中间态收敛成可审计终态。
-                agentRunRepository.closeInterruptedRuns()
+            val (resumableApprovalRuns, resumableCommittedToolRuns) = withContext(Dispatchers.IO) {
+                val approvals = agentRunRepository.recoverPendingApprovalRuns()
+                val committedTools = agentRunUseCase.recoverCommittedToolRuns()
+                // long: 生产 Registry 已参与证据判定；只保留待审批或完整幂等证据的验证候选，其余中间态继续 fail-closed 收敛。
+                agentRunUseCase.closeInterruptedRuns()
+                approvals to committedTools
             }
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
@@ -408,7 +408,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowSchedules = workflowState.schedules,
                     result = uiState.result,
                 )
-            restoreRecoveredAgentRuns(resumableRuns)
+            restoreRecoveredAgentRuns(resumableApprovalRuns)
+            resumeRecoveredCommittedToolRuns(resumableCommittedToolRuns)
         }
     }
 
@@ -2784,6 +2785,63 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (restoredMissingUserMessage) {
             saveConversationSelection()
         }
+    }
+
+    private suspend fun resumeRecoveredCommittedToolRuns(details: List<AgentRunDetailRecord>) {
+        if (details.isEmpty()) return
+        var conversationsChanged = false
+        details.forEach { detail ->
+            val source = detail.snapshot.run
+            try {
+                val summary = agentRunUseCase.resumeCommittedToolRun(
+                    detail = detail,
+                    onSnapshot = ::publishAgentRunSnapshot,
+                )
+                val workflowContinuation = withContext(NonCancellable + Dispatchers.IO) {
+                    workflowRepository.completeByAgentRunId(
+                        agentRunId = summary.runId,
+                        status = WorkflowRunStatus.COMPLETED,
+                        result = summary.responseText,
+                    )?.takeIf { it.status == WorkflowRunStatus.RUNNING }
+                }
+                if (workflowContinuation != null) {
+                    // long: 本阶段只恢复当前 Agent 工具的后置验证；Workflow 后续步骤保持新 Run 重试语义，避免把单工具幂等证明扩大为通用执行栈恢复。
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            workflowContinuation.id,
+                            WorkflowRunStatus.FAILED,
+                            errorMessage = "已恢复当前工具验证；后续步骤请创建关联新 Run 重试",
+                        )
+                    }
+                }
+                uiState.conversations.firstOrNull { it.id == source.conversationId }?.let { conversation ->
+                    val recoveredMessages = conversation.messages.withRecoveredAgentUserMessage(source) + ChatMessage(
+                        role = "assistant",
+                        text = summary.responseText,
+                        createdAt = System.currentTimeMillis(),
+                        origin = MessageOrigin.AGENT_RESULT,
+                        verifiedAgentContext = summary.verifiedContext,
+                    )
+                    uiState = uiState.withUpdatedConversation(
+                        conversationId = conversation.id,
+                        messages = recoveredMessages,
+                        summary = conversation.summary,
+                        summaryUntilMessageId = conversation.summaryUntilMessageId,
+                        summaryUpdatedAt = conversation.summaryUpdatedAt,
+                        summaryModel = conversation.summaryModel,
+                    )
+                    conversationsChanged = true
+                }
+            } catch (error: CancellationException) {
+                reconcileWorkflowAfterResumeFailure(source.id, "验证阶段恢复已取消")
+                throw error
+            } catch (error: Throwable) {
+                reconcileWorkflowAfterResumeFailure(source.id, error.message ?: "验证阶段恢复失败")
+            }
+        }
+        if (conversationsChanged) saveConversationSelection()
+        refreshAgentRunHistory()
+        refreshWorkflows()
     }
 
     private fun clearPendingApprovalForConversation(conversationId: String) {

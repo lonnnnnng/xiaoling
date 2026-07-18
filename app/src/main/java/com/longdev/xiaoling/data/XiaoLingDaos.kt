@@ -87,10 +87,10 @@ interface AgentRunDao {
     @Query("SELECT * FROM approval_requests WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC")
     suspend fun getApprovalRequestsForRuns(runIds: List<String>): List<ApprovalRequestEntity>
 
-    @Query("SELECT * FROM run_events WHERE runId = :runId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM run_events WHERE runId = :runId ORDER BY createdAt ASC, rowid ASC")
     suspend fun getEvents(runId: String): List<RunEventEntity>
 
-    @Query("SELECT * FROM run_events WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC")
+    @Query("SELECT * FROM run_events WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC, rowid ASC")
     suspend fun getEventsForRuns(runIds: List<String>): List<RunEventEntity>
 }
 

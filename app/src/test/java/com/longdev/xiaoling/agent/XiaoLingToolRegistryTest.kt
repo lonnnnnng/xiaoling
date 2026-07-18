@@ -182,6 +182,26 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun notesCreateCommittedEffectVerificationReadsOriginalOperationWithoutCreatingAgain() = runTest {
+        val noteStore = InMemoryAgentNoteStore()
+        val registry = testRegistry(noteStore = noteStore)
+        val call = ToolCall(
+            id = "tool-call-note-readback-recovery",
+            name = "notes.create",
+            arguments = mapOf("title" to "恢复回读", "content" to "只读验证原 operation"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val created = registry.execute(call)
+        val receipt = requireNotNull(created.executionReceipt)
+
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertEquals(1, noteStore.records.size)
+        assertEquals(created, recovered)
+        assertEquals(receipt.operationId, recovered?.executionReceipt?.operationId)
+    }
+
+    @Test
     fun notesCreateMarksResultUnverifiedWhenReadBackFails() = runTest {
         val registry = testRegistry(
             noteStore = object : InMemoryAgentNoteStore() {

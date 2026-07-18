@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
@@ -210,10 +211,10 @@ class RoomAgentRunRepository(
         val resumable = dao.getRunsByStatuses(activeStatuses.map { it.name })
             .mapNotNull { run ->
                 val detail = loadDetail(run)
-                if (!AgentRunResumePolicy.assess(detail).canResumeInPlace) {
+                if (AgentRunResumePolicy.assess(detail).kind != AgentRunResumeKind.APPROVAL_WAIT) {
                     return@mapNotNull null
                 }
-                // long: 进程重建后只保留尚未执行工具的审批边界，并记录一次恢复审计；旧协程不存在，批准后的继续执行由 UI 转为安全重试。
+                // long: 进程重建后只保留尚未执行工具的审批边界，并记录一次恢复审计；用户批准后从持久化 ToolCall 继续原 Run。
                 appendEvent(
                     runId = run.id,
                     type = "run.recovered",
@@ -229,7 +230,40 @@ class RoomAgentRunRepository(
         return resumable
     }
 
-    suspend fun closeInterruptedRuns(): Int {
+    suspend fun recoverCommittedToolRuns(
+        definitionLookup: (String) -> ToolDefinition?,
+    ): List<AgentRunDetailRecord> {
+        val dao = database.agentRunDao()
+        val candidates = dao.getRunsByStatuses(
+            listOf(AgentRunStatus.EXECUTING.name, AgentRunStatus.VERIFYING.name),
+        )
+        return candidates.mapNotNull { run ->
+            val detail = loadDetail(run)
+            val assessment = AgentRunResumePolicy.assess(detail, definitionLookup)
+            if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
+                return@mapNotNull null
+            }
+            val fromStatus = AgentRunStatus.valueOf(run.status)
+            if (fromStatus != AgentRunStatus.VERIFYING) {
+                updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            }
+            appendEvent(
+                runId = run.id,
+                type = "run.recovered",
+                message = "已恢复已提交工具结果，准备只读验证",
+                metadata = RunEventMetadata.Recovery(
+                    fromStatus = fromStatus,
+                    toStatus = AgentRunStatus.VERIFYING,
+                    reason = assessment.reason,
+                ),
+            )
+            loadDetail(dao.getRun(run.id) ?: return@mapNotNull null)
+        }
+    }
+
+    suspend fun closeInterruptedRuns(
+        definitionLookup: (String) -> ToolDefinition? = { null },
+    ): Int {
         val dao = database.agentRunDao()
         val activeStatuses = listOf(
             AgentRunStatus.QUEUED,
@@ -244,7 +278,7 @@ class RoomAgentRunRepository(
         var closedCount = 0
         interruptedRuns.forEach { run ->
             val detail = loadDetail(run)
-            if (AgentRunResumePolicy.assess(detail).canResumeInPlace) return@forEach
+            if (AgentRunResumePolicy.assess(detail, definitionLookup).canResumeInPlace) return@forEach
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
             detail.snapshot.steps
                 .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }

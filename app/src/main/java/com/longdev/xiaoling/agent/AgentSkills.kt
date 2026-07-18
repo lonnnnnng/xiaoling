@@ -264,4 +264,14 @@ class SkillScopedToolRegistry(
         }
         return delegate.execute(call)
     }
+
+    override suspend fun verifyCommittedEffect(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult? {
+        check(allowedToolNames.isEmpty() || call.name in allowedToolNames) {
+            "Skill 未授权恢复验证工具：${call.name}"
+        }
+        return delegate.verifyCommittedEffect(call, receipt)
+    }
 }

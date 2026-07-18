@@ -309,7 +309,7 @@
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
-- 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 是首个生产 `IDEMPOTENT_BY_KEY` 工具，使用 ToolCall ID 的 Room 唯一索引保证同键只对应一条笔记，载荷漂移会被拒绝。
+- 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 是首个生产 `IDEMPOTENT_BY_KEY` 工具，使用 ToolCall ID 的 Room 唯一索引保证同键只对应一条笔记，载荷漂移会被拒绝。进程重建时仅该工具可依据完整历史证据回读原 operation，补齐后置验证和本地总结。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult 和失败终态安全重新运行。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - Workflow Ledger、一次性 WorkManager 非精确定时、计划/实际时间、结果通知，以及后台审批 `BLOCKED` 终态。
@@ -336,9 +336,9 @@
 | 没有 AgentProfile | Provider/模型与“这个 Agent 是谁、能做什么”混在一起 |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
 | ToolCall/ToolResult 已进入 RunEvent metadata，但还没有独立表 | 可审计展示已结构化，跨步骤查询、重放和恢复仍不方便 |
-| 失败终态可安全重新运行，但没有原地恢复执行栈 | 进程重建后先收敛中间态，再由用户创建关联的新 Run；无法从原 ToolCall 位置继续 |
+| 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 的已提交结果允许从原 ToolCall 恢复只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
-| 一次性后台账本已完成，但系统回收续跑与周期规则未完成 | 可追溯一次性任务；长任务断点和 Daily/Weekly 规则仍需设计 |
+| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
 | 消息仍以单一文本为主 | Responses 已支持函数调用/结果 Items，但 Reasoning/Image/File 和持久化消息 parts 仍待实现 |
 
 ## 6. 建议目标架构
@@ -362,7 +362,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v17 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，`notes.create` 已完成首个生产幂等写入切片。该证据尚未接入验证阶段恢复，执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
+当前状态：Room v17 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`tool.result` 已持久化 ToolCall/operation/提交状态/可选幂等键回执和执行时重放声明快照，`notes.create` 已完成首个生产幂等写入切片及验证阶段恢复。恢复只回读原 operation、补齐验证并本地总结；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

@@ -798,3 +798,26 @@ TDD 与自动化结果：
 - instrumentation 后重新覆盖安装最新 Debug APK，Pixel_9 和 Redmi 均冷启动成功，`com.longdev.xiaoling/.MainActivity` 为前台 Activity。
 - Redmi 只读回读确认 `PRAGMA user_version=17`、Provider 仍为 1 条、`index_agent_notes_idempotencyKey` 存在；最终 crash buffer 为空。
 - Debug APK SHA-256：`528e7e79f0b973420a1c5b9180f7bc46f9143ca0b6e15c6969541b979a657036`。
+
+## 2026-07-19 `notes.create` 验证阶段恢复
+
+实现边界：
+
+- `AgentRunResumePolicy` 新增 `COMMITTED_TOOL_VERIFICATION`。只有 `EXECUTING / VERIFYING` Run 的工具执行 Step 与 ToolResult 一一对应、最后一个结果尚无 `tool.verify`、ToolCall 可唯一还原，且历史快照与当前定义均为 `IDEMPOTENT_BY_KEY`、回执为 `COMMITTED` 并带完整幂等键时，才允许原 Run 恢复。
+- `ToolRegistry.verifyCommittedEffect()` 是只读恢复入口；默认返回不支持。生产实现仅为 `notes.create` 按 receipt `operationId` 回读笔记，并核对 ToolCall ID、幂等键、状态、标题和正文，不调用 `create()`，不会产生第二条笔记。
+- Runtime 补齐原 execution Step 后只执行权限复检、operation 回读和后置验证，写入 `tool.verify`；随后使用本地可信事实写入 `recovery.summarize` 和 `run.recovery_summary`，不调用模型，也不恢复旧规划协程。
+- 若该 Agent Run 属于多步骤 Workflow，只保存当前步骤的恢复输出并把剩余 Workflow 收敛为 `FAILED`；后续仍创建关联新 Run 并复用成功前缀。其他工具、证据不完整的旧事件和通用执行栈继续 fail-closed。
+
+TDD、自动化与真实恢复：
+
+- Red/Green 覆盖完整证据判定、Runtime 不调用 `execute()` 的只读恢复、真实 Registry 按 operation ID 回读且不新增笔记、`tool.result` 落库后的确定性进程终止、Room Repository 重建保留候选，以及 `run.recovery_summary` typed metadata 往返。
+- 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；197 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机各执行 43 条 instrumentation，合计 86 条全部通过。
+- Redmi 真实强停/冷启动验收从 `EXECUTING + RUNNING tool.execute + COMMITTED tool.result` 恢复为 `COMPLETED`；原 Run 新增 `tool.verify` 和 `recovery.summarize`，`tool.result` 仍只有 1 条，同幂等键笔记仍只有 1 条，并生成可信 `AGENT_RESULT`。临时 Run、Step、Event、Note、Conversation 和 Message 均已清理。
+
+最终设备状态：
+
+- instrumentation 后向 Pixel_9 与 Redmi 重新覆盖安装最终 Debug APK，两台设备均冷启动到 `com.longdev.xiaoling/.MainActivity`，crash buffer 为空。
+- Redmi 回读 `PRAGMA user_version=17`、Provider 为 1 条、临时笔记为 0 条；使用未跟踪的本机兜底配置重新获取 6 个模型并选择 `gpt-5.4-mini`。
+- 真实普通对话冒烟请求返回 HTTP 200 和 `OK`；请求使用设置项中的默认 User-Agent，Authorization 日志保持脱敏。
+- Debug APK SHA-256：`6417c4df7c323265158130e734fad06ebd54d7f736c4d12794467b8b617e7486`。

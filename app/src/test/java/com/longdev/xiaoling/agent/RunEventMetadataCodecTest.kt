@@ -5,6 +5,18 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun recoverySummaryReasonRoundTrips() {
+        val metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程")
+
+        val restored = RunEventMetadataCodec.decode(
+            AgentEventTypes.RECOVERY_SUMMARY,
+            RunEventMetadataCodec.encode(metadata),
+        )
+
+        assertEquals(metadata, restored)
+    }
+
+    @Test
     fun llmRequestTelemetryRoundTripsWithoutInventingMissingUsage() {
         val metadata = RunEventMetadata.LlmRequest(
             phase = AgentLlmPhase.PLAN,

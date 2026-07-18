@@ -2,25 +2,45 @@ package com.longdev.xiaoling.agent
 
 enum class AgentRunResumeKind {
     APPROVAL_WAIT,
+    COMMITTED_TOOL_VERIFICATION,
     RESTART_REQUIRED,
 }
+
+data class AgentCommittedToolRecovery(
+    val toolCall: ToolCall,
+    val persistedResult: RunEventMetadata.ToolResult,
+    val executionStepId: String,
+    val verificationStepId: String?,
+)
 
 data class AgentRunResumeAssessment(
     val kind: AgentRunResumeKind,
     val reason: String,
+    val committedTool: AgentCommittedToolRecovery? = null,
 ) {
-    val canResumeInPlace: Boolean get() = kind == AgentRunResumeKind.APPROVAL_WAIT
+    val canResumeInPlace: Boolean get() = kind != AgentRunResumeKind.RESTART_REQUIRED
 }
 
 object AgentRunResumePolicy {
-    fun assess(detail: AgentRunDetailRecord): AgentRunResumeAssessment {
+    fun assess(
+        detail: AgentRunDetailRecord,
+        definitionLookup: (String) -> ToolDefinition? = { null },
+    ): AgentRunResumeAssessment {
         val snapshot = detail.snapshot
-        if (snapshot.run.status != AgentRunStatus.WAITING_APPROVAL) {
+        if (snapshot.run.status == AgentRunStatus.WAITING_APPROVAL) {
+            return assessApprovalWait(detail)
+        }
+        if (snapshot.run.status != AgentRunStatus.EXECUTING && snapshot.run.status != AgentRunStatus.VERIFYING) {
             return AgentRunResumeAssessment(
                 kind = AgentRunResumeKind.RESTART_REQUIRED,
                 reason = "只有等待用户审批且尚未执行工具的 Run 可以原地恢复",
             )
         }
+        return assessCommittedToolVerification(detail, definitionLookup)
+    }
+
+    private fun assessApprovalWait(detail: AgentRunDetailRecord): AgentRunResumeAssessment {
+        val snapshot = detail.snapshot
         val hasPendingApproval = detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }
         if (!hasPendingApproval) {
             return AgentRunResumeAssessment(
@@ -44,4 +64,78 @@ object AgentRunResumePolicy {
             reason = "工具尚未执行，保留原 Run 和审批请求等待用户决定",
         )
     }
+
+    private fun assessCommittedToolVerification(
+        detail: AgentRunDetailRecord,
+        definitionLookup: (String) -> ToolDefinition?,
+    ): AgentRunResumeAssessment {
+        if (detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }) {
+            return restartRequired("执行或验证中 Run 不能同时保留待审批请求")
+        }
+        val executionSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
+        val verificationSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
+        val toolResults = detail.snapshot.events.mapNotNull { event ->
+            (event.metadata as? RunEventMetadata.ToolResult)?.takeIf { event.type == "tool.result" }
+        }
+        val passedVerifications = detail.snapshot.events.count { event ->
+            event.type == "tool.verify" && event.metadata is RunEventMetadata.ToolVerification
+        }
+        if (executionSteps.isEmpty() || executionSteps.size != toolResults.size) {
+            return restartRequired("工具执行步骤与持久化结果无法一一对应")
+        }
+        if (passedVerifications != toolResults.size - 1) {
+            return restartRequired("只能恢复最后一个已提交但尚未验证的工具结果")
+        }
+        if (verificationSteps.size !in setOf(passedVerifications, toolResults.size)) {
+            return restartRequired("工具验证步骤与持久化验证事件不一致")
+        }
+        val executionStep = executionSteps.last()
+        if (executionStep.status != AgentStepStatus.RUNNING && executionStep.status != AgentStepStatus.COMPLETED) {
+            return restartRequired("待恢复的工具执行步骤已进入不可恢复终态")
+        }
+        val verificationStep = verificationSteps.getOrNull(toolResults.lastIndex)
+        if (verificationStep != null && verificationStep.status != AgentStepStatus.RUNNING) {
+            return restartRequired("待恢复的工具验证步骤不是运行中状态")
+        }
+        val persistedResult = toolResults.last()
+        val toolCallId = persistedResult.toolCallId
+            ?: return restartRequired("工具结果缺少持久化调用 ID")
+        val matchingCalls = detail.snapshot.events.mapNotNull { event ->
+            (event.metadata as? RunEventMetadata.ToolCall)
+                ?.takeIf { event.type == "tool.call.proposed" || event.type == "tool.call.validated" }
+                ?.takeIf { it.id == toolCallId }
+        }.distinct()
+        if (matchingCalls.size != 1) {
+            return restartRequired("工具结果无法唯一匹配原始 ToolCall")
+        }
+        val callMetadata = matchingCalls.single()
+        val definition = definitionLookup(callMetadata.toolName)
+            ?: return restartRequired("当前注册表中找不到历史工具定义")
+        val evidence = ToolExecutionRecoveryEvidencePolicy.assess(definition, persistedResult)
+        if (!evidence.canReuseCommittedEffect) {
+            return restartRequired(evidence.reason)
+        }
+        val toolCall = ToolCall(
+            id = callMetadata.id,
+            name = callMetadata.toolName,
+            arguments = callMetadata.arguments,
+            risk = callMetadata.risk,
+        )
+        // long: 策略只把已提交且尚未验证的最后一步交给恢复入口；既不重放写工具，也不恢复旧规划协程。
+        return AgentRunResumeAssessment(
+            kind = AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION,
+            reason = "已提交工具结果的幂等证据完整，只恢复后置验证和本地总结",
+            committedTool = AgentCommittedToolRecovery(
+                toolCall = toolCall,
+                persistedResult = persistedResult,
+                executionStepId = executionStep.id,
+                verificationStepId = verificationStep?.id,
+            ),
+        )
+    }
+
+    private fun restartRequired(reason: String) = AgentRunResumeAssessment(
+        kind = AgentRunResumeKind.RESTART_REQUIRED,
+        reason = reason,
+    )
 }

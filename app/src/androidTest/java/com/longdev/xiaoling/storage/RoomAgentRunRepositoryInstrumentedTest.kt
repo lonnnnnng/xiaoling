@@ -15,6 +15,7 @@ import com.longdev.xiaoling.agent.FakeToolRegistry
 import com.longdev.xiaoling.agent.MinimalAgentRuntime
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.SystemAgentClock
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
@@ -22,6 +23,7 @@ import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.runBlocking
@@ -293,6 +295,90 @@ class RoomAgentRunRepositoryInstrumentedTest {
             assertEquals(sourceRun.id, retry.retryOfRunId)
             assertEquals(sourceBeforeRetry, restartedRepository.runDetail(sourceRun.id))
         }
+    }
+
+    @Test
+    fun processRestartRecoversCommittedNoteAtVerificationBoundaryWithoutReplayingWrite() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val noteStore = RoomAgentNoteStore(context, database)
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context, database),
+            noteStore = noteStore,
+            memoryStore = RoomAgentMemoryStore(context, database),
+        )
+        val definition = checkNotNull(registry.definition("notes.create"))
+        val run = repository.createRun(
+            conversationId = "conversation-note-verification-recovery",
+            userMessageId = "message-note-verification-recovery",
+            goal = "恢复已提交笔记的验证",
+        )
+        val call = ToolCall(
+            id = "tool-call-note-verification-recovery",
+            name = definition.name,
+            arguments = mapOf("title" to "进程恢复笔记", "content" to "写入后只读验证"),
+            risk = definition.risk,
+        )
+        val result = registry.execute(call)
+        val receipt = checkNotNull(result.executionReceipt)
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.validated",
+            message = "工具调用已校验：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = "工具结果落库后进程终止",
+            status = AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.result",
+            message = "工具执行成功：${call.name}",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = result.content,
+                durationMs = 10L,
+                success = result.success,
+                verified = result.verified,
+                toolCallId = call.id,
+                replaySafety = definition.replaySafety,
+                executionReceipt = receipt,
+            ),
+        )
+        val restartedRepository = RoomAgentRunRepository(context, database)
+
+        val recovered = restartedRepository
+            .recoverCommittedToolRuns(registry::definition)
+            .single { it.snapshot.run.id == run.id }
+        val closedCount = restartedRepository.closeInterruptedRuns(registry::definition)
+        val summary = MinimalAgentRuntime(
+            ledger = restartedRepository,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    error("验证阶段恢复不应重新规划")
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("验证阶段恢复使用本地总结")
+            },
+        ).resumeCommittedToolRun(recovered)
+
+        val finalDetail = checkNotNull(restartedRepository.runDetail(run.id))
+        assertEquals(0, closedCount)
+        assertEquals(AgentRunStatus.COMPLETED, finalDetail.snapshot.run.status)
+        assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(listOf(receipt.operationId), noteStore.list(10).map { it.id })
+        assertTrue(summary.responseText.contains("进程恢复笔记"))
     }
 
     @Test

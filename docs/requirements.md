@@ -50,13 +50,13 @@
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
-- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。已经进入工具执行或验证的 Run 必须创建新 Run 安全重新运行，旧 Run 保持不变。
-- 应用重启后会把可恢复审批重新显示到对应会话；执行/验证中的 Run 不恢复旧执行栈，仍直接安全收敛并通过关联新 Run 重试。收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
+- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。执行/验证中的 Run 默认必须创建新 Run 安全重新运行，只有最后一个 `notes.create` 同时具备完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据且尚无 `tool.verify` 时，才允许在原 Run 恢复后置验证。
+- 应用重启后会把可恢复审批重新显示到对应会话；符合证据条件的 `notes.create` 只读回读原 operation、写入 `tool.verify` 并用本地可信总结完成原 Run，不调用 `create()`、不恢复旧模型协程，也不执行 Workflow 后续步骤。其他执行/验证中 Run 仍直接安全收敛并通过关联新 Run 重试；收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Agent Run 的通用原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract 与证据判定 module 已交付，`notes.create` 已完成 ToolCall 唯一幂等写入并声明 `IDEMPOTENT_BY_KEY`；`memory.remember` 仍无同等存储证明并保持 `RESTART_REQUIRED`。单个工具幂等并不等于旧执行栈可恢复，在验证阶段恢复规则和中断故障注入完成前，原地恢复仍明确禁止。多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Agent Run 的通用原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract、证据判定 module 和 `notes.create` 验证阶段恢复已交付：ToolCall 唯一幂等写入声明为 `IDEMPOTENT_BY_KEY`，已提交结果只按 operation ID 回读验证，不重放副作用。`memory.remember` 仍无同等存储证明并保持 `RESTART_REQUIRED`；单个工具恢复也不代表旧规划协程、其他工具或 Workflow 后续步骤可以恢复。多步骤 Workflow 编辑、顺序执行、步骤快照、步骤级幂等、安全新 Run 重试、待审批步骤恢复后继续同一 Workflow Run，以及一次性与 Daily/Weekly WorkManager 非精确调度均已交付并完成真机验收。当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要；后续仅在长任务超过 WorkManager 适用边界或需要持续可见停止入口时重新评估。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
-补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；上述未交付项仅指执行/验证中断点以及尚未完成的后台一致性和自动化能力。
+补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；`notes.create` 仅开放已提交结果的验证阶段恢复。上述未交付项指通用执行栈、其他工具、Workflow 后续步骤以及尚未完成的自动化能力。
 
 长期记忆最近一次删除的撤销快照保存在应用私有原子文件中；启动时会与 Room 正式记录核对，陈旧或损坏快照不会复活未删除数据，也不会阻断应用启动。
 

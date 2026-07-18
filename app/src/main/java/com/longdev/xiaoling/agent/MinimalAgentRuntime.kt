@@ -16,6 +16,7 @@ class MinimalAgentRuntime(
     private val approvalGate: ApprovalGate = AutoApprovalGate(),
     private val permissionChecker: ToolPermissionChecker = FailClosedToolPermissionChecker,
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
+    private val faultInjector: AgentRuntimeFaultInjector = NoOpAgentRuntimeFaultInjector,
 ) {
     suspend fun run(
         conversationId: String,
@@ -58,6 +59,9 @@ class MinimalAgentRuntime(
             }
             continuePlanning(run, goal, executionOrigin, state)
             completeRun(run, goal, state)
+        } catch (error: AgentProcessTerminationSimulation) {
+            // long: 测试注入模拟操作系统直接杀死进程；真实进程不会执行 catch 收敛，因此保留中间态供启动恢复策略判定。
+            throw error
         } catch (error: AgentBudgetExceededException) {
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
@@ -185,6 +189,8 @@ class MinimalAgentRuntime(
             )
             continuePlanning(run, run.goal, executionOrigin, state)
             completeRun(run, run.goal, state)
+        } catch (error: AgentProcessTerminationSimulation) {
+            throw error
         } catch (error: AgentBudgetExceededException) {
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
@@ -221,6 +227,101 @@ class MinimalAgentRuntime(
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
                 val reason = error.message ?: "Agent 任务失败"
+                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            }
+            throw error
+        }
+    }
+
+    suspend fun resumeCommittedToolRun(
+        detail: AgentRunDetailRecord,
+    ): AgentRunSummary {
+        val assessment = AgentRunResumePolicy.assess(detail, toolRegistry::definition)
+        require(assessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) { assessment.reason }
+        val recovery = requireNotNull(assessment.committedTool) { "恢复策略缺少已提交工具证据" }
+        val run = detail.snapshot.run
+        val definition = toolRegistry.definition(recovery.toolCall.name)
+            ?: error("恢复时找不到已登记工具：${recovery.toolCall.name}")
+        val receipt = requireNotNull(recovery.persistedResult.executionReceipt) {
+            "恢复时缺少已提交执行回执"
+        }
+        val memoryRecallEnabled = detail.snapshot.events.none { event ->
+            event.type == MEMORY_RECALL_DISABLED_EVENT_TYPE
+        }
+        (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = run.conversationId,
+                userMessageId = run.userMessageId,
+                runId = run.id,
+                goal = run.goal,
+                memoryRecallEnabled = memoryRecallEnabled,
+            ),
+        )
+        val state = AgentRuntimeExecutionState(
+            runTimeoutMs = options.runTimeoutMs,
+            activeStepId = recovery.verificationStepId ?: recovery.executionStepId,
+        )
+        return try {
+            val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
+            if (executionStep.status == AgentStepStatus.RUNNING) {
+                // long: ToolResult 与 COMMITTED 回执已落库时，可以把中断的执行 Step 收敛为完成；这里不再调用 Executor。
+                ledger.updateStep(executionStep.id, AgentStepStatus.COMPLETED, recovery.persistedResult.content)
+            }
+            ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            val verifyStep = recovery.verificationStepId?.let { stepId ->
+                detail.snapshot.steps.single { it.id == stepId }
+            } ?: ledger.appendStep(
+                runId = run.id,
+                type = AgentStepTypes.TOOL_VERIFY,
+                title = "恢复执行后验证",
+                detail = "只读回读已提交的 ${recovery.toolCall.name} 业务记录。",
+                status = AgentStepStatus.RUNNING,
+            )
+            state.activeStepId = verifyStep.id
+            validateRequiredAndroidPermissions(definition, checkpoint = "恢复验证前")
+            val recoveredResult = toolRegistry.verifyCommittedEffect(recovery.toolCall, receipt)
+                ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
+            validateExecutionReceipt(recovery.toolCall, recoveredResult)
+            require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
+            require(recoveredResult.success) { "已提交工具结果恢复验证失败：${recoveredResult.content}" }
+            when (definition.verificationPolicy) {
+                ToolVerificationPolicy.RESULT_READABLE -> require(recoveredResult.content.isNotBlank()) {
+                    "恢复验证的工具结果为空"
+                }
+                ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(recoveredResult.verified == true) {
+                    "已提交工具结果未通过 Executor 回读验证"
+                }
+            }
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.verify",
+                message = "进程重建后工具验证通过：${recovery.toolCall.name}",
+                metadata = RunEventMetadata.ToolVerification(
+                    toolName = recovery.toolCall.name,
+                    status = ToolVerificationStatus.PASSED,
+                ),
+            )
+            ledger.updateStep(verifyStep.id, AgentStepStatus.COMPLETED, "已只读回读 operation ${receipt.operationId} 并验证通过")
+            state.activeStepId = null
+            state.completedTools += AgentToolExecution(recovery.toolCall, recoveredResult)
+            completeRecoveredRun(run, state)
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消恢复验证") }
+                ledger.appendEvent(
+                    run.id,
+                    "run.cancelled",
+                    "用户取消恢复验证",
+                    RunEventMetadata.Reason("用户取消恢复验证"),
+                )
+                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消恢复验证")
+            }
+            throw error
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                val reason = error.message ?: "已提交工具结果恢复验证失败"
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
                 ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
                 ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
             }
@@ -389,6 +490,7 @@ class MinimalAgentRuntime(
             message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
             metadata = AgentEventMetadata.toolResult(definition, toolCall, toolResult, toolDurationMs),
         )
+        faultInjector.afterToolResultPersisted(runId, toolCall, toolResult)
         if (!toolResult.success) error("工具执行失败：${toolResult.content}")
         ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
         state.activeStepId = null
@@ -471,6 +573,38 @@ class MinimalAgentRuntime(
             "已按模型选择的安全样式生成最终回复"
         }
         ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, summaryDetail)
+        state.activeStepId = null
+        ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
+        return AgentRunSummary(
+            runId = run.id,
+            status = AgentRunStatus.COMPLETED,
+            responseText = response,
+            verifiedContext = buildVerifiedContext(run.id, state.completedTools),
+        )
+    }
+
+    private suspend fun completeRecoveredRun(
+        run: AgentRunRecord,
+        state: AgentRuntimeExecutionState,
+    ): AgentRunSummary {
+        require(state.completedTools.size == 1) { "验证阶段恢复只能总结一个已提交工具结果" }
+        val summaryStep = ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.RECOVERY_SUMMARIZE,
+            title = "生成恢复验证总结",
+            detail = "使用已持久化 ToolCall 和只读回读结果生成本地可信总结。",
+            status = AgentStepStatus.RUNNING,
+        )
+        state.activeStepId = summaryStep.id
+        // long: 旧模型请求与规划协程已丢失，恢复只使用已验证工具事实生成本地总结，避免为了文案再开放旧执行栈。
+        val response = buildFallbackResponse(run.id, run.goal, state.completedTools)
+        ledger.appendEvent(
+            runId = run.id,
+            type = AgentEventTypes.RECOVERY_SUMMARY,
+            message = "已使用验证后工具事实生成本地总结",
+            metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程"),
+        )
+        ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, "已生成本地可信总结")
         state.activeStepId = null
         ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
         return AgentRunSummary(

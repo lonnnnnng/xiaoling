@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,6 +39,55 @@ class AgentRunResumePolicyTest {
         assertTrue(assessment.reason.contains("等待用户审批"))
     }
 
+    @Test
+    fun committedIdempotentToolAwaitingVerificationCanResumeInPlace() {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-note-recovery",
+            name = definition.name,
+            arguments = mapOf("title" to "恢复笔记", "content" to "只重新验证已提交结果"),
+            risk = definition.risk,
+        )
+        val result = RunEventMetadata.ToolResult(
+            toolName = definition.name,
+            content = "已创建并验证笔记：恢复笔记",
+            durationMs = 10L,
+            success = true,
+            verified = true,
+            toolCallId = call.id,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = "note-recovery",
+                idempotencyKey = call.id,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                    event("tool.result", result, 2L),
+                ),
+            ),
+            definitionLookup = { name -> definition.takeIf { it.name == name } },
+        )
+
+        assertEquals(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, assessment.kind)
+        assertTrue(assessment.canResumeInPlace)
+        assertNotNull(assessment.committedTool)
+        assertEquals(call, assessment.committedTool?.toolCall)
+        assertEquals(result, assessment.committedTool?.persistedResult)
+    }
+
     private fun detail(
         status: AgentRunStatus,
         steps: List<AgentStepRecord> = emptyList(),
@@ -58,6 +108,7 @@ class AgentRunResumePolicyTest {
                 decidedAt = null,
             ),
         ),
+        events: List<RunEventRecord> = emptyList(),
     ) = AgentRunDetailRecord(
         snapshot = AgentRunSnapshot(
             run = AgentRunRecord(
@@ -73,7 +124,7 @@ class AgentRunResumePolicyTest {
                 completedAt = null,
             ),
             steps = steps,
-            events = emptyList(),
+            events = events,
         ),
         approvals = approvals,
     )
@@ -88,5 +139,14 @@ class AgentRunResumePolicyTest {
         detail = "notes.create",
         createdAt = 1L,
         completedAt = null,
+    )
+
+    private fun event(type: String, metadata: RunEventMetadata, createdAt: Long) = RunEventRecord(
+        id = "event-$createdAt",
+        runId = "run-1",
+        type = type,
+        message = type,
+        createdAt = createdAt,
+        metadata = metadata,
     )
 }

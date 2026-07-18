@@ -370,6 +370,186 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun committedToolRecoveryOnlyRechecksOperationThenCompletesOriginalRun() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val run = ledger.createRun(
+            conversationId = "conversation-committed-recovery",
+            userMessageId = "message-committed-recovery",
+            goal = "恢复已写入笔记的验证",
+        )
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("title", "笔记标题", required = true),
+                ToolInputField("content", "笔记正文", required = true),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-committed-recovery",
+            name = definition.name,
+            arguments = mapOf("title" to "恢复笔记", "content" to "已经持久化"),
+            risk = definition.risk,
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = "note-committed-recovery",
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val persistedResult = ToolExecutionResult(
+            success = true,
+            verified = true,
+            content = "已创建并验证笔记：恢复笔记",
+            executionReceipt = receipt,
+        )
+        ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        ledger.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val execution = ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = "进程中断前已写入结果",
+            status = AgentStepStatus.RUNNING,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${call.name}",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = persistedResult.content,
+                durationMs = 12L,
+                success = true,
+                verified = true,
+                toolCallId = call.id,
+                replaySafety = definition.replaySafety,
+                executionReceipt = receipt,
+            ),
+        )
+        var executeCount = 0
+        var verificationCount = 0
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executeCount += 1
+                error("验证阶段恢复不得重放工具写入")
+            }
+
+            override suspend fun verifyCommittedEffect(
+                call: ToolCall,
+                receipt: ToolExecutionReceipt,
+            ): ToolExecutionResult {
+                verificationCount += 1
+                assertEquals("note-committed-recovery", receipt.operationId)
+                return persistedResult
+            }
+        }
+        val detail = AgentRunDetailRecord(snapshot = ledger.snapshot(run.id), approvals = emptyList())
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeCommittedToolRun(detail)
+
+        val recovered = ledger.snapshot(run.id)
+        assertEquals(run.id, summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, recovered.run.status)
+        assertEquals(0, executeCount)
+        assertEquals(1, verificationCount)
+        assertEquals(AgentStepStatus.COMPLETED, recovered.steps.single { it.id == execution.id }.status)
+        assertEquals(1, recovered.events.count { it.type == "tool.result" })
+        assertEquals(1, recovered.events.count { it.type == "tool.verify" })
+        assertEquals(0, recovered.steps.count { it.type == AgentStepTypes.LLM_PLAN })
+        assertTrue(summary.responseText.contains("恢复笔记"))
+    }
+
+    @Test
+    fun processTerminationAfterCommittedToolResultLeavesRecoverableVerificationEvidence() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("title", "笔记标题", required = true),
+                ToolInputField("content", "笔记正文", required = true),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult = ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已创建并验证笔记：中断注入",
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "note-fault-injection",
+                    idempotencyKey = call.id,
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            )
+        }
+        val call = ToolCall(
+            id = "tool-call-fault-injection",
+            name = definition.name,
+            arguments = mapOf("title" to "中断注入", "content" to "结果落库后终止"),
+            risk = definition.risk,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = call
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("故障注入后不应进入总结")
+            },
+            faultInjector = object : AgentRuntimeFaultInjector {
+                override fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) {
+                    throw AgentProcessTerminationSimulation()
+                }
+            },
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-fault-injection", "message-fault-injection", "注入进程中断")
+        }.exceptionOrNull()
+
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        val detail = AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList())
+        assertTrue(failure is AgentProcessTerminationSimulation)
+        assertEquals(AgentRunStatus.EXECUTING, snapshot.run.status)
+        assertEquals(AgentStepStatus.RUNNING, snapshot.steps.single { it.type == AgentStepTypes.TOOL_EXECUTE }.status)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(0, snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(
+            AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION,
+            AgentRunResumePolicy.assess(detail, registry::definition).kind,
+        )
+    }
+
+    @Test
     fun disablingMemoryRecallWritesAnAuditEventForThisRunOnly() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val summary = MinimalAgentRuntime(

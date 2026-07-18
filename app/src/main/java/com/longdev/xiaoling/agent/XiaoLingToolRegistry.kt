@@ -237,6 +237,16 @@ class XiaoLingToolRegistry(
         }
     }
 
+    override suspend fun verifyCommittedEffect(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult? {
+        return when (call.name) {
+            "notes.create" -> verifyCommittedNote(call, receipt)
+            else -> null
+        }
+    }
+
     private fun currentTime(): ToolExecutionResult {
         return ToolExecutionResult(
             success = true,
@@ -297,6 +307,36 @@ class XiaoLingToolRegistry(
                 success = true,
                 verified = true,
                 content = "已创建并验证笔记：${created.title}\n${created.content}",
+                executionReceipt = receipt,
+            )
+        }
+    }
+
+    private suspend fun verifyCommittedNote(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val title = call.arguments["title"].orEmpty().trim()
+        val content = call.arguments["content"].orEmpty().trim()
+        val receiptMatchesCall = receipt.toolCallId == call.id &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        val stored = receipt.operationId
+            .takeIf { receiptMatchesCall && title.isNotBlank() && content.isNotBlank() }
+            ?.let { noteStore.get(it) }
+        // long: 验证阶段恢复只按回执中的 operation ID 回读已有笔记，不调用 create；载荷、调用 ID 或幂等键漂移时必须 fail-closed。
+        return if (stored?.title == title && stored.content == content) {
+            ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已创建并验证笔记：${stored.title}\n${stored.content}",
+                executionReceipt = receipt,
+            )
+        } else {
+            ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "已提交笔记与持久化工具证据不一致，不能恢复验证",
                 executionReceipt = receipt,
             )
         }

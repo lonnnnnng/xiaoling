@@ -106,6 +106,31 @@ class AgentRunUseCase(
         )
     }
 
+    suspend fun recoverCommittedToolRuns(): List<AgentRunDetailRecord> {
+        return baseLedger.recoverCommittedToolRuns(toolRegistry::definition)
+    }
+
+    suspend fun closeInterruptedRuns(): Int {
+        return baseLedger.closeInterruptedRuns(toolRegistry::definition)
+    }
+
+    suspend fun resumeCommittedToolRun(
+        detail: AgentRunDetailRecord,
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+    ): AgentRunSummary {
+        val ledger = ReportingAgentRunLedger(
+            delegate = baseLedger,
+            onSnapshot = onSnapshot,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = toolRegistry,
+            llm = RecoveryOnlyAgentLlm,
+            permissionChecker = permissionChecker,
+        )
+        return runtime.resumeCommittedToolRun(detail)
+    }
+
     suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()
 
     suspend fun importSkill(raw: String): AgentSkillRecord = skillCatalog.importDocument(raw)
@@ -115,6 +140,18 @@ class AgentRunUseCase(
     }
 
     suspend fun deleteLocalSkill(skillId: String): Boolean = skillCatalog.deleteLocal(skillId)
+}
+
+private object RecoveryOnlyAgentLlm : AgentLlm {
+    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+        error("验证阶段恢复不允许重建旧规划请求")
+    }
+
+    override suspend fun summarize(
+        goal: String,
+        toolCall: ToolCall,
+        toolResult: ToolExecutionResult,
+    ): String = error("验证阶段恢复固定使用本地可信总结")
 }
 
 private class ReportingAgentRunLedger(
