@@ -244,13 +244,14 @@ class XiaoLingToolRegistry(
     ): ToolExecutionResult? {
         return when (call.name) {
             "notes.create" -> verifyCommittedNote(call, receipt)
+            "memory.remember" -> verifyCommittedMemory(call, receipt)
             else -> null
         }
     }
 
     override fun supportsCommittedEffectVerification(toolName: String): Boolean {
-        // long: 幂等声明只证明副作用可按键识别；本阶段仍只允许 notes.create 进入只读恢复验证，memory.remember 需另行评估回读语义。
-        return toolName == "notes.create"
+        // long: 只有具备 operation 账本和结果快照的写工具才进入验证阶段恢复；能力白名单与幂等声明分离，避免未来仅修改 replaySafety 就扩大恢复范围。
+        return toolName == "notes.create" || toolName == "memory.remember"
     }
 
     private fun currentTime(): ToolExecutionResult {
@@ -349,24 +350,15 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun remember(call: ToolCall): ToolExecutionResult {
-        val note = call.arguments["note"].orEmpty().trim()
-        if (note.isBlank()) return ToolExecutionResult(success = false, content = "长期记忆内容不能为空")
-        val tags = call.arguments["tags"].orEmpty().trim()
-        val type = call.arguments["type"].orEmpty().trim().ifBlank { "Episode" }
-        val source = runContext?.let {
-            AgentMemorySource(
-                conversationId = it.conversationId,
-                runId = it.runId,
-                summary = "由 /agent Run 写入（来源 Run 可查看）",
-            )
-        } ?: AgentMemorySource(conversationId = null, runId = null, summary = "来源未知")
+        val request = memoryWriteRequest(call)
+        if (request.content.isBlank()) return ToolExecutionResult(success = false, content = "长期记忆内容不能为空")
         // long: 长期记忆写入要保存来源和启用状态，后续用户才能追问“为什么记住这件事”，并在管理页禁用或删除。
         val record = memoryStore.remember(
-            content = note,
-            tags = tags,
-            type = type,
-            source = source,
-            confidence = 0.8,
+            content = request.content,
+            tags = request.tags,
+            type = request.type,
+            source = request.source,
+            confidence = request.confidence,
             idempotencyKey = call.id,
         )
         // long: memoryStore 用独立 operation 映射把 ToolCall ID 绑定到原始载荷；同键重放返回原 memory ID，载荷漂移则在写入前失败。
@@ -384,7 +376,6 @@ class XiaoLingToolRegistry(
                 stored.sourceRunId == record.sourceRunId &&
                 stored.enabled
         }
-        val tagText = record.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
         return if (verified == null) {
             ToolExecutionResult(
                 success = false,
@@ -396,10 +387,90 @@ class XiaoLingToolRegistry(
             ToolExecutionResult(
                 success = true,
                 verified = true,
-                content = "已保存并验证长期记忆：${record.content} · 类型：${record.type}$tagText · 来源：${record.sourceSummary}",
+                content = memorySuccessContent(record),
                 executionReceipt = receipt,
             )
         }
+    }
+
+    private suspend fun verifyCommittedMemory(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val receiptMatchesCall = receipt.toolCallId == call.id &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatchesCall) {
+            return failedMemoryVerification(receipt, AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH)
+        }
+        val request = memoryWriteRequest(call)
+        if (request.content.isBlank()) {
+            return failedMemoryVerification(receipt, AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH)
+        }
+        // long: 恢复只按历史 ToolCall、Run Context 和 operation ID 校验原结果，不调用 remember；用户编辑、禁用、过期或删除后都不能沿用旧成功结论。
+        return when (
+            val verification = memoryStore.verifyRememberedOperation(
+                idempotencyKey = call.id,
+                memoryId = receipt.operationId,
+                request = request,
+                nowMillis = clock.nowMillis(),
+            )
+        ) {
+            is AgentMemoryOperationVerification.Verified -> {
+                val memory = verification.memory
+                ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = memorySuccessContent(memory),
+                    executionReceipt = receipt,
+                )
+            }
+            is AgentMemoryOperationVerification.Failed -> failedMemoryVerification(receipt, verification.reason)
+        }
+    }
+
+    private fun memoryWriteRequest(call: ToolCall): AgentMemoryWriteRequest {
+        val context = runContext
+        return AgentMemoryWriteRequest(
+            content = call.arguments["note"].orEmpty().trim(),
+            tags = call.arguments["tags"].orEmpty().trim(),
+            type = call.arguments["type"].orEmpty().trim().ifBlank { "Episode" },
+            source = context?.let {
+                AgentMemorySource(
+                    conversationId = it.conversationId,
+                    runId = it.runId,
+                    summary = "由 /agent Run 写入（来源 Run 可查看）",
+                )
+            } ?: AgentMemorySource(conversationId = null, runId = null, summary = "来源未知"),
+            confidence = 0.8,
+        )
+    }
+
+    private fun memorySuccessContent(memory: AgentMemoryRecord): String {
+        val tagText = memory.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
+        return "已保存并验证长期记忆：${memory.content} · 类型：${memory.type}$tagText · 来源：${memory.sourceSummary}"
+    }
+
+    private fun failedMemoryVerification(
+        receipt: ToolExecutionReceipt,
+        reason: AgentMemoryOperationVerificationFailure,
+    ): ToolExecutionResult {
+        val detail = when (reason) {
+            AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND -> "找不到原记忆 operation"
+            AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE -> "历史 operation 缺少结果快照"
+            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH -> "原写入参数与持久化证据不一致"
+            AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH -> "工具回执与原 operation 不一致"
+            AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND -> "原长期记忆已删除"
+            AgentMemoryOperationVerificationFailure.MEMORY_CHANGED -> "原长期记忆业务字段已修改"
+            AgentMemoryOperationVerificationFailure.MEMORY_DISABLED -> "原长期记忆已禁用"
+            AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED -> "原长期记忆已过期"
+        }
+        return ToolExecutionResult(
+            success = false,
+            verified = false,
+            content = "长期记忆恢复验证失败：${reason.name}（$detail）",
+            executionReceipt = receipt,
+        )
     }
 
     private suspend fun searchMemory(call: ToolCall): ToolExecutionResult {

@@ -9,12 +9,16 @@ import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
+import com.longdev.xiaoling.agent.AgentToolExecutionContext
+import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.FakeToolRegistry
 import com.longdev.xiaoling.agent.MinimalAgentRuntime
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentRunResumeKind
+import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.SystemAgentClock
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
@@ -385,6 +389,142 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
         assertEquals(listOf(receipt.operationId), noteStore.list(10).map { it.id })
         assertTrue(summary.responseText.contains("进程恢复笔记"))
+    }
+
+    @Test
+    fun processRestartRecoversCommittedMemoryAtVerificationBoundaryWithoutRememberingAgain() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "xiaoling-memory-run-recovery-test.db"
+        context.deleteDatabase(databaseName)
+        var firstDatabase: XiaoLingDatabase? = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .allowMainThreadQueries()
+            .build()
+        var restartedDatabase: XiaoLingDatabase? = null
+        try {
+            val opened = checkNotNull(firstDatabase)
+            val firstRepository = RoomAgentRunRepository(context, opened)
+            val memoryStore = RoomAgentMemoryStore(context, opened)
+            val firstRegistry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context, opened),
+                noteStore = RoomAgentNoteStore(context, opened),
+                memoryStore = memoryStore,
+            )
+            val definition = checkNotNull(firstRegistry.definition("memory.remember"))
+            val run = firstRepository.createRun(
+                conversationId = "conversation-memory-verification-recovery",
+                userMessageId = "message-memory-verification-recovery",
+                goal = "恢复已提交长期记忆的验证",
+            )
+            firstRegistry.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = run.conversationId,
+                    userMessageId = run.userMessageId,
+                    runId = run.id,
+                    goal = run.goal,
+                ),
+            )
+            val call = ToolCall(
+                id = "tool-call-memory-verification-recovery",
+                name = definition.name,
+                arguments = mapOf(
+                    "note" to "用户喜欢紧凑界面",
+                    "type" to "Preference",
+                    "tags" to "ui,preference",
+                ),
+                risk = definition.risk,
+            )
+            val result = firstRegistry.execute(call)
+            val receipt = checkNotNull(result.executionReceipt)
+            firstRepository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+            firstRepository.appendEvent(
+                runId = run.id,
+                type = "tool.call.validated",
+                message = "工具调用已校验：${call.name}",
+                metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+            )
+            firstRepository.appendStep(
+                runId = run.id,
+                type = AgentStepTypes.TOOL_EXECUTE,
+                title = "执行工具",
+                detail = "长期记忆结果落库后进程终止",
+                status = AgentStepStatus.RUNNING,
+            )
+            firstRepository.appendEvent(
+                runId = run.id,
+                type = "tool.result",
+                message = "工具执行成功：${call.name}",
+                metadata = RunEventMetadata.ToolResult(
+                    toolName = call.name,
+                    content = result.content,
+                    durationMs = 10L,
+                    success = result.success,
+                    verified = result.verified,
+                    toolCallId = call.id,
+                    replaySafety = definition.replaySafety,
+                    executionReceipt = receipt,
+                ),
+            )
+
+            // long: 关闭并重开磁盘 Room，模拟操作系统终止进程后生产启动协调器只能依赖持久化 Run、ToolCall、回执和 memory operation 的真实边界。
+            opened.close()
+            firstDatabase = null
+            val reopened = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+                .also { restartedDatabase = it }
+            val restartedRepository = RoomAgentRunRepository(context, reopened)
+            val restartedMemoryStore = RoomAgentMemoryStore(context, reopened)
+            val restartedRegistry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context, reopened),
+                noteStore = RoomAgentNoteStore(context, reopened),
+                memoryStore = restartedMemoryStore,
+            )
+            val assessment = AgentRunResumePolicy.assess(
+                checkNotNull(restartedRepository.runDetail(run.id)),
+                restartedRegistry::definition,
+                restartedRegistry::supportsCommittedEffectVerification,
+            )
+            check(assessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) { assessment.reason }
+            val recovered = restartedRepository
+                .recoverCommittedToolRuns(
+                    restartedRegistry::definition,
+                    restartedRegistry::supportsCommittedEffectVerification,
+                )
+                .single { it.snapshot.run.id == run.id }
+            val summary = MinimalAgentRuntime(
+                ledger = restartedRepository,
+                toolRegistry = restartedRegistry,
+                llm = object : AgentLlm {
+                    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                        error("验证阶段恢复不应重新规划")
+                    }
+
+                    override suspend fun summarize(
+                        goal: String,
+                        toolCall: ToolCall,
+                        toolResult: ToolExecutionResult,
+                    ): String = error("验证阶段恢复使用本地总结")
+                },
+            ).resumeCommittedToolRun(recovered)
+
+            val finalDetail = checkNotNull(restartedRepository.runDetail(run.id))
+            assertEquals(AgentRunStatus.COMPLETED, finalDetail.snapshot.run.status)
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.result" })
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
+            assertEquals(
+                listOf(receipt.operationId),
+                restartedMemoryStore.list("", AgentMemoryFilter.ALL).map { it.id },
+            )
+            assertTrue(summary.responseText.contains("用户喜欢紧凑界面"))
+        } finally {
+            firstDatabase?.close()
+            restartedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 
     @Test

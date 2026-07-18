@@ -16,6 +16,9 @@ import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentMemorySensitiveCategory
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryIdempotencyConflictException
+import com.longdev.xiaoling.agent.AgentMemoryOperationVerification
+import com.longdev.xiaoling.agent.AgentMemoryOperationVerificationFailure
+import com.longdev.xiaoling.agent.AgentMemoryWriteRequest
 import com.longdev.xiaoling.data.AgentMemoryCandidateEntity
 import com.longdev.xiaoling.data.AgentMemoryEntity
 import com.longdev.xiaoling.data.AgentMemoryFtsEntity
@@ -68,6 +71,39 @@ class RoomAgentMemoryStore(
 
     override suspend fun get(memoryId: String): AgentMemoryRecord? {
         return database.agentMemoryDao().getMemory(memoryId)?.toRecord()
+    }
+
+    override suspend fun verifyRememberedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+        request: AgentMemoryWriteRequest,
+        nowMillis: Long,
+    ): AgentMemoryOperationVerification {
+        // long: 先证明请求和回执仍指向原 operation，再读取当前记忆状态；这样被篡改的恢复请求不会借用真实 memory ID 获得成功结论。
+        val operation = database.agentMemoryDao().getMemoryOperation(idempotencyKey)
+            ?: return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND)
+        val normalizedRequest = request.normalized()
+        if (operation.payloadHash != memoryOperationPayloadHash(normalizedRequest)) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH)
+        }
+        if (operation.memoryId != memoryId) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH)
+        }
+        val expectedResultHash = operation.resultHash
+            ?: return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE)
+        val memory = database.agentMemoryDao().getMemory(memoryId)?.toRecord()
+            ?: return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND)
+        // long: 启用与过期是当前治理状态，必须单独阻断；业务字段再与提交快照比较，才能给任务中心保留可操作的稳定失败原因。
+        if (!memory.enabled) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.MEMORY_DISABLED)
+        }
+        if (AgentMemoryDecayPolicy.isExpired(memory, nowMillis)) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED)
+        }
+        if (memoryOperationResultHash(memory) != expectedResultHash) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.MEMORY_CHANGED)
+        }
+        return AgentMemoryOperationVerification.Verified(memory)
     }
 
     override suspend fun list(query: String, filter: AgentMemoryFilter, limit: Int): List<AgentMemoryRecord> {
@@ -317,18 +353,19 @@ class RoomAgentMemoryStore(
         idempotencyKey: String? = null,
     ): AgentMemoryRecord {
         val dao = database.agentMemoryDao()
-        val normalizedContent = content.trim()
-        val normalizedTags = tags.trim()
-        val normalizedType = type.normalizeMemoryType()
-        val normalizedConfidence = confidence.coerceIn(0.0, 1.0)
+        val normalizedRequest = AgentMemoryWriteRequest(
+            content = content,
+            tags = tags,
+            type = type,
+            source = source,
+            confidence = confidence,
+        ).normalized()
+        val normalizedContent = normalizedRequest.content
+        val normalizedTags = normalizedRequest.tags
+        val normalizedType = normalizedRequest.type
+        val normalizedConfidence = normalizedRequest.confidence
         val payloadHash = idempotencyKey?.let {
-            memoryOperationPayloadHash(
-                content = normalizedContent,
-                tags = normalizedTags,
-                type = normalizedType,
-                source = source,
-                confidence = normalizedConfidence,
-            )
+            memoryOperationPayloadHash(normalizedRequest)
         }
         if (idempotencyKey != null && payloadHash != null) {
             dao.getMemoryOperation(idempotencyKey)?.let { operation ->
@@ -356,7 +393,7 @@ class RoomAgentMemoryStore(
             ?.takeIf { assessment.status == AgentMemoryCandidateStatus.DUPLICATE }
             ?.let { duplicateId -> existingMemories.firstOrNull { it.id == duplicateId } }
             ?.let { duplicate ->
-                bindMemoryOperation(idempotencyKey, payloadHash, duplicate.id)
+                bindMemoryOperation(idempotencyKey, payloadHash, duplicate)
                 return duplicate
             }
 
@@ -377,43 +414,64 @@ class RoomAgentMemoryStore(
         // long: 无论来自候选确认还是 memory.remember，正式写入前都执行同一套敏感过滤与去重；这样工具入口不能绕过候选页的隐私边界。
         dao.upsertMemory(record.toEntity())
         replaceMemoryIndex(record)
-        bindMemoryOperation(idempotencyKey, payloadHash, record.id)
+        bindMemoryOperation(idempotencyKey, payloadHash, record)
         return record
     }
 
     private suspend fun bindMemoryOperation(
         idempotencyKey: String?,
         payloadHash: String?,
-        memoryId: String,
+        memory: AgentMemoryRecord,
     ) {
         if (idempotencyKey == null || payloadHash == null) return
         // long: 映射与记忆写入处于同一 Room 事务；主键保证同一 ToolCall 只能绑定一个原始载荷和 operation，进程重建后不会重复创建。
         database.agentMemoryDao().insertMemoryOperation(
             AgentMemoryOperationEntity(
                 idempotencyKey = idempotencyKey,
-                memoryId = memoryId,
+                memoryId = memory.id,
                 payloadHash = payloadHash,
+                resultHash = memoryOperationResultHash(memory),
                 createdAt = System.currentTimeMillis(),
             ),
         )
     }
 
-    private fun memoryOperationPayloadHash(
-        content: String,
-        tags: String,
-        type: String,
-        source: AgentMemorySource,
-        confidence: Double,
-    ): String {
+    private fun AgentMemoryWriteRequest.normalized() = copy(
+        content = content.trim(),
+        tags = tags.trim(),
+        type = type.normalizeMemoryType(),
+        confidence = confidence.coerceIn(0.0, 1.0),
+    )
+
+    private fun memoryOperationPayloadHash(request: AgentMemoryWriteRequest): String {
         val fields = listOf(
-            content,
-            tags,
-            type,
-            source.conversationId,
-            source.runId,
-            source.summary,
-            confidence.toString(),
+            request.content,
+            request.tags,
+            request.type,
+            request.source.conversationId,
+            request.source.runId,
+            request.source.summary,
+            request.confidence.toString(),
         )
+        return sha256Canonical(fields)
+    }
+
+    private fun memoryOperationResultHash(memory: AgentMemoryRecord): String {
+        // long: 快照只绑定写入工具承诺的业务结果；置顶、引用时间和未来过期时间属于后续治理元数据，用户调整它们不应否定原写入事实。
+        return sha256Canonical(
+            listOf(
+                memory.content,
+                memory.tags,
+                memory.type,
+                memory.sourceConversationId,
+                memory.sourceRunId,
+                memory.sourceSummary,
+                memory.confidence.toString(),
+            ),
+        )
+    }
+
+    private fun sha256Canonical(fields: List<String?>): String {
         val canonical = fields.joinToString(separator = "") { field ->
             field?.let { "${it.length}:$it" } ?: "-1:"
         }

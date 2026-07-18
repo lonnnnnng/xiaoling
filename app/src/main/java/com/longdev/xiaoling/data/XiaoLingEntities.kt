@@ -159,6 +159,7 @@ data class AgentMemoryOperationEntity(
     @PrimaryKey val idempotencyKey: String,
     val memoryId: String,
     val payloadHash: String,
+    val resultHash: String?,
     val createdAt: Long,
 )
 

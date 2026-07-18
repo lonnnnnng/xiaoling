@@ -33,7 +33,7 @@
 - `/agent <目标>` 顺序多步执行入口，以及 `AgentRun / AgentStep / ApprovalRequest / RunEvent` 可审计运行链路。
 - 有界 Agent Runtime：同一 Run 最多 4 次工具调用，模型每轮返回继续调用或完成；具备模型与工具超时、整次 Run 超时、取消、完整输入 Schema/业务规则、重复调用检测，以及参数校验时、审批结束后执行前、工具返回后验证前的 Android 权限复检。任一检查点权限缺失都必须 fail-closed。兼容模型把同一个工具名同时写入 `action/tool` 时可以归一化，不一致动作仍拒绝。
 - 应用侧 Tool Registry 统一声明字符串/整数/数值/布尔类型、长度/范围/枚举、风险、确认、Android 权限、后台能力、超时和验证策略；Runtime 按前台/后台来源执行能力门禁，模型不能增加未知参数、修改工具风险或自行增加执行事实。
-- 工具执行证据使用 `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和提交状态，并把执行时的 `ToolReplaySafety` 声明快照随 `tool.result` typed metadata 持久化。Executor 提供的回执必须绑定当前 ToolCall；错配时 Runtime fail-closed。只有执行时快照和当前工具定义都显式声明 `IDEMPOTENT_BY_KEY`、回执状态为 `COMMITTED`、ToolCall 身份一致且幂等键存在时，证据策略才可判定已提交副作用可复用；旧事件缺少快照时默认 `RESTART_REQUIRED`。`notes.create` 已使用 ToolCall ID 作为存储层唯一幂等键：同键同载荷返回原笔记，同键不同载荷必须拒绝且不覆盖旧数据。
+- 工具执行证据使用 `ToolExecutionReceipt` 记录 ToolCall ID、业务 operation ID、可选幂等键和提交状态，并把执行时的 `ToolReplaySafety` 声明快照随 `tool.result` typed metadata 持久化。Executor 提供的回执必须绑定当前 ToolCall；错配时 Runtime fail-closed。只有执行时快照和当前工具定义都显式声明 `IDEMPOTENT_BY_KEY`、回执状态为 `COMMITTED`、ToolCall 身份一致且幂等键存在时，证据策略才可判定已提交副作用可复用；旧事件缺少快照时默认 `RESTART_REQUIRED`。`notes.create` 使用 ToolCall ID 作为存储层唯一幂等键；`memory.remember` 使用独立 operation ledger 保存载荷与结果快照。两者同键同载荷返回原 operation，同键不同载荷必须拒绝且不覆盖旧数据。
 - 第一批应用内工具：当前时间、会话列表与检索、本机笔记列表/检索/创建、长期记忆检索/写入。
 - 声明式 Skill 按需加载与管理：内置和本地 Skill 统一进入 Room Catalog；本地 `schemaVersion=1` JSON 经过字段白名单、工具注册表、风险与 Android 权限一致性校验后才可导入，设置页支持查看、启停和删除本地 Skill。Run 审计固定所选 Skill 的 ID/版本，审批恢复不得因期间停用、删除或升版而扩大工具面。
 - 多步骤 Workflow Ledger：用户可保存、编辑、启停和运行包含 1 至 8 个顺序 Agent 步骤的工作流；活动 Run 存在时禁止编辑，历史 Run 保留创建时的步骤定义、输入/输出快照、幂等键、触发来源、会话、关联 Agent Run、结果和失败原因。手动运行复用现有前台审批与验证链路，后台调度按相同顺序执行且不会绕过审批门禁；前台三步骤、后台三步骤和审批后继续下一步骤均已通过真实模型真机验收。
@@ -46,17 +46,17 @@
 - 记忆引用审计：`memory.search` 的实际命中 ID 必须进入 RunEvent 和已验证 Agent 上下文；`/agent` 单次可关闭记忆召回，关闭后不能访问 `memory.search`。
 - 对话内 Run 时间线和审批卡片，以及设置页 Agent 任务中心；任务中心支持全部/处理中/可重试/已完成筛选、完整 ToolResult、步骤、审批、结构化事件和失败任务重试。当前筛选范围会基于持久化审计数据展示 Run 数、终态成功率、平均耗时、非成功数、模型/工具调用数、模型总耗时、平均 TTFB、Prompt 字节、上游 Token usage 覆盖率和失败终态分布；单 Run 使用同一持久化口径。活动 Run 不进入质量或失败分母，上游未返回 usage 时必须显示未返回，不能补零。
 - 失败、取消和预算耗尽 Run 可创建新 Run 重新执行；新 Run 通过 `retryOfRunId` 关联来源，旧 Run 保持不变。已成功执行非 SAFE 工具，或恢复事件/失败步骤表明中断发生在 `EXECUTING/VERIFYING` 时，重试前必须二次确认。重试启动后必须进入来源会话，使重新触发的审批对用户可见。
-- Room v18 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、记忆操作映射、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v16→v17 为笔记增加可空唯一幂等键；v17→v18 新建 `agent_memory_operations`，旧记忆保持不变且没有伪造 ToolCall 映射。v4→v18、v17→v18 和全新 v18 建库已有 Schema 与迁移测试源码保护。
+- Room v19 本地保存 Provider、会话、消息、Agent Run、审批、笔记、长期记忆、候选记忆、记忆操作映射、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule 和 ScheduledTask Ledger；RunEvent 使用独立 typed metadata 保存工具审计字段，长期记忆使用 FTS4 索引，旧 SharedPreferences 数据首次启动时迁入。v16→v17 为笔记增加可空唯一幂等键；v17→v18 新建 `agent_memory_operations`；v18→v19 为记忆 operation 增加可空结果快照哈希，历史 operation 保持为空且不得恢复。v4→v19、v17→v18、v18→v19 和全新 v19 建库已有 Schema 与迁移测试保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
-- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。执行/验证中的 Run 默认必须创建新 Run 安全重新运行，只有最后一个 `notes.create` 同时具备完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据且尚无 `tool.verify` 时，才允许在原 Run 恢复后置验证。
-- 应用重启后会把可恢复审批重新显示到对应会话；符合证据条件的 `notes.create` 只读回读原 operation、写入 `tool.verify` 并用本地可信总结完成原 Run，不调用 `create()`、不恢复旧模型协程，也不执行 Workflow 后续步骤。其他执行/验证中 Run 仍直接安全收敛并通过关联新 Run 重试；收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
+- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。执行/验证中的 Run 默认必须创建新 Run 安全重新运行，只有最后一个 `notes.create` 或 `memory.remember` 同时具备完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据、工具白名单能力且尚无 `tool.verify` 时，才允许在原 Run 恢复后置验证。
+- 应用重启后会把可恢复审批重新显示到对应会话；符合证据条件的 `notes.create` 或 `memory.remember` 只读回读原 operation、写入 `tool.verify` 并用本地可信总结完成原 Run，不调用写入方法、不恢复旧模型协程，也不执行 Workflow 后续步骤。记忆必须仍启用、未过期且业务字段与提交结果快照一致；编辑、禁用、过期或删除均失败，删除后撤销恢复原快照可再次通过。其他执行/验证中 Run 仍直接安全收敛并通过关联新 Run 重试；收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
-当前仍未交付执行/验证中 Agent Run 的通用原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract、证据判定 module 和 `notes.create` 验证阶段恢复已交付。`memory.remember` 也已使用 Room 唯一 operation ledger 绑定 ToolCall、原始载荷哈希和 memory ID，并声明 `IDEMPOTENT_BY_KEY`；同键同载荷在数据库重开后复用原 operation，同键载荷漂移被拒绝。幂等声明与只读恢复能力独立，当前 Registry 仍只允许 `notes.create` 进入 `COMMITTED_TOOL_VERIFICATION`，记忆编辑、禁用和删除后的验证语义尚未评估。多步骤 Workflow 与非精确调度均已交付并完成真机验收；当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付执行/验证中 Agent Run 的通用原地恢复、并行工具调用、后台 Workflow 执行栈的断点续跑、精确定时、Foreground Service 和手机自动化；执行/验证中进程终止与 Android 权限运行中撤销已经完成确定性故障注入。执行回执 contract、证据判定 module，以及 `notes.create`、`memory.remember` 的验证阶段恢复已交付。`memory.remember` 的 Room operation ledger 绑定 ToolCall、原始载荷哈希、memory ID 和结果快照哈希；Registry 仅在当前记忆仍等于提交快照、启用且未过期时进入 `COMMITTED_TOOL_VERIFICATION`。v18 历史 operation 因缺少结果快照继续要求新 Run。多步骤 Workflow 与非精确调度均已交付并完成真机验收；当前真实后台三步骤耗时约 31 秒，尚无引入 Foreground Service 的必要。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
-补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；`notes.create` 仅开放已提交结果的验证阶段恢复。上述未交付项指通用执行栈、其他工具、Workflow 后续步骤以及尚未完成的自动化能力。
+补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上继续工具、验证和总结；`notes.create` 与 `memory.remember` 仅开放已提交结果的受限验证阶段恢复。上述未交付项指通用执行栈、其他工具、Workflow 后续步骤以及尚未完成的自动化能力。
 
 长期记忆最近一次删除的撤销快照保存在应用私有原子文件中；启动时会与 Room 正式记录核对，陈旧或损坏快照不会复活未删除数据，也不会阻断应用启动。
 

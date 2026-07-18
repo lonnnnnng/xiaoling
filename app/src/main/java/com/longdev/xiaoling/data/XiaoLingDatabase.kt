@@ -30,7 +30,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 18,
+    version = 19,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -43,7 +43,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 18
+        const val CURRENT_VERSION = 19
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -501,6 +501,13 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: v18 只证明请求幂等，无法判断可编辑记忆当前是否仍等于提交结果；旧 operation 不伪造结果快照，保持 null 并继续要求新 Run。
+                db.execSQL("ALTER TABLE `agent_memory_operations` ADD COLUMN `resultHash` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -519,6 +526,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_15_16,
             MIGRATION_16_17,
             MIGRATION_17_18,
+            MIGRATION_18_19,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

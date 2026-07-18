@@ -35,7 +35,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To18PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To19PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +43,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            18,
+            19,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -84,7 +84,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion18Database() = runBlocking {
+    fun createAndOpenFreshVersion19Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -92,7 +92,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(18, database.openHelper.writableDatabase.version)
+        assertEquals(19, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -548,6 +548,54 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate18To19PreservesOperationWithoutInventingResultSnapshot() {
+        migrationHelper.createDatabase(MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME, 18).apply {
+            execSQL(
+                "INSERT INTO agent_memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "memory-v18",
+                    "升级前长期记忆",
+                    "migration",
+                    "Episode",
+                    "conversation-v18",
+                    "run-v18",
+                    "历史来源",
+                    0.8,
+                    1,
+                    100L,
+                    100L,
+                    0,
+                    null,
+                    null,
+                ),
+            )
+            execSQL(
+                "INSERT INTO agent_memory_operations VALUES (?, ?, ?, ?)",
+                arrayOf<Any?>("tool-call-v18", "memory-v18", "legacy-payload-hash", 101L),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME,
+            19,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        // long: v18 operation 没有提交结果快照，升级只能保留原证据并把 resultHash 留空；恢复策略据此继续 fail-closed，不能把当前可编辑记录冒充历史结果。
+        migrated.query(
+            "SELECT memoryId, payloadHash, resultHash FROM agent_memory_operations WHERE idempotencyKey = 'tool-call-v18'",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("memory-v18", cursor.getString(cursor.getColumnIndexOrThrow("memoryId")))
+            assertEquals("legacy-payload-hash", cursor.getString(cursor.getColumnIndexOrThrow("payloadHash")))
+            assertNull(cursor.getString(cursor.getColumnIndexOrThrow("resultHash")))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -616,5 +664,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MULTI_STEP_MIGRATION_DATABASE_NAME = "xiaoling-multi-step-migration-test"
         private const val NOTE_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-note-idempotency-migration-test"
         private const val MEMORY_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-memory-idempotency-migration-test"
+        private const val MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-memory-verification-migration-test"
     }
 }

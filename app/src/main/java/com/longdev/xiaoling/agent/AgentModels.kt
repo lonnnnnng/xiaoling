@@ -528,6 +528,30 @@ data class AgentMemorySource(
     val summary: String,
 )
 
+data class AgentMemoryWriteRequest(
+    val content: String,
+    val tags: String,
+    val type: String,
+    val source: AgentMemorySource,
+    val confidence: Double,
+)
+
+sealed interface AgentMemoryOperationVerification {
+    data class Verified(val memory: AgentMemoryRecord) : AgentMemoryOperationVerification
+    data class Failed(val reason: AgentMemoryOperationVerificationFailure) : AgentMemoryOperationVerification
+}
+
+enum class AgentMemoryOperationVerificationFailure {
+    OPERATION_NOT_FOUND,
+    EVIDENCE_INCOMPLETE,
+    PAYLOAD_MISMATCH,
+    OPERATION_MISMATCH,
+    MEMORY_NOT_FOUND,
+    MEMORY_CHANGED,
+    MEMORY_DISABLED,
+    MEMORY_EXPIRED,
+}
+
 interface AgentMemoryStore {
     suspend fun remember(
         content: String,
@@ -539,6 +563,14 @@ interface AgentMemoryStore {
     ): AgentMemoryRecord
     suspend fun get(memoryId: String): AgentMemoryRecord?
     suspend fun search(query: String, limit: Int, enabledOnly: Boolean = true): List<AgentMemoryRecord>
+    suspend fun verifyRememberedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+        request: AgentMemoryWriteRequest,
+        nowMillis: Long,
+    ): AgentMemoryOperationVerification = AgentMemoryOperationVerification.Failed(
+        AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE,
+    )
 }
 
 enum class AgentMemoryFilter {

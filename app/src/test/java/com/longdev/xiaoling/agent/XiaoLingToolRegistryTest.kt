@@ -73,7 +73,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
         assertTrue(testRegistry().supportsCommittedEffectVerification("notes.create"))
-        assertFalse(testRegistry().supportsCommittedEffectVerification("memory.remember"))
+        assertTrue(testRegistry().supportsCommittedEffectVerification("memory.remember"))
         assertEquals(
             setOf("Preference", "ProfileFact", "Episode", "Procedure"),
             tools.getValue("memory.remember").inputSchema.single { it.name == "type" }.enumValues,
@@ -315,6 +315,40 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun memoryRememberCommittedEffectVerificationReadsOriginalOperationWithoutRememberingAgain() = runTest {
+        val memoryStore = InMemoryAgentMemoryStore()
+        val registry = testRegistry(memoryStore = memoryStore).also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-memory-recovery",
+                    userMessageId = "message-memory-recovery",
+                    runId = "run-memory-recovery",
+                    goal = "恢复长期记忆验证",
+                ),
+            )
+        }
+        val call = ToolCall(
+            id = "tool-call-memory-recovery",
+            name = "memory.remember",
+            arguments = mapOf(
+                "note" to "用户喜欢紧凑界面",
+                "type" to "Preference",
+                "tags" to "ui,preference",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val created = registry.execute(call)
+        val receipt = requireNotNull(created.executionReceipt)
+
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertEquals(1, memoryStore.rememberCallCount)
+        assertEquals(1, memoryStore.verificationCallCount)
+        assertEquals(created, recovered)
+        assertEquals(receipt, recovered?.executionReceipt)
+    }
+
+    @Test
     fun disabledMemoryRecallHidesSearchToolAndDoesNotReadStore() = runTest {
         val memoryStore = InMemoryAgentMemoryStore()
         val registry = testRegistry(memoryStore = memoryStore).also {
@@ -444,7 +478,10 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
 private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     val records = mutableListOf<AgentMemoryRecord>()
     val searchQueries = mutableListOf<String>()
+    var rememberCallCount = 0
+    var verificationCallCount = 0
     private val recordsByIdempotencyKey = mutableMapOf<String, AgentMemoryRecord>()
+    private val requestsByIdempotencyKey = mutableMapOf<String, AgentMemoryWriteRequest>()
 
     override suspend fun remember(
         content: String,
@@ -454,6 +491,7 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
         confidence: Double,
         idempotencyKey: String?,
     ): AgentMemoryRecord {
+        rememberCallCount += 1
         idempotencyKey?.let { key ->
             recordsByIdempotencyKey[key]?.let { existing ->
                 if (
@@ -480,8 +518,29 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
             updatedAt = 1_784_252_245_000 + records.size,
         )
         records += record
-        idempotencyKey?.let { recordsByIdempotencyKey[it] = record }
+        idempotencyKey?.let {
+            recordsByIdempotencyKey[it] = record
+            requestsByIdempotencyKey[it] = AgentMemoryWriteRequest(content, tags, type, source, confidence)
+        }
         return record
+    }
+
+    override suspend fun verifyRememberedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+        request: AgentMemoryWriteRequest,
+        nowMillis: Long,
+    ): AgentMemoryOperationVerification {
+        verificationCallCount += 1
+        val originalRequest = requestsByIdempotencyKey[idempotencyKey]
+            ?: return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND)
+        if (originalRequest != request) {
+            return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH)
+        }
+        val memory = recordsByIdempotencyKey[idempotencyKey]
+            ?.takeIf { it.id == memoryId }
+            ?: return AgentMemoryOperationVerification.Failed(AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH)
+        return AgentMemoryOperationVerification.Verified(memory)
     }
 
     open override suspend fun get(memoryId: String): AgentMemoryRecord? = records.firstOrNull { it.id == memoryId }

@@ -838,3 +838,21 @@ TDD 与自动化：
 - Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机各执行 46 条 instrumentation，合计 92 条全部通过。
 - instrumentation 后向两台设备覆盖安装最终 Debug APK；Redmi 回读 `PRAGMA user_version=18`、Provider 为 1 条、临时笔记/记忆/记忆 operation 均为 0，重新同步 6 个模型并选择 `gpt-5.4-mini`。真实普通对话请求返回 HTTP 200 和 `OK`，默认 User-Agent 正确且 Authorization 日志保持脱敏。
 - 最终 Debug APK SHA-256：`b989507989b101796a4fb79e4a4daaa70fa9bebc9f0e608b9dc22da071a025ab`。
+
+## 2026-07-19 `memory.remember` 验证阶段恢复
+
+实现与安全边界：
+
+- Room v19 为 `agent_memory_operations` 增加可空 `resultHash`。新 operation 原子保存内容、标签、类型、来源和置信度的提交结果快照哈希；v18→v19 只新增空列，不为历史 operation 伪造结果证据。
+- `AgentMemoryStore.verifyRememberedOperation()` 按 ToolCall 幂等键、回执 memory ID、原请求载荷和当前记录做只读验证。未修改、启用且未过期时成功；业务字段编辑、禁用、过期、删除分别返回 `MEMORY_CHANGED`、`MEMORY_DISABLED`、`MEMORY_EXPIRED`、`MEMORY_NOT_FOUND`，缺少 v19 结果快照返回 `EVIDENCE_INCOMPLETE`。
+- 置顶、引用时间和尚未到期的未来过期时间不属于提交业务快照，不阻止恢复；删除后使用原撤销快照恢复全部业务字段时可再次验证成功。
+- `XiaoLingToolRegistry` 为 `memory.remember` 开放受限 `verifyCommittedEffect()`，从持久化 Run Context 重建原来源请求；恢复不调用 `remember()`，原 operation ID、幂等键和执行回执保持不变。Runtime 仍只恢复最后一项已提交结果的后置验证和本地总结，不恢复旧模型协程、通用执行栈或 Workflow 后续步骤。
+
+TDD、自动化与真机可用性：
+
+- Registry Red/Green 证明只读恢复调用验证接口且 `remember()` 总调用数保持为 1；Room 测试覆盖数据库重开、载荷漂移、内容/标签/类型/来源/置信度字段矩阵、置顶/引用时间/未来过期时间例外、删除撤销、v18 缺证据 fail-closed，以及 `tool.result` 落库后关闭并重开磁盘 Room 的组件重建恢复。
+- 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；201 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 54 条 instrumentation，合计 108 条全部通过。
+- instrumentation 后覆盖安装最终 Debug APK，Redmi 冷启动到 `com.longdev.xiaoling/.MainActivity`；原 Provider 与 `gpt-5.4-mini` 仍可用。最终真实普通对话 `Reply only OK final recovery smoke` 在 4.83 秒返回 HTTP 200 和 `OK`，默认 User-Agent 正确，Authorization 日志保持脱敏，crash buffer 为空。
+- 以 `08a4002` 为固定点的 Standards/Spec 双轴审查均已完成；修复注释理由、重复成功文案、文档残留、完整字段矩阵和磁盘 Room 冷启动覆盖后，两轴最终均为 0 项 finding。
+- 最终 Debug APK SHA-256：`c3b8c5cee6d7a7fcf9ad00428247611980526eb621deb5ace01c7edbfb3468e9`。
