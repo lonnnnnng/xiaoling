@@ -202,6 +202,15 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew connectedDebugAndroidTest -P
 - `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug`：`105` 条 JVM 测试通过。
 - `memoryIdsUsed` 只来自执行器返回的真实记录，不接受模型总结自由文本伪造；未执行真机 Agent 请求，Provider 上游状态不影响本轮本地契约验证。
 
+## 进程重建恢复边界验证
+
+本轮新增 `AgentRunResumePolicy`，以持久化 Run 快照、审批列表、步骤和事件判断恢复方式：
+
+- `WAITING_APPROVAL` 且存在 `PENDING` 审批、没有 `tool.execute` / `tool.verify` 步骤或结果时，评估为 `APPROVAL_WAIT`，允许后续接入原 Run 审批恢复。
+- 已出现工具执行或验证记录，或 Run 处于其他状态时，评估为 `RESTART_REQUIRED`，必须创建新 Run，旧 Run 不修改。
+- 已新增 JVM 单元测试覆盖上述三条边界；本环境 Gradle 仍被沙箱阻止，未能重新运行测试。
+- 本轮只落地确定性策略，尚未恢复旧协程、模型请求、工具执行或验证栈；启动协调器仍采用中间态收敛为 `CANCELLED` 的保守实现。
+
 ## 记忆过期与时间衰减验证边界
 
 本轮实现新增 Room v10→v11 迁移、可空 `expiresAt` / `lastReferencedAt`、过期检索过滤、引用时间回写、置顶保护和按类型半衰期排序，并在长期记忆管理页提供永久、30 天、90 天和 1 年策略。
