@@ -479,6 +479,107 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun committedMemoryRecoveryFailurePersistsStableReasonAndSuggestedAction() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val run = ledger.createRun(
+            conversationId = "conversation-memory-recovery-failed",
+            userMessageId = "message-memory-recovery-failed",
+            goal = "恢复已提交长期记忆",
+        )
+        val definition = ToolDefinition(
+            name = "memory.remember",
+            description = "保存长期记忆",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(ToolInputField("note", "记忆内容", required = true)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-memory-recovery-failed",
+            name = definition.name,
+            arguments = mapOf("note" to "用户喜欢紧凑界面"),
+            risk = definition.risk,
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = "memory-recovery-failed",
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        ledger.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        ledger.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = "结果落库后进程终止",
+            status = AgentStepStatus.RUNNING,
+        )
+        ledger.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${call.name}",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "已保存长期记忆",
+                durationMs = 8L,
+                success = true,
+                verified = true,
+                toolCallId = call.id,
+                replaySafety = definition.replaySafety,
+                executionReceipt = receipt,
+            ),
+        )
+        val failure = ToolRecoveryFailure(
+            code = "MEMORY_DISABLED",
+            reason = "原长期记忆已禁用",
+            suggestedAction = "请先启用该记忆，再创建新 Run 重试。",
+        )
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult = error("恢复验证不得重放写入")
+            override suspend fun verifyCommittedEffect(
+                call: ToolCall,
+                receipt: ToolExecutionReceipt,
+            ): ToolExecutionResult = ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "长期记忆恢复验证失败：MEMORY_DISABLED（原长期记忆已禁用）",
+                executionReceipt = receipt,
+                recoveryFailure = failure,
+            )
+
+            override fun supportsCommittedEffectVerification(toolName: String): Boolean = toolName == definition.name
+        }
+
+        val error = runCatching {
+            MinimalAgentRuntime(
+                ledger = ledger,
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+            ).resumeCommittedToolRun(
+                AgentRunDetailRecord(snapshot = ledger.snapshot(run.id), approvals = emptyList()),
+            )
+        }.exceptionOrNull()
+
+        val snapshot = ledger.snapshot(run.id)
+        val event = snapshot.events.single { it.type == AgentEventTypes.RECOVERY_FAILED }
+        val metadata = event.metadata as RunEventMetadata.RecoveryFailure
+        assertTrue(error is IllegalStateException)
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertEquals("memory.remember", metadata.toolName)
+        assertEquals("MEMORY_DISABLED", metadata.code)
+        assertEquals("原长期记忆已禁用", metadata.reason)
+        assertEquals("请先启用该记忆，再创建新 Run 重试。", metadata.suggestedAction)
+    }
+
+    @Test
     fun committedToolRecoveryKeepsPreviouslyVerifiedToolFacts() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val run = ledger.createRun(

@@ -34,6 +34,7 @@ private val eventTitles = mapOf(
     "run.cancelled" to "Run 已取消",
     "run.budget_exhausted" to "Run 预算耗尽",
     "run.recovered" to "Run 恢复收敛",
+    "run.recovery_failed" to "恢复验证失败",
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
     "llm.request.completed" to "模型请求完成",
@@ -138,6 +139,15 @@ internal fun presentAgentRunEvent(
                 "原状态" to metadata.fromStatus.name,
                 "新状态" to metadata.toStatus.name,
                 "原因" to metadata.reason,
+            ),
+        )
+        is RunEventMetadata.RecoveryFailure -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "工具" to metadata.toolName,
+                "错误码" to metadata.code,
+                "原因" to metadata.reason,
+                "建议" to metadata.suggestedAction,
             ),
         )
     }

@@ -349,6 +349,52 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun memoryRememberRecoveryFailuresExposeStableSuggestedActions() = runTest {
+        val expectedSuggestions = mapOf(
+            AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND to "重新保存",
+            AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE to "历史版本",
+            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH to "重新确认",
+            AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH to "重新确认",
+            AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND to "重新保存",
+            AgentMemoryOperationVerificationFailure.MEMORY_CHANGED to "当前编辑结果",
+            AgentMemoryOperationVerificationFailure.MEMORY_DISABLED to "启用该记忆",
+            AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED to "更新过期时间",
+        )
+        val call = ToolCall(
+            id = "tool-call-memory-failure",
+            name = "memory.remember",
+            arguments = mapOf("note" to "用户喜欢紧凑界面"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = "memory-failure",
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+
+        expectedSuggestions.forEach { (reason, expectedSuggestion) ->
+            val registry = testRegistry(
+                memoryStore = object : InMemoryAgentMemoryStore() {
+                    override suspend fun verifyRememberedOperation(
+                        idempotencyKey: String,
+                        memoryId: String,
+                        request: AgentMemoryWriteRequest,
+                        nowMillis: Long,
+                    ): AgentMemoryOperationVerification = AgentMemoryOperationVerification.Failed(reason)
+                },
+            )
+
+            val result = requireNotNull(registry.verifyCommittedEffect(call, receipt))
+
+            assertEquals(reason.name, result.recoveryFailure?.code)
+            assertTrue(result.recoveryFailure?.reason.orEmpty().isNotBlank())
+            assertTrue(result.recoveryFailure?.suggestedAction.orEmpty().contains(expectedSuggestion))
+            assertTrue(result.recoveryFailure?.suggestedAction.orEmpty().contains("新 Run"))
+        }
+    }
+
+    @Test
     fun disabledMemoryRecallHidesSearchToolAndDoesNotReadStore() = runTest {
         val memoryStore = InMemoryAgentMemoryStore()
         val registry = testRegistry(memoryStore = memoryStore).also {

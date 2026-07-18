@@ -54,6 +54,11 @@ internal object RunEventMetadataCodec {
                 .put("fromStatus", metadata.fromStatus.name)
                 .put("toStatus", metadata.toStatus.name)
                 .put("reason", metadata.reason)
+            is RunEventMetadata.RecoveryFailure -> JSONObject()
+                .put("toolName", metadata.toolName)
+                .put("code", metadata.code)
+                .put("reason", metadata.reason)
+                .put("suggestedAction", metadata.suggestedAction)
         }.toString()
     }
 
@@ -129,6 +134,12 @@ internal object RunEventMetadataCodec {
                     fromStatus = AgentRunStatus.valueOf(json.requiredString("fromStatus")),
                     toStatus = AgentRunStatus.valueOf(json.requiredString("toStatus")),
                     reason = json.requiredString("reason"),
+                )
+                AgentEventTypes.RECOVERY_FAILED -> RunEventMetadata.RecoveryFailure(
+                    toolName = json.requiredToolName(),
+                    code = json.requiredString("code"),
+                    reason = json.requiredString("reason"),
+                    suggestedAction = json.requiredString("suggestedAction"),
                 )
                 else -> null
             }

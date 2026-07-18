@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。持久化执行回执 contract 已建立，`notes.create` 与 `memory.remember` 已具备生产幂等副作用证明，并可在结果已提交、验证未落库且当前业务记录仍满足各自规则时恢复只读验证；独立 ToolCall/ToolResult 表与并行调用仍待完成，通用原地断点恢复继续关闭。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。持久化执行回执 contract 已建立，`notes.create` 与 `memory.remember` 已具备生产幂等副作用证明，并可在结果已提交、验证未落库且当前业务记录仍满足各自规则时恢复只读验证；`memory.remember` 的八类恢复失败已结构化展示错误码、原因和新 Run 建议。独立 ToolCall/ToolResult 表与并行调用仍待完成，通用原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -364,6 +364,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 15. 已完成：仅针对具有完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据的 `notes.create` 开放“验证阶段恢复”。从持久化 ToolResult 唯一还原 ToolCall，按 operation ID 回读原笔记，补齐 `tool.verify` 和本地 `recovery.summarize`；多工具 Run 会从历史验证事件重建成功前缀，Workflow 启动对账会保留候选直到当前步骤输出落库。确定性进程中断、Room 重建和真实 Registry 不重复写入均已覆盖。旧模型协程、其他工具执行栈和 Workflow 后续步骤仍不恢复。
 16. 已完成：`memory.remember` 使用独立 Room operation ledger，以 ToolCall ID 主键绑定原始载荷哈希和 memory ID；数据库重开后同键同载荷复用原 operation，载荷漂移被拒绝。工具已声明 `IDEMPOTENT_BY_KEY`。
 17. 已完成：Room v19 为记忆 operation 增加提交结果业务快照哈希，Registry 从持久化 Run Context 重建原请求并开放 `verifyCommittedEffect()`。未修改、启用、未过期的记忆验证成功；内容、标签、类型、来源或置信度编辑返回 `MEMORY_CHANGED`，禁用返回 `MEMORY_DISABLED`，过期返回 `MEMORY_EXPIRED`，删除返回 `MEMORY_NOT_FOUND`，删除后按原快照撤销恢复可再次成功。置顶、引用时间和未来过期时间不影响验证；v18 历史 operation 因缺少结果快照保持 `EVIDENCE_INCOMPLETE`。冷启动恢复不再次调用 `remember()`，原 operation ID 和回执保持不变。
-18. 下一步扩展恢复故障注入与产品呈现：在任务中心明确展示 `memory.remember` 的稳定失败原因和建议动作，并评估是否把相同的“提交快照 + 只读 probe”模式推广到下一个可验证写工具；通用执行栈、旧模型协程和 Workflow 后续步骤继续 fail-closed。
+18. 已完成：`memory.remember` 的八类只读恢复失败通过 `run.recovery_failed` typed event 保存稳定错误码、原因和建议动作；任务中心详情顶部直接显示恢复处理状态带，事件区保留完整字段。所有建议都要求创建新 Run，旧 Run 保持 `FAILED`。生产 Registry 当前只有 `notes.create` 与 `memory.remember` 两个写工具，不为套用模式虚构第三个写工具；通用执行栈、旧模型协程和 Workflow 后续步骤继续 fail-closed。
+19. 下一步建立独立 ToolCall/ToolResult Room Ledger：从现有 RunEvent typed metadata 双写开始，为调用参数、执行结果、回执、验证状态、错误和耗时提供稳定主键与查询边界；迁移期间 RunEvent 继续作为时间线事实源，必须验证双写一致性、旧 Run 兼容和进程重建查询。该阶段先改善审计与恢复证据定位，不扩大通用原地恢复能力。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

@@ -50,6 +50,7 @@ object AgentStepTypes {
 object AgentEventTypes {
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
+    const val RECOVERY_FAILED = "run.recovery_failed"
 }
 
 enum class AgentLlmPhase {
@@ -157,6 +158,13 @@ sealed interface RunEventMetadata {
         val fromStatus: AgentRunStatus,
         val toStatus: AgentRunStatus,
         val reason: String,
+    ) : RunEventMetadata
+
+    data class RecoveryFailure(
+        val toolName: String,
+        val code: String,
+        val reason: String,
+        val suggestedAction: String,
     ) : RunEventMetadata
 }
 
@@ -438,7 +446,20 @@ data class ToolExecutionResult(
     val verified: Boolean? = null,
     val memoryIdsUsed: List<String> = emptyList(),
     val executionReceipt: ToolExecutionReceipt? = null,
+    val recoveryFailure: ToolRecoveryFailure? = null,
 )
+
+data class ToolRecoveryFailure(
+    val code: String,
+    val reason: String,
+    val suggestedAction: String,
+) {
+    init {
+        require(code.isNotBlank()) { "恢复失败码不能为空" }
+        require(reason.isNotBlank()) { "恢复失败原因不能为空" }
+        require(suggestedAction.isNotBlank()) { "恢复失败建议不能为空" }
+    }
+}
 
 fun interface AgentRuntimeFaultInjector {
     fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult)

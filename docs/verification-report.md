@@ -856,3 +856,19 @@ TDD、自动化与真机可用性：
 - instrumentation 后覆盖安装最终 Debug APK，Redmi 冷启动到 `com.longdev.xiaoling/.MainActivity`；原 Provider 与 `gpt-5.4-mini` 仍可用。最终真实普通对话 `Reply only OK final recovery smoke` 在 4.83 秒返回 HTTP 200 和 `OK`，默认 User-Agent 正确，Authorization 日志保持脱敏，crash buffer 为空。
 - 以 `08a4002` 为固定点的 Standards/Spec 双轴审查均已完成；修复注释理由、重复成功文案、文档残留、完整字段矩阵和磁盘 Room 冷启动覆盖后，两轴最终均为 0 项 finding。
 - 最终 Debug APK SHA-256：`c3b8c5cee6d7a7fcf9ad00428247611980526eb621deb5ace01c7edbfb3468e9`。
+
+## 2026-07-19 `memory.remember` 恢复失败产品呈现
+
+实现与边界：
+
+- `ToolRecoveryFailure` 统一携带稳定错误码、用户可读原因和建议动作；`XiaoLingToolRegistry` 覆盖 `OPERATION_NOT_FOUND / EVIDENCE_INCOMPLETE / PAYLOAD_MISMATCH / OPERATION_MISMATCH / MEMORY_NOT_FOUND / MEMORY_CHANGED / MEMORY_DISABLED / MEMORY_EXPIRED` 八类只读恢复失败。
+- Runtime 只把结构化恢复失败写成 `run.recovery_failed + RunEventMetadata.RecoveryFailure`；普通恢复异常仍写 `run.failed`。失败 Run 和活动 Step 收敛为 `FAILED`，不会继续旧 Run、旧模型协程或 Workflow 后续步骤。
+- 任务中心详情顶部显示最新恢复处理状态带，事件列表继续展示工具名、错误码、原因和建议。所有建议均明确要求修复记忆状态后创建新 Run，旧 Run 保持不变。
+- 生产 Registry 当前没有第三个适合推广“提交快照 + 只读 probe”的写工具，因此本阶段没有虚构工具或放宽恢复白名单；下一阶段转向独立 ToolCall/ToolResult Room Ledger。
+
+自动化与双机验收：
+
+- JVM 测试覆盖结构化失败从 Registry 到 Runtime、JSON 往返、旧事件兼容、八类建议映射和任务中心呈现；Room instrumentation 覆盖 typed event 持久化往返。完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；205 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 55 条 instrumentation，合计 110 条全部通过。
+- Redmi 临时构造 `MEMORY_DISABLED` 失败 Run，任务中心顶部状态带与事件字段均可见；UI tree 和截图确认无截断、重叠或横向溢出。临时 Run、Step、Event 已从生产库清理，查询结果为 0；应用最终 force-stop，Provider 数据未修改。
+- 最终 Debug APK SHA-256：`7e62e115fcd7ca1ff2016dad0feac8234f068e9d7a9170384549b9f79c98bf63`。

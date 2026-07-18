@@ -5,6 +5,23 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun recoveryFailureGuidanceRoundTrips() {
+        val metadata = RunEventMetadata.RecoveryFailure(
+            toolName = "memory.remember",
+            code = "MEMORY_EXPIRED",
+            reason = "原长期记忆已过期",
+            suggestedAction = "请先更新过期时间，再创建新 Run 重试。",
+        )
+
+        val restored = RunEventMetadataCodec.decode(
+            AgentEventTypes.RECOVERY_FAILED,
+            RunEventMetadataCodec.encode(metadata),
+        )
+
+        assertEquals(metadata, restored)
+    }
+
+    @Test
     fun recoverySummaryReasonRoundTrips() {
         val metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程")
 

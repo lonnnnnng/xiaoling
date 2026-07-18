@@ -14,6 +14,27 @@ import org.junit.Test
 
 class AgentRunEventPresentationTest {
     @Test
+    fun recoveryFailureShowsStableReasonAndSuggestedAction() {
+        val presentation = presentAgentRunEvent(
+            type = "run.recovery_failed",
+            message = "恢复验证失败",
+            metadata = RunEventMetadata.RecoveryFailure(
+                toolName = "memory.remember",
+                code = "MEMORY_CHANGED",
+                reason = "原长期记忆业务字段已修改",
+                suggestedAction = "请保留当前编辑结果，并创建新 Run 重新确认。",
+            ),
+        )
+
+        assertEquals("恢复验证失败", presentation.summary)
+        assertEquals("memory.remember", presentation.fields.single { it.label == "工具" }.value)
+        assertEquals("MEMORY_CHANGED", presentation.fields.single { it.label == "错误码" }.value)
+        assertEquals("原长期记忆业务字段已修改", presentation.fields.single { it.label == "原因" }.value)
+        assertEquals("请保留当前编辑结果，并创建新 Run 重新确认。", presentation.fields.single { it.label == "建议" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
     fun llmRequestTelemetryIsPresentedWithoutPromptContent() {
         val presentation = presentAgentRunEvent(
             type = "llm.request.completed",

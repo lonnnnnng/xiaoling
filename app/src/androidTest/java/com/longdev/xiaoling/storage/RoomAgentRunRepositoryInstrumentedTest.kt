@@ -122,6 +122,33 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun recoveryFailureGuidanceRoundTripsThroughRepositorySnapshot() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-recovery-guidance",
+            userMessageId = "message-recovery-guidance",
+            goal = "展示恢复失败建议",
+        )
+        val metadata = RunEventMetadata.RecoveryFailure(
+            toolName = "memory.remember",
+            code = "MEMORY_DISABLED",
+            reason = "原长期记忆已禁用",
+            suggestedAction = "请先启用该记忆，再创建新 Run 重试。",
+        )
+
+        repository.appendEvent(
+            runId = run.id,
+            type = com.longdev.xiaoling.agent.AgentEventTypes.RECOVERY_FAILED,
+            message = "恢复验证失败",
+            metadata = metadata,
+        )
+
+        val restored = repository.snapshot(run.id).events
+            .single { it.type == com.longdev.xiaoling.agent.AgentEventTypes.RECOVERY_FAILED }
+        assertEquals(metadata, restored.metadata)
+        assertEquals("恢复验证失败", restored.message)
+    }
+
+    @Test
     fun toolResultMemoryIdsRoundTripThroughRepositorySnapshot() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-memory-audit",

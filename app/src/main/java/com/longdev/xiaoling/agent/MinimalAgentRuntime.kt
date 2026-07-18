@@ -290,7 +290,12 @@ class MinimalAgentRuntime(
                 ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
             validateExecutionReceipt(recovery.toolCall, recoveredResult)
             require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
-            require(recoveredResult.success) { "已提交工具结果恢复验证失败：${recoveredResult.content}" }
+            if (!recoveredResult.success) {
+                recoveredResult.recoveryFailure?.let { failure ->
+                    throw ToolRecoveryFailureException(recovery.toolCall.name, failure, recoveredResult.content)
+                }
+                error("已提交工具结果恢复验证失败：${recoveredResult.content}")
+            }
             when (definition.verificationPolicy) {
                 ToolVerificationPolicy.RESULT_READABLE -> require(recoveredResult.content.isNotBlank()) {
                     "恢复验证的工具结果为空"
@@ -330,7 +335,23 @@ class MinimalAgentRuntime(
             withContext(NonCancellable) {
                 val reason = error.message ?: "已提交工具结果恢复验证失败"
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                val recoveryFailure = error as? ToolRecoveryFailureException
+                if (recoveryFailure == null) {
+                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                } else {
+                    // long: 恢复失败码和建议动作以 typed event 独立落库，任务中心不需要解析异常文案，也不会因后续措辞调整丢失可操作信息。
+                    ledger.appendEvent(
+                        run.id,
+                        AgentEventTypes.RECOVERY_FAILED,
+                        reason,
+                        RunEventMetadata.RecoveryFailure(
+                            toolName = recoveryFailure.toolName,
+                            code = recoveryFailure.failure.code,
+                            reason = recoveryFailure.failure.reason,
+                            suggestedAction = recoveryFailure.failure.suggestedAction,
+                        ),
+                    )
+                }
                 ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
             }
             throw error
@@ -832,6 +853,12 @@ class MinimalAgentRuntime(
         }
     }
 }
+
+private class ToolRecoveryFailureException(
+    val toolName: String,
+    val failure: ToolRecoveryFailure,
+    detail: String,
+) : IllegalStateException("已提交工具结果恢复验证失败：$detail")
 
 private const val MEMORY_RECALL_DISABLED_EVENT_TYPE = "memory.recall.disabled"
 

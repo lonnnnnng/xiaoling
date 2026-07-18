@@ -310,7 +310,7 @@
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 与 `memory.remember` 均为生产 `IDEMPOTENT_BY_KEY` 工具。笔记使用 ToolCall ID 的 Room 唯一索引，记忆使用独立 operation ledger 和提交结果快照；载荷漂移会被拒绝。进程重建时仅这两个白名单工具可依据完整历史证据回读原 operation，补齐后置验证和本地总结。
-- 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult 和失败终态安全重新运行。
+- 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult、失败终态安全重新运行，以及 `memory.remember` 恢复失败的稳定错误码、原因和新 Run 建议。
 - `MessageOrigin / VerifiedAgentContext` 可信来源边界和三类独立提示词设置。
 - Workflow Ledger、一次性 WorkManager 非精确定时、计划/实际时间、结果通知，以及后台审批 `BLOCKED` 终态。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
@@ -362,7 +362,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v19 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`notes.create` 与 `memory.remember` 均具备 ToolCall 级存储幂等证明和受限验证阶段恢复。记忆 operation 额外保存提交结果业务快照，编辑、禁用、过期、删除和旧版本缺证据时 fail-closed；存储重放声明与只读恢复能力仍独立，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。独立 ToolCall/ToolResult 表、完整消息 parts 和 AgentProfile 仍待完成。
+当前状态：Room v19 Schema、迁移测试、RunEvent typed metadata、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成；`notes.create` 与 `memory.remember` 均具备 ToolCall 级存储幂等证明和受限验证阶段恢复。记忆 operation 额外保存提交结果业务快照，编辑、禁用、过期、删除和旧版本缺证据时 fail-closed；八类恢复失败已结构化为独立事件并在任务中心给出新 Run 建议。生产 Registry 没有第三个适合推广“提交快照 + 只读 probe”的写工具，下一阶段优先建立独立 ToolCall/ToolResult Ledger；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。完整消息 parts 和 AgentProfile 仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

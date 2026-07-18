@@ -465,11 +465,33 @@ class XiaoLingToolRegistry(
             AgentMemoryOperationVerificationFailure.MEMORY_DISABLED -> "原长期记忆已禁用"
             AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED -> "原长期记忆已过期"
         }
+        val suggestedAction = when (reason) {
+            AgentMemoryOperationVerificationFailure.OPERATION_NOT_FOUND ->
+                "请创建新 Run 重新保存这条记忆，原 operation 证据已不存在。"
+            AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE ->
+                "历史版本缺少结果快照，请创建新 Run 重新保存并建立完整证据。"
+            AgentMemoryOperationVerificationFailure.PAYLOAD_MISMATCH,
+            AgentMemoryOperationVerificationFailure.OPERATION_MISMATCH ->
+                "请创建新 Run 重新确认保存内容，不要继续使用当前旧 Run。"
+            AgentMemoryOperationVerificationFailure.MEMORY_NOT_FOUND ->
+                "如仍需保留该事实，请创建新 Run 重新保存。"
+            AgentMemoryOperationVerificationFailure.MEMORY_CHANGED ->
+                "请保留当前编辑结果，并创建新 Run 重新确认是否需要保存。"
+            AgentMemoryOperationVerificationFailure.MEMORY_DISABLED ->
+                "请先在长期记忆管理中启用该记忆，再创建新 Run 重试。"
+            AgentMemoryOperationVerificationFailure.MEMORY_EXPIRED ->
+                "请先在长期记忆管理中更新过期时间，再创建新 Run 重试。"
+        }
         return ToolExecutionResult(
             success = false,
             verified = false,
             content = "长期记忆恢复验证失败：${reason.name}（$detail）",
             executionReceipt = receipt,
+            recoveryFailure = ToolRecoveryFailure(
+                code = reason.name,
+                reason = detail,
+                suggestedAction = suggestedAction,
+            ),
         )
     }
 

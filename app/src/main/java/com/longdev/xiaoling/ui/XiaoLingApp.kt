@@ -4061,6 +4061,9 @@ private fun AgentRunHistoryItemCard(
 private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
     val snapshot = detail.snapshot
     val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
+    val recoveryFailure = snapshot.events.asReversed().firstNotNullOfOrNull { event ->
+        event.metadata as? RunEventMetadata.RecoveryFailure
+    }
     val toolResults = snapshot.events.mapNotNull { event ->
         (event.metadata as? RunEventMetadata.ToolResult)?.let { metadata -> event to metadata }
     }
@@ -4096,6 +4099,9 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+            recoveryFailure?.let { failure ->
+                AgentRecoveryFailureGuidance(failure)
             }
 
             AgentRunDetailSection("运行指标") {
@@ -4143,6 +4149,52 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AgentRecoveryFailureGuidance(failure: RunEventMetadata.RecoveryFailure) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(15.dp),
+            )
+            Text(
+                text = "恢复处理 · ${failure.toolName}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = failure.code,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Text(
+            text = failure.reason,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        Text(
+            text = "建议：${failure.suggestedAction}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
     }
 }
 
