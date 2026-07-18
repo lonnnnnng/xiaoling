@@ -253,11 +253,29 @@ interface WorkflowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStep(step: WorkflowStepEntity)
 
+    @Query("SELECT * FROM workflow_schedules ORDER BY updatedAt DESC")
+    suspend fun listWorkflowSchedules(): List<WorkflowScheduleEntity>
+
+    @Query("SELECT * FROM workflow_schedules WHERE id = :scheduleId")
+    suspend fun getWorkflowSchedule(scheduleId: String): WorkflowScheduleEntity?
+
+    @Query("SELECT * FROM workflow_schedules WHERE workflowId = :workflowId LIMIT 1")
+    suspend fun getWorkflowScheduleByWorkflowId(workflowId: String): WorkflowScheduleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkflowSchedule(schedule: WorkflowScheduleEntity)
+
+    @Query("UPDATE workflow_schedules SET enabled = 0, nextTaskId = NULL, nextPlannedAt = NULL, updatedAt = :updatedAt WHERE workflowId = :workflowId")
+    suspend fun disableWorkflowScheduleForWorkflow(workflowId: String, updatedAt: Long): Int
+
     @Query("SELECT * FROM scheduled_tasks ORDER BY createdAt DESC")
     suspend fun listScheduledTasks(): List<ScheduledTaskEntity>
 
     @Query("SELECT * FROM scheduled_tasks WHERE id = :taskId")
     suspend fun getScheduledTask(taskId: String): ScheduledTaskEntity?
+
+    @Query("SELECT * FROM scheduled_tasks WHERE status = 'RUNNING' ORDER BY actualStartedAt ASC")
+    suspend fun getRunningScheduledTasks(): List<ScheduledTaskEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertScheduledTask(task: ScheduledTaskEntity)

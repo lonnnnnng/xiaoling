@@ -121,6 +121,7 @@ class ScheduledWorkflowOrchestratorTest {
             id = "scheduled-task-1",
             workflowId = "workflow-1",
             type = ScheduledTaskType.ONE_TIME,
+            scheduleId = null,
             status = ScheduledTaskStatus.RUNNING,
             plannedAt = 1_000L,
             workRequestId = "work-request-1",

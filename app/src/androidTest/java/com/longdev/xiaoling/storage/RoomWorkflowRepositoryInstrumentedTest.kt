@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.data.AgentRunEntity
@@ -92,6 +93,60 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals("agent-run-scheduled-1", storedRun.run.agentRunId)
         assertEquals(WorkflowRunStatus.BLOCKED, storedRun.run.status)
         assertEquals(WorkflowStepStatus.BLOCKED, storedRun.steps.single().status)
+    }
+
+    @Test
+    fun recurringScheduleReplacesPendingTaskAndMaterializesOnlyOneNextOccurrence() = runBlocking {
+        val workflow = repository.createWorkflow("周期回顾", "读取当前时间")
+        val daily = repository.createOrReplaceWorkflowSchedule(
+            workflow.id,
+            WorkflowScheduleType.DAILY,
+            hour = 9,
+            minute = 30,
+            dayOfWeek = null,
+            zoneId = "Asia/Shanghai",
+        )
+        val weekly = repository.createOrReplaceWorkflowSchedule(
+            workflow.id,
+            WorkflowScheduleType.WEEKLY,
+            hour = 10,
+            minute = 0,
+            dayOfWeek = 1,
+            zoneId = "Asia/Shanghai",
+        )
+
+        assertEquals(daily.schedule.id, weekly.schedule.id)
+        assertEquals(daily.task.id, weekly.replacedTaskId)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(daily.task.id)?.status)
+        assertEquals(WorkflowScheduleType.WEEKLY, repository.listWorkflowSchedules().single().type)
+
+        repository.finishScheduledTask(weekly.task.id, ScheduledTaskStatus.COMPLETED)
+        val next = repository.materializeNextOccurrence(weekly.task.id)!!
+        assertEquals(weekly.schedule.id, next.scheduleId)
+        assertTrue(next.plannedAt > weekly.task.plannedAt)
+        assertNull(repository.materializeNextOccurrence(weekly.task.id))
+        assertEquals(next.id, repository.listWorkflowSchedules().single().nextTaskId)
+    }
+
+    @Test
+    fun interruptedRecurringTaskSettlesFromWorkflowRunBeforeCreatingFutureOccurrence() = runBlocking {
+        val workflow = repository.createWorkflow("中断周期", "读取当前时间")
+        val plan = repository.createOrReplaceWorkflowSchedule(
+            workflow.id,
+            WorkflowScheduleType.DAILY,
+            hour = 9,
+            minute = 0,
+            dayOfWeek = null,
+            zoneId = "Asia/Shanghai",
+        )
+        val claim = repository.claimScheduledRun(plan.task.id)!!
+        repository.completeRun(claim.run.run.id, WorkflowRunStatus.FAILED, errorMessage = "应用重启后取消旧执行")
+
+        assertEquals(1, repository.reconcileInterruptedScheduledTasks())
+        assertEquals(ScheduledTaskStatus.FAILED, repository.getScheduledTask(plan.task.id)?.status)
+        val recovered = repository.reconcileWorkflowSchedules().single()
+        assertEquals(plan.schedule.id, recovered.scheduleId)
+        assertTrue(recovered.plannedAt > plan.task.plannedAt)
     }
 
     private fun agentRun(id: String, status: AgentRunStatus) = AgentRunEntity(

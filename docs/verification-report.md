@@ -572,3 +572,32 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - blocked Run 的 `ApprovalRequest` 数量为 `0`，目标正文 `blocked_background_test_20260718` 的笔记数量为 `0`，证明后台没有等待前台审批、没有继承临时授权且没有执行写入。
 - blocked 通知真实显示在锁屏通知区，标题为「工作流需要你处理 · BLOCKED_note_test」，正文提示打开应用以前台重试。
 - 全程未卸载、未清数据、未执行 instrumentation；最终 crash buffer 为空。Daily/Weekly、精确定时、Foreground Service 和后台执行中的断点续跑仍未验收。
+
+## 2026-07-18 Daily/Weekly 周期工作流验证
+
+设计与自动化验证：
+
+- 周期规则没有直接使用 `PeriodicWorkRequest`。每条规则只物化一个 `OneTimeWorkRequest`，每次执行保留独立 ScheduledTask/Workflow Run/Agent Run 终态，再按保存的 `ZoneId` 计算下一个未来墙上时间；该策略继续使用 WorkManager 非精确定时语义。
+- Room 升级到 v15，新增 `workflow_schedules` 和 `scheduled_tasks.scheduleId`；导出的 `15.json` 已生成。迁移测试源码覆盖 v14→v15，Repository instrumentation 源码覆盖规则创建、替换、停用和下一实例物化。
+- `WorkflowSchedulePolicy` 单元测试覆盖 Daily/Weekly 下一触发时间、已过时间推进一个周期、时区和非法字段；Repository/启动协调逻辑保证只补一个未来实例，不补跑历史周期，也不恢复旧执行栈。
+- 执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --console=plain`，构建成功；153 项 Debug 单元测试通过，lint、Debug APK 和 AndroidTest APK 均组装成功。为保护真机 Keystore API Key，没有执行 instrumentation。
+- Debug APK SHA-256：`f19fa0d8ab26409f2b8b9ff9c12bc263fb98f0d056ea6a6e639d67c8353389e9`。使用 `adb install -r` 覆盖安装到 `wsvwypiz7xwslvl7`，未卸载、未清数据；`versionName=0.1.9`、`versionCode=10`，`POST_NOTIFICATIONS` 保持授权。
+- 真机迁移确认 `PRAGMA user_version=15`，`workflow_schedules` 表和 `scheduled_tasks.scheduleId` 列存在，应用启动后 crash buffer 为空。
+
+Daily 执行与下一实例：
+
+- 在 `SAFE_time_test` 上通过 UI 创建 `每日 22:55 · Asia/Shanghai`。规则 ID 为 `workflow-schedule-b9d65489-1e78-4b8b-953f-1b3e1ba3428e`，首个 ScheduledTask 为 `scheduled-task-8520ed09-9ba1-49cd-9b4b-6facea510ace`，WorkRequest 为 `f68bb610-bd87-4ea5-9cf0-3357ad27cc1a`。
+- 首个实例计划时间 `2026-07-18 22:55:00`，实际同秒启动，`22:55:09` 完成。Workflow Run `workflow-run-d473feb7-c1de-4ef1-bbb6-a8fce4601347` 与 Agent Run `run-3f9aafff-8d09-4fe1-a268-0821515e7656` 均为 `COMPLETED`，真实工具结果为 `app.current_time` 返回 `2026-07-18 22:55:02 · Asia/Shanghai`。
+- 终态后自动生成 `scheduled-task-877916e0-f5f9-4b9e-b7c3-c0c90a724079`，计划时间为次日 `2026-07-19 22:55:00`，WorkRequest 为 `46501ad7-deeb-4b90-9f61-bdba028e7377`；Task 和 WorkRequest ID 均与首个实例不同。
+
+规则替换与停用：
+
+- 将规则替换为 `每周一 22:55` 后，7 月 19 日旧实例进入 `CANCELLED`，错误摘要为「周期规则已更新」；WorkManager 对应 WorkSpec 状态为 `CANCELLED(5)`。
+- 同一规则只保留一个新未来实例 `scheduled-task-efb7a081-409a-4d0e-9b56-e63d4fb2a1c4`，计划时间为 `2026-07-20 22:55:00`，WorkRequest `145379b7-89a1-45d1-8d6a-fb44a67a9194` 在 WorkManager 中为 `ENQUEUED(0)`。
+- 通过页面“停用周期计划”后，Room 中规则 `enabled=0` 且清空 `nextTaskId / nextPlannedAt`；新周实例变为 `CANCELLED`，WorkManager 同一 WorkRequest 同步为 `CANCELLED(5)`，没有生成额外实例。
+- 1080×2340 真机页面已检查创建弹窗、周期摘要和展开历史；每日/每周信息、时区、取消原因、Workflow/Agent 结果均完整显示，没有文字、按钮或卡片重叠。最终 crash buffer 为空。
+
+当前边界：
+
+- 本轮真机确认了外部模型可完成真实后台 SAFE 请求，但没有再次执行触发前杀进程的周期实例；周期启动恢复由单元测试、已编译的 Repository instrumentation 源码和此前一次性任务冷启动真机证据覆盖。
+- Daily/Weekly 仍不是精确定时，不使用 AlarmManager 或 Foreground Service；后台执行中断后不恢复旧 Agent 执行栈，旧 Run 保持可审计终态并只生成未来周期实例。

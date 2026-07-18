@@ -26,8 +26,9 @@ import org.json.JSONObject
         WorkflowRunEntity::class,
         WorkflowStepEntity::class,
         ScheduledTaskEntity::class,
+        WorkflowScheduleEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -40,7 +41,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 14
+        const val CURRENT_VERSION = 15
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -388,6 +389,35 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `scheduled_tasks` ADD COLUMN `scheduleId` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_scheduled_tasks_scheduleId_plannedAt` ON `scheduled_tasks` (`scheduleId`, `plannedAt`)")
+                // long: 周期定义与每次执行实例分表保存；规则只指向下一次物化任务，历史 ScheduledTask 和 Workflow Run 永久保留各自结果。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `workflow_schedules` (
+                        `id` TEXT NOT NULL,
+                        `workflowId` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `timeOfDayMinutes` INTEGER NOT NULL,
+                        `dayOfWeek` INTEGER,
+                        `zoneId` TEXT NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `nextTaskId` TEXT,
+                        `nextPlannedAt` INTEGER,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_schedules_workflowId` ON `workflow_schedules` (`workflowId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_workflow_schedules_enabled_nextPlannedAt` ON `workflow_schedules` (`enabled`, `nextPlannedAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_workflow_schedules_nextTaskId` ON `workflow_schedules` (`nextTaskId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -402,6 +432,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_11_12,
             MIGRATION_12_13,
             MIGRATION_13_14,
+            MIGRATION_14_15,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

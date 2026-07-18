@@ -265,6 +265,7 @@ data class WorkflowRunEntity(
     tableName = "scheduled_tasks",
     indices = [
         Index(value = ["workflowId", "plannedAt"]),
+        Index(value = ["scheduleId", "plannedAt"]),
         Index(value = ["status", "plannedAt"]),
         Index(value = ["workRequestId"], unique = true),
         Index(value = ["workflowRunId"], unique = true),
@@ -274,6 +275,7 @@ data class ScheduledTaskEntity(
     @PrimaryKey val id: String,
     val workflowId: String,
     val type: String,
+    val scheduleId: String?,
     val status: String,
     val plannedAt: Long,
     val workRequestId: String?,
@@ -281,6 +283,28 @@ data class ScheduledTaskEntity(
     val actualStartedAt: Long?,
     val completedAt: Long?,
     val errorMessage: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "workflow_schedules",
+    indices = [
+        Index(value = ["workflowId"], unique = true),
+        Index(value = ["enabled", "nextPlannedAt"]),
+        Index(value = ["nextTaskId"], unique = true),
+    ],
+)
+data class WorkflowScheduleEntity(
+    @PrimaryKey val id: String,
+    val workflowId: String,
+    val type: String,
+    val timeOfDayMinutes: Int,
+    val dayOfWeek: Int?,
+    val zoneId: String,
+    val enabled: Boolean,
+    val nextTaskId: String?,
+    val nextPlannedAt: Long?,
     val createdAt: Long,
     val updatedAt: Long,
 )

@@ -5,6 +5,11 @@ import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
+import com.longdev.xiaoling.automation.WorkflowScheduleCancellation
+import com.longdev.xiaoling.automation.WorkflowSchedulePlan
+import com.longdev.xiaoling.automation.WorkflowSchedulePolicy
+import com.longdev.xiaoling.automation.WorkflowScheduleRecord
+import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
@@ -19,11 +24,13 @@ import com.longdev.xiaoling.automation.WorkflowTrigger
 import com.longdev.xiaoling.data.WorkflowEntity
 import com.longdev.xiaoling.data.WorkflowRunEntity
 import com.longdev.xiaoling.data.WorkflowStepEntity
+import com.longdev.xiaoling.data.WorkflowScheduleEntity
 import com.longdev.xiaoling.data.ScheduledTaskEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.MessageEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
+import java.time.ZoneId
 import java.util.UUID
 
 class RoomWorkflowRepository(
@@ -52,9 +59,16 @@ class RoomWorkflowRepository(
     }
 
     suspend fun setEnabled(workflowId: String, enabled: Boolean): WorkflowRecord? {
-        val dao = database.workflowDao()
-        if (dao.setWorkflowEnabled(workflowId, enabled, System.currentTimeMillis()) == 0) return null
-        return dao.getWorkflow(workflowId)?.toRecord()
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val now = System.currentTimeMillis()
+            if (dao.setWorkflowEnabled(workflowId, enabled, now) == 0) return@withTransaction null
+            if (!enabled) {
+                // long: 停用工作流同时关闭周期规则，但保留当前待执行任务给调用方取消系统队列；Worker 即使抢先启动也会因工作流停用而拒绝领取。
+                dao.disableWorkflowScheduleForWorkflow(workflowId, now)
+            }
+            dao.getWorkflow(workflowId)?.toRecord()
+        }
     }
 
     suspend fun createManualRun(workflowId: String, conversationId: String): WorkflowRunDetail {
@@ -105,6 +119,10 @@ class RoomWorkflowRepository(
         return database.workflowDao().listScheduledTasks().map { it.toRecord() }
     }
 
+    suspend fun listWorkflowSchedules(): List<WorkflowScheduleRecord> {
+        return database.workflowDao().listWorkflowSchedules().map { it.toRecord() }
+    }
+
     suspend fun getWorkflow(workflowId: String): WorkflowRecord? {
         return database.workflowDao().getWorkflow(workflowId)?.toRecord()
     }
@@ -124,6 +142,7 @@ class RoomWorkflowRepository(
                 id = "scheduled-task-${UUID.randomUUID()}",
                 workflowId = workflowId,
                 type = ScheduledTaskType.ONE_TIME.name,
+                scheduleId = null,
                 status = ScheduledTaskStatus.SCHEDULED.name,
                 plannedAt = plannedAt,
                 workRequestId = null,
@@ -138,6 +157,211 @@ class RoomWorkflowRepository(
             task.toRecord()
         }
     }
+
+    suspend fun createOrReplaceWorkflowSchedule(
+        workflowId: String,
+        type: WorkflowScheduleType,
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int?,
+        zoneId: String = ZoneId.systemDefault().id,
+    ): WorkflowSchedulePlan {
+        require(hour in 0..23) { "周期小时必须在 0 到 23 之间" }
+        require(minute in 0..59) { "周期分钟必须在 0 到 59 之间" }
+        val timeOfDayMinutes = Math.addExact(Math.multiplyExact(hour, 60), minute)
+        WorkflowSchedulePolicy.validate(type, timeOfDayMinutes, dayOfWeek, zoneId)
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val workflow = dao.getWorkflow(workflowId) ?: error("工作流不存在：$workflowId")
+            require(workflow.enabled) { "工作流已停用，不能创建周期计划" }
+            val now = System.currentTimeMillis()
+            val existing = dao.getWorkflowScheduleByWorkflowId(workflowId)
+            val replacedTask = existing?.nextTaskId
+                ?.let { taskId -> dao.getScheduledTask(taskId) }
+                ?.takeIf { it.status == ScheduledTaskStatus.SCHEDULED.name }
+            replacedTask?.let { task ->
+                dao.upsertScheduledTask(
+                    task.copy(
+                        status = ScheduledTaskStatus.CANCELLED.name,
+                        completedAt = now,
+                        errorMessage = "周期规则已更新",
+                        updatedAt = now,
+                    ),
+                )
+            }
+            val plannedAt = WorkflowSchedulePolicy.nextPlannedAt(now, type, timeOfDayMinutes, dayOfWeek, zoneId)
+            val task = recurringTask(workflowId, existing?.id ?: "workflow-schedule-${UUID.randomUUID()}", plannedAt, now)
+            val schedule = WorkflowScheduleEntity(
+                id = task.scheduleId!!,
+                workflowId = workflowId,
+                type = type.name,
+                timeOfDayMinutes = timeOfDayMinutes,
+                dayOfWeek = dayOfWeek,
+                zoneId = zoneId,
+                enabled = true,
+                nextTaskId = task.id,
+                nextPlannedAt = task.plannedAt,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now,
+            )
+            dao.upsertScheduledTask(task)
+            dao.upsertWorkflowSchedule(schedule)
+            WorkflowSchedulePlan(schedule.toRecord(), task.toRecord(), replacedTask?.id)
+        }
+    }
+
+    suspend fun cancelWorkflowSchedule(scheduleId: String): WorkflowScheduleCancellation? {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction null
+            val now = System.currentTimeMillis()
+            val pendingTask = schedule.nextTaskId
+                ?.let { taskId -> dao.getScheduledTask(taskId) }
+                ?.takeIf { it.status == ScheduledTaskStatus.SCHEDULED.name }
+            pendingTask?.let { task ->
+                dao.upsertScheduledTask(
+                    task.copy(
+                        status = ScheduledTaskStatus.CANCELLED.name,
+                        completedAt = now,
+                        errorMessage = "周期计划已停用",
+                        updatedAt = now,
+                    ),
+                )
+            }
+            val updated = schedule.copy(
+                enabled = false,
+                nextTaskId = null,
+                nextPlannedAt = null,
+                updatedAt = now,
+            )
+            dao.upsertWorkflowSchedule(updated)
+            WorkflowScheduleCancellation(updated.toRecord(), pendingTask?.id)
+        }
+    }
+
+    suspend fun materializeNextOccurrence(completedTaskId: String): ScheduledTaskRecord? {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val completedTask = dao.getScheduledTask(completedTaskId) ?: return@withTransaction null
+            val scheduleId = completedTask.scheduleId ?: return@withTransaction null
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction null
+            if (!schedule.enabled || schedule.nextTaskId != completedTask.id) return@withTransaction null
+            if (completedTask.status !in TERMINAL_SCHEDULED_TASK_STATUSES.map { it.name }) return@withTransaction null
+            val workflow = dao.getWorkflow(schedule.workflowId)
+            if (workflow == null || !workflow.enabled) {
+                dao.upsertWorkflowSchedule(
+                    schedule.copy(enabled = false, nextTaskId = null, nextPlannedAt = null, updatedAt = System.currentTimeMillis()),
+                )
+                return@withTransaction null
+            }
+            val now = System.currentTimeMillis()
+            val referenceTime = maxOf(now, completedTask.plannedAt)
+            val nextPlannedAt = WorkflowSchedulePolicy.nextPlannedAt(
+                now = referenceTime,
+                type = schedule.toRecord().type,
+                timeOfDayMinutes = schedule.timeOfDayMinutes,
+                dayOfWeek = schedule.dayOfWeek,
+                zoneId = schedule.zoneId,
+            )
+            val nextTask = recurringTask(schedule.workflowId, schedule.id, nextPlannedAt, now)
+            dao.upsertScheduledTask(nextTask)
+            dao.upsertWorkflowSchedule(
+                schedule.copy(nextTaskId = nextTask.id, nextPlannedAt = nextTask.plannedAt, updatedAt = now),
+            )
+            nextTask.toRecord()
+        }
+    }
+
+    suspend fun reconcileWorkflowSchedules(): List<ScheduledTaskRecord> {
+        val schedules = database.workflowDao().listWorkflowSchedules().filter { it.enabled }
+        val tasksToEnqueue = mutableListOf<ScheduledTaskRecord>()
+        schedules.forEach { schedule ->
+            val currentTask = schedule.nextTaskId?.let { database.workflowDao().getScheduledTask(it) }
+            when {
+                currentTask == null -> materializeMissingOccurrence(schedule.id)?.let(tasksToEnqueue::add)
+                currentTask.status == ScheduledTaskStatus.SCHEDULED.name && currentTask.workRequestId == null -> {
+                    tasksToEnqueue += currentTask.toRecord()
+                }
+                currentTask.status in TERMINAL_SCHEDULED_TASK_STATUSES.map { it.name } -> {
+                    materializeNextOccurrence(currentTask.id)?.let(tasksToEnqueue::add)
+                }
+            }
+        }
+        return tasksToEnqueue
+    }
+
+    suspend fun reconcileInterruptedScheduledTasks(): Int {
+        val dao = database.workflowDao()
+        var reconciled = 0
+        dao.getRunningScheduledTasks().forEach { task ->
+            val workflowRun = task.workflowRunId?.let { runId -> dao.getRun(runId) }
+            val terminalStatus = when (workflowRun?.status) {
+                WorkflowRunStatus.COMPLETED.name -> ScheduledTaskStatus.COMPLETED
+                WorkflowRunStatus.BLOCKED.name -> ScheduledTaskStatus.BLOCKED
+                WorkflowRunStatus.CANCELLED.name -> ScheduledTaskStatus.CANCELLED
+                WorkflowRunStatus.FAILED.name -> ScheduledTaskStatus.FAILED
+                else -> ScheduledTaskStatus.FAILED
+            }
+            val error = workflowRun?.errorMessage
+                ?: "应用重启后无法恢复后台执行栈"
+            // long: 启动恢复只依据已收敛的 Workflow Run 关闭旧实例，不重放模型或工具；周期规则随后从未来时间继续，避免重复副作用。
+            finishScheduledTask(
+                task.id,
+                terminalStatus,
+                error.takeIf { terminalStatus != ScheduledTaskStatus.COMPLETED },
+            )
+            reconciled += 1
+        }
+        return reconciled
+    }
+
+    private suspend fun materializeMissingOccurrence(scheduleId: String): ScheduledTaskRecord? {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction null
+            if (!schedule.enabled || schedule.nextTaskId != null) return@withTransaction null
+            val workflow = dao.getWorkflow(schedule.workflowId)
+            if (workflow == null || !workflow.enabled) {
+                dao.upsertWorkflowSchedule(schedule.copy(enabled = false, updatedAt = System.currentTimeMillis()))
+                return@withTransaction null
+            }
+            val now = System.currentTimeMillis()
+            val plannedAt = WorkflowSchedulePolicy.nextPlannedAt(
+                now = now,
+                type = schedule.toRecord().type,
+                timeOfDayMinutes = schedule.timeOfDayMinutes,
+                dayOfWeek = schedule.dayOfWeek,
+                zoneId = schedule.zoneId,
+            )
+            val task = recurringTask(schedule.workflowId, schedule.id, plannedAt, now)
+            dao.upsertScheduledTask(task)
+            dao.upsertWorkflowSchedule(
+                schedule.copy(nextTaskId = task.id, nextPlannedAt = task.plannedAt, updatedAt = now),
+            )
+            task.toRecord()
+        }
+    }
+
+    private fun recurringTask(
+        workflowId: String,
+        scheduleId: String,
+        plannedAt: Long,
+        now: Long,
+    ) = ScheduledTaskEntity(
+        id = "scheduled-task-${UUID.randomUUID()}",
+        workflowId = workflowId,
+        type = ScheduledTaskType.RECURRING.name,
+        scheduleId = scheduleId,
+        status = ScheduledTaskStatus.SCHEDULED.name,
+        plannedAt = plannedAt,
+        workRequestId = null,
+        workflowRunId = null,
+        actualStartedAt = null,
+        completedAt = null,
+        errorMessage = null,
+        createdAt = now,
+        updatedAt = now,
+    )
 
     suspend fun attachWorkRequest(taskId: String, workRequestId: String): ScheduledTaskRecord {
         return database.withTransaction {
@@ -485,6 +709,7 @@ class RoomWorkflowRepository(
         id = id,
         workflowId = workflowId,
         type = runCatching { ScheduledTaskType.valueOf(type) }.getOrDefault(ScheduledTaskType.ONE_TIME),
+        scheduleId = scheduleId,
         status = runCatching { ScheduledTaskStatus.valueOf(status) }.getOrDefault(ScheduledTaskStatus.FAILED),
         plannedAt = plannedAt,
         workRequestId = workRequestId,
@@ -492,6 +717,20 @@ class RoomWorkflowRepository(
         actualStartedAt = actualStartedAt,
         completedAt = completedAt,
         errorMessage = errorMessage,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+    private fun WorkflowScheduleEntity.toRecord() = WorkflowScheduleRecord(
+        id = id,
+        workflowId = workflowId,
+        type = runCatching { WorkflowScheduleType.valueOf(type) }.getOrDefault(WorkflowScheduleType.DAILY),
+        timeOfDayMinutes = timeOfDayMinutes,
+        dayOfWeek = dayOfWeek,
+        zoneId = zoneId,
+        enabled = enabled,
+        nextTaskId = nextTaskId,
+        nextPlannedAt = nextPlannedAt,
         createdAt = createdAt,
         updatedAt = updatedAt,
     )

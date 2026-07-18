@@ -51,6 +51,7 @@ class ScheduledWorkflowExecutor(
     private val notifier: ScheduledTaskNotifier = ScheduledTaskNotifier(context.applicationContext),
     private val client: OpenAiCompatibleClient = OpenAiCompatibleClient(),
     private val uiPreferenceStore: UiPreferenceStore = UiPreferenceStore(context.applicationContext),
+    private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(context.applicationContext),
 ) {
     private val agentRunUseCase = AgentRunUseCase(context.applicationContext, client)
     private val orchestrator = ScheduledWorkflowOrchestrator(
@@ -67,7 +68,24 @@ class ScheduledWorkflowExecutor(
     )
 
     suspend fun execute(taskId: String) {
-        orchestrator.execute(taskId)
+        try {
+            orchestrator.execute(taskId)
+        } finally {
+            withContext(NonCancellable) {
+                scheduleNextOccurrence(taskId)
+            }
+        }
+    }
+
+    private suspend fun scheduleNextOccurrence(completedTaskId: String) {
+        val nextTask = workflowRepository.materializeNextOccurrence(completedTaskId) ?: return
+        try {
+            val workRequestId = scheduledTaskScheduler.enqueue(nextTask)
+            workflowRepository.attachWorkRequest(nextTask.id, workRequestId)
+        } catch (error: Throwable) {
+            // long: 当前执行结果已经落库，下一次入队失败只关闭新实例；规则仍保留，应用下次启动会从终态实例继续物化未来周期。
+            workflowRepository.failScheduling(nextTask.id, error.message ?: "周期任务入队失败")
+        }
     }
 
     private suspend fun runAgent(

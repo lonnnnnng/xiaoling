@@ -78,6 +78,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -143,10 +144,13 @@ import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowScheduleRecord
+import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
@@ -2078,6 +2082,7 @@ private fun WorkflowManagementPage(
                     val workflow = state.workflows[index]
                     val runs = state.workflowRuns.filter { it.run.workflowId == workflow.id }
                     val tasks = state.scheduledTasks.filter { it.workflowId == workflow.id }
+                    val schedule = state.workflowSchedules.firstOrNull { it.workflowId == workflow.id }
                     val latestRun = runs.firstOrNull()
                     WorkflowItem(
                         workflowName = workflow.name,
@@ -2091,11 +2096,14 @@ private fun WorkflowManagementPage(
                         ),
                         runs = runs,
                         scheduledTasks = tasks,
+                        workflowSchedule = schedule,
                         mutatingScheduledTaskIds = state.mutatingScheduledTaskIds,
+                        mutatingWorkflowScheduleIds = state.mutatingWorkflowScheduleIds,
                         onEnabledChange = { enabled -> viewModel.setWorkflowEnabled(workflow.id, enabled) },
                         onRun = { viewModel.runWorkflow(workflow.id) },
                         onSchedule = { schedulingWorkflowId = workflow.id },
                         onCancelScheduledTask = viewModel::cancelScheduledTask,
+                        onCancelWorkflowSchedule = viewModel::cancelWorkflowSchedule,
                     )
                 }
             }
@@ -2116,10 +2124,16 @@ private fun WorkflowManagementPage(
         if (workflow != null) {
             WorkflowScheduleDialog(
                 workflowName = workflow.name,
+                existingSchedule = state.workflowSchedules.firstOrNull { it.workflowId == workflowId },
                 scheduling = state.schedulingWorkflowId == workflowId,
-                onConfirm = { delayMinutes ->
+                onConfirmOnce = { delayMinutes ->
                     onRequestNotificationPermission()
                     viewModel.scheduleWorkflowOnce(workflowId, delayMinutes)
+                    schedulingWorkflowId = null
+                },
+                onConfirmRecurring = { type, hour, minute, dayOfWeek ->
+                    onRequestNotificationPermission()
+                    viewModel.scheduleWorkflowRecurring(workflowId, type, hour, minute, dayOfWeek)
                     schedulingWorkflowId = null
                 },
                 onDismiss = { schedulingWorkflowId = null },
@@ -2138,11 +2152,14 @@ private fun WorkflowItem(
     running: Boolean,
     runs: List<WorkflowRunDetail>,
     scheduledTasks: List<ScheduledTaskRecord>,
+    workflowSchedule: WorkflowScheduleRecord?,
     mutatingScheduledTaskIds: Set<String>,
+    mutatingWorkflowScheduleIds: Set<String>,
     onEnabledChange: (Boolean) -> Unit,
     onRun: () -> Unit,
     onSchedule: () -> Unit,
     onCancelScheduledTask: (String) -> Unit,
+    onCancelWorkflowSchedule: (String) -> Unit,
 ) {
     var expanded by remember(workflowName) { mutableStateOf(false) }
     val latestRun = runs.firstOrNull()
@@ -2188,7 +2205,7 @@ private fun WorkflowItem(
                     if (scheduling) {
                         CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.5.dp)
                     } else {
-                        Icon(Icons.Default.Schedule, contentDescription = "创建一次性计划", modifier = Modifier.size(17.dp))
+                        Icon(Icons.Default.Schedule, contentDescription = "创建计划", modifier = Modifier.size(17.dp))
                     }
                 }
                 Switch(
@@ -2199,6 +2216,27 @@ private fun WorkflowItem(
                 )
             }
             Text(goal, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+            workflowSchedule?.takeIf { it.enabled }?.let { schedule ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        schedule.toWorkflowScheduleLabel(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = { onCancelWorkflowSchedule(schedule.id) },
+                        enabled = schedule.id !in mutatingWorkflowScheduleIds,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "停用周期计划", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
             scheduledTasks.firstOrNull()?.let { task ->
                 Text(
                     "计划：${task.plannedAt.toFullTimeLabel()} · ${task.status.toScheduledTaskStatusLabel()}",
@@ -2208,7 +2246,7 @@ private fun WorkflowItem(
             }
             if (expanded && scheduledTasks.isNotEmpty()) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Text("一次性计划", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Text("调度实例", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                 scheduledTasks.forEach { task ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -2217,7 +2255,7 @@ private fun WorkflowItem(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "计划 ${task.plannedAt.toFullTimeLabel()} · ${task.status.toScheduledTaskStatusLabel()}",
+                                "${if (task.type == ScheduledTaskType.RECURRING) "周期" else "一次"} · ${task.plannedAt.toFullTimeLabel()} · ${task.status.toScheduledTaskStatusLabel()}",
                                 style = MaterialTheme.typography.labelSmall,
                             )
                             task.actualStartedAt?.let { actual ->
@@ -2231,7 +2269,7 @@ private fun WorkflowItem(
                                 Text(error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                             }
                         }
-                        if (task.status == ScheduledTaskStatus.SCHEDULED) {
+                        if (task.type == ScheduledTaskType.ONE_TIME && task.status == ScheduledTaskStatus.SCHEDULED) {
                             IconButton(
                                 onClick = { onCancelScheduledTask(task.id) },
                                 enabled = task.id !in mutatingScheduledTaskIds,
@@ -2281,29 +2319,109 @@ private fun WorkflowItem(
 @Composable
 private fun WorkflowScheduleDialog(
     workflowName: String,
+    existingSchedule: WorkflowScheduleRecord?,
     scheduling: Boolean,
-    onConfirm: (Int) -> Unit,
+    onConfirmOnce: (Int) -> Unit,
+    onConfirmRecurring: (WorkflowScheduleType, Int, Int, Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var mode by remember(workflowName, existingSchedule?.updatedAt) {
+        mutableStateOf(
+            when (existingSchedule?.type) {
+                WorkflowScheduleType.DAILY -> WorkflowScheduleMode.DAILY
+                WorkflowScheduleType.WEEKLY -> WorkflowScheduleMode.WEEKLY
+                null -> WorkflowScheduleMode.ONE_TIME
+            },
+        )
+    }
     var delayMinutes by remember(workflowName) { mutableStateOf("1") }
+    var hour by remember(workflowName, existingSchedule?.updatedAt) {
+        mutableStateOf(existingSchedule?.let { (it.timeOfDayMinutes / 60).toString().padStart(2, '0') } ?: "09")
+    }
+    var minute by remember(workflowName, existingSchedule?.updatedAt) {
+        mutableStateOf(existingSchedule?.let { (it.timeOfDayMinutes % 60).toString().padStart(2, '0') } ?: "00")
+    }
+    var dayOfWeek by remember(workflowName, existingSchedule?.updatedAt) {
+        mutableIntStateOf(existingSchedule?.dayOfWeek ?: 1)
+    }
     val parsedDelay = delayMinutes.toIntOrNull()
-    val valid = parsedDelay != null && parsedDelay in ScheduledTaskPolicy.MIN_DELAY_MINUTES..ScheduledTaskPolicy.MAX_DELAY_MINUTES
+    val parsedHour = hour.toIntOrNull()
+    val parsedMinute = minute.toIntOrNull()
+    val valid = when (mode) {
+        WorkflowScheduleMode.ONE_TIME -> parsedDelay != null && parsedDelay in ScheduledTaskPolicy.MIN_DELAY_MINUTES..ScheduledTaskPolicy.MAX_DELAY_MINUTES
+        WorkflowScheduleMode.DAILY,
+        WorkflowScheduleMode.WEEKLY -> parsedHour != null && parsedHour in 0..23 && parsedMinute != null && parsedMinute in 0..59
+    }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = { if (!scheduling) onDismiss() },
-        title = { Text("一次性计划", style = MaterialTheme.typography.titleSmall) },
+        title = { Text("创建计划", style = MaterialTheme.typography.titleSmall) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(workflowName, style = MaterialTheme.typography.bodySmall)
-                CompactTextField(
-                    value = delayMinutes,
-                    onValueChange = { value -> delayMinutes = value.filter(Char::isDigit).take(5) },
-                    label = "延迟分钟",
-                    placeholder = "${ScheduledTaskPolicy.MIN_DELAY_MINUTES} - ${ScheduledTaskPolicy.MAX_DELAY_MINUTES}",
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    WorkflowScheduleMode.entries.forEach { option ->
+                        FilterChip(
+                            selected = mode == option,
+                            onClick = { mode = option },
+                            label = { Text(option.label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                when (mode) {
+                    WorkflowScheduleMode.ONE_TIME -> CompactTextField(
+                        value = delayMinutes,
+                        onValueChange = { value -> delayMinutes = value.filter(Char::isDigit).take(5) },
+                        label = "延迟分钟",
+                        placeholder = "${ScheduledTaskPolicy.MIN_DELAY_MINUTES} - ${ScheduledTaskPolicy.MAX_DELAY_MINUTES}",
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    WorkflowScheduleMode.DAILY,
+                    WorkflowScheduleMode.WEEKLY -> {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CompactTextField(
+                                value = hour,
+                                onValueChange = { hour = it.filter(Char::isDigit).take(2) },
+                                label = "小时",
+                                placeholder = "00 - 23",
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactTextField(
+                                value = minute,
+                                onValueChange = { minute = it.filter(Char::isDigit).take(2) },
+                                label = "分钟",
+                                placeholder = "00 - 59",
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        if (mode == WorkflowScheduleMode.WEEKLY) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                (1..7).forEach { day ->
+                                    FilterChip(
+                                        selected = dayOfWeek == day,
+                                        onClick = { dayOfWeek = day },
+                                        label = { Text(day.toWeekdayLabel(), style = MaterialTheme.typography.labelSmall) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 Text(
-                    "这是非精确定时，系统可能在计划时间后延迟执行。",
+                    when (mode) {
+                        WorkflowScheduleMode.ONE_TIME -> "这是非精确定时，系统可能在计划时间后延迟执行。"
+                        else -> "按当前系统时区保存；每次触发都会生成独立记录，系统可能延迟执行。"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -2311,12 +2429,28 @@ private fun WorkflowScheduleDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { parsedDelay?.let(onConfirm) },
+                onClick = {
+                    when (mode) {
+                        WorkflowScheduleMode.ONE_TIME -> parsedDelay?.let(onConfirmOnce)
+                        WorkflowScheduleMode.DAILY -> if (parsedHour != null && parsedMinute != null) {
+                            onConfirmRecurring(WorkflowScheduleType.DAILY, parsedHour, parsedMinute, null)
+                        }
+                        WorkflowScheduleMode.WEEKLY -> if (parsedHour != null && parsedMinute != null) {
+                            onConfirmRecurring(WorkflowScheduleType.WEEKLY, parsedHour, parsedMinute, dayOfWeek)
+                        }
+                    }
+                },
                 enabled = valid && !scheduling,
             ) { Text(if (scheduling) "创建中" else "创建") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !scheduling) { Text("取消") } },
     )
+}
+
+private enum class WorkflowScheduleMode(val label: String) {
+    ONE_TIME("一次"),
+    DAILY("每日"),
+    WEEKLY("每周"),
 }
 
 @Composable
@@ -2360,6 +2494,27 @@ private fun WorkflowCreateDialog(
 private fun WorkflowRunStatus.toWorkflowStatusLabel(): String = workflowStatusLabel(name)
 
 private fun WorkflowStepStatus.toWorkflowStepStatusLabel(): String = workflowStatusLabel(name)
+
+private fun WorkflowScheduleRecord.toWorkflowScheduleLabel(): String {
+    val hour = (timeOfDayMinutes / 60).toString().padStart(2, '0')
+    val minute = (timeOfDayMinutes % 60).toString().padStart(2, '0')
+    val rule = when (type) {
+        WorkflowScheduleType.DAILY -> "每日 $hour:$minute"
+        WorkflowScheduleType.WEEKLY -> "每周${requireNotNull(dayOfWeek).toWeekdayLabel()} $hour:$minute"
+    }
+    return nextPlannedAt?.let { "$rule · 下次 ${it.toFullTimeLabel()} · $zoneId" } ?: "$rule · 已停用"
+}
+
+private fun Int.toWeekdayLabel(): String = when (this) {
+    1 -> "一"
+    2 -> "二"
+    3 -> "三"
+    4 -> "四"
+    5 -> "五"
+    6 -> "六"
+    7 -> "日"
+    else -> toString()
+}
 
 private fun workflowStatusLabel(status: String): String = when (status) {
     WorkflowRunStatus.QUEUED.name,
