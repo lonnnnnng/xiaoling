@@ -9,7 +9,9 @@ import com.longdev.xiaoling.data.RoomJson
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
+import com.longdev.xiaoling.model.MessageDocumentDetail
 import com.longdev.xiaoling.model.MessageImageDetail
 import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
@@ -19,16 +21,16 @@ class MessageRepository(
     private val database: XiaoLingDatabase,
 ) {
     suspend fun loadGroupedByConversation(
-        imageConversationIds: Set<String> = emptySet(),
+        binaryConversationIds: Set<String> = emptySet(),
     ): Map<String, List<StoredConversationMessage>> {
         val dao = database.conversationDao()
-        val fullImageParts = if (imageConversationIds.isEmpty()) {
+        val fullBinaryParts = if (binaryConversationIds.isEmpty()) {
             emptyList()
         } else {
-            dao.getImageMessagePartsByConversationIds(imageConversationIds.toList())
+            dao.getBinaryMessagePartsByConversationIds(binaryConversationIds.toList())
         }
-        // long: 会话列表只需要文本和附件元数据；原图 BLOB 仅为当前会话加载，避免图片随会话数量增长后在应用启动时一次性占满堆内存。
-        val partsByMessage = (dao.getAllMessagePartsWithoutBinaryData() + fullImageParts)
+        // long: 会话列表只需要文本和附件元数据；图片/文档 BLOB 仅为当前会话加载，避免附件随会话数量增长后在应用启动时一次性占满堆内存。
+        val partsByMessage = (dao.getAllMessagePartsWithoutBinaryData() + fullBinaryParts)
             .sortedWith(compareBy(MessagePartEntity::messageId, MessagePartEntity::sequence))
             .groupBy { it.messageId }
             // long: 单个损坏 part 不能阻断整个会话加载；后续可信投影会按消息正文和已验证 Agent 上下文重建可展示证据，避免接受残缺数据库字段。
@@ -62,32 +64,32 @@ class MessageRepository(
             val dao = database.conversationDao()
             val resolvedParts = messages.associate { (_, message) -> message.id to message.resolvedParts() }
             val messagesById = messages.associate { (_, message) -> message.id to message }
-            val imageLessMessageIds = resolvedParts
+            val binaryLessMessageIds = resolvedParts
                 .filter { (messageId, parts) ->
                     val message = messagesById.getValue(messageId)
                     MessageOrigin.fromStored(message.origin, message.role) == MessageOrigin.USER &&
-                        parts.none { it is MessagePart.Image }
+                        parts.none { it is MessagePart.Image || it is MessagePart.Document }
                 }
                 .keys
                 .toList()
-            val preservedImageMessageIds = if (imageLessMessageIds.isEmpty()) {
+            val preservedBinaryMessageIds = if (binaryLessMessageIds.isEmpty()) {
                 emptySet()
             } else {
-                dao.getMessageIdsWithImageParts(imageLessMessageIds).toSet()
+                dao.getMessageIdsWithBinaryParts(binaryLessMessageIds).toSet()
             }
             val replaceAllPartMessageIds = messages.map { (_, message) -> message.id }
-                .filterNot(preservedImageMessageIds::contains)
+                .filterNot(preservedBinaryMessageIds::contains)
             if (replaceAllPartMessageIds.isNotEmpty()) {
                 dao.deleteMessageParts(replaceAllPartMessageIds)
             }
-            if (preservedImageMessageIds.isNotEmpty()) {
-                // long: 非当前会话不会把原图载入内存；保存轻量快照时只替换非图片 part，并为新 Text 保留 sequence 1，避免误删既有 BLOB。
-                dao.deleteNonImageMessageParts(preservedImageMessageIds.toList())
+            if (preservedBinaryMessageIds.isNotEmpty()) {
+                // long: 非当前会话不会把附件 BLOB 载入内存；保存轻量快照时只替换非附件 part，并为新 Text 保留 sequence 1，避免误删既有图片或文档。
+                dao.deleteNonBinaryMessageParts(preservedBinaryMessageIds.toList())
             }
             persist(
                 messages = messages,
                 resolvedParts = resolvedParts,
-                sequenceOffsets = preservedImageMessageIds.associateWith { 1 },
+                sequenceOffsets = preservedBinaryMessageIds.associateWith { 1 },
             )
         }
     }
@@ -240,6 +242,29 @@ class MessageRepository(
             binaryData = attachment.copyData(),
             imageDetail = attachment.detail.name,
         )
+        is MessagePart.Document -> MessagePartEntity(
+            id = id,
+            messageId = messageId,
+            sequence = sequence,
+            type = TYPE_DOCUMENT,
+            text = null,
+            toolName = null,
+            argumentsJson = null,
+            result = null,
+            success = null,
+            verificationStatus = null,
+            memoryIdsJson = null,
+            reasoningSource = null,
+            providerItemId = null,
+            summaryIndex = null,
+            mimeType = attachment.mimeType,
+            fileName = attachment.fileName,
+            binaryData = attachment.copyData(),
+            imageDetail = null,
+            documentExtractedText = attachment.extractedText,
+            documentPageCount = attachment.pageCount,
+            documentDetail = attachment.detail.name,
+        )
         is MessagePart.Tool -> MessagePartEntity(
             id = id,
             messageId = messageId,
@@ -281,6 +306,17 @@ class MessageRepository(
                     detail = MessageImageDetail.valueOf(requireNotNull(imageDetail)),
                 ),
             )
+            TYPE_DOCUMENT -> MessagePart.Document(
+                id = id,
+                attachment = DocumentAttachmentPolicy.create(
+                    fileName = requireNotNull(fileName),
+                    mimeType = requireNotNull(mimeType),
+                    data = requireNotNull(binaryData),
+                    pageCount = documentPageCount,
+                    extractedText = documentExtractedText,
+                    detail = MessageDocumentDetail.valueOf(requireNotNull(documentDetail)),
+                ),
+            )
             TYPE_TOOL -> MessagePart.Tool(
                 id = id,
                 toolName = requireNotNull(toolName),
@@ -305,6 +341,7 @@ class MessageRepository(
         private const val TYPE_TEXT = "TEXT"
         private const val TYPE_REASONING = "REASONING"
         private const val TYPE_IMAGE = "IMAGE"
+        private const val TYPE_DOCUMENT = "DOCUMENT"
         private const val TYPE_TOOL = "TOOL"
     }
 }

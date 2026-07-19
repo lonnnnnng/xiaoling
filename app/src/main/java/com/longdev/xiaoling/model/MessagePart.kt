@@ -21,6 +21,11 @@ sealed interface MessagePart {
         val attachment: ImageAttachment,
     ) : MessagePart
 
+    data class Document(
+        override val id: String,
+        val attachment: DocumentAttachment,
+    ) : MessagePart
+
     data class Tool(
         override val id: String,
         val toolName: String,

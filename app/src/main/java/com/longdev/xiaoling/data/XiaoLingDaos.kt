@@ -37,7 +37,8 @@ interface ConversationDao {
         """
         SELECT id, messageId, sequence, type, text, toolName, argumentsJson, result,
                success, verificationStatus, memoryIdsJson, reasoningSource, providerItemId,
-               summaryIndex, mimeType, fileName, NULL AS binaryData, imageDetail
+               summaryIndex, mimeType, fileName, NULL AS binaryData, imageDetail,
+               documentExtractedText, documentPageCount, documentDetail
         FROM message_parts
         ORDER BY messageId ASC, sequence ASC
         """,
@@ -48,11 +49,11 @@ interface ConversationDao {
         """
         SELECT message_parts.* FROM message_parts
         INNER JOIN messages ON messages.id = message_parts.messageId
-        WHERE messages.conversationId IN (:conversationIds) AND message_parts.type = 'IMAGE'
+        WHERE messages.conversationId IN (:conversationIds) AND message_parts.type IN ('IMAGE', 'DOCUMENT')
         ORDER BY message_parts.messageId ASC, message_parts.sequence ASC
         """,
     )
-    suspend fun getImageMessagePartsByConversationIds(conversationIds: List<String>): List<MessagePartEntity>
+    suspend fun getBinaryMessagePartsByConversationIds(conversationIds: List<String>): List<MessagePartEntity>
 
     @Query(
         """
@@ -64,8 +65,8 @@ interface ConversationDao {
     )
     suspend fun getMessagePartsByConversationId(conversationId: String): List<MessagePartEntity>
 
-    @Query("SELECT DISTINCT messageId FROM message_parts WHERE messageId IN (:messageIds) AND type = 'IMAGE'")
-    suspend fun getMessageIdsWithImageParts(messageIds: List<String>): List<String>
+    @Query("SELECT DISTINCT messageId FROM message_parts WHERE messageId IN (:messageIds) AND type IN ('IMAGE', 'DOCUMENT')")
+    suspend fun getMessageIdsWithBinaryParts(messageIds: List<String>): List<String>
 
     @Query("DELETE FROM messages")
     suspend fun deleteAllMessages()
@@ -76,8 +77,8 @@ interface ConversationDao {
     @Query("DELETE FROM message_parts WHERE messageId IN (:messageIds)")
     suspend fun deleteMessageParts(messageIds: List<String>)
 
-    @Query("DELETE FROM message_parts WHERE messageId IN (:messageIds) AND type != 'IMAGE'")
-    suspend fun deleteNonImageMessageParts(messageIds: List<String>)
+    @Query("DELETE FROM message_parts WHERE messageId IN (:messageIds) AND type NOT IN ('IMAGE', 'DOCUMENT')")
+    suspend fun deleteNonBinaryMessageParts(messageIds: List<String>)
 
     @Query("SELECT id FROM messages WHERE conversationId IN (:conversationIds)")
     suspend fun getMessageIdsByConversationIds(conversationIds: List<String>): List<String>

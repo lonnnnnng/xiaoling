@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import org.json.JSONObject
@@ -10,6 +11,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAiCompatibleAdapterTest {
+    @Test
+    fun `responses request maps user document to input file data url after text`() {
+        val attachment = DocumentAttachmentPolicy.create(
+            fileName = "notes.md",
+            mimeType = "text/markdown",
+            data = "stage 27 document".toByteArray(),
+        )
+
+        val request = OpenAiCompatibleAdapter().prepareGenerationRequest(
+            config = requestConfig(ApiMode.RESPONSES),
+            messages = listOf(RequestMessage(role = "user", content = "总结文档", documents = listOf(attachment))),
+        )
+
+        val content = JSONObject(request.body)
+            .getJSONArray("input")
+            .getJSONObject(0)
+            .getJSONArray("content")
+        assertEquals("input_text", content.getJSONObject(0).getString("type"))
+        assertEquals("input_file", content.getJSONObject(1).getString("type"))
+        assertEquals("notes.md", content.getJSONObject(1).getString("filename"))
+        assertTrue(content.getJSONObject(1).getString("file_data").startsWith("data:text/markdown;base64,"))
+        assertFalse(content.getJSONObject(1).has("detail"))
+    }
+
+    @Test
+    fun `responses pdf document uses auto detail`() {
+        val attachment = DocumentAttachmentPolicy.create(
+            fileName = "report.pdf",
+            mimeType = "application/pdf",
+            data = "%PDF-1.7".toByteArray(Charsets.US_ASCII),
+            pageCount = 1,
+        )
+
+        val request = OpenAiCompatibleAdapter().prepareGenerationRequest(
+            config = requestConfig(ApiMode.RESPONSES),
+            messages = listOf(RequestMessage(role = "user", content = "总结 PDF", documents = listOf(attachment))),
+        )
+
+        val file = JSONObject(request.body)
+            .getJSONArray("input")
+            .getJSONObject(0)
+            .getJSONArray("content")
+            .getJSONObject(1)
+        assertEquals("auto", file.getString("detail"))
+    }
+
     @Test
     fun `responses request maps user image to input image data url after text`() {
         val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()
@@ -59,6 +106,26 @@ class OpenAiCompatibleAdapterTest {
     }
 
     @Test
+    fun `chat completions rejects request messages containing document parts`() {
+        val attachment = DocumentAttachmentPolicy.create(
+            fileName = "notes.txt",
+            mimeType = "text/plain",
+            data = "hello".toByteArray(),
+        )
+
+        try {
+            OpenAiCompatibleAdapter().prepareGenerationRequest(
+                config = requestConfig(ApiMode.CHAT_COMPLETIONS),
+                messages = listOf(RequestMessage(role = "user", content = "总结", documents = listOf(attachment))),
+            )
+            throw AssertionError("Expected Chat Completions document rejection")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("文档"))
+        }
+    }
+
+
+    @Test
     fun `request message rejects multiple user images`() {
         val attachment = ImageAttachmentPolicy.create(
             fileName = "chart.png",
@@ -73,6 +140,33 @@ class OpenAiCompatibleAdapterTest {
             throw AssertionError("Expected single-image contract rejection")
         } catch (error: IllegalArgumentException) {
             assertTrue(error.message.orEmpty().contains("最多"))
+        }
+    }
+
+    @Test
+    fun `request message rejects multiple or mixed attachments`() {
+        val document = DocumentAttachmentPolicy.create(
+            fileName = "notes.txt",
+            mimeType = "text/plain",
+            data = "hello".toByteArray(),
+        )
+        val image = ImageAttachmentPolicy.create(
+            fileName = "chart.png",
+            mimeType = "image/png",
+            data = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1),
+        )
+
+        try {
+            RequestMessage(role = "user", content = "总结", documents = listOf(document, document))
+            throw AssertionError("Expected single-document contract rejection")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("最多"))
+        }
+        try {
+            RequestMessage(role = "user", content = "解释", images = listOf(image), documents = listOf(document))
+            throw AssertionError("Expected mixed attachment contract rejection")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("一种附件"))
         }
     }
 

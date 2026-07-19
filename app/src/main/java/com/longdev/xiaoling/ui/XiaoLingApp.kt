@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Memory
@@ -165,6 +167,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.DocumentAttachment
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderProfile
@@ -222,6 +225,9 @@ private fun XiaoLingContent(
     val attachImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::attachImage) }
+    val attachDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::attachDocument) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
@@ -325,6 +331,17 @@ private fun XiaoLingContent(
                     visible = selectedTab == 0,
                     onAttachImage = {
                         attachImageLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp"))
+                    },
+                    onAttachDocument = {
+                        attachDocumentLauncher.launch(
+                            arrayOf(
+                                "application/pdf",
+                                "text/plain",
+                                "text/markdown",
+                                "application/json",
+                                "text/csv",
+                            ),
+                        )
                     },
                     modifier = Modifier.matchParentSize(),
                 )
@@ -911,6 +928,7 @@ private fun ConversationPage(
     chatScrollState: ChatScrollState,
     visible: Boolean,
     onAttachImage: () -> Unit,
+    onAttachDocument: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chatListState = chatScrollState.listState
@@ -1112,7 +1130,9 @@ private fun ConversationPage(
                 onAgentProfileSelected = viewModel::selectAgentProfile,
                 onPromptChange = viewModel::updatePrompt,
                 onAttachImage = onAttachImage,
+                onAttachDocument = onAttachDocument,
                 onRemovePendingImage = viewModel::removePendingImage,
+                onRemovePendingDocument = viewModel::removePendingDocument,
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGenerating,
             )
@@ -1242,12 +1262,16 @@ private fun MessageInputBar(
     onAgentProfileSelected: (String) -> Unit,
     onPromptChange: (String) -> Unit,
     onAttachImage: () -> Unit,
+    onAttachDocument: () -> Unit,
     onRemovePendingImage: () -> Unit,
+    onRemovePendingDocument: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     val canRunAgent = AgentCommand.matches(prompt)
-    val canSend = !sendingMessage && !state.attachingImage && !state.loadingConversationMessages &&
+    var attachmentMenuExpanded by remember { mutableStateOf(false) }
+    val attaching = state.attachingImage || state.attachingDocument
+    val canSend = !sendingMessage && !attaching && !state.loadingConversationMessages &&
         prompt.isNotBlank() && (enabled || canRunAgent)
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1260,8 +1284,16 @@ private fun MessageInputBar(
             state.pendingImage?.let { attachment ->
                 PendingImagePreview(
                     attachment = attachment,
-                    enabled = !sendingMessage && !state.attachingImage,
+                    enabled = !sendingMessage && !attaching,
                     onRemove = onRemovePendingImage,
+                    modifier = Modifier.padding(start = 10.dp, top = 10.dp, end = 10.dp),
+                )
+            }
+            state.pendingDocument?.let { attachment ->
+                PendingDocumentPreview(
+                    attachment = attachment,
+                    enabled = !sendingMessage && !attaching,
+                    onRemove = onRemovePendingDocument,
                     modifier = Modifier.padding(start = 10.dp, top = 10.dp, end = 10.dp),
                 )
             }
@@ -1294,21 +1326,42 @@ private fun MessageInputBar(
                     },
                 )
                 IconButton(
-                    onClick = onAttachImage,
-                    enabled = !sendingMessage && !state.attachingImage && !state.loadingConversationMessages && enabled,
+                    onClick = { attachmentMenuExpanded = true },
+                    enabled = !sendingMessage && !attaching && !state.loadingConversationMessages && enabled,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .size(32.dp),
                 ) {
-                    if (state.attachingImage) {
+                    if (attaching) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.8.dp)
                     } else {
                         Icon(
-                            imageVector = Icons.Default.AddPhotoAlternate,
-                            contentDescription = "添加图片",
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = "添加附件",
                             modifier = Modifier.size(18.dp),
                         )
                     }
+                }
+                DropdownMenu(
+                    expanded = attachmentMenuExpanded,
+                    onDismissRequest = { attachmentMenuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("图片", style = MaterialTheme.typography.bodySmall) },
+                        leadingIcon = { Icon(Icons.Default.AddPhotoAlternate, contentDescription = null) },
+                        onClick = {
+                            attachmentMenuExpanded = false
+                            onAttachImage()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("文档", style = MaterialTheme.typography.bodySmall) },
+                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) },
+                        onClick = {
+                            attachmentMenuExpanded = false
+                            onAttachDocument()
+                        },
+                    )
                 }
                 InputOptionRow(
                     state = state,
@@ -1387,6 +1440,49 @@ private fun PendingImagePreview(
         }
         IconButton(onClick = onRemove, enabled = enabled, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Default.Close, contentDescription = "移除图片", modifier = Modifier.size(17.dp))
+        }
+    }
+}
+
+@Composable
+private fun PendingDocumentPreview(
+    attachment: DocumentAttachment,
+    enabled: Boolean,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Description,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = attachment.fileName,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val budgetLabel = attachment.pageCount?.let { "$it 页" }
+                ?: attachment.characterCount?.let { "$it 字符" }
+                ?: "已验证"
+            Text(
+                text = "${formatAttachmentSize(attachment.byteSize)} · $budgetLabel",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onRemove, enabled = enabled, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "移除文档", modifier = Modifier.size(17.dp))
         }
     }
 }
@@ -5833,6 +5929,7 @@ private fun MessageBodyParts(
             is MessagePart.Text -> MessageTextPart(message, part.text, contentColor)
             is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
             is MessagePart.Image -> ImageMessagePartContent(part)
+            is MessagePart.Document -> DocumentMessagePartContent(part, contentColor)
             is MessagePart.Tool -> ToolMessagePartContent(part, contentColor)
         }
     }
@@ -5848,6 +5945,54 @@ internal fun ImageMessagePartContent(part: MessagePart.Image) {
             .heightIn(max = 280.dp)
             .clip(RoundedCornerShape(6.dp)),
     )
+}
+
+@Composable
+internal fun DocumentMessagePartContent(
+    part: MessagePart.Document,
+    contentColor: Color,
+) {
+    val attachment = part.attachment
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(contentColor.copy(alpha = 0.07f), RoundedCornerShape(6.dp))
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Description,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(22.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = attachment.fileName,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val budgetLabel = attachment.pageCount?.let { "$it 页" }
+                ?: attachment.characterCount?.let { "$it 字符" }
+                ?: "已验证"
+            Text(
+                text = "${attachment.mimeType} · ${formatAttachmentSize(attachment.byteSize)} · $budgetLabel",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = contentColor.copy(alpha = 0.72f),
+            )
+        }
+    }
+}
+
+private fun formatAttachmentSize(byteSize: Int): String {
+    return if (byteSize >= 1024 * 1024) {
+        "${"%.1f".format(Locale.US, byteSize / 1024.0 / 1024.0)} MB"
+    } else {
+        "${((byteSize + 1023) / 1024).coerceAtLeast(1)} KB"
+    }
 }
 
 @Composable

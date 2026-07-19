@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.DocumentAttachment
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ModelTokenUsage
@@ -45,10 +46,13 @@ data class RequestMessage(
     val role: String,
     val content: String,
     val images: List<ImageAttachment> = emptyList(),
+    val documents: List<DocumentAttachment> = emptyList(),
 ) : RequestInputItem {
     init {
-        require(images.isEmpty() || role == "user") { "只有 user 消息可以携带图片" }
+        require((images.isEmpty() && documents.isEmpty()) || role == "user") { "只有 user 消息可以携带附件" }
         require(images.size <= 1) { "每条 user 消息最多携带一张图片" }
+        require(documents.size <= 1) { "每条 user 消息最多携带一个文档" }
+        require(images.isEmpty() || documents.isEmpty()) { "每条 user 消息只能携带一种附件" }
     }
 }
 
@@ -139,6 +143,7 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
                 "Chat Completions 不支持 Responses typed Item：${item::class.simpleName}"
             }
             require(item.images.isEmpty()) { "当前 Chat Completions 模式不支持图片，请切换到 Responses" }
+            require(item.documents.isEmpty()) { "当前 Chat Completions 模式不支持文档，请切换到 Responses" }
             put(item.toMessageJson())
         }
     }
@@ -171,10 +176,10 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
         .put("role", role)
         .put(
             "content",
-            if (images.isEmpty()) {
+            if (images.isEmpty() && documents.isEmpty()) {
                 content
             } else {
-                // long: Responses 只有结构化 content 才能在同一用户消息中绑定正文与图片；Data URL 保留已校验的 MIME 和原始字节，调试日志必须由统一 sanitizer 隐去 Base64。
+                // long: Responses 只有结构化 content 才能在同一用户消息中绑定正文与附件；Data URL 保留已校验的 MIME 和原始字节，调试日志必须由统一 sanitizer 隐去 Base64。
                 JSONArray().apply {
                     put(JSONObject().put("type", "input_text").put("text", content))
                     images.forEach { image ->
@@ -185,11 +190,28 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
                                 .put("detail", image.detail.apiValue),
                         )
                     }
+                    documents.forEach { document ->
+                        put(
+                            JSONObject()
+                                .put("type", "input_file")
+                                .put("filename", document.fileName)
+                                .put("file_data", document.toDataUrl())
+                                .apply {
+                                    if (document.mimeType == "application/pdf") {
+                                        put("detail", document.detail.apiValue)
+                                    }
+                                },
+                        )
+                    }
                 }
             },
         )
 
     private fun ImageAttachment.toDataUrl(): String {
+        return "data:$mimeType;base64,${encodedBase64()}"
+    }
+
+    private fun DocumentAttachment.toDataUrl(): String {
         return "data:$mimeType;base64,${encodedBase64()}"
     }
 

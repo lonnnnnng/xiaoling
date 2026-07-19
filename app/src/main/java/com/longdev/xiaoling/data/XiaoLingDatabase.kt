@@ -34,7 +34,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -48,7 +48,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 24
+        const val CURRENT_VERSION = 25
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -651,6 +651,15 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: Document 复用附件 MIME、文件名和 BLOB 列，并补充本地提取文本、PDF 页数与请求 detail；历史 part 没有文档事实，三列保持空且不补造。
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `documentExtractedText` TEXT")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `documentPageCount` INTEGER")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `documentDetail` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -675,6 +684,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_21_22,
             MIGRATION_22_23,
             MIGRATION_23_24,
+            MIGRATION_24_25,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

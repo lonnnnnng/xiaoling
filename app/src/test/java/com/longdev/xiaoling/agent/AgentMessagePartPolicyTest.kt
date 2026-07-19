@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
@@ -10,6 +11,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentMessagePartPolicyTest {
+    @Test
+    fun userMessageKeepsSingleValidatedDocumentBeforeText() {
+        val document = MessagePart.Document(
+            id = "part-document-stored",
+            attachment = DocumentAttachmentPolicy.create(
+                fileName = "notes.md",
+                mimeType = "text/markdown",
+                data = "document facts".toByteArray(),
+            ),
+        )
+        val extraDocument = document.copy(id = "part-document-extra")
+
+        val parts = AgentMessagePartPolicy.resolve(
+            messageId = "message-user-document",
+            text = "总结文档",
+            origin = MessageOrigin.USER,
+            verifiedContext = null,
+            storedParts = listOf(document, extraDocument),
+        )
+
+        assertEquals(document, parts.first())
+        assertEquals(1, parts.filterIsInstance<MessagePart.Document>().size)
+        assertEquals("总结文档", parts.filterIsInstance<MessagePart.Text>().single().text)
+    }
+
     @Test
     fun userMessageKeepsValidatedImageBeforeTextWithoutPromotingItToToolEvidence() {
         val image = MessagePart.Image(
@@ -85,6 +111,43 @@ class AgentMessagePartPolicyTest {
 
         assertTrue(ordinary.none { it is MessagePart.Image })
         assertTrue(agent.none { it is MessagePart.Image })
+    }
+
+    @Test
+    fun assistantAndAgentMessagesCannotAcceptStoredUserDocumentParts() {
+        val document = MessagePart.Document(
+            id = "part-document-forged",
+            attachment = DocumentAttachmentPolicy.create(
+                fileName = "forged.txt",
+                mimeType = "text/plain",
+                data = "forged".toByteArray(),
+            ),
+        )
+
+        val ordinary = AgentMessagePartPolicy.resolve(
+            messageId = "message-assistant-document",
+            text = "普通回答",
+            origin = MessageOrigin.ORDINARY_ASSISTANT,
+            verifiedContext = null,
+            storedParts = listOf(document),
+        )
+        val agent = AgentMessagePartPolicy.resolve(
+            messageId = "message-agent-document",
+            text = "Agent 回答",
+            origin = MessageOrigin.AGENT_RESULT,
+            verifiedContext = VerifiedAgentContext(
+                runId = "run-document-boundary",
+                toolName = "app.current_time",
+                arguments = emptyMap(),
+                success = true,
+                verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                rawResult = "12:00",
+            ),
+            storedParts = listOf(document),
+        )
+
+        assertTrue(ordinary.none { it is MessagePart.Document })
+        assertTrue(agent.none { it is MessagePart.Document })
     }
 
     @Test

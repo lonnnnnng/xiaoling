@@ -874,6 +874,49 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate24To25AddsEmptyDocumentPayloadWithoutInventingParts() = runBlocking {
+        migrationHelper.createDatabase(DOCUMENT_PARTS_MIGRATION_DATABASE_NAME, 24).apply {
+            execSQL(
+                """
+                INSERT INTO message_parts (
+                    id, messageId, sequence, type, text, toolName, argumentsJson, result,
+                    success, verificationStatus, memoryIdsJson, reasoningSource, providerItemId, summaryIndex,
+                    mimeType, fileName, binaryData, imageDetail
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "part-v24-image", "message-v24", 0, "IMAGE", null, null, null, null,
+                    null, null, null, null, null, null,
+                    "image/png", "legacy.png", byteArrayOf(1, 2, 3), "AUTO",
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            DOCUMENT_PARTS_MIGRATION_DATABASE_NAME,
+            25,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT type, documentExtractedText, documentPageCount, documentDetail FROM message_parts WHERE id = 'part-v24-image'",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("IMAGE", cursor.getString(0))
+            assertNull(cursor.getString(1))
+            assertNull(cursor.getString(2))
+            assertNull(cursor.getString(3))
+        }
+        migrated.query("SELECT COUNT(*) FROM message_parts WHERE type = 'DOCUMENT'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -948,5 +991,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MESSAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-message-parts-migration-test"
         private const val REASONING_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-reasoning-parts-migration-test"
         private const val IMAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-image-parts-migration-test"
+        private const val DOCUMENT_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-document-parts-migration-test"
     }
 }

@@ -27,7 +27,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v24 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v25 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -1046,3 +1046,32 @@ Redmi 真实模型、UI、日志与数据库验收：
 - `XiaoLingHttp` 请求日志确认 `input_image.image_url=data:image/png;base64,***REDACTED***`、Authorization 为 `***MASKED***`、默认 User-Agent 正确；最终响应文本 `IMAGE_OK` 保留，供应商 `encrypted_content` 已纳入正式 sanitizer 回归。
 - Redmi 主库只读回查确认 `PRAGMA user_version=24`；最新 Image 行为 `image/png / real-image-e2e.png / 883 bytes / AUTO`，证明图片字节与用户消息已持久化。
 - 最终 Debug APK SHA-256：`dd58890936ed02990ed208586f61072f27a8932b18fcdd9d86d204f878364df4`。覆盖安装后应用以冷启动进入 `com.longdev.xiaoling/.MainActivity`，进程存活，Provider 保留 1 条，crash buffer 为空。
+
+## 2026-07-19 用户文档 MessagePart
+
+实现与安全边界：
+
+- Room v25 为 `message_parts` 增加可空 `documentExtractedText / documentPageCount / documentDetail`，Document 复用 `mimeType / fileName / binaryData`。v24→v25 只加列，不创建历史 Document；全新 v25 Schema、迁移链和磁盘数据库重开往返均有自动化保护。
+- 系统附件菜单可选择图片或文档，单条 USER 消息最多携带一种附件。Document v1 支持 PDF、TXT、Markdown、JSON、CSV，文件最大 8 MB；PDF 复制到应用私有临时文件并用 `PdfRenderer` 验证，最多 50 页；文本严格按 UTF-8 解码，最多 200,000 字符并拒绝二进制空字符。
+- 原始文件 BLOB 与受限提取文本/页数在同一事务写入 Room，不依赖长期 URI 权限。Image/Document BLOB 只为当前会话加载，轻量快照保留未加载附件；网络请求前等待用户消息和 BLOB 事务完成。
+- Responses 将 USER Document 映射为 `input_text + input_file`，`filename` 保留清理后的文件名，`file_data` 使用 Data URL，PDF detail 为 `auto`。Chat Completions 与 `/agent` 明确拒绝附件；普通 assistant、Agent 结果、摘要和 `VerifiedAgentContext` 不能接收 Document 或把模型提取内容升级为工具事实。
+- Compose 输入区附件菜单、文档名称/大小/页数或字符数、移除按钮和历史 Document 展示均已完成；请求日志继续递归脱敏 `file_data`、Authorization、图片 Data URL、原始/加密推理字段。
+- 双轴代码审查补充关闭 PDF 错误 MIME 绕过：PDF 签名与扩展名由 `DocumentAttachmentPolicy` 统一判定，`.pdf` 被错报为 `text/plain` 时仍强制走 `PdfRenderer`，PDF 内容伪装为文本或与非 PDF 扩展名冲突时拒绝。待发送 Image/Document 的互斥、接口模式校验和稳定 part 顺序也已迁入 `MessageAttachmentSelection`，不再继续扩张 `sendMessage()` 的附件业务分支。
+
+官方协议核验：
+
+- 通过 OpenAI Developer Docs MCP 与本机 `smart-search fetch https://developers.openai.com/api/docs/guides/file-inputs` 双重核验。官方 Responses 示例使用 `type=input_file`、`filename`、`file_data`，Base64 Data URL 可直接作为文件输入；官方单文件上限为 50 MB，但本项目按移动端内存和上下文成本主动收紧为 8 MB。
+- 官方说明 PDF 会把提取文本和页图一起加入上下文，detail 可为 `auto/low/high`；本项目 v1 固定 `auto`，并先执行 50 页本地预算。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 强制重跑通过，88 个 Gradle task 全部执行；281 条 JVM 测试，0 失败、0 错误、0 跳过。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 直接安装最终 Debug/Test APK，并运行完整 92 条 instrumentation，0 失败、0 跳过。新增覆盖有效/损坏/超限 UTF-8 文本、真实 PDF 解析和页数预算、v24→v25、Document/Text 磁盘重开、Image/Document BLOB 按会话加载与轻量快照保留，以及 Compose 文档元数据节点。
+- 本阶段所有安装、instrumentation、DocumentsUI、UI tree、真实模型、数据库和日志命令均显式指定 Redmi 串号；在线模拟器未参与验证。
+
+真实模型、UI、日志与数据库验收：
+
+- 将 67 字节 `lingce-stage27.md` 放入 Redmi Downloads，通过附件菜单和系统 DocumentsUI 选择后，输入区显示 `lingce-stage27.md / 1 KB / 67 字符` 与移除按钮，模型/模式/发送控件无重叠。临时 Downloads 源文件已清理，消息仍能从 Room BLOB 恢复。
+- Chat Completions 下首次发送被应用正确阻止并提示切换 Responses。切换 `gpt-5.5 + Responses` 后，真实请求在 4.33 秒返回精确 `DOC_STAGE27_OK`；历史消息气泡同时显示文档 MIME、大小和字符预算。
+- `XiaoLingHttp` 日志确认 `file_data`、Authorization 均脱敏，默认 User-Agent 正确，最终响应文本保留。Redmi 主库只读回查为 `PRAGMA user_version=25`，Provider 1 条，最新 Document 行为 `text/markdown / lingce-stage27.md / 67 bytes / 67 chars / AUTO`。
+- 最终 Debug APK SHA-256：`53c7fdb9641e3bdb3a06531b97078b4edce70606fa30da6315e072d26fd87572`。最终包冷启动到 `com.longdev.xiaoling/.MainActivity`，进程存活，crash buffer 为空。

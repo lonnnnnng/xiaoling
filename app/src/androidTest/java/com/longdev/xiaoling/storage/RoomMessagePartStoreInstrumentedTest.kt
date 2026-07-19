@@ -11,6 +11,7 @@ import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessageReasoningSource
@@ -185,7 +186,45 @@ class RoomMessagePartStoreInstrumentedTest {
     }
 
     @Test
-    fun onlySelectedConversationLoadsImageBlobAndLightweightSavePreservesOtherImage() = runBlocking {
+    fun userDocumentAndTextPartsRoundTripAcrossDatabaseReopen() = runBlocking {
+        val parts = listOf(
+            MessagePart.Document(
+                id = "part-document-stable",
+                attachment = DocumentAttachmentPolicy.create(
+                    fileName = "notes.md",
+                    mimeType = "text/markdown",
+                    data = "Room document facts".toByteArray(),
+                ),
+            ),
+            MessagePart.Text(id = "part-document-text", text = "总结文档"),
+        )
+        val stored = StoredConversationMessage(
+            id = "message-document-parts",
+            role = "user",
+            text = "总结文档",
+            createdAt = 103L,
+            origin = "USER",
+            verifiedAgentContext = null,
+            meta = null,
+            parts = parts,
+        )
+
+        openDatabase().let { first ->
+            MessageRepository(first).replaceAll(listOf("conversation-document-parts" to stored))
+            first.close()
+            database = null
+        }
+
+        val restored = MessageRepository(openDatabase())
+            .loadGroupedByConversation(setOf("conversation-document-parts"))
+            .getValue("conversation-document-parts")
+            .single()
+
+        assertEquals(parts, restored.parts)
+    }
+
+    @Test
+    fun onlySelectedConversationLoadsBinaryBlobAndLightweightSavePreservesOtherAttachment() = runBlocking {
         val repository = ConversationRepository(
             context = isolatedContext,
             database = openDatabase(),
@@ -194,7 +233,7 @@ class RoomMessagePartStoreInstrumentedTest {
             messageRepository = MessageRepository(requireNotNull(database)),
         )
         val first = imageConversation("conversation-image-first", "message-image-first", 100L)
-        val second = imageConversation("conversation-image-second", "message-image-second", 200L)
+        val second = documentConversation("conversation-document-second", "message-document-second", 200L)
         repository.save(listOf(first, second), first.id)
 
         val firstLoad = repository.load()
@@ -202,7 +241,7 @@ class RoomMessagePartStoreInstrumentedTest {
             firstLoad.conversations.first { it.id == first.id }.messages.single().parts.any { it is MessagePart.Image },
         )
         assertTrue(
-            firstLoad.conversations.first { it.id == second.id }.messages.single().parts.none { it is MessagePart.Image },
+            firstLoad.conversations.first { it.id == second.id }.messages.single().parts.none { it is MessagePart.Document },
         )
 
         repository.save(firstLoad.conversations, second.id)
@@ -211,7 +250,7 @@ class RoomMessagePartStoreInstrumentedTest {
             secondLoad.conversations.first { it.id == first.id }.messages.single().parts.none { it is MessagePart.Image },
         )
         assertTrue(
-            secondLoad.conversations.first { it.id == second.id }.messages.single().parts.any { it is MessagePart.Image },
+            secondLoad.conversations.first { it.id == second.id }.messages.single().parts.any { it is MessagePart.Document },
         )
     }
 
@@ -339,6 +378,42 @@ class RoomMessagePartStoreInstrumentedTest {
                                 data = byteArrayOf(
                                     0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1,
                                 ),
+                            ),
+                        ),
+                        MessagePart.Text(id = "$messageId-text", text = text),
+                    ),
+                ),
+            ),
+            createdAt = createdAt,
+            updatedAt = createdAt,
+        )
+    }
+
+    private fun documentConversation(id: String, messageId: String, createdAt: Long): StoredConversation {
+        val text = "总结 $id"
+        return StoredConversation(
+            id = id,
+            title = id,
+            summary = "",
+            summaryUntilMessageId = null,
+            summaryUpdatedAt = null,
+            summaryModel = null,
+            messages = listOf(
+                StoredConversationMessage(
+                    id = messageId,
+                    role = "user",
+                    text = text,
+                    createdAt = createdAt,
+                    origin = "USER",
+                    verifiedAgentContext = null,
+                    meta = null,
+                    parts = listOf(
+                        MessagePart.Document(
+                            id = "$messageId-document-0",
+                            attachment = DocumentAttachmentPolicy.create(
+                                fileName = "$messageId.md",
+                                mimeType = "text/markdown",
+                                data = "document facts".toByteArray(),
                             ),
                         ),
                         MessagePart.Text(id = "$messageId-text", text = text),

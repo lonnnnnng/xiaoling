@@ -86,6 +86,9 @@ data class MessagePartEntity(
     val fileName: String?,
     val binaryData: ByteArray?,
     val imageDetail: String?,
+    val documentExtractedText: String? = null,
+    val documentPageCount: Int? = null,
+    val documentDetail: String? = null,
 )
 
 @Entity(

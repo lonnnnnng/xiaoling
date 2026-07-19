@@ -62,6 +62,8 @@ import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.MessageAttachmentSelection
+import com.longdev.xiaoling.model.DocumentAttachment
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ProviderMessagePartPolicy
@@ -79,6 +81,7 @@ import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.prompt.PromptSettings
 import com.longdev.xiaoling.storage.ConversationRepository
 import com.longdev.xiaoling.storage.ImageAttachmentReader
+import com.longdev.xiaoling.storage.DocumentAttachmentReader
 import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.SecureConfigStore
 import com.longdev.xiaoling.storage.StoredConversation
@@ -148,7 +151,9 @@ data class XiaoLingUiState(
     val streamingEnabled: Boolean = false,
     val reasoningSummaryEnabled: Boolean = false,
     val pendingImage: ImageAttachment? = null,
+    val pendingDocument: DocumentAttachment? = null,
     val attachingImage: Boolean = false,
+    val attachingDocument: Boolean = false,
     val loadingConversationMessages: Boolean = false,
     val chatMessages: List<ChatMessage> = emptyList(),
     val conversations: List<ConversationSession> = emptyList(),
@@ -253,6 +258,11 @@ data class ChatMessage(
 internal fun ChatMessage.imagesForRequest(apiMode: ApiMode): List<ImageAttachment> {
     if (apiMode != ApiMode.RESPONSES || origin != MessageOrigin.USER) return emptyList()
     return effectiveParts().filterIsInstance<MessagePart.Image>().map { it.attachment }
+}
+
+internal fun ChatMessage.documentsForRequest(apiMode: ApiMode): List<DocumentAttachment> {
+    if (apiMode != ApiMode.RESPONSES || origin != MessageOrigin.USER) return emptyList()
+    return effectiveParts().filterIsInstance<MessagePart.Document>().map { it.attachment }
 }
 
 data class MessageMeta(
@@ -374,6 +384,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
+    private val documentAttachmentReader = DocumentAttachmentReader(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private val agentRunUseCase = AgentRunUseCase(application, client)
@@ -519,13 +530,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun attachImage(uri: Uri) {
-        if (uiState.sendingMessage || uiState.attachingImage) return
+        if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
         uiState = uiState.copy(attachingImage = true, result = null)
         viewModelScope.launch {
             try {
                 val attachment = withContext(Dispatchers.IO) { imageAttachmentReader.read(uri) }
                 uiState = uiState.copy(
                     pendingImage = attachment,
+                    pendingDocument = null,
                     attachingImage = false,
                     result = null,
                 )
@@ -544,8 +556,39 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun removePendingImage() {
-        if (uiState.sendingMessage || uiState.attachingImage) return
+        if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
         uiState = uiState.copy(pendingImage = null, result = null)
+    }
+
+    fun attachDocument(uri: Uri) {
+        if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
+        uiState = uiState.copy(attachingDocument = true, result = null)
+        viewModelScope.launch {
+            try {
+                val attachment = withContext(Dispatchers.IO) { documentAttachmentReader.read(uri) }
+                uiState = uiState.copy(
+                    pendingImage = null,
+                    pendingDocument = attachment,
+                    attachingDocument = false,
+                    result = null,
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                uiState = uiState.copy(
+                    attachingDocument = false,
+                    result = OperationResult(
+                        success = false,
+                        title = "文档不可用",
+                        message = error.message ?: "无法读取所选文档",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun removePendingDocument() {
+        if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
+        uiState = uiState.copy(pendingDocument = null, result = null)
     }
 
     fun updateAgentMemoryRecallEnabled(value: Boolean) {
@@ -2314,7 +2357,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun openNewConversation() {
         conversationLoadJob?.cancel()
-        val lightweightConversations = uiState.conversations.map { it.withoutImagePayloads() }
+        val lightweightConversations = uiState.conversations.map { it.withoutBinaryPayloads() }
         val current = lightweightConversations.firstOrNull { it.id == uiState.selectedConversationId }
         if (current != null && current.messages.isEmpty()) {
             uiState = uiState.copy(
@@ -2437,7 +2480,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversationLoadJob = viewModelScope.launch {
             try {
                 val loadedMessages = conversationStore.loadConversationMessages(conversation.id).map { it.toChatMessage() }
-                val lightweightConversations = conversations.map { it.withoutImagePayloads() }
+                val lightweightConversations = conversations.map { it.withoutBinaryPayloads() }
                 uiState = uiState.copy(
                     conversations = lightweightConversations.map { item ->
                         if (item.id == conversation.id) item.copy(messages = loadedMessages) else item
@@ -2640,14 +2683,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("图片仍在读取，请稍候再发送")
             return
         }
+        if (uiState.attachingDocument) {
+            showValidation("文档仍在读取，请稍候再发送")
+            return
+        }
         if (uiState.prompt.isBlank()) {
             showValidation("请输入消息")
             return
         }
         val userMessage = uiState.prompt.trim()
+        val attachments = MessageAttachmentSelection(
+            image = uiState.pendingImage,
+            document = uiState.pendingDocument,
+        )
         if (AgentCommand.matches(userMessage)) {
-            if (uiState.pendingImage != null) {
-                showValidation("/agent 暂不支持图片，请移除图片后再运行")
+            attachments.agentRejectionReason()?.let { reason ->
+                showValidation(reason)
                 return
             }
             val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
@@ -2659,9 +2710,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         val config = validatedConfig() ?: return
-        val pendingImage = uiState.pendingImage
-        if (pendingImage != null && config.apiMode != ApiMode.RESPONSES) {
-            showValidation("当前 Chat Completions 模式不支持图片，请切换到 Responses")
+        attachments.chatRejectionReason(config.apiMode)?.let { reason ->
+            showValidation(reason)
             return
         }
         val profileSnapshot = selectedProfile()
@@ -2673,14 +2723,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             role = "user",
             text = userMessage,
             createdAt = System.currentTimeMillis(),
-            parts = if (pendingImage == null) {
-                emptyList()
-            } else {
-                listOf(
-                    MessagePart.Image(id = "$userMessageId-image-0", attachment = pendingImage),
-                    MessagePart.Text(id = "$userMessageId-text", text = userMessage),
-                )
-            },
+            parts = attachments.toUserMessageParts(userMessageId, userMessage),
         )
         val messagesWithUser = uiState.chatMessages + userChatMessage
         var preparedContext = PreparedRequestContext.fromConversation(currentConversation)
@@ -2689,6 +2732,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             result = null,
             prompt = "",
             pendingImage = null,
+            pendingDocument = null,
             activeAgentRun = null,
             pendingAgentApproval = null,
         ).withUpdatedCurrentConversation(
@@ -2706,7 +2750,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             try {
                 previousSaveJob?.cancelAndJoin()
-                // long: 图片请求发出前先等待 message 与 BLOB 的 Room 事务完成，确保进程在网络等待期间被回收时已发送的用户输入仍可恢复和进入备份。
+                // long: 附件请求发出前先等待 message 与 BLOB 的 Room 事务完成，确保进程在网络等待期间被回收时已发送的用户输入仍可恢复和进入备份。
                 conversationStore.save(
                     preRequestConversations,
                     preRequestSelectedConversationId,
@@ -3509,8 +3553,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     role = message.role,
                     // long: 消息是否具备工具事实身份由持久化来源字段决定；用户文本即使复述可信标记，也不会进入 Agent 结果分支。
                     content = PromptPolicy.historyContent(message.toPromptContextMessage()),
-                    // long: 只有 Responses 最近窗口保留用户原始图片；摘要和 Agent 可信上下文仍只消费文本/确定性工具事实，避免附件扩大执行权限。
+                    // long: 只有 Responses 最近窗口保留用户原始附件；摘要和 Agent 可信上下文仍只消费文本/确定性工具事实，避免附件扩大执行权限。
                     images = message.imagesForRequest(apiMode),
+                    documents = message.documentsForRequest(apiMode),
                 )
             }
         return requestMessages
@@ -3961,9 +4006,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         updatedAt = updatedAt,
     )
 
-    private fun ConversationSession.withoutImagePayloads(): ConversationSession = copy(
+    private fun ConversationSession.withoutBinaryPayloads(): ConversationSession = copy(
         messages = messages.map { message ->
-            message.copy(parts = message.effectiveParts().filterNot { it is MessagePart.Image })
+            message.copy(
+                parts = message.effectiveParts().filterNot {
+                    it is MessagePart.Image || it is MessagePart.Document
+                },
+            )
         },
     )
 

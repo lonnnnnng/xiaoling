@@ -22,6 +22,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持发送中停止生成，取消当前请求和底层 OkHttp Call。
   - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
   - Responses 模式支持从系统文件选择器附加单张 PNG/JPEG/WEBP 图片（最大 8 MB），发送前可预览或移除，历史消息可恢复显示；Chat Completions 和 `/agent` 会明确拒绝图片。
+  - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON 或 CSV 文档；文档最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，原始文件与受限提取文本随消息恢复。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
@@ -44,7 +45,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 `POST /chat/completions`。
   - 支持 `POST /responses`。
   - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
-  - Provider、会话、消息及 Text/Reasoning/Image/Tool parts、Agent Run、笔记、长期记忆、Skill、Workflow Ledger 和 ScheduledTask 使用 Room 保存；图片原始字节写入 BLOB 并随数据库备份，旧 SharedPreferences 数据首次启动时迁入。
+  - Provider、会话、消息及 Text/Reasoning/Image/Document/Tool parts、Agent Run、笔记、长期记忆、Skill、Workflow Ledger 和 ScheduledTask 使用 Room 保存；附件原始字节写入 BLOB 并随数据库备份，旧 SharedPreferences 数据首次启动时迁入。
   - 后台计划只允许显式声明 `supportsBackground=true` 的 SAFE 只读工具；需要审批的工具在执行前进入 `BLOCKED` 并发送通知，不创建或继承前台临时授权。
   - API Key 使用 Android Keystore + AES-GCM 加密保存。
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
@@ -60,7 +61,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
    - `API Key`：服务需要鉴权时填写。
 3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
-5. 输入消息开始对话；Responses 模式可点击图片图标附加单张图片。输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收图片。
+5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
 6. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
 7. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
 
@@ -100,12 +101,12 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 267 项 JVM 测试通过，0 失败、0 错误、0 跳过。
-- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 85 条 instrumentation，0 失败、0 跳过；在线模拟器未参与安装、测试、截图或验收。
-- Redmi 当前设备 Provider 使用 `gpt-5.5 + Responses` 完成真实图片轮次，模型返回 `IMAGE_OK`；Room 回读确认用户 Image part 和 883 字节 PNG BLOB 已持久化。
-- Redmi 主库已升级到 Room v24；v23→v24 迁移不补造历史图片，现有 Text/Reasoning/Tool 数据保持不变。
-- Debug 请求日志确认 `input_image` 的 Data URL 字节、Authorization、原始/加密推理内容均被脱敏；普通文本与供应商可展示摘要仍可用于协议排查。
-- 最终 Debug APK SHA-256：`dd58890936ed02990ed208586f61072f27a8932b18fcdd9d86d204f878364df4`。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 281 项 JVM 测试通过，0 失败、0 错误、0 跳过。
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 92 条 instrumentation，0 失败、0 跳过；在线模拟器未参与安装、测试、截图或验收。
+- Redmi 当前设备 Provider 使用 `gpt-5.5 + Responses` 完成真实 Markdown 文档轮次，模型在 4.33 秒返回 `DOC_STAGE27_OK`；Room 回读确认 67 字节原始 BLOB 与 67 字符提取文本已持久化。
+- Redmi 主库已升级到 Room v25；v24→v25 迁移只增加 Document 元数据列，不补造历史文档，现有 Text/Reasoning/Image/Tool 数据保持不变。
+- Debug 请求日志确认 `input_file.file_data`、Authorization、原始/加密推理内容均被脱敏；默认 User-Agent 保持正确。
+- 最终 Debug APK SHA-256：`53c7fdb9641e3bdb3a06531b97078b4edce70606fa30da6315e072d26fd87572`。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档
