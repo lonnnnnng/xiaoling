@@ -888,5 +888,7 @@ TDD 与自动化：
 - Red/Green 覆盖 Repository 重建后的完整调用/结果/验证查询，以及 v19 旧 Run 迁移后追加验证；补充失败结果显式错误、ToolCall 参数漂移事务回滚和 `tool.verify` 新旧 metadata 兼容。
 - 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；206 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
 - Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 64 条 instrumentation，合计 128 条全部通过。
-- 以 `c81d3a8` 为固定点执行 Standards/Spec 双轴审查。初审发现未知 ToolCall 结果会静默退化为 event-only，`tool.verify` 未校验 Run/工具身份，且关键绑定规则缺少贴近实现的业务注释；后续复审又发现新写 ToolResult/Verification 可缺少 ToolCall ID。修复后 null/未知结果、null 验证、跨 Run 验证和错工具验证均整笔回滚，只有同一 Run 的历史 Call/Result 事件可进入 v19 fallback。
+- 以 `c81d3a8` 为固定点执行 Standards/Spec 双轴审查。初审发现未知 ToolCall 结果会静默退化为 event-only，`tool.verify` 未校验 Run/工具身份，且关键绑定规则缺少贴近实现的业务注释；后续复审又发现新写 ToolResult/Verification 可缺少 ToolCall ID。修复后 null/未知结果、null 验证、跨 Run 验证和错工具验证均整笔回滚，只有同一 Run 的历史 Call/Result 事件可进入 v19 fallback；最终 Standards/Spec 复审均为 0 项 finding。
+- instrumentation 后向 Redmi 覆盖安装最终 APK，恢复 1 个 Provider、同步并启用 6 个模型，选择 `gpt-5.4-mini`。真实普通对话 `Reply with exactly: OK` 在 4.18 秒返回 HTTP 200 和 `OK`；默认 User-Agent 正确，Authorization 日志保持脱敏，crash buffer 为空，`com.longdev.xiaoling/.MainActivity` 保持前台。
+- Redmi 只读回读确认 `PRAGMA user_version=20`、Provider 为 1 条；本轮未创建 Agent Run，`agent_tool_calls / agent_tool_results` 均为 0 条，符合普通对话不写工具账本的边界。
 - 最终 Debug APK SHA-256：`dd924a63cb388213cbf643e1526f3ebd73121c4648933a0f6a9fd7a1120e87b1`。
