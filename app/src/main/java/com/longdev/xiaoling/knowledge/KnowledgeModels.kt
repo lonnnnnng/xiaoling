@@ -92,6 +92,27 @@ data class KnowledgeSearchResult(
     val retrieval: KnowledgeRetrievalRecord,
 )
 
+data class KnowledgeReference(
+    val retrievalId: String,
+    val documentId: String,
+    val documentName: String,
+    val documentRevision: Int,
+    val chunkId: String,
+    val chunkSequence: Int,
+    val startOffset: Int,
+    val endOffset: Int,
+) {
+    init {
+        require(retrievalId.isNotBlank()) { "知识检索引用缺少 retrieval ID" }
+        require(documentId.isNotBlank()) { "知识检索引用缺少 document ID" }
+        require(documentName.isNotBlank()) { "知识检索引用缺少文档名称" }
+        require(documentRevision > 0) { "知识检索引用的文档 revision 必须大于 0" }
+        require(chunkId.isNotBlank()) { "知识检索引用缺少 chunk ID" }
+        require(chunkSequence >= 0) { "知识检索引用的 chunk sequence 不能小于 0" }
+        require(startOffset >= 0 && endOffset > startOffset) { "知识检索引用的 offset 范围无效" }
+    }
+}
+
 interface KnowledgeDocumentStore {
     suspend fun importUtf8Document(
         displayName: String,
@@ -110,6 +131,12 @@ interface KnowledgeDocumentStore {
     suspend fun listDocuments(): List<KnowledgeDocumentSummary>
     suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail?
     suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord>
+
+    /**
+     * long:
+     * 只保留仍然指向当前启用文档 revision 和 chunk 边界的引用；历史审计记录本身不在这里被改写。
+     */
+    suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference>
 
     suspend fun search(
         query: String,

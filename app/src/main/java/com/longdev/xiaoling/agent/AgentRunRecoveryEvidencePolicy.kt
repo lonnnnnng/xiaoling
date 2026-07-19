@@ -132,6 +132,7 @@ object AgentRunRecoveryEvidencePolicy {
         success = success,
         verified = executorVerified,
         memoryIdsUsed = memoryIdsUsed,
+        knowledgeReferences = knowledgeReferences,
         toolCallId = toolCallId,
         replaySafety = replaySafety,
         executionReceipt = executionReceipt,

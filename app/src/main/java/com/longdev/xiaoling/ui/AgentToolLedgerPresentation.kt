@@ -10,6 +10,7 @@ import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.matchesLedgerEvent
 import com.longdev.xiaoling.agent.matchesLedgerVerificationEvent
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 
 internal enum class AgentToolDetailSource {
     LEDGER,
@@ -37,6 +38,7 @@ internal data class AgentToolCallPresentation(
     val durationMs: Long?,
     val executorVerified: Boolean?,
     val memoryIdsUsed: List<String>,
+    val knowledgeReferences: List<KnowledgeReference>,
     val replaySafety: ToolReplaySafety?,
     val executionReceipt: ToolExecutionReceipt?,
     val createdAt: Long,
@@ -89,6 +91,7 @@ private fun AgentToolCallRecord.toPresentation(result: AgentToolResultRecord?): 
         durationMs = result?.durationMs,
         executorVerified = result?.executorVerified,
         memoryIdsUsed = result?.memoryIdsUsed.orEmpty(),
+        knowledgeReferences = result?.knowledgeReferences.orEmpty(),
         replaySafety = result?.replaySafety,
         executionReceipt = result?.executionReceipt,
         createdAt = createdAt,
@@ -110,6 +113,7 @@ private fun AgentToolResultRecord.toOrphanPresentation(): AgentToolCallPresentat
         durationMs = durationMs,
         executorVerified = executorVerified,
         memoryIdsUsed = memoryIdsUsed,
+        knowledgeReferences = knowledgeReferences,
         replaySafety = replaySafety,
         executionReceipt = executionReceipt,
         createdAt = createdAt,
@@ -400,6 +404,7 @@ private data class EventToolCallBuilder(
             durationMs = result?.durationMs,
             executorVerified = result?.verified,
             memoryIdsUsed = result?.memoryIdsUsed.orEmpty(),
+            knowledgeReferences = result?.knowledgeReferences.orEmpty(),
             replaySafety = result?.replaySafety,
             executionReceipt = result?.executionReceipt,
             createdAt = createdAt,

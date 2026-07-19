@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -102,6 +103,37 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun toolResultKnowledgeReferencesRoundTripWithoutFlatteningIdentity() {
+        val metadata = RunEventMetadata.ToolResult(
+            toolName = "knowledge.search",
+            content = "本地知识检索结果：...",
+            durationMs = 18,
+            success = true,
+            verified = null,
+            knowledgeReferences = listOf(
+                KnowledgeReference(
+                    retrievalId = "knowledge-retrieval-1",
+                    documentId = "document-1",
+                    documentName = "路线图.md",
+                    documentRevision = 4,
+                    chunkId = "chunk-1-r4-2",
+                    chunkSequence = 2,
+                    startOffset = 120,
+                    endOffset = 360,
+                ),
+            ),
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                type = "tool.result",
+                raw = RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
     fun toolExecutionReceiptRoundTripsWithToolCallIdentity() {
         val metadata = RunEventMetadata.ToolResult(
             toolName = "notes.create",
@@ -157,6 +189,7 @@ class RunEventMetadataCodecTest {
         ) as RunEventMetadata.ToolResult
 
         assertEquals(emptyList<String>(), metadata.memoryIdsUsed)
+        assertEquals(emptyList<KnowledgeReference>(), metadata.knowledgeReferences)
         assertEquals(null, metadata.toolCallId)
         assertEquals(null, metadata.executionReceipt)
         assertEquals(ToolReplaySafety.RESTART_REQUIRED, metadata.replaySafety)

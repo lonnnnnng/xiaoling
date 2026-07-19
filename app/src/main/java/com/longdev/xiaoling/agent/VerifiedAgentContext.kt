@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,6 +18,7 @@ data class VerifiedToolExecution(
     val verificationStatus: AgentVerificationStatus,
     val rawResult: String,
     val memoryIdsUsed: List<String> = emptyList(),
+    val knowledgeReferences: List<KnowledgeReference> = emptyList(),
 )
 
 data class VerifiedAgentContext(
@@ -26,8 +29,56 @@ data class VerifiedAgentContext(
     val verificationStatus: AgentVerificationStatus,
     val rawResult: String,
     val memoryIdsUsed: List<String> = emptyList(),
+    val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val toolExecutions: List<VerifiedToolExecution> = emptyList(),
 )
+
+/**
+ * long:
+ * 把知识库生命周期变化应用到“送入模型”的可信投影；Room 中的历史审计快照仍由 Repository 原样保留。
+ */
+internal fun VerifiedAgentContext.retainCurrentKnowledgeReferences(
+    currentReferences: Set<KnowledgeReference>,
+): VerifiedAgentContext? {
+    val executions = if (toolExecutions.isNotEmpty()) {
+        toolExecutions
+    } else {
+        listOf(
+            VerifiedToolExecution(
+                toolName = toolName,
+                arguments = arguments,
+                success = success,
+                verificationStatus = verificationStatus,
+                rawResult = rawResult,
+                memoryIdsUsed = memoryIdsUsed,
+                knowledgeReferences = knowledgeReferences,
+            ),
+        )
+    }
+    val retainedExecutions = executions.mapNotNull { execution ->
+        val knowledgeEvidenceMissing = execution.toolName == "knowledge.search" &&
+            execution.knowledgeReferences.isEmpty()
+        val knowledgeEvidenceStale = execution.toolName == "knowledge.search" &&
+            execution.knowledgeReferences.any { it !in currentReferences }
+        if (knowledgeEvidenceMissing || knowledgeEvidenceStale) {
+            // long: 知识检索结果正文与引用是同一可信单元，任一 chunk 失效时整步退出模型上下文，避免只删 ID 仍泄露旧正文。
+            return@mapNotNull null
+        }
+        execution.copy(knowledgeReferences = execution.knowledgeReferences.filter { it in currentReferences })
+    }
+    if (retainedExecutions.isEmpty()) return null
+    val finalExecution = retainedExecutions.last()
+    return copy(
+        toolName = finalExecution.toolName,
+        arguments = finalExecution.arguments,
+        success = retainedExecutions.all { it.success },
+        verificationStatus = finalExecution.verificationStatus,
+        rawResult = finalExecution.rawResult,
+        memoryIdsUsed = retainedExecutions.flatMap { it.memoryIdsUsed }.distinct(),
+        knowledgeReferences = retainedExecutions.flatMap { it.knowledgeReferences }.distinct(),
+        toolExecutions = if (toolExecutions.isNotEmpty()) retainedExecutions else emptyList(),
+    )
+}
 
 object VerifiedAgentContextCodec {
     fun encode(context: VerifiedAgentContext): String {
@@ -39,6 +90,7 @@ object VerifiedAgentContextCodec {
             .put("verificationStatus", context.verificationStatus.name)
             .put("rawResult", context.rawResult)
             .put("memoryIdsUsed", context.memoryIdsUsed.toStringJsonArray())
+            .put("knowledgeReferences", KnowledgeReferenceCodec.encode(context.knowledgeReferences))
             .put("toolExecutions", context.toolExecutions.toJsonArray())
             .toString()
     }
@@ -59,6 +111,7 @@ object VerifiedAgentContextCodec {
                 verificationStatus = AgentVerificationStatus.valueOf(json.getString("verificationStatus")),
                 rawResult = json.getString("rawResult"),
                 memoryIdsUsed = json.readStringList("memoryIdsUsed"),
+                knowledgeReferences = KnowledgeReferenceCodec.decode(json.optJSONArray("knowledgeReferences")),
                 toolExecutions = json.optJSONArray("toolExecutions")?.let { executions ->
                     buildList {
                         for (index in 0 until executions.length()) {
@@ -80,7 +133,8 @@ object VerifiedAgentContextCodec {
                         .put("success", execution.success)
                         .put("verificationStatus", execution.verificationStatus.name)
                         .put("rawResult", execution.rawResult)
-                        .put("memoryIdsUsed", execution.memoryIdsUsed.toStringJsonArray()),
+                        .put("memoryIdsUsed", execution.memoryIdsUsed.toStringJsonArray())
+                        .put("knowledgeReferences", KnowledgeReferenceCodec.encode(execution.knowledgeReferences)),
                 )
             }
         }
@@ -98,6 +152,7 @@ object VerifiedAgentContextCodec {
             verificationStatus = AgentVerificationStatus.valueOf(getString("verificationStatus")),
             rawResult = getString("rawResult"),
             memoryIdsUsed = readStringList("memoryIdsUsed"),
+            knowledgeReferences = KnowledgeReferenceCodec.decode(optJSONArray("knowledgeReferences")),
         )
     }
 

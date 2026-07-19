@@ -37,7 +37,7 @@ interface ConversationDao {
     @Query(
         """
         SELECT id, messageId, sequence, type, text, toolName, argumentsJson, result,
-               success, verificationStatus, memoryIdsJson, reasoningSource, providerItemId,
+               success, verificationStatus, memoryIdsJson, knowledgeReferencesJson, reasoningSource, providerItemId,
                summaryIndex, mimeType, fileName, NULL AS binaryData, imageDetail,
                documentExtractedText, documentPageCount, documentDetail
         FROM message_parts
@@ -325,6 +325,9 @@ interface KnowledgeDao {
 
     @Query("SELECT * FROM knowledge_chunks WHERE id = :chunkId")
     suspend fun getChunk(chunkId: String): KnowledgeChunkEntity?
+
+    @Query("SELECT * FROM knowledge_chunks WHERE id IN (:chunkIds)")
+    suspend fun getChunksByIds(chunkIds: List<String>): List<KnowledgeChunkEntity>
 
     @Query("SELECT * FROM knowledge_chunks WHERE documentId = :documentId ORDER BY sequence ASC")
     suspend fun getChunks(documentId: String): List<KnowledgeChunkEntity>

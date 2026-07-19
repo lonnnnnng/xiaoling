@@ -4,7 +4,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-19：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地；参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-20：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地；参考项目审计日期仍保持原始取证时间。
 
 ## 1. 结论先行
 
@@ -300,7 +300,7 @@
 
 ## 5. 对小灵当前状态的判断
 
-截至 `v0.1.9`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
+截至 `v0.1.10`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
 - Chat Completions / Responses API，以及保留 system/user/assistant 边界的消息和通过 `call_id` 关联的函数调用/结果 typed Items。
@@ -324,7 +324,7 @@
 - Room v24 已为 USER Image part 增加 MIME、文件名、BLOB 和 detail；系统选择器图片经过 8 MB 有界读取、签名和解码校验，Responses 使用 Data URL，Compose 支持预览/移除/历史展示。图片 BLOB 只为当前会话加载，轻量快照保留未加载 BLOB，请求等待 Room 提交，陈旧前台快照不能复活已删会话。Chat Completions、`/agent` 和可信工具上下文均不接收 Image。
 - Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document 支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX；8 MB、50 页、200,000 UTF-8 字符及 OpenXML 的 ZIP/OPC 根节点、加密、条目数和展开预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载，不能进入 `/agent` 或可信工具上下文。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
-- Room v4、v6-v25 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile 和消息 parts 演进。v18 以独立主键映射保存 memory ToolCall 的原始载荷哈希，v19 增加可空提交结果快照，v20 新建空工具账本，v21 新建空 Agent Profile 表，v22 只回填 Text，v23 只增加可空 Reasoning 元数据列，v24 增加可空 Image 附件列，v25 增加可空 Document 提取文本/页数/detail；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image 或 Document 证据。
+- Room v4、v6-v27 Schema 已导出；迁移测试覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile、消息 parts 和知识引用演进。v26→v27 只增加默认空引用列；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image、Document 或 KnowledgeReference 证据。
 
 现有关键实现位于：
 
@@ -370,12 +370,12 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v26 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。Tool part 与可信 Agent 上下文一致时保留稳定数据库 ID，漂移时回退可信投影；Reasoning 只保存供应商 summary，Image/Document 只允许 USER 来源，均不进入可信 Agent 上下文。旧 SQL 迁移不补造 Tool、Reasoning、Image、Document 或 Knowledge。Agent 检索工具和模型引用注入尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v27 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史与可信上下文；禁用、替换或删除后历史审计保留，失效消息和旧摘要不再进入模型。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。独立答案引用 UI 与 Embedding 尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、旧 text 回填、供应商 summary 身份、用户附件 BLOB/提取文本、OpenXML 结构校验、按会话加载、可信 Tool 投影、前后台原子写入、显式删除和同气泡展示；Room v26 已补知识全文/chunks/FTS/审计和导入/详情/生命周期/检索预览管理 UI，后续接只读 Agent 检索工具 | 流式文本、用户附件、折叠推理摘要和工具步骤可在同一消息中恢复；知识替换后旧 chunk 引用失效，轻量快照不会清空附件，正文列表与详情预览不会加载 64 MB 全文，原始思维链与 Agent 工具事实保持隔离 |
+| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v27 已补知识全文/chunks/FTS/审计、管理 UI、只读 Agent 检索、引用持久化与模型上下文失效过滤 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离 |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |

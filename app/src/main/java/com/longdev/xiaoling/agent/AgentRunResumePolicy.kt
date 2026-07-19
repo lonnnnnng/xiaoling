@@ -134,6 +134,7 @@ object AgentRunResumePolicy {
                     content = result.content,
                     verified = result.verified,
                     memoryIdsUsed = result.memoryIdsUsed,
+                    knowledgeReferences = result.knowledgeReferences,
                     executionReceipt = result.executionReceipt,
                 ),
             )

@@ -949,6 +949,58 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate26To27AddsEmptyKnowledgeReferencesWithoutInventingEvidence() = runBlocking {
+        migrationHelper.createDatabase(KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME, 26).apply {
+            execSQL(
+                """
+                INSERT INTO message_parts (
+                    id, messageId, sequence, type, text, toolName, argumentsJson, result,
+                    success, verificationStatus, memoryIdsJson, reasoningSource, providerItemId, summaryIndex,
+                    mimeType, fileName, binaryData, imageDetail, documentExtractedText, documentPageCount, documentDetail
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "part-v26-tool", "message-v26", 0, "TOOL", null, "knowledge.search", "{}", "旧知识结果",
+                    1, "READABLE_ONLY", "[]", null, null, null,
+                    null, null, null, null, null, null, null,
+                ),
+            )
+            execSQL(
+                """
+                INSERT INTO agent_tool_results (
+                    toolCallId, runId, eventId, toolName, content, success, errorMessage, durationMs,
+                    executorVerified, verificationStatus, verifiedEventId, memoryIdsJson, replaySafety,
+                    receiptToolCallId, receiptOperationId, receiptIdempotencyKey, receiptStatus, createdAt, verifiedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "tool-call-v26", "run-v26", "event-v26", "knowledge.search", "旧知识结果", 1, null, 5L,
+                    null, null, null, "[]", "RESTART_REQUIRED",
+                    null, null, null, null, 10L, null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME,
+            27,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT knowledgeReferencesJson FROM message_parts WHERE id = 'part-v26-tool'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("[]", cursor.getString(0))
+        }
+        migrated.query("SELECT knowledgeReferencesJson FROM agent_tool_results WHERE toolCallId = 'tool-call-v26'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("[]", cursor.getString(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1025,5 +1077,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val IMAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-image-parts-migration-test"
         private const val DOCUMENT_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-document-parts-migration-test"
         private const val KNOWLEDGE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-migration-test"
+        private const val KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-reference-migration-test"
     }
 }

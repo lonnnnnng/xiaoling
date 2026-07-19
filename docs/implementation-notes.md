@@ -12,7 +12,7 @@
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.9`（`versionCode 10`）
+当前发布版本：`v0.1.10`（`versionCode 11`）
 
 ## 模块职责
 
@@ -126,6 +126,7 @@
 - 设置页「工作流」可保存和编辑 1 至 8 个顺序 Agent 目标、启停定义、手动执行并展开查看定义与全部运行快照；同一工作流存在 `QUEUED / RUNNING` Run 时，Repository 在事务内拒绝重复启动和编辑。
 - Room v16 将未来定义保存到 `workflow_step_definitions`。每次创建 Run 时原子物化独立 `WorkflowStep`，冻结定义步骤 ID、顺序、幂等键、目标和输入快照；后续定义编辑只影响未来 Run，历史 Run 不回写。
 - 前台和 WorkManager 后台都按步骤顺序创建独立 Agent Run。每一步启动前把连续成功前缀的已验证输出冻结进输入快照，完成后写入输出快照；后续步骤通过 `WorkflowStepPromptPolicy` 接收这些输出，同时继续独立执行 Schema、权限、风险、审批和验证。
+- 普通 Workflow 输出继续兼容旧纯文本快照；执行过 `knowledge.search` 的输出改用带 schema 版本的 JSON 保存正文、是否需要当前知识证据、引用数组和原始引用数量。准备步骤与真正关联 Agent Run 时都会调用 `retainCurrentReferences()` 重新核对完整引用集合，引用缺失、损坏、禁用、替换或删除时只从新输入投影中移除正文，不回写来源 Run；最终结果和任务中心展示统一通过 codec 读取正文，避免把快照 JSON 当作用户结果。
 - 旧单步骤兼容入口收到同一 Agent Run 的重复快照回调时，优先命中已经关联该 Run 的步骤，再执行幂等状态刷新；不会因为步骤已经进入 `RUNNING` 就错误关联到后续步骤。
 - `BLOCKED / FAILED / CANCELLED` Workflow Run 可创建新 Run 重试。新 Run 通过 `retryOfWorkflowRunId` 关联来源，把连续成功前缀标为 `SKIPPED` 并记录 `reusedFromStepId`，首个未完成步骤及后续步骤恢复为 `PENDING`；旧 Run 不修改。
 - 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
@@ -188,7 +189,7 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v26，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v26 的关键增量和全新 v26 建库。旧 Workflow、笔记、记忆、工具账本、Profile 和 MessagePart 的历史字段按各阶段保守迁移，v25→v26 只创建空知识库表，不猜造文档或检索记录。
+- 数据库当前版本为 v27，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v27 的关键增量和全新 v27 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列，不从旧正文或历史 JSON 猜造引用。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -202,14 +203,18 @@
 
 ## 本地知识库与 RAG 数据基础
 
-- Room v26 新增 `knowledge_documents / knowledge_chunks / knowledge_chunks_fts / knowledge_retrievals`。规范全文和 chunks 都保存在主数据库中，因此现有数据库 ZIP 备份自然包含知识库数据，不依赖外部 URI 或旁路文件。
+- Room v26 新增 `knowledge_documents / knowledge_chunks / knowledge_chunks_fts / knowledge_retrievals`；Room v27 把 `KnowledgeReference` 写入 Tool Ledger 和 Tool MessagePart。规范全文和 chunks 都保存在主数据库中，因此现有数据库 ZIP 备份自然包含知识库数据，不依赖外部 URI 或旁路文件。
 - `KnowledgeTextPolicy` 第一版只处理 TXT、Markdown、JSON 和 CSV 的严格 UTF-8 文本，最大 64 MB / 1600 万 UTF-16 字符。导入会移除 BOM、统一 CRLF/CR 为 LF、拒绝空白与 `NUL`，并对规范全文计算 SHA-256；`parserVersion=1` 明确冻结当前解析语义。
 - 分块默认上限 1600 字符、重叠 200 字符，优先在后半窗口的段落分隔处结束；没有合适段落边界时才硬切。每块保存 `[startOffset, endOffset)`，正文必须等于规范全文对应子串，并修正 UTF-16 高低代理项边界。
 - chunk ID 包含文档 ID、revision、sequence 和内容哈希前缀。替换始终递增 revision，并在单个 Room 事务内更新文档、删除旧 FTS/chunks、插入新 chunks/FTS；注入新 chunk 插入失败的真机测试确认全文、revision、旧 chunks 与旧索引会一起回滚。
 - 检索优先执行 FTS4 `unicode61` 前缀查询，同时执行转义 `% / _ / \\` 的多词 `LIKE` AND 查询作为中文和字面子串兜底；结果按 chunk ID 去重并限制最多 20 条。每次调用，包括空命中，都会记录 query、实际 chunk/document ID、来源会话、来源 Run 和时间。
 - 设置页「知识库」使用独立 `KnowledgeManagementViewModel`，支持 SAF 导入、刷新、轻量摘要列表、详情、启停、替换、删除和显式检索预览。`KnowledgeDocumentReader` 即使遇到 DocumentsProvider 隐瞒大小也会流式执行 64 MB 上限；列表使用 projection + chunk count，不读取规范全文。
 - 详情通过独立 SQL projection 读取有界前缀，再按最多 4,000 个 UTF-16 单元二次收紧且不切断代理对；同时保留完整字节数、字符数、SHA-256、revision、parser 和截断标记，避免最大 64 MB 全文进入 Compose 状态。快速选择会取消旧详情和列表刷新 Job；替换、禁用和删除会立即隐藏旧详情、取消在途检索并清空旧 chunk/retrieval 引用，提交成功后的刷新异常不会误报为提交失败。
-- 禁用只保留数据并立即退出检索；删除在事务内清理 FTS、chunks 和文档。当前仍没有 Agent 工具、模型上下文注入、答案引用呈现或 Embedding，后续接入必须继续使用现有 chunk/revision 引用和审计契约。
+- `knowledge.search` 作为独立 SAFE ToolDefinition 接入 Registry，`query` 为 1 至 200 字符，`limit` 默认 3、最大 5，支持后台执行；内置 `local-knowledge` Skill 只缩小到该工具。Store 写入 conversation/run 来源检索审计，结果同时返回可读片段与 retrieval/document/revision/chunk/offset 引用。
+- 引用从 ToolExecutionResult 贯穿 RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史和任务中心。`KnowledgeReferenceCodec` 对整段或单条畸形 JSON 容错，坏项不再作为可信证据，但不会阻断消息或 Run 加载。
+- 禁用、替换或删除后，Room 中历史 Run/消息审计保持不变；普通对话准备上下文时会按当前 enabled/revision/chunk/sequence/offset/name 核验引用。任一引用失效时整条知识 Agent 消息退出请求，可能包含旧片段的已存摘要同时废弃并从过滤后的消息重建，避免仅清空 ID 后仍把旧正文送入模型。
+- Workflow 前序输出沿用相同生命周期边界：前台、后台与进程恢复完成步骤时都把真实 `VerifiedAgentContext`/Tool Ledger 引用写入版本化输出快照；重试复制旧快照但不改写来源，下一步骤使用前再次核验，失效正文不会进入新 Run。
+- 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。当前仍没有独立答案引用 UI 或 Embedding。
 
 ## 日志
 

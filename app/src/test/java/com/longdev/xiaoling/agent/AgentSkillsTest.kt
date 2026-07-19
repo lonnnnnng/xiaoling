@@ -21,6 +21,18 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInKnowledgeSkillSelectsOnlyReadOnlyKnowledgeTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "请从知识库检索发布文档中的真机验收要求",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "local-knowledge" }
+        assertEquals(setOf("knowledge.search"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+    }
+
+    @Test
     fun triggerExampleCanSelectSkillWithoutExactKeyword() = runTest {
         val catalog = AgentSkillCatalog(
             store = TestAgentSkillStore(),

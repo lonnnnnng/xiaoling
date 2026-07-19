@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ModelResponseResult
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
@@ -186,7 +187,11 @@ private fun List<AgentToolExecution>.toPlannerHistoryJson(): String {
                     .put("arguments", JSONObject(execution.toolCall.arguments))
                     .put("success", execution.toolResult.success)
                     .put("verified", execution.toolResult.verified)
-                    .put("content", execution.toolResult.content),
+                    .put("content", execution.toolResult.content)
+                    .put(
+                        "knowledge_references",
+                        KnowledgeReferenceCodec.encode(execution.toolResult.knowledgeReferences),
+                    ),
             )
         }
     }.toString()

@@ -48,6 +48,7 @@ object AgentMessagePartPolicy {
                 success = execution.success,
                 verificationStatus = execution.verificationStatus.toMessageStatus(),
                 memoryIdsUsed = execution.memoryIdsUsed.distinct(),
+                knowledgeReferences = execution.knowledgeReferences.distinct(),
             )
         }
         // long: Room 中的 part ID 用于后续分支、重生成和局部更新；只有内容仍与可信 Agent 上下文逐项一致时才保留，漂移时回退重新投影。
@@ -64,6 +65,7 @@ object AgentMessagePartPolicy {
                     verificationStatus = verificationStatus,
                     rawResult = rawResult,
                     memoryIdsUsed = memoryIdsUsed,
+                    knowledgeReferences = knowledgeReferences,
                 ),
             )
         }

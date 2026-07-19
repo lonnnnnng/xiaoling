@@ -1,6 +1,8 @@
 package com.longdev.xiaoling.automation
 
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalTime
@@ -114,6 +116,13 @@ data class WorkflowStepInputSnapshot(
     val previousOutputs: List<String>,
 )
 
+data class WorkflowStepOutputSnapshot(
+    val text: String,
+    val requiresCurrentKnowledgeReferences: Boolean,
+    val knowledgeReferences: List<KnowledgeReference>,
+    val expectedKnowledgeReferenceCount: Int,
+)
+
 object WorkflowStepSnapshotCodec {
     fun encodeInput(goal: String, previousOutputs: List<String>): String {
         return JSONObject()
@@ -132,6 +141,46 @@ object WorkflowStepSnapshotCodec {
             },
         )
     }
+
+    fun encodeOutput(
+        text: String,
+        knowledgeReferences: List<KnowledgeReference> = emptyList(),
+        requiresCurrentKnowledgeReferences: Boolean = false,
+    ): String {
+        if (!requiresCurrentKnowledgeReferences && knowledgeReferences.isEmpty()) return text
+        return JSONObject()
+            .put("schema", OUTPUT_SCHEMA)
+            .put("text", text)
+            .put("requiresCurrentKnowledgeReferences", requiresCurrentKnowledgeReferences)
+            .put("knowledgeReferences", KnowledgeReferenceCodec.encode(knowledgeReferences.distinct()))
+            .toString()
+    }
+
+    fun decodeOutput(raw: String?): WorkflowStepOutputSnapshot? {
+        if (raw == null) return null
+        val json = runCatching { JSONObject(raw) }.getOrNull()
+        if (json?.optString("schema") != OUTPUT_SCHEMA) {
+            return WorkflowStepOutputSnapshot(
+                text = raw,
+                requiresCurrentKnowledgeReferences = false,
+                knowledgeReferences = emptyList(),
+                expectedKnowledgeReferenceCount = 0,
+            )
+        }
+        return runCatching {
+            val referencesJson = json.optJSONArray("knowledgeReferences") ?: JSONArray()
+            WorkflowStepOutputSnapshot(
+                text = json.getString("text"),
+                requiresCurrentKnowledgeReferences = json.optBoolean("requiresCurrentKnowledgeReferences"),
+                knowledgeReferences = KnowledgeReferenceCodec.decode(referencesJson),
+                expectedKnowledgeReferenceCount = referencesJson.length(),
+            )
+        }.getOrNull()
+    }
+
+    fun outputText(raw: String?): String? = decodeOutput(raw)?.text
+
+    private const val OUTPUT_SCHEMA = "workflow-step-output-v1"
 }
 
 object WorkflowStepExecutionPolicy {

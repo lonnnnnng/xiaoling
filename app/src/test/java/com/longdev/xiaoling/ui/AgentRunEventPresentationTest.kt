@@ -7,6 +7,7 @@ import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -60,6 +61,16 @@ class AgentRunEventPresentationTest {
 
     @Test
     fun toolResultJsonIsPresentedAsStructuredFields() {
+        val reference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-event",
+            documentId = "document-event",
+            documentName = "事件审计.md",
+            documentRevision = 3,
+            chunkId = "chunk-event-r3-1",
+            chunkSequence = 1,
+            startOffset = 80,
+            endOffset = 160,
+        )
         val presentation = presentAgentRunEvent(
             type = "tool.result",
             message = "工具执行成功：fake.echo",
@@ -69,6 +80,7 @@ class AgentRunEventPresentationTest {
                 content = "done",
                 durationMs = 42,
                 verified = null,
+                knowledgeReferences = listOf(reference),
             ),
         )
 
@@ -77,6 +89,11 @@ class AgentRunEventPresentationTest {
         assertEquals("done", presentation.fields.single { it.label == "结果" }.value)
         assertEquals("42ms", presentation.fields.single { it.label == "耗时" }.value)
         assertEquals("是", presentation.fields.single { it.label == "成功" }.value)
+        val knowledge = presentation.fields.single { it.label == "知识引用" }.value
+        assertTrue(knowledge.contains(reference.retrievalId))
+        assertTrue(knowledge.contains("事件审计.md (document-event) · revision=3"))
+        assertTrue(knowledge.contains("chunk=1"))
+        assertTrue(knowledge.contains("offset=80-160"))
         assertNull(presentation.rawFallback)
     }
 

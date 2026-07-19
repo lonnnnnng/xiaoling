@@ -764,6 +764,7 @@ class MinimalAgentRuntime(
             verificationStatus = finalExecution.verificationStatus,
             rawResult = finalExecution.rawResult,
             memoryIdsUsed = executions.flatMap { it.memoryIdsUsed }.distinct(),
+            knowledgeReferences = executions.flatMap { it.knowledgeReferences }.distinct(),
             toolExecutions = executions,
         )
     }
@@ -781,6 +782,7 @@ class MinimalAgentRuntime(
             verificationStatus = verificationStatus,
             rawResult = toolResult.content,
             memoryIdsUsed = toolResult.memoryIdsUsed,
+            knowledgeReferences = toolResult.knowledgeReferences,
         )
     }
 
@@ -976,6 +978,7 @@ private object AgentEventMetadata {
             verified = result.verified,
             durationMs = durationMs,
             memoryIdsUsed = result.memoryIdsUsed,
+            knowledgeReferences = result.knowledgeReferences,
             toolCallId = call.id,
             replaySafety = definition.replaySafety,
             executionReceipt = result.executionReceipt,

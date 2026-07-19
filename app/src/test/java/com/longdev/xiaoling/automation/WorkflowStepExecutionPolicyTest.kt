@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 
 class WorkflowStepExecutionPolicyTest {
     @Test
@@ -52,6 +53,36 @@ class WorkflowStepExecutionPolicyTest {
             ),
             WorkflowStepSnapshotCodec.decodeInput(encoded),
         )
+    }
+
+    @Test
+    fun outputSnapshotKeepsKnowledgeEvidenceAndReadsLegacyPlainText() {
+        val reference = KnowledgeReference(
+            retrievalId = "retrieval-1",
+            documentId = "document-1",
+            documentName = "rules.md",
+            documentRevision = 1,
+            chunkId = "chunk-1",
+            chunkSequence = 0,
+            startOffset = 0,
+            endOffset = 8,
+        )
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "只允许 Redmi 真机",
+            knowledgeReferences = listOf(reference),
+            requiresCurrentKnowledgeReferences = true,
+        )
+
+        assertEquals(
+            WorkflowStepOutputSnapshot(
+                text = "只允许 Redmi 真机",
+                requiresCurrentKnowledgeReferences = true,
+                knowledgeReferences = listOf(reference),
+                expectedKnowledgeReferenceCount = 1,
+            ),
+            WorkflowStepSnapshotCodec.decodeOutput(encoded),
+        )
+        assertEquals("旧版输出", WorkflowStepSnapshotCodec.outputText("旧版输出"))
     }
 
     @Test

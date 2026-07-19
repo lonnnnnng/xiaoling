@@ -12,6 +12,7 @@ import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.ToolVerificationStatus
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +20,16 @@ import org.junit.Test
 class AgentToolLedgerPresentationPolicyTest {
     @Test
     fun ledgerIsPreferredAndShowsEveryToolCallStage() {
+        val knowledgeReference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-ledger-ui",
+            documentId = "document-ledger-ui",
+            documentName = "账本展示.md",
+            documentRevision = 2,
+            chunkId = "chunk-ledger-ui-r2-0",
+            chunkSequence = 0,
+            startOffset = 0,
+            endOffset = 48,
+        )
         val callMetadata = RunEventMetadata.ToolCall(
             id = "tool-call-1",
             toolName = "app.current_time",
@@ -32,6 +43,7 @@ class AgentToolLedgerPresentationPolicyTest {
             success = true,
             verified = true,
             toolCallId = callMetadata.id,
+            knowledgeReferences = listOf(knowledgeReference),
         )
         val events = listOf(
             event("event-proposed", "tool.call.proposed", callMetadata, 10L),
@@ -76,6 +88,7 @@ class AgentToolLedgerPresentationPolicyTest {
                     verificationStatus = ToolVerificationStatus.PASSED,
                     verifiedEventId = "event-verified",
                     memoryIdsUsed = emptyList(),
+                    knowledgeReferences = listOf(knowledgeReference),
                     replaySafety = ToolReplaySafety.RESTART_REQUIRED,
                     executionReceipt = null,
                     createdAt = 12L,
@@ -100,6 +113,7 @@ class AgentToolLedgerPresentationPolicyTest {
             },
         )
         assertTrue(presentation.issues.isEmpty())
+        assertEquals(listOf(knowledgeReference), presentation.calls.single().knowledgeReferences)
     }
 
     @Test

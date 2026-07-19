@@ -8,11 +8,14 @@ import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentSkillStore
+import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 
 class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
 ) {
+    // long: 无 Profile 审计的历史 Run 只能继续使用知识工具上线前的集合，避免恢复时因新注册工具扩大旧能力面。
+    private val legacyRunToolNames = LEGACY_RUN_TOOL_NAMES
     private val baseLedger = RoomAgentRunRepository(context)
     private val permissionChecker = AndroidToolPermissionChecker(context)
     private val toolRegistry = XiaoLingToolRegistry(
@@ -20,6 +23,7 @@ class AgentRunUseCase(
         conversationStore = RoomAgentConversationStore(context.applicationContext),
         noteStore = RoomAgentNoteStore(context.applicationContext),
         memoryStore = RoomAgentMemoryStore(context.applicationContext),
+        knowledgeStore = RoomKnowledgeDocumentStore(context.applicationContext),
     )
     private val skillCatalog = AgentSkillCatalog(
         store = RoomAgentSkillStore(context.applicationContext),
@@ -107,7 +111,7 @@ class AgentRunUseCase(
         }
         val profileToolRegistry = agentProfile
             ?.let { ProfileScopedToolRegistry(toolRegistry, it.allowedToolNames) }
-            ?: toolRegistry
+            ?: legacyRunToolRegistry(toolRegistry)
         val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
@@ -157,7 +161,7 @@ class AgentRunUseCase(
             onSnapshot = onSnapshot,
         )
         val scopedToolRegistry = when (val assessment = detail.inspectAgentProfileAudit()) {
-            AgentProfileAuditAssessment.Legacy -> toolRegistry
+            AgentProfileAuditAssessment.Legacy -> legacyRunToolRegistry(toolRegistry)
             is AgentProfileAuditAssessment.Available -> ProfileScopedToolRegistry(toolRegistry, assessment.profile.allowedToolNames)
             is AgentProfileAuditAssessment.Invalid -> error(assessment.reason)
         }
@@ -182,6 +186,20 @@ class AgentRunUseCase(
 
     suspend fun deleteLocalSkill(skillId: String): Boolean = skillCatalog.deleteLocal(skillId)
 }
+
+internal val LEGACY_RUN_TOOL_NAMES = setOf(
+    "app.current_time",
+    "app.list_conversations",
+    "app.search_conversations",
+    "notes.list",
+    "notes.search",
+    "notes.create",
+    "memory.search",
+    "memory.remember",
+)
+
+internal fun legacyRunToolRegistry(delegate: ToolRegistry): ToolRegistry =
+    ProfileScopedToolRegistry(delegate, LEGACY_RUN_TOOL_NAMES)
 
 private object RecoveryOnlyAgentLlm : AgentLlm {
     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {

@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.model
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+
 sealed interface MessagePart {
     val id: String
 
@@ -34,6 +36,7 @@ sealed interface MessagePart {
         val success: Boolean,
         val verificationStatus: MessageToolVerificationStatus,
         val memoryIdsUsed: List<String>,
+        val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     ) : MessagePart
 }
 

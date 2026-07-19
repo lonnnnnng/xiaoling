@@ -1,5 +1,14 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
+import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
+import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -24,6 +33,7 @@ class XiaoLingToolRegistryTest {
                 "notes.create",
                 "memory.search",
                 "memory.remember",
+                "knowledge.search",
             ),
             tools.keys,
         )
@@ -31,8 +41,10 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
+        assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
 
     @Test
@@ -60,6 +72,7 @@ class XiaoLingToolRegistryTest {
                 "notes.list",
                 "notes.search",
                 "memory.search",
+                "knowledge.search",
             ),
             backgroundTools,
         )
@@ -67,6 +80,10 @@ class XiaoLingToolRegistryTest {
         assertTrue(limitFields.all {
             it.type == ToolInputType.INTEGER && it.minimum == 1.0 && it.maximum == 10.0
         })
+        assertEquals(
+            5.0,
+            tools.getValue("knowledge.search").inputSchema.single { it.name == "limit" }.maximum,
+        )
         assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
@@ -94,6 +111,47 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(result.success)
         assertEquals("当前时间：2026-07-17 08:30:45 · 时区：Asia/Shanghai", result.content)
+    }
+
+    @Test
+    fun knowledgeSearchReturnsStableReferencesBoundToCurrentRun() = runTest {
+        val knowledgeStore = InMemoryKnowledgeDocumentStore()
+        val registry = testRegistry(knowledgeStore = knowledgeStore).also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-knowledge",
+                    userMessageId = "message-knowledge",
+                    runId = "run-knowledge",
+                    goal = "从知识库查找发布门禁",
+                ),
+            )
+        }
+
+        val result = registry.execute(
+            ToolCall(
+                name = "knowledge.search",
+                arguments = mapOf("query" to "发布门禁", "limit" to "2"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("发布检查清单.md"))
+        assertTrue(result.content.contains("必须在 Redmi 真机完成验收"))
+        assertEquals("发布门禁", knowledgeStore.lastQuery)
+        assertEquals(2, knowledgeStore.lastLimit)
+        assertEquals("conversation-knowledge", knowledgeStore.lastConversationId)
+        assertEquals("run-knowledge", knowledgeStore.lastRunId)
+        assertEquals(1, result.knowledgeReferences.size)
+        val reference = result.knowledgeReferences.single()
+        assertEquals("knowledge-retrieval-1", reference.retrievalId)
+        assertEquals("document-release", reference.documentId)
+        assertEquals("发布检查清单.md", reference.documentName)
+        assertEquals(3, reference.documentRevision)
+        assertEquals("chunk-release-r3-0", reference.chunkId)
+        assertEquals(0, reference.chunkSequence)
+        assertEquals(12, reference.startOffset)
+        assertEquals(38, reference.endOffset)
     }
 
     @Test
@@ -444,14 +502,77 @@ class XiaoLingToolRegistryTest {
         conversationStore: AgentConversationStore = InMemoryAgentConversationStore(),
         noteStore: InMemoryAgentNoteStore = InMemoryAgentNoteStore(),
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
+        knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
     ): XiaoLingToolRegistry {
         return XiaoLingToolRegistry(
             clock = FakeAgentClock(),
             conversationStore = conversationStore,
             noteStore = noteStore,
             memoryStore = memoryStore,
+            knowledgeStore = knowledgeStore,
         )
     }
+}
+
+private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
+    var lastQuery: String? = null
+    var lastLimit: Int? = null
+    var lastConversationId: String? = null
+    var lastRunId: String? = null
+
+    override suspend fun search(
+        query: String,
+        limit: Int,
+        sourceConversationId: String?,
+        sourceRunId: String?,
+    ): KnowledgeSearchResult {
+        lastQuery = query
+        lastLimit = limit
+        lastConversationId = sourceConversationId
+        lastRunId = sourceRunId
+        return KnowledgeSearchResult(
+            hits = listOf(
+                KnowledgeSearchHit(
+                    chunkId = "chunk-release-r3-0",
+                    documentId = "document-release",
+                    documentRevision = 3,
+                    documentName = "发布检查清单.md",
+                    sequence = 0,
+                    startOffset = 12,
+                    endOffset = 38,
+                    text = "必须在 Redmi 真机完成验收。",
+                ),
+            ).take(limit),
+            retrieval = KnowledgeRetrievalRecord(
+                id = "knowledge-retrieval-1",
+                query = query,
+                chunkIds = listOf("chunk-release-r3-0"),
+                documentIds = listOf("document-release"),
+                sourceConversationId = sourceConversationId,
+                sourceRunId = sourceRunId,
+                createdAt = 1_784_252_245_000,
+            ),
+        )
+    }
+
+    override suspend fun importUtf8Document(displayName: String, mimeType: String, bytes: ByteArray): KnowledgeDocumentRecord =
+        error("测试不支持导入")
+
+    override suspend fun replaceUtf8Document(
+        documentId: String,
+        displayName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): KnowledgeDocumentRecord = error("测试不支持替换")
+
+    override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? = null
+    override suspend fun listDocuments(): List<KnowledgeDocumentSummary> = emptyList()
+    override suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail? = null
+    override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = emptyList()
+    override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> = references
+    override suspend fun recentRetrievals(limit: Int): List<KnowledgeRetrievalRecord> = emptyList()
+    override suspend fun setEnabled(documentId: String, enabled: Boolean): KnowledgeDocumentRecord? = null
+    override suspend fun delete(documentId: String): Boolean = false
 }
 
 private class FakeAgentClock : AgentClock {

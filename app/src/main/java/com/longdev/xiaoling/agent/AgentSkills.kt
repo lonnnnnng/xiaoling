@@ -119,6 +119,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "检索结果可读，或写入后完成回读验证。",
         ),
         AgentSkillDefinition(
+            id = "local-knowledge",
+            name = "本地知识库",
+            description = "检索用户已导入并启用的本地知识文档。",
+            instructions = "需要依据用户资料回答时先检索知识库；只引用工具实际返回的片段和结构化文档身份，不把模型描述当成知识库事实。",
+            toolNames = setOf("knowledge.search"),
+            keywords = setOf("知识库", "资料", "文档", "检索", "knowledge", "document"),
+            triggerExamples = listOf("从知识库查找这项规则", "根据我导入的文档回答"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "检索无结果时明确说明未命中，不编造文档内容或引用。",
+            completionCriteria = "返回可读片段和稳定文档引用，或明确说明未找到。",
+        ),
+        AgentSkillDefinition(
             id = "device-time",
             name = "设备时间",
             description = "读取设备当前时间和时区。",

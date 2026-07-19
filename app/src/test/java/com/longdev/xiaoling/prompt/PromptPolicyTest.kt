@@ -3,6 +3,7 @@ package com.longdev.xiaoling.prompt
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedToolExecution
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.MessageOrigin
 import org.json.JSONArray
 import org.json.JSONObject
@@ -149,6 +150,57 @@ class PromptPolicyTest {
             listOf("ordinary_assistant", "agent_rendered_response", "application_agent_audit"),
             (0 until transcriptJson.length()).map { transcriptJson.getJSONObject(it).getString("source") },
         )
+    }
+
+    @Test
+    fun `trusted agent history exposes structured knowledge references`() {
+        val reference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-history",
+            documentId = "document-history",
+            documentName = "历史上下文.md",
+            documentRevision = 7,
+            chunkId = "chunk-history-r7-1",
+            chunkSequence = 1,
+            startOffset = 100,
+            endOffset = 260,
+        )
+        val context = VerifiedAgentContext(
+            runId = "run-history",
+            toolName = "knowledge.search",
+            arguments = mapOf("query" to "历史上下文"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+            rawResult = "历史上下文正文",
+            knowledgeReferences = listOf(reference),
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "knowledge.search",
+                    arguments = mapOf("query" to "历史上下文"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "历史上下文正文",
+                    knowledgeReferences = listOf(reference),
+                ),
+            ),
+        )
+
+        val history = JSONObject(
+            PromptPolicy.historyContent(
+                PromptContextMessage(
+                    origin = MessageOrigin.AGENT_RESULT,
+                    content = "已从知识库读取",
+                    verifiedAgentContext = context,
+                ),
+            ),
+        )
+        val execution = history.getJSONObject("runtime_audit")
+            .getJSONArray("tool_executions")
+            .getJSONObject(0)
+        val references = execution.getJSONArray("knowledge_references")
+
+        assertEquals(reference.retrievalId, references.getJSONObject(0).getString("retrievalId"))
+        assertEquals(reference.documentRevision, references.getJSONObject(0).getInt("documentRevision"))
+        assertEquals(reference.chunkId, references.getJSONObject(0).getString("chunkId"))
     }
 
     @Test

@@ -33,6 +33,8 @@ import com.longdev.xiaoling.data.WorkflowScheduleEntity
 import com.longdev.xiaoling.data.ScheduledTaskEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.model.MessageOrigin
 import java.time.ZoneId
 import java.util.UUID
@@ -42,6 +44,7 @@ class RoomWorkflowRepository(
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) {
     private val messageRepository = MessageRepository(database)
+    private val knowledgeDocumentStore = RoomKnowledgeDocumentStore(context.applicationContext, database)
 
     suspend fun listWorkflows(): List<WorkflowRecord> {
         val dao = database.workflowDao()
@@ -628,10 +631,7 @@ class RoomWorkflowRepository(
             val step = steps.firstOrNull { it.id == workflowStepId } ?: error("工作流步骤不存在：$workflowStepId")
             val expected = WorkflowStepExecutionPolicy.nextExecutableStep(steps.map { it.toRecord() })
             require(expected?.id == step.id) { "工作流步骤必须按顺序准备" }
-            val previousOutputs = steps
-                .filter { it.sequence < step.sequence && it.status in SUCCESSFUL_STEP_STATUSES }
-                .sortedBy { it.sequence }
-                .mapNotNull { it.outputSnapshot ?: it.result }
+            val previousOutputs = currentPreviousOutputs(steps, step.sequence)
             val updated = step.copy(
                 inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(step.detail, previousOutputs),
             )
@@ -655,10 +655,7 @@ class RoomWorkflowRepository(
             require(expected?.id == step.id || step.agentRunId == agentRunId) { "工作流步骤必须按顺序执行" }
             require(step.agentRunId == null || step.agentRunId == agentRunId) { "工作流步骤已关联其他 Agent Run" }
             val now = System.currentTimeMillis()
-            val previousOutputs = steps
-                .filter { it.sequence < step.sequence && it.status in SUCCESSFUL_STEP_STATUSES }
-                .sortedBy { it.sequence }
-                .mapNotNull { it.outputSnapshot ?: it.result }
+            val previousOutputs = currentPreviousOutputs(steps, step.sequence)
             val updated = current.copy(
                 agentRunId = agentRunId,
                 status = WorkflowRunStatus.RUNNING.name,
@@ -684,6 +681,8 @@ class RoomWorkflowRepository(
         status: WorkflowStepStatus,
         result: String? = null,
         errorMessage: String? = null,
+        knowledgeReferences: List<KnowledgeReference> = emptyList(),
+        requiresCurrentKnowledgeReferences: Boolean = false,
     ): WorkflowStepRecord {
         require(status in TERMINAL_STEP_STATUSES) { "工作流步骤只能收敛到终态" }
         return database.withTransaction {
@@ -698,7 +697,13 @@ class RoomWorkflowRepository(
                 status = status.name,
                 result = result,
                 errorMessage = errorMessage,
-                outputSnapshot = result,
+                outputSnapshot = result?.let { output ->
+                    WorkflowStepSnapshotCodec.encodeOutput(
+                        text = output,
+                        knowledgeReferences = knowledgeReferences,
+                        requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
+                    )
+                },
                 completedAt = now,
             )
             dao.upsertStep(updated)
@@ -789,7 +794,18 @@ class RoomWorkflowRepository(
             WorkflowRunStatus.FAILED -> WorkflowStepStatus.FAILED
             else -> return workflowRun.toRecord()
         }
-        completeWorkflowStep(workflowRun.id, step.id, stepStatus, result, errorMessage)
+        val toolResults = database.agentRunDao().getToolResults(agentRunId)
+        completeWorkflowStep(
+            workflowRunId = workflowRun.id,
+            workflowStepId = step.id,
+            status = stepStatus,
+            result = result,
+            errorMessage = errorMessage,
+            knowledgeReferences = toolResults
+                .flatMap { KnowledgeReferenceCodec.decode(it.knowledgeReferencesJson) }
+                .distinct(),
+            requiresCurrentKnowledgeReferences = toolResults.any { it.toolName == KNOWLEDGE_SEARCH_TOOL },
+        )
         val refreshedSteps = dao.getSteps(workflowRun.id).map { it.toRecord() }
         val nextStep = WorkflowStepExecutionPolicy.nextExecutableStep(refreshedSteps)
         return if (status == WorkflowRunStatus.COMPLETED && nextStep != null) {
@@ -797,7 +813,9 @@ class RoomWorkflowRepository(
         } else {
             val workflowResult = if (status == WorkflowRunStatus.COMPLETED) {
                 // long: 审批恢复可能完成最后一步；最终结果必须重新聚合全部步骤快照，不能只保留刚恢复的单步输出。
-                refreshedSteps.mapNotNull { it.outputSnapshot ?: it.result }.joinToString(separator = "\n\n")
+                refreshedSteps.mapNotNull { step ->
+                    WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
+                }.joinToString(separator = "\n\n")
             } else {
                 result
             }
@@ -933,7 +951,7 @@ class RoomWorkflowRepository(
                         val preservedResult = dao.getSteps(workflowRun.id)
                             .filter { it.status in SUCCESSFUL_STEP_STATUSES }
                             .sortedBy { it.sequence }
-                            .mapNotNull { it.outputSnapshot ?: it.result }
+                            .mapNotNull { step -> WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result) }
                             .joinToString(separator = "\n\n")
                         // long: 当前 Agent 已成功时先保留步骤输出，再关闭丢失执行栈的旧 Run；用户重试会复用完成前缀，但不会自动重放后续副作用。
                         completeRun(
@@ -948,6 +966,31 @@ class RoomWorkflowRepository(
             }
         }
         return reconciled
+    }
+
+    private suspend fun currentPreviousOutputs(
+        steps: List<WorkflowStepEntity>,
+        beforeSequence: Int,
+    ): List<String> {
+        return steps
+            .filter { it.sequence < beforeSequence && it.status in SUCCESSFUL_STEP_STATUSES }
+            .sortedBy { it.sequence }
+            .mapNotNull { step ->
+                val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result)
+                    ?: return@mapNotNull null
+                val references = output.knowledgeReferences.distinct()
+                val knowledgeEvidenceExpected = output.requiresCurrentKnowledgeReferences ||
+                    output.expectedKnowledgeReferenceCount > 0
+                if (!knowledgeEvidenceExpected) return@mapNotNull output.text
+                if (references.isEmpty() || references.size != output.expectedKnowledgeReferenceCount) {
+                    return@mapNotNull null
+                }
+                val currentReferences = knowledgeDocumentStore.retainCurrentReferences(references)
+                // long: Workflow 只把完整且仍有效的知识证据传给下一步骤；旧输出快照继续保留在来源 Run 中供审计，不在这里回写或删改。
+                output.text.takeIf {
+                    currentReferences.size == references.size && currentReferences.toSet() == references.toSet()
+                }
+            }
     }
 
     private fun WorkflowEntity.toRecord(
@@ -1067,6 +1110,7 @@ class RoomWorkflowRepository(
 
     companion object {
         const val AGENT_RUN_STEP_TYPE = "AGENT_RUN"
+        private const val KNOWLEDGE_SEARCH_TOOL = "knowledge.search"
         private val SUCCESSFUL_STEP_STATUSES = setOf(
             WorkflowStepStatus.COMPLETED.name,
             WorkflowStepStatus.SKIPPED.name,

@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -331,6 +332,26 @@ class AgentRunRecoveryEvidencePolicyTest {
             complete.copy(
                 toolLedger = complete.toolLedger.copy(
                     results = listOf(complete.toolLedger.results.single().copy(errorMessage = "错误字段漂移")),
+                ),
+            ),
+            complete.copy(
+                toolLedger = complete.toolLedger.copy(
+                    results = listOf(
+                        complete.toolLedger.results.single().copy(
+                            knowledgeReferences = listOf(
+                                KnowledgeReference(
+                                    retrievalId = "knowledge-retrieval-drift",
+                                    documentId = "document-drift",
+                                    documentName = "漂移证据.md",
+                                    documentRevision = 2,
+                                    chunkId = "chunk-drift-r2-0",
+                                    chunkSequence = 0,
+                                    startOffset = 0,
+                                    endOffset = 20,
+                                ),
+                            ),
+                        ),
+                    ),
                 ),
             ),
         )

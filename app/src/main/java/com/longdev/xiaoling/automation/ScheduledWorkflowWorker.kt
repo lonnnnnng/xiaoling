@@ -133,6 +133,9 @@ class ScheduledWorkflowExecutor(
             workflowStepId = step.id,
             status = WorkflowStepStatus.COMPLETED,
             result = summary.responseText,
+            knowledgeReferences = summary.verifiedContext.knowledgeReferences,
+            requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
+                summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
         )
         workflowRepository.appendScheduledConversationResult(
             conversationId = claim.run.run.conversationId,

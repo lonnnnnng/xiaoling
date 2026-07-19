@@ -34,6 +34,7 @@ internal fun AgentToolResultRecord.matchesLedgerEvent(event: RunEventRecord?): B
         metadata.durationMs == durationMs &&
         metadata.verified == executorVerified &&
         metadata.memoryIdsUsed == memoryIdsUsed &&
+        metadata.knowledgeReferences == knowledgeReferences &&
         metadata.replaySafety == replaySafety &&
         metadata.executionReceipt == executionReceipt
 }

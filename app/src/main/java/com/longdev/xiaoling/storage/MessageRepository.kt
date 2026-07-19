@@ -15,6 +15,7 @@ import com.longdev.xiaoling.model.MessageDocumentDetail
 import com.longdev.xiaoling.model.MessageImageDetail
 import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import org.json.JSONObject
 
 class MessageRepository(
@@ -277,6 +278,7 @@ class MessageRepository(
             success = success,
             verificationStatus = verificationStatus.name,
             memoryIdsJson = RoomJson.encodeStringList(memoryIdsUsed.distinct()),
+            knowledgeReferencesJson = KnowledgeReferenceCodec.encodeToString(knowledgeReferences.distinct()),
             reasoningSource = null,
             providerItemId = null,
             summaryIndex = null,
@@ -325,6 +327,7 @@ class MessageRepository(
                 success = requireNotNull(success),
                 verificationStatus = MessageToolVerificationStatus.valueOf(requireNotNull(verificationStatus)),
                 memoryIdsUsed = RoomJson.decodeStringList(requireNotNull(memoryIdsJson)),
+                knowledgeReferences = KnowledgeReferenceCodec.decode(knowledgeReferencesJson),
             )
             else -> null
         }

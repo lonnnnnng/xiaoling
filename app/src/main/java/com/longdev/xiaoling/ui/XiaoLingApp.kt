@@ -3039,7 +3039,9 @@ private fun WorkflowItem(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        (step.outputSnapshot ?: step.result)?.takeIf { it.isNotBlank() }?.let { output ->
+                        WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { output ->
                             Text(
                                 "输出：$output",
                                 style = MaterialTheme.typography.labelSmall,
@@ -4935,6 +4937,13 @@ private fun AgentToolCallRow(call: AgentToolCallPresentation) {
         if (call.memoryIdsUsed.isNotEmpty()) {
             Text(
                 text = "本次使用记忆：${call.memoryIdsUsed.joinToString("、")}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        call.knowledgeReferences.toKnowledgeAuditText()?.let { references ->
+            Text(
+                text = "本次知识引用：\n$references",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                 color = MaterialTheme.colorScheme.tertiary,
             )

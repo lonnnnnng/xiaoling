@@ -102,6 +102,7 @@ internal fun presentAgentRunEvent(
                 "成功" to metadata.success.toDisplayText(),
                 "验证" to metadata.verified?.toDisplayText(),
                 "使用记忆" to metadata.memoryIdsUsed.takeIf { it.isNotEmpty() }?.joinToString("、"),
+                "知识引用" to metadata.knowledgeReferences.toKnowledgeAuditText(),
                 "操作" to metadata.executionReceipt?.operationId,
                 "回执状态" to metadata.executionReceipt?.status?.name,
                 "重放声明" to metadata.replaySafety.name,

@@ -9,6 +9,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
@@ -272,6 +273,8 @@ class KnowledgeManagementViewModelInstrumentedTest {
             synchronized(lock) { details[documentId]?.let { record(it.id, it.enabled) } }
 
         override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = emptyList()
+
+        override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> = references
 
         override suspend fun recentRetrievals(limit: Int): List<KnowledgeRetrievalRecord> = emptyList()
 

@@ -33,6 +33,7 @@ import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentStepEntity
 import com.longdev.xiaoling.data.AgentToolCallEntity
 import com.longdev.xiaoling.data.AgentToolResultEntity
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.RunEventEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -446,6 +447,7 @@ class RoomAgentRunRepository(
                 verificationStatus = null,
                 verifiedEventId = null,
                 memoryIdsJson = metadata.memoryIdsUsed.toJsonArray().toString(),
+                knowledgeReferencesJson = KnowledgeReferenceCodec.encodeToString(metadata.knowledgeReferences),
                 replaySafety = metadata.replaySafety.name,
                 receiptToolCallId = receipt?.toolCallId,
                 receiptOperationId = receipt?.operationId,
@@ -651,6 +653,7 @@ class RoomAgentRunRepository(
         verificationStatus = verificationStatus?.let { runCatching { ToolVerificationStatus.valueOf(it) }.getOrNull() },
         verifiedEventId = verifiedEventId,
         memoryIdsUsed = memoryIdsJson.toStringList(),
+        knowledgeReferences = KnowledgeReferenceCodec.decode(knowledgeReferencesJson),
         replaySafety = runCatching { ToolReplaySafety.valueOf(replaySafety) }
             .getOrDefault(ToolReplaySafety.RESTART_REQUIRED),
         executionReceipt = toExecutionReceipt(),

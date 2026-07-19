@@ -11,6 +11,7 @@ import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
@@ -50,6 +51,16 @@ class RoomMessagePartStoreInstrumentedTest {
 
     @Test
     fun textAndToolPartsRoundTripAcrossDatabaseReopen() = runBlocking {
+        val knowledgeReference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-part",
+            documentId = "document-part",
+            documentName = "消息知识.md",
+            documentRevision = 3,
+            chunkId = "chunk-part-r3-0",
+            chunkSequence = 0,
+            startOffset = 0,
+            endOffset = 32,
+        )
         val parts = listOf(
             MessagePart.Text(id = "part-text", text = "Agent 任务已完成"),
             MessagePart.Tool(
@@ -60,6 +71,7 @@ class RoomMessagePartStoreInstrumentedTest {
                 success = true,
                 verificationStatus = MessageToolVerificationStatus.VERIFIED,
                 memoryIdsUsed = listOf("memory-1"),
+                knowledgeReferences = listOf(knowledgeReference),
             ),
         )
         val stored = StoredConversationMessage(
@@ -77,6 +89,7 @@ class RoomMessagePartStoreInstrumentedTest {
                     verificationStatus = AgentVerificationStatus.VERIFIED,
                     rawResult = "找到 1 条记忆",
                     memoryIdsUsed = listOf("memory-1"),
+                    knowledgeReferences = listOf(knowledgeReference),
                     toolExecutions = listOf(
                         VerifiedToolExecution(
                             toolName = "memory.search",
@@ -85,6 +98,7 @@ class RoomMessagePartStoreInstrumentedTest {
                             verificationStatus = AgentVerificationStatus.VERIFIED,
                             rawResult = "找到 1 条记忆",
                             memoryIdsUsed = listOf("memory-1"),
+                            knowledgeReferences = listOf(knowledgeReference),
                         ),
                     ),
                 ),
@@ -106,6 +120,25 @@ class RoomMessagePartStoreInstrumentedTest {
 
         assertEquals("Agent 任务已完成", restored.text)
         assertEquals(parts, restored.parts)
+    }
+
+    @Test
+    fun malformedKnowledgeReferenceJsonDoesNotBlockConversationLoad() = runBlocking {
+        val stored = agentMessage(id = "message-malformed-knowledge", createdAt = 100L)
+        val opened = openDatabase()
+        MessageRepository(opened).replaceAll(listOf("conversation-malformed-knowledge" to stored))
+        opened.openHelper.writableDatabase.execSQL(
+            "UPDATE message_parts SET knowledgeReferencesJson = ? WHERE messageId = ? AND type = 'TOOL'",
+            arrayOf("[{\"documentId\":\"broken\"}]", stored.id),
+        )
+
+        val restored = MessageRepository(opened)
+            .loadGroupedByConversation()
+            .getValue("conversation-malformed-knowledge")
+            .single()
+
+        val tool = restored.parts.filterIsInstance<MessagePart.Tool>().single()
+        assertTrue(tool.knowledgeReferences.isEmpty())
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import kotlinx.coroutines.awaitCancellation
@@ -159,6 +160,60 @@ class MinimalAgentRuntimeTest {
         assertEquals("fake.echo", summary.verifiedContext.toolName)
         assertTrue(summary.verifiedContext.success)
         assertEquals(AgentVerificationStatus.READABLE_ONLY, summary.verifiedContext.verificationStatus)
+    }
+
+    @Test
+    fun knowledgeReferencesFlowFromExecutorIntoRunEventAndVerifiedContext() = runTest {
+        val reference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-runtime",
+            documentId = "document-runtime",
+            documentName = "运行手册.md",
+            documentRevision = 2,
+            chunkId = "chunk-runtime-r2-1",
+            chunkSequence = 1,
+            startOffset = 40,
+            endOffset = 96,
+        )
+        val tool = ToolDefinition(
+            name = "knowledge.search",
+            description = "检索本地知识库",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("query", "关键词", required = true)),
+        )
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(tool)
+                override fun definition(name: String): ToolDefinition? = tool.takeIf { it.name == name }
+                override suspend fun execute(call: ToolCall): ToolExecutionResult = ToolExecutionResult(
+                    success = true,
+                    content = "运行手册说明：仅使用 Redmi 真机验收。",
+                    knowledgeReferences = listOf(reference),
+                )
+            },
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = ToolCall(
+                    name = "knowledge.search",
+                    arguments = mapOf("query" to "真机验收"),
+                    risk = ToolRisk.SAFE,
+                )
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+        )
+
+        val summary = runtime.run("conversation-knowledge", "message-knowledge", "查询真机验收要求")
+
+        val resultEvent = ledger.snapshot(summary.runId).events.single { it.type == "tool.result" }
+            .metadata as RunEventMetadata.ToolResult
+        assertEquals(listOf(reference), resultEvent.knowledgeReferences)
+        assertEquals(listOf(reference), summary.verifiedContext.knowledgeReferences)
+        assertEquals(listOf(reference), summary.verifiedContext.toolExecutions.single().knowledgeReferences)
     }
 
     @Test
@@ -1006,6 +1061,73 @@ class MinimalAgentRuntimeTest {
         )
 
         assertEquals(AgentPlanDecision.Complete, decision)
+    }
+
+    @Test
+    fun openAiPlannerReceivesStructuredKnowledgeReferencesFromCompletedTools() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(
+                MockResponse().setResponseCode(200).setBody(
+                    """
+                    {
+                      "model":"gpt-test",
+                      "choices":[{"message":{"content":"{\"action\":\"complete\"}"}}]
+                    }
+                    """.trimIndent(),
+                ),
+            )
+            val reference = KnowledgeReference(
+                retrievalId = "knowledge-retrieval-planner",
+                documentId = "document-planner",
+                documentName = "规划证据.md",
+                documentRevision = 6,
+                chunkId = "chunk-planner-r6-2",
+                chunkSequence = 2,
+                startOffset = 240,
+                endOffset = 420,
+            )
+            val tool = ToolDefinition("knowledge.search", "检索本地知识库", ToolRisk.SAFE)
+            val llm = OpenAiAgentLlm(
+                client = OpenAiCompatibleClient(),
+                config = ProviderRequestConfig(
+                    baseUrl = server.url("/v1").toString(),
+                    apiKey = "test-key",
+                    model = "gpt-test",
+                ),
+                summarySystemPrompt = "只返回总结样式 JSON",
+            )
+
+            val decision = llm.proposeNextAction(
+                goal = "依据知识库回答",
+                tools = listOf(tool),
+                completedTools = listOf(
+                    AgentToolExecution(
+                        toolCall = ToolCall(
+                            id = "tool-call-planner",
+                            name = tool.name,
+                            arguments = mapOf("query" to "规划证据"),
+                            risk = tool.risk,
+                        ),
+                        toolResult = ToolExecutionResult(
+                            success = true,
+                            content = "规划证据正文",
+                            knowledgeReferences = listOf(reference),
+                        ),
+                    ),
+                ),
+            )
+
+            val requestBody = server.takeRequest().body.readUtf8()
+            assertEquals(AgentPlanDecision.Complete, decision)
+            assertTrue(requestBody.contains("knowledge_references"))
+            assertTrue(requestBody.contains(reference.retrievalId))
+            assertTrue(requestBody.contains(reference.chunkId))
+            assertTrue(requestBody.contains("documentRevision"))
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-19（北京时间）
+验证日期：2026-07-20（北京时间）
 
 ## 环境
 
@@ -27,7 +27,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v25 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v27 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -310,7 +310,7 @@ Signer #1 certificate SHA-256 digest: 5e9ecb9a560858b439392af355ecee3af082dc78d7
 说明：
 
 - 从 `v0.1.8` 起应用使用 `com.longdev.xiaoling`；从旧 `applicationId` 升级时，Android 会把它视为新应用。
-- 本机 release keystore 为小灵专用证书，`v0.1.9` 与 `v0.1.8` 使用同一签名证书。
+- 本机 release keystore 为小灵专用证书，`v0.1.10`、`v0.1.9` 与 `v0.1.8` 使用同一签名证书。
 
 ## APK 元数据
 
@@ -327,7 +327,7 @@ package: name='com.longdev.xiaoling' versionCode='10' versionName='0.1.9'
 application-label:'小灵'
 ```
 
-## GitHub Release
+## 历史 GitHub Release（v0.1.9）
 
 - Release：[小灵 v0.1.9](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.9)
 - 标签：`v0.1.9`
@@ -549,7 +549,7 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - `XiaoLingDatabaseMigrationInstrumentedTest` 已编译覆盖 v4→v14、v9→v14、v12→v14、v13→v14 与全新 v14 建库；Room 导出的 `14.json` 包含 `scheduled_tasks` 及 `workflow_runs.scheduledTaskId / plannedAt`。
 - 为保护真机 Keystore 中的 Provider API Key，本轮仍未执行 instrumentation；AndroidTest 只完成源码编译和 APK 组装。
 
-当前边界：
+该阶段当时的边界：
 
 - 第一版只支持 1 分钟至 7 天的一次性非精确计划，不支持 Daily/Weekly、AlarmManager、精确闹钟权限或 Foreground Service。
 - SAFE 后台白名单仅包含当前时间、会话查询、笔记查询和长期记忆查询；`notes.create / memory.remember` 等需审批工具不会继承前台授权，而是写入 Agent/Workflow/ScheduledTask `BLOCKED` 并提示用户以前台新 Run 重试。
@@ -1144,3 +1144,47 @@ Redmi 真实模型、UI、日志与数据库验收：
 当前边界：
 
 - 管理 UI 已完成，但 `knowledge.search` 仍不是 Agent Tool，检索结果尚未注入模型上下文或答案引用。下一阶段必须把只读工具接入 Registry、Profile/Skill 白名单和 Run/ToolResult 审计，不能绕过现有工具权限与可信事实边界。
+
+## 2026-07-20 `knowledge.search` 与 Room v27 引用链
+
+实现与安全边界：
+
+- 新增 SAFE、后台可用的 `knowledge.search`，`query` 必填 1 至 200 字符，`limit` 默认 3、最大 5；内置 `local-knowledge` Skill 只授权该工具。Store 将 conversation ID、Run ID 写入检索审计。
+- `KnowledgeReference` 固定保存 retrieval/document/name/revision/chunk/sequence/offset，并贯穿 ToolExecutionResult、RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史和任务中心。Room v27 为 ToolResult 与 MessagePart 新增默认 `[]` 列，v26→v27 不猜造旧引用。
+- 禁用、替换或删除后，历史 Run、Ledger 和消息审计不回写；新模型请求会核对当前 enabled/revision/chunk/name/sequence/offset。任一知识引用失效时整条历史 Agent 知识消息退出请求，旧会话摘要同时废弃并从过滤后的消息重建。
+- 既有 Profile/Skill 不自动增加 `knowledge.search`。缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能因当前 Registry 增长而扩权。
+- `KnowledgeReferenceCodec` 对整段和单条畸形 JSON 容错；坏引用只退出可信证据，不阻断消息或 Run 加载。独立答案引用 UI 与 Embedding 仍未交付。
+- Workflow 只在涉及知识检索时把输出保存为 `workflow-step-output-v1` 结构化快照；普通旧纯文本快照继续兼容。前台、后台和进程恢复均写入真实引用，准备下一步和关联 Agent Run 时重新核对完整引用集合；重试复制来源快照但不改写来源 Run，引用失效后前序正文不会进入新 Run。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过；309 条 JVM 测试，0 失败、0 错误，Lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 覆盖安装 Debug/Test APK，并运行完整 instrumentation：`OK (113 tests)`。ADB 同时可见模拟器，但没有向模拟器发送安装、启动、测试、日志或数据库命令。
+- 新增真机覆盖 v26→v27、Run/Message 引用往返、Ledger/Event 漂移 fail-closed、禁用/替换/删除后的引用投影失效、Workflow 有效引用透传与重试失效过滤、畸形 JSON 容错，以及直接打包五份真实长期文档的 corpus；自然改写、多词分隔、`limit=1` 首位结果和确定性负例门禁均通过。
+
+真实模型与最终设备状态：
+
+- `Time Agent + gpt-5.5` 真实规划选择 `knowledge.search`，参数为 `query=STAGE31_KNOWLEDGE_TOKEN_7319, limit=5`；Run `run-76ddee5b-6a3f-4528-ba6c-d4c430706384` 与 retrieval `knowledge-retrieval-fb602ac2-c220-492f-8072-724d43475add` 返回唯一 token、Redmi 真机约束和 `revision=1 / chunk=0 / offset=0-190`。
+- RunEvent、独立 Tool Ledger、检索审计和 MessagePart 引用完全一致。临时文档已从应用知识库删除，历史引用保留；当前主库知识文档/chunk/FTS 为 0。
+- 最终 `v0.1.10` Debug APK SHA-256：`8af1430c75794825dab6d2a1365af0341c22d57965c988d7d0ea4bc28d334d63`。AndroidTest APK 会把五份持续维护的 `docs/` 文档作为真实 corpus 打包，因此不在文档自身记录递归变化的 Test APK 哈希。最终应用在 Redmi 冷启动进入 `com.longdev.xiaoling/.MainActivity`，进程存活，crash buffer 为空。
+
+## 2026-07-20 小灵 v0.1.10 发布
+
+发布构建与产物：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleDebug assembleRelease --rerun-tasks --stacktrace --console=plain` 通过，Release `lintVital` 同时通过。
+- `aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.10`、`versionCode=11`、`minSdk=26`、`targetSdk=36`。
+- `apksigner verify --verbose --print-certs` 确认 v2 签名有效，单一签名者证书 SHA-256 仍为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- 发布 APK：`outputs/release/xiaoling-v0.1.10.apk`，SHA-256：`a7e71b2a2582152de5c954f4e124e6f02f15a86df7d8537b6502d2f9187f726d`；同目录生成 `.sha256` 校验文件。
+
+Redmi 最终状态：
+
+- instrumentation 后使用最终 Debug APK 从 `0.1.9` 无损覆盖到 `0.1.10`，没有卸载或清数据；`dumpsys package` 确认 `versionName=0.1.10 / versionCode=11`。
+- `com.longdev.xiaoling/.MainActivity` 为 `topResumedActivity`，进程存活，清空后重新采集的 crash buffer 为空。
+- 设备当前安装的是 debug 签名包；没有为切换正式签名而卸载应用。Release APK 已完成本地签名、元数据与哈希验证，避免因发布验收清除手机上的 Provider、会话和 Keystore 数据。
+
+GitHub Release：
+
+- Release：[小灵 v0.1.10](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.10)
+- APK：[xiaoling-v0.1.10.apk](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.10/xiaoling-v0.1.10.apk)
+- SHA-256：[xiaoling-v0.1.10.apk.sha256](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.10/xiaoling-v0.1.10.apk.sha256)

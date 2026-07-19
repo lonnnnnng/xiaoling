@@ -3,6 +3,7 @@ package com.longdev.xiaoling.prompt
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedToolExecution
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.model.MessageOrigin
 import org.json.JSONArray
 import org.json.JSONObject
@@ -208,6 +209,7 @@ object PromptPolicy {
             .put("success", success)
             .put("verification_status", verificationStatus.name)
             .put("raw_result", rawResult)
+            .put("knowledge_references", KnowledgeReferenceCodec.encode(knowledgeReferences))
             .put(
                 "tool_executions",
                 JSONArray().apply {
@@ -243,6 +245,7 @@ object PromptPolicy {
                 verificationStatus = verificationStatus,
                 rawResult = rawResult,
                 memoryIdsUsed = memoryIdsUsed,
+                knowledgeReferences = knowledgeReferences,
             ),
         )
     }
@@ -255,6 +258,7 @@ object PromptPolicy {
             .put("verification_status", verificationStatus.name)
             .put("raw_result", rawResult)
             .put("memory_ids_used", JSONArray().apply { memoryIdsUsed.forEach(::put) })
+            .put("knowledge_references", KnowledgeReferenceCodec.encode(knowledgeReferences))
     }
 
     private fun AgentVerificationStatus.toEvidenceLabel(): String {

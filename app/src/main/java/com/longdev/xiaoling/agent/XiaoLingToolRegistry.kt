@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -11,6 +13,7 @@ class XiaoLingToolRegistry(
     private val conversationStore: AgentConversationStore,
     private val noteStore: AgentNoteStore,
     private val memoryStore: AgentMemoryStore,
+    private val knowledgeStore: KnowledgeDocumentStore,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
 
@@ -201,6 +204,31 @@ class XiaoLingToolRegistry(
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             timeoutMs = 5_000,
         ),
+        ToolDefinition(
+            name = "knowledge.search",
+            description = "检索用户已导入并启用的本地知识文档，返回正文片段及可审计的文档版本和 chunk 引用。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "query",
+                    description = "知识库检索关键词。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 200,
+                ),
+                ToolInputField(
+                    name = "limit",
+                    description = "返回片段数，默认 3，最大 5。",
+                    required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 5.0,
+                ),
+            ),
+            timeoutMs = 5_000,
+        ),
     )
 
     init {
@@ -234,6 +262,7 @@ class XiaoLingToolRegistry(
             "notes.create" -> createNote(call)
             "memory.search" -> searchMemory(call)
             "memory.remember" -> remember(call)
+            "knowledge.search" -> searchKnowledge(call)
             else -> ToolExecutionResult(success = false, content = "未知工具：${call.name}")
         }
     }
@@ -535,11 +564,53 @@ class XiaoLingToolRegistry(
         )
     }
 
+    private suspend fun searchKnowledge(call: ToolCall): ToolExecutionResult {
+        val query = call.arguments["query"].orEmpty().trim()
+        if (query.isBlank()) return ToolExecutionResult(success = false, content = "知识库检索关键词不能为空")
+        val context = runContext
+        val search = knowledgeStore.search(
+            query = query,
+            limit = call.knowledgeLimit(),
+            sourceConversationId = context?.conversationId,
+            sourceRunId = context?.runId,
+        )
+        if (search.hits.isEmpty()) {
+            return ToolExecutionResult(success = true, content = "未找到匹配的本地知识片段。")
+        }
+        // long: 模型可读取正文片段，但审计链只信任 Store 返回的稳定身份；文档替换后 revision 和 chunk ID 同时变化，旧引用不会被新 Run 复用。
+        val references = search.hits.map { hit ->
+            KnowledgeReference(
+                retrievalId = search.retrieval.id,
+                documentId = hit.documentId,
+                documentName = hit.documentName,
+                documentRevision = hit.documentRevision,
+                chunkId = hit.chunkId,
+                chunkSequence = hit.sequence,
+                startOffset = hit.startOffset,
+                endOffset = hit.endOffset,
+            )
+        }
+        return ToolExecutionResult(
+            success = true,
+            knowledgeReferences = references,
+            content = search.hits.joinToString(separator = "\n", prefix = "本地知识检索结果：\n") { hit ->
+                "- ${hit.documentName} · revision=${hit.documentRevision} · chunk=${hit.sequence} · offset=${hit.startOffset}-${hit.endOffset}\n  ${hit.text}"
+            },
+        )
+    }
+
     private fun ToolCall.limit(): Int {
         return arguments["limit"]
             ?.toIntOrNull()
             ?.let { min(max(it, 1), 10) }
             ?: 5
+    }
+
+    private fun ToolCall.knowledgeLimit(): Int {
+        return arguments["limit"]
+            ?.toIntOrNull()
+            ?.let { min(max(it, 1), 5) }
+            ?: 3
     }
 
     private fun List<AgentConversationRecord>.toConversationText(title: String): String {

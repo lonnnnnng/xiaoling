@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v26、Text/Reasoning/Image/Document/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile、消息 parts、本地知识库数据基础和管理 UI 的 Redmi 真机验收。v25 的 USER Document 已支持 PDF、UTF-8 文本和 DOCX/PPTX/XLSX OpenXML 富文档直传；Room v26 进一步新增规范全文、确定性 chunks、FTS4 + 中文 `LIKE` 兜底、检索审计，以及导入、轻量列表、有界详情预览、启停、替换、删除和检索预览。当前仍未交付只读 `knowledge.search` Agent 工具、模型上下文引用注入和答案引用呈现，不能把管理 UI 视为完整 RAG 问答。Reasoning 仍只保存供应商 `summary_text`，原始、加密推理和附件 Base64 均不会原样进入 debug 日志。当前门禁为 291 条 JVM 测试和仅 Redmi 执行的 106 条 instrumentation。
+当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、Text/Reasoning/Image/Document/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 至 2026-07-20 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile、消息 parts、本地知识库数据/管理 UI，以及只读 `knowledge.search` Agent 接入的 Redmi 真机验收。Room v27 把稳定 document/revision/chunk/offset 引用贯穿 RunEvent、Tool Ledger、VerifiedAgentContext、MessagePart、规划历史和任务中心；禁用、替换或删除后，历史审计保留，但失效知识消息、旧摘要和 Workflow 前序知识输出都不会再次进入模型上下文。旧 Profile 不自动加入新工具，缺少 Profile 审计的历史 Run 也固定在知识工具上线前的能力集合。当前仍未交付独立答案引用 UI 和 Embedding。Reasoning 仍只保存供应商 `summary_text`，原始、加密推理和附件 Base64 均不会原样进入 debug 日志。当前门禁为 309 条 JVM 测试和仅 Redmi 执行的 113 条 instrumentation。
 
 ## 推荐阅读顺序
 

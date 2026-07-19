@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v25 Text/Reasoning/Image/Document/Tool parts 已让自然语言、用户图片/文档、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。Room v26 已建立严格 UTF-8 全文、确定性 chunks、FTS4 + 中文兜底、revision 引用失效和检索审计的数据基础，并完成导入、列表、有界详情、启停、替换、删除和检索预览管理 UI。用户 Image、基础 Document 与 DOCX/PPTX/XLSX 富文档直传均已完成真实 `gpt-5.5 + Responses` Redmi 验收；Agent 检索工具、模型引用注入与通用旧执行栈续跑仍未交付。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库数据/管理 UI，以及只读 `knowledge.search` 均已交付。工具结果携带稳定 retrieval/document/revision/chunk/offset 身份并进入规划历史和可信上下文；禁用、替换或删除后历史审计保留，但失效消息、旧摘要与 Workflow 前序知识输出不会再次进入模型。独立答案引用 UI、Embedding 与通用旧执行栈续跑仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -40,7 +40,7 @@
 - 首个工具执行前 `WAITING_APPROVAL` 的原地恢复已接入；执行任意工具后的审批等待、旧模型协程和通用工具执行栈仍不恢复。两个白名单写工具的例外仅补齐已提交结果的只读验证与本地总结。
 - 第一批真实 Tool Registry 已统一声明 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、后台能力、超时和验证策略；生产权限检查器默认 fail-closed，Runtime 已按前台/后台来源执行能力门禁。
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
-- 已有 Room v26 知识文档、chunks、FTS4/中文兜底、检索审计和管理 UI；Agent 工具、引用注入、答案引用呈现与 Embedding 尚未接入。
+- 已有 Room v27 知识文档、chunks、FTS4/中文兜底、检索审计、管理 UI、只读 Agent 工具和模型引用注入；答案引用呈现与 Embedding 尚未接入。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
@@ -325,7 +325,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括用户 Image/Document、函数调用与结果 typed Items、可选 Reasoning summary | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v26、event metadata、重试关联、Memory/Knowledge FTS、候选表、生命周期、Skill/Workflow/调度/步骤定义表迁移、笔记幂等索引、记忆 operation ledger/结果快照、独立工具账本、Agent Profile、MessagePart、知识库审计和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v27、event metadata、Memory/Knowledge FTS、Tool Ledger、Agent Profile、MessagePart、知识引用审计和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止和运行中撤权边界已完成；`notes.create` 与 `memory.remember` 已完成完整幂等证明及受限验证阶段恢复 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
@@ -350,7 +350,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ## 建议的下一项开发
 
-基于 `v0.1.9` 当前状态，下一批实际代码任务建议拆为：
+基于 `v0.1.10` 当前状态，下一批实际代码任务建议拆为：
 
 1. `WAITING_APPROVAL` 原 Run 恢复已完成不清理 Keystore 的真机验收；`notes.create` 仅在完整已提交证据下恢复后置验证，其他执行/验证中 Run 继续创建关联新 Run。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
@@ -383,6 +383,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 29. 已完成：Room v26 新增知识文档、chunks、FTS4 和检索审计。严格 UTF-8 导入规范换行、拒绝空白/NUL，并按规范全文计算 SHA-256；确定性分块优先段落边界、保留有限重叠和精确 offset，不切断 UTF-16 代理对。替换在同一事务递增 revision 并全量更新 chunks/FTS，失败注入确认整笔回滚；禁用/删除立即退出检索，旧 chunk ID 随 revision 失效。该阶段 291 条 JVM、仅 Redmi 执行的 98 条 instrumentation 均通过；Redmi 主库升级为 v26，原 Provider 保留。该阶段尚未接入管理 UI、Agent 工具和模型引用注入。
 30. 已完成：设置页新增知识库管理 UI，使用 SAF 有界读取、轻量摘要 projection 和最多 4,000 个 UTF-16 单元且不切断代理对的详情预览，支持导入、列表、详情、启停、替换、删除和带 retrieval ID/chunk offset 的检索预览。独立 ViewModel 串行化变更、取消旧详情/刷新/检索、变更开始即隐藏失效详情，并区分存储提交失败与提交后的刷新失败。291 条 JVM、仅 Redmi 执行的 106 条 instrumentation 均通过；真实 UI 验证 revision 1→2、停用/删除 0 命中、旧词失效、新词命中和 r1/r2 审计引用分离，最终主库知识表清空且 Provider 保留。
 
-下一阶段把只读 `knowledge.search` 作为独立 `ToolDefinition` 接入 Tool Registry、Profile/Skill 白名单、RunEvent/ToolResult 引用审计和模型上下文。工具结果必须返回稳定 document/chunk/revision/offset 身份，禁用、替换或删除后的旧引用不得再次进入新 Run；Embedding 继续后置，先验证 FTS4 + 中文兜底在真实资料集上的召回质量。RAG 不能直接扩大 Agent 工具权限，也不能把模型描述提升为工具事实。
+31. 已完成：新增 SAFE、后台可用的 `knowledge.search` 和内置 `local-knowledge` Skill。`query` 必填 1 至 200 字符，`limit` 默认 3、最大 5；ToolResult、RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史、Workflow 输出和任务中心统一保存稳定 retrieval/document/revision/chunk/offset 引用。Room v27 为 ToolResult/MessagePart 增加默认空引用列，不猜造旧证据。失效引用会让整条历史知识消息、可能污染的旧摘要和 Workflow 前序正文退出新模型请求，历史审计不回写；旧 Profile 不自动扩权，无 Profile 审计的历史 Run 固定在知识工具上线前的工具集合。309 条 JVM、仅 Redmi 执行的 113 条 instrumentation 通过；五份真实项目长期文档 corpus 的多词重排查询、top-1 和负例门禁全部通过。真实 `Time Agent + gpt-5.5` 已选择 `knowledge.search`，Run、Ledger、retrieval 和 MessagePart 引用一致。
+
+下一阶段实现答案级引用呈现：在 Agent 回复中以独立、可点击/可展开的引用区域展示文档名、revision、chunk 和 offset，并能跳转知识库详情；展示必须读取结构化 MessagePart/VerifiedAgentContext，不解析模型自由文本。禁用、替换或删除后，历史审计仍可查看，但 UI 必须明确标记“历史版本/当前不可用”，不能把旧引用伪装成当前资料。Embedding 继续后置，先在更多真实资料与 golden query 上持续观察 FTS4 + 中文兜底质量。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

@@ -15,6 +15,7 @@ import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -213,6 +214,61 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.FAILED, storedSource.run.status)
         assertEquals(WorkflowStepStatus.COMPLETED, storedSource.steps[0].status)
         assertEquals(WorkflowStepStatus.FAILED, storedSource.steps[1].status)
+    }
+
+    @Test
+    fun workflowOnlyPassesCurrentKnowledgeOutputToNextStepAndRetry() = runBlocking {
+        val knowledgeStore = RoomKnowledgeDocumentStore(context, database)
+        val document = knowledgeStore.importUtf8Document(
+            displayName = "workflow-rules.md",
+            mimeType = "text/markdown",
+            bytes = "发布验收只能使用 Redmi 真机。".toByteArray(Charsets.UTF_8),
+        )
+        val hit = knowledgeStore.search("Redmi 真机", limit = 3).hits.single()
+        val reference = KnowledgeReference(
+            retrievalId = "retrieval-workflow",
+            documentId = hit.documentId,
+            documentName = hit.documentName,
+            documentRevision = hit.documentRevision,
+            chunkId = hit.chunkId,
+            chunkSequence = hit.sequence,
+            startOffset = hit.startOffset,
+            endOffset = hit.endOffset,
+        )
+        val workflow = repository.createWorkflow(
+            name = "知识前序复用",
+            steps = listOf(
+                WorkflowStepDefinitionInput("检索发布约束"),
+                WorkflowStepDefinitionInput("根据约束生成下一步"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-workflow-knowledge")
+        val first = source.steps[0]
+        repository.markAgentRunStarted(source.run.id, first.id, "agent-workflow-knowledge-1")
+        repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "发布验收只能使用 Redmi 真机。",
+            knowledgeReferences = listOf(reference),
+            requiresCurrentKnowledgeReferences = true,
+        )
+        val second = source.steps[1]
+        val prepared = repository.prepareWorkflowStep(source.run.id, second.id)
+        assertEquals(
+            listOf("发布验收只能使用 Redmi 真机。"),
+            WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs,
+        )
+        repository.markAgentRunStarted(source.run.id, second.id, "agent-workflow-knowledge-2")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "测试失败")
+
+        val sourceOutput = repository.runDetail(source.run.id)!!.steps.first().outputSnapshot
+        val retried = repository.retryRun(source.run.id, "conversation-workflow-knowledge")
+        knowledgeStore.setEnabled(document.id, false)
+
+        val retriedSecond = repository.prepareWorkflowStep(retried.run.id, retried.steps[1].id)
+        assertTrue(WorkflowStepSnapshotCodec.decodeInput(retriedSecond.inputSnapshot).previousOutputs.isEmpty())
+        assertEquals(sourceOutput, repository.runDetail(source.run.id)!!.steps.first().outputSnapshot)
     }
 
     @Test

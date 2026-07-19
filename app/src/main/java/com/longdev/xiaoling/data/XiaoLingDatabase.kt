@@ -38,7 +38,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 26,
+    version = 27,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 26
+        const val CURRENT_VERSION = 27
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -731,6 +731,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 历史 Tool 结果只有自由文本和记忆 ID，不能据此补造 document/chunk 身份；统一写入空数组后，只有新执行产生的结构化引用才可进入审计链。
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `knowledgeReferencesJson` TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE `agent_tool_results` ADD COLUMN `knowledgeReferencesJson` TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -757,6 +765,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_23_24,
             MIGRATION_24_25,
             MIGRATION_25_26,
+            MIGRATION_26_27,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

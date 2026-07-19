@@ -40,6 +40,7 @@ import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.VerifiedAgentContext
+import com.longdev.xiaoling.agent.retainCurrentKnowledgeReferences
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
@@ -92,6 +93,7 @@ import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
+import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.XiaoLingBackupManager
 import com.longdev.xiaoling.storage.UiPreferenceStore
@@ -375,6 +377,38 @@ private data class PreparedRequestContext(
     }
 }
 
+internal data class CurrentKnowledgeContext(
+    val messages: List<ChatMessage>,
+    val removedStaleKnowledgeMessage: Boolean,
+)
+
+internal fun List<ChatMessage>.projectCurrentKnowledgeContext(
+    currentReferences: Set<com.longdev.xiaoling.knowledge.KnowledgeReference>,
+): CurrentKnowledgeContext {
+    var removedStaleKnowledgeMessage = false
+    val filtered = mapNotNull { message ->
+        val context = message.verifiedAgentContext ?: return@mapNotNull message
+        val messageReferences = buildList {
+            addAll(context.knowledgeReferences)
+            context.toolExecutions.forEach { addAll(it.knowledgeReferences) }
+        }
+        if (messageReferences.any { it !in currentReferences }) {
+            // long: Agent 展示正文可能已合并检索片段，不能只清空 runtime_audit；整条历史展示从请求侧移除，数据库审计仍原样保留。
+            removedStaleKnowledgeMessage = true
+            return@mapNotNull null
+        }
+        val projectedContext = context.retainCurrentKnowledgeReferences(currentReferences)
+        if (projectedContext == null &&
+            (context.toolName == "knowledge.search" || context.toolExecutions.any { it.toolName == "knowledge.search" })
+        ) {
+            removedStaleKnowledgeMessage = true
+            return@mapNotNull null
+        }
+        message.copy(verifiedAgentContext = projectedContext)
+    }
+    return CurrentKnowledgeContext(filtered, removedStaleKnowledgeMessage)
+}
+
 private data class AgentRuntimeSelection(
     val config: ProviderRequestConfig,
     val profile: AgentProfileSnapshot,
@@ -385,6 +419,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
     private val documentAttachmentReader = DocumentAttachmentReader(application)
+    private val knowledgeDocumentStore = RoomKnowledgeDocumentStore(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private val agentRunUseCase = AgentRunUseCase(application, client)
@@ -1524,6 +1559,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowStepId = preparedStep.id,
                     status = WorkflowStepStatus.COMPLETED,
                     result = summary.responseText,
+                    knowledgeReferences = summary.verifiedContext.knowledgeReferences,
+                    requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
+                        summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
                 )
             }
             appendWorkflowMessage(
@@ -1549,7 +1587,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         require(detail.steps.all { it.status in setOf(WorkflowStepStatus.COMPLETED, WorkflowStepStatus.SKIPPED) }) {
             "工作流仍有未完成步骤"
         }
-        val result = detail.steps.mapNotNull { it.outputSnapshot ?: it.result }.joinToString(separator = "\n\n")
+        val result = detail.steps.mapNotNull { step ->
+            WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
+        }.joinToString(separator = "\n\n")
         withContext(Dispatchers.IO) {
             workflowRepository.completeRun(detail.run.id, WorkflowRunStatus.COMPLETED, result = result)
         }
@@ -3460,8 +3500,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         messages: List<ChatMessage>,
         conversation: ConversationSession?,
     ): PreparedRequestContext {
-        val contextMessages = messages.filter { it.role == "user" || it.role == "assistant" }
-        if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT && conversation?.summary.isNullOrBlank()) {
+        val currentKnowledgeContext = messages
+            .filter { it.role == "user" || it.role == "assistant" }
+            .retainCurrentKnowledgeReferences()
+        val contextMessages = currentKnowledgeContext.messages
+        // long: 已持久化摘要可能包含后来被禁用、替换或删除的知识片段；发现失效引用后废弃摘要边界，仅从过滤后的消息重建本轮上下文。
+        val reusableSummary = conversation?.summary.orEmpty().takeUnless {
+            currentKnowledgeContext.removedStaleKnowledgeMessage
+        }.orEmpty()
+        val reusableSummaryUntilMessageId = conversation?.summaryUntilMessageId.takeUnless {
+            currentKnowledgeContext.removedStaleKnowledgeMessage
+        }
+        if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT && reusableSummary.isBlank()) {
             return PreparedRequestContext(
                 requestMessages = buildRequestMessages(contextMessages, summary = "", apiMode = config.apiMode),
                 summary = "",
@@ -3473,30 +3523,34 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
         val olderMessages = contextMessages.dropLast(RECENT_CONTEXT_MESSAGE_LIMIT)
         val targetSummaryMessage = olderMessages.lastOrNull()
-        val existingSummary = conversation?.summary.orEmpty()
+        val existingSummary = reusableSummary
         if (targetSummaryMessage == null) {
             return PreparedRequestContext(
                 requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
                 summary = existingSummary,
-                summaryUntilMessageId = conversation?.summaryUntilMessageId,
+                summaryUntilMessageId = reusableSummaryUntilMessageId,
+                summaryUpdatedAt = conversation?.summaryUpdatedAt.takeUnless {
+                    currentKnowledgeContext.removedStaleKnowledgeMessage
+                },
+                summaryModel = conversation?.summaryModel.takeUnless {
+                    currentKnowledgeContext.removedStaleKnowledgeMessage
+                },
+            )
+        }
+
+        if (existingSummary.isNotBlank() && reusableSummaryUntilMessageId == targetSummaryMessage.id) {
+            return PreparedRequestContext(
+                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
+                summary = existingSummary,
+                summaryUntilMessageId = reusableSummaryUntilMessageId,
                 summaryUpdatedAt = conversation?.summaryUpdatedAt,
                 summaryModel = conversation?.summaryModel,
             )
         }
 
-        if (existingSummary.isNotBlank() && conversation?.summaryUntilMessageId == targetSummaryMessage.id) {
-            return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
-                summary = existingSummary,
-                summaryUntilMessageId = conversation.summaryUntilMessageId,
-                summaryUpdatedAt = conversation.summaryUpdatedAt,
-                summaryModel = conversation.summaryModel,
-            )
-        }
-
         val messagesToCompress = messagesNeedingCompression(
             contextMessages = contextMessages,
-            previousSummaryUntilMessageId = conversation?.summaryUntilMessageId,
+            previousSummaryUntilMessageId = reusableSummaryUntilMessageId,
             targetSummaryMessageId = targetSummaryMessage.id,
         )
         // long: 长会话压缩只处理“上次摘要边界之后、最近窗口之前”的旧消息，避免每轮都把完整历史重新塞给摘要模型。
@@ -3517,6 +3571,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             summaryUpdatedAt = now,
             summaryModel = config.model.trim(),
         )
+    }
+
+    private suspend fun List<ChatMessage>.retainCurrentKnowledgeReferences(): CurrentKnowledgeContext {
+        val containsKnowledgeExecution = any { message ->
+            val context = message.verifiedAgentContext ?: return@any false
+            context.toolName == "knowledge.search" || context.toolExecutions.any { it.toolName == "knowledge.search" }
+        }
+        val references = flatMap { message ->
+            val context = message.verifiedAgentContext ?: return@flatMap emptyList()
+            buildList {
+                addAll(context.knowledgeReferences)
+                context.toolExecutions.forEach { addAll(it.knowledgeReferences) }
+            }
+        }.distinct()
+        if (references.isEmpty() && !containsKnowledgeExecution) {
+            return CurrentKnowledgeContext(this, removedStaleKnowledgeMessage = false)
+        }
+        val current = runCatching {
+            withContext(Dispatchers.IO) { knowledgeDocumentStore.retainCurrentReferences(references).toSet() }
+        }.getOrDefault(emptySet())
+        return projectCurrentKnowledgeContext(current)
     }
 
     private fun buildRequestMessages(

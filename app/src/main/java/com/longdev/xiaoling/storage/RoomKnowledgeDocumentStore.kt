@@ -15,6 +15,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
@@ -139,6 +140,30 @@ class RoomKnowledgeDocumentStore(
 
     override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> {
         return database.knowledgeDao().getChunks(documentId).map { it.toRecord() }
+    }
+
+    override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> {
+        val distinctReferences = references.distinct()
+        if (distinctReferences.isEmpty()) return emptyList()
+        return database.withTransaction {
+            val dao = database.knowledgeDao()
+            val documents = dao.getDocuments(distinctReferences.map { it.documentId }.distinct())
+                .associateBy { it.id }
+            val chunks = dao.getChunksByIds(distinctReferences.map { it.chunkId }.distinct())
+                .associateBy { it.id }
+            distinctReferences.filter { reference ->
+                val document = documents[reference.documentId]
+                val chunk = chunks[reference.chunkId]
+                document?.enabled == true &&
+                    document.revision == reference.documentRevision &&
+                    document.displayName == reference.documentName &&
+                    chunk?.documentId == reference.documentId &&
+                    chunk.documentRevision == reference.documentRevision &&
+                    chunk.sequence == reference.chunkSequence &&
+                    chunk.startOffset == reference.startOffset &&
+                    chunk.endOffset == reference.endOffset
+            }
+        }
     }
 
     override suspend fun search(

@@ -31,6 +31,7 @@ import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -124,7 +125,66 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun malformedKnowledgeReferenceJsonDoesNotBlockRunDetailLoad() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-malformed-knowledge",
+            userMessageId = "message-malformed-knowledge",
+            goal = "验证损坏知识引用容错",
+        )
+        val call = ToolCall(
+            id = "tool-call-malformed-knowledge",
+            name = "knowledge.search",
+            arguments = mapOf("query" to "引用"),
+            risk = ToolRisk.SAFE,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出知识检索",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "知识检索已校验",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "知识检索完成",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "旧结果",
+                durationMs = 2L,
+                success = true,
+                verified = null,
+                toolCallId = call.id,
+            ),
+        )
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE agent_tool_results SET knowledgeReferencesJson = ? WHERE toolCallId = ?",
+            arrayOf("not-json", call.id),
+        )
+
+        val detail = checkNotNull(repository.runDetail(run.id))
+
+        assertTrue(detail.toolLedger.results.single().knowledgeReferences.isEmpty())
+        assertEquals("旧结果", detail.toolLedger.results.single().content)
+    }
+
+    @Test
     fun toolLedgerDualWritesCallResultAndVerificationAcrossRepositoryRecreation() = runBlocking {
+        val knowledgeReference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-ledger",
+            documentId = "document-ledger",
+            documentName = "账本知识.md",
+            documentRevision = 2,
+            chunkId = "chunk-ledger-r2-1",
+            chunkSequence = 1,
+            startOffset = 80,
+            endOffset = 160,
+        )
         val run = repository.createRun(
             conversationId = "conversation-tool-ledger",
             userMessageId = "message-tool-ledger",
@@ -149,6 +209,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 success = true,
                 verified = true,
                 memoryIdsUsed = listOf("memory-audit-1"),
+                knowledgeReferences = listOf(knowledgeReference),
                 toolCallId = call.id,
                 replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
                 executionReceipt = ToolExecutionReceipt(
@@ -187,6 +248,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(true, result.executorVerified)
         assertEquals(com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED, result.verificationStatus)
         assertEquals(listOf("memory-audit-1"), result.memoryIdsUsed)
+        assertEquals(listOf(knowledgeReference), result.knowledgeReferences)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, result.replaySafety)
         assertEquals("note-ledger-1", result.executionReceipt?.operationId)
         assertTrue(result.verifiedEventId != null)
@@ -780,6 +842,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
             conversationStore = RoomAgentConversationStore(context, database),
             noteStore = noteStore,
             memoryStore = RoomAgentMemoryStore(context, database),
+            knowledgeStore = RoomKnowledgeDocumentStore(context, database),
         )
         val definition = checkNotNull(registry.definition("notes.create"))
         val run = repository.createRun(
@@ -892,6 +955,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 conversationStore = RoomAgentConversationStore(context, opened),
                 noteStore = RoomAgentNoteStore(context, opened),
                 memoryStore = memoryStore,
+                knowledgeStore = RoomKnowledgeDocumentStore(context, opened),
             )
             val definition = checkNotNull(firstRegistry.definition("memory.remember"))
             val run = firstRepository.createRun(
@@ -970,6 +1034,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 conversationStore = RoomAgentConversationStore(context, reopened),
                 noteStore = RoomAgentNoteStore(context, reopened),
                 memoryStore = restartedMemoryStore,
+                knowledgeStore = RoomKnowledgeDocumentStore(context, reopened),
             )
             val assessment = AgentRunResumePolicy.assess(
                 checkNotNull(restartedRepository.runDetail(run.id)),

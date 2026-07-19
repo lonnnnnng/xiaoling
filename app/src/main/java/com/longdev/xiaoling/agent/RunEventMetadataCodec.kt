@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,6 +40,7 @@ internal object RunEventMetadataCodec {
                 .put("success", metadata.success)
                 .put("verified", metadata.verified)
                 .put("memoryIdsUsed", metadata.memoryIdsUsed.toStringJsonArray())
+                .put("knowledgeReferences", KnowledgeReferenceCodec.encode(metadata.knowledgeReferences))
                 .put("toolCallId", metadata.toolCallId)
                 .put("replaySafety", metadata.replaySafety.name)
                 .put("executionReceipt", metadata.executionReceipt?.toJson())
@@ -119,6 +121,7 @@ internal object RunEventMetadataCodec {
                     success = json.getBoolean("success"),
                     verified = json.booleanOrNull("verified"),
                     memoryIdsUsed = json.stringListOrEmpty("memoryIdsUsed"),
+                    knowledgeReferences = KnowledgeReferenceCodec.decode(json.optJSONArray("knowledgeReferences")),
                     toolCallId = json.stringOrNull("toolCallId"),
                     // long: 旧工具结果没有重放声明快照时必须按不可重放处理，不能使用升级后的当前定义反推历史保证。
                     replaySafety = json.stringOrNull("replaySafety")

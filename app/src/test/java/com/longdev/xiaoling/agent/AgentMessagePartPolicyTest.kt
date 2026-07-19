@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
@@ -205,6 +206,16 @@ class AgentMessagePartPolicyTest {
 
     @Test
     fun agentResultProjectsVerifiedToolsIntoOrderedMessageParts() {
+        val knowledgeReference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-message",
+            documentId = "document-message",
+            documentName = "消息证据.md",
+            documentRevision = 2,
+            chunkId = "chunk-message-r2-0",
+            chunkSequence = 0,
+            startOffset = 0,
+            endOffset = 24,
+        )
         val context = VerifiedAgentContext(
             runId = "run-verified",
             toolName = "memory.search",
@@ -228,6 +239,7 @@ class AgentMessagePartPolicyTest {
                     verificationStatus = AgentVerificationStatus.VERIFIED,
                     rawResult = "找到 1 条记忆",
                     memoryIdsUsed = listOf("memory-1", "memory-1"),
+                    knowledgeReferences = listOf(knowledgeReference),
                 ),
             ),
         )
@@ -260,10 +272,46 @@ class AgentMessagePartPolicyTest {
                     success = true,
                     verificationStatus = MessageToolVerificationStatus.VERIFIED,
                     memoryIdsUsed = listOf("memory-1"),
+                    knowledgeReferences = listOf(knowledgeReference),
                 ),
             ),
             parts.drop(1),
         )
+    }
+
+    @Test
+    fun verifiedAgentContextCodecKeepsKnowledgeReferencesForMessageReload() {
+        val reference = KnowledgeReference(
+            retrievalId = "knowledge-retrieval-codec",
+            documentId = "document-codec",
+            documentName = "可信上下文.md",
+            documentRevision = 5,
+            chunkId = "chunk-codec-r5-3",
+            chunkSequence = 3,
+            startOffset = 300,
+            endOffset = 420,
+        )
+        val context = VerifiedAgentContext(
+            runId = "run-codec",
+            toolName = "knowledge.search",
+            arguments = mapOf("query" to "可信上下文"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+            rawResult = "命中可信上下文",
+            knowledgeReferences = listOf(reference),
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "knowledge.search",
+                    arguments = mapOf("query" to "可信上下文"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "命中可信上下文",
+                    knowledgeReferences = listOf(reference),
+                ),
+            ),
+        )
+
+        assertEquals(context, VerifiedAgentContextCodec.decode(VerifiedAgentContextCodec.encode(context)))
     }
 
     @Test

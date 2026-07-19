@@ -101,12 +101,11 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 284 项 JVM 测试通过，0 失败、0 错误、0 跳过。
-- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 93 条 instrumentation，0 失败、0 跳过；在线模拟器未参与安装、测试、截图或验收。
-- Redmi 当前设备 Provider 使用 `gpt-5.5 + Responses` 完成真实 DOCX 轮次，模型在 4800 ms 返回 `RICH_DOC_STAGE28_OK`；正式 instrumentation 同时确认 DOCX 结构校验不进入 UTF-8 文本路径。
-- Redmi 主库已升级到 Room v25；v24→v25 迁移只增加 Document 元数据列，不补造历史文档，现有 Text/Reasoning/Image/Tool 数据保持不变。
-- Debug 请求日志确认 `input_file.file_data`、Authorization、原始/加密推理内容均被脱敏；默认 User-Agent 保持正确。
-- 最终 Debug APK SHA-256：`8d6a60f84f1c1f8e1002a785ae96cd5b36c83dded86fb420cd615656f3a3f641`。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 309 项 JVM 测试通过，0 失败、0 错误。
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 113 条 instrumentation，结果为 `OK (113 tests)`；在线模拟器未参与安装、测试、截图或验收。
+- Room v27 已完成本地知识库、`knowledge.search`、稳定引用链和引用生命周期校验；禁用、替换或删除后，旧消息与 Workflow 输出不会再次进入新模型上下文，历史审计保持不变。
+- 五份真实项目文档的自然改写、多词分隔、top-1 和负例检索门禁均通过；真实 `gpt-5.5` Agent Run 已完成知识工具规划与引用一致性验收。
+- Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档

@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.util.UUID
 
 enum class AgentRunStatus {
@@ -124,6 +125,7 @@ sealed interface RunEventMetadata {
         val success: Boolean,
         val verified: Boolean?,
         val memoryIdsUsed: List<String> = emptyList(),
+        val knowledgeReferences: List<KnowledgeReference> = emptyList(),
         val toolCallId: String? = null,
         val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
         val executionReceipt: ToolExecutionReceipt? = null,
@@ -257,6 +259,7 @@ data class AgentToolResultRecord(
     val verificationStatus: ToolVerificationStatus?,
     val verifiedEventId: String?,
     val memoryIdsUsed: List<String>,
+    val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val replaySafety: ToolReplaySafety,
     val executionReceipt: ToolExecutionReceipt?,
     val createdAt: Long,
@@ -488,9 +491,11 @@ data class ToolExecutionResult(
     val content: String,
     val verified: Boolean? = null,
     val memoryIdsUsed: List<String> = emptyList(),
+    val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val executionReceipt: ToolExecutionReceipt? = null,
     val recoveryFailure: ToolRecoveryFailure? = null,
 )
+
 
 data class ToolRecoveryFailure(
     val code: String,
