@@ -717,6 +717,61 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun retryPolicyRequiresConfirmationWhenCommittedWriteReportsVerificationFailure() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-retry-ledger",
+            userMessageId = "message-retry-ledger",
+            goal = "验证异常账本的重试确认",
+        )
+        val call = ToolCall(
+            id = "tool-call-retry-ledger",
+            name = "notes.create",
+            arguments = mapOf("title" to "重试保护", "content" to "已提交副作用"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.validated",
+            message = "工具调用已校验：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = "note-retry-ledger",
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        // long: 写入已经提交但回读验证失败时，业务结果会是失败；重试仍必须依据 COMMITTED 回执要求确认，避免新 ToolCall ID 再次写入。
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.result",
+            message = "笔记已写入但回读验证失败",
+            metadata = RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "笔记已写入但回读验证失败",
+                durationMs = 5L,
+                success = false,
+                verified = false,
+                toolCallId = call.id,
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                executionReceipt = receipt,
+            ),
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = "模拟后续步骤失败")
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(checkNotNull(repository.runDetail(run.id))),
+        )
+    }
+
+    @Test
     fun processRestartRecoversCommittedNoteAtVerificationBoundaryWithoutReplayingWrite() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val noteStore = RoomAgentNoteStore(context, database)

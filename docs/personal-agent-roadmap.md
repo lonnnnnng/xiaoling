@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心与 `notes.create / memory.remember` 受限验证恢复均已切换为 Ledger-first；账本完全为空的旧 Run 保守回退 typed RunEvent。并行调用与通用原地断点恢复继续关闭。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心、`notes.create / memory.remember` 受限验证恢复和失败 Run 重试副作用判断均已切换为 Ledger-first；账本异常时重试 fail-safe 要求确认，账本完全为空的旧 Run 保守回退 typed RunEvent。并行调用与通用原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -129,7 +129,7 @@ com.longdev.xiaoling.ui.agent
 - `AgentRun`：目标、来源、状态、开始/结束时间、当前步骤、最终结果。
 - `RunEvent`：状态变化、模型决策、工具调用、工具结果、确认、错误。
 - `ToolDefinition`：名称、描述、输入 Schema、风险、权限、确认和验证规则。
-- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。v20 已独立落表并与 typed RunEvent 原子双写；任务中心和受限恢复对新 Run 优先读取账本，事件仅核对锚点与字段，旧 Run 在账本全空时回退事件。
+- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。v20 已独立落表并与 typed RunEvent 原子双写；任务中心、受限恢复和重试副作用判断对新 Run 优先读取账本，事件仅核对锚点与字段，旧 Run 在账本全空时回退事件。
 - `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前每个非 SAFE 工具步骤独立审批且不主动过期；只有首个工具执行前的待审批边界允许原 Run 恢复。
 
 ### 运行状态
@@ -368,5 +368,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 19. 已完成：Room v20 新增 `agent_tool_calls / agent_tool_results`，`appendEvent()` 在同一事务内按 typed metadata 双写参数、proposed/validated 锚点、结果、显式错误、耗时、Executor/最终验证、记忆引用、重放声明和执行回执。ToolCall 身份或参数漂移整笔回滚；Repository 重建后可按 Run 查询。v19 旧 Run 保留 event-only，不补造关联，验证阶段恢复仍可追加事件；恢复策略未切换到新表。
 20. 已完成：任务中心对 v20 新 Run 使用 Tool Ledger-first 明细，Repository 批量加载调用/结果，UI 以调用为单位展示 proposed→validated→result→verified 状态；没有 Ledger 但存在 typed 工具事件的旧 Run 自动回退。缺少 ToolCall ID 的旧结果/验证显示“关联未知”，不伪造调用关联；账本与事件的身份、字段、锚点或孤立记录异常显示一致性告警。`AgentRunResumePolicy`、重试和指标继续读取 RunEvent，恢复证据切换留待独立阶段。
 21. 已完成：`AgentRunRecoveryEvidencePolicy` 将 `notes.create / memory.remember` 的受限验证恢复切换为 Ledger-first。v20 非空账本要求每个调用恰好一个结果，按 proposed 锚点重建顺序，并核对 proposed→validated→result→verified 的身份、字段、派生错误、时间和事件顺序；部分账本、重复身份、额外事件或双源漂移均 fail-closed。账本完全为空的旧 Run 才回退 typed event，缺少 ToolCall ID 的历史验证保持原结果顺序。多步骤只重建已验证前缀并恢复最后一个尚无验证终态的已提交结果；白名单、旧模型协程、通用执行栈和 Workflow 后续步骤边界不变。
+22. 已完成：失败 Run 的重试副作用判断改为 Ledger-first，并复用 `AgentToolLedgerConsistencyPolicy` 的完整链路检查。非 SAFE 调用只要结果成功，或回执为 `COMMITTED / UNKNOWN`，就要求二次确认；异常账本同样 fail-safe，明确 `NOT_COMMITTED` 的失败结果和仅 validated 尚未执行的调用不额外抬高门禁。账本全空的旧 Run 保留 typed event 回退，旧 Run 本身仍不修改。Run 质量和模型遥测继续使用 Step/LLM typed event，因为 Tool Ledger 没有等价耗时、TTFB、Prompt 与 usage 字段，不为追求形式统一而改变统计口径。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

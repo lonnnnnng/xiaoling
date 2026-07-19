@@ -929,3 +929,22 @@ TDD、审查与 Redmi 验收：
 - 以 `440ef12` 为固定基线执行 Standards/Spec 双轴审查。初审发现结果列表顺序依赖、双源时间/错误字段漏检、旧同名调用回退收紧和展示/恢复比较重复；修复并补回归测试后，两轴复核均为 0 项 finding。
 - instrumentation 后重新安装最终 Debug APK，从未跟踪的本机兜底配置恢复 1 个 Provider、同步并启用 6 个模型，选择 `gpt-5.5`。真实 `/agent Use app.current_time tool and tell me the current time` 在 Redmi 上完成模型规划、参数校验、工具执行、后置验证、二次规划和最终总结，Run 状态为 `已完成`，crash buffer 为空。
 - 最终 Debug APK SHA-256：`4940a6bf9c5497e0e2828f0e1237e9d0c484ebc077f21a4174b861a9a00ed566`。
+
+## 2026-07-19 失败 Run 重试 Ledger-first 副作用判断
+
+实现与兼容边界：
+
+- `AgentTaskRetryEvidencePolicy` 对 v20 非空工具账本使用 Ledger-first 副作用判断，并复用 `AgentToolLedgerConsistencyPolicy` 核对 proposed、validated、result、verified 的身份、字段、时间、锚点和顺序。异常账本按可能已有副作用处理，重试必须二次确认，不回退旧事件推断。
+- 非 SAFE 调用只要 `result.success=true`，或执行回执为 `COMMITTED / UNKNOWN`，就要求二次确认；`success=false + COMMITTED/UNKNOWN` 仍不能假设外部动作没有发生。明确失败且回执为 `NOT_COMMITTED`、或链尾只停在 proposed/validated 尚未执行时，不因账本本身增加确认。
+- 账本完全为空的旧 Run 继续使用 typed RunEvent 成功结果回退。原有 Step 中断、`run.recovered` 和 `EXECUTING/VERIFYING` 门禁保持不变，新 Run 仍通过 `retryOfRunId` 关联来源，旧 Run 不修改。
+- `AgentRunMetricsPolicy` 继续使用 Step 与 `llm.request.completed` typed event，因为独立工具账本没有模型耗时、TTFB、Prompt 字节和 usage 等价字段；本阶段没有为形式统一改变指标口径。
+
+自动化、审查与 Redmi 真机验收：
+
+- 228 条 JVM 测试通过，0 失败、0 跳过；新增覆盖非 SAFE 成功、SAFE 成功、账本缺结果/未锚定验证 fail-safe、Ledger/Event 风险漂移、仅 validated 未执行、`success=false + COMMITTED/UNKNOWN` 及旧 Run event fallback。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew lintDebug assembleDebug assembleDebugAndroidTest --console=plain` 通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 66 条 instrumentation，0 跳过、0 失败；新增 Room 场景确认 `success=false + COMMITTED` 的非 SAFE 工具仍要求重试确认。在线的 Android 模拟器未参与本阶段验证。
+- 以 `908857a` 为固定基线执行 Standards/Spec 双轴审查。修复 `success=false + COMMITTED` 漏判、重复账本校验、文档同步和关键安全规则缺少贴近实现的 `// long:` 业务理由后，除已修复注释项外没有剩余高置信 finding。
+- instrumentation 后向 Redmi 覆盖安装最终 Debug APK，从未跟踪的本机兜底配置恢复 Provider，成功同步并启用 6 个模型，选择 `gpt-5.5` 与 Responses API。真实 `/agent Use app.current_time tool and tell me the current time for stage22 retry ledger verification` 在 8 秒内完成，Run `run-eec4bbb0-72d4-4f08-a78f-33a71e3906cb` 状态为 `COMPLETED`。
+- Redmi Room 只读回查确认 `app.current_time` 的 ToolCall 为 `SAFE`，proposed/validated/result/verified 四个事件锚点齐全，结果成功且验证为 `PASSED`；crash buffer 为空，验证后应用已重新冷启动到 `com.longdev.xiaoling/.MainActivity`。
+- 最终 Debug APK SHA-256：`fbbbceab49685b1554428efa9d8a6b9a2af188c1983c07eed4afbe30f25414f1`。

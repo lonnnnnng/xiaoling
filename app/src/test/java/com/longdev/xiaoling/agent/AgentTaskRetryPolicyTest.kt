@@ -133,10 +133,135 @@ class AgentTaskRetryPolicyTest {
         )
     }
 
+    @Test
+    fun v20SafeLedgerFailsSafeToConfirmationWhenResultEventIsMissing() {
+        val eligibility = AgentTaskRetryPolicy.evaluate(
+            v20Detail(
+                callRisk = ToolRisk.SAFE,
+                resultSuccess = true,
+                includeResultEvent = false,
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            eligibility,
+        )
+    }
+
+    @Test
+    fun v20SafeLedgerFailsSafeToConfirmationWhenVerificationEventIsNotAnchored() {
+        val complete = v20Detail(
+            callRisk = ToolRisk.SAFE,
+            resultSuccess = true,
+        )
+        val call = complete.toolLedger.calls.single()
+        val corrupted = complete.copy(
+            snapshot = complete.snapshot.copy(
+                events = complete.snapshot.events + event(
+                    id = "event-ledger-extra-verify",
+                    type = "tool.verify",
+                    metadata = RunEventMetadata.ToolVerification(
+                        toolName = call.toolName,
+                        status = ToolVerificationStatus.PASSED,
+                        toolCallId = call.id,
+                    ),
+                    createdAt = 4L,
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(corrupted),
+        )
+    }
+
+    @Test
+    fun v20SuccessfulNonSafeLedgerRequiresConfirmationByExactToolCallId() {
+        val eligibility = AgentTaskRetryPolicy.evaluate(
+            v20Detail(
+                callRisk = ToolRisk.REQUIRES_APPROVAL,
+                resultSuccess = true,
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            eligibility,
+        )
+    }
+
+    @Test
+    fun v20NonSafeCommittedOrUnknownReceiptRequiresConfirmationWhenResultReportsFailure() {
+        listOf(
+            ToolExecutionReceiptStatus.COMMITTED,
+            ToolExecutionReceiptStatus.UNKNOWN,
+        ).forEach { receiptStatus ->
+            val eligibility = AgentTaskRetryPolicy.evaluate(
+                v20Detail(
+                    callRisk = ToolRisk.REQUIRES_APPROVAL,
+                    resultSuccess = false,
+                    receiptStatus = receiptStatus,
+                ),
+            )
+
+            assertEquals(
+                AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+                eligibility,
+            )
+        }
+    }
+
+    @Test
+    fun v20CallRiskDriftFailsSafeToConfirmation() {
+        val eligibility = AgentTaskRetryPolicy.evaluate(
+            v20Detail(
+                callRisk = ToolRisk.REQUIRES_APPROVAL,
+                eventCallRisk = ToolRisk.SAFE,
+                resultSuccess = true,
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            eligibility,
+        )
+    }
+
+    @Test
+    fun v20SuccessfulSafeLedgerDoesNotRequireConfirmation() {
+        val eligibility = AgentTaskRetryPolicy.evaluate(
+            v20Detail(
+                callRisk = ToolRisk.SAFE,
+                resultSuccess = true,
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = false),
+            eligibility,
+        )
+    }
+
+    @Test
+    fun v20ValidatedNonSafeCallWithoutResultDoesNotRequireConfirmationBeforeExecution() {
+        val detail = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = null,
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = false),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
     private fun detail(
         status: AgentRunStatus,
         events: List<RunEventRecord> = emptyList(),
         steps: List<AgentStepRecord> = emptyList(),
+        toolLedger: AgentToolLedgerRecord = AgentToolLedgerRecord(),
     ): AgentRunDetailRecord {
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
@@ -156,16 +281,131 @@ class AgentTaskRetryPolicyTest {
                 events = events,
             ),
             approvals = emptyList(),
+            toolLedger = toolLedger,
+        )
+    }
+
+    private fun v20Detail(
+        callRisk: ToolRisk,
+        resultSuccess: Boolean?,
+        eventCallRisk: ToolRisk = callRisk,
+        includeResultEvent: Boolean = resultSuccess != null,
+        receiptStatus: ToolExecutionReceiptStatus? = null,
+    ): AgentRunDetailRecord {
+        val call = ToolCall(
+            id = "tool-call-ledger-retry",
+            name = if (callRisk == ToolRisk.SAFE) "app.current_time" else "notes.create",
+            arguments = emptyMap(),
+            risk = callRisk,
+        )
+        val proposed = event(
+            id = "event-ledger-proposed",
+            type = "tool.call.proposed",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, eventCallRisk, call.arguments),
+            createdAt = 1L,
+        )
+        val validated = event(
+            id = "event-ledger-validated",
+            type = "tool.call.validated",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, eventCallRisk, call.arguments),
+            createdAt = 2L,
+        )
+        val result = resultSuccess?.let { success ->
+            val receipt = receiptStatus?.let { status ->
+                ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "operation-ledger-retry",
+                    idempotencyKey = call.id,
+                    status = status,
+                )
+            }
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = if (success) "工具执行成功" else "工具执行失败",
+                durationMs = 5L,
+                success = success,
+                verified = success,
+                toolCallId = call.id,
+                replaySafety = if (receipt == null) {
+                    ToolReplaySafety.RESTART_REQUIRED
+                } else {
+                    ToolReplaySafety.IDEMPOTENT_BY_KEY
+                },
+                executionReceipt = receipt,
+            )
+        }
+        val resultEvent = result?.let {
+            event(
+                id = "event-ledger-result",
+                type = "tool.result",
+                metadata = it,
+                createdAt = 3L,
+            )
+        }
+        return detail(
+            status = AgentRunStatus.FAILED,
+            events = listOfNotNull(proposed, validated, resultEvent.takeIf { includeResultEvent }),
+            toolLedger = AgentToolLedgerRecord(
+                calls = listOf(
+                    AgentToolCallRecord(
+                        id = call.id,
+                        runId = "run-source",
+                        toolName = call.name,
+                        risk = call.risk,
+                        arguments = call.arguments,
+                        proposedEventId = proposed.id,
+                        validatedEventId = validated.id,
+                        createdAt = proposed.createdAt,
+                        validatedAt = validated.createdAt,
+                    ),
+                ),
+                results = result?.let {
+                    listOf(
+                        AgentToolResultRecord(
+                            toolCallId = call.id,
+                            runId = "run-source",
+                            eventId = checkNotNull(resultEvent).id,
+                            toolName = call.name,
+                            content = it.content,
+                            success = it.success,
+                            errorMessage = if (it.success) null else it.content,
+                            durationMs = it.durationMs,
+                            executorVerified = it.verified,
+                            verificationStatus = null,
+                            verifiedEventId = null,
+                            memoryIdsUsed = emptyList(),
+                            replaySafety = it.replaySafety,
+                            executionReceipt = it.executionReceipt,
+                            createdAt = checkNotNull(resultEvent).createdAt,
+                            verifiedAt = null,
+                        ),
+                    )
+                }.orEmpty(),
+            ),
         )
     }
 
     private fun event(type: String, metadata: RunEventMetadata): RunEventRecord {
-        return RunEventRecord(
+        return event(
             id = "event-$type",
+            type = type,
+            metadata = metadata,
+            createdAt = 1L,
+        )
+    }
+
+    private fun event(
+        id: String,
+        type: String,
+        metadata: RunEventMetadata,
+        createdAt: Long,
+    ): RunEventRecord {
+        return RunEventRecord(
+            id = id,
             runId = "run-source",
             type = type,
             message = type,
-            createdAt = 1L,
+            createdAt = createdAt,
             metadata = metadata,
         )
     }
