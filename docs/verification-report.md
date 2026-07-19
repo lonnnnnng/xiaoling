@@ -1082,7 +1082,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 
 - Document part 在 Room v25 原有列上增加 DOCX、PPTX、XLSX MIME，不新增表或迁移；原始 OpenXML 包继续作为 BLOB 随消息、备份和当前会话加载，轻量快照和 USER-only 信任边界不变。
 - `OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与数据范围，再以固定缓冲区流式解压核对条目集合、CRC 和真实展开量。DOCX/PPTX/XLSX 分别要求非空 `[Content_Types].xml` 与 `word/document.xml / ppt/presentation.xml / xl/workbook.xml`；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/根入口不一致均拒绝。
-- 系统文件选择器增加三种 OpenXML MIME；Responses 继续使用 `input_file + filename + file_data`，不改变 Chat Completions 与 `/agent` 的附件拒绝策略。大于 8 MB 或需要跨文档检索的内容仍不进入直传，RAG 尚未实现。
+- 系统文件选择器增加三种 OpenXML MIME；Responses 继续使用 `input_file + filename + file_data`，不改变 Chat Completions 与 `/agent` 的附件拒绝策略。大于 8 MB 或需要跨文档检索的内容仍不进入直传；本阶段当时尚未实现 RAG，后续 Room v26 数据基础见下节。
 
 官方协议与自动化：
 
@@ -1095,3 +1095,25 @@ Redmi 真实模型、UI、日志与数据库验收：
 - 一次性、不提交的 Redmi instrumentation 使用设备现有 Provider 和 Keystore 配置，将结构完整的最小 DOCX 发送给 `gpt-5.5 + Responses`。最终实现复测耗时 4800 ms，精确返回 `RICH_DOC_STAGE28_OK`；一次性测试随后删除，不进入正式 Test APK。
 - `XiaoLingHttp` 请求日志显示 `filename=lingce-stage28.docx`、`file_data=***REDACTED***`、Authorization=`***MASKED***`、默认 User-Agent 正确；响应中的 `encrypted_content` 与 reasoning context 同样脱敏，固定结果文本保留。
 - 最终 Debug APK SHA-256：`8d6a60f84f1c1f8e1002a785ae96cd5b36c83dded86fb420cd615656f3a3f641`。最终包在 Redmi 冷启动进入 `com.longdev.xiaoling/.MainActivity`，进程存活，crash buffer 为空。
+
+## 2026-07-19 本地知识库与 RAG 数据基础
+
+实现与数据契约：
+
+- Room v26 新增 `knowledge_documents / knowledge_chunks / knowledge_chunks_fts / knowledge_retrievals`，并导出正式 `26.json` Schema。v25→v26 只创建空知识库表，不从旧消息、附件或模型文本猜造知识文档。
+- 第一版只导入 TXT、Markdown、JSON、CSV 的严格 UTF-8 文本，最大 64 MB / 1600 万 UTF-16 字符；移除 BOM、规范 CRLF/CR、拒绝空白和 `NUL`，对规范全文保存 SHA-256、字节数、字符数和 `parserVersion=1`。
+- 确定性分块默认 1600 字符、200 字符重叠，优先段落边界并保存精确 `[startOffset, endOffset)`；没有段落边界时硬切，同时避免切断 UTF-16 代理对。chunk ID 包含文档 ID、revision、sequence 和内容哈希前缀。
+- 检索合并 FTS4 `unicode61` 前缀结果与转义通配符的中文/字面 `LIKE` AND 兜底；每次检索，包括空命中，保存 query、实际 chunk/document ID、来源会话/Run 和时间。
+- 文档替换在同一事务更新全文/hash/parser/revision、删除旧 chunks/FTS 并插入全新引用；SQLite trigger 故障注入确认新 chunk 插入失败时全文、revision、旧 chunks 和旧 FTS 一起回滚。禁用后保留数据但立即退出检索，删除同时清理 FTS、chunks 和文档。
+
+自动化与 Redmi 真机验证：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug` 通过；XML 汇总为 291 条 JVM 测试，0 失败、0 错误、0 跳过。新增 7 条覆盖严格 UTF-8/规范 hash、空白/NUL 拒绝、段落/硬边界、代理对、FTS 查询转义和 `LIKE` 字面通配符。
+- `assembleDebugAndroidTest` 通过。仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 安装 Debug/Test APK，并直接运行完整 instrumentation：`OK (98 tests)`。新增 5 条覆盖 v25→v26、真实磁盘关闭重开、检索审计、替换引用失效、禁用/删除、中文/通配符和事务回滚。
+- `adb devices -l` 同时显示在线模拟器，但所有安装、instrumentation、应用启动、数据库和日志命令均显式指定 Redmi 串号；没有向模拟器发送验证命令。
+- 最终应用冷启动成功，`com.longdev.xiaoling/.MainActivity` 保持 Redmi 前台，crash buffer 为空。主库只读回查为 `PRAGMA user_version=26`，知识主表/FTS 辅助表齐全，原 Provider 保留 1 条。
+- 最终 Debug APK SHA-256：`4da1f1a27598fe0291e3c70d0ccbf526a7205dbea4426b876b31caf750d31dd0`。
+
+当前边界：
+
+- 本阶段没有知识库管理 UI、`knowledge.search` Agent 工具、模型上下文注入、答案引用呈现或 Embedding，因此不宣称完整 RAG 问答已完成。下一阶段先接管理 UI 和检索预览，再接 Tool Registry、Profile/Skill 白名单与 Run 审计。

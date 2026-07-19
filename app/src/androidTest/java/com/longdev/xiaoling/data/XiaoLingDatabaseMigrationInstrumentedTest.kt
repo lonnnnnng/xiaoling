@@ -16,6 +16,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -917,6 +918,37 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate25To26CreatesKnowledgeTablesWithoutInventingDocuments() = runBlocking {
+        migrationHelper.createDatabase(KNOWLEDGE_MIGRATION_DATABASE_NAME, 25).apply {
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            KNOWLEDGE_MIGRATION_DATABASE_NAME,
+            26,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("PRAGMA user_version").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(26, cursor.getInt(0))
+        }
+        listOf(
+            "knowledge_documents",
+            "knowledge_chunks",
+            "knowledge_chunks_fts",
+            "knowledge_retrievals",
+        ).forEach { table ->
+            migrated.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0, cursor.getInt(0))
+            }
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -992,5 +1024,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val REASONING_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-reasoning-parts-migration-test"
         private const val IMAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-image-parts-migration-test"
         private const val DOCUMENT_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-document-parts-migration-test"
+        private const val KNOWLEDGE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-migration-test"
     }
 }

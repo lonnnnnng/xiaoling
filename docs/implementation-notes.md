@@ -187,8 +187,8 @@
 
 ## 本地存储
 
-- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule 和 ScheduledTask 保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v17，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4/v9/v12/v13/v14/v15/v16→v17 和全新 v17 建库。v15 的单步骤 Workflow 会回填定义，v16 旧笔记的幂等键保持 `NULL`，历史 Run 状态、结果和步骤保持不变。
+- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
+- 数据库当前版本为 v26，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v26 的关键增量和全新 v26 建库。旧 Workflow、笔记、记忆、工具账本、Profile 和 MessagePart 的历史字段按各阶段保守迁移，v25→v26 只创建空知识库表，不猜造文档或检索记录。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -199,6 +199,15 @@
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
 - 主题、候选记忆开关、三类提示词和 User-Agent 偏好保存在 `xiaoling_ui` SharedPreferences；UA 保存时移除换行并限制长度，空白值恢复默认配置。
 - API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
+
+## 本地知识库与 RAG 数据基础
+
+- Room v26 新增 `knowledge_documents / knowledge_chunks / knowledge_chunks_fts / knowledge_retrievals`。规范全文和 chunks 都保存在主数据库中，因此现有数据库 ZIP 备份自然包含知识库数据，不依赖外部 URI 或旁路文件。
+- `KnowledgeTextPolicy` 第一版只处理 TXT、Markdown、JSON 和 CSV 的严格 UTF-8 文本，最大 64 MB / 1600 万 UTF-16 字符。导入会移除 BOM、统一 CRLF/CR 为 LF、拒绝空白与 `NUL`，并对规范全文计算 SHA-256；`parserVersion=1` 明确冻结当前解析语义。
+- 分块默认上限 1600 字符、重叠 200 字符，优先在后半窗口的段落分隔处结束；没有合适段落边界时才硬切。每块保存 `[startOffset, endOffset)`，正文必须等于规范全文对应子串，并修正 UTF-16 高低代理项边界。
+- chunk ID 包含文档 ID、revision、sequence 和内容哈希前缀。替换始终递增 revision，并在单个 Room 事务内更新文档、删除旧 FTS/chunks、插入新 chunks/FTS；注入新 chunk 插入失败的真机测试确认全文、revision、旧 chunks 与旧索引会一起回滚。
+- 检索优先执行 FTS4 `unicode61` 前缀查询，同时执行转义 `% / _ / \\` 的多词 `LIKE` AND 查询作为中文和字面子串兜底；结果按 chunk ID 去重并限制最多 20 条。每次调用，包括空命中，都会记录 query、实际 chunk/document ID、来源会话、来源 Run 和时间。
+- 禁用只保留数据并立即退出检索；删除在事务内清理 FTS、chunks 和文档。第一版没有知识库管理 UI、Agent 工具、模型上下文注入、答案引用呈现或 Embedding，后续接入时必须继续使用本阶段的 chunk/revision 引用和审计契约。
 
 ## 日志
 
@@ -213,7 +222,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`，超过 8 MB 或需要跨文档检索的内容仍缺少本地分块、索引、引用和 RAG 生命周期。
+- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`。超过 8 MB 或跨文档资料已具备严格文本全文、分块、FTS/中文兜底和引用审计的数据基础，但尚无管理 UI、Agent 工具、模型引用注入或答案引用呈现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复；执行/验证中间态默认必须安全重新运行，仅 `notes.create` 与 `memory.remember` 的完整已提交证据可进入受限只读验证。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有具有完整历史证据的 `notes.create` 与 `memory.remember` 会恢复只读验证和本地总结。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；其他写工具和后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

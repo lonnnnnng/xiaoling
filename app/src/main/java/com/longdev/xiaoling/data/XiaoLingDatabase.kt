@@ -24,6 +24,10 @@ import org.json.JSONObject
         AgentMemoryOperationEntity::class,
         AgentMemoryFtsEntity::class,
         AgentMemoryCandidateEntity::class,
+        KnowledgeDocumentEntity::class,
+        KnowledgeChunkEntity::class,
+        KnowledgeChunkFtsEntity::class,
+        KnowledgeRetrievalEntity::class,
         AgentNoteEntity::class,
         AgentSkillEntity::class,
         AgentProfileEntity::class,
@@ -34,7 +38,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -42,13 +46,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun agentRunDao(): AgentRunDao
     abstract fun agentMemoryDao(): AgentMemoryDao
+    abstract fun knowledgeDao(): KnowledgeDao
     abstract fun agentNoteDao(): AgentNoteDao
     abstract fun agentSkillDao(): AgentSkillDao
     abstract fun agentProfileDao(): AgentProfileDao
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 25
+        const val CURRENT_VERSION = 26
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -660,6 +665,72 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 知识库全文、分块和检索审计全部进入主 Room 数据库，现有 ZIP 备份即可完整携带 RAG 数据，不依赖外部 URI 或旁路文件。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `knowledge_documents` (
+                        `id` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `mimeType` TEXT NOT NULL,
+                        `contentHash` TEXT NOT NULL,
+                        `revision` INTEGER NOT NULL,
+                        `parserVersion` INTEGER NOT NULL,
+                        `byteSize` INTEGER NOT NULL,
+                        `characterCount` INTEGER NOT NULL,
+                        `normalizedText` TEXT NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_documents_enabled_updatedAt` ON `knowledge_documents` (`enabled`, `updatedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_documents_contentHash` ON `knowledge_documents` (`contentHash`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `knowledge_chunks` (
+                        `id` TEXT NOT NULL,
+                        `documentId` TEXT NOT NULL,
+                        `documentRevision` INTEGER NOT NULL,
+                        `sequence` INTEGER NOT NULL,
+                        `startOffset` INTEGER NOT NULL,
+                        `endOffset` INTEGER NOT NULL,
+                        `text` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_chunks_documentId` ON `knowledge_chunks` (`documentId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_knowledge_chunks_documentId_documentRevision_sequence` ON `knowledge_chunks` (`documentId`, `documentRevision`, `sequence`)")
+                db.execSQL(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS `knowledge_chunks_fts`
+                    USING FTS4(`chunkId` TEXT NOT NULL, `documentId` TEXT NOT NULL, `text` TEXT NOT NULL, tokenize=unicode61)
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `knowledge_retrievals` (
+                        `id` TEXT NOT NULL,
+                        `query` TEXT NOT NULL,
+                        `chunkIdsJson` TEXT NOT NULL,
+                        `documentIdsJson` TEXT NOT NULL,
+                        `sourceConversationId` TEXT,
+                        `sourceRunId` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_retrievals_createdAt` ON `knowledge_retrievals` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_retrievals_sourceConversationId` ON `knowledge_retrievals` (`sourceConversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_retrievals_sourceRunId` ON `knowledge_retrievals` (`sourceRunId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -685,6 +756,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_22_23,
             MIGRATION_23_24,
             MIGRATION_24_25,
+            MIGRATION_25_26,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

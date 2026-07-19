@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v25、Text/Reasoning/Image/Document/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v25 的 USER Document 已支持 PDF、UTF-8 文本和 DOCX/PPTX/XLSX OpenXML 富文档直传；富文档复用原始 BLOB，并在本地校验 ZIP/OPC 根节点、加密标志、条目数与 64 MB 展开预算。Responses 映射为 `input_file` Data URL；单条消息仍只能携带一种附件，Chat Completions 与 `/agent` 明确拒绝附件，Image/Document 都不能进入 Tool 或 `VerifiedAgentContext`。Reasoning 仍只保存供应商 `summary_text`，原始、加密推理和附件 Base64 均不会原样进入 debug 日志。当前门禁为 284 条 JVM 测试和仅 Redmi 执行的 93 条 instrumentation。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v26、Text/Reasoning/Image/Document/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile、消息 parts 和本地知识库数据基础的 Redmi 真机验收。v25 的 USER Document 已支持 PDF、UTF-8 文本和 DOCX/PPTX/XLSX OpenXML 富文档直传；Room v26 进一步新增规范全文、确定性 chunks、FTS4 + 中文 `LIKE` 兜底和检索审计，替换、禁用、删除与引用失效均有事务和真机测试。当前仍未交付知识库管理 UI、Agent 检索工具和模型引用注入，不能把数据基础视为完整 RAG 问答。Reasoning 仍只保存供应商 `summary_text`，原始、加密推理和附件 Base64 均不会原样进入 debug 日志。当前门禁为 291 条 JVM 测试和仅 Redmi 执行的 98 条 instrumentation。
 
 ## 推荐阅读顺序
 

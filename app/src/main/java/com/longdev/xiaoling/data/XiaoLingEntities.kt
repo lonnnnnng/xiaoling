@@ -278,6 +278,71 @@ data class AgentMemoryCandidateEntity(
 )
 
 @Entity(
+    tableName = "knowledge_documents",
+    indices = [
+        Index(value = ["enabled", "updatedAt"]),
+        Index(value = ["contentHash"]),
+    ],
+)
+data class KnowledgeDocumentEntity(
+    @PrimaryKey val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val contentHash: String,
+    val revision: Int,
+    val parserVersion: Int,
+    val byteSize: Long,
+    val characterCount: Int,
+    val normalizedText: String,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "knowledge_chunks",
+    indices = [
+        Index(value = ["documentId"]),
+        Index(value = ["documentId", "documentRevision", "sequence"], unique = true),
+    ],
+)
+data class KnowledgeChunkEntity(
+    @PrimaryKey val id: String,
+    val documentId: String,
+    val documentRevision: Int,
+    val sequence: Int,
+    val startOffset: Int,
+    val endOffset: Int,
+    val text: String,
+)
+
+@Fts4(tokenizer = FtsOptions.TOKENIZER_UNICODE61)
+@Entity(tableName = "knowledge_chunks_fts")
+data class KnowledgeChunkFtsEntity(
+    val chunkId: String,
+    val documentId: String,
+    val text: String,
+)
+
+@Entity(
+    tableName = "knowledge_retrievals",
+    indices = [
+        Index(value = ["createdAt"]),
+        Index(value = ["sourceConversationId"]),
+        Index(value = ["sourceRunId"]),
+    ],
+)
+data class KnowledgeRetrievalEntity(
+    @PrimaryKey val id: String,
+    val query: String,
+    val chunkIdsJson: String,
+    val documentIdsJson: String,
+    val sourceConversationId: String?,
+    val sourceRunId: String?,
+    val createdAt: Long,
+)
+
+@Entity(
     tableName = "agent_notes",
     indices = [
         Index(value = ["createdAt"]),

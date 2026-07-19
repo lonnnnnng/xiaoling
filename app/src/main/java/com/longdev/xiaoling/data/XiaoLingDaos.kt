@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RawQuery
+import androidx.room.Update
 import androidx.sqlite.db.SupportSQLiteQuery
 
 @Dao
@@ -272,6 +273,67 @@ interface AgentMemoryDao {
 
     @Query("SELECT * FROM agent_memory_candidates ORDER BY createdAt DESC")
     suspend fun listAllCandidates(): List<AgentMemoryCandidateEntity>
+}
+
+@Dao
+interface KnowledgeDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertDocument(document: KnowledgeDocumentEntity)
+
+    @Update
+    suspend fun updateDocument(document: KnowledgeDocumentEntity): Int
+
+    @Query("SELECT * FROM knowledge_documents WHERE id = :documentId")
+    suspend fun getDocument(documentId: String): KnowledgeDocumentEntity?
+
+    @Query("SELECT * FROM knowledge_documents WHERE id IN (:documentIds)")
+    suspend fun getDocuments(documentIds: List<String>): List<KnowledgeDocumentEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertChunks(chunks: List<KnowledgeChunkEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertChunkIndexes(chunks: List<KnowledgeChunkFtsEntity>)
+
+    @Query("SELECT * FROM knowledge_chunks WHERE id = :chunkId")
+    suspend fun getChunk(chunkId: String): KnowledgeChunkEntity?
+
+    @Query("SELECT * FROM knowledge_chunks WHERE documentId = :documentId ORDER BY sequence ASC")
+    suspend fun getChunks(documentId: String): List<KnowledgeChunkEntity>
+
+    @Query(
+        """
+        SELECT knowledge_chunks.* FROM knowledge_chunks
+        JOIN knowledge_chunks_fts ON knowledge_chunks_fts.chunkId = knowledge_chunks.id
+        JOIN knowledge_documents ON knowledge_documents.id = knowledge_chunks.documentId
+        WHERE knowledge_chunks_fts MATCH :ftsQuery
+        AND knowledge_documents.enabled = 1
+        ORDER BY knowledge_documents.updatedAt DESC, knowledge_chunks.sequence ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchFts(ftsQuery: String, limit: Int): List<KnowledgeChunkEntity>
+
+    @RawQuery
+    suspend fun searchLike(query: SupportSQLiteQuery): List<KnowledgeChunkEntity>
+
+    @Query("UPDATE knowledge_documents SET enabled = :enabled, updatedAt = :updatedAt WHERE id = :documentId")
+    suspend fun setEnabled(documentId: String, enabled: Boolean, updatedAt: Long): Int
+
+    @Query("DELETE FROM knowledge_chunks_fts WHERE documentId = :documentId")
+    suspend fun deleteChunkIndexes(documentId: String)
+
+    @Query("DELETE FROM knowledge_chunks WHERE documentId = :documentId")
+    suspend fun deleteChunks(documentId: String)
+
+    @Query("DELETE FROM knowledge_documents WHERE id = :documentId")
+    suspend fun deleteDocument(documentId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertRetrieval(retrieval: KnowledgeRetrievalEntity)
+
+    @Query("SELECT * FROM knowledge_retrievals ORDER BY createdAt DESC, id DESC LIMIT :limit")
+    suspend fun recentRetrievals(limit: Int): List<KnowledgeRetrievalEntity>
 }
 
 @Dao
