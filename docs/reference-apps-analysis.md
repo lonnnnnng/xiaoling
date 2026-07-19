@@ -315,7 +315,7 @@
 - Workflow Ledger、一次性 WorkManager 非精确定时、计划/实际时间、结果通知，以及后台审批 `BLOCKED` 终态。
 - `LlmProviderAdapter / OpenAiCompatibleAdapter` 协议边界，HTTP 传输与 Provider 请求/响应映射已分离。
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
-- Room v20 已新增独立 `agent_tool_calls / agent_tool_results`，由 Repository 与 typed RunEvent 原子双写并提供单 Run/批量查询；任务中心对新 Run 使用 Ledger-first 四阶段明细，旧 Run 保守回退 typed 事件，恢复策略仍以事件为事实源。
+- Room v20 已新增独立 `agent_tool_calls / agent_tool_results`，由 Repository 与 typed RunEvent 原子双写并提供单 Run/批量查询；任务中心和两个白名单写工具的受限恢复对新 Run 使用 Ledger-first，旧 Run 在账本全空时保守回退 typed 事件。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
 - Room v4、v6-v20 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger 和独立工具账本演进。v18 以独立主键映射保存 memory ToolCall 的原始载荷哈希，v19 增加可空提交结果快照，v20 新建空工具账本；旧 operation 与旧 Run 均不补造证据。
 
@@ -336,7 +336,7 @@
 |---|---|
 | 没有 AgentProfile | Provider/模型与“这个 Agent 是谁、能做什么”混在一起 |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
-| ToolCall/ToolResult 已独立落表，任务中心已 Ledger-first，但恢复仍读取 RunEvent | v20 新 Run 按调用展示四阶段，旧 Run 回退 typed 事件并保留未知关联；恢复证据切换仍需独立验收 |
+| ToolCall/ToolResult 已独立落表，任务中心与受限恢复已 Ledger-first | v20 新 Run 按调用展示四阶段并以账本恢复证据为准，事件只核对原子双写一致性；旧 Run 账本全空时回退 typed 事件。通用执行栈仍不续跑 |
 | 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 与 `memory.remember` 的已提交结果允许从原 ToolCall 恢复受限只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
@@ -363,7 +363,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v20 Schema、迁移测试、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成。工具账本与新 typed event 原子双写，任务中心已完成 Ledger-first 批量读、旧 Run typed event fallback 和双源一致性告警；v19 旧 Run 保持 event-only，缺少调用身份的历史结果不补造关联。完整消息 parts 和 AgentProfile 仍待完成；`notes.create` 与 `memory.remember` 的受限验证恢复边界不变，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v20 Schema、迁移测试、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成。工具账本与新 typed event 原子双写，任务中心和 `notes.create / memory.remember` 受限恢复已完成 Ledger-first、旧 Run typed event fallback 和双源一致性校验；v19 旧 Run 保持 event-only，缺少调用身份的历史结果不补造关联。完整消息 parts 和 AgentProfile 仍待完成；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|

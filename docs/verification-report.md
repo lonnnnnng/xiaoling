@@ -911,3 +911,21 @@ TDD、审查与 Redmi 真机验收：
 - 真机 Room 回读确认 `PRAGMA user_version=20`，成功 Run 的 `app.current_time` 账本 proposed/validated/result/verified 锚点齐全、结果成功且最终验证为 `PASSED`。任务中心显示“数据源：独立工具账本”和四阶段完成，无一致性告警；UI tree 与截图确认无文字重叠或横向溢出，crash buffer 为空。
 - 本项目后续 Android 安装、instrumentation、UI 自动化和真实模型验收只使用 Redmi 真机 `wsvwypiz7xwslvl7`，除非用户另行明确修改该约束。
 - 最终 Debug APK SHA-256：`ceeb4930cfc767a5a31322cebc6b9eb7c9ddb223f91d42a71a2dba09e4192fa8`。
+
+## 2026-07-19 受限恢复 Ledger-first 证据源
+
+实现与兼容边界：
+
+- 新增 `AgentRunRecoveryEvidencePolicy`：v20 Run 只要存在独立工具账本，就以 Ledger 作为恢复事实源；typed RunEvent 仅核对 proposed、validated、result、verified 原子双写锚点。每个调用必须恰好对应一个结果，身份、字段、派生错误、时间、事件顺序、额外事件或重复 ID 任一异常均 fail-closed，不回退旧事件推断。
+- 恢复序列按 proposed 事件锚点排序，不依赖 ToolResult 查询返回顺序；多步骤只重建已验证成功前缀，并把最后一个验证状态为空的已提交结果交给只读验证。`notes.create / memory.remember` 白名单、`COMMITTED + IDEMPOTENT_BY_KEY` 证据判定、旧模型协程、通用执行栈和 Workflow 后续步骤边界均未扩大。
+- 账本完全为空的 v19 及更早 Run 继续使用 typed event fallback。历史 `tool.verify` 缺少 ToolCall ID 时保持原结果顺序配对，因此同名多步调用不会因升级读取路径而改变恢复结论。
+- 新增共享 `AgentToolLedgerConsistency` 比较器，任务中心告警与恢复策略共同核对调用、结果和验证字段，避免两套双源规则继续漂移。
+
+TDD、审查与 Redmi 验收：
+
+- 221 条 JVM 测试通过；新增覆盖完整 Ledger、旧事件回退、旧同名多步无 ID 验证、验证/时间/错误字段漂移、额外结果事件、部分账本缺结果、乱序 ToolResult 与两步已验证前缀恢复。完整 JVM 套件使用 `--rerun-tasks` 重新执行通过。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew lintDebug assembleDebug assembleDebugAndroidTest --console=plain` 通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 65 条 instrumentation，0 跳过、0 失败；两个进程重建恢复测试均断言恢复证据源为 `LEDGER`，且不会重复调用笔记写入或记忆写入。
+- 以 `440ef12` 为固定基线执行 Standards/Spec 双轴审查。初审发现结果列表顺序依赖、双源时间/错误字段漏检、旧同名调用回退收紧和展示/恢复比较重复；修复并补回归测试后，两轴复核均为 0 项 finding。
+- instrumentation 后重新安装最终 Debug APK，从未跟踪的本机兜底配置恢复 1 个 Provider、同步并启用 6 个模型，选择 `gpt-5.5`。真实 `/agent Use app.current_time tool and tell me the current time` 在 Redmi 上完成模型规划、参数校验、工具执行、后置验证、二次规划和最终总结，Run 状态为 `已完成`，crash buffer 为空。
+- 最终 Debug APK SHA-256：`4940a6bf9c5497e0e2828f0e1237e9d0c484ebc077f21a4174b861a9a00ed566`。

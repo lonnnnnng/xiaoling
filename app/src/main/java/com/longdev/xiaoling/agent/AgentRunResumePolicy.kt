@@ -12,6 +12,7 @@ data class AgentCommittedToolRecovery(
     val executionStepId: String,
     val verificationStepId: String?,
     val verifiedPrefix: List<AgentToolExecution> = emptyList(),
+    val evidenceSource: AgentRunRecoveryEvidenceSource,
 )
 
 data class AgentRunResumeAssessment(
@@ -77,39 +78,39 @@ object AgentRunResumePolicy {
         }
         val executionSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
         val verificationSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
-        val toolResults = detail.snapshot.events.mapNotNull { event ->
-            (event.metadata as? RunEventMetadata.ToolResult)?.takeIf { event.type == "tool.result" }
+        val recoveryEvidence = when (val assessment = AgentRunRecoveryEvidencePolicy.read(detail)) {
+            is AgentRunRecoveryEvidenceAssessment.Available -> assessment
+            is AgentRunRecoveryEvidenceAssessment.Invalid -> return restartRequired(assessment.reason)
         }
-        val passedVerifications = detail.snapshot.events.mapNotNull { event ->
-            (event.metadata as? RunEventMetadata.ToolVerification)?.takeIf { event.type == "tool.verify" }
+        val persistedExecutions = recoveryEvidence.executions
+        val passedVerificationCount = persistedExecutions.count {
+            it.verificationStatus == ToolVerificationStatus.PASSED
         }
-        if (executionSteps.isEmpty() || executionSteps.size != toolResults.size) {
+        if (executionSteps.isEmpty() || executionSteps.size != persistedExecutions.size) {
             return restartRequired("工具执行步骤与持久化结果无法一一对应")
         }
-        if (passedVerifications.size != toolResults.size - 1) {
+        if (passedVerificationCount != persistedExecutions.size - 1) {
             return restartRequired("只能恢复最后一个已提交但尚未验证的工具结果")
         }
-        if (verificationSteps.size !in setOf(passedVerifications.size, toolResults.size)) {
+        if (verificationSteps.size !in setOf(passedVerificationCount, persistedExecutions.size)) {
             return restartRequired("工具验证步骤与持久化验证事件不一致")
         }
         val verifiedPrefix = mutableListOf<AgentToolExecution>()
-        toolResults.dropLast(1).forEachIndexed { index, result ->
+        persistedExecutions.dropLast(1).forEachIndexed { index, persisted ->
+            val result = persisted.result
             if (!result.success || executionSteps[index].status != AgentStepStatus.COMPLETED) {
                 return restartRequired("前序工具结果不是已完成成功状态")
             }
             val verificationStep = verificationSteps.getOrNull(index)
-            val verification = passedVerifications.getOrNull(index)
             if (
                 verificationStep?.status != AgentStepStatus.COMPLETED ||
-                verification?.status != ToolVerificationStatus.PASSED ||
-                verification.toolName != result.toolName
+                persisted.verificationStatus != ToolVerificationStatus.PASSED ||
+                persisted.toolCall.name != result.toolName
             ) {
                 return restartRequired("前序工具结果缺少按顺序对应的成功验证")
             }
-            val prefixCall = findUniqueToolCall(detail, result)
-                ?: return restartRequired("前序工具结果无法唯一匹配原始 ToolCall")
             verifiedPrefix += AgentToolExecution(
-                toolCall = prefixCall,
+                toolCall = persisted.toolCall,
                 toolResult = ToolExecutionResult(
                     success = result.success,
                     content = result.content,
@@ -123,52 +124,42 @@ object AgentRunResumePolicy {
         if (executionStep.status != AgentStepStatus.RUNNING && executionStep.status != AgentStepStatus.COMPLETED) {
             return restartRequired("待恢复的工具执行步骤已进入不可恢复终态")
         }
-        val verificationStep = verificationSteps.getOrNull(toolResults.lastIndex)
+        val verificationStep = verificationSteps.getOrNull(persistedExecutions.lastIndex)
         if (verificationStep != null && verificationStep.status != AgentStepStatus.RUNNING) {
             return restartRequired("待恢复的工具验证步骤不是运行中状态")
         }
-        val persistedResult = toolResults.last()
-        val toolCall = findUniqueToolCall(detail, persistedResult)
-            ?: return restartRequired("工具结果无法唯一匹配原始 ToolCall")
+        val pendingVerification = persistedExecutions.last()
+        if (pendingVerification.verificationStatus != null) {
+            return restartRequired("最后一个工具结果已经存在验证终态，不能再次恢复验证")
+        }
+        val persistedResult = pendingVerification.result
+        val toolCall = pendingVerification.toolCall
         if (!committedVerificationSupport(toolCall.name)) {
             return restartRequired("工具未开放已提交结果的只读恢复验证")
         }
         val definition = definitionLookup(toolCall.name)
             ?: return restartRequired("当前注册表中找不到历史工具定义")
-        val evidence = ToolExecutionRecoveryEvidencePolicy.assess(definition, persistedResult)
-        if (!evidence.canReuseCommittedEffect) {
-            return restartRequired(evidence.reason)
+        val replayEvidence = ToolExecutionRecoveryEvidencePolicy.assess(definition, persistedResult)
+        if (!replayEvidence.canReuseCommittedEffect) {
+            return restartRequired(replayEvidence.reason)
         }
         // long: 策略只把已提交且尚未验证的最后一步交给恢复入口；既不重放写工具，也不恢复旧规划协程。
         return AgentRunResumeAssessment(
             kind = AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION,
-            reason = "已提交工具结果的幂等证据完整，只恢复后置验证和本地总结",
+            reason = when (recoveryEvidence.source) {
+                AgentRunRecoveryEvidenceSource.LEDGER ->
+                    "独立工具账本中的已提交幂等证据完整，只恢复后置验证和本地总结"
+                AgentRunRecoveryEvidenceSource.EVENT_FALLBACK ->
+                    "旧 Run typed event 中的已提交幂等证据完整，只恢复后置验证和本地总结"
+            },
             committedTool = AgentCommittedToolRecovery(
                 toolCall = toolCall,
                 persistedResult = persistedResult,
                 executionStepId = executionStep.id,
                 verificationStepId = verificationStep?.id,
                 verifiedPrefix = verifiedPrefix,
+                evidenceSource = recoveryEvidence.source,
             ),
-        )
-    }
-
-    private fun findUniqueToolCall(
-        detail: AgentRunDetailRecord,
-        result: RunEventMetadata.ToolResult,
-    ): ToolCall? {
-        val toolCallId = result.toolCallId ?: return null
-        val matchingCalls = detail.snapshot.events.mapNotNull { event ->
-            (event.metadata as? RunEventMetadata.ToolCall)
-                ?.takeIf { event.type == "tool.call.proposed" || event.type == "tool.call.validated" }
-                ?.takeIf { it.id == toolCallId && it.toolName == result.toolName }
-        }.distinct()
-        val metadata = matchingCalls.singleOrNull() ?: return null
-        return ToolCall(
-            id = metadata.id,
-            name = metadata.toolName,
-            arguments = metadata.arguments,
-            risk = metadata.risk,
         )
     }
 

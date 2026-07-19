@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v20、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow 真机验收、Run 请求遥测与故障注入、执行回执/幂等证据 contract，以及 `notes.create` 与 `memory.remember` 的受限验证阶段恢复。八类 `memory.remember` 恢复失败已通过 `run.recovery_failed` typed event 保存稳定错误码、原因和建议动作。v20 新增独立 `agent_tool_calls / agent_tool_results`，从新产生的 typed RunEvent 原子双写调用、结果、回执、错误、耗时和验证状态；任务中心对有账本的新 Run 使用 Ledger-first 明细并展示 proposed→validated→result→verified，旧 Run 无账本时保守回退 typed RunEvent，缺少 ToolCall ID 的旧结果明确显示“关联未知”。`AgentRunResumePolicy` 继续读取 RunEvent，通用执行栈与 Workflow 后续步骤仍不恢复。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v20、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow 真机验收、Run 请求遥测与故障注入、执行回执/幂等证据 contract，以及 `notes.create` 与 `memory.remember` 的受限验证阶段恢复。八类 `memory.remember` 恢复失败已通过 `run.recovery_failed` typed event 保存稳定错误码、原因和建议动作。v20 独立 `agent_tool_calls / agent_tool_results` 已同时成为任务中心和受限恢复的 Ledger-first 事实源；typed RunEvent 仅用于核对原子双写锚点，身份、字段、时间或顺序漂移均 fail-closed。账本完全为空的旧 Run 继续保守回退 typed RunEvent，缺少 ToolCall ID 的历史验证保持原顺序兼容，不补造关联。通用执行栈、旧模型协程与 Workflow 后续步骤仍不恢复。
 
 ## 推荐阅读顺序
 

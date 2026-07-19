@@ -87,6 +87,11 @@ class AgentRunResumePolicyTest {
         assertNotNull(assessment.committedTool)
         assertEquals(call, assessment.committedTool?.toolCall)
         assertEquals(result, assessment.committedTool?.persistedResult)
+        assertEquals(
+            AgentRunRecoveryEvidenceSource.EVENT_FALLBACK,
+            assessment.committedTool?.evidenceSource,
+        )
+        assertTrue(assessment.reason.contains("旧 Run typed event"))
     }
 
     @Test
@@ -139,6 +144,278 @@ class AgentRunResumePolicyTest {
         assertTrue(assessment.reason.contains("未开放"))
     }
 
+    @Test
+    fun completeV20LedgerDrivesCommittedVerificationRecovery() {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-v20-ledger-resume",
+            name = definition.name,
+            arguments = mapOf("title" to "v20", "content" to "账本恢复"),
+            risk = definition.risk,
+        )
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = "note-v20-ledger-resume",
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val result = RunEventMetadata.ToolResult(
+            toolName = call.name,
+            content = "已创建笔记：v20",
+            durationMs = 8L,
+            success = true,
+            verified = true,
+            toolCallId = call.id,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            executionReceipt = receipt,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        2L,
+                    ),
+                    event("tool.result", result, 3L),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                    ),
+                    results = listOf(
+                        AgentToolResultRecord(
+                            toolCallId = call.id,
+                            runId = "run-1",
+                            eventId = "event-3",
+                            toolName = call.name,
+                            content = result.content,
+                            success = true,
+                            errorMessage = null,
+                            durationMs = result.durationMs,
+                            executorVerified = true,
+                            verificationStatus = null,
+                            verifiedEventId = null,
+                            memoryIdsUsed = emptyList(),
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = receipt,
+                            createdAt = 3L,
+                            verifiedAt = null,
+                        ),
+                    ),
+                ),
+            ),
+            definitionLookup = { definition },
+            committedVerificationSupport = { true },
+        )
+
+        assertEquals(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, assessment.kind)
+        assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, assessment.committedTool?.evidenceSource)
+        assertEquals(call, assessment.committedTool?.toolCall)
+        assertEquals(result, assessment.committedTool?.persistedResult)
+        assertTrue(assessment.reason.contains("独立工具账本"))
+    }
+
+    @Test
+    fun multiStepV20LedgerRestoresVerifiedPrefixAndOnlyVerifiesTheLastResult() {
+        val firstCall = ToolCall(
+            id = "tool-call-ledger-prefix",
+            name = "notes.create",
+            arguments = mapOf("title" to "前序", "content" to "已验证"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-ledger-pending",
+            name = "memory.remember",
+            arguments = mapOf("note" to "第二步等待只读验证"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val firstReceipt = ToolExecutionReceipt(
+            toolCallId = firstCall.id,
+            operationId = "note-ledger-prefix",
+            idempotencyKey = firstCall.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val pendingReceipt = ToolExecutionReceipt(
+            toolCallId = pendingCall.id,
+            operationId = "memory-ledger-pending",
+            idempotencyKey = pendingCall.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val firstResult = RunEventMetadata.ToolResult(
+            toolName = firstCall.name,
+            content = "已创建并验证前序笔记",
+            durationMs = 5L,
+            success = true,
+            verified = true,
+            toolCallId = firstCall.id,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            executionReceipt = firstReceipt,
+        )
+        val pendingResult = RunEventMetadata.ToolResult(
+            toolName = pendingCall.name,
+            content = "已保存长期记忆，等待后置读取",
+            durationMs = 7L,
+            success = true,
+            verified = true,
+            toolCallId = pendingCall.id,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            executionReceipt = pendingReceipt,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.VERIFYING,
+                steps = listOf(
+                    step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, sequence = 1),
+                    step(AgentStepTypes.TOOL_VERIFY, AgentStepStatus.COMPLETED, sequence = 2),
+                    step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, sequence = 3),
+                    step(AgentStepTypes.TOOL_VERIFY, AgentStepStatus.RUNNING, sequence = 4),
+                ),
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments),
+                        2L,
+                    ),
+                    event("tool.result", firstResult, 3L),
+                    event(
+                        "tool.verify",
+                        RunEventMetadata.ToolVerification(
+                            toolName = firstCall.name,
+                            status = ToolVerificationStatus.PASSED,
+                            toolCallId = firstCall.id,
+                        ),
+                        4L,
+                    ),
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+                        5L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+                        6L,
+                    ),
+                    event("tool.result", pendingResult, 7L),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = firstCall.id,
+                            runId = "run-1",
+                            toolName = firstCall.name,
+                            risk = firstCall.risk,
+                            arguments = firstCall.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                        AgentToolCallRecord(
+                            id = pendingCall.id,
+                            runId = "run-1",
+                            toolName = pendingCall.name,
+                            risk = pendingCall.risk,
+                            arguments = pendingCall.arguments,
+                            proposedEventId = "event-5",
+                            validatedEventId = "event-6",
+                            createdAt = 5L,
+                            validatedAt = 6L,
+                        ),
+                    ),
+                    // long: Repository 当前按时间返回结果，但恢复契约必须依据调用锚点重建顺序，不能把传入列表顺序误当成工具执行顺序。
+                    results = listOf(
+                        AgentToolResultRecord(
+                            toolCallId = firstCall.id,
+                            runId = "run-1",
+                            eventId = "event-3",
+                            toolName = firstCall.name,
+                            content = firstResult.content,
+                            success = true,
+                            errorMessage = null,
+                            durationMs = firstResult.durationMs,
+                            executorVerified = true,
+                            verificationStatus = ToolVerificationStatus.PASSED,
+                            verifiedEventId = "event-4",
+                            memoryIdsUsed = emptyList(),
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = firstReceipt,
+                            createdAt = 3L,
+                            verifiedAt = 4L,
+                        ),
+                        AgentToolResultRecord(
+                            toolCallId = pendingCall.id,
+                            runId = "run-1",
+                            eventId = "event-7",
+                            toolName = pendingCall.name,
+                            content = pendingResult.content,
+                            success = true,
+                            errorMessage = null,
+                            durationMs = pendingResult.durationMs,
+                            executorVerified = true,
+                            verificationStatus = null,
+                            verifiedEventId = null,
+                            memoryIdsUsed = emptyList(),
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = pendingReceipt,
+                            createdAt = 7L,
+                            verifiedAt = null,
+                        ),
+                    ).reversed(),
+                ),
+            ),
+            definitionLookup = { name ->
+                ToolDefinition(
+                    name = name,
+                    description = "恢复最后一个已提交结果",
+                    risk = ToolRisk.REQUIRES_APPROVAL,
+                    replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                )
+            },
+            committedVerificationSupport = { it == pendingCall.name },
+        )
+
+        assertEquals(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, assessment.kind)
+        val recovery = checkNotNull(assessment.committedTool)
+        assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, recovery.evidenceSource)
+        assertEquals(firstCall, recovery.verifiedPrefix.single().toolCall)
+        assertEquals(firstResult.content, recovery.verifiedPrefix.single().toolResult.content)
+        assertEquals(pendingCall, recovery.toolCall)
+        assertEquals(pendingResult, recovery.persistedResult)
+        assertEquals("step-3", recovery.executionStepId)
+        assertEquals("step-4", recovery.verificationStepId)
+    }
+
     private fun detail(
         status: AgentRunStatus,
         steps: List<AgentStepRecord> = emptyList(),
@@ -160,6 +437,7 @@ class AgentRunResumePolicyTest {
             ),
         ),
         events: List<RunEventRecord> = emptyList(),
+        toolLedger: AgentToolLedgerRecord = AgentToolLedgerRecord(),
     ) = AgentRunDetailRecord(
         snapshot = AgentRunSnapshot(
             run = AgentRunRecord(
@@ -178,6 +456,7 @@ class AgentRunResumePolicyTest {
             events = events,
         ),
         approvals = approvals,
+        toolLedger = toolLedger,
     )
 
     private fun step(type: String, status: AgentStepStatus, sequence: Int = 1) = AgentStepRecord(

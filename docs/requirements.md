@@ -51,7 +51,7 @@
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。
-- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。执行/验证中的 Run 默认必须创建新 Run 安全重新运行，只有最后一个 `notes.create` 或 `memory.remember` 同时具备完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据、工具白名单能力且尚无 `tool.verify` 时，才允许在原 Run 恢复后置验证。
+- 恢复边界已明确：`WAITING_APPROVAL` 且只有待处理审批、尚未进入工具执行/验证的 Run 可以保留原 Run 等待用户决定；发起消息会先持久化，旧数据缺少消息锚点时按 Run 重建。执行/验证中的 Run 默认必须创建新 Run 安全重新运行，只有最后一个 `notes.create` 或 `memory.remember` 同时具备完整 `COMMITTED + IDEMPOTENT_BY_KEY` 历史证据、工具白名单能力且尚无 `tool.verify` 时，才允许在原 Run 恢复后置验证。v20 Run 只要存在独立工具账本，恢复必须以 Ledger-first 读取调用、结果和验证状态，并用 typed RunEvent 核对身份、字段、派生错误、时间与事件顺序；每个调用必须恰好对应一个结果，任一缺失、重复或漂移都不得回退旧事件推断。账本完全为空的旧 Run 才保留原 typed event 顺序语义。
 - 应用重启后会把可恢复审批重新显示到对应会话；符合证据条件的 `notes.create` 或 `memory.remember` 只读回读原 operation、写入 `tool.verify` 并用本地可信总结完成原 Run，不调用写入方法、不恢复旧模型协程，也不执行 Workflow 后续步骤。记忆必须仍启用、未过期且业务字段与提交结果快照一致；编辑、禁用、过期或删除均失败，删除后撤销恢复原快照可再次通过。`OPERATION_NOT_FOUND / EVIDENCE_INCOMPLETE / PAYLOAD_MISMATCH / OPERATION_MISMATCH / MEMORY_NOT_FOUND / MEMORY_CHANGED / MEMORY_DISABLED / MEMORY_EXPIRED` 必须以独立 typed event 持久化，避免 UI 解析异常文案。其他执行/验证中 Run 仍直接安全收敛并通过关联新 Run 重试；收敛时旧 Run 及其所有 `PENDING/RUNNING` Step 必须一致进入 `CANCELLED`，不能保留表面仍在运行的步骤。
 - 应用重启后可恢复的首步审批批准后，会从持久化审批步骤继续执行同一 Run，并重新写入工具结果、验证、后续多步规划和最终总结；第一步已经执行后若在第二步审批或执行/验证阶段中断，仍直接安全收敛并要求新 Run 重试。
 
@@ -102,7 +102,7 @@
 - 工具参数在执行前必须完成类型和业务校验。
 - 敏感工具必须在应用侧确认，后台任务不得绕过确认策略。
 - 工具报告成功后，关键变更必须有后置验证；无法验证时明确标为“未验证”。
-- RunEvent 与独立工具账本双写必须原子完成；旧 Run 缺少新账本时保守回退到原事件，不得伪造 ToolCall 关联或改变恢复结论。
+- RunEvent 与独立工具账本双写必须原子完成；v20 非空账本在展示和受限恢复中均为事实源，事件只用于一致性核对，任一身份、字段、时间、顺序或基数漂移都必须 fail-closed。旧 Run 账本完全为空时保守回退到原事件，不得伪造 ToolCall 关联或改变历史恢复结论。
 - 记忆写入必须可追溯到会话或任务；候选未经确认不得参与检索，敏感阻断不得保存原值，删除后不再参与检索。
 - debug 日志可以诊断请求和工具过程，release 日志不得泄露密钥、完整隐私内容或敏感参数。
 - 每个里程碑都需要单元测试、关键状态机测试和 Android 真机验证。

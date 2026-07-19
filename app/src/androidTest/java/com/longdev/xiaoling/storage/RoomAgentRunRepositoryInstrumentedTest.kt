@@ -19,6 +19,7 @@ import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
+import com.longdev.xiaoling.agent.AgentRunRecoveryEvidenceSource
 import com.longdev.xiaoling.agent.SystemAgentClock
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
@@ -742,6 +743,12 @@ class RoomAgentRunRepositoryInstrumentedTest {
         repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
         repository.appendEvent(
             runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            runId = run.id,
             type = "tool.call.validated",
             message = "工具调用已校验：${call.name}",
             metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
@@ -769,6 +776,12 @@ class RoomAgentRunRepositoryInstrumentedTest {
             ),
         )
         val restartedRepository = RoomAgentRunRepository(context, database)
+        val assessment = AgentRunResumePolicy.assess(
+            checkNotNull(restartedRepository.runDetail(run.id)),
+            registry::definition,
+            registry::supportsCommittedEffectVerification,
+        )
+        assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, assessment.committedTool?.evidenceSource)
 
         val recovered = restartedRepository
             .recoverCommittedToolRuns(
@@ -854,6 +867,12 @@ class RoomAgentRunRepositoryInstrumentedTest {
             firstRepository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
             firstRepository.appendEvent(
                 runId = run.id,
+                type = "tool.call.proposed",
+                message = "模型提出工具调用：${call.name}",
+                metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+            )
+            firstRepository.appendEvent(
+                runId = run.id,
                 type = "tool.call.validated",
                 message = "工具调用已校验：${call.name}",
                 metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
@@ -903,6 +922,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 restartedRegistry::supportsCommittedEffectVerification,
             )
             check(assessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) { assessment.reason }
+            assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, assessment.committedTool?.evidenceSource)
             val recovered = restartedRepository
                 .recoverCommittedToolRuns(
                     restartedRegistry::definition,

@@ -8,6 +8,8 @@ import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.matchesLedgerEvent
+import com.longdev.xiaoling.agent.matchesLedgerVerificationEvent
 
 internal enum class AgentToolDetailSource {
     LEDGER,
@@ -151,12 +153,9 @@ private fun findLedgerIssues(detail: AgentRunDetailRecord): List<AgentToolLedger
                     message = "工具 ${call.toolName} 的 ${expectedType.toStageLabel()} 账本锚点没有对应事件。",
                 )
 
-                metadata.id != call.id ||
-                    metadata.toolName != call.toolName ||
-                    metadata.risk != call.risk ||
-                    metadata.arguments != call.arguments -> issues += AgentToolLedgerIssue(
+                !call.matchesLedgerEvent(event, expectedType) -> issues += AgentToolLedgerIssue(
                     code = "TOOL_CALL_MISMATCH",
-                    message = "工具 ${call.toolName} 的 ${expectedType.toStageLabel()} 事件与账本身份或参数不一致。",
+                    message = "工具 ${call.toolName} 的 ${expectedType.toStageLabel()} 事件与账本身份、参数或时间不一致。",
                 )
             }
         }
@@ -178,7 +177,7 @@ private fun findLedgerIssues(detail: AgentRunDetailRecord): List<AgentToolLedger
                     message = "工具 ${result.toolName} 的结果账本没有对应事件。",
                 )
 
-            !result.matches(resultMetadata) -> issues += AgentToolLedgerIssue(
+            !result.matchesLedgerEvent(resultEvent) -> issues += AgentToolLedgerIssue(
                 code = "TOOL_RESULT_MISMATCH",
                 message = "工具 ${result.toolName} 的结果事件与账本字段不一致。",
             )
@@ -193,9 +192,7 @@ private fun findLedgerIssues(detail: AgentRunDetailRecord): List<AgentToolLedger
                         message = "工具 ${result.toolName} 的验证账本没有对应事件。",
                     )
 
-                verification.toolCallId != result.toolCallId ||
-                    verification.toolName != result.toolName ||
-                    verification.status != result.verificationStatus -> issues += AgentToolLedgerIssue(
+                !result.matchesLedgerVerificationEvent(verifiedEvent) -> issues += AgentToolLedgerIssue(
                     code = "TOOL_VERIFICATION_MISMATCH",
                     message = "工具 ${result.toolName} 的验证事件与账本字段不一致。",
                 )
@@ -272,20 +269,6 @@ private fun findLedgerIssues(detail: AgentRunDetailRecord): List<AgentToolLedger
         }
     }
     return issues.distinct()
-}
-
-private fun com.longdev.xiaoling.agent.AgentToolResultRecord.matches(
-    event: RunEventMetadata.ToolResult,
-): Boolean {
-    return event.toolCallId == toolCallId &&
-        event.toolName == toolName &&
-        event.content == content &&
-        event.success == success &&
-        event.durationMs == durationMs &&
-        event.verified == executorVerified &&
-        event.memoryIdsUsed == memoryIdsUsed &&
-        event.replaySafety == replaySafety &&
-        event.executionReceipt == executionReceipt
 }
 
 private fun String.toStageLabel(): String {
