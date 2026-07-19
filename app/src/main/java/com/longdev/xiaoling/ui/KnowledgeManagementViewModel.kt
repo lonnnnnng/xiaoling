@@ -1,0 +1,350 @@
+package com.longdev.xiaoling.ui
+
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentImport
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
+import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
+import com.longdev.xiaoling.storage.KnowledgeDocumentReader
+import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+data class KnowledgeManagementNotice(
+    val success: Boolean,
+    val title: String,
+    val message: String,
+)
+
+data class KnowledgeManagementUiState(
+    val loadingDocuments: Boolean = false,
+    val documents: List<KnowledgeDocumentSummary> = emptyList(),
+    val selectedDocumentId: String? = null,
+    val selectedDocument: KnowledgeDocumentDetail? = null,
+    val loadingDetail: Boolean = false,
+    val searchQuery: String = "",
+    val searching: Boolean = false,
+    val searchHits: List<KnowledgeSearchHit> = emptyList(),
+    val lastRetrieval: KnowledgeRetrievalRecord? = null,
+    val mutatingDocumentIds: Set<String> = emptySet(),
+    val importing: Boolean = false,
+    val error: String? = null,
+    val notice: KnowledgeManagementNotice? = null,
+)
+
+class KnowledgeManagementViewModel internal constructor(
+    application: Application,
+    private val store: KnowledgeDocumentStore,
+    private val readImport: (Uri) -> KnowledgeDocumentImport,
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(
+        application = application,
+        store = RoomKnowledgeDocumentStore(application),
+        readImport = KnowledgeDocumentReader(application)::read,
+    )
+
+    var uiState by mutableStateOf(KnowledgeManagementUiState())
+        private set
+
+    private var loadJob: Job? = null
+    private var detailJob: Job? = null
+    private var searchJob: Job? = null
+    private var mutationJob: Job? = null
+
+    init {
+        refresh()
+    }
+
+    fun refresh(preferredDocumentId: String? = uiState.selectedDocumentId) {
+        if (mutationJob?.isActive == true) return
+        loadJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(loadingDocuments = true, error = null)
+        loadJob = viewModelScope.launch {
+            try {
+                loadSnapshot(preferredDocumentId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    loadingDocuments = false,
+                    loadingDetail = false,
+                    error = error.message ?: "无法读取知识库",
+                )
+            }
+        }
+    }
+
+    fun selectDocument(documentId: String) {
+        if (mutationJob?.isActive == true) return
+        if (documentId == uiState.selectedDocumentId && uiState.selectedDocument != null) return
+        loadJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(
+            loadingDocuments = false,
+            selectedDocumentId = documentId,
+            selectedDocument = null,
+            loadingDetail = true,
+            error = null,
+        )
+        detailJob = viewModelScope.launch {
+            try {
+                val document = withContext(Dispatchers.IO) { store.getDocumentDetail(documentId) }
+                if (uiState.selectedDocumentId != documentId) return@launch
+                uiState = uiState.copy(
+                    selectedDocument = document,
+                    loadingDetail = false,
+                    error = if (document == null) "知识文档已不存在" else null,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (uiState.selectedDocumentId != documentId) return@launch
+                uiState = uiState.copy(
+                    loadingDetail = false,
+                    error = error.message ?: "无法读取知识文档详情",
+                )
+            }
+        }
+    }
+
+    fun updateSearchQuery(query: String) {
+        val searchWasActive = searchJob?.isActive == true
+        if (searchWasActive) searchJob?.cancel()
+        uiState = uiState.copy(
+            searchQuery = query,
+            searching = if (searchWasActive) false else uiState.searching,
+            searchHits = if (searchWasActive) emptyList() else uiState.searchHits,
+            lastRetrieval = if (searchWasActive) null else uiState.lastRetrieval,
+            error = null,
+        )
+    }
+
+    fun search() {
+        if (mutationJob?.isActive == true) return
+        val query = uiState.searchQuery.trim()
+        if (query.isBlank()) {
+            uiState = uiState.copy(searchHits = emptyList(), lastRetrieval = null, error = "请输入检索词")
+            return
+        }
+        searchJob?.cancel()
+        uiState = uiState.copy(searching = true, error = null)
+        searchJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { store.search(query, limit = 10) }
+                uiState = uiState.copy(
+                    searching = false,
+                    searchHits = result.hits,
+                    lastRetrieval = result.retrieval,
+                    error = null,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    searching = false,
+                    searchHits = emptyList(),
+                    lastRetrieval = null,
+                    error = error.message ?: "知识检索失败",
+                )
+            }
+        }
+    }
+
+    fun importDocument(uri: Uri) {
+        if (uiState.importing || mutationJob?.isActive == true) return
+        prepareForMutation(invalidateReferences = false)
+        uiState = uiState.copy(importing = true, error = null, notice = null)
+        mutationJob = viewModelScope.launch {
+            try {
+                val document = withContext(Dispatchers.IO) {
+                    val imported = readImport(uri)
+                    store.importUtf8Document(
+                        displayName = imported.fileName,
+                        mimeType = imported.declaredMimeType,
+                        bytes = imported.bytes,
+                    )
+                }
+                uiState = uiState.copy(
+                    notice = KnowledgeManagementNotice(true, "导入成功", document.displayName),
+                )
+                reloadAfterMutation(document.id, operationCommitted = true)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    error = error.message ?: "知识文档导入失败",
+                    notice = KnowledgeManagementNotice(false, "导入失败", error.message ?: "无法导入知识文档"),
+                )
+            } finally {
+                uiState = uiState.copy(importing = false)
+            }
+        }
+    }
+
+    fun replaceDocument(documentId: String, uri: Uri) {
+        mutateDocument(
+            documentId = documentId,
+            fallbackError = "知识文档替换失败",
+            failureNotice = { error ->
+                KnowledgeManagementNotice(false, "替换失败", error.message ?: "无法替换知识文档")
+            },
+            operation = {
+                val imported = readImport(uri)
+                store.replaceUtf8Document(
+                    documentId = documentId,
+                    displayName = imported.fileName,
+                    mimeType = imported.declaredMimeType,
+                    bytes = imported.bytes,
+                )
+            },
+        ) { document ->
+            uiState = uiState.copy(
+                notice = KnowledgeManagementNotice(true, "替换成功", "已切换到 revision ${document.revision}"),
+            )
+            reloadAfterMutation(document.id, operationCommitted = true)
+        }
+    }
+
+    fun setEnabled(documentId: String, enabled: Boolean) {
+        mutateDocument(
+            documentId = documentId,
+            fallbackError = "知识文档状态更新失败",
+            operation = {
+                store.setEnabled(documentId, enabled)
+                    ?: error("知识文档已不存在")
+            },
+        ) { document ->
+            uiState = uiState.copy(
+                notice = KnowledgeManagementNotice(
+                    true,
+                    if (enabled) "文档已启用" else "文档已停用",
+                    document.displayName,
+                ),
+            )
+            reloadAfterMutation(documentId, operationCommitted = true)
+        }
+    }
+
+    fun deleteDocument(documentId: String) {
+        mutateDocument(
+            documentId = documentId,
+            fallbackError = "知识文档删除失败",
+            operation = { store.delete(documentId) },
+        ) { deleted ->
+            uiState = uiState.copy(
+                notice = KnowledgeManagementNotice(
+                    deleted,
+                    if (deleted) "已删除" else "文档未删除",
+                    if (deleted) "全文、chunks 和检索索引已清理" else "知识文档已不存在",
+                ),
+            )
+            reloadAfterMutation(null, operationCommitted = deleted)
+        }
+    }
+
+    fun clearNotice() {
+        uiState = uiState.copy(notice = null)
+    }
+
+    private fun prepareForMutation(invalidateReferences: Boolean) {
+        loadJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(
+            loadingDocuments = false,
+            loadingDetail = false,
+            selectedDocument = if (invalidateReferences) null else uiState.selectedDocument,
+            searching = if (invalidateReferences) false else uiState.searching,
+            searchHits = if (invalidateReferences) emptyList() else uiState.searchHits,
+            lastRetrieval = if (invalidateReferences) null else uiState.lastRetrieval,
+        )
+        if (invalidateReferences) {
+            // long: 替换、停用和删除都会使当前 chunk 引用失效；取消在途检索，避免旧请求稍后覆盖新 revision 或停用状态。
+            searchJob?.cancel()
+        }
+    }
+
+    private fun <T> mutateDocument(
+        documentId: String,
+        fallbackError: String,
+        failureNotice: ((Exception) -> KnowledgeManagementNotice?)? = null,
+        operation: suspend () -> T,
+        onCommitted: suspend (T) -> Unit,
+    ) {
+        if (documentId in uiState.mutatingDocumentIds || mutationJob?.isActive == true) return
+        prepareForMutation(invalidateReferences = true)
+        uiState = uiState.copy(
+            mutatingDocumentIds = uiState.mutatingDocumentIds + documentId,
+            error = null,
+            notice = null,
+        )
+        mutationJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { operation() }
+                onCommitted(result)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    error = error.message ?: fallbackError,
+                    notice = failureNotice?.invoke(error),
+                )
+            } finally {
+                // long: 文档变更直到提交后的快照重载结束都保持 busy，避免控件提前可点却被串行门禁静默拒绝。
+                uiState = uiState.copy(
+                    mutatingDocumentIds = uiState.mutatingDocumentIds - documentId,
+                )
+            }
+        }
+    }
+
+    private suspend fun reloadAfterMutation(preferredDocumentId: String?, operationCommitted: Boolean) {
+        // long: 数据库提交和界面快照刷新是两个事实；刷新失败只能提示重新加载，不能把已经完成的启停、替换或删除误报为提交失败。
+        try {
+            loadSnapshot(preferredDocumentId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            val prefix = if (operationCommitted) "操作已完成，但刷新知识库失败" else "无法刷新知识库"
+            uiState = uiState.copy(
+                loadingDocuments = false,
+                loadingDetail = false,
+                error = "$prefix：${error.message ?: "未知错误"}",
+            )
+        }
+    }
+
+    private suspend fun loadSnapshot(preferredDocumentId: String?) {
+        val snapshot = withContext(Dispatchers.IO) {
+            val documents = store.listDocuments()
+            val selectedId: String? = preferredDocumentId?.takeIf { id -> documents.any { it.id == id } }
+                ?: documents.firstOrNull()?.id
+            val selected = if (selectedId == null) null else store.getDocumentDetail(selectedId)
+            KnowledgeSnapshot(documents, selectedId, selected)
+        }
+        uiState = uiState.copy(
+            loadingDocuments = false,
+            documents = snapshot.documents,
+            selectedDocumentId = snapshot.selectedDocumentId,
+            selectedDocument = snapshot.selectedDocument,
+            loadingDetail = false,
+        )
+    }
+
+    private data class KnowledgeSnapshot(
+        val documents: List<KnowledgeDocumentSummary>,
+        val selectedDocumentId: String?,
+        val selectedDocument: KnowledgeDocumentDetail?,
+    )
+}

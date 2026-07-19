@@ -351,6 +351,7 @@ private fun XiaoLingContent(
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
                         },
+                        onOpenKnowledgeManagement = { settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT },
                         onOpenSkillManagement = {
                             viewModel.refreshSkills()
                             settingsPane = SettingsPane.SKILL_MANAGEMENT
@@ -452,6 +453,7 @@ private enum class SettingsPane {
     PROMPT_SETTINGS,
     AGENT_PROFILE_MANAGEMENT,
     MEMORY_MANAGEMENT,
+    KNOWLEDGE_MANAGEMENT,
     SKILL_MANAGEMENT,
     WORKFLOW_MANAGEMENT,
     AGENT_RUN_HISTORY,
@@ -2112,6 +2114,7 @@ private fun SettingsPage(
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenKnowledgeManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -2161,6 +2164,10 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.KNOWLEDGE_MANAGEMENT -> KnowledgeManagementPage(
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.SKILL_MANAGEMENT -> AgentSkillManagementPage(
                 state = state,
                 viewModel = viewModel,
@@ -2190,6 +2197,7 @@ private fun SettingsPage(
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenAgentProfileManagement = onOpenAgentProfileManagement,
                 onOpenMemoryManagement = onOpenMemoryManagement,
+                onOpenKnowledgeManagement = onOpenKnowledgeManagement,
                 onOpenSkillManagement = onOpenSkillManagement,
                 onOpenWorkflowManagement = onOpenWorkflowManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
@@ -2211,6 +2219,7 @@ private fun SettingsRootPage(
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenKnowledgeManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -2285,6 +2294,13 @@ private fun SettingsRootPage(
             subtitle = "搜索、编辑、禁用、删除并查看来源",
             icon = Icons.Default.Memory,
             onClick = onOpenMemoryManagement,
+        )
+
+        SettingsEntryCard(
+            title = "知识库",
+            subtitle = "导入文档，管理启停、替换与本地检索预览",
+            icon = Icons.Default.Description,
+            onClick = onOpenKnowledgeManagement,
         )
 
         SettingsEntryCard(

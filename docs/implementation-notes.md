@@ -207,7 +207,9 @@
 - 分块默认上限 1600 字符、重叠 200 字符，优先在后半窗口的段落分隔处结束；没有合适段落边界时才硬切。每块保存 `[startOffset, endOffset)`，正文必须等于规范全文对应子串，并修正 UTF-16 高低代理项边界。
 - chunk ID 包含文档 ID、revision、sequence 和内容哈希前缀。替换始终递增 revision，并在单个 Room 事务内更新文档、删除旧 FTS/chunks、插入新 chunks/FTS；注入新 chunk 插入失败的真机测试确认全文、revision、旧 chunks 与旧索引会一起回滚。
 - 检索优先执行 FTS4 `unicode61` 前缀查询，同时执行转义 `% / _ / \\` 的多词 `LIKE` AND 查询作为中文和字面子串兜底；结果按 chunk ID 去重并限制最多 20 条。每次调用，包括空命中，都会记录 query、实际 chunk/document ID、来源会话、来源 Run 和时间。
-- 禁用只保留数据并立即退出检索；删除在事务内清理 FTS、chunks 和文档。第一版没有知识库管理 UI、Agent 工具、模型上下文注入、答案引用呈现或 Embedding，后续接入时必须继续使用本阶段的 chunk/revision 引用和审计契约。
+- 设置页「知识库」使用独立 `KnowledgeManagementViewModel`，支持 SAF 导入、刷新、轻量摘要列表、详情、启停、替换、删除和显式检索预览。`KnowledgeDocumentReader` 即使遇到 DocumentsProvider 隐瞒大小也会流式执行 64 MB 上限；列表使用 projection + chunk count，不读取规范全文。
+- 详情通过独立 SQL projection 读取有界前缀，再按最多 4,000 个 UTF-16 单元二次收紧且不切断代理对；同时保留完整字节数、字符数、SHA-256、revision、parser 和截断标记，避免最大 64 MB 全文进入 Compose 状态。快速选择会取消旧详情和列表刷新 Job；替换、禁用和删除会立即隐藏旧详情、取消在途检索并清空旧 chunk/retrieval 引用，提交成功后的刷新异常不会误报为提交失败。
+- 禁用只保留数据并立即退出检索；删除在事务内清理 FTS、chunks 和文档。当前仍没有 Agent 工具、模型上下文注入、答案引用呈现或 Embedding，后续接入必须继续使用现有 chunk/revision 引用和审计契约。
 
 ## 日志
 

@@ -370,12 +370,12 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v26 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。Tool part 与可信 Agent 上下文一致时保留稳定数据库 ID，漂移时回退可信投影；Reasoning 只保存供应商 summary，Image/Document 只允许 USER 来源，均不进入可信 Agent 上下文。旧 SQL 迁移不补造 Tool、Reasoning、Image、Document 或 Knowledge。知识库管理 UI、Agent 检索工具和模型引用注入尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v26 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。Tool part 与可信 Agent 上下文一致时保留稳定数据库 ID，漂移时回退可信投影；Reasoning 只保存供应商 summary，Image/Document 只允许 USER 来源，均不进入可信 Agent 上下文。旧 SQL 迁移不补造 Tool、Reasoning、Image、Document 或 Knowledge。Agent 检索工具和模型引用注入尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、旧 text 回填、供应商 summary 身份、用户附件 BLOB/提取文本、OpenXML 结构校验、按会话加载、可信 Tool 投影、前后台原子写入、显式删除和同气泡展示；Room v26 已补知识全文/chunks/FTS/审计，后续接管理 UI 与 Agent 检索工具 | 流式文本、用户附件、折叠推理摘要和工具步骤可在同一消息中恢复；知识替换后旧 chunk 引用失效，轻量快照不会清空附件，原始思维链与 Agent 工具事实保持隔离 |
+| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、旧 text 回填、供应商 summary 身份、用户附件 BLOB/提取文本、OpenXML 结构校验、按会话加载、可信 Tool 投影、前后台原子写入、显式删除和同气泡展示；Room v26 已补知识全文/chunks/FTS/审计和导入/详情/生命周期/检索预览管理 UI，后续接只读 Agent 检索工具 | 流式文本、用户附件、折叠推理摘要和工具步骤可在同一消息中恢复；知识替换后旧 chunk 引用失效，轻量快照不会清空附件，正文列表与详情预览不会加载 64 MB 全文，原始思维链与 Agent 工具事实保持隔离 |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |

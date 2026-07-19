@@ -1,5 +1,9 @@
 package com.longdev.xiaoling.knowledge
 
+class KnowledgeDocumentException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
+const val KNOWLEDGE_PREVIEW_CHARACTER_LIMIT = 4_000
+
 data class KnowledgeDocumentRecord(
     val id: String,
     val displayName: String,
@@ -13,6 +17,43 @@ data class KnowledgeDocumentRecord(
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+)
+
+data class KnowledgeDocumentSummary(
+    val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val contentHash: String,
+    val revision: Int,
+    val parserVersion: Int,
+    val byteSize: Long,
+    val characterCount: Int,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val chunkCount: Int,
+)
+
+data class KnowledgeDocumentDetail(
+    val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val contentHash: String,
+    val revision: Int,
+    val parserVersion: Int,
+    val byteSize: Long,
+    val characterCount: Int,
+    val previewText: String,
+    val previewTruncated: Boolean,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+data class KnowledgeDocumentImport(
+    val fileName: String,
+    val declaredMimeType: String,
+    val bytes: ByteArray,
 )
 
 data class KnowledgeChunkRecord(
@@ -66,6 +107,8 @@ interface KnowledgeDocumentStore {
     ): KnowledgeDocumentRecord
 
     suspend fun getDocument(documentId: String): KnowledgeDocumentRecord?
+    suspend fun listDocuments(): List<KnowledgeDocumentSummary>
+    suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail?
     suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord>
 
     suspend fun search(

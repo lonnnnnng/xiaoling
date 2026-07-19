@@ -9,7 +9,10 @@ import com.longdev.xiaoling.data.KnowledgeDocumentEntity
 import com.longdev.xiaoling.data.KnowledgeRetrievalEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
+import com.longdev.xiaoling.knowledge.KNOWLEDGE_PREVIEW_CHARACTER_LIMIT
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
@@ -90,6 +93,48 @@ class RoomKnowledgeDocumentStore(
 
     override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? {
         return database.knowledgeDao().getDocument(documentId)?.toRecord()
+    }
+
+    override suspend fun listDocuments(): List<KnowledgeDocumentSummary> {
+        return database.knowledgeDao().listDocumentSummaries().map { summary ->
+            KnowledgeDocumentSummary(
+                id = summary.id,
+                displayName = summary.displayName,
+                mimeType = summary.mimeType,
+                contentHash = summary.contentHash,
+                revision = summary.revision,
+                parserVersion = summary.parserVersion,
+                byteSize = summary.byteSize,
+                characterCount = summary.characterCount,
+                enabled = summary.enabled,
+                createdAt = summary.createdAt,
+                updatedAt = summary.updatedAt,
+                chunkCount = summary.chunkCount,
+            )
+        }
+    }
+
+    override suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail? {
+        // long: 管理页只展示有界预览；通过 SQL projection 避免把最大 64 MB 全文复制进 Compose 状态和 UI 文本布局。
+        return database.knowledgeDao()
+            .getDocumentDetail(documentId, KNOWLEDGE_PREVIEW_CHARACTER_LIMIT)
+            ?.let { detail ->
+                KnowledgeDocumentDetail(
+                    id = detail.id,
+                    displayName = detail.displayName,
+                    mimeType = detail.mimeType,
+                    contentHash = detail.contentHash,
+                    revision = detail.revision,
+                    parserVersion = detail.parserVersion,
+                    byteSize = detail.byteSize,
+                    characterCount = detail.characterCount,
+                    previewText = detail.previewText.toKnowledgePreview(),
+                    previewTruncated = detail.previewTruncated,
+                    enabled = detail.enabled,
+                    createdAt = detail.createdAt,
+                    updatedAt = detail.updatedAt,
+                )
+            }
     }
 
     override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> {
@@ -187,6 +232,16 @@ class RoomKnowledgeDocumentStore(
         val value = replace('\\', '/').substringAfterLast('/').trim().take(120)
         require(value.isNotBlank()) { "知识文档名称不能为空" }
         return value
+    }
+
+    private fun String.toKnowledgePreview(): String {
+        if (length <= KNOWLEDGE_PREVIEW_CHARACTER_LIMIT) return this
+        var endOffset = KNOWLEDGE_PREVIEW_CHARACTER_LIMIT
+        // long: SQLite substr 按 Unicode code point 计数，而知识正文 offset 使用 UTF-16；二次收紧预算并回退高代理项，避免预览越界或生成半个 emoji。
+        if (this[endOffset - 1].isHighSurrogate() && this[endOffset].isLowSurrogate()) {
+            endOffset -= 1
+        }
+        return substring(0, endOffset)
     }
 
     private fun KnowledgeDocumentRecord.toEntity() = KnowledgeDocumentEntity(

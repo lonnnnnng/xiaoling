@@ -299,6 +299,37 @@ data class KnowledgeDocumentEntity(
     val updatedAt: Long,
 )
 
+data class KnowledgeDocumentSummaryEntity(
+    val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val contentHash: String,
+    val revision: Int,
+    val parserVersion: Int,
+    val byteSize: Long,
+    val characterCount: Int,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val chunkCount: Int,
+)
+
+data class KnowledgeDocumentDetailEntity(
+    val id: String,
+    val displayName: String,
+    val mimeType: String,
+    val contentHash: String,
+    val revision: Int,
+    val parserVersion: Int,
+    val byteSize: Long,
+    val characterCount: Int,
+    val previewText: String,
+    val previewTruncated: Boolean,
+    val enabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
 @Entity(
     tableName = "knowledge_chunks",
     indices = [

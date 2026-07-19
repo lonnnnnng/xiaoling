@@ -1116,4 +1116,31 @@ Redmi 真实模型、UI、日志与数据库验收：
 
 当前边界：
 
-- 本阶段没有知识库管理 UI、`knowledge.search` Agent 工具、模型上下文注入、答案引用呈现或 Embedding，因此不宣称完整 RAG 问答已完成。下一阶段先接管理 UI 和检索预览，再接 Tool Registry、Profile/Skill 白名单与 Run 审计。
+- 该阶段没有知识库管理 UI、`knowledge.search` Agent 工具、模型上下文注入、答案引用呈现或 Embedding，因此不宣称完整 RAG 问答已完成。管理 UI 和检索预览在下一节完成。
+
+## 2026-07-19 知识库管理 UI 与检索预览
+
+实现与状态边界：
+
+- 设置页新增「知识库」入口和独立 `KnowledgeManagementViewModel`，支持 SAF 导入、刷新、列表、详情、启停、替换、删除和显式检索预览；没有继续扩张主 `XiaoLingViewModel`。
+- `KnowledgeDocumentReader` 保留文件名、声明 MIME 和原始字节，并在 DocumentsProvider 隐瞒大小时逐块执行 64 MB 上限。列表使用 Room projection + chunk count，不读取规范全文；详情通过 SQL `substr` 读取有界前缀，再按最多 4,000 个 UTF-16 单元安全截断且不切断代理对，避免最大 64 MB 正文进入 Compose 状态。
+- 文档变更全局串行；快速切换会取消旧详情和列表刷新 Job，替换、禁用和删除会立即隐藏旧详情、取消在途检索并清空旧 chunk/retrieval 引用。busy 状态保持到提交后的快照重载结束；存储提交与后续快照刷新使用独立错误边界，提交成功不会被刷新异常误报为操作失败。
+- 检索预览显示命中数、retrieval ID、实际 query、document/chunk 数、revision、chunk sequence 和 `[startOffset, endOffset)`；0 命中也展示审计，明确区分“已执行无结果”和“尚未检索”。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；XML 汇总为 291 条 JVM 测试，0 失败、0 错误、0 跳过，Lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 安装最终 Debug/Test APK，并直接运行完整 instrumentation：`OK (106 tests)`，0 失败。新增 8 条覆盖未知长度 64 MB 有界读取、轻量列表/UTF-16 有界详情 projection、代理对边界、Compose 详情/检索审计、旧详情与刷新乱序、变更期间旧检索失效和提交后刷新错误语义。
+- 在线模拟器虽然出现在 `adb devices -l`，但所有安装、instrumentation、DocumentsUI、UI 自动化、截图、数据库和日志命令均显式指定 Redmi 串号；没有向模拟器发送验证命令。
+
+真实 UI、数据库与冷启动验收：
+
+- Redmi 主应用数据库中的临时 `lingce-stage30.md` 先以 `Room` 检索命中 1 个 chunk，并显示 retrieval ID 与 `offset 0..1477`；停用后同词检索得到 `0 chunks / 0 documents`，重新启用后旧结果立即清空。
+- 通过 DocumentsUI 替换为 `lingce-stage30-replacement.md` 后，详情更新为 `revision 2 / parser 1 / 1 个分块 / 172 B`。旧词 `Room` 无命中，新词 `REPLACEMENT_STAGE30_OK` 命中 revision 2 的 `offset 0..172`；数据库审计分别保留 r1、停用/替换后的空命中和 r2 引用。
+- 通过删除确认清理全文、chunks 和 FTS 后，页面显示 `文档 0 / 还没有知识文档`，再次检索新词得到 0 命中审计。Downloads 中两个临时 Markdown 和 UI dump 均已清理。
+- 主库只读回查为 `PRAGMA user_version=26`、Provider 1 条、`knowledge_documents / knowledge_chunks / knowledge_chunks_fts` 均为 0、`knowledge_retrievals` 为 5；历史 r1/r2 chunk ID 只保留在审计 JSON 中，没有活动索引行。
+- 最终 Debug APK SHA-256：`925f9c9760f620b3f1b4b1708fcf44bb65739858626be01d660e752bbbfaef3a`。应用冷启动进入 `com.longdev.xiaoling/.MainActivity`，稳定主界面和知识库空状态均完成截图检查，无横向越界或控件重叠，进程保持前台且 crash buffer 为空。
+
+当前边界：
+
+- 管理 UI 已完成，但 `knowledge.search` 仍不是 Agent Tool，检索结果尚未注入模型上下文或答案引用。下一阶段必须把只读工具接入 Registry、Profile/Skill 白名单和 Run/ToolResult 审计，不能绕过现有工具权限与可信事实边界。

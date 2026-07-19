@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v25 Text/Reasoning/Image/Document/Tool parts 已让自然语言、用户图片/文档、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。Room v26 已建立严格 UTF-8 全文、确定性 chunks、FTS4 + 中文兜底、revision 引用失效和检索审计的数据基础。用户 Image、基础 Document 与 DOCX/PPTX/XLSX 富文档直传均已完成真实 `gpt-5.5 + Responses` Redmi 验收；知识库管理 UI、Agent 检索工具、模型引用注入与通用旧执行栈续跑仍未交付。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v25 Text/Reasoning/Image/Document/Tool parts 已让自然语言、用户图片/文档、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。Room v26 已建立严格 UTF-8 全文、确定性 chunks、FTS4 + 中文兜底、revision 引用失效和检索审计的数据基础，并完成导入、列表、有界详情、启停、替换、删除和检索预览管理 UI。用户 Image、基础 Document 与 DOCX/PPTX/XLSX 富文档直传均已完成真实 `gpt-5.5 + Responses` Redmi 验收；Agent 检索工具、模型引用注入与通用旧执行栈续跑仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -40,7 +40,7 @@
 - 首个工具执行前 `WAITING_APPROVAL` 的原地恢复已接入；执行任意工具后的审批等待、旧模型协程和通用工具执行栈仍不恢复。两个白名单写工具的例外仅补齐已提交结果的只读验证与本地总结。
 - 第一批真实 Tool Registry 已统一声明 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、后台能力、超时和验证策略；生产权限检查器默认 fail-closed，Runtime 已按前台/后台来源执行能力门禁。
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
-- 已有 Room v26 知识文档、chunks、FTS4/中文兜底和检索审计；管理 UI、Agent 工具、引用注入、答案引用呈现与 Embedding 尚未接入。
+- 已有 Room v26 知识文档、chunks、FTS4/中文兜底、检索审计和管理 UI；Agent 工具、引用注入、答案引用呈现与 Embedding 尚未接入。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - 没有 AccessibilityService 或其他手机操作能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
@@ -335,7 +335,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传已完成；RAG 数据/检索基础已完成，管理 UI、Agent 接入和语音未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传已完成；RAG 数据/检索基础和管理 UI 已完成，Agent 接入和语音未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -380,8 +380,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 26. 已完成：Room v24 为 Image part 增加 MIME、文件名、BLOB 和 detail。系统选择器单次接收 PNG/JPEG/WEBP，读取上限 8 MB，并核对声明大小、MIME、文件签名和可解码性；进入消息后不再依赖 URI。Responses 把近期 USER Image 映射为 `input_image` Data URL，Chat Completions 与 `/agent` 在发送前明确拒绝；Agent 信任策略只允许 USER 保留 Image，不能提升为 Tool 或 `VerifiedAgentContext`。Compose 支持待发送缩略图、移除和历史图片，debug 日志脱敏图片 Base64、`file_data`、生成图片结果与 `encrypted_content`。图片 BLOB 按当前会话加载，轻量快照保留未加载 BLOB；发送前等待 Room 事务，切换会话原子更新，显式删除过滤阻止陈旧快照复活。267 条 JVM、仅 Redmi 执行的 85 条 instrumentation 均通过；真实 `gpt-5.5` 图片轮次返回 `IMAGE_OK`，Room v24 回读确认 PNG BLOB 持久化。
 27. 已完成：Room v25 增加 Document part 的提取文本、PDF 页数和 detail，并复用附件 MIME、文件名与 BLOB。Document v1 单次接收 PDF、TXT、Markdown、JSON、CSV，最大 8 MB；PDF 签名与扩展名在领域策略交叉校验，DocumentsProvider 错报 MIME 也不能绕过 `PdfRenderer` 和最多 50 页预算，文本严格使用 UTF-8 并限制 200,000 字符。原始文件与受限提取文本同事务保存，附件 BLOB 按当前会话加载，轻量快照保留未加载 Image/Document。Responses 映射为 `input_file` Data URL，PDF 使用 `detail=auto`；Chat Completions 与 `/agent` 明确拒绝，USER-only 信任边界不变。Compose 附件菜单、待发送元数据/移除和历史 Document 展示已完成。281 条 JVM、仅 Redmi 执行的 92 条 instrumentation 均通过；真实 `gpt-5.5` Markdown 轮次在 4.33 秒返回 `DOC_STAGE27_OK`，Room v25 回读确认 67 字节 BLOB 与 67 字符提取文本持久化。
 28. 已完成：Document part 在不升级 Room 的前提下扩展 DOCX、PPTX、XLSX。`OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与实际数据范围，再以固定缓冲区流式核对条目集合、CRC 和真实展开量；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/结构不一致均在进入消息前拒绝。系统选择器、Room BLOB、轻量快照、Responses `input_file`、Compose 元数据和 USER-only 信任边界继续复用第 27 阶段契约。284 条 JVM、仅 Redmi 执行的 93 条正式 instrumentation 均通过；一次性真机 E2E 使用设备现有 `gpt-5.5 + Responses` 在 4800 ms 返回 `RICH_DOC_STAGE28_OK`，日志确认 DOCX `file_data`、Authorization 与加密推理内容均脱敏。
-29. 已完成：Room v26 新增知识文档、chunks、FTS4 和检索审计。严格 UTF-8 导入规范换行、拒绝空白/NUL，并按规范全文计算 SHA-256；确定性分块优先段落边界、保留有限重叠和精确 offset，不切断 UTF-16 代理对。替换在同一事务递增 revision 并全量更新 chunks/FTS，失败注入确认整笔回滚；禁用/删除立即退出检索，旧 chunk ID 随 revision 失效。291 条 JVM、仅 Redmi 执行的 98 条 instrumentation 均通过；Redmi 主库升级为 v26，原 Provider 保留。当前尚未接入管理 UI、Agent 工具和模型引用注入。
+29. 已完成：Room v26 新增知识文档、chunks、FTS4 和检索审计。严格 UTF-8 导入规范换行、拒绝空白/NUL，并按规范全文计算 SHA-256；确定性分块优先段落边界、保留有限重叠和精确 offset，不切断 UTF-16 代理对。替换在同一事务递增 revision 并全量更新 chunks/FTS，失败注入确认整笔回滚；禁用/删除立即退出检索，旧 chunk ID 随 revision 失效。该阶段 291 条 JVM、仅 Redmi 执行的 98 条 instrumentation 均通过；Redmi 主库升级为 v26，原 Provider 保留。该阶段尚未接入管理 UI、Agent 工具和模型引用注入。
+30. 已完成：设置页新增知识库管理 UI，使用 SAF 有界读取、轻量摘要 projection 和最多 4,000 个 UTF-16 单元且不切断代理对的详情预览，支持导入、列表、详情、启停、替换、删除和带 retrieval ID/chunk offset 的检索预览。独立 ViewModel 串行化变更、取消旧详情/刷新/检索、变更开始即隐藏失效详情，并区分存储提交失败与提交后的刷新失败。291 条 JVM、仅 Redmi 执行的 106 条 instrumentation 均通过；真实 UI 验证 revision 1→2、停用/删除 0 命中、旧词失效、新词命中和 r1/r2 审计引用分离，最终主库知识表清空且 Provider 保留。
 
-下一阶段建议在既有 v26 数据契约上实现知识库管理 UI：导入、列表、详情、启停、替换、删除和检索预览；随后再把只读 `knowledge.search` 作为独立 ToolDefinition 接入 Profile/Skill 白名单、RunEvent/ToolResult 引用审计和模型上下文。Embedding 继续后置，先验证 FTS4 + 中文兜底在真实资料集上的召回质量。RAG 不能直接扩大 Agent 工具权限，也不能把模型描述提升为工具事实。
+下一阶段把只读 `knowledge.search` 作为独立 `ToolDefinition` 接入 Tool Registry、Profile/Skill 白名单、RunEvent/ToolResult 引用审计和模型上下文。工具结果必须返回稳定 document/chunk/revision/offset 身份，禁用、替换或删除后的旧引用不得再次进入新 Run；Embedding 继续后置，先验证 FTS4 + 中文兜底在真实资料集上的召回质量。RAG 不能直接扩大 Agent 工具权限，也不能把模型描述提升为工具事实。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

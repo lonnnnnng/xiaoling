@@ -45,13 +45,21 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
             mimeType = "text/markdown",
             bytes = buildString {
                 append("# 本地知识库\n\n")
-                repeat(180) { append("小灵使用确定性分块和本地索引。\n\n") }
+                repeat(400) { append("小灵使用确定性分块和本地索引。\n\n") }
             }.toByteArray(Charsets.UTF_8),
         )
 
         assertEquals(1, document.revision)
         assertEquals(1, document.parserVersion)
         assertTrue(store.getChunks(document.id).size > 1)
+        val summaries = store.listDocuments()
+        assertEquals(listOf(document.id), summaries.map { it.id })
+        assertEquals(document.displayName, summaries.single().displayName)
+        assertTrue(summaries.single().chunkCount > 1)
+        val detail = store.getDocumentDetail(document.id)
+        assertEquals(document.characterCount, detail?.characterCount)
+        assertEquals(document.normalizedText.take(4_000), detail?.previewText)
+        assertTrue(detail?.previewTruncated == true)
 
         val firstSearch = store.search(
             query = "本地 索引",
@@ -79,6 +87,26 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(document, recreated.getDocument(document.id))
         assertTrue(recreated.search("确定性分块", 3).hits.isNotEmpty())
         assertTrue(recreated.recentRetrievals(10).any { it.id == firstSearch.retrieval.id })
+    }
+
+    @Test
+    fun detailPreviewUsesUtf16BudgetWithoutSplittingSurrogatePair() = runBlocking {
+        val normalizedText = buildString {
+            repeat(3_999) { append('a') }
+            append("😀")
+            append("tail")
+        }
+        val document = store.importUtf8Document(
+            displayName = "emoji.txt",
+            mimeType = "text/plain",
+            bytes = normalizedText.toByteArray(Charsets.UTF_8),
+        )
+
+        val detail = store.getDocumentDetail(document.id)
+
+        assertEquals(3_999, detail?.previewText?.length)
+        assertEquals("a".repeat(3_999), detail?.previewText)
+        assertTrue(detail?.previewTruncated == true)
     }
 
     @Test
