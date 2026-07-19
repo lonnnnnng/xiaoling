@@ -13,6 +13,7 @@ import org.json.JSONObject
         ProviderEntity::class,
         ConversationEntity::class,
         MessageEntity::class,
+        MessagePartEntity::class,
         AgentRunEntity::class,
         AgentStepEntity::class,
         ApprovalRequestEntity::class,
@@ -33,7 +34,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -47,7 +48,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 21
+        const val CURRENT_VERSION = 22
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -593,6 +594,44 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `message_parts` (
+                        `id` TEXT NOT NULL,
+                        `messageId` TEXT NOT NULL,
+                        `sequence` INTEGER NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `text` TEXT,
+                        `toolName` TEXT,
+                        `argumentsJson` TEXT,
+                        `result` TEXT,
+                        `success` INTEGER,
+                        `verificationStatus` TEXT,
+                        `memoryIdsJson` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_message_parts_messageId_sequence` ON `message_parts` (`messageId`, `sequence`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_message_parts_type` ON `message_parts` (`type`)")
+                // long: 旧消息正文继续留在 messages.text 作为兼容投影，同时生成稳定 Text part；迁移不解析可信上下文猜造 Tool part，避免把旧 JSON 漂移变成新的执行事实。
+                db.execSQL(
+                    """
+                    INSERT INTO `message_parts` (
+                        `id`, `messageId`, `sequence`, `type`, `text`, `toolName`,
+                        `argumentsJson`, `result`, `success`, `verificationStatus`, `memoryIdsJson`
+                    )
+                    SELECT
+                        `id` || '-text', `id`, 0, 'TEXT', `text`, NULL,
+                        NULL, NULL, NULL, NULL, NULL
+                    FROM `messages`
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -614,6 +653,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_18_19,
             MIGRATION_19_20,
             MIGRATION_20_21,
+            MIGRATION_21_22,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

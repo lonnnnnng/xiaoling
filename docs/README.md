@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v21、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试和 Agent Profile 的 Redmi 真机验收。Agent Profile 可冻结 Provider、模型、API 模式、角色提示、上下文策略、工具/Skill 白名单和记忆开关；新 Run 写入唯一 `agent.profile.selected` 快照，审批恢复和已提交结果恢复继续使用原 Run 快照，重复、损坏或越权审计均 fail-closed。v20 引入的独立 `agent_tool_calls / agent_tool_results` 仍是任务中心、受限恢复和失败 Run 重试副作用判断的 Ledger-first 事实源；账本完全为空的旧 Run 才回退 typed RunEvent。Run 质量与模型遥测继续使用没有等价工具账本字段的 Step/LLM typed event 口径，通用执行栈、旧模型协程与 Workflow 后续步骤仍不恢复。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v22、Text/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v22 `message_parts` 为每条消息保存稳定 ID、顺序和 Text/Tool 结构；旧 `messages.text` 继续作为兼容投影，SQL 迁移只回填 Text，不解析历史 JSON 猜造 Tool。新 Agent 结果只有在 `MessageOrigin.AGENT_RESULT + VerifiedAgentContext` 一致时才生成 Tool part，普通聊天不能把自由文本或伪造上下文提升为工具事实。前台会话快照只增量 upsert，用户删除通过显式会话 ID 持久化，后台 Workflow 新建或追加的消息与 parts 不会被旧前台快照清除。Reasoning/Image/Document parts 仍待后续阶段。
 
 ## 推荐阅读顺序
 

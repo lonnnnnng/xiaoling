@@ -30,8 +30,26 @@ interface ConversationDao {
     @Query("SELECT * FROM messages ORDER BY createdAt ASC")
     suspend fun getAllMessages(): List<MessageEntity>
 
+    @Query("SELECT * FROM message_parts ORDER BY messageId ASC, sequence ASC")
+    suspend fun getAllMessageParts(): List<MessagePartEntity>
+
     @Query("DELETE FROM messages")
     suspend fun deleteAllMessages()
+
+    @Query("DELETE FROM message_parts")
+    suspend fun deleteAllMessageParts()
+
+    @Query("DELETE FROM message_parts WHERE messageId IN (:messageIds)")
+    suspend fun deleteMessageParts(messageIds: List<String>)
+
+    @Query("SELECT id FROM messages WHERE conversationId IN (:conversationIds)")
+    suspend fun getMessageIdsByConversationIds(conversationIds: List<String>): List<String>
+
+    @Query("DELETE FROM messages WHERE conversationId IN (:conversationIds)")
+    suspend fun deleteMessagesByConversationIds(conversationIds: List<String>)
+
+    @Query("DELETE FROM conversations WHERE id IN (:conversationIds)")
+    suspend fun deleteConversations(conversationIds: List<String>)
 
     @Query("DELETE FROM conversations")
     suspend fun deleteAllConversations()
@@ -41,6 +59,9 @@ interface ConversationDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessages(messages: List<MessageEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessageParts(parts: List<MessagePartEntity>)
 }
 
 @Dao

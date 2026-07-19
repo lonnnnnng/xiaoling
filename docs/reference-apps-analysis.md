@@ -4,7 +4,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-19：本文提出的 AgentProfile v1 已在 Room v21 落地；参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-19：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地；参考项目审计日期仍保持原始取证时间。
 
 ## 1. 结论先行
 
@@ -319,6 +319,7 @@
 - ToolCall、ToolResult、审批和恢复事件使用独立 `RunEventMetadata`，运行记录 UI 不再解析 message JSON。
 - Room v20 已新增独立 `agent_tool_calls / agent_tool_results`，由 Repository 与 typed RunEvent 原子双写并提供单 Run/批量查询；任务中心、两个白名单写工具的受限恢复和失败 Run 重试副作用判断对新 Run 使用 Ledger-first，旧 Run 在账本全空时保守回退 typed 事件。
 - Room v21 已新增 `agent_profiles`；设置页可管理多个 Agent，新 Run 冻结 Profile typed event，工具/Skill 白名单和记忆开关在执行与恢复路径保持硬边界，前台/后台 Workflow 一次执行固定同一 Profile。
+- Room v22 已新增 `message_parts`，Text 与 Tool 在同一消息中按 sequence 持久化；Tool part 由 `AGENT_RESULT + VerifiedAgentContext` 可信投影，普通聊天无法把文本声称升级为工具事实。前台会话和后台 Workflow 已统一走 MessageRepository 写入；普通前台快照只增量 upsert，显式删除 ID 与后台新建会话可以正确共存。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
 - Room v4、v6-v21 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本和 Agent Profile 演进。v18 以独立主键映射保存 memory ToolCall 的原始载荷哈希，v19 增加可空提交结果快照，v20 新建空工具账本，v21 新建空 Agent Profile 表；迁移不补造旧 operation、旧 Run 或全局 Agent 身份证据。
 
@@ -337,13 +338,13 @@
 
 | 缺口 | 当前影响 |
 |---|---|
-| AgentProfile v1 已完成，消息仍以单一文本为主 | Agent 身份、模型和能力边界已分离；下一步应补持久化 Text/Tool parts，再评估 Reasoning/Image/File |
+| AgentProfile 与 Text/Tool parts 已完成 | Agent 身份、模型、自然语言和工具事实已进入稳定边界；下一步补 Reasoning，再评估 Image/Document |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
 | ToolCall/ToolResult 已独立落表，任务中心、受限恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。通用执行栈仍不续跑 |
 | 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 与 `memory.remember` 的已提交结果允许从原 ToolCall 恢复受限只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
-| 消息仍以单一文本为主 | Responses 已支持函数调用/结果 Items，但 Reasoning/Image/File 和持久化消息 parts 仍待实现 |
+| Text/Tool 已结构化，Reasoning/Image/Document 未完成 | 当前工具结果可恢复且可审计；模型思考和附件仍只能走现有协议临时结构，尚无本地 part 生命周期 |
 
 ## 6. 建议目标架构
 
@@ -366,12 +367,12 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v21 Schema、迁移测试、Agent Profile v1、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、确定性测试、任务中心、安全重新运行、长期记忆治理和一次性/Daily/Weekly Workflow 调度已完成。工具账本与新 typed event 原子双写，任务中心、`notes.create / memory.remember` 受限恢复和失败 Run 重试副作用判断已完成 Ledger-first、旧 Run typed event fallback 和双源一致性校验；Profile 工具白名单在 Registry 层强制执行，恢复固定原 Run 快照。完整消息 parts 仍待完成；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v22 Schema、迁移测试、Agent Profile v1、Text/Tool 消息 parts、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。Tool part 与可信 Agent 上下文一致时保留稳定数据库 ID，漂移时回退可信投影；旧 SQL 迁移不补造 Tool。Reasoning/Image/Document parts 仍待完成，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts | 把消息升级为 Text/Reasoning/Tool/Image/Document parts，保留旧 text 迁移 | 流式文本和工具步骤能在同一消息中恢复 |
+| 消息 parts | Text/Tool 已完成独立 Room 表、旧 text 回填、可信 Tool 投影、前后台增量写入、显式删除和同气泡展示；后续补 Reasoning/Image/Document | 流式文本和工具步骤已能在同一消息中恢复；前后台交错写与 Redmi 真实模型验收通过 |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |

@@ -27,7 +27,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v21 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v22 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -974,3 +974,25 @@ Redmi 真实模型与数据库验收：
 - 真实 `/agent Use app.current_time tool and tell me the current time for AgentProfile stage23` 在约 10 秒内完成。Run `run-43d56319-e94b-4e31-b2ff-8461a6907480` 为 `COMPLETED`，依次完成规划、参数校验、工具执行、后置验证、二次规划和总结；结果为 `2026-07-19 11:31:11 · Asia/Shanghai`。
 - Redmi Room 只读回查确认 `PRAGMA user_version=21`、`agent_profiles=2`，最新 Run 恰好一条 `agent.profile.selected`，快照为 `Time Agent / gpt-5.5 / RESPONSES`。`app.current_time` 的 proposed、validated、result、verified 四个事件锚点完整，结果成功且 `verificationStatus=PASSED`。
 - crash buffer 为空；只读导出后应用已重新启动到 `com.longdev.xiaoling/.MainActivity`。最终 Debug APK SHA-256：`9fb3f4128327f8055e5f7e2212d0ba24f6290cf6b23bd596f59bfb2ab8d98bba`。
+
+## 2026-07-19 Text/Tool 消息 parts
+
+实现与兼容边界：
+
+- Room v22 新增 `message_parts`，以稳定 `id` 保存 `messageId / sequence / type`；Text 保存正文，Tool 保存工具名、参数 JSON、结果、成功状态、验证状态和记忆引用。`messages.text` 继续作为旧版本、搜索、摘要和导出兼容投影。
+- v21→v22 为每条历史消息生成 `${messageId}-text`，不解析旧 `verifiedAgentContext` 猜造 Tool。旧 Agent 消息在读取时可以由可信上下文安全投影 Tool，只有后续正常保存时才写入结构化行。
+- `AgentMessagePartPolicy` 要求 Tool part 同时满足 `MessageOrigin.AGENT_RESULT` 与可解码 `VerifiedAgentContext`；普通 assistant 即使声称执行工具也只能产生 Text。已存 parts 与可信投影逐项一致时保留稳定 ID，漂移时回退可信投影。
+- `MessageRepository` 统一前台会话与后台 Workflow 的 message/parts 原子写入；覆盖同消息 ID 前清除旧 parts。前台快照只增量 upsert，用户删除通过显式会话 ID 传递并保留到事务成功，避免旧快照清除后台刚追加的消息或新建会话。Compose 在同一气泡中按 sequence 展示 Text 和非嵌套 Tool 证据区。
+
+自动化与 Redmi 回归：
+
+- 强制重跑 `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks`，构建成功；242 条 JVM 测试通过，0 失败、0 错误、0 跳过。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 73 条 instrumentation，0 失败。新增覆盖 v21→v22 Text 回填、Text/Tool 磁盘数据库重开往返、后台 Agent 结果同时写入两类 parts，以及“前台旧快照→后台同会话追加/新建独立会话→前台保存”的两类交错写；后台消息和 Tool part 均保留，只有显式删除 ID 被清理。
+- 在线 Android 模拟器未参与本阶段安装、测试或验收。crash buffer 为空。
+
+真实模型、UI 与数据库验收：
+
+- `Time Agent + gpt-5.5 + RESPONSES` 执行 `/agent Validate current time for message parts stage24 using app.current_time`，Run `run-67b60545-1b02-4898-9aee-994767fa6690` 在约 10 秒内进入 `COMPLETED`，工具结果为 `2026-07-19 12:14:01 · Asia/Shanghai`。
+- UI tree 与 Redmi 截图确认同一 assistant 气泡包含 Text 总结、`工具 · app.current_time`、`结果可读` 和结果正文，无文字重叠或横向溢出。历史 Stage 23 Agent 消息也能通过旧可信上下文兼容显示 Tool part。
+- Redmi Room 只读回查确认 `PRAGMA user_version=22`。最新 assistant 消息存在 sequence 0 `TEXT` 与 sequence 1 `TOOL`；Tool 行为 `app.current_time / success=1 / verificationStatus=READABLE_ONLY`。当时全库共 4 个 Text part、2 个 Tool part。
+- 最终 Debug APK SHA-256：`f5b28ffec4709a1f2e4c2ce811cffc7190076f60921ddac80fcbbe97db850015`。最终包覆盖安装后，`com.longdev.xiaoling/.MainActivity` 为 Redmi 前台 Activity，进程存活且 crash buffer 为空。

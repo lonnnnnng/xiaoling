@@ -23,14 +23,22 @@ class ConversationRepository(
         StoredConversations(conversations = conversations, selectedConversationId = selected)
     }
 
-    suspend fun save(conversations: List<StoredConversation>, selectedConversationId: String) = withContext(Dispatchers.IO) {
+    suspend fun save(
+        conversations: List<StoredConversation>,
+        selectedConversationId: String,
+        deletedConversationIds: Set<String> = emptySet(),
+    ) = withContext(Dispatchers.IO) {
         ensureMigrated()
         val safeConversations = conversations.ifEmpty { listOf(newConversation()) }
         database.withTransaction {
             val dao = database.conversationDao()
-            dao.deleteAllConversations()
+            if (deletedConversationIds.isNotEmpty()) {
+                // long: 删除必须来自用户操作产生的显式 ID，不能由快照差集推断；否则前台旧快照会误删后台 Workflow 刚创建的会话和工具证据。
+                messageRepository.deleteByConversationIds(deletedConversationIds.toList())
+                dao.deleteConversations(deletedConversationIds.toList())
+            }
             dao.insertConversations(safeConversations.map { it.toEntity() })
-            messageRepository.replaceAll(safeConversations.flatMap { conversation ->
+            messageRepository.insert(safeConversations.flatMap { conversation ->
                 conversation.messages.map { conversation.id to it }
             })
         }

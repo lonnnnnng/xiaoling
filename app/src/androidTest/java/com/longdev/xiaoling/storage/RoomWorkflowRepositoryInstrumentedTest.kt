@@ -5,6 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentVerificationStatus
+import com.longdev.xiaoling.agent.VerifiedAgentContext
+import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
+import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -12,7 +16,9 @@ import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.data.AgentRunEntity
+import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.model.MessageOrigin
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -58,6 +64,54 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(1, completed.steps.size)
         assertEquals(WorkflowStepStatus.COMPLETED, completed.steps.single().status)
         assertEquals("回顾完成", completed.steps.single().result)
+    }
+
+    @Test
+    fun scheduledAgentResultPersistsTextAndToolPartsTogether() = runBlocking {
+        database.conversationDao().insertConversations(
+            listOf(
+                ConversationEntity(
+                    id = "conversation-parts",
+                    title = "后台 Agent",
+                    summary = "",
+                    summaryUntilMessageId = null,
+                    summaryUpdatedAt = null,
+                    summaryModel = null,
+                    createdAt = 1L,
+                    updatedAt = 1L,
+                ),
+            ),
+        )
+        val context = VerifiedAgentContext(
+            runId = "run-parts",
+            toolName = "app.current_time",
+            arguments = emptyMap(),
+            success = true,
+            verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+            rawResult = "当前时间：12:04",
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "app.current_time",
+                    arguments = emptyMap(),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "当前时间：12:04",
+                ),
+            ),
+        )
+
+        repository.appendScheduledConversationResult(
+            conversationId = "conversation-parts",
+            text = "Agent 任务已完成",
+            origin = MessageOrigin.AGENT_RESULT,
+            verifiedAgentContext = VerifiedAgentContextCodec.encode(context),
+        )
+
+        val persisted = database.conversationDao().getAllMessageParts()
+        assertEquals(listOf("TEXT", "TOOL"), persisted.map { it.type })
+        assertEquals(listOf(0, 1), persisted.map { it.sequence })
+        assertEquals("app.current_time", persisted.last().toolName)
+        assertEquals("当前时间：12:04", persisted.last().result)
     }
 
     @Test

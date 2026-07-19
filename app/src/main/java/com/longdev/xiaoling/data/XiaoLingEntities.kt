@@ -61,6 +61,27 @@ data class MessageEntity(
 )
 
 @Entity(
+    tableName = "message_parts",
+    indices = [
+        Index(value = ["messageId", "sequence"], unique = true),
+        Index(value = ["type"]),
+    ],
+)
+data class MessagePartEntity(
+    @PrimaryKey val id: String,
+    val messageId: String,
+    val sequence: Int,
+    val type: String,
+    val text: String?,
+    val toolName: String?,
+    val argumentsJson: String?,
+    val result: String?,
+    val success: Boolean?,
+    val verificationStatus: String?,
+    val memoryIdsJson: String?,
+)
+
+@Entity(
     tableName = "agent_runs",
     indices = [Index(value = ["conversationId", "createdAt"])],
 )

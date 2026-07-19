@@ -159,6 +159,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.prompt.PromptPolicy
@@ -5685,7 +5686,7 @@ private fun ChatBubble(
                 ),
         ) {
             Column(modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp)) {
-                MessageBodyText(
+                MessageBodyParts(
                     message = message,
                     contentColor = contentColor,
                 )
@@ -5723,32 +5724,95 @@ private fun ChatBubble(
 }
 
 @Composable
-private fun MessageBodyText(
+private fun MessageBodyParts(
     message: ChatMessage,
     contentColor: Color,
 ) {
+    message.effectiveParts().forEachIndexed { index, part ->
+        if (index > 0) Spacer(Modifier.height(7.dp))
+        when (part) {
+            is MessagePart.Text -> MessageTextPart(message, part.text, contentColor)
+            is MessagePart.Tool -> ToolMessagePartContent(part, contentColor)
+        }
+    }
+}
+
+@Composable
+private fun MessageTextPart(
+    message: ChatMessage,
+    text: String,
+    contentColor: Color,
+) {
     if (message.role == "user") {
-        Text(
-            text = message.text,
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Text(text = text, style = MaterialTheme.typography.bodySmall)
         return
     }
-
     if (message.isStreamingInProgress()) {
         // long: 流式增量会让 Markdown AST 在“半截标题、半截表格、半截代码块”之间频繁变化，实时交给 Markdown 组件会反复重排闪烁；流式中先稳定展示文本，完成后再完整渲染 Markdown。
         Text(
-            text = normalizeModelMarkdown(message.text),
+            text = normalizeModelMarkdown(text),
             style = MaterialTheme.typography.bodySmall,
             color = contentColor,
         )
         return
     }
+    StreamingMarkdownText(markdown = text, contentColor = contentColor)
+}
 
-    StreamingMarkdownText(
-        markdown = message.text,
-        contentColor = contentColor,
+@Composable
+private fun ToolMessagePartContent(
+    part: MessagePart.Tool,
+    contentColor: Color,
+) {
+    val presentation = part.toPresentation()
+    HorizontalDivider(color = contentColor.copy(alpha = 0.16f))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Memory,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            text = "工具 · ${presentation.toolName}",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = contentColor,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = presentation.statusLabel,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = contentColor.copy(alpha = 0.78f),
+        )
+    }
+    presentation.argumentsLabel?.let { arguments ->
+        Text(
+            text = "参数 · $arguments",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+            color = contentColor.copy(alpha = 0.76f),
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    Text(
+        text = "结果 · ${presentation.result}",
+        style = MaterialTheme.typography.bodySmall,
+        color = contentColor,
+        modifier = Modifier.padding(top = 4.dp),
     )
+    presentation.memoryLabel?.let { memoryLabel ->
+        Text(
+            text = memoryLabel,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = contentColor.copy(alpha = 0.76f),
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
 }
 
 private fun ChatMessage.isStreamingInProgress(): Boolean {

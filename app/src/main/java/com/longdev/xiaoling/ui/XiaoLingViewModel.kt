@@ -15,6 +15,7 @@ import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.AgentMessagePartPolicy
 import com.longdev.xiaoling.agent.AgentProfilePolicy
 import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
@@ -59,6 +60,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
+import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.network.ApiFailure
@@ -227,7 +229,16 @@ data class ChatMessage(
     val origin: MessageOrigin = MessageOrigin.fromStored(value = null, role = role),
     val verifiedAgentContext: VerifiedAgentContext? = null,
     val meta: MessageMeta? = null,
-)
+    val parts: List<MessagePart> = emptyList(),
+) {
+    fun effectiveParts(): List<MessagePart> = AgentMessagePartPolicy.resolve(
+        messageId = id,
+        text = text,
+        origin = origin,
+        verifiedContext = verifiedAgentContext,
+        storedParts = parts,
+    )
+}
 
 data class MessageMeta(
     val providerId: String? = null,
@@ -369,6 +380,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var workflowLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
+    private val pendingDeletedConversationIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(
         initialUiState(
@@ -2321,6 +2333,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun deleteCurrentConversation() {
         val currentId = uiState.selectedConversationId
+        pendingDeletedConversationIds += currentId
         val remaining = uiState.conversations.filterNot { it.id == currentId }
         activeAgentRunsByConversation.remove(currentId)
         pendingAgentApprovalsByConversation.remove(currentId)
@@ -3196,9 +3209,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun saveConversationsSnapshot(conversations: List<StoredConversation>, selectedConversationId: String) {
         saveConversationsJob?.cancel()
+        val deletedConversationIds = pendingDeletedConversationIds.toSet()
         saveConversationsJob = viewModelScope.launch {
-            // long: 会话内容可能越来越长，保存全量快照不能卡 UI；取消前一次后台保存可以让最终落盘状态跟当前界面一致。
-            conversationStore.save(conversations, selectedConversationId)
+            // long: 会话保存放在后台并只保留最后快照；显式删除 ID 在事务成功前持续携带，避免取消旧保存任务后让已删除会话再次出现。
+            conversationStore.save(conversations, selectedConversationId, deletedConversationIds)
+            pendingDeletedConversationIds.removeAll(deletedConversationIds)
         }
     }
 
@@ -3776,15 +3791,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         updatedAt = updatedAt,
     )
 
-    private fun StoredConversationMessage.toChatMessage() = ChatMessage(
-        id = id,
-        role = role,
-        text = text,
-        createdAt = createdAt,
-        origin = MessageOrigin.fromStored(origin, role),
-        verifiedAgentContext = VerifiedAgentContextCodec.decode(verifiedAgentContext),
-        meta = meta?.toMessageMeta(),
-    )
+    private fun StoredConversationMessage.toChatMessage(): ChatMessage {
+        return ChatMessage(
+            id = id,
+            role = role,
+            text = text,
+            createdAt = createdAt,
+            origin = MessageOrigin.fromStored(origin, role),
+            verifiedAgentContext = VerifiedAgentContextCodec.decode(verifiedAgentContext),
+            meta = meta?.toMessageMeta(),
+            // long: Repository 已完成损坏 part 过滤和可信证据重投影；UI 保留该结果，渲染与再次保存时仍由 effectiveParts() 重检信任边界。
+            parts = parts,
+        )
+    }
 
     private fun ConversationSession.toStored() = StoredConversation(
         id = id,
@@ -3806,6 +3825,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         origin = origin.name,
         verifiedAgentContext = verifiedAgentContext?.let(VerifiedAgentContextCodec::encode),
         meta = meta?.toStoredMeta(),
+        parts = effectiveParts(),
     )
 
     private fun StoredMessageMeta.toMessageMeta() = MessageMeta(

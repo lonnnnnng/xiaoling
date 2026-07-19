@@ -32,7 +32,6 @@ import com.longdev.xiaoling.data.WorkflowStepEntity
 import com.longdev.xiaoling.data.WorkflowScheduleEntity
 import com.longdev.xiaoling.data.ScheduledTaskEntity
 import com.longdev.xiaoling.data.ConversationEntity
-import com.longdev.xiaoling.data.MessageEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
 import java.time.ZoneId
@@ -42,6 +41,8 @@ class RoomWorkflowRepository(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
 ) {
+    private val messageRepository = MessageRepository(database)
+
     suspend fun listWorkflows(): List<WorkflowRecord> {
         val dao = database.workflowDao()
         val stepsByWorkflow = dao.listWorkflowStepDefinitions().groupBy { it.workflowId }
@@ -536,8 +537,8 @@ class RoomWorkflowRepository(
                     ),
                 ),
             )
-            database.conversationDao().insertMessages(
-                listOf(backgroundMessage(userMessageId, conversationId, "user", "/agent ${definitions.first().goal}", now, MessageOrigin.USER)),
+            messageRepository.insert(
+                listOf(conversationId to backgroundMessage(userMessageId, "user", "/agent ${definitions.first().goal}", now, MessageOrigin.USER)),
             )
             ScheduledWorkflowClaim(
                 task = updatedTask.toRecord(),
@@ -579,11 +580,10 @@ class RoomWorkflowRepository(
         val now = System.currentTimeMillis()
         database.withTransaction {
             val conversation = database.conversationDao().getConversation(conversationId) ?: return@withTransaction
-            database.conversationDao().insertMessages(
+            messageRepository.insert(
                 listOf(
-                    backgroundMessage(
+                    conversationId to backgroundMessage(
                         id = "message-scheduled-${UUID.randomUUID()}",
-                        conversationId = conversationId,
                         role = if (origin == MessageOrigin.AGENT_RESULT) "assistant" else "error",
                         text = text,
                         createdAt = now,
@@ -602,8 +602,8 @@ class RoomWorkflowRepository(
         database.withTransaction {
             val conversation = database.conversationDao().getConversation(conversationId)
                 ?: error("后台工作流会话不存在：$conversationId")
-            database.conversationDao().insertMessages(
-                listOf(backgroundMessage(messageId, conversationId, "user", "/agent $goal", now, MessageOrigin.USER)),
+            messageRepository.insert(
+                listOf(conversationId to backgroundMessage(messageId, "user", "/agent $goal", now, MessageOrigin.USER)),
             )
             database.conversationDao().insertConversations(listOf(conversation.copy(updatedAt = now)))
         }
@@ -1095,34 +1095,19 @@ class RoomWorkflowRepository(
 
         private fun backgroundMessage(
             id: String,
-            conversationId: String,
             role: String,
             text: String,
             createdAt: Long,
             origin: MessageOrigin,
             verifiedAgentContext: String? = null,
-        ) = MessageEntity(
+        ) = StoredConversationMessage(
             id = id,
-            conversationId = conversationId,
             role = role,
             text = text,
             createdAt = createdAt,
             origin = origin.name,
             verifiedAgentContext = verifiedAgentContext,
-            providerId = null,
-            providerName = null,
-            model = null,
-            apiMode = null,
-            streaming = null,
-            requestUrl = null,
-            firstTokenLatencyMs = null,
-            latencyMs = null,
-            promptTokens = null,
-            completionTokens = null,
-            totalTokens = null,
-            finishReason = null,
-            errorKind = null,
-            errorMessage = null,
+            meta = null,
         )
     }
 }

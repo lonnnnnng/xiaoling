@@ -719,6 +719,78 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate21To22BackfillsStableTextPartsWithoutInventingToolParts() = runBlocking {
+        migrationHelper.createDatabase(MESSAGE_PARTS_MIGRATION_DATABASE_NAME, 21).apply {
+            execSQL(
+                "INSERT INTO conversations VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("conversation-v21", "历史消息", "", null, null, null, 100L, 200L),
+            )
+            execSQL(
+                """
+                INSERT INTO messages (
+                    id, conversationId, role, text, createdAt, origin, verifiedAgentContext,
+                    providerId, providerName, model, apiMode, streaming, requestUrl,
+                    firstTokenLatencyMs, latencyMs, promptTokens, completionTokens, totalTokens,
+                    finishReason, errorKind, errorMessage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "message-v21-user", "conversation-v21", "user", "旧用户消息", 110L, "USER", null,
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                ),
+            )
+            execSQL(
+                """
+                INSERT INTO messages (
+                    id, conversationId, role, text, createdAt, origin, verifiedAgentContext,
+                    providerId, providerName, model, apiMode, streaming, requestUrl,
+                    firstTokenLatencyMs, latencyMs, promptTokens, completionTokens, totalTokens,
+                    finishReason, errorKind, errorMessage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "message-v21-agent", "conversation-v21", "assistant", "旧 Agent 总结", 120L, "AGENT_RESULT",
+                    "{\"runId\":\"run-v21\",\"toolName\":\"app.current_time\",\"arguments\":{},\"success\":true,\"verificationStatus\":\"READABLE_ONLY\",\"rawResult\":\"11:58\"}",
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            MESSAGE_PARTS_MIGRATION_DATABASE_NAME,
+            22,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT id, text FROM messages ORDER BY createdAt").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("message-v21-user", cursor.getString(0))
+            assertEquals("旧用户消息", cursor.getString(1))
+            assertEquals(true, cursor.moveToNext())
+            assertEquals("message-v21-agent", cursor.getString(0))
+            assertEquals("旧 Agent 总结", cursor.getString(1))
+        }
+        migrated.query("SELECT id, messageId, sequence, type, text FROM message_parts ORDER BY messageId").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("message-v21-agent-text", cursor.getString(0))
+            assertEquals("message-v21-agent", cursor.getString(1))
+            assertEquals(0, cursor.getInt(2))
+            assertEquals("TEXT", cursor.getString(3))
+            assertEquals("旧 Agent 总结", cursor.getString(4))
+            assertEquals(true, cursor.moveToNext())
+            assertEquals("message-v21-user-text", cursor.getString(0))
+            assertEquals("message-v21-user", cursor.getString(1))
+            assertEquals(0, cursor.getInt(2))
+            assertEquals("TEXT", cursor.getString(3))
+            assertEquals("旧用户消息", cursor.getString(4))
+            assertEquals(false, cursor.moveToNext())
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -790,5 +862,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-memory-verification-migration-test"
         private const val TOOL_LEDGER_MIGRATION_DATABASE_NAME = "xiaoling-tool-ledger-migration-test"
         private const val AGENT_PROFILE_MIGRATION_DATABASE_NAME = "xiaoling-agent-profile-migration-test"
+        private const val MESSAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-message-parts-migration-test"
     }
 }

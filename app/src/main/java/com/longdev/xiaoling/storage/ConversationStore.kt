@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import com.longdev.xiaoling.model.MessagePart
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -29,6 +30,7 @@ data class StoredConversationMessage(
     val origin: String?,
     val verifiedAgentContext: String?,
     val meta: StoredMessageMeta?,
+    val parts: List<MessagePart> = emptyList(),
 )
 
 data class StoredMessageMeta(
