@@ -224,6 +224,7 @@ fun ApprovalRequestRecord.isWaitingForInteractiveApprovalDecision(): Boolean {
 data class AgentRunDetailRecord(
     val snapshot: AgentRunSnapshot,
     val approvals: List<ApprovalRequestRecord>,
+    val toolLedger: AgentToolLedgerRecord = AgentToolLedgerRecord(),
 )
 
 data class AgentToolCallRecord(
@@ -258,8 +259,8 @@ data class AgentToolResultRecord(
 )
 
 data class AgentToolLedgerRecord(
-    val calls: List<AgentToolCallRecord>,
-    val results: List<AgentToolResultRecord>,
+    val calls: List<AgentToolCallRecord> = emptyList(),
+    val results: List<AgentToolResultRecord> = emptyList(),
 )
 
 data class ToolCall(

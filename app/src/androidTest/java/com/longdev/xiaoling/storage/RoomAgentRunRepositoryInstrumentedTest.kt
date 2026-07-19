@@ -192,6 +192,54 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun recentRunDetailsLoadsEachRunToolLedger() = runBlocking {
+        val firstRun = repository.createRun(
+            conversationId = "conversation-ledger-list-1",
+            userMessageId = "message-ledger-list-1",
+            goal = "读取第一条账本",
+        )
+        val secondRun = repository.createRun(
+            conversationId = "conversation-ledger-list-2",
+            userMessageId = "message-ledger-list-2",
+            goal = "读取第二条账本",
+        )
+        val firstCall = RunEventMetadata.ToolCall(
+            id = "tool-call-list-1",
+            toolName = "app.current_time",
+            risk = ToolRisk.SAFE,
+            arguments = emptyMap(),
+        )
+        val secondCall = RunEventMetadata.ToolCall(
+            id = "tool-call-list-2",
+            toolName = "memory.search",
+            risk = ToolRisk.SAFE,
+            arguments = mapOf("query" to "账本"),
+        )
+        repository.appendEvent(firstRun.id, "tool.call.proposed", "第一条调用", firstCall)
+        repository.appendEvent(secondRun.id, "tool.call.proposed", "第二条调用", secondCall)
+        repository.appendEvent(
+            firstRun.id,
+            "tool.result",
+            "第一条结果",
+            RunEventMetadata.ToolResult(
+                toolName = firstCall.toolName,
+                content = "当前时间",
+                durationMs = 3L,
+                success = true,
+                verified = true,
+                toolCallId = firstCall.id,
+            ),
+        )
+
+        val detailsByRunId = repository.recentRunDetails(limit = 10).associateBy { it.snapshot.run.id }
+
+        assertEquals(listOf(firstCall.id), detailsByRunId.getValue(firstRun.id).toolLedger.calls.map { it.id })
+        assertEquals(1, detailsByRunId.getValue(firstRun.id).toolLedger.results.size)
+        assertEquals(listOf(secondCall.id), detailsByRunId.getValue(secondRun.id).toolLedger.calls.map { it.id })
+        assertEquals(0, detailsByRunId.getValue(secondRun.id).toolLedger.results.size)
+    }
+
+    @Test
     fun toolLedgerStoresFailedResultAsErrorWithoutInventingVerification() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-tool-error",

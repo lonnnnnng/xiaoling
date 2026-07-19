@@ -4064,9 +4064,7 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
     val recoveryFailure = snapshot.events.asReversed().firstNotNullOfOrNull { event ->
         event.metadata as? RunEventMetadata.RecoveryFailure
     }
-    val toolResults = snapshot.events.mapNotNull { event ->
-        (event.metadata as? RunEventMetadata.ToolResult)?.let { metadata -> event to metadata }
-    }
+    val toolPresentation = presentAgentToolLedger(detail)
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f),
         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -4125,10 +4123,22 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                 }
             }
 
-            if (toolResults.isNotEmpty()) {
-                AgentRunDetailSection("工具结果") {
-                    toolResults.forEach { (event, result) ->
-                        AgentToolResultRow(event = event, result = result)
+            if (toolPresentation.calls.isNotEmpty()) {
+                AgentRunDetailSection("工具调用") {
+                    Text(
+                        text = when (toolPresentation.source) {
+                            AgentToolDetailSource.LEDGER -> "数据源：独立工具账本"
+                            AgentToolDetailSource.EVENT_FALLBACK -> "数据源：旧 Run 事件兼容"
+                            AgentToolDetailSource.NONE -> "数据源：无工具记录"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    toolPresentation.issues.forEach { issue ->
+                        AgentToolLedgerIssueRow(issue)
+                    }
+                    toolPresentation.calls.forEach { call ->
+                        AgentToolCallRow(call)
                     }
                 }
             }
@@ -4215,36 +4225,85 @@ private fun AgentRunDetailSection(
 }
 
 @Composable
-private fun AgentToolResultRow(
-    event: RunEventRecord,
-    result: RunEventMetadata.ToolResult,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun AgentToolLedgerIssueRow(issue: AgentToolLedgerIssue) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(6.dp))
+            .padding(horizontal = 7.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Error,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.error,
+            modifier = Modifier.size(14.dp),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = "账本一致性告警 · ${issue.code}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.error,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = issue.message,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentToolCallRow(call: AgentToolCallPresentation) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Text(
-                text = result.toolName,
+                text = call.toolName,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = if (result.success) "成功" else "失败",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (result.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = "${result.durationMs}ms · ${event.createdAt.toFullTimeLabel()}",
+                text = call.risk?.toUiLabel() ?: "历史记录",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Text(
-            text = "已验证：" + when (result.verified) {
+            text = "调用：${call.id ?: "关联未知"} · ${call.createdAt.toFullTimeLabel()}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            AgentToolStage("proposed", call.proposed, Modifier.weight(1f))
+            AgentToolStage("validated", call.validated, Modifier.weight(1f))
+            AgentToolStage("result", call.result, Modifier.weight(1f))
+            AgentToolStage("verified", call.verified, Modifier.weight(1f))
+        }
+        if (call.arguments.isNotEmpty()) {
+            Text(
+                text = "参数：${call.arguments.entries.joinToString(" · ") { "${it.key}=${it.value}" }}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = "Executor 验证：" + when (call.executorVerified) {
                 true -> "是"
                 false -> "否"
                 null -> "未提供"
@@ -4252,19 +4311,82 @@ private fun AgentToolResultRow(
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (result.memoryIdsUsed.isNotEmpty()) {
+        call.executionReceipt?.let { receipt ->
             Text(
-                text = "本次使用记忆：${result.memoryIdsUsed.joinToString("、")}",
+                text = buildString {
+                    append("操作：${receipt.operationId} · 回执：${receipt.status.name}")
+                    call.replaySafety?.let { append(" · 重放：${it.name}") }
+                    append(" · 幂等证明：${if (receipt.idempotencyKey.isNullOrBlank()) "未记录" else "已记录"}")
+                },
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (call.memoryIdsUsed.isNotEmpty()) {
+            Text(
+                text = "本次使用记忆：${call.memoryIdsUsed.joinToString("、")}",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
                 color = MaterialTheme.colorScheme.tertiary,
             )
         }
-        Text(
-            text = result.content.ifBlank { "(空结果)" },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
+        call.resultContent?.let { content ->
+            Text(
+                text = content.ifBlank { "(空结果)" },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (call.result == AgentToolStageState.FAILED) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+        }
+        call.errorMessage?.takeIf { it.isNotBlank() && it != call.resultContent }?.let { error ->
+            Text(
+                text = error,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        call.durationMs?.let { durationMs ->
+            Text(
+                text = "执行耗时：${durationMs}ms",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+            )
+        }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+    }
+}
+
+@Composable
+private fun AgentToolStage(
+    label: String,
+    state: AgentToolStageState,
+    modifier: Modifier = Modifier,
+) {
+    val (icon, color) = when (state) {
+        AgentToolStageState.COMPLETE -> Icons.Default.CheckCircle to MaterialTheme.colorScheme.primary
+        AgentToolStageState.FAILED -> Icons.Default.Error to MaterialTheme.colorScheme.error
+        AgentToolStageState.PENDING -> Icons.Default.Schedule to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(11.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, lineHeight = 10.sp),
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

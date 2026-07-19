@@ -341,10 +341,12 @@ class RoomAgentRunRepository(
         val runs = dao.getRecentRuns(limit)
         if (runs.isEmpty()) return emptyList()
         val runIds = runs.map { it.id }
-        // long: 运行记录页会一次展示最近多条 Run；步骤、审批和事件必须批量读取再内存分组，避免每条 Run 触发多次 Room 查询。
+        // long: 运行记录页会一次展示最近多条 Run；步骤、审批、事件和独立工具账本必须批量读取再内存分组，避免每条 Run 触发多次 Room 查询。
         val stepsByRunId = dao.getStepsForRuns(runIds).groupBy { it.runId }
         val eventsByRunId = dao.getEventsForRuns(runIds).groupBy { it.runId }
         val approvalsByRunId = dao.getApprovalRequestsForRuns(runIds).groupBy { it.runId }
+        val toolCallsByRunId = dao.getToolCallsForRuns(runIds).groupBy { it.runId }
+        val toolResultsByRunId = dao.getToolResultsForRuns(runIds).groupBy { it.runId }
         return runs.map { run ->
             val snapshot = AgentRunSnapshot(
                 run = run.toRecord(),
@@ -354,6 +356,10 @@ class RoomAgentRunRepository(
             AgentRunDetailRecord(
                 snapshot = snapshot,
                 approvals = approvalsByRunId[run.id].orEmpty().map { it.toRecord() },
+                toolLedger = AgentToolLedgerRecord(
+                    calls = toolCallsByRunId[run.id].orEmpty().map { it.toRecord() },
+                    results = toolResultsByRunId[run.id].orEmpty().map { it.toRecord() },
+                ),
             )
         }
     }
@@ -516,6 +522,10 @@ class RoomAgentRunRepository(
                 events = dao.getEvents(run.id).map { it.toRecord() },
             ),
             approvals = dao.getApprovalRequests(run.id).map { it.toRecord() },
+            toolLedger = AgentToolLedgerRecord(
+                calls = dao.getToolCalls(run.id).map { it.toRecord() },
+                results = dao.getToolResults(run.id).map { it.toRecord() },
+            ),
         )
     }
 

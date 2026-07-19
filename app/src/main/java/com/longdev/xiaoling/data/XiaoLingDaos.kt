@@ -105,8 +105,14 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_tool_calls WHERE runId = :runId ORDER BY createdAt ASC, id ASC")
     suspend fun getToolCalls(runId: String): List<AgentToolCallEntity>
 
+    @Query("SELECT * FROM agent_tool_calls WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC, id ASC")
+    suspend fun getToolCallsForRuns(runIds: List<String>): List<AgentToolCallEntity>
+
     @Query("SELECT * FROM agent_tool_results WHERE runId = :runId ORDER BY createdAt ASC, toolCallId ASC")
     suspend fun getToolResults(runId: String): List<AgentToolResultEntity>
+
+    @Query("SELECT * FROM agent_tool_results WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC, toolCallId ASC")
+    suspend fun getToolResultsForRuns(runIds: List<String>): List<AgentToolResultEntity>
 
     @Query("SELECT * FROM agent_tool_results WHERE toolCallId = :toolCallId")
     suspend fun getToolResult(toolCallId: String): AgentToolResultEntity?

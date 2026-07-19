@@ -892,3 +892,22 @@ TDD 与自动化：
 - instrumentation 后向 Redmi 覆盖安装最终 APK，恢复 1 个 Provider、同步并启用 6 个模型，选择 `gpt-5.4-mini`。真实普通对话 `Reply with exactly: OK` 在 4.18 秒返回 HTTP 200 和 `OK`；默认 User-Agent 正确，Authorization 日志保持脱敏，crash buffer 为空，`com.longdev.xiaoling/.MainActivity` 保持前台。
 - Redmi 只读回读确认 `PRAGMA user_version=20`、Provider 为 1 条；本轮未创建 Agent Run，`agent_tool_calls / agent_tool_results` 均为 0 条，符合普通对话不写工具账本的边界。
 - 最终 Debug APK SHA-256：`dd924a63cb388213cbf643e1526f3ebd73121c4648933a0f6a9fd7a1120e87b1`。
+
+## 2026-07-19 任务中心 Tool Ledger-first 明细
+
+实现与兼容边界：
+
+- `AgentRunDetailRecord` 现在携带独立工具账本；`recentRunDetails()` 通过批量 DAO 一次读取最近 Run 的 ToolCall/ToolResult，再按 `runId` 分组，单 Run 详情使用同一账本模型。
+- 任务中心有账本时使用 Ledger-first，并按调用展示 proposed、validated、result、verified 四阶段；typed RunEvent 只用于双源身份、字段和事件锚点核对。孤立结果、部分缺失或字段漂移显示稳定一致性告警，不自动修补数据库。
+- 账本全空且存在 typed 工具事件时才进入旧 Run fallback。缺少 ToolCall ID 的旧 ToolResult/ToolVerification 保留为“关联未知”的独立条目，不按工具名、时间顺序或合成 ID 伪造关联；普通无工具 Run 保持空详情。
+- `AgentRunResumePolicy`、重试策略和指标没有切换到新账本，旧 Run 状态与恢复结论保持不变。
+
+TDD、审查与 Redmi 真机验收：
+
+- 212 条 JVM 测试通过；新增策略测试覆盖 Ledger-first、旧事件回退、无身份事件保守展示、双源字段漂移、事件结果缺账本、孤立结果和无工具 Run。完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Redmi Note 8 Pro Android 14 真机执行完整 65 条 instrumentation，全部通过；新增 Room 测试确认最近多个 Run 的调用和结果账本分别装配到对应详情。
+- 以 `d3655b9` 为固定点执行 Standards/Spec 双轴审查。初审发现关键投影缺少贴近实现的 `// long:` 业务注释，以及旧无身份结果按同工具最近调用归组会伪造关联；修复并增加回归测试后，两轴复审均为 0 项 finding。
+- instrumentation 后向 Redmi 覆盖安装最终 APK，恢复 1 个 Provider、同步并启用 6 个模型。`gpt-5.4-mini` 普通对话在 2.84 秒返回 HTTP 200 和精确 `OK`；该模型的 Agent Chat Completions 规划返回格式不兼容并正确收敛为失败，旧 Run 保持不变。切换 `gpt-5.5` 后真实 `/agent current time stage20 gpt55` 在 10.30 秒完成。
+- 真机 Room 回读确认 `PRAGMA user_version=20`，成功 Run 的 `app.current_time` 账本 proposed/validated/result/verified 锚点齐全、结果成功且最终验证为 `PASSED`。任务中心显示“数据源：独立工具账本”和四阶段完成，无一致性告警；UI tree 与截图确认无文字重叠或横向溢出，crash buffer 为空。
+- 本项目后续 Android 安装、instrumentation、UI 自动化和真实模型验收只使用 Redmi 真机 `wsvwypiz7xwslvl7`，除非用户另行明确修改该约束。
+- 最终 Debug APK SHA-256：`ceeb4930cfc767a5a31322cebc6b9eb7c9ddb223f91d42a71a2dba09e4192fa8`。
