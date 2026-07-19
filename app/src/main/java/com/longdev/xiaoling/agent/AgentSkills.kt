@@ -152,8 +152,17 @@ class AgentSkillCatalog(
         )
     }
 
-    suspend fun select(goal: String, limit: Int = 3): List<AgentSkillDefinition> {
-        val enabled = list().filter { it.enabled }.map { it.definition }
+    suspend fun select(
+        goal: String,
+        limit: Int = 3,
+        allowedSkillIds: Set<String>? = null,
+        allowedToolNames: Set<String>? = null,
+    ): List<AgentSkillDefinition> {
+        val enabled = list()
+            .filter { it.enabled }
+            .map { it.definition }
+            .filter { definition -> allowedSkillIds == null || definition.id in allowedSkillIds }
+            .filter { definition -> allowedToolNames == null || definition.toolNames.all(allowedToolNames::contains) }
         return selectAgentSkills(goal, enabled, limit)
     }
 

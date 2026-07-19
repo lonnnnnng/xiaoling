@@ -6,6 +6,18 @@ import org.json.JSONObject
 internal object RunEventMetadataCodec {
     fun encode(metadata: RunEventMetadata): String {
         return when (metadata) {
+            is RunEventMetadata.AgentProfileSelection -> JSONObject()
+                .put("id", metadata.profile.id)
+                .put("name", metadata.profile.name)
+                .put("avatar", metadata.profile.avatar)
+                .put("providerId", metadata.profile.providerId)
+                .put("model", metadata.profile.model)
+                .put("apiMode", metadata.profile.apiMode.name)
+                .put("systemPrompt", metadata.profile.systemPrompt)
+                .put("contextPolicy", metadata.profile.contextPolicy.name)
+                .put("allowedToolNames", metadata.profile.allowedToolNames.toStringJsonArray())
+                .put("allowedSkillIds", metadata.profile.allowedSkillIds.toStringJsonArray())
+                .put("memoryEnabled", metadata.profile.memoryEnabled)
             is RunEventMetadata.LlmRequest -> JSONObject()
                 .put("phase", metadata.phase.name)
                 .put("model", metadata.model)
@@ -68,6 +80,21 @@ internal object RunEventMetadataCodec {
         return runCatching {
             val json = JSONObject(raw)
             when (type) {
+                AgentEventTypes.PROFILE_SELECTED -> RunEventMetadata.AgentProfileSelection(
+                    profile = AgentProfileSnapshot(
+                        id = json.requiredString("id"),
+                        name = json.requiredString("name"),
+                        avatar = json.stringOrNull("avatar").orEmpty(),
+                        providerId = json.requiredString("providerId"),
+                        model = json.requiredString("model"),
+                        apiMode = com.longdev.xiaoling.model.ApiMode.valueOf(json.requiredString("apiMode")),
+                        systemPrompt = json.stringOrNull("systemPrompt").orEmpty(),
+                        contextPolicy = AgentContextPolicy.valueOf(json.requiredString("contextPolicy")),
+                        allowedToolNames = json.stringListOrEmpty("allowedToolNames"),
+                        allowedSkillIds = json.stringListOrEmpty("allowedSkillIds"),
+                        memoryEnabled = json.getBoolean("memoryEnabled"),
+                    ),
+                )
                 AgentEventTypes.LLM_REQUEST_COMPLETED -> RunEventMetadata.LlmRequest(
                     phase = AgentLlmPhase.valueOf(json.requiredString("phase")),
                     model = json.requiredString("model"),

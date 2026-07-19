@@ -287,6 +287,29 @@ data class AgentSkillEntity(
 )
 
 @Entity(
+    tableName = "agent_profiles",
+    indices = [
+        Index(value = ["providerId"]),
+        Index(value = ["updatedAt"]),
+    ],
+)
+data class AgentProfileEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val avatar: String,
+    val providerId: String,
+    val model: String,
+    val apiMode: String,
+    val systemPrompt: String,
+    val contextPolicy: String,
+    val allowedToolNamesJson: String,
+    val allowedSkillIdsJson: String,
+    val memoryEnabled: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
     tableName = "workflows",
     indices = [Index(value = ["enabled", "updatedAt"])],
 )

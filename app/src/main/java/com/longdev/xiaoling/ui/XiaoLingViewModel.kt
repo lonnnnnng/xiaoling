@@ -14,6 +14,11 @@ import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
+import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.AgentProfilePolicy
+import com.longdev.xiaoling.agent.AgentProfileRecord
+import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
+import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentSkillSource
@@ -26,6 +31,7 @@ import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
+import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
 import com.longdev.xiaoling.agent.ToolCall
@@ -74,6 +80,7 @@ import com.longdev.xiaoling.storage.StoredMessageMeta
 import com.longdev.xiaoling.storage.StoredConversations
 import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
+import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.XiaoLingBackupManager
@@ -172,6 +179,11 @@ data class XiaoLingUiState(
     val mutatingSkillIds: Set<String> = emptySet(),
     val skillError: String? = null,
     val pendingLocalSkillDelete: AgentSkillRecord? = null,
+    val agentProfiles: List<AgentProfileRecord> = emptyList(),
+    val selectedAgentProfileId: String = "",
+    val registeredAgentTools: List<ToolDefinition> = emptyList(),
+    val mutatingAgentProfileIds: Set<String> = emptySet(),
+    val agentProfileError: String? = null,
     val loadingWorkflows: Boolean = false,
     val workflows: List<WorkflowRecord> = emptyList(),
     val workflowRuns: List<WorkflowRunDetail> = emptyList(),
@@ -327,12 +339,18 @@ private data class PreparedRequestContext(
     }
 }
 
+private data class AgentRuntimeSelection(
+    val config: ProviderRequestConfig,
+    val profile: AgentProfileSnapshot,
+)
+
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private val agentRunUseCase = AgentRunUseCase(application, client)
+    private val agentProfileStore = RoomAgentProfileStore(application)
     private val agentRunRepository = RoomAgentRunRepository(application)
     private val agentMemoryStore = RoomAgentMemoryStore(application)
     private val workflowRepository = RoomWorkflowRepository(application)
@@ -396,6 +414,31 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
             val storedProfiles = configStore.load()
             val storedConversations = conversationStore.load()
+            val availableAgentTools = agentRunUseCase.registeredTools()
+            val availableSkills = withContext(Dispatchers.IO) { agentRunUseCase.listSkills() }
+            val defaultProvider = storedProfiles.profiles
+                .firstOrNull { it.id == storedProfiles.selectedProfileId }
+                ?: storedProfiles.profiles.first()
+            val now = System.currentTimeMillis()
+            val storedAgentProfiles = withContext(Dispatchers.IO) {
+                agentProfileStore.loadOrCreateDefault(
+                    AgentProfileRecord(
+                        id = DEFAULT_AGENT_PROFILE_ID,
+                        name = "默认 Agent",
+                        avatar = "灵",
+                        providerId = defaultProvider.id,
+                        model = defaultProvider.model.takeIf { it in defaultProvider.enabledModels }.orEmpty(),
+                        apiMode = ApiMode.CHAT_COMPLETIONS,
+                        systemPrompt = "",
+                        contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+                        allowedToolNames = availableAgentTools.map { it.name },
+                        allowedSkillIds = availableSkills.filter { it.enabled }.map { it.definition.id },
+                        memoryEnabled = true,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+            }
             // long: Room/Keystore 读取放在协程里执行，首屏先用安全的空白状态，避免应用启动阶段因为解密或数据库迁移阻塞主线程。
             uiState = storedProfiles
                 .toUiState()
@@ -405,6 +448,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     promptSettings = uiState.promptSettings,
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
                     userAgent = uiState.userAgent,
+                    agentProfiles = storedAgentProfiles.profiles,
+                    selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
+                    registeredAgentTools = availableAgentTools,
+                    skills = availableSkills,
+                    agentMemoryRecallEnabled = storedAgentProfiles.profiles
+                        .first { it.id == storedAgentProfiles.selectedProfileId }
+                        .memoryEnabled,
                     deletedMemoryForUndo = latestDeletedMemory,
                     workflows = workflowState.workflows,
                     workflowRuns = workflowState.runs,
@@ -438,7 +488,148 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateAgentMemoryRecallEnabled(value: Boolean) {
+        val selectedAgent = uiState.agentProfiles.firstOrNull { it.id == uiState.selectedAgentProfileId }
+        if (value && selectedAgent?.memoryEnabled == false) {
+            showValidation("当前 Agent Profile 已关闭长期记忆")
+            return
+        }
         uiState = uiState.copy(agentMemoryRecallEnabled = value, result = null)
+    }
+
+    fun selectAgentProfile(profileId: String) {
+        val profile = uiState.agentProfiles.firstOrNull { it.id == profileId } ?: return
+        uiState = uiState.copy(
+            selectedAgentProfileId = profile.id,
+            agentMemoryRecallEnabled = profile.memoryEnabled,
+            agentProfileError = null,
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!agentProfileStore.select(profile.id)) {
+                withContext(Dispatchers.Main) {
+                    uiState = uiState.copy(agentProfileError = "Agent Profile 已不存在，请刷新")
+                }
+            }
+        }
+    }
+
+    fun saveAgentProfile(
+        profileId: String?,
+        name: String,
+        avatar: String,
+        providerId: String,
+        model: String,
+        apiMode: ApiMode,
+        systemPrompt: String,
+        memoryEnabled: Boolean,
+        allowedToolNames: Set<String>,
+        allowedSkillIds: Set<String>,
+    ) {
+        val provider = uiState.profiles.firstOrNull { it.id == providerId }
+        if (provider == null) {
+            showValidation("Agent 选择的模型提供方不存在")
+            return
+        }
+        if (model !in provider.enabledModels) {
+            showValidation("Agent 选择的模型没有在提供方中启用")
+            return
+        }
+        val registeredToolNames = uiState.registeredAgentTools.mapTo(linkedSetOf()) { it.name }
+        val unknownTools = allowedToolNames - registeredToolNames
+        if (unknownTools.isNotEmpty()) {
+            showValidation("Agent 包含未注册工具：${unknownTools.sorted().joinToString()}")
+            return
+        }
+        val knownSkills = uiState.skills.associateBy { it.definition.id }
+        val unknownSkills = allowedSkillIds - knownSkills.keys
+        if (unknownSkills.isNotEmpty()) {
+            showValidation("Agent 包含不存在的 Skill：${unknownSkills.sorted().joinToString()}")
+            return
+        }
+        val incompatibleSkill = allowedSkillIds
+            .mapNotNull(knownSkills::get)
+            .firstOrNull { skill -> skill.definition.toolNames.any { it !in allowedToolNames } }
+        if (incompatibleSkill != null) {
+            showValidation("Skill ${incompatibleSkill.definition.name} 使用了未授权工具，请先勾选对应工具")
+            return
+        }
+        val old = profileId?.let { id -> uiState.agentProfiles.firstOrNull { it.id == id } }
+        val now = System.currentTimeMillis()
+        val profile = AgentProfileRecord(
+            id = old?.id ?: "agent-profile-${UUID.randomUUID()}",
+            name = name.trim(),
+            avatar = avatar.trim(),
+            providerId = provider.id,
+            model = model,
+            apiMode = apiMode,
+            systemPrompt = systemPrompt.trim(),
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = allowedToolNames.sorted(),
+            allowedSkillIds = allowedSkillIds.sorted(),
+            memoryEnabled = memoryEnabled,
+            createdAt = old?.createdAt ?: now,
+            updatedAt = now,
+        )
+        runCatching { AgentProfilePolicy.validateRunnable(profile) }
+            .onFailure {
+                showValidation(it.message ?: "Agent Profile 配置无效")
+                return
+            }
+        uiState = uiState.copy(mutatingAgentProfileIds = uiState.mutatingAgentProfileIds + profile.id)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentProfileStore.upsert(profile) } }
+                .onSuccess {
+                    val profiles = (uiState.agentProfiles.filterNot { it.id == profile.id } + profile)
+                        .sortedWith(compareByDescending<AgentProfileRecord> { it.updatedAt }.thenBy { it.name })
+                    uiState = uiState.copy(
+                        agentProfiles = profiles,
+                        selectedAgentProfileId = profile.id,
+                        agentMemoryRecallEnabled = profile.memoryEnabled,
+                        mutatingAgentProfileIds = uiState.mutatingAgentProfileIds - profile.id,
+                        agentProfileError = null,
+                        result = OperationResult(true, "已保存", "Agent Profile：${profile.name}"),
+                    )
+                    withContext(Dispatchers.IO) { agentProfileStore.select(profile.id) }
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        mutatingAgentProfileIds = uiState.mutatingAgentProfileIds - profile.id,
+                        agentProfileError = error.message ?: "保存 Agent Profile 失败",
+                    )
+                }
+        }
+    }
+
+    fun deleteAgentProfile(profileId: String) {
+        if (uiState.agentProfiles.size <= 1) {
+            showValidation("至少保留一个 Agent Profile")
+            return
+        }
+        val profile = uiState.agentProfiles.firstOrNull { it.id == profileId } ?: return
+        uiState = uiState.copy(mutatingAgentProfileIds = uiState.mutatingAgentProfileIds + profileId)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentProfileStore.delete(profileId) } }
+                .onSuccess { deleted ->
+                    if (!deleted) error("Agent Profile 已不存在")
+                    val remaining = uiState.agentProfiles.filterNot { it.id == profileId }
+                    val selectedId = if (uiState.selectedAgentProfileId == profileId) remaining.first().id else uiState.selectedAgentProfileId
+                    val selected = remaining.first { it.id == selectedId }
+                    withContext(Dispatchers.IO) { agentProfileStore.select(selectedId) }
+                    uiState = uiState.copy(
+                        agentProfiles = remaining,
+                        selectedAgentProfileId = selectedId,
+                        agentMemoryRecallEnabled = selected.memoryEnabled,
+                        mutatingAgentProfileIds = uiState.mutatingAgentProfileIds - profileId,
+                        agentProfileError = null,
+                        result = OperationResult(true, "已删除", "Agent Profile：${profile.name}"),
+                    )
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        mutatingAgentProfileIds = uiState.mutatingAgentProfileIds - profileId,
+                        agentProfileError = error.message ?: "删除 Agent Profile 失败",
+                    )
+                }
+        }
     }
 
     fun openNewProvider() {
@@ -798,7 +989,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("来源会话已不存在，无法在原上下文中重试")
             return
         }
-        val config = validatedConfig() ?: return
+        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
         selectConversation(sourceRun.conversationId)
         uiState = uiState.copy(
             runningWorkflowId = sourceRun.workflowId,
@@ -816,7 +1007,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 }
                 // long: 重试记录先进入 UI，再启动首个未完成步骤；来源 Run 与复用步骤引用始终保留，便于用户核对新旧执行证据。
                 uiState = uiState.copy(workflowRuns = listOf(retryDetail) + uiState.workflowRuns)
-                executeForegroundWorkflow(retryDetail, config, sourceRun.conversationId)
+                executeForegroundWorkflow(retryDetail, runtimeSelection, sourceRun.conversationId)
             } catch (error: CancellationException) {
                 retryDetail?.let { current ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -1119,7 +1310,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("请先打开一个会话")
             return
         }
-        val config = validatedConfig() ?: return
+        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
         uiState = uiState.copy(
             runningWorkflowId = workflowId,
             workflowError = null,
@@ -1132,7 +1323,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             try {
                 detail = withContext(Dispatchers.IO) { workflowRepository.createManualRun(workflowId, conversationId) }
                 uiState = uiState.copy(workflowRuns = listOf(detail) + uiState.workflowRuns)
-                executeForegroundWorkflow(detail, config, conversationId)
+                executeForegroundWorkflow(detail, runtimeSelection, conversationId)
             } catch (error: CancellationException) {
                 detail?.let { current ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -1182,7 +1373,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun executeForegroundWorkflow(
         initialDetail: WorkflowRunDetail,
-        config: ProviderRequestConfig,
+        runtimeSelection: AgentRuntimeSelection,
         conversationId: String,
     ) {
         var detail = initialDetail
@@ -1206,8 +1397,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 conversationId = conversationId,
                 userMessageId = userMessage.id,
                 goal = executionGoal,
-                config = config,
+                config = runtimeSelection.config,
                 summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                agentProfile = runtimeSelection.profile,
+                memoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
                 approvalGate = approvalGate,
                 onSnapshot = { snapshot ->
                     withContext(Dispatchers.IO) {
@@ -1838,7 +2031,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("原会话已不存在，无法在正确上下文中重试")
             return
         }
-        val config = validatedConfig() ?: return
+        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
         selectConversation(sourceRun.conversationId)
         uiState = uiState.copy(
             retryingAgentRunId = sourceRun.id,
@@ -1849,7 +2042,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         // long: 重试不是修改或续跑旧 Run，而是在原会话追加同一目标的新用户消息；同时回到来源会话，确保重新触发的写工具审批不会隐藏在任务中心后台。
         sendAgentRun(
             userMessage = "/agent " + sourceRun.goal,
-            config = config,
+            runtimeSelection = runtimeSelection,
             conversationId = sourceRun.conversationId,
             retryOfRunId = sourceRun.id,
         )
@@ -1930,7 +2123,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("原会话已不存在，无法恢复 Agent Run")
             return
         }
-        val config = validatedConfig() ?: return
+        val sourceProfile = detail.agentProfileSnapshotOrNull()
+        val runtimeSelection = if (sourceProfile == null) {
+            validatedSelectedAgentRuntimeSelection()
+        } else {
+            validatedAgentRuntimeSelection(sourceProfile)
+        } ?: return
         val preparedContext = PreparedRequestContext.fromConversation(conversation)
         selectConversation(source.conversationId)
         clearPendingApprovalForConversation(source.conversationId)
@@ -1946,7 +2144,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 val summary = agentRunUseCase.resumeApprovedRun(
                     detail = detail,
                     approval = approval,
-                    config = config,
+                    config = runtimeSelection.config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                     approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
                     approvalGate = interactiveAgentApprovalGate(source.conversationId),
@@ -1989,7 +2187,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 if (workflowContinuation != null) {
                     // long: 进程恢复只续接已经由用户批准的当前步骤；步骤结果落库后继续同一 Run 的后续快照，避免留下永久 RUNNING 的 Workflow。
                     uiState = uiState.copy(runningWorkflowId = workflowContinuation.run.workflowId)
-                    executeForegroundWorkflow(workflowContinuation, config, source.conversationId)
+                    executeForegroundWorkflow(workflowContinuation, runtimeSelection, source.conversationId)
                 }
             } catch (error: CancellationException) {
                 workflowRunIdToSettle?.let { workflowRunId ->
@@ -2286,6 +2484,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             enabledModels = enabledModels.distinct(),
             lastSyncedAt = oldProfile?.lastSyncedAt.orEmpty(),
         )
+        val brokenAgents = uiState.agentProfiles.filter { agent ->
+            agent.providerId == id && agent.model.isNotBlank() && agent.model !in savedProfile.enabledModels
+        }
+        if (brokenAgents.isNotEmpty()) {
+            showValidation("以下 Agent 仍在使用被取消的模型：${brokenAgents.joinToString { it.name }}")
+            return
+        }
 
         val profiles = if (draft.id == null) {
             uiState.profiles + savedProfile
@@ -2302,11 +2507,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             ),
         ).fromProfile(savedProfile, id)
         saveProfilesSnapshot(profiles, id)
+        repairIncompleteAgentProfiles(savedProfile)
     }
 
     fun deleteProvider(profileId: String) {
         if (uiState.profiles.size <= 1) {
             showValidation("至少保留一个模型提供方")
+            return
+        }
+        val boundAgents = uiState.agentProfiles.filter { it.providerId == profileId }
+        if (boundAgents.isNotEmpty()) {
+            showValidation("模型提供方仍被 Agent 使用：${boundAgents.joinToString { it.name }}")
             return
         }
         val profiles = uiState.profiles.filterNot { it.id == profileId }
@@ -2328,10 +2539,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         val userMessage = uiState.prompt.trim()
         if (AgentCommand.matches(userMessage)) {
-            val config = validatedConfig() ?: return
+            val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
             sendAgentRun(
                 userMessage = userMessage,
-                config = config,
+                runtimeSelection = runtimeSelection,
                 memoryRecallEnabled = uiState.agentMemoryRecallEnabled,
             )
             return
@@ -2459,12 +2670,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun sendAgentRun(
         userMessage: String,
-        config: ProviderRequestConfig,
+        runtimeSelection: AgentRuntimeSelection,
         conversationId: String = uiState.selectedConversationId.ifBlank { "conversation-" + System.currentTimeMillis() },
         retryOfRunId: String? = null,
-        memoryRecallEnabled: Boolean = true,
+        memoryRecallEnabled: Boolean = runtimeSelection.profile.memoryEnabled,
         workflowRunId: String? = null,
     ) {
+        val effectiveMemoryRecallEnabled = memoryRecallEnabled && runtimeSelection.profile.memoryEnabled
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
         val userChatMessage = ChatMessage(
@@ -2478,7 +2690,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
-            agentMemoryRecallEnabled = true,
+            agentMemoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
         ).withUpdatedConversation(
             conversationId = conversationId,
             messages = messagesWithUser,
@@ -2497,10 +2709,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,
-                    config = config,
+                    config = runtimeSelection.config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                    agentProfile = runtimeSelection.profile,
                     retryOfRunId = retryOfRunId,
-                    memoryRecallEnabled = memoryRecallEnabled,
+                    memoryRecallEnabled = effectiveMemoryRecallEnabled,
                     approvalGate = approvalGate,
                     onSnapshot = { snapshot ->
                         if (workflowRunId != null) {
@@ -2897,6 +3110,38 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
+    private fun validatedSelectedAgentRuntimeSelection(): AgentRuntimeSelection? {
+        val profile = uiState.agentProfiles.firstOrNull { it.id == uiState.selectedAgentProfileId }
+        if (profile == null) {
+            showValidation("请先在设置页创建并选择 Agent Profile")
+            return null
+        }
+        return validatedAgentRuntimeSelection(profile.snapshot())
+    }
+
+    private fun validatedAgentRuntimeSelection(profile: AgentProfileSnapshot): AgentRuntimeSelection? {
+        runCatching { AgentProfilePolicy.validateRunnable(profile) }
+            .onFailure {
+                showValidation(it.message ?: "Agent Profile 配置无效")
+                return null
+            }
+        val registered = uiState.registeredAgentTools.mapTo(hashSetOf()) { it.name }
+        val unknownTools = profile.allowedToolNames.filter { it !in registered }
+        if (unknownTools.isNotEmpty()) {
+            showValidation("Agent Profile 包含未注册工具：${unknownTools.sorted().joinToString()}")
+            return null
+        }
+        return runCatching {
+            AgentRuntimeSelection(
+                config = AgentProfileRuntimeConfigPolicy.resolve(profile, uiState.profiles, uiState.userAgent),
+                profile = profile,
+            )
+        }.getOrElse { error ->
+            showValidation(error.message ?: "Agent Profile 请求配置无效")
+            null
+        }
+    }
+
     private fun selectedProfile(): ProviderProfile {
         val storedProfile = uiState.profiles.firstOrNull { it.id == uiState.selectedProfileId }
             ?: ProviderProfile.blank(uiState.selectedProfileId)
@@ -2908,6 +3153,25 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             availableModels = uiState.availableModels,
             enabledModels = uiState.enabledModels,
         )
+    }
+
+    private fun repairIncompleteAgentProfiles(provider: ProviderProfile) {
+        val replacementModel = provider.model.takeIf { it in provider.enabledModels }
+            ?: provider.enabledModels.firstOrNull()
+            ?: return
+        val repairs = uiState.agentProfiles.filter { it.providerId == provider.id && it.model.isBlank() }
+        if (repairs.isEmpty()) return
+        viewModelScope.launch {
+            val updated = repairs.map { profile ->
+                profile.copy(model = replacementModel, updatedAt = System.currentTimeMillis())
+            }
+            withContext(Dispatchers.IO) { updated.forEach { agentProfileStore.upsert(it) } }
+            val byId = updated.associateBy { it.id }
+            uiState = uiState.copy(
+                agentProfiles = uiState.agentProfiles.map { byId[it.id] ?: it },
+                result = OperationResult(true, "Agent 已就绪", "已为默认 Agent 绑定模型 $replacementModel"),
+            )
+        }
     }
 
     private fun saveCurrentProfileSelection() {
@@ -3227,6 +3491,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     nextState
                 }
                 configStore.save(profiles, selectedId)
+                repairIncompleteAgentProfiles(syncedProfile)
             }
             .onFailure { error ->
                 val failure = error as? ApiFailure
@@ -3578,6 +3843,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     )
 
     companion object {
+        private const val DEFAULT_AGENT_PROFILE_ID = "agent-profile-default"
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 16
         private const val VERIFIED_AGENT_CONTEXT_LIMIT = 8

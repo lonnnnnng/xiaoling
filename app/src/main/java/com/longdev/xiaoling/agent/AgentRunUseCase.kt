@@ -32,14 +32,22 @@ class AgentRunUseCase(
         goal: String,
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
+        agentProfile: AgentProfileSnapshot,
         retryOfRunId: String? = null,
         memoryRecallEnabled: Boolean = true,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
-        val selectedSkills = skillCatalog.select(goal)
-        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
+        AgentProfilePolicy.validateRunnable(agentProfile)
+        require(config.model == agentProfile.model) { "Agent Profile 模型快照与请求配置不一致" }
+        val profileToolRegistry = ProfileScopedToolRegistry(toolRegistry, agentProfile.allowedToolNames)
+        val selectedSkills = skillCatalog.select(
+            goal = goal,
+            allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
+            allowedToolNames = agentProfile.allowedToolNames.toSet(),
+        )
+        val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -47,7 +55,7 @@ class AgentRunUseCase(
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills),
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills, agentProfile),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )
@@ -59,6 +67,7 @@ class AgentRunUseCase(
             executionOrigin = executionOrigin,
             memoryRecallEnabled = memoryRecallEnabled,
             selectedSkills = selectedSkills,
+            agentProfile = agentProfile,
         )
     }
 
@@ -72,6 +81,14 @@ class AgentRunUseCase(
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
         val selectionEvent = detail.snapshot.events.lastOrNull { it.type == "skill.selected" }
+        val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
+            AgentProfileAuditAssessment.Legacy -> null
+            is AgentProfileAuditAssessment.Available -> assessment.profile
+            is AgentProfileAuditAssessment.Invalid -> error(assessment.reason)
+        }
+        if (agentProfile != null) {
+            require(config.model == agentProfile.model) { "原 Run 的 Agent Profile 模型与恢复请求不一致，请创建新 Run 重试" }
+        }
         val selectedSkills = if (selectionEvent == null) {
             emptyList()
         } else {
@@ -80,7 +97,18 @@ class AgentRunUseCase(
             // long: 审批等待期间用户可以停用、升级或删除 Skill；恢复必须固定原 Run 的 ID 与版本，不能重新分类后意外扩大工具白名单。
             skillCatalog.resolveSelection(AgentSkillSelectionCodec.decode(selection))
         }
-        val scopedToolRegistry = SkillScopedToolRegistry(toolRegistry, selectedSkills)
+        if (agentProfile != null) {
+            require(selectedSkills.all { it.id in agentProfile.allowedSkillIds }) {
+                "原 Run 的 Skill 超出 Agent Profile 白名单，请创建新 Run 重试"
+            }
+            require(selectedSkills.flatMap { it.toolNames }.all { it in agentProfile.allowedToolNames }) {
+                "原 Run 的 Skill 工具超出 Agent Profile 白名单，请创建新 Run 重试"
+            }
+        }
+        val profileToolRegistry = agentProfile
+            ?.let { ProfileScopedToolRegistry(toolRegistry, it.allowedToolNames) }
+            ?: toolRegistry
+        val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
@@ -94,7 +122,7 @@ class AgentRunUseCase(
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills),
+            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills, agentProfile),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )
@@ -128,9 +156,14 @@ class AgentRunUseCase(
             delegate = baseLedger,
             onSnapshot = onSnapshot,
         )
+        val scopedToolRegistry = when (val assessment = detail.inspectAgentProfileAudit()) {
+            AgentProfileAuditAssessment.Legacy -> toolRegistry
+            is AgentProfileAuditAssessment.Available -> ProfileScopedToolRegistry(toolRegistry, assessment.profile.allowedToolNames)
+            is AgentProfileAuditAssessment.Invalid -> error(assessment.reason)
+        }
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
-            toolRegistry = toolRegistry,
+            toolRegistry = scopedToolRegistry,
             llm = RecoveryOnlyAgentLlm,
             permissionChecker = permissionChecker,
         )
@@ -138,6 +171,8 @@ class AgentRunUseCase(
     }
 
     suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()
+
+    fun registeredTools(): List<ToolDefinition> = toolRegistry.registeredTools()
 
     suspend fun importSkill(raw: String): AgentSkillRecord = skillCatalog.importDocument(raw)
 

@@ -25,6 +25,7 @@ import org.json.JSONObject
         AgentMemoryCandidateEntity::class,
         AgentNoteEntity::class,
         AgentSkillEntity::class,
+        AgentProfileEntity::class,
         WorkflowEntity::class,
         WorkflowStepDefinitionEntity::class,
         WorkflowRunEntity::class,
@@ -32,7 +33,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 20,
+    version = 21,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -42,10 +43,11 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentMemoryDao(): AgentMemoryDao
     abstract fun agentNoteDao(): AgentNoteDao
     abstract fun agentSkillDao(): AgentSkillDao
+    abstract fun agentProfileDao(): AgentProfileDao
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 20
+        const val CURRENT_VERSION = 21
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -563,6 +565,34 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: AgentProfile 需要等待应用读取真实 Provider、模型和 Skill 后再创建默认记录；迁移只建立结构，不从全局偏好猜测身份快照。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_profiles` (
+                        `id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `avatar` TEXT NOT NULL,
+                        `providerId` TEXT NOT NULL,
+                        `model` TEXT NOT NULL,
+                        `apiMode` TEXT NOT NULL,
+                        `systemPrompt` TEXT NOT NULL,
+                        `contextPolicy` TEXT NOT NULL,
+                        `allowedToolNamesJson` TEXT NOT NULL,
+                        `allowedSkillIdsJson` TEXT NOT NULL,
+                        `memoryEnabled` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_profiles_providerId` ON `agent_profiles` (`providerId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_profiles_updatedAt` ON `agent_profiles` (`updatedAt`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -583,6 +613,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_17_18,
             MIGRATION_18_19,
             MIGRATION_19_20,
+            MIGRATION_20_21,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

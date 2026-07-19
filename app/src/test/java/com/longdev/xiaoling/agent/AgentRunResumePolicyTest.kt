@@ -16,6 +16,70 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun waitingApprovalCannotExpandOriginalAgentProfileToolAllowList() {
+        val profile = AgentProfileSnapshot(
+            id = "agent-read-only",
+            name = "只读 Agent",
+            avatar = "读",
+            providerId = "provider-1",
+            model = "gpt-test",
+            apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+            systemPrompt = "",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("app.current_time"),
+            allowedSkillIds = listOf("device-time"),
+            memoryEnabled = false,
+        )
+
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.WAITING_APPROVAL,
+                events = listOf(
+                    event(
+                        AgentEventTypes.PROFILE_SELECTED,
+                        RunEventMetadata.AgentProfileSelection(profile),
+                        0L,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("Profile 白名单"))
+    }
+
+    @Test
+    fun duplicateAgentProfileAuditFailsClosed() {
+        val profile = AgentProfileSnapshot(
+            id = "agent-duplicate",
+            name = "重复 Agent",
+            avatar = "重",
+            providerId = "provider-1",
+            model = "gpt-test",
+            apiMode = com.longdev.xiaoling.model.ApiMode.CHAT_COMPLETIONS,
+            systemPrompt = "",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("notes.create"),
+            allowedSkillIds = emptyList(),
+            memoryEnabled = true,
+        )
+        val metadata = RunEventMetadata.AgentProfileSelection(profile)
+
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.WAITING_APPROVAL,
+                events = listOf(
+                    event(AgentEventTypes.PROFILE_SELECTED, metadata, 0L),
+                    event(AgentEventTypes.PROFILE_SELECTED, metadata, 1L),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("重复 Profile"))
+    }
+
+    @Test
     fun executionStartedRequiresSafeRestart() {
         val assessment = AgentRunResumePolicy.assess(
             detail(

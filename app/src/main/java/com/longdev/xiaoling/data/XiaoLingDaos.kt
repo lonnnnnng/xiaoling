@@ -259,6 +259,21 @@ interface AgentSkillDao {
 }
 
 @Dao
+interface AgentProfileDao {
+    @Query("SELECT * FROM agent_profiles ORDER BY updatedAt DESC, name COLLATE NOCASE ASC, id ASC")
+    suspend fun list(): List<AgentProfileEntity>
+
+    @Query("SELECT * FROM agent_profiles WHERE id = :profileId")
+    suspend fun get(profileId: String): AgentProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(profile: AgentProfileEntity)
+
+    @Query("DELETE FROM agent_profiles WHERE id = :profileId")
+    suspend fun delete(profileId: String): Int
+}
+
+@Dao
 interface WorkflowDao {
     @Query("SELECT * FROM workflows ORDER BY updatedAt DESC, name COLLATE NOCASE ASC")
     suspend fun listWorkflows(): List<WorkflowEntity>

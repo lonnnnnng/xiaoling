@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.longdev.xiaoling.agent.AgentBackgroundApprovalRequiredException
+import com.longdev.xiaoling.agent.AgentContextPolicy
 import com.longdev.xiaoling.agent.AgentExecutionOrigin
+import com.longdev.xiaoling.agent.AgentProfileRecord
+import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
+import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentRunSummary
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.ApprovalDecision
@@ -17,9 +21,9 @@ import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
-import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.storage.ProviderRepository
+import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.ScheduledWorkflowClaim
 import com.longdev.xiaoling.storage.UiPreferenceStore
@@ -54,6 +58,8 @@ class ScheduledWorkflowExecutor(
     private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(context.applicationContext),
 ) {
     private val agentRunUseCase = AgentRunUseCase(context.applicationContext, client)
+    private val agentProfileStore = RoomAgentProfileStore(context.applicationContext)
+    private var backgroundRuntimeSelection: BackgroundAgentRuntimeSelection? = null
     private val orchestrator = ScheduledWorkflowOrchestrator(
         claimTask = workflowRepository::claimScheduledRun,
         runAgent = ::runAgent,
@@ -94,7 +100,8 @@ class ScheduledWorkflowExecutor(
         step: WorkflowStepRecord,
         onAgentRunId: suspend (String) -> Unit,
     ): AgentRunSummary {
-        val config = selectedBackgroundConfig()
+        val runtimeSelection = backgroundRuntimeSelection
+            ?: selectedBackgroundRuntime().also { backgroundRuntimeSelection = it }
         val preparedStep = workflowRepository.prepareWorkflowStep(claim.run.run.id, step.id)
         val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
         val executionGoal = WorkflowStepPromptPolicy.build(input.goal, input.previousOutputs)
@@ -106,8 +113,10 @@ class ScheduledWorkflowExecutor(
                 workflowRepository.appendScheduledStepPrompt(claim.run.run.conversationId, preparedStep.detail)
             },
             goal = executionGoal,
-            config = config,
+            config = runtimeSelection.config,
             summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiPreferenceStore.loadPromptSettings()),
+            agentProfile = runtimeSelection.profile,
+            memoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
             executionOrigin = AgentExecutionOrigin.BACKGROUND,
             approvalGate = RejectingBackgroundApprovalGate,
             onSnapshot = { snapshot -> onAgentRunId(snapshot.run.id) },
@@ -157,21 +166,35 @@ class ScheduledWorkflowExecutor(
         return task
     }
 
-    private suspend fun selectedBackgroundConfig(): ProviderRequestConfig {
+    private suspend fun selectedBackgroundRuntime(): BackgroundAgentRuntimeSelection {
         val stored = providerRepository.load()
-        val profile = stored.profiles.firstOrNull { it.id == stored.selectedProfileId }
+        val defaultProvider = stored.profiles.firstOrNull { it.id == stored.selectedProfileId }
             ?: error("没有可用的模型提供方")
-        ProviderApiUrlBuilder.validate(profile.baseUrl)?.let(::error)
-        require(profile.model.isNotBlank()) { "当前模型提供方没有选择模型" }
-        require(profile.model in profile.enabledModels) { "当前模型没有在提供方设置中启用" }
-        return ProviderRequestConfig(
-            baseUrl = profile.baseUrl.trim(),
-            apiKey = profile.apiKey.trim(),
-            model = profile.model.trim(),
-            userAgent = uiPreferenceStore.loadUserAgent(),
-            apiMode = ApiMode.CHAT_COMPLETIONS,
-            streamingEnabled = false,
-            maxTokens = ProviderProfile.FIXED_MAX_TOKENS,
+        val now = System.currentTimeMillis()
+        val skills = agentRunUseCase.listSkills()
+        val storedAgents = agentProfileStore.loadOrCreateDefault(
+            AgentProfileRecord(
+                id = DEFAULT_AGENT_PROFILE_ID,
+                name = "默认 Agent",
+                avatar = "灵",
+                providerId = defaultProvider.id,
+                model = defaultProvider.model.takeIf { it in defaultProvider.enabledModels }.orEmpty(),
+                apiMode = ApiMode.CHAT_COMPLETIONS,
+                systemPrompt = "",
+                contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+                allowedToolNames = agentRunUseCase.registeredTools().map { it.name },
+                allowedSkillIds = skills.filter { it.enabled }.map { it.definition.id },
+                memoryEnabled = true,
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        val agentProfile = storedAgents.profiles.firstOrNull { it.id == storedAgents.selectedProfileId }
+            ?: error("没有可用的 Agent Profile")
+        val snapshot = agentProfile.snapshot()
+        return BackgroundAgentRuntimeSelection(
+            config = AgentProfileRuntimeConfigPolicy.resolve(snapshot, stored.profiles, uiPreferenceStore.loadUserAgent()),
+            profile = snapshot,
         )
     }
 
@@ -181,7 +204,16 @@ class ScheduledWorkflowExecutor(
         val workflowName = workflowRepository.getWorkflow(task.workflowId)?.name ?: "已删除工作流"
         notifier.notify(workflowName, task, task.errorMessage ?: "定时任务未能开始")
     }
+
+    private companion object {
+        const val DEFAULT_AGENT_PROFILE_ID = "agent-profile-default"
+    }
 }
+
+private data class BackgroundAgentRuntimeSelection(
+    val config: ProviderRequestConfig,
+    val profile: AgentProfileSnapshot,
+)
 
 internal sealed interface ScheduledExecutionOutcome {
     val workflowStatus: WorkflowRunStatus

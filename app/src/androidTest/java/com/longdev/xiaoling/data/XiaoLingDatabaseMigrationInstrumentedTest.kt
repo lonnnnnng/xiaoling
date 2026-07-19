@@ -86,7 +86,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun createAndOpenFreshVersion20Database() = runBlocking {
+    fun createAndOpenFreshCurrentDatabase() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -94,7 +94,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(20, database.openHelper.writableDatabase.version)
+        assertEquals(XiaoLingDatabase.CURRENT_VERSION, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -681,6 +681,44 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         assertEquals(0, repository.toolLedger("run-v19-tool-ledger").results.size)
     }
 
+    @Test
+    fun migrate20To21CreatesEmptyAgentProfileCatalogWithoutInventingGlobalBinding() = runBlocking {
+        migrationHelper.createDatabase(AGENT_PROFILE_MIGRATION_DATABASE_NAME, 20).apply {
+            execSQL(
+                "INSERT INTO providers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "provider-v20",
+                    "历史 Provider",
+                    "https://example.test/v1",
+                    "iv",
+                    "ciphertext",
+                    "model-v20",
+                    "[\"model-v20\"]",
+                    "[\"model-v20\"]",
+                    "2026-07-19 12:00:00",
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            AGENT_PROFILE_MIGRATION_DATABASE_NAME,
+            21,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT COUNT(*) FROM agent_profiles").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.query("SELECT COUNT(*) FROM providers WHERE id = 'provider-v20'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -751,5 +789,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MEMORY_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-memory-idempotency-migration-test"
         private const val MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-memory-verification-migration-test"
         private const val TOOL_LEDGER_MIGRATION_DATABASE_NAME = "xiaoling-tool-ledger-migration-test"
+        private const val AGENT_PROFILE_MIGRATION_DATABASE_NAME = "xiaoling-agent-profile-migration-test"
     }
 }

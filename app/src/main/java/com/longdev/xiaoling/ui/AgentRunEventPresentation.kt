@@ -35,6 +35,7 @@ private val eventTitles = mapOf(
     "run.budget_exhausted" to "Run 预算耗尽",
     "run.recovered" to "Run 恢复收敛",
     "run.recovery_failed" to "恢复验证失败",
+    "agent.profile.selected" to "Agent Profile 已选择",
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
     "llm.request.completed" to "模型请求完成",
@@ -55,6 +56,20 @@ internal fun presentAgentRunEvent(
 
     // long: sealed metadata 让每类事件只暴露合法字段组合；UI 不再按 type 猜测 JSON shape，未知历史载荷统一回退到可读 message。
     return when (metadata) {
+        is RunEventMetadata.AgentProfileSelection -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "Agent" to metadata.profile.name,
+                "标识" to metadata.profile.avatar,
+                "Provider" to metadata.profile.providerId,
+                "模型" to metadata.profile.model,
+                "协议" to metadata.profile.apiMode.name,
+                "上下文" to metadata.profile.contextPolicy.name,
+                "记忆" to metadata.profile.memoryEnabled.toDisplayText(),
+                "工具" to metadata.profile.allowedToolNames.joinToString("、"),
+                "Skill" to metadata.profile.allowedSkillIds.takeIf { it.isNotEmpty() }?.joinToString("、"),
+            ),
+        )
         is RunEventMetadata.LlmRequest -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
             fields = fields(

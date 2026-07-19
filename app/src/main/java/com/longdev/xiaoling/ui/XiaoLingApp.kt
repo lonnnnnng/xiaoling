@@ -128,6 +128,8 @@ import com.longdev.xiaoling.agent.AgentMemoryCandidateStatus
 import com.longdev.xiaoling.agent.AgentMemoryRecord
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
 import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
+import com.longdev.xiaoling.agent.AgentProfilePolicy
+import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -320,6 +322,7 @@ private fun XiaoLingContent(
                         pane = settingsPane,
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
                         onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
+                        onOpenAgentProfileManagement = { settingsPane = SettingsPane.AGENT_PROFILE_MANAGEMENT },
                         onOpenMemoryManagement = {
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
@@ -423,6 +426,7 @@ private enum class SettingsPane {
     ROOT,
     PROVIDER_MANAGEMENT,
     PROMPT_SETTINGS,
+    AGENT_PROFILE_MANAGEMENT,
     MEMORY_MANAGEMENT,
     SKILL_MANAGEMENT,
     WORKFLOW_MANAGEMENT,
@@ -1089,6 +1093,7 @@ private fun ConversationPage(
                 onResponsesChanged = viewModel::updateResponsesEnabled,
                 onStreamingChanged = viewModel::updateStreamingEnabled,
                 onAgentMemoryRecallChanged = viewModel::updateAgentMemoryRecallEnabled,
+                onAgentProfileSelected = viewModel::selectAgentProfile,
                 onPromptChange = viewModel::updatePrompt,
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGenerating,
@@ -1215,6 +1220,7 @@ private fun MessageInputBar(
     onResponsesChanged: (Boolean) -> Unit,
     onStreamingChanged: (Boolean) -> Unit,
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
+    onAgentProfileSelected: (String) -> Unit,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -1258,12 +1264,13 @@ private fun MessageInputBar(
             )
             InputOptionRow(
                 state = state,
-                enabled = !sendingMessage && enabled,
+                enabled = !sendingMessage && (enabled || canRunAgent),
                 onModelSelected = onModelSelected,
                 onResponsesChanged = onResponsesChanged,
                 onStreamingChanged = onStreamingChanged,
                 agentCommand = canRunAgent,
                 onAgentMemoryRecallChanged = onAgentMemoryRecallChanged,
+                onAgentProfileSelected = onAgentProfileSelected,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(end = 52.dp),
@@ -1676,35 +1683,89 @@ private fun InputOptionRow(
     onStreamingChanged: (Boolean) -> Unit,
     agentCommand: Boolean,
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
+    onAgentProfileSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var agentMenuExpanded by remember { mutableStateOf(false) }
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        CompactCheckOption(
-            text = "流式",
-            checked = state.streamingEnabled,
-            enabled = enabled,
-            onCheckedChange = onStreamingChanged,
-        )
-        CompactCheckOption(
-            text = "Resp",
-            checked = state.apiMode == ApiMode.RESPONSES,
-            enabled = enabled,
-            onCheckedChange = onResponsesChanged,
-        )
+        if (!agentCommand) {
+            CompactCheckOption(
+                text = "流式",
+                checked = state.streamingEnabled,
+                enabled = enabled,
+                onCheckedChange = onStreamingChanged,
+            )
+            CompactCheckOption(
+                text = "Resp",
+                checked = state.apiMode == ApiMode.RESPONSES,
+                enabled = enabled,
+                onCheckedChange = onResponsesChanged,
+            )
+        }
         if (agentCommand) {
+            val selectedAgent = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }
             CompactCheckOption(
                 text = "记忆",
                 checked = state.agentMemoryRecallEnabled,
-                enabled = !state.sendingMessage,
+                enabled = !state.sendingMessage && selectedAgent?.memoryEnabled == true,
                 onCheckedChange = onAgentMemoryRecallChanged,
             )
+            Box(modifier = Modifier.widthIn(max = 144.dp)) {
+                val agentEnabled = !state.sendingMessage && state.agentProfiles.isNotEmpty()
+                val shape = RoundedCornerShape(15.dp)
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f),
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    shape = shape,
+                    modifier = Modifier
+                        .height(28.dp)
+                        .clip(shape)
+                        .clickable(enabled = agentEnabled) { agentMenuExpanded = true },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        Text(
+                            text = selectedAgent?.avatar?.ifBlank { "A" } ?: "A",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                        )
+                        Text(
+                            text = selectedAgent?.name?.compactModelLabel(12) ?: "选择 Agent",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                DropdownMenu(
+                    expanded = agentMenuExpanded,
+                    onDismissRequest = { agentMenuExpanded = false },
+                ) {
+                    state.agentProfiles.forEach { profile ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "${profile.avatar.ifBlank { "A" }}  ${profile.name} · ${profile.model.ifBlank { "未配置模型" }}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            onClick = {
+                                onAgentProfileSelected(profile.id)
+                                agentMenuExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
         }
-        Box(modifier = Modifier.widthIn(max = 164.dp)) {
+        if (!agentCommand) Box(modifier = Modifier.widthIn(max = 164.dp)) {
             val modelShape = RoundedCornerShape(15.dp)
             val modelEnabled = enabled && state.enabledModels.isNotEmpty()
             Surface(
@@ -1860,6 +1921,7 @@ private fun SettingsPage(
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
+    onOpenAgentProfileManagement: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
@@ -1898,6 +1960,12 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.AGENT_PROFILE_MANAGEMENT -> AgentProfileManagementPage(
+                state = state,
+                viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.MEMORY_MANAGEMENT -> AgentMemoryManagementPage(
                 state = state,
                 viewModel = viewModel,
@@ -1931,6 +1999,7 @@ private fun SettingsPage(
                 onResetUserAgent = viewModel::resetUserAgent,
                 onOpenProviderManagement = onOpenProviderManagement,
                 onOpenPromptSettings = onOpenPromptSettings,
+                onOpenAgentProfileManagement = onOpenAgentProfileManagement,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenSkillManagement = onOpenSkillManagement,
                 onOpenWorkflowManagement = onOpenWorkflowManagement,
@@ -1951,6 +2020,7 @@ private fun SettingsRootPage(
     onResetUserAgent: () -> Unit,
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
+    onOpenAgentProfileManagement: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
@@ -2013,6 +2083,15 @@ private fun SettingsRootPage(
         )
 
         SettingsEntryCard(
+            title = "Agent Profiles",
+            subtitle = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }
+                ?.let { "当前：${it.name} · ${it.model.ifBlank { "未配置模型" }} · ${state.agentProfiles.size} 个 Profile" }
+                ?: "配置 Agent 身份、模型、工具、Skill 和记忆边界",
+            icon = Icons.Default.Tune,
+            onClick = onOpenAgentProfileManagement,
+        )
+
+        SettingsEntryCard(
             title = "长期记忆",
             subtitle = "搜索、编辑、禁用、删除并查看来源",
             icon = Icons.Default.Memory,
@@ -2072,6 +2151,332 @@ private fun SettingsRootPage(
             },
         )
     }
+}
+
+@Composable
+private fun AgentProfileManagementPage(
+    state: XiaoLingUiState,
+    viewModel: XiaoLingViewModel,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var editingProfile by remember { mutableStateOf<AgentProfileRecord?>(null) }
+    var creatingProfile by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<AgentProfileRecord?>(null) }
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(17.dp))
+            }
+            PageTitle("Agent Profiles")
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { creatingProfile = true }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Add, contentDescription = "新增 Agent Profile", modifier = Modifier.size(17.dp))
+            }
+        }
+
+        state.agentProfileError?.let { error ->
+            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            contentPadding = PaddingValues(bottom = 12.dp),
+        ) {
+            items(count = state.agentProfiles.size) { index ->
+                val profile = state.agentProfiles[index]
+                val provider = state.profiles.firstOrNull { it.id == profile.providerId }
+                val selected = profile.id == state.selectedAgentProfileId
+                Surface(
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    shape = RoundedCornerShape(7.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                        else MaterialTheme.colorScheme.outlineVariant,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.selectAgentProfile(profile.id) },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = CircleShape,
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(profile.avatar.ifBlank { "A" }.take(AgentProfilePolicy.MAX_AVATAR_LENGTH), style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(profile.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (selected) Icon(Icons.Default.CheckCircle, contentDescription = "当前 Agent", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                            Text(
+                                "${provider?.name ?: "Provider 已缺失"} · ${profile.model.ifBlank { "模型未配置" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (provider == null || profile.model !in provider.enabledModels) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "工具 ${profile.allowedToolNames.size} · Skill ${profile.allowedSkillIds.size} · 记忆${if (profile.memoryEnabled) "开启" else "关闭"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        IconButton(
+                            onClick = { editingProfile = profile },
+                            enabled = profile.id !in state.mutatingAgentProfileIds,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "编辑 Agent Profile", modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(
+                            onClick = { pendingDelete = profile },
+                            enabled = state.agentProfiles.size > 1 && profile.id !in state.mutatingAgentProfileIds,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "删除 Agent Profile", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (creatingProfile || editingProfile != null) {
+        AgentProfileEditorDialog(
+            profile = editingProfile,
+            providers = state.profiles,
+            tools = state.registeredAgentTools,
+            skills = state.skills.filter { it.enabled },
+            saving = editingProfile?.id in state.mutatingAgentProfileIds,
+            onSave = { id, name, avatar, providerId, model, apiMode, systemPrompt, memoryEnabled, tools, skills ->
+                viewModel.saveAgentProfile(id, name, avatar, providerId, model, apiMode, systemPrompt, memoryEnabled, tools, skills)
+                creatingProfile = false
+                editingProfile = null
+            },
+            onDismiss = {
+                creatingProfile = false
+                editingProfile = null
+            },
+        )
+    }
+
+    pendingDelete?.let { profile ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除 Agent Profile") },
+            text = { Text(profile.name) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteAgentProfile(profile.id)
+                    pendingDelete = null
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+        )
+    }
+}
+
+@Composable
+private fun AgentProfileEditorDialog(
+    profile: AgentProfileRecord?,
+    providers: List<ProviderProfile>,
+    tools: List<com.longdev.xiaoling.agent.ToolDefinition>,
+    skills: List<AgentSkillRecord>,
+    saving: Boolean,
+    onSave: (String?, String, String, String, String, ApiMode, String, Boolean, Set<String>, Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val initialProvider = providers.firstOrNull { it.id == profile?.providerId } ?: providers.firstOrNull()
+    var name by remember(profile?.id) { mutableStateOf(profile?.name.orEmpty()) }
+    var avatar by remember(profile?.id) { mutableStateOf(profile?.avatar.orEmpty()) }
+    var providerId by remember(profile?.id) { mutableStateOf(initialProvider?.id.orEmpty()) }
+    val selectedProvider = providers.firstOrNull { it.id == providerId }
+    var model by remember(profile?.id) {
+        mutableStateOf(
+            profile?.model?.takeIf { it in initialProvider?.enabledModels.orEmpty() }
+                ?: initialProvider?.enabledModels?.firstOrNull().orEmpty(),
+        )
+    }
+    var systemPrompt by remember(profile?.id) { mutableStateOf(profile?.systemPrompt.orEmpty()) }
+    var apiMode by remember(profile?.id) { mutableStateOf(profile?.apiMode ?: ApiMode.CHAT_COMPLETIONS) }
+    var memoryEnabled by remember(profile?.id) { mutableStateOf(profile?.memoryEnabled ?: true) }
+    var allowedTools by remember(profile?.id) {
+        mutableStateOf(profile?.allowedToolNames?.toSet() ?: tools.mapTo(linkedSetOf()) { it.name })
+    }
+    var allowedSkills by remember(profile?.id) {
+        mutableStateOf(profile?.allowedSkillIds?.toSet() ?: skills.mapTo(linkedSetOf()) { it.definition.id })
+    }
+    var providerMenuExpanded by remember { mutableStateOf(false) }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    val canSave = name.isNotBlank() && providerId.isNotBlank() && model.isNotBlank() && allowedTools.isNotEmpty() && !saving
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (profile == null) "新增 Agent Profile" else "编辑 Agent Profile") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 620.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                CompactTextField(
+                    value = name,
+                    onValueChange = { name = it.take(AgentProfilePolicy.MAX_NAME_LENGTH) },
+                    label = "名称",
+                    singleLine = true,
+                )
+                CompactTextField(
+                    value = avatar,
+                    onValueChange = { avatar = it.take(AgentProfilePolicy.MAX_AVATAR_LENGTH) },
+                    label = "标识",
+                    singleLine = true,
+                )
+                Box {
+                    OutlinedButton(onClick = { providerMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(selectedProvider?.name ?: "选择模型提供方", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = providerMenuExpanded, onDismissRequest = { providerMenuExpanded = false }) {
+                        providers.forEach { provider ->
+                            DropdownMenuItem(
+                                text = { Text(provider.name, style = MaterialTheme.typography.bodySmall) },
+                                onClick = {
+                                    providerId = provider.id
+                                    model = provider.enabledModels.firstOrNull().orEmpty()
+                                    providerMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ApiModeButton(
+                        text = "Chat",
+                        selected = apiMode == ApiMode.CHAT_COMPLETIONS,
+                        onClick = { apiMode = ApiMode.CHAT_COMPLETIONS },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ApiModeButton(
+                        text = "Responses",
+                        selected = apiMode == ApiMode.RESPONSES,
+                        onClick = { apiMode = ApiMode.RESPONSES },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Box {
+                    OutlinedButton(
+                        onClick = { modelMenuExpanded = true },
+                        enabled = selectedProvider?.enabledModels?.isNotEmpty() == true,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(model.ifBlank { "选择模型" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                        selectedProvider?.enabledModels.orEmpty().forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item, style = MaterialTheme.typography.bodySmall) },
+                                onClick = {
+                                    model = item
+                                    modelMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                CompactTextField(
+                    value = systemPrompt,
+                    onValueChange = { systemPrompt = it.take(AgentProfilePolicy.MAX_SYSTEM_PROMPT_LENGTH) },
+                    label = "系统提示词",
+                    minLines = 4,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("长期记忆", style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = memoryEnabled, onCheckedChange = { memoryEnabled = it })
+                }
+                Text("允许工具", style = MaterialTheme.typography.labelMedium)
+                tools.forEach { tool ->
+                    val checked = tool.name in allowedTools
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                allowedTools = if (checked) allowedTools - tool.name else allowedTools + tool.name
+                                if (checked) {
+                                    allowedSkills = allowedSkills.filterTo(linkedSetOf()) { skillId ->
+                                        skills.firstOrNull { it.definition.id == skillId }
+                                            ?.definition
+                                            ?.toolNames
+                                            ?.contains(tool.name) != true
+                                    }
+                                }
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = checked, onCheckedChange = null)
+                        Column {
+                            Text(tool.name, style = MaterialTheme.typography.bodySmall)
+                            Text(tool.risk.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Text("允许 Skill", style = MaterialTheme.typography.labelMedium)
+                skills.forEach { skill ->
+                    val checked = skill.definition.id in allowedSkills
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                allowedSkills = if (checked) allowedSkills - skill.definition.id else allowedSkills + skill.definition.id
+                                if (!checked) allowedTools = allowedTools + skill.definition.toolNames
+                            },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = checked, onCheckedChange = null)
+                        Text(skill.definition.name, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(profile?.id, name, avatar, providerId, model, apiMode, systemPrompt, memoryEnabled, allowedTools, allowedSkills)
+                },
+                enabled = canSave,
+            ) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
 }
 
 @Composable

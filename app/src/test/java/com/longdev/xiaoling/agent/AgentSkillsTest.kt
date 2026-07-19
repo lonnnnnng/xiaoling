@@ -32,6 +32,22 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun profileSkillAndToolAllowListsBothRestrictSelection() = runTest {
+        val catalog = AgentSkillCatalog(
+            store = TestAgentSkillStore(),
+            registeredTools = { TestToolRegistry().availableTools() },
+        )
+
+        val selected = catalog.select(
+            goal = "请查找之前的会话并记录成笔记",
+            allowedSkillIds = setOf("conversation-recall", "local-notes"),
+            allowedToolNames = setOf("app.list_conversations", "app.search_conversations"),
+        )
+
+        assertEquals(listOf("conversation-recall"), selected.map { it.id })
+    }
+
+    @Test
     fun scopedRegistryOnlyExposesToolsDeclaredBySelectedSkills() = runTest {
         val delegate = TestToolRegistry()
         val notesSkill = AgentSkillDefinition(

@@ -29,10 +29,17 @@ class RoomStateStore(context: Context) {
         preferences.edit().putString(KEY_SELECTED_CONVERSATION_ID, id).apply()
     }
 
+    fun selectedAgentProfileId(): String? = preferences.getString(KEY_SELECTED_AGENT_PROFILE_ID, null)
+
+    fun saveSelectedAgentProfileId(id: String) {
+        preferences.edit().putString(KEY_SELECTED_AGENT_PROFILE_ID, id).apply()
+    }
+
     companion object {
         private const val KEY_PROVIDERS_MIGRATED = "providers_migrated"
         private const val KEY_CONVERSATIONS_MIGRATED = "conversations_migrated"
         private const val KEY_SELECTED_PROVIDER_ID = "selected_provider_id"
         private const val KEY_SELECTED_CONVERSATION_ID = "selected_conversation_id"
+        private const val KEY_SELECTED_AGENT_PROFILE_ID = "selected_agent_profile_id"
     }
 }

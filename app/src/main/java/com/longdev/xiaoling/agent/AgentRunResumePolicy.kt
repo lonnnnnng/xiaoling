@@ -30,8 +30,13 @@ object AgentRunResumePolicy {
         committedVerificationSupport: (String) -> Boolean = { false },
     ): AgentRunResumeAssessment {
         val snapshot = detail.snapshot
+        val agentProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
+            AgentProfileAuditAssessment.Legacy -> null
+            is AgentProfileAuditAssessment.Available -> assessment.profile
+            is AgentProfileAuditAssessment.Invalid -> return restartRequired(assessment.reason)
+        }
         if (snapshot.run.status == AgentRunStatus.WAITING_APPROVAL) {
-            return assessApprovalWait(detail)
+            return assessApprovalWait(detail, agentProfile)
         }
         if (snapshot.run.status != AgentRunStatus.EXECUTING && snapshot.run.status != AgentRunStatus.VERIFYING) {
             return AgentRunResumeAssessment(
@@ -39,10 +44,13 @@ object AgentRunResumePolicy {
                 reason = "只有等待用户审批且尚未执行工具的 Run 可以原地恢复",
             )
         }
-        return assessCommittedToolVerification(detail, definitionLookup, committedVerificationSupport)
+        return assessCommittedToolVerification(detail, agentProfile, definitionLookup, committedVerificationSupport)
     }
 
-    private fun assessApprovalWait(detail: AgentRunDetailRecord): AgentRunResumeAssessment {
+    private fun assessApprovalWait(
+        detail: AgentRunDetailRecord,
+        agentProfile: AgentProfileSnapshot?,
+    ): AgentRunResumeAssessment {
         val snapshot = detail.snapshot
         val hasPendingApproval = detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }
         if (!hasPendingApproval) {
@@ -50,6 +58,12 @@ object AgentRunResumePolicy {
                 kind = AgentRunResumeKind.RESTART_REQUIRED,
                 reason = "Run 没有待处理审批，不能恢复原审批边界",
             )
+        }
+        if (agentProfile != null && detail.approvals.any {
+                it.status == ApprovalRequestStatus.PENDING && it.toolName !in agentProfile.allowedToolNames
+            }
+        ) {
+            return restartRequired("待审批工具超出原 Agent Profile 白名单")
         }
         val hasToolExecution = snapshot.steps.any {
             it.type == AgentStepTypes.TOOL_EXECUTE || it.type == AgentStepTypes.TOOL_VERIFY
@@ -70,6 +84,7 @@ object AgentRunResumePolicy {
 
     private fun assessCommittedToolVerification(
         detail: AgentRunDetailRecord,
+        agentProfile: AgentProfileSnapshot?,
         definitionLookup: (String) -> ToolDefinition?,
         committedVerificationSupport: (String) -> Boolean,
     ): AgentRunResumeAssessment {
@@ -83,6 +98,9 @@ object AgentRunResumePolicy {
             is AgentRunRecoveryEvidenceAssessment.Invalid -> return restartRequired(assessment.reason)
         }
         val persistedExecutions = recoveryEvidence.executions
+        if (agentProfile != null && persistedExecutions.any { it.toolCall.name !in agentProfile.allowedToolNames }) {
+            return restartRequired("持久化工具结果超出原 Agent Profile 白名单")
+        }
         val passedVerificationCount = persistedExecutions.count {
             it.verificationStatus == ToolVerificationStatus.PASSED
         }

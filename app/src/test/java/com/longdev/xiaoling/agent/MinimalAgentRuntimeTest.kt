@@ -189,6 +189,41 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun selectedAgentProfileSnapshotIsWrittenBeforeExecutionAudit() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val profile = AgentProfileSnapshot(
+            id = "agent-profile-audit",
+            name = "审计 Agent",
+            avatar = "审",
+            providerId = "provider-audit",
+            model = "gpt-audit",
+            apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+            systemPrompt = "使用审计风格",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("fake.echo"),
+            allowedSkillIds = emptyList(),
+            memoryEnabled = true,
+        )
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = FakeAgentLlm(),
+        ).run(
+            conversationId = "conversation-profile-audit",
+            userMessageId = "message-profile-audit",
+            goal = "回显 Profile 审计",
+            agentProfile = profile,
+        )
+
+        val events = ledger.snapshot(summary.runId).events
+        val selectedIndex = events.indexOfFirst { it.type == AgentEventTypes.PROFILE_SELECTED }
+        val toolIndex = events.indexOfFirst { it.type == "tool.call.proposed" }
+        assertTrue(selectedIndex >= 0)
+        assertTrue(selectedIndex < toolIndex)
+        assertEquals(profile, (events[selectedIndex].metadata as RunEventMetadata.AgentProfileSelection).profile)
+    }
+
+    @Test
     fun approvedPendingRunResumesFirstToolThenContinuesPlanningOnSameRun() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val created = ledger.createRun(

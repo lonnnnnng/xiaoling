@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-18（北京时间）
+验证日期：2026-07-19（北京时间）
 
 ## 环境
 
@@ -25,7 +25,9 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleRe
 BUILD SUCCESSFUL
 ```
 
-## Room Schema 与迁移自动化验证
+## 初始 Room Schema 与迁移自动化验证（历史基线）
+
+本节保留早期 v10 迁移取证；当前 Room v21 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -948,3 +950,27 @@ TDD、审查与 Redmi 验收：
 - instrumentation 后向 Redmi 覆盖安装最终 Debug APK，从未跟踪的本机兜底配置恢复 Provider，成功同步并启用 6 个模型，选择 `gpt-5.5` 与 Responses API。真实 `/agent Use app.current_time tool and tell me the current time for stage22 retry ledger verification` 在 8 秒内完成，Run `run-eec4bbb0-72d4-4f08-a78f-33a71e3906cb` 状态为 `COMPLETED`。
 - Redmi Room 只读回查确认 `app.current_time` 的 ToolCall 为 `SAFE`，proposed/validated/result/verified 四个事件锚点齐全，结果成功且验证为 `PASSED`；crash buffer 为空，验证后应用已重新冷启动到 `com.longdev.xiaoling/.MainActivity`。
 - 最终 Debug APK SHA-256：`fbbbceab49685b1554428efa9d8a6b9a2af188c1983c07eed4afbe30f25414f1`。
+
+## 2026-07-19 Agent Profile v1
+
+实现与安全边界：
+
+- Room v21 新增 `agent_profiles`，保存名称、标识、Provider、模型、API 模式、系统提示词、当前会话上下文策略、工具白名单、Skill 白名单和长期记忆开关。v20→v21 迁移只建空表，不从全局 Provider 偏好伪造 Agent 身份；默认 Agent 在 Provider、模型、工具和 Skill 完成加载后创建。
+- 新 Run 写入且只允许写入一条 `agent.profile.selected` typed event，metadata 冻结完整 Profile 快照。Profile 系统提示词进入规划与总结请求，但明确不能覆盖 JSON 协议、工具白名单、风险、审批、Android 权限、验证和可信事实边界。
+- `ProfileScopedToolRegistry` 在工具发现、定义读取、执行和已提交结果验证入口强制白名单；Skill 只能继续缩小工具面。Profile 关闭记忆后，单次 `/agent` 开关不能重新开启。
+- 待审批恢复和 `notes.create / memory.remember` 已提交结果恢复使用原 Run Profile 快照；重复、损坏、未注册工具或 Skill 越权审计 fail-closed。失败 Run 重试创建新 Run 并使用当前选中的 Profile，旧 Run 快照与历史记录保持不变。
+- 设置页「Agent Profiles」支持新增、编辑、选择和删除；至少保留一个 Profile。Provider 删除和模型停用会阻止破坏仍绑定的 Agent。前台 Workflow 一次执行固定同一 Profile，后台 Worker 一次执行缓存同一 Profile。
+
+自动化与构建：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过。
+- 237 条 JVM 测试通过，0 失败、0 跳过；新增 Profile 校验、运行配置、工具/Skill 白名单、记忆硬边界、typed metadata、恢复审计和 Workflow 固定 Profile 覆盖。
+- `lintDebug`、Debug APK 和 AndroidTest APK 构建成功；Room v21 Schema 已生成。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 68 条 instrumentation，0 失败、0 跳过。在线 Android 模拟器未参与本阶段安装、测试或验收。
+
+Redmi 真实模型与数据库验收：
+
+- 覆盖安装最终 Debug APK 后，Provider 同步 6 个模型；创建并选择 `Time Agent`，固定 `gpt-5.5 + RESPONSES`。输入区在 `/agent` 模式显示 Profile 标识与记忆开关，无文字重叠或横向溢出。
+- 真实 `/agent Use app.current_time tool and tell me the current time for AgentProfile stage23` 在约 10 秒内完成。Run `run-43d56319-e94b-4e31-b2ff-8461a6907480` 为 `COMPLETED`，依次完成规划、参数校验、工具执行、后置验证、二次规划和总结；结果为 `2026-07-19 11:31:11 · Asia/Shanghai`。
+- Redmi Room 只读回查确认 `PRAGMA user_version=21`、`agent_profiles=2`，最新 Run 恰好一条 `agent.profile.selected`，快照为 `Time Agent / gpt-5.5 / RESPONSES`。`app.current_time` 的 proposed、validated、result、verified 四个事件锚点完整，结果成功且 `verificationStatus=PASSED`。
+- crash buffer 为空；只读导出后应用已重新启动到 `com.longdev.xiaoling/.MainActivity`。最终 Debug APK SHA-256：`9fb3f4128327f8055e5f7e2212d0ba24f6290cf6b23bd596f59bfb2ab8d98bba`。

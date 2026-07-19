@@ -26,6 +26,7 @@ class MinimalAgentRuntime(
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         memoryRecallEnabled: Boolean = true,
         selectedSkills: List<AgentSkillDefinition> = emptyList(),
+        agentProfile: AgentProfileSnapshot? = null,
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
@@ -39,6 +40,15 @@ class MinimalAgentRuntime(
         )
         val state = AgentRuntimeExecutionState(options.runTimeoutMs)
         return try {
+            if (agentProfile != null) {
+                // long: Run 必须冻结启动时的 Agent 身份、模型和能力白名单；后续编辑或删除 Profile 不能改变历史审计、审批恢复和工具边界。
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = AgentEventTypes.PROFILE_SELECTED,
+                    message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
+                    metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
+                )
+            }
             if (selectedSkills.isNotEmpty()) {
                 // long: Skill 选择必须进入 Run 审计，方便用户确认本轮为何只暴露部分工具；指令文本不改变工具定义中的风险和审批策略。
                 ledger.appendEvent(

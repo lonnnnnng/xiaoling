@@ -49,6 +49,7 @@ object AgentStepTypes {
 
 object AgentEventTypes {
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
+    const val PROFILE_SELECTED = "agent.profile.selected"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
     const val RECOVERY_FAILED = "run.recovery_failed"
 }
@@ -94,6 +95,10 @@ data class RunEventRecord(
 )
 
 sealed interface RunEventMetadata {
+    data class AgentProfileSelection(
+        val profile: AgentProfileSnapshot,
+    ) : RunEventMetadata
+
     data class LlmRequest(
         val phase: AgentLlmPhase,
         val model: String,

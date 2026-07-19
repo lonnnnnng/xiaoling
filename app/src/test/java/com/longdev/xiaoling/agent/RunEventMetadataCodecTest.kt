@@ -5,6 +5,33 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun agentProfileSelectionRoundTripsWithoutDroppingCapabilitySnapshot() {
+        val metadata = RunEventMetadata.AgentProfileSelection(
+            AgentProfileSnapshot(
+                id = "agent-profile-1",
+                name = "日常助理",
+                avatar = "日",
+                providerId = "provider-1",
+                model = "gpt-test",
+                apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+                systemPrompt = "优先给出短答案",
+                contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+                allowedToolNames = listOf("app.current_time", "notes.search"),
+                allowedSkillIds = listOf("device-time"),
+                memoryEnabled = false,
+            ),
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.PROFILE_SELECTED,
+                RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
     fun recoveryFailureGuidanceRoundTrips() {
         val metadata = RunEventMetadata.RecoveryFailure(
             toolName = "memory.remember",

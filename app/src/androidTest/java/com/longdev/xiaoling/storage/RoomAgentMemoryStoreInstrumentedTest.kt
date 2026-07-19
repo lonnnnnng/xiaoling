@@ -246,8 +246,13 @@ class RoomAgentMemoryStoreInstrumentedTest {
             source = AgentMemorySource("conversation-expiry", "run-expiry", "临时事实"),
             confidence = 0.7,
         )
-        val expired = store.setExpiresAt(memory.id, System.currentTimeMillis() + 1)
-        Thread.sleep(5)
+        store.setExpiresAt(memory.id, System.currentTimeMillis() + 60_000)
+        // long: 生产入口只接受未来过期时间；测试通过数据库推进到“时间已流逝”后的状态，避免 1ms 夹具在慢设备上先于校验过期并误报业务回归。
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE agent_memories SET expiresAt = ? WHERE id = ?",
+            arrayOf<Any?>(System.currentTimeMillis() - 1, memory.id),
+        )
+        val expired = store.get(memory.id)
 
         assertTrue(store.search("临时项目", 10).none { it.id == memory.id })
         assertTrue(store.list("临时项目", AgentMemoryFilter.ALL).any { it.id == memory.id })
