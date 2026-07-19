@@ -34,6 +34,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -119,6 +120,143 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val event = repository.snapshot(run.id).events.single { it.type == "tool.call.proposed" }
         assertEquals(metadata, event.metadata)
         assertEquals("模型提出工具调用：fake.echo", event.message)
+    }
+
+    @Test
+    fun toolLedgerDualWritesCallResultAndVerificationAcrossRepositoryRecreation() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-tool-ledger",
+            userMessageId = "message-tool-ledger",
+            goal = "保存独立工具账本",
+        )
+        val call = RunEventMetadata.ToolCall(
+            id = "tool-call-ledger-1",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("title" to "账本", "content" to "独立结果"),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用：notes.create", call)
+        repository.appendEvent(run.id, "tool.call.validated", "工具调用已校验：notes.create", call)
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：notes.create",
+            RunEventMetadata.ToolResult(
+                toolName = "notes.create",
+                content = "已创建笔记",
+                durationMs = 23L,
+                success = true,
+                verified = true,
+                memoryIdsUsed = listOf("memory-audit-1"),
+                toolCallId = call.id,
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "note-ledger-1",
+                    idempotencyKey = call.id,
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.verify",
+            "工具验证通过：notes.create",
+            RunEventMetadata.ToolVerification(
+                toolName = "notes.create",
+                status = com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED,
+                toolCallId = call.id,
+            ),
+        )
+
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext(),
+            database,
+        )
+        val ledger = restartedRepository.toolLedger(run.id)
+
+        assertEquals(listOf(call.id), ledger.calls.map { it.id })
+        assertEquals(listOf("notes.create"), ledger.calls.map { it.toolName })
+        assertEquals(call.arguments, ledger.calls.single().arguments)
+        assertTrue(ledger.calls.single().validatedEventId != null)
+        val result = ledger.results.single()
+        assertEquals(call.id, result.toolCallId)
+        assertEquals("已创建笔记", result.content)
+        assertEquals(23L, result.durationMs)
+        assertEquals(true, result.executorVerified)
+        assertEquals(com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED, result.verificationStatus)
+        assertEquals(listOf("memory-audit-1"), result.memoryIdsUsed)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, result.replaySafety)
+        assertEquals("note-ledger-1", result.executionReceipt?.operationId)
+        assertTrue(result.verifiedEventId != null)
+    }
+
+    @Test
+    fun toolLedgerStoresFailedResultAsErrorWithoutInventingVerification() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-tool-error",
+            userMessageId = "message-tool-error",
+            goal = "记录失败工具结果",
+        )
+        val call = RunEventMetadata.ToolCall(
+            id = "tool-call-error-1",
+            toolName = "memory.search",
+            risk = ToolRisk.SAFE,
+            arguments = mapOf("query" to "不存在的记忆"),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用：memory.search", call)
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行失败：memory.search",
+            RunEventMetadata.ToolResult(
+                toolName = call.toolName,
+                content = "记忆索引不可用",
+                durationMs = 9L,
+                success = false,
+                verified = false,
+                toolCallId = call.id,
+            ),
+        )
+
+        val result = repository.toolLedger(run.id).results.single()
+        assertFalse(result.success)
+        assertEquals("记忆索引不可用", result.errorMessage)
+        assertEquals(false, result.executorVerified)
+        assertNull(result.verificationStatus)
+        assertNull(result.verifiedEventId)
+        assertNull(result.verifiedAt)
+    }
+
+    @Test
+    fun toolLedgerRollsBackRunEventWhenToolCallIdentityDrifts() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-tool-drift",
+            userMessageId = "message-tool-drift",
+            goal = "拒绝工具调用漂移",
+        )
+        val proposed = RunEventMetadata.ToolCall(
+            id = "tool-call-drift-1",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("title" to "原始标题", "content" to "原始正文"),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用：notes.create", proposed)
+
+        val failure = runCatching {
+            repository.appendEvent(
+                run.id,
+                "tool.call.validated",
+                "工具调用已校验：notes.create",
+                proposed.copy(arguments = proposed.arguments + ("title" to "漂移标题")),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertEquals(1, repository.snapshot(run.id).events.count { it.type.startsWith("tool.call.") })
+        val stored = repository.toolLedger(run.id).calls.single()
+        assertEquals("原始标题", stored.arguments["title"])
+        assertNull(stored.validatedEventId)
     }
 
     @Test

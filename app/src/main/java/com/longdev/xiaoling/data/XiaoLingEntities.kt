@@ -131,6 +131,55 @@ data class RunEventEntity(
 )
 
 @Entity(
+    tableName = "agent_tool_calls",
+    indices = [
+        Index(value = ["runId", "createdAt"]),
+        Index(value = ["proposedEventId"], unique = true),
+        Index(value = ["validatedEventId"], unique = true),
+    ],
+)
+data class AgentToolCallEntity(
+    @PrimaryKey val id: String,
+    val runId: String,
+    val toolName: String,
+    val risk: String,
+    val argumentsJson: String,
+    val proposedEventId: String?,
+    val validatedEventId: String?,
+    val createdAt: Long,
+    val validatedAt: Long?,
+)
+
+@Entity(
+    tableName = "agent_tool_results",
+    indices = [
+        Index(value = ["runId", "createdAt"]),
+        Index(value = ["eventId"], unique = true),
+    ],
+)
+data class AgentToolResultEntity(
+    @PrimaryKey val toolCallId: String,
+    val runId: String,
+    val eventId: String,
+    val toolName: String,
+    val content: String,
+    val success: Boolean,
+    val errorMessage: String?,
+    val durationMs: Long,
+    val executorVerified: Boolean?,
+    val verificationStatus: String?,
+    val verifiedEventId: String?,
+    val memoryIdsJson: String,
+    val replaySafety: String,
+    val receiptToolCallId: String?,
+    val receiptOperationId: String?,
+    val receiptIdempotencyKey: String?,
+    val receiptStatus: String?,
+    val createdAt: Long,
+    val verifiedAt: Long?,
+)
+
+@Entity(
     tableName = "agent_memories",
     indices = [Index(value = ["createdAt"])],
 )

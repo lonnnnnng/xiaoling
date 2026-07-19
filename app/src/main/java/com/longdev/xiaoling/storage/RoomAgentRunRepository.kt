@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
@@ -13,19 +14,29 @@ import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentToolCallRecord
+import com.longdev.xiaoling.agent.AgentToolLedgerRecord
+import com.longdev.xiaoling.agent.AgentToolResultRecord
 import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.RunEventMetadataCodec
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolExecutionReceipt
+import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
+import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
 import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentStepEntity
+import com.longdev.xiaoling.data.AgentToolCallEntity
+import com.longdev.xiaoling.data.AgentToolResultEntity
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.RunEventEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
@@ -116,16 +127,26 @@ class RoomAgentRunRepository(
     }
 
     override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
-        database.agentRunDao().insertEvent(
-            RunEventEntity(
-                id = "event-${UUID.randomUUID()}",
-                runId = runId,
-                type = type,
-                message = message,
-                metadataJson = metadata?.let(RunEventMetadataCodec::encode),
-                createdAt = System.currentTimeMillis(),
-            ),
+        val event = RunEventEntity(
+            id = "event-${UUID.randomUUID()}",
+            runId = runId,
+            type = type,
+            message = message,
+            metadataJson = metadata?.let(RunEventMetadataCodec::encode),
+            createdAt = System.currentTimeMillis(),
         )
+        database.withTransaction {
+            database.agentRunDao().insertEvent(event)
+            // long: RunEvent 在迁移期仍是时间线事实源；工具账本必须与对应事件同事务写入，避免进程中断后两套审计证据只成功一半。
+            when {
+                metadata is RunEventMetadata.ToolCall && type in TOOL_CALL_EVENT_TYPES ->
+                    persistToolCall(event, metadata)
+                metadata is RunEventMetadata.ToolResult && type == TOOL_RESULT_EVENT_TYPE ->
+                    persistToolResult(event, metadata)
+                metadata is RunEventMetadata.ToolVerification && type == TOOL_VERIFICATION_EVENT_TYPE ->
+                    persistToolVerification(event, metadata)
+            }
+        }
     }
 
     override suspend fun snapshot(runId: String): AgentRunSnapshot {
@@ -343,6 +364,100 @@ class RoomAgentRunRepository(
         return loadDetail(run)
     }
 
+    suspend fun toolLedger(runId: String): AgentToolLedgerRecord {
+        val dao = database.agentRunDao()
+        return AgentToolLedgerRecord(
+            calls = dao.getToolCalls(runId).map { it.toRecord() },
+            results = dao.getToolResults(runId).map { it.toRecord() },
+        )
+    }
+
+    private suspend fun persistToolCall(event: RunEventEntity, metadata: RunEventMetadata.ToolCall) {
+        val dao = database.agentRunDao()
+        val current = dao.getToolCall(metadata.id)
+        val argumentsJson = metadata.arguments.toJsonObject().toString()
+        if (current != null) {
+            require(current.runId == event.runId) { "ToolCall 不能跨 Run 复用：${metadata.id}" }
+            require(current.toolName == metadata.toolName && current.risk == metadata.risk.name) {
+                "ToolCall 定义与已持久化账本不一致：${metadata.id}"
+            }
+            require(current.argumentsJson == argumentsJson) { "ToolCall 参数与已持久化账本不一致：${metadata.id}" }
+        }
+        val isProposed = event.type == TOOL_CALL_PROPOSED_EVENT_TYPE
+        if (isProposed) {
+            require(current?.proposedEventId == null) { "ToolCall 已记录 proposed 事件：${metadata.id}" }
+        } else {
+            require(current?.validatedEventId == null) { "ToolCall 已记录 validated 事件：${metadata.id}" }
+        }
+        dao.upsertToolCall(
+            AgentToolCallEntity(
+                id = metadata.id,
+                runId = event.runId,
+                toolName = metadata.toolName,
+                risk = metadata.risk.name,
+                argumentsJson = argumentsJson,
+                proposedEventId = if (isProposed) event.id else current?.proposedEventId,
+                validatedEventId = if (isProposed) current?.validatedEventId else event.id,
+                createdAt = current?.createdAt ?: event.createdAt,
+                validatedAt = if (isProposed) current?.validatedAt else event.createdAt,
+            ),
+        )
+    }
+
+    private suspend fun persistToolResult(event: RunEventEntity, metadata: RunEventMetadata.ToolResult) {
+        val toolCallId = metadata.toolCallId ?: return
+        val persistedCall = database.agentRunDao().getToolCall(toolCallId) ?: return
+        require(persistedCall.runId == event.runId && persistedCall.toolName == metadata.toolName) {
+            "ToolResult 与已持久化 ToolCall 不一致：$toolCallId"
+        }
+        val receipt = metadata.executionReceipt
+        require(receipt == null || receipt.toolCallId == toolCallId) {
+            "ToolResult 执行回执与 ToolCall 不一致：$toolCallId"
+        }
+        database.agentRunDao().insertToolResult(
+            AgentToolResultEntity(
+                toolCallId = toolCallId,
+                runId = event.runId,
+                eventId = event.id,
+                toolName = metadata.toolName,
+                content = metadata.content,
+                success = metadata.success,
+                errorMessage = if (metadata.success) null else metadata.content,
+                durationMs = metadata.durationMs,
+                executorVerified = metadata.verified,
+                verificationStatus = null,
+                verifiedEventId = null,
+                memoryIdsJson = metadata.memoryIdsUsed.toJsonArray().toString(),
+                replaySafety = metadata.replaySafety.name,
+                receiptToolCallId = receipt?.toolCallId,
+                receiptOperationId = receipt?.operationId,
+                receiptIdempotencyKey = receipt?.idempotencyKey,
+                receiptStatus = receipt?.status?.name,
+                createdAt = event.createdAt,
+                verifiedAt = null,
+            ),
+        )
+    }
+
+    private suspend fun persistToolVerification(
+        event: RunEventEntity,
+        metadata: RunEventMetadata.ToolVerification,
+    ) {
+        val toolCallId = metadata.toolCallId ?: return
+        val updated = database.agentRunDao().markToolResultVerified(
+            toolCallId = toolCallId,
+            status = metadata.status.name,
+            eventId = event.id,
+            verifiedAt = event.createdAt,
+        )
+        if (updated == 0) {
+            // long: v19 旧 Run 没有独立工具账本，升级后的只读恢复仍允许追加验证事件；只有已出现 v20 ToolCall 却缺结果时才视为双写损坏。
+            require(database.agentRunDao().getToolCall(toolCallId) == null) {
+                "工具验证缺少对应 ToolResult：$toolCallId"
+            }
+        }
+    }
+
     private suspend fun loadDetail(run: AgentRunEntity): AgentRunDetailRecord {
         val dao = database.agentRunDao()
         return AgentRunDetailRecord(
@@ -452,6 +567,51 @@ class RoomAgentRunRepository(
         metadata = RunEventMetadataCodec.decode(type, metadataJson),
     )
 
+    private fun AgentToolCallEntity.toRecord() = AgentToolCallRecord(
+        id = id,
+        runId = runId,
+        toolName = toolName,
+        risk = runCatching { ToolRisk.valueOf(risk) }.getOrDefault(ToolRisk.REQUIRES_APPROVAL),
+        arguments = argumentsJson.toStringMap(),
+        proposedEventId = proposedEventId,
+        validatedEventId = validatedEventId,
+        createdAt = createdAt,
+        validatedAt = validatedAt,
+    )
+
+    private fun AgentToolResultEntity.toRecord() = AgentToolResultRecord(
+        toolCallId = toolCallId,
+        runId = runId,
+        eventId = eventId,
+        toolName = toolName,
+        content = content,
+        success = success,
+        errorMessage = errorMessage,
+        durationMs = durationMs,
+        executorVerified = executorVerified,
+        verificationStatus = verificationStatus?.let { runCatching { ToolVerificationStatus.valueOf(it) }.getOrNull() },
+        verifiedEventId = verifiedEventId,
+        memoryIdsUsed = memoryIdsJson.toStringList(),
+        replaySafety = runCatching { ToolReplaySafety.valueOf(replaySafety) }
+            .getOrDefault(ToolReplaySafety.RESTART_REQUIRED),
+        executionReceipt = toExecutionReceipt(),
+        createdAt = createdAt,
+        verifiedAt = verifiedAt,
+    )
+
+    private fun AgentToolResultEntity.toExecutionReceipt(): ToolExecutionReceipt? {
+        val receiptToolCallId = receiptToolCallId ?: return null
+        val operationId = receiptOperationId ?: return null
+        val status = receiptStatus?.let { runCatching { ToolExecutionReceiptStatus.valueOf(it) }.getOrNull() }
+            ?: return null
+        return ToolExecutionReceipt(
+            toolCallId = receiptToolCallId,
+            operationId = operationId,
+            idempotencyKey = receiptIdempotencyKey,
+            status = status,
+        )
+    }
+
     private fun Map<String, String>.toJsonObject(): JSONObject {
         val json = JSONObject()
         toSortedMap().forEach { (key, value) -> json.put(key, value) }
@@ -467,6 +627,17 @@ class RoomAgentRunRepository(
         }.getOrDefault(emptyMap())
     }
 
+    private fun List<String>.toJsonArray(): JSONArray {
+        return JSONArray().apply { this@toJsonArray.forEach(::put) }
+    }
+
+    private fun String.toStringList(): List<String> {
+        return runCatching {
+            val json = JSONArray(this)
+            List(json.length()) { index -> json.getString(index) }
+        }.getOrDefault(emptyList())
+    }
+
     private fun ApprovalRequestRecord.toEventMetadata(): RunEventMetadata {
         return RunEventMetadata.ApprovalRequest(
             id = id,
@@ -477,6 +648,13 @@ class RoomAgentRunRepository(
             expiresAt = expiresAt,
             reason = decisionReason,
         )
+    }
+
+    private companion object {
+        const val TOOL_CALL_PROPOSED_EVENT_TYPE = "tool.call.proposed"
+        const val TOOL_RESULT_EVENT_TYPE = "tool.result"
+        const val TOOL_VERIFICATION_EVENT_TYPE = "tool.verify"
+        val TOOL_CALL_EVENT_TYPES = setOf(TOOL_CALL_PROPOSED_EVENT_TYPE, "tool.call.validated")
     }
 }
 

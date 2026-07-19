@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -35,7 +36,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrate4To19PreservesUserDataAndInitializesNewFields() = runBlocking {
+    fun migrate4To20PreservesUserDataAndInitializesNewFields() = runBlocking {
         migrationHelper.createDatabase(MIGRATION_DATABASE_NAME, 4).apply {
             insertVersion4Fixture()
             close()
@@ -43,7 +44,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
 
         migrationHelper.runMigrationsAndValidate(
             MIGRATION_DATABASE_NAME,
-            19,
+            20,
             true,
             *XiaoLingDatabase.migrations(),
         ).close()
@@ -81,10 +82,11 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         // long: 老版本没有本地 Skill；升级只创建空表，内置定义由应用启动时同步，避免把运行时代码硬编码进迁移夹具。
         assertEquals(0, database.agentSkillDao().list().size)
         assertEquals(0, database.workflowDao().listWorkflows().size)
+        assertEquals(0, RoomAgentRunRepository(context, database).toolLedger("run-v4").calls.size)
     }
 
     @Test
-    fun createAndOpenFreshVersion19Database() = runBlocking {
+    fun createAndOpenFreshVersion20Database() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
             .allowMainThreadQueries()
@@ -92,7 +94,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
             .also { openedDatabase = it }
 
         assertNotNull(database.openHelper.writableDatabase)
-        assertEquals(19, database.openHelper.writableDatabase.version)
+        assertEquals(20, database.openHelper.writableDatabase.version)
         assertNull(database.agentRunDao().getRun("missing"))
     }
 
@@ -596,6 +598,89 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate19To20KeepsLegacyToolEventsWithoutInventingLedgerRows() = runBlocking {
+        migrationHelper.createDatabase(TOOL_LEDGER_MIGRATION_DATABASE_NAME, 19).apply {
+            execSQL(
+                """
+                INSERT INTO agent_runs (
+                    id, retryOfRunId, conversationId, userMessageId, goal, status,
+                    result, errorMessage, createdAt, updatedAt, completedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "run-v19-tool-ledger",
+                    null,
+                    "conversation-v19",
+                    "message-v19",
+                    "恢复旧工具验证",
+                    "VERIFYING",
+                    null,
+                    null,
+                    100L,
+                    102L,
+                    null,
+                ),
+            )
+            execSQL(
+                "INSERT INTO run_events VALUES (?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "event-v19-tool-call",
+                    "run-v19-tool-ledger",
+                    "tool.call.validated",
+                    "工具调用已校验：notes.create",
+                    """{"id":"tool-call-v19","toolName":"notes.create","risk":"REQUIRES_APPROVAL","arguments":{"title":"旧笔记","content":"旧结果"}}""",
+                    101L,
+                ),
+            )
+            execSQL(
+                "INSERT INTO run_events VALUES (?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>(
+                    "event-v19-tool-result",
+                    "run-v19-tool-ledger",
+                    "tool.result",
+                    "工具执行成功：notes.create",
+                    """{"toolName":"notes.create","content":"已创建旧笔记","durationMs":10,"success":true,"verified":true,"memoryIdsUsed":[],"toolCallId":"tool-call-v19","replaySafety":"IDEMPOTENT_BY_KEY"}""",
+                    102L,
+                ),
+            )
+            close()
+        }
+
+        migrationHelper.runMigrationsAndValidate(
+            TOOL_LEDGER_MIGRATION_DATABASE_NAME,
+            20,
+            true,
+            *XiaoLingDatabase.migrations(),
+        ).close()
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, TOOL_LEDGER_MIGRATION_DATABASE_NAME)
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .allowMainThreadQueries()
+            .build()
+            .also { openedDatabase = it }
+        val repository = RoomAgentRunRepository(context, database)
+
+        assertEquals(2, repository.snapshot("run-v19-tool-ledger").events.size)
+        assertEquals(0, repository.toolLedger("run-v19-tool-ledger").calls.size)
+        assertEquals(0, repository.toolLedger("run-v19-tool-ledger").results.size)
+
+        repository.appendEvent(
+            runId = "run-v19-tool-ledger",
+            type = "tool.verify",
+            message = "工具验证通过：notes.create",
+            metadata = RunEventMetadata.ToolVerification(
+                toolName = "notes.create",
+                status = ToolVerificationStatus.PASSED,
+                toolCallId = "tool-call-v19",
+            ),
+        )
+
+        assertEquals(3, repository.snapshot("run-v19-tool-ledger").events.size)
+        assertEquals(0, repository.toolLedger("run-v19-tool-ledger").results.size)
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -665,5 +750,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val NOTE_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-note-idempotency-migration-test"
         private const val MEMORY_IDEMPOTENCY_MIGRATION_DATABASE_NAME = "xiaoling-memory-idempotency-migration-test"
         private const val MEMORY_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-memory-verification-migration-test"
+        private const val TOOL_LEDGER_MIGRATION_DATABASE_NAME = "xiaoling-tool-ledger-migration-test"
     }
 }

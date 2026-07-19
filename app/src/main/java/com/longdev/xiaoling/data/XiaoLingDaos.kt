@@ -57,6 +57,12 @@ interface AgentRunDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvent(event: RunEventEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertToolCall(call: AgentToolCallEntity)
+
+    @Insert
+    suspend fun insertToolResult(result: AgentToolResultEntity)
+
     @Query("SELECT * FROM agent_runs WHERE id = :runId")
     suspend fun getRun(runId: String): AgentRunEntity?
 
@@ -92,6 +98,24 @@ interface AgentRunDao {
 
     @Query("SELECT * FROM run_events WHERE runId IN (:runIds) ORDER BY runId ASC, createdAt ASC, rowid ASC")
     suspend fun getEventsForRuns(runIds: List<String>): List<RunEventEntity>
+
+    @Query("SELECT * FROM agent_tool_calls WHERE id = :toolCallId")
+    suspend fun getToolCall(toolCallId: String): AgentToolCallEntity?
+
+    @Query("SELECT * FROM agent_tool_calls WHERE runId = :runId ORDER BY createdAt ASC, id ASC")
+    suspend fun getToolCalls(runId: String): List<AgentToolCallEntity>
+
+    @Query("SELECT * FROM agent_tool_results WHERE runId = :runId ORDER BY createdAt ASC, toolCallId ASC")
+    suspend fun getToolResults(runId: String): List<AgentToolResultEntity>
+
+    @Query(
+        """
+        UPDATE agent_tool_results
+        SET verificationStatus = :status, verifiedEventId = :eventId, verifiedAt = :verifiedAt
+        WHERE toolCallId = :toolCallId
+        """,
+    )
+    suspend fun markToolResultVerified(toolCallId: String, status: String, eventId: String, verifiedAt: Long): Int
 }
 
 @Dao

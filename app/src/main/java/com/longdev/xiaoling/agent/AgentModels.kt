@@ -148,6 +148,7 @@ sealed interface RunEventMetadata {
     data class ToolVerification(
         val toolName: String,
         val status: ToolVerificationStatus,
+        val toolCallId: String? = null,
     ) : RunEventMetadata
 
     data class Reason(
@@ -223,6 +224,42 @@ fun ApprovalRequestRecord.isWaitingForInteractiveApprovalDecision(): Boolean {
 data class AgentRunDetailRecord(
     val snapshot: AgentRunSnapshot,
     val approvals: List<ApprovalRequestRecord>,
+)
+
+data class AgentToolCallRecord(
+    val id: String,
+    val runId: String,
+    val toolName: String,
+    val risk: ToolRisk,
+    val arguments: Map<String, String>,
+    val proposedEventId: String?,
+    val validatedEventId: String?,
+    val createdAt: Long,
+    val validatedAt: Long?,
+)
+
+data class AgentToolResultRecord(
+    val toolCallId: String,
+    val runId: String,
+    val eventId: String,
+    val toolName: String,
+    val content: String,
+    val success: Boolean,
+    val errorMessage: String?,
+    val durationMs: Long,
+    val executorVerified: Boolean?,
+    val verificationStatus: ToolVerificationStatus?,
+    val verifiedEventId: String?,
+    val memoryIdsUsed: List<String>,
+    val replaySafety: ToolReplaySafety,
+    val executionReceipt: ToolExecutionReceipt?,
+    val createdAt: Long,
+    val verifiedAt: Long?,
+)
+
+data class AgentToolLedgerRecord(
+    val calls: List<AgentToolCallRecord>,
+    val results: List<AgentToolResultRecord>,
 )
 
 data class ToolCall(

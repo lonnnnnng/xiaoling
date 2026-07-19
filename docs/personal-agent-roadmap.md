@@ -96,7 +96,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v19 迁移测试源码、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v20 迁移测试源码、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -106,7 +106,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v19 migration 链、event metadata、Run 重试、Memory FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger 和 v19 结果快照提供自动化测试。
+- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v20 migration 链、event metadata、Run 重试、Memory FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照和独立工具账本提供自动化测试。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -121,7 +121,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。持久化执行回执 contract 已建立，`notes.create` 与 `memory.remember` 已具备生产幂等副作用证明，并可在结果已提交、验证未落库且当前业务记录仍满足各自规则时恢复只读验证；`memory.remember` 的八类恢复失败已结构化展示错误码、原因和新 Run 建议。独立 ToolCall/ToolResult 表与并行调用仍待完成，通用原地断点恢复继续关闭。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；执行/验证中断默认采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本目前只承接 v20 新事件的原子双写与查询，任务中心和恢复策略继续以 RunEvent 为事实源；并行调用与通用原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -129,7 +129,7 @@ com.longdev.xiaoling.ui.agent
 - `AgentRun`：目标、来源、状态、开始/结束时间、当前步骤、最终结果。
 - `RunEvent`：状态变化、模型决策、工具调用、工具结果、确认、错误。
 - `ToolDefinition`：名称、描述、输入 Schema、风险、权限、确认和验证规则。
-- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。当前每一步先进入 Step/Event 审计，独立数据表仍待后续评估。
+- `ToolCall` / `ToolResult`：参数、结果、错误、耗时、重试和验证状态。v20 已独立落表并与 typed RunEvent 原子双写；下一阶段让任务中心对新 Run 优先读取账本、旧 Run 回退事件。
 - `ApprovalRequest`：待确认动作、风险说明、过期策略和用户决定。当前每个非 SAFE 工具步骤独立审批且不主动过期；只有首个工具执行前的待审批边界允许原 Run 恢复。
 
 ### 运行状态
@@ -322,7 +322,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v19、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/调度/步骤定义表迁移、笔记幂等索引、记忆 operation ledger/结果快照和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v20、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/调度/步骤定义表迁移、笔记幂等索引、记忆 operation ledger/结果快照、独立工具账本和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止和运行中撤权边界已完成；`notes.create` 与 `memory.remember` 已完成完整幂等证明及受限验证阶段恢复 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
@@ -365,6 +365,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 16. 已完成：`memory.remember` 使用独立 Room operation ledger，以 ToolCall ID 主键绑定原始载荷哈希和 memory ID；数据库重开后同键同载荷复用原 operation，载荷漂移被拒绝。工具已声明 `IDEMPOTENT_BY_KEY`。
 17. 已完成：Room v19 为记忆 operation 增加提交结果业务快照哈希，Registry 从持久化 Run Context 重建原请求并开放 `verifyCommittedEffect()`。未修改、启用、未过期的记忆验证成功；内容、标签、类型、来源或置信度编辑返回 `MEMORY_CHANGED`，禁用返回 `MEMORY_DISABLED`，过期返回 `MEMORY_EXPIRED`，删除返回 `MEMORY_NOT_FOUND`，删除后按原快照撤销恢复可再次成功。置顶、引用时间和未来过期时间不影响验证；v18 历史 operation 因缺少结果快照保持 `EVIDENCE_INCOMPLETE`。冷启动恢复不再次调用 `remember()`，原 operation ID 和回执保持不变。
 18. 已完成：`memory.remember` 的八类只读恢复失败通过 `run.recovery_failed` typed event 保存稳定错误码、原因和建议动作；任务中心详情顶部直接显示恢复处理状态带，事件区保留完整字段。所有建议都要求创建新 Run，旧 Run 保持 `FAILED`。生产 Registry 当前只有 `notes.create` 与 `memory.remember` 两个写工具，不为套用模式虚构第三个写工具；通用执行栈、旧模型协程和 Workflow 后续步骤继续 fail-closed。
-19. 下一步建立独立 ToolCall/ToolResult Room Ledger：从现有 RunEvent typed metadata 双写开始，为调用参数、执行结果、回执、验证状态、错误和耗时提供稳定主键与查询边界；迁移期间 RunEvent 继续作为时间线事实源，必须验证双写一致性、旧 Run 兼容和进程重建查询。该阶段先改善审计与恢复证据定位，不扩大通用原地恢复能力。
+19. 已完成：Room v20 新增 `agent_tool_calls / agent_tool_results`，`appendEvent()` 在同一事务内按 typed metadata 双写参数、proposed/validated 锚点、结果、显式错误、耗时、Executor/最终验证、记忆引用、重放声明和执行回执。ToolCall 身份或参数漂移整笔回滚；Repository 重建后可按 Run 查询。v19 旧 Run 保留 event-only，不补造关联，验证阶段恢复仍可追加事件；恢复策略未切换到新表。
+20. 下一步让任务中心对 v20 新 Run 使用 Tool Ledger-first 明细：Repository 批量加载调用/结果，UI 以调用为单位展示 proposed→validated→result→verified 状态；没有 Ledger 的旧 Run 自动回退 typed RunEvent。先完成读路径和双源一致性告警，`AgentRunResumePolicy` 继续读取 RunEvent，待 UI/审计稳定后再单独评估恢复证据切换。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

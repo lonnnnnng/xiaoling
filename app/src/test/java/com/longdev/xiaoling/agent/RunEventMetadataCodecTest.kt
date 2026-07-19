@@ -102,6 +102,27 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun toolVerificationRoundTripsWithOptionalToolCallIdentity() {
+        val metadata = RunEventMetadata.ToolVerification(
+            toolName = "notes.create",
+            status = ToolVerificationStatus.PASSED,
+            toolCallId = "tool-call-verify-1",
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode("tool.verify", RunEventMetadataCodec.encode(metadata)),
+        )
+        assertEquals(
+            RunEventMetadata.ToolVerification("notes.create", ToolVerificationStatus.PASSED),
+            RunEventMetadataCodec.decode(
+                "tool.verify",
+                """{"toolName":"notes.create","status":"PASSED"}""",
+            ),
+        )
+    }
+
+    @Test
     fun legacyToolResultWithoutMemoryIdsRemainsReadable() {
         val metadata = RunEventMetadataCodec.decode(
             type = "tool.result",

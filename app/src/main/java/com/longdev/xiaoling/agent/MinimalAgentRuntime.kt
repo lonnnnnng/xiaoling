@@ -311,6 +311,7 @@ class MinimalAgentRuntime(
                 metadata = RunEventMetadata.ToolVerification(
                     toolName = recovery.toolCall.name,
                     status = ToolVerificationStatus.PASSED,
+                    toolCallId = recovery.toolCall.id,
                 ),
             )
             ledger.updateStep(verifyStep.id, AgentStepStatus.COMPLETED, "已只读回读 operation ${receipt.operationId} 并验证通过")
@@ -550,6 +551,7 @@ class MinimalAgentRuntime(
             metadata = RunEventMetadata.ToolVerification(
                 toolName = toolCall.name,
                 status = ToolVerificationStatus.PASSED,
+                toolCallId = toolCall.id,
             ),
         )
         ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")

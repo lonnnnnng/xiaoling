@@ -35,8 +35,8 @@
 
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
-- Provider、会话、消息、最小 Agent Run、审批请求、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v18 与当前 v19 Schema；迁移测试源码覆盖 v4→v19、v17→v18、v18→v19 和全新 v19 建库。
+- Provider、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v19 与当前 v20 Schema；迁移测试源码覆盖 v4→v20、v17→v18、v18→v19、v19→v20 和全新 v20 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、查看完整工具结果/步骤/审批/事件，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -79,6 +79,8 @@
 - 模型提示使用 `object/properties/required/additionalProperties=false` JSON Schema；解析层先按原始 JSON primitive 拒绝错误类型和非 object `arguments`，再规范化到字符串 Map 供 Runtime 做长度/范围/枚举与业务校验，不自动补字段或接受未知字段。
 - `ToolPermissionChecker` 默认 fail-closed；生产链路使用 `ContextCompat.checkSelfPermission` 在参数校验、审批结束后执行前和工具返回后验证前三个检查点读取定义中的 Android 权限。审批期间撤权不会创建 `tool.execute`，工具执行期间撤权会保留成功结果审计但拒绝验证与总结。
 - `ToolExecutionReceipt` 位于现有执行 seam：Executor 可返回 ToolCall ID、业务 operation ID、可选幂等键和提交状态，Runtime 在成功 `tool.result` 落库前校验回执必须属于当前 ToolCall。回执与执行时 `ToolReplaySafety` 声明快照随 typed metadata 持久化，并在任务中心事件中显示调用、操作、状态、重放声明和“幂等证明已记录/未记录”，原始幂等键不直接展示；旧事件没有快照时按 `RESTART_REQUIRED` 解码。
+- Room v20 的 `agent_tool_calls` 以 ToolCall ID 为主键，保存 Run、工具、风险、排序后的参数，以及 proposed/validated RunEvent 锚点；`agent_tool_results` 以 ToolCall ID 为主键，保存结果事件、正文、显式错误、耗时、Executor 验证、最终验证、记忆引用、重放声明和拆列后的执行回执。`RoomAgentRunRepository.toolLedger(runId)` 是当前查询边界。
+- `RoomAgentRunRepository.appendEvent()` 在同一 Room 事务中先写 RunEvent，再按 typed metadata 双写工具账本。相同 ToolCall 的 Run、工具、风险或参数漂移会回滚整个事务；`tool.verify` 通过新增的可选 ToolCall ID 精确更新结果。旧事件缺少身份或 v19 迁移后没有账本行时保持 event-only，恢复策略与任务中心目前仍读取 RunEvent。
 - `ToolExecutionRecoveryEvidencePolicy` 是纯判定 module，只在执行时快照和当前工具定义都声明 `IDEMPOTENT_BY_KEY`、结果成功、ToolCall 身份一致、回执为 `COMMITTED` 且幂等键存在时返回“可复用已提交副作用”。`AgentRunResumePolicy` 只把最后一个尚无 `tool.verify` 的完整证据结果判为 `COMMITTED_TOOL_VERIFICATION`；这不会恢复旧规划协程或通用执行栈。
 - Runtime 接收 `FOREGROUND / BACKGROUND` 执行来源；后台来源只能执行 `supportsBackground=true` 的工具。当前仅当前时间、会话查询、笔记查询和长期记忆查询这 6 个 SAFE 只读工具开放后台；`notes.create / memory.remember` 在后台规划到审批步骤时直接进入 `BLOCKED`，不会调用审批 Gate。
 - Registry 初始化会拒绝重复工具名；`memory.remember` 已通过可插拔业务校验器限制标签数量和单标签长度。
@@ -109,7 +111,7 @@
 - 旧单步骤兼容入口收到同一 Agent Run 的重复快照回调时，优先命中已经关联该 Run 的步骤，再执行幂等状态刷新；不会因为步骤已经进入 `RUNNING` 就错误关联到后续步骤。
 - `BLOCKED / FAILED / CANCELLED` Workflow Run 可创建新 Run 重试。新 Run 通过 `retryOfWorkflowRunId` 关联来源，把连续成功前缀标为 `SKIPPED` 并记录 `reusedFromStepId`，首个未完成步骤及后续步骤恢复为 `PENDING`；旧 Run 不修改。
 - 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
-- Room v14 新增结构化 `ScheduledTask`，Room v15 新增唯一 `workflow_schedules` 规则，Room v16 新增 Workflow 步骤定义与步骤快照，Room v17 为 `agent_notes.idempotencyKey` 增加可空唯一索引，Room v18 新增 `agent_memory_operations` 幂等操作账本，Room v19 为 operation 增加可空 `resultHash`；v18 历史行不补造快照并继续 fail-closed。
+- Room v14 新增结构化 `ScheduledTask`，Room v15 新增唯一 `workflow_schedules` 规则，Room v16 新增 Workflow 步骤定义与步骤快照，Room v17 为 `agent_notes.idempotencyKey` 增加可空唯一索引，Room v18 新增 `agent_memory_operations` 幂等操作账本，Room v19 为 operation 增加可空 `resultHash`，Room v20 新增 `agent_tool_calls / agent_tool_results`；v18 记忆 operation 和 v19 RunEvent 均不补造缺失证据。
 - 工作流页可创建 1 分钟至 7 天的一次性计划并取消尚未执行的计划。`OneTimeWorkRequest.setInitialDelay` 配合联网约束和唯一工作名提供非精确调度；产品文案明确系统可能延迟，不承诺准点。
 - Daily/Weekly 规则保存本地墙上时间、`ZoneId` 和可选周几。实现不使用 `PeriodicWorkRequest`：规则只维护一个未来 OneTime 实例；实例进入任意终态后，按规则时区计算并物化下一未来实例，每次实例均使用新的 ScheduledTask、WorkRequest、Workflow Run 和 Agent Run ID。
 - 同一 Workflow 最多一个周期规则。替换规则在 Room 事务内取消旧待执行实例并创建新实例，再同步取消旧唯一工作；停用规则或 Workflow 会清空 `nextTaskId / nextPlannedAt` 并取消 WorkManager。周期实例不暴露一次性任务取消入口，避免留下仍会继续生成下一实例的启用规则。

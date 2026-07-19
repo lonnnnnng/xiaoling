@@ -874,3 +874,18 @@ TDD、自动化与真机可用性：
 - 以 `3004528` 为固定点执行 Standards/Spec 双轴审查。初审发现失败原因与建议使用两次 `when`，且缺少贴近实现的业务理由注释；修复为单次 `ToolRecoveryFailure` 穷尽映射并增加 `// long:` 注释后，两轴复审均为 0 项 finding。
 - 审查后向 Redmi 覆盖安装最终 APK 并冷启动，真实普通对话 `Reply only OK stage18 postreview smoke` 在 2.93 秒返回 HTTP 200 和 `OK`；默认 User-Agent 正确，Authorization 日志保持脱敏，crash buffer 为空，`com.longdev.xiaoling/.MainActivity` 保持前台。
 - 最终 Debug APK SHA-256：`c2880108f943eabd09f82fab93a1b9a2646e77da9330d61616de4354775a8f29`。
+
+## 2026-07-19 独立 ToolCall/ToolResult Room Ledger
+
+实现与迁移边界：
+
+- Room v20 新增 `agent_tool_calls / agent_tool_results`。调用表以 ToolCall ID 为主键，保存 Run、工具、风险、排序参数和 proposed/validated 事件锚点；结果表以 ToolCall ID 为主键，保存结果事件、正文、显式错误、耗时、Executor/最终验证、记忆引用、重放声明和拆列执行回执。
+- `RoomAgentRunRepository.appendEvent()` 在同一 Room 事务中写 RunEvent 与 Ledger；ToolCall 的 Run、工具、风险或参数漂移会回滚整笔事务。`tool.verify` metadata 增加可选 ToolCall ID，v20 新结果可精确更新验证状态，旧事件缺少字段时继续兼容。
+- v19→v20 只创建空表，不从可能缺失 ToolCall ID 的历史事件补造关联。旧 Run 仍通过 RunEvent 读取和恢复；旧验证阶段恢复可以继续追加 `tool.verify`，不会因 Ledger 为空失败。当前 `AgentRunResumePolicy` 和任务中心仍读取 RunEvent，没有扩大通用恢复能力。
+
+TDD 与自动化：
+
+- Red/Green 覆盖 Repository 重建后的完整调用/结果/验证查询，以及 v19 旧 Run 迁移后追加验证；补充失败结果显式错误、ToolCall 参数漂移事务回滚和 `tool.verify` 新旧 metadata 兼容。
+- 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；206 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 59 条 instrumentation，合计 118 条全部通过。
+- 最终 Debug APK SHA-256：`5d825148284bc983ed761dbcc9ff474f00e36c0000b9e185b82091b1c2f2f09f`。

@@ -17,6 +17,8 @@ import org.json.JSONObject
         AgentStepEntity::class,
         ApprovalRequestEntity::class,
         RunEventEntity::class,
+        AgentToolCallEntity::class,
+        AgentToolResultEntity::class,
         AgentMemoryEntity::class,
         AgentMemoryOperationEntity::class,
         AgentMemoryFtsEntity::class,
@@ -30,7 +32,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 19,
+    version = 20,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -43,7 +45,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 19
+        const val CURRENT_VERSION = 20
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -508,6 +510,59 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 独立工具账本从 v20 新事件开始原子双写；旧 Run 继续以 RunEvent 为事实源，不从可能缺少 ToolCall ID 的历史事件反推关联。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_tool_calls` (
+                        `id` TEXT NOT NULL,
+                        `runId` TEXT NOT NULL,
+                        `toolName` TEXT NOT NULL,
+                        `risk` TEXT NOT NULL,
+                        `argumentsJson` TEXT NOT NULL,
+                        `proposedEventId` TEXT,
+                        `validatedEventId` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `validatedAt` INTEGER,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_tool_calls_runId_createdAt` ON `agent_tool_calls` (`runId`, `createdAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_tool_calls_proposedEventId` ON `agent_tool_calls` (`proposedEventId`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_tool_calls_validatedEventId` ON `agent_tool_calls` (`validatedEventId`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_tool_results` (
+                        `toolCallId` TEXT NOT NULL,
+                        `runId` TEXT NOT NULL,
+                        `eventId` TEXT NOT NULL,
+                        `toolName` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `success` INTEGER NOT NULL,
+                        `errorMessage` TEXT,
+                        `durationMs` INTEGER NOT NULL,
+                        `executorVerified` INTEGER,
+                        `verificationStatus` TEXT,
+                        `verifiedEventId` TEXT,
+                        `memoryIdsJson` TEXT NOT NULL,
+                        `replaySafety` TEXT NOT NULL,
+                        `receiptToolCallId` TEXT,
+                        `receiptOperationId` TEXT,
+                        `receiptIdempotencyKey` TEXT,
+                        `receiptStatus` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `verifiedAt` INTEGER,
+                        PRIMARY KEY(`toolCallId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_agent_tool_results_runId_createdAt` ON `agent_tool_results` (`runId`, `createdAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_agent_tool_results_eventId` ON `agent_tool_results` (`eventId`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -527,6 +582,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_16_17,
             MIGRATION_17_18,
             MIGRATION_18_19,
+            MIGRATION_19_20,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {
