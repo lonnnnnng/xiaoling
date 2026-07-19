@@ -8,6 +8,37 @@ import org.junit.Test
 
 class OpenAiResponseParserTest {
     @Test
+    fun `responses reasoning parser keeps provider summaries and ignores raw chain of thought`() {
+        val summaries = OpenAiResponseParser.parseResponsesReasoningSummaries(
+            """
+                {
+                  "output": [
+                    {
+                      "id": "rs-provider-1",
+                      "type": "reasoning",
+                      "summary": [
+                        {"type": "summary_text", "text": "先核对输入，再生成结论。"},
+                        {"type": "unknown", "text": "不能展示"}
+                      ],
+                      "content": [
+                        {"type": "reasoning_text", "text": "原始思维链不能展示"}
+                      ]
+                    },
+                    {
+                      "id": "msg-1",
+                      "type": "message",
+                      "content": [{"type": "output_text", "text": "最终答案"}]
+                    }
+                  ]
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("先核对输入，再生成结论。"), summaries.map { it.text })
+        assertEquals(listOf("rs-provider-1"), summaries.map { it.providerItemId })
+    }
+
+    @Test
     fun `responses output text is parsed`() {
         assertEquals(
             "OK",

@@ -61,6 +61,8 @@ import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.ModelReasoningSummary
+import com.longdev.xiaoling.model.ProviderMessagePartPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.network.ApiFailure
@@ -140,6 +142,7 @@ data class XiaoLingUiState(
     val sendingMessage: Boolean = false,
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
+    val reasoningSummaryEnabled: Boolean = false,
     val chatMessages: List<ChatMessage> = emptyList(),
     val conversations: List<ConversationSession> = emptyList(),
     val selectedConversationId: String = "",
@@ -388,6 +391,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             promptSettings = uiPreferenceStore.loadPromptSettings(),
             memoryCandidatesEnabled = uiPreferenceStore.loadMemoryCandidatesEnabled(),
             userAgent = uiPreferenceStore.loadUserAgent(),
+            reasoningSummaryEnabled = uiPreferenceStore.loadReasoningSummaryEnabled(),
         ),
     )
         private set
@@ -460,6 +464,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     promptSettings = uiState.promptSettings,
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
                     userAgent = uiState.userAgent,
+                    reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
                     agentProfiles = storedAgentProfiles.profiles,
                     selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
                     registeredAgentTools = availableAgentTools,
@@ -751,6 +756,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
     fun updateStreamingEnabled(value: Boolean) {
         uiState = uiState.copy(streamingEnabled = value, result = null)
+    }
+
+    fun updateReasoningSummaryEnabled(value: Boolean) {
+        uiState = uiState.copy(reasoningSummaryEnabled = value, result = null)
+        uiPreferenceStore.saveReasoningSummaryEnabled(value)
     }
 
     fun updateResponsesEnabled(value: Boolean) {
@@ -2608,6 +2618,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         flushStreamingAssistant(baseMeta)
                         val finalMessages = uiState.chatMessages.upsertLastAssistant(
                             text = response.responseText,
+                            reasoningSummaries = response.reasoningSummaries,
                             meta = baseMeta.copy(
                                 requestUrl = response.requestUrl,
                                 firstTokenLatencyMs = response.firstTokenLatencyMs,
@@ -3119,6 +3130,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             userAgent = uiState.userAgent,
             apiMode = uiState.apiMode,
             streamingEnabled = uiState.streamingEnabled,
+            reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
             maxTokens = ProviderProfile.FIXED_MAX_TOKENS,
         )
     }
@@ -3413,7 +3425,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             appendLine("新增对话：")
             appendLine(transcript)
         }
-        val summaryConfig = config.copy(streamingEnabled = false)
+        val summaryConfig = config.copy(streamingEnabled = false, reasoningSummaryEnabled = false)
         val result = client.sendMessage(
             config = summaryConfig,
             messages = listOf(
@@ -3631,16 +3643,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         streaming = streamingEnabled,
     )
 
-    private fun List<ChatMessage>.upsertLastAssistant(text: String, meta: MessageMeta?): List<ChatMessage> {
+    private fun List<ChatMessage>.upsertLastAssistant(
+        text: String,
+        meta: MessageMeta?,
+        reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
+    ): List<ChatMessage> {
         val last = lastOrNull()
         return if (last?.role == "assistant") {
-            dropLast(1) + last.copy(text = text, meta = meta)
+            dropLast(1) + last.copy(
+                text = text,
+                meta = meta,
+                parts = ProviderMessagePartPolicy.fromResponse(last.id, text, reasoningSummaries),
+            )
         } else {
-            this + ChatMessage(
+            val message = ChatMessage(
                 role = "assistant",
                 text = text,
                 createdAt = System.currentTimeMillis(),
                 meta = meta,
+            )
+            this + message.copy(
+                parts = ProviderMessagePartPolicy.fromResponse(message.id, text, reasoningSummaries),
             )
         }
     }
@@ -3694,6 +3717,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         promptSettings: PromptSettings,
         memoryCandidatesEnabled: Boolean,
         userAgent: String,
+        reasoningSummaryEnabled: Boolean,
     ): XiaoLingUiState {
         val profile = ProviderProfile.blank()
         val now = System.currentTimeMillis()
@@ -3724,6 +3748,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 promptSettings = promptSettings,
                 memoryCandidatesEnabled = memoryCandidatesEnabled,
                 userAgent = userAgent,
+                reasoningSummaryEnabled = reasoningSummaryEnabled,
             )
     }
 

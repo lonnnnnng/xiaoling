@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.network
 
+import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.runBlocking
@@ -97,6 +98,81 @@ class OpenAiCompatibleClientTest {
         assertEquals(12L, result.usage?.inputTokens)
         assertEquals(3L, result.usage?.outputTokens)
         assertEquals(15L, result.usage?.totalTokens)
+    }
+
+    @Test
+    fun nonStreamingResponsesReturnsDisplayableReasoningSummariesWithoutRawChainOfThought() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                    {
+                      "output": [
+                        {
+                          "id": "rs-client-1",
+                          "type": "reasoning",
+                          "summary": [{"type": "summary_text", "text": "核对事实后给出简洁回答。"}],
+                          "content": [{"type": "reasoning_text", "text": "原始思维链"}]
+                        },
+                        {
+                          "type": "message",
+                          "content": [{"type": "output_text", "text": "最终答案"}]
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+            ),
+        )
+
+        val result = OpenAiCompatibleClient().sendMessage(
+            config = config(userAgent = "Reasoning Summary/1.0", model = "gpt-test").copy(
+                apiMode = ApiMode.RESPONSES,
+                reasoningSummaryEnabled = true,
+            ),
+            messages = listOf(RequestMessage(role = "user", content = "回答问题")),
+        )
+
+        assertEquals("最终答案", result.responseText)
+        assertEquals(listOf("核对事实后给出简洁回答。"), result.reasoningSummaries.map { it.text })
+        assertEquals(listOf("rs-client-1"), result.reasoningSummaries.map { it.providerItemId })
+        assertTrue(result.reasoningSummaries.none { it.text.contains("原始思维链") })
+    }
+
+    @Test
+    fun streamingResponsesAggregatesReasoningSummarySeparatelyFromAnswerText() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(
+                    """
+                        data: {"type":"response.reasoning_summary_text.delta","item_id":"rs-stream-1","summary_index":0,"delta":"先核对"}
+
+                        data: {"type":"response.reasoning_summary_text.delta","item_id":"rs-stream-1","summary_index":0,"delta":"事实。"}
+
+                        data: {"type":"response.reasoning_summary_text.done","item_id":"rs-stream-1","summary_index":0,"text":"先核对事实，再回答。"}
+
+                        data: {"type":"response.output_text.delta","delta":"最终"}
+
+                        data: {"type":"response.output_text.done","text":"最终答案"}
+
+                        data: [DONE]
+
+                    """.trimIndent(),
+                ),
+        )
+
+        val result = OpenAiCompatibleClient().sendMessage(
+            config = config(userAgent = "Reasoning Stream/1.0", model = "gpt-test").copy(
+                apiMode = ApiMode.RESPONSES,
+                streamingEnabled = true,
+                reasoningSummaryEnabled = true,
+            ),
+            messages = listOf(RequestMessage(role = "user", content = "回答问题")),
+        )
+
+        assertEquals("最终答案", result.responseText)
+        assertEquals(listOf("先核对事实，再回答。"), result.reasoningSummaries.map { it.text })
+        assertEquals(listOf("rs-stream-1"), result.reasoningSummaries.map { it.providerItemId })
     }
 
     @Test

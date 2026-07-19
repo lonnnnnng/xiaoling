@@ -10,6 +10,35 @@ import org.junit.Test
 
 class OpenAiCompatibleAdapterTest {
     @Test
+    fun `reasoning summary is explicit opt in for responses requests only`() {
+        val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()
+        val messages = listOf(RequestMessage(role = "user", content = "解释结论"))
+
+        val enabledResponses = JSONObject(
+            adapter.prepareGenerationRequest(
+                config = requestConfig(ApiMode.RESPONSES).copy(reasoningSummaryEnabled = true),
+                messages = messages,
+            ).body,
+        )
+        val disabledResponses = JSONObject(
+            adapter.prepareGenerationRequest(
+                config = requestConfig(ApiMode.RESPONSES),
+                messages = messages,
+            ).body,
+        )
+        val chatCompletions = JSONObject(
+            adapter.prepareGenerationRequest(
+                config = requestConfig(ApiMode.CHAT_COMPLETIONS).copy(reasoningSummaryEnabled = true),
+                messages = messages,
+            ).body,
+        )
+
+        assertEquals("auto", enabledResponses.getJSONObject("reasoning").getString("summary"))
+        assertFalse(disabledResponses.has("reasoning"))
+        assertFalse(chatCompletions.has("reasoning"))
+    }
+
+    @Test
     fun `responses request preserves structured conversation roles`() {
         val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()
 

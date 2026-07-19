@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ModelTokenUsage
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import org.json.JSONArray
@@ -18,6 +19,8 @@ interface LlmProviderAdapter {
 
     fun parseGenerationResponse(apiMode: ApiMode, body: String): String
 
+    fun parseReasoningSummaries(apiMode: ApiMode, body: String): List<ModelReasoningSummary>
+
     fun parseTokenUsage(apiMode: ApiMode, body: String): ModelTokenUsage?
 
     fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent?
@@ -31,6 +34,8 @@ data class LlmGenerationRequest(
 data class LlmStreamEvent(
     val deltaText: String? = null,
     val finalText: String? = null,
+    val reasoningSummaryDelta: ModelReasoningSummary? = null,
+    val reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
 )
 
 sealed interface RequestInputItem
@@ -87,6 +92,11 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
         ApiMode.RESPONSES -> OpenAiResponseParser.parseResponsesText(body)
     }
 
+    override fun parseReasoningSummaries(apiMode: ApiMode, body: String): List<ModelReasoningSummary> = when (apiMode) {
+        ApiMode.CHAT_COMPLETIONS -> emptyList()
+        ApiMode.RESPONSES -> OpenAiResponseParser.parseResponsesReasoningSummaries(body)
+    }
+
     override fun parseTokenUsage(apiMode: ApiMode, body: String): ModelTokenUsage? =
         OpenAiResponseParser.parseTokenUsage(body)
 
@@ -109,6 +119,12 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
         .put("max_output_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
+        .apply {
+            if (config.reasoningSummaryEnabled) {
+                // long: Reasoning 摘要需要用户显式开启；只请求供应商可展示的 summary，不请求或暴露原始 reasoning_text。
+                put("reasoning", JSONObject().put("summary", "auto"))
+            }
+        }
 
     private fun List<RequestInputItem>.toChatMessages(): JSONArray = JSONArray().apply {
         forEach { item ->

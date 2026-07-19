@@ -1,0 +1,50 @@
+package com.longdev.xiaoling.storage
+
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.After
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class UiPreferenceStoreInstrumentedTest {
+    private lateinit var context: Context
+    private lateinit var isolatedContext: Context
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        isolatedContext = object : ContextWrapper(context) {
+            override fun getSharedPreferences(name: String, mode: Int) =
+                context.getSharedPreferences("$TEST_PREFIX$name", mode)
+        }
+        clearPreferences()
+    }
+
+    @After
+    fun tearDown() {
+        clearPreferences()
+    }
+
+    @Test
+    fun reasoningSummaryIsOptInAndRestoredAcrossStoreInstances() {
+        assertFalse(UiPreferenceStore(isolatedContext).loadReasoningSummaryEnabled())
+
+        UiPreferenceStore(isolatedContext).saveReasoningSummaryEnabled(true)
+
+        assertTrue(UiPreferenceStore(isolatedContext).loadReasoningSummaryEnabled())
+    }
+
+    private fun clearPreferences() {
+        context.getSharedPreferences("${TEST_PREFIX}xiaoling_ui", Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    companion object {
+        private const val TEST_PREFIX = "ui_preference_test_"
+    }
+}

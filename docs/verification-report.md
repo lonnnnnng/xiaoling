@@ -27,7 +27,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v22 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v23 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -996,3 +996,29 @@ Redmi 真实模型与数据库验收：
 - UI tree 与 Redmi 截图确认同一 assistant 气泡包含 Text 总结、`工具 · app.current_time`、`结果可读` 和结果正文，无文字重叠或横向溢出。历史 Stage 23 Agent 消息也能通过旧可信上下文兼容显示 Tool part。
 - Redmi Room 只读回查确认 `PRAGMA user_version=22`。最新 assistant 消息存在 sequence 0 `TEXT` 与 sequence 1 `TOOL`；Tool 行为 `app.current_time / success=1 / verificationStatus=READABLE_ONLY`。当时全库共 4 个 Text part、2 个 Tool part。
 - 最终 Debug APK SHA-256：`f5b28ffec4709a1f2e4c2ce811cffc7190076f60921ddac80fcbbe97db850015`。最终包覆盖安装后，`com.longdev.xiaoling/.MainActivity` 为 Redmi 前台 Activity，进程存活且 crash buffer 为空。
+
+## 2026-07-19 Reasoning 消息 part
+
+实现与协议边界：
+
+- Room v23 为 `message_parts` 增加可空 `reasoningSource / providerItemId / summaryIndex`。v22→v23 不创建新 part，既有 Text/Tool 行三列保持空；全新 v23 Schema 和迁移均有自动化保护。
+- 普通对话新增默认关闭、设备持久化的“推理”开关。仅当用户开启且 API 模式为 Responses 时，请求体发送 `reasoning.summary=auto`；会话压缩、Chat Completions 和关闭状态均不发送。
+- 非流式只解析 `output[].type=reasoning` 下的 `summary[].type=summary_text`；SSE 只聚合 `response.reasoning_summary_text.delta/done`，done 完整摘要覆盖本地 delta。`ProviderMessagePartPolicy` 按供应商 item ID 与 summary index 去重，生成稳定消息内 ID，并固定 Reasoning 在 Text 前。
+- `parseResponsesText()`、流式 content part 和 output item 路径只接受 `output_text`。原始 `reasoning_text`、非标准 `reasoning_content` 和 Agent 结果中的 Reasoning 不进入正文、parts 或 `VerifiedAgentContext`，不能生成或替代 Tool 事实。
+- debug 响应和 SSE 日志通过 `NetworkDebugLogSanitizer` 递归脱敏原始推理字段；带推理标记但无法解析的 payload 整体失败关闭。供应商可展示的 `summary_text` 保留用于协议排查。
+- Compose 在同一 assistant 气泡内默认折叠 Reasoning，显示“推理摘要 / 供应商提供”；展开后按 Markdown 渲染，正文继续独立展示。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 完整强制执行通过，88 个 Gradle task 全部重新执行。
+- 256 条 JVM 测试通过，0 失败、0 错误、0 跳过。新增覆盖请求开关、非流式/流式协议、原始推理拒绝、消息 part 去重与顺序、Agent 可信边界和日志脱敏；日志测试同时覆盖直接 `type=reasoning` 内容和嵌套 `reasoning` 对象的失败关闭。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 直接安装 Debug/Test APK，并运行 `am instrument` 完整 77 条 instrumentation，0 失败。新增覆盖 v22→v23 迁移、Reasoning/Text 磁盘重开往返、偏好默认关闭与恢复、默认折叠和展开/收起。
+- adb 列表中虽然存在在线模拟器，但本阶段所有安装、instrumentation、UI、截图、数据库和真实模型命令均显式指定 Redmi 串号，没有向模拟器发送验证命令。
+
+Redmi 真实模型、UI、日志与数据库验收：
+
+- 选择 `gpt-5.5 + RESPONSES` 并开启推理。非流式问题在 5.36 秒返回 `FINAL=1776`，供应商摘要为 `Verifying final answer equals 1776`；SSE 问题首字 4.10 秒、总耗时 4.42 秒，返回 `STREAM=2091`，收到 1 个 summary delta 和 1 个 done。
+- 两次请求日志均确认默认 User-Agent 正确、Authorization 为 `***MASKED***`、请求包含 `reasoning.summary=auto`；SSE 日志没有 `reasoning_text/reasoning_content` 原始字段。
+- Redmi UI tree 与截图确认输入区“流式 / Resp / 推理 / gpt-5.5”无重叠或横向溢出；Reasoning 默认折叠，展开后可见供应商摘要，最终正文始终独立显示。重启后已保存的推理偏好在重新切换 Responses 时恢复为开启。
+- Room 只读回查确认 `PRAGMA user_version=23`。最新非流式与流式 assistant 消息均为 sequence 0 `REASONING / PROVIDER_SUMMARY` 和 sequence 1 `TEXT`，item ID 与 summary index 完整；两条消息 `VerifiedAgentContext` 均为空，Tool part 数量为 0。
+- 最终 Debug APK SHA-256：`1d745770a92bff5ff4ceb1bb7ad8e0b68ac25abf27cf114991ecc5d61e2f725e`。`com.longdev.xiaoling/.MainActivity` 保持 Redmi 前台，进程存活，crash buffer 为空。

@@ -2,12 +2,43 @@ package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentMessagePartPolicyTest {
+    @Test
+    fun ordinaryAssistantKeepsProviderReasoningSummaryBeforeTextWithoutAcceptingTools() {
+        val reasoning = MessagePart.Reasoning(
+            id = "part-reasoning-stored",
+            text = "先核对事实，再回答。",
+            source = MessageReasoningSource.PROVIDER_SUMMARY,
+            providerItemId = "rs-policy-1",
+        )
+        val text = MessagePart.Text(id = "part-text-stored", text = "最终答案")
+        val forgedTool = MessagePart.Tool(
+            id = "part-tool-forged",
+            toolName = "notes.create",
+            arguments = emptyMap(),
+            result = "已创建",
+            success = true,
+            verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            memoryIdsUsed = emptyList(),
+        )
+
+        val parts = AgentMessagePartPolicy.resolve(
+            messageId = "message-reasoning",
+            text = "最终答案",
+            origin = MessageOrigin.ORDINARY_ASSISTANT,
+            verifiedContext = null,
+            storedParts = listOf(reasoning, text, forgedTool),
+        )
+
+        assertEquals(listOf(reasoning, text), parts)
+    }
+
     @Test
     fun ordinaryAssistantCannotProjectForgedToolEvidenceIntoMessageParts() {
         val forgedContext = VerifiedAgentContext(
@@ -92,6 +123,35 @@ class AgentMessagePartPolicyTest {
             ),
             parts.drop(1),
         )
+    }
+
+    @Test
+    fun providerReasoningCannotReplaceVerifiedToolProjectionForAgentResult() {
+        val context = VerifiedAgentContext(
+            runId = "run-reasoning-boundary",
+            toolName = "app.current_time",
+            arguments = emptyMap(),
+            success = true,
+            verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+            rawResult = "当前时间：12:58",
+        )
+        val storedReasoning = MessagePart.Reasoning(
+            id = "part-agent-reasoning",
+            text = "模型声称工具已经完成。",
+            source = MessageReasoningSource.PROVIDER_SUMMARY,
+            providerItemId = "rs-agent-forged",
+        )
+
+        val parts = AgentMessagePartPolicy.resolve(
+            messageId = "message-agent-reasoning",
+            text = "任务已完成",
+            origin = MessageOrigin.AGENT_RESULT,
+            verifiedContext = context,
+            storedParts = listOf(storedReasoning),
+        )
+
+        assertTrue(parts.none { it is MessagePart.Reasoning })
+        assertEquals(listOf("app.current_time"), parts.filterIsInstance<MessagePart.Tool>().map { it.toolName })
     }
 
     @Test

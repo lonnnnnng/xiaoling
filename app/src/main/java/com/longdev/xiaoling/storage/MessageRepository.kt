@@ -9,6 +9,7 @@ import com.longdev.xiaoling.data.RoomJson
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 import org.json.JSONObject
 
@@ -140,6 +141,25 @@ class MessageRepository(
             success = null,
             verificationStatus = null,
             memoryIdsJson = null,
+            reasoningSource = null,
+            providerItemId = null,
+            summaryIndex = null,
+        )
+        is MessagePart.Reasoning -> MessagePartEntity(
+            id = id,
+            messageId = messageId,
+            sequence = sequence,
+            type = TYPE_REASONING,
+            text = text,
+            toolName = null,
+            argumentsJson = null,
+            result = null,
+            success = null,
+            verificationStatus = null,
+            memoryIdsJson = null,
+            reasoningSource = source.name,
+            providerItemId = providerItemId,
+            summaryIndex = summaryIndex,
         )
         is MessagePart.Tool -> MessagePartEntity(
             id = id,
@@ -153,12 +173,22 @@ class MessageRepository(
             success = success,
             verificationStatus = verificationStatus.name,
             memoryIdsJson = RoomJson.encodeStringList(memoryIdsUsed.distinct()),
+            reasoningSource = null,
+            providerItemId = null,
+            summaryIndex = null,
         )
     }
 
     private fun MessagePartEntity.toMessagePartOrNull(): MessagePart? = runCatching {
         when (type) {
             TYPE_TEXT -> MessagePart.Text(id = id, text = requireNotNull(text))
+            TYPE_REASONING -> MessagePart.Reasoning(
+                id = id,
+                text = requireNotNull(text),
+                source = MessageReasoningSource.valueOf(requireNotNull(reasoningSource)),
+                providerItemId = providerItemId,
+                summaryIndex = requireNotNull(summaryIndex),
+            )
             TYPE_TOOL -> MessagePart.Tool(
                 id = id,
                 toolName = requireNotNull(toolName),
@@ -181,6 +211,7 @@ class MessageRepository(
 
     companion object {
         private const val TYPE_TEXT = "TEXT"
+        private const val TYPE_REASONING = "REASONING"
         private const val TYPE_TOOL = "TOOL"
     }
 }

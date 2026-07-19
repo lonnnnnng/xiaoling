@@ -34,7 +34,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -48,7 +48,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 22
+        const val CURRENT_VERSION = 23
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -632,6 +632,15 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: Reasoning 只保存供应商可展示摘要及其来源身份；历史 Text/Tool 行保持三列为空，升级时不从正文或可信工具上下文猜造推理内容。
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `reasoningSource` TEXT")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `providerItemId` TEXT")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `summaryIndex` INTEGER")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -654,6 +663,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_19_20,
             MIGRATION_20_21,
             MIGRATION_21_22,
+            MIGRATION_22_23,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

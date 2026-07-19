@@ -13,6 +13,7 @@ data class ProviderRequestConfig(
     val customHeaders: Map<String, String> = emptyMap(),
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
+    val reasoningSummaryEnabled: Boolean = false,
     val temperature: Double = 0.0,
     val maxTokens: Int = ProviderProfile.FIXED_MAX_TOKENS,
     val topP: Double = 1.0,
@@ -32,6 +33,13 @@ data class ModelResponseResult(
     val promptBytes: Int = 0,
     val usage: ModelTokenUsage? = null,
     val responseText: String,
+    val reasoningSummaries: List<ModelReasoningSummary> = emptyList(),
+)
+
+data class ModelReasoningSummary(
+    val providerItemId: String?,
+    val summaryIndex: Int,
+    val text: String,
 )
 
 data class ModelTokenUsage(

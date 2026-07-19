@@ -79,6 +79,9 @@ data class MessagePartEntity(
     val success: Boolean?,
     val verificationStatus: String?,
     val memoryIdsJson: String?,
+    val reasoningSource: String?,
+    val providerItemId: String?,
+    val summaryIndex: Int?,
 )
 
 @Entity(

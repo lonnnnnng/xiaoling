@@ -5,6 +5,7 @@ import com.longdev.xiaoling.BuildConfig
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ModelResponseResult
+import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ModelTokenUsage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,7 @@ class OpenAiCompatibleClient(
             val execution = executeWithTiming(request, startedAtMs) { responseBody ->
                 ParsedCompletion(
                     text = adapter.parseGenerationResponse(config.apiMode, responseBody),
+                    reasoningSummaries = adapter.parseReasoningSummaries(config.apiMode, responseBody),
                     usage = adapter.parseTokenUsage(config.apiMode, responseBody),
                 )
             }
@@ -68,6 +70,7 @@ class OpenAiCompatibleClient(
                 text = execution.value.text,
                 firstByteLatencyMs = execution.firstByteLatencyMs,
                 firstTokenLatencyMs = null,
+                reasoningSummaries = execution.value.reasoningSummaries,
                 usage = execution.value.usage,
             )
         }
@@ -81,6 +84,7 @@ class OpenAiCompatibleClient(
             promptBytes = body.toByteArray(Charsets.UTF_8).size,
             usage = completion.usage,
             responseText = completion.text,
+            reasoningSummaries = completion.reasoningSummaries,
         )
     }
 
@@ -162,6 +166,7 @@ class OpenAiCompatibleClient(
                 }
 
                 val builder = StringBuilder()
+                val reasoningSummaryBuffers = linkedMapOf<Pair<String?, Int>, StringBuilder>()
                 var firstTokenLatencyMs: Long? = null
                 var finalTextFromStream: String? = null
                 val body = response.body ?: throw ApiFailure(FailureKind.RESPONSE, "服务器没有返回流式响应")
@@ -175,6 +180,15 @@ class OpenAiCompatibleClient(
                         if (data.isBlank()) return@forEach
                         NetworkDebugLogger.logStreamEvent(data)
                         val streamEvent = adapter.parseStreamEvent(apiMode, data) ?: return@forEach
+                        streamEvent.reasoningSummaryDelta?.let { summary ->
+                            reasoningSummaryBuffers
+                                .getOrPut(summary.providerItemId to summary.summaryIndex, ::StringBuilder)
+                                .append(summary.text)
+                        }
+                        streamEvent.reasoningSummaries.forEach { summary ->
+                            // long: done 事件携带供应商最终摘要，必须覆盖本地 delta 累积，避免断流补包或重复事件导致持久化内容漂移。
+                            reasoningSummaryBuffers[summary.providerItemId to summary.summaryIndex] = StringBuilder(summary.text)
+                        }
                         streamEvent.finalText?.let { finalText ->
                             // long: Responses API 的 done/completed 事件会给出服务端汇总后的完整文本；它能纠正部分网关把换行拆成独立 delta 时客户端漏拼的问题。
                             finalTextFromStream = finalText
@@ -204,6 +218,11 @@ class OpenAiCompatibleClient(
                     },
                     firstByteLatencyMs = firstByteLatencyMs,
                     firstTokenLatencyMs = firstTokenLatencyMs,
+                    reasoningSummaries = reasoningSummaryBuffers.mapNotNull { (key, value) ->
+                        value.toString().takeIf { it.isNotBlank() }?.let { text ->
+                            ModelReasoningSummary(providerItemId = key.first, summaryIndex = key.second, text = text)
+                        }
+                    },
                     usage = null,
                 ).also {
                     NetworkDebugLogger.logStreamCompleted(completedText)
@@ -221,11 +240,13 @@ class OpenAiCompatibleClient(
         val text: String,
         val firstByteLatencyMs: Long?,
         val firstTokenLatencyMs: Long?,
+        val reasoningSummaries: List<ModelReasoningSummary>,
         val usage: ModelTokenUsage?,
     )
 
     private data class ParsedCompletion(
         val text: String,
+        val reasoningSummaries: List<ModelReasoningSummary>,
         val usage: ModelTokenUsage?,
     )
 
@@ -253,7 +274,7 @@ private object NetworkDebugLogger {
     fun logResponse(request: Request, code: Int, body: String) {
         if (!enabled) return
         Log.d(TAG, "RESPONSE ${request.method} ${request.url} code=$code")
-        Log.d(TAG, "RESPONSE body=$body")
+        Log.d(TAG, "RESPONSE body=${NetworkDebugLogSanitizer.sanitize(body)}")
     }
 
     fun logStreamResponseStart(request: Request, code: Int) {
@@ -263,7 +284,7 @@ private object NetworkDebugLogger {
 
     fun logStreamEvent(data: String) {
         if (!enabled) return
-        Log.d(TAG, "STREAM_EVENT data=$data")
+        Log.d(TAG, "STREAM_EVENT data=${NetworkDebugLogSanitizer.sanitize(data)}")
     }
 
     fun logStreamCompleted(text: String) {

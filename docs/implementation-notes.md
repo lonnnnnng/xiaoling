@@ -58,11 +58,13 @@
 
 ## 消息 parts
 
-- `MessagePart.Text / MessagePart.Tool` 是当前结构化消息模型。Text 保存稳定 part ID 与正文；Tool 保存工具名、排序参数、结果、成功状态、`VERIFIED / FAILED / READABLE_ONLY`、记忆引用和消息内顺序。
-- Room v22 新增 `message_parts`。`messages.text` 保留为旧版本、搜索、摘要和导出路径的兼容投影；v21→v22 为每条历史消息生成 `${messageId}-text`，不解析旧 `verifiedAgentContext` 创建 Tool 行。
-- `AgentMessagePartPolicy` 同时核对 `MessageOrigin.AGENT_RESULT`、`VerifiedAgentContext` 和已存 parts。普通 assistant 即使自由文本声称执行成功或异常携带上下文，也只得到 Text；Agent 结果的已存 parts 只有与可信投影逐项一致时才保留数据库 ID，内容漂移则 fail-closed 回退可信投影。
+- `MessagePart.Text / Reasoning / Tool` 是当前结构化消息模型。Reasoning 保存稳定 part ID、`PROVIDER_SUMMARY` 来源、供应商 item ID、summary index 和摘要正文；Tool 继续保存工具名、排序参数、结果、成功状态、验证状态和记忆引用。
+- Room v23 为 `message_parts` 增加可空 `reasoningSource / providerItemId / summaryIndex`。v22→v23 不回填 Reasoning；历史 Text/Tool 三列保持空，避免从旧正文或工具审计猜造模型过程。
+- 普通对话的“推理”开关默认关闭并持久化到设备偏好。开启后只有 Responses payload 加入 `reasoning.summary=auto`；非流式解析 `output[].type=reasoning` 的 `summary_text`，流式按 `response.reasoning_summary_text.delta/done` 聚合。`ProviderMessagePartPolicy` 去重来源身份并固定 Reasoning 在 Text 前。
+- 原始 `reasoning_text` 不进入最终正文或消息 parts；Chat Completions 非标准 `reasoning/reasoning_content` 也不读取。debug 包记录响应或 SSE 时先通过 `NetworkDebugLogSanitizer` 递归脱敏原始推理字段，带推理标记但无法解析的 payload 整体失败关闭。官方协议依据：[Reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) 与 [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events/)。
+- `AgentMessagePartPolicy` 同时核对 `MessageOrigin.AGENT_RESULT`、`VerifiedAgentContext` 和已存 parts。普通 assistant 可以保留供应商 Reasoning，但不能生成 Tool；Agent 结果忽略 Reasoning，只按可信上下文投影 Tool，内容漂移时 fail-closed 回退。
 - `MessageRepository` 是前台会话和后台 Workflow 的统一写入口，在同一事务内写 message 与 parts；覆盖同一消息前先删除旧 parts，避免缩短后的消息残留孤立 Tool 行。`ConversationRepository.save()` 对普通前台快照只做增量 upsert，不根据快照差集删除；ViewModel 把用户明确删除的会话 ID 保留到事务成功后再清除，因此保存任务取消或失败不会丢失删除意图，也不会误删后台刚创建的独立会话。旧 SharedPreferences 会话进入 Room 时也自动获得 Text part。
-- Compose 在同一消息气泡内按顺序渲染 Text 和 Tool。Tool 使用非嵌套证据区显示工具名、状态、排序参数、结果和记忆引用数量；流式 Text 在完成前仍使用稳定纯文本，完成后再恢复 Markdown。
+- Compose 在同一消息气泡内按顺序渲染 Reasoning、Text 和 Tool。Reasoning 默认折叠并显示“供应商提供”，展开后按 Markdown 渲染；Tool 继续使用非嵌套证据区，流式 Text 在完成前使用稳定纯文本。
 
 ## 最小 Agent 链路
 
@@ -207,7 +209,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本消息和 `function_call / function_call_output` typed Items；Room/Compose 已完成 Text/Tool parts 垂直切片。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；Reasoning/Image/Document parts 仍待实现。
+- Responses Adapter 已支持文本消息、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Tool parts 垂直切片。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；Image/Document parts 仍待实现。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复；执行/验证中间态默认必须安全重新运行，仅 `notes.create` 与 `memory.remember` 的完整已提交证据可进入受限只读验证。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有具有完整历史证据的 `notes.create` 与 `memory.remember` 会恢复只读验证和本地总结。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；其他写工具和后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

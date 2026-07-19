@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v22 Text/Tool parts 已让自然语言回复与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。多步骤前后台、审批恢复、Agent Profile 和消息 parts 已完成真实模型 Redmi 真机验收；Reasoning/Image/Document parts 与通用旧执行栈续跑仍未交付。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v23 Text/Reasoning/Tool parts 已让自然语言回复、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。多步骤前后台、审批恢复、Agent Profile 和消息 parts 已完成真实模型 Redmi 真机验收；Image/Document parts 与通用旧执行栈续跑仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -27,7 +27,7 @@
 - Android Keystore 密钥保护和网络错误分类。
 - 请求取消和停止生成。
 - 多 Agent Profile 创建、编辑、选择和删除；每个 Profile 固定 Provider/模型、API 模式、系统提示词、上下文策略、工具/Skill 白名单和记忆开关。
-- Text/Tool 消息 parts：历史/流式文本兼容、Tool 可信投影、前后台统一 Room 写入和同气泡证据展示。
+- Text/Reasoning/Tool 消息 parts：历史/流式文本兼容、供应商 summary 折叠展示、Tool 可信投影、前后台统一 Room 写入和同气泡证据展示。
 - `AgentRun / AgentStep / ApprovalRequest / RunEvent / AgentMemory` 初始数据模型，以及 `/agent` 模型规划 + 应用内低风险工具链路。
 - 最小 Agent Runtime 已具备工具调用预算、模型/工具步骤超时、整次 Run 超时、完整 Schema/业务规则/Android 权限校验、重复工具调用检测和结构化事件记录。
 - 对话区已能显示当前 `/agent` Run 的最小时间线和审批卡片，批准后继续执行，拒绝后写入失败终态；交互审批当前不主动过期，审批请求已具备待确认状态和决定结果落库。
@@ -98,7 +98,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v22 迁移测试源码、Text/Tool 消息 parts、Repository、Responses API 结构化文本历史、函数 typed Items、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v23 迁移测试源码、Text/Reasoning/Tool 消息 parts、Repository、Responses API 结构化文本历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -108,7 +108,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v22 migration 链、event metadata、Run 重试、Memory FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照、独立工具账本、Agent Profile 和 MessagePart 提供自动化测试。
+- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v23 migration 链、event metadata、Run 重试、Memory FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照、独立工具账本、Agent Profile 和 MessagePart 提供自动化测试。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -323,15 +323,15 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 | 优先级 | 工作项 | 当前状态 | 原因 |
 |---|---|---|---|
-| P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items；Reasoning/Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
-| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v22、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/调度/步骤定义表迁移、笔记幂等索引、记忆 operation ledger/结果快照、独立工具账本、Agent Profile、MessagePart 和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
+| P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括函数调用与结果 typed Items、可选 Reasoning summary；Image/File Items 后续扩展 | 后续 Agent 循环的基础协议 |
+| P0 | Room、Repository、迁移测试和导出 | Room/Repository、Schema 导出、v4→v23、event metadata、重试关联、Memory FTS、候选表、生命周期、Skill/Workflow/调度/步骤定义表迁移、笔记幂等索引、记忆 operation ledger/结果快照、独立工具账本、Agent Profile、MessagePart 和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
 | P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止和运行中撤权边界已完成；`notes.create` 与 `memory.remember` 已完成完整幂等证明及受限验证阶段恢复 | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
 | P1 | Agent Profile v1 | 多 Profile 管理、固定 Provider/模型/协议、角色提示、上下文策略、工具/Skill 白名单、记忆硬边界和 Run 快照恢复已完成 | 把 Agent 身份与普通聊天配置分离 |
-| P1 | 结构化消息 parts | Text/Tool 持久化、旧 text 回填、可信 Tool 投影、前后台统一写入和 Compose 展示已完成；Reasoning/Image/Document 待后续 | 让聊天内容与工具执行事实进入同一可恢复消息模型 |
+| P1 | 结构化消息 parts | Text/Reasoning/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、前后台统一写入和 Compose 展示已完成；Image/Document 待后续 | 让聊天内容、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 未开始 | 提升输入输出能力 |
@@ -375,7 +375,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 22. 已完成：失败 Run 的重试副作用判断改为 Ledger-first，并复用 `AgentToolLedgerConsistencyPolicy` 的完整链路检查。非 SAFE 调用只要结果成功，或回执为 `COMMITTED / UNKNOWN`，就要求二次确认；异常账本同样 fail-safe，明确 `NOT_COMMITTED` 的失败结果和仅 validated 尚未执行的调用不额外抬高门禁。账本全空的旧 Run 保留 typed event 回退，旧 Run 本身仍不修改。Run 质量和模型遥测继续使用 Step/LLM typed event，因为 Tool Ledger 没有等价耗时、TTFB、Prompt 与 usage 字段，不为追求形式统一而改变统计口径。
 23. 已完成：Agent Profile v1 使用 Room v21 `agent_profiles` 保存名称、标识、Provider/模型、API 模式、系统提示词、当前会话上下文策略、工具/Skill 白名单和记忆开关。新 Run 写入唯一 `agent.profile.selected` 快照；Profile Registry 是工具执行硬边界，Skill 只能继续缩小。审批恢复和已提交结果恢复固定原 Run 快照，重复、损坏或越权审计 fail-closed；前台/后台 Workflow 单次执行固定同一 Profile。设置页已完成新增、编辑、选择、删除和 Provider 绑定保护，真实 `Time Agent + gpt-5.5 + Responses + app.current_time` 已在 Redmi 完成端到端验收。
 24. 已完成：Room v22 新增 `message_parts`，Text/Tool 使用稳定 ID 与 sequence。v21→v22 只回填旧 Text；新 Agent 结果依据 `AGENT_RESULT + VerifiedAgentContext` 生成 Tool，普通聊天无法伪造。`MessageRepository` 统一前后台原子写入，前台快照增量 upsert 且只按显式 ID 删除会话，Compose 同气泡展示 Text 与 Tool 证据。242 条 JVM、仅 Redmi 执行的 73 条 instrumentation 和真实 `gpt-5.5 + app.current_time` Run 均通过；交错写测试确认旧前台快照不会删除后台追加消息或新建会话，数据库确认最新消息为 sequence 0 Text + sequence 1 Tool。
+25. 已完成：Room v23 为 Reasoning part 增加来源、供应商 item ID 和 summary index。普通对话仅在 Responses 模式且用户显式开启时发送 `reasoning.summary=auto`；非流式和 SSE 流式只接收供应商 `summary_text`，按来源身份去重并固定在 Text 前，Compose 默认折叠并标注“供应商提供”。原始 `reasoning_text`、Chat Completions 非标准 `reasoning_content` 和 Agent 结果中的 Reasoning 均不能进入正文、parts 或 `VerifiedAgentContext`；debug 响应与 SSE 日志也做结构化脱敏，无法解析的可疑内容失败关闭。256 条 JVM、仅 Redmi 执行的 77 条 instrumentation 均通过；`gpt-5.5` 非流式和流式真实请求都返回 Reasoning summary，Room 回查均为 sequence 0 Reasoning + sequence 1 Text，应用最终保持 Redmi 前台且 crash buffer 为空。
 
-下一阶段建议实现 Reasoning part 的本地持久化与折叠展示，并明确它只能是模型思考摘要/供应商返回内容，不能进入 `VerifiedAgentContext` 或替代 Tool 事实。Image/Document 等附件在 Reasoning 垂直切片稳定后再评估。
+下一阶段建议先评估 Image/Document parts 的协议来源、文件生命周期、Room 元数据、备份边界和 Compose 展示，再选择一个最小垂直切片实施。附件不能直接扩大 Agent 工具权限，也不能把未经验证的模型描述提升为工具事实。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

@@ -51,6 +51,17 @@ class UiPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadReasoningSummaryEnabled(): Boolean {
+        return preferences.getBoolean(KEY_REASONING_SUMMARY_ENABLED, false)
+    }
+
+    fun saveReasoningSummaryEnabled(enabled: Boolean) {
+        // long: 供应商推理摘要是显式 opt-in，旧版本升级和首次安装都保持关闭；用户选择单独持久化，不能随 Provider 切换被意外开启。
+        preferences.edit()
+            .putBoolean(KEY_REASONING_SUMMARY_ENABLED, enabled)
+            .apply()
+    }
+
     fun loadPromptSettings(): PromptSettings {
         return PromptSettings(
             chatPromptEnabled = preferences.getBoolean(KEY_CHAT_PROMPT_ENABLED, false),
@@ -85,6 +96,7 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_AGENT_SUMMARY_PROMPT = "agent_summary_prompt"
         private const val KEY_MEMORY_CANDIDATES_ENABLED = "memory_candidates_enabled"
         private const val KEY_USER_AGENT = "user_agent"
+        private const val KEY_REASONING_SUMMARY_ENABLED = "reasoning_summary_enabled"
         private const val MAX_USER_AGENT_LENGTH = 512
     }
 }

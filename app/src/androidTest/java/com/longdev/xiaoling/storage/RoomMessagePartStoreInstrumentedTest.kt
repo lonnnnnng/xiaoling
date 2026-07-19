@@ -12,6 +12,7 @@ import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -102,6 +103,43 @@ class RoomMessagePartStoreInstrumentedTest {
             .single()
 
         assertEquals("Agent 任务已完成", restored.text)
+        assertEquals(parts, restored.parts)
+    }
+
+    @Test
+    fun reasoningAndTextPartsRoundTripAcrossDatabaseReopen() = runBlocking {
+        val parts = listOf(
+            MessagePart.Reasoning(
+                id = "part-reasoning-stable",
+                text = "先核对输入，再组织答案。",
+                source = MessageReasoningSource.PROVIDER_SUMMARY,
+                providerItemId = "rs-room-1",
+                summaryIndex = 2,
+            ),
+            MessagePart.Text(id = "part-reasoning-text", text = "最终答案"),
+        )
+        val stored = StoredConversationMessage(
+            id = "message-reasoning-parts",
+            role = "assistant",
+            text = "最终答案",
+            createdAt = 101L,
+            origin = "ORDINARY_ASSISTANT",
+            verifiedAgentContext = null,
+            meta = null,
+            parts = parts,
+        )
+
+        openDatabase().let { first ->
+            MessageRepository(first).replaceAll(listOf("conversation-reasoning-parts" to stored))
+            first.close()
+            database = null
+        }
+
+        val restored = MessageRepository(openDatabase())
+            .loadGroupedByConversation()
+            .getValue("conversation-reasoning-parts")
+            .single()
+
         assertEquals(parts, restored.parts)
     }
 

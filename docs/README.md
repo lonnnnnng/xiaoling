@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v22、Text/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v22 `message_parts` 为每条消息保存稳定 ID、顺序和 Text/Tool 结构；旧 `messages.text` 继续作为兼容投影，SQL 迁移只回填 Text，不解析历史 JSON 猜造 Tool。新 Agent 结果只有在 `MessageOrigin.AGENT_RESULT + VerifiedAgentContext` 一致时才生成 Tool part，普通聊天不能把自由文本或伪造上下文提升为工具事实。前台会话快照只增量 upsert，用户删除通过显式会话 ID 持久化，后台 Workflow 新建或追加的消息与 parts 不会被旧前台快照清除。Reasoning/Image/Document parts 仍待后续阶段。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v23、Text/Reasoning/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v23 `message_parts` 为 Reasoning 保存来源、供应商 item ID 与 summary index；普通对话只有在用户显式开启且使用 Responses API 时请求 `reasoning.summary=auto`，仅持久化供应商 `summary_text`，原始 `reasoning_text` 不进入正文、消息 parts、debug 响应日志或 Agent 可信上下文。新 Agent 结果仍只有在 `MessageOrigin.AGENT_RESULT + VerifiedAgentContext` 一致时生成 Tool part，Reasoning 不能替代工具事实。Image/Document parts 仍待后续阶段。
 
 ## 推荐阅读顺序
 

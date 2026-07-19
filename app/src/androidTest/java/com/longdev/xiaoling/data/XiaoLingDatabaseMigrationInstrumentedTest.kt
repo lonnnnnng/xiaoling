@@ -791,6 +791,47 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate22To23AddsEmptyReasoningProvenanceWithoutInventingParts() = runBlocking {
+        migrationHelper.createDatabase(REASONING_PARTS_MIGRATION_DATABASE_NAME, 22).apply {
+            execSQL(
+                """
+                INSERT INTO message_parts (
+                    id, messageId, sequence, type, text, toolName,
+                    argumentsJson, result, success, verificationStatus, memoryIdsJson
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "part-v22-text", "message-v22", 0, "TEXT", "旧正文",
+                    null, null, null, null, null, null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            REASONING_PARTS_MIGRATION_DATABASE_NAME,
+            23,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT type, reasoningSource, providerItemId, summaryIndex FROM message_parts WHERE id = 'part-v22-text'",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("TEXT", cursor.getString(0))
+            assertNull(cursor.getString(1))
+            assertNull(cursor.getString(2))
+            assertNull(cursor.getString(3))
+        }
+        migrated.query("SELECT COUNT(*) FROM message_parts WHERE type = 'REASONING'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -863,5 +904,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val TOOL_LEDGER_MIGRATION_DATABASE_NAME = "xiaoling-tool-ledger-migration-test"
         private const val AGENT_PROFILE_MIGRATION_DATABASE_NAME = "xiaoling-agent-profile-migration-test"
         private const val MESSAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-message-parts-migration-test"
+        private const val REASONING_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-reasoning-parts-migration-test"
     }
 }

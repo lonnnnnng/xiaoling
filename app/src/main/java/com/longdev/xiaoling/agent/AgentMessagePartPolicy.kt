@@ -15,8 +15,18 @@ object AgentMessagePartPolicy {
         val textPart = MessagePart.Text(id = "$messageId-text", text = text)
         // long: 普通模型文本即使伪造了工具完成文案或异常携带可信上下文，也不能进入 Tool part；只有应用写入的 Agent 结果可投影执行事实。
         if (origin != MessageOrigin.AGENT_RESULT || verifiedContext == null) {
-            val projected = listOf(textPart)
-            return storedParts.takeIf { it.hasSameContentAs(projected) } ?: projected
+            val reasoningParts = if (origin == MessageOrigin.ORDINARY_ASSISTANT) {
+                storedParts.filterIsInstance<MessagePart.Reasoning>()
+                    .filter { it.text.isNotBlank() && it.summaryIndex >= 0 }
+                    .distinctBy { it.providerItemId to it.summaryIndex }
+            } else {
+                emptyList()
+            }
+            val projected = reasoningParts + textPart
+            val safeStoredParts = storedParts.filter { part ->
+                part is MessagePart.Text || part in reasoningParts
+            }
+            return safeStoredParts.takeIf { it.hasSameContentAs(projected) } ?: projected
         }
         val projected = listOf(textPart) + verifiedContext.effectiveExecutions().mapIndexed { index, execution ->
             MessagePart.Tool(
@@ -59,6 +69,8 @@ object AgentMessagePartPolicy {
         return zip(expected).all { (stored, projected) ->
             when {
                 stored is MessagePart.Text && projected is MessagePart.Text -> stored.text == projected.text
+                stored is MessagePart.Reasoning && projected is MessagePart.Reasoning ->
+                    stored.copy(id = projected.id) == projected
                 stored is MessagePart.Tool && projected is MessagePart.Tool -> stored.copy(id = projected.id) == projected
                 else -> false
             }

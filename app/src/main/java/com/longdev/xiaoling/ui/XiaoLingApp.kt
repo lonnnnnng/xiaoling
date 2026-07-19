@@ -98,6 +98,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -1093,6 +1094,7 @@ private fun ConversationPage(
                 onModelSelected = viewModel::updateModel,
                 onResponsesChanged = viewModel::updateResponsesEnabled,
                 onStreamingChanged = viewModel::updateStreamingEnabled,
+                onReasoningSummaryChanged = viewModel::updateReasoningSummaryEnabled,
                 onAgentMemoryRecallChanged = viewModel::updateAgentMemoryRecallEnabled,
                 onAgentProfileSelected = viewModel::selectAgentProfile,
                 onPromptChange = viewModel::updatePrompt,
@@ -1220,6 +1222,7 @@ private fun MessageInputBar(
     onModelSelected: (String) -> Unit,
     onResponsesChanged: (Boolean) -> Unit,
     onStreamingChanged: (Boolean) -> Unit,
+    onReasoningSummaryChanged: (Boolean) -> Unit,
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onAgentProfileSelected: (String) -> Unit,
     onPromptChange: (String) -> Unit,
@@ -1269,6 +1272,7 @@ private fun MessageInputBar(
                 onModelSelected = onModelSelected,
                 onResponsesChanged = onResponsesChanged,
                 onStreamingChanged = onStreamingChanged,
+                onReasoningSummaryChanged = onReasoningSummaryChanged,
                 agentCommand = canRunAgent,
                 onAgentMemoryRecallChanged = onAgentMemoryRecallChanged,
                 onAgentProfileSelected = onAgentProfileSelected,
@@ -1682,6 +1686,7 @@ private fun InputOptionRow(
     onModelSelected: (String) -> Unit,
     onResponsesChanged: (Boolean) -> Unit,
     onStreamingChanged: (Boolean) -> Unit,
+    onReasoningSummaryChanged: (Boolean) -> Unit,
     agentCommand: Boolean,
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onAgentProfileSelected: (String) -> Unit,
@@ -1707,6 +1712,14 @@ private fun InputOptionRow(
                 enabled = enabled,
                 onCheckedChange = onResponsesChanged,
             )
+            if (state.apiMode == ApiMode.RESPONSES) {
+                CompactCheckOption(
+                    text = "推理",
+                    checked = state.reasoningSummaryEnabled,
+                    enabled = enabled,
+                    onCheckedChange = onReasoningSummaryChanged,
+                )
+            }
         }
         if (agentCommand) {
             val selectedAgent = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }
@@ -5732,8 +5745,56 @@ private fun MessageBodyParts(
         if (index > 0) Spacer(Modifier.height(7.dp))
         when (part) {
             is MessagePart.Text -> MessageTextPart(message, part.text, contentColor)
+            is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
             is MessagePart.Tool -> ToolMessagePartContent(part, contentColor)
         }
+    }
+}
+
+@Composable
+internal fun ReasoningMessagePartContent(
+    part: MessagePart.Reasoning,
+    contentColor: Color,
+) {
+    var expanded by rememberSaveable(part.id) { mutableStateOf(false) }
+    HorizontalDivider(color = contentColor.copy(alpha = 0.16f))
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(top = 7.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Visibility,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(15.dp),
+        )
+        Text(
+            text = "推理摘要",
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = contentColor,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "供应商提供",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = contentColor.copy(alpha = 0.68f),
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Default.ArrowUpward else Icons.Default.ArrowDropDown,
+            contentDescription = if (expanded) "收起推理摘要" else "展开推理摘要",
+            tint = contentColor.copy(alpha = 0.78f),
+            modifier = Modifier.size(16.dp),
+        )
+    }
+    if (expanded) {
+        StreamingMarkdownText(
+            markdown = part.text,
+            contentColor = contentColor.copy(alpha = 0.9f),
+        )
     }
 }
 
