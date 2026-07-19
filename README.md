@@ -22,7 +22,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持发送中停止生成，取消当前请求和底层 OkHttp Call。
   - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
   - Responses 模式支持从系统文件选择器附加单张 PNG/JPEG/WEBP 图片（最大 8 MB），发送前可预览或移除，历史消息可恢复显示；Chat Completions 和 `/agent` 会明确拒绝图片。
-  - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON 或 CSV 文档；文档最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，原始文件与受限提取文本随消息恢复。
+  - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 或 XLSX 文档；文件最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，OpenXML 富文档会校验 ZIP/OPC 结构与展开预算，原始文件随消息恢复。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
@@ -101,12 +101,12 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 281 项 JVM 测试通过，0 失败、0 错误、0 跳过。
-- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 92 条 instrumentation，0 失败、0 跳过；在线模拟器未参与安装、测试、截图或验收。
-- Redmi 当前设备 Provider 使用 `gpt-5.5 + Responses` 完成真实 Markdown 文档轮次，模型在 4.33 秒返回 `DOC_STAGE27_OK`；Room 回读确认 67 字节原始 BLOB 与 67 字符提取文本已持久化。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 284 项 JVM 测试通过，0 失败、0 错误、0 跳过。
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 93 条 instrumentation，0 失败、0 跳过；在线模拟器未参与安装、测试、截图或验收。
+- Redmi 当前设备 Provider 使用 `gpt-5.5 + Responses` 完成真实 DOCX 轮次，模型在 4800 ms 返回 `RICH_DOC_STAGE28_OK`；正式 instrumentation 同时确认 DOCX 结构校验不进入 UTF-8 文本路径。
 - Redmi 主库已升级到 Room v25；v24→v25 迁移只增加 Document 元数据列，不补造历史文档，现有 Text/Reasoning/Image/Tool 数据保持不变。
 - Debug 请求日志确认 `input_file.file_data`、Authorization、原始/加密推理内容均被脱敏；默认 User-Agent 保持正确。
-- 最终 Debug APK SHA-256：`53c7fdb9641e3bdb3a06531b97078b4edce70606fa30da6315e072d26fd87572`。
+- 最终 Debug APK SHA-256：`8d6a60f84f1c1f8e1002a785ae96cd5b36c83dded86fb420cd615656f3a3f641`。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 
 ## 文档

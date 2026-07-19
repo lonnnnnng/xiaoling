@@ -1075,3 +1075,23 @@ Redmi 真实模型、UI、日志与数据库验收：
 - Chat Completions 下首次发送被应用正确阻止并提示切换 Responses。切换 `gpt-5.5 + Responses` 后，真实请求在 4.33 秒返回精确 `DOC_STAGE27_OK`；历史消息气泡同时显示文档 MIME、大小和字符预算。
 - `XiaoLingHttp` 日志确认 `file_data`、Authorization 均脱敏，默认 User-Agent 正确，最终响应文本保留。Redmi 主库只读回查为 `PRAGMA user_version=25`，Provider 1 条，最新 Document 行为 `text/markdown / lingce-stage27.md / 67 bytes / 67 chars / AUTO`。
 - 最终 Debug APK SHA-256：`53c7fdb9641e3bdb3a06531b97078b4edce70606fa30da6315e072d26fd87572`。最终包冷启动到 `com.longdev.xiaoling/.MainActivity`，进程存活，crash buffer 为空。
+
+## 2026-07-19 OpenXML 富文档直传
+
+实现与安全边界：
+
+- Document part 在 Room v25 原有列上增加 DOCX、PPTX、XLSX MIME，不新增表或迁移；原始 OpenXML 包继续作为 BLOB 随消息、备份和当前会话加载，轻量快照和 USER-only 信任边界不变。
+- `OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与数据范围，再以固定缓冲区流式解压核对条目集合、CRC 和真实展开量。DOCX/PPTX/XLSX 分别要求非空 `[Content_Types].xml` 与 `word/document.xml / ppt/presentation.xml / xl/workbook.xml`；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/根入口不一致均拒绝。
+- 系统文件选择器增加三种 OpenXML MIME；Responses 继续使用 `input_file + filename + file_data`，不改变 Chat Completions 与 `/agent` 的附件拒绝策略。大于 8 MB 或需要跨文档检索的内容仍不进入直传，RAG 尚未实现。
+
+官方协议与自动化：
+
+- `smart-search fetch https://developers.openai.com/api/docs/guides/file-inputs --format markdown` 的官方正文确认 Responses 接受 DOCX、PPTX、XLSX，非 PDF 富文档只提取文本，电子表格另走 spreadsheet augmentation；官方建议大文件使用 File Search。本项目继续采用更保守的 8 MB 移动端预算。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 强制重跑通过，88 个 Gradle task 全部执行；284 条 JVM 测试，0 失败、0 错误、0 跳过。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 安装最终 Debug/Test APK，并运行完整 93 条正式 instrumentation，`OK (93 tests)`，0 失败、0 跳过；新增真机覆盖有效 DOCX 从 URI 读取、结构校验且不进入 UTF-8 文本路径。在线模拟器未参与。
+
+真实模型与日志：
+
+- 一次性、不提交的 Redmi instrumentation 使用设备现有 Provider 和 Keystore 配置，将结构完整的最小 DOCX 发送给 `gpt-5.5 + Responses`。最终实现复测耗时 4800 ms，精确返回 `RICH_DOC_STAGE28_OK`；一次性测试随后删除，不进入正式 Test APK。
+- `XiaoLingHttp` 请求日志显示 `filename=lingce-stage28.docx`、`file_data=***REDACTED***`、Authorization=`***MASKED***`、默认 User-Agent 正确；响应中的 `encrypted_content` 与 reasoning context 同样脱敏，固定结果文本保留。
+- 最终 Debug APK SHA-256：`8d6a60f84f1c1f8e1002a785ae96cd5b36c83dded86fb420cd615656f3a3f641`。最终包在 Redmi 冷启动进入 `com.longdev.xiaoling/.MainActivity`，进程存活，crash buffer 为空。

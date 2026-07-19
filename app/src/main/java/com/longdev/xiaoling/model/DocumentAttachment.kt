@@ -67,7 +67,7 @@ object DocumentAttachmentPolicy {
     ): DocumentAttachment {
         val normalizedMimeType = normalizeMimeType(mimeType)
         val extension = SUPPORTED_MIME_TYPES[normalizedMimeType]
-            ?: throw DocumentAttachmentException("不支持的文档格式，仅支持 PDF、TXT、Markdown、JSON 和 CSV")
+            ?: throw DocumentAttachmentException(UNSUPPORTED_DOCUMENT_MESSAGE)
         if (data.isEmpty()) throw DocumentAttachmentException("文档内容为空")
         if (data.size > MAX_DOCUMENT_BYTES) {
             throw DocumentAttachmentException("文档不能超过 ${MAX_DOCUMENT_BYTES / 1024 / 1024} MB")
@@ -75,6 +75,7 @@ object DocumentAttachmentPolicy {
 
         val canonicalText: String?
         val canonicalPageCount: Int?
+        val openXmlType = OpenXmlDocumentPolicy.typeForMimeType(normalizedMimeType)
         if (normalizedMimeType == PDF_MIME_TYPE) {
             if (!data.startsWith(PDF_SIGNATURE)) {
                 throw DocumentAttachmentException("文档内容与 PDF 格式不一致")
@@ -84,6 +85,13 @@ object DocumentAttachmentPolicy {
                 ?: throw DocumentAttachmentException("PDF 页数必须在 1 到 $MAX_PDF_PAGES 页之间")
             canonicalText = null
             if (extractedText != null) throw DocumentAttachmentException("PDF 不接受本地伪造的提取文本")
+        } else if (openXmlType != null) {
+            if (pageCount != null || extractedText != null) {
+                throw DocumentAttachmentException("富文档不接受本地伪造的文本或页数")
+            }
+            OpenXmlDocumentPolicy.validate(openXmlType, data)
+            canonicalText = null
+            canonicalPageCount = null
         } else {
             if (data.startsWith(PDF_SIGNATURE)) {
                 throw DocumentAttachmentException("文档内容与声明格式不一致，PDF 必须按 PDF 解析")
@@ -108,7 +116,7 @@ object DocumentAttachmentPolicy {
             .trim()
             .take(MAX_FILE_NAME_LENGTH)
             .ifBlank { "document.$extension" }
-        // long: 系统文件授权可能在发送前失效；原始字节与受预算约束的本地文本一起进入消息模型，后续请求、展示和 Room 备份不再依赖外部 URI。
+        // long: 系统文件授权可能在发送前失效；原始字节直接进入消息模型，文本类另带受预算约束的提取结果，后续请求、展示和 Room 备份不再依赖外部 URI。
         return DocumentAttachment(
             fileName = normalizedFileName,
             mimeType = normalizedMimeType,
@@ -137,11 +145,14 @@ object DocumentAttachmentPolicy {
         declaredMimeType: String?,
         data: ByteArray,
     ): String {
-        val declared = declaredMimeType
+        val normalizedDeclared = declaredMimeType
             ?.let(::normalizeMimeType)
+            ?.takeIf(String::isNotBlank)
+        val declared = normalizedDeclared
             ?.takeIf(SUPPORTED_MIME_TYPES::containsKey)
         val inferred = inferMimeType(fileName)
         val hasPdfSignature = data.startsWith(PDF_SIGNATURE)
+        val hasZipSignature = OpenXmlDocumentPolicy.looksLikeZip(data)
         if (hasPdfSignature) {
             if (inferred != null && inferred != PDF_MIME_TYPE) {
                 throw DocumentAttachmentException("文档扩展名与 PDF 内容不一致")
@@ -152,9 +163,31 @@ object DocumentAttachmentPolicy {
         if (declared == PDF_MIME_TYPE || inferred == PDF_MIME_TYPE) {
             throw DocumentAttachmentException("文档内容与 PDF 格式不一致")
         }
+        val inferredOpenXml = OpenXmlDocumentPolicy.typeForMimeType(inferred)
+        val declaredOpenXml = OpenXmlDocumentPolicy.typeForMimeType(declared)
+        if (hasZipSignature) {
+            if (inferred != null && inferredOpenXml == null) {
+                throw DocumentAttachmentException("文档扩展名与富文档内容不一致")
+            }
+            if (inferredOpenXml != null && declaredOpenXml != null && inferredOpenXml != declaredOpenXml) {
+                throw DocumentAttachmentException("富文档扩展名与 MIME 不一致")
+            }
+            val resolvedOpenXml = inferredOpenXml ?: declaredOpenXml
+            if (normalizedDeclared != null &&
+                !OpenXmlDocumentPolicy.isGenericZipMimeType(normalizedDeclared) &&
+                declaredOpenXml != resolvedOpenXml
+            ) {
+                throw DocumentAttachmentException("富文档扩展名与 MIME 不一致")
+            }
+            return resolvedOpenXml?.mimeType
+                ?: throw DocumentAttachmentException(UNSUPPORTED_DOCUMENT_MESSAGE)
+        }
+        if (inferredOpenXml != null || declaredOpenXml != null) {
+            throw DocumentAttachmentException("富文档内容不是有效 ZIP/OPC 包")
+        }
         return inferred
             ?: declared
-            ?: throw DocumentAttachmentException("无法识别文档格式，仅支持 PDF、TXT、Markdown、JSON 和 CSV")
+            ?: throw DocumentAttachmentException(UNSUPPORTED_DOCUMENT_MESSAGE)
     }
 
     internal fun normalizeMimeType(mimeType: String): String = mimeType.trim().lowercase().let { value ->
@@ -167,8 +200,13 @@ object DocumentAttachmentPolicy {
         "md", "markdown" -> "text/markdown"
         "json" -> "application/json"
         "csv" -> "text/csv"
+        "docx" -> OpenXmlDocumentType.DOCX.mimeType
+        "pptx" -> OpenXmlDocumentType.PPTX.mimeType
+        "xlsx" -> OpenXmlDocumentType.XLSX.mimeType
         else -> null
     }
+
+    fun pickerMimeTypes(): Array<String> = SUPPORTED_MIME_TYPES.keys.toTypedArray()
 
     private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
         if (size < prefix.size) return false
@@ -181,6 +219,9 @@ object DocumentAttachmentPolicy {
         "text/markdown" to "md",
         "application/json" to "json",
         "text/csv" to "csv",
+        OpenXmlDocumentType.DOCX.mimeType to OpenXmlDocumentType.DOCX.extension,
+        OpenXmlDocumentType.PPTX.mimeType to OpenXmlDocumentType.PPTX.extension,
+        OpenXmlDocumentType.XLSX.mimeType to OpenXmlDocumentType.XLSX.extension,
     )
     private val MIME_TYPE_ALIASES = mapOf(
         "application/x-pdf" to PDF_MIME_TYPE,
@@ -191,4 +232,6 @@ object DocumentAttachmentPolicy {
     private val PDF_SIGNATURE = "%PDF-".toByteArray(Charsets.US_ASCII)
     private const val PDF_MIME_TYPE = "application/pdf"
     private const val MAX_FILE_NAME_LENGTH = 120
+    private const val UNSUPPORTED_DOCUMENT_MESSAGE =
+        "无法识别文档格式，仅支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX"
 }

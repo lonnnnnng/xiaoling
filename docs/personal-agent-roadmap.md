@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v25 Text/Reasoning/Image/Document/Tool parts 已让自然语言、用户图片/文档、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。用户 Image 与 Document v1 均已完成真实 `gpt-5.5 + Responses` Redmi 验收；富文档、大文件 RAG 与通用旧执行栈续跑仍未交付。
+小灵在 `v0.1.9` 之后的当前 `main` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v25 Text/Reasoning/Image/Document/Tool parts 已让自然语言、用户图片/文档、供应商推理摘要与可信工具结果在同一消息内持久化和恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow 与 WorkManager 非精确定时均已交付。用户 Image、基础 Document 与 DOCX/PPTX/XLSX 富文档直传均已完成真实 `gpt-5.5 + Responses` Redmi 验收；大文件 RAG 与通用旧执行栈续跑仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -334,7 +334,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image 与 PDF/UTF-8 Document v1 已完成；富文档、语音和 RAG 未开始 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传已完成；语音和 RAG 未开始 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -378,7 +378,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 25. 已完成：Room v23 为 Reasoning part 增加来源、供应商 item ID 和 summary index。普通对话仅在 Responses 模式且用户显式开启时发送 `reasoning.summary=auto`；非流式和 SSE 流式只接收供应商 `summary_text`，按来源身份去重并固定在 Text 前，Compose 默认折叠并标注“供应商提供”。原始 `reasoning_text`、Chat Completions 非标准 `reasoning_content` 和 Agent 结果中的 Reasoning 均不能进入正文、parts 或 `VerifiedAgentContext`；debug 响应与 SSE 日志也做结构化脱敏，无法解析的可疑内容失败关闭。256 条 JVM、仅 Redmi 执行的 77 条 instrumentation 均通过；`gpt-5.5` 非流式和流式真实请求都返回 Reasoning summary，Room 回查均为 sequence 0 Reasoning + sequence 1 Text，应用最终保持 Redmi 前台且 crash buffer 为空。
 26. 已完成：Room v24 为 Image part 增加 MIME、文件名、BLOB 和 detail。系统选择器单次接收 PNG/JPEG/WEBP，读取上限 8 MB，并核对声明大小、MIME、文件签名和可解码性；进入消息后不再依赖 URI。Responses 把近期 USER Image 映射为 `input_image` Data URL，Chat Completions 与 `/agent` 在发送前明确拒绝；Agent 信任策略只允许 USER 保留 Image，不能提升为 Tool 或 `VerifiedAgentContext`。Compose 支持待发送缩略图、移除和历史图片，debug 日志脱敏图片 Base64、`file_data`、生成图片结果与 `encrypted_content`。图片 BLOB 按当前会话加载，轻量快照保留未加载 BLOB；发送前等待 Room 事务，切换会话原子更新，显式删除过滤阻止陈旧快照复活。267 条 JVM、仅 Redmi 执行的 85 条 instrumentation 均通过；真实 `gpt-5.5` 图片轮次返回 `IMAGE_OK`，Room v24 回读确认 PNG BLOB 持久化。
 27. 已完成：Room v25 增加 Document part 的提取文本、PDF 页数和 detail，并复用附件 MIME、文件名与 BLOB。Document v1 单次接收 PDF、TXT、Markdown、JSON、CSV，最大 8 MB；PDF 签名与扩展名在领域策略交叉校验，DocumentsProvider 错报 MIME 也不能绕过 `PdfRenderer` 和最多 50 页预算，文本严格使用 UTF-8 并限制 200,000 字符。原始文件与受限提取文本同事务保存，附件 BLOB 按当前会话加载，轻量快照保留未加载 Image/Document。Responses 映射为 `input_file` Data URL，PDF 使用 `detail=auto`；Chat Completions 与 `/agent` 明确拒绝，USER-only 信任边界不变。Compose 附件菜单、待发送元数据/移除和历史 Document 展示已完成。281 条 JVM、仅 Redmi 执行的 92 条 instrumentation 均通过；真实 `gpt-5.5` Markdown 轮次在 4.33 秒返回 `DOC_STAGE27_OK`，Room v25 回读确认 67 字节 BLOB 与 67 字符提取文本持久化。
+28. 已完成：Document part 在不升级 Room 的前提下扩展 DOCX、PPTX、XLSX。`OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与实际数据范围，再以固定缓冲区流式核对条目集合、CRC 和真实展开量；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/结构不一致均在进入消息前拒绝。系统选择器、Room BLOB、轻量快照、Responses `input_file`、Compose 元数据和 USER-only 信任边界继续复用第 27 阶段契约。284 条 JVM、仅 Redmi 执行的 93 条正式 instrumentation 均通过；一次性真机 E2E 使用设备现有 `gpt-5.5 + Responses` 在 4800 ms 返回 `RICH_DOC_STAGE28_OK`，日志确认 DOCX `file_data`、Authorization 与加密推理内容均脱敏。
 
-下一阶段建议继续沿用附件生命周期和信任边界，评估 DOCX/PPTX/XLSX 等富文档的真实 Provider 兼容、结构校验和预览策略，并为超过直传预算的大文件设计本地分块/RAG。富文档与 RAG 同样不能直接扩大 Agent 工具权限，也不能把模型描述提升为工具事实。
+下一阶段建议为超过 8 MB、需要跨文档检索或重复问答的资料设计本地分块/RAG：先固定文档身份、解析版本、chunk 引用、删除/替换失效和检索审计，再选择全文检索或 Embedding。RAG 仍不能直接扩大 Agent 工具权限，也不能把模型描述提升为工具事实。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

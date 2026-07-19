@@ -58,12 +58,12 @@
 
 ## 消息 parts
 
-- `MessagePart.Text / Reasoning / Image / Document / Tool` 是当前结构化消息模型。Image 保存文件名、规范 MIME、原始字节和 `AUTO` detail；Document 保存原始字节、受预算约束的 UTF-8 提取文本或 PDF 页数，以及 `AUTO` detail；Reasoning 保存稳定 part ID、`PROVIDER_SUMMARY` 来源、供应商 item ID、summary index 和摘要正文；Tool 继续保存工具名、排序参数、结果、成功状态、验证状态和记忆引用。
+- `MessagePart.Text / Reasoning / Image / Document / Tool` 是当前结构化消息模型。Image 保存文件名、规范 MIME、原始字节和 `AUTO` detail；Document 保存原始字节、受预算约束的 UTF-8 提取文本或 PDF 页数，以及 `AUTO` detail，DOCX/PPTX/XLSX 则保存经本地 ZIP/OPC 结构校验的原始包；Reasoning 保存稳定 part ID、`PROVIDER_SUMMARY` 来源、供应商 item ID、summary index 和摘要正文；Tool 继续保存工具名、排序参数、结果、成功状态、验证状态和记忆引用。
 - Room v23 为 `message_parts` 增加可空 `reasoningSource / providerItemId / summaryIndex`。v22→v23 不回填 Reasoning；历史 Text/Tool 三列保持空，避免从旧正文或工具审计猜造模型过程。
 - Room v24 增加可空 `mimeType / fileName / binaryData / imageDetail`。v23→v24 不补造历史 Image；图片字节与消息在同一事务写入 BLOB，数据库 ZIP 备份自然包含附件，不依赖长期 URI 权限。
 - Room v25 增加可空 `documentExtractedText / documentPageCount / documentDetail`，Document 复用附件 MIME、文件名和 BLOB。v24→v25 不补造历史 Document；原始文件和提取文本在同一事务保存。
 - `ImageAttachmentReader` 从系统 URI 有界读取最多 8 MB，先检查可用文件大小，再校验允许 MIME、PNG/JPEG/WEBP 文件签名和 Android 解码尺寸。进入 `ImageAttachment` 时复制字节，选择器授权随后即可失效。
-- `DocumentAttachmentReader` 同样以 8 MB 有界读取，支持 PDF、TXT、Markdown、JSON、CSV。文件扩展名、规范 MIME 与 `%PDF-` 签名在领域策略统一解析：`.pdf` 即使被 DocumentsProvider 错报为 `text/plain` 也必须进入 `PdfRenderer`，PDF 内容与非 PDF 扩展名冲突时拒绝，文本路径也不能接收 PDF 签名。PDF 复制到私有临时文件并由 `PdfRenderer` 验证真实页数，最多 50 页；文本使用严格 UTF-8 解码并限制 200,000 字符。进入 `DocumentAttachment` 时复制原始字节，文本类同时保存规范提取文本。
+- `DocumentAttachmentReader` 同样以 8 MB 有界读取，支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX。文件扩展名、规范 MIME、`%PDF-` 与 ZIP 签名在领域策略统一解析：`.pdf` 即使被 DocumentsProvider 错报为 `text/plain` 也必须进入 `PdfRenderer`，OpenXML 只接受匹配 MIME、空 MIME 或通用 ZIP/二进制 MIME，PDF/富文档内容与扩展名冲突时拒绝。PDF 复制到私有临时文件并由 `PdfRenderer` 验证真实页数，最多 50 页；文本使用严格 UTF-8 解码并限制 200,000 字符。`OpenXmlDocumentPolicy` 先解析中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 和实际数据范围，再以固定缓冲区流式解压核对条目集合、CRC 和真实展开量；条目最多 4,096 个，声明及实际展开总量都不得超过 64 MB，并要求非空 `[Content_Types].xml` 与 `word/document.xml`、`ppt/presentation.xml` 或 `xl/workbook.xml`。进入 `DocumentAttachment` 时复制原始字节，文本类同时保存规范提取文本。
 - 普通对话的“推理”开关默认关闭并持久化到设备偏好。开启后只有 Responses payload 加入 `reasoning.summary=auto`；非流式解析 `output[].type=reasoning` 的 `summary_text`，流式按 `response.reasoning_summary_text.delta/done` 聚合。`ProviderMessagePartPolicy` 去重来源身份并固定 Reasoning 在 Text 前。
 - 原始 `reasoning_text` 不进入最终正文或消息 parts；Chat Completions 非标准 `reasoning/reasoning_content` 也不读取。debug 包记录请求、响应或 SSE 时先通过 `NetworkDebugLogSanitizer` 递归脱敏图片 Data URL、`file_data`、生成图片结果、原始/加密推理字段；带敏感标记但无法解析的 payload 整体失败关闭。官方协议依据：[File inputs](https://developers.openai.com/api/docs/guides/file-inputs)、[Images and vision](https://developers.openai.com/api/docs/guides/images-vision)、[Reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) 与 [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create/)。
 - `AgentMessagePartPolicy` 同时核对 `MessageOrigin.AGENT_RESULT`、`VerifiedAgentContext` 和已存 parts。普通 assistant 可以保留供应商 Reasoning，但不能生成 Tool；Agent 结果忽略 Reasoning，只按可信上下文投影 Tool，内容漂移时 fail-closed 回退。
@@ -213,7 +213,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`，DOCX/PPTX/XLSX 等富文档和大文件 RAG 仍待后续评估。
+- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`，超过 8 MB 或需要跨文档检索的内容仍缺少本地分块、索引、引用和 RAG 生命周期。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复；执行/验证中间态默认必须安全重新运行，仅 `notes.create` 与 `memory.remember` 的完整已提交证据可进入受限只读验证。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有具有完整历史证据的 `notes.create` 与 `memory.remember` 会恢复只读验证和本地总结。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；其他写工具和后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

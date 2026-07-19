@@ -322,7 +322,7 @@
 - Room v22 已新增 `message_parts`，Text 与 Tool 在同一消息中按 sequence 持久化；Tool part 由 `AGENT_RESULT + VerifiedAgentContext` 可信投影，普通聊天无法把文本声称升级为工具事实。前台会话和后台 Workflow 已统一走 MessageRepository 写入；普通前台快照只增量 upsert，显式删除 ID 与后台新建会话可以正确共存。
 - Room v23 已为 Reasoning part 增加供应商 summary 来源、item ID 和 summary index；非流式与 SSE 流式 Responses 只接收 `summary_text`，Compose 默认折叠。原始思维链不进入正文、parts、debug 响应日志或可信 Agent 上下文。
 - Room v24 已为 USER Image part 增加 MIME、文件名、BLOB 和 detail；系统选择器图片经过 8 MB 有界读取、签名和解码校验，Responses 使用 Data URL，Compose 支持预览/移除/历史展示。图片 BLOB 只为当前会话加载，轻量快照保留未加载 BLOB，请求等待 Room 提交，陈旧前台快照不能复活已删会话。Chat Completions、`/agent` 和可信工具上下文均不接收 Image。
-- Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document v1 支持 PDF、TXT、Markdown、JSON、CSV；8 MB、50 页和 200,000 UTF-8 字符预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载，不能进入 `/agent` 或可信工具上下文。
+- Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document 支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX；8 MB、50 页、200,000 UTF-8 字符及 OpenXML 的 ZIP/OPC 根节点、加密、条目数和展开预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载，不能进入 `/agent` 或可信工具上下文。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
 - Room v4、v6-v25 Schema 已导出；迁移测试源码覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile 和消息 parts 演进。v18 以独立主键映射保存 memory ToolCall 的原始载荷哈希，v19 增加可空提交结果快照，v20 新建空工具账本，v21 新建空 Agent Profile 表，v22 只回填 Text，v23 只增加可空 Reasoning 元数据列，v24 增加可空 Image 附件列，v25 增加可空 Document 提取文本/页数/detail；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image 或 Document 证据。
 
@@ -341,13 +341,13 @@
 
 | 缺口 | 当前影响 |
 |---|---|
-| AgentProfile 与 Text/Reasoning/Image/Document/Tool parts 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要和工具事实已进入稳定边界；下一步评估富文档与 RAG |
+| AgentProfile 与 Text/Reasoning/Image/Document/Tool parts 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要和工具事实已进入稳定边界；富文档直传已完成，下一步进入 RAG |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
 | ToolCall/ToolResult 已独立落表，任务中心、受限恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。通用执行栈仍不续跑 |
 | 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 与 `memory.remember` 的已提交结果允许从原 ToolCall 恢复受限只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
-| PDF/UTF-8 Document v1 已完成，富文档与 RAG 未完成 | 当前直传已具备本地 BLOB、提取预算、备份、请求和展示边界；DOCX/PPTX/XLSX 与大文件仍需格式校验、兼容矩阵和分块检索 |
+| PDF/UTF-8 与 DOCX/PPTX/XLSX 直传已完成，RAG 未完成 | 当前直传已具备本地 BLOB、提取/结构预算、备份、请求和展示边界；大文件仍需文档身份、解析、分块、索引、引用和删除失效契约 |
 
 ## 6. 建议目标架构
 
@@ -375,7 +375,7 @@
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、旧 text 回填、供应商 summary 身份、用户附件 BLOB/提取文本、按会话加载、可信 Tool 投影、前后台原子写入、显式删除和同气泡展示；后续评估富文档与 RAG | 流式文本、用户附件、折叠推理摘要和工具步骤可在同一消息中恢复；轻量快照不会清空附件，原始思维链与 Agent 工具事实保持隔离 |
+| 消息 parts | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、旧 text 回填、供应商 summary 身份、用户附件 BLOB/提取文本、OpenXML 结构校验、按会话加载、可信 Tool 投影、前后台原子写入、显式删除和同气泡展示；后续进入 RAG | 流式文本、用户附件、折叠推理摘要和工具步骤可在同一消息中恢复；轻量快照不会清空附件，原始思维链与 Agent 工具事实保持隔离 |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |

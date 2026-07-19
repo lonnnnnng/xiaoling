@@ -15,6 +15,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.io.RandomAccessFile
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class DocumentAttachmentReaderInstrumentedTest {
@@ -73,6 +75,27 @@ class DocumentAttachmentReaderInstrumentedTest {
         assertRejected("文档不能超过") {
             DocumentAttachmentReader(context).read(Uri.fromFile(file))
         }
+    }
+
+    @Test
+    fun validDocxIsStructurallyValidatedWithoutUtf8Decoding() {
+        val file = testFile("reader-valid.docx")
+        ZipOutputStream(file.outputStream()).use { zip ->
+            listOf("[Content_Types].xml", "word/document.xml").forEach { name ->
+                zip.putNextEntry(ZipEntry(name))
+                zip.write("<xml/>".toByteArray())
+                zip.closeEntry()
+            }
+        }
+
+        val attachment = DocumentAttachmentReader(context).read(Uri.fromFile(file))
+
+        assertEquals(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            attachment.mimeType,
+        )
+        assertEquals(null, attachment.extractedText)
+        assertEquals(null, attachment.pageCount)
     }
 
     private fun createPdf(name: String, pageCount: Int): File {

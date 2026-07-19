@@ -168,6 +168,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.DocumentAttachment
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderProfile
@@ -333,15 +334,7 @@ private fun XiaoLingContent(
                         attachImageLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp"))
                     },
                     onAttachDocument = {
-                        attachDocumentLauncher.launch(
-                            arrayOf(
-                                "application/pdf",
-                                "text/plain",
-                                "text/markdown",
-                                "application/json",
-                                "text/csv",
-                            ),
-                        )
+                        attachDocumentLauncher.launch(DocumentAttachmentPolicy.pickerMimeTypes())
                     },
                     modifier = Modifier.matchParentSize(),
                 )
