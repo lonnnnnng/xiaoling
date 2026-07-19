@@ -289,6 +289,57 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun toolLedgerRollsBackNewResultWithoutToolCallIdentity() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-null-result-id",
+            userMessageId = "message-null-result-id",
+            goal = "拒绝无身份工具结果",
+        )
+
+        val failure = runCatching {
+            repository.appendEvent(
+                run.id,
+                "tool.result",
+                "工具执行失败：memory.search",
+                RunEventMetadata.ToolResult(
+                    toolName = "memory.search",
+                    content = "缺少调用身份",
+                    durationMs = 4L,
+                    success = false,
+                    verified = false,
+                ),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertFalse(repository.snapshot(run.id).events.any { it.type == "tool.result" })
+    }
+
+    @Test
+    fun toolLedgerRollsBackNewVerificationWithoutToolCallIdentity() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-null-verify-id",
+            userMessageId = "message-null-verify-id",
+            goal = "拒绝无身份工具验证",
+        )
+
+        val failure = runCatching {
+            repository.appendEvent(
+                run.id,
+                "tool.verify",
+                "工具验证通过：memory.search",
+                RunEventMetadata.ToolVerification(
+                    toolName = "memory.search",
+                    status = com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED,
+                ),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertFalse(repository.snapshot(run.id).events.any { it.type == "tool.verify" })
+    }
+
+    @Test
     fun toolLedgerRollsBackVerificationThatReferencesAnotherRun() = runBlocking {
         val sourceRun = repository.createRun(
             conversationId = "conversation-source-run",
@@ -419,6 +470,18 @@ class RoomAgentRunRepositoryInstrumentedTest {
             userMessageId = "message-memory-audit",
             goal = "记录实际使用的记忆",
         )
+        val toolCallId = "tool-call-memory-audit"
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：memory.search",
+            metadata = RunEventMetadata.ToolCall(
+                id = toolCallId,
+                toolName = "memory.search",
+                risk = ToolRisk.SAFE,
+                arguments = mapOf("query" to "长期记忆"),
+            ),
+        )
         repository.appendEvent(
             runId = run.id,
             type = "tool.result",
@@ -430,6 +493,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 success = true,
                 verified = null,
                 memoryIdsUsed = listOf("memory-1", "memory-2"),
+                toolCallId = toolCallId,
             ),
         )
 
@@ -953,6 +1017,18 @@ class RoomAgentRunRepositoryInstrumentedTest {
             userMessageId = "message-source",
             goal = "完成可重试任务",
         )
+        val toolCallId = "tool-call-retry-source"
+        repository.appendEvent(
+            runId = sourceRun.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：fake.echo",
+            metadata = RunEventMetadata.ToolCall(
+                id = toolCallId,
+                toolName = "fake.echo",
+                risk = ToolRisk.SAFE,
+                arguments = mapOf("goal" to sourceRun.goal),
+            ),
+        )
         repository.appendEvent(
             runId = sourceRun.id,
             type = "tool.result",
@@ -963,6 +1039,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 durationMs = 321L,
                 success = false,
                 verified = false,
+                toolCallId = toolCallId,
             ),
         )
         repository.updateRunStatus(

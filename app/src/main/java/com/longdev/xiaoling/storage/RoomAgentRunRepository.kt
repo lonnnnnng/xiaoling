@@ -407,7 +407,9 @@ class RoomAgentRunRepository(
     }
 
     private suspend fun persistToolResult(event: RunEventEntity, metadata: RunEventMetadata.ToolResult) {
-        val toolCallId = metadata.toolCallId ?: return
+        val toolCallId = requireNotNull(metadata.toolCallId) {
+            "v20 新 ToolResult 必须携带 ToolCall ID"
+        }
         val dao = database.agentRunDao()
         val persistedCall = dao.getToolCall(toolCallId)
         if (persistedCall == null) {
@@ -453,7 +455,9 @@ class RoomAgentRunRepository(
         event: RunEventEntity,
         metadata: RunEventMetadata.ToolVerification,
     ) {
-        val toolCallId = metadata.toolCallId ?: return
+        val toolCallId = requireNotNull(metadata.toolCallId) {
+            "v20 新工具验证必须携带 ToolCall ID"
+        }
         val dao = database.agentRunDao()
         val persistedCall = dao.getToolCall(toolCallId)
         if (persistedCall == null) {
