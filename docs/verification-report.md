@@ -27,7 +27,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v23 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v24 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -1022,3 +1022,27 @@ Redmi 真实模型、UI、日志与数据库验收：
 - Redmi UI tree 与截图确认输入区“流式 / Resp / 推理 / gpt-5.5”无重叠或横向溢出；Reasoning 默认折叠，展开后可见供应商摘要，最终正文始终独立显示。重启后已保存的推理偏好在重新切换 Responses 时恢复为开启。
 - Room 只读回查确认 `PRAGMA user_version=23`。最新非流式与流式 assistant 消息均为 sequence 0 `REASONING / PROVIDER_SUMMARY` 和 sequence 1 `TEXT`，item ID 与 summary index 完整；两条消息 `VerifiedAgentContext` 均为空，Tool part 数量为 0。
 - 最终 Debug APK SHA-256：`1d745770a92bff5ff4ceb1bb7ad8e0b68ac25abf27cf114991ecc5d61e2f725e`。`com.longdev.xiaoling/.MainActivity` 保持 Redmi 前台，进程存活，crash buffer 为空。
+
+## 2026-07-19 用户图片 MessagePart
+
+实现与安全边界：
+
+- Room v24 为 `message_parts` 增加可空 `mimeType / fileName / binaryData / imageDetail`。v23→v24 只加列，不创建历史 Image；全新 v24 Schema、迁移链和磁盘数据库重开往返均有自动化保护。
+- 系统文件选择器单次接收 PNG/JPEG/WEBP。`ImageAttachmentReader` 以 8 MB 为硬上限有界读取，校验声明大小、MIME、文件签名与 Android 解码尺寸；进入消息后复制字节并写入 Room BLOB，不依赖长期 URI 权限，数据库备份自然包含附件。
+- Responses 将 USER Image 映射为 `input_text + input_image`，`image_url` 使用 Data URL，detail 为 `auto`。Chat Completions 与 `/agent` 在发送前明确拒绝图片；历史图片只在 Responses 最近上下文窗口内回传。
+- `AgentMessagePartPolicy` 只为 `MessageOrigin.USER` 保留 Image，并继续剔除伪造 Reasoning/Tool。普通 assistant、Agent 结果、摘要和 `VerifiedAgentContext` 均不能接收图片或把模型视觉描述升级为工具事实。
+- Compose 输入区支持读取状态、缩略图、文件名/大小、移除按钮；消息气泡使用采样解码展示历史图片。请求/响应日志脱敏图片 Data URL、`file_data`、生成图片结果、原始推理和 `encrypted_content`。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 强制重跑通过，88 个 Gradle task 全部执行；267 条 JVM 测试，0 失败、0 错误、0 跳过。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 直接安装最终 Debug/Test APK，并运行完整 85 条 instrumentation，0 失败、0 跳过。新增覆盖 v23→v24、Image/Text 磁盘重开、真实 URI PNG/损坏/超限读取、按会话加载 BLOB、轻量快照保留未加载图片、显式删除防陈旧快照复活和 Compose 图片节点；Reasoning 展开测试等待异步 Markdown 语义节点，消除加载时序误报。
+- adb 列表中存在在线模拟器，但本阶段所有安装、instrumentation、文件选择、截图、数据库和真实模型命令均显式指定 Redmi 串号，模拟器未参与验证。
+- Redmi UI 通过系统 DocumentsUI 选择 `lingce-stage26.png` 后，输入区显示 83 KB PNG 缩略图、文件名与移除按钮，模型/模式/发送控件无重叠或横向溢出。
+
+真实模型、日志与数据库验收：
+
+- 一次性、不提交的 instrumentation 验收驱动真实 `XiaoLingViewModel` 完成“生成红色 PNG → URI 读取 → Responses → 当前设备 Provider `gpt-5.5` → 会话保存 → Room 回读”，5.942 秒完成并返回 `IMAGE_OK`。
+- `XiaoLingHttp` 请求日志确认 `input_image.image_url=data:image/png;base64,***REDACTED***`、Authorization 为 `***MASKED***`、默认 User-Agent 正确；最终响应文本 `IMAGE_OK` 保留，供应商 `encrypted_content` 已纳入正式 sanitizer 回归。
+- Redmi 主库只读回查确认 `PRAGMA user_version=24`；最新 Image 行为 `image/png / real-image-e2e.png / 883 bytes / AUTO`，证明图片字节与用户消息已持久化。
+- 最终 Debug APK SHA-256：`dd58890936ed02990ed208586f61072f27a8932b18fcdd9d86d204f878364df4`。覆盖安装后应用以冷启动进入 `com.longdev.xiaoling/.MainActivity`，进程存活，Provider 保留 1 条，crash buffer 为空。

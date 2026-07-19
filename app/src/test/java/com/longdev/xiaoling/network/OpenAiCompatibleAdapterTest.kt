@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.network
 
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -9,6 +10,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAiCompatibleAdapterTest {
+    @Test
+    fun `responses request maps user image to input image data url after text`() {
+        val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()
+        val attachment = ImageAttachmentPolicy.create(
+            fileName = "chart.png",
+            mimeType = "image/png",
+            data = byteArrayOf(
+                0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3,
+            ),
+        )
+
+        val request = adapter.prepareGenerationRequest(
+            config = requestConfig(ApiMode.RESPONSES),
+            messages = listOf(RequestMessage(role = "user", content = "解释图片", images = listOf(attachment))),
+        )
+
+        val content = JSONObject(request.body)
+            .getJSONArray("input")
+            .getJSONObject(0)
+            .getJSONArray("content")
+        assertEquals("input_text", content.getJSONObject(0).getString("type"))
+        assertEquals("解释图片", content.getJSONObject(0).getString("text"))
+        assertEquals("input_image", content.getJSONObject(1).getString("type"))
+        assertEquals("auto", content.getJSONObject(1).getString("detail"))
+        assertTrue(content.getJSONObject(1).getString("image_url").startsWith("data:image/png;base64,"))
+    }
+
+    @Test
+    fun `chat completions rejects request messages containing image parts`() {
+        val attachment = ImageAttachmentPolicy.create(
+            fileName = "chart.png",
+            mimeType = "image/png",
+            data = byteArrayOf(
+                0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1,
+            ),
+        )
+
+        try {
+            OpenAiCompatibleAdapter().prepareGenerationRequest(
+                config = requestConfig(ApiMode.CHAT_COMPLETIONS),
+                messages = listOf(RequestMessage(role = "user", content = "解释图片", images = listOf(attachment))),
+            )
+            throw AssertionError("Expected Chat Completions image rejection")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("图片"))
+        }
+    }
+
+    @Test
+    fun `request message rejects multiple user images`() {
+        val attachment = ImageAttachmentPolicy.create(
+            fileName = "chart.png",
+            mimeType = "image/png",
+            data = byteArrayOf(
+                0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1,
+            ),
+        )
+
+        try {
+            RequestMessage(role = "user", content = "解释图片", images = listOf(attachment, attachment))
+            throw AssertionError("Expected single-image contract rejection")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("最多"))
+        }
+    }
+
     @Test
     fun `reasoning summary is explicit opt in for responses requests only`() {
         val adapter: LlmProviderAdapter = OpenAiCompatibleAdapter()

@@ -34,7 +34,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 23,
+    version = 24,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -48,7 +48,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 23
+        const val CURRENT_VERSION = 24
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -641,6 +641,16 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 图片字节必须随消息进入数据库备份，避免依赖可能失效的系统 URI；旧 part 没有附件事实，四列保持空值且不补造 Image。
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `mimeType` TEXT")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `fileName` TEXT")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `binaryData` BLOB")
+                db.execSQL("ALTER TABLE `message_parts` ADD COLUMN `imageDetail` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -664,6 +674,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_20_21,
             MIGRATION_21_22,
             MIGRATION_22_23,
+            MIGRATION_23_24,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

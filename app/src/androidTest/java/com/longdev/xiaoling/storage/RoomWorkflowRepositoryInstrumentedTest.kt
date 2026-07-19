@@ -107,7 +107,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
             verifiedAgentContext = VerifiedAgentContextCodec.encode(context),
         )
 
-        val persisted = database.conversationDao().getAllMessageParts()
+        val persisted = database.conversationDao().getAllMessagePartsWithoutBinaryData()
         assertEquals(listOf("TEXT", "TOOL"), persisted.map { it.type })
         assertEquals(listOf(0, 1), persisted.map { it.sequence })
         assertEquals("app.current_time", persisted.last().toolName)

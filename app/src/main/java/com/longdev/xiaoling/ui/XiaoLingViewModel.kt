@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -61,6 +62,7 @@ import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ProviderMessagePartPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -76,6 +78,7 @@ import com.longdev.xiaoling.prompt.PromptContextMessage
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.prompt.PromptSettings
 import com.longdev.xiaoling.storage.ConversationRepository
+import com.longdev.xiaoling.storage.ImageAttachmentReader
 import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.SecureConfigStore
 import com.longdev.xiaoling.storage.StoredConversation
@@ -94,6 +97,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,6 +147,9 @@ data class XiaoLingUiState(
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
     val reasoningSummaryEnabled: Boolean = false,
+    val pendingImage: ImageAttachment? = null,
+    val attachingImage: Boolean = false,
+    val loadingConversationMessages: Boolean = false,
     val chatMessages: List<ChatMessage> = emptyList(),
     val conversations: List<ConversationSession> = emptyList(),
     val selectedConversationId: String = "",
@@ -241,6 +248,11 @@ data class ChatMessage(
         verifiedContext = verifiedAgentContext,
         storedParts = parts,
     )
+}
+
+internal fun ChatMessage.imagesForRequest(apiMode: ApiMode): List<ImageAttachment> {
+    if (apiMode != ApiMode.RESPONSES || origin != MessageOrigin.USER) return emptyList()
+    return effectiveParts().filterIsInstance<MessagePart.Image>().map { it.attachment }
 }
 
 data class MessageMeta(
@@ -361,6 +373,7 @@ private data class AgentRuntimeSelection(
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
+    private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
     private val agentRunUseCase = AgentRunUseCase(application, client)
@@ -383,6 +396,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var workflowLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
+    private var conversationLoadJob: Job? = null
     private val pendingDeletedConversationIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(
@@ -502,6 +516,36 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun updatePrompt(value: String) {
         uiState = uiState.copy(prompt = value, result = null)
+    }
+
+    fun attachImage(uri: Uri) {
+        if (uiState.sendingMessage || uiState.attachingImage) return
+        uiState = uiState.copy(attachingImage = true, result = null)
+        viewModelScope.launch {
+            try {
+                val attachment = withContext(Dispatchers.IO) { imageAttachmentReader.read(uri) }
+                uiState = uiState.copy(
+                    pendingImage = attachment,
+                    attachingImage = false,
+                    result = null,
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                uiState = uiState.copy(
+                    attachingImage = false,
+                    result = OperationResult(
+                        success = false,
+                        title = "图片不可用",
+                        message = error.message ?: "无法读取所选图片",
+                    ),
+                )
+            }
+        }
+    }
+
+    fun removePendingImage() {
+        if (uiState.sendingMessage || uiState.attachingImage) return
+        uiState = uiState.copy(pendingImage = null, result = null)
     }
 
     fun updateAgentMemoryRecallEnabled(value: Boolean) {
@@ -2269,26 +2313,30 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openNewConversation() {
-        val current = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
+        conversationLoadJob?.cancel()
+        val lightweightConversations = uiState.conversations.map { it.withoutImagePayloads() }
+        val current = lightweightConversations.firstOrNull { it.id == uiState.selectedConversationId }
         if (current != null && current.messages.isEmpty()) {
             uiState = uiState.copy(
+                conversations = lightweightConversations,
                 selectedConversationId = current.id,
                 conversationTitle = current.title,
                 conversationSummary = current.summary,
                 chatMessages = emptyList(),
                 activeAgentRun = activeAgentRunsByConversation[current.id],
                 pendingAgentApproval = pendingAgentApprovalsByConversation[current.id],
+                loadingConversationMessages = false,
                 result = null,
             )
             saveConversationSelection()
             return
         }
-        val reusableEmptyConversation = uiState.conversations
+        val reusableEmptyConversation = lightweightConversations
             .filter { it.messages.isEmpty() }
             .maxByOrNull { it.updatedAt }
         if (reusableEmptyConversation != null) {
             uiState = uiState.copy(
-                conversations = uiState.conversations
+                conversations = lightweightConversations
                     .collapseDuplicateEmptyConversations(reusableEmptyConversation.id),
                 selectedConversationId = reusableEmptyConversation.id,
                 conversationTitle = reusableEmptyConversation.title,
@@ -2296,6 +2344,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 chatMessages = emptyList(),
                 activeAgentRun = activeAgentRunsByConversation[reusableEmptyConversation.id],
                 pendingAgentApproval = pendingAgentApprovalsByConversation[reusableEmptyConversation.id],
+                loadingConversationMessages = false,
                 result = null,
             )
             saveConversationSelection()
@@ -2315,13 +2364,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             updatedAt = now,
         )
         uiState = uiState.copy(
-            conversations = uiState.conversations + conversation,
+            conversations = lightweightConversations + conversation,
             selectedConversationId = conversation.id,
             conversationTitle = conversation.title,
             conversationSummary = "",
             chatMessages = emptyList(),
             activeAgentRun = null,
             pendingAgentApproval = null,
+            loadingConversationMessages = false,
             result = null,
         )
         saveConversationSelection()
@@ -2329,19 +2379,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun selectConversation(conversationId: String) {
         val conversation = uiState.conversations.firstOrNull { it.id == conversationId } ?: return
-        uiState = uiState.copy(
-            selectedConversationId = conversation.id,
-            conversationTitle = conversation.title,
-            conversationSummary = conversation.summary,
-            chatMessages = conversation.messages,
-            activeAgentRun = activeAgentRunsByConversation[conversation.id],
-            pendingAgentApproval = pendingAgentApprovalsByConversation[conversation.id],
-            result = null,
-        )
-        saveConversationSelection()
+        loadAndSelectConversation(conversation, uiState.conversations, result = null)
     }
 
     fun deleteCurrentConversation() {
+        conversationLoadJob?.cancel()
         val currentId = uiState.selectedConversationId
         pendingDeletedConversationIds += currentId
         val remaining = uiState.conversations.filterNot { it.id == currentId }
@@ -2368,6 +2410,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 chatMessages = emptyList(),
                 activeAgentRun = null,
                 pendingAgentApproval = null,
+                loadingConversationMessages = false,
                 result = null,
             )
             saveConversationSelection()
@@ -2375,17 +2418,50 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
 
         val next = remaining.maxBy { it.updatedAt }
-        uiState = uiState.copy(
+        loadAndSelectConversation(
+            conversation = next,
             conversations = remaining,
-            selectedConversationId = next.id,
-            conversationTitle = next.title,
-            conversationSummary = next.summary,
-            chatMessages = next.messages,
-            activeAgentRun = activeAgentRunsByConversation[next.id],
-            pendingAgentApproval = pendingAgentApprovalsByConversation[next.id],
             result = OperationResult(true, "已删除", "当前会话已删除"),
+            rollbackDeletedConversationIdOnFailure = currentId,
         )
-        saveConversationSelection()
+    }
+
+    private fun loadAndSelectConversation(
+        conversation: ConversationSession,
+        conversations: List<ConversationSession>,
+        result: OperationResult?,
+        rollbackDeletedConversationIdOnFailure: String? = null,
+    ) {
+        conversationLoadJob?.cancel()
+        uiState = uiState.copy(loadingConversationMessages = true, result = null)
+        conversationLoadJob = viewModelScope.launch {
+            try {
+                val loadedMessages = conversationStore.loadConversationMessages(conversation.id).map { it.toChatMessage() }
+                val lightweightConversations = conversations.map { it.withoutImagePayloads() }
+                uiState = uiState.copy(
+                    conversations = lightweightConversations.map { item ->
+                        if (item.id == conversation.id) item.copy(messages = loadedMessages) else item
+                    },
+                    selectedConversationId = conversation.id,
+                    conversationTitle = conversation.title,
+                    conversationSummary = conversation.summary,
+                    chatMessages = loadedMessages,
+                    activeAgentRun = activeAgentRunsByConversation[conversation.id],
+                    pendingAgentApproval = pendingAgentApprovalsByConversation[conversation.id],
+                    loadingConversationMessages = false,
+                    result = result,
+                )
+                saveConversationSelection()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                rollbackDeletedConversationIdOnFailure?.let(pendingDeletedConversationIds::remove)
+                uiState = uiState.copy(
+                    loadingConversationMessages = false,
+                    result = OperationResult(false, "会话读取失败", error.message ?: "无法加载会话消息"),
+                )
+            }
+        }
     }
 
     fun importDraftFromQr(raw: String) {
@@ -2556,12 +2632,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun sendMessage() {
         if (uiState.sendingMessage) return
+        if (uiState.loadingConversationMessages) {
+            showValidation("会话消息仍在加载，请稍候再发送")
+            return
+        }
+        if (uiState.attachingImage) {
+            showValidation("图片仍在读取，请稍候再发送")
+            return
+        }
         if (uiState.prompt.isBlank()) {
             showValidation("请输入消息")
             return
         }
         val userMessage = uiState.prompt.trim()
         if (AgentCommand.matches(userMessage)) {
+            if (uiState.pendingImage != null) {
+                showValidation("/agent 暂不支持图片，请移除图片后再运行")
+                return
+            }
             val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
             sendAgentRun(
                 userMessage = userMessage,
@@ -2571,13 +2659,28 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         val config = validatedConfig() ?: return
+        val pendingImage = uiState.pendingImage
+        if (pendingImage != null && config.apiMode != ApiMode.RESPONSES) {
+            showValidation("当前 Chat Completions 模式不支持图片，请切换到 Responses")
+            return
+        }
         val profileSnapshot = selectedProfile()
         val currentConversation = uiState.conversations.firstOrNull { it.id == uiState.selectedConversationId }
         clearAgentStateForConversation(uiState.selectedConversationId)
+        val userMessageId = newChatMessageId()
         val userChatMessage = ChatMessage(
+            id = userMessageId,
             role = "user",
             text = userMessage,
             createdAt = System.currentTimeMillis(),
+            parts = if (pendingImage == null) {
+                emptyList()
+            } else {
+                listOf(
+                    MessagePart.Image(id = "$userMessageId-image-0", attachment = pendingImage),
+                    MessagePart.Text(id = "$userMessageId-text", text = userMessage),
+                )
+            },
         )
         val messagesWithUser = uiState.chatMessages + userChatMessage
         var preparedContext = PreparedRequestContext.fromConversation(currentConversation)
@@ -2585,6 +2688,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
+            pendingImage = null,
             activeAgentRun = null,
             pendingAgentApproval = null,
         ).withUpdatedCurrentConversation(
@@ -2594,9 +2698,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             summaryUpdatedAt = preparedContext.summaryUpdatedAt,
             summaryModel = preparedContext.summaryModel,
         )
+        val preRequestConversations = uiState.conversations.map { it.toStored() }
+        val preRequestSelectedConversationId = uiState.selectedConversationId
+        val preRequestDeletedConversationIds = pendingDeletedConversationIds.toSet()
+        val previousSaveJob = saveConversationsJob.also { saveConversationsJob = null }
         val baseMeta = config.toBaseMessageMeta(profileSnapshot)
         sendMessageJob = viewModelScope.launch {
             try {
+                previousSaveJob?.cancelAndJoin()
+                // long: 图片请求发出前先等待 message 与 BLOB 的 Room 事务完成，确保进程在网络等待期间被回收时已发送的用户输入仍可恢复和进入备份。
+                conversationStore.save(
+                    preRequestConversations,
+                    preRequestSelectedConversationId,
+                    preRequestDeletedConversationIds,
+                )
+                pendingDeletedConversationIds.removeAll(preRequestDeletedConversationIds)
                 preparedContext = prepareRequestContext(config, messagesWithUser, currentConversation)
                 withContext(Dispatchers.Main.immediate) {
                     uiState = uiState
@@ -3303,7 +3419,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val contextMessages = messages.filter { it.role == "user" || it.role == "assistant" }
         if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT && conversation?.summary.isNullOrBlank()) {
             return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, summary = ""),
+                requestMessages = buildRequestMessages(contextMessages, summary = "", apiMode = config.apiMode),
                 summary = "",
                 summaryUntilMessageId = null,
                 summaryUpdatedAt = null,
@@ -3316,7 +3432,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val existingSummary = conversation?.summary.orEmpty()
         if (targetSummaryMessage == null) {
             return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, existingSummary),
+                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
                 summary = existingSummary,
                 summaryUntilMessageId = conversation?.summaryUntilMessageId,
                 summaryUpdatedAt = conversation?.summaryUpdatedAt,
@@ -3326,7 +3442,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
         if (existingSummary.isNotBlank() && conversation?.summaryUntilMessageId == targetSummaryMessage.id) {
             return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, existingSummary),
+                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
                 summary = existingSummary,
                 summaryUntilMessageId = conversation.summaryUntilMessageId,
                 summaryUpdatedAt = conversation.summaryUpdatedAt,
@@ -3351,7 +3467,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         val now = System.currentTimeMillis()
         return PreparedRequestContext(
-            requestMessages = buildRequestMessages(contextMessages, summary),
+            requestMessages = buildRequestMessages(contextMessages, summary, config.apiMode),
             summary = summary,
             summaryUntilMessageId = targetSummaryMessage.id,
             summaryUpdatedAt = now,
@@ -3362,6 +3478,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private fun buildRequestMessages(
         messages: List<ChatMessage>,
         summary: String,
+        apiMode: ApiMode,
     ): List<RequestMessage> {
         val requestMessages = mutableListOf(
             RequestMessage(
@@ -3392,6 +3509,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     role = message.role,
                     // long: 消息是否具备工具事实身份由持久化来源字段决定；用户文本即使复述可信标记，也不会进入 Agent 结果分支。
                     content = PromptPolicy.historyContent(message.toPromptContextMessage()),
+                    // long: 只有 Responses 最近窗口保留用户原始图片；摘要和 Agent 可信上下文仍只消费文本/确定性工具事实，避免附件扩大执行权限。
+                    images = message.imagesForRequest(apiMode),
                 )
             }
         return requestMessages
@@ -3840,6 +3959,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         messages = messages.map { it.toStored() },
         createdAt = createdAt,
         updatedAt = updatedAt,
+    )
+
+    private fun ConversationSession.withoutImagePayloads(): ConversationSession = copy(
+        messages = messages.map { message ->
+            message.copy(parts = message.effectiveParts().filterNot { it is MessagePart.Image })
+        },
     )
 
     private fun ChatMessage.toStored() = StoredConversationMessage(

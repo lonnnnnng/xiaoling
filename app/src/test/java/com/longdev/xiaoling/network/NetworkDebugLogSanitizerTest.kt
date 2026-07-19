@@ -7,6 +7,17 @@ import org.junit.Test
 
 class NetworkDebugLogSanitizerTest {
     @Test
+    fun requestImageDataUrlIsRedactedWithoutHidingTextPrompt() {
+        val sanitized = NetworkDebugLogSanitizer.sanitize(
+            """{"input":[{"role":"user","content":[{"type":"input_text","text":"描述图片"},{"type":"input_image","image_url":"data:image/png;base64,PRIVATE_IMAGE_BYTES"}]}]}""",
+        )
+
+        assertTrue(sanitized.contains("描述图片"))
+        assertFalse(sanitized.contains("PRIVATE_IMAGE_BYTES"))
+        assertTrue(sanitized.contains("data:image/png;base64,***REDACTED***"))
+    }
+
+    @Test
     fun responsesPayloadKeepsSummaryButRedactsNestedRawReasoningText() {
         val sanitized = NetworkDebugLogSanitizer.sanitize(
             """{"output":[{"type":"reasoning","summary":[{"type":"summary_text","text":"可展示摘要"}],"content":[{"type":"reasoning_text","text":"原始思维链"}]}]}""",
@@ -45,6 +56,17 @@ class NetworkDebugLogSanitizerTest {
 
         assertFalse(sanitized.contains("兼容网关原始推理"))
         assertTrue(sanitized.contains("允许展示的摘要"))
+    }
+
+    @Test
+    fun encryptedReasoningContentIsRedactedWhileFinalAnswerRemainsVisible() {
+        val sanitized = NetworkDebugLogSanitizer.sanitize(
+            """{"output":[{"type":"reasoning","encrypted_content":"OPAQUE_PRIVATE_REASONING","summary":[{"type":"summary_text","text":"允许展示的摘要"}]},{"type":"message","content":[{"type":"output_text","text":"IMAGE_OK"}]}]}""",
+        )
+
+        assertFalse(sanitized.contains("OPAQUE_PRIVATE_REASONING"))
+        assertTrue(sanitized.contains("允许展示的摘要"))
+        assertTrue(sanitized.contains("IMAGE_OK"))
     }
 
     @Test

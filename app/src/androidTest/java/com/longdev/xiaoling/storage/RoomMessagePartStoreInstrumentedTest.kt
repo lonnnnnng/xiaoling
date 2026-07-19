@@ -12,6 +12,7 @@ import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 import kotlinx.coroutines.runBlocking
@@ -144,6 +145,77 @@ class RoomMessagePartStoreInstrumentedTest {
     }
 
     @Test
+    fun userImageAndTextPartsRoundTripAcrossDatabaseReopen() = runBlocking {
+        val parts = listOf(
+            MessagePart.Image(
+                id = "part-image-stable",
+                attachment = ImageAttachmentPolicy.create(
+                    fileName = "receipt.png",
+                    mimeType = "image/png",
+                    data = byteArrayOf(
+                        0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3,
+                    ),
+                ),
+            ),
+            MessagePart.Text(id = "part-image-text", text = "识别图片中的金额"),
+        )
+        val stored = StoredConversationMessage(
+            id = "message-image-parts",
+            role = "user",
+            text = "识别图片中的金额",
+            createdAt = 102L,
+            origin = "USER",
+            verifiedAgentContext = null,
+            meta = null,
+            parts = parts,
+        )
+
+        openDatabase().let { first ->
+            MessageRepository(first).replaceAll(listOf("conversation-image-parts" to stored))
+            first.close()
+            database = null
+        }
+
+        val restored = MessageRepository(openDatabase())
+            .loadGroupedByConversation(setOf("conversation-image-parts"))
+            .getValue("conversation-image-parts")
+            .single()
+
+        assertEquals(parts, restored.parts)
+    }
+
+    @Test
+    fun onlySelectedConversationLoadsImageBlobAndLightweightSavePreservesOtherImage() = runBlocking {
+        val repository = ConversationRepository(
+            context = isolatedContext,
+            database = openDatabase(),
+            stateStore = RoomStateStore(isolatedContext).also { it.markConversationsMigrated() },
+            legacyStore = ConversationStore(isolatedContext),
+            messageRepository = MessageRepository(requireNotNull(database)),
+        )
+        val first = imageConversation("conversation-image-first", "message-image-first", 100L)
+        val second = imageConversation("conversation-image-second", "message-image-second", 200L)
+        repository.save(listOf(first, second), first.id)
+
+        val firstLoad = repository.load()
+        assertTrue(
+            firstLoad.conversations.first { it.id == first.id }.messages.single().parts.any { it is MessagePart.Image },
+        )
+        assertTrue(
+            firstLoad.conversations.first { it.id == second.id }.messages.single().parts.none { it is MessagePart.Image },
+        )
+
+        repository.save(firstLoad.conversations, second.id)
+        val secondLoad = repository.load()
+        assertTrue(
+            secondLoad.conversations.first { it.id == first.id }.messages.single().parts.none { it is MessagePart.Image },
+        )
+        assertTrue(
+            secondLoad.conversations.first { it.id == second.id }.messages.single().parts.any { it is MessagePart.Image },
+        )
+    }
+
+    @Test
     fun foregroundStaleSnapshotKeepsBackgroundAppendedMessageAndParts() = runBlocking {
         val database = openDatabase()
         val stateStore = RoomStateStore(isolatedContext).also { it.markConversationsMigrated() }
@@ -214,7 +286,8 @@ class RoomMessagePartStoreInstrumentedTest {
         )
 
         repository.save(
-            conversations = staleForegroundSnapshot.conversations.filterNot { it.id == toDelete.id },
+            // long: 故意传入仍包含已删会话的陈旧快照，验证 Repository 以显式删除 ID 为准且不会在同一事务中重新插入。
+            conversations = staleForegroundSnapshot.conversations,
             selectedConversationId = foreground.id,
             deletedConversationIds = setOf(toDelete.id),
         )
@@ -238,6 +311,44 @@ class RoomMessagePartStoreInstrumentedTest {
         createdAt = createdAt,
         updatedAt = createdAt,
     )
+
+    private fun imageConversation(id: String, messageId: String, createdAt: Long): StoredConversation {
+        val text = "识别 $id"
+        return StoredConversation(
+            id = id,
+            title = id,
+            summary = "",
+            summaryUntilMessageId = null,
+            summaryUpdatedAt = null,
+            summaryModel = null,
+            messages = listOf(
+                StoredConversationMessage(
+                    id = messageId,
+                    role = "user",
+                    text = text,
+                    createdAt = createdAt,
+                    origin = "USER",
+                    verifiedAgentContext = null,
+                    meta = null,
+                    parts = listOf(
+                        MessagePart.Image(
+                            id = "$messageId-image-0",
+                            attachment = ImageAttachmentPolicy.create(
+                                fileName = "$messageId.png",
+                                mimeType = "image/png",
+                                data = byteArrayOf(
+                                    0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1,
+                                ),
+                            ),
+                        ),
+                        MessagePart.Text(id = "$messageId-text", text = text),
+                    ),
+                ),
+            ),
+            createdAt = createdAt,
+            updatedAt = createdAt,
+        )
+    }
 
     private fun agentMessage(id: String, createdAt: Long) = StoredConversationMessage(
         id = id,

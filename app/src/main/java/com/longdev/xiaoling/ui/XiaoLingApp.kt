@@ -2,6 +2,7 @@ package com.longdev.xiaoling.ui
 
 import android.app.Activity
 import android.Manifest
+import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Base64
@@ -10,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -105,7 +108,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -160,6 +165,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -213,6 +219,9 @@ private fun XiaoLingContent(
     val importSkillLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::importSkill) }
+    val attachImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::attachImage) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { }
@@ -314,6 +323,9 @@ private fun XiaoLingContent(
                     viewModel = viewModel,
                     chatScrollState = chatScrollState,
                     visible = selectedTab == 0,
+                    onAttachImage = {
+                        attachImageLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp"))
+                    },
                     modifier = Modifier.matchParentSize(),
                 )
 
@@ -898,6 +910,7 @@ private fun ConversationPage(
     viewModel: XiaoLingViewModel,
     chatScrollState: ChatScrollState,
     visible: Boolean,
+    onAttachImage: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chatListState = chatScrollState.listState
@@ -1098,6 +1111,8 @@ private fun ConversationPage(
                 onAgentMemoryRecallChanged = viewModel::updateAgentMemoryRecallEnabled,
                 onAgentProfileSelected = viewModel::selectAgentProfile,
                 onPromptChange = viewModel::updatePrompt,
+                onAttachImage = onAttachImage,
+                onRemovePendingImage = viewModel::removePendingImage,
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGenerating,
             )
@@ -1226,11 +1241,14 @@ private fun MessageInputBar(
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onAgentProfileSelected: (String) -> Unit,
     onPromptChange: (String) -> Unit,
+    onAttachImage: () -> Unit,
+    onRemovePendingImage: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     val canRunAgent = AgentCommand.matches(prompt)
-    val canSend = !sendingMessage && prompt.isNotBlank() && (enabled || canRunAgent)
+    val canSend = !sendingMessage && !state.attachingImage && !state.loadingConversationMessages &&
+        prompt.isNotBlank() && (enabled || canRunAgent)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(8.dp),
@@ -1238,69 +1256,137 @@ private fun MessageInputBar(
             .fillMaxWidth()
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 118.dp)
-                .padding(10.dp),
-        ) {
-            BasicTextField(
-                value = prompt,
-                onValueChange = onPromptChange,
-                enabled = !sendingMessage,
-                minLines = 4,
-                textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 48.dp, bottom = 34.dp),
-                decorationBox = { innerTextField ->
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        if (prompt.isBlank()) {
-                            Text(
-                                text = "输入消息",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        innerTextField()
-                    }
-                },
-            )
-            InputOptionRow(
-                state = state,
-                enabled = !sendingMessage && (enabled || canRunAgent),
-                onModelSelected = onModelSelected,
-                onResponsesChanged = onResponsesChanged,
-                onStreamingChanged = onStreamingChanged,
-                onReasoningSummaryChanged = onReasoningSummaryChanged,
-                agentCommand = canRunAgent,
-                onAgentMemoryRecallChanged = onAgentMemoryRecallChanged,
-                onAgentProfileSelected = onAgentProfileSelected,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(end = 52.dp),
-            )
-            Button(
-                onClick = if (sendingMessage) onStop else onSend,
-                enabled = sendingMessage || canSend,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    disabledContentColor = MaterialTheme.colorScheme.outline,
-                ),
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(36.dp),
-            ) {
-                Icon(
-                    imageVector = if (sendingMessage) Icons.Default.Close else Icons.Default.ArrowUpward,
-                    contentDescription = if (sendingMessage) "停止生成" else "发送",
-                    modifier = Modifier.size(if (sendingMessage) 18.dp else 20.dp),
+        Column(modifier = Modifier.fillMaxWidth()) {
+            state.pendingImage?.let { attachment ->
+                PendingImagePreview(
+                    attachment = attachment,
+                    enabled = !sendingMessage && !state.attachingImage,
+                    onRemove = onRemovePendingImage,
+                    modifier = Modifier.padding(start = 10.dp, top = 10.dp, end = 10.dp),
                 )
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 118.dp)
+                    .padding(10.dp),
+            ) {
+                BasicTextField(
+                    value = prompt,
+                    onValueChange = onPromptChange,
+                    enabled = !sendingMessage,
+                    minLines = 4,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(end = 48.dp, bottom = 34.dp),
+                    decorationBox = { innerTextField ->
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            if (prompt.isBlank()) {
+                                Text(
+                                    text = "输入消息",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+                IconButton(
+                    onClick = onAttachImage,
+                    enabled = !sendingMessage && !state.attachingImage && !state.loadingConversationMessages && enabled,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .size(32.dp),
+                ) {
+                    if (state.attachingImage) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.8.dp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AddPhotoAlternate,
+                            contentDescription = "添加图片",
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                InputOptionRow(
+                    state = state,
+                    enabled = !sendingMessage && (enabled || canRunAgent),
+                    onModelSelected = onModelSelected,
+                    onResponsesChanged = onResponsesChanged,
+                    onStreamingChanged = onStreamingChanged,
+                    onReasoningSummaryChanged = onReasoningSummaryChanged,
+                    agentCommand = canRunAgent,
+                    onAgentMemoryRecallChanged = onAgentMemoryRecallChanged,
+                    onAgentProfileSelected = onAgentProfileSelected,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 36.dp, end = 52.dp),
+                )
+                Button(
+                    onClick = if (sendingMessage) onStop else onSend,
+                    enabled = sendingMessage || canSend,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = if (sendingMessage) Icons.Default.Close else Icons.Default.ArrowUpward,
+                        contentDescription = if (sendingMessage) "停止生成" else "发送",
+                        modifier = Modifier.size(if (sendingMessage) 18.dp else 20.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingImagePreview(
+    attachment: ImageAttachment,
+    enabled: Boolean,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+            .padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ImageAttachmentPreview(
+            attachment = attachment,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(5.dp)),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = attachment.fileName,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${((attachment.byteSize + 1023) / 1024).coerceAtLeast(1)} KB · ${attachment.mimeType}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onRemove, enabled = enabled, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "移除图片", modifier = Modifier.size(17.dp))
         }
     }
 }
@@ -5746,9 +5832,63 @@ private fun MessageBodyParts(
         when (part) {
             is MessagePart.Text -> MessageTextPart(message, part.text, contentColor)
             is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
+            is MessagePart.Image -> ImageMessagePartContent(part)
             is MessagePart.Tool -> ToolMessagePartContent(part, contentColor)
         }
     }
+}
+
+@Composable
+internal fun ImageMessagePartContent(part: MessagePart.Image) {
+    ImageAttachmentPreview(
+        attachment = part.attachment,
+        contentScale = ContentScale.Fit,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 280.dp)
+            .clip(RoundedCornerShape(6.dp)),
+    )
+}
+
+@Composable
+private fun ImageAttachmentPreview(
+    attachment: ImageAttachment,
+    contentScale: ContentScale,
+    modifier: Modifier = Modifier,
+) {
+    val bitmap = remember(attachment) { decodeImagePreview(attachment.copyData(), maxDimension = 1_280) }
+    if (bitmap == null) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Text("图片无法显示", style = MaterialTheme.typography.labelSmall)
+        }
+        return
+    }
+    Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = attachment.fileName,
+        contentScale = contentScale,
+        modifier = modifier,
+    )
+}
+
+private fun decodeImagePreview(data: ByteArray, maxDimension: Int): android.graphics.Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sampleSize = 1
+    while (bounds.outWidth / sampleSize > maxDimension || bounds.outHeight / sampleSize > maxDimension) {
+        sampleSize *= 2
+    }
+    // long: Room 保存原图是为了请求和备份保真；界面只解码屏幕级缩略图，避免高分辨率附件按原始像素占用大量堆内存。
+    return BitmapFactory.decodeByteArray(
+        data,
+        0,
+        data.size,
+        BitmapFactory.Options().apply { inSampleSize = sampleSize },
+    )
 }
 
 @Composable

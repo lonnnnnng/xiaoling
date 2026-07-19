@@ -82,6 +82,10 @@ data class MessagePartEntity(
     val reasoningSource: String?,
     val providerItemId: String?,
     val summaryIndex: Int?,
+    val mimeType: String?,
+    val fileName: String?,
+    val binaryData: ByteArray?,
+    val imageDetail: String?,
 )
 
 @Entity(

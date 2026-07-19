@@ -16,11 +16,32 @@ class ConversationRepository(
 ) {
     suspend fun load(): StoredConversations = withContext(Dispatchers.IO) {
         ensureMigrated()
-        val conversations = loadConversationsFromRoom().ifEmpty { listOf(newConversation()) }
-        val selected = stateStore.selectedConversationId()
-            ?.takeIf { id -> conversations.any { it.id == id } }
-            ?: conversations.first().id
+        val conversationEntities = database.conversationDao().getAllConversations()
+            .sortedByDescending { it.updatedAt }
+        val selectedId = stateStore.selectedConversationId()
+            ?.takeIf { id -> conversationEntities.any { it.id == id } }
+            ?: conversationEntities.firstOrNull()?.id
+        val messages = messageRepository.loadGroupedByConversation(selectedId?.let(::setOf).orEmpty())
+        val conversations = conversationEntities.map { conversation ->
+            StoredConversation(
+                id = conversation.id,
+                title = conversation.title,
+                summary = conversation.summary,
+                summaryUntilMessageId = conversation.summaryUntilMessageId,
+                summaryUpdatedAt = conversation.summaryUpdatedAt,
+                summaryModel = conversation.summaryModel,
+                messages = messages[conversation.id].orEmpty(),
+                createdAt = conversation.createdAt,
+                updatedAt = conversation.updatedAt,
+            )
+        }.ifEmpty { listOf(newConversation()) }
+        val selected = selectedId?.takeIf { id -> conversations.any { it.id == id } } ?: conversations.first().id
         StoredConversations(conversations = conversations, selectedConversationId = selected)
+    }
+
+    suspend fun loadConversationMessages(conversationId: String): List<StoredConversationMessage> = withContext(Dispatchers.IO) {
+        ensureMigrated()
+        messageRepository.loadConversation(conversationId)
     }
 
     suspend fun save(
@@ -29,7 +50,9 @@ class ConversationRepository(
         deletedConversationIds: Set<String> = emptySet(),
     ) = withContext(Dispatchers.IO) {
         ensureMigrated()
-        val safeConversations = conversations.ifEmpty { listOf(newConversation()) }
+        // long: 删除 ID 是用户动作的权威事实；即使异步会话加载被取消后传入含旧会话的陈旧快照，也必须先过滤，不能在同一事务中先删后复活。
+        val retainedConversations = conversations.filterNot { it.id in deletedConversationIds }
+        val safeConversations = retainedConversations.ifEmpty { listOf(newConversation()) }
         database.withTransaction {
             val dao = database.conversationDao()
             if (deletedConversationIds.isNotEmpty()) {
@@ -64,26 +87,6 @@ class ConversationRepository(
             legacy.selectedConversationId.takeIf { id -> conversations.any { it.id == id } } ?: conversations.first().id,
         )
         stateStore.markConversationsMigrated()
-    }
-
-    private suspend fun loadConversationsFromRoom(): List<StoredConversation> {
-        val conversations = database.conversationDao().getAllConversations()
-        val messages = messageRepository.loadGroupedByConversation()
-        return conversations
-            .map { conversation ->
-                StoredConversation(
-                    id = conversation.id,
-                    title = conversation.title,
-                    summary = conversation.summary,
-                    summaryUntilMessageId = conversation.summaryUntilMessageId,
-                    summaryUpdatedAt = conversation.summaryUpdatedAt,
-                    summaryModel = conversation.summaryModel,
-                    messages = messages[conversation.id].orEmpty(),
-                    createdAt = conversation.createdAt,
-                    updatedAt = conversation.updatedAt,
-                )
-            }
-            .sortedByDescending { it.updatedAt }
     }
 
     private fun newConversation(): StoredConversation {

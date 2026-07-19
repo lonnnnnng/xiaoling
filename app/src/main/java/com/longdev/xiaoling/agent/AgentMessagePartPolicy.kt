@@ -13,6 +13,13 @@ object AgentMessagePartPolicy {
         storedParts: List<MessagePart>,
     ): List<MessagePart> {
         val textPart = MessagePart.Text(id = "$messageId-text", text = text)
+        if (origin == MessageOrigin.USER) {
+            val imageParts = storedParts.filterIsInstance<MessagePart.Image>().firstOrNull()?.let(::listOf).orEmpty()
+            val projected = imageParts + textPart
+            val safeStoredParts = storedParts.filter { it is MessagePart.Image || it is MessagePart.Text }
+            // long: 用户图片是对话输入事实，不是工具执行证据；只在 USER 来源保留，并继续剔除任何伪造 Tool/Reasoning part。
+            return safeStoredParts.takeIf { it.hasSameContentAs(projected) } ?: projected
+        }
         // long: 普通模型文本即使伪造了工具完成文案或异常携带可信上下文，也不能进入 Tool part；只有应用写入的 Agent 结果可投影执行事实。
         if (origin != MessageOrigin.AGENT_RESULT || verifiedContext == null) {
             val reasoningParts = if (origin == MessageOrigin.ORDINARY_ASSISTANT) {
@@ -70,6 +77,8 @@ object AgentMessagePartPolicy {
             when {
                 stored is MessagePart.Text && projected is MessagePart.Text -> stored.text == projected.text
                 stored is MessagePart.Reasoning && projected is MessagePart.Reasoning ->
+                    stored.copy(id = projected.id) == projected
+                stored is MessagePart.Image && projected is MessagePart.Image ->
                     stored.copy(id = projected.id) == projected
                 stored is MessagePart.Tool && projected is MessagePart.Tool -> stored.copy(id = projected.id) == projected
                 else -> false

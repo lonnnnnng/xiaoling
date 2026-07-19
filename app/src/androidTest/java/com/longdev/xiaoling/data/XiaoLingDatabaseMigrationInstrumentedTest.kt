@@ -832,6 +832,48 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate23To24AddsEmptyImagePayloadWithoutInventingParts() = runBlocking {
+        migrationHelper.createDatabase(IMAGE_PARTS_MIGRATION_DATABASE_NAME, 23).apply {
+            execSQL(
+                """
+                INSERT INTO message_parts (
+                    id, messageId, sequence, type, text, toolName, argumentsJson, result,
+                    success, verificationStatus, memoryIdsJson, reasoningSource, providerItemId, summaryIndex
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "part-v23-text", "message-v23", 0, "TEXT", "旧消息", null, null, null,
+                    null, null, null, null, null, null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            IMAGE_PARTS_MIGRATION_DATABASE_NAME,
+            24,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT type, mimeType, fileName, binaryData, imageDetail FROM message_parts WHERE id = 'part-v23-text'",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("TEXT", cursor.getString(0))
+            assertNull(cursor.getString(1))
+            assertNull(cursor.getString(2))
+            assertNull(cursor.getBlob(3))
+            assertNull(cursor.getString(4))
+        }
+        migrated.query("SELECT COUNT(*) FROM message_parts WHERE type = 'IMAGE'").use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -905,5 +947,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val AGENT_PROFILE_MIGRATION_DATABASE_NAME = "xiaoling-agent-profile-migration-test"
         private const val MESSAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-message-parts-migration-test"
         private const val REASONING_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-reasoning-parts-migration-test"
+        private const val IMAGE_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-image-parts-migration-test"
     }
 }

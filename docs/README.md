@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v23、Text/Reasoning/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v23 `message_parts` 为 Reasoning 保存来源、供应商 item ID 与 summary index；普通对话只有在用户显式开启且使用 Responses API 时请求 `reasoning.summary=auto`，仅持久化供应商 `summary_text`，原始 `reasoning_text` 不进入正文、消息 parts、debug 响应日志或 Agent 可信上下文。新 Agent 结果仍只有在 `MessageOrigin.AGENT_RESULT + VerifiedAgentContext` 一致时生成 Tool part，Reasoning 不能替代工具事实。Image/Document parts 仍待后续阶段。
+当前发布基线：`v0.1.9`；文档内容已同步到当前 `main` 工作区的 Room v24、Text/Reasoning/Image/Tool 消息 parts、Agent Profile v1、候选记忆治理、待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill 管理，以及支持 1 至 8 步定义、步骤快照、可审计重试的一次性与 Daily/Weekly Workflow 实现。2026-07-19 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile 和消息 parts 的 Redmi 真机验收。v24 允许 USER 消息保存单张 PNG/JPEG/WEBP 图片及原始 BLOB，Responses 请求映射为 `input_image` Data URL；Chat Completions 与 `/agent` 明确拒绝图片，图片不能进入 Tool 或 `VerifiedAgentContext`。Reasoning 仍只保存供应商 `summary_text`，原始、加密推理和图片 Base64 均不会原样进入 debug 日志。当前门禁为 267 条 JVM 测试和仅 Redmi 执行的 85 条 instrumentation；Document part 仍待后续阶段。
 
 ## 推荐阅读顺序
 

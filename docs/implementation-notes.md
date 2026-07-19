@@ -36,7 +36,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v21 与当前 v22 Schema；迁移测试源码覆盖 v4→v22、v19→v20、v20→v21、v21→v22 和全新 v22 建库。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v23 与当前 v24 Schema；迁移测试源码覆盖 v4→v24、v19→v20、v20→v21、v21→v22、v22→v23、v23→v24 和全新 v24 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`，应把仍留在 ViewModel 的上下文、网络和会话编排逐步迁入现有边界。
@@ -49,7 +49,7 @@
 2. 从设备级网络偏好读取 `User-Agent`；默认模拟指定 Codex Desktop 版本，用户可在设置页修改或恢复默认。模型列表、Chat Completions、Responses 和后台 Agent 共用同一 Header 构造入口。
 3. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
 4. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
-5. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；除 system/user/assistant 消息外，Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。
+5. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；USER Image part 映射为 `input_text + input_image`，图片以 Data URL 发送。Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。Chat Completions 遇到图片会在请求构造阶段明确拒绝。
 6. 非流式响应从常见字段中提取文本。
 7. SSE 流式响应读取 `data:` 行，聚合 Chat Completions `choices[].delta.content` 或 Responses `delta` 文本。
 8. UI 以 30ms 节流刷新流式内容，完成或失败时强制 flush。
@@ -58,13 +58,15 @@
 
 ## 消息 parts
 
-- `MessagePart.Text / Reasoning / Tool` 是当前结构化消息模型。Reasoning 保存稳定 part ID、`PROVIDER_SUMMARY` 来源、供应商 item ID、summary index 和摘要正文；Tool 继续保存工具名、排序参数、结果、成功状态、验证状态和记忆引用。
+- `MessagePart.Text / Reasoning / Image / Tool` 是当前结构化消息模型。Image 保存文件名、规范 MIME、原始字节和 `AUTO` detail；Reasoning 保存稳定 part ID、`PROVIDER_SUMMARY` 来源、供应商 item ID、summary index 和摘要正文；Tool 继续保存工具名、排序参数、结果、成功状态、验证状态和记忆引用。
 - Room v23 为 `message_parts` 增加可空 `reasoningSource / providerItemId / summaryIndex`。v22→v23 不回填 Reasoning；历史 Text/Tool 三列保持空，避免从旧正文或工具审计猜造模型过程。
+- Room v24 增加可空 `mimeType / fileName / binaryData / imageDetail`。v23→v24 不补造历史 Image；图片字节与消息在同一事务写入 BLOB，数据库 ZIP 备份自然包含附件，不依赖长期 URI 权限。
+- `ImageAttachmentReader` 从系统 URI 有界读取最多 8 MB，先检查可用文件大小，再校验允许 MIME、PNG/JPEG/WEBP 文件签名和 Android 解码尺寸。进入 `ImageAttachment` 时复制字节，选择器授权随后即可失效。
 - 普通对话的“推理”开关默认关闭并持久化到设备偏好。开启后只有 Responses payload 加入 `reasoning.summary=auto`；非流式解析 `output[].type=reasoning` 的 `summary_text`，流式按 `response.reasoning_summary_text.delta/done` 聚合。`ProviderMessagePartPolicy` 去重来源身份并固定 Reasoning 在 Text 前。
-- 原始 `reasoning_text` 不进入最终正文或消息 parts；Chat Completions 非标准 `reasoning/reasoning_content` 也不读取。debug 包记录响应或 SSE 时先通过 `NetworkDebugLogSanitizer` 递归脱敏原始推理字段，带推理标记但无法解析的 payload 整体失败关闭。官方协议依据：[Reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) 与 [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events/)。
+- 原始 `reasoning_text` 不进入最终正文或消息 parts；Chat Completions 非标准 `reasoning/reasoning_content` 也不读取。debug 包记录请求、响应或 SSE 时先通过 `NetworkDebugLogSanitizer` 递归脱敏图片 Data URL、`file_data`、生成图片结果、原始/加密推理字段；带敏感标记但无法解析的 payload 整体失败关闭。官方协议依据：[Images and vision](https://developers.openai.com/api/docs/guides/images-vision)、[Reasoning guide](https://developers.openai.com/api/docs/guides/reasoning) 与 [Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create/)。
 - `AgentMessagePartPolicy` 同时核对 `MessageOrigin.AGENT_RESULT`、`VerifiedAgentContext` 和已存 parts。普通 assistant 可以保留供应商 Reasoning，但不能生成 Tool；Agent 结果忽略 Reasoning，只按可信上下文投影 Tool，内容漂移时 fail-closed 回退。
-- `MessageRepository` 是前台会话和后台 Workflow 的统一写入口，在同一事务内写 message 与 parts；覆盖同一消息前先删除旧 parts，避免缩短后的消息残留孤立 Tool 行。`ConversationRepository.save()` 对普通前台快照只做增量 upsert，不根据快照差集删除；ViewModel 把用户明确删除的会话 ID 保留到事务成功后再清除，因此保存任务取消或失败不会丢失删除意图，也不会误删后台刚创建的独立会话。旧 SharedPreferences 会话进入 Room 时也自动获得 Text part。
-- Compose 在同一消息气泡内按顺序渲染 Reasoning、Text 和 Tool。Reasoning 默认折叠并显示“供应商提供”，展开后按 Markdown 渲染；Tool 继续使用非嵌套证据区，流式 Text 在完成前使用稳定纯文本。
+- `MessageRepository` 是前台会话和后台 Workflow 的统一写入口，在同一事务内写 message 与 parts；覆盖同一消息前先删除旧 parts，避免缩短后的消息残留孤立 Tool 行。图片 BLOB 只在加载当前会话时读取，非当前会话使用轻量 parts；轻量快照回写时 Repository 会保留数据库中未加载的 Image BLOB。发送普通对话前必须等待用户消息与图片事务提交，切换会话则先完成全部 parts 读取再原子替换界面状态。`ConversationRepository.save()` 对普通前台快照只做增量 upsert，不根据快照差集删除；ViewModel 把用户明确删除的会话 ID 保留到事务成功后再清除，Repository 也会在事务前过滤删除集合，因此保存任务取消或失败不会丢失删除意图，陈旧快照不能复活已删会话，也不会误删后台刚创建的独立会话。旧 SharedPreferences 会话进入 Room 时也自动获得 Text part。
+- Compose 在同一消息气泡内按顺序渲染 Image、Reasoning、Text 和 Tool；待发送图片显示采样缩略图、文件名、大小和移除按钮，历史 Image 使用屏幕级采样避免按原始像素占用堆内存。Reasoning 默认折叠并显示“供应商提供”，Tool 继续使用非嵌套证据区。
 
 ## 最小 Agent 链路
 
@@ -209,7 +211,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记和本机长期记忆。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本消息、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Tool parts 垂直切片。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；Image/Document parts 仍待实现。
+- Responses Adapter 已支持文本、用户图片、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Tool parts 垂直切片。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；Document part 仍待实现，Image 暂不进入 `/agent`。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复；执行/验证中间态默认必须安全重新运行，仅 `notes.create` 与 `memory.remember` 的完整已提交证据可进入受限只读验证。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有具有完整历史证据的 `notes.create` 与 `memory.remember` 会恢复只读验证和本地总结。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；其他写工具和后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

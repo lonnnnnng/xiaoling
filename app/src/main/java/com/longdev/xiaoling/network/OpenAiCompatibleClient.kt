@@ -268,7 +268,7 @@ private object NetworkDebugLogger {
         // long: 调试模型兼容性时需要看到真实请求体，但鉴权头必须脱敏，避免 logcat 泄露用户密钥。
         Log.d(TAG, "REQUEST ${request.method} ${request.url}")
         Log.d(TAG, "REQUEST headers=${request.headers.redactedForLog()}")
-        Log.d(TAG, "REQUEST body=$body")
+        Log.d(TAG, "REQUEST body=${NetworkDebugLogSanitizer.sanitize(body)}")
     }
 
     fun logResponse(request: Request, code: Int, body: String) {
