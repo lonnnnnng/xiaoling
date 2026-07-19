@@ -376,6 +376,7 @@ class RoomAgentRunRepository(
         val dao = database.agentRunDao()
         val current = dao.getToolCall(metadata.id)
         val argumentsJson = metadata.arguments.toJsonObject().toString()
+        // long: ToolCall ID 是 proposed、validated、result 和 verify 的跨事件身份；同 ID 发生 Run、定义或参数漂移时必须回滚，不能让后续结果绑定到另一份调用。
         if (current != null) {
             require(current.runId == event.runId) { "ToolCall 不能跨 Run 复用：${metadata.id}" }
             require(current.toolName == metadata.toolName && current.risk == metadata.risk.name) {
@@ -384,6 +385,7 @@ class RoomAgentRunRepository(
             require(current.argumentsJson == argumentsJson) { "ToolCall 参数与已持久化账本不一致：${metadata.id}" }
         }
         val isProposed = event.type == TOOL_CALL_PROPOSED_EVENT_TYPE
+        // long: 每个阶段只能绑定一个 RunEvent 锚点；重复 proposed/validated 会让时间线与独立账本出现多对一歧义，因此拒绝覆盖第一次证据。
         if (isProposed) {
             require(current?.proposedEventId == null) { "ToolCall 已记录 proposed 事件：${metadata.id}" }
         } else {
@@ -406,7 +408,15 @@ class RoomAgentRunRepository(
 
     private suspend fun persistToolResult(event: RunEventEntity, metadata: RunEventMetadata.ToolResult) {
         val toolCallId = metadata.toolCallId ?: return
-        val persistedCall = database.agentRunDao().getToolCall(toolCallId) ?: return
+        val dao = database.agentRunDao()
+        val persistedCall = dao.getToolCall(toolCallId)
+        if (persistedCall == null) {
+            // long: v19 待审批 Run 可能在升级后才执行，此时只有同一 Run 的历史 ToolCall 事件；除此之外，未知 ID 的结果必须回滚，不能静默制造 event-only 新数据。
+            require(hasLegacyToolEvidence(event.runId, toolCallId, metadata.toolName, requireResult = false)) {
+                "ToolResult 缺少对应 ToolCall：$toolCallId"
+            }
+            return
+        }
         require(persistedCall.runId == event.runId && persistedCall.toolName == metadata.toolName) {
             "ToolResult 与已持久化 ToolCall 不一致：$toolCallId"
         }
@@ -414,7 +424,7 @@ class RoomAgentRunRepository(
         require(receipt == null || receipt.toolCallId == toolCallId) {
             "ToolResult 执行回执与 ToolCall 不一致：$toolCallId"
         }
-        database.agentRunDao().insertToolResult(
+        dao.insertToolResult(
             AgentToolResultEntity(
                 toolCallId = toolCallId,
                 runId = event.runId,
@@ -444,17 +454,52 @@ class RoomAgentRunRepository(
         metadata: RunEventMetadata.ToolVerification,
     ) {
         val toolCallId = metadata.toolCallId ?: return
-        val updated = database.agentRunDao().markToolResultVerified(
+        val dao = database.agentRunDao()
+        val persistedCall = dao.getToolCall(toolCallId)
+        if (persistedCall == null) {
+            // long: v19 已提交结果恢复只保留历史事件；必须同时匹配同一 Run 的 Call 与 Result 才允许继续 event-only，避免任意 ToolCall ID 绕过 v20 身份校验。
+            require(hasLegacyToolEvidence(event.runId, toolCallId, metadata.toolName, requireResult = true)) {
+                "工具验证缺少历史 ToolCall/ToolResult 证据：$toolCallId"
+            }
+            return
+        }
+        require(persistedCall.runId == event.runId && persistedCall.toolName == metadata.toolName) {
+            "工具验证与已持久化 ToolCall 不一致：$toolCallId"
+        }
+        val persistedResult = requireNotNull(dao.getToolResult(toolCallId)) {
+            "工具验证缺少对应 ToolResult：$toolCallId"
+        }
+        require(persistedResult.runId == event.runId && persistedResult.toolName == metadata.toolName) {
+            "工具验证与已持久化 ToolResult 不一致：$toolCallId"
+        }
+        val updated = dao.markToolResultVerified(
             toolCallId = toolCallId,
+            runId = event.runId,
+            toolName = metadata.toolName,
             status = metadata.status.name,
             eventId = event.id,
             verifiedAt = event.createdAt,
         )
-        if (updated == 0) {
-            // long: v19 旧 Run 没有独立工具账本，升级后的只读恢复仍允许追加验证事件；只有已出现 v20 ToolCall 却缺结果时才视为双写损坏。
-            require(database.agentRunDao().getToolCall(toolCallId) == null) {
-                "工具验证缺少对应 ToolResult：$toolCallId"
-            }
+        require(updated == 1) { "工具验证未更新唯一 ToolResult：$toolCallId" }
+    }
+
+    private suspend fun hasLegacyToolEvidence(
+        runId: String,
+        toolCallId: String,
+        toolName: String,
+        requireResult: Boolean,
+    ): Boolean {
+        val events = database.agentRunDao().getEvents(runId)
+        val hasCall = events.any { event ->
+            val call = RunEventMetadataCodec.decode(event.type, event.metadataJson) as? RunEventMetadata.ToolCall
+            event.type in TOOL_CALL_EVENT_TYPES && call?.id == toolCallId && call.toolName == toolName
+        }
+        if (!hasCall || !requireResult) return hasCall
+        return events.any { event ->
+            val result = RunEventMetadataCodec.decode(event.type, event.metadataJson) as? RunEventMetadata.ToolResult
+            event.type == TOOL_RESULT_EVENT_TYPE &&
+                result?.toolCallId == toolCallId &&
+                result.toolName == toolName
         }
     }
 

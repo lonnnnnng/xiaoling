@@ -108,14 +108,24 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_tool_results WHERE runId = :runId ORDER BY createdAt ASC, toolCallId ASC")
     suspend fun getToolResults(runId: String): List<AgentToolResultEntity>
 
+    @Query("SELECT * FROM agent_tool_results WHERE toolCallId = :toolCallId")
+    suspend fun getToolResult(toolCallId: String): AgentToolResultEntity?
+
     @Query(
         """
         UPDATE agent_tool_results
         SET verificationStatus = :status, verifiedEventId = :eventId, verifiedAt = :verifiedAt
-        WHERE toolCallId = :toolCallId
+        WHERE toolCallId = :toolCallId AND runId = :runId AND toolName = :toolName
         """,
     )
-    suspend fun markToolResultVerified(toolCallId: String, status: String, eventId: String, verifiedAt: Long): Int
+    suspend fun markToolResultVerified(
+        toolCallId: String,
+        runId: String,
+        toolName: String,
+        status: String,
+        eventId: String,
+        verifiedAt: Long,
+    ): Int
 }
 
 @Dao

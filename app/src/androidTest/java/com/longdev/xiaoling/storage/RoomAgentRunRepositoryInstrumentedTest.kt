@@ -260,6 +260,132 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun toolLedgerRollsBackResultWithoutMatchingToolCallEvidence() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-orphan-result",
+            userMessageId = "message-orphan-result",
+            goal = "拒绝孤立工具结果",
+        )
+
+        val failure = runCatching {
+            repository.appendEvent(
+                run.id,
+                "tool.result",
+                "工具执行成功：notes.create",
+                RunEventMetadata.ToolResult(
+                    toolName = "notes.create",
+                    content = "孤立结果",
+                    durationMs = 5L,
+                    success = true,
+                    verified = true,
+                    toolCallId = "tool-call-missing",
+                ),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertFalse(repository.snapshot(run.id).events.any { it.type == "tool.result" })
+        assertEquals(0, repository.toolLedger(run.id).results.size)
+    }
+
+    @Test
+    fun toolLedgerRollsBackVerificationThatReferencesAnotherRun() = runBlocking {
+        val sourceRun = repository.createRun(
+            conversationId = "conversation-source-run",
+            userMessageId = "message-source-run",
+            goal = "保存来源工具结果",
+        )
+        val call = RunEventMetadata.ToolCall(
+            id = "tool-call-source-run",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("title" to "来源", "content" to "来源结果"),
+        )
+        repository.appendEvent(sourceRun.id, "tool.call.proposed", "模型提出工具调用：notes.create", call)
+        repository.appendEvent(
+            sourceRun.id,
+            "tool.result",
+            "工具执行成功：notes.create",
+            RunEventMetadata.ToolResult(
+                toolName = call.toolName,
+                content = "已创建来源笔记",
+                durationMs = 6L,
+                success = true,
+                verified = true,
+                toolCallId = call.id,
+            ),
+        )
+        val otherRun = repository.createRun(
+            conversationId = "conversation-other-run",
+            userMessageId = "message-other-run",
+            goal = "不能验证其他 Run",
+        )
+
+        val failure = runCatching {
+            repository.appendEvent(
+                otherRun.id,
+                "tool.verify",
+                "工具验证通过：notes.create",
+                RunEventMetadata.ToolVerification(
+                    toolName = call.toolName,
+                    status = com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED,
+                    toolCallId = call.id,
+                ),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertFalse(repository.snapshot(otherRun.id).events.any { it.type == "tool.verify" })
+        assertNull(repository.toolLedger(sourceRun.id).results.single().verificationStatus)
+    }
+
+    @Test
+    fun toolLedgerRollsBackVerificationWithMismatchedToolName() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-wrong-tool",
+            userMessageId = "message-wrong-tool",
+            goal = "拒绝错误工具验证",
+        )
+        val call = RunEventMetadata.ToolCall(
+            id = "tool-call-wrong-tool",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("title" to "工具", "content" to "名称一致"),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用：notes.create", call)
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：notes.create",
+            RunEventMetadata.ToolResult(
+                toolName = call.toolName,
+                content = "已创建笔记",
+                durationMs = 7L,
+                success = true,
+                verified = true,
+                toolCallId = call.id,
+            ),
+        )
+
+        val failure = runCatching {
+            repository.appendEvent(
+                run.id,
+                "tool.verify",
+                "工具验证通过：memory.remember",
+                RunEventMetadata.ToolVerification(
+                    toolName = "memory.remember",
+                    status = com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED,
+                    toolCallId = call.id,
+                ),
+            )
+        }
+
+        assertTrue(failure.isFailure)
+        assertFalse(repository.snapshot(run.id).events.any { it.type == "tool.verify" })
+        assertNull(repository.toolLedger(run.id).results.single().verificationStatus)
+    }
+
+    @Test
     fun recoveryFailureGuidanceRoundTripsThroughRepositorySnapshot() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-recovery-guidance",
@@ -333,6 +459,17 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 operationId = "note-1",
                 idempotencyKey = null,
                 status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：notes.create",
+            metadata = RunEventMetadata.ToolCall(
+                id = "tool-call-receipt-1",
+                toolName = "notes.create",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+                arguments = mapOf("title" to "回执", "content" to "验证往返"),
             ),
         )
 
@@ -747,15 +884,27 @@ class RoomAgentRunRepositoryInstrumentedTest {
             detail = "等待应用侧审批 fake.echo",
             status = AgentStepStatus.RUNNING,
         )
+        val toolCall = ToolCall(
+            id = "tool-call-room-resume",
+            name = definition.name,
+            arguments = mapOf("goal" to run.goal),
+            risk = definition.risk,
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${toolCall.name}",
+            metadata = RunEventMetadata.ToolCall(
+                id = toolCall.id,
+                toolName = toolCall.name,
+                risk = toolCall.risk,
+                arguments = toolCall.arguments,
+            ),
+        )
         val request = repository.createApprovalRequest(
             conversationId = run.conversationId,
             runId = run.id,
-            toolCall = ToolCall(
-                id = "tool-call-room-resume",
-                name = definition.name,
-                arguments = mapOf("goal" to run.goal),
-                risk = definition.risk,
-            ),
+            toolCall = toolCall,
             definition = definition,
         )
         // long: 新建 Repository 实例模拟进程重建后的组件重建，但继续复用同一 Room 数据，验证恢复不依赖旧内存对象。

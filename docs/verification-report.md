@@ -887,5 +887,6 @@ TDD 与自动化：
 
 - Red/Green 覆盖 Repository 重建后的完整调用/结果/验证查询，以及 v19 旧 Run 迁移后追加验证；补充失败结果显式错误、ToolCall 参数漂移事务回滚和 `tool.verify` 新旧 metadata 兼容。
 - 完整命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；206 条 JVM 测试通过，lint、Debug APK 和 AndroidTest APK 均构建成功。
-- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 59 条 instrumentation，合计 118 条全部通过。
-- 最终 Debug APK SHA-256：`5d825148284bc983ed761dbcc9ff474f00e36c0000b9e185b82091b1c2f2f09f`。
+- Pixel_9 Android 15 模拟器与 Redmi Note 8 Pro Android 14 真机分别执行完整 62 条 instrumentation，合计 124 条全部通过。
+- 以 `c81d3a8` 为固定点执行 Standards/Spec 双轴审查。初审发现未知 ToolCall 结果会静默退化为 event-only，`tool.verify` 未校验 Run/工具身份，且关键绑定规则缺少贴近实现的业务注释；修复后未知结果、跨 Run 验证和错工具验证均整笔回滚，只有同一 Run 的历史 Call/Result 事件可进入 v19 fallback。
+- 最终 Debug APK SHA-256：`ecd70f9afc912946b0e7379f559f692c1a63e4202d5509124194a0c28b973d62`。
