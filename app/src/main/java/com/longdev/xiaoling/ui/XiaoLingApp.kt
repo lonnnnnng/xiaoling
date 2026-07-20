@@ -477,13 +477,6 @@ private enum class SettingsPane {
     AGENT_RUN_HISTORY,
 }
 
-private enum class AgentTaskFilter(val label: String) {
-    ALL("全部"),
-    ACTIVE("处理中"),
-    RETRYABLE("可重试"),
-    COMPLETED("已完成"),
-}
-
 private val agentMemoryTypes = listOf("Preference", "ProfileFact", "Episode", "Procedure")
 
 private data class CenterNotice(
@@ -4526,7 +4519,7 @@ private fun AgentRunHistoryMetricsSummary(details: List<AgentRunDetailRecord>) {
 }
 
 @Composable
-private fun AgentTaskFilterBar(
+internal fun AgentTaskFilterBar(
     selected: AgentTaskFilter,
     onSelected: (AgentTaskFilter) -> Unit,
 ) {
@@ -4563,19 +4556,10 @@ private fun AgentTaskFilterBar(
 }
 
 private fun AgentRunDetailRecord.matches(filter: AgentTaskFilter): Boolean {
-    val status = snapshot.run.status
-    return when (filter) {
-        AgentTaskFilter.ALL -> true
-        AgentTaskFilter.ACTIVE -> status in setOf(
-            AgentRunStatus.QUEUED,
-            AgentRunStatus.THINKING,
-            AgentRunStatus.WAITING_APPROVAL,
-            AgentRunStatus.EXECUTING,
-            AgentRunStatus.VERIFYING,
-        )
-        AgentTaskFilter.RETRYABLE -> AgentTaskRetryPolicy.evaluate(this) is AgentTaskRetryEligibility.Retryable
-        AgentTaskFilter.COMPLETED -> status == AgentRunStatus.COMPLETED
-    }
+    return filter.matches(
+        status = snapshot.run.status,
+        retryEligibility = AgentTaskRetryPolicy.evaluate(this),
+    )
 }
 
 @Composable

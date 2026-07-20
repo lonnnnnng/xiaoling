@@ -416,7 +416,7 @@
 
 目标：支持长任务和计划任务，但不夸大 Android 后台可靠性。
 
-当前状态：Workflow/ScheduledTask Ledger、1 至 8 步顺序执行、一次性及 Daily/Weekly 非精确定时、取消、计划/实际时间、完成/失败/blocked 通知和安全新 Run 重试已交付；后台通用执行栈续跑、精确定时和聚合式“需要你处理”首页仍待完成。
+当前状态：Workflow/ScheduledTask Ledger、1 至 8 步顺序执行、一次性及 Daily/Weekly 非精确定时、取消、计划/实际时间、完成/失败/blocked 通知和安全新 Run 重试已交付；任务中心新增“需确认”筛选，聚合提交未知、已提交或证据不完整且必须确认后才能创建关联新 Run 的终态任务。它不是通用“需要你处理”首页，也不包含活动审批；后台通用执行栈续跑、精确定时和跨任务聚合首页仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -433,7 +433,7 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过 391 条 JVM、126 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类并在确认提交前校验证据码不变。Worker 重入既已通过确定性隔离测试，也已在 Redmi 完成一次同一 WorkRequest 的真实冷启动重入；该次使用 instrumentation 前台占用导致 `am kill` 无效后的 `run-as kill -9` fallback，不等同 Android 自主回收。能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善通用执行恢复与长任务可靠性。
+当前状态：第 1 至 6 步已完成并通过 394 条 JVM、127 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类并在确认提交前校验证据码不变。Worker 重入既已通过确定性隔离测试，也已在 Redmi 完成一次同一 WorkRequest 的真实冷启动重入；该次使用 instrumentation 前台占用导致 `am kill` 无效后的 `run-as kill -9` fallback，不等同 Android 自主回收。能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善通用执行恢复与长任务可靠性。
 
 长任务可靠性现已补充确定性断点、启动证据快照和 Worker 重入收敛：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈，后续 Ledger 漂移按 `EVIDENCE_INCOMPLETE` 处理。Redmi 真实样本还确认旧 PID 在 `THINKING` 阶段被受控强杀后，新 PID 自动重入同一 WorkRequest，并在 `3360ms` 内只收敛关联链，未创建第二个 Agent Run、未启动后续 Workflow 步骤。该 fallback 强杀不等同 Android 自主回收，仍需更长任务和自然回收样本；这些能力也不等同于原地续跑通用执行栈，设备工具仍不得进入 Workflow/后台权限。
 

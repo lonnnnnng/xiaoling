@@ -1471,3 +1471,19 @@ Redmi 真实动作验收：
 
 - 本轮证明了同一 WorkRequest 在进程被强制终止后的冷启动重入和定向收敛；没有启动 MainActivity，因此没有触发前台启动对账，也没有触碰 Pixel 模拟器。
 - `run-as kill -9` 是 instrumentation 前台占用导致 `am kill` 无法生效时的 fallback；仍缺少 Android 自主回收、Doze/内存压力和更长模型任务的独立样本。Foreground Service、精确定时和设备 Workflow/后台自动化不因本轮证据提前引入。
+
+## 2026-07-21 任务中心需确认队列
+
+实现与边界：
+
+- 新增 `AgentTaskFilterPolicy` 和“需确认”筛选。它只匹配已进入可重试终态且 `requiresConfirmation=true` 的 Agent Run；普通直接重试仍在“可重试”，活动审批/执行任务仍在“处理中”。
+- 筛选后的卡片继续展示 `COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE` 等现有证据分类、原因和建议动作；点击重试仍进入原确认弹窗，确认前重新核对证据码。
+- 本阶段不改变恢复策略：证据稳定后只创建带 `retryOfRunId` 的新 Run，旧 Run 保持不变；不恢复旧模型协程、不调用旧 Executor、不继续 Workflow 后续步骤。
+
+自动化与 Redmi 验证：
+
+- 新增 3 条 `AgentTaskFilterPolicyTest`，覆盖需确认只包含确认型重试、可重试仍包含直接/确认两类，以及活动/完成筛选边界。
+- 新增 `AgentTaskFilterBarInstrumentedTest`，在 Compose 中确认“全部 / 需确认 / 处理中 / 可重试 / 已完成”全部可见，点击“需确认”返回正确筛选枚举。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：394 条 JVM，88 个 Gradle task 全部执行，Lint、Debug 和 AndroidTest 构建成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 安装最终 Debug/Test APK 并执行完整 `AndroidJUnitRunner`：`OK (127 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后卸载测试包、覆盖安装并启动 Debug APK；AccessibilityService 最终 Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台，crash buffer 为空。

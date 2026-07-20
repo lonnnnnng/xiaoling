@@ -415,6 +415,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 43. 已完成：Redmi 真实 Worker 冷启动重入。临时 instrumentation 在 Redmi `wsvwypiz7xwslvl7` 创建 7 步 SAFE Workflow 并保持目标进程存活；`WorkRequest=0d9aa2a5-ff1b-4a04-ad74-5d3c7bdf76db` 于 `06:05:03` 启动，`06:05:05` 首个 Agent Run 处于 `THINKING`。`am kill` 因 instrumentation 前台身份未终止 PID `25755`，立即使用 `run-as ... kill -9` fallback；约 `0.2s` 后新 PID `26092` 冷启动同一 WorkRequest。重入只收敛关联的 Agent/Workflow/ScheduledTask，后 6 步未启动，关联 Agent Run 数量仍为 1，工具调用/结果为 0，实际耗时 `3360ms`。该受控强杀不等同 Android 自主回收，也不扩大为通用原地恢复。
 
-下一阶段继续补充更长任务、Android 自主回收、Doze 与内存压力样本，并推进提交状态未知/验证事实不完整时的通用安全恢复处置。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化，Foreground Service 与精确定时仍依据真实耗时决定。
+44. 已完成：任务中心“需确认”队列。新增 `AgentTaskFilterPolicy` 和 `NEEDS_CONFIRMATION` 筛选，只聚合已结束、可重试且必须确认副作用证据的 Run；提交未知、已提交未验证/已验证和证据不完整沿用现有卡片说明与确认弹窗。确认提交前重新核对证据码，稳定后只创建关联新 Run，旧 Run 保持不变。新增 3 条 JVM 筛选策略测试和 1 条 Redmi Compose instrumentation，完整门禁为 394 条 JVM、127 条 Redmi instrumentation。
+
+下一阶段继续推进未知提交/证据不完整的通用安全处置，但不尝试恢复无法证明的旧执行栈；同时补充更长任务、Android 自主回收、Doze 与内存压力样本。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化，Foreground Service 与精确定时仍依据真实耗时决定。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

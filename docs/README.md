@@ -2,11 +2,13 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、Text/Reasoning/Image/Document/Tool 消息 parts、Agent Profile v1、候选记忆治理、多步骤待审批 Run 恢复、最多 4 步顺序工具闭环、声明式 Skill、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。2026-07-19 至 2026-07-21 已完成多步骤 Workflow、Tool Ledger、受限恢复、失败 Run 重试、Agent Profile、消息 parts、本地知识库数据/管理 UI、`knowledge.search`、答案级引用 UI、首批设备工具、“前序工具已验证、链尾工具待审批”的原 Run 恢复、“所有工具结果与 `PASSED` 验证均已持久化、仅控制面尚未收尾”的原 Run 恢复、单调累计执行预算，以及重试证据分类反馈。执行预算只累计模型与工具段，审批等待不计入；每段完成后以 typed RunEvent 持久化累计快照，审批及受限恢复继续使用原 Run 剩余预算，损坏或晚于预算快照落库的 ToolResult 证据 fail-closed。重试策略现在统一区分 `NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE`，任务卡和确认弹窗共享同一证据结论，确认提交前会校验证据码未变化；仍只创建关联新 Run，不重放旧工具。最后一种恢复只补齐最后验证 Step 并生成本地可信总结，不重放工具、不追加第二条验证、不调用模型，也不续跑 Workflow 后续步骤；提交状态未知、验证未落库和旧模型协程仍保持 fail-closed。设备 Agent 默认关闭，要求独立应用开关和系统 Accessibility 授权，具备四态健康检查、200 节点/4000 字符有界快照、30 秒节点 ref、页面 generation 失效、隐私过滤、应用白名单、敏感输入拒绝和动作后重新观察验证；仅开放给前台直接 `/agent`，Workflow、后台、旧 Profile 和未启用状态不会获得能力。AccessibilityService 只使用标准节点动作与系统返回/主页，不执行坐标手势或截图；支付/高敏窗口与已知隐私应用整窗拒绝，敏感节点不返回正文、动作或 ref。当前门禁为 391 条 JVM 测试和仅 Redmi 执行的 126 条 instrumentation；真实服务另通过 instrumentation 外诊断入口验证普通页面、敏感字段、支付窗口、计算器、设置、时钟和系统桌面。真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的模型规划、审批、执行、验证和总结。下一阶段继续记录真实 Worker 重入的耗时、系统回收点和恢复证据；完成通用执行恢复与长任务可靠性前，设备工具仍不进入 Workflow 或后台自动化。Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。任务中心现支持“需确认”筛选，聚合必须确认后才能重试的终态 Run，复用同一证据分类和证据码二次校验。当前门禁为 394 条 JVM 与仅 Redmi 执行的 127 条 instrumentation；设备工具仍只开放给前台直接 `/agent`，Workflow/后台自动化、Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 本阶段新增 Workflow 步骤结果落库后的进程终止对账、重试证据可见性、启动证据快照和 Worker 重入收敛：不可原地恢复的活动 Run 会在收敛前把证据码写入 typed `run.recovered`，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧 Agent/Workflow/Task，不扫描其他 Run，也不使用 `Result.retry` 复制 Agent Run。后续仍重新核对 Ledger，分类漂移升级为 `EVIDENCE_INCOMPLETE`。任务中心直接展示稳定分类、原因和建议动作；不改变 `COMMIT_UNKNOWN`/`EVIDENCE_INCOMPLETE` 的确认门禁，不恢复旧 Executor。设备工具仍不进入 Workflow 或后台自动化，下一阶段继续做真实系统回收位置和更长 Worker 任务的 Redmi 验收。
 
 最新状态补充：Redmi 已完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。后续重点是更长/自然系统回收样本和通用未知提交处置，设备工具、Foreground Service 与精确定时边界不变。
+
+第 44 阶段新增任务中心“需确认”队列：只聚合已结束、可重试且 `AgentTaskRetryPolicy` 判定必须确认的 Run；卡片继续展示统一证据分类、原因和建议，确认提交前继续校验证据码。稳定确认后仍只创建带 `retryOfRunId` 的新 Run，旧 Run、旧模型协程和旧 Executor 均不恢复。当前门禁为 394 条 JVM 与仅 Redmi 执行的 127 条 instrumentation。
 
 ## 推荐阅读顺序
 
