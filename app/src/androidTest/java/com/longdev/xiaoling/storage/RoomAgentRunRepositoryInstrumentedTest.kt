@@ -1082,6 +1082,106 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun processRestartCompletesFullyVerifiedRunWithoutAppendingDuplicateToolFacts() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "xiaoling-verified-run-completion-test.db"
+        context.deleteDatabase(databaseName)
+        var firstDatabase: XiaoLingDatabase? = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .allowMainThreadQueries()
+            .build()
+        var restartedDatabase: XiaoLingDatabase? = null
+        try {
+            val opened = checkNotNull(firstDatabase)
+            val firstRepository = RoomAgentRunRepository(context, opened)
+            val registry = FakeToolRegistry()
+            val definition = checkNotNull(registry.definition("fake.echo"))
+            val run = firstRepository.createRun(
+                conversationId = "conversation-verified-run-completion",
+                userMessageId = "message-verified-run-completion",
+                goal = "验证完成后收敛原 Run",
+            )
+            val call = ToolCall(
+                id = "tool-call-verified-room",
+                name = definition.name,
+                arguments = mapOf("goal" to run.goal),
+                risk = definition.risk,
+            )
+            firstRepository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+            val callMetadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments)
+            firstRepository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用", callMetadata)
+            firstRepository.appendEvent(run.id, "tool.call.validated", "工具调用已校验", callMetadata)
+            firstRepository.appendStep(
+                run.id,
+                AgentStepTypes.TOOL_EXECUTE,
+                "执行工具",
+                "工具执行已经完成",
+                AgentStepStatus.COMPLETED,
+            )
+            firstRepository.appendEvent(
+                run.id,
+                "tool.result",
+                "工具执行成功",
+                RunEventMetadata.ToolResult(
+                    toolName = call.name,
+                    content = "fake.echo 已执行：${run.goal}",
+                    durationMs = 4L,
+                    success = true,
+                    verified = true,
+                    toolCallId = call.id,
+                    replaySafety = definition.replaySafety,
+                ),
+            )
+            firstRepository.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            val verificationStep = firstRepository.appendStep(
+                run.id,
+                AgentStepTypes.TOOL_VERIFY,
+                "执行后验证",
+                "验证事件已经落库，进程在 Step 收尾前终止",
+                AgentStepStatus.RUNNING,
+            )
+            firstRepository.appendEvent(
+                run.id,
+                "tool.verify",
+                "工具验证通过",
+                RunEventMetadata.ToolVerification(call.name, com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED, call.id),
+            )
+
+            // long: 关闭并重开磁盘 Room，模拟 tool.verify 已提交但进程尚未完成控制面 Step 的真实边界。
+            opened.close()
+            firstDatabase = null
+            val reopened = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+                .also { restartedDatabase = it }
+            val restartedRepository = RoomAgentRunRepository(context, reopened)
+            val recovered = restartedRepository.recoverVerifiedToolRuns().single { it.snapshot.run.id == run.id }
+            val closedCount = restartedRepository.closeInterruptedRuns()
+            val summary = MinimalAgentRuntime(
+                ledger = restartedRepository,
+                toolRegistry = registry,
+                llm = object : AgentLlm {
+                    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("已验证恢复不应重新规划")
+                    override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String = error("已验证恢复不应调用模型总结")
+                },
+            ).resumeVerifiedToolRun(recovered)
+
+            val finalDetail = checkNotNull(restartedRepository.runDetail(run.id))
+            assertEquals(0, closedCount)
+            assertEquals(run.id, summary.runId)
+            assertEquals(AgentRunStatus.COMPLETED, finalDetail.snapshot.run.status)
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.result" })
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
+            assertEquals(AgentStepStatus.COMPLETED, finalDetail.snapshot.steps.single { it.id == verificationStep.id }.status)
+        } finally {
+            firstDatabase?.close()
+            restartedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun pendingApprovalRunSurvivesProcessRecoveryBoundary() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-pending-recovery",

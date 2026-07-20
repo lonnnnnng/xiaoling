@@ -160,6 +160,10 @@ class AgentRunUseCase(
         )
     }
 
+    suspend fun recoverVerifiedToolRuns(): List<AgentRunDetailRecord> {
+        return baseLedger.recoverVerifiedToolRuns()
+    }
+
     suspend fun closeInterruptedRuns(): Int {
         return baseLedger.closeInterruptedRuns(
             toolRegistry::definition,
@@ -187,6 +191,22 @@ class AgentRunUseCase(
             permissionChecker = permissionChecker,
         )
         return runtime.resumeCommittedToolRun(detail)
+    }
+
+    suspend fun resumeVerifiedToolRun(
+        detail: AgentRunDetailRecord,
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+    ): AgentRunSummary {
+        val ledger = ReportingAgentRunLedger(
+            delegate = baseLedger,
+            onSnapshot = onSnapshot,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = RecoveryOnlyAgentLlm,
+            permissionChecker = permissionChecker,
+        )
+        return runtime.resumeVerifiedToolRun(detail)
     }
 
     suspend fun listSkills(): List<AgentSkillRecord> = skillCatalog.list()

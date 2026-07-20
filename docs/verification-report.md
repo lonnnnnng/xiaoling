@@ -1301,7 +1301,28 @@ Redmi 真实动作验收：
 - 完整 instrumentation 结束后测试框架移除了目标应用；已重新安装当前 Debug APK并冷启动。随后使用不提交的一次性 instrumentation 设置器按项目 `AGENTS.md` 恢复兜底 Provider，真实 `/models` 请求返回非空列表，Repository 再读取确认模型为 `gpt-5.5`、Base URL/API Key 非空且 Keystore 解密成功；设置器源码与测试 APK随后删除，凭据未进入 Git 或长期文档。
 - Redmi 最终设备 Agent 应用开关为开启，系统 AccessibilityService 同时处于 Enabled 与 Bound，`Crashed services` 为空；`MainActivity` 为 `topResumedActivity`，crash buffer 没有本应用崩溃。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续处理工具已经进入执行/验证后的通用恢复与更长任务进程回收可靠性，优先区分“尚未提交”“提交状态未知”“已提交可只读核验”三类边界。
 - 设备工具继续不进入 Workflow 或后台自动化；Foreground Service 与精确定时仍依据更长真实任务耗时和系统回收证据决定。
+
+## 2026-07-21 已验证工具结果恢复
+
+实现与安全边界：
+
+- `AgentRunResumePolicy` 新增 `VERIFIED_TOOL_COMPLETION`。仅 `VERIFYING`、没有待审批请求、所有 ToolResult 成功、所有 `tool.verify` 为 `PASSED`、执行/验证 Step 数量与状态一一对应、最后验证 Step 为 `RUNNING / COMPLETED` 且其后没有新 Step 时允许原 Run 收尾；Ledger、typed RunEvent 与原 Agent Profile 任一缺失或漂移都 `RESTART_REQUIRED`。
+- `resumeVerifiedToolRun()` 从持久化证据重建 `completedTools`、已执行工具调用数和调用指纹。最后验证 Step 仍为 `RUNNING` 时只补为 `COMPLETED`，随后复用本地可信总结完成原 Run；不调用 Executor 或 LLM，不追加第二条 ToolResult/`tool.verify`，也不恢复旧模型协程。
+- Workflow 启动对账会保留该候选，恢复后只写回当前步骤输出；如仍有后续步骤，旧 Workflow 收敛为 `FAILED` 并要求创建关联新 Run，不把局部验证终态扩大成后台执行栈续跑。提交状态未知、验证事实不完整和其他执行中断继续 fail-closed。
+
+自动化与 Redmi 验证：
+
+- 两个确定性故障注入分别在 `tool.verify=PASSED` 落库后、验证 Step 更新为 `COMPLETED` 后终止进程。恢复后 Executor 仍只执行 1 次，ToolResult 和 `tool.verify` 各只有 1 条，原 Run 进入 `COMPLETED`，`RECOVERY_SUMMARY` 与完整 `VerifiedAgentContext` 均已生成。
+- `./gradlew testDebugUnitTest` 全量通过：358 条 JVM 测试，0 失败、0 错误；`lintDebug`、`assembleDebug` 与 `assembleDebugAndroidTest` 均通过。
+- 仅连接并使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`。定向磁盘 Room 测试 `processRestartCompletesFullyVerifiedRunWithoutAppendingDuplicateToolFacts` 通过；完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 回归通过：125 条 instrumentation，0 失败、0 错误、0 跳过。先前因设备休眠出现的 Compose 层级缺失，在唤醒解锁后隔离复跑 2/2 通过；没有启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后重新安装当前 Debug APK。使用不提交的一次性 instrumentation 设置器通过正式 `ProviderRepository` 与 Android Keystore 恢复兜底 Provider，进程退出后再次从 Room/Keystore 读取并真实请求 `/models`，1.149 秒返回非空列表；设置器源码已删除、测试包已卸载，最终 AndroidTest APK 已重建，凭据未进入 Git、文档或标准测试产物。
+- Redmi 最终 `device_agent_enabled=true`，默认 User-Agent 已持久化；AccessibilityService 处于 Enabled 与 Bound，`accessibility_enabled=1`，`Crashed services:{}`。`MainActivity` 为 `topResumedActivity`，应用进程存在，crash buffer 为空。
+
+下一阶段边界：
+
+- 为 `AgentExecutionBudget` 引入可注入单调时钟，覆盖多模型/工具段累计预算、Step timeout 与 Run timeout 的精确边界，并继续记录更长真实任务的耗时与进程回收证据。
+- 提交状态未知、验证事实不完整、旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。Foreground Service 与精确定时保持证据驱动，不预先引入。

@@ -235,6 +235,27 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun fullyVerifiedToolCanCompleteAfterVerificationControlPlaneInterruption() {
+        listOf(AgentStepStatus.RUNNING, AgentStepStatus.COMPLETED).forEach { verificationStepStatus ->
+            val assessment = AgentRunResumePolicy.assess(fullyVerifiedDetail(verificationStepStatus))
+
+            assertEquals(AgentRunResumeKind.VERIFIED_TOOL_COMPLETION, assessment.kind)
+            val recovery = checkNotNull(assessment.verifiedTool)
+            assertEquals("tool-call-verified", recovery.verifiedTools.single().toolCall.id)
+            assertEquals("step-2", recovery.lastVerificationStepId)
+            assertEquals(AgentRunRecoveryEvidenceSource.EVENT_FALLBACK, recovery.evidenceSource)
+        }
+    }
+
+    @Test
+    fun fullyVerifiedToolWithFailedVerificationStepRequiresRestart() {
+        val assessment = AgentRunResumePolicy.assess(fullyVerifiedDetail(AgentStepStatus.FAILED))
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("不可恢复终态"))
+    }
+
+    @Test
     fun idempotentToolWithoutReadOnlyVerificationSupportStillRequiresRestart() {
         val definition = ToolDefinition(
             name = "memory.remember",
@@ -598,6 +619,44 @@ class AgentRunResumePolicyTest {
         approvals = approvals,
         toolLedger = toolLedger,
     )
+
+    private fun fullyVerifiedDetail(verificationStepStatus: AgentStepStatus): AgentRunDetailRecord {
+        val call = ToolCall(
+            id = "tool-call-verified",
+            name = "app.current_time",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        return detail(
+            status = AgentRunStatus.VERIFYING,
+            steps = listOf(
+                step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, 1),
+                step(AgentStepTypes.TOOL_VERIFY, verificationStepStatus, 2),
+            ),
+            approvals = emptyList(),
+            events = listOf(
+                event("tool.call.proposed", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 2L),
+                event(
+                    "tool.result",
+                    RunEventMetadata.ToolResult(
+                        toolName = call.name,
+                        content = "当前时间：2026-07-21 08:30:00",
+                        durationMs = 5L,
+                        success = true,
+                        verified = true,
+                        toolCallId = call.id,
+                    ),
+                    3L,
+                ),
+                event(
+                    "tool.verify",
+                    RunEventMetadata.ToolVerification(call.name, ToolVerificationStatus.PASSED, call.id),
+                    4L,
+                ),
+            ),
+        )
+    }
 
     private fun validPendingApprovalDetail(
         extraEvents: List<RunEventRecord> = emptyList(),

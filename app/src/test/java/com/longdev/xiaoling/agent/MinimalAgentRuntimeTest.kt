@@ -2337,6 +2337,128 @@ class MinimalAgentRuntimeTest {
         assertTrue(failure?.message.orEmpty().contains("重复工具调用"))
         assertEquals(listOf("第一步"), fixture.executedGoals)
     }
+
+    @Test
+    fun verifiedToolRecoveryAfterVerifyEventDoesNotExecuteToolAgain() = runTest {
+        val baseLedger = InMemoryAgentRunLedger()
+        val interruptedLedger = ThrowAfterVerificationLedger(baseLedger, throwAfterStepCompletion = false)
+        var executionCount = 0
+        val delegateRegistry = FakeToolRegistry()
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = delegateRegistry.availableTools()
+            override fun definition(name: String): ToolDefinition? = delegateRegistry.definition(name)
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executionCount += 1
+                return delegateRegistry.execute(call)
+            }
+        }
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = interruptedLedger,
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+            ).run("conversation-verify-recovery", "message-verify-recovery", "验证后中断")
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentProcessTerminationSimulation)
+        val runId = checkNotNull(baseLedger.lastRunId)
+        val interrupted = AgentRunDetailRecord(snapshot = baseLedger.snapshot(runId), approvals = emptyList())
+        assertEquals(AgentRunResumeKind.VERIFIED_TOOL_COMPLETION, AgentRunResumePolicy.assess(interrupted).kind)
+
+        val summary = MinimalAgentRuntime(
+            ledger = baseLedger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("不应重新规划")
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String = error("不应调用模型总结")
+            },
+        ).resumeVerifiedToolRun(interrupted)
+
+        val finalSnapshot = baseLedger.snapshot(runId)
+        assertEquals(1, executionCount)
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.verify" })
+        assertEquals(AgentRunStatus.COMPLETED, finalSnapshot.run.status)
+        assertTrue(finalSnapshot.events.any { it.type == AgentEventTypes.RECOVERY_SUMMARY })
+        assertEquals(1, summary.verifiedContext.toolExecutions.size)
+    }
+
+    @Test
+    fun verifiedToolRecoveryAfterVerifyStepCompletionIsIdempotent() = runTest {
+        val baseLedger = InMemoryAgentRunLedger()
+        val interruptedLedger = ThrowAfterVerificationLedger(baseLedger, throwAfterStepCompletion = true)
+        var executionCount = 0
+        val delegateRegistry = FakeToolRegistry()
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = delegateRegistry.availableTools()
+            override fun definition(name: String): ToolDefinition? = delegateRegistry.definition(name)
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executionCount += 1
+                return delegateRegistry.execute(call)
+            }
+        }
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = interruptedLedger,
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+            ).run("conversation-verify-step-recovery", "message-verify-step-recovery", "验证步骤收尾中断")
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentProcessTerminationSimulation)
+        val runId = checkNotNull(baseLedger.lastRunId)
+        val interrupted = AgentRunDetailRecord(snapshot = baseLedger.snapshot(runId), approvals = emptyList())
+        val summary = MinimalAgentRuntime(
+            ledger = baseLedger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeVerifiedToolRun(interrupted)
+
+        val finalSnapshot = baseLedger.snapshot(runId)
+        assertEquals(1, executionCount)
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.verify" })
+        assertEquals(AgentRunStatus.COMPLETED, finalSnapshot.run.status)
+        assertEquals(AgentStepStatus.COMPLETED, finalSnapshot.steps.single { it.type == AgentStepTypes.TOOL_VERIFY }.status)
+        assertEquals(1, summary.verifiedContext.toolExecutions.size)
+    }
+}
+
+private class ThrowAfterVerificationLedger(
+    private val delegate: AgentRunLedger,
+    private val throwAfterStepCompletion: Boolean,
+) : AgentRunLedger {
+    private var verificationStepId: String? = null
+    private var interrupted = false
+
+    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String, retryOfRunId: String?): AgentRunRecord =
+        delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
+
+    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) =
+        delegate.updateRunStatus(runId, status, result, errorMessage)
+
+    override suspend fun appendStep(runId: String, type: String, title: String, detail: String, status: AgentStepStatus): AgentStepRecord {
+        val step = delegate.appendStep(runId, type, title, detail, status)
+        if (type == AgentStepTypes.TOOL_VERIFY) verificationStepId = step.id
+        return step
+    }
+
+    override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) {
+        delegate.updateStep(stepId, status, detail)
+        if (!interrupted && throwAfterStepCompletion && stepId == verificationStepId && status == AgentStepStatus.COMPLETED) {
+            interrupted = true
+            throw AgentProcessTerminationSimulation()
+        }
+    }
+
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
+        delegate.appendEvent(runId, type, message, metadata)
+        if (!interrupted && !throwAfterStepCompletion && type == "tool.verify") {
+            interrupted = true
+            throw AgentProcessTerminationSimulation()
+        }
+    }
+
+    override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
 }
 
 private data class InterruptedSecondApprovalFixture(

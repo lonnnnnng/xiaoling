@@ -3,6 +3,7 @@ package com.longdev.xiaoling.agent
 enum class AgentRunResumeKind {
     APPROVAL_WAIT,
     COMMITTED_TOOL_VERIFICATION,
+    VERIFIED_TOOL_COMPLETION,
     RESTART_REQUIRED,
 }
 
@@ -23,11 +24,18 @@ data class AgentApprovalWaitRecovery(
     val evidenceSource: AgentRunRecoveryEvidenceSource,
 )
 
+data class AgentVerifiedToolRecovery(
+    val verifiedTools: List<AgentToolExecution>,
+    val lastVerificationStepId: String,
+    val evidenceSource: AgentRunRecoveryEvidenceSource,
+)
+
 data class AgentRunResumeAssessment(
     val kind: AgentRunResumeKind,
     val reason: String,
     val committedTool: AgentCommittedToolRecovery? = null,
     val approvalWait: AgentApprovalWaitRecovery? = null,
+    val verifiedTool: AgentVerifiedToolRecovery? = null,
 ) {
     val canResumeInPlace: Boolean get() = kind != AgentRunResumeKind.RESTART_REQUIRED
 }
@@ -53,7 +61,80 @@ object AgentRunResumePolicy {
                 reason = "只有等待用户审批且尚未执行工具的 Run 可以原地恢复",
             )
         }
+        assessVerifiedToolCompletion(detail, agentProfile)?.let { return it }
         return assessCommittedToolVerification(detail, agentProfile, definitionLookup, committedVerificationSupport)
+    }
+
+    private fun assessVerifiedToolCompletion(
+        detail: AgentRunDetailRecord,
+        agentProfile: AgentProfileSnapshot?,
+    ): AgentRunResumeAssessment? {
+        if (detail.snapshot.run.status != AgentRunStatus.VERIFYING) return null
+        if (detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }) {
+            return restartRequired("验证中 Run 不能同时保留待审批请求")
+        }
+        val recoveryEvidence = when (val assessment = AgentRunRecoveryEvidencePolicy.read(detail)) {
+            is AgentRunRecoveryEvidenceAssessment.Available -> assessment
+            is AgentRunRecoveryEvidenceAssessment.Invalid -> return restartRequired(assessment.reason)
+        }
+        val persistedExecutions = recoveryEvidence.executions
+        if (persistedExecutions.isEmpty() || persistedExecutions.any {
+                it.verificationStatus != ToolVerificationStatus.PASSED
+            }
+        ) {
+            return null
+        }
+        if (agentProfile != null && persistedExecutions.any { it.toolCall.name !in agentProfile.allowedToolNames }) {
+            return restartRequired("已验证工具超出原 Agent Profile 白名单")
+        }
+        val executionSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
+        val verificationSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
+        if (
+            executionSteps.size != persistedExecutions.size ||
+            verificationSteps.size != persistedExecutions.size ||
+            executionSteps.any { it.status != AgentStepStatus.COMPLETED } ||
+            verificationSteps.dropLast(1).any { it.status != AgentStepStatus.COMPLETED }
+        ) {
+            return restartRequired("已验证工具的执行与验证步骤无法一一对应")
+        }
+        val lastVerificationStep = verificationSteps.last()
+        if (lastVerificationStep.status != AgentStepStatus.RUNNING && lastVerificationStep.status != AgentStepStatus.COMPLETED) {
+            return restartRequired("最后一个已验证工具步骤处于不可恢复终态")
+        }
+        if (detail.snapshot.steps.any { it.sequence > lastVerificationStep.sequence }) {
+            return restartRequired("最后一个已验证工具之后已经出现新的运行步骤")
+        }
+        val verifiedTools = persistedExecutions.mapIndexed { index, persisted ->
+            val result = persisted.result
+            if (!result.success || result.toolName != persisted.toolCall.name) {
+                return restartRequired("已验证工具结果不是成功且身份一致的终态：${persisted.toolCall.id}")
+            }
+            val verificationStep = verificationSteps[index]
+            if (index < verificationSteps.lastIndex && verificationStep.status != AgentStepStatus.COMPLETED) {
+                return restartRequired("前序工具验证步骤尚未完成：${persisted.toolCall.id}")
+            }
+            AgentToolExecution(
+                toolCall = persisted.toolCall,
+                toolResult = ToolExecutionResult(
+                    success = result.success,
+                    content = result.content,
+                    verified = result.verified,
+                    memoryIdsUsed = result.memoryIdsUsed,
+                    knowledgeReferences = result.knowledgeReferences,
+                    executionReceipt = result.executionReceipt,
+                ),
+            )
+        }
+        // long: tool.verify 已证明副作用和后置检查完成；这里只恢复控制面收尾，不重放工具，也不重建已经丢失的模型规划协程。
+        return AgentRunResumeAssessment(
+            kind = AgentRunResumeKind.VERIFIED_TOOL_COMPLETION,
+            reason = "全部工具结果和验证证据已持久化，只补齐验证步骤并生成本地可信总结",
+            verifiedTool = AgentVerifiedToolRecovery(
+                verifiedTools = verifiedTools,
+                lastVerificationStepId = lastVerificationStep.id,
+                evidenceSource = recoveryEvidence.source,
+            ),
+        )
     }
 
     private fun assessApprovalWait(

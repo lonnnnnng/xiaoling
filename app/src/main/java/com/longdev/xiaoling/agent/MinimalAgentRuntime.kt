@@ -372,6 +372,55 @@ class MinimalAgentRuntime(
         }
     }
 
+    suspend fun resumeVerifiedToolRun(
+        detail: AgentRunDetailRecord,
+    ): AgentRunSummary {
+        val assessment = AgentRunResumePolicy.assess(detail)
+        require(assessment.kind == AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) { assessment.reason }
+        val recovery = requireNotNull(assessment.verifiedTool) { "恢复策略缺少已验证工具证据" }
+        val run = detail.snapshot.run
+        val state = AgentRuntimeExecutionState(
+            runTimeoutMs = options.runTimeoutMs,
+            activeStepId = recovery.lastVerificationStepId,
+        )
+        state.completedTools += recovery.verifiedTools
+        state.executedToolCalls = recovery.verifiedTools.size
+        state.toolCallFingerprints += recovery.verifiedTools.map { toolCallFingerprint(it.toolCall) }
+        return try {
+            val verificationStep = detail.snapshot.steps.single { it.id == recovery.lastVerificationStepId }
+            if (verificationStep.status == AgentStepStatus.RUNNING) {
+                // long: tool.verify 已经持久化为 PASSED，进程重建只补齐同一验证 Step 的控制面终态，不能再次执行工具或追加第二条验证事实。
+                ledger.updateStep(
+                    verificationStep.id,
+                    AgentStepStatus.COMPLETED,
+                    "验证结果已在进程终止前持久化",
+                )
+            }
+            state.activeStepId = null
+            completeRecoveredRun(run, state)
+        } catch (error: CancellationException) {
+            withContext(NonCancellable) {
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消已验证结果恢复") }
+                ledger.appendEvent(
+                    run.id,
+                    "run.cancelled",
+                    "用户取消已验证结果恢复",
+                    RunEventMetadata.Reason("用户取消已验证结果恢复"),
+                )
+                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消已验证结果恢复")
+            }
+            throw error
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                val reason = error.message ?: "已验证工具结果恢复失败"
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            }
+            throw error
+        }
+    }
+
     private suspend fun continuePlanning(
         run: AgentRunRecord,
         goal: String,

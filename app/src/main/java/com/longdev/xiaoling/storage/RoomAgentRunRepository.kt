@@ -284,6 +284,30 @@ class RoomAgentRunRepository(
         }
     }
 
+    suspend fun recoverVerifiedToolRuns(): List<AgentRunDetailRecord> {
+        val dao = database.agentRunDao()
+        return dao.getRunsByStatuses(listOf(AgentRunStatus.VERIFYING.name))
+            .mapNotNull { run ->
+                val detail = loadDetail(run)
+                val assessment = AgentRunResumePolicy.assess(detail)
+                if (assessment.kind != AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) {
+                    return@mapNotNull null
+                }
+                // long: 所有 tool.verify 均已落库时不再触碰 Executor；启动阶段只登记控制面恢复，随后由 Runtime 补齐 Step 和本地总结。
+                appendEvent(
+                    runId = run.id,
+                    type = "run.recovered",
+                    message = "已恢复全部验证通过的工具结果，准备完成原 Run",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.VERIFYING,
+                        toStatus = AgentRunStatus.VERIFYING,
+                        reason = assessment.reason,
+                    ),
+                )
+                loadDetail(dao.getRun(run.id) ?: return@mapNotNull null)
+            }
+    }
+
     suspend fun closeInterruptedRuns(
         definitionLookup: (String) -> ToolDefinition? = { null },
         committedVerificationSupport: (String) -> Boolean = { false },
