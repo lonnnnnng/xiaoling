@@ -1298,6 +1298,8 @@ Redmi 真实动作验收：
 - `./gradlew assembleDebugAndroidTest` 通过。
 - 仅连接并使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`。定向运行 `RoomAgentRunRepositoryInstrumentedTest#secondApprovalAndVerifiedPrefixSurviveDiskRoomReopen` 通过；测试真实关闭并重开磁盘 Room，确认原 Run ID、第一步已验证前缀、第二次审批、链尾 ToolCall 和审批 Step 完整恢复，`closeInterruptedRuns()` 不会误取消。
 - `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 完整回归通过：124 条 instrumentation，0 失败、0 错误、0 跳过。没有启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 结束后测试框架移除了目标应用；已重新安装当前 Debug APK并冷启动。随后使用不提交的一次性 instrumentation 设置器按项目 `AGENTS.md` 恢复兜底 Provider，真实 `/models` 请求返回非空列表，Repository 再读取确认模型为 `gpt-5.5`、Base URL/API Key 非空且 Keystore 解密成功；设置器源码与测试 APK随后删除，凭据未进入 Git 或长期文档。
+- Redmi 最终设备 Agent 应用开关为开启，系统 AccessibilityService 同时处于 Enabled 与 Bound，`Crashed services` 为空；`MainActivity` 为 `topResumedActivity`，crash buffer 没有本应用崩溃。
 
 下一阶段边界：
 
