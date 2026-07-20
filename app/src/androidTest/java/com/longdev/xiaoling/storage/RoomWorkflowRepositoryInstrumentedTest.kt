@@ -350,6 +350,18 @@ class RoomWorkflowRepositoryInstrumentedTest {
             ),
         )
 
+        // long: 模拟进程恰好在步骤结果事务提交后被回收；Workflow Run 和下一步骤仍保持活动中，等待启动对账。
+        repository.completeWorkflowStep(
+            workflowRunId = created.run.id,
+            workflowStepId = firstStep.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "当前时间为 09:30",
+        )
+        val persistedBeforeRestart = repository.runDetail(created.run.id)!!
+        assertEquals(WorkflowRunStatus.RUNNING, persistedBeforeRestart.run.status)
+        assertEquals(WorkflowStepStatus.COMPLETED, persistedBeforeRestart.steps[0].status)
+        assertEquals(WorkflowStepStatus.PENDING, persistedBeforeRestart.steps[1].status)
+
         assertEquals(1, repository.reconcileInterruptedRuns())
 
         val interrupted = repository.runDetail(created.run.id)!!

@@ -1366,3 +1366,23 @@ Redmi 真实动作验收：
 下一阶段边界：
 
 - 继续以确定性故障注入验证更长任务在步骤落库、系统回收和 Worker 重入时的对账；仍不使用 `Result.retry` 复制可能已执行的 Agent Run，也不引入 Foreground Service。
+
+## 2026-07-21 Workflow 步骤落库后进程终止对账
+
+实现与安全边界：
+
+- `ScheduledWorkflowOrchestrator` 在 `completeWorkflowStep()` 成功返回后、更新内存步骤列表和启动下一步骤前调用专用 `ScheduledWorkflowFaultInjector`；生产默认实现为 no-op。
+- 测试用进程终止异常会直接重新抛出，不进入普通 `FAILED/CANCELLED` 结算，也不调用结果通知。旧 Workflow 保留第一步已持久化输出、后续步骤未启动的中间 Ledger，交由应用下次启动对账。
+- `reconcileInterruptedRuns()` 将旧 Workflow 收敛为 `FAILED`，不自动继续旧模型协程或后续步骤；用户调用 `retryRun()` 创建关联新 Run，连续成功前缀标为 `SKIPPED` 并设置 `reusedFromStepId`，首个未完成步骤保持 `PENDING`。WorkManager 仍返回业务已记账语义，不使用 `Result.retry` 复制可能执行过的 Agent Run。
+
+自动化验证：
+
+- `ScheduledWorkflowOrchestratorTest` 新增确定性终止场景：第一步 Agent 只启动一次，结果持久化后终止，第二步未启动，且未调用 settle/notify；旧 Workflow 不在该测试中自动续跑。
+- Redmi 定向执行 `RoomWorkflowRepositoryInstrumentedTest`：`OK (13 tests)`。新增断言确认对账前 Workflow Run 为 `RUNNING`、第一步为 `COMPLETED`、第二步为 `PENDING`；对账后旧 Run 为 `FAILED`，重试新 Run 的第一步为 `SKIPPED` 且引用来源步骤，第二步为 `PENDING`。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：382 条 JVM，0 失败、0 错误；lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 文档同步后重新构建 AndroidTest，并仅在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/AndroidTest APK、执行完整 `AndroidJUnitRunner`：`OK (125 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后卸载测试包并覆盖安装、启动当前 Debug APK。主库 Provider 仍为 `gpt-5.5`，Base URL、启用模型和 Keystore 密文均存在；默认 User-Agent 与设备 Agent 开关保持正确。测试清除的系统 Accessibility 授权已恢复，服务最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
+
+下一阶段边界：
+
+- 继续采集更长真实任务的总耗时和系统回收位置，完善提交状态未知或验证事实不完整时的通用执行恢复；仍不原地恢复旧模型协程或 Workflow 后续步骤，不提前引入 Foreground Service、精确定时或设备 Workflow 权限。

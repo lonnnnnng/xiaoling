@@ -68,6 +68,7 @@ class ScheduledWorkflowExecutor(
             workflowRepository.markAgentRunStarted(claim.run.run.id, step.id, agentRunId)
         },
         completeStep = ::completeStep,
+        faultInjector = NoOpScheduledWorkflowFaultInjector,
         settle = ::settle,
         notify = { claim, task, outcome ->
             notifier.notify(claim.workflow.name, task, outcome.notificationDetail)
@@ -286,6 +287,7 @@ internal class ScheduledWorkflowOrchestrator(
     ) -> AgentRunSummary,
     private val markAgentRunStarted: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, String) -> Unit,
     private val completeStep: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, AgentRunSummary) -> WorkflowStepRecord,
+    private val faultInjector: ScheduledWorkflowFaultInjector = NoOpScheduledWorkflowFaultInjector,
     private val settle: suspend (ScheduledWorkflowClaim, ScheduledExecutionOutcome) -> ScheduledTaskRecord,
     private val notify: (ScheduledWorkflowClaim, ScheduledTaskRecord, ScheduledExecutionOutcome) -> Unit,
     private val onClaimRejected: suspend (String) -> Unit,
@@ -305,6 +307,7 @@ internal class ScheduledWorkflowOrchestrator(
                     markAgentRunStarted(claim, step, agentRunId)
                 }
                 val completed = completeStep(claim, step, summary)
+                faultInjector.afterStepPersisted(claim, step, completed)
                 steps = steps.map { current -> if (current.id == completed.id) completed else current }
                 results += summary.responseText
             }
@@ -316,6 +319,9 @@ internal class ScheduledWorkflowOrchestrator(
             }
         } catch (error: AgentBackgroundApprovalRequiredException) {
             ScheduledExecutionOutcome.Blocked(error.message ?: "后台任务需要用户确认")
+        } catch (error: ScheduledWorkflowProcessTerminationException) {
+            // long: 进程终止不会留下业务结算机会，必须把已持久化的步骤交给下次启动对账，避免伪造失败通知或复制副作用。
+            throw error
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
                 finishAndNotify(claim, ScheduledExecutionOutcome.Cancelled("系统停止了本次后台工作流"))
@@ -336,6 +342,28 @@ internal class ScheduledWorkflowOrchestrator(
         notify(claim, task, outcome)
     }
 }
+
+internal fun interface ScheduledWorkflowFaultInjector {
+    suspend fun afterStepPersisted(
+        claim: ScheduledWorkflowClaim,
+        step: WorkflowStepRecord,
+        completedStep: WorkflowStepRecord,
+    )
+}
+
+internal object NoOpScheduledWorkflowFaultInjector : ScheduledWorkflowFaultInjector {
+    override suspend fun afterStepPersisted(
+        claim: ScheduledWorkflowClaim,
+        step: WorkflowStepRecord,
+        completedStep: WorkflowStepRecord,
+    ) = Unit
+}
+
+/**
+ * 只用于测试操作系统在步骤已经落库后的直接进程终止，不应被业务流程捕获为普通失败。
+ * long: 真实进程回收不会执行 finally 或结算逻辑，因此测试必须保留中间 Ledger 状态。
+ */
+internal class ScheduledWorkflowProcessTerminationException : Error("模拟 Workflow 进程终止")
 
 private object RejectingBackgroundApprovalGate : ApprovalGate {
     override suspend fun requestApproval(

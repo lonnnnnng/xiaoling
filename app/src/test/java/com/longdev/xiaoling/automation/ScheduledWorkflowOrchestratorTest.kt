@@ -65,6 +65,67 @@ class ScheduledWorkflowOrchestratorTest {
     }
 
     @Test
+    fun processTerminationAfterPersistedStepDoesNotStartNextStepOrSettle() = runTest {
+        val initialClaim = testClaim(stepCount = 2)
+        var persistedSteps = initialClaim.run.steps
+        val events = mutableListOf<String>()
+        var agentStarts = 0
+
+        fun claimFromLedger() = initialClaim.copy(
+            run = initialClaim.run.copy(steps = persistedSteps),
+        )
+
+        fun completePersistedStep(
+            _claim: ScheduledWorkflowClaim,
+            step: WorkflowStepRecord,
+            summary: AgentRunSummary,
+        ): WorkflowStepRecord {
+            val completed = step.copy(
+                status = WorkflowStepStatus.COMPLETED,
+                result = summary.responseText,
+                outputSnapshot = summary.responseText,
+            )
+            persistedSteps = persistedSteps.map { current ->
+                if (current.id == completed.id) completed else current
+            }
+            events += "step:${step.sequence}:COMPLETED"
+            return completed
+        }
+
+        val interrupted = ScheduledWorkflowOrchestrator(
+            claimTask = { claimFromLedger() },
+            runAgent = { _, step, onAgentRunId ->
+                agentStarts += 1
+                onAgentRunId("agent-run-${step.sequence}")
+                completedSummary(step.sequence)
+            },
+            markAgentRunStarted = { _, step, agentRunId -> events += "agent:${step.sequence}:$agentRunId" },
+            completeStep = ::completePersistedStep,
+            faultInjector = ScheduledWorkflowFaultInjector { _, _, _ ->
+                throw ScheduledWorkflowProcessTerminationException()
+            },
+            settle = { _, _ ->
+                events += "settle"
+                initialClaim.task
+            },
+            notify = { _, _, _ -> events += "notify" },
+            onClaimRejected = { events += "claim-rejected:$it" },
+        )
+
+        val termination = runCatching { interrupted.execute(initialClaim.task.id) }.exceptionOrNull()
+
+        assertTrue(termination is ScheduledWorkflowProcessTerminationException)
+        assertEquals(1, agentStarts)
+        assertEquals(WorkflowStepStatus.COMPLETED, persistedSteps[0].status)
+        assertEquals("步骤 1 完成", persistedSteps[0].outputSnapshot)
+        assertEquals(WorkflowStepStatus.PENDING, persistedSteps[1].status)
+        assertEquals(
+            listOf("agent:1:agent-run-1", "step:1:COMPLETED"),
+            events,
+        )
+    }
+
+    @Test
     fun approvalRequirementSettlesBlockedAndNotifiesWithoutCompletion() = runTest {
         val claim = testClaim()
         val events = mutableListOf<String>()

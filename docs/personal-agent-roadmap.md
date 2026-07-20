@@ -401,6 +401,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 38. 已完成：重试前副作用证据分类。`AgentTaskRetryPolicy.assessEvidence()` 统一读取独立 Tool Ledger、旧 typed RunEvent、Receipt 状态和执行/验证中断，输出 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE`。任务中心卡片和确认弹窗展示稳定分类码、原因和建议；确认提交前重新读取当前 Run，状态不可重试时关闭弹窗，证据码变化时更新弹窗并停止本次旧确认，只有分类稳定后才继续。该阶段没有扩大原地恢复能力，仍禁止恢复旧模型协程、调用旧 Executor 或把 UNKNOWN 当作未提交；所有重试继续创建关联新 Run，旧 Run 保持不变。381 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
+39. 已完成：Workflow 步骤落库后的进程终止与启动对账。`ScheduledWorkflowOrchestrator` 在 `completeWorkflowStep()` 成功返回后、下一步骤启动前提供专用故障注入 seam；模拟进程终止直接退出，不触发普通失败结算、通知或 `Result.retry`。JVM 测试确认第一步只执行一次、输出已保存、第二步仍为 `PENDING` 且没有结算；Room 测试再确认启动 `reconcileInterruptedRuns()` 会保留完成前缀并关闭旧 Run，`retryRun()` 创建关联新 Run，将前缀标为 `SKIPPED` 并设置 `reusedFromStepId`，只从首个未完成步骤继续。生产保持 no-op 注入，不自动恢复旧 Workflow 或复制 Agent Run。382 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 13 条定向 Workflow instrumentation 全部通过。
+
 下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
