@@ -15,6 +15,24 @@ import org.junit.Test
 
 class AgentRunEventPresentationTest {
     @Test
+    fun executionBudgetShowsConsumedTotalAndRemainingTime() {
+        val presentation = presentAgentRunEvent(
+            type = "run.execution_budget.updated",
+            message = "模型规划执行预算：3500/120000ms",
+            metadata = RunEventMetadata.ExecutionBudget(
+                totalTimeoutMs = 120_000,
+                consumedMs = 3_500,
+            ),
+        )
+
+        assertEquals("执行预算更新", presentation.summary)
+        assertEquals("3500ms", presentation.fields.single { it.label == "已消耗" }.value)
+        assertEquals("120000ms", presentation.fields.single { it.label == "总预算" }.value)
+        assertEquals("116500ms", presentation.fields.single { it.label == "剩余" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
     fun recoveryFailureShowsStableReasonAndSuggestedAction() {
         val presentation = presentAgentRunEvent(
             type = "run.recovery_failed",

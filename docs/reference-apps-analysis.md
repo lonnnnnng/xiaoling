@@ -433,7 +433,7 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过 358 条 JVM、125 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善累计预算、超时边界与长任务可靠性。
+当前状态：第 1 至 6 步已完成并通过 374 条 JVM、125 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段现共享单调累计 Run 预算，审批及受限恢复继承持久化剩余值，ToolResult 与预算快照的崩溃窗口、Step/Run timeout 和调用方取消边界已有确定性测试。能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善通用执行恢复与长任务可靠性。
 
 实施顺序：
 
@@ -509,4 +509,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”，而应先完善通用执行恢复和长任务可靠性。完成前设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”。累计执行预算与超时边界已经完成，接下来应继续完善通用执行恢复并记录更长任务的系统回收证据。完成前设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

@@ -39,6 +39,7 @@ private val eventTitles = mapOf(
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
     "llm.request.completed" to "模型请求完成",
+    "run.execution_budget.updated" to "执行预算更新",
 )
 
 internal fun presentAgentRunEvent(
@@ -81,6 +82,14 @@ internal fun presentAgentRunEvent(
                 "输入 Token" to metadata.inputTokens?.toString(),
                 "输出 Token" to metadata.outputTokens?.toString(),
                 "总 Token" to metadata.totalTokens?.toString(),
+            ),
+        )
+        is RunEventMetadata.ExecutionBudget -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "已消耗" to "${metadata.consumedMs}ms",
+                "总预算" to "${metadata.totalTimeoutMs}ms",
+                "剩余" to "${metadata.totalTimeoutMs - metadata.consumedMs}ms",
             ),
         )
         is RunEventMetadata.ToolCall -> AgentRunEventPresentation(

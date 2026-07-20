@@ -59,6 +59,66 @@ class MultiStepAgentRuntimeTest {
     }
 
     @Test
+    fun modelAndToolSegmentsShareOneMonotonicRunBudget() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val clock = MutableMonotonicClock()
+        val registry = RecordingMultiStepToolRegistry(onExecute = { clock.advanceBy(30) })
+        var planningCalls = 0
+        val llm = object : AgentLlm {
+            override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                error("多步 Runtime 应调用带执行历史的规划入口")
+            }
+
+            override suspend fun proposeNextAction(
+                goal: String,
+                tools: List<ToolDefinition>,
+                completedTools: List<AgentToolExecution>,
+            ): AgentPlanDecision {
+                planningCalls += 1
+                clock.advanceBy(20)
+                return when (completedTools.size) {
+                    0 -> AgentPlanDecision.CallTool(call("test.first", "first"))
+                    1 -> AgentPlanDecision.CallTool(call("test.second", "second"))
+                    else -> AgentPlanDecision.Complete
+                }
+            }
+
+            override suspend fun summarize(
+                goal: String,
+                toolCall: ToolCall,
+                toolResult: ToolExecutionResult,
+            ): String = error("总预算耗尽后不应进入模型总结")
+        }
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = llm,
+            options = AgentRuntimeOptions(
+                runTimeoutMs = 100,
+                modelStepTimeoutMs = 1_000,
+                toolStepTimeoutMs = 1_000,
+            ),
+            monotonicClock = clock,
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-time-budget", "message-time-budget", "累计模型和工具执行预算")
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(checkNotNull(ledger.lastRunId))
+        val toolDurations = snapshot.events
+            .mapNotNull { it.metadata as? RunEventMetadata.ToolResult }
+            .map { it.durationMs }
+
+        assertTrue(failure is AgentTimeoutException)
+        assertEquals("Agent Run 超时：100ms", failure?.message)
+        assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, snapshot.run.status)
+        assertEquals(2, planningCalls)
+        assertEquals(listOf("test.first", "test.second"), registry.executedToolNames)
+        assertEquals(listOf(30L, 30L), toolDurations)
+        assertEquals(AgentStepStatus.FAILED, snapshot.steps.last { it.type == AgentStepTypes.LLM_PLAN }.status)
+    }
+
+    @Test
     fun fifthToolCallIsRejectedByRunBudget() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val registry = RecordingMultiStepToolRegistry()
@@ -169,6 +229,7 @@ class MultiStepAgentRuntimeTest {
 
 private class RecordingMultiStepToolRegistry(
     private val risk: ToolRisk = ToolRisk.SAFE,
+    private val onExecute: () -> Unit = {},
 ) : ToolRegistry {
     private val tools = listOf(
         toolDefinition("test.first"),
@@ -181,6 +242,7 @@ private class RecordingMultiStepToolRegistry(
     override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
+        onExecute()
         executedToolNames += call.name
         return ToolExecutionResult(success = true, content = "${call.name}:${call.arguments.getValue("value")}")
     }
@@ -197,4 +259,14 @@ private class RecordingMultiStepToolRegistry(
             ),
         ),
     )
+}
+
+private class MutableMonotonicClock : MonotonicClock {
+    private var currentMs: Long = 0
+
+    override fun nowMs(): Long = currentMs
+
+    fun advanceBy(durationMs: Long) {
+        currentMs += durationMs
+    }
 }

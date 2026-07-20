@@ -52,6 +52,10 @@ object AgentRunResumePolicy {
             is AgentProfileAuditAssessment.Available -> assessment.profile
             is AgentProfileAuditAssessment.Invalid -> return restartRequired(assessment.reason)
         }
+        val budgetAssessment = AgentExecutionBudgetEvidencePolicy.read(detail)
+        if (budgetAssessment is AgentExecutionBudgetEvidenceAssessment.Invalid) {
+            return restartRequired(budgetAssessment.reason)
+        }
         if (snapshot.run.status == AgentRunStatus.WAITING_APPROVAL) {
             return assessApprovalWait(detail, agentProfile)
         }

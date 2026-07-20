@@ -9,7 +9,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 
-class MinimalAgentRuntime(
+internal fun interface MonotonicClock {
+    fun nowMs(): Long
+}
+
+private val systemMonotonicClock = MonotonicClock {
+    System.nanoTime() / 1_000_000L
+}
+
+class MinimalAgentRuntime internal constructor(
     private val ledger: AgentRunLedger,
     private val toolRegistry: ToolRegistry = FakeToolRegistry(),
     private val llm: AgentLlm,
@@ -17,6 +25,7 @@ class MinimalAgentRuntime(
     private val permissionChecker: ToolPermissionChecker = FailClosedToolPermissionChecker,
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
     private val faultInjector: AgentRuntimeFaultInjector = NoOpAgentRuntimeFaultInjector,
+    private val monotonicClock: MonotonicClock = systemMonotonicClock,
 ) {
     suspend fun run(
         conversationId: String,
@@ -41,8 +50,9 @@ class MinimalAgentRuntime(
                 invocationSource = invocationSource,
             ),
         )
-        val state = AgentRuntimeExecutionState(options.runTimeoutMs)
+        val state = AgentRuntimeExecutionState(options.runTimeoutMs, monotonicClock = monotonicClock)
         return try {
+            persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
             if (agentProfile != null) {
                 // long: Run 必须冻结启动时的 Agent 身份、模型和能力白名单；后续编辑或删除 Profile 不能改变历史审计、审批恢复和工具边界。
                 ledger.appendEvent(
@@ -87,19 +97,6 @@ class MinimalAgentRuntime(
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
             }
             throw error
-        } catch (error: TimeoutCancellationException) {
-            val timeout = AgentTimeoutException("Agent Run 超时：${options.runTimeoutMs}ms")
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, timeout.message ?: "Agent Run 超时") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.timeout",
-                    timeout.message.orEmpty(),
-                    RunEventMetadata.Reason(timeout.message.orEmpty()),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = timeout.message)
-            }
-            throw timeout
         } catch (error: AgentTimeoutException) {
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
@@ -171,15 +168,19 @@ class MinimalAgentRuntime(
                 memoryRecallEnabled = memoryRecallEnabled,
             ),
         )
+        val restoredBudget = restoredExecutionBudget(detail)
         val state = AgentRuntimeExecutionState(
-            runTimeoutMs = options.runTimeoutMs,
+            runTimeoutMs = restoredBudget.snapshot.totalTimeoutMs,
             activeStepId = recovery.approvalStepId,
+            monotonicClock = monotonicClock,
+            initialConsumedMs = restoredBudget.snapshot.consumedMs,
         )
         // long: 前序工具的结果、调用额度和循环指纹都属于原 Run；进程重建不能把这些约束清零，也不能重新执行已经验证的工具。
         state.completedTools += recovery.verifiedPrefix
         state.executedToolCalls = recovery.verifiedPrefix.size
         state.toolCallFingerprints += recovery.verifiedPrefix.map { toolCallFingerprint(it.toolCall) }
         return try {
+            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
             ledger.appendEvent(
                 runId = run.id,
@@ -211,14 +212,6 @@ class MinimalAgentRuntime(
                 ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
             }
             throw error
-        } catch (error: TimeoutCancellationException) {
-            val timeout = AgentTimeoutException("Agent Run 超时：${options.runTimeoutMs}ms")
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, timeout.message ?: "Agent Run 超时") }
-                ledger.appendEvent(run.id, "run.timeout", timeout.message.orEmpty(), RunEventMetadata.Reason(timeout.message.orEmpty()))
-                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = timeout.message)
-            }
-            throw timeout
         } catch (error: AgentTimeoutException) {
             withContext(NonCancellable) {
                 state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
@@ -275,13 +268,17 @@ class MinimalAgentRuntime(
                 memoryRecallEnabled = memoryRecallEnabled,
             ),
         )
+        val restoredBudget = restoredExecutionBudget(detail)
         val state = AgentRuntimeExecutionState(
-            runTimeoutMs = options.runTimeoutMs,
+            runTimeoutMs = restoredBudget.snapshot.totalTimeoutMs,
             activeStepId = recovery.verificationStepId ?: recovery.executionStepId,
+            monotonicClock = monotonicClock,
+            initialConsumedMs = restoredBudget.snapshot.consumedMs,
         )
         // long: 多工具 Run 的前序步骤已由历史 tool.verify 证明完成；恢复总结必须保留这些事实，不能只向用户展示最后一条笔记结果。
         state.completedTools += recovery.verifiedPrefix
         return try {
+            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             val executionStep = detail.snapshot.steps.single { it.id == recovery.executionStepId }
             if (executionStep.status == AgentStepStatus.RUNNING) {
                 // long: ToolResult 与 COMMITTED 回执已落库时，可以把中断的执行 Step 收敛为完成；这里不再调用 Executor。
@@ -379,14 +376,18 @@ class MinimalAgentRuntime(
         require(assessment.kind == AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) { assessment.reason }
         val recovery = requireNotNull(assessment.verifiedTool) { "恢复策略缺少已验证工具证据" }
         val run = detail.snapshot.run
+        val restoredBudget = restoredExecutionBudget(detail)
         val state = AgentRuntimeExecutionState(
-            runTimeoutMs = options.runTimeoutMs,
+            runTimeoutMs = restoredBudget.snapshot.totalTimeoutMs,
             activeStepId = recovery.lastVerificationStepId,
+            monotonicClock = monotonicClock,
+            initialConsumedMs = restoredBudget.snapshot.consumedMs,
         )
         state.completedTools += recovery.verifiedTools
         state.executedToolCalls = recovery.verifiedTools.size
         state.toolCallFingerprints += recovery.verifiedTools.map { toolCallFingerprint(it.toolCall) }
         return try {
+            persistLegacyExecutionBudgetStart(run.id, restoredBudget, state.executionBudget)
             val verificationStep = detail.snapshot.steps.single { it.id == recovery.lastVerificationStepId }
             if (verificationStep.status == AgentStepStatus.RUNNING) {
                 // long: tool.verify 已经持久化为 PASSED，进程重建只补齐同一验证 Step 的控制面终态，不能再次执行工具或追加第二条验证事实。
@@ -447,6 +448,7 @@ class MinimalAgentRuntime(
                 throw error
             }
             appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, planCall.telemetry)
+            persistExecutionBudget(run.id, "模型规划执行预算", state.executionBudget)
             val planDecision = planCall.value
             if (planDecision == AgentPlanDecision.Complete) {
                 ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型确认任务工具步骤已完成")
@@ -569,7 +571,7 @@ class MinimalAgentRuntime(
         )
         state.activeStepId = execution.id
         currentCoroutineContext().ensureActive()
-        val toolStartedAt = System.currentTimeMillis()
+        val toolStartedAtMs = monotonicClock.nowMs()
         val toolResult = runTimedStep(
             "工具执行 ${toolCall.name}",
             definition.timeoutMs ?: options.toolStepTimeoutMs,
@@ -579,13 +581,15 @@ class MinimalAgentRuntime(
         }
         validateExecutionReceipt(toolCall, toolResult)
         state.executedToolCalls += 1
-        val toolDurationMs = System.currentTimeMillis() - toolStartedAt
+        // long: 工具耗时与 Run 执行预算必须使用同一单调时钟；系统时间校准不能制造负耗时或虚增剩余预算。
+        val toolDurationMs = (monotonicClock.nowMs() - toolStartedAtMs).coerceAtLeast(0)
         ledger.appendEvent(
             runId = runId,
             type = "tool.result",
             message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
             metadata = AgentEventMetadata.toolResult(definition, toolCall, toolResult, toolDurationMs),
         )
+        persistExecutionBudget(runId, "工具执行预算：${toolCall.name}", state.executionBudget)
         faultInjector.afterToolResultPersisted(runId, toolCall, toolResult)
         if (!toolResult.success) error("工具执行失败：${toolResult.content}")
         ledger.updateStep(execution.id, AgentStepStatus.COMPLETED, toolResult.content)
@@ -649,7 +653,10 @@ class MinimalAgentRuntime(
             summaryFallbackReason = error.message ?: "模型总结超时"
             null
         }
-        summaryCall?.let { appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, it.telemetry) }
+        summaryCall?.let {
+            appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, it.telemetry)
+            persistExecutionBudget(run.id, "模型总结执行预算", state.executionBudget)
+        }
         val summaryCandidate = summaryCall?.value?.takeIf { it.isNotBlank() } ?: run {
             if (summaryFallbackReason == null) summaryFallbackReason = "模型总结为空"
             null
@@ -851,6 +858,47 @@ class MinimalAgentRuntime(
         return executionBudget.run(label, timeoutMs, block)
     }
 
+    private suspend fun persistExecutionBudget(
+        runId: String,
+        reason: String,
+        budget: AgentExecutionBudget,
+    ) {
+        val snapshot = budget.snapshot()
+        ledger.appendEvent(
+            runId = runId,
+            type = AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            message = "$reason：${snapshot.consumedMs}/${snapshot.totalTimeoutMs}ms",
+            metadata = RunEventMetadata.ExecutionBudget(
+                totalTimeoutMs = snapshot.totalTimeoutMs,
+                consumedMs = snapshot.consumedMs,
+            ),
+        )
+    }
+
+    private fun restoredExecutionBudget(detail: AgentRunDetailRecord): RestoredExecutionBudget {
+        return when (val assessment = AgentExecutionBudgetEvidencePolicy.read(detail)) {
+            AgentExecutionBudgetEvidenceAssessment.Legacy -> RestoredExecutionBudget(
+                snapshot = AgentExecutionBudgetSnapshot(options.runTimeoutMs, consumedMs = 0),
+                legacy = true,
+            )
+            is AgentExecutionBudgetEvidenceAssessment.Available -> RestoredExecutionBudget(
+                snapshot = assessment.snapshot,
+                legacy = false,
+            )
+            is AgentExecutionBudgetEvidenceAssessment.Invalid -> error(assessment.reason)
+        }
+    }
+
+    private suspend fun persistLegacyExecutionBudgetStart(
+        runId: String,
+        restoredBudget: RestoredExecutionBudget,
+        budget: AgentExecutionBudget,
+    ) {
+        if (!restoredBudget.legacy) return
+        // long: 升级前 Run 没有预算快照；三个恢复入口都先冻结兼容起点，恢复过程再次中断时也不能重新获得一份完整预算。
+        persistExecutionBudget(runId, "建立旧 Run 执行预算起点", budget)
+    }
+
     private suspend fun settleBlockedRun(
         runId: String,
         state: AgentRuntimeExecutionState,
@@ -925,6 +973,11 @@ class MinimalAgentRuntime(
 
     private fun toolCallFingerprint(toolCall: ToolCall): String =
         "${toolCall.name}:${toolCall.arguments.toSortedMap()}"
+
+    private data class RestoredExecutionBudget(
+        val snapshot: AgentExecutionBudgetSnapshot,
+        val legacy: Boolean,
+    )
 }
 
 private class ToolRecoveryFailureException(
@@ -938,42 +991,64 @@ private const val MEMORY_RECALL_DISABLED_EVENT_TYPE = "memory.recall.disabled"
 private class AgentRuntimeExecutionState(
     runTimeoutMs: Long,
     activeStepId: String? = null,
+    monotonicClock: MonotonicClock,
+    initialConsumedMs: Long = 0,
 ) {
     var activeStepId: String? = activeStepId
     var executedToolCalls: Int = 0
     val toolCallFingerprints = mutableSetOf<String>()
     val completedTools = mutableListOf<AgentToolExecution>()
-    val executionBudget = AgentExecutionBudget(runTimeoutMs)
+    val executionBudget = AgentExecutionBudget(runTimeoutMs, monotonicClock, initialConsumedMs)
 }
 
-private class AgentExecutionBudget(
+internal class AgentExecutionBudget(
     private val totalTimeoutMs: Long,
+    private val monotonicClock: MonotonicClock = systemMonotonicClock,
+    initialConsumedMs: Long = 0,
 ) {
-    private var consumedMs: Long = 0
+    private var consumedMs: Long = initialConsumedMs
+
+    init {
+        require(totalTimeoutMs > 0) { "Agent Run 超时时间必须大于 0" }
+        require(initialConsumedMs in 0..totalTimeoutMs) { "Agent Run 已消耗预算超出合法范围" }
+    }
 
     suspend fun <T> run(label: String, stepTimeoutMs: Long, block: suspend () -> T): T {
+        require(stepTimeoutMs > 0) { "$label 超时时间必须大于 0" }
         val remainingMs = remainingMs()
         if (remainingMs <= 0) {
             throw AgentTimeoutException("Agent Run 超时：${totalTimeoutMs}ms")
         }
         val effectiveTimeoutMs = minOf(stepTimeoutMs, remainingMs)
-        val startedAt = System.currentTimeMillis()
+        val timeoutSource = if (remainingMs <= stepTimeoutMs) TimeoutSource.RUN else TimeoutSource.STEP
+        val startedAtMs = monotonicClock.nowMs()
         return try {
             withTimeout(effectiveTimeoutMs) { block() }
         } catch (error: TimeoutCancellationException) {
             // long: 单步超时和整次执行预算超时都会抛出 TimeoutCancellationException；先确认不是用户取消，再按触发的预算来源写入审计原因。
             currentCoroutineContext().ensureActive()
-            if (effectiveTimeoutMs == remainingMs && remainingMs <= stepTimeoutMs) {
+            if (timeoutSource == TimeoutSource.RUN) {
                 throw AgentTimeoutException("Agent Run 超时：${totalTimeoutMs}ms")
             }
             throw AgentTimeoutException("$label 超时：${stepTimeoutMs}ms")
         } finally {
-            // long: 只在模型/工具执行段累计预算；应用侧审批没有进入这里，因此用户阅读和确认风险的等待时间不会消耗执行预算。
-            consumedMs += (System.currentTimeMillis() - startedAt).coerceAtLeast(0)
+            // long: 只累计模型/工具执行段的单调耗时；应用侧审批没有进入这里，系统时间回拨和用户阅读审批都不能返还或消耗执行预算。
+            val elapsedMs = (monotonicClock.nowMs() - startedAtMs).coerceAtLeast(0)
+            consumedMs += minOf(elapsedMs, totalTimeoutMs - consumedMs)
         }
     }
 
+    fun snapshot(): AgentExecutionBudgetSnapshot = AgentExecutionBudgetSnapshot(
+        totalTimeoutMs = totalTimeoutMs,
+        consumedMs = consumedMs,
+    )
+
     private fun remainingMs(): Long = totalTimeoutMs - consumedMs
+
+    private enum class TimeoutSource {
+        STEP,
+        RUN,
+    }
 }
 
 private enum class AgentSummaryStyle {

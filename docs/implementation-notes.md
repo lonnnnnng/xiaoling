@@ -90,7 +90,7 @@
 
 当前最小 Runtime 已具备以下运行约束：
 
-- `AgentRuntimeOptions` 默认把单个 Run 限制为最多 4 次工具调用，并控制模型/工具执行预算、模型步骤超时和工具步骤超时；用户阅读审批卡片的等待时间不消耗执行预算。
+- `AgentRuntimeOptions` 默认把单个 Run 限制为最多 4 次工具调用，并控制模型/工具执行预算、模型步骤超时和工具步骤超时。`AgentExecutionBudget` 使用与工具 duration 相同的单调时钟累计规划、工具和总结执行段；用户阅读审批卡片的等待时间不消耗执行预算。剩余 Run 预算小于或等于 Step 上限时固定归因 Run timeout，否则归因 Step timeout；调用方的外部 `TimeoutCancellationException` 仍按取消收敛，不伪装成预算耗尽。
 - `ToolDefinition` 统一声明输入类型、长度/范围/枚举、业务校验器、风险、确认策略、Android 权限、后台能力、超时和验证策略；风险与确认不信任模型声明。
 - `AgentProfileRecord / AgentProfileSnapshot` 固定名称、标识、Provider、模型、API 模式、系统提示词、上下文策略、工具白名单、Skill 白名单和记忆开关。设置页支持新增、编辑、选择和删除；至少保留一个 Profile，Provider 删除或模型停用前会检查 Agent 绑定关系。
 - `ProfileScopedToolRegistry` 在 `availableTools()`、`definition()`、`execute()` 和已提交结果验证四个入口强制 Profile 工具白名单；`SkillScopedToolRegistry` 只能在此基础上继续取交集。Profile 系统提示词被明确包裹并声明只能调整表达与授权能力内偏好，不能修改协议、安全规则或执行事实。
@@ -101,6 +101,7 @@
 - Room v20 的 `agent_tool_calls` 以 ToolCall ID 为主键，保存 Run、工具、风险、排序后的参数，以及 proposed/validated RunEvent 锚点；`agent_tool_results` 以 ToolCall ID 为主键，保存结果事件、正文、显式错误、耗时、Executor 验证、最终验证、记忆引用、重放声明和拆列后的执行回执。`RoomAgentRunRepository.toolLedger(runId)` 提供单 Run 查询，`recentRunDetails()` 通过 `getToolCallsForRuns / getToolResultsForRuns` 批量加载最近 Run，避免任务中心 N+1 查询。
 - `RoomAgentRunRepository.appendEvent()` 在同一 Room 事务中先写 RunEvent，再按 typed metadata 双写工具账本。相同 ToolCall 的 Run、工具、风险或参数漂移会回滚整个事务；`tool.verify` 通过新增的可选 ToolCall ID 精确更新结果。任务中心、受限恢复和失败 Run 重试副作用判断对账本非空的新 Run 使用 Ledger-first，并以 typed RunEvent 核对身份、字段、派生错误、时间、锚点和顺序；部分缺失或漂移在展示层显示审计告警，在安全策略中 fail-safe。v19 迁移后账本为空的旧 Run 继续回退 typed RunEvent，缺少 ToolCall ID 的结果/验证独立显示为“关联未知”，不按工具名猜测归属。三条消费路径共享 `AgentToolLedgerConsistencyPolicy`，避免双源规则漂移；Run 质量和模型遥测没有等价 Tool Ledger 字段，继续读取 Step 与 `llm.*` typed event。
 - `AgentRunRecoveryEvidencePolicy` 为恢复提供独立证据读取：v20 非空账本按 proposed 事件锚点重建调用顺序，要求调用与结果一一对应，并核对 proposed→validated→result→verified 的身份、字段、时间和顺序；任何部分账本、额外事件或双源漂移均返回 `Invalid`，不得退回事件路径。账本完全为空时才进入旧 typed event fallback；旧验证缺少 ToolCall ID 时按原结果顺序匹配，保持历史恢复结论。`ToolExecutionRecoveryEvidencePolicy` 继续为 `notes.create / memory.remember` 校验执行时与当前定义均为 `IDEMPOTENT_BY_KEY`、结果成功、回执 `COMMITTED` 且幂等键完整。`AgentRunResumePolicy` 还允许所有结果成功、所有验证 `PASSED` 且 Step/Ledger/Event/Profile 完全一致的 `VERIFYING` Run 恢复本地收尾；该路径不调用工具或模型，不恢复旧规划协程、提交状态未知的执行栈或 Workflow 后续步骤。
+- `AgentExecutionBudgetEvidencePolicy` 读取 `run.execution_budget.updated` typed event。新 Run 先写 `0 / total`，每个成功模型/工具段后写累计快照；恢复使用最后快照构造同一总额与已消耗预算。首条非零、结构缺失、数值越界、同 Run 总额漂移、累计回退，或最后 ToolResult 晚于最后预算快照均返回 `Invalid` 并由恢复策略要求新 Run；最后一条规则关闭“工具结果已提交、预算事件尚未跟上”时的进程终止窗口。完全没有快照的升级前 Run 从当前默认总额的零值兼容起点开始，并在继续恢复前先持久化该起点，后续再次中断不再重复清零。预算事件在任务中心展示已消耗、总预算和剩余时间。
 - Runtime 接收 `FOREGROUND / BACKGROUND` 执行来源；后台来源只能执行 `supportsBackground=true` 的工具。当前仅当前时间、会话查询、笔记查询和长期记忆查询这 6 个 SAFE 只读工具开放后台；`notes.create / memory.remember` 在后台规划到审批步骤时直接进入 `BLOCKED`，不会调用审批 Gate。
 - Registry 初始化会拒绝重复工具名；`memory.remember` 已通过可插拔业务校验器限制标签数量和单标签长度。
 - `AgentRunUseCase` 使用 reporting ledger 回读 Room 快照，ViewModel 将 `AgentRun / AgentStep / RunEvent` 渲染成当前对话内的运行时间线。
@@ -114,7 +115,7 @@
 - 待审批恢复和 `notes.create / memory.remember` 已提交结果恢复读取原 Run 的 `agent.profile.selected` 快照并重新构造 Profile/Skill 双层 Registry。历史 Run 没有该事件时走旧兼容路径；重复、无法解析、包含未注册工具或 Skill 超出 Profile 工具面的审计均拒绝恢复。
 - 重试正式启动时 ViewModel 选中来源会话并发出一次性导航信号，根 UI 回到对话页；重新触发的写工具仍走正常审批，审批卡不会隐藏在任务中心后台。
 - 应用启动时会保留尚未执行任何工具的 `WAITING_APPROVAL` Run；批准后先执行持久化的首个工具，再携带其已验证结果继续同一 Run 的多步规划。已经进入工具执行/验证步骤的多步 Run 默认会安全收敛为 `CANCELLED`，其所有 `PENDING/RUNNING` Step 同步改为 `CANCELLED`。第一个受限例外是最后一个 `notes.create` 或 `memory.remember` 已落库完整 `COMMITTED + IDEMPOTENT_BY_KEY` 结果且尚未验证：启动时补齐原 execution Step，按 operation ID 只读回读业务记录，写入 `tool.verify` 和 `recovery.summarize`，再以本地可信总结完成原 Run。第二个例外适用于通用工具：Run 已在 `VERIFYING`，全部 ToolResult 成功、全部 `tool.verify` 为 `PASSED` 且最后验证 Step 只差控制面收尾时，恢复入口重建 `completedTools`、调用数和指纹，最多把该 Step 更新为 `COMPLETED`，随后直接复用 `completeRecoveredRun()`。两条路径都不恢复旧模型协程；前者不重复调用写工具，后者完全不触碰 Executor/LLM 或追加验证事实。若属于 Workflow，启动对账先保留候选，恢复后写回当前步骤输出并把剩余 Workflow 收敛为 `FAILED`，后续通过关联新 Run 复用成功前缀。
-- 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。
+- 取消、失败、预算耗尽和超时都会写入终态；取消/失败落库使用不可取消清理块，避免 Run 卡在中间态。预算内部的 Step/Run timeout 转换为 `AgentTimeoutException`，调用方主动取消或外层超时保持协程取消语义并写入 `CANCELLED`。
 - `RunEvent` 已使用独立 `metadataJson` 数据库列和 sealed `RunEventMetadata` variants；v6→v7 会把可解析的旧 JSON message 迁入 metadata 并生成可读摘要，普通文本事件保持原样；v7→v8 为 `AgentRun` 增加可空 `retryOfRunId`，旧 Run 初始化为无来源关联。
 - 第一批生产工具包括 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`notes.create`、`memory.search` 和 `memory.remember`。SAFE 工具不打断用户审批，但仍写入 `approval.skipped` 审计事件；`notes.create` 和 `memory.remember` 会写入本地数据，必须经过应用侧审批和回读验证。
 - `notes.create / memory.remember` 在存储层返回真实记录 ID 后写入 `COMMITTED` 执行回执；回读失败仍保留 operation ID。两者都使用 ToolCall ID 并声明 `IDEMPOTENT_BY_KEY`。笔记直接由唯一索引绑定载荷；长期记忆因为可编辑、可删除且有语义去重，使用独立 `agent_memory_operations` 主键映射保存 memory ID、原始载荷 SHA-256 和提交结果业务快照 SHA-256。同键同载荷只返回原 operation，同键载荷漂移在写入前抛出冲突；映射目标被删除时明确失败，不重新创建。
@@ -249,6 +250,6 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、调用预算不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、其他执行/验证中 Run 与 Step 一致取消，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀，以及全部验证事实落库后的原 Run 收尾；当前门禁为 358 条 JVM 与仅 Redmi 执行的 125 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、其他执行/验证中 Run 与 Step 一致取消，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀，以及全部验证事实落库后的原 Run 收尾；当前门禁为 374 条 JVM 与仅 Redmi 执行的 125 条 instrumentation。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

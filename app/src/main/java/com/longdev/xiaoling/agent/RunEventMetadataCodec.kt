@@ -28,6 +28,9 @@ internal object RunEventMetadataCodec {
                 .put("inputTokens", metadata.inputTokens)
                 .put("outputTokens", metadata.outputTokens)
                 .put("totalTokens", metadata.totalTokens)
+            is RunEventMetadata.ExecutionBudget -> JSONObject()
+                .put("totalTimeoutMs", metadata.totalTimeoutMs)
+                .put("consumedMs", metadata.consumedMs)
             is RunEventMetadata.ToolCall -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -106,6 +109,10 @@ internal object RunEventMetadataCodec {
                     inputTokens = json.longOrNull("inputTokens"),
                     outputTokens = json.longOrNull("outputTokens"),
                     totalTokens = json.longOrNull("totalTokens"),
+                )
+                AgentEventTypes.EXECUTION_BUDGET_UPDATED -> RunEventMetadata.ExecutionBudget(
+                    totalTimeoutMs = json.getLong("totalTimeoutMs"),
+                    consumedMs = json.getLong("consumedMs"),
                 )
                 "tool.call.proposed",
                 "tool.call.validated" -> RunEventMetadata.ToolCall(

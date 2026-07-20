@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。当前下一阶段转向可注入单调时钟、累计执行预算与 Step/Run timeout 边界，以及更长任务可靠性。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。模型与工具段现使用单调时钟共享累计执行预算，审批及受限恢复继承持久化剩余预算，Step/Run timeout 与外部取消边界已有确定性测试。当前下一阶段转向更长真实任务的耗时、系统回收和恢复证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -124,7 +124,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、运行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；链尾待审批恢复可从任意已验证前缀继续，并恢复已消耗调用数与循环指纹。所有成功 ToolResult 和 `PASSED` 验证已经落库时，原 Run 还可补齐最后验证 Step 并用本地可信总结收尾。其他执行/验证中断仍采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心、三类恢复与失败 Run 重试副作用判断均已切换为 Ledger-first；账本异常时重试 fail-safe 要求确认，账本完全为空的旧 Run 保守回退 typed RunEvent。并行调用与提交状态未知、验证事实不完整的通用原地断点恢复继续关闭。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、单调累计执行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；链尾待审批恢复可从任意已验证前缀继续，并恢复已消耗调用数、累计执行时间与循环指纹。所有成功 ToolResult 和 `PASSED` 验证已经落库时，原 Run 还可补齐最后验证 Step 并用本地可信总结收尾。其他执行/验证中断仍采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心、三类恢复与失败 Run 重试副作用判断均已切换为 Ledger-first；账本异常时重试 fail-safe 要求确认，账本完全为空的旧 Run 保守回退 typed RunEvent。并行调用与提交状态未知、验证事实不完整的通用原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -397,6 +397,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 36. 已完成：所有工具结果与验证事实已持久化后的原 Run 收尾恢复。`AgentRunResumePolicy` 新增 `VERIFIED_TOOL_COMPLETION`，只接受 `VERIFYING`、无待审批、每个结果成功且每个验证均为 `PASSED`、执行/验证 Step 一一对应、最后验证 Step 为 `RUNNING/COMPLETED`、其后没有新 Step，并要求 Ledger/Event/Profile 一致。恢复重建全部可信工具、调用数和指纹；若需要只补齐最后验证 Step，再生成本地可信总结，不调用 Executor/LLM、不追加第二条 `tool.verify`、不续跑 Workflow。两个确定性终止点、磁盘 Room 重开、358 条 JVM 和仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
-下一阶段为 `AgentExecutionBudget` 引入可注入单调时钟，补齐多模型/工具段累计预算、Step timeout 与 Run timeout 的精确边界测试，并继续记录更长真实任务的耗时与进程回收证据。旧模型协程、提交状态未知和验证事实不完整的执行栈仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
+37. 已完成：`AgentExecutionBudget` 改用可注入单调时钟，规划、工具和总结段共享同一累计 Run 预算，工具 duration 使用同一时钟。新 Run 和每个成功执行段写入 `run.execution_budget.updated` typed 快照；审批及受限恢复继承原 Run 的 total/consumed，旧 Run 先建立零值兼容起点，缺 metadata、越界、总额漂移、累计回退，或最后 ToolResult 晚于最后预算快照时拒绝原地恢复。Step 上限小于剩余预算时报告 Step timeout，二者相等或剩余更少时报告 Run timeout；审批等待不计入，调用方外部超时仍按取消收敛。多段累计、精确边界、恢复剩余 20ms、工具结果/预算崩溃窗口、旧 Run 起点、codec/UI 和损坏证据测试均已覆盖；374 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
+
+下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

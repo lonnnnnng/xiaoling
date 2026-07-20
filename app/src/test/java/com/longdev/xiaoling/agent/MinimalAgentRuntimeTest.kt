@@ -6,10 +6,13 @@ import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -583,6 +586,10 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentStepStatus.COMPLETED, recovered.steps.single { it.id == execution.id }.status)
         assertEquals(1, recovered.events.count { it.type == "tool.result" })
         assertEquals(1, recovered.events.count { it.type == "tool.verify" })
+        assertEquals(
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000, consumedMs = 0),
+            recovered.events.single { it.type == AgentEventTypes.EXECUTION_BUDGET_UPDATED }.metadata,
+        )
         assertEquals(0, recovered.steps.count { it.type == AgentStepTypes.LLM_PLAN })
         assertTrue(summary.responseText.contains("恢复笔记"))
     }
@@ -1406,6 +1413,7 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun approvalWaitDoesNotConsumeExecutionTimeoutBudget() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
@@ -1429,6 +1437,7 @@ class MinimalAgentRuntimeTest {
                 modelStepTimeoutMs = 5_000,
                 toolStepTimeoutMs = 5_000,
             ),
+            monotonicClock = MonotonicClock { testScheduler.currentTime },
         )
 
         val summary = runtime.run("conversation-1", "message-1", "审批等待不计入执行预算")
@@ -1440,6 +1449,45 @@ class MinimalAgentRuntimeTest {
             it.type == "approval.granted" &&
                 (it.metadata as? RunEventMetadata.ApprovalDecision)?.reason == "用户阅读审批详情后批准"
         })
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun callerTimeoutRemainsCancellationInsteadOfRunBudgetTimeout() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    delay(100)
+                    error("调用方超时后不应返回规划结果")
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("调用方超时后不应进入总结")
+            },
+            options = AgentRuntimeOptions(
+                runTimeoutMs = 500,
+                modelStepTimeoutMs = 500,
+            ),
+            monotonicClock = MonotonicClock { testScheduler.currentTime },
+        )
+
+        val failure = runCatching {
+            withTimeout(50) {
+                runtime.run("conversation-caller-timeout", "message-caller-timeout", "调用方取消")
+            }
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(checkNotNull(ledger.lastRunId))
+
+        assertTrue(failure is TimeoutCancellationException)
+        assertEquals(AgentRunStatus.CANCELLED, snapshot.run.status)
+        assertEquals(AgentStepStatus.CANCELLED, snapshot.steps.single().status)
+        assertTrue(snapshot.events.any { it.type == "run.cancelled" })
+        assertTrue(snapshot.events.none { it.type == "run.timeout" })
     }
 
     @Test
@@ -2300,6 +2348,72 @@ class MinimalAgentRuntimeTest {
         assertTrue(failure is AgentBudgetExceededException)
         assertEquals(listOf("第一步"), fixture.executedGoals)
         assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, fixture.ledger.snapshot(fixture.detail.snapshot.run.id).run.status)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun secondApprovalRecoveryKeepsConsumedExecutionTimeBudget() = runTest {
+        val fixture = createInterruptedSecondApprovalFixture()
+        val budgetEvents = fixture.detail.snapshot.events.filter {
+            it.type == AgentEventTypes.EXECUTION_BUDGET_UPDATED
+        }
+        val detailWithConsumedBudget = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                events = fixture.detail.snapshot.events.map { event ->
+                    val metadata = event.metadata as? RunEventMetadata.ExecutionBudget
+                    if (metadata == null) {
+                        event
+                    } else {
+                        event.copy(metadata = metadata.copy(totalTimeoutMs = 100))
+                    }
+                } + RunEventRecord(
+                    id = "event-budget-consumed",
+                    runId = fixture.detail.snapshot.run.id,
+                    type = AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                    message = "恢复前执行预算：80/100ms",
+                    createdAt = budgetEvents.maxOf { it.createdAt } + 1,
+                    metadata = RunEventMetadata.ExecutionBudget(
+                        totalTimeoutMs = 100,
+                        consumedMs = 80,
+                    ),
+                ),
+            ),
+        )
+        val slowRegistry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = fixture.registry.availableTools()
+            override fun definition(name: String): ToolDefinition? = fixture.registry.definition(name)
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                delay(30)
+                return fixture.registry.execute(call)
+            }
+        }
+
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = fixture.ledger,
+                toolRegistry = slowRegistry,
+                llm = FakeAgentLlm(),
+                options = AgentRuntimeOptions(
+                    runTimeoutMs = 100,
+                    toolStepTimeoutMs = 1_000,
+                ),
+                monotonicClock = MonotonicClock { testScheduler.currentTime },
+            ).resumeApprovedRun(
+                detail = detailWithConsumedBudget,
+                approval = fixture.approval,
+                approvalDecision = ApprovalDecision(true, "用户批准第二步"),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentTimeoutException)
+        assertEquals("Agent Run 超时：100ms", failure?.message)
+        assertEquals(20L, testScheduler.currentTime)
+        assertEquals(listOf("第一步"), fixture.executedGoals)
+        assertEquals(
+            AgentRunStatus.BUDGET_EXHAUSTED,
+            fixture.ledger.snapshot(fixture.detail.snapshot.run.id).run.status,
+        )
     }
 
     @Test

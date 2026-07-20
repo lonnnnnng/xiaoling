@@ -55,6 +55,7 @@ object AgentStepTypes {
 
 object AgentEventTypes {
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
+    const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
     const val PROFILE_SELECTED = "agent.profile.selected"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
     const val RECOVERY_FAILED = "run.recovery_failed"
@@ -114,6 +115,11 @@ sealed interface RunEventMetadata {
         val inputTokens: Long?,
         val outputTokens: Long?,
         val totalTokens: Long?,
+    ) : RunEventMetadata
+
+    data class ExecutionBudget(
+        val totalTimeoutMs: Long,
+        val consumedMs: Long,
     ) : RunEventMetadata
 
     data class ToolCall(

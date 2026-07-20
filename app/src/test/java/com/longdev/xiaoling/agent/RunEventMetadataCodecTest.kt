@@ -6,6 +6,22 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun executionBudgetRoundTripsWithoutLosingAccumulatedTime() {
+        val metadata = RunEventMetadata.ExecutionBudget(
+            totalTimeoutMs = 120_000,
+            consumedMs = 3_500,
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
     fun agentProfileSelectionRoundTripsWithoutDroppingCapabilitySnapshot() {
         val metadata = RunEventMetadata.AgentProfileSelection(
             AgentProfileSnapshot(

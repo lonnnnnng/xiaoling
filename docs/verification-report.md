@@ -1326,3 +1326,25 @@ Redmi 真实动作验收：
 
 - 为 `AgentExecutionBudget` 引入可注入单调时钟，覆盖多模型/工具段累计预算、Step timeout 与 Run timeout 的精确边界，并继续记录更长真实任务的耗时与进程回收证据。
 - 提交状态未知、验证事实不完整、旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。Foreground Service 与精确定时保持证据驱动，不预先引入。
+
+## 2026-07-21 单调累计执行预算与恢复边界
+
+实现与安全边界：
+
+- `AgentExecutionBudget` 使用可注入 `MonotonicClock`，生产实现读取 `System.nanoTime()`；规划、工具与总结执行段共享同一累计预算，工具 duration 使用相同时钟。系统时间校准不会制造负耗时或返还预算，审批等待不进入累计区间。
+- 每个新 Run 先写入 `run.execution_budget.updated = 0 / total`，每个成功模型或工具段后更新 typed 快照。审批恢复、已提交结果恢复和已验证结果恢复读取最后快照，并以原 total/consumed 构造预算；升级前旧 Run 先写零值兼容起点，后续再次中断不再清零。缺结构化 metadata、首条非零、数值越界、同 Run 总额漂移、累计回退，或最后 ToolResult 晚于最后预算快照均由 `AgentExecutionBudgetEvidencePolicy` fail-closed，并使恢复策略要求新 Run；最后一条门禁覆盖结果已提交、预算事件尚未落库时的进程终止窗口。
+- 当剩余 Run 预算小于或等于 Step 上限时，超时固定归因 `Agent Run`；只有 Step 上限严格更小时才归因具体 Step。调用方外层 `withTimeout` 或主动取消不转换成预算耗尽，Run 与活动 Step 按 `CANCELLED` 收敛。
+- 任务中心为预算事件展示已消耗、总预算和剩余时间；Room 继续复用 RunEvent 的 typed metadata 列，无需 Schema migration。
+
+自动化与 Redmi 验证：
+
+- `AgentExecutionBudgetTest` 覆盖 100ms 内多个模型/工具段累计、Step timeout 优先和 remaining 等于 Step 上限时 Run timeout；`MultiStepAgentRuntimeTest` 证明两次规划各 20ms、两次工具各 30ms 正好耗尽总预算，第三次规划与总结均不会调用。
+- 审批测试证明 2000ms 用户等待不消耗 500ms 执行预算；恢复测试从持久化 `80 / 100ms` 继续，第二工具只获得剩余 20ms，前序工具不重放。证据策略、codec、任务中心展示、旧 Run 起点和调用方外部超时另有确定性覆盖。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：374 条 JVM，0 失败、0 错误；lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：125 条 instrumentation，0 失败、0 错误、0 跳过；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后已重新安装 Debug APK，并通过正式 Repository/Keystore 恢复项目兜底 Provider、默认 User-Agent 与设备 Agent 开关；真实 `/models` 返回非空列表。AccessibilityService 最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空；临时设置器及测试包已清理，凭据未进入 Git、文档或标准测试产物。
+
+下一阶段边界：
+
+- 继续记录更长真实任务的总耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。
+- 旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
