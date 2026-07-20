@@ -99,7 +99,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v25 迁移测试源码、Text/Reasoning/Image/Document/Tool 消息 parts、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v27 迁移测试、Text/Reasoning/Image/Document/Tool 消息 parts、KnowledgeReference、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter` 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -109,7 +109,7 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
 - 部分完成：`ProviderRepository` 和 `ConversationRepository` 已落地，聊天上下文仍需继续迁出 ViewModel。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
-- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v25 migration 链、event metadata、Run 重试、Memory FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照、独立工具账本、Agent Profile 和 MessagePart 提供自动化测试。
+- 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v27 migration 链、event metadata、Run 重试、Memory/Knowledge FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照、独立工具账本、Agent Profile、MessagePart 和知识引用提供自动化测试。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
 - 待完成：继续迁出 ViewModel 中的上下文、网络和运行编排，使其只负责 UI 状态编排。
 
@@ -214,7 +214,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：把可复用任务知识从系统提示词中移出，并避免工具数量增长后 Prompt 膨胀。
 
-当前状态：已交付会话检索、本机笔记、长期记忆和设备时间四类内置声明式 Skill，以及版本化本地 JSON 导入、严格静态校验、Room 持久化、启停和删除管理。规则按目标稳定选择最多 3 个已启用 Skill，工具白名单只能缩小已注册工具面并写入 Run 审计；顺序多步 Runtime 可以在多个已选 Skill 的工具并集中逐步执行。
+当前状态：已交付会话检索、本机笔记、长期记忆、设备时间和本地知识库五类内置声明式 Skill，以及版本化本地 JSON 导入、严格静态校验、Room 持久化、启停和删除管理。规则按目标稳定选择最多 3 个已启用 Skill，工具白名单只能缩小已注册工具面并写入 Run 审计；顺序多步 Runtime 可以在多个已选 Skill 的工具并集中逐步执行。
 
 ### Skill 结构
 
@@ -300,8 +300,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 以下能力在前述基础稳定后再进入：
 
-- 文件附件、图片理解、语音输入与 TTS。
-- 文档解析和 RAG。
+- 文件附件、图片与富文档直传基础已完成；`/agent` 附件输入、语音输入与 TTS 仍待实现。
+- 文档解析、知识库管理、RAG 检索和 Agent 接入已完成；答案级引用 UI、Embedding 与规模化召回质量验证仍待实现。
 - MCP Client 与远程工具，但必须增加 Server 信任、工具审核和网络权限策略。
 - 通知摘要、日历、联系人和系统分享入口。
 - 多 Agent 分工、远程 Channel、跨设备同步。
@@ -311,10 +311,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 这些任务不属于单个功能，但必须贯穿所有里程碑：
 
-- 已建立 Room Schema 导出和 migration 测试；继续补面向用户的数据库备份与恢复工具。
-- 建立脱敏结构化日志，统一 `runId`、`stepId`、`toolCallId`。
-- 为 Agent Runtime 提供假的 LLM 和 Tool Executor，做确定性状态机测试。
-- 建立工具契约测试：Schema、风险、权限、确认和验证信息不能缺失。
+- 已建立 Room Schema 导出、migration 测试，以及面向用户的数据库 ZIP 备份与恢复工具。
+- 已建立脱敏网络/运行日志和稳定 `runId / stepId / toolCallId` 审计身份；新增设备或远程工具时继续沿用该边界。
+- 已为 Agent Runtime 提供假的 LLM 和 Tool Executor，覆盖确定性状态机、取消、超时、预算和恢复测试。
+- 已建立工具契约测试，持续校验 Schema、风险、权限、确认、后台能力和验证信息不能缺失。
 - 已完成当前可审计性能指标：任务中心展示 Run 总耗时、终态成功率、平均耗时、模型/工具/审批次数、模型总耗时、平均 TTFB、最终 JSON Prompt 字节、上游 Token usage 覆盖率和失败终态分布；未返回 usage 的请求不补零，Prompt 正文不重复落库。
 - 对低能力模型做回归，减少多阶段 LLM 调用和超长工具提示词。
 - 已完成当前故障注入基线：用户取消、模型/工具/整次 Run 超时、网络响应中断、Workflow 重复回调、执行/验证中进程终止，以及审批期间和工具执行期间 Android 权限撤销均有确定性测试；真机外部 `pm revoke` 同时确认系统会直接终止应用进程。
@@ -335,7 +335,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 未开始 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传已完成；RAG 数据/检索基础和管理 UI 已完成，Agent 接入和语音未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计和模型上下文投影已完成；答案引用 UI、Embedding、`/agent` 附件和语音未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -380,7 +380,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 26. 已完成：Room v24 为 Image part 增加 MIME、文件名、BLOB 和 detail。系统选择器单次接收 PNG/JPEG/WEBP，读取上限 8 MB，并核对声明大小、MIME、文件签名和可解码性；进入消息后不再依赖 URI。Responses 把近期 USER Image 映射为 `input_image` Data URL，Chat Completions 与 `/agent` 在发送前明确拒绝；Agent 信任策略只允许 USER 保留 Image，不能提升为 Tool 或 `VerifiedAgentContext`。Compose 支持待发送缩略图、移除和历史图片，debug 日志脱敏图片 Base64、`file_data`、生成图片结果与 `encrypted_content`。图片 BLOB 按当前会话加载，轻量快照保留未加载 BLOB；发送前等待 Room 事务，切换会话原子更新，显式删除过滤阻止陈旧快照复活。267 条 JVM、仅 Redmi 执行的 85 条 instrumentation 均通过；真实 `gpt-5.5` 图片轮次返回 `IMAGE_OK`，Room v24 回读确认 PNG BLOB 持久化。
 27. 已完成：Room v25 增加 Document part 的提取文本、PDF 页数和 detail，并复用附件 MIME、文件名与 BLOB。Document v1 单次接收 PDF、TXT、Markdown、JSON、CSV，最大 8 MB；PDF 签名与扩展名在领域策略交叉校验，DocumentsProvider 错报 MIME 也不能绕过 `PdfRenderer` 和最多 50 页预算，文本严格使用 UTF-8 并限制 200,000 字符。原始文件与受限提取文本同事务保存，附件 BLOB 按当前会话加载，轻量快照保留未加载 Image/Document。Responses 映射为 `input_file` Data URL，PDF 使用 `detail=auto`；Chat Completions 与 `/agent` 明确拒绝，USER-only 信任边界不变。Compose 附件菜单、待发送元数据/移除和历史 Document 展示已完成。281 条 JVM、仅 Redmi 执行的 92 条 instrumentation 均通过；真实 `gpt-5.5` Markdown 轮次在 4.33 秒返回 `DOC_STAGE27_OK`，Room v25 回读确认 67 字节 BLOB 与 67 字符提取文本持久化。
 28. 已完成：Document part 在不升级 Room 的前提下扩展 DOCX、PPTX、XLSX。`OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与实际数据范围，再以固定缓冲区流式核对条目集合、CRC 和真实展开量；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/结构不一致均在进入消息前拒绝。系统选择器、Room BLOB、轻量快照、Responses `input_file`、Compose 元数据和 USER-only 信任边界继续复用第 27 阶段契约。284 条 JVM、仅 Redmi 执行的 93 条正式 instrumentation 均通过；一次性真机 E2E 使用设备现有 `gpt-5.5 + Responses` 在 4800 ms 返回 `RICH_DOC_STAGE28_OK`，日志确认 DOCX `file_data`、Authorization 与加密推理内容均脱敏。
-29. 已完成：Room v26 新增知识文档、chunks、FTS4 和检索审计。严格 UTF-8 导入规范换行、拒绝空白/NUL，并按规范全文计算 SHA-256；确定性分块优先段落边界、保留有限重叠和精确 offset，不切断 UTF-16 代理对。替换在同一事务递增 revision 并全量更新 chunks/FTS，失败注入确认整笔回滚；禁用/删除立即退出检索，旧 chunk ID 随 revision 失效。该阶段 291 条 JVM、仅 Redmi 执行的 98 条 instrumentation 均通过；Redmi 主库升级为 v26，原 Provider 保留。该阶段尚未接入管理 UI、Agent 工具和模型引用注入。
+29. 已完成：Room v26 新增知识文档、chunks、FTS4 和检索审计。严格 UTF-8 导入规范换行、拒绝空白/NUL，并按规范全文计算 SHA-256；确定性分块优先段落边界、保留有限重叠和精确 offset，不切断 UTF-16 代理对。替换在同一事务递增 revision 并全量更新 chunks/FTS，失败注入确认整笔回滚；禁用/删除立即退出检索，旧 chunk ID 随 revision 失效。该阶段 291 条 JVM、仅 Redmi 执行的 98 条 instrumentation 均通过；Redmi 主库升级为 v26，原 Provider 保留。该阶段当时尚未接入管理 UI、Agent 工具和模型引用注入，后续第 30、31 阶段已经补齐。
 30. 已完成：设置页新增知识库管理 UI，使用 SAF 有界读取、轻量摘要 projection 和最多 4,000 个 UTF-16 单元且不切断代理对的详情预览，支持导入、列表、详情、启停、替换、删除和带 retrieval ID/chunk offset 的检索预览。独立 ViewModel 串行化变更、取消旧详情/刷新/检索、变更开始即隐藏失效详情，并区分存储提交失败与提交后的刷新失败。291 条 JVM、仅 Redmi 执行的 106 条 instrumentation 均通过；真实 UI 验证 revision 1→2、停用/删除 0 命中、旧词失效、新词命中和 r1/r2 审计引用分离，最终主库知识表清空且 Provider 保留。
 
 31. 已完成：新增 SAFE、后台可用的 `knowledge.search` 和内置 `local-knowledge` Skill。`query` 必填 1 至 200 字符，`limit` 默认 3、最大 5；ToolResult、RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史、Workflow 输出和任务中心统一保存稳定 retrieval/document/revision/chunk/offset 引用。Room v27 为 ToolResult/MessagePart 增加默认空引用列，不猜造旧证据。失效引用会让整条历史知识消息、可能污染的旧摘要和 Workflow 前序正文退出新模型请求，历史审计不回写；旧 Profile 不自动扩权，无 Profile 审计的历史 Run 固定在知识工具上线前的工具集合。309 条 JVM、仅 Redmi 执行的 113 条 instrumentation 通过；五份真实项目长期文档 corpus 的多词重排查询、top-1 和负例门禁全部通过。真实 `Time Agent + gpt-5.5` 已选择 `knowledge.search`，Run、Ledger、retrieval 和 MessagePart 引用一致。

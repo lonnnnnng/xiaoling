@@ -189,7 +189,7 @@
 
 **不应照搬**
 
-- 256 步对手机 Agent 过高；小灵首版建议默认 8 步、硬上限 16 步。
+- 256 步对手机 Agent 过高；早期分析曾建议默认 8 步、硬上限 16 步，`v0.1.10` 实际采用更保守的最多 4 次工具调用预算。
 - proot Linux workspace、MCP OAuth、复杂 prompt injection 和角色卡不是首版个人 Agent 必需项。
 
 ### 4.6 `X-OmniClaw`：设备 Agent 闭环最完整，但包含大量设备/应用特化
@@ -309,7 +309,7 @@
 - Markdown、错误分类、结构化消息元数据。
 - API Key 使用 Android Keystore + AES-GCM。
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
-- 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记和长期记忆工具。
+- 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记、长期记忆和只读本地知识库工具。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 与 `memory.remember` 均为生产 `IDEMPOTENT_BY_KEY` 工具。笔记使用 ToolCall ID 的 Room 唯一索引，记忆使用独立 operation ledger 和提交结果快照；载荷漂移会被拒绝。进程重建时仅这两个白名单工具可依据完整历史证据回读原 operation，补齐后置验证和本地总结。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult、失败终态安全重新运行，以及 `memory.remember` 恢复失败的稳定错误码、原因和新 Run 建议。
@@ -341,13 +341,13 @@
 
 | 缺口 | 当前影响 |
 |---|---|
-| AgentProfile 与 Text/Reasoning/Image/Document/Tool parts 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要和工具事实已进入稳定边界；富文档直传已完成，下一步进入 RAG |
+| AgentProfile 与 Text/Reasoning/Image/Document/Tool parts 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要和工具事实已进入稳定边界；富文档直传和 RAG Agent 接入已完成，下一步是答案级引用呈现 |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
 | ToolCall/ToolResult 已独立落表，任务中心、受限恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。通用执行栈仍不续跑 |
 | 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 与 `memory.remember` 的已提交结果允许从原 ToolCall 恢复受限只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
-| PDF/UTF-8 与 DOCX/PPTX/XLSX 直传已完成，RAG 未完成 | 当前直传已具备本地 BLOB、提取/结构预算、备份、请求和展示边界；大文件仍需文档身份、解析、分块、索引、引用和删除失效契约 |
+| PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础和 Agent 接入已完成 | 已具备文档身份、解析、分块、索引、管理 UI、结构化引用和删除失效契约；尚缺答案引用 UI、Embedding 与规模化检索质量验证 |
 
 ## 6. 建议目标架构
 
@@ -357,7 +357,7 @@
 
 关键规则：
 
-- 默认 8 步，前台硬上限 16，后台使用更低上限。
+- 当前前台和后台 Agent Run 均采用最多 4 次工具调用的有界预算；未来提高上限前必须重新验证延迟、成本和循环风险。
 - 同一工具和规范化参数连续重复两次警告、三次阻断。
 - 工具超时、用户取消、进程重启都产生可解释终态。
 - 工具结果进入模型前截断并脱敏，完整结果保存在本地审计表。
@@ -370,7 +370,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v27 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史与可信上下文；禁用、替换或删除后历史审计保留，失效消息和旧摘要不再进入模型。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。独立答案引用 UI 与 Embedding 尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v27 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文和 Workflow 输出；禁用、替换或删除后历史审计保留，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。独立答案引用 UI 与 Embedding 尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -378,7 +378,7 @@
 | 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v27 已补知识全文/chunks/FTS/审计、管理 UI、只读 Agent 检索、引用持久化与模型上下文失效过滤 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离 |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
-| AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、8 步预算、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |
+| AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、最多 4 次工具调用、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |
 | 可观测运行 UI | 展示当前步骤、工具名、参数摘要、结果摘要、耗时和停止按钮 | 用户能区分“模型正在想”和“工具正在做” |
 
 首批应用内工具现已完成：
@@ -388,6 +388,7 @@
 - `notes.list` / `notes.search` / `notes.create`：本机笔记读取与确认后写入、回读验证。
 - `memory.search`：只读检索已授权记忆。
 - `memory.remember`：确认后写入带来源的长期记忆。
+- `knowledge.search`：只读检索本地知识库并返回稳定 document/revision/chunk/offset 引用。
 
 仍待评估的后续工具包括受限 `web.fetch`、显式 `ask_user` 和应用信息读取。
 
@@ -410,13 +411,13 @@
 
 目标：支持长任务和计划任务，但不夸大 Android 后台可靠性。
 
-当前状态：Workflow/ScheduledTask Ledger、一次性非精确定时、取消、计划/实际时间和完成/失败/blocked 通知已交付；周期规则、系统回收续跑和聚合式“需要你处理”首页待完成。
+当前状态：Workflow/ScheduledTask Ledger、1 至 8 步顺序执行、一次性及 Daily/Weekly 非精确定时、取消、计划/实际时间、完成/失败/blocked 通知和安全新 Run 重试已交付；后台通用执行栈续跑、精确定时和聚合式“需要你处理”首页仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | TaskLedger | 保存 goal、steps、currentStep、priorResults、pendingApproval、status、retryCount | App 被杀后重新打开可看到任务状态；待确认动作能继续处理 |
 | Activity 首页 | 三段：需要你处理、运行中、最近完成；失败/逾期/待确认置顶 | 冷启动不会误显示旧聊天为正在运行 |
-| 定时任务 v1 | 已完成一次性计划；下一步增加结构化 Daily/Weekly，WorkManager 继续承担非精确任务 | UI 明确“系统可能延迟”；展示预计下次运行和上次结果 |
+| 定时任务 v1 | 一次性及 Daily/Weekly 已完成，WorkManager 继续承担非精确任务；精确定时另行评估 AlarmManager 与权限 | UI 明确“系统可能延迟”；展示预计下次运行和上次结果 |
 | 后台安全策略 | 已完成只允许 `supportsBackground=true` 的 SAFE 只读工具且不继承前台授权 | 后台调用需审批工具时转为 BLOCKED 并通知用户 |
 | 通知 | 完成/失败/待确认；低风险可快捷操作，高风险只允许打开 App/拒绝 | 通知 action 有单测；高风险不存在一键永久允许 |
 | 有界恢复 | 网络/临时失败最多重试两次并退避；权限拒绝等结构性失败不重试 | 不出现无限重试；失败原因和已完成步骤可见 |
@@ -445,8 +446,8 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 | 能力 | 前置条件 | 建议方案 |
 |---|---|---|
 | MCP client | ToolRegistry/审批/审计稳定 | 先支持 remote HTTP MCP；逐 server/逐 tool 开关；工具风险不能全部默认为 safe |
-| Skills | 有稳定工具和 prompt 装载边界 | 第一版只允许声明式 Markdown skill，不允许可执行脚本 |
-| Workflow 编辑器 | TaskLedger/调度/节点执行稳定 | 参考 `vFlow`/Operit，先做 trigger + tool + condition 三类节点 |
+| Skills | 有稳定工具和 prompt 装载边界 | 版本化本地声明式 JSON Skill、严格校验和管理 UI 已完成；后续格式仍不得执行任意脚本 |
+| Workflow 编辑器 | TaskLedger/调度/节点执行稳定 | 当前已支持 1 至 8 个顺序 Agent 步骤；未来如扩展图编辑器，再增加 trigger + tool + condition 节点 |
 | Remote Gateway | 内置运行时稳定且确有跨设备需求 | 抽象 `AgentBackend`，本地/远程共用事件协议和审批模型 |
 | 本地模型 | 有明确离线需求和目标机型 | 先做小模型下载、内存预算、能力探测和真机矩阵，再接入 Agent |
 | 多 Agent/委派 | 单 Agent 任务成功率和观测完善 | 子 Agent 只能获得父 Agent 权限子集，并共享总步数/成本预算 |

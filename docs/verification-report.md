@@ -600,7 +600,7 @@ Daily 执行与下一实例：
 - 通过页面“停用周期计划”后，Room 中规则 `enabled=0` 且清空 `nextTaskId / nextPlannedAt`；新周实例变为 `CANCELLED`，WorkManager 同一 WorkRequest 同步为 `CANCELLED(5)`，没有生成额外实例。
 - 1080×2340 真机页面已检查创建弹窗、周期摘要和展开历史；每日/每周信息、时区、取消原因、Workflow/Agent 结果均完整显示，没有文字、按钮或卡片重叠。最终 crash buffer 为空。
 
-当前边界：
+该阶段当时的边界：
 
 - 本轮真机确认了外部模型可完成真实后台 SAFE 请求，但没有再次执行触发前杀进程的周期实例；周期启动恢复由单元测试、已编译的 Repository instrumentation 源码和此前一次性任务冷启动真机证据覆盖。
 - Daily/Weekly 仍不是精确定时，不使用 AlarmManager 或 Foreground Service；后台执行中断后不恢复旧 Agent 执行栈，旧 Run 保持可审计终态并只生成未来周期实例。
@@ -1114,7 +1114,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 - 最终应用冷启动成功，`com.longdev.xiaoling/.MainActivity` 保持 Redmi 前台，crash buffer 为空。主库只读回查为 `PRAGMA user_version=26`，知识主表/FTS 辅助表齐全，原 Provider 保留 1 条。
 - 最终 Debug APK SHA-256：`4da1f1a27598fe0291e3c70d0ccbf526a7205dbea4426b876b31caf750d31dd0`。
 
-当前边界：
+该阶段当时的边界：
 
 - 该阶段没有知识库管理 UI、`knowledge.search` Agent 工具、模型上下文注入、答案引用呈现或 Embedding，因此不宣称完整 RAG 问答已完成。管理 UI 和检索预览在下一节完成。
 
@@ -1141,7 +1141,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 - 主库只读回查为 `PRAGMA user_version=26`、Provider 1 条、`knowledge_documents / knowledge_chunks / knowledge_chunks_fts` 均为 0、`knowledge_retrievals` 为 5；历史 r1/r2 chunk ID 只保留在审计 JSON 中，没有活动索引行。
 - 最终 Debug APK SHA-256：`925f9c9760f620b3f1b4b1708fcf44bb65739858626be01d660e752bbbfaef3a`。应用冷启动进入 `com.longdev.xiaoling/.MainActivity`，稳定主界面和知识库空状态均完成截图检查，无横向越界或控件重叠，进程保持前台且 crash buffer 为空。
 
-当前边界：
+该阶段当时的边界：
 
 - 管理 UI 已完成，但 `knowledge.search` 仍不是 Agent Tool，检索结果尚未注入模型上下文或答案引用。下一阶段必须把只读工具接入 Registry、Profile/Skill 白名单和 Run/ToolResult 审计，不能绕过现有工具权限与可信事实边界。
 
