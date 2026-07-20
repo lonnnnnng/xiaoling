@@ -4,6 +4,8 @@
 
 小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。模型与工具段现使用单调时钟共享累计执行预算，审批及受限恢复继承持久化剩余预算，Step/Run timeout 与外部取消边界已有确定性测试。当前下一阶段转向更长真实任务的耗时、系统回收和恢复证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
+截至第 43 阶段，同一 WorkRequest 的 Redmi 冷启动重入已完成一次真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；最新开发重点因此收窄为更长/自然回收样本和通用未知提交处置，而不是再次验证基础重入链路。
+
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
 - `meow-agent`：工具风险元数据、权限策略、后置验证、运行事件和 Workflow Ledger。
@@ -407,8 +409,12 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 41. 已完成：启动恢复证据快照。不可原地恢复的活动 Run 在步骤/审批收敛前按原始状态计算重试证据，并写入 typed `run.recovered.retryEvidenceCode`；执行/验证中无结果固定为 `COMMIT_UNKNOWN`，纯思考中断且无副作用为 `NOT_COMMITTED`，Ledger 漂移为 `EVIDENCE_INCOMPLETE`。任务中心和确认前仍重新计算当前证据；带快照的 Run 使用快照还原收敛前中断边界，避免把启动清理产生的 `PENDING -> CANCELLED` 误判成副作用，当前 Ledger 真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。旧 Recovery 事件缺字段继续兼容，可原地恢复候选不写取消证据；该阶段不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。388 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
-42. 已完成：Worker 冷启动重入收敛。`ScheduledWorkflowReentryCoordinator` 只拦截仍为 `RUNNING` 的 ScheduledTask，沿当前 Task→WorkflowRun→AgentRun 关联链按 ID 定向关闭旧执行栈，再按 Agent→Workflow→Task 顺序完成对账；普通 `SCHEDULED` 任务不改变 claim/执行路径，不使用 `Result.retry`，不恢复旧模型协程或 Workflow 后续步骤。无关前台 Agent 保持不变，周期下一实例仍等待旧任务进入终态后再物化。391 条 JVM、Lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 126 条 instrumentation 全部通过；当前仍是确定性 Room/协调器重入验收，真实系统强杀 Worker 的耗时与回收位置留待下一阶段。
+42. 已完成：Worker 冷启动重入收敛。`ScheduledWorkflowReentryCoordinator` 只拦截仍为 `RUNNING` 的 ScheduledTask，沿当前 Task→WorkflowRun→AgentRun 关联链按 ID 定向关闭旧执行栈，再按 Agent→Workflow→Task 顺序完成对账；普通 `SCHEDULED` 任务不改变 claim/执行路径，不使用 `Result.retry`，不恢复旧模型协程或 Workflow 后续步骤。无关前台 Agent 保持不变，周期下一实例仍等待旧任务进入终态后再物化。391 条 JVM、Lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 126 条 instrumentation 全部通过；该阶段当时只完成确定性 Room/协调器重入验收，真实系统强杀 Worker 的耗时与回收位置留待第 43 阶段。
 
-下一阶段继续在 Redmi 验收真实较长 Worker 任务的系统回收位置、WorkRequest 重入和持久化耗时；提交状态未知或验证事实不完整仍只安全收敛并引导关联新 Run。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
+第 42 阶段当时的下一阶段边界：继续在 Redmi 验收真实较长 Worker 任务的系统回收位置、WorkRequest 重入和持久化耗时；提交状态未知或验证事实不完整仍只安全收敛并引导关联新 Run。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
+
+43. 已完成：Redmi 真实 Worker 冷启动重入。临时 instrumentation 在 Redmi `wsvwypiz7xwslvl7` 创建 7 步 SAFE Workflow 并保持目标进程存活；`WorkRequest=0d9aa2a5-ff1b-4a04-ad74-5d3c7bdf76db` 于 `06:05:03` 启动，`06:05:05` 首个 Agent Run 处于 `THINKING`。`am kill` 因 instrumentation 前台身份未终止 PID `25755`，立即使用 `run-as ... kill -9` fallback；约 `0.2s` 后新 PID `26092` 冷启动同一 WorkRequest。重入只收敛关联的 Agent/Workflow/ScheduledTask，后 6 步未启动，关联 Agent Run 数量仍为 1，工具调用/结果为 0，实际耗时 `3360ms`。该受控强杀不等同 Android 自主回收，也不扩大为通用原地恢复。
+
+下一阶段继续补充更长任务、Android 自主回收、Doze 与内存压力样本，并推进提交状态未知/验证事实不完整时的通用安全恢复处置。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化，Foreground Service 与精确定时仍依据真实耗时决定。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

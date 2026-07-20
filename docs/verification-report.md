@@ -1443,4 +1443,31 @@ Redmi 真实动作验收：
 
 下一阶段边界：
 
-- 继续在 Redmi 真机执行真实较长 Worker 任务的系统强杀、WorkRequest 重入、旧 PID/Run/Step/Task 状态和实际耗时记录；本阶段的确定性协调器与 Room 验收不等同于真实系统回收验收。
+- 同一 WorkRequest 的 Redmi 冷启动重入已经完成一次真实验收；后续继续补充更长耗时和系统自主回收样本。通用提交状态未知/验证事实不完整的执行栈仍只安全收敛并引导关联新 Run，旧模型协程和 Workflow 后续步骤不原地恢复。
+
+## 2026-07-21 Redmi 真实 Worker 冷启动重入
+
+验收对象与触发方式：
+
+- 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`。临时 instrumentation 创建 7 步 SAFE `app.current_time` Workflow，并保持目标进程存活，避免测试结束清除 JobScheduler 条目；任务 `scheduled-task-8114453d-164a-4986-a782-3c21ad0034f1`、WorkRequest `0d9aa2a5-ff1b-4a04-ad74-5d3c7bdf76db`、Job ID `3`。
+- 计划时间与实际启动均为 `2026-07-21 06:05:03`。`06:05:05` 采样到 `ScheduledTask=RUNNING`、Workflow Run `workflow-run-8707c39c-fb30-42e1-a8c2-82a6b3c2eab4`、Agent Run `run-e47f030d-e16e-4b02-9d35-2f6e16ff6da0` 且状态为 `THINKING`；旧 PID 为 `25755`。
+- 先执行 `am kill com.longdev.xiaoling`，PID 未消失，因为该 PID 承载前台 instrumentation；按预先记录的 fallback 立即执行 `run-as com.longdev.xiaoling kill -9 25755`。这是真机上的受控强杀，不冒充 Android 系统自主回收证据。
+
+重入结果：
+
+- 旧 PID 在约 `0.2s` 内消失，新 PID `26092` 被 JobScheduler 用同一 WorkRequest 冷启动；日志显示同一 `workSpecId`/generation 的 `onStartJob`、Worker 重调度和再次 `ScheduledWorkflowWorker` 启动，没有创建第二个 Agent Run。
+- 新 Worker 在 `2026-07-21 06:05:06` 完成定向重入对账：ScheduledTask、Workflow Run、首步 Agent Run 均为 `CANCELLED`，错误为“应用重启后终止上次未完成 Agent 任务”；后 6 个 WorkflowStep 均为 `CANCELLED`，未继续执行后续步骤。
+- Room 只读核对：同一 WorkRequest 保持不变，`actualStartedAt=06:05:03`、`completedAt=06:05:06`、耗时 `3360ms`；关联 Agent Run 数量为 `1`，工具调用与 ToolResult 数量均为 `0`。`run.recovered` 事件记录了旧 Run 收敛，Agent→Workflow→Task 顺序与确定性协调器一致。
+
+最终回归与设备恢复：
+
+- 删除临时探针后执行 `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain`：391 条 JVM 测试通过，88 个 Gradle task 全部执行，Lint、Debug 与 AndroidTest 构建成功。
+- 验收完成后已用 `apply_patch` 删除临时文件 `app/src/androidTest/java/com/longdev/xiaoling/probe/WorkerReentryProbeInstrumentedTest.kt`；最终 AndroidTest APK 不包含该探针。
+- 仅在 Redmi 手动安装最终 Debug/Test APK 并执行完整 `AndroidJUnitRunner`：`OK (126 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。随后卸载测试包、覆盖安装并启动最终 Debug APK。
+- Redmi 主库保持 1 个 Provider，“兜底”模型为 `gpt-5.5`，Base URL、启用模型和 API Key 密文均存在；默认 User-Agent 与设备 Agent 开关正确。AccessibilityService 最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台，crash buffer 为空。
+- 最终 Debug APK SHA-256：`b3d630614841f0d470924590205798bd3d85beed9a74ff7accd31290f8cd0383`。
+
+证据边界：
+
+- 本轮证明了同一 WorkRequest 在进程被强制终止后的冷启动重入和定向收敛；没有启动 MainActivity，因此没有触发前台启动对账，也没有触碰 Pixel 模拟器。
+- `run-as kill -9` 是 instrumentation 前台占用导致 `am kill` 无法生效时的 fallback；仍缺少 Android 自主回收、Doze/内存压力和更长模型任务的独立样本。Foreground Service、精确定时和设备 Workflow/后台自动化不因本轮证据提前引入。

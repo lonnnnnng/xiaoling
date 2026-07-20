@@ -256,4 +256,10 @@
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
 - 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 391 条 JVM 与仅 Redmi 执行的 126 条 instrumentation。
 
+## Redmi Worker 冷启动重入证据
+
+- Redmi 上的 7 步 SAFE Workflow 在首步 Agent `THINKING` 时终止旧 PID。instrumentation 前台身份使 `am kill` 无效，因此使用 `run-as kill -9` fallback；约 `0.2s` 后 JobScheduler 以新 PID 冷启动同一 `workSpecId` 和 generation。
+- 新 Worker 进入 `ScheduledWorkflowReentryCoordinator`，没有重新 claim，也没有创建第二个 Agent Run。Room 最终仅有 1 个关联 Agent Run，Task/Workflow/首步 Agent 均为 `CANCELLED`，其余 6 步未执行，工具调用和 ToolResult 都为 0。
+- ScheduledTask 从 `actualStartedAt=06:05:03` 到 `completedAt=06:05:06` 共 `3360ms`。该证据确认真实 WorkRequest 重入链路可用，但受控 `kill -9` 不代表 Android 自主回收；通用未知提交恢复、Workflow 后缀续跑、Doze/内存压力和更长任务仍保持现有边界。
+
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

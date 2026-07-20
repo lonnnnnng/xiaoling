@@ -6,6 +6,8 @@
 
 本阶段新增 Workflow 步骤结果落库后的进程终止对账、重试证据可见性、启动证据快照和 Worker 重入收敛：不可原地恢复的活动 Run 会在收敛前把证据码写入 typed `run.recovered`，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧 Agent/Workflow/Task，不扫描其他 Run，也不使用 `Result.retry` 复制 Agent Run。后续仍重新核对 Ledger，分类漂移升级为 `EVIDENCE_INCOMPLETE`。任务中心直接展示稳定分类、原因和建议动作；不改变 `COMMIT_UNKNOWN`/`EVIDENCE_INCOMPLETE` 的确认门禁，不恢复旧 Executor。设备工具仍不进入 Workflow 或后台自动化，下一阶段继续做真实系统回收位置和更长 Worker 任务的 Redmi 验收。
 
+最新状态补充：Redmi 已完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。后续重点是更长/自然系统回收样本和通用未知提交处置，设备工具、Foreground Service 与精确定时边界不变。
+
 ## 推荐阅读顺序
 
 1. [产品需求](requirements.md)：小灵的产品定位、目标用户、能力边界和质量要求。
