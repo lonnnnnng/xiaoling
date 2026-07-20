@@ -221,6 +221,66 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun persistedRecoveryEvidenceMustMatchCurrentLedgerEvidence() {
+        val current = detail(
+            status = AgentRunStatus.CANCELLED,
+            events = listOf(
+                event(
+                    type = "run.recovered",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.EXECUTING,
+                        toStatus = AgentRunStatus.CANCELLED,
+                        reason = "应用重启后终止上次未完成 Agent 任务",
+                        retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+                    ),
+                ),
+            ),
+        )
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, AgentTaskRetryPolicy.assessEvidence(current).code)
+
+        val drifted = current.copy(
+            snapshot = current.snapshot.copy(
+                events = listOf(
+                    event(
+                        type = "run.recovered",
+                        metadata = RunEventMetadata.Recovery(
+                            fromStatus = AgentRunStatus.EXECUTING,
+                            toStatus = AgentRunStatus.CANCELLED,
+                            reason = "应用重启后终止上次未完成 Agent 任务",
+                            retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE, AgentTaskRetryPolicy.assessEvidence(drifted).code)
+    }
+
+    @Test
+    fun startupCleanupCancellationDoesNotTurnPendingWriteIntoUnknownCommit() {
+        val detail = detail(
+            status = AgentRunStatus.CANCELLED,
+            steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.CANCELLED)),
+            events = listOf(
+                event(
+                    type = "run.recovered",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.THINKING,
+                        toStatus = AgentRunStatus.CANCELLED,
+                        reason = "应用重启后终止上次未完成 Agent 任务",
+                        retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidence(detail).code,
+        )
+    }
+
+    @Test
     fun cancelledToolExecutionRequiresConfirmationBeforeRetry() {
         val eligibility = AgentTaskRetryPolicy.evaluate(
             detail(

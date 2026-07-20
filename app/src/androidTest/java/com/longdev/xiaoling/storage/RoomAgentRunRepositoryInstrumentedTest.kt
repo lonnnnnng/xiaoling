@@ -8,6 +8,7 @@ import com.longdev.xiaoling.agent.AgentLlm
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.AgentToolExecutionContext
 import com.longdev.xiaoling.agent.AgentMemoryFilter
@@ -718,6 +719,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.THINKING, metadata.fromStatus)
         assertEquals(AgentRunStatus.CANCELLED, metadata.toStatus)
         assertEquals("应用重启后终止上次未完成 Agent 任务", metadata.reason)
+        assertEquals(AgentTaskRetryEvidenceCode.NOT_COMMITTED, metadata.retryEvidenceCode)
         assertFalse(recovered.message.trimStart().startsWith("{"))
     }
 
@@ -761,6 +763,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 .metadata as RunEventMetadata.Recovery
             assertEquals(interruptedStatus, recovery.fromStatus)
             assertEquals(AgentRunStatus.CANCELLED, recovery.toStatus)
+            assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, recovery.retryEvidenceCode)
             assertEquals(
                 AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
                 AgentTaskRetryPolicy.evaluate(closed),
@@ -1237,6 +1240,7 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val metadata = recovered.metadata as RunEventMetadata.Recovery
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.fromStatus)
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.toStatus)
+        assertEquals(null, metadata.retryEvidenceCode)
     }
 
     @Test

@@ -164,6 +164,7 @@ internal fun presentAgentRunEvent(
                 "原状态" to metadata.fromStatus.name,
                 "新状态" to metadata.toStatus.name,
                 "原因" to metadata.reason,
+                "重试证据" to metadata.retryEvidenceCode?.name,
             ),
         )
         is RunEventMetadata.RecoveryFailure -> AgentRunEventPresentation(

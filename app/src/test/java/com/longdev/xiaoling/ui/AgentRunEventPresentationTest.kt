@@ -3,6 +3,8 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
@@ -50,6 +52,23 @@ class AgentRunEventPresentationTest {
         assertEquals("MEMORY_CHANGED", presentation.fields.single { it.label == "错误码" }.value)
         assertEquals("原长期记忆业务字段已修改", presentation.fields.single { it.label == "原因" }.value)
         assertEquals("请保留当前编辑结果，并创建新 Run 重新确认。", presentation.fields.single { it.label == "建议" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
+    fun recoveryEventShowsPersistedRetryEvidenceWhenAvailable() {
+        val presentation = presentAgentRunEvent(
+            type = "run.recovered",
+            message = "应用重启后终止上次未完成 Agent 任务",
+            metadata = RunEventMetadata.Recovery(
+                fromStatus = AgentRunStatus.EXECUTING,
+                toStatus = AgentRunStatus.CANCELLED,
+                reason = "应用重启后终止上次未完成 Agent 任务",
+                retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            ),
+        )
+
+        assertEquals("COMMIT_UNKNOWN", presentation.fields.single { it.label == "重试证据" }.value)
         assertNull(presentation.rawFallback)
     }
 

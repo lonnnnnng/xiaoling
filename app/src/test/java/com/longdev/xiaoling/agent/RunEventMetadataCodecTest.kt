@@ -66,6 +66,43 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun recoveryEvidenceCodeRoundTripsAndLegacyEventRemainsReadable() {
+        val metadata = RunEventMetadata.Recovery(
+            fromStatus = AgentRunStatus.EXECUTING,
+            toStatus = AgentRunStatus.CANCELLED,
+            reason = "应用重启后终止上次未完成 Agent 任务",
+            retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode("run.recovered", RunEventMetadataCodec.encode(metadata)),
+        )
+        assertEquals(
+            null,
+            (RunEventMetadataCodec.decode(
+                "run.recovered",
+                "{\"fromStatus\":\"THINKING\",\"toStatus\":\"CANCELLED\",\"reason\":\"legacy\"}",
+            ) as RunEventMetadata.Recovery).retryEvidenceCode,
+        )
+    }
+
+    @Test
+    fun unknownRecoveryEvidenceCodeFailsClosedWithoutBreakingLegacyMissingField() {
+        val unknown = RunEventMetadataCodec.decode(
+            "run.recovered",
+            "{\"fromStatus\":\"THINKING\",\"toStatus\":\"CANCELLED\",\"reason\":\"future\",\"retryEvidenceCode\":\"FUTURE_CODE\"}",
+        ) as RunEventMetadata.Recovery
+        assertEquals(AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE, unknown.retryEvidenceCode)
+
+        val legacy = RunEventMetadataCodec.decode(
+            "run.recovered",
+            "{\"fromStatus\":\"THINKING\",\"toStatus\":\"CANCELLED\",\"reason\":\"legacy\"}",
+        ) as RunEventMetadata.Recovery
+        assertEquals(null, legacy.retryEvidenceCode)
+    }
+
+    @Test
     fun recoverySummaryReasonRoundTrips() {
         val metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程")
 

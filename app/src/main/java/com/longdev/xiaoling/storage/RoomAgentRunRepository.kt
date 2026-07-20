@@ -14,6 +14,7 @@ import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.AgentToolCallRecord
 import com.longdev.xiaoling.agent.AgentToolLedgerRecord
 import com.longdev.xiaoling.agent.AgentToolResultRecord
@@ -326,7 +327,14 @@ class RoomAgentRunRepository(
         var closedCount = 0
         interruptedRuns.forEach { run ->
             val detail = loadDetail(run)
-            if (AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport).canResumeInPlace) return@forEach
+            val resumeAssessment = AgentRunResumePolicy.assess(
+                detail,
+                definitionLookup,
+                committedVerificationSupport,
+            )
+            if (resumeAssessment.canResumeInPlace) return@forEach
+            val fromStatus = AgentRunStatus.valueOf(run.status)
+            val retryEvidence = AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(detail, fromStatus)
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
             detail.snapshot.steps
                 .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
@@ -349,9 +357,10 @@ class RoomAgentRunRepository(
                 type = "run.recovered",
                 message = reason,
                 metadata = RunEventMetadata.Recovery(
-                    fromStatus = AgentRunStatus.valueOf(run.status),
+                    fromStatus = fromStatus,
                     toStatus = AgentRunStatus.CANCELLED,
                     reason = reason,
+                    retryEvidenceCode = retryEvidence.code,
                 ),
             )
             updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)

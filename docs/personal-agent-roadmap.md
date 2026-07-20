@@ -405,6 +405,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 40. 已完成：通用重试证据可见性。任务中心卡片现在直接显示 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE` 的稳定分类、原因和建议动作；确认弹窗与卡片仍复用同一证据评估，确认提交前继续校验证据码。该切片只改善恢复处置的可解释性，不改变 `COMMIT_UNKNOWN`、`COMMITTED_UNVERIFIED` 和 `EVIDENCE_INCOMPLETE` 的确认门禁，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。383 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
+41. 已完成：启动恢复证据快照。不可原地恢复的活动 Run 在步骤/审批收敛前按原始状态计算重试证据，并写入 typed `run.recovered.retryEvidenceCode`；执行/验证中无结果固定为 `COMMIT_UNKNOWN`，纯思考中断且无副作用为 `NOT_COMMITTED`，Ledger 漂移为 `EVIDENCE_INCOMPLETE`。任务中心和确认前仍重新计算当前证据；带快照的 Run 使用快照还原收敛前中断边界，避免把启动清理产生的 `PENDING -> CANCELLED` 误判成副作用，当前 Ledger 真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。旧 Recovery 事件缺字段继续兼容，可原地恢复候选不写取消证据；该阶段不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。388 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
+
 下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

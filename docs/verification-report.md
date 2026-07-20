@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-20（北京时间）
+验证日期：2026-07-21（北京时间）
 
 ## 环境
 
@@ -1405,3 +1405,23 @@ Redmi 真实动作验收：
 下一阶段边界：
 
 - 继续以确定性故障注入完善提交状态未知、验证事实不完整时的通用执行恢复证据；设备工具、精确定时和 Foreground Service 仍保持现有边界。
+
+## 2026-07-21 启动恢复证据快照
+
+实现与安全边界：
+
+- `RunEventMetadata.Recovery` 新增可空 `retryEvidenceCode`，只写入 metadata JSON，不改变 Room 表结构；旧事件缺字段继续按空值兼容，存在但未来未知的枚举值保守归类为 `EVIDENCE_INCOMPLETE`。
+- `closeInterruptedRuns()` 在修改步骤和审批状态前，根据原始 Run 状态与 Ledger 计算证据码。`EXECUTING/VERIFYING` 无结果为 `COMMIT_UNKNOWN`，无副作用的 THINKING 中断为 `NOT_COMMITTED`，Ledger 异常为 `EVIDENCE_INCOMPLETE`；可原地恢复的 Run 不写取消证据。
+- `AgentTaskRetryPolicy` 仍实时核对当前 Ledger；带快照的 Run 使用快照还原收敛前中断边界，启动清理产生的 `PENDING -> CANCELLED` 不会被当成副作用中断，当前 Ledger 真正漂移时升级为 `EVIDENCE_INCOMPLETE`。任务中心事件明细会展示持久化重试证据码。
+
+自动化验证：
+
+- JVM 定向覆盖 Recovery metadata 全字段 round-trip、旧事件缺字段兼容、未知枚举 fail-closed、事件展示、持久化分类一致、`PENDING -> CANCELLED` 清理回归和漂移 fail-closed。
+- Redmi 定向执行 `RoomAgentRunRepositoryInstrumentedTest`：`OK (26 tests)`；确认 THINKING=`NOT_COMMITTED`、EXECUTING/VERIFYING=`COMMIT_UNKNOWN`、审批原地恢复事件不带取消证据。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：388 条 JVM，0 失败、0 错误；88 个 Gradle task 全部执行，lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/AndroidTest APK 并执行完整 `AndroidJUnitRunner`：`OK (125 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后已卸载测试包并重新覆盖安装、启动 Debug APK。Provider 为 `gpt-5.5`，Base URL、可用模型和 Keystore 解密后的 API Key 均存在；默认 User-Agent 与设备 Agent 开关正确。AccessibilityService 最终处于 Enabled 与 Bound，设备页显示“服务正常，可读取当前界面”，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
+
+下一阶段边界：
+
+- 继续完善验证事实不完整时的通用恢复与更长任务回收证据；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。

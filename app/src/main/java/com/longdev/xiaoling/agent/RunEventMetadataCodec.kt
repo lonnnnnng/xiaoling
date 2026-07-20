@@ -72,6 +72,9 @@ internal object RunEventMetadataCodec {
                 .put("fromStatus", metadata.fromStatus.name)
                 .put("toStatus", metadata.toStatus.name)
                 .put("reason", metadata.reason)
+                .apply {
+                    metadata.retryEvidenceCode?.let { put("retryEvidenceCode", it.name) }
+                }
             is RunEventMetadata.RecoveryFailure -> JSONObject()
                 .put("toolName", metadata.toolName)
                 .put("code", metadata.code)
@@ -173,6 +176,11 @@ internal object RunEventMetadataCodec {
                     fromStatus = AgentRunStatus.valueOf(json.requiredString("fromStatus")),
                     toStatus = AgentRunStatus.valueOf(json.requiredString("toStatus")),
                     reason = json.requiredString("reason"),
+                    retryEvidenceCode = json.stringOrNull("retryEvidenceCode")?.let { value ->
+                        // long: 字段存在但枚举来自未来版本时必须保守归类，不能把未知证据伪装成旧事件缺字段而绕过确认。
+                        runCatching { AgentTaskRetryEvidenceCode.valueOf(value) }
+                            .getOrElse { AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE }
+                    },
                 )
                 AgentEventTypes.RECOVERY_FAILED -> RunEventMetadata.RecoveryFailure(
                     toolName = json.requiredToolName(),

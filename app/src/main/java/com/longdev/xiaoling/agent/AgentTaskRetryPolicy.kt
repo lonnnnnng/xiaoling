@@ -40,11 +40,46 @@ object AgentTaskRetryPolicy {
     }
 
     fun assessEvidence(detail: AgentRunDetailRecord): AgentTaskRetryEvidence {
-        val interruptedDuringSideEffect = detail.snapshot.events.any { event ->
-            val recovery = event.metadata as? RunEventMetadata.Recovery ?: return@any false
-            recovery.fromStatus == AgentRunStatus.EXECUTING || recovery.fromStatus == AgentRunStatus.VERIFYING
-        } || detail.snapshot.steps.any { step ->
-            step.type in uncertainToolStepTypes && step.status in interruptedStepStatuses
+        val recoverySnapshot = detail.snapshot.events.asReversed().firstNotNullOfOrNull { event ->
+            (event.metadata as? RunEventMetadata.Recovery)
+                ?.takeIf { it.toStatus == AgentRunStatus.CANCELLED }
+        }
+        val persistedAtRecovery = recoverySnapshot?.retryEvidenceCode
+        val current = assessCurrentEvidence(detail, recoverySnapshot)
+        // long: 启动收敛会冻结当时的副作用分类；后续账本若与快照漂移必须升级为证据不完整，不能用旧快照掩盖新矛盾。
+        return if (persistedAtRecovery != null && persistedAtRecovery != current.code) {
+            AgentTaskRetryEvidence(AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE)
+        } else {
+            current
+        }
+    }
+
+    internal fun assessEvidenceBeforeRecovery(
+        detail: AgentRunDetailRecord,
+        fromStatus: AgentRunStatus,
+    ): AgentTaskRetryEvidence {
+        val interruptedDuringSideEffect = fromStatus in sideEffectStatuses || detail.snapshot.steps.any { step ->
+            step.type in uncertainToolStepTypes && step.status == AgentStepStatus.RUNNING
+        }
+        // long: 证据必须在步骤被改成 CANCELLED 前计算，否则会失去“中断发生在哪个执行阶段”的原始边界。
+        return AgentTaskRetryEvidencePolicy.assess(detail, interruptedDuringSideEffect)
+    }
+
+    private fun assessCurrentEvidence(
+        detail: AgentRunDetailRecord,
+        recoverySnapshot: RunEventMetadata.Recovery?,
+    ): AgentTaskRetryEvidence {
+        val interruptedDuringSideEffect = if (recoverySnapshot?.retryEvidenceCode != null) {
+            // long: 启动收敛把原本 PENDING 的步骤也写成 CANCELLED；有证据快照时只能沿用收敛前边界，避免把清理动作误判成副作用中断。
+            recoverySnapshot.fromStatus in sideEffectStatuses ||
+                recoverySnapshot.retryEvidenceCode in uncertainEvidenceCodes
+        } else {
+            detail.snapshot.events.any { event ->
+                val recovery = event.metadata as? RunEventMetadata.Recovery ?: return@any false
+                recovery.fromStatus in sideEffectStatuses
+            } || detail.snapshot.steps.any { step ->
+                step.type in uncertainToolStepTypes && step.status in interruptedStepStatuses
+            }
         }
         // long: 重试前把副作用证据固定成稳定枚举，任务卡和确认弹窗共享同一结论，避免 UI 自己猜测 UNKNOWN/COMMITTED 边界。
         return AgentTaskRetryEvidencePolicy.assess(detail, interruptedDuringSideEffect)
@@ -68,4 +103,11 @@ object AgentTaskRetryPolicy {
 
     private val uncertainToolStepTypes = setOf(AgentStepTypes.TOOL_EXECUTE, AgentStepTypes.TOOL_VERIFY)
     private val interruptedStepStatuses = setOf(AgentStepStatus.FAILED, AgentStepStatus.CANCELLED)
+    private val sideEffectStatuses = setOf(AgentRunStatus.EXECUTING, AgentRunStatus.VERIFYING)
+    private val uncertainEvidenceCodes = setOf(
+        AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+        AgentTaskRetryEvidenceCode.COMMITTED_UNVERIFIED,
+        AgentTaskRetryEvidenceCode.COMMITTED_VERIFIED,
+        AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
+    )
 }

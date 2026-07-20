@@ -177,6 +177,7 @@ sealed interface RunEventMetadata {
         val fromStatus: AgentRunStatus,
         val toStatus: AgentRunStatus,
         val reason: String,
+        val retryEvidenceCode: AgentTaskRetryEvidenceCode? = null,
     ) : RunEventMetadata
 
     data class RecoveryFailure(
