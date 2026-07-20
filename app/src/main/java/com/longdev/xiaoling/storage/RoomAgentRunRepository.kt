@@ -312,6 +312,8 @@ class RoomAgentRunRepository(
     suspend fun closeInterruptedRuns(
         definitionLookup: (String) -> ToolDefinition? = { null },
         committedVerificationSupport: (String) -> Boolean = { false },
+        runIds: Set<String>? = null,
+        preserveResumableCandidates: Boolean = true,
     ): Int {
         val dao = database.agentRunDao()
         val activeStatuses = listOf(
@@ -322,6 +324,7 @@ class RoomAgentRunRepository(
             AgentRunStatus.VERIFYING,
         )
         val interruptedRuns = dao.getRunsByStatuses(activeStatuses.map { it.name })
+            .filter { runIds == null || it.id in runIds }
         if (interruptedRuns.isEmpty()) return 0
         val reason = "应用重启后终止上次未完成 Agent 任务"
         var closedCount = 0
@@ -332,7 +335,7 @@ class RoomAgentRunRepository(
                 definitionLookup,
                 committedVerificationSupport,
             )
-            if (resumeAssessment.canResumeInPlace) return@forEach
+            if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) return@forEach
             val fromStatus = AgentRunStatus.valueOf(run.status)
             val retryEvidence = AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(detail, fromStatus)
             // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。

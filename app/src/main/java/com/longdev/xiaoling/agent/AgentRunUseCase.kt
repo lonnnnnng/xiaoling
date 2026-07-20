@@ -171,6 +171,16 @@ class AgentRunUseCase(
         )
     }
 
+    suspend fun closeInterruptedRunForWorkerReentry(runId: String): Boolean {
+        // long: Worker 重入不能恢复旧协程或后台 Workflow 后缀；即使该 Run 具备前台只读恢复证据，也先冻结证据并关闭旧实例，由用户创建关联新 Run。
+        return baseLedger.closeInterruptedRuns(
+            definitionLookup = toolRegistry::definition,
+            committedVerificationSupport = toolRegistry::supportsCommittedEffectVerification,
+            runIds = setOf(runId),
+            preserveResumableCandidates = false,
+        ) > 0
+    }
+
     suspend fun resumeCommittedToolRun(
         detail: AgentRunDetailRecord,
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},

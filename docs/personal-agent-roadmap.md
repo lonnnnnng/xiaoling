@@ -407,6 +407,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 41. 已完成：启动恢复证据快照。不可原地恢复的活动 Run 在步骤/审批收敛前按原始状态计算重试证据，并写入 typed `run.recovered.retryEvidenceCode`；执行/验证中无结果固定为 `COMMIT_UNKNOWN`，纯思考中断且无副作用为 `NOT_COMMITTED`，Ledger 漂移为 `EVIDENCE_INCOMPLETE`。任务中心和确认前仍重新计算当前证据；带快照的 Run 使用快照还原收敛前中断边界，避免把启动清理产生的 `PENDING -> CANCELLED` 误判成副作用，当前 Ledger 真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。旧 Recovery 事件缺字段继续兼容，可原地恢复候选不写取消证据；该阶段不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。388 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
-下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
+42. 已完成：Worker 冷启动重入收敛。`ScheduledWorkflowReentryCoordinator` 只拦截仍为 `RUNNING` 的 ScheduledTask，沿当前 Task→WorkflowRun→AgentRun 关联链按 ID 定向关闭旧执行栈，再按 Agent→Workflow→Task 顺序完成对账；普通 `SCHEDULED` 任务不改变 claim/执行路径，不使用 `Result.retry`，不恢复旧模型协程或 Workflow 后续步骤。无关前台 Agent 保持不变，周期下一实例仍等待旧任务进入终态后再物化。391 条 JVM、Lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 126 条 instrumentation 全部通过；当前仍是确定性 Room/协调器重入验收，真实系统强杀 Worker 的耗时与回收位置留待下一阶段。
+
+下一阶段继续在 Redmi 验收真实较长 Worker 任务的系统回收位置、WorkRequest 重入和持久化耗时；提交状态未知或验证事实不完整仍只安全收敛并引导关联新 Run。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

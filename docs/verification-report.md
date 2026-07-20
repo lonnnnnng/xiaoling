@@ -1425,3 +1425,22 @@ Redmi 真实动作验收：
 下一阶段边界：
 
 - 继续完善验证事实不完整时的通用恢复与更长任务回收证据；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+
+## 2026-07-21 Worker 冷启动重入收敛
+
+实现与安全边界：
+
+- 新增 `ScheduledWorkflowReentryCoordinator`。Worker 进入 `execute(taskId)` 时，只有当前 ScheduledTask 已是 `RUNNING` 才进入重入路径；沿 Task→WorkflowRun→AgentRun 关联链按 ID 定向收敛，Agent、Workflow、ScheduledTask 依次完成对账后再发送通知。
+- 普通 `SCHEDULED` 任务不改变原有 claim、顺序执行和周期调度；重入不恢复旧模型协程、不继续 Workflow 后续步骤、不调用 `Result.retry`，周期下一实例只在旧任务进入终态后物化。按 ID 的 Repository 对账入口保证其他前台 Agent/Workflow 不受影响。
+
+自动化验证：
+
+- JVM 新增 `ScheduledWorkflowReentryCoordinatorTest`，覆盖普通 SCHEDULED 直通、关联 Agent 重入顺序和无关联 Run 的定向 Task 收敛；既有 `ScheduledWorkflowOrchestratorTest` 全部通过。
+- Redmi 定向 Room 测试 `workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun`：`OK (1 test)`；关联 Agent 进入 `CANCELLED`，Workflow/Task 按顺序收敛，无关 `THINKING` Agent 保持不变，Agent Run 数量不增加。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：391 条 JVM，0 失败、0 错误；88 个 Gradle task 全部执行，Lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 手动安装最终 Debug/AndroidTest APK 并执行完整 `AndroidJUnitRunner`：`OK (126 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后已卸载测试包并重新覆盖安装、启动 Debug APK。主界面显示 Provider“兜底配置”和 `gpt-5.5`；默认 User-Agent 与设备 Agent 开关保持正确，AccessibilityService 处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
+
+下一阶段边界：
+
+- 继续在 Redmi 真机执行真实较长 Worker 任务的系统强杀、WorkRequest 重入、旧 PID/Run/Step/Task 状态和实际耗时记录；本阶段的确定性协调器与 Room 验收不等同于真实系统回收验收。

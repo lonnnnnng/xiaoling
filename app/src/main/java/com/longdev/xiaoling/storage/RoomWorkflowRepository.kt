@@ -353,10 +353,12 @@ class RoomWorkflowRepository(
         return tasksToEnqueue
     }
 
-    suspend fun reconcileInterruptedScheduledTasks(): Int {
+    suspend fun reconcileInterruptedScheduledTasks(taskIds: Set<String>? = null): Int {
         val dao = database.workflowDao()
         var reconciled = 0
-        dao.getRunningScheduledTasks().forEach { task ->
+        dao.getRunningScheduledTasks()
+            .filter { taskIds == null || it.id in taskIds }
+            .forEach { task ->
             val workflowRun = task.workflowRunId?.let { runId -> dao.getRun(runId) }
             val terminalStatus = when (workflowRun?.status) {
                 WorkflowRunStatus.COMPLETED.name -> ScheduledTaskStatus.COMPLETED
@@ -916,9 +918,11 @@ class RoomWorkflowRepository(
 
     suspend fun reconcileInterruptedRuns(
         resumableAgentRunIds: Set<String> = emptySet(),
+        workflowRunIds: Set<String>? = null,
     ): Int {
         val dao = database.workflowDao()
         val active = dao.runsByStatuses(listOf(WorkflowRunStatus.QUEUED.name, WorkflowRunStatus.RUNNING.name))
+            .filter { workflowRunIds == null || it.id in workflowRunIds }
         var reconciled = 0
         active.forEach { workflowRun ->
             val agentRun = workflowRun.agentRunId?.let { database.agentRunDao().getRun(it) }

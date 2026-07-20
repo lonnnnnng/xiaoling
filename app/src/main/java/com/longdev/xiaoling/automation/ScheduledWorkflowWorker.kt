@@ -61,6 +61,17 @@ class ScheduledWorkflowExecutor(
     private val agentRunUseCase = AgentRunUseCase(context.applicationContext, client)
     private val agentProfileStore = RoomAgentProfileStore(context.applicationContext)
     private var backgroundRuntimeSelection: BackgroundAgentRuntimeSelection? = null
+    private val reentryCoordinator = ScheduledWorkflowReentryCoordinator(
+        loadTask = workflowRepository::getScheduledTask,
+        loadWorkflowRun = workflowRepository::runDetail,
+        closeAgentRun = agentRunUseCase::closeInterruptedRunForWorkerReentry,
+        reconcileWorkflowRun = { workflowRunId ->
+            workflowRepository.reconcileInterruptedRuns(workflowRunIds = setOf(workflowRunId)) > 0
+        },
+        reconcileScheduledTask = { taskId ->
+            workflowRepository.reconcileInterruptedScheduledTasks(taskIds = setOf(taskId)) > 0
+        },
+    )
     private val orchestrator = ScheduledWorkflowOrchestrator(
         claimTask = workflowRepository::claimScheduledRun,
         runAgent = ::runAgent,
@@ -78,7 +89,11 @@ class ScheduledWorkflowExecutor(
 
     suspend fun execute(taskId: String) {
         try {
-            orchestrator.execute(taskId)
+            if (reentryCoordinator.reconcile(taskId)) {
+                notifyReentryOutcome(taskId)
+            } else {
+                orchestrator.execute(taskId)
+            }
         } finally {
             withContext(NonCancellable) {
                 scheduleNextOccurrence(taskId)
@@ -209,6 +224,21 @@ class ScheduledWorkflowExecutor(
         if (task.status != ScheduledTaskStatus.FAILED) return
         val workflowName = workflowRepository.getWorkflow(task.workflowId)?.name ?: "已删除工作流"
         notifier.notify(workflowName, task, task.errorMessage ?: "定时任务未能开始")
+    }
+
+    private suspend fun notifyReentryOutcome(taskId: String) {
+        val task = workflowRepository.getScheduledTask(taskId) ?: return
+        if (task.status in setOf(ScheduledTaskStatus.SCHEDULED, ScheduledTaskStatus.RUNNING)) return
+        val workflowName = workflowRepository.getWorkflow(task.workflowId)?.name ?: "已删除工作流"
+        val detail = task.errorMessage ?: when (task.status) {
+            ScheduledTaskStatus.COMPLETED -> "后台工作流已根据持久化结果完成"
+            ScheduledTaskStatus.BLOCKED -> "后台工作流需要前台处理"
+            ScheduledTaskStatus.CANCELLED -> "后台工作流已在系统重启后安全停止"
+            ScheduledTaskStatus.FAILED -> "后台工作流已在系统重启后收敛失败"
+            ScheduledTaskStatus.SCHEDULED,
+            ScheduledTaskStatus.RUNNING -> return
+        }
+        notifier.notify(workflowName, task, detail)
     }
 
     private companion object {

@@ -5,10 +5,13 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.VerifiedToolExecution
+import com.longdev.xiaoling.automation.ScheduledWorkflowReentryCoordinator
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -397,6 +400,73 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals("agent-run-scheduled-1", storedRun.run.agentRunId)
         assertEquals(WorkflowRunStatus.BLOCKED, storedRun.run.status)
         assertEquals(WorkflowStepStatus.BLOCKED, storedRun.steps.single().status)
+    }
+
+    @Test
+    fun workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun() = runBlocking {
+        val workflow = repository.createWorkflow("重入对账", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-reentry")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val linkedAgent = agentRepository.createRun(
+            conversationId = claim.run.run.conversationId,
+            userMessageId = claim.userMessageId,
+            goal = "读取当前时间",
+        )
+        agentRepository.updateRunStatus(linkedAgent.id, AgentRunStatus.EXECUTING)
+        agentRepository.appendStep(
+            runId = linkedAgent.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行读取",
+            detail = "系统回收前仍在执行",
+            status = AgentStepStatus.RUNNING,
+        )
+        repository.markAgentRunStarted(claim.run.run.id, claim.run.steps.single().id, linkedAgent.id)
+
+        val unrelatedAgent = agentRepository.createRun(
+            conversationId = "conversation-unrelated",
+            userMessageId = "message-unrelated",
+            goal = "前台任务不应被 Worker 重入关闭",
+        )
+        agentRepository.updateRunStatus(unrelatedAgent.id, AgentRunStatus.THINKING)
+        val runCountBefore = agentRepository.recentRunDetails(limit = 20).size
+        val events = mutableListOf<String>()
+        val coordinator = ScheduledWorkflowReentryCoordinator(
+            loadTask = repository::getScheduledTask,
+            loadWorkflowRun = repository::runDetail,
+            closeAgentRun = { runId ->
+                events += "close-agent:$runId"
+                agentRepository.closeInterruptedRuns(
+                    runIds = setOf(runId),
+                    preserveResumableCandidates = false,
+                ) > 0
+            },
+            reconcileWorkflowRun = { workflowRunId ->
+                events += "reconcile-workflow:$workflowRunId"
+                repository.reconcileInterruptedRuns(workflowRunIds = setOf(workflowRunId)) > 0
+            },
+            reconcileScheduledTask = { taskId ->
+                events += "reconcile-task:$taskId"
+                repository.reconcileInterruptedScheduledTasks(taskIds = setOf(taskId)) > 0
+            },
+        )
+
+        assertTrue(coordinator.reconcile(task.id))
+
+        assertEquals(
+            listOf(
+                "close-agent:${linkedAgent.id}",
+                "reconcile-workflow:${claim.run.run.id}",
+                "reconcile-task:${task.id}",
+            ),
+            events,
+        )
+        assertEquals(AgentRunStatus.CANCELLED, agentRepository.runDetail(linkedAgent.id)!!.snapshot.run.status)
+        assertEquals(AgentRunStatus.THINKING, agentRepository.runDetail(unrelatedAgent.id)!!.snapshot.run.status)
+        assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
+        assertEquals(runCountBefore, agentRepository.recentRunDetails(limit = 20).size)
     }
 
     @Test
