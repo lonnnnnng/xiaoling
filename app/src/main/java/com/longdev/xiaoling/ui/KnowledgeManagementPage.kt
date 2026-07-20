@@ -37,6 +37,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,7 @@ import java.util.Locale
 @Composable
 internal fun KnowledgeManagementPage(
     onBack: () -> Unit,
+    preferredDocumentId: String? = null,
     modifier: Modifier = Modifier,
     viewModel: KnowledgeManagementViewModel = viewModel(),
 ) {
@@ -70,6 +72,10 @@ internal fun KnowledgeManagementPage(
         if (uri != null) {
             if (documentId == null) viewModel.importDocument(uri) else viewModel.replaceDocument(documentId, uri)
         }
+    }
+
+    LaunchedEffect(preferredDocumentId) {
+        preferredDocumentId?.let(viewModel::refresh)
     }
 
     KnowledgeManagementContent(

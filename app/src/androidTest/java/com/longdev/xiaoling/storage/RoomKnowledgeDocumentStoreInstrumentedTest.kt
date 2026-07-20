@@ -2,9 +2,12 @@ package com.longdev.xiaoling.storage
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.longdev.xiaoling.data.KnowledgeChunkEntity
+import com.longdev.xiaoling.data.KnowledgeDocumentEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.agent.AgentToolExecutionContext
 import com.longdev.xiaoling.agent.SystemAgentClock
@@ -12,6 +15,8 @@ import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceIssue
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -281,6 +286,106 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
 
         store.delete(original.id)
         assertTrue(store.retainCurrentReferences(listOf(currentReference)).isEmpty())
+    }
+
+    @Test
+    fun referenceInspectionTracksCurrentDisabledHistoricalAndDeletedStates() = runBlocking {
+        val original = store.importUtf8Document(
+            displayName = "引用状态.md",
+            mimeType = "text/markdown",
+            bytes = "答案必须展示可核验的知识引用。".toByteArray(Charsets.UTF_8),
+        )
+        val reference = store.search("知识引用", 1).hits.single().toReference("retrieval-status")
+
+        val current = store.inspectReferences(listOf(reference)).single()
+        assertEquals(KnowledgeReferenceAvailability.CURRENT, current.availability)
+        assertEquals(KnowledgeReferenceIssue.NONE, current.issue)
+
+        store.setEnabled(original.id, false)
+        val disabled = store.inspectReferences(listOf(reference)).single()
+        assertEquals(KnowledgeReferenceAvailability.UNAVAILABLE, disabled.availability)
+        assertEquals(KnowledgeReferenceIssue.DOCUMENT_DISABLED, disabled.issue)
+        assertTrue(disabled.canOpenDocument)
+
+        store.setEnabled(original.id, true)
+        store.replaceUtf8Document(
+            documentId = original.id,
+            displayName = "引用状态-v2.md",
+            mimeType = "text/markdown",
+            bytes = "新版本要求同时标记历史引用。".toByteArray(Charsets.UTF_8),
+        )
+        val historical = store.inspectReferences(listOf(reference)).single()
+        assertEquals(KnowledgeReferenceAvailability.HISTORICAL, historical.availability)
+        assertEquals(KnowledgeReferenceIssue.DOCUMENT_REPLACED, historical.issue)
+        assertEquals(2, historical.currentDocumentRevision)
+
+        store.setEnabled(original.id, false)
+        val disabledReplacement = store.inspectReferences(listOf(reference)).single()
+        assertEquals(KnowledgeReferenceAvailability.UNAVAILABLE, disabledReplacement.availability)
+        assertEquals(KnowledgeReferenceIssue.DOCUMENT_DISABLED, disabledReplacement.issue)
+
+        store.delete(original.id)
+        val deleted = store.inspectReferences(listOf(reference)).single()
+        assertEquals(KnowledgeReferenceAvailability.UNAVAILABLE, deleted.availability)
+        assertEquals(KnowledgeReferenceIssue.DOCUMENT_DELETED, deleted.issue)
+        assertFalse(deleted.canOpenDocument)
+    }
+
+    @Test
+    fun referenceInspectionBatchesMoreThanSqliteBindLimit() = runBlocking {
+        val referenceCount = 1_005
+        val references = List(referenceCount) { index ->
+            KnowledgeReference(
+                retrievalId = "retrieval-batch-$index",
+                documentId = "document-batch-$index",
+                documentName = "批量引用-$index.txt",
+                documentRevision = 1,
+                chunkId = "chunk-batch-$index",
+                chunkSequence = 0,
+                startOffset = 0,
+                endOffset = 1,
+            )
+        }
+        database.withTransaction {
+            val dao = database.knowledgeDao()
+            references.forEachIndexed { index, reference ->
+                dao.insertDocument(
+                    KnowledgeDocumentEntity(
+                        id = reference.documentId,
+                        displayName = reference.documentName,
+                        mimeType = "text/plain",
+                        contentHash = "hash-batch-$index",
+                        revision = 1,
+                        parserVersion = 1,
+                        byteSize = 1,
+                        characterCount = 1,
+                        normalizedText = "x",
+                        enabled = true,
+                        createdAt = index.toLong(),
+                        updatedAt = index.toLong(),
+                    ),
+                )
+            }
+            dao.insertChunks(
+                references.map { reference ->
+                    KnowledgeChunkEntity(
+                        id = reference.chunkId,
+                        documentId = reference.documentId,
+                        documentRevision = 1,
+                        sequence = 0,
+                        startOffset = 0,
+                        endOffset = 1,
+                        text = "x",
+                    )
+                },
+            )
+        }
+
+        val statuses = store.inspectReferences(references)
+
+        assertEquals(referenceCount, statuses.size)
+        assertEquals(references, statuses.map { it.reference })
+        assertTrue(statuses.all { it.availability == KnowledgeReferenceAvailability.CURRENT })
     }
 
     @Test

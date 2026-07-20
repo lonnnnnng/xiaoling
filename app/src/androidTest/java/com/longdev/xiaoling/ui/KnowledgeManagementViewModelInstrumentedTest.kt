@@ -67,6 +67,21 @@ class KnowledgeManagementViewModelInstrumentedTest {
     }
 
     @Test
+    fun refreshSelectsPreferredDocumentForCitationNavigation() {
+        val store = ControlledKnowledgeStore()
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedDocument?.id == DOCUMENT_A }
+
+        onMain { viewModel.refresh(DOCUMENT_B) }
+        val state = awaitState(viewModel) {
+            it.selectedDocumentId == DOCUMENT_B && it.selectedDocument?.id == DOCUMENT_B
+        }
+
+        assertEquals(DOCUMENT_B, state.selectedDocumentId)
+        assertEquals(DOCUMENT_B, state.selectedDocument?.id)
+    }
+
+    @Test
     fun disablingDocumentInvalidatesSearchAlreadyInFlight() {
         val store = ControlledKnowledgeStore()
         val viewModel = createViewModel(store)

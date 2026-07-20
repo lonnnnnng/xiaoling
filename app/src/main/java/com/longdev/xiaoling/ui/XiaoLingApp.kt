@@ -173,6 +173,8 @@ import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
@@ -212,6 +214,7 @@ private fun XiaoLingContent(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var settingsPane by remember { mutableStateOf(SettingsPane.ROOT) }
+    var requestedKnowledgeDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
@@ -276,6 +279,7 @@ private fun XiaoLingContent(
 
     BackHandler(enabled = !isProviderEditor && isSettingsSubPage) {
         settingsPane = SettingsPane.ROOT
+        requestedKnowledgeDocumentId = null
     }
 
     BackHandler(enabled = !isProviderEditor && !isSettingsSubPage) {
@@ -336,6 +340,11 @@ private fun XiaoLingContent(
                     onAttachDocument = {
                         attachDocumentLauncher.launch(DocumentAttachmentPolicy.pickerMimeTypes())
                     },
+                    onOpenKnowledgeDocument = { documentId ->
+                        requestedKnowledgeDocumentId = documentId
+                        selectedTab = 1
+                        settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT
+                    },
                     modifier = Modifier.matchParentSize(),
                 )
 
@@ -351,7 +360,10 @@ private fun XiaoLingContent(
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
                         },
-                        onOpenKnowledgeManagement = { settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT },
+                        onOpenKnowledgeManagement = {
+                            requestedKnowledgeDocumentId = null
+                            settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT
+                        },
                         onOpenSkillManagement = {
                             viewModel.refreshSkills()
                             settingsPane = SettingsPane.SKILL_MANAGEMENT
@@ -374,7 +386,11 @@ private fun XiaoLingContent(
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                         },
-                        onBackToSettings = { settingsPane = SettingsPane.ROOT },
+                        requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+                        onBackToSettings = {
+                            requestedKnowledgeDocumentId = null
+                            settingsPane = SettingsPane.ROOT
+                        },
                         modifier = Modifier.matchParentSize(),
                     )
                 }
@@ -924,6 +940,7 @@ private fun ConversationPage(
     visible: Boolean,
     onAttachImage: () -> Unit,
     onAttachDocument: () -> Unit,
+    onOpenKnowledgeDocument: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val chatListState = chatScrollState.listState
@@ -931,6 +948,9 @@ private fun ConversationPage(
     val lastChatItemIndex = state.chatMessages.size
     val lastChatMessage = state.chatMessages.lastOrNull()
     val autoScrollKey = state.chatAutoScrollKey()
+    val displayedKnowledgeReferences = state.chatMessages
+        .flatMap(ChatMessage::knowledgeReferencesForDisplay)
+        .distinct()
     val isAtChatTail by remember(lastChatItemIndex) {
         derivedStateOf { chatListState.isNearChatTail(lastChatItemIndex) }
     }
@@ -953,6 +973,12 @@ private fun ConversationPage(
             } finally {
                 chatScrollState.programmaticScrollActive = false
             }
+        }
+    }
+
+    LaunchedEffect(state.selectedConversationId, displayedKnowledgeReferences, visible) {
+        if (visible) {
+            viewModel.refreshKnowledgeReferenceStatuses(displayedKnowledgeReferences)
         }
     }
 
@@ -1071,6 +1097,9 @@ private fun ConversationPage(
                             val message = state.chatMessages[index]
                             ChatBubble(
                                 message = message,
+                                knowledgeReferenceStatuses = state.knowledgeReferenceStatuses,
+                                failedKnowledgeReferenceStatuses = state.failedKnowledgeReferenceStatuses,
+                                onOpenKnowledgeDocument = onOpenKnowledgeDocument,
                                 onReuseUserMessage = viewModel::updatePrompt,
                             )
                             if (state.activeAgentRun?.run?.userMessageId == message.id) {
@@ -2122,6 +2151,7 @@ private fun SettingsPage(
     onImportBackup: () -> Unit,
     onImportSkill: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
+    requestedKnowledgeDocumentId: String?,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2166,6 +2196,7 @@ private fun SettingsPage(
             )
             pane == SettingsPane.KNOWLEDGE_MANAGEMENT -> KnowledgeManagementPage(
                 onBack = onBackToSettings,
+                preferredDocumentId = requestedKnowledgeDocumentId,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.SKILL_MANAGEMENT -> AgentSkillManagementPage(
@@ -5855,6 +5886,9 @@ private fun ApiModeButton(
 @Composable
 private fun ChatBubble(
     message: ChatMessage,
+    knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus>,
+    failedKnowledgeReferenceStatuses: Set<KnowledgeReference>,
+    onOpenKnowledgeDocument: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
 ) {
     val isUser = message.role == "user"
@@ -5902,6 +5936,14 @@ private fun ChatBubble(
                 MessageBodyParts(
                     message = message,
                     contentColor = contentColor,
+                )
+                KnowledgeReferencesContent(
+                    messageId = message.id,
+                    references = message.knowledgeReferencesForDisplay(),
+                    statuses = knowledgeReferenceStatuses,
+                    failedReferences = failedKnowledgeReferenceStatuses,
+                    contentColor = contentColor,
+                    onOpenDocument = onOpenKnowledgeDocument,
                 )
                 message.footerLabel()?.let { footer ->
                     Spacer(Modifier.height(5.dp))

@@ -6,6 +6,7 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import com.longdev.xiaoling.data.KnowledgeChunkEntity
 import com.longdev.xiaoling.data.KnowledgeChunkFtsEntity
 import com.longdev.xiaoling.data.KnowledgeDocumentEntity
+import com.longdev.xiaoling.data.KnowledgeDocumentSummaryEntity
 import com.longdev.xiaoling.data.KnowledgeRetrievalEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
@@ -16,9 +17,12 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
+import com.longdev.xiaoling.knowledge.assessAgainst
 import com.longdev.xiaoling.knowledge.ImportedKnowledgeText
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import org.json.JSONArray
@@ -97,22 +101,7 @@ class RoomKnowledgeDocumentStore(
     }
 
     override suspend fun listDocuments(): List<KnowledgeDocumentSummary> {
-        return database.knowledgeDao().listDocumentSummaries().map { summary ->
-            KnowledgeDocumentSummary(
-                id = summary.id,
-                displayName = summary.displayName,
-                mimeType = summary.mimeType,
-                contentHash = summary.contentHash,
-                revision = summary.revision,
-                parserVersion = summary.parserVersion,
-                byteSize = summary.byteSize,
-                characterCount = summary.characterCount,
-                enabled = summary.enabled,
-                createdAt = summary.createdAt,
-                updatedAt = summary.updatedAt,
-                chunkCount = summary.chunkCount,
-            )
-        }
+        return database.knowledgeDao().listDocumentSummaries().map { it.toSummary() }
     }
 
     override suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail? {
@@ -142,28 +131,41 @@ class RoomKnowledgeDocumentStore(
         return database.knowledgeDao().getChunks(documentId).map { it.toRecord() }
     }
 
-    override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> {
+    override suspend fun inspectReferences(references: List<KnowledgeReference>): List<KnowledgeReferenceStatus> {
         val distinctReferences = references.distinct()
         if (distinctReferences.isEmpty()) return emptyList()
         return database.withTransaction {
             val dao = database.knowledgeDao()
-            val documents = dao.getDocuments(distinctReferences.map { it.documentId }.distinct())
-                .associateBy { it.id }
-            val chunks = dao.getChunksByIds(distinctReferences.map { it.chunkId }.distinct())
-                .associateBy { it.id }
-            distinctReferences.filter { reference ->
-                val document = documents[reference.documentId]
-                val chunk = chunks[reference.chunkId]
-                document?.enabled == true &&
-                    document.revision == reference.documentRevision &&
-                    document.displayName == reference.documentName &&
-                    chunk?.documentId == reference.documentId &&
-                    chunk.documentRevision == reference.documentRevision &&
-                    chunk.sequence == reference.chunkSequence &&
-                    chunk.startOffset == reference.startOffset &&
-                    chunk.endOffset == reference.endOffset
+            // long: 对话气泡只核验引用身份，不读取可能达到 64 MB 的知识全文；查询还要分批控制绑定参数数量，长会话不能因超过 SQLite 上限而让整批引用变成“暂无法核验”。
+            val documents = mutableMapOf<String, KnowledgeDocumentSummary>()
+            distinctReferences.map { it.documentId }.distinct()
+                .chunked(SQLITE_QUERY_PARAMETER_BATCH_SIZE)
+                .forEach { documentIds ->
+                    dao.getDocumentSummaries(documentIds).forEach { document ->
+                        documents[document.id] = document.toSummary()
+                    }
+                }
+            val chunks = mutableMapOf<String, KnowledgeChunkRecord>()
+            distinctReferences.map { it.chunkId }.distinct()
+                .chunked(SQLITE_QUERY_PARAMETER_BATCH_SIZE)
+                .forEach { chunkIds ->
+                    dao.getChunksByIds(chunkIds).forEach { chunk ->
+                        chunks[chunk.id] = chunk.toRecord()
+                    }
+                }
+            distinctReferences.map { reference ->
+                reference.assessAgainst(
+                    document = documents[reference.documentId],
+                    chunk = chunks[reference.chunkId],
+                )
             }
         }
+    }
+
+    override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> {
+        return inspectReferences(references)
+            .filter { it.availability == KnowledgeReferenceAvailability.CURRENT }
+            .map { it.reference }
     }
 
     override suspend fun search(
@@ -299,6 +301,21 @@ class RoomKnowledgeDocumentStore(
         updatedAt = updatedAt,
     )
 
+    private fun KnowledgeDocumentSummaryEntity.toSummary() = KnowledgeDocumentSummary(
+        id = id,
+        displayName = displayName,
+        mimeType = mimeType,
+        contentHash = contentHash,
+        revision = revision,
+        parserVersion = parserVersion,
+        byteSize = byteSize,
+        characterCount = characterCount,
+        enabled = enabled,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        chunkCount = chunkCount,
+    )
+
     private fun KnowledgeChunkRecord.toEntity() = KnowledgeChunkEntity(
         id = id,
         documentId = documentId,
@@ -359,6 +376,8 @@ class RoomKnowledgeDocumentStore(
     private fun JSONArray.toStringList(): List<String> = List(length()) { index -> getString(index) }
 
     companion object {
+        private const val SQLITE_QUERY_PARAMETER_BATCH_SIZE = 900
+
         private val SUPPORTED_TEXT_MIME_TYPES = setOf(
             "text/plain",
             "text/markdown",

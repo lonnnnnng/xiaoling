@@ -1153,7 +1153,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 - `KnowledgeReference` 固定保存 retrieval/document/name/revision/chunk/sequence/offset，并贯穿 ToolExecutionResult、RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史和任务中心。Room v27 为 ToolResult 与 MessagePart 新增默认 `[]` 列，v26→v27 不猜造旧引用。
 - 禁用、替换或删除后，历史 Run、Ledger 和消息审计不回写；新模型请求会核对当前 enabled/revision/chunk/name/sequence/offset。任一知识引用失效时整条历史 Agent 知识消息退出请求，旧会话摘要同时废弃并从过滤后的消息重建。
 - 既有 Profile/Skill 不自动增加 `knowledge.search`。缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能因当前 Registry 增长而扩权。
-- `KnowledgeReferenceCodec` 对整段和单条畸形 JSON 容错；坏引用只退出可信证据，不阻断消息或 Run 加载。独立答案引用 UI 与 Embedding 仍未交付。
+- `KnowledgeReferenceCodec` 对整段和单条畸形 JSON 容错；坏引用只退出可信证据，不阻断消息或 Run 加载。该阶段当时独立答案引用 UI 与 Embedding 仍未交付；答案引用 UI 已在后续第 32 阶段完成。
 - Workflow 只在涉及知识检索时把输出保存为 `workflow-step-output-v1` 结构化快照；普通旧纯文本快照继续兼容。前台、后台和进程恢复均写入真实引用，准备下一步和关联 Agent Run 时重新核对完整引用集合；重试复制来源快照但不改写来源 Run，引用失效后前序正文不会进入新 Run。
 
 自动化、构建与 Redmi 回归：
@@ -1188,3 +1188,31 @@ GitHub Release：
 - Release：[小灵 v0.1.10](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.10)
 - APK：[xiaoling-v0.1.10.apk](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.10/xiaoling-v0.1.10.apk)
 - SHA-256：[xiaoling-v0.1.10.apk.sha256](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.10/xiaoling-v0.1.10.apk.sha256)
+
+## 2026-07-20 答案级知识引用 UI
+
+实现与可信边界：
+
+- Agent 回复新增独立、默认折叠的「知识引用」区域，展开后展示文档名、revision、chunk sequence 和 `[startOffset, endOffset)`；多条引用按结构化身份去重并保持消息内顺序。
+- 引用只能从 `MessagePart.Tool` / `VerifiedAgentContext` 的可信投影读取。普通助手正文即使包含 document、revision、chunk 或 offset 字样，也不会生成引用 UI。
+- `KnowledgeReferenceStatus` 将引用分为 `CURRENT / HISTORICAL / UNAVAILABLE`。精确匹配当前启用文档和 chunk 时显示「当前有效」；启用文档 revision 已增加时显示「历史版本」及当前文档名/revision；停用优先显示「当前不可用」，删除、名称或 chunk 边界漂移同样不可用。
+- Room 使用仅包含文档元数据的 summary projection 和引用涉及的 chunk 查询完成状态核验，不读取最大 64 MB 规范全文；文档与 chunk ID 均按最多 900 个参数分批，1005 条不同引用的真机回归不会超过 SQLite 绑定上限。文档仍存在时整条引用可跳转知识库详情；已删除时关闭跳转，避免把当前文档或不存在的内容伪装成旧 revision 原文。
+- 对话页每次重新可见时重新核验当前会话引用，知识库停用、替换或删除后不会短暂沿用离开页面前的「当前有效」标签。切换会话或触发新核验会取消旧 Job，`CancellationException` 继续向上抛出，旧任务不会把新状态覆盖为「暂无法核验」。状态只进入瞬时 UI state，不改写历史 MessagePart、RunEvent、Tool Ledger 或检索审计。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest -Pkotlin.incremental=false --console=plain` 通过；320 条 JVM 测试、0 失败、0 错误、0 跳过，Lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 手动安装两个 APK 后，仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 运行完整 instrumentation：`OK (118 tests)`，0 失败、0 跳过；没有启动或操作模拟器。
+- 单元测试覆盖当前、替换、替换后停用、删除和 chunk 边界漂移状态，以及普通模型正文不能伪造引用。Room instrumentation 真实执行导入、停用、替换、删除和 1005 条不同引用的分批核验；Compose 测试覆盖默认折叠、半开 offset 元数据、历史标签与引用行点击身份；知识库 ViewModel 测试覆盖指定文档导航。
+- 真实 `MainActivity` E2E 通过正式 Repository 写入临时 Agent 知识回答：先验证「当前有效」引用展开并跳转 revision 1 详情，再替换为 revision 2 并回到对话确认「历史版本」，随后从旧引用跳转当前文档；删除文档后确认「当前不可用 / 文档已删除」且跳转入口消失。临时会话和文档在测试结束后自动清理。
+
+最终设备状态：
+
+- 全量 instrumentation 会重装测试目标，因此使用不提交的一次性 instrumentation 设置器，通过正式 `ProviderRepository` 和 Android Keystore 链恢复项目 `AGENTS.md` 中的兜底 Provider；设置器源码随后删除，凭据未进入 Git、文档或最终 AndroidTest APK。
+- Redmi 主库只读核对为 1 个 Provider、模型 `gpt-5.4-mini`、非空 Base URL 和非空 API Key 密文。应用真实普通对话返回固定 token `FINAL_MODEL_OK_20260720`，证明 Keystore 解密、模型请求和 UI 回显可用；临时会话随后删除。
+- 最终 Debug APK SHA-256：`2943f0a2fdf1c5aff5ff03d029de24c0ebc7423c02be7e3454bd7d6fd8d035ac`。`versionName=0.1.10 / versionCode=11`，应用在 Redmi 的 `MainActivity` 前台保持 `RESUMED`，crash buffer 为空。
+
+下一阶段边界：
+
+- 进入设备 Agent 只读观察层：Accessibility 授权说明、服务健康检查、结构化 snapshot、短生命周期节点引用和隐私过滤。
+- 该阶段不加入 `tap_ref / type_text / swipe` 等动作，不接入 Workflow 或后台自动化。只读层完成 Redmi 验收后，再实现 `open_app / back / home / tap_ref / type_text / swipe`、风险审批和操作后重新观察验证，并只对少量指定 App 做端到端验收；通用执行恢复和长任务可靠性完成前，设备工具不得进入 Workflow 或后台自动化。

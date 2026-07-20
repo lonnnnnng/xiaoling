@@ -214,7 +214,8 @@
 - 引用从 ToolExecutionResult 贯穿 RunEvent、独立 Tool Ledger、VerifiedAgentContext、MessagePart、规划历史和任务中心。`KnowledgeReferenceCodec` 对整段或单条畸形 JSON 容错，坏项不再作为可信证据，但不会阻断消息或 Run 加载。
 - 禁用、替换或删除后，Room 中历史 Run/消息审计保持不变；普通对话准备上下文时会按当前 enabled/revision/chunk/sequence/offset/name 核验引用。任一引用失效时整条知识 Agent 消息退出请求，可能包含旧片段的已存摘要同时废弃并从过滤后的消息重建，避免仅清空 ID 后仍把旧正文送入模型。
 - Workflow 前序输出沿用相同生命周期边界：前台、后台与进程恢复完成步骤时都把真实 `VerifiedAgentContext`/Tool Ledger 引用写入版本化输出快照；重试复制旧快照但不改写来源，下一步骤使用前再次核验，失效正文不会进入新 Run。
-- 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。当前仍没有独立答案引用 UI 或 Embedding。
+- Agent 回复使用独立、默认折叠的答案引用区域，只从 `effectiveParts()` 中可信 Tool part 的结构化引用投影，不扫描模型自由文本。展开后展示文档名、revision、chunk 和半开 offset 区间；Room 通过文档摘要与引用 chunk 的 projection 核验状态，不读取最大 64 MB 全文，并按最多 900 个绑定参数分批查询，避免长会话超过 SQLite 上限。精确匹配标记“当前有效”，当前启用文档 revision 更高标记“历史版本”，停用状态优先标记“当前不可用”，删除或 chunk 边界漂移也标记“当前不可用”；文档仍存在时整行可跳转知识库详情，已删除时关闭跳转。核验异常显示“暂无法核验”，会话切换或新一轮核验取消旧 Job 时保留协程取消语义，旧任务不会覆盖新状态。
+- 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。Embedding 继续后置。
 
 ## 日志
 
@@ -229,7 +230,7 @@
 - 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记、本机长期记忆和只读本地知识库检索。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用和模型上下文失效过滤；剩余差距是答案级引用呈现、Embedding 和更大真实资料集的召回质量验证。
+- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；剩余差距是 Embedding 和更大真实资料集的召回质量验证。
 - `/agent` 目前只接入第一批应用内低风险工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：仍处于 `WAITING_APPROVAL`、存在 `PENDING` 审批且尚未出现工具执行/验证记录的 Run 可原地恢复；执行/验证中间态默认必须安全重新运行，仅 `notes.create` 与 `memory.remember` 的完整已提交证据可进入受限只读验证。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有具有完整历史证据的 `notes.create` 与 `memory.remember` 会恢复只读验证和本地总结。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；其他写工具和后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

@@ -301,6 +301,19 @@ interface KnowledgeDao {
 
     @Query(
         """
+        SELECT knowledge_documents.id, knowledge_documents.displayName, knowledge_documents.mimeType,
+               knowledge_documents.contentHash, knowledge_documents.revision, knowledge_documents.parserVersion,
+               knowledge_documents.byteSize, knowledge_documents.characterCount, knowledge_documents.enabled,
+               knowledge_documents.createdAt, knowledge_documents.updatedAt,
+               (SELECT COUNT(*) FROM knowledge_chunks WHERE knowledge_chunks.documentId = knowledge_documents.id) AS chunkCount
+        FROM knowledge_documents
+        WHERE knowledge_documents.id IN (:documentIds)
+        """,
+    )
+    suspend fun getDocumentSummaries(documentIds: List<String>): List<KnowledgeDocumentSummaryEntity>
+
+    @Query(
+        """
         SELECT id, displayName, mimeType, contentHash, revision, parserVersion, byteSize, characterCount,
                substr(normalizedText, 1, :previewCharacterLimit) AS previewText,
                CASE WHEN characterCount > :previewCharacterLimit THEN 1 ELSE 0 END AS previewTruncated,

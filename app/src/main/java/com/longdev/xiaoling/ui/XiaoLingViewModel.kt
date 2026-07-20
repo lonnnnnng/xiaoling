@@ -70,6 +70,8 @@ import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ProviderMessagePartPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ProviderProfile
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.network.FailureKind
@@ -158,6 +160,8 @@ data class XiaoLingUiState(
     val attachingDocument: Boolean = false,
     val loadingConversationMessages: Boolean = false,
     val chatMessages: List<ChatMessage> = emptyList(),
+    val knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus> = emptyMap(),
+    val failedKnowledgeReferenceStatuses: Set<KnowledgeReference> = emptySet(),
     val conversations: List<ConversationSession> = emptyList(),
     val selectedConversationId: String = "",
     val conversationTitle: String = "",
@@ -443,6 +447,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var saveProfilesJob: Job? = null
     private var saveConversationsJob: Job? = null
     private var conversationLoadJob: Job? = null
+    private var knowledgeReferenceStatusJob: Job? = null
     private val pendingDeletedConversationIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(
@@ -2463,6 +2468,57 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun selectConversation(conversationId: String) {
         val conversation = uiState.conversations.firstOrNull { it.id == conversationId } ?: return
         loadAndSelectConversation(conversation, uiState.conversations, result = null)
+    }
+
+    fun refreshKnowledgeReferenceStatuses(references: List<KnowledgeReference>) {
+        val distinctReferences = references.distinct()
+        val conversationId = uiState.selectedConversationId
+        knowledgeReferenceStatusJob?.cancel()
+        if (distinctReferences.isEmpty()) {
+            if (uiState.knowledgeReferenceStatuses.isNotEmpty() || uiState.failedKnowledgeReferenceStatuses.isNotEmpty()) {
+                uiState = uiState.copy(
+                    knowledgeReferenceStatuses = emptyMap(),
+                    failedKnowledgeReferenceStatuses = emptySet(),
+                )
+            }
+            return
+        }
+        // long: 每次进入对话页先清空旧状态，避免知识文档刚被替换或停用时短暂沿用离开页面前的“当前有效”标签。
+        uiState = uiState.copy(
+            knowledgeReferenceStatuses = emptyMap(),
+            failedKnowledgeReferenceStatuses = emptySet(),
+        )
+        knowledgeReferenceStatusJob = viewModelScope.launch {
+            val statusResult = runCatching {
+                withContext(Dispatchers.IO) {
+                    knowledgeDocumentStore.inspectReferences(distinctReferences)
+                }
+            }.onFailure { error ->
+                // long: 切换会话或触发新一轮核验时，旧 Job 的取消必须停止回写；取消不是数据库失败，不能覆盖新状态为“暂无法核验”。
+                if (error is CancellationException) throw error
+            }
+            val currentReferences = uiState.chatMessages
+                .flatMap(ChatMessage::knowledgeReferencesForDisplay)
+                .distinct()
+            if (uiState.selectedConversationId != conversationId || currentReferences != distinctReferences) {
+                return@launch
+            }
+            uiState = statusResult.fold(
+                onSuccess = { statuses ->
+                    uiState.copy(
+                        knowledgeReferenceStatuses = statuses.associateBy(KnowledgeReferenceStatus::reference),
+                        failedKnowledgeReferenceStatuses = emptySet(),
+                    )
+                },
+                onFailure = {
+                    // long: 数据库核验失败不等于引用已经失效；界面明确显示“暂无法核验”，并在下次进入对话页时重新尝试。
+                    uiState.copy(
+                        knowledgeReferenceStatuses = emptyMap(),
+                        failedKnowledgeReferenceStatuses = distinctReferences.toSet(),
+                    )
+                },
+            )
+        }
     }
 
     fun deleteCurrentConversation() {

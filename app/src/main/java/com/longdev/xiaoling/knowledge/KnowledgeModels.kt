@@ -113,6 +113,75 @@ data class KnowledgeReference(
     }
 }
 
+enum class KnowledgeReferenceAvailability {
+    CURRENT,
+    HISTORICAL,
+    UNAVAILABLE,
+}
+
+enum class KnowledgeReferenceIssue {
+    NONE,
+    DOCUMENT_REPLACED,
+    DOCUMENT_DISABLED,
+    DOCUMENT_DELETED,
+    EVIDENCE_CHANGED,
+}
+
+data class KnowledgeReferenceStatus(
+    val reference: KnowledgeReference,
+    val availability: KnowledgeReferenceAvailability,
+    val issue: KnowledgeReferenceIssue,
+    val currentDocumentName: String?,
+    val currentDocumentRevision: Int?,
+    val currentDocumentEnabled: Boolean?,
+) {
+    val canOpenDocument: Boolean
+        get() = currentDocumentRevision != null
+}
+
+fun KnowledgeReference.assessAgainst(
+    document: KnowledgeDocumentSummary?,
+    chunk: KnowledgeChunkRecord?,
+): KnowledgeReferenceStatus {
+    if (document == null) {
+        return KnowledgeReferenceStatus(
+            reference = this,
+            availability = KnowledgeReferenceAvailability.UNAVAILABLE,
+            issue = KnowledgeReferenceIssue.DOCUMENT_DELETED,
+            currentDocumentName = null,
+            currentDocumentRevision = null,
+            currentDocumentEnabled = null,
+        )
+    }
+    val status = when {
+        // long: 文档停用代表当前知识库明确禁止继续使用；即使 revision 已更新，也应优先显示不可用，避免“历史版本”弱化停用边界。
+        !document.enabled ->
+            KnowledgeReferenceAvailability.UNAVAILABLE to KnowledgeReferenceIssue.DOCUMENT_DISABLED
+        // long: revision 只会递增；当前版本更新时历史引用仍可审计，但绝不能继续显示为当前知识证据。
+        document.id == documentId && document.revision > documentRevision ->
+            KnowledgeReferenceAvailability.HISTORICAL to KnowledgeReferenceIssue.DOCUMENT_REPLACED
+        document.id != documentId || document.revision != documentRevision || document.displayName != documentName ->
+            KnowledgeReferenceAvailability.UNAVAILABLE to KnowledgeReferenceIssue.EVIDENCE_CHANGED
+        chunk == null ||
+            chunk.id != chunkId ||
+            chunk.documentId != documentId ||
+            chunk.documentRevision != documentRevision ||
+            chunk.sequence != chunkSequence ||
+            chunk.startOffset != startOffset ||
+            chunk.endOffset != endOffset ->
+            KnowledgeReferenceAvailability.UNAVAILABLE to KnowledgeReferenceIssue.EVIDENCE_CHANGED
+        else -> KnowledgeReferenceAvailability.CURRENT to KnowledgeReferenceIssue.NONE
+    }
+    return KnowledgeReferenceStatus(
+        reference = this,
+        availability = status.first,
+        issue = status.second,
+        currentDocumentName = document.displayName,
+        currentDocumentRevision = document.revision,
+        currentDocumentEnabled = document.enabled,
+    )
+}
+
 interface KnowledgeDocumentStore {
     suspend fun importUtf8Document(
         displayName: String,
@@ -131,6 +200,20 @@ interface KnowledgeDocumentStore {
     suspend fun listDocuments(): List<KnowledgeDocumentSummary>
     suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail?
     suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord>
+
+    suspend fun inspectReferences(references: List<KnowledgeReference>): List<KnowledgeReferenceStatus> {
+        val distinctReferences = references.distinct()
+        if (distinctReferences.isEmpty()) return emptyList()
+        val documentIds = distinctReferences.map { it.documentId }.toSet()
+        val documents = listDocuments().filter { it.id in documentIds }.associateBy { it.id }
+        val chunks = documentIds.flatMap { getChunks(it) }.associateBy { it.id }
+        return distinctReferences.map { reference ->
+            reference.assessAgainst(
+                document = documents[reference.documentId],
+                chunk = chunks[reference.chunkId],
+            )
+        }
+    }
 
     /**
      * long:

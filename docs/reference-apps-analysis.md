@@ -16,7 +16,7 @@
 2. **再建立安全边界**：工具注册表声明风险，默认拒绝副作用操作，按次/本次任务/永久授权分级，执行后必须验证。
 3. **再建立个人化能力**：Agent 配置、长期记忆、记忆来源和敏感信息过滤、分享入口、语音输入。
 4. **再建立持续工作能力**：任务账本、定时任务、通知、失败/待确认聚合页、断点恢复。
-5. **最后扩展设备控制和生态**：优先 Intent/deep link 和显式系统 API，再做可选的 Accessibility；MCP、Skills、远程 Gateway、本地模型、多 Agent 都应后置。
+5. **最后扩展设备控制和生态**：设备 Agent 先做可选 Accessibility 的授权、健康检查和只读 snapshot，再加入有限动作、审批和操作后验证；日历/通知、MCP、远程 Gateway、本地模型和多 Agent 都继续后置。
 
 最值得组合借鉴的不是某一个项目，而是：
 
@@ -341,13 +341,13 @@
 
 | 缺口 | 当前影响 |
 |---|---|
-| AgentProfile 与 Text/Reasoning/Image/Document/Tool parts 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要和工具事实已进入稳定边界；富文档直传和 RAG Agent 接入已完成，下一步是答案级引用呈现 |
+| AgentProfile、Text/Reasoning/Image/Document/Tool parts 与答案引用 UI 已完成 | Agent 身份、模型、自然语言、用户附件、供应商摘要、工具事实和结构化知识引用已进入稳定边界；富文档直传、RAG Agent 接入、历史状态标记和知识库跳转均已完成 |
 | Runtime 已支持最多 4 步顺序工具循环，但不支持并行调用 | 可以根据上一步已验证结果继续选择工具；互不依赖的只读工具仍无法并行降低延迟 |
 | ToolCall/ToolResult 已独立落表，任务中心、受限恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。通用执行栈仍不续跑 |
 | 通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；只有 `notes.create` 与 `memory.remember` 的已提交结果允许从原 ToolCall 恢复受限只读验证，不能继续旧规划或其他工具 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
-| PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础和 Agent 接入已完成 | 已具备文档身份、解析、分块、索引、管理 UI、结构化引用和删除失效契约；尚缺答案引用 UI、Embedding 与规模化检索质量验证 |
+| PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、索引、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 Embedding 与规模化检索质量验证 |
 
 ## 6. 建议目标架构
 
@@ -370,7 +370,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v27 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文和 Workflow 输出；禁用、替换或删除后历史审计保留，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。独立答案引用 UI 与 Embedding 尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v27 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、答案引用 UI、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。Embedding 尚未接入；其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -426,16 +426,16 @@
 
 ### P3：有限设备 Agent
 
-目标：从“可控系统动作”开始，而不是第一天就请求 Accessibility + Overlay + Root。
+目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
 实施顺序：
 
-1. **Intent/deep link 工具**：打开系统设置页、拨号盘、地图、浏览器、分享目标；只构造 Intent，不自动完成不可逆动作。
-2. **系统 API 工具**：日历、通知读取、剪贴板等，每个能力独立模块和独立授权。
-3. **动作预览模式**：参考 `AndroidMCPAgent`，模型先给计划，用户确认后逐步执行。
-4. **可选 Accessibility 模块**：明确说明能力与隐私影响；默认关闭；只允许用户配置的 App 白名单。
-5. **观察-动作-验证**：每次动作前后抓取新 snapshot；元素 ref 绑定 snapshot；过期/坐标契约失效则拒绝执行。
-6. **可回放轨迹**：保存脱敏后的 before/action/after/outcome，用于失败复盘和回归测试。
+1. **Accessibility 授权与健康检查**：明确说明能力和隐私影响，默认关闭；能区分未授权、服务未连接、权限失效和服务正常。
+2. **只读 snapshot**：输出有界、结构化、脱敏的可访问节点树；密码框、验证码、支付页和隐私应用默认不读取正文。
+3. **短生命周期节点引用**：ref 绑定 snapshot 和窗口状态，页面变化、超时或节点消失后立即失效；第一阶段不执行动作。
+4. **有限动作工具**：只读层在 Redmi 稳定后再加入 `open_app / back / home / tap_ref / type_text / swipe`，模型先给计划，副作用动作按风险审批。
+5. **观察-动作-验证**：每次动作后重新抓取 snapshot；不能只凭 Android API 返回成功判断业务完成，也不把过期 ref 降级成静默坐标点击。
+6. **限定 App 验收与可回放轨迹**：只对白名单少量 App 保存脱敏 before/action/after/outcome 并做真机回归，暂不承诺任意 App。
 
 P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity、所有文件访问、跨 App 密码/支付自动化。
 
@@ -498,8 +498,8 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 ## 11. 最终建议
 
-小灵下一版不应以“接入 MCP”或“控制手机”为里程碑，而应以以下可验证结果为里程碑：
+小灵下一版不应以“接入 MCP”或“任意控制手机”为里程碑，而应以设备 Agent 只读观察层为可验证结果：
 
-> 用户选择一个 Agent，发起一个需要 2-3 步的任务；小灵展示计划，调用只读工具，遇到副作用时暂停并解释风险，用户按范围授权后继续，执行后验证结果，最终保存完整可审计运行记录；App 被杀或网络中断后，任务仍能以明确状态恢复或结束。
+> 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续，且该阶段不执行任何点击、输入或滚动。
 
-当这条主链在单元测试、集成测试和真机上稳定后，小灵才真正从 AI 聊天客户端跨入个人 Agent；后续记忆、定时、设备操作、MCP 和 Skills 都可以沿同一套安全边界扩展，而不需要推翻重做。
+只读观察层在单元测试、集成测试和 Redmi 真机上稳定后，再加入有限动作、审批、操作后重新观察和少量指定 App 验收。通用执行恢复和长任务可靠性完成前，设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
