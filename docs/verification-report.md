@@ -1212,7 +1212,73 @@ GitHub Release：
 - Redmi 主库只读核对为 1 个 Provider、模型 `gpt-5.4-mini`、非空 Base URL 和非空 API Key 密文。应用真实普通对话返回固定 token `FINAL_MODEL_OK_20260720`，证明 Keystore 解密、模型请求和 UI 回显可用；临时会话随后删除。
 - 最终 Debug APK SHA-256：`2943f0a2fdf1c5aff5ff03d029de24c0ebc7423c02be7e3454bd7d6fd8d035ac`。`versionName=0.1.10 / versionCode=11`，应用在 Redmi 的 `MainActivity` 前台保持 `RESUMED`，crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 进入设备 Agent 只读观察层：Accessibility 授权说明、服务健康检查、结构化 snapshot、短生命周期节点引用和隐私过滤。
 - 该阶段不加入 `tap_ref / type_text / swipe` 等动作，不接入 Workflow 或后台自动化。只读层完成 Redmi 验收后，再实现 `open_app / back / home / tap_ref / type_text / swipe`、风险审批和操作后重新观察验证，并只对少量指定 App 做端到端验收；通用执行恢复和长任务可靠性完成前，设备工具不得进入 Workflow 或后台自动化。
+
+## 2026-07-20 设备 Agent 只读观察层
+
+实现与安全边界：
+
+- 新增默认关闭的设备 Agent 独立开关、系统 Accessibility 设置入口和四态健康检查：`AGENT_DISABLED / ACCESSIBILITY_NOT_AUTHORIZED / SERVICE_DISCONNECTED / READY`。关闭开关立即清除 ref，系统授权不会自动打开应用能力。
+- `XiaoLingAccessibilityService` 非导出，只允许系统通过 `BIND_ACCESSIBILITY_SERVICE` 绑定；配置明确 `canRetrieveWindowContent=true`、`canPerformGestures=false`、`canTakeScreenshot=false`、`isAccessibilityTool=false`。当前没有点击、输入、滑动、截图或坐标兜底。
+- `device.snapshot` 为 SAFE、非后台 Tool，内置 `device-observation` Skill 只引用该工具。工具只有在前台直接 `/agent`、应用独立开关开启且 Profile/Skill 允许时进入规划器工具清单；Workflow、后台、关闭状态和缺少 Run Context 均在 Executor 再次拒绝。既有 Profile/Skill 不自动扩权。
+- 快照最多 200 个可见有效节点、4,000 个文本字符，UTF-16 文本预算不切断代理对；可操作、启用且未脱敏的节点获得 30 秒 ref。ref 绑定 snapshot ID、窗口 generation、节点路径和指纹，新快照替换旧快照，页面变化、过期、失败、隐私拦截或关闭开关后立即失效，不回退坐标。
+- 密码/密码提示、验证码、API Key、Bearer/Access Token、手机号、身份证、银行卡和邮箱节点不返回正文、动作或 ref；常见空格/连字符格式同样识别。支付/收银台/高敏身份验证窗口以及已知密码管理器、Authenticator、钱包/银行包名整窗拒绝。
+- `app/src/debug` 提供仅 Debug 包存在的诊断广播和隐私探针；Release manifest 不包含这些入口。诊断日志只记录 request ID、包名、节点/ref/脱敏计数、截断状态或稳定失败原因，不记录节点正文。
+
+自动化与构建：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest -Pkotlin.incremental=false --console=plain` 通过；337 条 JVM 测试、0 失败、0 错误，Lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅连接 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`，运行完整 instrumentation：`OK (122 tests)`，0 失败、0 跳过；没有启动或操作模拟器。
+- JVM 覆盖健康状态、节点/文本预算、UTF-16 边界、密码/验证码/Token/格式化手机号与银行卡脱敏、隐私应用/支付窗口拒绝、禁用节点无 ref、ref 到期/页面变化/失败撤销，以及 `device.snapshot` 的前台直接、Workflow、后台和关闭状态双层门禁。
+- Instrumentation 覆盖 Service manifest 与读取/手势/截图能力声明、独立开关默认关闭和持久化、设置 UI 的关闭/READY 状态、只读按钮与脱敏预览；动作控件明确不存在。
+
+Redmi 真实 AccessibilityService 验收：
+
+- 该 Redmi ROM 会在 instrumentation 生命周期结束后清空无障碍授权，因此真实 Service E2E 不放入 instrumentation；测试结束后恢复用户已授权的服务，再使用 Debug-only 诊断广播验收。`dumpsys accessibility` 显示 `Bound services` 与 `Enabled services` 均包含 `XiaoLingAccessibilityService`，capabilities 为读取窗口内容且没有手势/截图能力。
+- 小灵主界面：`success=true package=com.longdev.xiaoling nodes=27 refs=8 redacted=0 truncated=false`。
+- 敏感字段探针：`success=true nodes=3 refs=1 redacted=2 truncated=false`，API Key 样式文本与密码字段均没有正文/ref。
+- 支付窗口探针：`success=false reason=SENSITIVE_WINDOW`，未返回节点内容。
+- 全量 instrumentation 后重新安装当前 Debug APK并恢复系统授权；首次安装没有设备开关偏好文件，代码与 instrumentation 均确认默认值为 `false`。最终 `MainActivity` 为 `topResumedActivity`，服务已绑定，crash buffer 为空。
+
+下一阶段边界：
+
+- 先实现 `open_app / back / home`，再实现 `tap_ref / type_text / swipe`；每个动作同步完成风险/隐私分级、必要审批、ref/generation 再校验、动作后重新 snapshot 和业务结果验证。
+- 第一批只对少量明确指定 App 做 Redmi 前台端到端验收，暂不承诺任意 App。通用执行恢复和长任务可靠性完成前，设备工具不进入 Workflow 或后台自动化；精确定时与 Foreground Service 继续依据真实耗时决定。
+
+## 2026-07-20 设备 Agent 有限动作与 Redmi E2E
+
+实现与安全边界：
+
+- 新增 `device.open_app / back / home / tap_ref / type_text / swipe` 和内置 `device-control` Skill。`open_app / tap_ref / type_text` 为 `REQUIRES_APPROVAL`，返回、主页与节点滚动为 SAFE；全部动作使用 `EXECUTOR_VERIFIED`，没有坐标或截图兜底。
+- `open_app` 只允许小灵、系统计算器、时钟和系统设置，manifest 只声明对应 package queries，不申请 `QUERY_ALL_PACKAGES`。输入最多 500 字符，空白、控制字符、密码/验证码提示、API Key、Bearer Token、手机号、身份证、银行卡和邮箱在 Tool 参数审计前拒绝。
+- 节点动作执行前重新核对 snapshot ID、30 秒 ref、窗口 generation、节点路径、指纹和节点动作集合；任一漂移均 fail-closed。动作后重新 snapshot：打开应用核对前台包名，主页核对 Launcher，输入回读正文，返回/点击/滚动要求观察到窗口 generation 变化；证据不足返回 `verified=false`。
+- 首次启动应用或系统权限页切换可能短暂没有 `rootInActiveWindow`。后置观察只对 `NO_ACTIVE_WINDOW / WINDOW_CHANGED` 做最多 6 次、每次 100 ms 的有界重试；隐私拒绝、授权失效和服务断连不重试。该策略来自 Redmi 时钟首次启动权限页的真实失败，不扩大 ref 或隐私边界。
+- 全部设备工具继续只对前台直接 `/agent` 暴露；Workflow、后台、开关关闭和缺少 Run Context 时从规划器工具面移除并由 Executor 再次拒绝。旧 Profile/Skill 不自动扩权，设备工具仍不进入 Workflow 或后台自动化。
+
+自动化、构建与 Redmi 回归：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks -Pkotlin.incremental=false --stacktrace --console=plain` 全量执行通过；348 条 JVM 测试、0 失败、0 错误，Lint、Debug APK 和 AndroidTest APK 均构建成功。
+- 仅在 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 安装两个 APK并运行完整 instrumentation：`OK (123 tests)`，0 失败、0 跳过；没有启动、连接或操作模拟器。
+- JVM 覆盖动作风险/Schema、前台/Workflow/后台双层门禁、应用白名单、敏感输入、ref/generation/path/fingerprint、动作不支持、后置验证失败、无可观察变化和瞬时空窗口重试。Instrumentation 覆盖标准节点动作所需 manifest、无坐标手势/截图能力、首批 package queries、默认关闭偏好和设置 UI。
+
+Redmi 真实动作验收：
+
+- 只读层最终复验：小灵主界面 `success=true package=com.longdev.xiaoling nodes=30 refs=12 redacted=0 truncated=false`，系统服务处于 Enabled 与 Bound 状态。
+- 计算器：`open_app` 返回 `verified=true / package=com.android.calculator2 / nodes=35 / refs=33`；按 snapshot 中目标 `7` 执行 `tap_ref` 后返回 `verified=true / nodes=36 / refs=33`，后置快照回读到结果文本 `7`。
+- 系统导航：从计算器 `back` 后重新观察到小灵并验证通过；`home` 后重新观察到 `com.android.launcher3 / nodes=21 / refs=20` 并验证通过。
+- 设置：`open_app` 返回 `verified=true / nodes=29 / refs=11`；列表 `swipe(up)` 返回 `verified=true`；按子节点文字「搜索设置」解析父级 ref 并点击后进入 `com.android.settings.intelligence`，向搜索框输入 `stage34_verified` 后回读相同文本并验证通过。再次尝试输入虚构 `sk-` 样式值时返回 `SENSITIVE_INPUT`，没有执行 Accessibility 输入动作。
+- 时钟：首次启动出现系统权限 Activity，暴露一次瞬时 `NO_ACTIVE_WINDOW`；安全返回后观察到 `com.android.deskclock / nodes=21 / refs=13`，再次 `open_app` 验证通过。随后补入后置观察有界重试及确定性回归测试。
+
+真实模型、审批与 Tool Ledger：
+
+- Debug-only E2E Profile 只用于真机验收并固定项目兜底模型。首次用 Chat Completions 验证时，模型成功规划 `device.open_app`、进入 `WAITING_APPROVAL`、获得 `APPROVED` 并完成工具执行与验证，但工具成功后的第二次规划请求在 60 秒超时，Run `run-6419aeca-d4ae-4839-8d7c-e6f2e09ab2cf` 诚实收敛为 `BUDGET_EXHAUSTED`；该结果不计为完整闭环通过。
+- 切换为该 Provider 已稳定验收的 Responses 模式后，Run `run-13bcfa28-346f-4a71-b98b-5b44cf28bd92` 完成模型规划、`device.open_app` 待审批、用户从前台审批卡片批准、计算器真实启动、动作后 snapshot、Tool Ledger 和最终总结。最终为 `status=COMPLETED / approval=APPROVED / tool=device.open_app / success=true / executorVerified=true / verification=PASSED`。
+- 最终 Debug APK SHA-256 为 `f04bb1658d37680585bcfd2913b4d1a4794613dd0f597ba549ad94014b368877`，已覆盖安装到 Redmi；`versionName=0.1.10 / versionCode=11`，小灵 `MainActivity` 位于前台，无障碍服务 Enabled/Bound，最终快照为 `nodes=32 / refs=14 / redacted=1 / truncated=false`，crash buffer 为空。验收 Profile 保持设备 Agent 开启，便于用户直接查看；Release manifest 不包含三个 Debug Receiver 或隐私探针。
+
+下一阶段边界：
+
+- 优先完善执行任意工具后的审批等待、旧模型协程和通用工具执行栈恢复，以及更长真实任务的进程回收/重试可靠性。完成前设备工具继续禁止进入 Workflow 或后台自动化。
+- 当前 31 秒后台 Workflow 仍没有引入 Foreground Service 的依据；精确定时继续后置。MCP、日历/通知、远程 Channel、多 Agent 和本地模型保持最后推进。

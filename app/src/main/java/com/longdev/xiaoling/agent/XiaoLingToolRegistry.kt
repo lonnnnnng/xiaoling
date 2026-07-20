@@ -1,5 +1,14 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.device.DeviceActionCapture
+import com.longdev.xiaoling.device.DeviceActionCodec
+import com.longdev.xiaoling.device.DeviceActionFailure
+import com.longdev.xiaoling.device.DeviceActionPolicy
+import com.longdev.xiaoling.device.DeviceController
+import com.longdev.xiaoling.device.DeviceScrollDirection
+import com.longdev.xiaoling.device.DeviceSnapshotCapture
+import com.longdev.xiaoling.device.DeviceSnapshotCodec
+import com.longdev.xiaoling.device.DeviceSnapshotFailure
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.time.Instant
@@ -14,6 +23,7 @@ class XiaoLingToolRegistry(
     private val noteStore: AgentNoteStore,
     private val memoryStore: AgentMemoryStore,
     private val knowledgeStore: KnowledgeDocumentStore,
+    private val deviceController: DeviceController = DisabledDeviceController,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
 
@@ -229,6 +239,85 @@ class XiaoLingToolRegistry(
             ),
             timeoutMs = 5_000,
         ),
+        ToolDefinition(
+            name = DEVICE_SNAPSHOT_TOOL_NAME,
+            description = "读取当前前台窗口的有界、脱敏可访问节点快照，并为可操作节点生成 30 秒有效的引用；当前不会执行任何动作。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_OPEN_APP_TOOL_NAME,
+            description = "打开首批允许列表中的 Android 应用；需要用户确认，打开后重新观察并核对前台包名。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "package_name",
+                    description = "目标应用包名，仅允许小灵、系统计算器、时钟和系统设置。",
+                    required = true,
+                    enumValues = DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES,
+                ),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_BACK_TOOL_NAME,
+            description = "执行 Android 返回操作，并在操作后重新观察当前界面。",
+            risk = ToolRisk.SAFE,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_HOME_TOOL_NAME,
+            description = "返回 Android 桌面，并在操作后确认当前窗口属于桌面应用。",
+            risk = ToolRisk.SAFE,
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_TAP_REF_TOOL_NAME,
+            description = "点击最近一次 snapshot 中仍有效的节点引用；需要用户确认，页面变化或 ref 过期时拒绝。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = referenceInputSchema(),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_TYPE_TEXT_TOOL_NAME,
+            description = "向最近一次 snapshot 中仍有效的普通文本框输入非敏感文本；需要用户确认，并在输入后回读验证。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = referenceInputSchema() + ToolInputField(
+                name = "text",
+                description = "要输入的非敏感文本；不允许密码、验证码、密钥、账号或身份信息。",
+                required = true,
+                minLength = 1,
+                maxLength = DeviceActionPolicy.MAX_TEXT_LENGTH,
+            ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    DeviceActionPolicy().validateTextInput(arguments["text"].orEmpty())
+                        ?.let(::listOf)
+                        .orEmpty()
+                },
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            validateBeforeAudit = true,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = DEVICE_SWIPE_TOOL_NAME,
+            description = "在最近一次 snapshot 中仍有效的可滚动节点上执行一个方向滚动，并重新观察验证。",
+            risk = ToolRisk.SAFE,
+            inputSchema = referenceInputSchema() + ToolInputField(
+                name = "direction",
+                description = "滚动方向：up、down、left 或 right。",
+                required = true,
+                enumValues = setOf("up", "down", "left", "right"),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 10_000,
+        ),
     )
 
     init {
@@ -240,12 +329,20 @@ class XiaoLingToolRegistry(
     }
 
     override fun availableTools(): List<ToolDefinition> {
-        val context = runContext
+        return availableToolsFor(runContext)
+    }
+
+    fun availableToolsFor(context: AgentToolExecutionContext?): List<ToolDefinition> {
+        var available = tools
         if (context?.memoryRecallEnabled == false) {
             // long: 关闭单次记忆召回时从规划器工具清单移除 memory.search，避免模型先提出调用再由执行器拒绝造成误导性审计。
-            return tools.filterNot { it.name == "memory.search" }
+            available = available.filterNot { it.name == "memory.search" }
         }
-        return tools
+        if (!deviceToolsAllowed(context)) {
+            // long: 设备能力仍限定前台直接对话；Workflow、后台、未启用或缺少 Run Context 时全部从模型工具面移除，执行层还会再次校验。
+            available = available.filterNot { it.name in DEVICE_TOOL_NAMES }
+        }
+        return available
     }
 
     fun registeredTools(): List<ToolDefinition> = tools
@@ -263,6 +360,29 @@ class XiaoLingToolRegistry(
             "memory.search" -> searchMemory(call)
             "memory.remember" -> remember(call)
             "knowledge.search" -> searchKnowledge(call)
+            DEVICE_SNAPSHOT_TOOL_NAME -> snapshotDevice()
+            DEVICE_OPEN_APP_TOOL_NAME -> executeDeviceAction {
+                deviceController.openApp(call.arguments["package_name"].orEmpty())
+            }
+            DEVICE_BACK_TOOL_NAME -> executeDeviceAction(deviceController::back)
+            DEVICE_HOME_TOOL_NAME -> executeDeviceAction(deviceController::home)
+            DEVICE_TAP_REF_TOOL_NAME -> executeDeviceAction {
+                deviceController.tap(call.arguments["snapshot_id"].orEmpty(), call.arguments["ref"].orEmpty())
+            }
+            DEVICE_TYPE_TEXT_TOOL_NAME -> executeDeviceAction {
+                deviceController.typeText(
+                    snapshotId = call.arguments["snapshot_id"].orEmpty(),
+                    ref = call.arguments["ref"].orEmpty(),
+                    text = call.arguments["text"].orEmpty(),
+                )
+            }
+            DEVICE_SWIPE_TOOL_NAME -> executeDeviceAction {
+                deviceController.swipe(
+                    snapshotId = call.arguments["snapshot_id"].orEmpty(),
+                    ref = call.arguments["ref"].orEmpty(),
+                    direction = DeviceScrollDirection.valueOf(call.arguments["direction"].orEmpty().uppercase()),
+                )
+            }
             else -> ToolExecutionResult(success = false, content = "未知工具：${call.name}")
         }
     }
@@ -288,6 +408,57 @@ class XiaoLingToolRegistry(
             success = true,
             content = "当前时间：${clock.formattedNow()} · 时区：${clock.zoneId()}",
         )
+    }
+
+    private suspend fun snapshotDevice(): ToolExecutionResult {
+        deviceToolContextError()?.let { return it }
+        return when (val capture = deviceController.capture()) {
+            is DeviceSnapshotCapture.Success -> ToolExecutionResult(
+                success = true,
+                content = DeviceSnapshotCodec.encode(capture.snapshot),
+            )
+            is DeviceSnapshotCapture.Failed -> ToolExecutionResult(
+                success = false,
+                content = capture.message,
+            )
+        }
+    }
+
+    private suspend fun executeDeviceAction(block: suspend () -> DeviceActionCapture): ToolExecutionResult {
+        deviceToolContextError()?.let { return it }
+        val capture = block()
+        return when (capture) {
+            is DeviceActionCapture.Success -> ToolExecutionResult(
+                success = true,
+                content = DeviceActionCodec.encode(capture.outcome),
+                verified = capture.outcome.verified,
+            )
+            is DeviceActionCapture.Failed -> ToolExecutionResult(
+                success = false,
+                content = "${capture.reason}: ${capture.message}",
+            )
+        }
+    }
+
+    private fun deviceToolContextError(): ToolExecutionResult? {
+        val context = runContext
+            ?: return ToolExecutionResult(success = false, content = "设备工具缺少当前 Agent Run 上下文")
+        if (context.invocationSource != AgentInvocationSource.DIRECT) {
+            return ToolExecutionResult(success = false, content = "设备工具尚未开放给 Workflow，请使用前台直接 /agent 对话")
+        }
+        if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
+            return ToolExecutionResult(success = false, content = "设备工具仅允许前台直接执行")
+        }
+        if (!deviceController.isAgentEnabled()) {
+            return ToolExecutionResult(success = false, content = "设备 Agent 尚未启用，请先在设置中明确开启")
+        }
+        return null
+    }
+
+    private fun deviceToolsAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource == AgentInvocationSource.DIRECT &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            deviceController.isAgentEnabled()
     }
 
     private suspend fun listConversations(call: ToolCall): ToolExecutionResult {
@@ -627,6 +798,75 @@ class XiaoLingToolRegistry(
         }
     }
 }
+
+private object DisabledDeviceController : DeviceController {
+    override fun isAgentEnabled(): Boolean = false
+
+    override suspend fun capture(): DeviceSnapshotCapture {
+        return DeviceSnapshotCapture.Failed(
+            reason = DeviceSnapshotFailure.AGENT_DISABLED,
+            message = "设备 Agent 尚未启用，请先在设置中明确开启",
+        )
+    }
+
+    override suspend fun openApp(packageName: String): DeviceActionCapture = disabledAction()
+
+    override suspend fun back(): DeviceActionCapture = disabledAction()
+
+    override suspend fun home(): DeviceActionCapture = disabledAction()
+
+    override suspend fun tap(snapshotId: String, ref: String): DeviceActionCapture = disabledAction()
+
+    override suspend fun typeText(snapshotId: String, ref: String, text: String): DeviceActionCapture = disabledAction()
+
+    override suspend fun swipe(
+        snapshotId: String,
+        ref: String,
+        direction: DeviceScrollDirection,
+    ): DeviceActionCapture = disabledAction()
+
+    private fun disabledAction(): DeviceActionCapture.Failed {
+        return DeviceActionCapture.Failed(
+            reason = DeviceActionFailure.AGENT_DISABLED,
+            message = "设备 Agent 尚未启用，请先在设置中明确开启",
+        )
+    }
+}
+
+private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
+private const val DEVICE_BACK_TOOL_NAME = "device.back"
+private const val DEVICE_HOME_TOOL_NAME = "device.home"
+private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
+private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
+
+private val DEVICE_TOOL_NAMES = setOf(
+    DEVICE_SNAPSHOT_TOOL_NAME,
+    DEVICE_OPEN_APP_TOOL_NAME,
+    DEVICE_BACK_TOOL_NAME,
+    DEVICE_HOME_TOOL_NAME,
+    DEVICE_TAP_REF_TOOL_NAME,
+    DEVICE_TYPE_TEXT_TOOL_NAME,
+    DEVICE_SWIPE_TOOL_NAME,
+)
+
+private fun referenceInputSchema(): List<ToolInputField> = listOf(
+    ToolInputField(
+        name = "snapshot_id",
+        description = "最近一次 device.snapshot 返回的 snapshot_id。",
+        required = true,
+        minLength = 1,
+        maxLength = 120,
+    ),
+    ToolInputField(
+        name = "ref",
+        description = "同一 snapshot 中节点的短生命周期 ref。",
+        required = true,
+        minLength = 2,
+        maxLength = 20,
+    ),
+)
 
 class SystemAgentClock(
     private val zone: ZoneId = ZoneId.systemDefault(),

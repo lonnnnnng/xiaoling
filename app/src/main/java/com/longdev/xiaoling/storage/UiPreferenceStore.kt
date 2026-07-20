@@ -62,6 +62,17 @@ class UiPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadDeviceAgentEnabled(): Boolean {
+        return preferences.getBoolean(KEY_DEVICE_AGENT_ENABLED, false)
+    }
+
+    fun saveDeviceAgentEnabled(enabled: Boolean) {
+        // long: Accessibility 可读取跨应用界面结构，必须与系统授权分开由用户再次显式开启；首次安装和旧版本升级始终保持关闭。
+        preferences.edit()
+            .putBoolean(KEY_DEVICE_AGENT_ENABLED, enabled)
+            .apply()
+    }
+
     fun loadPromptSettings(): PromptSettings {
         return PromptSettings(
             chatPromptEnabled = preferences.getBoolean(KEY_CHAT_PROMPT_ENABLED, false),
@@ -97,6 +108,7 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_MEMORY_CANDIDATES_ENABLED = "memory_candidates_enabled"
         private const val KEY_USER_AGENT = "user_agent"
         private const val KEY_REASONING_SUMMARY_ENABLED = "reasoning_summary_enabled"
+        private const val KEY_DEVICE_AGENT_ENABLED = "device_agent_enabled"
         private const val MAX_USER_AGENT_LENGTH = 512
     }
 }

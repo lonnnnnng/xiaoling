@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import android.content.Context
+import com.longdev.xiaoling.device.DeviceObservationComponents
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.storage.RoomAgentConversationStore
@@ -24,6 +25,7 @@ class AgentRunUseCase(
         noteStore = RoomAgentNoteStore(context.applicationContext),
         memoryStore = RoomAgentMemoryStore(context.applicationContext),
         knowledgeStore = RoomKnowledgeDocumentStore(context.applicationContext),
+        deviceController = DeviceObservationComponents.controller(context.applicationContext),
     )
     private val skillCatalog = AgentSkillCatalog(
         store = RoomAgentSkillStore(context.applicationContext),
@@ -40,16 +42,28 @@ class AgentRunUseCase(
         retryOfRunId: String? = null,
         memoryRecallEnabled: Boolean = true,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
         AgentProfilePolicy.validateRunnable(agentProfile)
         require(config.model == agentProfile.model) { "Agent Profile 模型快照与请求配置不一致" }
+        val invocationContext = AgentToolExecutionContext(
+            conversationId = conversationId,
+            userMessageId = userMessageId,
+            runId = "planning-$userMessageId",
+            goal = goal,
+            memoryRecallEnabled = memoryRecallEnabled,
+            executionOrigin = executionOrigin,
+            invocationSource = invocationSource,
+        )
+        val availableToolNames = toolRegistry.availableToolsFor(invocationContext)
+            .mapTo(linkedSetOf(), ToolDefinition::name)
         val profileToolRegistry = ProfileScopedToolRegistry(toolRegistry, agentProfile.allowedToolNames)
         val selectedSkills = skillCatalog.select(
             goal = goal,
             allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
-            allowedToolNames = agentProfile.allowedToolNames.toSet(),
+            allowedToolNames = agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains),
         )
         val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
@@ -69,6 +83,7 @@ class AgentRunUseCase(
             goal = goal,
             retryOfRunId = retryOfRunId,
             executionOrigin = executionOrigin,
+            invocationSource = invocationSource,
             memoryRecallEnabled = memoryRecallEnabled,
             selectedSkills = selectedSkills,
             agentProfile = agentProfile,

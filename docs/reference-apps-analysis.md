@@ -4,7 +4,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-20：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地；参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-20：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地；答案引用 UI、设备 Agent 只读观察和首批有限动作也已完成 Redmi 验收。参考项目审计日期仍保持原始取证时间。
 
 ## 1. 结论先行
 
@@ -310,6 +310,7 @@
 - API Key 使用 Android Keystore + AES-GCM。
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记、长期记忆和只读本地知识库工具。
+- 设备 Agent 观察与有限动作层：默认关闭的独立开关、Accessibility 四态健康检查、`device.snapshot / open_app / back / home / tap_ref / type_text / swipe`、200 节点/4000 字符预算、30 秒 ref、页面 generation/路径/指纹失效、敏感节点脱敏、高敏窗口/隐私应用整窗拒绝、白名单与敏感输入策略；仅开放给前台直接 `/agent`，不支持设备 Workflow 或后台执行。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 与 `memory.remember` 均为生产 `IDEMPOTENT_BY_KEY` 工具。笔记使用 ToolCall ID 的 Room 唯一索引，记忆使用独立 operation ledger 和提交结果快照；载荷漂移会被拒绝。进程重建时仅这两个白名单工具可依据完整历史证据回读原 operation，补齐后置验证和本地总结。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult、失败终态安全重新运行，以及 `memory.remember` 恢复失败的稳定错误码、原因和新 Run 建议。
@@ -332,6 +333,9 @@
 - `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`
+- `app/src/main/java/com/longdev/xiaoling/device/DeviceObservationController.kt`
+- `app/src/main/java/com/longdev/xiaoling/device/DeviceSnapshotPolicy.kt`
+- `app/src/main/java/com/longdev/xiaoling/device/XiaoLingAccessibilityService.kt`
 - `app/src/main/java/com/longdev/xiaoling/storage/RoomAgentRunRepository.kt`
 - `app/src/main/java/com/longdev/xiaoling/storage/RoomAgentMemoryStore.kt`
 - `app/src/main/java/com/longdev/xiaoling/prompt/PromptPolicy.kt`
@@ -348,6 +352,7 @@
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；长任务中断仍需关联新 Run，当前 31 秒实测不引入 Foreground Service |
 | PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、索引、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 Embedding 与规模化检索质量验证 |
+| 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；仍不能进入 Workflow/后台自动化，也不承诺任意 App |
 
 ## 6. 建议目标架构
 
@@ -428,14 +433,16 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
+当前状态：第 1 至 6 步已完成并通过 348 条 JVM、123 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与后置验证。能力仍限定首批 App、前台直接 `/agent` 和节点动作。
+
 实施顺序：
 
-1. **Accessibility 授权与健康检查**：明确说明能力和隐私影响，默认关闭；能区分未授权、服务未连接、权限失效和服务正常。
-2. **只读 snapshot**：输出有界、结构化、脱敏的可访问节点树；密码框、验证码、支付页和隐私应用默认不读取正文。
-3. **短生命周期节点引用**：ref 绑定 snapshot 和窗口状态，页面变化、超时或节点消失后立即失效；第一阶段不执行动作。
-4. **有限动作工具**：只读层在 Redmi 稳定后再加入 `open_app / back / home / tap_ref / type_text / swipe`，模型先给计划，副作用动作按风险审批。
-5. **观察-动作-验证**：每次动作后重新抓取 snapshot；不能只凭 Android API 返回成功判断业务完成，也不把过期 ref 降级成静默坐标点击。
-6. **限定 App 验收与可回放轨迹**：只对白名单少量 App 保存脱敏 before/action/after/outcome 并做真机回归，暂不承诺任意 App。
+1. **已完成：Accessibility 授权与健康检查**：明确说明能力和隐私影响，默认关闭；区分未授权、服务未连接、权限失效和服务正常。
+2. **已完成：只读 snapshot**：输出有界、结构化、脱敏的可访问节点树；密码框、验证码、支付页和隐私应用默认不返回正文。
+3. **已完成：短生命周期节点引用**：ref 绑定 snapshot 和窗口状态，页面变化、超时、失败或关闭开关后立即失效。
+4. **已完成：有限动作工具**：加入 `open_app / back / home / tap_ref / type_text / swipe`，副作用动作按风险审批，应用与输入范围由确定性策略限制。
+5. **已完成：观察-动作-验证**：每次动作后重新抓取 snapshot；不只凭 Android API 返回成功判断业务完成，也不把过期 ref 降级成坐标点击。
+6. **已完成：限定 App 验收与可回放轨迹**：在 Redmi 上覆盖小灵、系统计算器、时钟、设置和桌面，记录脱敏 before/action/after/outcome；暂不承诺任意 App。
 
 P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity、所有文件访问、跨 App 密码/支付自动化。
 
@@ -498,8 +505,8 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 ## 11. 最终建议
 
-小灵下一版不应以“接入 MCP”或“任意控制手机”为里程碑，而应以设备 Agent 只读观察层为可验证结果：
+小灵已经完成了此前建议的设备 Agent 观察与有限动作里程碑：
 
-> 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续，且该阶段不执行任何点击、输入或滚动。
+> 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-只读观察层在单元测试、集成测试和 Redmi 真机上稳定后，再加入有限动作、审批、操作后重新观察和少量指定 App 验收。通用执行恢复和长任务可靠性完成前，设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”，而应先完善通用执行恢复和长任务可靠性。完成前设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

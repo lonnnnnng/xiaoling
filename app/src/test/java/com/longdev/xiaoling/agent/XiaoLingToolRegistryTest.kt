@@ -1,5 +1,15 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.device.DeviceBounds
+import com.longdev.xiaoling.device.DeviceActionCapture
+import com.longdev.xiaoling.device.DeviceActionFailure
+import com.longdev.xiaoling.device.DeviceActionOutcome
+import com.longdev.xiaoling.device.DeviceController
+import com.longdev.xiaoling.device.DeviceNodeAction
+import com.longdev.xiaoling.device.DeviceScrollDirection
+import com.longdev.xiaoling.device.DeviceSnapshot
+import com.longdev.xiaoling.device.DeviceSnapshotCapture
+import com.longdev.xiaoling.device.DeviceSnapshotNode
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
@@ -89,6 +99,28 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
+        val deviceSnapshot = testRegistry().registeredTools().single { it.name == "device.snapshot" }
+        assertEquals(ToolRisk.SAFE, deviceSnapshot.risk)
+        assertFalse(deviceSnapshot.permissionPolicy.supportsBackground)
+        val deviceActions = testRegistry().registeredTools().filter { it.name.startsWith("device.") && it.name != "device.snapshot" }
+        assertEquals(
+            setOf("device.open_app", "device.back", "device.home", "device.tap_ref", "device.type_text", "device.swipe"),
+            deviceActions.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        assertTrue(deviceActions.all { !it.permissionPolicy.supportsBackground })
+        assertTrue(deviceActions.all { it.verificationPolicy == ToolVerificationPolicy.EXECUTOR_VERIFIED })
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.open_app" }.risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.tap_ref" }.risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.type_text" }.risk)
+        assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.back" }.risk)
+        assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.home" }.risk)
+        assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.swipe" }.risk)
+        assertTrue(deviceActions.single { it.name == "device.type_text" }.validateBeforeAudit)
+        assertTrue(
+            deviceActions.single { it.name == "device.type_text" }
+                .validateArguments(mapOf("snapshot_id" to "snapshot-1", "ref" to "r1", "text" to "sk-abcdefghijklmnop"))
+                .errors.any { it.contains("不允许输入") },
+        )
         assertTrue(testRegistry().supportsCommittedEffectVerification("notes.create"))
         assertTrue(testRegistry().supportsCommittedEffectVerification("memory.remember"))
         assertEquals(
@@ -103,6 +135,115 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertTrue(invalidTags.errors.contains("长期记忆标签不能超过 10 个"))
+    }
+
+    @Test
+    fun deviceSnapshotIsOnlyAvailableToDirectForegroundRunsWhenOptedIn() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = testRegistry(deviceController = provider)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-device",
+                userMessageId = "message-device",
+                runId = "run-device",
+                goal = "读取当前界面",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        assertEquals(
+            setOf("device.snapshot", "device.open_app", "device.back", "device.home", "device.tap_ref", "device.type_text", "device.swipe"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val result = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertTrue(result.success)
+        assertTrue(result.content.contains("snapshot-direct"))
+        assertTrue(result.content.contains("继续"))
+        assertEquals(1, provider.captureCount)
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-workflow",
+                userMessageId = "message-workflow",
+                runId = "run-workflow",
+                goal = "Workflow 读取界面",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.WORKFLOW,
+            ),
+        )
+        assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
+        val workflowResult = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertFalse(workflowResult.success)
+        assertTrue(workflowResult.content.contains("Workflow"))
+        assertEquals(1, provider.captureCount)
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-background",
+                userMessageId = "message-background",
+                runId = "run-background",
+                goal = "后台读取界面",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
+        val backgroundResult = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertFalse(backgroundResult.success)
+        assertTrue(backgroundResult.content.contains("前台"))
+        assertEquals(1, provider.captureCount)
+    }
+
+    @Test
+    fun disabledDeviceAgentCannotExposeOrExecuteSnapshot() = runTest {
+        val provider = FakeDeviceController(enabled = false)
+        val registry = testRegistry(deviceController = provider)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-device-disabled",
+                userMessageId = "message-device-disabled",
+                runId = "run-device-disabled",
+                goal = "读取当前界面",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
+        val result = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertFalse(result.success)
+        assertTrue(result.content.contains("尚未启用"))
+        assertEquals(0, provider.captureCount)
+    }
+
+    @Test
+    fun directForegroundDeviceActionReturnsVerifiedAfterSnapshot() = runTest {
+        val controller = FakeDeviceController(enabled = true)
+        val registry = testRegistry(deviceController = controller)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-device-action",
+                userMessageId = "message-device-action",
+                runId = "run-device-action",
+                goal = "打开计算器",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "device.open_app",
+                arguments = mapOf("package_name" to "com.android.calculator2"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("com.android.calculator2"))
+        assertEquals(listOf("open_app:com.android.calculator2"), controller.actions)
     }
 
     @Test
@@ -503,6 +644,7 @@ class XiaoLingToolRegistryTest {
         noteStore: InMemoryAgentNoteStore = InMemoryAgentNoteStore(),
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
+        deviceController: DeviceController = FakeDeviceController(enabled = false),
     ): XiaoLingToolRegistry {
         return XiaoLingToolRegistry(
             clock = FakeAgentClock(),
@@ -510,7 +652,116 @@ class XiaoLingToolRegistryTest {
             noteStore = noteStore,
             memoryStore = memoryStore,
             knowledgeStore = knowledgeStore,
+            deviceController = deviceController,
         )
+    }
+}
+
+private class FakeDeviceController(
+    private val enabled: Boolean,
+) : DeviceController {
+    var captureCount: Int = 0
+    val actions = mutableListOf<String>()
+
+    override fun isAgentEnabled(): Boolean = enabled
+
+    override suspend fun capture(): DeviceSnapshotCapture {
+        captureCount += 1
+        return DeviceSnapshotCapture.Success(
+            snapshot = DeviceSnapshot(
+                snapshotId = "snapshot-direct",
+                packageName = "com.example.safe",
+                windowTitle = "首页",
+                windowId = 1,
+                windowGeneration = 2L,
+                capturedAt = 1_000L,
+                expiresAt = 31_000L,
+                nodes = listOf(
+                    DeviceSnapshotNode(
+                        index = 0,
+                        parentIndex = null,
+                        depth = 0,
+                        role = "button",
+                        text = "继续",
+                        description = null,
+                        hint = null,
+                        bounds = DeviceBounds(0, 0, 100, 60),
+                        enabled = true,
+                        checked = null,
+                        selected = false,
+                        redacted = false,
+                        ref = "r1",
+                        actions = setOf(DeviceNodeAction.TAP),
+                    ),
+                ),
+                redactedNodeCount = 0,
+                truncated = false,
+            ),
+            references = emptyList(),
+        )
+    }
+
+    override suspend fun openApp(packageName: String): DeviceActionCapture {
+        actions += "open_app:$packageName"
+        return successfulAction("open_app", packageName)
+    }
+
+    override suspend fun back(): DeviceActionCapture {
+        actions += "back"
+        return successfulAction("back")
+    }
+
+    override suspend fun home(): DeviceActionCapture {
+        actions += "home"
+        return successfulAction("home", "com.android.launcher3")
+    }
+
+    override suspend fun tap(snapshotId: String, ref: String): DeviceActionCapture {
+        actions += "tap:$snapshotId:$ref"
+        return successfulAction("tap")
+    }
+
+    override suspend fun typeText(snapshotId: String, ref: String, text: String): DeviceActionCapture {
+        actions += "type_text:$snapshotId:$ref"
+        return successfulAction("type_text")
+    }
+
+    override suspend fun swipe(
+        snapshotId: String,
+        ref: String,
+        direction: DeviceScrollDirection,
+    ): DeviceActionCapture {
+        actions += "swipe:$snapshotId:$ref:${direction.name}"
+        return successfulAction("swipe")
+    }
+
+    private fun successfulAction(action: String, packageName: String = "com.example.safe"): DeviceActionCapture.Success {
+        return DeviceActionCapture.Success(
+            DeviceActionOutcome(
+                action = action,
+                beforeSnapshotId = "snapshot-direct",
+                afterSnapshot = snapshot(packageName),
+                verified = true,
+                message = "verified",
+            ),
+        )
+    }
+
+    private fun snapshot(packageName: String): DeviceSnapshot = DeviceSnapshot(
+        snapshotId = "snapshot-after",
+        packageName = packageName,
+        windowTitle = "结果页",
+        windowId = 2,
+        windowGeneration = 3L,
+        capturedAt = 2_000L,
+        expiresAt = 32_000L,
+        nodes = emptyList(),
+        redactedNodeCount = 0,
+        truncated = false,
+    )
+
+    private fun failedAction(): DeviceActionCapture.Failed {
+        return DeviceActionCapture.Failed(DeviceActionFailure.ACTION_FAILED, "fake action unavailable")
     }
 }
 

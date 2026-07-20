@@ -142,6 +142,38 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             failureRecovery = "读取失败时停止并报告设备时间不可用。",
             completionCriteria = "返回设备时间与时区。",
         ),
+        AgentSkillDefinition(
+            id = "device-observation",
+            name = "设备界面观察",
+            description = "读取当前前台窗口的有界脱敏节点快照。",
+            instructions = "仅使用 device.snapshot 观察当前界面；密码、验证码、支付或隐私窗口被拒绝时直接说明边界，不要求用户绕过保护。当前不得声称已经点击、输入或滑动。",
+            toolNames = setOf("device.snapshot"),
+            keywords = setOf("观察界面", "当前界面", "屏幕节点", "界面元素", "snapshot", "screen nodes"),
+            triggerExamples = listOf("观察当前手机界面", "当前页面有哪些可访问节点"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "未启用、未授权、服务断连、页面变化或隐私拦截时停止并报告，不尝试坐标或截图兜底。",
+            completionCriteria = "返回有界脱敏快照和短期节点引用，或明确说明无法观察的原因。",
+        ),
+        AgentSkillDefinition(
+            id = "device-control",
+            name = "有限设备操作",
+            description = "在首批允许应用中执行前台观察、导航、节点点击、普通文本输入和滚动。",
+            instructions = "先用 device.snapshot 获取当前页面和 ref；打开应用、点击或输入必须等待应用侧审批。每次动作只使用同一 snapshot 的有效 ref，并以工具返回的 after_snapshot 和 verified 判断结果。页面变化、ref 过期、敏感输入、支付/隐私窗口或验证失败时停止，不使用坐标、截图或重复盲点。",
+            toolNames = setOf(
+                "device.snapshot",
+                "device.open_app",
+                "device.back",
+                "device.home",
+                "device.tap_ref",
+                "device.type_text",
+                "device.swipe",
+            ),
+            keywords = setOf("打开应用", "返回桌面", "点击", "输入文字", "滑动", "操作手机", "open app", "tap", "type text", "swipe"),
+            triggerExamples = listOf("打开计算器并查看界面", "点击当前页面的继续按钮", "在搜索框输入测试文字"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "动作失败或验证不足时重新 snapshot；ref 失效、隐私拦截或不在允许应用列表时停止并说明边界。",
+            completionCriteria = "每个动作都返回 verified=true 的后置快照；否则不得声称操作完成。",
+        ),
     )
 
     override fun select(goal: String, limit: Int): List<AgentSkillDefinition> {

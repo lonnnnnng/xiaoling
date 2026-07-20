@@ -31,6 +31,11 @@ enum class AgentExecutionOrigin {
     BACKGROUND,
 }
 
+enum class AgentInvocationSource {
+    DIRECT,
+    WORKFLOW,
+}
+
 enum class AgentStepStatus {
     PENDING,
     RUNNING,
@@ -288,6 +293,7 @@ data class ToolDefinition(
     val approvalPolicy: ToolApprovalPolicy = risk.defaultApprovalPolicy(),
     val verificationPolicy: ToolVerificationPolicy = ToolVerificationPolicy.RESULT_READABLE,
     val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
+    val validateBeforeAudit: Boolean = false,
     val timeoutMs: Long? = null,
 ) {
     init {
@@ -708,6 +714,8 @@ data class AgentToolExecutionContext(
     val runId: String,
     val goal: String,
     val memoryRecallEnabled: Boolean = true,
+    val executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+    val invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
 )
 
 interface AgentRunContextAwareToolRegistry {

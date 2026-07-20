@@ -24,6 +24,7 @@ class MinimalAgentRuntime(
         goal: String,
         retryOfRunId: String? = null,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
         memoryRecallEnabled: Boolean = true,
         selectedSkills: List<AgentSkillDefinition> = emptyList(),
         agentProfile: AgentProfileSnapshot? = null,
@@ -36,6 +37,8 @@ class MinimalAgentRuntime(
                 runId = run.id,
                 goal = goal,
                 memoryRecallEnabled = memoryRecallEnabled,
+                executionOrigin = executionOrigin,
+                invocationSource = invocationSource,
             ),
         )
         val state = AgentRuntimeExecutionState(options.runTimeoutMs)
@@ -406,6 +409,10 @@ class MinimalAgentRuntime(
             val definition = toolRegistry.definition(proposedCall.name)
                 ?: error("模型选择了未注册工具：${proposedCall.name}")
             val toolCall = proposedCall.copy(risk = definition.risk)
+            if (definition.validateBeforeAudit) {
+                // long: 设备输入等参数可能包含不应落盘的敏感值；这类工具必须先完成确定性校验，再写 proposed/ledger 审计。
+                validateToolArguments(definition, toolCall)
+            }
             // long: 每轮模型只负责提出下一次工具调用；风险、校验、审批和验证仍逐步由应用代码决定，已执行结果不能放宽后续工具边界。
             ledger.appendEvent(
                 runId = run.id,

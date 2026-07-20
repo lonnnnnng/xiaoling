@@ -3,6 +3,13 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <queries>
+        <!-- long: open_app 只允许首批真机验收应用；显式声明包可见性，避免申请 QUERY_ALL_PACKAGES 扩大隐私面。 -->
+        <package android:name="com.android.calculator2" />
+        <package android:name="com.android.deskclock" />
+        <package android:name="com.android.settings" />
+    </queries>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -37,6 +44,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".device.XiaoLingAccessibilityService"
+            android:exported="false"
+            android:label="@string/device_accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/device_accessibility_service" />
+        </service>
     </application>
 
 </manifest>

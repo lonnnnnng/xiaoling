@@ -25,6 +25,7 @@
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、AgentProfile、Conversation、Message/MessagePart、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentMemoryCandidate 表。 |
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Conversation/Message Repository、Agent Profile Store、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
 | Agent | `app/src/main/java/com/longdev/xiaoling/agent/` | Agent Profile 策略、最小 Agent Runtime、Run Ledger interface、真实低风险 Tool Registry、交互式审批 gate 和可审计运行链路。 |
+| Device | `app/src/main/java/com/longdev/xiaoling/device/` | Accessibility 观察与有限动作、授权/连接健康检查、有界脱敏 snapshot、短生命周期节点引用、隐私/应用白名单、动作后验证和前台直接 Agent 门禁。 |
 | Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行和结果通知。 |
 | Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
@@ -198,7 +199,7 @@
 - 备份不导出 API Key 明文；Provider 表中的密文仍依赖当前 Android Keystore，跨设备或密钥丢失时不能仅凭数据库恢复凭据。未来可增加不含凭据的 Provider 元数据迁移向导。
 - 长期记忆的引用审计目前落在 Agent Run 的 ToolResult 和 VerifiedAgentContext；删除或禁用记忆后新 Run 不会产生对应 ID，历史 Run 保留原始审计快照，不回写旧事件。
 - `xiaoling` 和 `xiaoling_conversations` SharedPreferences 只作为旧数据迁移来源；迁移成功后不会反复恢复旧数据。
-- 主题、候选记忆开关、三类提示词和 User-Agent 偏好保存在 `xiaoling_ui` SharedPreferences；UA 保存时移除换行并限制长度，空白值恢复默认配置。
+- 主题、候选记忆开关、三类提示词、User-Agent 和设备 Agent 独立开关保存在 `xiaoling_ui` SharedPreferences；设备 Agent 首次安装/升级默认关闭，UA 保存时移除换行并限制长度，空白值恢复默认配置。
 - API Key 只以 AES-GCM 密文落盘，密钥材料保存在 Android Keystore。
 
 ## 本地知识库与 RAG 数据基础
@@ -217,6 +218,19 @@
 - Agent 回复使用独立、默认折叠的答案引用区域，只从 `effectiveParts()` 中可信 Tool part 的结构化引用投影，不扫描模型自由文本。展开后展示文档名、revision、chunk 和半开 offset 区间；Room 通过文档摘要与引用 chunk 的 projection 核验状态，不读取最大 64 MB 全文，并按最多 900 个绑定参数分批查询，避免长会话超过 SQLite 上限。精确匹配标记“当前有效”，当前启用文档 revision 更高标记“历史版本”，停用状态优先标记“当前不可用”，删除或 chunk 边界漂移也标记“当前不可用”；文档仍存在时整行可跳转知识库详情，已删除时关闭跳转。核验异常显示“暂无法核验”，会话切换或新一轮核验取消旧 Job 时保留协程取消语义，旧任务不会覆盖新状态。
 - 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。Embedding 继续后置。
 
+## 设备 Agent 观察与有限动作层
+
+- `XiaoLingAccessibilityService` 声明 `canRetrieveWindowContent=true`，显式关闭坐标手势和截图能力，并设置 `isAccessibilityTool=false`；服务不导出，只能由系统通过 `BIND_ACCESSIBILITY_SERVICE` 绑定。事件只推进窗口 generation；执行层只使用 `performGlobalAction` 和节点 `ACTION_CLICK / ACTION_SET_TEXT / ACTION_SCROLL_*`。
+- 设置页「设备 Agent」提供默认关闭的独立开关、系统 Accessibility 设置入口、四态健康检查和只读快照预览。关闭开关会立即清除 ref；应用开关和系统授权必须同时有效。
+- `DeviceSnapshotPolicy` 把原始节点树收紧到最多 200 个可见有效节点和 4,000 个字符，文本预算不切断 UTF-16 代理对。只有当前启用、可操作且未脱敏的节点获得 ref；禁用节点、只读文本和敏感节点没有 ref。
+- ref 由 `DeviceNodeReferenceStore` 绑定 snapshot ID、窗口 generation、节点路径、指纹和 30 秒到期时间。新快照替换旧快照；页面变化、过期、引用不存在、开关关闭、捕获失败或隐私拦截都明确失效，不存在坐标回退。
+- 密码/密码提示、验证码、API Key、Bearer/Access Token、带空格或连字符的手机号/银行卡、身份证和邮箱节点会清空正文、动作与 ref。支付/收银台/高敏身份验证窗口以及已知密码管理器、Authenticator、钱包/银行类包名整窗拒绝，不把包名或节点正文写入工具结果。
+- `device.snapshot` 是 SAFE、非后台工具；`device.open_app / tap_ref / type_text` 要求逐步审批，`device.back / home / swipe` 为 SAFE。`open_app` 只接受 manifest queries 与业务策略共同限定的小灵、系统计算器、时钟和系统设置；`type_text` 最多 500 字符，并在 Tool 参数审计前拒绝密码、验证码、API Key、Token、手机号、身份证、银行卡和邮箱。
+- 节点动作执行前再次核对 snapshot/ref/generation/path/fingerprint/action；动作后等待窗口短暂稳定并重新 capture。首次启动系统权限页可能短暂没有 `rootInActiveWindow`，只对 `NO_ACTIVE_WINDOW / WINDOW_CHANGED` 做最多 6 次、每次 100 ms 的有界重试；隐私拒绝、授权失效和服务断连不重试。`open_app` 核对前台包名，`home` 核对桌面包名，`type_text` 回读文本，其他动作要求可观察的窗口 generation 变化，未得到证据时返回 `verified=false`。
+- Registry 只有在前台直接 `/agent`、独立开关开启且 Profile/Skill 允许时才暴露全部设备工具；Workflow、后台和关闭状态在规划器工具面与 Executor 两层拒绝。`device-observation` 保持只读，新增 `device-control` 才引用动作工具；既有 Profile/Skill 不自动扩权。
+- `app/src/debug` 提供仅 Debug 包可用的快照、动作和真实 Agent 诊断广播与隐私探针；Release manifest 不包含这些入口。该 Redmi ROM 在 instrumentation 生命周期后会清空无障碍授权，因此完整 instrumentation 结束后恢复系统服务，再用 Debug-only 入口完成真实服务与动作 E2E。
+- Redmi 首批验收覆盖计算器 `open_app + tap_ref`、设置 `swipe + tap_ref + type_text`、敏感输入拒绝、`back / home` 和时钟启动；真实 `gpt-5.5 + Responses` `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、执行、后置验证、Tool Ledger 和最终总结。当前仍不支持坐标点击、截图、任意 App、设备 Workflow 或后台设备自动化。
+
 ## 日志
 
 - debug 包默认开启 HTTP 调试日志：`BuildConfig.XIAOLING_HTTP_LOGS_ENABLED = true`。
@@ -227,7 +241,7 @@
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 尚未内置外部真实工具调用、MCP 和手机自动化执行；当前真实工具限于时间、会话检索、本机笔记、本机长期记忆和只读本地知识库检索。
+- 尚未内置 MCP、外部远程工具和动作型手机自动化；当前真实工具除时间、会话检索、本机笔记、本机长期记忆和只读知识库外，已增加仅前台直接使用的只读 `device.snapshot`。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；剩余差距是 Embedding 和更大真实资料集的召回质量验证。

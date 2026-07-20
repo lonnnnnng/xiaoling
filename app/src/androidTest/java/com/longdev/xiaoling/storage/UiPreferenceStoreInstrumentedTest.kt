@@ -40,6 +40,15 @@ class UiPreferenceStoreInstrumentedTest {
         assertTrue(UiPreferenceStore(isolatedContext).loadReasoningSummaryEnabled())
     }
 
+    @Test
+    fun deviceAgentIsOptInAndRestoredAcrossStoreInstances() {
+        assertFalse(UiPreferenceStore(isolatedContext).loadDeviceAgentEnabled())
+
+        UiPreferenceStore(isolatedContext).saveDeviceAgentEnabled(true)
+
+        assertTrue(UiPreferenceStore(isolatedContext).loadDeviceAgentEnabled())
+    }
+
     private fun clearPreferences() {
         context.getSharedPreferences("${TEST_PREFIX}xiaoling_ui", Context.MODE_PRIVATE).edit().clear().commit()
     }

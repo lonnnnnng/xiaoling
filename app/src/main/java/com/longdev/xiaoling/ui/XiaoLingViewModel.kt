@@ -22,6 +22,7 @@ import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentRunUseCase
+import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
@@ -1550,6 +1551,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                 agentProfile = runtimeSelection.profile,
                 memoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
+                invocationSource = AgentInvocationSource.WORKFLOW,
                 approvalGate = approvalGate,
                 onSnapshot = { snapshot ->
                     withContext(Dispatchers.IO) {
@@ -2994,6 +2996,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     agentProfile = runtimeSelection.profile,
                     retryOfRunId = retryOfRunId,
                     memoryRecallEnabled = effectiveMemoryRecallEnabled,
+                    invocationSource = if (workflowRunId == null) {
+                        AgentInvocationSource.DIRECT
+                    } else {
+                        AgentInvocationSource.WORKFLOW
+                    },
                     approvalGate = approvalGate,
                     onSnapshot = { snapshot ->
                         if (workflowRunId != null) {

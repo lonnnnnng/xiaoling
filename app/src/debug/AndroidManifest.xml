@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- long: 仅 debug 包提供可逆的真机诊断入口；release 不暴露任何可远程触发的设备快照广播。 -->
+        <receiver
+            android:name=".device.DeviceSnapshotDebugReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.longdev.xiaoling.debug.CAPTURE_DEVICE_SNAPSHOT" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".device.DeviceActionDebugReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.longdev.xiaoling.debug.EXECUTE_DEVICE_ACTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".agent.AgentE2eDebugReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.longdev.xiaoling.debug.AGENT_E2E" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".device.DevicePrivacyProbeActivity"
+            android:exported="true"
+            android:theme="@style/Theme.XiaoLing" />
+    </application>
+</manifest>

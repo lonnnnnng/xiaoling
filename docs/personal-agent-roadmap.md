@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库数据/管理 UI、只读 `knowledge.search` 和答案级引用 UI 均已交付。工具结果携带稳定 retrieval/document/revision/chunk/offset 身份并进入规划历史、可信上下文和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要与 Workflow 前序知识输出也不会再次进入模型。Embedding 与通用旧执行栈续跑仍未交付，下一阶段进入设备 Agent 只读观察层。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。当前下一阶段回到通用执行恢复和长任务可靠性；Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 参考项目中最值得学习的不是工具数量，而是以下工程原则：
 
@@ -42,7 +42,7 @@
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
 - 已有 Room v27 知识文档、chunks、FTS4/中文兜底、检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；Embedding 尚未接入。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
-- 没有 AccessibilityService 或其他手机操作能力。
+- AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
 - ViewModel 仍然过重，后续需要继续迁出上下文、网络和运行编排逻辑。
 
 ## 目标架构
@@ -269,31 +269,33 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：在独立开关和明确权限下，完成有限、可观察、可验证的跨应用操作。
 
+当前状态：观察与有限动作层已完成。应用开关默认关闭，健康检查区分关闭、未授权、服务断连和 READY；全部设备工具仅在前台直接 `/agent` 暴露，Workflow/后台双层拒绝。结构化快照、节点/文本预算、30 秒 ref、窗口 generation/路径/指纹失效、敏感节点脱敏、高敏窗口/隐私应用整窗拒绝、首批应用白名单、敏感输入拒绝、必要审批和动作后重新观察验证均已通过 Redmi 验收。Service 使用标准节点动作与系统返回/主页，不具备坐标手势或截图能力。
+
 ### 技术方案
 
 - 使用 AccessibilityService 获取可访问节点树和执行标准动作。
 - 为一次观察生成短生命周期的节点引用，页面变化后引用失效。
-- 优先按节点引用点击、输入和滚动；坐标点击只作为兜底。
-- 截图和视觉模型作为无法通过节点树理解页面时的可选能力。
+- 点击、输入和滚动只按短生命周期节点引用执行；当前不提供坐标兜底。
+- 截图和视觉模型继续后置，不能成为当前节点校验或隐私过滤的绕过路径。
 - 每个改变业务状态的动作后重新观察，不能仅凭点击成功返回判断完成。
 - 增加 Accessibility 健康检查、权限失效提示和稳定态恢复。
 
 ### 第一批设备工具
 
-- `device.snapshot`
-- `device.open_app`
-- `device.back`
-- `device.home`
-- `device.tap_ref`
-- `device.type_text`
-- `device.swipe`
+- 已完成：`device.snapshot`
+- 已完成：`device.open_app`
+- 已完成：`device.back`
+- 已完成：`device.home`
+- 已完成：`device.tap_ref`
+- 已完成：`device.type_text`
+- 已完成：`device.swipe`
 
 ### 安全边界
 
 - 默认关闭，需要单独启用设备 Agent。
 - 支付、下单、删除、发送、发布、授权和系统设置修改必须再次确认。
 - 密码框、验证码、支付页面和隐私应用默认不读取或记录内容。
-- 工具结果和截图按隐私级别控制落盘，release 日志不保存原始敏感内容。
+- 工具结果按隐私级别控制落盘，release 日志不保存原始敏感内容；当前不采集截图。
 - 第一阶段只支持少量已验证应用和流程，不承诺任意 App 通用自动化。
 
 ## 里程碑 6：高级能力
@@ -334,7 +336,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | Agent Profile v1 | 多 Profile 管理、固定 Provider/模型/协议、角色提示、上下文策略、工具/Skill 白名单、记忆硬边界和 Run 快照恢复已完成 | 把 Agent 身份与普通聊天配置分离 |
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型真机验收通过，执行中断按 fail-closed 收敛，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
-| P2 | Accessibility 设备工具 | 进入只读观察层：先做授权、健康检查、snapshot、节点引用和隐私过滤，动作工具尚未开始 | 扩展到真正移动端执行，风险较高 |
+| P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影和答案引用 UI 已完成；Embedding、`/agent` 附件和语音未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
@@ -387,6 +389,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 32. 已完成：Agent 回复新增独立、默认折叠的答案引用区域，只从可信 `MessagePart.Tool`/`VerifiedAgentContext` 投影，不解析模型自由文本。展开后展示文档名、revision、chunk 和半开 offset 区间；Room 使用文档摘要与引用 chunk 的 projection 判定“当前有效 / 历史版本 / 当前不可用”，按最多 900 个 SQLite 参数分批核验，取消旧 Job 不回写失败状态，停用状态优先于历史 revision。文档仍存在时可跳转知识库详情，删除后关闭跳转。320 条 JVM、仅 Redmi 执行的 118 条 instrumentation 均通过；真实 `MainActivity` E2E 覆盖当前引用跳转、替换后的历史标记、跳转当前 revision，以及删除后的不可用状态和清理。Embedding 继续后置。
 
-下一阶段实现设备 Agent 只读观察层：先完成 Accessibility 授权说明、服务健康检查、结构化 snapshot、短生命周期节点引用和隐私过滤。该阶段不执行点击、输入或滚动，不接入 Workflow/后台自动化；只读边界在 Redmi 通过后，再加入 `open_app / back / home / tap_ref / type_text / swipe`、审批和操作后重新观察验证，并只对少量指定 App 做前台端到端验收。通用执行恢复和长任务可靠性完成前，设备工具不得进入 Workflow 或后台自动化。
+33. 已完成：设备 Agent 只读观察层。新增默认关闭的独立开关、系统 Accessibility 入口、四态健康检查、只读预览、`device.snapshot` 和内置 `device-observation` Skill。快照最多 200 个节点/4000 字符，文本不切断 UTF-16 代理对；可操作非敏感节点获得 30 秒 ref，ref 绑定 snapshot、窗口 generation、路径和指纹，任一失败或页面变化立即撤销。敏感字段脱敏，高敏窗口与隐私应用整窗拒绝；Service 不具备手势或截图能力。工具仅在前台直接 `/agent` 暴露，Workflow、后台和关闭状态双层拒绝，旧 Profile/Skill 不自动扩权。337 条 JVM、仅 Redmi 执行的 122 条 instrumentation 均通过；真实 Service 在 instrumentation 外验证主界面 `nodes=27 / refs=8`、敏感探针 `redacted=2 / refs=1`、支付探针 `SENSITIVE_WINDOW`，最终独立开关关闭、系统服务绑定、主界面前台且 crash buffer 为空。
+
+34. 已完成：设备 Agent 有限动作层。新增 `device.open_app / back / home / tap_ref / type_text / swipe` 和 `device-control` Skill；打开应用、点击和输入要求审批，返回、主页和节点滚动为 SAFE。应用白名单只含小灵、系统计算器、时钟和系统设置；输入在审计前拒绝敏感值。节点动作再次核对 snapshot/ref/generation/path/fingerprint，动作后重新 capture 并按包名、桌面、回读文本或 generation 变化验证；首次启动权限页的瞬时空窗口通过只针对窗口过渡的 6×100 ms 有界重试收敛。348 条 JVM、仅 Redmi 执行的 123 条 instrumentation 均通过。Redmi 真实动作覆盖计算器打开/点击、设置滚动/搜索/输入、敏感输入拒绝、返回/主页和时钟启动；真实 `gpt-5.5 + Responses` Run `run-13bcfa28-346f-4a71-b98b-5b44cf28bd92` 完成模型规划、`device.open_app` 审批、动作后验证、Tool Ledger 和最终总结，状态 `COMPLETED`、审批 `APPROVED`、Executor 验证 `PASSED`。首批验收不扩展到任意 App。
+
+下一阶段优先完善通用执行恢复和长任务可靠性。执行任意工具后的审批等待、旧模型协程和通用工具执行栈仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。完成这些可靠性边界后再重新评估设备后台执行。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；除 `notes.create` 与 `memory.remember` 的受限验证恢复外，执行/验证中断仍保持 fail-closed 边界。

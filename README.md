@@ -26,13 +26,15 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
-  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权、前台直接 `/agent` 且 Profile/Skill 允许时可用；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证，Workflow 与后台运行不会看到或执行任何设备工具。
 
 - 设置页
   - 一级入口为「模型提供方管理」。
   - 提供「提示词设置」二级页，可分别配置普通对话、会话摘要 / 记忆和 Agent 回复总结模板。
   - 每类模板支持独立启用、恢复默认和预览最终提示词；普通对话的工具边界、摘要事实边界和 Agent 审计边界不可被自定义模板覆盖。
   - 提供「Agent Skills」管理页，展示内置与本地 Skill，可通过系统文件选择器导入版本化 JSON、启停能力并删除本地 Skill。
+  - 提供「设备 Agent」页，管理默认关闭的独立开关、系统无障碍入口、四态健康检查和有界脱敏快照预览。
   - 提供「工作流」管理页，可保存、启停、手动运行或创建 1 分钟至 7 天的一次性非精确计划，并查看计划时间、实际启动时间、Workflow Run 与步骤结果。
   - 支持新增、编辑、删除模型提供方。
   - 支持 `Base URL`、`API Key` 和名称配置。
@@ -51,6 +53,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
   - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
   - 普通对话不具备工具执行能力，不得声称已经调用工具、操作设备、创建笔记或保存长期记忆；真实工具事实只来自可审计 Agent Run。
+  - AccessibilityService 只执行标准节点动作与系统返回/主页，不具备坐标手势或截图能力；支付窗口与已知密码管理器、Authenticator、钱包/银行应用整窗拒绝，密码、验证码、API Key、Token、手机号、身份证、银行卡和邮箱节点不返回正文、动作或 ref。
 
 ## 使用方式
 
@@ -64,6 +67,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
 6. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
 7. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
+8. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟和系统设置等首批白名单应用；设备工具仍不能进入 Workflow 或后台自动化。
 
 ## 本地 mock 调试
 
@@ -101,9 +105,11 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 309 项 JVM 测试通过，0 失败、0 错误。
-- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 113 条 instrumentation，结果为 `OK (113 tests)`；在线模拟器未参与安装、测试、截图或验收。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 348 项 JVM 测试通过，0 失败、0 错误。
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 123 条 instrumentation，结果为 `OK (123 tests)`；模拟器未参与安装、测试、截图或验收。
 - Room v27 已完成本地知识库、`knowledge.search`、稳定引用链和引用生命周期校验；禁用、替换或删除后，旧消息与 Workflow 输出不会再次进入新模型上下文，历史审计保持不变。
+- Redmi 真实 AccessibilityService 已验证普通主界面快照成功、敏感字段节点脱敏、支付窗口 `SENSITIVE_WINDOW` 整窗拒绝；应用独立开关默认关闭和关闭即撤销 ref 均已验证，系统服务授权与绑定正常。
+- Redmi 有限动作验收覆盖计算器打开/节点点击、设置页滚动/搜索/普通文本输入、敏感输入拒绝、返回、主页和时钟启动；真实 `gpt-5.5 + Responses` `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、动作后验证、Tool Ledger 与最终总结，Run 为 `COMPLETED`。
 - 五份真实项目文档的自然改写、多词分隔、top-1 和负例检索门禁均通过；真实 `gpt-5.5` Agent Run 已完成知识工具规划与引用一致性验收。
 - Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">小灵</string>
+    <string name="device_accessibility_service_label">小灵设备观察</string>
+    <string name="device_accessibility_service_description">仅在用户启用设备 Agent 后读取当前可访问界面，并执行经过应用门禁、用户审批和后置验证的有限前台动作；不使用截图或任意坐标手势。</string>
 </resources>

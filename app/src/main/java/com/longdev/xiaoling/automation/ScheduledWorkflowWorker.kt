@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import com.longdev.xiaoling.agent.AgentBackgroundApprovalRequiredException
 import com.longdev.xiaoling.agent.AgentContextPolicy
 import com.longdev.xiaoling.agent.AgentExecutionOrigin
+import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
@@ -118,6 +119,7 @@ class ScheduledWorkflowExecutor(
             agentProfile = runtimeSelection.profile,
             memoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
             executionOrigin = AgentExecutionOrigin.BACKGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
             approvalGate = RejectingBackgroundApprovalGate,
             onSnapshot = { snapshot -> onAgentRunId(snapshot.run.id) },
         )

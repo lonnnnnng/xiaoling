@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -1455,6 +1456,63 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("缺少必填参数"))
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "tool.validate" }.status)
+    }
+
+    @Test
+    fun sensitiveToolArgumentsAreRejectedBeforeProposedCallIsPersisted() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        var executed = false
+        val definition = ToolDefinition(
+            name = "device.type_text",
+            description = "输入非敏感文本",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("text", "输入文本", required = true, minLength = 1, maxLength = 500),
+            ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    if (arguments["text"].orEmpty().startsWith("sk-")) listOf("敏感文本不能进入设备输入") else emptyList()
+                },
+            ),
+            validateBeforeAudit = true,
+        )
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executed = true
+                return ToolExecutionResult(true, "不应执行")
+            }
+        }
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(
+                        name = definition.name,
+                        arguments = mapOf("text" to "sk-sensitive-value-123456"),
+                        risk = definition.risk,
+                    )
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("预审计校验失败时不应总结")
+            },
+        )
+
+        runCatching { runtime.run("conversation-sensitive", "message-sensitive", "输入敏感值") }
+
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        assertFalse(executed)
+        assertTrue(snapshot.events.none { it.type == "tool.call.proposed" })
+        assertTrue(snapshot.events.none { event ->
+            (event.metadata as? RunEventMetadata.ToolCall)?.arguments?.values?.any { "sk-sensitive" in it } == true
+        })
+        assertTrue(snapshot.run.errorMessage.orEmpty().contains("敏感文本不能进入设备输入"))
     }
 
     @Test

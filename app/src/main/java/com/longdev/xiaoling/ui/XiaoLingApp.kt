@@ -356,6 +356,7 @@ private fun XiaoLingContent(
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
                         onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
                         onOpenAgentProfileManagement = { settingsPane = SettingsPane.AGENT_PROFILE_MANAGEMENT },
+                        onOpenDeviceAgent = { settingsPane = SettingsPane.DEVICE_AGENT },
                         onOpenMemoryManagement = {
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
@@ -468,6 +469,7 @@ private enum class SettingsPane {
     PROVIDER_MANAGEMENT,
     PROMPT_SETTINGS,
     AGENT_PROFILE_MANAGEMENT,
+    DEVICE_AGENT,
     MEMORY_MANAGEMENT,
     KNOWLEDGE_MANAGEMENT,
     SKILL_MANAGEMENT,
@@ -2142,6 +2144,7 @@ private fun SettingsPage(
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
+    onOpenDeviceAgent: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
@@ -2188,6 +2191,10 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.DEVICE_AGENT -> DeviceAgentSettingsPage(
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.MEMORY_MANAGEMENT -> AgentMemoryManagementPage(
                 state = state,
                 viewModel = viewModel,
@@ -2227,6 +2234,7 @@ private fun SettingsPage(
                 onOpenProviderManagement = onOpenProviderManagement,
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenAgentProfileManagement = onOpenAgentProfileManagement,
+                onOpenDeviceAgent = onOpenDeviceAgent,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenKnowledgeManagement = onOpenKnowledgeManagement,
                 onOpenSkillManagement = onOpenSkillManagement,
@@ -2249,6 +2257,7 @@ private fun SettingsRootPage(
     onOpenProviderManagement: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
+    onOpenDeviceAgent: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
     onOpenSkillManagement: () -> Unit,
@@ -2318,6 +2327,13 @@ private fun SettingsRootPage(
                 ?: "配置 Agent 身份、模型、工具、Skill 和记忆边界",
             icon = Icons.Default.Tune,
             onClick = onOpenAgentProfileManagement,
+        )
+
+        SettingsEntryCard(
+            title = "设备 Agent",
+            subtitle = "独立开关、无障碍观察和有限前台动作",
+            icon = Icons.Default.Visibility,
+            onClick = onOpenDeviceAgent,
         )
 
         SettingsEntryCard(

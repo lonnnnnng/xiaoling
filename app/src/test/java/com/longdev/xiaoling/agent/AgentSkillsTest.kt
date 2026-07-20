@@ -33,6 +33,41 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "观察当前手机界面并告诉我有哪些可访问节点",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "device-observation" }
+        assertEquals(setOf("device.snapshot"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+    }
+
+    @Test
+    fun builtInDeviceControlSkillIncludesOnlyBoundedForegroundActions() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "打开应用后点击按钮并输入文字",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "device-control" }
+        assertEquals(
+            setOf(
+                "device.snapshot",
+                "device.open_app",
+                "device.back",
+                "device.home",
+                "device.tap_ref",
+                "device.type_text",
+                "device.swipe",
+            ),
+            skill.toolNames,
+        )
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+    }
+
+    @Test
     fun triggerExampleCanSelectSkillWithoutExactKeyword() = runTest {
         val catalog = AgentSkillCatalog(
             store = TestAgentSkillStore(),
