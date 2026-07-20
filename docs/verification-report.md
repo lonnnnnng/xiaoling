@@ -1386,3 +1386,22 @@ Redmi 真实动作验收：
 下一阶段边界：
 
 - 继续采集更长真实任务的总耗时和系统回收位置，完善提交状态未知或验证事实不完整时的通用执行恢复；仍不原地恢复旧模型协程或 Workflow 后续步骤，不提前引入 Foreground Service、精确定时或设备 Workflow 权限。
+
+## 2026-07-21 通用重试证据可见性
+
+实现与安全边界：
+
+- 任务中心卡片直接显示 `AgentTaskRetryEvidencePresentation` 的分类码、稳定原因和建议动作，不再只显示可能被截断的 `label · code` 单行摘要。
+- 卡片与确认弹窗继续读取同一 `AgentTaskRetryPolicy.assessEvidence()` 结果；本阶段没有放宽 `COMMIT_UNKNOWN`、`COMMITTED_UNVERIFIED` 或 `EVIDENCE_INCOMPLETE` 的确认要求，也没有恢复旧模型协程、旧 Executor 或旧 Workflow。
+
+自动化验证：
+
+- `AgentTaskRetryEvidencePresentationTest` 新增全枚举覆盖，确认六类证据均有非空原因和下一动作；定向 JVM 测试通过。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：383 条 JVM，0 失败、0 错误；lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/AndroidTest APK 并执行完整 `AndroidJUnitRunner`：`OK (125 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
+- 完整 instrumentation 后已卸载测试包、覆盖安装并启动 Debug APK。Provider 仍为 `gpt-5.5`，Base URL 与 Keystore 密文存在；默认 User-Agent 和设备 Agent 开关保持正确，AccessibilityService 最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
+- Redmi 手动 UI 核验已进入「设置 → Agent 任务中心」，确认页面标题、全部/处理中/可重试/已完成筛选和空状态无重叠；当前设备没有可重试 Run，因此本轮未伪造具体证据卡片的截图或文案样本。
+
+下一阶段边界：
+
+- 继续以确定性故障注入完善提交状态未知、验证事实不完整时的通用执行恢复证据；设备工具、精确定时和 Foreground Service 仍保持现有边界。

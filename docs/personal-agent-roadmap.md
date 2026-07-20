@@ -403,6 +403,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 39. 已完成：Workflow 步骤落库后的进程终止与启动对账。`ScheduledWorkflowOrchestrator` 在 `completeWorkflowStep()` 成功返回后、下一步骤启动前提供专用故障注入 seam；模拟进程终止直接退出，不触发普通失败结算、通知或 `Result.retry`。JVM 测试确认第一步只执行一次、输出已保存、第二步仍为 `PENDING` 且没有结算；Room 测试再确认启动 `reconcileInterruptedRuns()` 会保留完成前缀并关闭旧 Run，`retryRun()` 创建关联新 Run，将前缀标为 `SKIPPED` 并设置 `reusedFromStepId`，只从首个未完成步骤继续。生产保持 no-op 注入，不自动恢复旧 Workflow 或复制 Agent Run。382 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 13 条定向 Workflow instrumentation 全部通过。
 
+40. 已完成：通用重试证据可见性。任务中心卡片现在直接显示 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE` 的稳定分类、原因和建议动作；确认弹窗与卡片仍复用同一证据评估，确认提交前继续校验证据码。该切片只改善恢复处置的可解释性，不改变 `COMMIT_UNKNOWN`、`COMMITTED_UNVERIFIED` 和 `EVIDENCE_INCOMPLETE` 的确认门禁，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。383 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
+
 下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

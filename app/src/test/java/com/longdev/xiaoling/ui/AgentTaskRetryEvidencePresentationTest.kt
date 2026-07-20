@@ -31,4 +31,14 @@ class AgentTaskRetryEvidencePresentationTest {
         assertEquals("明确未提交", presentation.label)
         assertTrue(presentation.suggestedAction.contains("直接"))
     }
+
+    @Test
+    fun everyEvidenceCodeHasVisibleReasonAndNextAction() {
+        AgentTaskRetryEvidenceCode.entries.forEach { code ->
+            val presentation = presentAgentTaskRetryEvidence(code)
+
+            assertTrue("detail for $code", presentation.detail.isNotBlank())
+            assertTrue("suggested action for $code", presentation.suggestedAction.isNotBlank())
+        }
+    }
 }

@@ -433,9 +433,9 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过 382 条 JVM、125 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段现共享单调累计 Run 预算，审批及受限恢复继承持久化剩余值，ToolResult 与预算快照的崩溃窗口、Step/Run timeout 和调用方取消边界已有确定性测试。重试前还会统一呈现副作用证据分类，并在确认提交前校验证据码不变；能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善通用执行恢复与长任务可靠性。
+当前状态：第 1 至 6 步已完成并通过 383 条 JVM、125 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段现共享单调累计 Run 预算，审批及受限恢复继承持久化剩余值，ToolResult 与预算快照的崩溃窗口、Step/Run timeout 和调用方取消边界已有确定性测试。重试前还会统一呈现副作用证据分类，并在确认提交前校验证据码不变；能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善通用执行恢复与长任务可靠性。
 
-长任务可靠性现已补充一个确定性断点：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run，关联新 Run 只执行未完成后缀。该能力不等同于原地续跑通用执行栈，也没有扩大设备工具的 Workflow/后台权限。
+长任务可靠性现已补充一个确定性断点：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run，关联新 Run 只执行未完成后缀。重试证据也会在任务中心直接展示分类、原因和建议动作；该能力不等同于原地续跑通用执行栈，也没有扩大设备工具的 Workflow/后台权限。
 
 实施顺序：
 
