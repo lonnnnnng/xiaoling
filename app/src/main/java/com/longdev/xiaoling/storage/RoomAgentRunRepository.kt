@@ -236,7 +236,7 @@ class RoomAgentRunRepository(
                 if (AgentRunResumePolicy.assess(detail).kind != AgentRunResumeKind.APPROVAL_WAIT) {
                     return@mapNotNull null
                 }
-                // long: 进程重建后只保留尚未执行工具的审批边界，并记录一次恢复审计；用户批准后从持久化 ToolCall 继续原 Run。
+                // long: 进程重建后保留链尾尚未执行的审批边界；前序工具必须已有完整成功验证证据，批准后从原 Run 继续且不会重放已完成副作用。
                 appendEvent(
                     runId = run.id,
                     type = "run.recovered",
@@ -244,7 +244,7 @@ class RoomAgentRunRepository(
                     metadata = RunEventMetadata.Recovery(
                         fromStatus = AgentRunStatus.WAITING_APPROVAL,
                         toStatus = AgentRunStatus.WAITING_APPROVAL,
-                        reason = "仅保留待审批且尚未执行工具的 Run",
+                        reason = AgentRunResumePolicy.assess(detail).reason,
                     ),
                 )
                 loadDetail(run)

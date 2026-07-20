@@ -11,6 +11,22 @@ data class AgentPersistedToolRecoveryEvidence(
     val verificationStatus: ToolVerificationStatus?,
 )
 
+data class AgentPendingApprovalRecoveryEvidence(
+    val pendingToolCall: ToolCall,
+    val verifiedPrefix: List<AgentToolExecution>,
+    val source: AgentRunRecoveryEvidenceSource,
+)
+
+sealed interface AgentPendingApprovalRecoveryEvidenceAssessment {
+    data class Available(
+        val evidence: AgentPendingApprovalRecoveryEvidence,
+    ) : AgentPendingApprovalRecoveryEvidenceAssessment
+
+    data class Invalid(
+        val reason: String,
+    ) : AgentPendingApprovalRecoveryEvidenceAssessment
+}
+
 sealed interface AgentRunRecoveryEvidenceAssessment {
     data class Available(
         val source: AgentRunRecoveryEvidenceSource,
@@ -23,6 +39,32 @@ sealed interface AgentRunRecoveryEvidenceAssessment {
 }
 
 object AgentRunRecoveryEvidencePolicy {
+    fun readPendingApproval(detail: AgentRunDetailRecord): AgentPendingApprovalRecoveryEvidenceAssessment {
+        return when (val consistency = AgentToolLedgerConsistencyPolicy.inspect(detail)) {
+            AgentToolLedgerConsistencyAssessment.Empty -> readPendingApprovalEventFallback(detail)
+            is AgentToolLedgerConsistencyAssessment.Invalid -> pendingInvalid(consistency.reason)
+            is AgentToolLedgerConsistencyAssessment.Available -> {
+                val executions = consistency.executions
+                if (executions.isEmpty()) return pendingInvalid("工具账本没有待审批 ToolCall")
+                val pending = executions.last()
+                if (pending.call.validatedEventId == null || pending.result != null) {
+                    return pendingInvalid("待审批 ToolCall 必须已校验且尚未产生工具结果")
+                }
+                val verifiedPrefix = executions.dropLast(1).map { execution ->
+                    execution.toVerifiedExecution()
+                        ?: return pendingInvalid("前序工具必须成功执行并通过验证：${execution.call.id}")
+                }
+                AgentPendingApprovalRecoveryEvidenceAssessment.Available(
+                    AgentPendingApprovalRecoveryEvidence(
+                        pendingToolCall = pending.call.toToolCall(),
+                        verifiedPrefix = verifiedPrefix,
+                        source = AgentRunRecoveryEvidenceSource.LEDGER,
+                    ),
+                )
+            }
+        }
+    }
+
     fun read(detail: AgentRunDetailRecord): AgentRunRecoveryEvidenceAssessment {
         return when (val consistency = AgentToolLedgerConsistencyPolicy.inspect(detail)) {
             AgentToolLedgerConsistencyAssessment.Empty -> readEventFallback(detail)
@@ -123,7 +165,132 @@ object AgentRunRecoveryEvidencePolicy {
         )
     }
 
+    private fun readPendingApprovalEventFallback(
+        detail: AgentRunDetailRecord,
+    ): AgentPendingApprovalRecoveryEvidenceAssessment {
+        val callsById = linkedMapOf<String, MutablePendingApprovalEvidence>()
+        detail.snapshot.events.forEachIndexed { position, event ->
+            val call = (event.metadata as? RunEventMetadata.ToolCall)
+                ?.takeIf { event.type == "tool.call.proposed" || event.type == "tool.call.validated" }
+                ?: return@forEachIndexed
+            val existing = callsById[call.id]
+            if (existing == null) {
+                if (event.type != "tool.call.proposed") {
+                    return pendingInvalid("旧 Run 的 ToolCall 缺少 proposed 事件：${call.id}")
+                }
+                callsById[call.id] = MutablePendingApprovalEvidence(
+                    toolCall = ToolCall(call.id, call.toolName, call.arguments, call.risk),
+                    proposedPosition = position,
+                )
+            } else {
+                if (existing.toolCall != ToolCall(call.id, call.toolName, call.arguments, call.risk)) {
+                    return pendingInvalid("旧 Run 的 ToolCall 身份或参数发生漂移：${call.id}")
+                }
+                if (event.type != "tool.call.validated" || existing.validatedPosition != null) {
+                    return pendingInvalid("旧 Run 的 ToolCall 校验事件重复或顺序异常：${call.id}")
+                }
+                existing.validatedPosition = position
+            }
+        }
+        if (callsById.isEmpty()) return pendingInvalid("旧 Run 没有 typed ToolCall 证据")
+
+        detail.snapshot.events.forEachIndexed { position, event ->
+            when (val metadata = event.metadata) {
+                is RunEventMetadata.ToolResult -> {
+                    if (event.type != "tool.result") return@forEachIndexed
+                    val toolCallId = metadata.toolCallId
+                        ?: return pendingInvalid("旧 Run 的工具结果缺少 ToolCall ID")
+                    val evidence = callsById[toolCallId]
+                        ?.takeIf { it.toolCall.name == metadata.toolName }
+                        ?: return pendingInvalid("旧 Run 的工具结果无法匹配 ToolCall：$toolCallId")
+                    if (evidence.result != null) return pendingInvalid("旧 Run 的同一 ToolCall 存在多个结果：$toolCallId")
+                    evidence.result = metadata
+                    evidence.resultPosition = position
+                }
+
+                is RunEventMetadata.ToolVerification -> {
+                    if (event.type != "tool.verify") return@forEachIndexed
+                    val toolCallId = metadata.toolCallId
+                        ?: return pendingInvalid("旧 Run 的工具验证缺少 ToolCall ID")
+                    val evidence = callsById[toolCallId]
+                        ?.takeIf { it.toolCall.name == metadata.toolName }
+                        ?: return pendingInvalid("旧 Run 的工具验证无法匹配 ToolCall：$toolCallId")
+                    if (evidence.verificationStatus != null) {
+                        return pendingInvalid("旧 Run 的同一 ToolCall 存在多个验证结果：$toolCallId")
+                    }
+                    evidence.verificationStatus = metadata.status
+                    evidence.verifiedPosition = position
+                }
+
+                else -> Unit
+            }
+        }
+
+        val executions = callsById.values.sortedBy { it.proposedPosition }
+        val pending = executions.last()
+        if (pending.validatedPosition == null || pending.result != null || pending.verificationStatus != null) {
+            return pendingInvalid("最后一个 ToolCall 必须已校验且停在执行前")
+        }
+        val verifiedPrefix = executions.dropLast(1).map { evidence ->
+            val result = evidence.result
+                ?: return pendingInvalid("前序工具缺少结果：${evidence.toolCall.id}")
+            if (
+                evidence.validatedPosition == null ||
+                !result.success ||
+                evidence.verificationStatus != ToolVerificationStatus.PASSED ||
+                evidence.proposedPosition >= checkNotNull(evidence.validatedPosition) ||
+                checkNotNull(evidence.validatedPosition) >= checkNotNull(evidence.resultPosition) ||
+                checkNotNull(evidence.resultPosition) >= checkNotNull(evidence.verifiedPosition)
+            ) {
+                return pendingInvalid("前序工具没有形成成功且有序的验证链：${evidence.toolCall.id}")
+            }
+            AgentToolExecution(
+                toolCall = evidence.toolCall,
+                toolResult = result.toExecutionResult(),
+            )
+        }
+        for (index in 0 until executions.lastIndex) {
+            if (checkNotNull(executions[index].verifiedPosition) >= executions[index + 1].proposedPosition) {
+                return pendingInvalid("旧 Run 的工具事件不符合严格串行顺序")
+            }
+        }
+        return AgentPendingApprovalRecoveryEvidenceAssessment.Available(
+            AgentPendingApprovalRecoveryEvidence(
+                pendingToolCall = pending.toolCall,
+                verifiedPrefix = verifiedPrefix,
+                source = AgentRunRecoveryEvidenceSource.EVENT_FALLBACK,
+            ),
+        )
+    }
+
     private fun invalid(reason: String) = AgentRunRecoveryEvidenceAssessment.Invalid(reason)
+
+    private fun pendingInvalid(reason: String) = AgentPendingApprovalRecoveryEvidenceAssessment.Invalid(reason)
+
+    private fun AgentToolLedgerExecutionRecord.toVerifiedExecution(): AgentToolExecution? {
+        val result = result ?: return null
+        if (!result.success || result.verificationStatus != ToolVerificationStatus.PASSED) return null
+        return AgentToolExecution(
+            toolCall = call.toToolCall(),
+            toolResult = result.toEventMetadata().toExecutionResult(),
+        )
+    }
+
+    private fun AgentToolCallRecord.toToolCall() = ToolCall(
+        id = id,
+        name = toolName,
+        arguments = arguments,
+        risk = risk,
+    )
+
+    private fun RunEventMetadata.ToolResult.toExecutionResult() = ToolExecutionResult(
+        success = success,
+        content = content,
+        verified = verified,
+        memoryIdsUsed = memoryIdsUsed,
+        knowledgeReferences = knowledgeReferences,
+        executionReceipt = executionReceipt,
+    )
 
     private fun AgentToolResultRecord.toEventMetadata() = RunEventMetadata.ToolResult(
         toolName = toolName,
@@ -142,5 +309,15 @@ object AgentRunRecoveryEvidencePolicy {
         val toolCall: ToolCall,
         val result: RunEventMetadata.ToolResult,
         var verificationStatus: ToolVerificationStatus? = null,
+    )
+
+    private data class MutablePendingApprovalEvidence(
+        val toolCall: ToolCall,
+        val proposedPosition: Int,
+        var validatedPosition: Int? = null,
+        var result: RunEventMetadata.ToolResult? = null,
+        var resultPosition: Int? = null,
+        var verificationStatus: ToolVerificationStatus? = null,
+        var verifiedPosition: Int? = null,
     )
 }

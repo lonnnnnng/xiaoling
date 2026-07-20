@@ -147,19 +147,17 @@ class MinimalAgentRuntime(
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(detail)
-        require(assessment.canResumeInPlace) { assessment.reason }
+        require(assessment.kind == AgentRunResumeKind.APPROVAL_WAIT) { assessment.reason }
+        val recovery = requireNotNull(assessment.approvalWait) { "恢复策略缺少待审批工具证据" }
         require(approvalDecision.approved) { "未批准的审批请求不能进入恢复执行" }
         require(approval.status == ApprovalRequestStatus.PENDING) { "审批请求已经处理，不能重复恢复 Agent Run" }
         require(approval.runId == detail.snapshot.run.id) { "审批请求不属于当前 Agent Run" }
+        require(approval.id == recovery.approvalRequestId) { "审批请求不是恢复策略确认的链尾请求" }
         val run = detail.snapshot.run
-        val definition = toolRegistry.definition(approval.toolName)
-            ?: error("恢复时找不到已登记工具：${approval.toolName}")
-        val toolCall = ToolCall(
-            id = approval.toolCallId,
-            name = approval.toolName,
-            arguments = approval.arguments,
-            risk = definition.risk,
-        )
+        val toolCall = recovery.toolCall
+        val definition = toolRegistry.definition(toolCall.name)
+            ?: error("恢复时找不到已登记工具：${toolCall.name}")
+        require(definition.risk == toolCall.risk) { "恢复时工具风险等级与原 Run 快照不一致" }
         // long: 单次记忆开关属于原 Run 的安全边界；进程重建后必须从持久化事件还原，不能使用当前 UI 默认值重新开放 memory.search。
         val memoryRecallEnabled = detail.snapshot.events.none { event ->
             event.type == MEMORY_RECALL_DISABLED_EVENT_TYPE
@@ -175,10 +173,12 @@ class MinimalAgentRuntime(
         )
         val state = AgentRuntimeExecutionState(
             runTimeoutMs = options.runTimeoutMs,
-            activeStepId = detail.snapshot.steps
-                .lastOrNull { it.type == "approval" && it.status == AgentStepStatus.RUNNING }
-                ?.id,
+            activeStepId = recovery.approvalStepId,
         )
+        // long: 前序工具的结果、调用额度和循环指纹都属于原 Run；进程重建不能把这些约束清零，也不能重新执行已经验证的工具。
+        state.completedTools += recovery.verifiedPrefix
+        state.executedToolCalls = recovery.verifiedPrefix.size
+        state.toolCallFingerprints += recovery.verifiedPrefix.map { toolCallFingerprint(it.toolCall) }
         return try {
             // long: 审批请求已经持久化，恢复入口只补写批准审计并从原审批步骤继续，不重新规划工具，避免重复模型决策。
             ledger.appendEvent(
@@ -868,11 +868,14 @@ class MinimalAgentRuntime(
     }
 
     private fun checkLoopRisk(toolCall: ToolCall, fingerprints: MutableSet<String>) {
-        val fingerprint = "${toolCall.name}:${toolCall.arguments.toSortedMap()}"
+        val fingerprint = toolCallFingerprint(toolCall)
         if (!fingerprints.add(fingerprint)) {
             throw AgentBudgetExceededException("检测到重复工具调用：${toolCall.name}")
         }
     }
+
+    private fun toolCallFingerprint(toolCall: ToolCall): String =
+        "${toolCall.name}:${toolCall.arguments.toSortedMap()}"
 }
 
 private class ToolRecoveryFailureException(

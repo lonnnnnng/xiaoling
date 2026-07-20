@@ -433,7 +433,7 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过 348 条 JVM、123 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与后置验证。能力仍限定首批 App、前台直接 `/agent` 和节点动作。
+当前状态：第 1 至 6 步已完成并通过 354 条 JVM、124 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与后置验证。能力仍限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，继续完善执行/验证中断恢复与长任务可靠性。
 
 实施顺序：
 

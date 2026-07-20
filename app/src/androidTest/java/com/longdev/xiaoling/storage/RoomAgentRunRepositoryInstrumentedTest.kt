@@ -1089,15 +1089,35 @@ class RoomAgentRunRepositoryInstrumentedTest {
             goal = "恢复待审批任务",
         )
         repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        val pendingCall = ToolCall(
+            id = "tool-call-pending-recovery",
+            name = "memory.remember",
+            arguments = mapOf("content" to "用户喜欢紧凑界面"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        repository.appendStep(
+            run.id,
+            "approval",
+            "应用侧审批",
+            "等待应用侧审批 ${pendingCall.name}",
+            AgentStepStatus.RUNNING,
+        )
         val request = repository.createApprovalRequest(
             conversationId = run.conversationId,
             runId = run.id,
-            toolCall = ToolCall(
-                id = "tool-call-pending-recovery",
-                name = "memory.remember",
-                arguments = mapOf("content" to "用户喜欢紧凑界面"),
-                risk = ToolRisk.REQUIRES_APPROVAL,
-            ),
+            toolCall = pendingCall,
             definition = ToolDefinition(
                 name = "memory.remember",
                 description = "写入长期记忆",
@@ -1153,6 +1173,17 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 arguments = toolCall.arguments,
             ),
         )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.validated",
+            message = "工具调用已校验：${toolCall.name}",
+            metadata = RunEventMetadata.ToolCall(
+                id = toolCall.id,
+                toolName = toolCall.name,
+                risk = toolCall.risk,
+                arguments = toolCall.arguments,
+            ),
+        )
         val request = repository.createApprovalRequest(
             conversationId = run.conversationId,
             runId = run.id,
@@ -1196,6 +1227,119 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(1, detail.snapshot.steps.count { it.type == "llm.plan" })
         assertTrue(detail.snapshot.events.any { it.type == "tool.result" })
         assertTrue(detail.snapshot.events.any { it.type == "tool.verify" })
+    }
+
+    @Test
+    fun secondApprovalAndVerifiedPrefixSurviveDiskRoomReopen() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "xiaoling-second-approval-recovery-test.db"
+        context.deleteDatabase(databaseName)
+        var firstDatabase: XiaoLingDatabase? = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .allowMainThreadQueries()
+            .build()
+        var restartedDatabase: XiaoLingDatabase? = null
+        try {
+            val opened = checkNotNull(firstDatabase)
+            val firstRepository = RoomAgentRunRepository(context, opened)
+            val definition = checkNotNull(FakeToolRegistry().definition("fake.echo"))
+            val run = firstRepository.createRun(
+                conversationId = "conversation-second-approval-disk",
+                userMessageId = "message-second-approval-disk",
+                goal = "恢复第二次工具审批",
+            )
+            val firstCall = ToolCall(
+                id = "tool-call-first-disk",
+                name = definition.name,
+                arguments = mapOf("goal" to "第一步"),
+                risk = definition.risk,
+            )
+            val secondCall = ToolCall(
+                id = "tool-call-second-disk",
+                name = definition.name,
+                arguments = mapOf("goal" to "第二步"),
+                risk = definition.risk,
+            )
+            val firstMetadata = RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments)
+            firstRepository.appendEvent(run.id, "tool.call.proposed", "模型提出第一步", firstMetadata)
+            firstRepository.appendEvent(run.id, "tool.call.validated", "第一步已校验", firstMetadata)
+            firstRepository.appendStep(
+                run.id,
+                AgentStepTypes.TOOL_EXECUTE,
+                "执行工具",
+                "执行第一步",
+                AgentStepStatus.COMPLETED,
+            )
+            firstRepository.appendEvent(
+                run.id,
+                "tool.result",
+                "第一步执行成功",
+                RunEventMetadata.ToolResult(
+                    toolName = firstCall.name,
+                    content = "第一步已完成",
+                    durationMs = 5L,
+                    success = true,
+                    verified = true,
+                    toolCallId = firstCall.id,
+                ),
+            )
+            firstRepository.appendStep(
+                run.id,
+                AgentStepTypes.TOOL_VERIFY,
+                "执行后验证",
+                "第一步验证通过",
+                AgentStepStatus.COMPLETED,
+            )
+            firstRepository.appendEvent(
+                run.id,
+                "tool.verify",
+                "第一步验证通过",
+                RunEventMetadata.ToolVerification(firstCall.name, com.longdev.xiaoling.agent.ToolVerificationStatus.PASSED, firstCall.id),
+            )
+            val secondMetadata = RunEventMetadata.ToolCall(secondCall.id, secondCall.name, secondCall.risk, secondCall.arguments)
+            firstRepository.appendEvent(run.id, "tool.call.proposed", "模型提出第二步", secondMetadata)
+            firstRepository.appendEvent(run.id, "tool.call.validated", "第二步已校验", secondMetadata)
+            val approvalStep = firstRepository.appendStep(
+                run.id,
+                "approval",
+                "应用侧审批",
+                "等待审批第二步",
+                AgentStepStatus.RUNNING,
+            )
+            val approval = firstRepository.createApprovalRequest(
+                conversationId = run.conversationId,
+                runId = run.id,
+                toolCall = secondCall,
+                definition = definition,
+            )
+            firstRepository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+
+            // long: 真正关闭并重开磁盘 Room，证明恢复判断只依赖持久化步骤、审批、typed event 和独立工具账本，不依赖旧进程对象。
+            opened.close()
+            firstDatabase = null
+            val reopened = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+                .also { restartedDatabase = it }
+            val restartedRepository = RoomAgentRunRepository(context, reopened)
+            val recovered = restartedRepository.recoverPendingApprovalRuns().single { it.snapshot.run.id == run.id }
+            val assessment = AgentRunResumePolicy.assess(recovered)
+            val closedCount = restartedRepository.closeInterruptedRuns()
+
+            assertEquals(AgentRunResumeKind.APPROVAL_WAIT, assessment.kind)
+            assertEquals(run.id, recovered.snapshot.run.id)
+            assertEquals(approval.id, assessment.approvalWait?.approvalRequestId)
+            assertEquals(secondCall, assessment.approvalWait?.toolCall)
+            assertEquals(firstCall, assessment.approvalWait?.verifiedPrefix?.single()?.toolCall)
+            assertEquals(approvalStep.id, assessment.approvalWait?.approvalStepId)
+            assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, assessment.approvalWait?.evidenceSource)
+            assertEquals(0, closedCount)
+        } finally {
+            firstDatabase?.close()
+            restartedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 
     @Test

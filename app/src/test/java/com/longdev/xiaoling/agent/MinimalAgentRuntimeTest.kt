@@ -294,6 +294,15 @@ class MinimalAgentRuntimeTest {
             message = "本次 Run 已关闭长期记忆召回",
             metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
         )
+        val pendingCall = ToolCall(
+            id = "tool-call-resume",
+            name = "fake.echo",
+            arguments = mapOf("goal" to created.goal),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingMetadata = RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments)
+        ledger.appendEvent(created.id, "tool.call.proposed", "模型提出工具调用", pendingMetadata)
+        ledger.appendEvent(created.id, "tool.call.validated", "工具调用已校验", pendingMetadata)
         val approvalStep = ledger.appendStep(
             runId = created.id,
             type = "approval",
@@ -308,11 +317,11 @@ class MinimalAgentRuntimeTest {
                     id = "approval-resume",
                     runId = created.id,
                     conversationId = created.conversationId,
-                    toolCallId = "tool-call-resume",
-                    toolName = "fake.echo",
+                    toolCallId = pendingCall.id,
+                    toolName = pendingCall.name,
                     toolDescription = "回显任务",
                     risk = ToolRisk.REQUIRES_APPROVAL,
-                    arguments = mapOf("goal" to created.goal),
+                    arguments = pendingCall.arguments,
                     status = ApprovalRequestStatus.PENDING,
                     decisionReason = null,
                     createdAt = 1L,
@@ -398,6 +407,15 @@ class MinimalAgentRuntimeTest {
             goal = "恢复后工具执行失败",
         )
         ledger.updateRunStatus(created.id, AgentRunStatus.WAITING_APPROVAL)
+        val pendingCall = ToolCall(
+            id = "tool-call-resume-failure",
+            name = "fake.echo",
+            arguments = mapOf("goal" to created.goal),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingMetadata = RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments)
+        ledger.appendEvent(created.id, "tool.call.proposed", "模型提出工具调用", pendingMetadata)
+        ledger.appendEvent(created.id, "tool.call.validated", "工具调用已校验", pendingMetadata)
         ledger.appendStep(
             runId = created.id,
             type = "approval",
@@ -409,11 +427,11 @@ class MinimalAgentRuntimeTest {
             id = "approval-resume-failure",
             runId = created.id,
             conversationId = created.conversationId,
-            toolCallId = "tool-call-resume-failure",
-            toolName = "fake.echo",
+            toolCallId = pendingCall.id,
+            toolName = pendingCall.name,
             toolDescription = "回显任务",
             risk = ToolRisk.REQUIRES_APPROVAL,
-            arguments = mapOf("goal" to created.goal),
+            arguments = pendingCall.arguments,
             status = ApprovalRequestStatus.PENDING,
             decisionReason = null,
             createdAt = 1L,
@@ -2221,6 +2239,198 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == "tool.execute" }.status)
         assertTrue(snapshot.events.any { it.type == "run.timeout" })
     }
+
+    @Test
+    fun secondApprovalRecoveryKeepsVerifiedPrefixAndDoesNotReplayFirstTool() = runTest {
+        val fixture = createInterruptedSecondApprovalFixture()
+        var plannerContext: List<AgentToolExecution> = emptyList()
+
+        val summary = MinimalAgentRuntime(
+            ledger = fixture.ledger,
+            toolRegistry = fixture.registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    error("恢复链尾审批不应重新规划当前工具")
+                }
+
+                override suspend fun proposeNextAction(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentPlanDecision {
+                    plannerContext = completedTools
+                    return AgentPlanDecision.Complete
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+        ).resumeApprovedRun(
+            detail = fixture.detail,
+            approval = fixture.approval,
+            approvalDecision = ApprovalDecision(true, "用户批准第二步"),
+        )
+
+        assertEquals(listOf("第一步", "第二步"), fixture.executedGoals)
+        assertEquals(listOf("第一步", "第二步"), plannerContext.map { it.toolCall.arguments.getValue("goal") })
+        assertEquals(listOf("第一步", "第二步"), summary.verifiedContext.toolExecutions.map { it.arguments.getValue("goal") })
+        assertEquals(fixture.detail.snapshot.run.id, summary.runId)
+    }
+
+    @Test
+    fun secondApprovalRecoveryDoesNotResetToolCallBudget() = runTest {
+        val fixture = createInterruptedSecondApprovalFixture()
+
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = fixture.ledger,
+                toolRegistry = fixture.registry,
+                llm = FakeAgentLlm(),
+                options = AgentRuntimeOptions(maxToolCalls = 1),
+            ).resumeApprovedRun(
+                detail = fixture.detail,
+                approval = fixture.approval,
+                approvalDecision = ApprovalDecision(true, "用户批准第二步"),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentBudgetExceededException)
+        assertEquals(listOf("第一步"), fixture.executedGoals)
+        assertEquals(AgentRunStatus.BUDGET_EXHAUSTED, fixture.ledger.snapshot(fixture.detail.snapshot.run.id).run.status)
+    }
+
+    @Test
+    fun secondApprovalRecoveryDoesNotResetDuplicateCallDetection() = runTest {
+        val fixture = createInterruptedSecondApprovalFixture()
+        val repeatedArguments = mapOf("goal" to "第一步")
+        val repeatedDetail = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                events = fixture.detail.snapshot.events.map { event ->
+                    val metadata = event.metadata as? RunEventMetadata.ToolCall
+                    if (metadata?.id == fixture.approval.toolCallId) {
+                        event.copy(metadata = metadata.copy(arguments = repeatedArguments))
+                    } else {
+                        event
+                    }
+                },
+            ),
+            approvals = listOf(fixture.approval.copy(arguments = repeatedArguments)),
+        )
+        val repeatedApproval = repeatedDetail.approvals.single()
+
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = fixture.ledger,
+                toolRegistry = fixture.registry,
+                llm = FakeAgentLlm(),
+            ).resumeApprovedRun(
+                detail = repeatedDetail,
+                approval = repeatedApproval,
+                approvalDecision = ApprovalDecision(true, "用户批准重复第二步"),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentBudgetExceededException)
+        assertTrue(failure?.message.orEmpty().contains("重复工具调用"))
+        assertEquals(listOf("第一步"), fixture.executedGoals)
+    }
+}
+
+private data class InterruptedSecondApprovalFixture(
+    val ledger: InMemoryAgentRunLedger,
+    val registry: ToolRegistry,
+    val executedGoals: MutableList<String>,
+    val detail: AgentRunDetailRecord,
+    val approval: ApprovalRequestRecord,
+)
+
+private suspend fun createInterruptedSecondApprovalFixture(): InterruptedSecondApprovalFixture {
+    val ledger = InMemoryAgentRunLedger()
+    val executedGoals = mutableListOf<String>()
+    val definition = ToolDefinition(
+        name = "fake.echo",
+        description = "记录执行顺序",
+        risk = ToolRisk.REQUIRES_APPROVAL,
+        inputSchema = listOf(ToolInputField("goal", "步骤目标", required = true)),
+    )
+    val registry = object : ToolRegistry {
+        override fun availableTools(): List<ToolDefinition> = listOf(definition)
+        override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+        override suspend fun execute(call: ToolCall): ToolExecutionResult {
+            executedGoals += call.arguments.getValue("goal")
+            return ToolExecutionResult(true, "已完成 ${call.arguments.getValue("goal")}")
+        }
+    }
+    val firstCall = ToolCall("tool-call-first-resume", definition.name, mapOf("goal" to "第一步"), definition.risk)
+    val secondCall = ToolCall("tool-call-second-resume", definition.name, mapOf("goal" to "第二步"), definition.risk)
+    var approvalCount = 0
+    val interrupted = runCatching {
+        MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = firstCall
+
+                override suspend fun proposeNextAction(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentPlanDecision = when (completedTools.size) {
+                    0 -> AgentPlanDecision.CallTool(firstCall)
+                    1 -> AgentPlanDecision.CallTool(secondCall)
+                    else -> AgentPlanDecision.Complete
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("第二次审批中断前不应总结")
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    approvalCount += 1
+                    return if (approvalCount == 1) {
+                        ApprovalDecision(true, "批准第一步")
+                    } else {
+                        throw AgentProcessTerminationSimulation()
+                    }
+                }
+            },
+        ).run("conversation-second-resume", "message-second-resume", "执行两步任务")
+    }.exceptionOrNull()
+    check(interrupted is AgentProcessTerminationSimulation)
+    val runId = checkNotNull(ledger.lastRunId)
+    val snapshot = ledger.snapshot(runId)
+    val approval = ApprovalRequestRecord(
+        id = "approval-second-resume",
+        runId = runId,
+        conversationId = snapshot.run.conversationId,
+        toolCallId = secondCall.id,
+        toolName = secondCall.name,
+        toolDescription = definition.description,
+        risk = secondCall.risk,
+        arguments = secondCall.arguments,
+        status = ApprovalRequestStatus.PENDING,
+        decisionReason = null,
+        createdAt = System.currentTimeMillis(),
+        expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+        decidedAt = null,
+    )
+    return InterruptedSecondApprovalFixture(
+        ledger = ledger,
+        registry = registry,
+        executedGoals = executedGoals,
+        detail = AgentRunDetailRecord(snapshot = snapshot, approvals = listOf(approval)),
+        approval = approval,
+    )
 }
 
 private class FakeAgentLlm : AgentLlm {

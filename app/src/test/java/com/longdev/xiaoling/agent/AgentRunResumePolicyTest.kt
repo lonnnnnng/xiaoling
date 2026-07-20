@@ -9,10 +9,11 @@ import org.junit.Test
 class AgentRunResumePolicyTest {
     @Test
     fun waitingApprovalWithoutExecutionCanResumeInPlace() {
-        val assessment = AgentRunResumePolicy.assess(detail(status = AgentRunStatus.WAITING_APPROVAL))
+        val assessment = AgentRunResumePolicy.assess(validPendingApprovalDetail())
 
         assertEquals(AgentRunResumeKind.APPROVAL_WAIT, assessment.kind)
         assertTrue(assessment.canResumeInPlace)
+        assertNotNull(assessment.approvalWait)
     }
 
     @Test
@@ -32,13 +33,12 @@ class AgentRunResumePolicyTest {
         )
 
         val assessment = AgentRunResumePolicy.assess(
-            detail(
-                status = AgentRunStatus.WAITING_APPROVAL,
-                events = listOf(
+            validPendingApprovalDetail(
+                extraEvents = listOf(
                     event(
                         AgentEventTypes.PROFILE_SELECTED,
                         RunEventMetadata.AgentProfileSelection(profile),
-                        0L,
+                        -1L,
                     ),
                 ),
             ),
@@ -66,11 +66,10 @@ class AgentRunResumePolicyTest {
         val metadata = RunEventMetadata.AgentProfileSelection(profile)
 
         val assessment = AgentRunResumePolicy.assess(
-            detail(
-                status = AgentRunStatus.WAITING_APPROVAL,
-                events = listOf(
-                    event(AgentEventTypes.PROFILE_SELECTED, metadata, 0L),
-                    event(AgentEventTypes.PROFILE_SELECTED, metadata, 1L),
+            validPendingApprovalDetail(
+                extraEvents = listOf(
+                    event(AgentEventTypes.PROFILE_SELECTED, metadata, -2L),
+                    event(AgentEventTypes.PROFILE_SELECTED, metadata, -1L),
                 ),
             ),
         )
@@ -93,6 +92,83 @@ class AgentRunResumePolicyTest {
 
         assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
         assertFalse(assessment.canResumeInPlace)
+    }
+
+    @Test
+    fun secondApprovalAfterVerifiedToolCanResumeInPlace() {
+        val firstCall = ToolCall(
+            id = "tool-call-first",
+            name = "notes.create",
+            arguments = mapOf("title" to "第一步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-second",
+            name = "memory.remember",
+            arguments = mapOf("note" to "第二步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val detail = pendingApprovalAfterVerifiedPrefix(firstCall, pendingCall)
+
+        val assessment = AgentRunResumePolicy.assess(detail)
+
+        assertEquals(AgentRunResumeKind.APPROVAL_WAIT, assessment.kind)
+        val recovery = checkNotNull(assessment.approvalWait)
+        assertEquals(pendingCall, recovery.toolCall)
+        assertEquals(firstCall, recovery.verifiedPrefix.single().toolCall)
+        assertEquals("step-3", recovery.approvalStepId)
+        assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, recovery.evidenceSource)
+    }
+
+    @Test
+    fun secondApprovalWithMismatchedRequestRequiresRestart() {
+        val firstCall = ToolCall(
+            id = "tool-call-first",
+            name = "notes.create",
+            arguments = mapOf("title" to "第一步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-second",
+            name = "memory.remember",
+            arguments = mapOf("note" to "第二步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val valid = pendingApprovalAfterVerifiedPrefix(firstCall, pendingCall)
+        val drifted = valid.copy(
+            approvals = valid.approvals.map { it.copy(arguments = mapOf("note" to "参数漂移")) },
+        )
+
+        val assessment = AgentRunResumePolicy.assess(drifted)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("不一致"))
+    }
+
+    @Test
+    fun secondApprovalWithUnverifiedPrefixRequiresRestart() {
+        val firstCall = ToolCall(
+            id = "tool-call-first",
+            name = "notes.create",
+            arguments = mapOf("title" to "第一步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-second",
+            name = "memory.remember",
+            arguments = mapOf("note" to "第二步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val valid = pendingApprovalAfterVerifiedPrefix(firstCall, pendingCall)
+        val unverified = valid.copy(
+            toolLedger = valid.toolLedger.copy(
+                results = valid.toolLedger.results.map { it.copy(verificationStatus = null, verifiedEventId = null, verifiedAt = null) },
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(unverified)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
     }
 
     @Test
@@ -522,6 +598,118 @@ class AgentRunResumePolicyTest {
         approvals = approvals,
         toolLedger = toolLedger,
     )
+
+    private fun validPendingApprovalDetail(
+        extraEvents: List<RunEventRecord> = emptyList(),
+    ): AgentRunDetailRecord {
+        val call = ToolCall(
+            id = "tool-call-1",
+            name = "notes.create",
+            arguments = mapOf("title" to "待确认"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        return detail(
+            status = AgentRunStatus.WAITING_APPROVAL,
+            steps = listOf(step("approval", AgentStepStatus.RUNNING)),
+            events = extraEvents + listOf(
+                event("tool.call.proposed", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 2L),
+            ),
+            toolLedger = AgentToolLedgerRecord(
+                calls = listOf(
+                    AgentToolCallRecord(
+                        id = call.id,
+                        runId = "run-1",
+                        toolName = call.name,
+                        risk = call.risk,
+                        arguments = call.arguments,
+                        proposedEventId = "event-1",
+                        validatedEventId = "event-2",
+                        createdAt = 1L,
+                        validatedAt = 2L,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    private fun pendingApprovalAfterVerifiedPrefix(
+        firstCall: ToolCall,
+        pendingCall: ToolCall,
+    ): AgentRunDetailRecord {
+        val firstResult = RunEventMetadata.ToolResult(
+            toolName = firstCall.name,
+            content = "第一步已完成",
+            durationMs = 5L,
+            success = true,
+            verified = true,
+            toolCallId = firstCall.id,
+        )
+        val events = listOf(
+            event("tool.call.proposed", RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments), 1L),
+            event("tool.call.validated", RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments), 2L),
+            event("tool.result", firstResult, 3L),
+            event(
+                "tool.verify",
+                RunEventMetadata.ToolVerification(firstCall.name, ToolVerificationStatus.PASSED, firstCall.id),
+                4L,
+            ),
+            event("tool.call.proposed", RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments), 5L),
+            event("tool.call.validated", RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments), 6L),
+        )
+        return detail(
+            status = AgentRunStatus.WAITING_APPROVAL,
+            steps = listOf(
+                step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, 1),
+                step(AgentStepTypes.TOOL_VERIFY, AgentStepStatus.COMPLETED, 2),
+                step("approval", AgentStepStatus.RUNNING, 3),
+            ),
+            approvals = listOf(
+                ApprovalRequestRecord(
+                    id = "approval-second",
+                    runId = "run-1",
+                    conversationId = "conversation-1",
+                    toolCallId = pendingCall.id,
+                    toolName = pendingCall.name,
+                    toolDescription = "第二步",
+                    risk = pendingCall.risk,
+                    arguments = pendingCall.arguments,
+                    status = ApprovalRequestStatus.PENDING,
+                    decisionReason = null,
+                    createdAt = 6L,
+                    expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+                    decidedAt = null,
+                ),
+            ),
+            events = events,
+            toolLedger = AgentToolLedgerRecord(
+                calls = listOf(
+                    AgentToolCallRecord(firstCall.id, "run-1", firstCall.name, firstCall.risk, firstCall.arguments, "event-1", "event-2", 1L, 2L),
+                    AgentToolCallRecord(pendingCall.id, "run-1", pendingCall.name, pendingCall.risk, pendingCall.arguments, "event-5", "event-6", 5L, 6L),
+                ),
+                results = listOf(
+                    AgentToolResultRecord(
+                        toolCallId = firstCall.id,
+                        runId = "run-1",
+                        eventId = "event-3",
+                        toolName = firstCall.name,
+                        content = firstResult.content,
+                        success = true,
+                        errorMessage = null,
+                        durationMs = firstResult.durationMs,
+                        executorVerified = true,
+                        verificationStatus = ToolVerificationStatus.PASSED,
+                        verifiedEventId = "event-4",
+                        memoryIdsUsed = emptyList(),
+                        replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+                        executionReceipt = null,
+                        createdAt = 3L,
+                        verifiedAt = 4L,
+                    ),
+                ),
+            ),
+        )
+    }
 
     private fun step(type: String, status: AgentStepStatus, sequence: Int = 1) = AgentStepRecord(
         id = "step-$sequence",

@@ -15,10 +15,19 @@ data class AgentCommittedToolRecovery(
     val evidenceSource: AgentRunRecoveryEvidenceSource,
 )
 
+data class AgentApprovalWaitRecovery(
+    val approvalRequestId: String,
+    val toolCall: ToolCall,
+    val approvalStepId: String,
+    val verifiedPrefix: List<AgentToolExecution>,
+    val evidenceSource: AgentRunRecoveryEvidenceSource,
+)
+
 data class AgentRunResumeAssessment(
     val kind: AgentRunResumeKind,
     val reason: String,
     val committedTool: AgentCommittedToolRecovery? = null,
+    val approvalWait: AgentApprovalWaitRecovery? = null,
 ) {
     val canResumeInPlace: Boolean get() = kind != AgentRunResumeKind.RESTART_REQUIRED
 }
@@ -52,33 +61,64 @@ object AgentRunResumePolicy {
         agentProfile: AgentProfileSnapshot?,
     ): AgentRunResumeAssessment {
         val snapshot = detail.snapshot
-        val hasPendingApproval = detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }
-        if (!hasPendingApproval) {
+        val pendingApprovals = detail.approvals.filter { it.status == ApprovalRequestStatus.PENDING }
+        if (pendingApprovals.size != 1) {
             return AgentRunResumeAssessment(
                 kind = AgentRunResumeKind.RESTART_REQUIRED,
-                reason = "Run 没有待处理审批，不能恢复原审批边界",
+                reason = "Run 必须恰好存在一个待处理审批，不能恢复含糊的审批边界",
             )
         }
-        if (agentProfile != null && detail.approvals.any {
-                it.status == ApprovalRequestStatus.PENDING && it.toolName !in agentProfile.allowedToolNames
-            }
-        ) {
+        val pendingApproval = pendingApprovals.single()
+        if (agentProfile != null && pendingApproval.toolName !in agentProfile.allowedToolNames) {
             return restartRequired("待审批工具超出原 Agent Profile 白名单")
         }
-        val hasToolExecution = snapshot.steps.any {
-            it.type == AgentStepTypes.TOOL_EXECUTE || it.type == AgentStepTypes.TOOL_VERIFY
-        } || snapshot.events.any {
-            it.type == "tool.result" || it.type == "tool.verify"
+        val evidence = when (val assessment = AgentRunRecoveryEvidencePolicy.readPendingApproval(detail)) {
+            is AgentPendingApprovalRecoveryEvidenceAssessment.Available -> assessment.evidence
+            is AgentPendingApprovalRecoveryEvidenceAssessment.Invalid -> return restartRequired(assessment.reason)
         }
-        if (hasToolExecution) {
-            return AgentRunResumeAssessment(
-                kind = AgentRunResumeKind.RESTART_REQUIRED,
-                reason = "工具执行或验证已经开始，必须安全重新运行，不能重复原地执行",
-            )
+        val pendingToolCall = evidence.pendingToolCall
+        if (
+            pendingApproval.runId != snapshot.run.id ||
+            pendingApproval.toolCallId != pendingToolCall.id ||
+            pendingApproval.toolName != pendingToolCall.name ||
+            pendingApproval.arguments != pendingToolCall.arguments ||
+            pendingApproval.risk != pendingToolCall.risk
+        ) {
+            return restartRequired("待审批请求与最后一个未执行 ToolCall 不一致")
         }
+        val executionSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
+        val verificationSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
+        if (
+            executionSteps.size != evidence.verifiedPrefix.size ||
+            verificationSteps.size != evidence.verifiedPrefix.size ||
+            executionSteps.any { it.status != AgentStepStatus.COMPLETED } ||
+            verificationSteps.any { it.status != AgentStepStatus.COMPLETED }
+        ) {
+            return restartRequired("前序工具步骤与已验证恢复证据不一致")
+        }
+        val approvalSteps = snapshot.steps.filter { it.type == "approval" }
+        val activeApprovalSteps = approvalSteps.filter { it.status == AgentStepStatus.RUNNING }
+        if (activeApprovalSteps.size != 1 || approvalSteps.lastOrNull()?.id != activeApprovalSteps.single().id) {
+            return restartRequired("无法唯一定位最后一个待审批步骤")
+        }
+        if (snapshot.steps.any { it.sequence > activeApprovalSteps.single().sequence }) {
+            return restartRequired("待审批步骤之后已经出现新的执行步骤")
+        }
+        // long: 进程重建只接受“前序全部验证、链尾尚未执行”的确定边界，恢复后继续当前 ToolCall，不重放任何已完成副作用。
         return AgentRunResumeAssessment(
             kind = AgentRunResumeKind.APPROVAL_WAIT,
-            reason = "工具尚未执行，保留原 Run 和审批请求等待用户决定",
+            reason = if (evidence.verifiedPrefix.isEmpty()) {
+                "首个工具尚未执行，保留原 Run 和审批请求等待用户决定"
+            } else {
+                "前序 ${evidence.verifiedPrefix.size} 个工具均已验证，只恢复最后一个尚未执行的审批请求"
+            },
+            approvalWait = AgentApprovalWaitRecovery(
+                approvalRequestId = pendingApproval.id,
+                toolCall = pendingToolCall,
+                approvalStepId = activeApprovalSteps.single().id,
+                verifiedPrefix = evidence.verifiedPrefix,
+                evidenceSource = evidence.source,
+            ),
         )
     }
 

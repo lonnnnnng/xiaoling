@@ -1243,7 +1243,7 @@ Redmi 真实 AccessibilityService 验收：
 - 支付窗口探针：`success=false reason=SENSITIVE_WINDOW`，未返回节点内容。
 - 全量 instrumentation 后重新安装当前 Debug APK并恢复系统授权；首次安装没有设备开关偏好文件，代码与 instrumentation 均确认默认值为 `false`。最终 `MainActivity` 为 `topResumedActivity`，服务已绑定，crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 先实现 `open_app / back / home`，再实现 `tap_ref / type_text / swipe`；每个动作同步完成风险/隐私分级、必要审批、ref/generation 再校验、动作后重新 snapshot 和业务结果验证。
 - 第一批只对少量明确指定 App 做 Redmi 前台端到端验收，暂不承诺任意 App。通用执行恢复和长任务可靠性完成前，设备工具不进入 Workflow 或后台自动化；精确定时与 Foreground Service 继续依据真实耗时决定。
@@ -1278,7 +1278,28 @@ Redmi 真实动作验收：
 - 切换为该 Provider 已稳定验收的 Responses 模式后，Run `run-13bcfa28-346f-4a71-b98b-5b44cf28bd92` 完成模型规划、`device.open_app` 待审批、用户从前台审批卡片批准、计算器真实启动、动作后 snapshot、Tool Ledger 和最终总结。最终为 `status=COMPLETED / approval=APPROVED / tool=device.open_app / success=true / executorVerified=true / verification=PASSED`。
 - 最终 Debug APK SHA-256 为 `f04bb1658d37680585bcfd2913b4d1a4794613dd0f597ba549ad94014b368877`，已覆盖安装到 Redmi；`versionName=0.1.10 / versionCode=11`，小灵 `MainActivity` 位于前台，无障碍服务 Enabled/Bound，最终快照为 `nodes=32 / refs=14 / redacted=1 / truncated=false`，crash buffer 为空。验收 Profile 保持设备 Agent 开启，便于用户直接查看；Release manifest 不包含三个 Debug Receiver 或隐私探针。
 
+该阶段当时的下一阶段边界：
+
+- 后续“执行任意工具后的审批等待”已在下一节完成；旧模型协程、执行/验证中的通用工具执行栈和更长真实任务的进程回收/重试可靠性仍继续推进。完成前设备工具继续禁止进入 Workflow 或后台自动化。
+- 当前 31 秒后台 Workflow 仍没有引入 Foreground Service 的依据；精确定时继续后置。MCP、日历/通知、远程 Channel、多 Agent 和本地模型保持最后推进。
+
+## 2026-07-20 多步骤审批等待恢复
+
+实现与证据边界：
+
+- `AgentRunResumePolicy` 现支持首步以及第二次、后续工具审批的原 Run 恢复，但只接受一个 `PENDING` Approval 与最后一个已校验、尚无 ToolResult 的 ToolCall 在 ID、工具名、参数和风险上完全一致。
+- 所有前序 ToolCall 必须有成功 ToolResult 和 `PASSED` 验证，`tool.execute / tool.verify / approval` Step 数量、状态和链尾位置必须一致。v20 新 Run 以独立 Tool Ledger 为事实源并用 typed RunEvent 核对；账本异常直接拒绝，账本完全为空的旧 Run 才按严格事件顺序回退。
+- `resumeApprovedRun()` 从持久化证据重建 `completedTools`、已执行工具调用数和调用指纹。批准后只执行当前链尾工具，不重放前序工具；后续规划与最终 `VerifiedAgentContext` 同时包含恢复前和恢复后的可信工具结果。工具预算与重复调用检测不会因进程重建清零。
+- 当前切片不恢复旧模型协程，也不放宽执行/验证中断边界。非白名单工具已经产生结果后仍安全收敛并创建关联新 Run；`notes.create / memory.remember` 保持现有已提交结果只读验证例外。
+
+自动化与 Redmi 验证：
+
+- `./gradlew testDebugUnitTest` 全量通过：354 条 JVM 测试，0 失败、0 错误。新增覆盖第二次审批恢复不重跑第一工具、最终可信上下文包含两步、调用预算与重复调用检测不重置，以及 Approval 漂移、前序未验证和账本异常 fail-closed。
+- `./gradlew assembleDebugAndroidTest` 通过。
+- 仅连接并使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`。定向运行 `RoomAgentRunRepositoryInstrumentedTest#secondApprovalAndVerifiedPrefixSurviveDiskRoomReopen` 通过；测试真实关闭并重开磁盘 Room，确认原 Run ID、第一步已验证前缀、第二次审批、链尾 ToolCall 和审批 Step 完整恢复，`closeInterruptedRuns()` 不会误取消。
+- `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 完整回归通过：124 条 instrumentation，0 失败、0 错误、0 跳过。没有启动、连接或操作 Pixel 模拟器。
+
 下一阶段边界：
 
-- 优先完善执行任意工具后的审批等待、旧模型协程和通用工具执行栈恢复，以及更长真实任务的进程回收/重试可靠性。完成前设备工具继续禁止进入 Workflow 或后台自动化。
-- 当前 31 秒后台 Workflow 仍没有引入 Foreground Service 的依据；精确定时继续后置。MCP、日历/通知、远程 Channel、多 Agent 和本地模型保持最后推进。
+- 继续处理工具已经进入执行/验证后的通用恢复与更长任务进程回收可靠性，优先区分“尚未提交”“提交状态未知”“已提交可只读核验”三类边界。
+- 设备工具继续不进入 Workflow 或后台自动化；Foreground Service 与精确定时仍依据更长真实任务耗时和系统回收证据决定。
