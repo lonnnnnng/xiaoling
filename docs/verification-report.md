@@ -1348,3 +1348,21 @@ Redmi 真实动作验收：
 
 - 继续记录更长真实任务的总耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。
 - 旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
+## 2026-07-21 重试副作用证据分类
+
+实现与安全边界：
+
+- `AgentTaskRetryPolicy.assessEvidence()` 统一读取非空 Tool Ledger；账本为空时严格回退旧 typed RunEvent；账本损坏、锚点漂移或双源不一致输出 `EVIDENCE_INCOMPLETE`，不会退回更宽松的旧事件猜测。
+- 重试证据分类固定为 `NO_SIDE_EFFECT`、`NOT_COMMITTED`、`COMMIT_UNKNOWN`、`COMMITTED_UNVERIFIED`、`COMMITTED_VERIFIED` 和 `EVIDENCE_INCOMPLETE`。明确 `NOT_COMMITTED` 或无高风险副作用证据可以直接创建关联新 Run；提交未知、已提交或证据不完整必须确认。任何分类都不允许恢复旧模型协程、调用旧 Executor 或自动重放工具。
+- 任务中心卡片显示分类码与中文解释；高风险确认弹窗显示具体证据、建议动作和“旧 Run 保持不变”边界。确认按钮提交时重新读取当前 Run：状态不可重试时关闭弹窗，证据码变化时更新弹窗并停止本次旧确认，只有当前证据码与弹窗一致且 Run 仍可重试才继续。
+
+自动化验证：
+
+- JVM 覆盖 SAFE 与非 SAFE、明确 `NOT_COMMITTED`、`UNKNOWN`、`COMMITTED` 未验证、账本漂移、执行中断、确认前证据码变化和 UI 文案映射；现有重试布尔门禁保持通过。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：381 条 JVM，0 失败、0 错误；lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：125 条 instrumentation，0 失败、0 错误、0 跳过；未启动、连接或操作 Pixel 模拟器。
+
+下一阶段边界：
+
+- 继续以确定性故障注入验证更长任务在步骤落库、系统回收和 Worker 重入时的对账；仍不使用 `Result.retry` 复制可能已执行的 Agent Run，也不引入 Foreground Service。

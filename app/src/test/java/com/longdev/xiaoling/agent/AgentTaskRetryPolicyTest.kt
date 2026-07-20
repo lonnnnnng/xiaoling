@@ -76,6 +76,127 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun retryEvidenceDistinguishesSafeToolsFromUncertainWrites() {
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NO_SIDE_EFFECT,
+            AgentTaskRetryPolicy.assessEvidence(
+                v20Detail(callRisk = ToolRisk.SAFE, resultSuccess = true),
+            ).code,
+        )
+        assertEquals(
+            AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            AgentTaskRetryPolicy.assessEvidence(
+                v20Detail(callRisk = ToolRisk.REQUIRES_APPROVAL, resultSuccess = true),
+            ).code,
+        )
+    }
+
+    @Test
+    fun retryEvidenceDistinguishesReceiptStates() {
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidence(
+                v20Detail(
+                    callRisk = ToolRisk.REQUIRES_APPROVAL,
+                    resultSuccess = false,
+                    receiptStatus = ToolExecutionReceiptStatus.NOT_COMMITTED,
+                ),
+            ).code,
+        )
+        assertEquals(
+            AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            AgentTaskRetryPolicy.assessEvidence(
+                v20Detail(
+                    callRisk = ToolRisk.REQUIRES_APPROVAL,
+                    resultSuccess = false,
+                    receiptStatus = ToolExecutionReceiptStatus.UNKNOWN,
+                ),
+            ).code,
+        )
+        assertEquals(
+            AgentTaskRetryEvidenceCode.COMMITTED_UNVERIFIED,
+            AgentTaskRetryPolicy.assessEvidence(
+                v20Detail(
+                    callRisk = ToolRisk.REQUIRES_APPROVAL,
+                    resultSuccess = false,
+                    receiptStatus = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ).code,
+        )
+    }
+
+    @Test
+    fun retryEvidenceTreatsLedgerDriftAsIncomplete() {
+        val complete = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = true,
+        )
+        val call = complete.toolLedger.calls.single()
+        val corrupted = complete.copy(
+            snapshot = complete.snapshot.copy(
+                events = complete.snapshot.events + event(
+                    id = "event-retry-evidence-drift",
+                    type = "tool.verify",
+                    metadata = RunEventMetadata.ToolVerification(
+                        toolName = call.toolName,
+                        status = ToolVerificationStatus.PASSED,
+                        toolCallId = call.id,
+                    ),
+                    createdAt = 4L,
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
+            AgentTaskRetryPolicy.assessEvidence(corrupted).code,
+        )
+    }
+
+    @Test
+    fun retryEvidenceTreatsInterruptedExecutionWithoutResultAsUnknown() {
+        val detail = detail(
+            status = AgentRunStatus.CANCELLED,
+            steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.CANCELLED)),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            AgentTaskRetryPolicy.assessEvidence(detail).code,
+        )
+    }
+
+    @Test
+    fun confirmationIsAcceptedOnlyWhenEvidenceCodeStillMatches() {
+        val unknown = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = false,
+            receiptStatus = ToolExecutionReceiptStatus.UNKNOWN,
+        )
+        val committed = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = false,
+            receiptStatus = ToolExecutionReceiptStatus.COMMITTED,
+        )
+
+        assertEquals(
+            true,
+            AgentTaskRetryPolicy.canConfirmRetry(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, unknown),
+        )
+        assertEquals(
+            false,
+            AgentTaskRetryPolicy.canConfirmRetry(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, committed),
+        )
+        assertEquals(
+            true,
+            AgentTaskRetryPolicy.canConfirmRetry(
+                AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                detail(status = AgentRunStatus.FAILED),
+            ),
+        )
+    }
+
+    @Test
     fun interruptedExecutionRequiresConfirmationBeforeRecovery() {
         val eligibility = AgentTaskRetryPolicy.evaluate(
             detail(

@@ -547,8 +547,15 @@ private fun AgentRetryConfirmationDialog(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
+                val evidence = presentAgentTaskRetryEvidence(pending.evidenceCode)
                 Text(
-                    text = "该任务可能已经执行过有副作用的工具，或在执行/验证阶段被中断。重试会创建新 Run，旧 Run 保持不变；写入工具仍需重新审批。",
+                    text = "${evidence.label} · ${evidence.code.name}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -4612,6 +4619,7 @@ private fun AgentRunHistoryItemCard(
     val run = detail.snapshot.run
     val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
     val retryEligibility = AgentTaskRetryPolicy.evaluate(detail)
+    val retryEvidence = presentAgentTaskRetryEvidence(AgentTaskRetryPolicy.assessEvidence(detail).code)
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
@@ -4695,6 +4703,19 @@ private fun AgentRunHistoryItemCard(
                         Text(if (retrying) "重试中" else "重试", style = MaterialTheme.typography.labelSmall)
                     }
                 }
+            }
+            if (retryEligibility is AgentTaskRetryEligibility.Retryable) {
+                Text(
+                    text = "${retryEvidence.label} · ${retryEvidence.code.name}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                    color = if (retryEligibility.requiresConfirmation) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Text(
                 text = presentAgentRunMetrics(metrics),

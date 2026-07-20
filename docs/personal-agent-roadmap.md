@@ -399,6 +399,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 37. 已完成：`AgentExecutionBudget` 改用可注入单调时钟，规划、工具和总结段共享同一累计 Run 预算，工具 duration 使用同一时钟。新 Run 和每个成功执行段写入 `run.execution_budget.updated` typed 快照；审批及受限恢复继承原 Run 的 total/consumed，旧 Run 先建立零值兼容起点，缺 metadata、越界、总额漂移、累计回退，或最后 ToolResult 晚于最后预算快照时拒绝原地恢复。Step 上限小于剩余预算时报告 Step timeout，二者相等或剩余更少时报告 Run timeout；审批等待不计入，调用方外部超时仍按取消收敛。多段累计、精确边界、恢复剩余 20ms、工具结果/预算崩溃窗口、旧 Run 起点、codec/UI 和损坏证据测试均已覆盖；374 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
 
+38. 已完成：重试前副作用证据分类。`AgentTaskRetryPolicy.assessEvidence()` 统一读取独立 Tool Ledger、旧 typed RunEvent、Receipt 状态和执行/验证中断，输出 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE`。任务中心卡片和确认弹窗展示稳定分类码、原因和建议；确认提交前重新读取当前 Run，状态不可重试时关闭弹窗，证据码变化时更新弹窗并停止本次旧确认，只有分类稳定后才继续。该阶段没有扩大原地恢复能力，仍禁止恢复旧模型协程、调用旧 Executor 或把 UNKNOWN 当作未提交；所有重试继续创建关联新 Run，旧 Run 保持不变。381 条 JVM、lint、Debug 与 AndroidTest 构建，以及仅 Redmi 执行的 125 条 instrumentation 全部通过。
+
 下一阶段继续记录更长真实任务的耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

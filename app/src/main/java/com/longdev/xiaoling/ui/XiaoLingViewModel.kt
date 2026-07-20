@@ -33,6 +33,7 @@ import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
@@ -343,6 +344,7 @@ data class AgentApprovalUiState(
 data class AgentRetryConfirmationUiState(
     val runId: String,
     val goal: String,
+    val evidenceCode: AgentTaskRetryEvidenceCode,
 )
 
 data class WorkflowRetryConfirmationUiState(
@@ -2154,6 +2156,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         pendingAgentRetryConfirmation = AgentRetryConfirmationUiState(
                             runId = runId,
                             goal = detail.snapshot.run.goal,
+                            evidenceCode = AgentTaskRetryPolicy.assessEvidence(detail).code,
                         ),
                     )
                 } else {
@@ -2169,6 +2172,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
         if (detail == null) {
             showValidation("来源 Agent Run 已不存在，请刷新任务中心")
+            return
+        }
+        if (AgentTaskRetryPolicy.evaluate(detail) is AgentTaskRetryEligibility.NotRetryable) {
+            uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+            showValidation("当前状态已变化，请刷新任务中心")
+            return
+        }
+        if (!AgentTaskRetryPolicy.canConfirmRetry(pending.evidenceCode, detail)) {
+            uiState = uiState.copy(
+                pendingAgentRetryConfirmation = pending.copy(
+                    evidenceCode = AgentTaskRetryPolicy.assessEvidence(detail).code,
+                ),
+            )
+            showValidation("重试证据已变化，请重新确认")
             return
         }
         startAgentRunRetry(detail)
