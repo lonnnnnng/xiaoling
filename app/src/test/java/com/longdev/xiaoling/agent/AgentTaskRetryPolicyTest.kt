@@ -64,6 +64,44 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun legacyVerificationWithoutToolCallIdIsEvidenceIncomplete() {
+        val call = RunEventMetadata.ToolCall(
+            id = "tool-call-missing-verification-id",
+            toolName = "memory.remember",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("content" to "用户喜欢紧凑界面"),
+        )
+        val evidence = AgentTaskRetryPolicy.assessEvidence(
+            detail(
+                status = AgentRunStatus.FAILED,
+                events = listOf(
+                    event(type = "tool.call.validated", metadata = call),
+                    event(
+                        type = "tool.result",
+                        metadata = RunEventMetadata.ToolResult(
+                            toolName = call.toolName,
+                            content = "已保存",
+                            durationMs = 20,
+                            success = true,
+                            verified = true,
+                            toolCallId = call.id,
+                        ),
+                    ),
+                    event(
+                        type = "tool.verify",
+                        metadata = RunEventMetadata.ToolVerification(
+                            toolName = call.toolName,
+                            status = ToolVerificationStatus.PASSED,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE, evidence.code)
+    }
+
+    @Test
     fun budgetExhaustedRunIsRetryable() {
         val eligibility = AgentTaskRetryPolicy.evaluate(
             detail(status = AgentRunStatus.BUDGET_EXHAUSTED),

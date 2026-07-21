@@ -57,6 +57,17 @@ internal object AgentTaskRetryEvidencePolicy {
         events: List<RunEventRecord>,
         interruptedDuringSideEffect: Boolean,
     ): AgentTaskRetryEvidenceCode {
+        val hasUnboundToolEvidence = events.any { event ->
+            when (val metadata = event.metadata) {
+                is RunEventMetadata.ToolResult -> event.type == "tool.result" && metadata.toolCallId == null
+                is RunEventMetadata.ToolVerification -> event.type == "tool.verify" && metadata.toolCallId == null
+                else -> false
+            }
+        }
+        if (hasUnboundToolEvidence) {
+            // long: 旧 typed event 缺少稳定调用身份时，重试分类也必须保守升级为证据不完整，不能让 legacy 分支绕过恢复层的 fail-closed 规则。
+            return AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE
+        }
         val successfulTools = events.mapNotNull { event ->
             (event.metadata as? RunEventMetadata.ToolResult)
                 ?.takeIf { it.success }

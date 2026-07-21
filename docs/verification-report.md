@@ -920,7 +920,7 @@ TDD、审查与 Redmi 真机验收：
 
 - 新增 `AgentRunRecoveryEvidencePolicy`：v20 Run 只要存在独立工具账本，就以 Ledger 作为恢复事实源；typed RunEvent 仅核对 proposed、validated、result、verified 原子双写锚点。每个调用必须恰好对应一个结果，身份、字段、派生错误、时间、事件顺序、额外事件或重复 ID 任一异常均 fail-closed，不回退旧事件推断。
 - 恢复序列按 proposed 事件锚点排序，不依赖 ToolResult 查询返回顺序；多步骤只重建已验证成功前缀，并把最后一个验证状态为空的已提交结果交给只读验证。`notes.create / memory.remember` 白名单、`COMMITTED + IDEMPOTENT_BY_KEY` 证据判定、旧模型协程、通用执行栈和 Workflow 后续步骤边界均未扩大。
-- 账本完全为空的 v19 及更早 Run 继续使用 typed event fallback。历史 `tool.verify` 缺少 ToolCall ID 时保持原结果顺序配对，因此同名多步调用不会因升级读取路径而改变恢复结论。
+- 账本完全为空的 v19 及更早 Run 继续使用 typed event fallback。阶段 2026-07-19 当时的旧实现曾让缺少 ToolCall ID 的 `tool.verify` 按原结果顺序配对；第 51 阶段已改为关联未知并 fail-closed，不再让同名多步调用被猜配。
 - 新增共享 `AgentToolLedgerConsistency` 比较器，任务中心告警与恢复策略共同核对调用、结果和验证字段，避免两套双源规则继续漂移。
 
 TDD、审查与 Redmi 验收：
@@ -1639,11 +1639,11 @@ LMK 与清理结果：
 实现与恢复边界：
 
 - `AgentRunRecoveryEvidencePolicy.readEventFallback()` 不再为缺少 `toolCallId` 的 `tool.verify` 按工具名或事件顺序寻找“第一个未验证结果”。结果/验证都必须用稳定 ID 唯一匹配 ToolCall；缺失时返回无效，上层恢复与重试统一保守为 `EVIDENCE_INCOMPLETE`。带完整 ID 的旧 typed event fallback、v20 Ledger-first、审批恢复和已提交工具只读验证保持原能力。
-- TDD 把 `legacySameNameCallsWithoutVerificationIdsKeepSequentialFallback` 改为 `legacyVerificationWithoutToolCallIdFailsClosedInsteadOfGuessingByOrder`。Red 阶段失败在 `Invalid` 断言；最小实现后恢复证据、重试、Resume Policy 与 Runtime 定向测试通过。一个 Runtime fixture 原本声明“已验证前序事实”但漏写验证 ID，已补齐同一 ToolCall ID，不放宽策略。
+- TDD 把 `legacySameNameCallsWithoutVerificationIdsKeepSequentialFallback` 改为 `legacyVerificationWithoutToolCallIdFailsClosedInsteadOfGuessingByOrder`。第一轮 Red 失败在 `Invalid` 断言；审查发现重试策略另有 legacy 分支后，新增 `legacyVerificationWithoutToolCallIdIsEvidenceIncomplete`，第二轮 Red 显示当前仍为普通确认分类。最终恢复与重试两条入口都按缺失 ID fail-closed。一个 Runtime fixture 原本声明“已验证前序事实”但漏写验证 ID，已补齐同一 ToolCall ID，不放宽策略。
 
 门禁与 Redmi 证据：
 
-- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 汇总为 405 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 完成 141 条 instrumentation，0 跳过、0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 汇总为 406 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 完成 141 条 instrumentation，0 跳过、0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
 - Redmi 定向 `ApplicationExitInfoInstrumentedTest` 为 `OK (1 test)`，日志为 `supported=true exits=2 lowMemory=0 fallbackSigkillCandidates=0`。`exit[0]` 是启动 instrumentation 的 `reason=10 / FORCE STOP`，`exit[1]` 是安装包的 `reason=16`；两者都不是 Android 自主 LMK，不能用于证明内存压力回收，也不支持引入 Foreground Service。
 - 完整 instrumentation 后已重新安装 Debug APK，通过 Debug-only 正式入口恢复 Provider/Profile，默认只允许 `device.open_app`；测试包已卸载。AccessibilityService 为 Enabled 与 Bound，`Crashed services:{}`，主应用前台，crash buffer 为空。
 
