@@ -12,7 +12,7 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 events += "request:$taskId"
                 task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
                 task
@@ -43,7 +43,7 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 events += "request:$taskId"
                 task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
                 task
@@ -72,7 +72,7 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 events += "request:$taskId"
                 task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
                 task
@@ -108,7 +108,7 @@ class ScheduledWorkflowStopCoordinatorTest {
                 task = task.copy(status = ScheduledTaskStatus.CANCELLED, completedAt = 5L)
                 task
             },
-            requestRunningStop = { error("待执行任务不应请求运行中停止") },
+            requestScheduledTaskStop = { error("待执行任务不应请求运行中停止") },
             cancelSystemWork = { taskId -> events += "cancel-system:$taskId" },
             waitForWorkerSettlement = { events += "wait" },
             reconcileUnsettledTask = { false },
@@ -132,7 +132,7 @@ class ScheduledWorkflowStopCoordinatorTest {
                 task = runningTask()
                 task
             },
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 events += "request:$taskId"
                 task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
                 task
@@ -162,7 +162,7 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 events += "request:$taskId"
                 task = task.copy(
                     status = ScheduledTaskStatus.STOP_REQUESTED,

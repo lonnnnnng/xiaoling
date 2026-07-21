@@ -562,7 +562,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val stopCoordinator = ScheduledWorkflowStopCoordinator(
             loadTask = repository::getScheduledTask,
             cancelPendingTask = repository::cancelScheduledTask,
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 repository.requestScheduledTaskStop(taskId, "用户停止后台工作流")
             },
             cancelSystemWork = { taskId -> systemCancellations += taskId },
@@ -603,7 +603,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val stopCoordinator = ScheduledWorkflowStopCoordinator(
             loadTask = repository::getScheduledTask,
             cancelPendingTask = repository::cancelScheduledTask,
-            requestRunningStop = { taskId ->
+            requestScheduledTaskStop = { taskId ->
                 repository.requestScheduledTaskStop(taskId, "用户停止后台工作流")
             },
             cancelSystemWork = { taskId -> systemCancellations += taskId },

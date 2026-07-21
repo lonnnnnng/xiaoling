@@ -17,7 +17,7 @@ internal data class ScheduledWorkflowStopResult(
 internal class ScheduledWorkflowStopCoordinator(
     private val loadTask: suspend (String) -> ScheduledTaskRecord?,
     private val cancelPendingTask: suspend (String) -> ScheduledTaskRecord?,
-    private val requestRunningStop: suspend (String) -> ScheduledTaskRecord?,
+    private val requestScheduledTaskStop: suspend (String) -> ScheduledTaskRecord?,
     private val cancelSystemWork: suspend (String) -> Unit,
     private val waitForWorkerSettlement: suspend () -> Unit,
     private val reconcileUnsettledTask: suspend (String) -> Boolean,
@@ -53,7 +53,7 @@ internal class ScheduledWorkflowStopCoordinator(
             else -> return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, initial)
         }
 
-        val stopRequested = requestRunningStop(taskId)
+        val stopRequested = requestScheduledTaskStop(taskId)
             ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
         if (stopRequested.status != ScheduledTaskStatus.STOP_REQUESTED) {
             return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, stopRequested)
@@ -65,7 +65,7 @@ internal class ScheduledWorkflowStopCoordinator(
             runCatching { reconcileUnsettledTask(taskId) }
             val settled = loadTask(taskId)
                 ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null, true)
-            val outcome = if (settled.status in UNSETTLED_STOP_STATUSES) {
+            val outcome = if (ScheduledTaskPolicy.requiresExecutionReconciliation(settled.status)) {
                 ScheduledWorkflowStopOutcome.STOP_REQUESTED
             } else {
                 ScheduledWorkflowStopOutcome.STOPPED
@@ -76,7 +76,7 @@ internal class ScheduledWorkflowStopCoordinator(
             waitForWorkerSettlement()
             val current = loadTask(taskId)
                 ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
-            if (current.status !in UNSETTLED_STOP_STATUSES) {
+            if (!ScheduledTaskPolicy.requiresExecutionReconciliation(current.status)) {
                 return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.STOPPED, current)
             }
         }
@@ -85,18 +85,11 @@ internal class ScheduledWorkflowStopCoordinator(
         runCatching { reconcileUnsettledTask(taskId) }
         val settled = loadTask(taskId)
             ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
-        val outcome = if (settled.status in UNSETTLED_STOP_STATUSES) {
+        val outcome = if (ScheduledTaskPolicy.requiresExecutionReconciliation(settled.status)) {
             ScheduledWorkflowStopOutcome.STOP_REQUESTED
         } else {
             ScheduledWorkflowStopOutcome.STOPPED
         }
         return ScheduledWorkflowStopResult(outcome, settled)
-    }
-
-    private companion object {
-        val UNSETTLED_STOP_STATUSES = setOf(
-            ScheduledTaskStatus.RUNNING,
-            ScheduledTaskStatus.STOP_REQUESTED,
-        )
     }
 }

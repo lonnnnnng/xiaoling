@@ -463,7 +463,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val scheduledWorkflowStopCoordinator = ScheduledWorkflowStopCoordinator(
         loadTask = workflowRepository::getScheduledTask,
         cancelPendingTask = workflowRepository::cancelScheduledTask,
-        requestRunningStop = { taskId ->
+        requestScheduledTaskStop = { taskId ->
             workflowRepository.requestScheduledTaskStop(taskId, "用户请求停止后台工作流")
         },
         cancelSystemWork = scheduledTaskScheduler::cancel,
