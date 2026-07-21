@@ -725,6 +725,34 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun persistedCancelledWorkflowPreventsLateTaskCompletion() = runBlocking {
+        val workflow = repository.createWorkflow("半结算取消保护", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-partial-cancel")
+        val claim = repository.claimScheduledRun(task.id)!!
+        repository.completeRun(
+            workflowRunId = claim.run.run.id,
+            status = WorkflowRunStatus.CANCELLED,
+            errorMessage = "旧进程已取消工作流",
+        )
+
+        val settled = repository.settleScheduledWorkflowRun(
+            taskId = task.id,
+            workflowRunId = claim.run.run.id,
+            workflowStatus = WorkflowRunStatus.COMPLETED,
+            taskStatus = ScheduledTaskStatus.COMPLETED,
+            result = "迟到成功结果",
+        )!!
+
+        // long: Workflow 已先进入终态时必须成为 Task 的持久事实源，迟到成功不能把半结算链改成互相矛盾的状态。
+        assertEquals(ScheduledTaskStatus.CANCELLED, settled.status)
+        assertEquals("旧进程已取消工作流", settled.errorMessage)
+        val workflowRun = repository.runDetail(claim.run.run.id)!!.run
+        assertEquals(WorkflowRunStatus.CANCELLED, workflowRun.status)
+        assertNull(workflowRun.result)
+    }
+
+    @Test
     fun stopRequestedTaskRejectsLateStepResultBeforeConversationAppend() = runBlocking {
         val workflow = repository.createWorkflow("迟到步骤消息保护", "读取当前时间")
         val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)

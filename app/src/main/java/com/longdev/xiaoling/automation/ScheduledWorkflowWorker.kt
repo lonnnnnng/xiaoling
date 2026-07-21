@@ -85,8 +85,16 @@ class ScheduledWorkflowExecutor(
         faultInjector = NoOpScheduledWorkflowFaultInjector,
         settle = ::settle,
         notify = { claim, task, outcome ->
-            val detail = if (task.status == ScheduledTaskStatus.CANCELLED && outcome.taskStatus != ScheduledTaskStatus.CANCELLED) {
-                task.errorMessage ?: "用户已请求停止后台工作流"
+            val detail = if (task.status != outcome.taskStatus) {
+                task.errorMessage ?: when (task.status) {
+                    ScheduledTaskStatus.BLOCKED -> "后台工作流需要前台处理"
+                    ScheduledTaskStatus.COMPLETED -> "后台工作流已根据持久化结果完成"
+                    ScheduledTaskStatus.FAILED -> "后台工作流已根据持久化结果收敛失败"
+                    ScheduledTaskStatus.CANCELLED -> "后台工作流已根据持久化结果安全停止"
+                    ScheduledTaskStatus.SCHEDULED,
+                    ScheduledTaskStatus.RUNNING,
+                    ScheduledTaskStatus.STOP_REQUESTED -> outcome.notificationDetail
+                }
             } else {
                 outcome.notificationDetail
             }
@@ -178,18 +186,16 @@ class ScheduledWorkflowExecutor(
             result = outcome.workflowResult,
             errorMessage = outcome.errorMessage,
         ) ?: claim.task.copy(status = outcome.taskStatus, errorMessage = outcome.errorMessage)
-        val effectiveOutcome = if (task.status == ScheduledTaskStatus.CANCELLED && outcome.taskStatus != ScheduledTaskStatus.CANCELLED) {
-            ScheduledExecutionOutcome.Cancelled(task.errorMessage ?: "用户已请求停止后台工作流")
-        } else {
-            outcome
-        }
-        effectiveOutcome.conversationResult?.let { result ->
-            workflowRepository.appendScheduledConversationResult(
-                conversationId = claim.run.run.conversationId,
-                text = result.text,
-                origin = result.origin,
-                verifiedAgentContext = result.verifiedAgentContext,
-            )
+        // long: 持久化 Workflow 终态可能覆盖迟到执行结果；只有 Task 与本轮 outcome 一致时才追加消息，避免失败/取消链留下相反结论。
+        if (task.status == outcome.taskStatus) {
+            outcome.conversationResult?.let { result ->
+                workflowRepository.appendScheduledConversationResult(
+                    conversationId = claim.run.run.conversationId,
+                    text = result.text,
+                    origin = result.origin,
+                    verifiedAgentContext = result.verifiedAgentContext,
+                )
+            }
         }
         return task
     }

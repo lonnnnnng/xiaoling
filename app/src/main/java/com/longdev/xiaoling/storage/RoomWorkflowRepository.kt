@@ -616,19 +616,44 @@ class RoomWorkflowRepository(
         require(workflowStatus.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
         require(taskStatus in TERMINAL_SCHEDULED_TASK_STATUSES) { "定时任务只能收敛到终态" }
         return database.withTransaction {
-            val task = database.workflowDao().getScheduledTask(taskId)
+            val dao = database.workflowDao()
+            val task = dao.getScheduledTask(taskId)
                 ?: error("定时任务不存在：$taskId")
             require(task.workflowRunId == workflowRunId) { "定时任务与工作流 Run 关联不一致" }
+            val workflowRun = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
+            val persistedWorkflowStatus = WorkflowRunStatus.valueOf(workflowRun.status)
+                .takeIf { it.name in TERMINAL_RUN_STATUSES }
             val stopRequested = task.status == ScheduledTaskStatus.STOP_REQUESTED.name
-            val settledWorkflowStatus = if (stopRequested) WorkflowRunStatus.CANCELLED else workflowStatus
-            val settledTaskStatus = if (stopRequested) ScheduledTaskStatus.CANCELLED else taskStatus
-            val settledResult = result.takeUnless { stopRequested }
+            val settledWorkflowStatus = when {
+                stopRequested -> WorkflowRunStatus.CANCELLED
+                persistedWorkflowStatus != null -> persistedWorkflowStatus
+                else -> workflowStatus
+            }
+            val settledTaskStatus = when {
+                stopRequested -> ScheduledTaskStatus.CANCELLED
+                persistedWorkflowStatus != null -> when (persistedWorkflowStatus) {
+                    WorkflowRunStatus.BLOCKED -> ScheduledTaskStatus.BLOCKED
+                    WorkflowRunStatus.COMPLETED -> ScheduledTaskStatus.COMPLETED
+                    WorkflowRunStatus.FAILED -> ScheduledTaskStatus.FAILED
+                    WorkflowRunStatus.CANCELLED -> ScheduledTaskStatus.CANCELLED
+                    WorkflowRunStatus.QUEUED,
+                    WorkflowRunStatus.RUNNING -> error("活动工作流状态不应作为持久终态")
+                }
+                else -> taskStatus
+            }
+            val settledResult = when {
+                stopRequested -> null
+                persistedWorkflowStatus != null -> workflowRun.result
+                else -> result
+            }
             val settledError = if (stopRequested) {
                 task.errorMessage ?: "用户已请求停止后台工作流"
+            } else if (persistedWorkflowStatus != null) {
+                workflowRun.errorMessage
             } else {
                 errorMessage
             }
-            // long: Workflow 与 Task 必须在同一事务内重新读取停止栅栏并结算；用户点击不能插入两次写入之间制造互相矛盾的终态。
+            // long: Workflow 与 Task 必须在同一事务内重读停止栅栏和既有终态；旧版半结算或迟到 Worker 都不能制造互相矛盾的最终状态。
             completeRun(
                 workflowRunId = workflowRunId,
                 status = settledWorkflowStatus,
