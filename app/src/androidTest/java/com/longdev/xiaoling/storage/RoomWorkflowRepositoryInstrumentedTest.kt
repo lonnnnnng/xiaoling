@@ -735,6 +735,9 @@ class RoomWorkflowRepositoryInstrumentedTest {
             status = WorkflowRunStatus.CANCELLED,
             errorMessage = "旧进程已取消工作流",
         )
+        val stopResult = repository.requestScheduledTaskStop(task.id, "来晚的停止请求")!!
+        assertEquals(ScheduledTaskStatus.CANCELLED, stopResult.status)
+        assertEquals("旧进程已取消工作流", stopResult.errorMessage)
 
         val settled = repository.settleScheduledWorkflowRun(
             taskId = task.id,

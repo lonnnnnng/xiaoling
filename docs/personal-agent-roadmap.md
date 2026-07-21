@@ -427,6 +427,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 49. 已完成：Redmi 正式 8 步 SAFE 后台 Workflow 全成功样本。Task `scheduled-task-b7cae61a-e311-42bc-98a7-f8d601a9be59` 只关联一个 WorkRequest 和一个 Workflow Run，8 个 Agent Run 顺序执行当前时间、会话列表/检索和笔记列表/检索，全部 `COMPLETED` 且 ToolResult 为 `success=true / PASSED`，总耗时约 62.2 秒。先行样本约 49 秒时因模型未调用第 6 步 `memory.search` 安全失败，后两步取消且没有复制 Run。最新 LMK probe 为 `supported=true / exits=6 / lowMemory=0`，6 条均是本轮 instrumentation `FORCE STOP`；生产代码未改变，完整门禁继续为 402 条 JVM、134 条仅 Redmi instrumentation。
 
-50. 已完成：停止异常后的持久化重对账。运行中停止先把 ScheduledTask 原子写为 `STOP_REQUESTED`，再请求 WorkManager 取消；系统取消与即时 fallback 同时失败时仍保留停止意图。Worker 重入、启动恢复和停止兜底都识别该中间态，当前进程所有权只排除真正 `RUNNING` 的链。最终 Workflow/Task 在同一 Room transaction 重新读取栅栏与既有 Workflow 终态并原子收敛；步骤完成与成功消息也共享同一停止栅栏，迟到成功不能写成 `COMPLETED` 或追加到会话，周期下一实例不会在旧任务终态前物化。该状态复用既有 TEXT 列，Room v27 Schema 不变；完整门禁为 404 条 JVM、139 条仅 Redmi instrumentation。
+50. 已完成：停止异常后的持久化重对账。Workflow 仍活动时，运行中停止先把 ScheduledTask 原子写为 `STOP_REQUESTED`，再请求 WorkManager 取消；系统取消与即时 fallback 同时失败时仍保留停止意图。若 Workflow 在停止事务前已经终态，则停止请求不改写历史终态，直接把半结算 Task 对账到该状态。Worker 重入、启动恢复和停止兜底都识别中间态，当前进程所有权只排除真正 `RUNNING` 的链。最终 Workflow/Task 在同一 Room transaction 重新读取栅栏与既有 Workflow 终态并原子收敛；步骤完成与成功消息也共享同一停止栅栏，迟到成功不能写成 `COMPLETED` 或追加到会话，周期下一实例不会在旧任务终态前物化。该状态复用既有 TEXT 列，Room v27 Schema 不变；完整门禁为 404 条 JVM、139 条仅 Redmi instrumentation。
 
 下一阶段继续寻找 Android 自主 LMK，并完善提交未知或验证事实不完整时的通用恢复证据，但不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

@@ -12,7 +12,7 @@
 
 第 49 阶段取得更长的正式 Worker 成功证据：Redmi 上同一 ScheduledTask/WorkRequest/Workflow Run 顺序完成 8 个 SAFE 步骤，总耗时约 62.2 秒；8 个 Agent Run 均为 `COMPLETED`，工具结果全部 `success=true / PASSED`，没有系统重试或复制 Run。先行样本运行约 49 秒，在第 6 步因模型没有调用 `memory.search` 而安全失败，后两步正确取消，同样没有复制执行。最新 LMK probe 显示 `supported=true`、6 条历史退出全部是本轮 instrumentation `FORCE STOP`、`REASON_LOW_MEMORY=0`；仍未取得 Android 自主 LMK，不引入 Foreground Service。
 
-第 50 阶段完成停止异常后的持久化重对账：`RUNNING` 任务收到停止请求时，先在 Room 原子写入非终态 `STOP_REQUESTED`，再取消 WorkManager；即使系统取消和即时 fallback 同时异常，停止意图也不会丢失。Worker 重入、启动恢复和停止兜底都识别该栅栏，当前进程注册表只保护真正 `RUNNING` 的链；Workflow/Task 在同一 Room transaction 重新读取栅栏并原子结算，迟到成功只能收敛为 `Workflow=CANCELLED / Task=CANCELLED`，也不会追加成功会话结果。周期任务在停止请求对账完成前不物化下一实例。实现不复制 Run、不恢复旧执行栈、不引入 Foreground Service，`STOP_REQUESTED` 复用现有 TEXT 状态列，Room v27 Schema 不变。
+第 50 阶段完成停止异常后的持久化重对账：Workflow 仍活动的 `RUNNING` 任务收到停止请求时，先在 Room 原子写入非终态 `STOP_REQUESTED`，再取消 WorkManager；即使系统取消和即时 fallback 同时异常，停止意图也不会丢失。Worker 重入、启动恢复和停止兜底都识别该栅栏，当前进程注册表只保护真正 `RUNNING` 的链；Workflow/Task 在同一 Room transaction 重新读取栅栏并原子结算，迟到成功只能收敛为 `Workflow=CANCELLED / Task=CANCELLED`，也不会追加成功会话结果。若 Workflow 在停止事务前已经持久化终态，则停止请求不伪造新栅栏，而是把半结算 Task 对账到该既有终态。周期任务在停止请求对账完成前不物化下一实例。实现不复制 Run、不恢复旧执行栈、不引入 Foreground Service，`STOP_REQUESTED` 复用现有 TEXT 状态列，Room v27 Schema 不变。
 
 第 43 阶段历史补充：Redmi 完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。该阶段当时的后续重点是更长/自然系统回收样本和通用未知提交处置；当前进度以第 50 阶段段落为准。
 

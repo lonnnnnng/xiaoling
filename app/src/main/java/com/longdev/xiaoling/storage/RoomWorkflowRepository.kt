@@ -362,20 +362,19 @@ class RoomWorkflowRepository(
             .filter { taskIds == null || it.id in taskIds }
             .forEach { task ->
             val workflowRun = task.workflowRunId?.let { runId -> dao.getRun(runId) }
+            val persistedWorkflowStatus = workflowRun?.let { run ->
+                WorkflowRunStatus.valueOf(run.status).takeIf { it.name in TERMINAL_RUN_STATUSES }
+            }
             val stopRequested = task.status == ScheduledTaskStatus.STOP_REQUESTED.name
-            val terminalStatus = if (stopRequested) {
-                ScheduledTaskStatus.CANCELLED
-            } else when (workflowRun?.status) {
-                WorkflowRunStatus.COMPLETED.name -> ScheduledTaskStatus.COMPLETED
-                WorkflowRunStatus.BLOCKED.name -> ScheduledTaskStatus.BLOCKED
-                WorkflowRunStatus.CANCELLED.name -> ScheduledTaskStatus.CANCELLED
-                WorkflowRunStatus.FAILED.name -> ScheduledTaskStatus.FAILED
+            val terminalStatus = when {
+                persistedWorkflowStatus != null -> persistedWorkflowStatus.toScheduledTaskStatus()
+                stopRequested -> ScheduledTaskStatus.CANCELLED
                 else -> ScheduledTaskStatus.FAILED
             }
-            val error = if (stopRequested) {
-                task.errorMessage ?: "用户已请求停止后台工作流"
-            } else {
-                workflowRun?.errorMessage ?: "应用重启后无法恢复后台执行栈"
+            val error = when {
+                persistedWorkflowStatus != null -> workflowRun.errorMessage
+                stopRequested -> task.errorMessage ?: "用户已请求停止后台工作流"
+                else -> workflowRun?.errorMessage ?: "应用重启后无法恢复后台执行栈"
             }
             // long: 启动恢复只依据已收敛的 Workflow Run 关闭旧实例，不重放模型或工具；周期规则随后从未来时间继续，避免重复副作用。
             finishScheduledTask(
@@ -475,6 +474,22 @@ class RoomWorkflowRepository(
             val task = dao.getScheduledTask(taskId) ?: return@withTransaction null
             if (task.status == ScheduledTaskStatus.STOP_REQUESTED.name) return@withTransaction task.toRecord()
             if (task.status != ScheduledTaskStatus.RUNNING.name) return@withTransaction task.toRecord()
+            val workflowRun = task.workflowRunId?.let { workflowRunId -> dao.getRun(workflowRunId) }
+            val persistedWorkflowStatus = workflowRun?.let { run ->
+                WorkflowRunStatus.valueOf(run.status).takeIf { it.name in TERMINAL_RUN_STATUSES }
+            }
+            if (persistedWorkflowStatus != null) {
+                val now = System.currentTimeMillis()
+                // long: Workflow 已经持久化终态说明停止请求来晚了；直接修复半结算 Task，不能写入一个无法覆盖既有终态的伪停止栅栏。
+                val settled = task.copy(
+                    status = persistedWorkflowStatus.toScheduledTaskStatus().name,
+                    completedAt = workflowRun.completedAt ?: now,
+                    errorMessage = workflowRun.errorMessage,
+                    updatedAt = now,
+                )
+                dao.upsertScheduledTask(settled)
+                return@withTransaction settled.toRecord()
+            }
             // long: 用户停止意图必须先于系统取消持久化；即使 WorkManager 或即时兜底随后失败，启动恢复仍能识别并继续收敛同一执行链。
             val updated = task.copy(
                 status = ScheduledTaskStatus.STOP_REQUESTED.name,
@@ -625,33 +640,24 @@ class RoomWorkflowRepository(
                 .takeIf { it.name in TERMINAL_RUN_STATUSES }
             val stopRequested = task.status == ScheduledTaskStatus.STOP_REQUESTED.name
             val settledWorkflowStatus = when {
-                stopRequested -> WorkflowRunStatus.CANCELLED
                 persistedWorkflowStatus != null -> persistedWorkflowStatus
+                stopRequested -> WorkflowRunStatus.CANCELLED
                 else -> workflowStatus
             }
             val settledTaskStatus = when {
+                persistedWorkflowStatus != null -> persistedWorkflowStatus.toScheduledTaskStatus()
                 stopRequested -> ScheduledTaskStatus.CANCELLED
-                persistedWorkflowStatus != null -> when (persistedWorkflowStatus) {
-                    WorkflowRunStatus.BLOCKED -> ScheduledTaskStatus.BLOCKED
-                    WorkflowRunStatus.COMPLETED -> ScheduledTaskStatus.COMPLETED
-                    WorkflowRunStatus.FAILED -> ScheduledTaskStatus.FAILED
-                    WorkflowRunStatus.CANCELLED -> ScheduledTaskStatus.CANCELLED
-                    WorkflowRunStatus.QUEUED,
-                    WorkflowRunStatus.RUNNING -> error("活动工作流状态不应作为持久终态")
-                }
                 else -> taskStatus
             }
             val settledResult = when {
-                stopRequested -> null
                 persistedWorkflowStatus != null -> workflowRun.result
+                stopRequested -> null
                 else -> result
             }
-            val settledError = if (stopRequested) {
-                task.errorMessage ?: "用户已请求停止后台工作流"
-            } else if (persistedWorkflowStatus != null) {
-                workflowRun.errorMessage
-            } else {
-                errorMessage
+            val settledError = when {
+                persistedWorkflowStatus != null -> workflowRun.errorMessage
+                stopRequested -> task.errorMessage ?: "用户已请求停止后台工作流"
+                else -> errorMessage
             }
             // long: Workflow 与 Task 必须在同一事务内重读停止栅栏和既有终态；旧版半结算或迟到 Worker 都不能制造互相矛盾的最终状态。
             completeRun(
@@ -1271,6 +1277,15 @@ class RoomWorkflowRepository(
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
+
+    private fun WorkflowRunStatus.toScheduledTaskStatus(): ScheduledTaskStatus = when (this) {
+        WorkflowRunStatus.BLOCKED -> ScheduledTaskStatus.BLOCKED
+        WorkflowRunStatus.COMPLETED -> ScheduledTaskStatus.COMPLETED
+        WorkflowRunStatus.FAILED -> ScheduledTaskStatus.FAILED
+        WorkflowRunStatus.CANCELLED -> ScheduledTaskStatus.CANCELLED
+        WorkflowRunStatus.QUEUED,
+        WorkflowRunStatus.RUNNING -> error("活动工作流状态不能映射为定时任务终态")
+    }
 
     companion object {
         const val AGENT_RUN_STEP_TYPE = "AGENT_RUN"
