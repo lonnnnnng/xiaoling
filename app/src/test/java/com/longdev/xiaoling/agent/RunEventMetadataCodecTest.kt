@@ -22,6 +22,28 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun llmFailureRoundTripsAndUnknownKindFailsClosed() {
+        val metadata = RunEventMetadata.LlmFailure(
+            phase = AgentLlmPhase.PLAN,
+            kind = AgentLlmFailureKind.CONNECTION,
+            reason = "连接意外中断",
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.LLM_REQUEST_FAILED,
+                RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+        val unknown = RunEventMetadataCodec.decode(
+            AgentEventTypes.LLM_REQUEST_FAILED,
+            "{\"phase\":\"SUMMARIZE\",\"kind\":\"FUTURE_KIND\",\"reason\":\"future\"}",
+        ) as RunEventMetadata.LlmFailure
+        assertEquals(AgentLlmFailureKind.UNKNOWN, unknown.kind)
+    }
+
+    @Test
     fun agentProfileSelectionRoundTripsWithoutDroppingCapabilitySnapshot() {
         val metadata = RunEventMetadata.AgentProfileSelection(
             AgentProfileSnapshot(

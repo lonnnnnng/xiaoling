@@ -55,6 +55,7 @@ object AgentStepTypes {
 
 object AgentEventTypes {
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
+    const val LLM_REQUEST_FAILED = "llm.request.failed"
     const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
     const val PROFILE_SELECTED = "agent.profile.selected"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
@@ -64,6 +65,19 @@ object AgentEventTypes {
 enum class AgentLlmPhase {
     PLAN,
     SUMMARIZE,
+}
+
+enum class AgentLlmFailureKind {
+    AUTHENTICATION,
+    REQUEST_URL,
+    RATE_LIMIT,
+    MODEL,
+    TIMEOUT,
+    DNS,
+    TLS,
+    CONNECTION,
+    RESPONSE,
+    UNKNOWN,
 }
 
 data class AgentRunRecord(
@@ -115,6 +129,12 @@ sealed interface RunEventMetadata {
         val inputTokens: Long?,
         val outputTokens: Long?,
         val totalTokens: Long?,
+    ) : RunEventMetadata
+
+    data class LlmFailure(
+        val phase: AgentLlmPhase,
+        val kind: AgentLlmFailureKind,
+        val reason: String,
     ) : RunEventMetadata
 
     data class ExecutionBudget(

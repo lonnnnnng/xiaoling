@@ -28,6 +28,10 @@ internal object RunEventMetadataCodec {
                 .put("inputTokens", metadata.inputTokens)
                 .put("outputTokens", metadata.outputTokens)
                 .put("totalTokens", metadata.totalTokens)
+            is RunEventMetadata.LlmFailure -> JSONObject()
+                .put("phase", metadata.phase.name)
+                .put("kind", metadata.kind.name)
+                .put("reason", metadata.reason)
             is RunEventMetadata.ExecutionBudget -> JSONObject()
                 .put("totalTimeoutMs", metadata.totalTimeoutMs)
                 .put("consumedMs", metadata.consumedMs)
@@ -120,6 +124,14 @@ internal object RunEventMetadataCodec {
                     inputTokens = json.longOrNull("inputTokens"),
                     outputTokens = json.longOrNull("outputTokens"),
                     totalTokens = json.longOrNull("totalTokens"),
+                )
+                AgentEventTypes.LLM_REQUEST_FAILED -> RunEventMetadata.LlmFailure(
+                    phase = AgentLlmPhase.valueOf(json.requiredString("phase")),
+                    kind = json.stringOrNull("kind")?.let { value ->
+                        runCatching { AgentLlmFailureKind.valueOf(value) }
+                            .getOrElse { AgentLlmFailureKind.UNKNOWN }
+                    } ?: AgentLlmFailureKind.UNKNOWN,
+                    reason = json.requiredString("reason"),
                 )
                 AgentEventTypes.EXECUTION_BUDGET_UPDATED -> RunEventMetadata.ExecutionBudget(
                     totalTimeoutMs = json.getLong("totalTimeoutMs"),

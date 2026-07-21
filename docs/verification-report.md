@@ -1706,3 +1706,20 @@ LMK 与清理结果：
 
 - 第 54 阶段关闭了“模型异常后预算停留在旧快照”以及“总结网络失败覆盖已验证工具事实”的窗口；仍不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
 - 下一阶段继续覆盖流式模型断流、无 telemetry 上游错误分类、后台长任务预算回写竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。
+
+## 2026-07-22 模型上游错误稳定分类
+
+实现与边界：
+
+- 新增 typed `llm.request.failed`、`RunEventMetadata.LlmFailure` 和稳定 `AgentLlmFailureKind`。规划与总结异常会在预算审计后记录阶段、错误分类和脱敏原因，不保存请求正文。
+- `ApiFailure` 被映射为鉴权、请求地址、限流、模型、超时、DNS、TLS、连接、响应和未知分类；流式意外结束、连接重置、broken pipe、stream reset 和 socket closed 统一按 `CONNECTION` 处理。缺少网络分类的 `AgentLlmResponseException` 按 `RESPONSE`，其他未知异常及未来枚举按 `UNKNOWN` fail-closed。
+- 本阶段只稳定失败事实和用户可见事件，没有伪造网络 telemetry，也没有恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+
+门禁与 Redmi 证据：
+
+- 新增 Runtime、metadata codec 和事件展示契约；完整 JVM XML 汇总为 413 条，0 失败、0 错误。Lint、Debug APK 和 AndroidTest APK 构建通过。
+- `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 完成 141 条 instrumentation，0 跳过、0 失败；仅使用 Redmi，未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 55 阶段已完成流式模型断流和无 telemetry 上游异常的稳定 typed 分类。下一阶段继续验证部分流式 delta 已经可见后的收敛、后台长任务预算写回竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。

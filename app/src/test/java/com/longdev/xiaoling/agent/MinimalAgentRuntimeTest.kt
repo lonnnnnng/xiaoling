@@ -184,6 +184,10 @@ class MinimalAgentRuntimeTest {
             (snapshot.events[telemetryIndex].metadata as RunEventMetadata.LlmRequest).phase,
         )
         assertEquals(
+            AgentLlmFailureKind.RESPONSE,
+            (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).kind,
+        )
+        assertEquals(
             AgentExecutionBudgetSnapshot(totalTimeoutMs = 120_000, consumedMs = 37),
             (budgetAfterTelemetry.metadata as RunEventMetadata.ExecutionBudget).let {
                 AgentExecutionBudgetSnapshot(it.totalTimeoutMs, it.consumedMs)
@@ -223,6 +227,10 @@ class MinimalAgentRuntimeTest {
         assertEquals(0, snapshot.events.count { it.type == "run.failed" })
         val fallback = snapshot.events.single { it.type == "llm.summarize.fallback" }
         assertEquals("summary connection reset", (fallback.metadata as RunEventMetadata.Reason).reason)
+        assertEquals(
+            AgentLlmFailureKind.UNKNOWN,
+            (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).kind,
+        )
         assertEquals("fake.echo", summary.verifiedContext.toolName)
         assertTrue(summary.responseText.contains("总结网络中断"))
     }

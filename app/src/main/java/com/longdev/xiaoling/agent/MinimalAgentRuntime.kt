@@ -7,6 +7,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.longdev.xiaoling.network.ApiFailure
+import com.longdev.xiaoling.network.FailureKind
 import org.json.JSONObject
 
 internal fun interface MonotonicClock {
@@ -447,12 +449,14 @@ class MinimalAgentRuntime internal constructor(
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
                 // long: 模型已消耗的单调预算必须和失败遥测一起落库；否则进程重建或任务重试会看见过期预算快照，误以为这段网络等待从未发生。
                 persistExecutionBudget(run.id, "模型规划失败后的执行预算", state.executionBudget)
+                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error)
                 throw error
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 // long: 网络、解析和网关异常没有统一 telemetry 时仍要冻结已消耗预算，再由外层写入失败终态，不能留下只写 Step 的半份审计。
                 persistExecutionBudget(run.id, "模型规划异常后的执行预算", state.executionBudget)
+                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error)
                 throw error
             }
             appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, planCall.telemetry)
@@ -666,12 +670,14 @@ class MinimalAgentRuntime internal constructor(
         } catch (error: AgentLlmResponseException) {
             appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, error.telemetry)
             persistExecutionBudget(run.id, "模型总结失败后的执行预算", state.executionBudget)
+            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error)
             summaryFallbackReason = error.message ?: "模型总结失败"
             null
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             persistExecutionBudget(run.id, "模型总结异常后的执行预算", state.executionBudget)
+            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error)
             summaryFallbackReason = error.message ?: "模型总结异常"
             null
         }
@@ -763,6 +769,41 @@ class MinimalAgentRuntime internal constructor(
                 totalTokens = telemetry.totalTokens,
             ),
         )
+    }
+
+    private suspend fun appendLlmFailureEvent(
+        runId: String,
+        phase: AgentLlmPhase,
+        error: Throwable,
+    ) {
+        // long: 失败分类只保存稳定枚举和可读原因，不把网络异常对象或请求正文写入 Room；流式断流、HTTP 错误和解析失败因此共享同一审计入口。
+        ledger.appendEvent(
+            runId = runId,
+            type = AgentEventTypes.LLM_REQUEST_FAILED,
+            message = "模型请求失败：${phase.name.lowercase()}",
+            metadata = RunEventMetadata.LlmFailure(
+                phase = phase,
+                kind = error.toAgentLlmFailureKind(),
+                reason = error.message ?: "未知模型请求错误",
+            ),
+        )
+    }
+
+    private fun Throwable.toAgentLlmFailureKind(): AgentLlmFailureKind {
+        val apiFailure = this as? ApiFailure ?: cause as? ApiFailure
+        return when (apiFailure?.kind) {
+            FailureKind.AUTHENTICATION -> AgentLlmFailureKind.AUTHENTICATION
+            FailureKind.REQUEST_URL -> AgentLlmFailureKind.REQUEST_URL
+            FailureKind.RATE_LIMIT -> AgentLlmFailureKind.RATE_LIMIT
+            FailureKind.MODEL -> AgentLlmFailureKind.MODEL
+            FailureKind.TIMEOUT -> AgentLlmFailureKind.TIMEOUT
+            FailureKind.DNS -> AgentLlmFailureKind.DNS
+            FailureKind.TLS -> AgentLlmFailureKind.TLS
+            FailureKind.CONNECTION -> AgentLlmFailureKind.CONNECTION
+            FailureKind.RESPONSE -> AgentLlmFailureKind.RESPONSE
+            FailureKind.UNKNOWN -> AgentLlmFailureKind.UNKNOWN
+            null -> if (this is AgentLlmResponseException) AgentLlmFailureKind.RESPONSE else AgentLlmFailureKind.UNKNOWN
+        }
     }
 
     private fun buildFallbackResponse(

@@ -8,6 +8,7 @@ import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunRestartDisposition
 import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
+import com.longdev.xiaoling.agent.AgentLlmFailureKind
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
@@ -125,6 +126,25 @@ class AgentRunEventPresentationTest {
         assertEquals("PLAN", presentation.fields.single { it.label == "阶段" }.value)
         assertEquals("4096 B", presentation.fields.single { it.label == "Prompt" }.value)
         assertEquals("150", presentation.fields.single { it.label == "总 Token" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
+    fun llmFailureShowsStableKindWithoutRequestContent() {
+        val presentation = presentAgentRunEvent(
+            type = "llm.request.failed",
+            message = "模型请求失败：plan",
+            metadata = RunEventMetadata.LlmFailure(
+                phase = com.longdev.xiaoling.agent.AgentLlmPhase.PLAN,
+                kind = AgentLlmFailureKind.CONNECTION,
+                reason = "连接意外中断",
+            ),
+        )
+
+        assertEquals("模型请求失败", presentation.summary)
+        assertEquals("PLAN", presentation.fields.single { it.label == "阶段" }.value)
+        assertEquals("CONNECTION", presentation.fields.single { it.label == "错误码" }.value)
+        assertEquals("连接意外中断", presentation.fields.single { it.label == "原因" }.value)
         assertNull(presentation.rawFallback)
     }
 

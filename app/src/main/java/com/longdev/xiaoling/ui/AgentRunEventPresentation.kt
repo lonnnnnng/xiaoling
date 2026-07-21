@@ -72,6 +72,7 @@ private val eventTitles = mapOf(
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
     "llm.request.completed" to "模型请求完成",
+    "llm.request.failed" to "模型请求失败",
     "run.execution_budget.updated" to "执行预算更新",
 )
 
@@ -115,6 +116,14 @@ internal fun presentAgentRunEvent(
                 "输入 Token" to metadata.inputTokens?.toString(),
                 "输出 Token" to metadata.outputTokens?.toString(),
                 "总 Token" to metadata.totalTokens?.toString(),
+            ),
+        )
+        is RunEventMetadata.LlmFailure -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "阶段" to metadata.phase.name,
+                "错误码" to metadata.kind.name,
+                "原因" to metadata.reason,
             ),
         )
         is RunEventMetadata.ExecutionBudget -> AgentRunEventPresentation(
