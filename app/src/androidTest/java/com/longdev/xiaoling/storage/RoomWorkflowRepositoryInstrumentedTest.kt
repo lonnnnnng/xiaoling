@@ -477,6 +477,49 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun workerReentryPreservesStopIntentBeforeAgentRunIsLinked() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "Agent 关联前停止",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("生成回顾"),
+            ),
+        )
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-stop-before-agent")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val agentRunCountBefore = agentRepository.recentRunDetails(limit = 20).size
+        val requested = repository.requestScheduledTaskStop(task.id, "用户请求停止后台工作流")!!
+        assertEquals(ScheduledTaskStatus.STOP_REQUESTED, requested.status)
+        assertNull(repository.runDetail(claim.run.run.id)!!.run.agentRunId)
+
+        val coordinator = ScheduledWorkflowReentryCoordinator(
+            loadTask = repository::getScheduledTask,
+            loadWorkflowRun = repository::runDetail,
+            closeAgentRun = { error("Agent 尚未关联时不应关闭或创建 Agent Run") },
+            reconcileWorkflowRun = { workflowRunId ->
+                repository.reconcileInterruptedRuns(workflowRunIds = setOf(workflowRunId)) > 0
+            },
+            reconcileScheduledTask = { taskId ->
+                repository.reconcileInterruptedScheduledTasks(taskIds = setOf(taskId)) > 0
+            },
+        )
+
+        assertTrue(coordinator.reconcile(task.id))
+
+        val reconciledRun = repository.runDetail(claim.run.run.id)!!
+        // long: 用户的停止意图早于 Agent Run 创建；Worker 重入必须把整条链视为取消，不能用“关联 Agent 缺失”改写成执行失败。
+        assertEquals(WorkflowRunStatus.CANCELLED, reconciledRun.run.status)
+        assertEquals(
+            listOf(WorkflowStepStatus.CANCELLED, WorkflowStepStatus.CANCELLED),
+            reconciledRun.steps.map { it.status },
+        )
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
+        assertEquals(agentRunCountBefore, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
     fun userStopFallbackCancelsOnlyLinkedRunningChainWithoutCreatingNewRun() = runBlocking {
         val workflow = repository.createWorkflow("停止后台任务", "读取当前时间")
         val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)

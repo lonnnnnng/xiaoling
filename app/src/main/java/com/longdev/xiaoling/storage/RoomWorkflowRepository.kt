@@ -1091,6 +1091,17 @@ class RoomWorkflowRepository(
             .filter { workflowRunIds == null || it.id in workflowRunIds }
         var reconciled = 0
         active.forEach { workflowRun ->
+            val scheduledTask = dao.getScheduledTaskByWorkflowRunId(workflowRun.id)
+            if (scheduledTask?.status == ScheduledTaskStatus.STOP_REQUESTED.name) {
+                // long: 用户可能在 Worker 认领任务后、Agent Run 创建前发起停止；持久化停止栅栏优先于“Agent 关联缺失”恢复规则，避免把主动取消误记为执行失败。
+                completeRun(
+                    workflowRun.id,
+                    WorkflowRunStatus.CANCELLED,
+                    errorMessage = scheduledTask.errorMessage ?: "用户已请求停止后台工作流",
+                )
+                reconciled += 1
+                return@forEach
+            }
             val agentRun = workflowRun.agentRunId?.let { database.agentRunDao().getRun(it) }
             when {
                 agentRun == null -> {

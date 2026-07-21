@@ -1614,15 +1614,15 @@ LMK 与清理结果：
 实现与安全边界：
 
 - `ScheduledTaskStatus` 新增非终态 `STOP_REQUESTED`。Workflow 仍活动时，运行中停止先通过 `requestScheduledTaskStop()` 在 Room transaction 中完成 `RUNNING→STOP_REQUESTED`，再调用 WorkManager 取消；重复停止幂等。系统取消和即时 fallback 同时抛出时，协调器返回“停止请求已持久化”，不再让异常抹掉用户意图。若 Workflow 已先终态，事务直接把半结算 Task 对账到该状态，停止请求返回既有终态而不写栅栏。
-- Worker 重入、停止 fallback 与启动恢复均扫描 `RUNNING / STOP_REQUESTED`。当前进程注册表只排除仍正常 `RUNNING` 的 Task→Workflow→Agent 链；已经写入停止请求的任务即使仍登记所有权，也会进入启动恢复并按 Agent→Workflow→Task 收敛，且不创建第二个 Run。
+- Worker 重入、停止 fallback 与启动恢复均扫描 `RUNNING / STOP_REQUESTED`。当前进程注册表只排除仍正常 `RUNNING` 的 Task→Workflow→Agent 链；已经写入停止请求的任务即使仍登记所有权，也会进入启动恢复并按 Agent→Workflow→Task 收敛，且不创建第二个 Run。若 Worker 已认领并建立 Workflow Run、但 Agent Run 尚未关联，Workflow 对账会先读取唯一关联 ScheduledTask 的停止栅栏，直接把 Workflow 与未完成步骤取消，再由 Task 对账收敛为取消；不会落入“关联 Agent 缺失”失败分支。
 - `completeScheduledWorkflowStep()` 在同一 Room transaction 中先核对 Task↔Workflow 关联和停止栅栏，再一起提交步骤终态与 `AGENT_RESULT` 消息。停止已落库时抛出取消，步骤保持未完成且会话不出现迟到成功消息。`settleScheduledWorkflowRun()` 同样在一个 transaction 中重新读取栅栏、Task 和关联 Workflow；已有 Workflow 终态优先映射到 Task，只有 Workflow 仍活动时 `STOP_REQUESTED` 才固定取消，迟到的 `COMPLETED` 不能覆盖。持久状态与本轮 outcome 不一致时不追加消息或显示相反通知。
 - `finishScheduledTask()` 同样保证 `STOP_REQUESTED` 只能进入 `CANCELLED`。该状态不是终态，Daily/Weekly 下一实例在旧任务完成对账前不会物化。实现复用既有 TEXT 状态列，没有 Room migration，正式 Schema 仍为 v27；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤，不使用 `Result.retry`，不引入 Foreground Service。
 
 定向与完整门禁：
 
 - 最后一项 Task/Workflow 关联校验落地后，JVM 定向执行 `ScheduledWorkflowStopCoordinatorTest.stopKeepsDurableRequestWhenSystemCancellationAndFallbackFail` 与 `ScheduledWorkflowReentryCoordinatorTest.stopRequestedTaskReconcilesPersistedChainInsteadOfExecutingAgain`，2/2 通过。
-- 仅在 Redmi `wsvwypiz7xwslvl7` 定向执行 `persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup`、`lateWorkerCompletionCannotOverwritePersistedStopRequest`、`stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation`，3/3 通过。双轴审查先后补充定位步骤消息竞态与半结算终态竞态；新增 `stopRequestedTaskRejectsLateStepResultBeforeConversationAppend`、`persistedCancelledWorkflowPreventsLateTaskCompletion`，后者还确认 Workflow 已先取消时来晚的停止请求直接返回 `CANCELLED`。最后与迟到停止结算测试定向复跑 2/2 通过。
-- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 实际汇总为 404 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 启动并完成 139 条 instrumentation，0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 定向执行 `persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup`、`lateWorkerCompletionCannotOverwritePersistedStopRequest`、`stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation`，3/3 通过。双轴审查先后补充定位步骤消息竞态与半结算终态竞态；新增 `stopRequestedTaskRejectsLateStepResultBeforeConversationAppend`、`persistedCancelledWorkflowPreventsLateTaskCompletion`，后者还确认 Workflow 已先取消时来晚的停止请求直接返回 `CANCELLED`。最终审查又发现 Agent Run 尚未关联时通用重入会把停止写成失败；新增 `workerReentryPreservesStopIntentBeforeAgentRunIsLinked`，Red 阶段在 Redmi 得到 `expected:<CANCELLED> but was:<FAILED>`，修复后单测 1/1、相邻重入与持久停止 3/3 均通过，并确认未创建 Agent Run、Workflow/两条未完成步骤/Task 全部取消。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 实际汇总为 404 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 启动并完成 140 条 instrumentation，0 跳过、0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
 
 真机恢复状态：
 

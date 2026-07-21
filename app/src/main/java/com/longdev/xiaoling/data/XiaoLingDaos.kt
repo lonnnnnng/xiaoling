@@ -549,6 +549,9 @@ interface WorkflowDao {
     @Query("SELECT * FROM scheduled_tasks WHERE id = :taskId")
     suspend fun getScheduledTask(taskId: String): ScheduledTaskEntity?
 
+    @Query("SELECT * FROM scheduled_tasks WHERE workflowRunId = :workflowRunId LIMIT 1")
+    suspend fun getScheduledTaskByWorkflowRunId(workflowRunId: String): ScheduledTaskEntity?
+
     @Query("SELECT * FROM scheduled_tasks WHERE status IN ('RUNNING', 'STOP_REQUESTED') ORDER BY actualStartedAt ASC")
     suspend fun getRecoverableScheduledTasks(): List<ScheduledTaskEntity>
 
