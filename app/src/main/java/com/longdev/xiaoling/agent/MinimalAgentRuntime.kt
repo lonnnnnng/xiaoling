@@ -445,6 +445,14 @@ class MinimalAgentRuntime internal constructor(
                 }
             } catch (error: AgentLlmResponseException) {
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
+                // long: 模型已消耗的单调预算必须和失败遥测一起落库；否则进程重建或任务重试会看见过期预算快照，误以为这段网络等待从未发生。
+                persistExecutionBudget(run.id, "模型规划失败后的执行预算", state.executionBudget)
+                throw error
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                // long: 网络、解析和网关异常没有统一 telemetry 时仍要冻结已消耗预算，再由外层写入失败终态，不能留下只写 Step 的半份审计。
+                persistExecutionBudget(run.id, "模型规划异常后的执行预算", state.executionBudget)
                 throw error
             }
             appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, planCall.telemetry)
@@ -653,6 +661,18 @@ class MinimalAgentRuntime internal constructor(
         } catch (error: AgentTimeoutException) {
             // long: 工具已经执行并验证成功时，最终总结只是展示层增强；上游总结超时不应把已经完成的本地写入任务改判失败。
             summaryFallbackReason = error.message ?: "模型总结超时"
+            persistExecutionBudget(run.id, "模型总结超时后的执行预算", state.executionBudget)
+            null
+        } catch (error: AgentLlmResponseException) {
+            appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, error.telemetry)
+            persistExecutionBudget(run.id, "模型总结失败后的执行预算", state.executionBudget)
+            summaryFallbackReason = error.message ?: "模型总结失败"
+            null
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            persistExecutionBudget(run.id, "模型总结异常后的执行预算", state.executionBudget)
+            summaryFallbackReason = error.message ?: "模型总结异常"
             null
         }
         summaryCall?.let {

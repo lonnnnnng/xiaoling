@@ -435,4 +435,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 53. 已完成：ToolResult/预算/验证三段持久化边界。`AgentRuntimeFaultInjector` 分别暴露 Result 事件写入后、预算快照写入后和 `tool.verify` 事件写入后的进程终止 seam；Result 已落库但后续预算快照缺失时，`AgentRunResumePolicy` 固定以 `EXECUTION_BUDGET_INVALID` 拒绝原地恢复，不能因为 Receipt 为 `COMMITTED` 就猜测剩余执行预算。`tool.verify` 已落库但验证 Step 尚未收尾时，Runtime 只补控制面和本地可信总结，不重复 Executor、ToolResult 或验证事件。生产默认注入器保持 no-op，不扩大旧模型协程、旧 Executor 或 Workflow 后续步骤恢复。完整门禁为 409 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
 
-下一阶段继续覆盖模型/网络中断后的遥测与预算回写竞态、Receipt 已落库但回读验证失败的重试可见性，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+54. 已完成：模型/网络异常预算审计与总结兜底。规划请求带 `AgentLlmResponseException` 时先持久化失败 telemetry，再写入本次已消耗的执行预算；没有统一 telemetry 的网络/网关异常也至少冻结预算后进入失败终态。总结请求网络失败不再把已成功验证的工具 Run 改判为失败，而是写入 fallback 事件、冻结预算并使用本地可信回复完成原 Run。Receipt 回读验证失败继续写入稳定 `RecoveryFailure`，旧写入事实保持 `COMMIT_UNKNOWN` 并要求确认后新 Run 重试，不调用旧 Executor。完整门禁为 411 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
+
+下一阶段继续覆盖流式模型断流、遥测缺失时的上游错误分类和后台长任务中的预算写回竞态，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

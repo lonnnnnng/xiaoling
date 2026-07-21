@@ -1688,3 +1688,21 @@ LMK 与清理结果：
 
 - 第 53 阶段把 Receipt/Result、执行预算和验证事实之间的竞态变成了可重复验证的持久化边界，并证明证据缺口保持 fail-closed；它没有扩大通用原地恢复范围。
 - 下一切片继续覆盖模型/网络中断后的遥测与预算回写竞态、Receipt 回读验证失败的重试可见性，并继续寻找 Android 自主 LMK。Foreground Service、设备 Workflow/后台权限、精确定时和后续生态能力保持后置。
+
+## 2026-07-22 模型异常预算审计与总结本地兜底
+
+实现与恢复边界：
+
+- `continuePlanning()` 捕获带 `AgentLlmResponseException` 的规划失败时，先追加 `llm.request.completed` telemetry，再写入“模型规划失败后的执行预算”；没有统一 telemetry 的网络/网关异常也会写入“模型规划异常后的执行预算”，然后由外层进入 FAILED。这样失败 Run 的成本和单调预算不会停在上一个成功快照。
+- `completeRun()` 对总结阶段的超时、带 telemetry 异常和普通网络异常分别保留预算快照；总结异常只写 `llm.summarize.fallback` 并使用本地可信工具事实构造回复，不把已经成功的 ToolResult/`PASSED` 验证改判为失败。
+- `committedMemoryRecoveryFailurePersistsStableReasonAndSuggestedAction` 增加重试边界断言：回读失败仍为 `COMMIT_UNKNOWN`，Run 可重试但 `requiresConfirmation=true`，typed `RecoveryFailure` 的错误码、原因和建议动作保持稳定，不调用旧写入 Executor。
+
+门禁与 Redmi 证据：
+
+- 新增规划网络异常 telemetry/预算顺序测试与总结网络失败本地兜底测试；完整 JVM XML 汇总为 411 条，0 失败、0 错误。`./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --no-daemon --console=plain` 通过。
+- `adb devices -l` 仅列出 Redmi `wsvwypiz7xwslvl7`。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 完成 141 条 instrumentation，0 跳过、0 失败；未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 54 阶段关闭了“模型异常后预算停留在旧快照”以及“总结网络失败覆盖已验证工具事实”的窗口；仍不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+- 下一阶段继续覆盖流式模型断流、无 telemetry 上游错误分类、后台长任务预算回写竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。

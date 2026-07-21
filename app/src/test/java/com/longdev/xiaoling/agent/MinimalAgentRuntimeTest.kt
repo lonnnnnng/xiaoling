@@ -132,6 +132,102 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun planningResponseFailurePersistsTelemetryBeforeFailureBudgetSnapshot() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val clock = object : MonotonicClock {
+            var now = 0L
+            override fun nowMs(): Long = now
+        }
+        val telemetry = AgentLlmRequestTelemetry(
+            model = "gpt-test",
+            latencyMs = 37L,
+            firstByteLatencyMs = 12L,
+            promptBytes = 1_024,
+            inputTokens = 12L,
+            outputTokens = null,
+            totalTokens = null,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall =
+                    error("规划失败时不应返回工具")
+
+                override suspend fun proposeNextActionWithTelemetry(
+                    goal: String,
+                    tools: List<ToolDefinition>,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentLlmCallResult<AgentPlanDecision> {
+                    clock.now = 37L
+                    throw AgentLlmResponseException("上游连接中断", IllegalStateException("connection reset"), telemetry)
+                }
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String =
+                    error("规划失败时不应总结")
+            },
+            monotonicClock = clock,
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-plan-network", "message-plan-network", "网络中断预算审计")
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        val telemetryIndex = snapshot.events.indexOfFirst { it.type == AgentEventTypes.LLM_REQUEST_COMPLETED }
+        val budgetAfterTelemetry = snapshot.events.drop(telemetryIndex + 1).first {
+            it.type == AgentEventTypes.EXECUTION_BUDGET_UPDATED
+        }
+
+        assertTrue(failure is AgentLlmResponseException)
+        assertTrue(telemetryIndex >= 0)
+        assertEquals(
+            AgentLlmPhase.PLAN,
+            (snapshot.events[telemetryIndex].metadata as RunEventMetadata.LlmRequest).phase,
+        )
+        assertEquals(
+            AgentExecutionBudgetSnapshot(totalTimeoutMs = 120_000, consumedMs = 37),
+            (budgetAfterTelemetry.metadata as RunEventMetadata.ExecutionBudget).let {
+                AgentExecutionBudgetSnapshot(it.totalTimeoutMs, it.consumedMs)
+            },
+        )
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+    }
+
+    @Test
+    fun summaryNetworkFailureKeepsVerifiedToolFactsAndUsesLocalFallback() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val delegate = FakeAgentLlm()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall =
+                    delegate.proposeToolCall(goal, tools)
+
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String =
+                    error("总结网络中断时不应调用旧接口")
+
+                override suspend fun summarizeWithTelemetry(
+                    goal: String,
+                    completedTools: List<AgentToolExecution>,
+                ): AgentLlmCallResult<String> {
+                    throw IllegalStateException("summary connection reset")
+                }
+            },
+        )
+
+        val summary = runtime.run("conversation-summary-network", "message-summary-network", "总结网络中断")
+        val snapshot = ledger.snapshot(summary.runId)
+
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertEquals(AgentRunStatus.COMPLETED, snapshot.run.status)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(0, snapshot.events.count { it.type == "run.failed" })
+        val fallback = snapshot.events.single { it.type == "llm.summarize.fallback" }
+        assertEquals("summary connection reset", (fallback.metadata as RunEventMetadata.Reason).reason)
+        assertEquals("fake.echo", summary.verifiedContext.toolName)
+        assertTrue(summary.responseText.contains("总结网络中断"))
+    }
+
+    @Test
     fun runCompletesWithAuditableSteps() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
@@ -693,6 +789,14 @@ class MinimalAgentRuntimeTest {
         assertEquals("MEMORY_DISABLED", metadata.code)
         assertEquals("原长期记忆已禁用", metadata.reason)
         assertEquals("请先启用该记忆，再创建新 Run 重试。", metadata.suggestedAction)
+        val retryEvidence = AgentTaskRetryPolicy.assessEvidence(
+            AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList()),
+        )
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, retryEvidence.code)
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList())),
+        )
     }
 
     @Test
