@@ -60,6 +60,9 @@ import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledWorkflowProcessExecutionRegistry
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.StartupRecoveryCoordinator
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.ScheduledTaskScheduler
@@ -441,6 +444,28 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         processExecutionRegistry = ScheduledWorkflowProcessExecutionRegistry.process,
         loadAgentRunIds = agentRunRepository::activeRunIds,
         loadWorkflowCandidates = workflowRepository::startupRecoveryCandidates,
+    )
+    private val scheduledWorkflowStopFallback = ScheduledWorkflowStopFallbackCoordinator(
+        loadTask = workflowRepository::getScheduledTask,
+        loadWorkflowRun = workflowRepository::runDetail,
+        cancelAgentRun = agentRunUseCase::cancelActiveRunForScheduledTaskStop,
+        cancelWorkflowRun = { workflowRunId, reason ->
+            workflowRepository.completeRun(
+                workflowRunId = workflowRunId,
+                status = WorkflowRunStatus.CANCELLED,
+                errorMessage = reason,
+            )
+        },
+        cancelScheduledTask = { taskId, reason ->
+            workflowRepository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+        },
+    )
+    private val scheduledWorkflowStopCoordinator = ScheduledWorkflowStopCoordinator(
+        loadTask = workflowRepository::getScheduledTask,
+        cancelPendingTask = workflowRepository::cancelScheduledTask,
+        cancelSystemWork = scheduledTaskScheduler::cancel,
+        waitForWorkerSettlement = { delay(100L) },
+        reconcileUnsettledTask = scheduledWorkflowStopFallback::reconcile,
     )
     private val backupManager = XiaoLingBackupManager(application)
     private var streamingThrottleJob: Job? = null
@@ -1413,35 +1438,60 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun cancelScheduledTask(taskId: String) {
         if (taskId in uiState.mutatingScheduledTaskIds) return
         val task = uiState.scheduledTasks.firstOrNull { it.id == taskId }
-        if (task == null || task.status != ScheduledTaskStatus.SCHEDULED) return
+        if (task == null || task.status !in setOf(ScheduledTaskStatus.SCHEDULED, ScheduledTaskStatus.RUNNING)) return
         uiState = uiState.copy(
             mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds + taskId,
             workflowError = null,
         )
         viewModelScope.launch {
             try {
-                val systemCancelFailed = withContext(Dispatchers.IO) {
-                    workflowRepository.cancelScheduledTask(taskId)
-                    try {
-                        scheduledTaskScheduler.cancel(taskId)
-                        false
-                    } catch (_: Throwable) {
-                        true
+                val operationResult = withContext(Dispatchers.IO) {
+                    val stopped = scheduledWorkflowStopCoordinator.stop(taskId)
+                    when (stopped.outcome) {
+                        ScheduledWorkflowStopOutcome.SCHEDULE_CANCELLED -> OperationResult(
+                            true,
+                            "计划已取消",
+                            if (stopped.systemCancellationFailed) {
+                                "本地门禁已取消；残留系统任务到时会安全跳过"
+                            } else {
+                                "这个一次性计划不会再执行"
+                            },
+                        )
+                        ScheduledWorkflowStopOutcome.STOPPED -> OperationResult(
+                            true,
+                            "后台任务已停止",
+                            if (stopped.systemCancellationFailed) {
+                                "系统取消失败，Agent、工作流与调度实例已通过持久化账本兜底收敛"
+                            } else {
+                                "Agent、工作流与调度实例已按持久化状态收敛"
+                            },
+                        )
+                        ScheduledWorkflowStopOutcome.STOP_REQUESTED -> OperationResult(
+                            true,
+                            "已请求停止后台任务",
+                            "系统取消已提交，任务账本仍在收敛；稍后刷新可查看终态",
+                        )
+                        ScheduledWorkflowStopOutcome.NOT_RUNNING -> OperationResult(
+                            true,
+                            "后台任务已经结束",
+                            stopped.task?.status?.name.orEmpty(),
+                        )
+                        ScheduledWorkflowStopOutcome.NOT_FOUND -> OperationResult(
+                            false,
+                            "停止失败",
+                            "调度实例不存在",
+                        )
                     }
                 }
                 uiState = uiState.copy(
                     mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds - taskId,
-                    result = OperationResult(
-                        true,
-                        "计划已取消",
-                        if (systemCancelFailed) "本地门禁已取消；残留系统任务到时会安全跳过" else "这个一次性计划不会再执行",
-                    ),
+                    result = operationResult,
                 )
                 refreshWorkflows()
             } catch (error: Throwable) {
                 uiState = uiState.copy(
                     mutatingScheduledTaskIds = uiState.mutatingScheduledTaskIds - taskId,
-                    workflowError = error.message ?: "取消计划失败",
+                    workflowError = error.message ?: "停止或取消任务失败",
                 )
                 refreshWorkflows()
             }

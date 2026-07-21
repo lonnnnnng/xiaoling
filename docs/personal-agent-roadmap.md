@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；AgentRun 终态也由 Room 原子保护，不再被迟到协程覆盖。启动恢复还会先冻结旧候选，并排除当前进程已注册 Worker 的 Task→Workflow→Agent 链，避免前台初始化取消刚启动的后台执行。模型与工具段使用单调时钟共享累计执行预算。第 46 阶段已补充约 28.5 秒真实模型链路、强制 Doze、trim-memory 和无压力对照，第 47 阶段已完成当前进程所有权隔离；仍缺 Android 自主 LMK 证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复还会先冻结旧候选，并排除当前进程已注册 Worker 的 Task→Workflow→Agent 链，避免前台初始化取消刚启动的后台执行；后台 `RUNNING` 实例已有用户可见停止入口和定向兜底收敛。模型与工具段使用单调时钟共享累计执行预算。第 48 阶段已取得约 21.8 秒三步 SAFE 成功样本和约 32.6 秒真实停止样本；设备支持 LMK 原因报告，但 11 条历史退出中 `REASON_LOW_MEMORY=0`，仍缺 Android 自主 LMK 证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 第 43 阶段的同一 WorkRequest Redmi 冷启动重入已完成真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；该阶段当时的重点是更长/自然回收样本。第 46 阶段已进一步补充 Doze、受控内存和无压力对照，第 47 阶段解决了同一进程前台启动恢复与新 Worker 并发时的所有权隔离；当前仍缺自然 LMK。
 
@@ -249,13 +249,13 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 目标：让用户保存可重复任务，并能查看每次执行结果。
 
-当前状态：已交付 `Workflow / WorkflowStepDefinition / WorkflowRun / WorkflowStep / WorkflowSchedule / ScheduledTask` Room Ledger、1 至 8 步创建/编辑、前台与后台顺序执行、步骤级输入/输出快照和幂等键、失败新 Run 重试、一次性与 Daily/Weekly 计划、结果通知和后台 blocked 审批；前台三步骤重试、定义编辑冻结历史、后台三步骤与审批恢复继续下一步骤均已通过真机。第 46 阶段补充约 28.5 秒 8 步定义探针、强制 Doze 延迟、trim-memory 与无压力对照；第 47 阶段加入进程内 Worker 注册表和启动恢复候选快照，当前 Worker 链不会被同一进程的前台初始化误收敛。后台执行栈断点续跑和精确定时仍待评估，当前证据仍不需要 Foreground Service。
+当前状态：已交付 `Workflow / WorkflowStepDefinition / WorkflowRun / WorkflowStep / WorkflowSchedule / ScheduledTask` Room Ledger、1 至 8 步创建/编辑、前台与后台顺序执行、步骤级输入/输出快照和幂等键、失败新 Run 重试、一次性与 Daily/Weekly 计划、结果通知和后台 blocked 审批；前台三步骤重试、定义编辑冻结历史、后台三步骤与审批恢复继续下一步骤均已通过真机。第 47 阶段加入进程内 Worker 注册表和启动恢复候选快照；第 48 阶段为 `RUNNING` 实例加入可见停止、Task→Workflow→Agent 定向取消、缺链/系统取消异常兜底，并冻结终态后的子账本迟到写入。后台执行栈断点续跑和精确定时仍待评估，当前证据仍不需要 Foreground Service。
 
 ### 要做什么
 
 - 已完成：`Workflow`、`WorkflowStepDefinition`、`WorkflowRun`、`WorkflowStep`、`WorkflowSchedule` 与一次性/周期 `ScheduledTask` 数据表及关联字段。
 - 已完成第一版：WorkManager 负责带联网约束的一次性可延迟任务；Daily/Weekly 规则每次物化一个未来 OneTime 实例，确需准确时间时再评估 AlarmManager 和精确闹钟权限。
-- 暂不引入：真实三步骤后台 Run 约 31 秒，8 步定义探针约 28.5 秒后安全失败；进程内 Worker 所有权隔离已完成，继续记录自然 LMK 和更长成功任务。只有超过 WorkManager 适用边界、任务对用户足够重要或需要持续可见停止入口时，才使用 WorkManager 的 long-running worker/Foreground Service 支持。
+- 暂不引入：真实三步 SAFE 后台 Run 已在约 21.8 秒成功，8 步定义探针约 28.5 秒后安全失败，真实运行中停止样本约 32.6 秒；进程内 Worker 所有权与可见停止均已完成。设备虽支持 LMK 原因报告，但当前历史记录中没有 `REASON_LOW_MEMORY`。只有超过 WorkManager 适用边界或任务对用户足够重要时，才使用 WorkManager 的 long-running worker/Foreground Service 支持。
 - 已完成：每次执行保存计划/实际时间、步骤定义快照、输入/输出、重试来源、结果和失败原因。
 - 已完成：步骤使用稳定幂等键；重试只复用连续成功前缀，旧 Run 保持不变，已启动失败步骤需要二次确认。
 - 已完成：后台任务遇到需要用户确认的敏感操作时进入 blocked 状态，不得静默执行。
@@ -337,7 +337,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | Skill 按需加载 | 内置与本地声明式 Skill、版本化 JSON、严格导入校验、Room Catalog、规则选择、工具白名单、启停/删除管理和 Run 审计已完成 | 控制 Prompt 和工具面增长 |
 | P1 | Agent Profile v1 | 多 Profile 管理、固定 Provider/模型/协议、角色提示、上下文策略、工具/Skill 白名单、记忆硬边界和 Run 快照恢复已完成 | 把 Agent 身份与普通聊天配置分离 |
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
-| P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；多步骤真实模型、强制 Doze 与受控内存样本已取证，进程内 Worker 所有权与启动恢复候选隔离已完成，执行中断仍按 fail-closed 收敛；仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
+| P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止和定向兜底已完成，执行中断仍按 fail-closed 收敛；已有 21.8 秒成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影和答案引用 UI 已完成；Embedding、`/agent` 附件和语音未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
@@ -423,4 +423,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 47. 已完成：当前进程 Worker 所有权与启动恢复隔离。`ScheduledWorkflowWorker` 在任何 Repository 构造、重入对账和 claim 前以引用计数注册 Task；`StartupRecoveryCoordinator` 在同一互斥边界冻结活动 AgentRun、WorkflowRun 和 RUNNING ScheduledTask，快照期间新 Worker 等待，已注册 Task 对应的 Workflow/Agent 链从旧候选中排除。ViewModel 后续审批恢复、受限验证恢复、关闭旧 Agent、Workflow 对账和 ScheduledTask 对账全部只消费该候选快照。纯 Kotlin 测试覆盖快照后的 Worker 不进入旧候选；Redmi Room 测试确认旧链收敛，当前链保持活动并可完成，Agent Run 数不增加。实现不使用墙上时间，不新增 owner token/Schema，不恢复旧模型协程、未知提交执行栈或 Workflow 后续步骤。完整门禁为 397 条 JVM、130 条仅 Redmi instrumentation。
 
-下一阶段继续寻找 Android 自主 LMK 与更长成功任务样本，并完善运行中取消和用户可见停止边界；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 28.5 至 31 秒样本不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+48. 已完成：后台 `RUNNING` Workflow 可见停止。停止入口先取消目标 WorkRequest 并等待 Worker 正常写入终态，超出有界窗口或系统取消异常时按 Task→Workflow→Agent 持久化链兜底；Agent 尚未关联时仍关闭 Task/Workflow，`SCHEDULED→RUNNING` 抢占会升级为运行中停止。取消只影响目标链且幂等；Run 终态后 Step、Approval、Event 和 Tool Ledger 一并冻结，迟到 HTTP、模型和审批结果不能覆盖或污染 `CANCELLED`。Redmi 真实停止样本约 32.6 秒；另一个三步 SAFE Workflow 依次执行当前时间、会话列表和笔记列表，约 21.8 秒全部完成。LMK probe 显示报告能力可用、历史退出 11 条、`REASON_LOW_MEMORY=0`，不构成自主 LMK 样本。完整门禁为 402 条 JVM、134 条仅 Redmi instrumentation。
+
+下一阶段继续寻找 Android 自主 LMK 与更长成功任务样本，并完善长任务可靠性，但不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 21.8 至 32.6 秒样本不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

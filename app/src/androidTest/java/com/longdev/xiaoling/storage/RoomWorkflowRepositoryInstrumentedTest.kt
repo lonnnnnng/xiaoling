@@ -15,6 +15,9 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowReentryCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowProcessExecutionRegistry
 import com.longdev.xiaoling.automation.StartupRecoveryCandidateIds
 import com.longdev.xiaoling.automation.StartupRecoveryCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -470,6 +473,102 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
         assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
         assertEquals(runCountBefore, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
+    fun userStopFallbackCancelsOnlyLinkedRunningChainWithoutCreatingNewRun() = runBlocking {
+        val workflow = repository.createWorkflow("停止后台任务", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-user-stop")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val linkedAgent = agentRepository.createRun(
+            conversationId = claim.run.run.conversationId,
+            userMessageId = claim.userMessageId,
+            goal = "读取当前时间",
+        )
+        agentRepository.updateRunStatus(linkedAgent.id, AgentRunStatus.THINKING)
+        agentRepository.appendStep(
+            runId = linkedAgent.id,
+            type = AgentStepTypes.LLM_PLAN,
+            title = "模型决策",
+            detail = "等待用户停止",
+            status = AgentStepStatus.RUNNING,
+        )
+        repository.markAgentRunStarted(claim.run.run.id, claim.run.steps.single().id, linkedAgent.id)
+        val unrelatedAgent = agentRepository.createRun(
+            conversationId = "conversation-user-stop-unrelated",
+            userMessageId = "message-user-stop-unrelated",
+            goal = "无关前台任务",
+        )
+        agentRepository.updateRunStatus(unrelatedAgent.id, AgentRunStatus.THINKING)
+        val runCountBefore = agentRepository.recentRunDetails(limit = 20).size
+        val systemCancellations = mutableListOf<String>()
+        val fallback = ScheduledWorkflowStopFallbackCoordinator(
+            loadTask = repository::getScheduledTask,
+            loadWorkflowRun = repository::runDetail,
+            cancelAgentRun = { runId -> agentRepository.cancelActiveRun(runId, "用户停止后台工作流") },
+            cancelWorkflowRun = { workflowRunId, reason ->
+                repository.completeRun(workflowRunId, WorkflowRunStatus.CANCELLED, errorMessage = reason)
+            },
+            cancelScheduledTask = { taskId, reason ->
+                repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+            },
+        )
+        val stopCoordinator = ScheduledWorkflowStopCoordinator(
+            loadTask = repository::getScheduledTask,
+            cancelPendingTask = repository::cancelScheduledTask,
+            cancelSystemWork = { taskId -> systemCancellations += taskId },
+            waitForWorkerSettlement = {},
+            reconcileUnsettledTask = fallback::reconcile,
+            settlementChecks = 1,
+        )
+
+        val stopped = stopCoordinator.stop(task.id)
+
+        assertEquals(ScheduledWorkflowStopOutcome.STOPPED, stopped.outcome)
+        assertEquals(listOf(task.id), systemCancellations)
+        assertEquals(AgentRunStatus.CANCELLED, agentRepository.runDetail(linkedAgent.id)!!.snapshot.run.status)
+        assertEquals(AgentRunStatus.THINKING, agentRepository.runDetail(unrelatedAgent.id)!!.snapshot.run.status)
+        assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
+        assertEquals(runCountBefore, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
+    fun userStopFallbackCancelsClaimedWorkflowBeforeAgentRunIsLinked() = runBlocking {
+        val workflow = repository.createWorkflow("停止未关联任务", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-user-stop-no-agent")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val systemCancellations = mutableListOf<String>()
+        val fallback = ScheduledWorkflowStopFallbackCoordinator(
+            loadTask = repository::getScheduledTask,
+            loadWorkflowRun = repository::runDetail,
+            cancelAgentRun = { error("不应取消尚未关联的 Agent Run") },
+            cancelWorkflowRun = { workflowRunId, reason ->
+                repository.completeRun(workflowRunId, WorkflowRunStatus.CANCELLED, errorMessage = reason)
+            },
+            cancelScheduledTask = { taskId, reason ->
+                repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+            },
+        )
+        val stopCoordinator = ScheduledWorkflowStopCoordinator(
+            loadTask = repository::getScheduledTask,
+            cancelPendingTask = repository::cancelScheduledTask,
+            cancelSystemWork = { taskId -> systemCancellations += taskId },
+            waitForWorkerSettlement = {},
+            reconcileUnsettledTask = fallback::reconcile,
+            settlementChecks = 1,
+        )
+
+        val stopped = stopCoordinator.stop(task.id)
+
+        assertEquals(ScheduledWorkflowStopOutcome.STOPPED, stopped.outcome)
+        assertEquals(listOf(task.id), systemCancellations)
+        assertNull(repository.runDetail(claim.run.run.id)!!.run.agentRunId)
+        assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
     }
 
     @Test

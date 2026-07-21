@@ -183,6 +183,11 @@ class AgentRunUseCase(
         ) > 0
     }
 
+    suspend fun cancelActiveRunForScheduledTaskStop(runId: String): Boolean {
+        // long: 用户停止后台任务只允许按 ScheduledTask 关联到的 Run ID 定向取消，不能扫描并影响同时运行的前台 Agent。
+        return baseLedger.cancelActiveRun(runId, "用户停止后台工作流")
+    }
+
     suspend fun resumeCommittedToolRun(
         detail: AgentRunDetailRecord,
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},

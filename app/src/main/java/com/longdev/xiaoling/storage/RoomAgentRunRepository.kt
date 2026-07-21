@@ -84,7 +84,7 @@ class RoomAgentRunRepository(
             terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
         )
         if (updatedRows == 0) return
-        appendEvent(runId, "run.status", status.name)
+        appendEventInternal(runId, "run.status", status.name, metadata = null, allowTerminalRun = true)
     }
 
     override suspend fun appendStep(
@@ -93,8 +93,12 @@ class RoomAgentRunRepository(
         title: String,
         detail: String,
         status: AgentStepStatus,
-    ): AgentStepRecord {
-        val sequence = database.agentRunDao().getSteps(runId).size + 1
+    ): AgentStepRecord = database.withTransaction {
+        val dao = database.agentRunDao()
+        val run = dao.getRun(runId) ?: error("Agent Run 不存在：$runId")
+        // long: Run 进入终态后整条子账本随之冻结；迟到模型回调不能再追加步骤，否则取消后的任务会重新出现执行痕迹。
+        check(run.status !in TERMINAL_RUN_STATUS_NAMES) { "Agent Run 已结束，不能追加步骤：$runId" }
+        val sequence = dao.getSteps(runId).size + 1
         val now = System.currentTimeMillis()
         val step = AgentStepRecord(
             id = "step-${UUID.randomUUID()}",
@@ -107,28 +111,49 @@ class RoomAgentRunRepository(
             createdAt = now,
             completedAt = null,
         )
-        database.agentRunDao().upsertStep(step.toEntity())
-        appendEvent(runId, "step.created", "$sequence. $title")
-        return step
+        dao.upsertStep(step.toEntity())
+        appendEventInternal(runId, "step.created", "$sequence. $title", metadata = null)
+        step
     }
 
     override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) {
-        val snapshot = findStep(stepId) ?: return
-        database.agentRunDao().upsertStep(
-            snapshot.copy(
-                status = status.name,
-                detail = detail ?: snapshot.detail,
-                completedAt = if (status == AgentStepStatus.RUNNING || status == AgentStepStatus.PENDING) {
-                    snapshot.completedAt
-                } else {
-                    System.currentTimeMillis()
-                },
-            ),
-        )
-        appendEvent(snapshot.runId, "step.status", "${snapshot.sequence}. ${snapshot.title} -> ${status.name}")
+        database.withTransaction {
+            val dao = database.agentRunDao()
+            val snapshot = dao.getStep(stepId) ?: return@withTransaction
+            val run = dao.getRun(snapshot.runId) ?: return@withTransaction
+            // long: 用户停止或恢复收敛完成后，旧协程只能退出，不能把已取消 Step 改回 RUNNING/COMPLETED。
+            if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction
+            dao.upsertStep(
+                snapshot.copy(
+                    status = status.name,
+                    detail = detail ?: snapshot.detail,
+                    completedAt = if (status == AgentStepStatus.RUNNING || status == AgentStepStatus.PENDING) {
+                        snapshot.completedAt
+                    } else {
+                        System.currentTimeMillis()
+                    },
+                ),
+            )
+            appendEventInternal(
+                snapshot.runId,
+                "step.status",
+                "${snapshot.sequence}. ${snapshot.title} -> ${status.name}",
+                metadata = null,
+            )
+        }
     }
 
     override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
+        appendEventInternal(runId, type, message, metadata)
+    }
+
+    private suspend fun appendEventInternal(
+        runId: String,
+        type: String,
+        message: String,
+        metadata: RunEventMetadata?,
+        allowTerminalRun: Boolean = false,
+    ) {
         val event = RunEventEntity(
             id = "event-${UUID.randomUUID()}",
             runId = runId,
@@ -138,7 +163,11 @@ class RoomAgentRunRepository(
             createdAt = System.currentTimeMillis(),
         )
         database.withTransaction {
-            database.agentRunDao().insertEvent(event)
+            val dao = database.agentRunDao()
+            val run = dao.getRun(runId) ?: return@withTransaction
+            // long: 终态后的迟到模型、工具与恢复事件一律丢弃；仅 Repository 自己写入终态 status 审计时显式放行。
+            if (!allowTerminalRun && run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction
+            dao.insertEvent(event)
             // long: RunEvent 在迁移期仍是时间线事实源；工具账本必须与对应事件同事务写入，避免进程中断后两套审计证据只成功一半。
             when {
                 metadata is RunEventMetadata.ToolCall && type in TOOL_CALL_EVENT_TYPES ->
@@ -166,7 +195,10 @@ class RoomAgentRunRepository(
         runId: String,
         toolCall: ToolCall,
         definition: ToolDefinition,
-    ): ApprovalRequestRecord {
+    ): ApprovalRequestRecord = database.withTransaction {
+        val dao = database.agentRunDao()
+        val run = dao.getRun(runId) ?: error("Agent Run 不存在：$runId")
+        check(run.status !in TERMINAL_RUN_STATUS_NAMES) { "Agent Run 已结束，不能创建审批：$runId" }
         val now = System.currentTimeMillis()
         val request = ApprovalRequestRecord(
             id = "approval-${UUID.randomUUID()}",
@@ -183,35 +215,41 @@ class RoomAgentRunRepository(
             expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
             decidedAt = null,
         )
-        database.agentRunDao().upsertApprovalRequest(request.toEntity())
-        appendEvent(
+        dao.upsertApprovalRequest(request.toEntity())
+        appendEventInternal(
             runId = runId,
             type = "approval.requested",
             message = "等待审批：${request.toolName}",
             metadata = request.toEventMetadata(),
         )
-        return request
+        request
     }
 
     suspend fun decideApprovalRequest(
         requestId: String,
         status: ApprovalRequestStatus,
         reason: String,
-    ): ApprovalRequestRecord? {
-        val current = database.agentRunDao().getApprovalRequest(requestId)?.toRecord() ?: return null
+    ): ApprovalRequestRecord? = database.withTransaction {
+        val dao = database.agentRunDao()
+        val current = dao.getApprovalRequest(requestId)?.toRecord() ?: return@withTransaction null
+        val run = dao.getRun(current.runId) ?: return@withTransaction null
+        // long: 审批决定是一次性状态迁移；Run 已结束或请求已处理时拒绝迟到决定，避免 CANCELLED 被覆盖为 APPROVED/DENIED。
+        if (run.status in TERMINAL_RUN_STATUS_NAMES || current.status != ApprovalRequestStatus.PENDING) {
+            return@withTransaction null
+        }
         val decided = current.copy(
             status = status,
             decisionReason = reason,
             decidedAt = System.currentTimeMillis(),
         )
-        database.agentRunDao().upsertApprovalRequest(decided.toEntity())
-        appendEvent(
+        dao.upsertApprovalRequest(decided.toEntity())
+        appendEventInternal(
             runId = decided.runId,
             type = "approval.request_decided",
             message = "审批状态已更新：${decided.toolName} -> ${decided.status.name}",
             metadata = decided.toEventMetadata(),
         )
-        return decided
+        decided
     }
 
     suspend fun pendingApprovalRequests(conversationId: String): List<ApprovalRequestRecord> {
@@ -220,6 +258,39 @@ class RoomAgentRunRepository(
                 .getPendingApprovalRequests(conversationId)
                 .map { it.toRecord() },
         )
+    }
+
+    suspend fun cancelActiveRun(runId: String, reason: String): Boolean {
+        require(reason.isNotBlank()) { "取消原因不能为空" }
+        return database.withTransaction {
+            val dao = database.agentRunDao()
+            val run = dao.getRun(runId) ?: return@withTransaction false
+            if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction false
+            val detail = loadDetail(run)
+            // long: 用户停止必须同时关闭当前活动步骤和审批；只改 Run 会让任务中心继续显示可执行的中间态，后续重试也会误判副作用边界。
+            detail.snapshot.steps
+                .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
+                .forEach { step -> updateStep(step.id, AgentStepStatus.CANCELLED, reason) }
+            detail.approvals
+                .filter { it.status == ApprovalRequestStatus.PENDING }
+                .forEach { request ->
+                    decideApprovalRequest(request.id, ApprovalRequestStatus.CANCELLED, reason)
+                }
+            val now = System.currentTimeMillis()
+            val updatedRows = dao.updateRunStatusIfActive(
+                runId = runId,
+                status = AgentRunStatus.CANCELLED.name,
+                result = null,
+                errorMessage = reason,
+                updatedAt = now,
+                completedAt = now,
+                terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
+            )
+            if (updatedRows == 0) return@withTransaction false
+            appendEventInternal(runId, "run.cancelled", reason, RunEventMetadata.Reason(reason), allowTerminalRun = true)
+            appendEventInternal(runId, "run.status", AgentRunStatus.CANCELLED.name, metadata = null, allowTerminalRun = true)
+            true
+        }
     }
 
     suspend fun activeRunIds(): Set<String> {

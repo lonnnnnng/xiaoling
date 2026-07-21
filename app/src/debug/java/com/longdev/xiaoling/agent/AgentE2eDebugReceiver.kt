@@ -42,6 +42,14 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val baseUrl = intent.getStringExtra(EXTRA_BASE_URL).orEmpty()
         val apiKey = intent.getStringExtra(EXTRA_API_KEY).orEmpty()
         val model = intent.getStringExtra(EXTRA_MODEL).orEmpty()
+        val allowedTools = intent.getStringExtra(EXTRA_ALLOWED_TOOL)
+            .orEmpty()
+            .ifBlank { DEFAULT_ALLOWED_TOOL }
+            .split(',')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+        require(allowedTools.isNotEmpty()) { "Debug Agent 至少需要一个允许工具" }
         require(baseUrl.isNotBlank() && model.isNotBlank()) { "mock Provider 配置不完整" }
         val provider = ProviderProfile(
             id = PROVIDER_ID,
@@ -61,9 +69,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             providerId = provider.id,
             model = model,
             apiMode = ApiMode.RESPONSES,
-            systemPrompt = "仅执行用户明确要求的允许列表设备动作。",
+            systemPrompt = "仅执行用户明确要求且当前 Profile 已授权的工具。",
             contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
-            allowedToolNames = listOf("device.open_app"),
+            // long: 后台 Workflow 会按运行来源移除设备动作；Debug 验收入口允许显式选择受控工具集，才能分别覆盖前台设备动作与后台多步骤调度链路。
+            allowedToolNames = allowedTools,
             allowedSkillIds = emptyList(),
             memoryEnabled = false,
             createdAt = now,
@@ -74,7 +83,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             check(select(agentProfile.id)) { "无法选择 E2E Agent Profile" }
         }
         UiPreferenceStore(context).saveDeviceAgentEnabled(true)
-        Log.i(TAG, "agent-e2e setup=true model=$model tools=device.open_app")
+        Log.i(TAG, "agent-e2e setup=true model=$model tools=${allowedTools.joinToString()}")
     }
 
     private suspend fun reportStatus(context: Context) {
@@ -99,8 +108,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val EXTRA_BASE_URL = "base_url"
         const val EXTRA_API_KEY = "api_key"
         const val EXTRA_MODEL = "model"
+        const val EXTRA_ALLOWED_TOOL = "allowed_tool"
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
+        private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val PROVIDER_ID = "stage3-device-e2e-provider"
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
         private const val TAG = "XiaoLingAgentE2e"

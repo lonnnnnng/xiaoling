@@ -764,6 +764,83 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun userStopCancelsOnlyTargetActiveRunAndItsRunningStep() = runBlocking {
+        val target = repository.createRun(
+            conversationId = "conversation-user-stop-target",
+            userMessageId = "message-user-stop-target",
+            goal = "停止当前后台任务",
+        )
+        repository.updateRunStatus(target.id, AgentRunStatus.THINKING)
+        val targetStep = repository.appendStep(
+            runId = target.id,
+            type = AgentStepTypes.LLM_PLAN,
+            title = "模型决策",
+            detail = "等待用户停止",
+            status = AgentStepStatus.RUNNING,
+        )
+        val targetApproval = repository.createApprovalRequest(
+            conversationId = target.conversationId,
+            runId = target.id,
+            toolCall = ToolCall(
+                id = "tool-call-user-stop",
+                name = "memory.remember",
+                arguments = mapOf("content" to "不应被迟到审批覆盖"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+            definition = ToolDefinition(
+                name = "memory.remember",
+                description = "写入长期记忆",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        val unrelated = repository.createRun(
+            conversationId = "conversation-user-stop-unrelated",
+            userMessageId = "message-user-stop-unrelated",
+            goal = "无关前台任务",
+        )
+        repository.updateRunStatus(unrelated.id, AgentRunStatus.THINKING)
+
+        assertTrue(repository.cancelActiveRun(target.id, "用户停止后台工作流"))
+        assertFalse(repository.cancelActiveRun(target.id, "用户停止后台工作流"))
+
+        // long: 模拟旧 Worker 在用户停止后才收到模型/审批结果；整条子账本必须冻结，不能只保护 Run 顶层状态。
+        repository.updateStep(targetStep.id, AgentStepStatus.COMPLETED, "迟到模型响应")
+        repository.appendEvent(target.id, "model.response", "迟到模型响应")
+        val lateStep = runCatching {
+            repository.appendStep(
+                runId = target.id,
+                type = AgentStepTypes.LLM_PLAN,
+                title = "迟到步骤",
+                detail = "不应写入",
+                status = AgentStepStatus.RUNNING,
+            )
+        }
+        assertTrue(lateStep.isFailure)
+        assertNull(
+            repository.decideApprovalRequest(
+                targetApproval.id,
+                ApprovalRequestStatus.APPROVED,
+                "迟到审批",
+            ),
+        )
+
+        val cancelled = repository.runDetail(target.id)!!
+        assertEquals(AgentRunStatus.CANCELLED, cancelled.snapshot.run.status)
+        assertEquals(AgentStepStatus.CANCELLED, cancelled.snapshot.steps.single { it.id == targetStep.id }.status)
+        assertFalse(cancelled.snapshot.steps.any { it.title == "迟到步骤" })
+        assertFalse(cancelled.snapshot.events.any { it.message == "迟到模型响应" })
+        assertEquals(
+            ApprovalRequestStatus.CANCELLED,
+            cancelled.approvals.single { it.id == targetApproval.id }.status,
+        )
+        assertEquals(
+            "用户停止后台工作流",
+            (cancelled.snapshot.events.single { it.type == "run.cancelled" }.metadata as RunEventMetadata.Reason).reason,
+        )
+        assertEquals(AgentRunStatus.THINKING, repository.runDetail(unrelated.id)!!.snapshot.run.status)
+    }
+
+    @Test
     fun processRestartCancelsExecutingAndVerifyingStepsBeforeConfirmedRetry() = runBlocking {
         val interrupted = listOf(
             AgentRunStatus.EXECUTING to AgentStepTypes.TOOL_EXECUTE,

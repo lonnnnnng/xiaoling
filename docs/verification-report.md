@@ -1555,4 +1555,28 @@ TDD、自动化与 Redmi 验证：
 当前证据边界：
 
 - 本阶段证明的是“同一进程中，前台启动恢复不会取消已经登记或快照后启动的 Worker”，并继续保护真正属于旧进程的执行链；它不等于 Android 自主 LMK、旧执行栈原地续跑或 WorkManager 长任务存活保证。
-- 后续继续取得 Android 自主 LMK 与更长成功任务样本，并完善运行中取消和用户可见停止边界。当前 28.5 至 31 秒样本仍不足以引入 Foreground Service；设备工具仍不进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。
+- 第 47 阶段当时的后续计划是继续取得 Android 自主 LMK 与更长成功任务样本，并完善运行中取消和用户可见停止边界；其中停止边界已由下一节第 48 阶段完成。该阶段 28.5 至 31 秒样本仍不足以引入 Foreground Service；设备工具仍不进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。
+
+## 2026-07-22 后台运行中停止、终态子账本冻结与长成功样本
+
+实现与并发边界：
+
+- 工作流页为一次性 `RUNNING` ScheduledTask 展示“停止运行”。`ScheduledWorkflowStopCoordinator` 在操作时重新读取 Room：待执行实例先事务取消本地门禁；若 Worker 已在 `SCHEDULED→RUNNING` 竞态中完成 claim，同一次点击自动切换到运行中停止。
+- 运行中停止先取消目标 WorkRequest，并在有界窗口等待 Worker 正常取消；未及时收敛或 WorkManager 取消接口异常时，`ScheduledWorkflowStopFallbackCoordinator` 沿当前 Task→Workflow→Agent 关联按 ID 取消。Agent 尚未关联时仍关闭 Workflow/Task；重复停止幂等，不创建新 Run，也不影响无关链。
+- `RoomAgentRunRepository` 除使用 `updateRunStatusIfActive()` 冻结 Run 顶层终态外，还在同一事务边界核对所属 Run 与 Approval 当前状态。终态后迟到 Step 不能新增或改回 `RUNNING/COMPLETED`，一次性 Approval 不能由 `CANCELLED` 改回 `APPROVED/DENIED`，外部 Runtime 的迟到 Event/Tool Ledger 双写也不再落库；仅 Repository 自己的最终状态审计显式放行。
+
+Redmi 真实样本：
+
+- 停止样本 Task `scheduled-task-82faa2d4-a5a6-42f4-85ee-fa91b36d8c1d`、Workflow `workflow-run-a7310674-1fe4-4445-bc02-d59980023d88`、Agent `run-51ade32e-dbae-4eef-b782-80a7b384b6a0`。用户在真实 `RUNNING` 页面点击停止；WorkManager 日志显示目标 Work 被 `stopAndCancelWork`，Task/Workflow/Agent 与三条 Workflow Step 均为 `CANCELLED`。从启动到停止约 32.6 秒；迟到 HTTP 200 返回后仍保持 `CANCELLED`，没有覆盖终态或补写成功子账本。
+- 成功样本 Task `scheduled-task-fc8229b4-5ff7-4794-b269-e94b35601445`、Workflow `workflow-run-09f6d77d-9218-4901-bc6f-72a70a68cc7d`。三个 Agent Run 依次执行 `app.current_time`、`app.list_conversations(limit=3)`、`notes.list(limit=3)`，分别约 7.2、7.1、7.0 秒；Workflow 总耗时约 21.8 秒，Task/Workflow/三条 Step 均为 `COMPLETED`。
+- `ApplicationExitInfo` probe 确认 Redmi `isLowMemoryKillReportSupported() == true`，历史退出 11 条，`REASON_LOW_MEMORY=0`。这些退出均可由本轮 instrumentation、force-stop 或安装等受控动作解释；没有取得 Android 自主 LMK 证据。
+
+自动化与门禁：
+
+- `ScheduledWorkflowStopCoordinatorTest` 共 5 条，覆盖 Worker 正常收敛、超时 fallback、WorkManager 异常 fallback、待执行取消和 `SCHEDULED→RUNNING` 抢占升级。Room instrumentation 覆盖目标链定向取消、缺链 fallback、迟到 Step/Event/Approval 冻结及不影响无关 Run。
+- 完整门禁为 402 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi `wsvwypiz7xwslvl7` 执行的 134 条 instrumentation；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+
+当前证据边界：
+
+- 用户停止与终态冻结保证控制面不会被迟到结果改写，但不能撤销停止前已经提交到外部系统的副作用。未知提交仍按既有证据分类和关联新 Run 门禁处理，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+- 约 21.8 秒成功、28.5 秒安全失败和 32.6 秒停止样本仍由普通 WorkManager 承载。LMK 报告能力可用不等于已经发生自主 LMK；当前不引入 Foreground Service，设备工具仍不进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。

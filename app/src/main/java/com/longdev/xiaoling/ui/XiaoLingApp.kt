@@ -73,6 +73,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
@@ -3028,13 +3029,28 @@ private fun WorkflowItem(
                                 Text(error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                             }
                         }
-                        if (task.type == ScheduledTaskType.ONE_TIME && task.status == ScheduledTaskStatus.SCHEDULED) {
+                        if (
+                            task.status == ScheduledTaskStatus.RUNNING ||
+                            (task.type == ScheduledTaskType.ONE_TIME && task.status == ScheduledTaskStatus.SCHEDULED)
+                        ) {
                             IconButton(
                                 onClick = { onCancelScheduledTask(task.id) },
                                 enabled = task.id !in mutatingScheduledTaskIds,
                                 modifier = Modifier.size(28.dp),
                             ) {
-                                Icon(Icons.Default.Close, contentDescription = "取消计划", modifier = Modifier.size(16.dp))
+                                Icon(
+                                    imageVector = if (task.status == ScheduledTaskStatus.RUNNING) {
+                                        Icons.Default.StopCircle
+                                    } else {
+                                        Icons.Default.Close
+                                    },
+                                    contentDescription = if (task.status == ScheduledTaskStatus.RUNNING) {
+                                        "停止运行"
+                                    } else {
+                                        "取消计划"
+                                    },
+                                    modifier = Modifier.size(16.dp),
+                                )
                             }
                         }
                     }
