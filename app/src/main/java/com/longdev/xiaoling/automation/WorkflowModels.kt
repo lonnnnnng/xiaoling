@@ -285,6 +285,22 @@ object ScheduledTaskPolicy {
     const val MIN_DELAY_MINUTES = 1
     const val MAX_DELAY_MINUTES = 7 * 24 * 60
 
+    private val executionReconciliationStatuses = setOf(
+        ScheduledTaskStatus.RUNNING,
+        ScheduledTaskStatus.STOP_REQUESTED,
+    )
+
+    // long: STOP_REQUESTED 仍是等待持久化收敛的中间态；集中维护未结算状态，避免重入与通知路径对新增状态产生不同解释。
+    private val unsettledStatuses = executionReconciliationStatuses + ScheduledTaskStatus.SCHEDULED
+
+    fun requiresExecutionReconciliation(status: ScheduledTaskStatus): Boolean {
+        return status in executionReconciliationStatuses
+    }
+
+    fun isUnsettled(status: ScheduledTaskStatus): Boolean {
+        return status in unsettledStatuses
+    }
+
     fun plannedAt(now: Long, delayMinutes: Int): Long {
         require(delayMinutes in MIN_DELAY_MINUTES..MAX_DELAY_MINUTES) {
             "一次性调度延迟必须在 $MIN_DELAY_MINUTES 到 $MAX_DELAY_MINUTES 分钟之间"

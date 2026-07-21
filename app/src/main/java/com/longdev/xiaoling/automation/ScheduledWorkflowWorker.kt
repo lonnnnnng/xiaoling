@@ -241,12 +241,7 @@ class ScheduledWorkflowExecutor(
 
     private suspend fun notifyReentryOutcome(taskId: String) {
         val task = workflowRepository.getScheduledTask(taskId) ?: return
-        if (task.status in setOf(
-                ScheduledTaskStatus.SCHEDULED,
-                ScheduledTaskStatus.RUNNING,
-                ScheduledTaskStatus.STOP_REQUESTED,
-            )
-        ) return
+        if (ScheduledTaskPolicy.isUnsettled(task.status)) return
         val workflowName = workflowRepository.getWorkflow(task.workflowId)?.name ?: "已删除工作流"
         val detail = task.errorMessage ?: when (task.status) {
             ScheduledTaskStatus.COMPLETED -> "后台工作流已根据持久化结果完成"

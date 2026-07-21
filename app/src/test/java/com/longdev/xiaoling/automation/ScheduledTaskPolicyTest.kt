@@ -1,12 +1,24 @@
 package com.longdev.xiaoling.automation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class ScheduledTaskPolicyTest {
+    @Test
+    fun executionReconciliationAndUnsettledStatusSetsAreExplicit() {
+        assertTrue(ScheduledTaskPolicy.requiresExecutionReconciliation(ScheduledTaskStatus.RUNNING))
+        assertTrue(ScheduledTaskPolicy.requiresExecutionReconciliation(ScheduledTaskStatus.STOP_REQUESTED))
+        assertFalse(ScheduledTaskPolicy.requiresExecutionReconciliation(ScheduledTaskStatus.SCHEDULED))
+        assertTrue(ScheduledTaskPolicy.isUnsettled(ScheduledTaskStatus.SCHEDULED))
+        assertTrue(ScheduledTaskPolicy.isUnsettled(ScheduledTaskStatus.STOP_REQUESTED))
+        assertFalse(ScheduledTaskPolicy.isUnsettled(ScheduledTaskStatus.CANCELLED))
+    }
+
     @Test
     fun oneTimeDelayProducesPlannedTimestamp() {
         assertEquals(1_060_000L, ScheduledTaskPolicy.plannedAt(now = 1_000_000L, delayMinutes = 1))
