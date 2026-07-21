@@ -72,18 +72,18 @@ class RoomAgentRunRepository(
     }
 
     override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) {
-        val current = database.agentRunDao().getRun(runId) ?: return
         val now = System.currentTimeMillis()
-        val completedAt = if (status.isTerminal) now else current.completedAt
-        database.agentRunDao().upsertRun(
-            current.copy(
-                status = status.name,
-                result = result ?: current.result,
-                errorMessage = errorMessage ?: current.errorMessage,
-                updatedAt = now,
-                completedAt = completedAt,
-            ),
+        // long: 启动恢复与旧模型协程可能并发写入同一 Run；终态条件必须落在单条 SQL 中，避免“先读后写”让迟到结果覆盖已冻结的恢复处置。
+        val updatedRows = database.agentRunDao().updateRunStatusIfActive(
+            runId = runId,
+            status = status.name,
+            result = result,
+            errorMessage = errorMessage,
+            updatedAt = now,
+            completedAt = now.takeIf { status.isTerminal },
+            terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
         )
+        if (updatedRows == 0) return
         appendEvent(runId, "run.status", status.name)
     }
 
@@ -756,6 +756,7 @@ class RoomAgentRunRepository(
         const val TOOL_RESULT_EVENT_TYPE = "tool.result"
         const val TOOL_VERIFICATION_EVENT_TYPE = "tool.verify"
         val TOOL_CALL_EVENT_TYPES = setOf(TOOL_CALL_PROPOSED_EVENT_TYPE, "tool.call.validated")
+        val TERMINAL_RUN_STATUS_NAMES = AgentRunStatus.values().filter { it.isTerminal }.map { it.name }
     }
 }
 

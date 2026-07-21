@@ -64,6 +64,37 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun terminalRunKeepsRecoveryOutcomeWhenOldExecutionCompletesLate() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-terminal-race",
+            userMessageId = "message-terminal-race",
+            goal = "验证启动恢复与旧执行返回的竞态",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.THINKING)
+        repository.updateRunStatus(
+            runId = run.id,
+            status = AgentRunStatus.CANCELLED,
+            errorMessage = "应用重启后终止上次未完成 Agent 任务",
+        )
+
+        // long: 启动恢复已经冻结旧执行栈后，迟到的模型响应只属于历史协程，不能覆盖用户看到的恢复处置终态。
+        repository.updateRunStatus(
+            runId = run.id,
+            status = AgentRunStatus.COMPLETED,
+            result = "迟到的旧执行结果",
+        )
+
+        val snapshot = repository.snapshot(run.id)
+        assertEquals(AgentRunStatus.CANCELLED, snapshot.run.status)
+        assertNull(snapshot.run.result)
+        assertEquals("应用重启后终止上次未完成 Agent 任务", snapshot.run.errorMessage)
+        assertEquals(
+            listOf("THINKING", "CANCELLED"),
+            snapshot.events.filter { it.type == "run.status" }.map { it.message },
+        )
+    }
+
+    @Test
     fun pendingApprovalRequestsDoesNotExpireLegacyTimestampOrWriteDecisionEvent() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-legacy",

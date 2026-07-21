@@ -522,7 +522,7 @@ adb -s wsvwypiz7xwslvl7 shell am start -n com.longdev.xiaoling/.MainActivity
 - 当前每个 Workflow 固定为一个 `AGENT_RUN` 步骤，只支持 `MANUAL` 前台触发；同一 Workflow 有未完成 Run 时拒绝重复启动。
 - 重复活动 Run 的保护位于 Room 创建事务内；UI 展开工作流可查看已加载的多次历史 Run。恢复前置校验失败且 Agent 仍在等待审批时，不会提前把 Workflow 标为失败。
 - 工作流不创建新的工具授权层，所有工具继续执行现有 Schema、权限、风险、审批和后置验证策略。
-- 本轮没有引入 WorkManager、定时规则、通知、Foreground Service 或后台审批；这些能力将在下一阶段基于现有 Ledger 接入。
+- 该阶段当时没有引入 WorkManager、定时规则、通知、Foreground Service 或后台审批；这些能力中的 WorkManager、通知和后台审批已在后续阶段基于现有 Ledger 接入。
 
 ## 2026-07-18 一次性非精确定时工作流自动化验证
 
@@ -866,7 +866,7 @@ TDD、自动化与真机可用性：
 - `ToolRecoveryFailure` 统一携带稳定错误码、用户可读原因和建议动作；`XiaoLingToolRegistry` 覆盖 `OPERATION_NOT_FOUND / EVIDENCE_INCOMPLETE / PAYLOAD_MISMATCH / OPERATION_MISMATCH / MEMORY_NOT_FOUND / MEMORY_CHANGED / MEMORY_DISABLED / MEMORY_EXPIRED` 八类只读恢复失败。
 - Runtime 只把结构化恢复失败写成 `run.recovery_failed + RunEventMetadata.RecoveryFailure`；普通恢复异常仍写 `run.failed`。失败 Run 和活动 Step 收敛为 `FAILED`，不会继续旧 Run、旧模型协程或 Workflow 后续步骤。
 - 任务中心详情顶部显示最新恢复处理状态带，事件列表继续展示工具名、错误码、原因和建议。所有建议均明确要求修复记忆状态后创建新 Run，旧 Run 保持不变。
-- 生产 Registry 当前没有第三个适合推广“提交快照 + 只读 probe”的写工具，因此本阶段没有虚构工具或放宽恢复白名单；下一阶段转向独立 ToolCall/ToolResult Room Ledger。
+- 生产 Registry 当时没有第三个适合推广“提交快照 + 只读 probe”的写工具，因此该阶段没有虚构工具或放宽恢复白名单；后续阶段已转向独立 ToolCall/ToolResult Room Ledger。
 
 自动化与双机验收：
 
@@ -1143,7 +1143,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 
 该阶段当时的边界：
 
-- 管理 UI 已完成，但 `knowledge.search` 仍不是 Agent Tool，检索结果尚未注入模型上下文或答案引用。下一阶段必须把只读工具接入 Registry、Profile/Skill 白名单和 Run/ToolResult 审计，不能绕过现有工具权限与可信事实边界。
+- 该阶段当时只完成管理 UI，`knowledge.search` 尚不是 Agent Tool，检索结果也未注入模型上下文或答案引用；这些能力已在后续第 31、32 阶段按 Registry、Profile/Skill 白名单和 Run/ToolResult 审计边界补齐。
 
 ## 2026-07-20 `knowledge.search` 与 Room v27 引用链
 
@@ -1322,7 +1322,7 @@ Redmi 真实动作验收：
 - 完整 instrumentation 后重新安装当前 Debug APK。使用不提交的一次性 instrumentation 设置器通过正式 `ProviderRepository` 与 Android Keystore 恢复兜底 Provider，进程退出后再次从 Room/Keystore 读取并真实请求 `/models`，1.149 秒返回非空列表；设置器源码已删除、测试包已卸载，最终 AndroidTest APK 已重建，凭据未进入 Git、文档或标准测试产物。
 - Redmi 最终 `device_agent_enabled=true`，默认 User-Agent 已持久化；AccessibilityService 处于 Enabled 与 Bound，`accessibility_enabled=1`，`Crashed services:{}`。`MainActivity` 为 `topResumedActivity`，应用进程存在，crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 为 `AgentExecutionBudget` 引入可注入单调时钟，覆盖多模型/工具段累计预算、Step timeout 与 Run timeout 的精确边界，并继续记录更长真实任务的耗时与进程回收证据。
 - 提交状态未知、验证事实不完整、旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。Foreground Service 与精确定时保持证据驱动，不预先引入。
@@ -1344,7 +1344,7 @@ Redmi 真实动作验收：
 - 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：125 条 instrumentation，0 失败、0 错误、0 跳过；未启动、连接或操作 Pixel 模拟器。
 - 完整 instrumentation 后已重新安装 Debug APK，并通过正式 Repository/Keystore 恢复项目兜底 Provider、默认 User-Agent 与设备 Agent 开关；真实 `/models` 返回非空列表。AccessibilityService 最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空；临时设置器及测试包已清理，凭据未进入 Git、文档或标准测试产物。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续记录更长真实任务的总耗时、系统回收点和恢复证据，优先完善提交状态未知或验证事实不完整时的通用执行恢复策略。
 - 旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
@@ -1363,7 +1363,7 @@ Redmi 真实动作验收：
 - `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：381 条 JVM，0 失败、0 错误；lint、Debug APK 与 AndroidTest APK 均构建成功。
 - 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：125 条 instrumentation，0 失败、0 错误、0 跳过；未启动、连接或操作 Pixel 模拟器。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续以确定性故障注入验证更长任务在步骤落库、系统回收和 Worker 重入时的对账；仍不使用 `Result.retry` 复制可能已执行的 Agent Run，也不引入 Foreground Service。
 
@@ -1383,7 +1383,7 @@ Redmi 真实动作验收：
 - 文档同步后重新构建 AndroidTest，并仅在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/AndroidTest APK、执行完整 `AndroidJUnitRunner`：`OK (125 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
 - 完整 instrumentation 后卸载测试包并覆盖安装、启动当前 Debug APK。主库 Provider 仍为 `gpt-5.5`，Base URL、启用模型和 Keystore 密文均存在；默认 User-Agent 与设备 Agent 开关保持正确。测试清除的系统 Accessibility 授权已恢复，服务最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续采集更长真实任务的总耗时和系统回收位置，完善提交状态未知或验证事实不完整时的通用执行恢复；仍不原地恢复旧模型协程或 Workflow 后续步骤，不提前引入 Foreground Service、精确定时或设备 Workflow 权限。
 
@@ -1402,7 +1402,7 @@ Redmi 真实动作验收：
 - 完整 instrumentation 后已卸载测试包、覆盖安装并启动 Debug APK。Provider 仍为 `gpt-5.5`，Base URL 与 Keystore 密文存在；默认 User-Agent 和设备 Agent 开关保持正确，AccessibilityService 最终处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
 - Redmi 手动 UI 核验已进入「设置 → Agent 任务中心」，确认页面标题、全部/处理中/可重试/已完成筛选和空状态无重叠；当前设备没有可重试 Run，因此本轮未伪造具体证据卡片的截图或文案样本。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续以确定性故障注入完善提交状态未知、验证事实不完整时的通用执行恢复证据；设备工具、精确定时和 Foreground Service 仍保持现有边界。
 
@@ -1422,7 +1422,7 @@ Redmi 真实动作验收：
 - 仅在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/AndroidTest APK 并执行完整 `AndroidJUnitRunner`：`OK (125 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
 - 完整 instrumentation 后已卸载测试包并重新覆盖安装、启动 Debug APK。Provider 为 `gpt-5.5`，Base URL、可用模型和 Keystore 解密后的 API Key 均存在；默认 User-Agent 与设备 Agent 开关正确。AccessibilityService 最终处于 Enabled 与 Bound，设备页显示“服务正常，可读取当前界面”，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续完善验证事实不完整时的通用恢复与更长任务回收证据；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
 
@@ -1441,7 +1441,7 @@ Redmi 真实动作验收：
 - 仅在 Redmi `wsvwypiz7xwslvl7` 手动安装最终 Debug/AndroidTest APK 并执行完整 `AndroidJUnitRunner`：`OK (126 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
 - 完整 instrumentation 后已卸载测试包并重新覆盖安装、启动 Debug APK。主界面显示 Provider“兜底配置”和 `gpt-5.5`；默认 User-Agent 与设备 Agent 开关保持正确，AccessibilityService 处于 Enabled 与 Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 同一 WorkRequest 的 Redmi 冷启动重入已经完成一次真实验收；后续继续补充更长耗时和系统自主回收样本。通用提交状态未知/验证事实不完整的执行栈仍只安全收敛并引导关联新 Run，旧模型协程和 Workflow 后续步骤不原地恢复。
 
@@ -1505,6 +1505,32 @@ Redmi 真实动作验收：
 - 仅使用 Redmi `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：128 条 instrumentation，0 失败、0 跳过；未启动、连接或操作 Pixel 模拟器。首次定向 Compose 执行因真机熄屏锁定出现 `No compose hierarchies found in the app`，唤醒并手动解锁后完整门禁通过；同一错误也在既有 Compose 对照测试复现，确认不是新 UI 行为失败。
 - instrumentation 清空主应用配置后，按本地 `AGENTS.md` 兜底配置通过一次性测试恢复 Provider/Keystore、默认 User-Agent 与设备 Agent 开关；恢复测试源码随后删除并重新构建最终 AndroidTest APK。真实 `/models` 返回目标模型。最终仅保留主包，Provider 为“兜底配置”/`gpt-5.5`，API Key IV/密文存在，默认 UA 与设备 Agent 开关正确，AccessibilityService Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
 
-下一阶段边界：
+该阶段当时的下一阶段边界：
 
 - 继续采集更长任务、Android 自主回收、Doze 与内存压力下的 Redmi 证据，再决定 Foreground Service 和长任务策略；提交状态未知或验证事实不完整的旧执行栈继续安全收敛，只允许关联新 Run。
+
+## 2026-07-21 Redmi 长任务、Doze、受控内存与终态竞态
+
+官方行为依据：
+
+- Android 官方 [Optimize for Doze and App Standby](https://developer.android.com/training/monitoring-device-state/doze-standby) 说明 Doze 会限制后台网络和 CPU，并延后 jobs、syncs 与标准 alarms；设备唤醒、移动或接入电源后恢复正常活动。因此本阶段只把强制 Doze 用作调度延迟样本，不把 WorkManager 描述为精确定时。
+- Android 官方 [Support for long-running workers](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running) 说明真正长时间或对用户重要的 Worker 可调用 `setForeground()`，由 WorkManager 代管 Foreground Service 并显示持续通知。当前样本不满足提前引入的证据门槛。
+
+Redmi 真实样本：
+
+- 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`。8 步 SAFE Workflow `workflow-fea1c67c-74ef-40c9-a568-c0055302c44c` 对应 WorkRequest `32052ac8-59d9-424a-999e-b93be9caf0eb`；首步真实模型成功执行 `app.current_time`，第二步模型重复相同调用后由循环保护以“检测到重复工具调用：app.current_time”安全失败。任务实际运行约 28.5 秒，没有形成 8 步全部成功证据。
+- 强制 Doze 样本 WorkRequest `9d5f4695-0c43-4c7e-a7f6-c6f1630aae04` 在 20 秒观察窗内保持 ScheduledTask=`SCHEDULED`，没有 WorkflowRun、`actualStartedAt` 或应用 PID。执行 `deviceidle motion` 退出后，同一 WorkRequest 才启动，并在约 889ms 以 `connection closed` 失败；只有一个 Workflow/Agent Run，没有 `Result.retry` 或复制 Run。
+- 运行中 trim-memory 样本 WorkRequest `ec3c2a82-af6b-4116-b5c2-14bc85de23aa` 在 PID `11446` 上接收 `RUNNING_CRITICAL`。发送前 PSS/RSS 约 `98997 / 207816 KB`，发送后约 `103498 / 213304 KB`，PID 未变化；任务约 944ms 后以 `connection closed` 失败且只有一个 Workflow/Agent Run。PSS/RSS 没有显示进程被回收，不能把连接关闭归因于 trim-memory。
+- 无压力对照 WorkRequest `1a4b7b8c-3db3-416f-b248-0f0cfa155722` 也只创建一个 WorkflowRun `workflow-run-877df69d-fa49-4384-be7b-4eb1d88a073d` 和一个 AgentRun `run-9eacb9e8-a320-4fec-97e9-a3d67c16f07a`。它没有复现 trim-memory 因果，而是暴露启动竞态：前台启动恢复先把 Task/Workflow/Agent 收敛为 `CANCELLED`，旧执行协程随后仍完成 `app.current_time`、验证和总结，并把 AgentRun 迟到写成 `COMPLETED`；Task/Workflow 保持 `CANCELLED`。
+
+竞态修复与自动化：
+
+- `AgentRunDao.updateRunStatusIfActive()` 使用单条条件 `UPDATE`：只有当前状态不在终态集合时才更新状态、结果、错误和完成时间。`RoomAgentRunRepository` 仅在受影响行数大于 0 时追加 `run.status`，消除先读后写窗口；Room Schema 版本保持 v27。
+- TDD Red 在 Redmi 精确复现 `expected:<CANCELLED> but was:<COMPLETED>`；Green 后单测试 `terminalRunKeepsRecoveryOutcomeWhenOldExecutionCompletesLate` 为 `OK (1 test)`，`RoomAgentRunRepositoryInstrumentedTest` 整类为 `OK (27 tests)`。完整门禁为 395 条 JVM、Lint/Debug/AndroidTest 构建通过，以及仅 Redmi 执行的 129 条 instrumentation。
+- 最终 AndroidTest APK 已在删除临时 probe 后重建；完整 instrumentation 为 `OK (129 tests)`。测试包与明确的 probe/测试偏好文件已清理。Redmi 主库仍有 1 个“兜底配置”Provider，模型为 `gpt-5.5`，Base URL、启用模型及 Keystore IV/密文均非空；设备 Agent 开关为开启，默认 User-Agent 未被自定义值覆盖。AccessibilityService 已按 user 0 恢复为 Enabled/Bound，`Crashed services:{}`；deviceidle 为 `ACTIVE`，`MainActivity` 前台，crash buffer 为空。
+
+证据与产品边界：
+
+- `dumpsys deviceidle force-idle`、`am kill`、`run-as kill -9` 和 `am send-trim-memory` 都是受控命令，不代表 Android 自主 LMK；本阶段也不能证明 Doze 或 trim-memory 导致 `connection closed`。
+- 终态保护冻结持久化审计结论，但不宣称可以撤销已经在飞行中的网络请求或外部副作用。旧模型协程、未知提交执行栈和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。
+- 当前约 28.5 至 31 秒真实任务样本仍由普通 WorkManager 承载。后续优先取得 Android 自主 LMK 与更长成功任务样本，再评估当前进程内执行所有权、可见停止入口和 Foreground Service；精确定时仍继续后置。

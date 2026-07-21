@@ -108,6 +108,27 @@ interface AgentRunDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertRun(run: AgentRunEntity)
 
+    @Query(
+        """
+        UPDATE agent_runs
+        SET status = :status,
+            result = COALESCE(:result, result),
+            errorMessage = COALESCE(:errorMessage, errorMessage),
+            updatedAt = :updatedAt,
+            completedAt = COALESCE(:completedAt, completedAt)
+        WHERE id = :runId AND status NOT IN (:terminalStatuses)
+        """,
+    )
+    suspend fun updateRunStatusIfActive(
+        runId: String,
+        status: String,
+        result: String?,
+        errorMessage: String?,
+        updatedAt: Long,
+        completedAt: Long?,
+        terminalStatuses: List<String>,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStep(step: AgentStepEntity)
 
