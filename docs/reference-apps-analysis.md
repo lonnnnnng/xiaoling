@@ -4,7 +4,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-20：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地；答案引用 UI、设备 Agent 只读观察和首批有限动作也已完成 Redmi 验收。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-21：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列和结构化恢复处置也已完成 Redmi 验收。参考项目审计日期仍保持原始取证时间。
 
 ## 1. 结论先行
 
@@ -511,4 +511,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账和超时边界已经完成，接下来应继续完善提交状态未知/验证事实不完整的通用执行恢复并记录更长任务的系统回收证据。完成前设备工具不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账、超时边界、需确认聚合，以及未知提交/验证事实不完整时的结构化安全处置已经完成；下一步应集中记录更长任务、Android 自主回收、Doze 和内存压力证据，再决定是否需要 Foreground Service 或更强恢复机制。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

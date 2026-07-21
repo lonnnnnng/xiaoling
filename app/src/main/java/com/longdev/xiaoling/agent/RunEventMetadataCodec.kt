@@ -74,6 +74,13 @@ internal object RunEventMetadataCodec {
                 .put("reason", metadata.reason)
                 .apply {
                     metadata.retryEvidenceCode?.let { put("retryEvidenceCode", it.name) }
+                    metadata.resumeKind?.let { put("resumeKind", it.name) }
+                    metadata.restartDisposition?.let { disposition ->
+                        put("restartDispositionCode", disposition.code.name)
+                        put("policyReason", disposition.reason)
+                        put("evidenceBoundary", disposition.evidenceBoundary)
+                        put("suggestedAction", disposition.suggestedAction)
+                    }
                 }
             is RunEventMetadata.RecoveryFailure -> JSONObject()
                 .put("toolName", metadata.toolName)
@@ -180,6 +187,24 @@ internal object RunEventMetadataCodec {
                         // long: 字段存在但枚举来自未来版本时必须保守归类，不能把未知证据伪装成旧事件缺字段而绕过确认。
                         runCatching { AgentTaskRetryEvidenceCode.valueOf(value) }
                             .getOrElse { AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE }
+                    },
+                    resumeKind = json.stringOrNull("resumeKind")?.let { value ->
+                        // long: 新版本的恢复类型不能在旧客户端被当作可原地续跑；未知类型固定降级为需要新 Run。
+                        runCatching { AgentRunResumeKind.valueOf(value) }
+                            .getOrElse { AgentRunResumeKind.RESTART_REQUIRED }
+                    },
+                    restartDisposition = json.stringOrNull("restartDispositionCode")?.let { value ->
+                        val policyReason = json.stringOrNull("policyReason") ?: return@let null
+                        val evidenceBoundary = json.stringOrNull("evidenceBoundary") ?: return@let null
+                        val suggestedAction = json.stringOrNull("suggestedAction") ?: return@let null
+                        // long: 未识别的处置码代表本地无法解释其证据边界，按恢复证据不完整保守展示；四个字段必须整体出现，避免展示半份历史结论。
+                        AgentRunRestartDisposition(
+                            code = runCatching { AgentRunRestartDispositionCode.valueOf(value) }
+                                .getOrElse { AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID },
+                            reason = policyReason,
+                            evidenceBoundary = evidenceBoundary,
+                            suggestedAction = suggestedAction,
+                        )
                     },
                 )
                 AgentEventTypes.RECOVERY_FAILED -> RunEventMetadata.RecoveryFailure(

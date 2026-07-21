@@ -1,6 +1,8 @@
 package com.longdev.xiaoling.ui
 
 import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.AgentRunResumeKind
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.toApprovalExpiryPolicyLabel
 
 internal data class AgentRunEventPresentation(
@@ -13,6 +15,37 @@ internal data class AgentRunEventField(
     val label: String,
     val value: String,
 )
+
+internal data class AgentRunRestartDispositionPresentation(
+    val kind: String,
+    val code: String,
+    val reason: String,
+    val evidenceBoundary: String,
+    val suggestedAction: String,
+)
+
+internal fun presentAgentRunRestartDisposition(
+    metadata: RunEventMetadata.Recovery,
+): AgentRunRestartDispositionPresentation? {
+    if (metadata.resumeKind != AgentRunResumeKind.RESTART_REQUIRED) return null
+    val disposition = metadata.restartDisposition ?: return null
+    val reason = disposition.reason.takeIf { it.isNotBlank() } ?: return null
+    val evidenceBoundary = disposition.evidenceBoundary.takeIf { it.isNotBlank() } ?: return null
+    val suggestedAction = disposition.suggestedAction.takeIf { it.isNotBlank() } ?: return null
+    // long: 任务中心只展示事件中冻结的历史处置快照；旧事件缺字段时返回空，不用当前策略替旧 Run 补造证据。
+    return AgentRunRestartDispositionPresentation(
+        kind = metadata.resumeKind.name,
+        code = disposition.code.name,
+        reason = reason,
+        evidenceBoundary = evidenceBoundary,
+        suggestedAction = suggestedAction,
+    )
+}
+
+internal fun AgentRunDetailRecord.latestRestartDispositionPresentation(): AgentRunRestartDispositionPresentation? =
+    snapshot.events.asReversed().firstNotNullOfOrNull { event ->
+        (event.metadata as? RunEventMetadata.Recovery)?.let(::presentAgentRunRestartDisposition)
+    }
 
 private val eventTitles = mapOf(
     "run.created" to "Run 已创建",
@@ -165,6 +198,11 @@ internal fun presentAgentRunEvent(
                 "新状态" to metadata.toStatus.name,
                 "原因" to metadata.reason,
                 "重试证据" to metadata.retryEvidenceCode?.name,
+                "恢复处置" to metadata.resumeKind?.name,
+                "处置码" to metadata.restartDisposition?.code?.name,
+                "策略原因" to metadata.restartDisposition?.reason,
+                "证据边界" to metadata.restartDisposition?.evidenceBoundary,
+                "建议" to metadata.restartDisposition?.suggestedAction,
             ),
         )
         is RunEventMetadata.RecoveryFailure -> AgentRunEventPresentation(

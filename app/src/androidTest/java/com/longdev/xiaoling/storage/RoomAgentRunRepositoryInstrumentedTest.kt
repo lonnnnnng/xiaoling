@@ -21,6 +21,7 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentRunRecoveryEvidenceSource
+import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.SystemAgentClock
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
@@ -720,6 +721,14 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.CANCELLED, metadata.toStatus)
         assertEquals("应用重启后终止上次未完成 Agent 任务", metadata.reason)
         assertEquals(AgentTaskRetryEvidenceCode.NOT_COMMITTED, metadata.retryEvidenceCode)
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, metadata.resumeKind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+            metadata.restartDisposition?.code,
+        )
+        assertTrue(metadata.restartDisposition?.reason.orEmpty().contains("等待用户审批"))
+        assertTrue(metadata.restartDisposition?.evidenceBoundary.orEmpty().contains("旧模型协程"))
+        assertTrue(metadata.restartDisposition?.suggestedAction.orEmpty().contains("关联新 Run"))
         assertFalse(recovered.message.trimStart().startsWith("{"))
     }
 

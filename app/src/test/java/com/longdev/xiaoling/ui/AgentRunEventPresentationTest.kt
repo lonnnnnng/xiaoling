@@ -4,6 +4,9 @@ import com.longdev.xiaoling.agent.APPROVAL_REQUEST_NO_EXPIRY_AT
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentRunResumeKind
+import com.longdev.xiaoling.agent.AgentRunRestartDisposition
+import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
@@ -57,19 +60,48 @@ class AgentRunEventPresentationTest {
 
     @Test
     fun recoveryEventShowsPersistedRetryEvidenceWhenAvailable() {
+        val metadata = RunEventMetadata.Recovery(
+            fromStatus = AgentRunStatus.EXECUTING,
+            toStatus = AgentRunStatus.CANCELLED,
+            reason = "应用重启后终止上次未完成 Agent 任务",
+            retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
+            restartDisposition = AgentRunRestartDisposition(
+                code = AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                reason = "工具账本与事件不一致",
+                evidenceBoundary = "不能证明历史副作用边界",
+                suggestedAction = "保留旧 Run 并创建关联新 Run",
+            ),
+        )
         val presentation = presentAgentRunEvent(
             type = "run.recovered",
             message = "应用重启后终止上次未完成 Agent 任务",
-            metadata = RunEventMetadata.Recovery(
-                fromStatus = AgentRunStatus.EXECUTING,
-                toStatus = AgentRunStatus.CANCELLED,
-                reason = "应用重启后终止上次未完成 Agent 任务",
-                retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
-            ),
+            metadata = metadata,
         )
 
         assertEquals("COMMIT_UNKNOWN", presentation.fields.single { it.label == "重试证据" }.value)
+        assertEquals("RESTART_REQUIRED", presentation.fields.single { it.label == "恢复处置" }.value)
+        assertEquals("RECOVERY_EVIDENCE_INVALID", presentation.fields.single { it.label == "处置码" }.value)
+        assertEquals("工具账本与事件不一致", presentation.fields.single { it.label == "策略原因" }.value)
+        assertEquals("不能证明历史副作用边界", presentation.fields.single { it.label == "证据边界" }.value)
+        assertEquals("保留旧 Run 并创建关联新 Run", presentation.fields.single { it.label == "建议" }.value)
         assertNull(presentation.rawFallback)
+
+        val disposition = checkNotNull(presentAgentRunRestartDisposition(metadata))
+        assertEquals("RESTART_REQUIRED", disposition.kind)
+        assertEquals("RECOVERY_EVIDENCE_INVALID", disposition.code)
+        assertEquals("工具账本与事件不一致", disposition.reason)
+        assertEquals("不能证明历史副作用边界", disposition.evidenceBoundary)
+        assertEquals("保留旧 Run 并创建关联新 Run", disposition.suggestedAction)
+        assertNull(
+            presentAgentRunRestartDisposition(
+                RunEventMetadata.Recovery(
+                    fromStatus = AgentRunStatus.THINKING,
+                    toStatus = AgentRunStatus.CANCELLED,
+                    reason = "legacy",
+                ),
+            ),
+        )
     }
 
     @Test

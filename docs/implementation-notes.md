@@ -108,12 +108,12 @@
 - 审批使用 suspend `ApprovalGate` 挂起等待 UI 决策；`ApprovalRequest` 独立记录待确认工具、风险、参数、过期策略、决定结果和决定原因。
 - 当前交互审批不按固定倒计时主动过期，只有用户批准、拒绝、停止生成或应用启动恢复收敛时改变状态；`EXPIRED` 保留给后续明确截止时间的工具策略。
 - 当前 ViewModel 会按 conversationId 缓存正在显示的 Run 时间线和审批卡片；仅切换会话/页面再返回不会丢失当前活跃卡片。
-- 设置页「Agent 任务中心」从 Room 读取最近 50 条 Run，支持全部、处理中、可重试、已完成四档筛选；展开后按 ToolCall 展示 proposed、validated、result、verified 四阶段和完整 content/success/verified/duration。数据源明确标注为“独立工具账本”或“旧 Run 事件兼容”，双源不一致显示稳定告警码；原事件时间线、步骤和审批请求仍完整保留。事件展示直接消费 Repository 解码后的 typed metadata，旧纯文本事件回退显示 `message`。最新 `run.recovery_failed` 会额外显示在详情顶部的错误状态带，并在事件区保留完整工具名、错误码、原因和建议。
+- 设置页「Agent 任务中心」从 Room 读取最近 50 条 Run，支持全部、需确认、处理中、可重试、已完成五档筛选；展开后按 ToolCall 展示 proposed、validated、result、verified 四阶段和完整 content/success/verified/duration。数据源明确标注为“独立工具账本”或“旧 Run 事件兼容”，双源不一致显示稳定告警码；原事件时间线、步骤和审批请求仍完整保留。事件展示直接消费 Repository 解码后的 typed metadata，旧纯文本事件回退显示 `message`。最新 `run.recovery_failed` 会额外显示在详情顶部的错误状态带；不可原地恢复的最新 `run.recovered` 还会在任务卡与详情顶部显示恢复类型、稳定处置码、策略原因、证据边界和建议动作。
 - `AgentRunMetricsPolicy` 只根据持久化 Run、Step、Approval 和 typed RunEvent 汇总指标，不依赖页面瞬时状态：单 Run 统计创建到终态的耗时、模型/工具/审批次数，并从 `llm.request.completed` 聚合模型总耗时、平均 TTFB、Prompt 字节和 Token usage；历史汇总只用终态 Run 计算成功率、平均耗时和失败分布，活动 Run 不进入质量分母。任务中心的汇总带、列表卡和详情区使用同一纯呈现函数，避免三处口径漂移。
 - Agent 规划和总结固定使用非流式请求。网络层在首个响应 body 字节实际可读后记录 TTFB，以最终 JSON 请求体的 UTF-8 字节数记录 Prompt 规模，并兼容 Chat Completions 的 `prompt_tokens / completion_tokens` 与 Responses 的 `input_tokens / output_tokens`。上游缺失 usage 时字段保持 `null`；规划 JSON 解析失败时，已经返回的请求遥测仍先写入 RunEvent，再收敛 Run 失败。
 - `FAILED / CANCELLED / BUDGET_EXHAUSTED` 可重新运行。重试在来源会话追加新的 `/agent <goal>` 消息，使用当前选中的 Agent Profile 创建带 `retryOfRunId` 的新 Run；旧 Run 的 Profile 快照、状态、结果、步骤和事件不修改。非空账本中的非 SAFE 调用只要 `result.success=true`，或回执状态为 `COMMITTED / UNKNOWN`，UI 就先要求二次确认；账本异常也按可能已有副作用处理。明确失败且回执为 `NOT_COMMITTED`、或只完成 proposed/validated 尚未执行时，不单独增加确认。账本全空的旧 Run 才使用 typed event 成功结果回退；恢复记录表明中断发生在 `EXECUTING/VERIFYING`，或 `tool.execute/tool.verify` 步骤以失败/取消结束时仍按原规则确认。
 - `AgentTaskRetryPolicy.assessEvidence()` 将账本、旧 typed event、回执状态和执行中断统一投影为 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE`。任务中心卡片直接显示分类码、稳定原因和建议动作；高风险或不完整证据的确认弹窗继续显示完整边界。确认提交时重新评估当前 Run：状态不可重试时关闭弹窗，证据码变化时更新弹窗并拒绝本次旧确认，只有分类稳定后才继续；分类不会改变“旧 Run 不修改、只创建关联新 Run”的边界。
-- 启动 `closeInterruptedRuns()` 在取消步骤和审批前按原始 Run 状态冻结证据码，并写入 `RunEventMetadata.Recovery.retryEvidenceCode`。`EXECUTING/VERIFYING` 无结果按 `COMMIT_UNKNOWN`，纯 THINKING 且无副作用按 `NOT_COMMITTED`，无效 Ledger 按 `EVIDENCE_INCOMPLETE`；可原地恢复的审批/已提交验证候选不写取消证据。重试时使用该快照还原收敛前中断边界，再重新评估当前 Ledger；启动清理把原 `PENDING` 步骤写成 `CANCELLED` 不会被误判成副作用中断，Ledger 分类真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。字段只进入 metadata JSON，Room Schema 不变；旧事件缺字段按空值继续使用原推导路径，存在但未知的未来枚举直接按 `EVIDENCE_INCOMPLETE` 处理。
+- 启动 `closeInterruptedRuns()` 在取消步骤和审批前按原始 Run 状态冻结重试证据与恢复处置，并写入 `RunEventMetadata.Recovery`。`EXECUTING/VERIFYING` 无结果按 `COMMIT_UNKNOWN`，纯 THINKING 且无副作用按 `NOT_COMMITTED`，无效 Ledger 按 `EVIDENCE_INCOMPLETE`；`AgentRunResumePolicy` 的所有 `RESTART_REQUIRED` 构造都必须携带 `AgentRunRestartDispositionCode`、策略原因、证据边界和建议动作。可原地恢复的审批/已提交验证候选不写取消证据。重试时使用快照还原收敛前中断边界，再重新评估当前 Ledger；启动清理把原 `PENDING` 步骤写成 `CANCELLED` 不会被误判成副作用中断，Ledger 分类真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。新增字段只进入 metadata JSON，Room Schema 不变；旧事件缺字段按空值继续使用原推导路径，未知未来恢复类型降级为 `RESTART_REQUIRED`，未知处置码降级为恢复证据无效。
 - `ScheduledWorkflowReentryCoordinator` 在 Worker 重入时先检查当前 ScheduledTask 是否仍为 `RUNNING`；只有该状态才按 `ScheduledTask -> WorkflowRun -> AgentRun` 关联链定向关闭旧执行栈，Agent、Workflow、ScheduledTask 按顺序收敛后才发送结果通知。普通 `SCHEDULED` 任务继续走正常 claim；重入不恢复旧模型协程、不继续 Workflow 后续步骤，也不返回 `Result.retry`。按 ID 的 Agent/Workflow/Task 对账入口保证其他前台 Run 不受影响，周期下一实例仍只在旧任务进入终态后物化。
 - 待审批恢复和 `notes.create / memory.remember` 已提交结果恢复读取原 Run 的 `agent.profile.selected` 快照并重新构造 Profile/Skill 双层 Registry。历史 Run 没有该事件时走旧兼容路径；重复、无法解析、包含未注册工具或 Skill 超出 Profile 工具面的审计均拒绝恢复。
 - 重试正式启动时 ViewModel 选中来源会话并发出一次性导航信号，根 UI 回到对话页；重新触发的写工具仍走正常审批，审批卡不会隐藏在任务中心后台。
@@ -254,13 +254,20 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 394 条 JVM 与仅 Redmi 执行的 127 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 395 条 JVM 与仅 Redmi 执行的 128 条 instrumentation。
 
 ## 任务中心需确认队列
 
 - `AgentTaskFilterPolicy` 统一管理任务中心筛选语义；新增 `NEEDS_CONFIRMATION`，只匹配 `AgentTaskRetryEligibility.Retryable(requiresConfirmation=true)`。普通直接重试继续留在“可重试”，`WAITING_APPROVAL` 等活动 Run 继续留在“处理中”。
 - Compose 筛选条显示“全部 / 需确认 / 处理中 / 可重试 / 已完成”。“需确认”卡片复用现有证据分类、原因、建议动作和确认弹窗，没有新增另一套 UNKNOWN/COMMITTED 判断。
 - 确认提交仍由 ViewModel 重新读取 Run 并调用 `canConfirmRetry()`；证据码漂移会要求重新确认，稳定后只创建带 `retryOfRunId` 的新 Run。该队列不恢复旧模型协程、不调用旧 Executor，也不继续 Workflow 后续步骤。
+
+## 结构化恢复处置
+
+- `AgentRunRestartDispositionCode` 把不可原地恢复原因稳定分类为 Run 状态、Profile 证据、执行预算、审批边界、恢复证据、Profile 能力、步骤证据、只读验证能力、工具定义和已提交副作用证据十类。`AgentRunResumeAssessment` 构造约束保证 `RESTART_REQUIRED` 必须且只能携带处置对象。
+- `closeInterruptedRuns()` 在修改活动 Step、审批与 Run 终态前评估原始详情，并在同一 `run.recovered` metadata 中冻结 `resumeKind / restartDispositionCode / policyReason / evidenceBoundary / suggestedAction / retryEvidenceCode`。新增字段不改变 Room Schema；旧事件缺字段保持空，未来未知枚举保守降级。
+- 任务中心从最新历史 Recovery 事件生成纯呈现模型，在任务卡和详情顶部展示处置状态带，事件列表展示同一字段。缺少完整结构化字段的旧事件不调用当前策略补造，因此升级不会重写旧 Run 的历史判断。
+- 所有处置建议固定保留旧 Run 与既有审计，在既有重试确认门禁后创建带 `retryOfRunId` 的新 Run；不调用旧 Executor、不恢复旧模型协程，也不继续 Workflow 后续步骤。
 
 ## Redmi Worker 冷启动重入证据
 

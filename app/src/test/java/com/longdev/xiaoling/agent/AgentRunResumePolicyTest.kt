@@ -76,6 +76,10 @@ class AgentRunResumePolicyTest {
 
         assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
         assertTrue(assessment.reason.contains("重复 Profile"))
+        assertEquals(
+            AgentRunRestartDispositionCode.PROFILE_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
     }
 
     @Test
@@ -143,6 +147,10 @@ class AgentRunResumePolicyTest {
 
         assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
         assertTrue(assessment.reason.contains("不一致"))
+        assertEquals(
+            AgentRunRestartDispositionCode.APPROVAL_BOUNDARY_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
     }
 
     @Test
@@ -177,6 +185,10 @@ class AgentRunResumePolicyTest {
 
         assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
         assertTrue(assessment.reason.contains("等待用户审批"))
+        val disposition = checkNotNull(assessment.restartDisposition)
+        assertEquals(AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE, disposition.code)
+        assertTrue(disposition.evidenceBoundary.contains("旧模型协程"))
+        assertTrue(disposition.suggestedAction.contains("关联新 Run"))
     }
 
     @Test
@@ -303,6 +315,10 @@ class AgentRunResumePolicyTest {
 
         assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
         assertTrue(assessment.reason.contains("未开放"))
+        assertEquals(
+            AgentRunRestartDispositionCode.COMMITTED_VERIFICATION_UNAVAILABLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
     }
 
     @Test

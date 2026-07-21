@@ -355,6 +355,7 @@ class RoomAgentRunRepository(
                         reason = reason,
                     )
                 }
+            // long: 启动收敛必须冻结“为什么不能原地恢复”的策略结论；后续任务中心只读历史事件，不用当前代码重新猜测旧 Run 的执行边界。
             appendEvent(
                 runId = run.id,
                 type = "run.recovered",
@@ -364,6 +365,8 @@ class RoomAgentRunRepository(
                     toStatus = AgentRunStatus.CANCELLED,
                     reason = reason,
                     retryEvidenceCode = retryEvidence.code,
+                    resumeKind = resumeAssessment.kind,
+                    restartDisposition = resumeAssessment.restartDisposition,
                 ),
             )
             updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)

@@ -1487,3 +1487,24 @@ Redmi 真实动作验收：
 - `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：394 条 JVM，88 个 Gradle task 全部执行，Lint、Debug 和 AndroidTest 构建成功。
 - 仅在 Redmi `wsvwypiz7xwslvl7` 安装最终 Debug/Test APK 并执行完整 `AndroidJUnitRunner`：`OK (127 tests)`，0 失败；未启动、连接或操作 Pixel 模拟器。
 - 完整 instrumentation 后卸载测试包、覆盖安装并启动 Debug APK；AccessibilityService 最终 Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台，crash buffer 为空。
+
+## 2026-07-21 结构化恢复处置
+
+实现与安全边界：
+
+- 新增 `AgentRunRestartDispositionCode` 与 `AgentRunRestartDisposition`。`AgentRunResumeAssessment` 在构造时要求 `RESTART_REQUIRED` 必须且只能携带结构化处置；现有拒绝分支按 Run 状态、Profile、预算、审批、恢复证据、步骤、只读验证能力、工具定义和提交证明分类，不再只有自然语言 `reason`。
+- `RunEventMetadata.Recovery` 新增可空 `resumeKind / restartDispositionCode / policyReason / evidenceBoundary / suggestedAction`。Codec 对旧事件缺字段保持 `null`；未知恢复类型保守降级为 `RESTART_REQUIRED`，未知处置码降级为恢复证据无效。字段只进入既有 metadata JSON，不升级 Room Schema。
+- `closeInterruptedRuns()` 在取消活动 Step/Approval 前完成 ResumePolicy 与重试证据评估，并把两类结果冻结到同一个 typed `run.recovered`。任务卡、详情顶部和事件区展示同一历史快照；旧事件缺少完整处置字段时不按当前版本策略回填。
+- 建议动作始终要求保留旧 Run 与现有审计，按既有门禁创建关联新 Run；没有恢复旧模型协程、旧 Executor、未知提交执行栈或 Workflow 后续步骤。
+
+自动化与 Redmi 验证：
+
+- `AgentRunResumePolicyTest` 覆盖 Run 状态、重复 Profile、审批参数漂移和缺少只读验证能力的稳定处置码；`RunEventMetadataCodecTest` 覆盖完整 round-trip、旧事件兼容和未来未知枚举 fail-closed；`AgentRunEventPresentationTest` 覆盖处置字段与旧事件不补造。
+- `RoomAgentRunRepositoryInstrumentedTest.interruptedRunRecoveryUsesTypedStatusMetadata` 在 Redmi 确认 `THINKING` Run 同时保存 `NOT_COMMITTED` 重试证据和 `RUN_STATE_NOT_RESUMABLE` 恢复处置；新增 Compose instrumentation 确认处置卡显示恢复类型、稳定码、具体原因、证据边界与下一步动作。
+- `./gradlew testDebugUnitTest --rerun-tasks --console=plain` 通过：395 条 JVM，0 失败、0 错误。`./gradlew lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过，Lint、Debug APK 与 AndroidTest APK 均构建成功。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 执行完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain`：128 条 instrumentation，0 失败、0 跳过；未启动、连接或操作 Pixel 模拟器。首次定向 Compose 执行因真机熄屏锁定出现 `No compose hierarchies found in the app`，唤醒并手动解锁后完整门禁通过；同一错误也在既有 Compose 对照测试复现，确认不是新 UI 行为失败。
+- instrumentation 清空主应用配置后，按本地 `AGENTS.md` 兜底配置通过一次性测试恢复 Provider/Keystore、默认 User-Agent 与设备 Agent 开关；恢复测试源码随后删除并重新构建最终 AndroidTest APK。真实 `/models` 返回目标模型。最终仅保留主包，Provider 为“兜底配置”/`gpt-5.5`，API Key IV/密文存在，默认 UA 与设备 Agent 开关正确，AccessibilityService Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台且 crash buffer 为空。
+
+下一阶段边界：
+
+- 继续采集更长任务、Android 自主回收、Doze 与内存压力下的 Redmi 证据，再决定 Foreground Service 和长任务策略；提交状态未知或验证事实不完整的旧执行栈继续安全收敛，只允许关联新 Run。

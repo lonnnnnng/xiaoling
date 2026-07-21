@@ -72,6 +72,13 @@ class RunEventMetadataCodecTest {
             toStatus = AgentRunStatus.CANCELLED,
             reason = "应用重启后终止上次未完成 Agent 任务",
             retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
+            restartDisposition = AgentRunRestartDisposition(
+                code = AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                reason = "工具账本与事件不一致",
+                evidenceBoundary = "不能证明历史副作用边界",
+                suggestedAction = "保留旧 Run 并创建关联新 Run",
+            ),
         )
 
         assertEquals(
@@ -100,6 +107,22 @@ class RunEventMetadataCodecTest {
             "{\"fromStatus\":\"THINKING\",\"toStatus\":\"CANCELLED\",\"reason\":\"legacy\"}",
         ) as RunEventMetadata.Recovery
         assertEquals(null, legacy.retryEvidenceCode)
+        assertEquals(null, legacy.resumeKind)
+        assertEquals(null, legacy.restartDisposition)
+    }
+
+    @Test
+    fun unknownResumeDispositionFailsClosedWithoutBreakingEventDecoding() {
+        val unknown = RunEventMetadataCodec.decode(
+            "run.recovered",
+            "{\"fromStatus\":\"EXECUTING\",\"toStatus\":\"CANCELLED\",\"reason\":\"future\",\"resumeKind\":\"FUTURE_KIND\",\"restartDispositionCode\":\"FUTURE_CODE\",\"policyReason\":\"future reason\",\"evidenceBoundary\":\"future boundary\",\"suggestedAction\":\"future action\"}",
+        ) as RunEventMetadata.Recovery
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, unknown.resumeKind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            unknown.restartDisposition?.code,
+        )
     }
 
     @Test

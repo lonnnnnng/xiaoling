@@ -2,7 +2,7 @@
 
 ## 结论
 
-小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。模型与工具段现使用单调时钟共享累计执行预算，审批及受限恢复继承持久化剩余预算，Step/Run timeout 与外部取消边界已有确定性测试。当前下一阶段转向更长真实任务的耗时、系统回收和恢复证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示，不再只保留通用取消原因。模型与工具段现使用单调时钟共享累计执行预算，审批及受限恢复继承持久化剩余预算，Step/Run timeout 与外部取消边界已有确定性测试。当前下一阶段转向更长真实任务的耗时与 Android 自主回收证据。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 截至第 43 阶段，同一 WorkRequest 的 Redmi 冷启动重入已完成一次真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；最新开发重点因此收窄为更长/自然回收样本和通用未知提交处置，而不是再次验证基础重入链路。
 
@@ -417,6 +417,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 44. 已完成：任务中心“需确认”队列。新增 `AgentTaskFilterPolicy` 和 `NEEDS_CONFIRMATION` 筛选，只聚合已结束、可重试且必须确认副作用证据的 Run；提交未知、已提交未验证/已验证和证据不完整沿用现有卡片说明与确认弹窗。确认提交前重新核对证据码，稳定后只创建关联新 Run，旧 Run 保持不变。新增 3 条 JVM 筛选策略测试和 1 条 Redmi Compose instrumentation，完整门禁为 394 条 JVM、127 条 Redmi instrumentation。
 
-下一阶段继续推进未知提交/证据不完整的通用安全处置，但不尝试恢复无法证明的旧执行栈；同时补充更长任务、Android 自主回收、Doze 与内存压力样本。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化，Foreground Service 与精确定时仍依据真实耗时决定。
+45. 已完成：不可原地恢复 Run 的结构化处置。`AgentRunResumePolicy` 的 `RESTART_REQUIRED` 现在由构造约束强制携带稳定 `AgentRunRestartDispositionCode`，覆盖 Run 状态、Profile、预算、审批边界、恢复证据、步骤对应、工具定义和已提交副作用证明等类别；每类同时给出具体策略原因、证据边界和只创建关联新 Run 的建议。`closeInterruptedRuns()` 在改变 Step/Approval 前完成评估，并把恢复类型、处置码、策略原因、边界、建议和重试证据一起写入 typed `run.recovered`。任务卡、详情顶部与事件区读取同一历史快照，旧事件不补造，未知未来枚举 fail-closed。完整门禁为 395 条 JVM、128 条仅 Redmi instrumentation。
+
+下一阶段继续补充更长任务、Android 自主回收、Doze 与内存压力样本，并根据真实系统行为完善长任务可靠性；不尝试恢复无法证明的旧执行栈。旧模型协程和 Workflow 后续步骤仍不原地恢复；设备工具继续禁止进入 Workflow 或后台自动化，Foreground Service 与精确定时仍依据真实耗时决定。
 
 Daily/Weekly 继续使用非精确定时语义并记录每次计划/实际时间。多步骤 Workflow 已具备输入/输出快照、幂等键和重试策略；Foreground Service 只解决系统存活概率，不代表旧执行栈可以安全恢复。当前 31 秒真实后台任务不引入 Foreground Service；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
