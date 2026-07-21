@@ -746,7 +746,11 @@ class MinimalAgentRuntimeTest {
             run.id,
             "tool.verify",
             "工具验证通过：${previousCall.name}",
-            RunEventMetadata.ToolVerification(previousCall.name, ToolVerificationStatus.PASSED),
+            RunEventMetadata.ToolVerification(
+                toolName = previousCall.name,
+                status = ToolVerificationStatus.PASSED,
+                toolCallId = previousCall.id,
+            ),
         )
 
         val definition = ToolDefinition(

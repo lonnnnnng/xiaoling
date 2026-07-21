@@ -138,18 +138,15 @@ object AgentRunRecoveryEvidencePolicy {
             val verification = (event.metadata as? RunEventMetadata.ToolVerification)
                 ?.takeIf { event.type == "tool.verify" }
                 ?: return@forEach
-            val matched = if (verification.toolCallId != null) {
-                executions.singleOrNull { evidence ->
-                    evidence.verificationStatus == null &&
-                        evidence.toolCall.id == verification.toolCallId &&
-                        evidence.toolCall.name == verification.toolName
-                }
-            } else {
-                // long: v19 及更早验证事件没有 ToolCall ID；这里保持旧策略按结果顺序一一配对，同名多步也不能因升级后读取新模型而改变恢复结论。
-                executions.firstOrNull { it.verificationStatus == null }
-                    ?.takeIf { it.toolCall.name == verification.toolName }
+            val toolCallId = verification.toolCallId
+                ?: return invalid("旧 Run 的工具验证缺少 ToolCall ID：${verification.toolName}")
+            // long: 工具名和事件顺序都不能证明验证属于哪次调用；缺少稳定 ID 时保留关联未知，避免把不完整历史升级成可恢复事实。
+            val matched = executions.singleOrNull { evidence ->
+                evidence.verificationStatus == null &&
+                    evidence.toolCall.id == toolCallId &&
+                    evidence.toolCall.name == verification.toolName
             }
-            matched ?: return invalid("旧 Run 的工具验证无法按原顺序匹配结果：${verification.toolName}")
+            matched ?: return invalid("旧 Run 的工具验证无法唯一匹配结果：$toolCallId")
             matched.verificationStatus = verification.status
         }
 

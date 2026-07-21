@@ -140,7 +140,7 @@ class AgentRunRecoveryEvidencePolicyTest {
     }
 
     @Test
-    fun legacySameNameCallsWithoutVerificationIdsKeepSequentialFallback() {
+    fun legacyVerificationWithoutToolCallIdFailsClosedInsteadOfGuessingByOrder() {
         val firstCall = ToolCall(
             id = "legacy-same-name-first",
             name = "notes.create",
@@ -212,14 +212,9 @@ class AgentRunRecoveryEvidencePolicyTest {
             ),
         )
 
-        assertTrue(assessment is AgentRunRecoveryEvidenceAssessment.Available)
-        assessment as AgentRunRecoveryEvidenceAssessment.Available
-        assertEquals(AgentRunRecoveryEvidenceSource.EVENT_FALLBACK, assessment.source)
-        assertEquals(listOf(firstCall.id, secondCall.id), assessment.executions.map { it.toolCall.id })
-        assertEquals(
-            listOf(ToolVerificationStatus.PASSED, null),
-            assessment.executions.map { it.verificationStatus },
-        )
+        assertTrue(assessment is AgentRunRecoveryEvidenceAssessment.Invalid)
+        assessment as AgentRunRecoveryEvidenceAssessment.Invalid
+        assertEquals("旧 Run 的工具验证缺少 ToolCall ID：notes.create", assessment.reason)
     }
 
     @Test

@@ -1633,3 +1633,21 @@ LMK 与清理结果：
 
 - 阶段 50 关闭的是“停止意图在平台取消/fallback 异常、迟到 Worker 与进程重建之间丢失”的窗口，以及 Workflow/Task 分两次结算的 TOCTOU；它不能撤销停止前已提交到外部系统的副作用，也不扩大旧执行栈恢复能力。
 - 下一阶段继续寻找 Android 自主 LMK，并完善提交未知或验证事实不完整时的通用恢复证据。62.2 秒成功样本仍没有引入 Foreground Service 的依据；设备工具继续禁止进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。
+
+## 2026-07-22 旧验证事件关联未知与 LMK 基线
+
+实现与恢复边界：
+
+- `AgentRunRecoveryEvidencePolicy.readEventFallback()` 不再为缺少 `toolCallId` 的 `tool.verify` 按工具名或事件顺序寻找“第一个未验证结果”。结果/验证都必须用稳定 ID 唯一匹配 ToolCall；缺失时返回无效，上层恢复与重试统一保守为 `EVIDENCE_INCOMPLETE`。带完整 ID 的旧 typed event fallback、v20 Ledger-first、审批恢复和已提交工具只读验证保持原能力。
+- TDD 把 `legacySameNameCallsWithoutVerificationIdsKeepSequentialFallback` 改为 `legacyVerificationWithoutToolCallIdFailsClosedInsteadOfGuessingByOrder`。Red 阶段失败在 `Invalid` 断言；最小实现后恢复证据、重试、Resume Policy 与 Runtime 定向测试通过。一个 Runtime fixture 原本声明“已验证前序事实”但漏写验证 ID，已补齐同一 ToolCall ID，不放宽策略。
+
+门禁与 Redmi 证据：
+
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 汇总为 405 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 完成 141 条 instrumentation，0 跳过、0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+- Redmi 定向 `ApplicationExitInfoInstrumentedTest` 为 `OK (1 test)`，日志为 `supported=true exits=2 lowMemory=0 fallbackSigkillCandidates=0`。`exit[0]` 是启动 instrumentation 的 `reason=10 / FORCE STOP`，`exit[1]` 是安装包的 `reason=16`；两者都不是 Android 自主 LMK，不能用于证明内存压力回收，也不支持引入 Foreground Service。
+- 完整 instrumentation 后已重新安装 Debug APK，通过 Debug-only 正式入口恢复 Provider/Profile，默认只允许 `device.open_app`；测试包已卸载。AccessibilityService 为 Enabled 与 Bound，`Crashed services:{}`，主应用前台，crash buffer 为空。
+
+当前结论：
+
+- 第 51 阶段关闭了“旧验证缺少稳定调用身份却被顺序猜配成可恢复事实”的窗口，但不恢复提交未知、验证未落库或无法证明的旧执行栈。下一切片应冻结 Ledger/Event canonical fingerprint，并在确认重试前识别分类码相同的身份漂移。
+- Android 自主 LMK 仍未取得。继续采用成对基线/后测的 `ApplicationExitInfo` 证据，不把 `kill -9`、force-stop、安装、instrumentation、Doze 或 trim-memory 写成自主 LMK；设备工具继续禁止进入 Workflow/后台自动化，Foreground Service、精确定时和后续生态能力继续后置。
