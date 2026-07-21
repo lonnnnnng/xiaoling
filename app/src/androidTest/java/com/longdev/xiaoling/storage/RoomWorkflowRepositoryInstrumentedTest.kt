@@ -12,6 +12,9 @@ import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.automation.ScheduledWorkflowReentryCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowProcessExecutionRegistry
+import com.longdev.xiaoling.automation.StartupRecoveryCandidateIds
+import com.longdev.xiaoling.automation.StartupRecoveryCoordinator
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -467,6 +470,80 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
         assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
         assertEquals(runCountBefore, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
+    fun startupRecoveryClosesOldChainButKeepsCurrentProcessWorkerChain() = runBlocking {
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val oldWorkflow = repository.createWorkflow("旧进程任务", "读取旧状态")
+        val oldTask = repository.createOneTimeScheduledTask(oldWorkflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(oldTask.id, "work-request-old-process")
+        val oldClaim = repository.claimScheduledRun(oldTask.id)!!
+        val oldAgent = agentRepository.createRun(
+            conversationId = oldClaim.run.run.conversationId,
+            userMessageId = oldClaim.userMessageId,
+            goal = "读取旧状态",
+        )
+        agentRepository.updateRunStatus(oldAgent.id, AgentRunStatus.THINKING)
+        repository.markAgentRunStarted(oldClaim.run.run.id, oldClaim.run.steps.single().id, oldAgent.id)
+
+        val currentWorkflow = repository.createWorkflow("当前进程任务", "读取当前状态")
+        val currentTask = repository.createOneTimeScheduledTask(currentWorkflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(currentTask.id, "work-request-current-process")
+        val currentClaim = repository.claimScheduledRun(currentTask.id)!!
+        val currentAgent = agentRepository.createRun(
+            conversationId = currentClaim.run.run.conversationId,
+            userMessageId = currentClaim.userMessageId,
+            goal = "读取当前状态",
+        )
+        agentRepository.updateRunStatus(currentAgent.id, AgentRunStatus.THINKING)
+        repository.markAgentRunStarted(currentClaim.run.run.id, currentClaim.run.steps.single().id, currentAgent.id)
+        val runCountBeforeRecovery = agentRepository.recentRunDetails(limit = 20).size
+        val registry = ScheduledWorkflowProcessExecutionRegistry()
+
+        registry.withScheduledTask(currentTask.id) {
+            val candidates = StartupRecoveryCoordinator(
+                processExecutionRegistry = registry,
+                loadAgentRunIds = agentRepository::activeRunIds,
+                loadWorkflowCandidates = repository::startupRecoveryCandidates,
+            ).capture()
+            assertEquals(
+                StartupRecoveryCandidateIds(
+                    agentRunIds = setOf(oldAgent.id),
+                    workflowRunIds = setOf(oldClaim.run.run.id),
+                    scheduledTaskIds = setOf(oldTask.id),
+                ),
+                candidates,
+            )
+
+            agentRepository.closeInterruptedRuns(
+                runIds = candidates.agentRunIds,
+                preserveResumableCandidates = false,
+            )
+            repository.reconcileInterruptedRuns(workflowRunIds = candidates.workflowRunIds)
+            repository.reconcileInterruptedScheduledTasks(taskIds = candidates.scheduledTaskIds)
+
+            assertEquals(AgentRunStatus.CANCELLED, agentRepository.runDetail(oldAgent.id)!!.snapshot.run.status)
+            assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(oldClaim.run.run.id)!!.run.status)
+            assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(oldTask.id)!!.status)
+            assertEquals(AgentRunStatus.THINKING, agentRepository.runDetail(currentAgent.id)!!.snapshot.run.status)
+            assertEquals(WorkflowRunStatus.RUNNING, repository.runDetail(currentClaim.run.run.id)!!.run.status)
+            assertEquals(ScheduledTaskStatus.RUNNING, repository.getScheduledTask(currentTask.id)!!.status)
+            assertEquals(runCountBeforeRecovery, agentRepository.recentRunDetails(limit = 20).size)
+
+            agentRepository.updateRunStatus(currentAgent.id, AgentRunStatus.COMPLETED, result = "当前状态可用")
+            repository.completeByAgentRunId(
+                agentRunId = currentAgent.id,
+                status = WorkflowRunStatus.COMPLETED,
+                result = "当前状态可用",
+            )
+            repository.finishScheduledTask(currentTask.id, ScheduledTaskStatus.COMPLETED)
+
+            assertEquals(AgentRunStatus.COMPLETED, agentRepository.runDetail(currentAgent.id)!!.snapshot.run.status)
+            assertEquals(WorkflowRunStatus.COMPLETED, repository.runDetail(currentClaim.run.run.id)!!.run.status)
+            assertEquals(ScheduledTaskStatus.COMPLETED, repository.getScheduledTask(currentTask.id)!!.status)
+            assertEquals(runCountBeforeRecovery, agentRepository.recentRunDetails(limit = 20).size)
+        }
     }
 
     @Test

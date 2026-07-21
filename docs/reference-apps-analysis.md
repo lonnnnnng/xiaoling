@@ -416,7 +416,7 @@
 
 目标：支持长任务和计划任务，但不夸大 Android 后台可靠性。
 
-当前状态：Workflow/ScheduledTask Ledger、1 至 8 步顺序执行、一次性及 Daily/Weekly 非精确定时、取消、计划/实际时间、完成/失败/blocked 通知和安全新 Run 重试已交付；任务中心新增“需确认”筛选，聚合提交未知、已提交或证据不完整且必须确认后才能创建关联新 Run 的终态任务。第 46 阶段已记录强制 Doze 延迟、trim-memory、无压力对照和约 28.5 秒真实模型链路，并修复迟到协程覆盖 AgentRun 终态的问题。它不是通用“需要你处理”首页，也不包含活动审批；自然 LMK、后台通用执行栈续跑、精确定时和跨任务聚合首页仍待完成。
+当前状态：Workflow/ScheduledTask Ledger、1 至 8 步顺序执行、一次性及 Daily/Weekly 非精确定时、取消、计划/实际时间、完成/失败/blocked 通知和安全新 Run 重试已交付；任务中心新增“需确认”筛选，聚合提交未知、已提交或证据不完整且必须确认后才能创建关联新 Run 的终态任务。第 46 阶段已记录强制 Doze 延迟、trim-memory、无压力对照和约 28.5 秒真实模型链路，并修复迟到协程覆盖 AgentRun 终态的问题；第 47 阶段又完成进程内 Worker 所有权和启动恢复候选隔离。它不是通用“需要你处理”首页，也不包含活动审批；自然 LMK、后台通用执行栈续跑、精确定时和跨任务聚合首页仍待完成。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -433,9 +433,9 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过当前 395 条 JVM、129 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类并在确认提交前校验证据码不变。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，但这些命令仍不等同 Android 自主回收。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
+当前状态：第 1 至 6 步已完成并通过当前 397 条 JVM、130 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类并在确认提交前校验证据码不变。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，但这些证据仍不等同 Android 自主回收。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
 
-长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步定义探针约 28.5 秒后因第二步重复工具安全失败。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑，设备工具仍不得进入 Workflow/后台权限。
+长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛、进程内所有权隔离和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。前台初始化先冻结旧 Agent/Workflow/Task ID，并排除当前进程注册 Task 对应的 Workflow/Agent 链；快照后的新 Worker 等待边界完成，Room 真机测试确认旧链收敛、当前链继续完成且不新增 Run。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步定义探针约 28.5 秒后因第二步重复工具安全失败。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑，设备工具仍不得进入 Workflow/后台权限。
 
 实施顺序：
 
@@ -511,4 +511,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账、超时边界、需确认聚合、结构化安全处置，以及 Doze/受控内存/无压力对照均已完成；下一步应集中取得 Android 自主 LMK 与更长成功任务样本，并完善当前进程内执行所有权和取消边界，再决定是否需要 Foreground Service 或更强恢复机制。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账、超时边界、需确认聚合、结构化安全处置、Doze/受控内存/无压力对照，以及当前进程内 Worker 所有权隔离均已完成；下一步应集中取得 Android 自主 LMK 与更长成功任务样本，并完善运行中取消和用户可见停止边界，再决定是否需要 Foreground Service 或更强恢复机制。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

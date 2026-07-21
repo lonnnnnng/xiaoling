@@ -1534,3 +1534,25 @@ Redmi 真实样本：
 - `dumpsys deviceidle force-idle`、`am kill`、`run-as kill -9` 和 `am send-trim-memory` 都是受控命令，不代表 Android 自主 LMK；本阶段也不能证明 Doze 或 trim-memory 导致 `connection closed`。
 - 终态保护冻结持久化审计结论，但不宣称可以撤销已经在飞行中的网络请求或外部副作用。旧模型协程、未知提交执行栈和 Workflow 后续步骤仍不原地恢复；设备工具继续不进入 Workflow 或后台自动化。
 - 当前约 28.5 至 31 秒真实任务样本仍由普通 WorkManager 承载。后续优先取得 Android 自主 LMK 与更长成功任务样本，再评估当前进程内执行所有权、可见停止入口和 Foreground Service；精确定时仍继续后置。
+
+## 2026-07-21 当前进程 Worker 所有权与启动恢复隔离
+
+实现与并发边界：
+
+- 新增计数型 `ScheduledWorkflowProcessExecutionRegistry`。`ScheduledWorkflowWorker` 在构造 Repository、执行重入对账或 claim 之前登记 Task ID；同一 ID 的重叠调用不会因其中一个结束而提前清除所有权。
+- `StartupRecoveryCoordinator` 在同一互斥边界读取当前进程 Task 集合并冻结活动 AgentRun、WorkflowRun 和 RUNNING ScheduledTask。快照持锁期间新 Worker 必须等待，快照后启动的 Worker 不会进入旧候选。
+- `RoomWorkflowRepository.startupRecoveryCandidates()` 在 Room 事务内沿当前 Task→WorkflowRun→AgentRun/WorkflowStep 关联链构造排除集合。ViewModel 的待审批恢复、已提交结果恢复、全部验证结果收尾、不可恢复 Agent 关闭、Workflow 对账和 ScheduledTask 对账全部只消费冻结 ID，不在后续阶段重新扫描全库。
+- 旧链继续按现有 fail-closed 策略进入终态；当前进程 Worker 链保持活动。实现不使用墙上时间，不新增持久 owner token 或 Room Schema，不恢复旧模型协程、提交未知执行栈或 Workflow 后续步骤，也不引入 Foreground Service。
+
+TDD、自动化与 Redmi 验证：
+
+- `StartupRecoveryCoordinatorTest` 覆盖“旧候选保留、当前 Worker 三层链排除”，以及恢复快照持锁期间新 Worker 不得提前进入执行块；快照结果不包含该新任务。
+- `RoomWorkflowRepositoryInstrumentedTest.startupRecoveryClosesOldChainButKeepsCurrentProcessWorkerChain` 在同一内存 Room 构造旧执行链和当前进程 Worker 链。恢复后旧 Agent/Workflow/Task 均为 `CANCELLED`，当前链保持 `THINKING/RUNNING/RUNNING` 并可继续进入 `COMPLETED`；前后 Agent Run 数量不变，没有第二个 Run 或迟到终态覆盖。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过：397 条 JVM，Lint、Debug APK 与 AndroidTest APK 构建成功。双轴审查从 `59281ec` 固定点执行：Spec 0 findings；代码 Standards/Fowler smells 0 findings，文档同步问题已在本节及五份长期文档中解决。
+- 仅使用 Redmi Note 8 Pro Android 14 真机 `wsvwypiz7xwslvl7`：新增 Room 单项为 `OK (1 test)`；最终完整 `AndroidJUnitRunner` 为 `OK (130 tests)`、0 失败。没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+- 完整 instrumentation 后已卸载测试包，主应用数据保留。主库有 1 条 Provider，Base URL、模型、Keystore IV/密文均非空；启动日志无 `VERIFICATION_FAILED`、解密异常、HTTP 401、FATAL 或 ANR。设备 Agent 偏好为开启，AccessibilityService 已恢复 Enabled/Bound，`MainActivity` 前台。最终 Debug APK SHA-256：`a5f2fa9c139f85ee7124768f262d475e2812890ba30cc6d7d52d2102ee657e3d`。
+
+当前证据边界：
+
+- 本阶段证明的是“同一进程中，前台启动恢复不会取消已经登记或快照后启动的 Worker”，并继续保护真正属于旧进程的执行链；它不等于 Android 自主 LMK、旧执行栈原地续跑或 WorkManager 长任务存活保证。
+- 后续继续取得 Android 自主 LMK 与更长成功任务样本，并完善运行中取消和用户可见停止边界。当前 28.5 至 31 秒样本仍不足以引入 Foreground Service；设备工具仍不进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。

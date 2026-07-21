@@ -59,6 +59,8 @@ import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.ScheduledWorkflowProcessExecutionRegistry
+import com.longdev.xiaoling.automation.StartupRecoveryCoordinator
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.model.AppThemeMode
@@ -435,6 +437,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentMemoryStore = RoomAgentMemoryStore(application)
     private val workflowRepository = RoomWorkflowRepository(application)
     private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(application)
+    private val startupRecoveryCoordinator = StartupRecoveryCoordinator(
+        processExecutionRegistry = ScheduledWorkflowProcessExecutionRegistry.process,
+        loadAgentRunIds = agentRunRepository::activeRunIds,
+        loadWorkflowCandidates = workflowRepository::startupRecoveryCandidates,
+    )
     private val backupManager = XiaoLingBackupManager(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
@@ -466,12 +473,16 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
+            val recoveryCandidates = withContext(Dispatchers.IO) {
+                // long: 启动恢复先冻结旧进程候选，并与当前进程已注册 Worker 隔离；后续每个恢复步骤只消费这份快照，不能重新全库扫描误伤新执行。
+                startupRecoveryCoordinator.capture()
+            }
             val (resumableApprovalRuns, resumableCommittedToolRuns, resumableVerifiedToolRuns) = withContext(Dispatchers.IO) {
-                val approvals = agentRunRepository.recoverPendingApprovalRuns()
-                val committedTools = agentRunUseCase.recoverCommittedToolRuns()
-                val verifiedTools = agentRunUseCase.recoverVerifiedToolRuns()
+                val approvals = agentRunRepository.recoverPendingApprovalRuns(recoveryCandidates.agentRunIds)
+                val committedTools = agentRunUseCase.recoverCommittedToolRuns(recoveryCandidates.agentRunIds)
+                val verifiedTools = agentRunUseCase.recoverVerifiedToolRuns(recoveryCandidates.agentRunIds)
                 // long: 生产 Registry 已参与未验证结果的证据判定；只保留待审批、完整幂等证据或已落库 PASSED 验证的候选，其余中间态继续 fail-closed 收敛。
-                agentRunUseCase.closeInterruptedRuns()
+                agentRunUseCase.closeInterruptedRuns(recoveryCandidates.agentRunIds)
                 Triple(approvals, committedTools, verifiedTools)
             }
             val workflowState = withContext(Dispatchers.IO) {
@@ -480,8 +491,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     resumableAgentRunIds = (resumableCommittedToolRuns + resumableVerifiedToolRuns)
                         .map { it.snapshot.run.id }
                         .toSet(),
+                    workflowRunIds = recoveryCandidates.workflowRunIds,
                 )
-                workflowRepository.reconcileInterruptedScheduledTasks()
+                workflowRepository.reconcileInterruptedScheduledTasks(recoveryCandidates.scheduledTaskIds)
                 workflowRepository.reconcileWorkflowSchedules().forEach { task ->
                     try {
                         val workRequestId = scheduledTaskScheduler.enqueue(task)

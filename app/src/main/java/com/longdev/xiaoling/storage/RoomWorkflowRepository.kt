@@ -14,6 +14,7 @@ import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
+import com.longdev.xiaoling.automation.WorkflowStartupRecoveryCandidates
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRecord
@@ -912,6 +913,34 @@ class RoomWorkflowRepository(
             WorkflowRunDetail(
                 run = run.toRecord(),
                 steps = stepsByRunId[run.id].orEmpty().map { it.toRecord() },
+            )
+        }
+    }
+
+    internal suspend fun startupRecoveryCandidates(
+        currentProcessTaskIds: Set<String>,
+    ): WorkflowStartupRecoveryCandidates {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val activeWorkflowRuns = dao.runsByStatuses(
+                listOf(WorkflowRunStatus.QUEUED.name, WorkflowRunStatus.RUNNING.name),
+            )
+            val runningScheduledTasks = dao.getRunningScheduledTasks()
+            val currentProcessWorkflowRunIds = linkedSetOf<String>()
+            currentProcessTaskIds.forEach { taskId ->
+                dao.getScheduledTask(taskId)?.workflowRunId?.let(currentProcessWorkflowRunIds::add)
+            }
+            val currentProcessAgentRunIds = linkedSetOf<String>()
+            currentProcessWorkflowRunIds.forEach { workflowRunId ->
+                dao.getRun(workflowRunId)?.agentRunId?.let(currentProcessAgentRunIds::add)
+                // long: 多步骤 Workflow 的 Run 只保存当前 Agent；同时读取步骤关联可覆盖状态切换窗口，并保留未来多 Agent 步骤的排除能力。
+                dao.getSteps(workflowRunId).mapNotNullTo(currentProcessAgentRunIds) { it.agentRunId }
+            }
+            WorkflowStartupRecoveryCandidates(
+                activeWorkflowRunIds = activeWorkflowRuns.mapTo(linkedSetOf()) { it.id },
+                runningScheduledTaskIds = runningScheduledTasks.mapTo(linkedSetOf()) { it.id },
+                currentProcessWorkflowRunIds = currentProcessWorkflowRunIds,
+                currentProcessAgentRunIds = currentProcessAgentRunIds,
             )
         }
     }

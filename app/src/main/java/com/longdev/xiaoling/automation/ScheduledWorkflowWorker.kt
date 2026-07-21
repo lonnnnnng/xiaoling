@@ -39,7 +39,10 @@ class ScheduledWorkflowWorker(
     override suspend fun doWork(): Result {
         val taskId = inputData.getString(INPUT_TASK_ID)?.takeIf { it.isNotBlank() }
             ?: return Result.failure()
-        ScheduledWorkflowExecutor(applicationContext).execute(taskId)
+        ScheduledWorkflowProcessExecutionRegistry.process.withScheduledTask(taskId) {
+            // long: 当前进程所有权必须先于 Repository 构造和任务 claim 建立；应用同时启动时，恢复快照会识别这条链而不会把刚开始的 Worker 当成旧进程遗留。
+            ScheduledWorkflowExecutor(applicationContext).execute(taskId)
+        }
         // long: 业务成功、失败和待处理都已经写入 Room 终态；WorkManager 只负责触发，不用系统重试复制一个可能已执行过的 Agent Run。
         return Result.success()
     }

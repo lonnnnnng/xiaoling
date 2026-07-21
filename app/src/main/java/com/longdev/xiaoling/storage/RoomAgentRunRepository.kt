@@ -222,16 +222,16 @@ class RoomAgentRunRepository(
         )
     }
 
-    suspend fun recoverPendingApprovalRuns(): List<AgentRunDetailRecord> {
+    suspend fun activeRunIds(): Set<String> {
+        return database.agentRunDao()
+            .getRunsByStatuses(ACTIVE_RUN_STATUS_NAMES)
+            .mapTo(linkedSetOf()) { it.id }
+    }
+
+    suspend fun recoverPendingApprovalRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
-        val activeStatuses = listOf(
-            AgentRunStatus.QUEUED,
-            AgentRunStatus.THINKING,
-            AgentRunStatus.WAITING_APPROVAL,
-            AgentRunStatus.EXECUTING,
-            AgentRunStatus.VERIFYING,
-        )
-        val resumable = dao.getRunsByStatuses(activeStatuses.map { it.name })
+        val resumable = dao.getRunsByStatuses(ACTIVE_RUN_STATUS_NAMES)
+            .filter { runIds == null || it.id in runIds }
             .mapNotNull { run ->
                 val detail = loadDetail(run)
                 if (AgentRunResumePolicy.assess(detail).kind != AgentRunResumeKind.APPROVAL_WAIT) {
@@ -256,12 +256,15 @@ class RoomAgentRunRepository(
     suspend fun recoverCommittedToolRuns(
         definitionLookup: (String) -> ToolDefinition?,
         committedVerificationSupport: (String) -> Boolean,
+        runIds: Set<String>? = null,
     ): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         val candidates = dao.getRunsByStatuses(
             listOf(AgentRunStatus.EXECUTING.name, AgentRunStatus.VERIFYING.name),
         )
-        return candidates.mapNotNull { run ->
+        return candidates
+            .filter { runIds == null || it.id in runIds }
+            .mapNotNull { run ->
             val detail = loadDetail(run)
             val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
             if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
@@ -285,9 +288,10 @@ class RoomAgentRunRepository(
         }
     }
 
-    suspend fun recoverVerifiedToolRuns(): List<AgentRunDetailRecord> {
+    suspend fun recoverVerifiedToolRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         return dao.getRunsByStatuses(listOf(AgentRunStatus.VERIFYING.name))
+            .filter { runIds == null || it.id in runIds }
             .mapNotNull { run ->
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail)
@@ -316,14 +320,7 @@ class RoomAgentRunRepository(
         preserveResumableCandidates: Boolean = true,
     ): Int {
         val dao = database.agentRunDao()
-        val activeStatuses = listOf(
-            AgentRunStatus.QUEUED,
-            AgentRunStatus.THINKING,
-            AgentRunStatus.WAITING_APPROVAL,
-            AgentRunStatus.EXECUTING,
-            AgentRunStatus.VERIFYING,
-        )
-        val interruptedRuns = dao.getRunsByStatuses(activeStatuses.map { it.name })
+        val interruptedRuns = dao.getRunsByStatuses(ACTIVE_RUN_STATUS_NAMES)
             .filter { runIds == null || it.id in runIds }
         if (interruptedRuns.isEmpty()) return 0
         val reason = "应用重启后终止上次未完成 Agent 任务"
@@ -756,6 +753,13 @@ class RoomAgentRunRepository(
         const val TOOL_RESULT_EVENT_TYPE = "tool.result"
         const val TOOL_VERIFICATION_EVENT_TYPE = "tool.verify"
         val TOOL_CALL_EVENT_TYPES = setOf(TOOL_CALL_PROPOSED_EVENT_TYPE, "tool.call.validated")
+        val ACTIVE_RUN_STATUS_NAMES = listOf(
+            AgentRunStatus.QUEUED,
+            AgentRunStatus.THINKING,
+            AgentRunStatus.WAITING_APPROVAL,
+            AgentRunStatus.EXECUTING,
+            AgentRunStatus.VERIFYING,
+        ).map { it.name }
         val TERMINAL_RUN_STATUS_NAMES = AgentRunStatus.values().filter { it.isTerminal }.map { it.name }
     }
 }

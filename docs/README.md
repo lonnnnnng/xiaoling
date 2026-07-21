@@ -2,9 +2,11 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。任务中心现支持“需确认”筛选，并把不能原地恢复的策略原因、稳定处置码、证据边界和下一步动作作为 typed `run.recovered` 快照直接展示。当前门禁为 395 条 JVM 与仅 Redmi 执行的 129 条 instrumentation；设备工具仍只开放给前台直接 `/agent`，Workflow/后台自动化、Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。任务中心现支持“需确认”筛选，并把不能原地恢复的策略原因、稳定处置码、证据边界和下一步动作作为 typed `run.recovered` 快照直接展示。启动恢复现先冻结旧 AgentRun/WorkflowRun/ScheduledTask 候选，并排除当前进程已注册 Worker 的 Task→Workflow→Agent 链。当前门禁为 397 条 JVM 与仅 Redmi 执行的 130 条 instrumentation；设备工具仍只开放给前台直接 `/agent`，Workflow/后台自动化、Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 第 46 阶段完成 Redmi 长任务与系统策略取证：强制 Doze 会延后同一 WorkRequest，退出 Doze 后任务只创建一个 Workflow/Agent Run；8 步真实模型 Workflow 在约 28.5 秒内于第二步重复调用检测处安全失败。`send-trim-memory` 与退出 Doze 样本均观察到短时 `connection closed`，但无压力对照也出现启动恢复竞态，因此不建立内存压力或 Doze 与连接关闭的因果关系。该竞态曾让 ScheduledTask/Workflow 保持 `CANCELLED` 而迟到协程把 AgentRun 改成 `COMPLETED`；现已在 Room DAO 用原子非终态条件更新冻结 AgentRun 终态，并增加 Redmi 回归。仍缺 Android 自主 LMK 样本，不提前引入 Foreground Service，也不恢复旧 Executor 或 Workflow 后续步骤。
+
+第 47 阶段完成当前进程 Worker 所有权与启动恢复隔离：Worker 在构造 Repository、重入对账或 claim 之前用计数型进程注册表登记 Task；ViewModel 在同一互斥边界冻结启动候选，快照期间新 Worker 必须等待，已登记 Worker 的 ScheduledTask、WorkflowRun 和 AgentRun 从旧候选中排除。Redmi Room 测试确认旧链按原策略收敛，当前链保持活动、可继续完成且不创建第二个 Run。实现不依赖墙上时间，不新增 Room owner token 或 Schema，也不扩大旧执行栈恢复能力。
 
 第 43 阶段历史补充：Redmi 完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。该阶段当时的后续重点是更长/自然系统回收样本和通用未知提交处置；当前进度以第 46 阶段段落为准。
 

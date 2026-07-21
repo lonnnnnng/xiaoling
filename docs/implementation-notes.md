@@ -26,7 +26,7 @@
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Conversation/Message Repository、Agent Profile Store、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
 | Agent | `app/src/main/java/com/longdev/xiaoling/agent/` | Agent Profile 策略、最小 Agent Runtime、Run Ledger interface、真实低风险 Tool Registry、交互式审批 gate 和可审计运行链路。 |
 | Device | `app/src/main/java/com/longdev/xiaoling/device/` | Accessibility 观察与有限动作、授权/连接健康检查、有界脱敏 snapshot、短生命周期节点引用、隐私/应用白名单、动作后验证和前台直接 Agent 门禁。 |
-| Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行和结果通知。 |
+| Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行、进程内 Worker 所有权、启动恢复候选隔离和结果通知。 |
 | Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
 
@@ -115,6 +115,7 @@
 - `AgentTaskRetryPolicy.assessEvidence()` 将账本、旧 typed event、回执状态和执行中断统一投影为 `NO_SIDE_EFFECT / NOT_COMMITTED / COMMIT_UNKNOWN / COMMITTED_UNVERIFIED / COMMITTED_VERIFIED / EVIDENCE_INCOMPLETE`。任务中心卡片直接显示分类码、稳定原因和建议动作；高风险或不完整证据的确认弹窗继续显示完整边界。确认提交时重新评估当前 Run：状态不可重试时关闭弹窗，证据码变化时更新弹窗并拒绝本次旧确认，只有分类稳定后才继续；分类不会改变“旧 Run 不修改、只创建关联新 Run”的边界。
 - 启动 `closeInterruptedRuns()` 在取消步骤和审批前按原始 Run 状态冻结重试证据与恢复处置，并写入 `RunEventMetadata.Recovery`。`EXECUTING/VERIFYING` 无结果按 `COMMIT_UNKNOWN`，纯 THINKING 且无副作用按 `NOT_COMMITTED`，无效 Ledger 按 `EVIDENCE_INCOMPLETE`；`AgentRunResumePolicy` 的所有 `RESTART_REQUIRED` 构造都必须携带 `AgentRunRestartDispositionCode`、策略原因、证据边界和建议动作。可原地恢复的审批/已提交验证候选不写取消证据。重试时使用快照还原收敛前中断边界，再重新评估当前 Ledger；启动清理把原 `PENDING` 步骤写成 `CANCELLED` 不会被误判成副作用中断，Ledger 分类真正漂移时仍升级为 `EVIDENCE_INCOMPLETE`。AgentRun 状态更新现由 DAO 原子限定为“当前仍非终态”，启动恢复写入的 `CANCELLED` 及错误证据不能被迟到模型响应覆盖，拒绝的后到写入也不追加虚假 `run.status`。新增字段只进入 metadata JSON，Room Schema 不变；旧事件缺字段按空值继续使用原推导路径，未知未来恢复类型降级为 `RESTART_REQUIRED`，未知处置码降级为恢复证据无效。
 - `ScheduledWorkflowReentryCoordinator` 在 Worker 重入时先检查当前 ScheduledTask 是否仍为 `RUNNING`；只有该状态才按 `ScheduledTask -> WorkflowRun -> AgentRun` 关联链定向关闭旧执行栈，Agent、Workflow、ScheduledTask 按顺序收敛后才发送结果通知。普通 `SCHEDULED` 任务继续走正常 claim；重入不恢复旧模型协程、不继续 Workflow 后续步骤，也不返回 `Result.retry`。按 ID 的 Agent/Workflow/Task 对账入口保证其他前台 Run 不受影响，周期下一实例仍只在旧任务进入终态后物化。
+- `ScheduledWorkflowProcessExecutionRegistry` 在 Worker 构造 Repository、重入对账和 claim 之前登记 Task ID，并用引用计数容纳同 ID 的重叠调用。`StartupRecoveryCoordinator` 在同一互斥边界读取当前注册集合并冻结活动 AgentRun、WorkflowRun 和 RUNNING ScheduledTask；快照完成前新 Worker 不能注册或访问 Room。`RoomWorkflowRepository.startupRecoveryCandidates()` 在事务内沿当前 Task→Workflow→Agent/Step 关联链生成排除集合，ViewModel 的审批恢复、已提交/已验证恢复、旧 Agent 关闭和 Workflow/Task 对账之后只消费冻结 ID。实现不依赖墙上时间，不增加 Room owner token 或 Schema。
 - 待审批恢复和 `notes.create / memory.remember` 已提交结果恢复读取原 Run 的 `agent.profile.selected` 快照并重新构造 Profile/Skill 双层 Registry。历史 Run 没有该事件时走旧兼容路径；重复、无法解析、包含未注册工具或 Skill 超出 Profile 工具面的审计均拒绝恢复。
 - 重试正式启动时 ViewModel 选中来源会话并发出一次性导航信号，根 UI 回到对话页；重新触发的写工具仍走正常审批，审批卡不会隐藏在任务中心后台。
 - 应用启动时会保留尚未执行任何工具的 `WAITING_APPROVAL` Run；批准后先执行持久化的首个工具，再携带其已验证结果继续同一 Run 的多步规划。已经进入工具执行/验证步骤的多步 Run 默认会安全收敛为 `CANCELLED`，其所有 `PENDING/RUNNING` Step 同步改为 `CANCELLED`。第一个受限例外是最后一个 `notes.create` 或 `memory.remember` 已落库完整 `COMMITTED + IDEMPOTENT_BY_KEY` 结果且尚未验证：启动时补齐原 execution Step，按 operation ID 只读回读业务记录，写入 `tool.verify` 和 `recovery.summarize`，再以本地可信总结完成原 Run。第二个例外适用于通用工具：Run 已在 `VERIFYING`，全部 ToolResult 成功、全部 `tool.verify` 为 `PASSED` 且最后验证 Step 只差控制面收尾时，恢复入口重建 `completedTools`、调用数和指纹，最多把该 Step 更新为 `COMPLETED`，随后直接复用 `completeRecoveredRun()`。两条路径都不恢复旧模型协程；前者不重复调用写工具，后者完全不触碰 Executor/LLM 或追加验证事实。若属于 Workflow，启动对账先保留候选，恢复后写回当前步骤输出并把剩余 Workflow 收敛为 `FAILED`，后续通过关联新 Run 复用成功前缀。
@@ -135,16 +136,16 @@
 - 普通 Workflow 输出继续兼容旧纯文本快照；执行过 `knowledge.search` 的输出改用带 schema 版本的 JSON 保存正文、是否需要当前知识证据、引用数组和原始引用数量。准备步骤与真正关联 Agent Run 时都会调用 `retainCurrentReferences()` 重新核对完整引用集合，引用缺失、损坏、禁用、替换或删除时只从新输入投影中移除正文，不回写来源 Run；最终结果和任务中心展示统一通过 codec 读取正文，避免把快照 JSON 当作用户结果。
 - 旧单步骤兼容入口收到同一 Agent Run 的重复快照回调时，优先命中已经关联该 Run 的步骤，再执行幂等状态刷新；不会因为步骤已经进入 `RUNNING` 就错误关联到后续步骤。
 - `BLOCKED / FAILED / CANCELLED` Workflow Run 可创建新 Run 重试。新 Run 通过 `retryOfWorkflowRunId` 关联来源，把连续成功前缀标为 `SKIPPED` 并记录 `reusedFromStepId`，首个未完成步骤及后续步骤恢复为 `PENDING`；旧 Run 不修改。
-- 应用启动时先按原策略恢复/关闭 Agent Run，再对账活动 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
+- 应用启动时先冻结旧进程恢复候选并排除当前进程已注册 Worker 链，再按原策略恢复/关闭候选 Agent Run，最后只对账候选 Workflow Run：可恢复的 `WAITING_APPROVAL` 保持运行中；批准并完成当前步骤后继续同一 Workflow Run 的下一步骤。若进程重建时当前 Agent 已完成但后续步骤尚未启动，则先保留当前输出，再把旧 Run 收敛为失败，用户通过新 Run 重试复用成功前缀，绝不自动重放可能有副作用的步骤。
 - `ScheduledWorkflowOrchestrator` 在步骤持久化返回后、更新内存步骤列表和启动下一步骤前提供专用故障注入 seam。模拟进程终止会直接重新抛出，不进入普通 `FAILED/CANCELLED` 结算；生产使用 no-op 实现。启动对账因此读取到“第一步 `COMPLETED`、后续步骤 `PENDING`、Workflow Run 仍活动”的真实中间状态，旧 Run 随后失败关闭，关联新 Run 通过 `reusedFromStepId` 复用成功前缀。
 - Room v14 新增结构化 `ScheduledTask`，Room v15 新增唯一 `workflow_schedules` 规则，Room v16 新增 Workflow 步骤定义与步骤快照，Room v17 为 `agent_notes.idempotencyKey` 增加可空唯一索引，Room v18 新增 `agent_memory_operations` 幂等操作账本，Room v19 为 operation 增加可空 `resultHash`，Room v20 新增 `agent_tool_calls / agent_tool_results`；v18 记忆 operation 和 v19 RunEvent 均不补造缺失证据。
 - 工作流页可创建 1 分钟至 7 天的一次性计划并取消尚未执行的计划。`OneTimeWorkRequest.setInitialDelay` 配合联网约束和唯一工作名提供非精确调度；产品文案明确系统可能延迟，不承诺准点。
 - Daily/Weekly 规则保存本地墙上时间、`ZoneId` 和可选周几。实现不使用 `PeriodicWorkRequest`：规则只维护一个未来 OneTime 实例；实例进入任意终态后，按规则时区计算并物化下一未来实例，每次实例均使用新的 ScheduledTask、WorkRequest、Workflow Run 和 Agent Run ID。
 - 同一 Workflow 最多一个周期规则。替换规则在 Room 事务内取消旧待执行实例并创建新实例，再同步取消旧唯一工作；停用规则或 Workflow 会清空 `nextTaskId / nextPlannedAt` 并取消 WorkManager。周期实例不暴露一次性任务取消入口，避免留下仍会继续生成下一实例的启用规则。
-- 启动恢复会先把无法重建执行栈的 RUNNING ScheduledTask 按关联 Workflow Run 终态收敛，再为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
+- 启动恢复会先冻结旧候选并排除当前进程 Worker 链，只把候选 RUNNING ScheduledTask 按关联 Workflow Run 终态收敛，再为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
 - Worker 使用同一 `AgentRunUseCase`，但强制传入 `AgentExecutionOrigin.BACKGROUND`。SAFE 后台工具可完成原有校验与验证；需要审批的工具写入 Agent/Workflow/ScheduledTask `BLOCKED` 终态并通知用户以前台新 Run 重试，绝不等待前台审批卡或继承临时授权。
 - Android 8+ 使用稳定通知 Channel；Android 13+ 从用户创建计划的操作中请求 `POST_NOTIFICATIONS`。完成、失败、阻断和系统取消都会写入 Ledger；通知被拒绝时不影响任务终态。
-- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-19 的真实后台三步骤约 31 秒；2026-07-21 的 8 步探针在约 28.5 秒时于第二步重复工具调用检测处安全失败。强制 Doze 明确延后了任务，退出 Doze 与 `send-trim-memory` 样本均出现短时 `connection closed`，但这些受控样本不能证明因果或 Android 自主 LMK。当前继续使用普通 WorkManager；只有真实任务持续时间、用户可见停止需求或自然系统回收证据表明必要时才使用 `setForeground()`，由 WorkManager 代管前台服务。
+- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-19 的真实后台三步骤约 31 秒；2026-07-21 的 8 步探针在约 28.5 秒时于第二步重复工具调用检测处安全失败。强制 Doze 明确延后了任务，退出 Doze 与 `send-trim-memory` 样本均出现短时 `connection closed`，但这些受控样本不能证明因果或 Android 自主 LMK。当前进程 Worker 所有权隔离已完成，但它只防止同进程启动恢复误收敛新执行，不提高系统存活率。当前继续使用普通 WorkManager；只有真实任务持续时间、用户可见停止需求或自然系统回收证据表明必要时才使用 `setForeground()`，由 WorkManager 代管前台服务。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext.toolExecutions` 按执行顺序保存全部工具、参数、结果、验证状态和记忆 ID，顶层单工具字段继续映射最后一步以兼容旧消息；Android 持久化显式使用 JSON 数组，并兼容旧的字符串化数组。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
@@ -254,7 +255,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、其他执行/验证中 Run 与 Step 一致取消、AgentRun 终态拒绝迟到执行覆盖、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 395 条 JVM 与仅 Redmi 执行的 129 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、其他执行/验证中 Run 与 Step 一致取消、AgentRun 终态拒绝迟到执行覆盖、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 397 条 JVM 与仅 Redmi 执行的 130 条 instrumentation。
 
 ## 任务中心需确认队列
 
@@ -282,5 +283,13 @@
 - 退出 Doze 后的任务在约 889ms 以 `connection closed` 失败；运行中发送 `RUNNING_CRITICAL` trim-memory 的任务约 944ms 同样失败，但 PID 不变，前后 PSS/RSS 没有形成“压力导致回收”的证据。两者均只有一个 Workflow/Agent Run，没有 `Result.retry` 或复制 Run，且不能把连接关闭归因于 Doze 或 trim-memory。
 - 无压力对照只创建一个 WorkRequest、WorkflowRun 和 AgentRun，但前台启动恢复与新 Worker 并发：ScheduledTask/Workflow 被收敛为 `CANCELLED` 后，旧执行协程仍返回并把 AgentRun 写成 `COMPLETED`。修复后 `AgentRunDao.updateRunStatusIfActive()` 用单条 SQL 保证终态不可覆盖，Repository 只有更新成功才追加状态事件；Redmi 新增测试覆盖“恢复先取消、旧执行后完成”的顺序。
 - `force-idle`、`am kill`、`run-as kill -9` 和 `send-trim-memory` 都是受控命令，不代表 Android 自主 LMK。当前证据仍不支持提前引入 Foreground Service，也不改变旧模型协程、未知提交执行栈和 Workflow 后续步骤不原地恢复的边界。
+
+## 当前进程 Worker 所有权与启动恢复隔离
+
+- Worker 先在进程级注册表登记 Task ID，再构造执行器和访问 Room；同 ID 并发使用引用计数，任一调用结束都不会提前移除其他执行所有权。
+- 启动恢复持有同一互斥边界冻结候选。已登记 Task 对应的 WorkflowRun 和 AgentRun/WorkflowStep 关联一并排除；快照开始后才启动的 Worker 必须等快照完成，因此不会进入本次旧候选。
+- ViewModel 后续三类 Agent 恢复、不可恢复 Agent 关闭、Workflow 对账和 ScheduledTask 对账只处理冻结 ID，不在每一步重新扫描全库。旧链继续按原 fail-closed 策略收敛，当前进程 Worker 链不受影响。
+- Redmi Room 测试在同库构造旧链与当前链，确认旧 Agent/Workflow/Task 进入 `CANCELLED`，当前链保持活动并随后完成，Agent Run 数量不增加。完整门禁为 397 条 JVM、130 条仅 Redmi instrumentation、Lint、Debug 与 AndroidTest 构建通过。
+- 该隔离不使用墙上时间，不升级 Room v27，不新增持久 owner token，也不恢复旧模型协程、未知提交执行栈或 Workflow 后续步骤；Android 自主 LMK、可见停止入口和 Foreground Service 仍需独立证据。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
