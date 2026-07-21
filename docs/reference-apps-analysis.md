@@ -511,4 +511,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账、超时边界、需确认聚合、结构化安全处置、Doze/受控内存/无压力对照、当前进程内 Worker 所有权隔离，以及后台 `RUNNING` 实例的用户可见停止与 Task→Workflow→Agent 定向兜底均已完成。Redmi 已有约 21.8 秒三步 SAFE 成功样本和约 32.6 秒真实停止样本；设备支持 LMK 原因报告，但 11 条历史退出中 `REASON_LOW_MEMORY=0`，仍未取得 Android 自主 LMK。下一步应继续验证更长成功任务和自然系统回收，再决定是否需要 Foreground Service 或更强恢复机制。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”。累计执行预算、步骤落库后的 Workflow 启动对账、超时边界、需确认聚合、结构化安全处置、Doze/受控内存/无压力对照、当前进程内 Worker 所有权隔离，以及后台 `RUNNING` 实例的用户可见停止与 Task→Workflow→Agent 定向兜底均已完成。Redmi 已有约 62.2 秒八步 SAFE 全成功样本和约 32.6 秒真实停止样本；设备支持 LMK 原因报告，但最新 6 条退出均为 instrumentation `FORCE STOP`，`REASON_LOW_MEMORY=0`，仍未取得 Android 自主 LMK。下一步应继续验证自然系统回收与异常后的持久化重对账，再决定是否需要 Foreground Service 或更强恢复机制。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

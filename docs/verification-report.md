@@ -1580,3 +1580,31 @@ Redmi 真实样本：
 
 - 用户停止与终态冻结保证控制面不会被迟到结果改写，但不能撤销停止前已经提交到外部系统的副作用。未知提交仍按既有证据分类和关联新 Run 门禁处理，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
 - 约 21.8 秒成功、28.5 秒安全失败和 32.6 秒停止样本仍由普通 WorkManager 承载。LMK 报告能力可用不等于已经发生自主 LMK；当前不引入 Foreground Service，设备工具仍不进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。
+
+## 2026-07-22 Redmi 62.2 秒八步 SAFE Workflow
+
+取证方式与边界：
+
+- 一次性 instrumentation 探针只调用正式 `RoomWorkflowRepository.createWorkflow()`、`createOneTimeScheduledTask()` 和 `WorkManagerScheduledTaskScheduler.enqueue()` 建立生产账本与 WorkRequest，随后退出；真实模型、工具、步骤推进与结算均由生产 `ScheduledWorkflowWorker` 完成。探针源码取证后删除并重建最终 AndroidTest APK，不进入提交。
+- Provider/Profile 通过本机未跟踪兜底配置恢复；后台 Profile 只临时允许 `app.current_time / app.list_conversations / app.search_conversations / notes.list / notes.search / memory.search / knowledge.search` 这些应用内工具。没有向 Workflow 开放任何设备工具，也没有启动或连接 Pixel/模拟器。
+
+先行失败样本：
+
+- Task `scheduled-task-fc435736-8c3f-4898-b353-4c2aefe014fd`、WorkRequest `27e77446-d14a-4742-a35d-6f34bea9cf25`、Workflow Run `workflow-run-f324b486-0971-4a52-b9b8-5b000184c8c5` 从 `02:25:27` 运行到 `02:26:16`，约 49 秒。前 5 步依次成功，第 6 步因模型没有执行目标 `memory.search` 而 `FAILED`，第 7、8 步进入 `CANCELLED`。
+- 该失败是 Agent 目标遵循失败，不是 Worker 回收：PID 保持，只有一个 Workflow Run，各已启动步骤各有一个 Agent Run，没有 `Result.retry` 或复制执行，Task/Workflow 均以明确失败原因收敛。
+
+八步成功样本：
+
+- Task `scheduled-task-b7cae61a-e311-42bc-98a7-f8d601a9be59`、WorkRequest `ec200f45-ed0d-4b78-9fd6-4cbcc2dd25fd`、Workflow Run `workflow-run-fc647164-1faf-4b5f-853a-16ae14565340` 在计划时间 `02:28:26` 启动，于 `02:29:28` 完成，Task 实际耗时 `62.2s`。Task、Workflow 和 8 条 Workflow Step 全部 `COMPLETED`，`scheduledTaskId` 只关联一个 Workflow Run。
+- 8 个 Agent Run 耗时分别为 `7.5 / 7.4 / 7.0 / 9.0 / 8.6 / 6.4 / 7.9 / 7.3s`。工具顺序为 `app.current_time`、`app.list_conversations(limit=1)`、`notes.list(limit=1)`、`app.search_conversations(query=Stage49, limit=1)`、`notes.search(query=Stage49, limit=1)`、`app.current_time`、`app.list_conversations(limit=3)`、`notes.list(limit=3)`；8 个 ToolResult 均为 `success=true / verificationStatus=PASSED`。
+- Worker 启动前后的应用 PID 均为 `27957`，本轮没有进程重建、系统重试或复制 Run。真实工作流页面显示同名最新实例“已完成”，前一个先行实例“失败”；截图证据保存在本机 `/tmp/lingce-stage49-success.png`。
+
+LMK 与清理结果：
+
+- 样本后的 `ApplicationExitInfoInstrumentedTest` 为 `OK (1 test)`，日志为 `supported=true exits=6 lowMemory=0 fallbackSigkillCandidates=0`。6 条退出全部是运行 setup/LMK instrumentation 前后产生的 `reason=10 USER REQUESTED / FORCE STOP`；没有 `REASON_LOW_MEMORY` 或不明 SIGKILL，不能声称取得 Android 自主 LMK。
+- 第 49 阶段没有修改生产代码，阶段 48 的完整门禁基线仍为 402 条 JVM、134 条仅 Redmi instrumentation。一次性 setup probe 已删除，最终 AndroidTest APK 重新构建；测试包卸载后恢复真实 Provider/Keystore、默认 `device.open_app` Profile、Accessibility Enabled/Bound 和主应用前台。
+
+当前结论：
+
+- 普通 WorkManager 已在 Redmi 承载约 62.2 秒、8 个真实模型/SAFE 工具步骤的完整成功链，现有证据仍不支持提前引入 Foreground Service。它证明当前长度可完成，不代表系统会保证任意更长任务存活。
+- 下一阶段继续寻找 Android 自主 LMK，并完善系统取消或重对账异常后的持久化保障；旧模型协程、提交未知执行栈和 Workflow 后续步骤继续 fail-closed，设备工具继续禁止进入 Workflow/后台自动化。

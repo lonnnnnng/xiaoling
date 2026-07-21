@@ -10,6 +10,8 @@
 
 第 48 阶段完成后台运行中停止和长成功样本：工作流页为 `RUNNING` ScheduledTask 提供“停止运行”，先取消目标 WorkRequest 并等待 Worker 正常收敛，超时或系统取消异常时按 Task→Workflow→Agent 持久化链兜底；Agent 尚未关联的缺链窗口也会关闭 Task/Workflow，`SCHEDULED→RUNNING` 抢占竞态会自动升级为运行中停止。Run、Step、Approval、Event 和 Tool Ledger 在终态后一并冻结，迟到 HTTP/模型/审批结果不能覆盖 `CANCELLED`。Redmi 真实停止样本约 32.6 秒；另一个三步 SAFE Workflow 依次执行 `app.current_time`、`app.list_conversations(limit=3)`、`notes.list(limit=3)`，约 21.8 秒完成。设备支持 LMK 原因报告，历史 11 条退出记录中 `REASON_LOW_MEMORY=0`，因此仍没有 Android 自主 LMK 样本，不提前引入 Foreground Service。
 
+第 49 阶段取得更长的正式 Worker 成功证据：Redmi 上同一 ScheduledTask/WorkRequest/Workflow Run 顺序完成 8 个 SAFE 步骤，总耗时约 62.2 秒；8 个 Agent Run 均为 `COMPLETED`，工具结果全部 `success=true / PASSED`，没有系统重试或复制 Run。先行样本运行约 49 秒，在第 6 步因模型没有调用 `memory.search` 而安全失败，后两步正确取消，同样没有复制执行。最新 LMK probe 显示 `supported=true`、6 条历史退出全部是本轮 instrumentation `FORCE STOP`、`REASON_LOW_MEMORY=0`；仍未取得 Android 自主 LMK，不引入 Foreground Service。
+
 第 43 阶段历史补充：Redmi 完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。该阶段当时的后续重点是更长/自然系统回收样本和通用未知提交处置；当前进度以第 46 阶段段落为准。
 
 第 44 阶段新增任务中心“需确认”队列：只聚合已结束、可重试且 `AgentTaskRetryPolicy` 判定必须确认的 Run；卡片继续展示统一证据分类、原因和建议，确认提交前继续校验证据码。稳定确认后仍只创建带 `retryOfRunId` 的新 Run，旧 Run、旧模型协程和旧 Executor 均不恢复。当前门禁为 394 条 JVM 与仅 Redmi 执行的 127 条 instrumentation。

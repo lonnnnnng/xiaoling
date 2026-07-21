@@ -145,7 +145,7 @@
 - 启动恢复会先冻结旧候选并排除当前进程 Worker 链，只把候选 RUNNING ScheduledTask 按关联 Workflow Run 终态收敛，再为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
 - Worker 使用同一 `AgentRunUseCase`，但强制传入 `AgentExecutionOrigin.BACKGROUND`。SAFE 后台工具可完成原有校验与验证；需要审批的工具写入 Agent/Workflow/ScheduledTask `BLOCKED` 终态并通知用户以前台新 Run 重试，绝不等待前台审批卡或继承临时授权。
 - Android 8+ 使用稳定通知 Channel；Android 13+ 从用户创建计划的操作中请求 `POST_NOTIFICATIONS`。完成、失败、阻断和系统取消都会写入 Ledger；通知被拒绝时不影响任务终态。
-- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-22 的真实三步 SAFE Workflow 在约 21.8 秒完成，运行中停止样本约 32.6 秒；此前 8 步探针在约 28.5 秒时于第二步重复工具调用检测处安全失败。强制 Doze 明确延后了任务，退出 Doze 与 `send-trim-memory` 样本均出现短时 `connection closed`，但这些受控样本不能证明因果或 Android 自主 LMK。当前进程 Worker 所有权隔离和用户可见停止均已完成，但都不提高系统存活率。当前继续使用普通 WorkManager；只有真实任务持续时间、重要性或自然系统回收证据表明必要时才使用 `setForeground()`，由 WorkManager 代管前台服务。
+- 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-22 的正式 8 步 SAFE Workflow 已在约 62.2 秒全部完成，运行中停止样本约 32.6 秒；此前 8 步探针在约 28.5 秒时于第二步重复工具调用检测处安全失败。强制 Doze 明确延后了任务，退出 Doze 与 `send-trim-memory` 样本均出现短时 `connection closed`，但这些受控样本不能证明因果或 Android 自主 LMK。当前进程 Worker 所有权隔离和用户可见停止均已完成，但都不提高系统存活率。当前继续使用普通 WorkManager；只有真实任务持续时间、重要性或自然系统回收证据表明必要时才使用 `setForeground()`，由 WorkManager 代管前台服务。
 
 - `ToolExecutionResult` 和 `RunEventMetadata.ToolResult` 会携带实际命中的 `memoryIdsUsed`；任务中心直接展示这些 ID，旧事件没有该字段时按空列表兼容解码。最终 `VerifiedAgentContext.toolExecutions` 按执行顺序保存全部工具、参数、结果、验证状态和记忆 ID，顶层单工具字段继续映射最后一步以兼容旧消息；Android 持久化显式使用 JSON 数组，并兼容旧的字符串化数组。
 - 对话输入区在 `/agent` 命令下提供单次「记忆」开关。关闭后，当前 Run 的规划器工具清单移除 `memory.search`，执行层再次拒绝读取并写入 `memory.recall.disabled` 事件；`memory.remember` 仍需用户审批且不受该开关影响，发送后开关自动恢复开启。
@@ -299,5 +299,13 @@
 - Redmi 真实停止 Task `scheduled-task-82faa2d4-a5a6-42f4-85ee-fa91b36d8c1d`，目标 WorkManager 被 `stopAndCancelWork`，Task、Workflow、Agent 与三条 Workflow Step 均保持 `CANCELLED`；从启动到停止约 32.6 秒。迟到 HTTP 200 返回后，Run、Step、Approval、Event 和 Tool Ledger 的终态门禁阻止旧执行覆盖或追加成功事实。
 - Redmi 三步 SAFE 成功 Task `scheduled-task-fc8229b4-5ff7-4794-b269-e94b35601445` 依次执行 `app.current_time`、`app.list_conversations(limit=3)`、`notes.list(limit=3)`，三个 Agent Run 分别约 7.2、7.1、7.0 秒，Workflow 总耗时约 21.8 秒，Task/Workflow/三条 Step 均为 `COMPLETED`。
 - `ActivityManager.isLowMemoryKillReportSupported()` 在 Redmi 返回 true；查询到 11 条历史退出记录，但 `REASON_LOW_MEMORY=0`。这些记录来自 instrumentation、force-stop 或安装等受控退出，不能作为 Android 自主 LMK；当前仍不引入 Foreground Service。完整门禁为 402 条 JVM、134 条仅 Redmi instrumentation、Lint、Debug 与 AndroidTest 构建通过。
+
+## Redmi 62.2 秒八步成功样本
+
+- 一次性诊断探针只通过正式 Repository 创建 8 步 Workflow、ScheduledTask 和 WorkRequest，随后退出；模型请求、步骤推进、Tool Ledger、通知和最终结算完全由生产 `ScheduledWorkflowWorker` 执行。探针源码在取证后删除，不进入提交。
+- 成功 Task `scheduled-task-b7cae61a-e311-42bc-98a7-f8d601a9be59`、WorkRequest `ec200f45-ed0d-4b78-9fd6-4cbcc2dd25fd`、Workflow Run `workflow-run-fc647164-1faf-4b5f-853a-16ae14565340` 从 `02:28:26` 运行到 `02:29:28`，总耗时约 62.2 秒。Task/Workflow/8 条 Workflow Step 均为 `COMPLETED`，只存在一个关联 Workflow Run。
+- 8 个 Agent Run 分别约 7.5、7.4、7.0、9.0、8.6、6.4、7.9、7.3 秒，依次执行 `app.current_time`、`app.list_conversations`、`notes.list`、`app.search_conversations`、`notes.search`、`app.current_time`、`app.list_conversations`、`notes.list`；每个 ToolResult 均为 `success=true / verificationStatus=PASSED`。
+- 先行 Task `scheduled-task-fc435736-8c3f-4898-b353-4c2aefe014fd` 运行约 49 秒，前 5 步成功，第 6 步因模型未调用 `memory.search` 而 `FAILED`，后两步按定义进入 `CANCELLED`。失败链同样只有一个 Workflow Run，没有 `Result.retry` 或复制执行；这说明模型遵循工具目标仍是长任务成功率的一部分，不能只由 WorkManager 存活证明。
+- 样本后 LMK probe 为 `supported=true / exits=6 / lowMemory=0 / fallbackSigkillCandidates=0`。6 条历史退出全部明确标记为 instrumentation 启停产生的 `USER REQUESTED / FORCE STOP`，没有 Android 自主 LMK。62.2 秒成功样本仍在普通 WorkManager 适用范围内，不引入 Foreground Service，不开放设备工具到 Workflow/后台。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
