@@ -29,6 +29,7 @@ import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -721,6 +722,32 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.CANCELLED, workflowRun.status)
         assertNull(workflowRun.result)
         assertEquals("用户请求停止后台工作流", workflowRun.errorMessage)
+    }
+
+    @Test
+    fun stopRequestedTaskRejectsLateStepResultBeforeConversationAppend() = runBlocking {
+        val workflow = repository.createWorkflow("迟到步骤消息保护", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-late-step-message")
+        val claim = repository.claimScheduledRun(task.id)!!
+        repository.requestScheduledTaskStop(task.id, "用户请求停止后台工作流")
+
+        val failure = runCatching {
+            repository.completeScheduledWorkflowStep(
+                taskId = task.id,
+                workflowRunId = claim.run.run.id,
+                workflowStepId = claim.run.steps.single().id,
+                result = "不应进入会话的迟到成功结果",
+            )
+        }.exceptionOrNull()
+
+        // long: 停止请求已经落库后，迟到 Worker 既不能完成步骤，也不能留下看似成功的 Agent 消息。
+        assertTrue(failure is CancellationException)
+        assertEquals(WorkflowStepStatus.PENDING, repository.runDetail(claim.run.run.id)!!.steps.single().status)
+        assertTrue(
+            database.conversationDao().getMessagesByConversationId(claim.run.run.conversationId)
+                .none { it.text == "不应进入会话的迟到成功结果" },
+        )
     }
 
     @Test

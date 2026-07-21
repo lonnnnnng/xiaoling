@@ -1615,14 +1615,14 @@ LMK 与清理结果：
 
 - `ScheduledTaskStatus` 新增非终态 `STOP_REQUESTED`。运行中停止先通过 `requestScheduledTaskStop()` 在 Room transaction 中完成 `RUNNING→STOP_REQUESTED`，再调用 WorkManager 取消；重复停止幂等。系统取消和即时 fallback 同时抛出时，协调器返回“停止请求已持久化”，不再让异常抹掉用户意图。
 - Worker 重入、停止 fallback 与启动恢复均扫描 `RUNNING / STOP_REQUESTED`。当前进程注册表只排除仍正常 `RUNNING` 的 Task→Workflow→Agent 链；已经写入停止请求的任务即使仍登记所有权，也会进入启动恢复并按 Agent→Workflow→Task 收敛，且不创建第二个 Run。
-- `settleScheduledWorkflowRun()` 在同一 Room transaction 中重新读取 Task、校验 Task 与 Workflow Run 关联，再结算两者。若停止栅栏存在，迟到的 `COMPLETED` 结果会被改为 `Workflow=CANCELLED / Task=CANCELLED`，Workflow result 被丢弃，停止原因保留；Worker 不追加成功会话结果，也不发送成功详情。
+- `completeScheduledWorkflowStep()` 在同一 Room transaction 中先核对 Task↔Workflow 关联和停止栅栏，再一起提交步骤终态与 `AGENT_RESULT` 消息。停止已落库时抛出取消，步骤保持未完成且会话不出现迟到成功消息。`settleScheduledWorkflowRun()` 同样在一个 transaction 中重新读取栅栏并结算 Workflow/Task；迟到的 `COMPLETED` 会改为 `CANCELLED`，Workflow result 被丢弃，停止原因保留，也不发送成功详情。
 - `finishScheduledTask()` 同样保证 `STOP_REQUESTED` 只能进入 `CANCELLED`。该状态不是终态，Daily/Weekly 下一实例在旧任务完成对账前不会物化。实现复用既有 TEXT 状态列，没有 Room migration，正式 Schema 仍为 v27；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤，不使用 `Result.retry`，不引入 Foreground Service。
 
 定向与完整门禁：
 
 - 最后一项 Task/Workflow 关联校验落地后，JVM 定向执行 `ScheduledWorkflowStopCoordinatorTest.stopKeepsDurableRequestWhenSystemCancellationAndFallbackFail` 与 `ScheduledWorkflowReentryCoordinatorTest.stopRequestedTaskReconcilesPersistedChainInsteadOfExecutingAgain`，2/2 通过。
-- 仅在 Redmi `wsvwypiz7xwslvl7` 定向执行 `persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup`、`lateWorkerCompletionCannotOverwritePersistedStopRequest`、`stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation`，3/3 通过。
-- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 实际汇总为 404 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 启动并完成 137 条 instrumentation，0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 定向执行 `persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup`、`lateWorkerCompletionCannotOverwritePersistedStopRequest`、`stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation`，3/3 通过。双轴审查补充定位步骤消息竞态后，新增 `stopRequestedTaskRejectsLateStepResultBeforeConversationAppend`，与迟到最终结算测试定向复跑 2/2 通过。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 实际汇总为 404 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 启动并完成 138 条 instrumentation，0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
 
 真机恢复状态：
 

@@ -312,8 +312,9 @@
 
 - `ScheduledTaskStatus.STOP_REQUESTED` 是唯一新增的持久中间态，直接存入既有 `scheduled_tasks.status` TEXT 列；终态集合和 Room v27 Schema 均不改变。`requestScheduledTaskStop()` 在 Room transaction 中只允许 `RUNNING→STOP_REQUESTED`，重复请求幂等并保留首次停止原因。
 - `ScheduledWorkflowReentryCoordinator`、`ScheduledWorkflowStopFallbackCoordinator` 和启动恢复扫描都接受 `RUNNING / STOP_REQUESTED`。进程所有权只排除仍正常 `RUNNING` 的链；停止请求已撤销 Worker 继续执行资格，因此即使 Task ID 仍登记在进程注册表，启动恢复也会收敛其 Agent、Workflow 和 Task，且不创建第二个 Run。
-- `settleScheduledWorkflowRun()` 在同一 Room transaction 中重新读取 Task、校验 `task.workflowRunId == workflowRunId`，再原子结算 Workflow Run 与 ScheduledTask。若读到 `STOP_REQUESTED`，迟到 Worker 的成功结果统一改为 `Workflow=CANCELLED / Task=CANCELLED`，丢弃 Workflow result，保留停止原因；Worker 也不会追加成功会话结果或发送成功详情。
-- `finishScheduledTask()` 继续作为其他结算入口的最后栅栏：`STOP_REQUESTED` 只能进入 `CANCELLED`。该中间态不属于终态，Daily/Weekly 规则不会在旧实例完成重对账前物化下一实例。阶段 50 完整门禁为 404 条 JVM、137 条仅 Redmi instrumentation，Lint、Debug 与 AndroidTest 构建通过。
+- `completeScheduledWorkflowStep()` 在同一 Room transaction 中先校验 Task↔Workflow 关联和停止栅栏，再一起提交步骤终态与 `AGENT_RESULT` 会话消息。停止已经落库时抛出取消，步骤和消息都不写入；停止事务只能发生在该原子提交之前或之后，不能插入两次写入之间留下迟到成功消息。
+- `settleScheduledWorkflowRun()` 在同一 Room transaction 中重新读取 Task、校验 `task.workflowRunId == workflowRunId`，再原子结算 Workflow Run 与 ScheduledTask。若读到 `STOP_REQUESTED`，迟到 Worker 的成功结果统一改为 `Workflow=CANCELLED / Task=CANCELLED`，丢弃 Workflow result，保留停止原因；Worker 也不会追加最终成功会话结果或发送成功详情。
+- `finishScheduledTask()` 继续作为其他结算入口的最后栅栏：`STOP_REQUESTED` 只能进入 `CANCELLED`。该中间态不属于终态，Daily/Weekly 规则不会在旧实例完成重对账前物化下一实例。阶段 50 完整门禁为 404 条 JVM、138 条仅 Redmi instrumentation，Lint、Debug 与 AndroidTest 构建通过。
 - 本阶段只保证停止意图跨异常和进程重建可见，并关闭 Workflow/Task 终态的 TOCTOU；它不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤，不复制 Run，也不撤销停止前已经提交到外部系统的副作用。现有 62.2 秒样本仍不支持引入 Foreground Service。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

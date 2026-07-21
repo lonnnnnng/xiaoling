@@ -39,6 +39,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.model.MessageOrigin
 import java.time.ZoneId
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 class RoomWorkflowRepository(
     context: Context,
@@ -660,6 +661,43 @@ class RoomWorkflowRepository(
                 ),
             )
             database.conversationDao().insertConversations(listOf(conversation.copy(updatedAt = now)))
+        }
+    }
+
+    suspend fun completeScheduledWorkflowStep(
+        taskId: String,
+        workflowRunId: String,
+        workflowStepId: String,
+        result: String,
+        knowledgeReferences: List<KnowledgeReference> = emptyList(),
+        requiresCurrentKnowledgeReferences: Boolean = false,
+        verifiedAgentContext: String? = null,
+    ): WorkflowStepRecord {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val task = dao.getScheduledTask(taskId) ?: error("定时任务不存在：$taskId")
+            require(task.workflowRunId == workflowRunId) { "定时任务与工作流 Run 关联不一致" }
+            if (task.status == ScheduledTaskStatus.STOP_REQUESTED.name) {
+                throw CancellationException(task.errorMessage ?: "用户已请求停止后台工作流")
+            }
+            require(task.status == ScheduledTaskStatus.RUNNING.name) { "定时任务未处于运行状态" }
+            val run = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
+            // long: 步骤成功与会话结果必须共享同一个停止栅栏；用户停止不能插入两次写入之间，让已取消 Workflow 留下一条迟到成功消息。
+            val completed = completeWorkflowStep(
+                workflowRunId = workflowRunId,
+                workflowStepId = workflowStepId,
+                status = WorkflowStepStatus.COMPLETED,
+                result = result,
+                knowledgeReferences = knowledgeReferences,
+                requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
+            )
+            appendScheduledConversationResult(
+                conversationId = run.conversationId,
+                text = result,
+                origin = MessageOrigin.AGENT_RESULT,
+                verifiedAgentContext = verifiedAgentContext,
+            )
+            completed
         }
     }
 
