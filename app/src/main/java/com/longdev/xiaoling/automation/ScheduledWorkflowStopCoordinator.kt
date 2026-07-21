@@ -30,8 +30,8 @@ internal class ScheduledWorkflowStopCoordinator(
     suspend fun stop(taskId: String): ScheduledWorkflowStopResult {
         val initial = loadTask(taskId)
             ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
-        when (initial.status) {
-            ScheduledTaskStatus.SCHEDULED -> {
+        when {
+            initial.status == ScheduledTaskStatus.SCHEDULED -> {
                 // long: 先在 Room 事务内取消待执行实例；若 Worker 已抢占为 RUNNING，返回的新状态会把同一次点击升级为运行中停止，避免依赖过期 UI 快照。
                 val cancelled = cancelPendingTask(taskId)
                     ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
@@ -48,8 +48,7 @@ internal class ScheduledWorkflowStopCoordinator(
                     else -> return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, cancelled)
                 }
             }
-            ScheduledTaskStatus.RUNNING,
-            ScheduledTaskStatus.STOP_REQUESTED -> Unit
+            ScheduledTaskPolicy.requiresExecutionReconciliation(initial.status) -> Unit
             else -> return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, initial)
         }
 

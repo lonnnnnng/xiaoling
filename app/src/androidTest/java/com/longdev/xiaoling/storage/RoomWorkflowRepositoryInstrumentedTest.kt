@@ -552,10 +552,16 @@ class RoomWorkflowRepositoryInstrumentedTest {
             loadTask = repository::getScheduledTask,
             loadWorkflowRun = repository::runDetail,
             cancelAgentRun = { runId -> agentRepository.cancelActiveRun(runId, "用户停止后台工作流") },
-            cancelWorkflowRun = { workflowRunId, reason ->
-                repository.completeRun(workflowRunId, WorkflowRunStatus.CANCELLED, errorMessage = reason)
+            settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+                repository.settleScheduledWorkflowRun(
+                    taskId = taskId,
+                    workflowRunId = workflowRunId,
+                    workflowStatus = WorkflowRunStatus.CANCELLED,
+                    taskStatus = ScheduledTaskStatus.CANCELLED,
+                    errorMessage = reason,
+                )
             },
-            cancelScheduledTask = { taskId, reason ->
+            settleTaskWithoutWorkflow = { taskId, reason ->
                 repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
             },
         )
@@ -593,10 +599,16 @@ class RoomWorkflowRepositoryInstrumentedTest {
             loadTask = repository::getScheduledTask,
             loadWorkflowRun = repository::runDetail,
             cancelAgentRun = { error("不应取消尚未关联的 Agent Run") },
-            cancelWorkflowRun = { workflowRunId, reason ->
-                repository.completeRun(workflowRunId, WorkflowRunStatus.CANCELLED, errorMessage = reason)
+            settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+                repository.settleScheduledWorkflowRun(
+                    taskId = taskId,
+                    workflowRunId = workflowRunId,
+                    workflowStatus = WorkflowRunStatus.CANCELLED,
+                    taskStatus = ScheduledTaskStatus.CANCELLED,
+                    errorMessage = reason,
+                )
             },
-            cancelScheduledTask = { taskId, reason ->
+            settleTaskWithoutWorkflow = { taskId, reason ->
                 repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
             },
         )
@@ -619,6 +631,43 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertNull(repository.runDetail(claim.run.run.id)!!.run.agentRunId)
         assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
         assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
+    }
+
+    @Test
+    fun userStopFallbackPreservesWorkflowTerminalWhenTaskIsHalfSettled() = runBlocking {
+        val workflow = repository.createWorkflow("停止半结算任务", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-user-stop-half-settled")
+        val claim = repository.claimScheduledRun(task.id)!!
+        repository.requestScheduledTaskStop(task.id, "用户停止后台工作流")
+        // long: 模拟停止 fallback 接管前 Workflow 已由旧路径写入终态、Task 仍停在停止请求；最终必须以既有 Workflow 事实修复 Task，不能制造矛盾终态。
+        repository.completeRun(
+            workflowRunId = claim.run.run.id,
+            status = WorkflowRunStatus.COMPLETED,
+            result = "已持久化结果",
+        )
+        val fallback = ScheduledWorkflowStopFallbackCoordinator(
+            loadTask = repository::getScheduledTask,
+            loadWorkflowRun = repository::runDetail,
+            cancelAgentRun = { error("Agent 尚未关联时不应取消 Agent Run") },
+            settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+                repository.settleScheduledWorkflowRun(
+                    taskId = taskId,
+                    workflowRunId = workflowRunId,
+                    workflowStatus = WorkflowRunStatus.CANCELLED,
+                    taskStatus = ScheduledTaskStatus.CANCELLED,
+                    errorMessage = reason,
+                )
+            },
+            settleTaskWithoutWorkflow = { taskId, reason ->
+                repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+            },
+        )
+
+        assertTrue(fallback.reconcile(task.id))
+
+        assertEquals(WorkflowRunStatus.COMPLETED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(ScheduledTaskStatus.COMPLETED, repository.getScheduledTask(task.id)!!.status)
     }
 
     @Test

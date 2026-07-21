@@ -635,6 +635,9 @@ class RoomWorkflowRepository(
             val task = dao.getScheduledTask(taskId)
                 ?: error("定时任务不存在：$taskId")
             require(task.workflowRunId == workflowRunId) { "定时任务与工作流 Run 关联不一致" }
+            if (task.status in TERMINAL_SCHEDULED_TASK_STATUSES.map { it.name }) {
+                return@withTransaction task.toRecord()
+            }
             val workflowRun = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
             val persistedWorkflowStatus = WorkflowRunStatus.valueOf(workflowRun.status)
                 .takeIf { it.name in TERMINAL_RUN_STATUSES }
@@ -658,6 +661,18 @@ class RoomWorkflowRepository(
                 persistedWorkflowStatus != null -> workflowRun.errorMessage
                 stopRequested -> task.errorMessage ?: "用户已请求停止后台工作流"
                 else -> errorMessage
+            }
+            if (persistedWorkflowStatus != null) {
+                val now = System.currentTimeMillis()
+                // long: Workflow 已先持久化终态时，它是半结算链的事实源；直接在当前事务修复活动 Task，不能再经过通用停止栅栏把两者改成不同终态。
+                val settledTask = task.copy(
+                    status = settledTaskStatus.name,
+                    completedAt = workflowRun.completedAt ?: now,
+                    errorMessage = settledError,
+                    updatedAt = now,
+                )
+                dao.upsertScheduledTask(settledTask)
+                return@withTransaction settledTask.toRecord()
             }
             // long: Workflow 与 Task 必须在同一事务内重读停止栅栏和既有终态；旧版半结算或迟到 Worker 都不能制造互相矛盾的最终状态。
             completeRun(

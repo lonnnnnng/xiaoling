@@ -449,14 +449,16 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         loadTask = workflowRepository::getScheduledTask,
         loadWorkflowRun = workflowRepository::runDetail,
         cancelAgentRun = agentRunUseCase::cancelActiveRunForScheduledTaskStop,
-        cancelWorkflowRun = { workflowRunId, reason ->
-            workflowRepository.completeRun(
+        settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+            workflowRepository.settleScheduledWorkflowRun(
+                taskId = taskId,
                 workflowRunId = workflowRunId,
-                status = WorkflowRunStatus.CANCELLED,
+                workflowStatus = WorkflowRunStatus.CANCELLED,
+                taskStatus = ScheduledTaskStatus.CANCELLED,
                 errorMessage = reason,
             )
         },
-        cancelScheduledTask = { taskId, reason ->
+        settleTaskWithoutWorkflow = { taskId, reason ->
             workflowRepository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
         },
     )
