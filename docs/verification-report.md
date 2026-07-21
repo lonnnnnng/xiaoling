@@ -1723,3 +1723,20 @@ LMK 与清理结果：
 当前结论：
 
 - 第 55 阶段已完成流式模型断流和无 telemetry 上游异常的稳定 typed 分类。下一阶段继续验证部分流式 delta 已经可见后的收敛、后台长任务预算写回竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。
+
+## 2026-07-22 部分流式 delta 断流的用户可见收敛
+
+实现与边界：
+
+- 普通对话收到部分 SSE delta 后发生连接中断时，网络层保留已经交付给 UI 的累计正文并按 `CONNECTION` 失败结束；ViewModel 把已有 assistant 消息写为 `finishReason=failed`，保留正文和失败原因，再追加独立失败气泡。
+- UI 不再把 `streaming=true / latencyMs=null` 简单当作“接收中”：`failed` 和 `cancelled` 都是终态，部分失败正文展示“内容不完整”，用户取消展示“已停止”。没有收到 delta 时不创建 assistant 正文。
+- `failed/cancelled` assistant 不参与下一轮普通对话请求或会话摘要，避免残缺内容成为新的模型事实；历史会话仍保留该气泡供用户查看。Agent 规划/总结继续保持非流式请求和第 55 阶段的 typed 失败审计边界。
+
+门禁与 Redmi 证据：
+
+- 新增真实 socket 不完整响应测试，确认已收到 delta 后仍归类 `CONNECTION`；新增消息终态、上下文资格和无 delta 不造正文测试。完整 JVM XML 汇总为 420 条，0 失败、0 错误、0 跳过；Lint、Debug APK 和 AndroidTest APK 构建通过。
+- `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 在 Redmi Note 8 Pro Android 14 完成 141 条 instrumentation，0 跳过、0 失败；Debug APK 已重新安装并启动到 `com.longdev.xiaoling/.MainActivity`。未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 56 阶段关闭了“部分流式输出在断流后永久显示接收中”以及“残缺 assistant 进入下一轮上下文”的窗口。下一阶段继续覆盖后台长任务预算写回竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。

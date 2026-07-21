@@ -295,6 +295,30 @@ data class MessageMeta(
     val errorMessage: String? = null,
 )
 
+internal fun ChatMessage.isEligibleForConversationContext(): Boolean {
+    if (role == "user") return true
+    if (role != "assistant") return false
+    // long: 失败或取消的流式正文只是用户已经看到的局部输出，不能作为完整模型回复再次发送或进入摘要，否则残缺结论会在后续轮次被放大。
+    return meta?.finishReason !in setOf("failed", "cancelled")
+}
+
+internal fun List<ChatMessage>.withFailedStreamingGeneration(
+    baseMeta: MessageMeta,
+    errorKind: String,
+    errorMessage: String,
+): List<ChatMessage> {
+    val last = lastOrNull()
+    if (last?.role != "assistant") return this
+    // long: delta 已经展示后发生断流时保留用户看到的部分正文，但必须把同一气泡收敛为失败终态，不能让它永久显示“接收中”或伪装成完整回复。
+    return dropLast(1) + last.copy(
+        meta = (last.meta ?: baseMeta).copy(
+            finishReason = "failed",
+            errorKind = errorKind,
+            errorMessage = errorMessage,
+        ),
+    )
+}
+
 data class ConversationSession(
     val id: String,
     val title: String,
@@ -3017,13 +3041,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             } catch (error: Throwable) {
                 flushStreamingAssistant(baseMeta)
                 val failure = error as? ApiFailure
-                val failedMessages = uiState.chatMessages + ChatMessage(
+                val failureKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title
+                val failureMessage = error.message ?: "未知错误"
+                val failedMessages = uiState.chatMessages.withFailedStreamingGeneration(
+                    baseMeta = baseMeta,
+                    errorKind = failureKind,
+                    errorMessage = failureMessage,
+                ) + ChatMessage(
                     role = "error",
                     text = error.toConversationErrorText(),
                     createdAt = System.currentTimeMillis(),
                     meta = baseMeta.copy(
-                        errorKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title,
-                        errorMessage = error.message ?: "未知错误",
+                        finishReason = "failed",
+                        errorKind = failureKind,
+                        errorMessage = failureMessage,
                     ),
                 )
                 uiState = uiState
@@ -3716,7 +3747,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversation: ConversationSession?,
     ): PreparedRequestContext {
         val currentKnowledgeContext = messages
-            .filter { it.role == "user" || it.role == "assistant" }
+            .filter(ChatMessage::isEligibleForConversationContext)
             .retainCurrentKnowledgeReferences()
         val contextMessages = currentKnowledgeContext.messages
         // long: 已持久化摘要可能包含后来被禁用、替换或删除的知识片段；发现失效引用后废弃摘要边界，仅从过滤后的消息重建本轮上下文。

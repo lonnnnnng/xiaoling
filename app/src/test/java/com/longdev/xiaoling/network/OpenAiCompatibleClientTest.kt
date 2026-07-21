@@ -176,6 +176,54 @@ class OpenAiCompatibleClientTest {
     }
 
     @Test
+    fun streamingDisconnectAfterDeltaKeepsDeliveredUpdateAndFailsAsConnection() = runBlocking {
+        val serverSocket = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
+        val deliveredEvent = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"部分答案\"}\n\n"
+        val serverThread = thread(name = "partial-stream-server") {
+            serverSocket.accept().use { socket ->
+                val reader = socket.getInputStream().bufferedReader()
+                while (!reader.readLine().isNullOrEmpty()) {
+                    // long: 请求正文与断流分类无关；读完请求头后即可发送一个完整 delta，再通过缺失的响应字节稳定制造 unexpected end of stream。
+                }
+                socket.getOutputStream().apply {
+                    write(
+                        (
+                            "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: text/event-stream\r\n" +
+                                "Content-Length: ${deliveredEvent.toByteArray().size + 128}\r\n" +
+                                "Connection: close\r\n\r\n" +
+                                deliveredEvent
+                            ).toByteArray(),
+                    )
+                    flush()
+                }
+            }
+        }
+        val updates = mutableListOf<StreamDeltaUpdate>()
+        try {
+            val failure = runCatching {
+                OpenAiCompatibleClient().sendMessage(
+                    config = ProviderRequestConfig(
+                        baseUrl = "http://${serverSocket.inetAddress.hostAddress}:${serverSocket.localPort}/v1",
+                        apiKey = "test-key",
+                        model = "gpt-test",
+                        apiMode = ApiMode.RESPONSES,
+                        streamingEnabled = true,
+                    ),
+                    messages = listOf(RequestMessage(role = "user", content = "回答问题")),
+                    onStreamDelta = updates::add,
+                )
+            }.exceptionOrNull() as ApiFailure
+
+            assertEquals(listOf("部分答案"), updates.map { it.accumulatedText })
+            assertEquals(FailureKind.CONNECTION, failure.kind)
+        } finally {
+            serverSocket.close()
+            serverThread.join(2_000L)
+        }
+    }
+
+    @Test
     fun firstByteLatencyWaitsForBodyAfterHeaders() = runBlocking {
         val serverSocket = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val responseBody = """{"choices":[{"message":{"content":"delayed"}}]}"""

@@ -255,7 +255,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 413 条 JVM 与仅 Redmi 执行的 141 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 420 条 JVM 与仅 Redmi 执行的 141 条 instrumentation。
 
 ## 任务中心需确认队列
 
@@ -326,6 +326,7 @@
 - 第 53 阶段新增 `AgentRuntimeFaultInjector` 的三段边界：ToolResult 事件写入后、执行预算快照写入后、`tool.verify` 事件写入后。实际 Runtime 测试证明第一段缺少预算后续快照时由 `AgentRunResumePolicy` 返回 `EXECUTION_BUDGET_INVALID`，不能把已提交回执升级成原地恢复；第三段验证事实已经存在但 Step 尚未收尾时，`resumeVerifiedToolRun()` 只补 Step/Run/本地总结，不重复 Executor、ToolResult 或 `tool.verify`。生产默认注入器仍是 no-op，Room v27 Schema 不变。
 - 第 54 阶段把模型异常也纳入预算审计：规划阶段的 `AgentLlmResponseException` 先写失败 telemetry 再写预算快照，其他网络/网关异常至少写冻结后的预算快照；总结阶段的网络异常不再让已验证工具事实进入 FAILED，而是记录 fallback 事件并生成本地可信回复。Receipt 回读失败继续通过 `RecoveryFailure` typed event 暴露稳定错误码/建议动作，重试证据保持 `COMMIT_UNKNOWN` 并要求确认，不重放旧写入。完整 JVM 覆盖为 411 条，Room v27 Schema 不变。
 - 第 55 阶段新增 `AgentLlmFailureKind` 与 `RunEventMetadata.LlmFailure`。`MinimalAgentRuntime` 将 `ApiFailure.kind` 映射为稳定的鉴权、地址、限流、模型、超时、DNS、TLS、连接、响应或未知错误，写入 `llm.request.failed`；`AgentLlmResponseException` 缺少网络分类时按 `RESPONSE`，普通未知异常按 `UNKNOWN`。Codec 对未来枚举 fail-closed 到 `UNKNOWN`，任务事件区只显示阶段、错误码和原因，不展示请求正文。Room v27 Schema 不变。完整门禁为 413 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
-- 下一恢复证据切片是继续覆盖流式响应已经产生部分 delta 后的用户可见收敛、后台长任务中的预算写回竞态和自然系统回收；仍不恢复无法证明的旧执行栈。
+- 第 56 阶段完成普通对话部分流式 delta 的收敛：收到正文后断流会保留已见文本，给 assistant 写入 `finishReason=failed`、错误分类和原因，并追加独立错误消息；取消同样结束“接收中”状态。失败/取消的部分 assistant 被排除出下一轮请求与摘要，避免残缺正文成为新的模型事实。新增真实 socket 断流、失败消息状态和上下文资格测试；完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
+- 下一恢复证据切片是后台长任务中的预算写回竞态和自然系统回收；仍不恢复无法证明的旧执行栈。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

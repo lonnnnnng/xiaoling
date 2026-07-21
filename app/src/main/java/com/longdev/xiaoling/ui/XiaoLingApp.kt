@@ -2105,11 +2105,15 @@ private fun ChatMessage.footerLabel(): String? {
     }
 }
 
-private fun ChatMessage.assistantFooterLabel(): String? {
+internal fun ChatMessage.assistantFooterLabel(): String? {
     val messageMeta = meta ?: return null
     val latency = messageMeta.latencyMs
     val firstTokenLatency = messageMeta.firstTokenLatencyMs
     return when {
+        messageMeta.finishReason == "failed" ->
+            "内容不完整 · ${messageMeta.errorKind ?: "请求失败"}"
+        messageMeta.finishReason == "cancelled" ->
+            "已停止${firstTokenLatency?.let { " · 首字 ${it.toSecondsText()}" }.orEmpty()}"
         messageMeta.streaming == true && firstTokenLatency != null && latency != null ->
             "首字 ${firstTokenLatency.toSecondsText()} · 耗时 ${latency.toSecondsText()}"
         messageMeta.streaming == true && latency != null ->
@@ -6342,9 +6346,13 @@ private fun ToolMessagePartContent(
     }
 }
 
-private fun ChatMessage.isStreamingInProgress(): Boolean {
+internal fun ChatMessage.isStreamingInProgress(): Boolean {
     val messageMeta = meta ?: return false
-    return role == "assistant" && messageMeta.streaming == true && messageMeta.latencyMs == null
+    return role == "assistant" &&
+        messageMeta.streaming == true &&
+        messageMeta.latencyMs == null &&
+        messageMeta.finishReason == null &&
+        messageMeta.errorKind == null
 }
 
 @Composable
