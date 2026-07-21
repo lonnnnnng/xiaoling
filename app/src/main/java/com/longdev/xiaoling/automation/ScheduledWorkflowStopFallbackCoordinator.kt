@@ -9,7 +9,7 @@ internal class ScheduledWorkflowStopFallbackCoordinator(
 ) {
     suspend fun reconcile(taskId: String): Boolean {
         val task = loadTask(taskId) ?: return false
-        if (task.status != ScheduledTaskStatus.RUNNING) return false
+        if (task.status !in setOf(ScheduledTaskStatus.RUNNING, ScheduledTaskStatus.STOP_REQUESTED)) return false
         val reason = "用户停止后台工作流"
         val workflowRunId = task.workflowRunId
         val workflowRun = workflowRunId?.let { loadWorkflowRun(it) }

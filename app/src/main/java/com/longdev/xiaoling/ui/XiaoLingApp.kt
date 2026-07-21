@@ -3026,7 +3026,15 @@ private fun WorkflowItem(
                                 )
                             }
                             task.errorMessage?.let { error ->
-                                Text(error, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                Text(
+                                    error,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (task.status == ScheduledTaskStatus.STOP_REQUESTED) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                )
                             }
                         }
                         if (
@@ -3412,6 +3420,7 @@ private fun workflowStatusLabel(status: String): String = when (status) {
 private fun ScheduledTaskStatus.toScheduledTaskStatusLabel(): String = when (this) {
     ScheduledTaskStatus.SCHEDULED -> "等待系统调度"
     ScheduledTaskStatus.RUNNING -> "运行中"
+    ScheduledTaskStatus.STOP_REQUESTED -> "停止中"
     ScheduledTaskStatus.BLOCKED -> "待处理"
     ScheduledTaskStatus.COMPLETED -> "已完成"
     ScheduledTaskStatus.FAILED -> "失败"

@@ -52,6 +52,27 @@ class ScheduledWorkflowReentryCoordinatorTest {
         assertEquals(listOf("reconcile-task:task-1"), events)
     }
 
+    @Test
+    fun stopRequestedTaskReconcilesPersistedChainInsteadOfExecutingAgain() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = coordinator(
+            task = scheduledTask(ScheduledTaskStatus.STOP_REQUESTED, workflowRunId = "workflow-run-1"),
+            run = workflowRun(agentRunId = "agent-run-1"),
+            events = events,
+        )
+
+        assertTrue(coordinator.reconcile("task-1"))
+        assertEquals(
+            listOf(
+                "load-run:workflow-run-1",
+                "close-agent:agent-run-1",
+                "reconcile-workflow:workflow-run-1",
+                "reconcile-task:task-1",
+            ),
+            events,
+        )
+    }
+
     private fun coordinator(
         task: ScheduledTaskRecord?,
         run: WorkflowRunDetail? = null,
@@ -88,7 +109,7 @@ class ScheduledWorkflowReentryCoordinatorTest {
         plannedAt = 1_000L,
         workRequestId = "work-request-1",
         workflowRunId = workflowRunId,
-        actualStartedAt = if (status == ScheduledTaskStatus.RUNNING) 1_100L else null,
+        actualStartedAt = if (status in setOf(ScheduledTaskStatus.RUNNING, ScheduledTaskStatus.STOP_REQUESTED)) 1_100L else null,
         completedAt = null,
         errorMessage = null,
         createdAt = 900L,

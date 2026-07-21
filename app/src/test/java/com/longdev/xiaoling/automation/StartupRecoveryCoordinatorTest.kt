@@ -23,7 +23,8 @@ class StartupRecoveryCoordinatorTest {
                     assertEquals(setOf("current-task"), currentProcessTaskIds)
                     WorkflowStartupRecoveryCandidates(
                         activeWorkflowRunIds = setOf("old-workflow", "current-workflow"),
-                        runningScheduledTaskIds = setOf("old-task", "current-task"),
+                        recoverableScheduledTaskIds = setOf("old-task", "current-task"),
+                        currentProcessScheduledTaskIds = setOf("current-task"),
                         currentProcessWorkflowRunIds = setOf("current-workflow"),
                         currentProcessAgentRunIds = setOf("current-agent"),
                     )

@@ -26,7 +26,7 @@
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Conversation/Message Repository、Agent Profile Store、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
 | Agent | `app/src/main/java/com/longdev/xiaoling/agent/` | Agent Profile 策略、最小 Agent Runtime、Run Ledger interface、真实低风险 Tool Registry、交互式审批 gate 和可审计运行链路。 |
 | Device | `app/src/main/java/com/longdev/xiaoling/device/` | Accessibility 观察与有限动作、授权/连接健康检查、有界脱敏 snapshot、短生命周期节点引用、隐私/应用白名单、动作后验证和前台直接 Agent 门禁。 |
-| Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行、进程内 Worker 所有权、启动恢复候选隔离、运行中定向停止和结果通知。 |
+| Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行、进程内 Worker 所有权、启动恢复候选隔离、`STOP_REQUESTED` 持久化停止与结果通知。 |
 | Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
 
@@ -142,7 +142,7 @@
 - 工作流页可创建 1 分钟至 7 天的一次性计划并取消尚未执行的计划。`OneTimeWorkRequest.setInitialDelay` 配合联网约束和唯一工作名提供非精确调度；产品文案明确系统可能延迟，不承诺准点。
 - Daily/Weekly 规则保存本地墙上时间、`ZoneId` 和可选周几。实现不使用 `PeriodicWorkRequest`：规则只维护一个未来 OneTime 实例；实例进入任意终态后，按规则时区计算并物化下一未来实例，每次实例均使用新的 ScheduledTask、WorkRequest、Workflow Run 和 Agent Run ID。
 - 同一 Workflow 最多一个周期规则。替换规则在 Room 事务内取消旧待执行实例并创建新实例，再同步取消旧唯一工作；停用规则或 Workflow 会清空 `nextTaskId / nextPlannedAt` 并取消 WorkManager。周期实例不暴露一次性任务取消入口，避免留下仍会继续生成下一实例的启用规则。
-- 启动恢复会先冻结旧候选并排除当前进程 Worker 链，只把候选 RUNNING ScheduledTask 按关联 Workflow Run 终态收敛，再为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
+- 启动恢复会先冻结旧候选并排除当前进程真正 `RUNNING` 的 Worker 链；候选同时包括 `RUNNING / STOP_REQUESTED` ScheduledTask，后者即使仍在进程注册表中也必须继续取消。旧任务按关联 Workflow Run 或持久停止意图收敛后，才为仍启用的规则物化一个未来实例；已物化但尚未关联 WorkRequest 的实例只补入队，不补跑错过的历史周期，也不复制旧 Agent Run。
 - Worker 使用同一 `AgentRunUseCase`，但强制传入 `AgentExecutionOrigin.BACKGROUND`。SAFE 后台工具可完成原有校验与验证；需要审批的工具写入 Agent/Workflow/ScheduledTask `BLOCKED` 终态并通知用户以前台新 Run 重试，绝不等待前台审批卡或继承临时授权。
 - Android 8+ 使用稳定通知 Channel；Android 13+ 从用户创建计划的操作中请求 `POST_NOTIFICATIONS`。完成、失败、阻断和系统取消都会写入 Ledger；通知被拒绝时不影响任务终态。
 - 当前没有 AlarmManager、精确闹钟权限或 Foreground Service；WorkManager 业务结果也不使用系统自动重试，避免复制可能已经执行过的 Agent Run。2026-07-22 的正式 8 步 SAFE Workflow 已在约 62.2 秒全部完成，运行中停止样本约 32.6 秒；此前 8 步探针在约 28.5 秒时于第二步重复工具调用检测处安全失败。强制 Doze 明确延后了任务，退出 Doze 与 `send-trim-memory` 样本均出现短时 `connection closed`，但这些受控样本不能证明因果或 Android 自主 LMK。当前进程 Worker 所有权隔离和用户可见停止均已完成，但都不提高系统存活率。当前继续使用普通 WorkManager；只有真实任务持续时间、重要性或自然系统回收证据表明必要时才使用 `setForeground()`，由 WorkManager 代管前台服务。
@@ -294,8 +294,8 @@
 
 ## 后台运行中停止与长成功样本
 
-- 工作流页只对一次性 `RUNNING` ScheduledTask 展示“停止运行”。同一协调器在操作时重新读取 Room：若任务仍为 `SCHEDULED`，先事务取消本地门禁再取消 WorkRequest；若 Worker 已抢占为 `RUNNING`，同一次点击自动进入运行中停止，不依赖过期 UI 快照。
-- 运行中停止先调用 WorkManager 取消目标 WorkRequest，并在有界窗口等待 Worker 通过正常协程取消关闭 Agent/Workflow/Task。仍未收敛或系统取消接口抛异常时，`ScheduledWorkflowStopFallbackCoordinator` 沿当前 Task→Workflow→Agent 关联按 ID 取消；Agent 尚未写入关联的窗口仍会关闭 Workflow 与 Task。重复停止返回既有终态，不创建新 Run，也不影响无关前台/后台 Run。
+- 工作流页只对一次性 `RUNNING` ScheduledTask 展示“停止运行”。同一协调器在操作时重新读取 Room：若任务仍为 `SCHEDULED`，先事务取消本地门禁再取消 WorkRequest；若 Worker 已抢占为 `RUNNING`，同一次点击自动进入运行中停止，不依赖过期 UI 快照。运行中任务会先原子写为 `STOP_REQUESTED`，UI 显示中性的“停止中”并隐藏停止按钮。
+- 持久化停止栅栏写入后才调用 WorkManager 取消目标 WorkRequest，并在有界窗口等待 Worker 通过正常协程取消关闭 Agent/Workflow/Task。仍未收敛或系统取消接口抛异常时，`ScheduledWorkflowStopFallbackCoordinator` 沿当前 Task→Workflow→Agent 关联按 ID 取消；Agent 尚未写入关联的窗口仍会关闭 Workflow 与 Task。系统取消与即时 fallback 同时失败时不再抛出并丢失意图，`STOP_REQUESTED` 保留到下次启动对账。重复停止返回既有状态，不创建新 Run，也不影响无关前台/后台 Run。
 - Redmi 真实停止 Task `scheduled-task-82faa2d4-a5a6-42f4-85ee-fa91b36d8c1d`，目标 WorkManager 被 `stopAndCancelWork`，Task、Workflow、Agent 与三条 Workflow Step 均保持 `CANCELLED`；从启动到停止约 32.6 秒。迟到 HTTP 200 返回后，Run、Step、Approval、Event 和 Tool Ledger 的终态门禁阻止旧执行覆盖或追加成功事实。
 - Redmi 三步 SAFE 成功 Task `scheduled-task-fc8229b4-5ff7-4794-b269-e94b35601445` 依次执行 `app.current_time`、`app.list_conversations(limit=3)`、`notes.list(limit=3)`，三个 Agent Run 分别约 7.2、7.1、7.0 秒，Workflow 总耗时约 21.8 秒，Task/Workflow/三条 Step 均为 `COMPLETED`。
 - `ActivityManager.isLowMemoryKillReportSupported()` 在 Redmi 返回 true；查询到 11 条历史退出记录，但 `REASON_LOW_MEMORY=0`。这些记录来自 instrumentation、force-stop 或安装等受控退出，不能作为 Android 自主 LMK；当前仍不引入 Foreground Service。完整门禁为 402 条 JVM、134 条仅 Redmi instrumentation、Lint、Debug 与 AndroidTest 构建通过。
@@ -307,5 +307,13 @@
 - 8 个 Agent Run 分别约 7.5、7.4、7.0、9.0、8.6、6.4、7.9、7.3 秒，依次执行 `app.current_time`、`app.list_conversations`、`notes.list`、`app.search_conversations`、`notes.search`、`app.current_time`、`app.list_conversations`、`notes.list`；每个 ToolResult 均为 `success=true / verificationStatus=PASSED`。
 - 先行 Task `scheduled-task-fc435736-8c3f-4898-b353-4c2aefe014fd` 运行约 49 秒，前 5 步成功，第 6 步因模型未调用 `memory.search` 而 `FAILED`，后两步按定义进入 `CANCELLED`。失败链同样只有一个 Workflow Run，没有 `Result.retry` 或复制执行；这说明模型遵循工具目标仍是长任务成功率的一部分，不能只由 WorkManager 存活证明。
 - 样本后 LMK probe 为 `supported=true / exits=6 / lowMemory=0 / fallbackSigkillCandidates=0`。6 条历史退出全部明确标记为 instrumentation 启停产生的 `USER REQUESTED / FORCE STOP`，没有 Android 自主 LMK。62.2 秒成功样本仍在普通 WorkManager 适用范围内，不引入 Foreground Service，不开放设备工具到 Workflow/后台。
+
+## 持久化停止请求与原子重对账
+
+- `ScheduledTaskStatus.STOP_REQUESTED` 是唯一新增的持久中间态，直接存入既有 `scheduled_tasks.status` TEXT 列；终态集合和 Room v27 Schema 均不改变。`requestScheduledTaskStop()` 在 Room transaction 中只允许 `RUNNING→STOP_REQUESTED`，重复请求幂等并保留首次停止原因。
+- `ScheduledWorkflowReentryCoordinator`、`ScheduledWorkflowStopFallbackCoordinator` 和启动恢复扫描都接受 `RUNNING / STOP_REQUESTED`。进程所有权只排除仍正常 `RUNNING` 的链；停止请求已撤销 Worker 继续执行资格，因此即使 Task ID 仍登记在进程注册表，启动恢复也会收敛其 Agent、Workflow 和 Task，且不创建第二个 Run。
+- `settleScheduledWorkflowRun()` 在同一 Room transaction 中重新读取 Task、校验 `task.workflowRunId == workflowRunId`，再原子结算 Workflow Run 与 ScheduledTask。若读到 `STOP_REQUESTED`，迟到 Worker 的成功结果统一改为 `Workflow=CANCELLED / Task=CANCELLED`，丢弃 Workflow result，保留停止原因；Worker 也不会追加成功会话结果或发送成功详情。
+- `finishScheduledTask()` 继续作为其他结算入口的最后栅栏：`STOP_REQUESTED` 只能进入 `CANCELLED`。该中间态不属于终态，Daily/Weekly 规则不会在旧实例完成重对账前物化下一实例。阶段 50 完整门禁为 404 条 JVM、137 条仅 Redmi instrumentation，Lint、Debug 与 AndroidTest 构建通过。
+- 本阶段只保证停止意图跨异常和进程重建可见，并关闭 Workflow/Task 终态的 TOCTOU；它不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤，不复制 Run，也不撤销停止前已经提交到外部系统的副作用。现有 62.2 秒样本仍不支持引入 Foreground Service。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。

@@ -518,6 +518,9 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val stopCoordinator = ScheduledWorkflowStopCoordinator(
             loadTask = repository::getScheduledTask,
             cancelPendingTask = repository::cancelScheduledTask,
+            requestRunningStop = { taskId ->
+                repository.requestScheduledTaskStop(taskId, "用户停止后台工作流")
+            },
             cancelSystemWork = { taskId -> systemCancellations += taskId },
             waitForWorkerSettlement = {},
             reconcileUnsettledTask = fallback::reconcile,
@@ -556,6 +559,9 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val stopCoordinator = ScheduledWorkflowStopCoordinator(
             loadTask = repository::getScheduledTask,
             cancelPendingTask = repository::cancelScheduledTask,
+            requestRunningStop = { taskId ->
+                repository.requestScheduledTaskStop(taskId, "用户停止后台工作流")
+            },
             cancelSystemWork = { taskId -> systemCancellations += taskId },
             waitForWorkerSettlement = {},
             reconcileUnsettledTask = fallback::reconcile,
@@ -643,6 +649,104 @@ class RoomWorkflowRepositoryInstrumentedTest {
             assertEquals(ScheduledTaskStatus.COMPLETED, repository.getScheduledTask(currentTask.id)!!.status)
             assertEquals(runCountBeforeRecovery, agentRepository.recentRunDetails(limit = 20).size)
         }
+    }
+
+    @Test
+    fun persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup() = runBlocking {
+        val workflow = repository.createWorkflow("持久化停止请求", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-persisted-stop")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val agent = agentRepository.createRun(
+            conversationId = claim.run.run.conversationId,
+            userMessageId = claim.userMessageId,
+            goal = "读取当前时间",
+        )
+        agentRepository.updateRunStatus(agent.id, AgentRunStatus.THINKING)
+        repository.markAgentRunStarted(claim.run.run.id, claim.run.steps.single().id, agent.id)
+        val runCountBeforeRecovery = agentRepository.recentRunDetails(limit = 20).size
+        val requested = repository.requestScheduledTaskStop(task.id, "用户请求停止后台工作流")!!
+        assertEquals(ScheduledTaskStatus.STOP_REQUESTED, requested.status)
+
+        val registry = ScheduledWorkflowProcessExecutionRegistry()
+        registry.withScheduledTask(task.id) {
+            val candidates = StartupRecoveryCoordinator(
+                processExecutionRegistry = registry,
+                loadAgentRunIds = agentRepository::activeRunIds,
+                loadWorkflowCandidates = repository::startupRecoveryCandidates,
+            ).capture()
+
+            // long: STOP_REQUESTED 已撤销当前 Worker 的继续执行资格；即使进程注册表仍有旧所有权，启动恢复也必须处理同一条持久化链。
+            assertEquals(setOf(agent.id), candidates.agentRunIds)
+            assertEquals(setOf(claim.run.run.id), candidates.workflowRunIds)
+            assertEquals(setOf(task.id), candidates.scheduledTaskIds)
+
+            agentRepository.closeInterruptedRuns(
+                runIds = candidates.agentRunIds,
+                preserveResumableCandidates = false,
+            )
+            repository.reconcileInterruptedRuns(workflowRunIds = candidates.workflowRunIds)
+            repository.reconcileInterruptedScheduledTasks(taskIds = candidates.scheduledTaskIds)
+        }
+
+        assertEquals(AgentRunStatus.CANCELLED, agentRepository.runDetail(agent.id)!!.snapshot.run.status)
+        assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
+        assertEquals(runCountBeforeRecovery, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
+    fun lateWorkerCompletionCannotOverwritePersistedStopRequest() = runBlocking {
+        val workflow = repository.createWorkflow("迟到结算保护", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-late-stop")
+        val claim = repository.claimScheduledRun(task.id)!!
+
+        val requested = repository.requestScheduledTaskStop(task.id, "用户请求停止后台工作流")!!
+        assertEquals(ScheduledTaskStatus.STOP_REQUESTED, requested.status)
+
+        val settled = repository.settleScheduledWorkflowRun(
+            taskId = task.id,
+            workflowRunId = claim.run.run.id,
+            workflowStatus = WorkflowRunStatus.COMPLETED,
+            taskStatus = ScheduledTaskStatus.COMPLETED,
+            result = "迟到成功结果",
+        )!!
+
+        assertEquals(ScheduledTaskStatus.CANCELLED, settled.status)
+        assertEquals("用户请求停止后台工作流", settled.errorMessage)
+        assertEquals(settled, repository.getScheduledTask(task.id))
+        val workflowRun = repository.runDetail(claim.run.run.id)!!.run
+        assertEquals(WorkflowRunStatus.CANCELLED, workflowRun.status)
+        assertNull(workflowRun.result)
+        assertEquals("用户请求停止后台工作流", workflowRun.errorMessage)
+    }
+
+    @Test
+    fun stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation() = runBlocking {
+        val workflow = repository.createWorkflow("停止周期实例", "读取当前时间")
+        val plan = repository.createOrReplaceWorkflowSchedule(
+            workflowId = workflow.id,
+            type = WorkflowScheduleType.DAILY,
+            hour = 9,
+            minute = 30,
+            dayOfWeek = null,
+            zoneId = "Asia/Shanghai",
+        )
+        repository.attachWorkRequest(plan.task.id, "work-request-stop-recurring")
+        repository.claimScheduledRun(plan.task.id)!!
+        repository.requestScheduledTaskStop(plan.task.id, "用户请求停止后台工作流")
+
+        // long: STOP_REQUESTED 仍是中间态；旧 Worker 的 finally 和启动规则对账都不能提前创建下一实例，避免当前链尚未关闭就并行执行下一周期。
+        assertNull(repository.materializeNextOccurrence(plan.task.id))
+        assertTrue(repository.reconcileWorkflowSchedules().isEmpty())
+        assertEquals(plan.task.id, repository.listWorkflowSchedules().single().nextTaskId)
+
+        repository.finishScheduledTask(plan.task.id, ScheduledTaskStatus.CANCELLED, "用户请求停止后台工作流")
+        val next = repository.materializeNextOccurrence(plan.task.id)!!
+        assertTrue(next.plannedAt > plan.task.plannedAt)
+        assertEquals(next.id, repository.listWorkflowSchedules().single().nextTaskId)
     }
 
     @Test

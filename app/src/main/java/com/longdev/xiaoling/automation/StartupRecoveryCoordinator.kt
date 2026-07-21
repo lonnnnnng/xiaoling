@@ -11,7 +11,8 @@ internal data class StartupRecoveryCandidateIds(
 
 internal data class WorkflowStartupRecoveryCandidates(
     val activeWorkflowRunIds: Set<String>,
-    val runningScheduledTaskIds: Set<String>,
+    val recoverableScheduledTaskIds: Set<String>,
+    val currentProcessScheduledTaskIds: Set<String>,
     val currentProcessWorkflowRunIds: Set<String>,
     val currentProcessAgentRunIds: Set<String>,
 )
@@ -67,7 +68,8 @@ internal class StartupRecoveryCoordinator(
                 agentRunIds = agentRunIds - workflowCandidates.currentProcessAgentRunIds,
                 workflowRunIds = workflowCandidates.activeWorkflowRunIds -
                     workflowCandidates.currentProcessWorkflowRunIds,
-                scheduledTaskIds = workflowCandidates.runningScheduledTaskIds - currentProcessTaskIds,
+                scheduledTaskIds = workflowCandidates.recoverableScheduledTaskIds -
+                    workflowCandidates.currentProcessScheduledTaskIds,
             )
         }
     }

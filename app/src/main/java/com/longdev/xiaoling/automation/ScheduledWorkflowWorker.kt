@@ -85,7 +85,12 @@ class ScheduledWorkflowExecutor(
         faultInjector = NoOpScheduledWorkflowFaultInjector,
         settle = ::settle,
         notify = { claim, task, outcome ->
-            notifier.notify(claim.workflow.name, task, outcome.notificationDetail)
+            val detail = if (task.status == ScheduledTaskStatus.CANCELLED && outcome.taskStatus != ScheduledTaskStatus.CANCELLED) {
+                task.errorMessage ?: "用户已请求停止后台工作流"
+            } else {
+                outcome.notificationDetail
+            }
+            notifier.notify(claim.workflow.name, task, detail)
         },
         onClaimRejected = ::notifyClaimFailure,
     )
@@ -171,15 +176,20 @@ class ScheduledWorkflowExecutor(
         claim: ScheduledWorkflowClaim,
         outcome: ScheduledExecutionOutcome,
     ): ScheduledTaskRecord {
-        workflowRepository.completeRun(
+        val task = workflowRepository.settleScheduledWorkflowRun(
+            taskId = claim.task.id,
             workflowRunId = claim.run.run.id,
-            status = outcome.workflowStatus,
+            workflowStatus = outcome.workflowStatus,
+            taskStatus = outcome.taskStatus,
             result = outcome.workflowResult,
             errorMessage = outcome.errorMessage,
-        )
-        val task = workflowRepository.finishScheduledTask(claim.task.id, outcome.taskStatus, outcome.errorMessage)
-            ?: claim.task.copy(status = outcome.taskStatus, errorMessage = outcome.errorMessage)
-        outcome.conversationResult?.let { result ->
+        ) ?: claim.task.copy(status = outcome.taskStatus, errorMessage = outcome.errorMessage)
+        val effectiveOutcome = if (task.status == ScheduledTaskStatus.CANCELLED && outcome.taskStatus != ScheduledTaskStatus.CANCELLED) {
+            ScheduledExecutionOutcome.Cancelled(task.errorMessage ?: "用户已请求停止后台工作流")
+        } else {
+            outcome
+        }
+        effectiveOutcome.conversationResult?.let { result ->
             workflowRepository.appendScheduledConversationResult(
                 conversationId = claim.run.run.conversationId,
                 text = result.text,
@@ -231,7 +241,12 @@ class ScheduledWorkflowExecutor(
 
     private suspend fun notifyReentryOutcome(taskId: String) {
         val task = workflowRepository.getScheduledTask(taskId) ?: return
-        if (task.status in setOf(ScheduledTaskStatus.SCHEDULED, ScheduledTaskStatus.RUNNING)) return
+        if (task.status in setOf(
+                ScheduledTaskStatus.SCHEDULED,
+                ScheduledTaskStatus.RUNNING,
+                ScheduledTaskStatus.STOP_REQUESTED,
+            )
+        ) return
         val workflowName = workflowRepository.getWorkflow(task.workflowId)?.name ?: "已删除工作流"
         val detail = task.errorMessage ?: when (task.status) {
             ScheduledTaskStatus.COMPLETED -> "后台工作流已根据持久化结果完成"
@@ -239,7 +254,8 @@ class ScheduledWorkflowExecutor(
             ScheduledTaskStatus.CANCELLED -> "后台工作流已在系统重启后安全停止"
             ScheduledTaskStatus.FAILED -> "后台工作流已在系统重启后收敛失败"
             ScheduledTaskStatus.SCHEDULED,
-            ScheduledTaskStatus.RUNNING -> return
+            ScheduledTaskStatus.RUNNING,
+            ScheduledTaskStatus.STOP_REQUESTED -> return
         }
         notifier.notify(workflowName, task, detail)
     }

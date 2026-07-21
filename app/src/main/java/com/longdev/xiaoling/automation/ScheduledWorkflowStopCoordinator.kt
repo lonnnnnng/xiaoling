@@ -17,6 +17,7 @@ internal data class ScheduledWorkflowStopResult(
 internal class ScheduledWorkflowStopCoordinator(
     private val loadTask: suspend (String) -> ScheduledTaskRecord?,
     private val cancelPendingTask: suspend (String) -> ScheduledTaskRecord?,
+    private val requestRunningStop: suspend (String) -> ScheduledTaskRecord?,
     private val cancelSystemWork: suspend (String) -> Unit,
     private val waitForWorkerSettlement: suspend () -> Unit,
     private val reconcileUnsettledTask: suspend (String) -> Boolean,
@@ -47,37 +48,55 @@ internal class ScheduledWorkflowStopCoordinator(
                     else -> return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, cancelled)
                 }
             }
-            ScheduledTaskStatus.RUNNING -> Unit
+            ScheduledTaskStatus.RUNNING,
+            ScheduledTaskStatus.STOP_REQUESTED -> Unit
             else -> return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, initial)
         }
 
-        // long: 优先让 WorkManager 取消真实 Worker；系统取消接口异常时仍必须收敛持久化链，避免控制面因为一次平台异常永久停在 RUNNING。
+        val stopRequested = requestRunningStop(taskId)
+            ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
+        if (stopRequested.status != ScheduledTaskStatus.STOP_REQUESTED) {
+            return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_RUNNING, stopRequested)
+        }
+
+        // long: STOP_REQUESTED 已先成为持久化取消栅栏；WorkManager 或即时兜底异常只影响本轮速度，后续启动恢复仍会继续收敛同一链。
         val systemCancellationFailure = runCatching { cancelSystemWork(taskId) }.exceptionOrNull()
         if (systemCancellationFailure != null) {
-            reconcileUnsettledTask(taskId)
+            runCatching { reconcileUnsettledTask(taskId) }
             val settled = loadTask(taskId)
                 ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null, true)
-            if (settled.status == ScheduledTaskStatus.RUNNING) throw systemCancellationFailure
-            return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.STOPPED, settled, true)
+            val outcome = if (settled.status in UNSETTLED_STOP_STATUSES) {
+                ScheduledWorkflowStopOutcome.STOP_REQUESTED
+            } else {
+                ScheduledWorkflowStopOutcome.STOPPED
+            }
+            return ScheduledWorkflowStopResult(outcome, settled, true)
         }
         repeat(settlementChecks) {
             waitForWorkerSettlement()
             val current = loadTask(taskId)
                 ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
-            if (current.status != ScheduledTaskStatus.RUNNING) {
+            if (current.status !in UNSETTLED_STOP_STATUSES) {
                 return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.STOPPED, current)
             }
         }
 
         // long: Worker 没有在有界窗口内写入终态时才按持久化关联链兜底，防止系统已接受停止请求但任务中心永久显示运行中。
-        reconcileUnsettledTask(taskId)
+        runCatching { reconcileUnsettledTask(taskId) }
         val settled = loadTask(taskId)
             ?: return ScheduledWorkflowStopResult(ScheduledWorkflowStopOutcome.NOT_FOUND, null)
-        val outcome = if (settled.status == ScheduledTaskStatus.RUNNING) {
+        val outcome = if (settled.status in UNSETTLED_STOP_STATUSES) {
             ScheduledWorkflowStopOutcome.STOP_REQUESTED
         } else {
             ScheduledWorkflowStopOutcome.STOPPED
         }
         return ScheduledWorkflowStopResult(outcome, settled)
+    }
+
+    private companion object {
+        val UNSETTLED_STOP_STATUSES = setOf(
+            ScheduledTaskStatus.RUNNING,
+            ScheduledTaskStatus.STOP_REQUESTED,
+        )
     }
 }

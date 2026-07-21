@@ -274,6 +274,7 @@ enum class ScheduledTaskType {
 enum class ScheduledTaskStatus {
     SCHEDULED,
     RUNNING,
+    STOP_REQUESTED,
     BLOCKED,
     COMPLETED,
     FAILED,

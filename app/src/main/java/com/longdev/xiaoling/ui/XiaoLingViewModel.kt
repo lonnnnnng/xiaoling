@@ -463,6 +463,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val scheduledWorkflowStopCoordinator = ScheduledWorkflowStopCoordinator(
         loadTask = workflowRepository::getScheduledTask,
         cancelPendingTask = workflowRepository::cancelScheduledTask,
+        requestRunningStop = { taskId ->
+            workflowRepository.requestScheduledTaskStop(taskId, "用户请求停止后台工作流")
+        },
         cancelSystemWork = scheduledTaskScheduler::cancel,
         waitForWorkerSettlement = { delay(100L) },
         reconcileUnsettledTask = scheduledWorkflowStopFallback::reconcile,
@@ -1469,7 +1472,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         ScheduledWorkflowStopOutcome.STOP_REQUESTED -> OperationResult(
                             true,
                             "已请求停止后台任务",
-                            "系统取消已提交，任务账本仍在收敛；稍后刷新可查看终态",
+                            if (stopped.systemCancellationFailed) {
+                                "停止意图已持久化；系统取消异常，应用下次启动仍会继续收敛"
+                            } else {
+                                "系统取消已提交，持久化账本仍在收敛；稍后刷新可查看终态"
+                            },
                         )
                         ScheduledWorkflowStopOutcome.NOT_RUNNING -> OperationResult(
                             true,

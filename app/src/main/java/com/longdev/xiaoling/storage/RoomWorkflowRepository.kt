@@ -357,19 +357,25 @@ class RoomWorkflowRepository(
     suspend fun reconcileInterruptedScheduledTasks(taskIds: Set<String>? = null): Int {
         val dao = database.workflowDao()
         var reconciled = 0
-        dao.getRunningScheduledTasks()
+        dao.getRecoverableScheduledTasks()
             .filter { taskIds == null || it.id in taskIds }
             .forEach { task ->
             val workflowRun = task.workflowRunId?.let { runId -> dao.getRun(runId) }
-            val terminalStatus = when (workflowRun?.status) {
+            val stopRequested = task.status == ScheduledTaskStatus.STOP_REQUESTED.name
+            val terminalStatus = if (stopRequested) {
+                ScheduledTaskStatus.CANCELLED
+            } else when (workflowRun?.status) {
                 WorkflowRunStatus.COMPLETED.name -> ScheduledTaskStatus.COMPLETED
                 WorkflowRunStatus.BLOCKED.name -> ScheduledTaskStatus.BLOCKED
                 WorkflowRunStatus.CANCELLED.name -> ScheduledTaskStatus.CANCELLED
                 WorkflowRunStatus.FAILED.name -> ScheduledTaskStatus.FAILED
                 else -> ScheduledTaskStatus.FAILED
             }
-            val error = workflowRun?.errorMessage
-                ?: "应用重启后无法恢复后台执行栈"
+            val error = if (stopRequested) {
+                task.errorMessage ?: "用户已请求停止后台工作流"
+            } else {
+                workflowRun?.errorMessage ?: "应用重启后无法恢复后台执行栈"
+            }
             // long: 启动恢复只依据已收敛的 Workflow Run 关闭旧实例，不重放模型或工具；周期规则随后从未来时间继续，避免重复副作用。
             finishScheduledTask(
                 task.id,
@@ -455,6 +461,24 @@ class RoomWorkflowRepository(
                 status = ScheduledTaskStatus.CANCELLED.name,
                 completedAt = now,
                 updatedAt = now,
+            )
+            dao.upsertScheduledTask(updated)
+            updated.toRecord()
+        }
+    }
+
+    suspend fun requestScheduledTaskStop(taskId: String, reason: String): ScheduledTaskRecord? {
+        require(reason.isNotBlank()) { "停止原因不能为空" }
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val task = dao.getScheduledTask(taskId) ?: return@withTransaction null
+            if (task.status == ScheduledTaskStatus.STOP_REQUESTED.name) return@withTransaction task.toRecord()
+            if (task.status != ScheduledTaskStatus.RUNNING.name) return@withTransaction task.toRecord()
+            // long: 用户停止意图必须先于系统取消持久化；即使 WorkManager 或即时兜底随后失败，启动恢复仍能识别并继续收敛同一执行链。
+            val updated = task.copy(
+                status = ScheduledTaskStatus.STOP_REQUESTED.name,
+                errorMessage = reason,
+                updatedAt = System.currentTimeMillis(),
             )
             dao.upsertScheduledTask(updated)
             updated.toRecord()
@@ -566,14 +590,51 @@ class RoomWorkflowRepository(
             val current = dao.getScheduledTask(taskId) ?: return@withTransaction null
             if (current.status in TERMINAL_SCHEDULED_TASK_STATUSES.map { it.name }) return@withTransaction current.toRecord()
             val now = System.currentTimeMillis()
+            val stopRequested = current.status == ScheduledTaskStatus.STOP_REQUESTED.name
+            val settledStatus = if (stopRequested) ScheduledTaskStatus.CANCELLED else status
             val updated = current.copy(
-                status = status.name,
+                // long: STOP_REQUESTED 是持久化取消栅栏；迟到 Worker 即使返回成功，也只能把 Task 收敛为 CANCELLED，不能覆盖用户停止意图。
+                status = settledStatus.name,
                 completedAt = now,
-                errorMessage = errorMessage,
+                errorMessage = if (stopRequested) current.errorMessage else errorMessage,
                 updatedAt = now,
             )
             dao.upsertScheduledTask(updated)
             updated.toRecord()
+        }
+    }
+
+    suspend fun settleScheduledWorkflowRun(
+        taskId: String,
+        workflowRunId: String,
+        workflowStatus: WorkflowRunStatus,
+        taskStatus: ScheduledTaskStatus,
+        result: String? = null,
+        errorMessage: String? = null,
+    ): ScheduledTaskRecord? {
+        require(workflowStatus.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
+        require(taskStatus in TERMINAL_SCHEDULED_TASK_STATUSES) { "定时任务只能收敛到终态" }
+        return database.withTransaction {
+            val task = database.workflowDao().getScheduledTask(taskId)
+                ?: error("定时任务不存在：$taskId")
+            require(task.workflowRunId == workflowRunId) { "定时任务与工作流 Run 关联不一致" }
+            val stopRequested = task.status == ScheduledTaskStatus.STOP_REQUESTED.name
+            val settledWorkflowStatus = if (stopRequested) WorkflowRunStatus.CANCELLED else workflowStatus
+            val settledTaskStatus = if (stopRequested) ScheduledTaskStatus.CANCELLED else taskStatus
+            val settledResult = result.takeUnless { stopRequested }
+            val settledError = if (stopRequested) {
+                task.errorMessage ?: "用户已请求停止后台工作流"
+            } else {
+                errorMessage
+            }
+            // long: Workflow 与 Task 必须在同一事务内重新读取停止栅栏并结算；用户点击不能插入两次写入之间制造互相矛盾的终态。
+            completeRun(
+                workflowRunId = workflowRunId,
+                status = settledWorkflowStatus,
+                result = settledResult,
+                errorMessage = settledError,
+            )
+            finishScheduledTask(taskId, settledTaskStatus, settledError)
         }
     }
 
@@ -925,10 +986,16 @@ class RoomWorkflowRepository(
             val activeWorkflowRuns = dao.runsByStatuses(
                 listOf(WorkflowRunStatus.QUEUED.name, WorkflowRunStatus.RUNNING.name),
             )
-            val runningScheduledTasks = dao.getRunningScheduledTasks()
+            val recoverableScheduledTasks = dao.getRecoverableScheduledTasks()
+            val currentProcessScheduledTaskIds = linkedSetOf<String>()
             val currentProcessWorkflowRunIds = linkedSetOf<String>()
             currentProcessTaskIds.forEach { taskId ->
-                dao.getScheduledTask(taskId)?.workflowRunId?.let(currentProcessWorkflowRunIds::add)
+                val task = dao.getScheduledTask(taskId)
+                // long: 当前进程所有权只保护仍正常 RUNNING 的 Worker；用户已写入 STOP_REQUESTED 时，启动恢复必须越过旧所有权继续取消。
+                if (task?.status == ScheduledTaskStatus.RUNNING.name) {
+                    currentProcessScheduledTaskIds += taskId
+                    task.workflowRunId?.let(currentProcessWorkflowRunIds::add)
+                }
             }
             val currentProcessAgentRunIds = linkedSetOf<String>()
             currentProcessWorkflowRunIds.forEach { workflowRunId ->
@@ -938,7 +1005,8 @@ class RoomWorkflowRepository(
             }
             WorkflowStartupRecoveryCandidates(
                 activeWorkflowRunIds = activeWorkflowRuns.mapTo(linkedSetOf()) { it.id },
-                runningScheduledTaskIds = runningScheduledTasks.mapTo(linkedSetOf()) { it.id },
+                recoverableScheduledTaskIds = recoverableScheduledTasks.mapTo(linkedSetOf()) { it.id },
+                currentProcessScheduledTaskIds = currentProcessScheduledTaskIds,
                 currentProcessWorkflowRunIds = currentProcessWorkflowRunIds,
                 currentProcessAgentRunIds = currentProcessAgentRunIds,
             )

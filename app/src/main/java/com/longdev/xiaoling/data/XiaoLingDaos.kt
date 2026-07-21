@@ -549,8 +549,8 @@ interface WorkflowDao {
     @Query("SELECT * FROM scheduled_tasks WHERE id = :taskId")
     suspend fun getScheduledTask(taskId: String): ScheduledTaskEntity?
 
-    @Query("SELECT * FROM scheduled_tasks WHERE status = 'RUNNING' ORDER BY actualStartedAt ASC")
-    suspend fun getRunningScheduledTasks(): List<ScheduledTaskEntity>
+    @Query("SELECT * FROM scheduled_tasks WHERE status IN ('RUNNING', 'STOP_REQUESTED') ORDER BY actualStartedAt ASC")
+    suspend fun getRecoverableScheduledTasks(): List<ScheduledTaskEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertScheduledTask(task: ScheduledTaskEntity)

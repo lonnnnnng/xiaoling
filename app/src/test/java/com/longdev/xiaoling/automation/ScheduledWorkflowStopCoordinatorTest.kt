@@ -12,6 +12,11 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
+            requestRunningStop = { taskId ->
+                events += "request:$taskId"
+                task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
+                task
+            },
             cancelSystemWork = { taskId -> events += "cancel:$taskId" },
             waitForWorkerSettlement = {
                 events += "wait"
@@ -28,7 +33,7 @@ class ScheduledWorkflowStopCoordinatorTest {
 
         assertEquals(ScheduledWorkflowStopOutcome.STOPPED, result.outcome)
         assertEquals(ScheduledTaskStatus.CANCELLED, result.task?.status)
-        assertEquals(listOf("cancel:${task.id}", "wait"), events)
+        assertEquals(listOf("request:${task.id}", "cancel:${task.id}", "wait"), events)
     }
 
     @Test
@@ -38,6 +43,11 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
+            requestRunningStop = { taskId ->
+                events += "request:$taskId"
+                task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
+                task
+            },
             cancelSystemWork = { taskId -> events += "cancel:$taskId" },
             waitForWorkerSettlement = { events += "wait" },
             reconcileUnsettledTask = { taskId ->
@@ -52,7 +62,7 @@ class ScheduledWorkflowStopCoordinatorTest {
 
         assertEquals(ScheduledWorkflowStopOutcome.STOPPED, result.outcome)
         assertEquals(ScheduledTaskStatus.CANCELLED, result.task?.status)
-        assertEquals(listOf("cancel:${task.id}", "wait", "wait", "reconcile:${task.id}"), events)
+        assertEquals(listOf("request:${task.id}", "cancel:${task.id}", "wait", "wait", "reconcile:${task.id}"), events)
     }
 
     @Test
@@ -62,6 +72,11 @@ class ScheduledWorkflowStopCoordinatorTest {
         val coordinator = ScheduledWorkflowStopCoordinator(
             loadTask = { task },
             cancelPendingTask = { task },
+            requestRunningStop = { taskId ->
+                events += "request:$taskId"
+                task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
+                task
+            },
             cancelSystemWork = { taskId ->
                 events += "cancel:$taskId"
                 error("WorkManager unavailable")
@@ -79,7 +94,7 @@ class ScheduledWorkflowStopCoordinatorTest {
         assertEquals(ScheduledWorkflowStopOutcome.STOPPED, result.outcome)
         assertEquals(true, result.systemCancellationFailed)
         assertEquals(ScheduledTaskStatus.CANCELLED, result.task?.status)
-        assertEquals(listOf("cancel:${task.id}", "reconcile:${task.id}"), events)
+        assertEquals(listOf("request:${task.id}", "cancel:${task.id}", "reconcile:${task.id}"), events)
     }
 
     @Test
@@ -93,6 +108,7 @@ class ScheduledWorkflowStopCoordinatorTest {
                 task = task.copy(status = ScheduledTaskStatus.CANCELLED, completedAt = 5L)
                 task
             },
+            requestRunningStop = { error("待执行任务不应请求运行中停止") },
             cancelSystemWork = { taskId -> events += "cancel-system:$taskId" },
             waitForWorkerSettlement = { events += "wait" },
             reconcileUnsettledTask = { false },
@@ -116,6 +132,11 @@ class ScheduledWorkflowStopCoordinatorTest {
                 task = runningTask()
                 task
             },
+            requestRunningStop = { taskId ->
+                events += "request:$taskId"
+                task = task.copy(status = ScheduledTaskStatus.STOP_REQUESTED)
+                task
+            },
             cancelSystemWork = { taskId -> events += "cancel-system:$taskId" },
             waitForWorkerSettlement = {
                 events += "wait"
@@ -128,7 +149,44 @@ class ScheduledWorkflowStopCoordinatorTest {
 
         assertEquals(ScheduledWorkflowStopOutcome.STOPPED, result.outcome)
         assertEquals(ScheduledTaskStatus.CANCELLED, result.task?.status)
-        assertEquals(listOf("cancel-ledger:${task.id}", "cancel-system:${task.id}", "wait"), events)
+        assertEquals(
+            listOf("cancel-ledger:${task.id}", "request:${task.id}", "cancel-system:${task.id}", "wait"),
+            events,
+        )
+    }
+
+    @Test
+    fun stopKeepsDurableRequestWhenSystemCancellationAndFallbackFail() = runTest {
+        var task = runningTask()
+        val events = mutableListOf<String>()
+        val coordinator = ScheduledWorkflowStopCoordinator(
+            loadTask = { task },
+            cancelPendingTask = { task },
+            requestRunningStop = { taskId ->
+                events += "request:$taskId"
+                task = task.copy(
+                    status = ScheduledTaskStatus.STOP_REQUESTED,
+                    errorMessage = "用户请求停止后台工作流",
+                )
+                task
+            },
+            cancelSystemWork = { taskId ->
+                events += "cancel:$taskId"
+                error("WorkManager unavailable")
+            },
+            waitForWorkerSettlement = { events += "wait" },
+            reconcileUnsettledTask = { taskId ->
+                events += "reconcile:$taskId"
+                error("Room temporarily unavailable")
+            },
+        )
+
+        val result = coordinator.stop(task.id)
+
+        assertEquals(ScheduledWorkflowStopOutcome.STOP_REQUESTED, result.outcome)
+        assertEquals(true, result.systemCancellationFailed)
+        assertEquals(ScheduledTaskStatus.STOP_REQUESTED, result.task?.status)
+        assertEquals(listOf("request:${task.id}", "cancel:${task.id}", "reconcile:${task.id}"), events)
     }
 
     private fun runningTask() = ScheduledTaskRecord(

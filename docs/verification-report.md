@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-21（北京时间）
+验证日期：2026-07-22（北京时间）
 
 ## 环境
 
@@ -1607,4 +1607,29 @@ LMK 与清理结果：
 当前结论：
 
 - 普通 WorkManager 已在 Redmi 承载约 62.2 秒、8 个真实模型/SAFE 工具步骤的完整成功链，现有证据仍不支持提前引入 Foreground Service。它证明当前长度可完成，不代表系统会保证任意更长任务存活。
-- 下一阶段继续寻找 Android 自主 LMK，并完善系统取消或重对账异常后的持久化保障；旧模型协程、提交未知执行栈和 Workflow 后续步骤继续 fail-closed，设备工具继续禁止进入 Workflow/后台自动化。
+- 第 49 阶段当时的下一步是继续寻找 Android 自主 LMK，并完善系统取消或重对账异常后的持久化保障；其中持久化重对账已由下一节第 50 阶段完成。旧模型协程、提交未知执行栈和 Workflow 后续步骤继续 fail-closed，设备工具继续禁止进入 Workflow/后台自动化。
+
+## 2026-07-22 `STOP_REQUESTED` 持久化停止与原子重对账
+
+实现与安全边界：
+
+- `ScheduledTaskStatus` 新增非终态 `STOP_REQUESTED`。运行中停止先通过 `requestScheduledTaskStop()` 在 Room transaction 中完成 `RUNNING→STOP_REQUESTED`，再调用 WorkManager 取消；重复停止幂等。系统取消和即时 fallback 同时抛出时，协调器返回“停止请求已持久化”，不再让异常抹掉用户意图。
+- Worker 重入、停止 fallback 与启动恢复均扫描 `RUNNING / STOP_REQUESTED`。当前进程注册表只排除仍正常 `RUNNING` 的 Task→Workflow→Agent 链；已经写入停止请求的任务即使仍登记所有权，也会进入启动恢复并按 Agent→Workflow→Task 收敛，且不创建第二个 Run。
+- `settleScheduledWorkflowRun()` 在同一 Room transaction 中重新读取 Task、校验 Task 与 Workflow Run 关联，再结算两者。若停止栅栏存在，迟到的 `COMPLETED` 结果会被改为 `Workflow=CANCELLED / Task=CANCELLED`，Workflow result 被丢弃，停止原因保留；Worker 不追加成功会话结果，也不发送成功详情。
+- `finishScheduledTask()` 同样保证 `STOP_REQUESTED` 只能进入 `CANCELLED`。该状态不是终态，Daily/Weekly 下一实例在旧任务完成对账前不会物化。实现复用既有 TEXT 状态列，没有 Room migration，正式 Schema 仍为 v27；不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤，不使用 `Result.retry`，不引入 Foreground Service。
+
+定向与完整门禁：
+
+- 最后一项 Task/Workflow 关联校验落地后，JVM 定向执行 `ScheduledWorkflowStopCoordinatorTest.stopKeepsDurableRequestWhenSystemCancellationAndFallbackFail` 与 `ScheduledWorkflowReentryCoordinatorTest.stopRequestedTaskReconcilesPersistedChainInsteadOfExecutingAgain`，2/2 通过。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 定向执行 `persistedStopRequestOverridesCurrentProcessOwnershipAndReconcilesOnStartup`、`lateWorkerCompletionCannotOverwritePersistedStopRequest`、`stopRequestedRecurringTaskDoesNotMaterializeNextOccurrenceBeforeReconciliation`，3/3 通过。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；Gradle XML 实际汇总为 404 条 JVM、0 失败、0 错误。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest` 启动并完成 137 条 instrumentation，0 失败；没有启动、连接或向 Pixel/模拟器发送 ADB 命令。
+
+真机恢复状态：
+
+- 完整 instrumentation 后目标应用被测试框架移除；已重新安装本轮通过门禁的 Debug APK，通过 Debug-only 正式 Repository/Keystore 入口从未跟踪 `AGENTS.md` 恢复兜底 Provider 与默认只允许 `device.open_app` 的 Profile。日志只核对模型已配置与工具白名单，不输出 Base URL 或 API Key。
+- 测试包 `com.longdev.xiaoling.test` 已卸载。Redmi 的 AccessibilityService 最终为 Enabled 与 Bound，`Crashed services:{}`；`com.longdev.xiaoling/.MainActivity` 为 `topResumedActivity`。该 Redmi ROM 在 `force-stop` 后会再次清掉 Accessibility 授权，因此最终顺序为先启动主应用、再恢复服务，之后不再强停。
+
+当前结论：
+
+- 阶段 50 关闭的是“停止意图在平台取消/fallback 异常、迟到 Worker 与进程重建之间丢失”的窗口，以及 Workflow/Task 分两次结算的 TOCTOU；它不能撤销停止前已提交到外部系统的副作用，也不扩大旧执行栈恢复能力。
+- 下一阶段继续寻找 Android 自主 LMK，并完善提交未知或验证事实不完整时的通用恢复证据。62.2 秒成功样本仍没有引入 Foreground Service 的依据；设备工具继续禁止进入 Workflow/后台自动化，精确定时与后续生态能力继续后置。
