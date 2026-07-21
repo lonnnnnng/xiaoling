@@ -916,6 +916,74 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun processTerminationBeforeBudgetSnapshotRejectsCommittedReceiptInPlaceRecovery() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("title", "标题", required = true),
+                ToolInputField("content", "正文", required = true),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-result-without-budget",
+            name = definition.name,
+            arguments = mapOf("title" to "预算快照", "content" to "结果已落库"),
+            risk = definition.risk,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+                override suspend fun execute(call: ToolCall): ToolExecutionResult = ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = "已创建并验证笔记：${call.arguments.getValue("title")}",
+                    executionReceipt = ToolExecutionReceipt(
+                        toolCallId = call.id,
+                        operationId = "note-result-without-budget",
+                        idempotencyKey = call.id,
+                        status = ToolExecutionReceiptStatus.COMMITTED,
+                    ),
+                )
+            },
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = call
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String =
+                    error("结果事件后中断不应进入总结")
+            },
+            faultInjector = object : AgentRuntimeFaultInjector {
+                override fun afterToolResultEventPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) {
+                    throw AgentProcessTerminationSimulation()
+                }
+            },
+        )
+
+        val failure = runCatching {
+            runtime.run("conversation-result-without-budget", "message-result-without-budget", "验证预算边界")
+        }.exceptionOrNull()
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        val assessment = AgentRunResumePolicy.assess(
+            AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList()),
+            definitionLookup = { definition },
+            committedVerificationSupport = { true },
+        )
+
+        assertTrue("failure=$failure", failure is AgentProcessTerminationSimulation)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(0, snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_BUDGET_INVALID,
+            assessment.restartDisposition?.code,
+        )
+    }
+
+    @Test
     fun disablingMemoryRecallWritesAnAuditEventForThisRunOnly() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val summary = MinimalAgentRuntime(
@@ -2459,7 +2527,6 @@ class MinimalAgentRuntimeTest {
     @Test
     fun verifiedToolRecoveryAfterVerifyEventDoesNotExecuteToolAgain() = runTest {
         val baseLedger = InMemoryAgentRunLedger()
-        val interruptedLedger = ThrowAfterVerificationLedger(baseLedger, throwAfterStepCompletion = false)
         var executionCount = 0
         val delegateRegistry = FakeToolRegistry()
         val registry = object : ToolRegistry {
@@ -2472,9 +2539,14 @@ class MinimalAgentRuntimeTest {
         }
         val failure = runCatching {
             MinimalAgentRuntime(
-                ledger = interruptedLedger,
+                ledger = baseLedger,
                 toolRegistry = registry,
                 llm = FakeAgentLlm(),
+                faultInjector = object : AgentRuntimeFaultInjector {
+                    override fun afterToolVerificationPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) {
+                        throw AgentProcessTerminationSimulation()
+                    }
+                },
             ).run("conversation-verify-recovery", "message-verify-recovery", "验证后中断")
         }.exceptionOrNull()
 

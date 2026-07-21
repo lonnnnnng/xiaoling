@@ -1669,3 +1669,22 @@ LMK 与清理结果：
 
 - 第 52 阶段关闭了“证据分类码不变但调用身份、参数、回执或验证事件已经合法漂移”仍可沿用旧确认的窗口。下一恢复切片继续覆盖 Receipt 已持久化但验证事实未落库、模型/网络中断和结果回写竞态；无法证明的旧执行栈继续 fail-closed。
 - Android 自主 LMK 仍未取得，当前 62.2 秒成功样本仍不足以引入 Foreground Service；设备工具继续禁止进入 Workflow/后台自动化，精确定时和后续生态能力保持后置。
+
+## 2026-07-22 ToolResult、预算与验证三段故障注入
+
+实现与恢复边界：
+
+- `AgentRuntimeFaultInjector` 从单一回调扩展为三个默认 no-op 的持久化边界：`afterToolResultEventPersisted`、`afterToolResultPersisted` 和 `afterToolVerificationPersisted`。它们分别位于 ToolResult 事件写入后、执行预算快照写入后和 `tool.verify` 事件写入后；生产默认实现不改变正常执行顺序。
+- 新增真实 Runtime JVM 契约：ToolResult 已带 `COMMITTED` Receipt 落库，但后续预算快照尚未写入时模拟进程终止。重载 Detail 后，`AgentExecutionBudgetEvidencePolicy` 识别“工具结果缺少后续执行预算快照”，`AgentRunResumePolicy` 固定返回 `RESTART_REQUIRED / EXECUTION_BUDGET_INVALID`，不会因为回执已提交就猜测剩余预算并原地恢复。
+- 既有“`tool.verify` 已写入、验证 Step 尚未完成”测试改为直接使用 `afterToolVerificationPersisted`，不再依赖包装 Ledger 制造中断。恢复只补齐验证 Step、Run 终态和本地可信总结；Executor 执行次数保持 1，ToolResult 和 `tool.verify` 各保持 1 条。预算完整但验证尚未写入的白名单只读回查路径保持原能力，三种边界均不恢复旧模型协程或 Workflow 后续步骤。
+
+门禁与 Redmi 证据：
+
+- 首轮定向测试因测试工具声明为 `REQUIRES_APPROVAL`、未进入执行阶段而失败；改为 SAFE 测试工具后又暴露 Schema 未声明 `title/content`，补齐 Schema 后才命中新 seam。最终定向 `MinimalAgentRuntimeTest` 全部通过。
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --no-daemon --console=plain` 通过；Gradle XML 汇总为 409 条 JVM、0 失败、0 错误，Lint、Debug APK 和 AndroidTest APK 均通过。
+- `adb devices -l` 仅列出 Redmi `wsvwypiz7xwslvl7`。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 在 Redmi Note 8 Pro Android 14 完成 141 条 instrumentation，0 跳过、0 失败；未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 53 阶段把 Receipt/Result、执行预算和验证事实之间的竞态变成了可重复验证的持久化边界，并证明证据缺口保持 fail-closed；它没有扩大通用原地恢复范围。
+- 下一切片继续覆盖模型/网络中断后的遥测与预算回写竞态、Receipt 回读验证失败的重试可见性，并继续寻找 Android 自主 LMK。Foreground Service、设备 Workflow/后台权限、精确定时和后续生态能力保持后置。

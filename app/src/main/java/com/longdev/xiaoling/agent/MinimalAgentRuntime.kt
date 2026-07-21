@@ -589,6 +589,7 @@ class MinimalAgentRuntime internal constructor(
             message = if (toolResult.success) "工具执行成功：${toolCall.name}" else "工具执行失败：${toolCall.name}",
             metadata = AgentEventMetadata.toolResult(definition, toolCall, toolResult, toolDurationMs),
         )
+        faultInjector.afterToolResultEventPersisted(runId, toolCall, toolResult)
         persistExecutionBudget(runId, "工具执行预算：${toolCall.name}", state.executionBudget)
         faultInjector.afterToolResultPersisted(runId, toolCall, toolResult)
         if (!toolResult.success) error("工具执行失败：${toolResult.content}")
@@ -624,6 +625,7 @@ class MinimalAgentRuntime internal constructor(
                 toolCallId = toolCall.id,
             ),
         )
+        faultInjector.afterToolVerificationPersisted(runId, toolCall, toolResult)
         ledger.updateStep(verify.id, AgentStepStatus.COMPLETED, "验证通过")
         state.activeStepId = null
         state.completedTools += AgentToolExecution(toolCall, toolResult)

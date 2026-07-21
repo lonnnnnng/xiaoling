@@ -525,12 +525,17 @@ data class ToolRecoveryFailure(
     }
 }
 
-fun interface AgentRuntimeFaultInjector {
-    fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult)
+interface AgentRuntimeFaultInjector {
+    // long: ToolResult、预算快照和 tool.verify 是独立持久化事实；测试必须能在每个边界模拟进程消失，避免把半份证据误判为可原地恢复。
+    fun afterToolResultEventPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
+
+    fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
+
+    fun afterToolVerificationPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
 }
 
 object NoOpAgentRuntimeFaultInjector : AgentRuntimeFaultInjector {
-    override fun afterToolResultPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
+    // long: 生产运行不注入终止；这些回调只服务于可重复验证持久化边界，不能改变真实任务的执行顺序。
 }
 
 class AgentProcessTerminationSimulation : RuntimeException("模拟进程在工具结果落库后终止")

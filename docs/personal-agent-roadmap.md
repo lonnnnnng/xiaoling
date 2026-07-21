@@ -433,4 +433,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 52. 已完成：恢复证据 canonical fingerprint。`AgentTaskRetryEvidenceFingerprint` 对工具调用/结果账本与非恢复 typed event 进行长度前缀规范化并计算 SHA-256；启动收敛在修改 Step/Approval 前把摘要与证据码一起写入 `run.recovered.retryEvidenceFingerprint`。任务中心确认弹窗也冻结打开时的码和摘要，提交前重算；新增合法 ToolCall、替换参数或 Receipt、改变验证事件即使仍归类 `COMMIT_UNKNOWN` 也会拒绝旧确认并提示重新确认。指纹一致时原有确认路径不变，旧恢复事件只有证据码但缺少指纹时按 `EVIDENCE_INCOMPLETE` 处理。Room v27 Schema 不变，旧 Run 仍保持不变。完整门禁为 408 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
 
-下一阶段继续用确定性故障注入补齐“Receipt 已持久化但验证事实未落库”等提交未知窗口，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+53. 已完成：ToolResult/预算/验证三段持久化边界。`AgentRuntimeFaultInjector` 分别暴露 Result 事件写入后、预算快照写入后和 `tool.verify` 事件写入后的进程终止 seam；Result 已落库但后续预算快照缺失时，`AgentRunResumePolicy` 固定以 `EXECUTION_BUDGET_INVALID` 拒绝原地恢复，不能因为 Receipt 为 `COMMITTED` 就猜测剩余执行预算。`tool.verify` 已落库但验证 Step 尚未收尾时，Runtime 只补控制面和本地可信总结，不重复 Executor、ToolResult 或验证事件。生产默认注入器保持 no-op，不扩大旧模型协程、旧 Executor 或 Workflow 后续步骤恢复。完整门禁为 409 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
+
+下一阶段继续覆盖模型/网络中断后的遥测与预算回写竞态、Receipt 已落库但回读验证失败的重试可见性，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
