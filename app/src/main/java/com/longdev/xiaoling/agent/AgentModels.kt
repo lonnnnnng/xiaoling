@@ -178,6 +178,7 @@ sealed interface RunEventMetadata {
         val toStatus: AgentRunStatus,
         val reason: String,
         val retryEvidenceCode: AgentTaskRetryEvidenceCode? = null,
+        val retryEvidenceFingerprint: String? = null,
         val resumeKind: AgentRunResumeKind? = null,
         val restartDisposition: AgentRunRestartDisposition? = null,
     ) : RunEventMetadata

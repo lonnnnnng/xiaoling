@@ -74,6 +74,7 @@ internal object RunEventMetadataCodec {
                 .put("reason", metadata.reason)
                 .apply {
                     metadata.retryEvidenceCode?.let { put("retryEvidenceCode", it.name) }
+                    metadata.retryEvidenceFingerprint?.let { put("retryEvidenceFingerprint", it) }
                     metadata.resumeKind?.let { put("resumeKind", it.name) }
                     metadata.restartDisposition?.let { disposition ->
                         put("restartDispositionCode", disposition.code.name)
@@ -188,6 +189,7 @@ internal object RunEventMetadataCodec {
                         runCatching { AgentTaskRetryEvidenceCode.valueOf(value) }
                             .getOrElse { AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE }
                     },
+                    retryEvidenceFingerprint = json.stringOrNull("retryEvidenceFingerprint"),
                     resumeKind = json.stringOrNull("resumeKind")?.let { value ->
                         // long: 新版本的恢复类型不能在旧客户端被当作可原地续跑；未知类型固定降级为需要新 Run。
                         runCatching { AgentRunResumeKind.valueOf(value) }

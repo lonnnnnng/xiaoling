@@ -1651,3 +1651,21 @@ LMK 与清理结果：
 
 - 第 51 阶段关闭了“旧验证缺少稳定调用身份却被顺序猜配成可恢复事实”的窗口，但不恢复提交未知、验证未落库或无法证明的旧执行栈。下一切片应冻结 Ledger/Event canonical fingerprint，并在确认重试前识别分类码相同的身份漂移。
 - Android 自主 LMK 仍未取得。继续采用成对基线/后测的 `ApplicationExitInfo` 证据，不把 `kill -9`、force-stop、安装、instrumentation、Doze 或 trim-memory 写成自主 LMK；设备工具继续禁止进入 Workflow/后台自动化，Foreground Service、精确定时和后续生态能力继续后置。
+
+## 2026-07-22 恢复证据指纹与同分类漂移拒绝
+
+实现与恢复边界：
+
+- 新增 `AgentTaskRetryEvidenceFingerprint`，对独立 ToolCall/ToolResult 账本及非 `run.recovered` typed event 做长度前缀 canonical 序列化并计算 SHA-256。启动收敛在 Step/Approval 改写前计算，随 `retryEvidenceCode` 一起写入 `run.recovered.retryEvidenceFingerprint`；不把本次恢复事件和收敛后的 Run/Step 状态纳入摘要，避免恢复动作自身造成假漂移。
+- `AgentTaskRetryPolicy.assessEvidence()` 重新计算当前摘要。历史 Recovery 已带证据码但缺少摘要、摘要不同或分类码不同，均升级为 `EVIDENCE_INCOMPLETE`。`AgentRetryConfirmationUiState` 同时冻结打开弹窗时的分类码与摘要；提交前二次评估，任一变化都拒绝旧确认并要求用户重新确认。稳定确认仍只创建带 `retryOfRunId` 的关联新 Run，旧 Run、旧 Executor、旧模型协程和 Workflow 后续步骤保持不变。
+- 新增 JVM 回归覆盖：同分类下新增合法 typed ToolCall/ToolResult、同分类下替换合法 Ledger/typed event Receipt 均拒绝旧确认；相同摘要继续允许原有确认路径。Codec 可空字段兼容旧 metadata，字段仍位于既有 JSON，Room v27 Schema 不变。
+
+门禁与 Redmi 证据：
+
+- `./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --no-daemon` 通过；Gradle XML 汇总为 408 条 JVM、0 失败、0 错误，Lint、Debug APK 和 AndroidTest APK 均通过。
+- `adb devices -l` 仅列出 Redmi `wsvwypiz7xwslvl7`。`ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 在 Redmi Note 8 Pro Android 14 完成 141 条 instrumentation，0 跳过、0 失败；未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 52 阶段关闭了“证据分类码不变但调用身份、参数、回执或验证事件已经合法漂移”仍可沿用旧确认的窗口。下一恢复切片继续覆盖 Receipt 已持久化但验证事实未落库、模型/网络中断和结果回写竞态；无法证明的旧执行栈继续 fail-closed。
+- Android 自主 LMK 仍未取得，当前 62.2 秒成功样本仍不足以引入 Foreground Service；设备工具继续禁止进入 Workflow/后台自动化，精确定时和后续生态能力保持后置。

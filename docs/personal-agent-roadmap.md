@@ -431,4 +431,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 51. 已完成：旧验证事件缺少稳定调用身份时 fail-closed。v19 及更早 event fallback 仍允许带完整 ToolCall ID 的 typed 结果/验证进入恢复证据；`tool.verify` 缺少 ID 时不再按同名工具和事件顺序猜配，而是返回无效并由恢复/重试策略保守映射为 `EVIDENCE_INCOMPLETE`。带完整 ID 的前序验证事实与已提交工具只读恢复保持不变，Room v27 Schema 不变。Redmi `ApplicationExitInfo` 基线 `supported=true / exits=2 / lowMemory=0 / fallbackSigkillCandidates=0`，退出来自 instrumentation 与安装包，不是自主 LMK。完整门禁仍为 406 条 JVM、141 条仅 Redmi instrumentation。
 
-下一阶段继续冻结 Ledger/Event canonical fingerprint，补上“分类码未变化但证据身份已漂移”的确认前检测，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+52. 已完成：恢复证据 canonical fingerprint。`AgentTaskRetryEvidenceFingerprint` 对工具调用/结果账本与非恢复 typed event 进行长度前缀规范化并计算 SHA-256；启动收敛在修改 Step/Approval 前把摘要与证据码一起写入 `run.recovered.retryEvidenceFingerprint`。任务中心确认弹窗也冻结打开时的码和摘要，提交前重算；新增合法 ToolCall、替换参数或 Receipt、改变验证事件即使仍归类 `COMMIT_UNKNOWN` 也会拒绝旧确认并提示重新确认。指纹一致时原有确认路径不变，旧恢复事件只有证据码但缺少指纹时按 `EVIDENCE_INCOMPLETE` 处理。Room v27 Schema 不变，旧 Run 仍保持不变。完整门禁为 408 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
+
+下一阶段继续用确定性故障注入补齐“Receipt 已持久化但验证事实未落库”等提交未知窗口，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

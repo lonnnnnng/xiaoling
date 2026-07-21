@@ -2,7 +2,7 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。任务中心现支持“需确认”筛选，并把不能原地恢复的策略原因、稳定处置码、证据边界和下一步动作作为 typed `run.recovered` 快照直接展示。旧 typed event 的工具验证缺少 `toolCallId` 时不再按工具名或事件顺序猜配，而是明确判定恢复证据不完整。启动恢复先冻结旧 AgentRun/WorkflowRun/ScheduledTask 候选，并排除当前进程真正 `RUNNING` 的 Worker 链；用户停止会先把任务原子写为 `STOP_REQUESTED`，因此系统取消与即时 fallback 同时失败后，启动恢复仍能越过旧进程所有权并继续收敛。即使停止发生在 Worker 认领任务后、Agent Run 关联前，重入也会优先按停止栅栏取消 Workflow、未完成步骤和 Task，不会误记为执行失败。当前门禁为 406 条 JVM 与仅 Redmi 执行的 141 条 instrumentation；设备工具仍只开放给前台直接 `/agent`，Workflow/后台自动化、Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+当前发布基线：`v0.1.10`；文档内容已同步到 Room v27、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用，以及设备 Agent 观察与有限动作层。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。任务中心现支持“需确认”筛选，并把不能原地恢复的策略原因、稳定处置码、证据边界和下一步动作作为 typed `run.recovered` 快照直接展示。旧 typed event 的工具验证缺少 `toolCallId` 时不再按工具名或事件顺序猜配，而是明确判定恢复证据不完整。启动恢复先冻结旧 AgentRun/WorkflowRun/ScheduledTask 候选，并排除当前进程真正 `RUNNING` 的 Worker 链；用户停止会先把任务原子写为 `STOP_REQUESTED`，因此系统取消与即时 fallback 同时失败后，启动恢复仍能越过旧进程所有权并继续收敛。即使停止发生在 Worker 认领任务后、Agent Run 关联前，重入也会优先按停止栅栏取消 Workflow、未完成步骤和 Task，不会误记为执行失败。第 52 阶段又为启动恢复和确认弹窗增加 Ledger/Event canonical SHA-256 指纹，分类码相同但调用、参数、回执或验证事件漂移时拒绝旧确认并升级为 `EVIDENCE_INCOMPLETE`。当前门禁为 408 条 JVM 与仅 Redmi 执行的 141 条 instrumentation；设备工具仍只开放给前台直接 `/agent`，Workflow/后台自动化、Embedding、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 第 46 阶段完成 Redmi 长任务与系统策略取证：强制 Doze 会延后同一 WorkRequest，退出 Doze 后任务只创建一个 Workflow/Agent Run；8 步真实模型 Workflow 在约 28.5 秒内于第二步重复调用检测处安全失败。`send-trim-memory` 与退出 Doze 样本均观察到短时 `connection closed`，但无压力对照也出现启动恢复竞态，因此不建立内存压力或 Doze 与连接关闭的因果关系。该竞态曾让 ScheduledTask/Workflow 保持 `CANCELLED` 而迟到协程把 AgentRun 改成 `COMPLETED`；现已在 Room DAO 用原子非终态条件更新冻结 AgentRun 终态，并增加 Redmi 回归。仍缺 Android 自主 LMK 样本，不提前引入 Foreground Service，也不恢复旧 Executor 或 Workflow 后续步骤。
 
@@ -16,7 +16,9 @@
 
 第 51 阶段开始完善验证事实不完整时的恢复证据：v19 及更早 event fallback 仍允许读取带稳定 ToolCall ID 的 typed 结果和验证，但 `tool.verify` 缺少 ID 时固定返回无效，不按工具名或顺序伪造关联；重试证据因此保守进入 `EVIDENCE_INCOMPLETE`。Redmi `ApplicationExitInfo` 基线为 `supported=true / exits=2 / lowMemory=0 / fallbackSigkillCandidates=0`，两条退出分别来自 instrumentation 启动的 `FORCE STOP` 与安装包，不是自主 LMK，仍不引入 Foreground Service。
 
-第 43 阶段历史补充：Redmi 完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。该阶段当时的后续重点是更长/自然系统回收样本和通用未知提交处置；当前进度以第 51 阶段段落为准。
+第 52 阶段完成恢复证据指纹：启动收敛在写入 `run.recovered` 前对工具账本与非恢复 typed event 计算 canonical SHA-256，并将摘要写入 `retryEvidenceFingerprint`；确认弹窗同时冻结证据码和指纹，提交前二次计算，新增合法 ToolCall、替换参数/回执或验证事件漂移即使分类码仍为 `COMMIT_UNKNOWN` 也拒绝旧确认并升级为 `EVIDENCE_INCOMPLETE`。旧 Recovery 已带证据码但缺少指纹时按证据不完整处理，不恢复旧执行栈。新增 2 条 JVM 指纹漂移测试；完整门禁为 408 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
+
+第 43 阶段历史补充：Redmi 完成一次同一 WorkRequest 的真实 Worker 冷启动重入。旧 PID 在首步 Agent `THINKING` 时被强制终止，新 PID 自动重入并在 `3360ms` 内按 Agent→Workflow→Task 收敛；关联 Agent Run 仍为 1，后续 6 步未执行。由于 instrumentation 前台身份使 `am kill` 无效，本次使用 `run-as kill -9` fallback，因此不把它写成 Android 自主回收。该阶段当时的后续重点是更长/自然系统回收样本和通用未知提交处置；当前进度以第 52 阶段段落为准。
 
 第 44 阶段新增任务中心“需确认”队列：只聚合已结束、可重试且 `AgentTaskRetryPolicy` 判定必须确认的 Run；卡片继续展示统一证据分类、原因和建议，确认提交前继续校验证据码。稳定确认后仍只创建带 `retryOfRunId` 的新 Run，旧 Run、旧模型协程和旧 Executor 均不恢复。该阶段门禁为 394 条 JVM 与仅 Redmi 执行的 127 条 instrumentation。
 

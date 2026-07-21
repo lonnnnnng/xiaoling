@@ -235,6 +235,78 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun confirmationRejectsSameCodeWhenAValidToolCallIsAddedAfterPromptOpened() {
+        val firstCall = RunEventMetadata.ToolCall(
+            id = "legacy-call-1",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("content" to "第一条"),
+        )
+        val firstResult = RunEventMetadata.ToolResult(
+            toolName = firstCall.toolName,
+            content = "已保存",
+            durationMs = 5L,
+            success = true,
+            verified = true,
+            toolCallId = firstCall.id,
+        )
+        val base = detail(
+            status = AgentRunStatus.FAILED,
+            events = listOf(
+                event("tool.call.validated", firstCall),
+                event("tool.result", firstResult),
+            ),
+        )
+        val evidence = AgentTaskRetryPolicy.assessEvidence(base)
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, evidence.code)
+        assertEquals(true, AgentTaskRetryPolicy.canConfirmRetry(evidence.code, base, evidence.fingerprint))
+
+        val secondCall = firstCall.copy(
+            id = "legacy-call-2",
+            arguments = mapOf("content" to "第二条"),
+        )
+        val secondResult = firstResult.copy(toolCallId = secondCall.id, content = "已保存第二条")
+        val changed = base.copy(
+            snapshot = base.snapshot.copy(
+                events = base.snapshot.events + listOf(
+                    event("tool.call.validated-2", secondCall),
+                    event("tool.result-2", secondResult),
+                ),
+            ),
+        )
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, AgentTaskRetryPolicy.assessEvidence(changed).code)
+        assertEquals(false, AgentTaskRetryPolicy.canConfirmRetry(evidence.code, changed, evidence.fingerprint))
+    }
+
+    @Test
+    fun confirmationRejectsSameCodeWhenReceiptChangesButLedgerRemainsValid() {
+        val base = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = false,
+            receiptStatus = ToolExecutionReceiptStatus.UNKNOWN,
+        )
+        val evidence = AgentTaskRetryPolicy.assessEvidence(base)
+        val call = base.toolLedger.calls.single()
+        val result = base.toolLedger.results.single()
+        val changedReceipt = checkNotNull(result.executionReceipt).copy(operationId = "operation-retry-replaced")
+        val changedResult = result.copy(executionReceipt = changedReceipt)
+        val changedEvents = base.snapshot.events.map { event ->
+            if (event.type == "tool.result") {
+                event.copy(metadata = (event.metadata as RunEventMetadata.ToolResult).copy(executionReceipt = changedReceipt))
+            } else {
+                event
+            }
+        }
+        val changed = base.copy(
+            snapshot = base.snapshot.copy(events = changedEvents),
+            toolLedger = base.toolLedger.copy(results = listOf(changedResult)),
+        )
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, AgentTaskRetryPolicy.assessEvidence(changed).code)
+        assertEquals(false, AgentTaskRetryPolicy.canConfirmRetry(evidence.code, changed, evidence.fingerprint))
+        assertEquals(call.id, changedResult.toolCallId)
+    }
+
+    @Test
     fun interruptedExecutionRequiresConfirmationBeforeRecovery() {
         val eligibility = AgentTaskRetryPolicy.evaluate(
             detail(
@@ -260,7 +332,7 @@ class AgentTaskRetryPolicyTest {
 
     @Test
     fun persistedRecoveryEvidenceMustMatchCurrentLedgerEvidence() {
-        val current = detail(
+        val base = detail(
             status = AgentRunStatus.CANCELLED,
             events = listOf(
                 event(
@@ -272,6 +344,21 @@ class AgentTaskRetryPolicyTest {
                         retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
                     ),
                 ),
+            ),
+        )
+        assertEquals(
+            AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
+            AgentTaskRetryPolicy.assessEvidence(base).code,
+        )
+        val current = base.copy(
+            snapshot = base.snapshot.copy(
+                events = base.snapshot.events.map { event ->
+                    event.copy(
+                        metadata = (event.metadata as RunEventMetadata.Recovery).copy(
+                            retryEvidenceFingerprint = AgentTaskRetryEvidenceFingerprint.calculate(base),
+                        ),
+                    )
+                },
             ),
         )
         assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, AgentTaskRetryPolicy.assessEvidence(current).code)
@@ -286,6 +373,7 @@ class AgentTaskRetryPolicyTest {
                             toStatus = AgentRunStatus.CANCELLED,
                             reason = "应用重启后终止上次未完成 Agent 任务",
                             retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                            retryEvidenceFingerprint = AgentTaskRetryEvidenceFingerprint.calculate(current),
                         ),
                     ),
                 ),
@@ -307,6 +395,12 @@ class AgentTaskRetryPolicyTest {
                         toStatus = AgentRunStatus.CANCELLED,
                         reason = "应用重启后终止上次未完成 Agent 任务",
                         retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                        retryEvidenceFingerprint = AgentTaskRetryEvidenceFingerprint.calculate(
+                            detail(
+                                status = AgentRunStatus.CANCELLED,
+                                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.CANCELLED)),
+                            ),
+                        ),
                     ),
                 ),
             ),

@@ -350,6 +350,7 @@ data class AgentRetryConfirmationUiState(
     val runId: String,
     val goal: String,
     val evidenceCode: AgentTaskRetryEvidenceCode,
+    val evidenceFingerprint: String,
 )
 
 data class WorkflowRetryConfirmationUiState(
@@ -2223,11 +2224,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
             is AgentTaskRetryEligibility.Retryable -> {
                 if (eligibility.requiresConfirmation) {
+                    val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
                     uiState = uiState.copy(
                         pendingAgentRetryConfirmation = AgentRetryConfirmationUiState(
                             runId = runId,
                             goal = detail.snapshot.run.goal,
-                            evidenceCode = AgentTaskRetryPolicy.assessEvidence(detail).code,
+                            evidenceCode = evidence.code,
+                            evidenceFingerprint = evidence.fingerprint,
                         ),
                     )
                 } else {
@@ -2250,10 +2253,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("当前状态已变化，请刷新任务中心")
             return
         }
-        if (!AgentTaskRetryPolicy.canConfirmRetry(pending.evidenceCode, detail)) {
+        if (!AgentTaskRetryPolicy.canConfirmRetry(pending.evidenceCode, detail, pending.evidenceFingerprint)) {
+            val currentEvidence = AgentTaskRetryPolicy.assessEvidence(detail)
             uiState = uiState.copy(
                 pendingAgentRetryConfirmation = pending.copy(
-                    evidenceCode = AgentTaskRetryPolicy.assessEvidence(detail).code,
+                    evidenceCode = currentEvidence.code,
+                    evidenceFingerprint = currentEvidence.fingerprint,
                 ),
             )
             showValidation("重试证据已变化，请重新确认")

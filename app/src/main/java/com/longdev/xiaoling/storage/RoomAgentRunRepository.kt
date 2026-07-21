@@ -433,6 +433,7 @@ class RoomAgentRunRepository(
                     toStatus = AgentRunStatus.CANCELLED,
                     reason = reason,
                     retryEvidenceCode = retryEvidence.code,
+                    retryEvidenceFingerprint = retryEvidence.fingerprint,
                     resumeKind = resumeAssessment.kind,
                     restartDisposition = resumeAssessment.restartDisposition,
                 ),

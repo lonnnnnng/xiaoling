@@ -19,6 +19,7 @@ enum class AgentTaskRetryEvidenceCode {
 
 data class AgentTaskRetryEvidence(
     val code: AgentTaskRetryEvidenceCode,
+    val fingerprint: String = "",
 ) {
     val requiresConfirmation: Boolean
         get() = code !in setOf(
@@ -46,11 +47,19 @@ object AgentTaskRetryPolicy {
         }
         val persistedAtRecovery = recoverySnapshot?.retryEvidenceCode
         val current = assessCurrentEvidence(detail, recoverySnapshot)
-        // long: 启动收敛会冻结当时的副作用分类；后续账本若与快照漂移必须升级为证据不完整，不能用旧快照掩盖新矛盾。
-        return if (persistedAtRecovery != null && persistedAtRecovery != current.code) {
-            AgentTaskRetryEvidence(AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE)
+        // long: 启动收敛会冻结当时的副作用分类和证据指纹；后续账本即使分类不变，只要身份或内容漂移也必须升级为证据不完整。
+        val currentFingerprint = AgentTaskRetryEvidenceFingerprint.calculate(detail)
+        return if (persistedAtRecovery != null &&
+            (recoverySnapshot.retryEvidenceFingerprint == null ||
+                recoverySnapshot.retryEvidenceFingerprint != currentFingerprint ||
+                persistedAtRecovery != current.code)
+        ) {
+            AgentTaskRetryEvidence(
+                code = AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
+                fingerprint = currentFingerprint,
+            )
         } else {
-            current
+            current.copy(fingerprint = currentFingerprint)
         }
     }
 
@@ -63,6 +72,7 @@ object AgentTaskRetryPolicy {
         }
         // long: 证据必须在步骤被改成 CANCELLED 前计算，否则会失去“中断发生在哪个执行阶段”的原始边界。
         return AgentTaskRetryEvidencePolicy.assess(detail, interruptedDuringSideEffect)
+            .copy(fingerprint = AgentTaskRetryEvidenceFingerprint.calculate(detail))
     }
 
     private fun assessCurrentEvidence(
@@ -83,15 +93,19 @@ object AgentTaskRetryPolicy {
         }
         // long: 重试前把副作用证据固定成稳定枚举，任务卡和确认弹窗共享同一结论，避免 UI 自己猜测 UNKNOWN/COMMITTED 边界。
         return AgentTaskRetryEvidencePolicy.assess(detail, interruptedDuringSideEffect)
+            .copy(fingerprint = AgentTaskRetryEvidenceFingerprint.calculate(detail))
     }
 
     fun canConfirmRetry(
         expectedEvidenceCode: AgentTaskRetryEvidenceCode,
         detail: AgentRunDetailRecord,
+        expectedEvidenceFingerprint: String? = null,
     ): Boolean {
-        val eligibility = evaluate(detail)
-        return eligibility is AgentTaskRetryEligibility.Retryable &&
-            assessEvidence(detail).code == expectedEvidenceCode
+        if (detail.snapshot.run.status !in retryableStatuses) return false
+        val current = assessEvidence(detail)
+        return current.code == expectedEvidenceCode &&
+            (expectedEvidenceFingerprint == null ||
+                current.fingerprint == expectedEvidenceFingerprint)
     }
 
     private val retryableStatuses = setOf(

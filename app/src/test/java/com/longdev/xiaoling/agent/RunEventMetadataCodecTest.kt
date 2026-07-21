@@ -72,6 +72,7 @@ class RunEventMetadataCodecTest {
             toStatus = AgentRunStatus.CANCELLED,
             reason = "应用重启后终止上次未完成 Agent 任务",
             retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            retryEvidenceFingerprint = "f".repeat(64),
             resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
             restartDisposition = AgentRunRestartDisposition(
                 code = AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
@@ -107,6 +108,7 @@ class RunEventMetadataCodecTest {
             "{\"fromStatus\":\"THINKING\",\"toStatus\":\"CANCELLED\",\"reason\":\"legacy\"}",
         ) as RunEventMetadata.Recovery
         assertEquals(null, legacy.retryEvidenceCode)
+        assertEquals(null, legacy.retryEvidenceFingerprint)
         assertEquals(null, legacy.resumeKind)
         assertEquals(null, legacy.restartDisposition)
     }
