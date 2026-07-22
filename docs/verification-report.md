@@ -11,6 +11,23 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 Redmi 真实 WorkManager 应用取消原因（第 63 阶段）
+
+验证目标与边界：
+
+- 在 Redmi Android 14 上入队真实 `CoroutineWorker`，等待 Worker 已运行后通过 WorkManager `cancelWorkById()` 取消；不注入停止码、不使用强杀、Doze、trim-memory 或模型请求。
+- Worker 在 `CancellationException` 出口读取真实 `stopReason`，再调用生产 `ScheduledWorkerStopReasonPolicy`。结果为 `code=1 / name=CANCELLED_BY_APP`。
+- Room 聚焦契约先写入用户 `STOP_REQUESTED`，再模拟同一真实机制码到达结算入口；ScheduledTask 与 WorkflowRun 均为 `CANCELLED`，用户停止原因保持一致，`workerStopReasonCode/Name` 均为空，证明机制码没有覆盖业务意图。
+
+验证结果：
+
+- `assembleDebugAndroidTest` 通过；Redmi 聚焦两条测试 `2/2` 通过。
+- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 通过；JVM 保持 `424/424`。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation，结果 `145/145`、0 跳过、0 失败；测试期间临时保持 USB 亮屏，命令退出时恢复原设置。没有启动、连接或操作 Pixel_9/其他模拟器。
+- 测试包已卸载；正式 Debug APK 重新安装并启动到 `com.longdev.xiaoling/.MainActivity`，PID `518`，crash buffer 为空。正式数据库 `PRAGMA user_version=28`，计数为 `providers=1`、`agent_profiles=1`、`workflows=0`、`scheduled_tasks=0`、`workflow_runs=0`、`agent_tool_results=0`。
+
+证据结论：本阶段证明真实“应用取消”停止码可读，并验证用户停止栅栏优先级；它不是 Android 自主 LMK、系统配额、运行超时或自然回收样本，不能据此引入 Foreground Service 或扩大旧执行栈恢复。
+
 ## 2026-07-22 Redmi 后台 Worker 停止原因审计（第 62 阶段）
 
 实现与边界：

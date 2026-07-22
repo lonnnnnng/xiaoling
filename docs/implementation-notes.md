@@ -14,6 +14,13 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 63 阶段实现与验证边界
+
+- `WorkManagerStopReasonInstrumentedTest` 在 Redmi Android 14 入队真实 `CoroutineWorker`，等待进入运行态后调用 `cancelWorkById()`；Worker 的取消出口同步读取 `stopReason`，经生产 `ScheduledWorkerStopReasonPolicy` 得到 `CANCELLED_BY_APP(1)`。测试只使用专用 SharedPreferences 通信并在结束时清理，不依赖模型或正式 Workflow 数据。
+- `RoomWorkflowRepositoryInstrumentedTest` 新增用户停止优先级契约：`STOP_REQUESTED` 已保存用户原因后，即使结算收到 `CANCELLED_BY_APP(1)`，ScheduledTask 与 WorkflowRun 仍以同一事务收敛为取消、保留用户原因，并且停止原因 code/name 维持空值。
+- 聚焦 Redmi `2/2`、完整 Redmi instrumentation `145/145`、JVM `424/424`、Lint、Debug 与 AndroidTest 构建通过。该样本是明确的应用取消，不是自然 Android 回收，也不支持引入 Foreground Service。
+- 测试后确认测试包不存在，重新安装并启动正式 Debug APK；`MainActivity` 前台 PID `518`，crash buffer 为空，正式数据库为 `schema=28 / providers=1 / agent_profiles=1 / workflows=0 / scheduled_tasks=0 / workflow_runs=0 / agent_tool_results=0`。
+
 ## 第 62 阶段实现与验证边界
 
 - `ScheduledWorkflowWorker` 在 Android 12+ 的取消收敛路径读取 WorkManager `getStopReason()`；`ScheduledWorkerStopReasonPolicy` 将 JobScheduler 停止码归一为稳定 `code/name/message`，只保留系统分类，不记录请求正文或设备隐私。
@@ -291,7 +298,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 424 条 JVM 与仅 Redmi 执行的 143 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 424 条 JVM 与仅 Redmi 执行的 145 条 instrumentation。
 
 ## 任务中心需确认队列
 

@@ -8,6 +8,8 @@
 
 第 62 阶段补齐了后台停止原因的可观测性：Android 12+ WorkManager 停止码以隐私安全的稳定分类写入 ScheduledTask 与 WorkflowRun，并由任务中心展示；旧 Android、未停止值、未知码和历史记录均不被猜测。Redmi `143/143` instrumentation 与 JVM `424/424` 通过；本阶段没有自然系统停止样本，不将该能力解释为更强的后台存活保证，也不提前引入 Foreground Service。
 
+第 63 阶段补齐真实应用取消路径：Redmi Android 14 的 WorkManager 实际返回 `CANCELLED_BY_APP(1)`，证明第 62 阶段读取链能取得平台事实；业务侧仍让先落库的 `STOP_REQUESTED` 用户意图优先，后到机制码不得覆盖。完整 Redmi instrumentation 更新为 `145/145`。该受控样本不等同自然 LMK、配额或超时，路线仍保持普通 WorkManager 和 Foreground Service 后置。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。
@@ -435,7 +437,7 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过当前 424 条 JVM、143 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配；Runtime 现对 ToolResult 事件、预算快照和 tool.verify 事件三个持久化边界提供确定性故障注入并保持 fail-closed。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，第 50 阶段让停止请求在平台异常和进程重建后仍可持久重对账，包括 Agent Run 尚未关联的认领窗口，但这些证据仍不等同 Android 自主回收。最新 LMK 基线仍为 `lowMemory=0`。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
+当前状态：第 1 至 6 步已完成并通过当前 424 条 JVM、145 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配；Runtime 现对 ToolResult 事件、预算快照和 tool.verify 事件三个持久化边界提供确定性故障注入并保持 fail-closed。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，第 50 阶段让停止请求在平台异常和进程重建后仍可持久重对账，包括 Agent Run 尚未关联的认领窗口，但这些证据仍不等同 Android 自主回收。最新 LMK 基线仍为 `lowMemory=0`。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
 
 长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛、进程内所有权隔离、持久化停止栅栏和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。前台初始化先冻结旧 Agent/Workflow/Task ID，并排除当前进程真正 `RUNNING` 的 Worker 链；`STOP_REQUESTED` 即使仍登记所有权也进入恢复，Workflow/Task 在同一事务读取栅栏并原子取消。停止发生在 Agent Run 关联前时，Workflow 恢复也优先读取关联 Task 的停止栅栏，取消未完成步骤而不生成失败终态或新 Run。停止 fallback 也改为一次事务结算 Workflow/Task，既有 Workflow 终态会直接修复半结算 Task，避免通用停止栅栏制造矛盾终态。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步成功样本约 62.2 秒。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑，设备工具仍不得进入 Workflow/后台权限。
 

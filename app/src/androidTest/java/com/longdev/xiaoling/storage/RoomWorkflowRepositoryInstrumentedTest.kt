@@ -437,6 +437,37 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun userStopFenceDoesNotGetOverwrittenByLaterWorkManagerCancellationReason() = runBlocking {
+        val workflow = repository.createWorkflow("用户停止优先级", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-user-stop-priority")
+        val claim = repository.claimScheduledRun(task.id)!!
+        repository.requestScheduledTaskStop(task.id, "用户请求停止后台工作流")
+
+        repository.settleScheduledWorkflowRun(
+            taskId = task.id,
+            workflowRunId = claim.run.run.id,
+            workflowStatus = WorkflowRunStatus.CANCELLED,
+            taskStatus = ScheduledTaskStatus.CANCELLED,
+            errorMessage = "后台工作流已由应用停止",
+            workerStopReasonCode = 1,
+            workerStopReasonName = "CANCELLED_BY_APP",
+        )
+
+        val storedTask = repository.getScheduledTask(task.id)!!
+        val storedRun = repository.runDetail(claim.run.run.id)!!.run
+        // long: 用户点击停止先形成持久栅栏；随后 WorkManager 返回 CANCELLED_BY_APP 只是执行机制，不能替换用户意图或伪造独立系统停止原因。
+        assertEquals(ScheduledTaskStatus.CANCELLED, storedTask.status)
+        assertEquals(WorkflowRunStatus.CANCELLED, storedRun.status)
+        assertEquals("用户请求停止后台工作流", storedTask.errorMessage)
+        assertEquals(storedTask.errorMessage, storedRun.errorMessage)
+        assertNull(storedTask.workerStopReasonCode)
+        assertNull(storedTask.workerStopReasonName)
+        assertNull(storedRun.workerStopReasonCode)
+        assertNull(storedRun.workerStopReasonName)
+    }
+
+    @Test
     fun workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun() = runBlocking {
         val workflow = repository.createWorkflow("重入对账", "读取当前时间")
         val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
