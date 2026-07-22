@@ -1740,3 +1740,19 @@ LMK 与清理结果：
 当前结论：
 
 - 第 56 阶段关闭了“部分流式输出在断流后永久显示接收中”以及“残缺 assistant 进入下一轮上下文”的窗口。下一阶段继续覆盖后台长任务预算写回竞态和自然系统回收；Android 自主 LMK、Foreground Service、精确定时及后续生态能力继续后置。
+
+## 2026-07-22 取消时的后台预算写回收敛
+
+实现与边界：
+
+- `MinimalAgentRuntime` 的新 Run、审批恢复、已提交结果回读恢复和已验证收尾恢复，统一通过 `settleCancelledRun()` 进入 `NonCancellable`。取消收敛先追加当前 `AgentExecutionBudget` 快照，再取消活动 Step、写入 `run.cancelled` 并冻结 Run。
+- 模型或工具的 `finally` 已累计的单调耗时不会因用户停止、WorkManager 取消或系统协程取消丢失；预算事件严格排在取消终态之前。该修复只补齐持久化审计，不恢复旧模型协程、旧 Executor、未知提交执行栈或 Workflow 后续步骤。
+
+门禁与 Redmi 证据：
+
+- TDD 先把取消测试固定为 `37ms` 单调耗时，修复前只能读取初始 `0ms` 快照；修复后 `AgentExecutionBudgetEvidencePolicy` 能读到 `37ms`，且预算事件索引先于 `run.cancelled`。完整 JVM XML 汇总为 420 条，0 失败、0 错误、0 跳过；Lint、Debug APK 和 AndroidTest APK 构建通过。
+- `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew connectedDebugAndroidTest --console=plain --no-daemon` 在 Redmi Note 8 Pro Android 14 完成 141 条 instrumentation，0 跳过、0 失败；Debug APK 已重新安装并启动到 `com.longdev.xiaoling/.MainActivity`。未启动、连接或操作 Pixel_9/其他模拟器。
+
+当前结论：
+
+- 第 57 阶段关闭了“取消发生在预算累计之后但持久化仍停留旧快照”的窗口。下一阶段继续寻找 Android 自主 LMK，并在更长真实后台任务中观察预算快照与系统回收的组合行为；Foreground Service、精确定时及后续生态能力继续后置。

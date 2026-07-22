@@ -441,4 +441,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 56. 已完成：部分流式 delta 的用户可见收敛。普通对话已经显示部分正文后发生断流时，保留已见正文但把消息收敛为 `finishReason=failed` 并展示“内容不完整”，用户取消同样结束“接收中”状态；失败/取消的部分 assistant 不再进入后续请求和会话摘要。新增真实 socket 断流、消息终态和上下文资格测试，完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
 
-下一阶段继续覆盖后台长任务预算回写竞态和自然系统回收，并继续寻找 Android 自主 LMK；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+57. 已完成：取消时的后台预算写回竞态。Runtime 在新 Run、审批恢复和受限恢复的取消出口统一进入 `NonCancellable`，先追加最新单调预算快照，再取消活动 Step、写入 `run.cancelled` 并冻结 Run；模型或工具 `finally` 已累计的时间因此不会被 WorkManager/用户停止丢失。确定性测试验证取消前 `37ms` 预算可恢复读取，预算事件严格先于取消终态；完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation。
+
+下一阶段继续寻找 Android 自主 LMK，并在更长真实后台任务中观察预算快照与系统回收的组合行为；不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前 62.2 秒样本仍不支持引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

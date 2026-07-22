@@ -1527,10 +1527,15 @@ class MinimalAgentRuntimeTest {
     fun cancellationMarksRunAndActiveStepCancelled() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val planningStarted = CompletableDeferred<Unit>()
+        val clock = object : MonotonicClock {
+            var now = 0L
+            override fun nowMs(): Long = now
+        }
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             llm = object : AgentLlm {
                 override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    clock.now = 37L
                     planningStarted.complete(Unit)
                     awaitCancellation()
                 }
@@ -1539,6 +1544,7 @@ class MinimalAgentRuntimeTest {
                     error("取消发生在模型规划阶段，不应进入总结")
                 }
             },
+            monotonicClock = clock,
         )
 
         val job = launch {
@@ -1557,6 +1563,21 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.CANCELLED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("取消"))
         assertEquals(AgentStepStatus.CANCELLED, snapshot.steps.single().status)
+        assertEquals(
+            listOf(0L, 37L),
+            snapshot.events.mapNotNull { event ->
+                (event.metadata as? RunEventMetadata.ExecutionBudget)?.consumedMs
+            },
+        )
+        assertTrue(
+            snapshot.events.indexOfLast { it.type == AgentEventTypes.EXECUTION_BUDGET_UPDATED } <
+                snapshot.events.indexOfFirst { it.type == "run.cancelled" },
+        )
+        assertEquals(
+            AgentExecutionBudgetSnapshot(totalTimeoutMs = 120_000L, consumedMs = 37L),
+            (AgentExecutionBudgetEvidencePolicy.read(AgentRunDetailRecord(snapshot, emptyList())) as
+                AgentExecutionBudgetEvidenceAssessment.Available).snapshot,
+        )
     }
 
     @Test

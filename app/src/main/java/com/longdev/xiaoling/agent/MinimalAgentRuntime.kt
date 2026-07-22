@@ -115,17 +115,7 @@ class MinimalAgentRuntime internal constructor(
             settleBlockedRun(run.id, state, error)
             throw error
         } catch (error: CancellationException) {
-            withContext(NonCancellable) {
-                // long: 取消本身会让当前协程进入 cancelled 状态，终态落库必须脱离取消上下文，否则 Room 写入也会被一起取消，Run 会卡在 THINKING/RUNNING。
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消 Agent 任务") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.cancelled",
-                    "用户取消 Agent 任务",
-                    RunEventMetadata.Reason("用户取消 Agent 任务"),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消 Agent 任务")
-            }
+            settleCancelledRun(run.id, state, "用户取消 Agent 任务")
             throw error
         } catch (error: Throwable) {
             withContext(NonCancellable) {
@@ -225,11 +215,7 @@ class MinimalAgentRuntime internal constructor(
             settleBlockedRun(run.id, state, error)
             throw error
         } catch (error: CancellationException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消 Agent 任务") }
-                ledger.appendEvent(run.id, "run.cancelled", "用户取消 Agent 任务", RunEventMetadata.Reason("用户取消 Agent 任务"))
-                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消 Agent 任务")
-            }
+            settleCancelledRun(run.id, state, "用户取消 Agent 任务")
             throw error
         } catch (error: Throwable) {
             withContext(NonCancellable) {
@@ -332,16 +318,7 @@ class MinimalAgentRuntime internal constructor(
             completeRecoveredRun(run, state)
         } catch (error: CancellationException) {
             // long: 用户取消恢复时必须同时关闭活动验证 Step 和原 Run，避免任务中心留下仍在验证的假状态。
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消恢复验证") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.cancelled",
-                    "用户取消恢复验证",
-                    RunEventMetadata.Reason("用户取消恢复验证"),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消恢复验证")
-            }
+            settleCancelledRun(run.id, state, "用户取消恢复验证")
             throw error
         } catch (error: Throwable) {
             // long: operation 回读或证据核对失败时保留已提交事实，但把验证 Step 与 Run 明确标为失败，后续只能走带确认的新 Run 重试。
@@ -402,16 +379,7 @@ class MinimalAgentRuntime internal constructor(
             state.activeStepId = null
             completeRecoveredRun(run, state)
         } catch (error: CancellationException) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, "用户取消已验证结果恢复") }
-                ledger.appendEvent(
-                    run.id,
-                    "run.cancelled",
-                    "用户取消已验证结果恢复",
-                    RunEventMetadata.Reason("用户取消已验证结果恢复"),
-                )
-                ledger.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "用户取消已验证结果恢复")
-            }
+            settleCancelledRun(run.id, state, "用户取消已验证结果恢复")
             throw error
         } catch (error: Throwable) {
             withContext(NonCancellable) {
@@ -787,6 +755,20 @@ class MinimalAgentRuntime internal constructor(
                 reason = error.message ?: "未知模型请求错误",
             ),
         )
+    }
+
+    private suspend fun settleCancelledRun(
+        runId: String,
+        state: AgentRuntimeExecutionState,
+        reason: String,
+    ) {
+        withContext(NonCancellable) {
+            // long: 模型或工具 finally 已累计的单调耗时不能因协程取消丢失；先冻结最新预算，再写取消 Step/Run，后台停止与恢复策略才能看到真实成本而不是旧快照。
+            persistExecutionBudget(runId, "取消时执行预算", state.executionBudget)
+            state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, reason) }
+            ledger.appendEvent(runId, "run.cancelled", reason, RunEventMetadata.Reason(reason))
+            ledger.updateRunStatus(runId, AgentRunStatus.CANCELLED, errorMessage = reason)
+        }
     }
 
     private fun Throwable.toAgentLlmFailureKind(): AgentLlmFailureKind {

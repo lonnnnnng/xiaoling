@@ -327,6 +327,7 @@
 - 第 54 阶段把模型异常也纳入预算审计：规划阶段的 `AgentLlmResponseException` 先写失败 telemetry 再写预算快照，其他网络/网关异常至少写冻结后的预算快照；总结阶段的网络异常不再让已验证工具事实进入 FAILED，而是记录 fallback 事件并生成本地可信回复。Receipt 回读失败继续通过 `RecoveryFailure` typed event 暴露稳定错误码/建议动作，重试证据保持 `COMMIT_UNKNOWN` 并要求确认，不重放旧写入。完整 JVM 覆盖为 411 条，Room v27 Schema 不变。
 - 第 55 阶段新增 `AgentLlmFailureKind` 与 `RunEventMetadata.LlmFailure`。`MinimalAgentRuntime` 将 `ApiFailure.kind` 映射为稳定的鉴权、地址、限流、模型、超时、DNS、TLS、连接、响应或未知错误，写入 `llm.request.failed`；`AgentLlmResponseException` 缺少网络分类时按 `RESPONSE`，普通未知异常按 `UNKNOWN`。Codec 对未来枚举 fail-closed 到 `UNKNOWN`，任务事件区只显示阶段、错误码和原因，不展示请求正文。Room v27 Schema 不变。完整门禁为 413 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
 - 第 56 阶段完成普通对话部分流式 delta 的收敛：收到正文后断流会保留已见文本，给 assistant 写入 `finishReason=failed`、错误分类和原因，并追加独立错误消息；取消同样结束“接收中”状态。失败/取消的部分 assistant 被排除出下一轮请求与摘要，避免残缺正文成为新的模型事实。新增真实 socket 断流、失败消息状态和上下文资格测试；完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
-- 下一恢复证据切片是后台长任务中的预算写回竞态和自然系统回收；仍不恢复无法证明的旧执行栈。
+- 第 57 阶段完成取消时的预算写回收敛：Runtime 在新 Run、审批恢复和受限恢复的取消出口统一使用 `NonCancellable`，先持久化最新单调预算，再取消活动 Step、追加 `run.cancelled` 并冻结 Run。模型或工具 `finally` 已累计的执行时间不会因后台停止丢失；确定性测试验证取消前 `37ms` 快照可被 `AgentExecutionBudgetEvidencePolicy` 读取，预算事件先于取消终态。完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
+- 下一恢复证据切片是更长真实后台任务中的预算快照与系统回收组合行为、以及 Android 自主 LMK；仍不恢复无法证明的旧执行栈。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
