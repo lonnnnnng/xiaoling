@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.automation
 
 import android.content.Context
+import android.os.Build
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.longdev.xiaoling.agent.AgentBackgroundApprovalRequiredException
@@ -41,10 +42,16 @@ class ScheduledWorkflowWorker(
             ?: return Result.failure()
         ScheduledWorkflowProcessExecutionRegistry.process.withScheduledTask(taskId) {
             // long: 当前进程所有权必须先于 Repository 构造和任务 claim 建立；应用同时启动时，恢复快照会识别这条链而不会把刚开始的 Worker 当成旧进程遗留。
-            ScheduledWorkflowExecutor(applicationContext).execute(taskId)
+            ScheduledWorkflowExecutor(applicationContext).execute(taskId, ::scheduledWorkerStopReason)
         }
         // long: 业务成功、失败和待处理都已经写入 Room 终态；WorkManager 只负责触发，不用系统重试复制一个可能已执行过的 Agent Run。
         return Result.success()
+    }
+
+    private fun scheduledWorkerStopReason(): ScheduledWorkerStopReason? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        // long: Android 12 以下没有可靠的 JobScheduler 停止码；宁可保留通用取消结论，也不能把调用方取消猜成系统配额或超时。
+        return ScheduledWorkerStopReasonPolicy.fromWorkManagerCode(stopReason)
     }
 
     companion object {
@@ -103,12 +110,15 @@ class ScheduledWorkflowExecutor(
         onClaimRejected = ::notifyClaimFailure,
     )
 
-    suspend fun execute(taskId: String) {
+    internal suspend fun execute(
+        taskId: String,
+        workerStopReasonProvider: () -> ScheduledWorkerStopReason? = { null },
+    ) {
         try {
             if (reentryCoordinator.reconcile(taskId)) {
                 notifyReentryOutcome(taskId)
             } else {
-                orchestrator.execute(taskId)
+                orchestrator.execute(taskId, workerStopReasonProvider)
             }
         } finally {
             withContext(NonCancellable) {
@@ -185,7 +195,14 @@ class ScheduledWorkflowExecutor(
             taskStatus = outcome.taskStatus,
             result = outcome.workflowResult,
             errorMessage = outcome.errorMessage,
-        ) ?: claim.task.copy(status = outcome.taskStatus, errorMessage = outcome.errorMessage)
+            workerStopReasonCode = outcome.workerStopReason?.code,
+            workerStopReasonName = outcome.workerStopReason?.name,
+        ) ?: claim.task.copy(
+            status = outcome.taskStatus,
+            errorMessage = outcome.errorMessage,
+            workerStopReasonCode = outcome.workerStopReason?.code,
+            workerStopReasonName = outcome.workerStopReason?.name,
+        )
         // long: 持久化 Workflow 终态可能覆盖迟到执行结果；只有 Task 与本轮 outcome 一致时才追加消息，避免失败/取消链留下相反结论。
         if (task.status == outcome.taskStatus) {
             outcome.conversationResult?.let { result ->
@@ -270,6 +287,7 @@ internal sealed interface ScheduledExecutionOutcome {
     val taskStatus: ScheduledTaskStatus
     val workflowResult: String?
     val errorMessage: String?
+    val workerStopReason: ScheduledWorkerStopReason?
     val notificationDetail: String
     val conversationResult: ScheduledConversationResult?
 
@@ -278,6 +296,7 @@ internal sealed interface ScheduledExecutionOutcome {
         override val taskStatus = ScheduledTaskStatus.COMPLETED
         override val workflowResult = stepResults.joinToString(separator = "\n\n")
         override val errorMessage: String? = null
+        override val workerStopReason: ScheduledWorkerStopReason? = null
         override val notificationDetail = workflowResult.ifBlank { "工作流步骤已完成" }
         override val conversationResult: ScheduledConversationResult? = null
     }
@@ -287,6 +306,7 @@ internal sealed interface ScheduledExecutionOutcome {
         override val taskStatus = ScheduledTaskStatus.BLOCKED
         override val workflowResult: String? = null
         override val errorMessage = reason
+        override val workerStopReason: ScheduledWorkerStopReason? = null
         override val notificationDetail = "$reason。请打开应用以前台重试。"
         override val conversationResult = ScheduledConversationResult(
             text = "后台工作流已停止：$reason。请打开 Agent 任务中心并以前台重试继续。",
@@ -299,6 +319,7 @@ internal sealed interface ScheduledExecutionOutcome {
         override val taskStatus = ScheduledTaskStatus.FAILED
         override val workflowResult: String? = null
         override val errorMessage = reason
+        override val workerStopReason: ScheduledWorkerStopReason? = null
         override val notificationDetail = reason
         override val conversationResult = ScheduledConversationResult(
             text = "后台工作流失败：$reason",
@@ -306,7 +327,10 @@ internal sealed interface ScheduledExecutionOutcome {
         )
     }
 
-    data class Cancelled(val reason: String) : ScheduledExecutionOutcome {
+    data class Cancelled(
+        val reason: String,
+        override val workerStopReason: ScheduledWorkerStopReason? = null,
+    ) : ScheduledExecutionOutcome {
         override val workflowStatus = WorkflowRunStatus.CANCELLED
         override val taskStatus = ScheduledTaskStatus.CANCELLED
         override val workflowResult: String? = null
@@ -336,7 +360,10 @@ internal class ScheduledWorkflowOrchestrator(
     private val notify: (ScheduledWorkflowClaim, ScheduledTaskRecord, ScheduledExecutionOutcome) -> Unit,
     private val onClaimRejected: suspend (String) -> Unit,
 ) {
-    suspend fun execute(taskId: String) {
+    suspend fun execute(
+        taskId: String,
+        workerStopReasonProvider: () -> ScheduledWorkerStopReason? = { null },
+    ) {
         val claim = claimTask(taskId)
         if (claim == null) {
             onClaimRejected(taskId)
@@ -368,7 +395,14 @@ internal class ScheduledWorkflowOrchestrator(
             throw error
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
-                finishAndNotify(claim, ScheduledExecutionOutcome.Cancelled("系统停止了本次后台工作流"))
+                val workerStopReason = workerStopReasonProvider()
+                finishAndNotify(
+                    claim,
+                    ScheduledExecutionOutcome.Cancelled(
+                        reason = workerStopReason?.message ?: "系统停止了本次后台工作流",
+                        workerStopReason = workerStopReason,
+                    ),
+                )
             }
             throw error
         } catch (error: Throwable) {

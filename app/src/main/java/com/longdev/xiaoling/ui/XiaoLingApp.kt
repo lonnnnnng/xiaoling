@@ -3040,6 +3040,13 @@ private fun WorkflowItem(
                                     },
                                 )
                             }
+                            task.workerStopReasonName?.let { name ->
+                                Text(
+                                    "系统停止原因：$name（${task.workerStopReasonCode ?: "未知"}）",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                         if (
                             task.status == ScheduledTaskStatus.RUNNING ||
@@ -3139,6 +3146,13 @@ private fun WorkflowItem(
                             color = MaterialTheme.colorScheme.error,
                             maxLines = 4,
                             overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    detail.run.workerStopReasonName?.let { name ->
+                        Text(
+                            "系统停止原因：$name（${detail.run.workerStopReasonCode ?: "未知"}）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (index != runs.lastIndex) {

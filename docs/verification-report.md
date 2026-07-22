@@ -11,6 +11,22 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 Redmi 后台 Worker 停止原因审计（第 62 阶段）
+
+实现与边界：
+
+- `ScheduledWorkflowWorker` 在 Android 12+ 的取消路径读取 WorkManager `getStopReason()`；稳定映射只保存停止码、分类名和标准化中文消息，不保存模型请求、任务参数或设备隐私。Android 12 以下、`STOP_REASON_NOT_STOPPED` 和无法识别的码保持保守结论。
+- Room 升级到 v28：`workflow_runs` 与 `scheduled_tasks` 各新增可空 `workerStopReasonCode`、`workerStopReasonName`。v27→v28 迁移只加空列，不从历史 `errorMessage` 补造停止原因；生产结算在同一事务将相同原因写入 Task 与 WorkflowRun，终态和 `STOP_REQUESTED` 栅栏优先保留已持久化事实。
+- 任务中心的调度实例和 Workflow Run 详情显示标准化停止分类。本阶段不改变旧执行栈 fail-closed 恢复、不把 WorkManager 停止转换为 `Result.retry`，也没有引入 Foreground Service。
+
+验证结果：
+
+- 本地：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过；JVM 测试 `424/424`。
+- Redmi 聚焦：迁移测试与停止原因双表持久化 `OK (2 tests)`。完整 instrumentation 在 Redmi 保持唤醒后 `OK (143 tests)`；首轮屏幕休眠导致的 6 条 Compose 挂载失败已全部复跑通过，不计为代码失败。
+- Redmi 收尾：测试包 `com.longdev.xiaoling.test` 已卸载；正式 `MainActivity` 前台运行，PID `28929`，crash buffer 为空。正式数据库 `PRAGMA user_version=28`，核心计数为 `providers=1`、`agent_profiles=1`、`workflows=0`、`scheduled_tasks=0`、`workflow_runs=0`、`agent_tool_results=0`。
+
+证据边界：本阶段通过确定性 `QUOTA(10)` 映射和 Room 原子持久化测试验证数据链路，没有人为制造或宣称自然 Android 系统停止样本；Foreground Service、精确定时与后台自动化仍按路线图等待真实证据。
+
 ## 构建验证
 
 执行命令：
@@ -27,7 +43,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v27 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v28 和完整回归证据见文末最新阶段记录。
 
 Schema 生成方式：
 
@@ -1795,3 +1811,77 @@ LMK 与清理结果：
 当前结论：
 
 - 第 58 阶段现在同时具备“网络阻断失败样本”和“网络恢复后的 92.667 秒成功样本”。它证明当前长度的后台链路可完成，不证明任意更长任务的系统存活保证，也不证明自然 LMK。下一阶段继续以更长真实耗时、自然系统回收或明确用户停止需求决定 Foreground Service；设备工具仍不进入 Workflow/后台自动化，精确定时及后续生态能力继续后置。
+
+## 2026-07-22 Redmi 229.416 秒复合只读后台成功 Workflow（第 59 阶段）
+
+目标与边界：
+
+- 只使用 Redmi `wsvwypiz7xwslvl7`，使用正式 Provider/Profile、`RoomWorkflowRepository`、`ScheduledWorkflowWorker` 和 WorkManager；一次性任务使用产品允许的最短 1 分钟延迟。Probe 只创建账本和 WorkRequest，模型请求、工具执行、验证和结算全部由生产 Worker 完成。
+- Workflow 保持产品允许的 8 步上限；为延长真实耗时，每步明确依次调用 3 个应用内只读工具，不开放任何设备工具、写工具或审批动作。不使用强杀、Doze、trim-memory 或其他伪造 LMK 手段。
+
+真实结果：
+
+- Workflow `workflow-e64d25b2-6ac1-4eed-ab13-f1a630e98798`、ScheduledTask `scheduled-task-c7ea7af8-9673-408c-b626-439fbc558a19`、WorkRequest `67cd2409-eeb5-49c1-af68-8b8983d7daaf` 于 `10:33:33` 创建，约 1 分钟后启动；`10:37:22` 收敛，生产耗时 `229.416s`（Instrumentation 总耗时 `229.633s`）。Task/Workflow/8 个 WorkflowStep/8 个 AgentRun 全部 `COMPLETED`，没有 `Result.retry` 或复制 Run。
+- 8 步共执行 24 个只读工具调用，24/24 ToolResult 为 `success=true / verificationStatus=PASSED`；RunEvent 包含 72 条 `run.execution_budget.updated`、24 条 `tool.verify`，`llmFailureKinds=[]`。本轮临时日志只统计预算事件数量，未把 `consumedMs` 数值解析结果作为新增单调性证据。
+
+系统回收、清理与门禁：
+
+- Redmi `ApplicationExitInfo` 定向测试通过，输出 `supported=true / exits=14 / lowMemory=0 / fallbackSigkillCandidates=0`；14 条历史退出均为 instrumentation 完成或安装停止，未取得 Android 自主 LMK。
+- 测试结束后 Probe 内定向删除成功样本；随后又删除了前两次约束失败留下的空 Stage 59 Workflow。最终正式数据库核对为 `providers=1`、`agent_profiles=1`、`workflows=0`、`scheduled_tasks=0`、`workflow_runs=0`、`workflow_steps=0`、`agent_tool_results=0`；测试包已卸载，正式 Debug APK 已启动到 `com.longdev.xiaoling/.MainActivity`，进程存活。
+- 删除 Probe 后执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --console=plain` 通过：JVM、Lint、Debug APK 和 AndroidTest APK 全部成功。完整 instrumentation 本轮未重复执行，以避免再次清空正式 Provider/Profile；之前完整门禁仍为 JVM `420/420`、Redmi instrumentation `141/141`。
+
+当前结论：
+
+- 第 59 阶段把普通 WorkManager 的真实成功耗时基线从约 93 秒扩大到约 229 秒，但仍不能推导任意长度的系统存活保证，也没有自然 LMK 或明确的前台服务需求证据。因此暂不引入 Foreground Service，不恢复旧模型协程/旧 Executor，不把设备工具放入 Workflow 或后台自动化；下一阶段继续围绕更长真实耗时、自然系统回收或明确用户停止需求取证。
+
+## 2026-07-22 Redmi JobScheduler 冷启动后台成功 Workflow（第 60 阶段）
+
+目标与边界：
+
+- 第 59 阶段的 Probe 在 instrumentation 进程内持续轮询终态，可能提高应用进程重要性。本阶段改为 Probe 只创建 Workflow/ScheduledTask、调用 Scheduler、持久化 WorkRequest ID 后立即返回；不在测试进程中等待模型或读取终态。
+- Probe 结束后确认原应用 PID 消失，再由 JobScheduler 按计划冷启动生产 `ScheduledWorkflowWorker`。Workflow 使用产品上限 8 步，每步调用 4 个应用内只读工具；不开放设备工具或写工具，不使用强杀、Doze、trim-memory 或前台 Activity 保活。
+
+首条诊断样本：
+
+- WorkRequest `bccd7350-8877-4bc7-ab02-76030605b371` 在 Probe 结束后冷启动 PID `25414`，WorkflowRun `workflow-run-40afd0a8-1b8d-407f-bb04-c1ab4cbef092` 于 `206.521s` 后完成；8 个 AgentRun、32/32 ToolCall/ToolResult/`tool.verify` 全部成功，无模型失败。
+- 每个 AgentRun 有 11 条预算快照，最大 `consumedMs` 为 `17.360s–37.101s`，8 个 Run 的预算回退次数均为 0。取证发现 Probe 漏掉 `attachWorkRequest()`，Room 的 ScheduledTask 没有保存 WorkRequest ID；该样本只作为诊断证据，清理后修正 Probe 并重做。
+
+修正后的正式样本：
+
+- 入队 Probe 在 `0.255s` 内通过并退出，原 PID 消失；ScheduledTask `scheduled-task-f598a2b8-d851-437f-af3f-1f6cbe52fb7a` 已持久化 WorkRequest `25c90656-4eef-4936-b1fc-3a28ba0310fd`。JobScheduler 冷启动 PID `25825`，创建唯一 WorkflowRun `workflow-run-01d2a483-f452-4073-b3c3-e67b19f0210a`。
+- Task/WorkflowRun/8 个 WorkflowStep/8 个 AgentRun 全部 `COMPLETED`，生产执行耗时 `204.977s`；32/32 ToolCall、ToolResult 和 `tool.verify` 成功，32 个 ToolResult 均为 `success=true / verificationStatus=PASSED`，`llm.request.failed=0`，没有 `Result.retry` 或复制 WorkflowRun。
+- 每个 AgentRun 有 11 条 `run.execution_budget.updated`，共 88 条；`consumedMs` 最大值为 `18.431s–26.779s`，8 个 Run 的回退次数均为 0。Workflow Step 分别耗时约 `22.502s–30.323s`。
+
+系统回收、清理与门禁：
+
+- `ApplicationExitInfo` 定向测试输出 `supported=true / exits=16 / lowMemory=0 / fallbackSigkillCandidates=0`；新增退出来自 instrumentation 入队与取证，后台 Worker 的 PID 在执行期间保持不变，没有 Android 自主 LMK。
+- 两条 Stage 60 Workflow、ScheduledTask、WorkflowRun、AgentRun、会话消息、Tool Ledger、临时 SQLite 备份和 Probe 均已定向清理；清理后 Workflow/ScheduledTask/WorkflowRun/WorkflowStep/ToolResult 计数均为 0，正式 Provider/Profile 保留。
+- 删除 Probe 后重新执行 JVM、Lint、Debug APK 和 AndroidTest APK 门禁，并重新安装/启动正式 Debug APK；完整 instrumentation 不重复执行，以避免清空正式 Provider/Profile，历史完整基线仍为 JVM `420/420`、仅 Redmi instrumentation `141/141`。
+
+当前结论：
+
+- 第 60 阶段证明普通 WorkManager 在 instrumentation 退出、无前台 Activity 驻留的冷启动场景下，可以用单一持久化 WorkRequest/Run 链完成约 205 秒、32 次只读工具调用，并保持预算单调和验证完整。它没有刷新第 59 阶段的 229 秒最长耗时，也没有触发自然 LMK，因此仍不引入 Foreground Service，不扩大旧执行栈恢复能力，设备工具继续禁止进入 Workflow/后台自动化。
+
+## 2026-07-22 Redmi 熄屏冷启动后台成功 Workflow（第 61 阶段）
+
+目标与边界：
+
+- 在第 60 阶段“Probe 立即退出、JobScheduler 冷启动”的基础上，入队后主动让屏幕进入普通休眠，而不是强制 Doze。取证期间持续确认 `mWakefulness=Asleep / mScreenOn=false / mState=ACTIVE`，没有内存压力、强杀或前台 Activity 保活。
+- Workflow 继续使用产品上限 8 步、每步 4 个应用内只读工具，并要求较完整的可信总结以增加真实模型耗时。设备工具、写工具和审批动作继续禁止进入后台 Workflow。
+
+执行与结果：
+
+- Probe 在 `0.275s` 内完成，创建 Workflow `workflow-2140ab42-a973-41b0-a13a-b1aa26afda69`、ScheduledTask `scheduled-task-abf8a1ce-ce3d-4c4b-974a-a0188defcac8` 和 WorkRequest `f62da1cc-185e-4733-8566-bc39d54c4e9b`，持久化关联后退出；原 PID 随 instrumentation 结束消失。
+- ScheduledTask 计划时间为 `1784690482730`，JobScheduler 在熄屏状态下延迟 `159.479s` 冷启动 PID `26797`，创建唯一 WorkflowRun `workflow-run-96b632ac-4de8-46f5-9dad-c88c0ef3a612`。Worker 执行期间屏幕始终 `Asleep`、PID 保持不变。
+- Task/WorkflowRun/8 个 WorkflowStep/8 个 AgentRun 全部 `COMPLETED`，生产执行耗时 `244.236s`；32/32 ToolCall、ToolResult 和 `tool.verify` 成功，ToolResult 全部 `success=true / verificationStatus=PASSED`，`llm.request.failed=0`，没有系统重试或复制 WorkflowRun。
+- 每个 AgentRun 有 11 条预算快照，共 88 条；`consumedMs` 最大值 `18.283s–44.856s`，8 个 Run 的回退次数均为 0。Workflow Step 分别耗时约 `21.710s–48.743s`。
+
+系统回收、清理与门禁：
+
+- 熄屏状态下执行 `ApplicationExitInfo` 定向测试，结果 `supported=true / exits=16 / lowMemory=0 / fallbackSigkillCandidates=0`；新增退出均为 instrumentation 入队/取证，没有 Android 自主 LMK。
+- Stage 61 Workflow、ScheduledTask、WorkflowRun、8 个 AgentRun、会话消息、Tool Ledger、临时 SQLite 备份和 Probe 均已定向清理；设备已唤醒，正式 Provider/Profile 保留，正式 Debug 应用恢复前台。
+- 删除 Probe 后重新执行 JVM、Lint、Debug APK 和 AndroidTest APK 门禁，并卸载测试包、覆盖安装正式 Debug APK；完整 instrumentation 不重复执行，历史完整基线仍为 JVM `420/420`、仅 Redmi instrumentation `141/141`。
+
+当前结论：
+
+- 第 61 阶段把普通 WorkManager 的最长真实成功证据扩展到熄屏 `244.236s`，同时观察到非精确定时在熄屏下可能延迟约 159 秒启动。这支持继续使用普通 WorkManager 和展示计划/实际时间，不支持承诺准点执行，也没有自然 LMK 或 Foreground Service 必要性证据。旧执行栈继续 fail-closed，设备工具继续禁止进入 Workflow/后台自动化。

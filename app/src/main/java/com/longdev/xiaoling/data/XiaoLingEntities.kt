@@ -493,6 +493,8 @@ data class WorkflowRunEntity(
     val startedAt: Long?,
     val completedAt: Long?,
     val retryOfWorkflowRunId: String?,
+    val workerStopReasonCode: Int? = null,
+    val workerStopReasonName: String? = null,
 )
 
 @Entity(
@@ -519,6 +521,8 @@ data class ScheduledTaskEntity(
     val errorMessage: String?,
     val createdAt: Long,
     val updatedAt: Long,
+    val workerStopReasonCode: Int? = null,
+    val workerStopReasonName: String? = null,
 )
 
 @Entity(

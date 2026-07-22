@@ -410,6 +410,33 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun systemCancellationPersistsSameTypedStopReasonOnTaskAndWorkflowRun() = runBlocking {
+        val workflow = repository.createWorkflow("系统停止审计", "读取当前时间")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-system-stop")
+        val claim = repository.claimScheduledRun(task.id)!!
+
+        repository.settleScheduledWorkflowRun(
+            taskId = task.id,
+            workflowRunId = claim.run.run.id,
+            workflowStatus = WorkflowRunStatus.CANCELLED,
+            taskStatus = ScheduledTaskStatus.CANCELLED,
+            errorMessage = "系统后台配额限制停止了本次工作流",
+            workerStopReasonCode = 10,
+            workerStopReasonName = "QUOTA",
+        )
+
+        val storedTask = repository.getScheduledTask(task.id)!!
+        val storedRun = repository.runDetail(claim.run.run.id)!!.run
+        assertEquals(ScheduledTaskStatus.CANCELLED, storedTask.status)
+        assertEquals(WorkflowRunStatus.CANCELLED, storedRun.status)
+        assertEquals(10, storedTask.workerStopReasonCode)
+        assertEquals("QUOTA", storedTask.workerStopReasonName)
+        assertEquals(storedTask.workerStopReasonCode, storedRun.workerStopReasonCode)
+        assertEquals(storedTask.workerStopReasonName, storedRun.workerStopReasonName)
+    }
+
+    @Test
     fun workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun() = runBlocking {
         val workflow = repository.createWorkflow("重入对账", "读取当前时间")
         val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)

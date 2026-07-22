@@ -172,6 +172,31 @@ class ScheduledWorkflowOrchestratorTest {
     }
 
     @Test
+    fun cancellationCarriesWorkManagerStopReasonIntoSettlement() = runTest {
+        val claim = testClaim()
+        val events = mutableListOf<String>()
+        val outcomes = mutableListOf<ScheduledExecutionOutcome>()
+        val expected = ScheduledWorkerStopReasonPolicy.fromWorkManagerCode(10)!!
+        val orchestrator = orchestrator(
+            claim = claim,
+            runAgent = { _, _, _ -> throw CancellationException("stop") },
+            events = events,
+            settledOutcomes = outcomes,
+        )
+
+        val error = runCatching {
+            orchestrator.execute(claim.task.id, workerStopReasonProvider = { expected })
+        }.exceptionOrNull()
+
+        assertTrue(error is CancellationException)
+        assertEquals(listOf("settle:CANCELLED", "notify:CANCELLED"), events)
+        val cancelled = outcomes.single() as ScheduledExecutionOutcome.Cancelled
+        assertEquals(10, cancelled.workerStopReason?.code)
+        assertEquals("QUOTA", cancelled.workerStopReason?.name)
+        assertEquals("系统后台配额限制停止了本次工作流", cancelled.reason)
+    }
+
+    @Test
     fun rejectedClaimDoesNotRunOrNotifySuccess() = runTest {
         val events = mutableListOf<String>()
         val orchestrator = ScheduledWorkflowOrchestrator(
@@ -193,6 +218,7 @@ class ScheduledWorkflowOrchestratorTest {
         claim: ScheduledWorkflowClaim,
         runAgent: suspend (ScheduledWorkflowClaim, WorkflowStepRecord, suspend (String) -> Unit) -> AgentRunSummary,
         events: MutableList<String>,
+        settledOutcomes: MutableList<ScheduledExecutionOutcome> = mutableListOf(),
     ) = ScheduledWorkflowOrchestrator(
         claimTask = { claim },
         runAgent = runAgent,
@@ -206,6 +232,7 @@ class ScheduledWorkflowOrchestratorTest {
             )
         },
         settle = { current, outcome ->
+            settledOutcomes += outcome
             val status = when (outcome) {
                 is ScheduledExecutionOutcome.Completed -> ScheduledTaskStatus.COMPLETED
                 is ScheduledExecutionOutcome.Blocked -> ScheduledTaskStatus.BLOCKED

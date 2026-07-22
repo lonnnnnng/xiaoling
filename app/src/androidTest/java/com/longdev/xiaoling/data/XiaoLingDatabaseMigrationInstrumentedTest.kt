@@ -1001,6 +1001,60 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate27To28AddsNullableWorkerStopReasonWithoutInventingHistory() {
+        migrationHelper.createDatabase(WORKER_STOP_REASON_MIGRATION_DATABASE_NAME, 27).apply {
+            execSQL(
+                """
+                INSERT INTO workflow_runs (
+                    id, workflowId, trigger, scheduledTaskId, plannedAt, conversationId,
+                    agentRunId, status, result, errorMessage, createdAt, startedAt, completedAt, retryOfWorkflowRunId
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "workflow-run-v27", "workflow-v27", "SCHEDULED", "scheduled-task-v27", 100L,
+                    "conversation-v27", null, "FAILED", null, "历史失败", 100L, 100L, 200L, null,
+                ),
+            )
+            execSQL(
+                """
+                INSERT INTO scheduled_tasks (
+                    id, workflowId, type, scheduleId, status, plannedAt, workRequestId,
+                    workflowRunId, actualStartedAt, completedAt, errorMessage, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "scheduled-task-v27", "workflow-v27", "ONE_TIME", null, "FAILED", 100L, null,
+                    "workflow-run-v27", 100L, 200L, "历史失败", 100L, 200L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            WORKER_STOP_REASON_MIGRATION_DATABASE_NAME,
+            28,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT workerStopReasonCode, workerStopReasonName FROM workflow_runs",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertTrue(cursor.isNull(1))
+        }
+        migrated.query(
+            "SELECT workerStopReasonCode, workerStopReasonName FROM scheduled_tasks",
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertTrue(cursor.isNull(1))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1078,5 +1132,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val DOCUMENT_PARTS_MIGRATION_DATABASE_NAME = "xiaoling-document-parts-migration-test"
         private const val KNOWLEDGE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-migration-test"
         private const val KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-reference-migration-test"
+        private const val WORKER_STOP_REASON_MIGRATION_DATABASE_NAME = "xiaoling-worker-stop-reason-migration-test"
     }
 }

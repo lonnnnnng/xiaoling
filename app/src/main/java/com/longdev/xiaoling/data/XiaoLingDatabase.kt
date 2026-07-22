@@ -38,7 +38,7 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -53,7 +53,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun workflowDao(): WorkflowDao
 
     companion object {
-        const val CURRENT_VERSION = 27
+        const val CURRENT_VERSION = 28
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -739,6 +739,16 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 历史终态没有可靠的系统停止来源，迁移只补可空字段；不能把历史自由文本反推为配额、超时或用户停止。
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `workerStopReasonCode` INTEGER")
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `workerStopReasonName` TEXT")
+                db.execSQL("ALTER TABLE `scheduled_tasks` ADD COLUMN `workerStopReasonCode` INTEGER")
+                db.execSQL("ALTER TABLE `scheduled_tasks` ADD COLUMN `workerStopReasonName` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -766,6 +776,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_24_25,
             MIGRATION_25_26,
             MIGRATION_26_27,
+            MIGRATION_27_28,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

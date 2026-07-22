@@ -599,6 +599,8 @@ class RoomWorkflowRepository(
         taskId: String,
         status: ScheduledTaskStatus,
         errorMessage: String? = null,
+        workerStopReasonCode: Int? = null,
+        workerStopReasonName: String? = null,
     ): ScheduledTaskRecord? {
         require(status in TERMINAL_SCHEDULED_TASK_STATUSES) { "定时任务只能收敛到终态" }
         return database.withTransaction {
@@ -613,6 +615,8 @@ class RoomWorkflowRepository(
                 status = settledStatus.name,
                 completedAt = now,
                 errorMessage = if (stopRequested) current.errorMessage else errorMessage,
+                workerStopReasonCode = if (stopRequested) current.workerStopReasonCode else workerStopReasonCode,
+                workerStopReasonName = if (stopRequested) current.workerStopReasonName else workerStopReasonName,
                 updatedAt = now,
             )
             dao.upsertScheduledTask(updated)
@@ -627,6 +631,8 @@ class RoomWorkflowRepository(
         taskStatus: ScheduledTaskStatus,
         result: String? = null,
         errorMessage: String? = null,
+        workerStopReasonCode: Int? = null,
+        workerStopReasonName: String? = null,
     ): ScheduledTaskRecord? {
         require(workflowStatus.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
         require(taskStatus in TERMINAL_SCHEDULED_TASK_STATUSES) { "定时任务只能收敛到终态" }
@@ -662,6 +668,16 @@ class RoomWorkflowRepository(
                 stopRequested -> task.errorMessage ?: "用户已请求停止后台工作流"
                 else -> errorMessage
             }
+            val settledWorkerStopReasonCode = when {
+                persistedWorkflowStatus != null -> workflowRun.workerStopReasonCode
+                stopRequested -> task.workerStopReasonCode
+                else -> workerStopReasonCode
+            }
+            val settledWorkerStopReasonName = when {
+                persistedWorkflowStatus != null -> workflowRun.workerStopReasonName
+                stopRequested -> task.workerStopReasonName
+                else -> workerStopReasonName
+            }
             if (persistedWorkflowStatus != null) {
                 val now = System.currentTimeMillis()
                 // long: Workflow 已先持久化终态时，它是半结算链的事实源；直接在当前事务修复活动 Task，不能再经过通用停止栅栏把两者改成不同终态。
@@ -669,6 +685,8 @@ class RoomWorkflowRepository(
                     status = settledTaskStatus.name,
                     completedAt = workflowRun.completedAt ?: now,
                     errorMessage = settledError,
+                    workerStopReasonCode = settledWorkerStopReasonCode,
+                    workerStopReasonName = settledWorkerStopReasonName,
                     updatedAt = now,
                 )
                 dao.upsertScheduledTask(settledTask)
@@ -680,8 +698,16 @@ class RoomWorkflowRepository(
                 status = settledWorkflowStatus,
                 result = settledResult,
                 errorMessage = settledError,
+                workerStopReasonCode = settledWorkerStopReasonCode,
+                workerStopReasonName = settledWorkerStopReasonName,
             )
-            finishScheduledTask(taskId, settledTaskStatus, settledError)
+            finishScheduledTask(
+                taskId = taskId,
+                status = settledTaskStatus,
+                errorMessage = settledError,
+                workerStopReasonCode = settledWorkerStopReasonCode,
+                workerStopReasonName = settledWorkerStopReasonName,
+            )
         }
     }
 
@@ -864,6 +890,8 @@ class RoomWorkflowRepository(
         status: WorkflowRunStatus,
         result: String? = null,
         errorMessage: String? = null,
+        workerStopReasonCode: Int? = null,
+        workerStopReasonName: String? = null,
     ): WorkflowRunRecord {
         require(status.name in TERMINAL_RUN_STATUSES) { "工作流 Run 只能收敛到终态" }
         // long: Run 终态与尚未完成步骤在同一事务内收敛；已完成或从来源 Run 复用的步骤保持原结果，旧执行证据不能被最终错误覆盖。
@@ -876,6 +904,8 @@ class RoomWorkflowRepository(
                 status = status.name,
                 result = result,
                 errorMessage = errorMessage,
+                workerStopReasonCode = workerStopReasonCode,
+                workerStopReasonName = workerStopReasonName,
                 completedAt = now,
             )
             val terminalStepStatus = when (status) {
@@ -1251,6 +1281,8 @@ class RoomWorkflowRepository(
         startedAt = startedAt,
         completedAt = completedAt,
         retryOfWorkflowRunId = retryOfWorkflowRunId,
+        workerStopReasonCode = workerStopReasonCode,
+        workerStopReasonName = workerStopReasonName,
     )
 
     private fun WorkflowStepEntity.toRecord() = WorkflowStepRecord(
@@ -1288,6 +1320,8 @@ class RoomWorkflowRepository(
         errorMessage = errorMessage,
         createdAt = createdAt,
         updatedAt = updatedAt,
+        workerStopReasonCode = workerStopReasonCode,
+        workerStopReasonName = workerStopReasonName,
     )
 
     private fun WorkflowScheduleEntity.toRecord() = WorkflowScheduleRecord(

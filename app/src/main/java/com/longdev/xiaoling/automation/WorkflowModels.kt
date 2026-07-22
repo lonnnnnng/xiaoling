@@ -49,6 +49,8 @@ data class WorkflowRunRecord(
     val startedAt: Long?,
     val completedAt: Long?,
     val retryOfWorkflowRunId: String? = null,
+    val workerStopReasonCode: Int? = null,
+    val workerStopReasonName: String? = null,
 )
 
 data class WorkflowStepRecord(
@@ -264,6 +266,8 @@ data class ScheduledTaskRecord(
     val errorMessage: String?,
     val createdAt: Long,
     val updatedAt: Long,
+    val workerStopReasonCode: Int? = null,
+    val workerStopReasonName: String? = null,
 )
 
 enum class ScheduledTaskType {

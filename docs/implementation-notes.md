@@ -14,6 +14,34 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 62 阶段实现与验证边界
+
+- `ScheduledWorkflowWorker` 在 Android 12+ 的取消收敛路径读取 WorkManager `getStopReason()`；`ScheduledWorkerStopReasonPolicy` 将 JobScheduler 停止码归一为稳定 `code/name/message`，只保留系统分类，不记录请求正文或设备隐私。
+- `WorkflowRunEntity` 与 `ScheduledTaskEntity` 在 Room v28 新增可空 `workerStopReasonCode/workerStopReasonName`；`MIGRATION_27_28` 只补空列。`RoomWorkflowRepository.settleScheduledWorkflowRun()` 在同一事务中把相同原因写入两张表，已终态和 `STOP_REQUESTED` 栅栏仍优先保留既有事实。
+- Workflow 详情和调度实例展示标准化系统停止原因；缺少可靠原因时继续显示通用停止文案，不将未知码升级为具体故障推断。
+- `ScheduledWorkerStopReasonPolicyTest`、Orchestrator 取消透传测试、Room 迁移/双表持久化 Redmi 测试已加入。JVM `424/424`、完整 Redmi instrumentation `143/143`、Lint、Debug 与 AndroidTest 构建通过；测试包已卸载，正式应用前台运行，正式数据库 `schema=28` 且 Provider/Profile 保留、Workflow 数据为零。
+
+## 第 61 阶段验证边界
+
+- 熄屏前入队 Probe 在 `0.275s` 内结束，原 instrumentation PID 消失；Redmi 保持 `mWakefulness=Asleep / mScreenOn=false / mState=ACTIVE`，没有强制 Doze 或内存压力。
+- JobScheduler 在计划时间后延迟 `159.479s` 冷启动 PID `26797`，生产 `ScheduledWorkflowWorker` 使用同一持久化 WorkRequest/ScheduledTask/WorkflowRun，在熄屏状态下执行 `244.236s`；8 个 WorkflowStep/AgentRun 全部 `COMPLETED`，32/32 ToolResult 和 `tool.verify` 全部 `PASSED`，没有复制 Run 或 `llm.request.failed`。
+- 每个 AgentRun 有 11 条预算快照，`consumedMs` 最大值 `18.283s–44.856s`，8 个 Run 的回退次数均为 0；Workflow Step 耗时约 `21.710s–48.743s`。`ApplicationExitInfo` 为 `supported=true / exits=16 / lowMemory=0 / fallbackSigkillCandidates=0`。
+- Stage 61 数据、临时 Probe、测试包和 SQLite 备份已定向清理；正式 Provider/Profile 保留，设备已唤醒并重新启动正式 Debug APK。
+
+## 第 60 阶段验证边界
+
+- 一次性 Probe 只创建 8 步 Workflow、持久化 WorkRequest ID 并入队，在 `0.255s` 后结束；instrumentation 结束后原进程消失，JobScheduler 冷启动新 PID `25825`，生产 `ScheduledWorkflowWorker` 在没有前台 Activity 或测试轮询协程驻留的情况下执行完整任务。
+- WorkRequest `25c90656-4eef-4936-b1fc-3a28ba0310fd`、ScheduledTask `scheduled-task-f598a2b8-d851-437f-af3f-1f6cbe52fb7a` 和 WorkflowRun `workflow-run-01d2a483-f452-4073-b3c3-e67b19f0210a` 保持单一关联；生产耗时 `204.977s`，8 个 WorkflowStep/AgentRun 全部 `COMPLETED`，32/32 ToolResult 为 `success=true / PASSED`，没有复制 Run 或模型失败。
+- 每个 AgentRun 有 11 条预算快照，`consumedMs` 从 0 单调增长，最大值 `18.431s–26.779s`，8 个 Run 的回退次数均为 0。32 条 `tool.verify` 与 32 个 ToolResult 一一对应，`llmFailures=0`。
+- `ApplicationExitInfo` 为 `supported=true / exits=16 / lowMemory=0 / fallbackSigkillCandidates=0`；新增退出来自 instrumentation 入队/取证，后台 Worker 本身未被系统回收。临时 Probe、测试包、两次 Stage 60 样本和备份均已清理，正式 Provider/Profile 保留。
+
+## 第 59 阶段验证边界
+
+- 在 Redmi `wsvwypiz7xwslvl7` 使用正式 Provider/Profile、生产 `RoomWorkflowRepository`、`ScheduledWorkflowWorker` 和 WorkManager 创建 8 步复合 SAFE Workflow；一次性任务按产品规则延迟 1 分钟后启动，WorkManager 实际执行耗时 `229.416s`。
+- Task、WorkflowRun、8 个 WorkflowStep 和 8 个 AgentRun 全部 `COMPLETED`，单一 ScheduledTask 没有复制 WorkflowRun；每步依次执行 3 个只读应用工具，共 24 个 ToolResult 全部 `success=true / verificationStatus=PASSED`，RunEvent 含 72 条预算更新和 24 条 `tool.verify`，没有 `llm.request.failed`。
+- `ApplicationExitInfo` 复验为 `supported=true / exits=14 / lowMemory=0 / fallbackSigkillCandidates=0`，历史退出均为 instrumentation 完成或安装停止，不构成 Android 自主 LMK 证据。临时 Probe、测试包、Stage 59 Workflow/Task/Run/Step/Tool 数据均已定向清理；正式 Provider/Profile 保留，正式 Debug APK 已重新启动到 Redmi。
+- 本阶段只把预算更新事件数量作为新增证据；临时日志探针未正确解析 `consumedMs` 数值，因此不把本轮包装成新的数值单调结论，继续沿用生产 Runtime 的预算审计和既有门禁。
+
 ## 第 58 阶段验证边界
 
 - 生产 `ScheduledWorkflowWorker` 在 Redmi 真机上被真实触发并执行 8 步 SAFE Workflow；两次样本约 4 至 6 秒失败，Task/Workflow/Agent 均进入失败终态，只有 1 个 Agent Run，后续步骤取消，预算事件单调且没有复制 Run。
@@ -45,7 +73,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v27 Schema；迁移测试覆盖 v4→v27、各关键增量迁移和全新 v27 建库。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v28 Schema；迁移测试覆盖 v4→v28、各关键增量迁移和全新 v28 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
@@ -205,7 +233,7 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v27，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v27 的关键增量和全新 v27 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列，不从旧正文或历史 JSON 猜造引用。
+- 数据库当前版本为 v28，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v28 的关键增量和全新 v28 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列，不从旧正文或历史 JSON 猜造引用。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -263,7 +291,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 420 条 JVM 与仅 Redmi 执行的 141 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 424 条 JVM 与仅 Redmi 执行的 143 条 instrumentation。
 
 ## 任务中心需确认队列
 
@@ -336,6 +364,6 @@
 - 第 55 阶段新增 `AgentLlmFailureKind` 与 `RunEventMetadata.LlmFailure`。`MinimalAgentRuntime` 将 `ApiFailure.kind` 映射为稳定的鉴权、地址、限流、模型、超时、DNS、TLS、连接、响应或未知错误，写入 `llm.request.failed`；`AgentLlmResponseException` 缺少网络分类时按 `RESPONSE`，普通未知异常按 `UNKNOWN`。Codec 对未来枚举 fail-closed 到 `UNKNOWN`，任务事件区只显示阶段、错误码和原因，不展示请求正文。Room v27 Schema 不变。完整门禁为 413 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
 - 第 56 阶段完成普通对话部分流式 delta 的收敛：收到正文后断流会保留已见文本，给 assistant 写入 `finishReason=failed`、错误分类和原因，并追加独立错误消息；取消同样结束“接收中”状态。失败/取消的部分 assistant 被排除出下一轮请求与摘要，避免残缺正文成为新的模型事实。新增真实 socket 断流、失败消息状态和上下文资格测试；完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
 - 第 57 阶段完成取消时的预算写回收敛：Runtime 在新 Run、审批恢复和受限恢复的取消出口统一使用 `NonCancellable`，先持久化最新单调预算，再取消活动 Step、追加 `run.cancelled` 并冻结 Run。模型或工具 `finally` 已累计的执行时间不会因后台停止丢失；确定性测试验证取消前 `37ms` 快照可被 `AgentExecutionBudgetEvidencePolicy` 读取，预算事件先于取消终态。完整门禁为 420 条 JVM、Lint、Debug/AndroidTest 构建，以及仅 Redmi 执行的 141 条 instrumentation（0 跳过、0 失败）。
-- 下一恢复证据切片是更长真实后台任务中的预算快照与系统回收组合行为、以及 Android 自主 LMK；仍不恢复无法证明的旧执行栈。
+- 第 59 阶段已取得约 229 秒复合只读后台成功链；下一恢复证据切片继续观察更长真实任务中的预算快照与系统回收组合行为、以及 Android 自主 LMK，仍不恢复无法证明的旧执行栈。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
