@@ -113,7 +113,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -451,8 +450,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
         },
     )
-    // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
-    private val conversationSendCoordinator = ConversationSendCoordinator(
+    private val conversationPersistenceCoordinator = ConversationPersistenceCoordinator(
+        scope = viewModelScope,
         persistSnapshot = { snapshot ->
             conversationStore.save(
                 snapshot.conversations,
@@ -460,6 +459,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 snapshot.deletedConversationIds,
             )
         },
+    )
+    // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
+    private val conversationSendCoordinator = ConversationSendCoordinator(
+        persistSnapshot = conversationPersistenceCoordinator::persist,
         prepareRequestContext = conversationRequestContextPreparer::prepare,
         sendRequest = { config, messages, onStreamDelta ->
             client.sendMessage(config, messages, onStreamDelta)
@@ -517,11 +520,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var skillLoadJob: Job? = null
     private var workflowLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
-    private var saveConversationsJob: Job? = null
     private var conversationLoadJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
-    private val pendingDeletedConversationIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(
         initialUiState(
@@ -2687,7 +2688,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun deleteCurrentConversation() {
         conversationLoadJob?.cancel()
         val currentId = uiState.selectedConversationId
-        pendingDeletedConversationIds += currentId
+        val deletionIntent = conversationPersistenceCoordinator.markConversationDeleted(currentId)
         val remaining = uiState.conversations.filterNot { it.id == currentId }
         activeAgentRunsByConversation.remove(currentId)
         pendingAgentApprovalsByConversation.remove(currentId)
@@ -2724,7 +2725,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversation = next,
             conversations = remaining,
             result = OperationResult(true, "已删除", "当前会话已删除"),
-            rollbackDeletedConversationIdOnFailure = currentId,
+            rollbackDeletionIntentOnFailure = deletionIntent,
         )
     }
 
@@ -2732,7 +2733,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversation: ConversationSession,
         conversations: List<ConversationSession>,
         result: OperationResult?,
-        rollbackDeletedConversationIdOnFailure: String? = null,
+        rollbackDeletionIntentOnFailure: ConversationDeletionIntent? = null,
     ) {
         conversationLoadJob?.cancel()
         uiState = uiState.copy(loadingConversationMessages = true, result = null)
@@ -2757,7 +2758,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                rollbackDeletedConversationIdOnFailure?.let(pendingDeletedConversationIds::remove)
+                rollbackDeletionIntentOnFailure?.let(
+                    conversationPersistenceCoordinator::rollbackConversationDeletion,
+                )
                 uiState = uiState.copy(
                     loadingConversationMessages = false,
                     result = OperationResult(false, "会话读取失败", error.message ?: "无法加载会话消息"),
@@ -3003,23 +3006,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
         val preRequestConversations = uiState.conversations.map { it.toStored() }
         val preRequestSelectedConversationId = uiState.selectedConversationId
-        val preRequestDeletedConversationIds = pendingDeletedConversationIds.toSet()
-        val previousSaveJob = saveConversationsJob.also { saveConversationsJob = null }
         val baseMeta = config.toBaseMessageMeta(profileSnapshot)
         sendMessageJob = viewModelScope.launch {
             try {
-                previousSaveJob?.cancelAndJoin()
+                conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
+                // long: 等旧事务完全退出后再捕获删除意图；等待期间发生的删除或回滚必须进入发送前 Room 快照，不能被较早的集合覆盖。
+                val preRequestPersistenceSnapshot = conversationPersistenceCoordinator.captureSnapshot(
+                    conversations = preRequestConversations,
+                    selectedConversationId = preRequestSelectedConversationId,
+                )
                 conversationSendCoordinator.execute(
                     request = ConversationSendRequest(
                         config = config,
                         messages = messagesWithUser,
                         conversation = currentConversation,
                         promptSettings = uiState.promptSettings,
-                        persistenceSnapshot = ConversationPersistenceSnapshot(
-                            conversations = preRequestConversations,
-                            selectedConversationId = preRequestSelectedConversationId,
-                            deletedConversationIds = preRequestDeletedConversationIds,
-                        ),
+                        persistenceSnapshot = preRequestPersistenceSnapshot,
                         initialContext = initialContext,
                     ),
                     onEvent = { event ->
@@ -3043,11 +3045,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         userMessage: String,
         messagesWithUser: List<ChatMessage>,
     ) {
-        // long: Coordinator 只冻结普通聊天的执行顺序；这里把每个稳定事件投影为当前会话 UI，并且只在对应提交点触发删除确认、记忆候选或最终持久化。
+        // long: Coordinator 只冻结普通聊天的执行顺序；这里把稳定事件投影为当前会话 UI，删除确认由持久化协调器负责，ViewModel 只触发记忆候选和最终快照。
         when (event) {
             is ConversationSendEvent.SnapshotPersisted -> {
-                // long: 删除意图只有在包含用户消息与附件的 Room 事务成功后才能清除，否则下一次保存仍必须携带这些权威删除 ID。
-                pendingDeletedConversationIds.removeAll(event.deletedConversationIds)
+                // long: 该事件只标记发送前快照已经提交；显式删除 ID 的成功确认由同一个持久化协调器原子管理，ViewModel 不再维护第二份状态。
             }
 
             is ConversationSendEvent.ContextPrepared -> {
@@ -3735,7 +3736,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun saveConversationSelection() {
-        saveConversationsSnapshot(uiState.conversations.map { it.toStored() }, uiState.selectedConversationId)
+        conversationPersistenceCoordinator.saveLatest(
+            conversations = uiState.conversations.map { it.toStored() },
+            selectedConversationId = uiState.selectedConversationId,
+        )
     }
 
     private fun saveProfilesSnapshot(profiles: List<ProviderProfile>, selectedProfileId: String) {
@@ -3743,16 +3747,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         saveProfilesJob = viewModelScope.launch {
             // long: Provider 保存包含 Keystore 加密和 Room 写入，必须放到后台；只保留最后一次快照，避免快速切换模型时旧写入覆盖新选择。
             configStore.save(profiles, selectedProfileId)
-        }
-    }
-
-    private fun saveConversationsSnapshot(conversations: List<StoredConversation>, selectedConversationId: String) {
-        saveConversationsJob?.cancel()
-        val deletedConversationIds = pendingDeletedConversationIds.toSet()
-        saveConversationsJob = viewModelScope.launch {
-            // long: 会话保存放在后台并只保留最后快照；显式删除 ID 在事务成功前持续携带，避免取消旧保存任务后让已删除会话再次出现。
-            conversationStore.save(conversations, selectedConversationId, deletedConversationIds)
-            pendingDeletedConversationIds.removeAll(deletedConversationIds)
         }
     }
 

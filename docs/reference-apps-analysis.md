@@ -4,7 +4,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-22：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-23：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
 第 62 阶段补齐了后台停止原因的可观测性：Android 12+ WorkManager 停止码以隐私安全的稳定分类写入 ScheduledTask 与 WorkflowRun，并由任务中心展示；旧 Android、未停止值、未知码和历史记录均不被猜测。Redmi `143/143` instrumentation 与 JVM `424/424` 通过；本阶段没有自然系统停止样本，不将该能力解释为更强的后台存活保证，也不提前引入 Foreground Service。
 
@@ -19,6 +19,8 @@
 第 67 阶段继续落实应用服务分层：普通聊天的发送前持久化、上下文准备、模型请求、流式增量与成功/取消/失败状态机迁入 `ConversationSendCoordinator`。ViewModel 只把稳定事件投影为 Compose 状态并保留 30ms 节流和 Job 取消入口；取消事件发出后仍传播协程取消，持久化失败不会触发上游请求。新增 JVM `3/3`，完整 JVM `442/442` 与仅 Redmi 执行的 instrumentation `152/152` 通过；Room v29、Provider 协议、UI、Agent/Workflow 和后置能力不变。
 
 第 68 阶段继续把参考项目的 Session/Application Service 边界落到可测试代码：新增 `ConversationSessionPolicy`，统一第一条 `role=user` 消息标题（空白保持“新会话”）、空占位折叠、会话时间戳、摘要元数据继承、blank ID 和非当前会话更新隔离。ViewModel 删除 83 行纯状态规则，从 4272 行降到 4189 行；异步 Room 加载、保存 Job、删除事务和 Compose 副作用仍留在原位。六轮 TDD 后新增 JVM `6/6`，完整 JVM `448/448` 与仅 Redmi 执行的 instrumentation `152/152` 通过；Room v29、协议、UI、Agent/Workflow 和后置能力不变。
+
+第 69 阶段继续落实参考项目的单写者持久化边界：新增 `ConversationPersistenceCoordinator`，统一 latest-save Job、Room 串行写入、发送前等待，以及显式删除 ID 的代次确认/回滚。旧事务即使已进入不可取消提交区，最新快照仍最后写入；失败、取消、同 ID 重标记或旧失败回调晚到时不会丢失新删除意图。ViewModel 从 4189 行降到 4183 行，异步加载、删除 UI 和 Compose 副作用仍保留。新增 JVM `8/8`，完整 JVM `456/456` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB、协议、UI、Agent/Workflow 和后置能力不变。
 
 ## 1. 结论先行
 
@@ -347,6 +349,7 @@
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt`
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt`
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt`
+- `app/src/main/java/com/longdev/xiaoling/ui/ConversationPersistenceCoordinator.kt`
 - `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`

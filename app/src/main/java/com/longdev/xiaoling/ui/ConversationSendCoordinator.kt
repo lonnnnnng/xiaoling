@@ -5,14 +5,7 @@ import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.RequestMessage
 import com.longdev.xiaoling.network.StreamDeltaUpdate
 import com.longdev.xiaoling.prompt.PromptSettings
-import com.longdev.xiaoling.storage.StoredConversation
 import kotlinx.coroutines.CancellationException
-
-internal data class ConversationPersistenceSnapshot(
-    val conversations: List<StoredConversation>,
-    val selectedConversationId: String,
-    val deletedConversationIds: Set<String>,
-)
 
 internal data class ConversationSendRequest(
     val config: ProviderRequestConfig,
@@ -24,9 +17,7 @@ internal data class ConversationSendRequest(
 )
 
 internal sealed interface ConversationSendEvent {
-    data class SnapshotPersisted(
-        val deletedConversationIds: Set<String>,
-    ) : ConversationSendEvent
+    data object SnapshotPersisted : ConversationSendEvent
 
     data class ContextPrepared(
         val context: PreparedRequestContext,
@@ -73,7 +64,7 @@ internal class ConversationSendCoordinator(
         try {
             // long: 用户消息和附件必须先完整落入 Room，随后才能准备上下文并发起网络请求，避免进程退出后只留下上游请求而本地输入不可恢复。
             persistSnapshot(request.persistenceSnapshot)
-            onEvent(ConversationSendEvent.SnapshotPersisted(request.persistenceSnapshot.deletedConversationIds))
+            onEvent(ConversationSendEvent.SnapshotPersisted)
             preparedContext = prepareRequestContext(
                 request.config,
                 request.messages,

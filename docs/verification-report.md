@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-22（北京时间）
+验证日期：2026-07-23（北京时间）
 
 ## 环境
 
@@ -10,6 +10,14 @@
 - Android：14 / API 34
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
+
+## 2026-07-23 会话保存协调迁出（第 69 阶段）
+
+- 新增纯 Kotlin `ConversationPersistenceCoordinator`，统一 latest-save Job、Room 单写者、发送前等待旧保存，以及显式删除 ID 的代次确认与读取失败回滚。旧事务即使进入不可取消提交区，最新快照也会等待并最后写入；同 ID 在旧事务期间重新标记时不会被旧提交误确认。
+- 八轮 TDD 固定旧快照取消、不可取消提交后的最新写入、发送前等待、删除成功确认、失败保留、回滚、同 ID 重标记和旧回滚保护。聚焦 `ConversationPersistenceCoordinatorTest` 为 `8/8`，与第 66 至 68 阶段上下文/发送/状态测试组合通过。
+- `XiaoLingViewModel` 不再持有会话保存 Job、待删除集合和保存私有实现，从固定点 `d29a17f` 的 4189 行降到 4183 行。异步会话加载、删除后的 UI 切换/失败提示和 Compose 副作用仍留在 ViewModel；`ConversationRepository`、附件 BLOB、Room v29、协议、UI、`/agent` 与 Workflow 行为不变。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --console=plain` 通过；JVM XML 汇总 `456/456`、0 跳过、0 失败。仅使用 Redmi `wsvwypiz7xwslvl7` 手动安装测试 APK 并执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败。
+- instrumentation 后执行 `adb install -r` 重新安装正式 Debug APK并冷启动。最终 `MainActivity` 处于前台且应用 PID 存在，Room `user_version=29`，设备仅保留 `com.longdev.xiaoling` 正式包，测试包不存在，crash buffer 为空。
 
 ## 2026-07-22 会话状态投影规则迁出（第 68 阶段）
 
