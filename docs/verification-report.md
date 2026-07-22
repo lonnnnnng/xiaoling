@@ -1756,3 +1756,25 @@ LMK 与清理结果：
 当前结论：
 
 - 第 57 阶段关闭了“取消发生在预算累计之后但持久化仍停留旧快照”的窗口。下一阶段继续寻找 Android 自主 LMK，并在更长真实后台任务中观察预算快照与系统回收的组合行为；Foreground Service、精确定时及后续生态能力继续后置。
+
+## 2026-07-22 Redmi 后台长任务 TLS 阻断取证（第 58 阶段）
+
+目标与边界：
+
+- 使用生产 `RoomWorkflowRepository`、`ScheduledWorkflowWorker` 和 WorkManager，在 Redmi `wsvwypiz7xwslvl7` 创建 8 步 SAFE Workflow，观察预算快照、Workflow/Task/Agent 终态和系统回收；不使用强杀、Doze、trim-memory 或其他伪造 LMK 证据。
+- 临时 Probe 只用于取证，未进入正式源码或 Git；其中的本机兜底凭据已在测试后删除。Probe 创建的 Provider/Profile、2 个 Workflow、2 个失败 ScheduledTask、2 个 WorkflowRun、2 个 AgentRun 和对应会话/消息均已按 ID 定向删除。
+
+真实结果：
+
+- 两次执行均约 4 至 6 秒结束：`task=FAILED`、`workflow=FAILED`、8 步为首步 `FAILED` 加后续 `CANCELLED`，`agentRuns=1`、`agentStatuses=FAILED`、WorkManager `SUCCEEDED`、`budgetMonotonic=true`，模型失败分类为 `TLS`，错误为 `connection closed`。没有创建第二个 Agent Run，也没有把失败写成成功长任务。
+- Mac 侧使用同一端点访问 `/v1/models` 能完成 TLS 并得到 HTTP `401 Unauthorized`。Redmi 自带 `curl` 直接访问同一 HTTPS URL，在 TCP 已连接后于 TLS ClientHello 阶段稳定返回 `BoringSSL SSL_ERROR_SYSCALL`；强制 TLS 1.2、TLS 1.3 和 HTTP/1.1 结果一致。该证据把故障边界收窄到 Redmi 当前网络路径或上游 TLS 兼容，不支持修改应用证书校验或 HTTP 安全策略。
+
+清理与门禁：
+
+- 已删除临时 `Stage58LongWorkflowProbeTest.kt`，卸载 `com.longdev.xiaoling.test` 后重新安装正式 Debug APK；完整 instrumentation 清空正式模型配置后，又通过一次性 Repository/Keystore Probe 恢复本机兜底 Provider 和默认 Agent Profile，并立即删除该 Probe、重建不含凭据的 AndroidTest APK、再次卸载测试包。Stage 58 Provider/Profile/Workflow/会话计数均为 0，`com.longdev.xiaoling/.MainActivity` 位于前台，进程存活，crash buffer 为空。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过；JVM、Lint、Debug APK 和 AndroidTest APK 门禁通过。仅在 Redmi 执行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (141 tests)`。
+
+当前结论：
+
+- 第 58 阶段完成的是后台 Worker/TLS 失败边界和清理，不是更长真实成功任务或自然 LMK 验收。当前仍保留既有约 62.2 秒成功样本作为历史基线，但没有新增更长证据；不引入 Foreground Service，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+- 下一阶段先在 Redmi 网络路径恢复或切换到已验证可达的 Provider 后重做同一 8 步任务；只有取得更长成功耗时、系统回收或明确停止需求证据，才重新评估 Foreground Service。设备工具继续禁止进入 Workflow/后台自动化，精确定时及 MCP、远程 Channel、多 Agent、本地模型继续后置。
