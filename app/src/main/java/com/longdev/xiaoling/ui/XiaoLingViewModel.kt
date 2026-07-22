@@ -451,6 +451,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
         },
     )
+    // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
+    private val conversationSendCoordinator = ConversationSendCoordinator(
+        persistSnapshot = { snapshot ->
+            conversationStore.save(
+                snapshot.conversations,
+                snapshot.selectedConversationId,
+                snapshot.deletedConversationIds,
+            )
+        },
+        prepareRequestContext = conversationRequestContextPreparer::prepare,
+        sendRequest = { config, messages, onStreamDelta ->
+            client.sendMessage(config, messages, onStreamDelta)
+        },
+    )
     private val agentRunUseCase = AgentRunUseCase(application, client)
     private val agentProfileStore = RoomAgentProfileStore(application)
     private val agentRunRepository = RoomAgentRunRepository(application)
@@ -2971,7 +2985,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             parts = attachments.toUserMessageParts(userMessageId, userMessage),
         )
         val messagesWithUser = uiState.chatMessages + userChatMessage
-        var preparedContext = PreparedRequestContext.fromConversation(currentConversation)
+        val initialContext = PreparedRequestContext.fromConversation(currentConversation)
         uiState = uiState.copy(
             sendingMessage = true,
             result = null,
@@ -2982,10 +2996,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             pendingAgentApproval = null,
         ).withUpdatedCurrentConversation(
             messages = messagesWithUser,
-            summary = preparedContext.summary,
-            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-            summaryModel = preparedContext.summaryModel,
+            summary = initialContext.summary,
+            summaryUntilMessageId = initialContext.summaryUntilMessageId,
+            summaryUpdatedAt = initialContext.summaryUpdatedAt,
+            summaryModel = initialContext.summaryModel,
         )
         val preRequestConversations = uiState.conversations.map { it.toStored() }
         val preRequestSelectedConversationId = uiState.selectedConversationId
@@ -2995,94 +3009,130 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             try {
                 previousSaveJob?.cancelAndJoin()
-                // long: 附件请求发出前先等待 message 与 BLOB 的 Room 事务完成，确保进程在网络等待期间被回收时已发送的用户输入仍可恢复和进入备份。
-                conversationStore.save(
-                    preRequestConversations,
-                    preRequestSelectedConversationId,
-                    preRequestDeletedConversationIds,
+                conversationSendCoordinator.execute(
+                    request = ConversationSendRequest(
+                        config = config,
+                        messages = messagesWithUser,
+                        conversation = currentConversation,
+                        promptSettings = uiState.promptSettings,
+                        persistenceSnapshot = ConversationPersistenceSnapshot(
+                            conversations = preRequestConversations,
+                            selectedConversationId = preRequestSelectedConversationId,
+                            deletedConversationIds = preRequestDeletedConversationIds,
+                        ),
+                        initialContext = initialContext,
+                    ),
+                    onEvent = { event ->
+                        handleConversationSendEvent(
+                            event = event,
+                            baseMeta = baseMeta,
+                            userMessage = userMessage,
+                            messagesWithUser = messagesWithUser,
+                        )
+                    },
                 )
-                pendingDeletedConversationIds.removeAll(preRequestDeletedConversationIds)
-                preparedContext = conversationRequestContextPreparer.prepare(
-                    config = config,
-                    messages = messagesWithUser,
-                    conversation = currentConversation,
-                    promptSettings = uiState.promptSettings,
-                )
+            } finally {
+                sendMessageJob = null
+            }
+        }
+    }
+
+    private suspend fun handleConversationSendEvent(
+        event: ConversationSendEvent,
+        baseMeta: MessageMeta,
+        userMessage: String,
+        messagesWithUser: List<ChatMessage>,
+    ) {
+        // long: Coordinator 只冻结普通聊天的执行顺序；这里把每个稳定事件投影为当前会话 UI，并且只在对应提交点触发删除确认、记忆候选或最终持久化。
+        when (event) {
+            is ConversationSendEvent.SnapshotPersisted -> {
+                // long: 删除意图只有在包含用户消息与附件的 Room 事务成功后才能清除，否则下一次保存仍必须携带这些权威删除 ID。
+                pendingDeletedConversationIds.removeAll(event.deletedConversationIds)
+            }
+
+            is ConversationSendEvent.ContextPrepared -> {
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = messagesWithUser,
+                        summary = event.context.summary,
+                        summaryUntilMessageId = event.context.summaryUntilMessageId,
+                        summaryUpdatedAt = event.context.summaryUpdatedAt,
+                        summaryModel = event.context.summaryModel,
+                    )
+                    .copy(result = null)
+            }
+
+            is ConversationSendEvent.StreamDelta -> {
                 withContext(Dispatchers.Main.immediate) {
-                    uiState = uiState
-                        .withUpdatedCurrentConversation(
-                            messages = messagesWithUser,
-                            summary = preparedContext.summary,
-                            summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                            summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                            summaryModel = preparedContext.summaryModel,
-                        )
-                        .copy(result = null)
+                    scheduleStreamingAssistant(event.update, baseMeta)
                 }
-                client.sendMessage(config, preparedContext.requestMessages) { update ->
-                    withContext(Dispatchers.Main.immediate) {
-                        scheduleStreamingAssistant(update, baseMeta)
-                    }
-                }
-                    .also { response ->
-                        flushStreamingAssistant(baseMeta)
-                        val finalMessages = uiState.chatMessages.upsertLastAssistant(
-                            text = response.responseText,
-                            reasoningSummaries = response.reasoningSummaries,
-                            meta = baseMeta.copy(
-                                requestUrl = response.requestUrl,
-                                firstTokenLatencyMs = response.firstTokenLatencyMs,
-                                latencyMs = response.latencyMs,
-                            ),
-                        )
-                        uiState = uiState
-                            .withUpdatedCurrentConversation(
-                                messages = finalMessages,
-                                summary = preparedContext.summary,
-                                summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                                summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                                summaryModel = preparedContext.summaryModel,
-                            )
-                            .copy(
-                                sendingMessage = false,
-                                result = null,
-                            )
-                        createMemoryCandidateAfterTurn(
-                            userText = userMessage,
-                            conversationId = uiState.selectedConversationId,
-                            runId = null,
-                        )
-                        saveConversationSelection()
-                        saveCurrentProfileSelection()
-                    }
-            } catch (error: CancellationException) {
+            }
+
+            is ConversationSendEvent.Completed -> {
+                flushStreamingAssistant(baseMeta)
+                val response = event.response
+                val finalMessages = uiState.chatMessages.upsertLastAssistant(
+                    text = response.responseText,
+                    reasoningSummaries = response.reasoningSummaries,
+                    meta = baseMeta.copy(
+                        requestUrl = response.requestUrl,
+                        firstTokenLatencyMs = response.firstTokenLatencyMs,
+                        latencyMs = response.latencyMs,
+                    ),
+                )
+                uiState = uiState
+                    .withUpdatedCurrentConversation(
+                        messages = finalMessages,
+                        summary = event.context.summary,
+                        summaryUntilMessageId = event.context.summaryUntilMessageId,
+                        summaryUpdatedAt = event.context.summaryUpdatedAt,
+                        summaryModel = event.context.summaryModel,
+                    )
+                    .copy(
+                        sendingMessage = false,
+                        result = null,
+                    )
+                // long: 只有模型响应完整收敛后才生成长期记忆候选；取消或断流正文都不能成为新的跨会话事实来源。
+                createMemoryCandidateAfterTurn(
+                    userText = userMessage,
+                    conversationId = uiState.selectedConversationId,
+                    runId = null,
+                )
+                saveConversationSelection()
+                saveCurrentProfileSelection()
+            }
+
+            is ConversationSendEvent.Cancelled -> {
                 flushStreamingAssistant(baseMeta)
                 val stoppedMessages = uiState.chatMessages.withCancelledGeneration(baseMeta)
                 uiState = uiState
                     .withUpdatedCurrentConversation(
                         messages = stoppedMessages,
-                        summary = preparedContext.summary,
-                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                        summaryModel = preparedContext.summaryModel,
+                        summary = event.context.summary,
+                        summaryUntilMessageId = event.context.summaryUntilMessageId,
+                        summaryUpdatedAt = event.context.summaryUpdatedAt,
+                        summaryModel = event.context.summaryModel,
                     )
                     .copy(
                         sendingMessage = false,
                         result = null,
                     )
                 saveConversationSelection()
-            } catch (error: Throwable) {
+            }
+
+            is ConversationSendEvent.Failed -> {
+                // long: 先强制刷出已收到的最后一个 delta，再将其标记为不完整并追加错误气泡，避免网络失败把用户已经看到的正文静默删除。
                 flushStreamingAssistant(baseMeta)
-                val failure = error as? ApiFailure
+                val failure = event.error as? ApiFailure
                 val failureKind = failure?.kind?.title ?: FailureKind.UNKNOWN.title
-                val failureMessage = error.message ?: "未知错误"
+                val failureMessage = event.error.message ?: "未知错误"
                 val failedMessages = uiState.chatMessages.withFailedStreamingGeneration(
                     baseMeta = baseMeta,
                     errorKind = failureKind,
                     errorMessage = failureMessage,
                 ) + ChatMessage(
                     role = "error",
-                    text = error.toConversationErrorText(),
+                    text = event.error.toConversationErrorText(),
                     createdAt = System.currentTimeMillis(),
                     meta = baseMeta.copy(
                         finishReason = "failed",
@@ -3093,18 +3143,16 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 uiState = uiState
                     .withUpdatedCurrentConversation(
                         messages = failedMessages,
-                        summary = preparedContext.summary,
-                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                        summaryModel = preparedContext.summaryModel,
+                        summary = event.context.summary,
+                        summaryUntilMessageId = event.context.summaryUntilMessageId,
+                        summaryUpdatedAt = event.context.summaryUpdatedAt,
+                        summaryModel = event.context.summaryModel,
                     )
                     .copy(
                         sendingMessage = false,
                         result = null,
                     )
                 saveConversationSelection()
-            } finally {
-                sendMessageJob = null
             }
         }
     }

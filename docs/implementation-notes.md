@@ -14,6 +14,14 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 67 阶段实现与验证边界
+
+- 新增 `ConversationSendCoordinator` 及 `ConversationSendRequest / ConversationSendEvent`，用窄函数依赖统一普通聊天的 Room 快照持久化、上下文准备、网络请求、流式增量和终态事件顺序。协调器不依赖 Android Context、Compose 状态或 Room DAO。
+- 用户停止会先发出携带最近 `PreparedRequestContext` 的 `Cancelled`，再在 `finally` 语义下继续抛出原始 `CancellationException`；普通异常发出 `Failed` 并保留故障发生前最后可证明的摘要边界。持久化失败不会继续调用 preparer 或模型。
+- `XiaoLingViewModel.sendMessage()` 从约 190 行收敛到约 104 行，只保留入口校验、用户消息投影、旧保存 Job 取消和发送 Job 生命周期；`handleConversationSendEvent()` 继续负责 Compose 状态、30ms 流式节流、最终消息与持久化触发。由于显式事件投影仍在 ViewModel，总文件为 4268 行，本阶段不宣称文件继续缩小。
+- TDD 三轮有效 Red 分别暴露缺少协调器 seam、取消时缺少终态事件、发送前 Room 异常直接逃逸。新增聚焦 JVM `3/3`，完整 JVM `442/442`、Redmi instrumentation `152/152`、Lint、Debug 与 AndroidTest 构建通过。测试后正式 Debug APK 冷启动成功，`MainActivity` 前台 PID `18078`、schema 29、仅正式包存在且 crash buffer 为空。
+- Room Schema、Provider 协议、消息结构、Compose UI、`/agent` Runtime 与 Workflow 均未改变；Embedding、设备后台自动化、精确定时和 Foreground Service 继续后置。
+
 ## 第 66 阶段实现与验证边界
 
 - 新增 `ConversationRequestContextPreparer`，通过可注入的知识引用核验、摘要生成和时钟形成纯应用服务 seam；它统一处理上下文资格、知识消息投影、摘要失效/复用、最近 16 条窗口、窗口外最多 8 条可信 Agent 结果、增量摘要和 Responses 用户附件映射。
@@ -84,8 +92,9 @@
 | 模块 | 关键文件 | 职责 |
 |---|---|---|
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、普通聊天模型选择、Agent Profile 与模型提供方管理页面。 |
-| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、普通对话发送状态、Agent Profile 选择和前台 Workflow 编排；上下文规则已不再由此类实现。 |
+| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、普通对话事件投影、Agent Profile 选择和前台 Workflow 编排；上下文规则与网络发送状态机已不再由此类实现。 |
 | Conversation context | `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt` | 普通聊天上下文资格、知识生命周期核验、最近窗口、增量摘要、可信 Agent 历史与 Responses 用户附件请求投影。 |
+| Conversation send | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt` | 普通聊天发送前持久化、上下文准备、网络请求、流式增量和成功/取消/失败事件的稳定编排。 |
 | Network | `app/src/main/java/com/longdev/xiaoling/network/LlmProviderAdapter.kt`、`OpenAiCompatibleClient.kt` | Adapter 负责 OpenAI-compatible URL、payload 与响应协议；Client 负责 HTTP、鉴权 Header、取消、计时和 SSE 读取。 |
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、AgentProfile、Conversation、Message/MessagePart、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentMemoryCandidate 表。 |
@@ -99,16 +108,16 @@
 
 ## 当前架构边界
 
-当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备已完成第一轮迁出：
+当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备与网络发送状态机已经迁出：
 
-- Provider 管理、模型同步、会话切换、发送状态、流式更新和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，ViewModel 只注入知识 Store、摘要网络调用和提示词设置。
+- Provider 管理、模型同步、会话切换、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 阶段已迁出普通聊天上下文准备，后续继续按同一方式迁出网络发送状态与其他会话/运行编排。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66、67 阶段已迁出普通聊天上下文准备与网络发送状态机，后续继续迁出其他会话/UI 编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 

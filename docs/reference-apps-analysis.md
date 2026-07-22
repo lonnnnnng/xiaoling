@@ -16,6 +16,8 @@
 
 第 66 阶段开始兑现参考项目共同强调的应用服务分层：普通聊天的上下文资格、知识生命周期、最近窗口、增量摘要和请求投影从 4439 行的 `XiaoLingViewModel` 迁入独立 `ConversationRequestContextPreparer`，ViewModel 只装配 Room、网络与提示词依赖。新增 JVM `8/8`，完整 JVM `439/439` 与 Redmi instrumentation `152/152` 通过；Schema、协议和 UI 不变。这一拆分为后续 Embedding 或 `/agent` 附件建立单一上下文入口，但本阶段不提前引入二者。
 
+第 67 阶段继续落实应用服务分层：普通聊天的发送前持久化、上下文准备、模型请求、流式增量与成功/取消/失败状态机迁入 `ConversationSendCoordinator`。ViewModel 只把稳定事件投影为 Compose 状态并保留 30ms 节流和 Job 取消入口；取消事件发出后仍传播协程取消，持久化失败不会触发上游请求。新增 JVM `3/3`，完整 JVM `442/442` 与仅 Redmi 执行的 instrumentation `152/152` 通过；Room v29、Provider 协议、UI、Agent/Workflow 和后置能力不变。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。

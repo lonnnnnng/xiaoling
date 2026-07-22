@@ -11,6 +11,14 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 普通聊天网络发送编排迁出（第 67 阶段）
+
+- 新增纯 Kotlin `ConversationSendCoordinator`，按“Room 快照持久化 → 上下文准备 → 模型请求 → 流式增量 → 终态事件”顺序执行，并以 `SnapshotPersisted / ContextPrepared / StreamDelta / Completed / Cancelled / Failed` 形成单一状态机 seam。
+- TDD 三轮有效 Red 依次确认：缺少协调器 seam；网络取消虽传播但没有携带已准备上下文的 `Cancelled`；发送前 Room 异常直接逃逸且没有阻止后续调用。最终聚焦新增 JVM `3/3`，完整 JVM XML 汇总 `442/442`、0 跳过、0 失败。
+- `XiaoLingViewModel.sendMessage()` 从约 190 行收敛到约 104 行，ViewModel 保留入口校验、Compose 状态投影、30ms 流式节流与 Job 生命周期。取消事件完成 UI 收敛后继续传播 `CancellationException`，所以底层 OkHttp 请求仍真实取消；普通异常保持原错误分类和部分正文“不完整”语义。
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 通过；仅使用 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败。
+- instrumentation 后重新安装正式 Debug APK并冷启动；最终 `MainActivity` 前台 PID `18078`，Room schema 29，仅 `com.longdev.xiaoling` 正式包存在，crash buffer 为空。Room、协议、UI、`/agent`、Workflow 及 Foreground Service 后置边界未改变。
+
 ## 2026-07-22 普通聊天上下文准备迁出 ViewModel（第 66 阶段）
 
 - 新增 `ConversationRequestContextPreparer`，通过注入 seam 独立覆盖短会话直通、长会话只压缩最近 16 条之前的增量、摘要边界复用、失效知识消息/摘要清理和摘要取消传播；原 `CurrentKnowledgeContextTest` 继续保护知识投影。
