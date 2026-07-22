@@ -18,7 +18,9 @@
 
 - 生产 `ScheduledWorkflowWorker` 在 Redmi 真机上被真实触发并执行 8 步 SAFE Workflow；两次样本约 4 至 6 秒失败，Task/Workflow/Agent 均进入失败终态，只有 1 个 Agent Run，后续步骤取消，预算事件单调且没有复制 Run。
 - 两次失败均记录为 `llmFailureKinds=TLS`、`agentErrors=connection closed`。Redmi 自带 `curl` 直接访问同一 HTTPS 端点，在 TCP 建连后于 TLS ClientHello 阶段得到 `BoringSSL SSL_ERROR_SYSCALL`；Mac 侧同端点可完成 TLS 并返回 HTTP 401。故障边界暂指向设备网络路径或上游 TLS 兼容，不修改 OkHttp 安全策略、不关闭证书校验、不把失败写成模型长任务证据。
-- 临时 Probe 含本机兜底凭据，已从源码删除；两次 Probe 创建的 Provider/Profile/Workflow/ScheduledTask/Run/会话数据已定向清理，正式 Debug APK 已恢复到 Redmi。第 58 阶段目标“更长真实后台任务与系统回收组合证据”尚未完成，设备工具仍不进入 Workflow/后台自动化，Foreground Service 继续证据驱动后置。
+- 临时 Probe 含本机兜底凭据，已从源码删除；早期两次 TLS Probe 创建的 Provider/Profile/Workflow/ScheduledTask/Run/会话数据已定向清理，正式 Debug APK 已恢复到 Redmi。网络恢复后的成功长任务复验见下方，设备工具仍不进入 Workflow/后台自动化，Foreground Service 继续证据驱动后置。
+
+网络恢复后的同阶段复验：生产 WorkManager 在 `92.667s` 内完成同一 8 步 SAFE Workflow；8 个 Agent Run 和 8 个步骤均为 `COMPLETED`，工具依次覆盖 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search` 后再次读取时间与会话列表，8/8 ToolResult 为 `success=true / PASSED`。每个 Agent Run 的预算快照单调，`llmFailureKinds=[]`，单 ScheduledTask 只关联一个 Workflow Run；历史退出的 `lowMemoryExits=0`，不能宣称自然 LMK。Probe 和所有取证数据已清理，当前耗时仍不支持预先引入 Foreground Service。
 
 ## 模块职责
 

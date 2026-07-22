@@ -2,7 +2,9 @@
 
 ## 结论
 
-第 58 阶段的真实后台长任务复验尚未形成成功样本：Redmi 上生产 Worker 两次均在约 4 至 6 秒于 TLS 握手阶段失败，Task/Workflow/Agent 正常收敛且预算单调、没有复制 Run；设备 `curl` 独立复现同一 TLS 失败。当前仍缺更长成功任务和 Android 自主 LMK 证据，因此不引入 Foreground Service，不恢复旧执行栈；待 Redmi 网络路径恢复后继续同一切片。
+第 58 阶段早期真实后台长任务样本曾因 Redmi TLS 握手失败而在约 4 至 6 秒收敛；Task/Workflow/Agent 正常收敛且预算单调、没有复制 Run，设备 `curl` 独立复现同一失败。网络恢复后的成功复验见下一段。
+
+网络恢复后已补齐成功样本：同一 Redmi 生产 Worker 的 8 步 SAFE Workflow 用时 `92.667s`，8 个 Agent Run、8 个步骤和全部工具验证均成功，预算快照单调且只有一个 Workflow Run；历史退出仍为 `lowMemoryExits=0`，没有 Android 自主 LMK。该耗时仍由普通 WorkManager 稳定承载，不提前引入 Foreground Service；设备工具继续不进入 Workflow/后台自动化。
 
 小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v27 已让 Text/Reasoning/Image/Document/Tool 和知识引用持久化恢复。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 49 阶段已取得约 62.2 秒、8 步 SAFE 全部成功的正式 Worker 样本；最新 LMK 基线的两条退出来自 instrumentation 与安装包，`REASON_LOW_MEMORY=0`，仍缺 Android 自主 LMK 证据。当前完整门禁为 420 条 JVM 与仅 Redmi 执行的 141 条 instrumentation。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 

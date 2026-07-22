@@ -1778,3 +1778,20 @@ LMK 与清理结果：
 
 - 第 58 阶段完成的是后台 Worker/TLS 失败边界和清理，不是更长真实成功任务或自然 LMK 验收。当前仍保留既有约 62.2 秒成功样本作为历史基线，但没有新增更长证据；不引入 Foreground Service，不恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
 - 下一阶段先在 Redmi 网络路径恢复或切换到已验证可达的 Provider 后重做同一 8 步任务；只有取得更长成功耗时、系统回收或明确停止需求证据，才重新评估 Foreground Service。设备工具继续禁止进入 Workflow/后台自动化，精确定时及 MCP、远程 Channel、多 Agent、本地模型继续后置。
+
+## 2026-07-22 Redmi 网络恢复后的 92.667 秒八步成功 Workflow（第 58 阶段复验）
+
+执行与结果：
+
+- 网络恢复后使用正式 Provider/Profile，通过生产 `ScheduledWorkflowWorker` 和 WorkManager 在 Redmi `wsvwypiz7xwslvl7` 重新执行 8 步 SAFE Workflow。WorkRequest `287d9de6-6eef-467c-a290-a4491f3ae4b1` 于约 `92.667s` 后 `SUCCEEDED`；ScheduledTask、WorkflowRun 和 8 个 WorkflowStep 全部 `COMPLETED`。
+- 8 个 Agent Run 均为 `COMPLETED`，没有 `Result.retry` 或复制 Run。步骤依次完成 `app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、再次 `app.current_time` 和再次 `app.list_conversations`；8/8 ToolResult 为 `success=1 / verificationStatus=PASSED`。
+- 每个 Agent Run 的执行预算快照均单调，预算最大值约为 `6.382s` 至 `17.369s`；RunEvent 账本包含 40 条预算更新、8 条 ToolCall、8 条 ToolResult、8 条 `tool.verify`，没有 `llm.request.failed`。
+
+系统回收与清理：
+
+- 该样本没有触发系统回收；`ApplicationExitInfo` 历史记录中 `lowMemoryExits=0`，新增退出仍是 instrumentation 完成后的 `USER REQUESTED / FORCE STOP`，不能写成 Android 自主 LMK。普通 WorkManager 在当前约 93 秒任务上稳定完成，当前没有引入 Foreground Service 的证据。
+- Probe 源码、测试包、Workflow、ScheduledTask、WorkflowRun、8 个 AgentRun、会话消息和工具账本均已清理；正式 Provider/Profile 保留，正式 `MainActivity` 已重新启动，测试包已卸载，数据库中 Stage 58 记录为 0。
+
+当前结论：
+
+- 第 58 阶段现在同时具备“网络阻断失败样本”和“网络恢复后的 92.667 秒成功样本”。它证明当前长度的后台链路可完成，不证明任意更长任务的系统存活保证，也不证明自然 LMK。下一阶段继续以更长真实耗时、自然系统回收或明确用户停止需求决定 Foreground Service；设备工具仍不进入 Workflow/后台自动化，精确定时及后续生态能力继续后置。

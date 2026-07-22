@@ -2,7 +2,9 @@
 
 ## 第 58 阶段验证边界
 
-更长真实后台 Workflow 仍是待完成验收项。当前 Redmi 两次生产 Worker 样本均在约 4 至 6 秒因 TLS 握手失败收敛，设备自带 `curl` 可独立复现 `BoringSSL SSL_ERROR_SYSCALL`；这不是成功任务耗时，也不是 Android 自主回收证据。系统不通过关闭证书校验或预先引入 Foreground Service 绕过该问题，设备网络恢复后再继续长任务与自然系统回收验收。
+第 58 阶段早期两次真实后台 Workflow 因 Redmi TLS 握手失败在约 4 至 6 秒收敛，设备自带 `curl` 可独立复现 `BoringSSL SSL_ERROR_SYSCALL`；这两次不是成功任务耗时，也不是 Android 自主回收证据。系统没有通过关闭证书校验或预先引入 Foreground Service 绕过该问题，网络恢复后的成功样本见下一段。
+
+网络恢复后第 58 阶段已取得一条成功长任务样本：普通 WorkManager 在 Redmi 上以 `92.667s` 完成 8 步 SAFE Workflow，8 个 Agent Run 和工具验证全部成功，预算快照单调且未复制 Run；历史退出中 `lowMemoryExits=0`，因此仍不能宣称 Android 自主 LMK 或据此预先引入 Foreground Service。前述 TLS 失败仍保留为网络阻断样本。
 
 ## 产品定位
 
