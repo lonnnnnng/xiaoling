@@ -29,6 +29,8 @@ import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.ScheduledWorkflowClaim
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import com.longdev.xiaoling.system.RoomProcessExitObservationStore
+import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -42,6 +44,10 @@ class ScheduledWorkflowWorker(
             ?: return Result.failure()
         ScheduledWorkflowProcessExecutionRegistry.process.withScheduledTask(taskId) {
             // long: 当前进程所有权必须先于 Repository 构造和任务 claim 建立；应用同时启动时，恢复快照会识别这条链而不会把刚开始的 Worker 当成旧进程遗留。
+            // long: 后台冷启动在所有权登记后补采系统退出历史；观察失败不影响任务执行，观察记录也不与当前 Task 建立伪因果关系。
+            collectProcessExitObservationsBestEffort {
+                RoomProcessExitObservationStore(applicationContext).collect()
+            }
             ScheduledWorkflowExecutor(applicationContext).execute(taskId, ::scheduledWorkerStopReason)
         }
         // long: 业务成功、失败和待处理都已经写入 Room 终态；WorkManager 只负责触发，不用系统重试复制一个可能已执行过的 Agent Run。

@@ -576,3 +576,26 @@ data class WorkflowStepEntity(
     val outputSnapshot: String?,
     val reusedFromStepId: String?,
 )
+
+@Entity(
+    tableName = "process_exit_observations",
+    indices = [
+        Index(value = ["timestamp"]),
+        Index(value = ["evidenceKind", "timestamp"]),
+    ],
+)
+data class ProcessExitObservationEntity(
+    @PrimaryKey val id: String,
+    val timestamp: Long,
+    val processName: String,
+    val pid: Int,
+    val reasonCode: Int,
+    val reasonName: String,
+    val status: Int,
+    val importance: Int,
+    val pssKb: Long,
+    val rssKb: Long,
+    val lowMemoryReportSupported: Boolean,
+    val evidenceKind: String,
+    val observedAt: Long,
+)

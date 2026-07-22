@@ -558,3 +558,22 @@ interface WorkflowDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertScheduledTask(task: ScheduledTaskEntity)
 }
+
+@Dao
+interface ProcessExitObservationDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(observations: List<ProcessExitObservationEntity>): List<Long>
+
+    @Query("SELECT * FROM process_exit_observations ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun latest(limit: Int): List<ProcessExitObservationEntity>
+
+    @Query(
+        """
+        DELETE FROM process_exit_observations
+        WHERE id NOT IN (
+            SELECT id FROM process_exit_observations ORDER BY timestamp DESC LIMIT :maxEntries
+        )
+        """,
+    )
+    suspend fun pruneToLatest(maxEntries: Int): Int
+}

@@ -106,6 +106,8 @@ import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.XiaoLingBackupManager
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import com.longdev.xiaoling.system.RoomProcessExitObservationStore
+import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -464,6 +466,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentRunRepository = RoomAgentRunRepository(application)
     private val agentMemoryStore = RoomAgentMemoryStore(application)
     private val workflowRepository = RoomWorkflowRepository(application)
+    private val processExitObservationStore = RoomProcessExitObservationStore(application)
     private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(application)
     private val startupRecoveryCoordinator = StartupRecoveryCoordinator(
         processExecutionRegistry = ScheduledWorkflowProcessExecutionRegistry.process,
@@ -528,6 +531,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                // long: 前台启动只补采系统退出观察；采集失败不能阻塞聊天和恢复，也不能把时间邻近的退出强行归因到某个旧 Run。
+                collectProcessExitObservationsBestEffort {
+                    processExitObservationStore.collect()
+                }
+            }
             val recoveryCandidates = withContext(Dispatchers.IO) {
                 // long: 启动恢复先冻结旧进程候选，并与当前进程已注册 Worker 隔离；后续每个恢复步骤只消费这份快照，不能重新全库扫描误伤新执行。
                 startupRecoveryCoordinator.capture()

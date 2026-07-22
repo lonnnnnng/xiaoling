@@ -37,8 +37,9 @@ import org.json.JSONObject
         WorkflowStepEntity::class,
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
+        ProcessExitObservationEntity::class,
     ],
-    version = 28,
+    version = 29,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -51,9 +52,10 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentSkillDao(): AgentSkillDao
     abstract fun agentProfileDao(): AgentProfileDao
     abstract fun workflowDao(): WorkflowDao
+    abstract fun processExitObservationDao(): ProcessExitObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 28
+        const val CURRENT_VERSION = 29
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -749,6 +751,34 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 进程退出历史是独立系统观察，不能凭时间邻近回填到旧 Task/Run；新表从空账本开始，只保存 Android 明确提供的有界诊断字段。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `process_exit_observations` (
+                        `id` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `processName` TEXT NOT NULL,
+                        `pid` INTEGER NOT NULL,
+                        `reasonCode` INTEGER NOT NULL,
+                        `reasonName` TEXT NOT NULL,
+                        `status` INTEGER NOT NULL,
+                        `importance` INTEGER NOT NULL,
+                        `pssKb` INTEGER NOT NULL,
+                        `rssKb` INTEGER NOT NULL,
+                        `lowMemoryReportSupported` INTEGER NOT NULL,
+                        `evidenceKind` TEXT NOT NULL,
+                        `observedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_process_exit_observations_timestamp` ON `process_exit_observations` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_process_exit_observations_evidenceKind_timestamp` ON `process_exit_observations` (`evidenceKind`, `timestamp`)")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -777,6 +807,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_25_26,
             MIGRATION_26_27,
             MIGRATION_27_28,
+            MIGRATION_28_29,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

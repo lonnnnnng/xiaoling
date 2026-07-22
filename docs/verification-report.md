@@ -11,6 +11,24 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 Android 进程退出观察账本（第 64 阶段）
+
+实现与证据边界：
+
+- Android 11+ 通过生产 `AndroidProcessExitObservationSource` 读取本应用 `ApplicationExitInfo`；前台 ViewModel 在启动恢复快照前补采，`ScheduledWorkflowWorker` 在登记当前进程 Task 所有权后、执行 Repository/Workflow 前补采。旁路采集普通异常不阻断主流程，`CancellationException` 必须继续传播。
+- Room v28→v29 新建独立 `process_exit_observations` 表，保存 timestamp、processName、pid、reason/status、importance、PSS/RSS、LMK 报告能力、稳定分类和首次观察时间；不含 Task/Run 外键，不保存 description、trace 或进程状态摘要。重复历史以稳定 ID 去重并在同一事务裁剪到最新 30 条，迁移不发明历史记录。
+- 只有 `REASON_LOW_MEMORY` 分类为 `DIRECT_LOW_MEMORY`；设备不支持直接 LMK 原因报告时，`REASON_SIGNALED + SIGKILL` 仅分类为 `LOW_MEMORY_CANDIDATE`。用户停止、应用取消、权限/包状态变化固定归为 `CONTROLLED_OR_MAINTENANCE`，不得凭时间邻近关联某个 Task/Run。
+
+自动化与 Redmi 结果：
+
+- 聚焦策略单测和 AndroidTest 编译通过；新增取消安全回归证明普通诊断异常被隔离、协程取消继续传播。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 执行 v28→v29 迁移、Room 去重/30 条裁剪和真实 `ApplicationExitInfo` 来源，聚焦 `5/5` 通过。完整 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew :app:connectedDebugAndroidTest --console=plain` 为 `149/149`、0 跳过、0 失败；没有启动、连接或操作 Pixel/其他模拟器。
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 通过；Gradle XML 汇总为 JVM `431/431`，Lint、Debug APK 和 AndroidTest APK 均成功。
+- 正式 Debug APK 冷启动后只读回查 `PRAGMA user_version=29`，初始退出账本为 0。执行一次明确的 `am force-stop com.longdev.xiaoling` 后重新冷启动，账本为 1 条 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`；没有直接 LMK 或候选 LMK。
+- 完整 instrumentation 结束后已卸载测试包并重新安装正式 Debug APK；最终冷启动 `MainActivity` 成功，前台 PID `5557`，crash buffer 为空。正式数据库 `PRAGMA user_version=29`、退出观察表为 0 条，设备仅保留 `com.longdev.xiaoling` 正式包。重新安装后的空账本是最终设备状态，不覆盖上一条受控 `force-stop` 的阶段验收记录。
+
+当前结论：本阶段证明生产采集、分类、去重、裁剪和迁移链可用，并且受控停止不会伪装成自然回收。它没有取得 Android 自主 LMK、系统配额、超时或自然进程回收证据，不支持预先引入 Foreground Service、恢复无法证明的旧执行栈，或把设备工具开放到 Workflow/后台自动化。
+
 ## 2026-07-22 Redmi 真实 WorkManager 应用取消原因（第 63 阶段）
 
 验证目标与边界：
@@ -60,7 +78,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v28 和完整回归证据见文末最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v29 和完整回归证据见文首最新阶段记录。
 
 Schema 生成方式：
 

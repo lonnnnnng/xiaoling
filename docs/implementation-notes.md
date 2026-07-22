@@ -14,6 +14,14 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 64 阶段实现与验证边界
+
+- `AndroidProcessExitObservationSource` 在 Android 11+ 读取本应用 `ApplicationExitInfo` 历史，最多请求 30 条，只映射 timestamp、processName、pid、reason/status、importance、PSS/RSS 等稳定数值字段；不读取或持久化 description、trace 和状态摘要。
+- `ProcessExitObservationPolicy` 只把 `REASON_LOW_MEMORY` 分类为 `DIRECT_LOW_MEMORY`；当 `isLowMemoryKillReportSupported()` 为 false 时，`REASON_SIGNALED + SIGKILL` 分类为 `LOW_MEMORY_CANDIDATE`，其他应用失败、系统资源、用户/包维护和未知原因分别保留稳定证据族，不能凭时间邻近关联 Task/Run。
+- `RoomProcessExitObservationStore` 以 `${timestamp}|${pid}|${reasonCode}|${status}|${processName}` 去重，在同一事务内插入并裁剪到最新 30 条；API 不支持时返回空观察，不发明历史。`collectProcessExitObservationsBestEffort` 只吞普通异常，协程取消继续传播。
+- Room v28→v29 只创建空的 `process_exit_observations` 表及 timestamp/evidenceKind 复合索引；表不含 Task/Run 外键，历史退出不会被迁移猜造为某次执行的原因。ViewModel 前台启动在恢复快照前采集，Worker 在 `ScheduledWorkflowProcessExecutionRegistry` 登记 Task 后、构造执行器前采集，观察失败不阻断主流程。
+- 聚焦 Redmi `5/5`、完整 Redmi instrumentation `149/149`、JVM `431/431`、Lint、Debug 与 AndroidTest 构建通过。正式 Debug DB 实测 `PRAGMA user_version=29`；受控 `force-stop` 后冷启动记录 1 条 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`，没有直接 LMK 或候选 LMK 证据。
+
 ## 第 63 阶段实现与验证边界
 
 - `WorkManagerStopReasonInstrumentedTest` 在 Redmi Android 14 入队真实 `CoroutineWorker`，等待进入运行态后调用 `cancelWorkById()`；Worker 的取消出口同步读取 `stopReason`，经生产 `ScheduledWorkerStopReasonPolicy` 得到 `CANCELLED_BY_APP(1)`。测试只使用专用 SharedPreferences 通信并在结束时清理，不依赖模型或正式 Workflow 数据。
@@ -69,6 +77,7 @@
 | Storage | `app/src/main/java/com/longdev/xiaoling/storage/` | Conversation/Message Repository、Agent Profile Store、旧 SharedPreferences 一次性迁移、UI 偏好和 API Key 加密。 |
 | Agent | `app/src/main/java/com/longdev/xiaoling/agent/` | Agent Profile 策略、最小 Agent Runtime、Run Ledger interface、真实低风险 Tool Registry、交互式审批 gate 和可审计运行链路。 |
 | Device | `app/src/main/java/com/longdev/xiaoling/device/` | Accessibility 观察与有限动作、授权/连接健康检查、有界脱敏 snapshot、短生命周期节点引用、隐私/应用白名单、动作后验证和前台直接 Agent 门禁。 |
+| System | `app/src/main/java/com/longdev/xiaoling/system/` | ApplicationExitInfo 旁路观察、LMK/受控退出分类、30 条有界 Room 账本和取消安全的启动/Worker 采集。 |
 | Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行、进程内 Worker 所有权、启动恢复候选隔离、`STOP_REQUESTED` 持久化停止与结果通知。 |
 | Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
@@ -80,7 +89,7 @@
 - Provider 管理、模型同步、会话切换、发送请求、摘要生成、流式更新和错误提示由同一个 ViewModel 维护。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v28 Schema；迁移测试覆盖 v4→v28、各关键增量迁移和全新 v28 建库。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
@@ -239,8 +248,8 @@
 
 ## 本地存储
 
-- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v28，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v28 的关键增量和全新 v28 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列，不从旧正文或历史 JSON 猜造引用。
+- Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、独立 ProcessExitObservation、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
+- 数据库当前版本为 v29，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v29 的关键增量和全新 v29 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表，不从旧正文、历史 JSON 或退出时间邻近关系猜造引用、系统停止原因或 Task/Run 关联。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -298,7 +307,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 424 条 JVM 与仅 Redmi 执行的 145 条 instrumentation。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 431 条 JVM 与仅 Redmi 执行的 149 条 instrumentation；进程退出观察的受控记录不代表自然 LMK。
 
 ## 任务中心需确认队列
 

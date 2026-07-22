@@ -4,11 +4,13 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-22：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。`lowMemory=0`，仍不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-22：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
 第 62 阶段补齐了后台停止原因的可观测性：Android 12+ WorkManager 停止码以隐私安全的稳定分类写入 ScheduledTask 与 WorkflowRun，并由任务中心展示；旧 Android、未停止值、未知码和历史记录均不被猜测。Redmi `143/143` instrumentation 与 JVM `424/424` 通过；本阶段没有自然系统停止样本，不将该能力解释为更强的后台存活保证，也不提前引入 Foreground Service。
 
 第 63 阶段补齐真实应用取消路径：Redmi Android 14 的 WorkManager 实际返回 `CANCELLED_BY_APP(1)`，证明第 62 阶段读取链能取得平台事实；业务侧仍让先落库的 `STOP_REQUESTED` 用户意图优先，后到机制码不得覆盖。完整 Redmi instrumentation 更新为 `145/145`。该受控样本不等同自然 LMK、配额或超时，路线仍保持普通 WorkManager 和 Foreground Service 后置。
+
+第 64 阶段把 Android 11+ `ApplicationExitInfo` 变成生产旁路观察：前台和 Worker 冷启动均可采集，Room v29 只保存 30 条稳定数值记录，不关联旧 Task/Run，也不保存 description、trace 或状态摘要。只有 `LOW_MEMORY` 是直接 LMK；直接报告不受支持时的 `SIGNALED + SIGKILL` 仅为候选，用户/应用/包维护退出保持受控分类。JVM `431/431`、Redmi `149/149` 通过；受控 `force-stop` 实测为 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`，不构成自然回收。
 
 ## 1. 结论先行
 
@@ -329,7 +331,7 @@
 - Room v24 已为 USER Image part 增加 MIME、文件名、BLOB 和 detail；系统选择器图片经过 8 MB 有界读取、签名和解码校验，Responses 使用 Data URL，Compose 支持预览/移除/历史展示。图片 BLOB 只为当前会话加载，轻量快照保留未加载 BLOB，请求等待 Room 提交，陈旧前台快照不能复活已删会话。Chat Completions、`/agent` 和可信工具上下文均不接收 Image。
 - Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document 支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX；8 MB、50 页、200,000 UTF-8 字符及 OpenXML 的 ZIP/OPC 根节点、加密、条目数和展开预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载，不能进入 `/agent` 或可信工具上下文。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
-- Room v4、v6-v27 Schema 已导出；迁移测试覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile、消息 parts 和知识引用演进。v26→v27 只增加默认空引用列；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image、Document 或 KnowledgeReference 证据。
+- Room v4、v6-v29 Schema 已导出；迁移测试覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile、消息 parts、知识引用和进程退出观察演进。v26→v27 只增加默认空引用列，v28→v29 只创建空退出观察表；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image、Document、KnowledgeReference 或 Task/Run 退出归因。
 
 现有关键实现位于：
 
@@ -354,7 +356,7 @@
 | ToolCall/ToolResult 已独立落表，任务中心、恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。全部结果与验证已落库时可恢复本地收尾 |
 | 提交状态未知或验证事实不完整的通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；`notes.create / memory.remember` 可从完整已提交证据恢复受限只读验证，任意工具在全部 `PASSED` 后可恢复控制面收尾，但都不能继续旧规划或 Workflow 后续步骤 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
-| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；已有 62.2 秒成功样本，但自然 LMK 尚未覆盖，仍不支持提前引入 Foreground Service |
+| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v29 已独立观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
 | PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、索引、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 Embedding 与规模化检索质量验证 |
 | 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；仍不能进入 Workflow/后台自动化，也不承诺任意 App |
 
@@ -379,7 +381,7 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v28 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、答案引用 UI、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。Embedding 尚未接入；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v29 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/检索审计与管理 UI、`knowledge.search`、答案引用 UI、独立进程退出观察、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权。Embedding 尚未接入；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
@@ -437,7 +439,7 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过当前 424 条 JVM、145 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配；Runtime 现对 ToolResult 事件、预算快照和 tool.verify 事件三个持久化边界提供确定性故障注入并保持 fail-closed。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，第 50 阶段让停止请求在平台异常和进程重建后仍可持久重对账，包括 Agent Run 尚未关联的认领窗口，但这些证据仍不等同 Android 自主回收。最新 LMK 基线仍为 `lowMemory=0`。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
+当前状态：第 1 至 6 步已完成并通过当前 431 条 JVM、149 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配；Runtime 现对 ToolResult 事件、预算快照和 tool.verify 事件三个持久化边界提供确定性故障注入并保持 fail-closed。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，第 50 阶段让停止请求在平台异常和进程重建后仍可持久重对账，包括 Agent Run 尚未关联的认领窗口；第 64 阶段又加入独立、有限且无 Task/Run 归因的系统退出观察，但这些证据仍不等同 Android 自主回收。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
 
 长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛、进程内所有权隔离、持久化停止栅栏和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。前台初始化先冻结旧 Agent/Workflow/Task ID，并排除当前进程真正 `RUNNING` 的 Worker 链；`STOP_REQUESTED` 即使仍登记所有权也进入恢复，Workflow/Task 在同一事务读取栅栏并原子取消。停止发生在 Agent Run 关联前时，Workflow 恢复也优先读取关联 Task 的停止栅栏，取消未完成步骤而不生成失败终态或新 Run。停止 fallback 也改为一次事务结算 Workflow/Task，既有 Workflow 终态会直接修复半结算 Task，避免通用停止栅栏制造矛盾终态。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步成功样本约 62.2 秒。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑，设备工具仍不得进入 Workflow/后台权限。
 

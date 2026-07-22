@@ -1055,6 +1055,24 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate28To29CreatesEmptyProcessExitLedgerWithoutInventingHistory() {
+        migrationHelper.createDatabase(PROCESS_EXIT_MIGRATION_DATABASE_NAME, 28).close()
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            PROCESS_EXIT_MIGRATION_DATABASE_NAME,
+            29,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT COUNT(*) FROM process_exit_observations").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1133,5 +1151,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val KNOWLEDGE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-migration-test"
         private const val KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-reference-migration-test"
         private const val WORKER_STOP_REASON_MIGRATION_DATABASE_NAME = "xiaoling-worker-stop-reason-migration-test"
+        private const val PROCESS_EXIT_MIGRATION_DATABASE_NAME = "xiaoling-process-exit-migration-test"
     }
 }

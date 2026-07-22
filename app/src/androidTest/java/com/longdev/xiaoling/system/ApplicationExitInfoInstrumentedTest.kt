@@ -15,6 +15,22 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ApplicationExitInfoInstrumentedTest {
     @Test
+    fun productionSourceReturnsBoundedPrivacySafeExitRecords() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val batch = AndroidProcessExitObservationSource(context).read()
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            assertTrue(!batch.apiSupported)
+            assertTrue(batch.exits.isEmpty())
+            return
+        }
+
+        assertTrue(batch.apiSupported)
+        assertTrue("历史退出数量不应超过请求上限", batch.exits.size <= MAX_EXIT_REASONS)
+        assertTrue(batch.exits.all { it.processName.isNotBlank() })
+    }
+
+    @Test
     fun reportsLowMemoryKillSupportAndHistoricalExitReasons() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             Log.i(TAG, "lmk-probe supported=false reason=api-below-30")
@@ -42,7 +58,7 @@ class ApplicationExitInfoInstrumentedTest {
                 TAG,
                 "exit[$index] timestamp=${exit.timestamp} reason=${exit.reason} status=${exit.status} " +
                     "importance=${exit.importance} pss=${exit.pss} rss=${exit.rss} " +
-                    "process=${exit.processName} description=${exit.description.orEmpty()}",
+                    "process=${exit.processName}",
             )
         }
 
