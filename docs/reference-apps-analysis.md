@@ -18,6 +18,8 @@
 
 第 67 阶段继续落实应用服务分层：普通聊天的发送前持久化、上下文准备、模型请求、流式增量与成功/取消/失败状态机迁入 `ConversationSendCoordinator`。ViewModel 只把稳定事件投影为 Compose 状态并保留 30ms 节流和 Job 取消入口；取消事件发出后仍传播协程取消，持久化失败不会触发上游请求。新增 JVM `3/3`，完整 JVM `442/442` 与仅 Redmi 执行的 instrumentation `152/152` 通过；Room v29、Provider 协议、UI、Agent/Workflow 和后置能力不变。
 
+第 68 阶段继续把参考项目的 Session/Application Service 边界落到可测试代码：新增 `ConversationSessionPolicy`，统一第一条 `role=user` 消息标题（空白保持“新会话”）、空占位折叠、会话时间戳、摘要元数据继承、blank ID 和非当前会话更新隔离。ViewModel 删除 83 行纯状态规则，从 4272 行降到 4189 行；异步 Room 加载、保存 Job、删除事务和 Compose 副作用仍留在原位。六轮 TDD 后新增 JVM `6/6`，完整 JVM `448/448` 与仅 Redmi 执行的 instrumentation `152/152` 通过；Room v29、协议、UI、Agent/Workflow 和后置能力不变。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。
@@ -342,6 +344,9 @@
 现有关键实现位于：
 
 - `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt`
+- `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt`
+- `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt`
+- `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt`
 - `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`
@@ -368,7 +373,7 @@
 
 ## 6. 建议目标架构
 
-保持 Kotlin + Compose + OkHttp，不新增 Rust/Python/Flutter。当前已形成 `agent`、`data`、`storage` 和 `prompt` 最小边界；后续继续细分 domain/runtime/tools/approval/verification/memory/task，并复用现有 network 与 Keystore。
+保持 Kotlin + Compose + OkHttp，不新增 Rust/Python/Flutter。当前已形成 `agent`、`data`、`storage`、`prompt` 和普通聊天 application service 最小边界；上下文准备、发送编排和会话纯状态投影已有独立实现，后续继续细分 domain/runtime/tools/approval/verification/memory/task，并复用现有 network 与 Keystore。
 
 最小状态机为：`QUEUED -> THINKING -> WAITING_APPROVAL -> EXECUTING -> VERIFYING -> THINKING/COMPLETED`，并允许进入 `BLOCKED/FAILED/CANCELLED/BUDGET_EXHAUSTED`。后台规划到需审批工具时直接进入 `BLOCKED`，不进入交互审批等待。
 

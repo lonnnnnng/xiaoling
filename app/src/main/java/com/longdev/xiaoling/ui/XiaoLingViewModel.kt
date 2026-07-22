@@ -3762,66 +3762,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiPreferenceStore.savePromptSettings(settings)
     }
 
-    private fun XiaoLingUiState.withUpdatedCurrentConversation(
-        messages: List<ChatMessage>,
-        summary: String,
-        summaryUntilMessageId: String? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryUntilMessageId,
-        summaryUpdatedAt: Long? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryUpdatedAt,
-        summaryModel: String? = conversations.firstOrNull { it.id == selectedConversationId }?.summaryModel,
-    ): XiaoLingUiState {
-        return withUpdatedConversation(
-            conversationId = selectedConversationId,
-            messages = messages,
-            summary = summary,
-            summaryUntilMessageId = summaryUntilMessageId,
-            summaryUpdatedAt = summaryUpdatedAt,
-            summaryModel = summaryModel,
-        )
-    }
-
-    private fun XiaoLingUiState.withUpdatedConversation(
-        conversationId: String,
-        messages: List<ChatMessage>,
-        summary: String,
-        summaryUntilMessageId: String? = conversations.firstOrNull { it.id == conversationId }?.summaryUntilMessageId,
-        summaryUpdatedAt: Long? = conversations.firstOrNull { it.id == conversationId }?.summaryUpdatedAt,
-        summaryModel: String? = conversations.firstOrNull { it.id == conversationId }?.summaryModel,
-    ): XiaoLingUiState {
-        val now = System.currentTimeMillis()
-        val currentId = conversationId.ifBlank { "conversation-$now" }
-        val current = conversations.firstOrNull { it.id == currentId }
-        val title = current?.title
-            ?.takeUnless { it == "新会话" && messages.any { message -> message.role == "user" } }
-            ?: messages.firstUserTitle()
-        val updatedConversation = ConversationSession(
-            id = currentId,
-            title = title,
-            summary = summary,
-            summaryUntilMessageId = summaryUntilMessageId,
-            summaryUpdatedAt = summaryUpdatedAt,
-            summaryModel = summaryModel,
-            messages = messages,
-            createdAt = current?.createdAt ?: now,
-            updatedAt = now,
-        )
-        val updatedConversations = if (conversations.any { it.id == currentId }) {
-            conversations.map { if (it.id == currentId) updatedConversation else it }
-        } else {
-            conversations + updatedConversation
-        }.collapseDuplicateEmptyConversations(selectedConversationId.ifBlank { currentId })
-        // long: Agent Run 可能在用户切到其他会话后才完成；落库和会话消息必须回写发起 Run 的会话，不能污染用户当前正在看的会话。
-        if (currentId != selectedConversationId) {
-            return copy(conversations = updatedConversations)
-        }
-        return copy(
-            conversations = updatedConversations,
-            selectedConversationId = currentId,
-            conversationTitle = title,
-            conversationSummary = summary,
-            chatMessages = messages,
-        )
-    }
-
     private suspend fun syncStoredProfile(
         profile: ProviderProfile,
         showPopup: Boolean,
@@ -4054,15 +3994,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun List<ChatMessage>.firstUserTitle(): String {
-        return firstOrNull { it.role == "user" }
-            ?.text
-            ?.trim()
-            ?.take(18)
-            ?.ifBlank { null }
-            ?: "新会话"
-    }
-
     private fun XiaoLingUiState.fromProfile(profile: ProviderProfile, selectedId: String) = copy(
         selectedProfileId = selectedId,
         profileName = profile.name,
@@ -4150,20 +4081,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversationSummary = selected.summary,
             chatMessages = selected.messages,
         )
-    }
-
-    private fun List<ConversationSession>.collapseDuplicateEmptyConversations(preferredId: String): List<ConversationSession> {
-        val realConversations = filter { it.messages.isNotEmpty() }
-        val emptyConversations = filter { it.messages.isEmpty() }
-        val keptEmptyConversation = emptyConversations
-            .firstOrNull { it.id == preferredId }
-            ?: emptyConversations.maxByOrNull { it.updatedAt }
-        // long: 空白会话只是“准备输入”的占位，不承载业务记录；只保留一个，避免会话列表出现多个不可区分的新会话。
-        return if (keptEmptyConversation == null) {
-            realConversations
-        } else {
-            realConversations + keptEmptyConversation
-        }
     }
 
     private fun StoredConversation.toSession() = ConversationSession(

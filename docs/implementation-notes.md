@@ -14,6 +14,13 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 68 阶段实现与验证边界
+
+- 新增 `ConversationSessionPolicy`，以同包纯 Kotlin 扩展函数统一第一条 `role=user` 消息标题（正文空白时保持“新会话”且不向后跳过）、preferred/最新空会话折叠、会话时间戳、摘要元数据默认继承、blank ID 生成和非当前会话更新隔离；时钟可注入，策略不依赖 Android Context、Room DAO 或 Compose runtime。
+- `XiaoLingViewModel` 删除 `withUpdatedCurrentConversation / withUpdatedConversation / firstUserTitle / collapseDuplicateEmptyConversations` 四段私有实现，共减少 83 行，从 4272 行降到 4189 行。异步 Room 加载、保存 Job、删除事务与 Compose 副作用仍保留在 ViewModel，不以本阶段行数变化宣称会话编排已经完全迁出。
+- 六轮 TDD 分别固定标题截断、空占位保留、已选会话时间与可见状态、非当前会话隔离、blank ID 和摘要元数据继承。新增聚焦 JVM `6/6`；完整 JVM `448/448`、Redmi instrumentation `152/152`、Lint、Debug 与 AndroidTest 构建通过。
+- instrumentation 后重新安装正式 Debug APK并冷启动；`MainActivity` 前台 PID `20599`，Room schema 29，仅 `com.longdev.xiaoling` 正式包存在，crash buffer 为空。Provider 协议、消息结构、Compose UI、`/agent` Runtime 与 Workflow 均未改变。
+
 ## 第 67 阶段实现与验证边界
 
 - 新增 `ConversationSendCoordinator` 及 `ConversationSendRequest / ConversationSendEvent`，用窄函数依赖统一普通聊天的 Room 快照持久化、上下文准备、网络请求、流式增量和终态事件顺序。协调器不依赖 Android Context、Compose 状态或 Room DAO。
@@ -92,9 +99,10 @@
 | 模块 | 关键文件 | 职责 |
 |---|---|---|
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、普通聊天模型选择、Agent Profile 与模型提供方管理页面。 |
-| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、普通对话事件投影、Agent Profile 选择和前台 Workflow 编排；上下文规则与网络发送状态机已不再由此类实现。 |
+| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、异步 Room/保存/删除协调、普通对话事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送与会话纯状态投影规则已不再由此类实现。 |
 | Conversation context | `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt` | 普通聊天上下文资格、知识生命周期核验、最近窗口、增量摘要、可信 Agent 历史与 Responses 用户附件请求投影。 |
 | Conversation send | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt` | 普通聊天发送前持久化、上下文准备、网络请求、流式增量和成功/取消/失败事件的稳定编排。 |
+| Conversation session | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt` | 会话标题、空占位折叠、创建/更新时间、摘要元数据继承、blank ID 和非当前会话更新隔离。 |
 | Network | `app/src/main/java/com/longdev/xiaoling/network/LlmProviderAdapter.kt`、`OpenAiCompatibleClient.kt` | Adapter 负责 OpenAI-compatible URL、payload 与响应协议；Client 负责 HTTP、鉴权 Header、取消、计时和 SSE 读取。 |
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、AgentProfile、Conversation、Message/MessagePart、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentMemoryCandidate 表。 |
@@ -108,16 +116,16 @@
 
 ## 当前架构边界
 
-当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备与网络发送状态机已经迁出：
+当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机与会话纯状态投影已经迁出：
 
-- Provider 管理、模型同步、会话切换、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责。
+- Provider 管理、模型同步、异步会话加载、保存 Job、删除事务、会话切换副作用、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新由 `ConversationSessionPolicy` 统一投影。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66、67 阶段已迁出普通聊天上下文准备与网络发送状态机，后续继续迁出其他会话/UI 编排，但不为减少行数提前制造跨模块抽象。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 68 阶段已迁出普通聊天上下文准备、网络发送状态机与会话纯状态投影，后续继续迁出异步 Room/Job/删除协调和其他 UI 编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 
@@ -331,7 +339,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 431 条 JVM 与仅 Redmi 执行的 152 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 448 条 JVM 与仅 Redmi 执行的 152 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
 
 ## 任务中心需确认队列
 

@@ -11,6 +11,14 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 会话状态投影规则迁出（第 68 阶段）
+
+- 新增纯 Kotlin `ConversationSessionPolicy`，统一第一条 `role=user` 消息生成标题（trim 后最多 18 字符；正文空白时保持“新会话”且不向后跳过）、多个空会话只保留 preferred/最新占位、既有会话保留 `createdAt` 并推进 `updatedAt`、摘要边界/更新时间/模型默认继承、blank ID 按注入时钟生成，以及非当前会话迟到更新不污染当前 UI。
+- 六轮 TDD 有效 Red/Green 分别固定标题、空占位、已选会话时间与可见状态、非当前隔离、blank ID 既有语义和摘要元数据继承。新增聚焦 `ConversationSessionPolicyTest` 为 `6/6`；与 `ConversationSendCoordinatorTest / StreamingMessagePresentationTest` 的组合回归通过。
+- `XiaoLingViewModel` 删除四段对应私有规则，共减少 83 行，从固定点 `9b5edc1` 的 4272 行降到 4189 行。异步 Room 加载、保存 Job、删除事务和 Compose 副作用仍留在 ViewModel；Room v29、Provider 协议、消息结构、UI、`/agent` 与 Workflow 行为不变。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 通过；JVM XML 汇总 `448/448`、0 跳过、0 失败。仅使用 Redmi `wsvwypiz7xwslvl7` 手动安装测试 APK 并执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败。
+- instrumentation 后执行 `adb install -r` 重新安装正式 Debug APK并冷启动。最终 `MainActivity` 处于前台且应用 PID 存在，Room `user_version=29`，设备仅保留 `com.longdev.xiaoling` 正式包，测试包不存在，crash buffer 为空。
+
 ## 2026-07-22 普通聊天网络发送编排迁出（第 67 阶段）
 
 - 新增纯 Kotlin `ConversationSendCoordinator`，按“Room 快照持久化 → 上下文准备 → 模型请求 → 流式增量 → 终态事件”顺序执行，并以 `SnapshotPersisted / ContextPrepared / StreamDelta / Completed / Cancelled / Failed` 形成单一状态机 seam。
