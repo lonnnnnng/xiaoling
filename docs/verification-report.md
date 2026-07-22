@@ -11,6 +11,23 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 进程退出观察只读诊断 UI（第 65 阶段）
+
+实现与边界：
+
+- 设置页新增“进程退出观察”入口和独立子页；ViewModel 刷新只调用 `RoomProcessExitObservationStore.latest()`，不调用 `collect()`，所以打开页面或点击刷新不会改变系统观察样本。刷新 Job 被替换时继续传播协程取消。
+- 页面只展示 Room v29 已有稳定字段，以中文标签区分 `DIRECT_LOW_MEMORY / LOW_MEMORY_CANDIDATE / APP_FAILURE / SYSTEM_RESOURCE / CONTROLLED_OR_MAINTENANCE / UNATTRIBUTED`。页面固定说明记录不关联 Agent Run、工作流或任务，候选与受控退出不能作为自然 LMK。
+- 本阶段不增加 Schema、Task/Run 外键、自动恢复、Foreground Service 或设备 Workflow/后台自动化能力。
+
+自动化与 Redmi 结果：
+
+- TDD 先得到缺少 Composable 和缺少记录标签的两次预期失败，再补最小实现。Redmi 聚焦 Compose 测试 `3/3` 通过，覆盖空态、证据边界、刷新回调、直接 LMK/候选/受控退出差异，以及全部六类证据的稳定中文标签。
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 通过，JVM 保持 `431/431`；仅使用 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败。
+- 正式 Debug APK 冷启动后执行一次明确的 `am force-stop com.longdev.xiaoling`，重新启动后 Room 为 1 条 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`。真实设置入口和详情页视觉验收通过；页面点击刷新后数据库仍为 1 条，证明只读刷新没有触发新采集。
+- 完整 `152/152` 结束后重新安装正式 Debug APK；最终 `MainActivity` 保持前台，PID `12951`，正式数据库 schema 29、退出账本 0 条，crash buffer 为空；设备仅保留 `com.longdev.xiaoling` 正式包，测试包已清理。最终空账本不覆盖前述受控样本的页面验收结论。
+
+当前结论：用户现在可以不依赖 ADB 查看进程退出证据，但页面不提供因果归因。当前唯一正式样本仍是受控 `force-stop`，不是自然 LMK，不改变普通 WorkManager、fail-closed 恢复和 Foreground Service 后置结论。
+
 ## 2026-07-22 Android 进程退出观察账本（第 64 阶段）
 
 实现与证据边界：

@@ -106,6 +106,7 @@ import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.XiaoLingBackupManager
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import kotlinx.coroutines.CompletableDeferred
@@ -186,6 +187,9 @@ data class XiaoLingUiState(
     val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
     val selectedAgentRunId: String? = null,
     val agentRunHistoryError: String? = null,
+    val loadingProcessExitObservations: Boolean = false,
+    val processExitObservations: List<ProcessExitObservation> = emptyList(),
+    val processExitObservationError: String? = null,
     val retryingAgentRunId: String? = null,
     val pendingAgentRetryConfirmation: AgentRetryConfirmationUiState? = null,
     val agentRetryNavigationConversationId: String? = null,
@@ -516,6 +520,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var saveConversationsJob: Job? = null
     private var conversationLoadJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
+    private var processExitObservationLoadJob: Job? = null
     private val pendingDeletedConversationIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(
@@ -1053,6 +1058,34 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun selectAgentRun(runId: String) {
         if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
         uiState = uiState.copy(selectedAgentRunId = runId)
+    }
+
+    fun refreshProcessExitObservations() {
+        processExitObservationLoadJob?.cancel()
+        uiState = uiState.copy(
+            loadingProcessExitObservations = true,
+            processExitObservationError = null,
+        )
+        processExitObservationLoadJob = viewModelScope.launch {
+            try {
+                val observations = withContext(Dispatchers.IO) {
+                    // long: 诊断页刷新只读取已经落库的系统证据，不再次触发平台采集，避免用户查看页面改变观察样本。
+                    processExitObservationStore.latest()
+                }
+                uiState = uiState.copy(
+                    loadingProcessExitObservations = false,
+                    processExitObservations = observations,
+                    processExitObservationError = null,
+                )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    loadingProcessExitObservations = false,
+                    processExitObservationError = error.message ?: "无法读取进程退出记录",
+                )
+            }
+        }
     }
 
     fun refreshMemories() {

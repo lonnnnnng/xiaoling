@@ -177,6 +177,8 @@ import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.prompt.PromptPolicy
+import com.longdev.xiaoling.system.ProcessExitEvidenceKind
+import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
 import com.journeyapps.barcodescanner.ScanContract
@@ -378,6 +380,10 @@ private fun XiaoLingContent(
                             viewModel.refreshAgentRunHistory()
                             settingsPane = SettingsPane.AGENT_RUN_HISTORY
                         },
+                        onOpenProcessExitObservations = {
+                            viewModel.refreshProcessExitObservations()
+                            settingsPane = SettingsPane.PROCESS_EXIT_OBSERVATIONS
+                        },
                         onExportBackup = { exportBackupLauncher.launch(viewModel.defaultBackupFileName()) },
                         onImportBackup = { importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
                         onImportSkill = { importSkillLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
@@ -476,6 +482,7 @@ private enum class SettingsPane {
     SKILL_MANAGEMENT,
     WORKFLOW_MANAGEMENT,
     AGENT_RUN_HISTORY,
+    PROCESS_EXIT_OBSERVATIONS,
 }
 
 private val agentMemoryTypes = listOf("Preference", "ProfileFact", "Episode", "Procedure")
@@ -2155,6 +2162,7 @@ private fun SettingsPage(
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
+    onOpenProcessExitObservations: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     onImportSkill: () -> Unit,
@@ -2231,6 +2239,14 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.PROCESS_EXIT_OBSERVATIONS -> ProcessExitObservationContent(
+                observations = state.processExitObservations,
+                loading = state.loadingProcessExitObservations,
+                error = state.processExitObservationError,
+                onBack = onBackToSettings,
+                onRefresh = viewModel::refreshProcessExitObservations,
+                modifier = Modifier.matchParentSize(),
+            )
             else -> SettingsRootPage(
                 state = state,
                 onThemeModeChanged = viewModel::updateThemeMode,
@@ -2245,6 +2261,7 @@ private fun SettingsPage(
                 onOpenSkillManagement = onOpenSkillManagement,
                 onOpenWorkflowManagement = onOpenWorkflowManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
+                onOpenProcessExitObservations = onOpenProcessExitObservations,
                 onExportBackup = onExportBackup,
                 onImportBackup = onImportBackup,
                 modifier = Modifier.matchParentSize(),
@@ -2268,6 +2285,7 @@ private fun SettingsRootPage(
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
+    onOpenProcessExitObservations: () -> Unit,
     onExportBackup: () -> Unit,
     onImportBackup: () -> Unit,
     modifier: Modifier = Modifier,
@@ -2385,6 +2403,17 @@ private fun SettingsRootPage(
                 "最近 ${state.agentRunHistory.size} 条 · ${state.agentRunHistory.count { it.snapshot.run.status == AgentRunStatus.COMPLETED }} 条已完成"
             },
             onClick = onOpenAgentRunHistory,
+        )
+
+        SettingsEntryCard(
+            title = "进程退出观察",
+            subtitle = if (state.processExitObservations.isEmpty()) {
+                "只读查看最近 30 条 Android 系统退出证据"
+            } else {
+                "已记录 ${state.processExitObservations.size} 条 · 不关联 Agent Run 或工作流"
+            },
+            icon = Icons.Default.Memory,
+            onClick = onOpenProcessExitObservations,
         )
 
         SettingsEntryCard(
@@ -3641,6 +3670,179 @@ private fun LocalSkillDeleteDialog(
             TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
         },
     )
+}
+
+@Composable
+internal fun ProcessExitObservationContent(
+    observations: List<ProcessExitObservation>,
+    loading: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回设置",
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            PageTitle("进程退出观察")
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                onClick = onRefresh,
+                enabled = !loading,
+                modifier = Modifier.size(30.dp),
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
+                } else {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "刷新进程退出记录",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "process-exit-boundary") {
+                CompactSection(title = "证据边界") {
+                    Text(
+                        text = "记录仅用于系统诊断，不关联 Agent Run、工作流或任务。受控退出和候选记录不能作为自然低内存回收结论。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            when {
+                error != null -> item(key = "process-exit-error") {
+                    CompactSection(title = "读取失败") {
+                        Text(
+                            text = error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                loading && observations.isEmpty() -> item(key = "process-exit-loading") {
+                    CompactSection(title = "系统记录") {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                            Text("正在读取进程退出记录", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                observations.isEmpty() -> item(key = "process-exit-empty") {
+                    CompactSection(title = "系统记录") {
+                        Text(
+                            text = "暂无进程退出记录",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                else -> items(
+                    count = observations.size,
+                    key = { index -> observations[index].stableUiKey() },
+                ) { index ->
+                    ProcessExitObservationCard(observations[index])
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProcessExitObservationCard(observation: ProcessExitObservation) {
+    val raw = observation.raw
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 11.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = observation.evidenceKind.toProcessExitEvidenceLabel(),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = observation.evidenceKind.toProcessExitEvidenceColor(),
+            )
+            Text(
+                text = "${observation.reasonName} · PID ${raw.pid} · status ${raw.status}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = raw.processName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "退出 ${raw.timestamp.toFullTimeLabel()} · 首次观察 ${observation.observedAt.toFullTimeLabel()}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "importance ${raw.importance} · PSS ${raw.pssKb} KB · RSS ${raw.rssKb} KB · " +
+                    if (observation.lowMemoryReportSupported) "支持直接 LMK 原因" else "不支持直接 LMK 原因",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private fun ProcessExitObservation.stableUiKey(): String {
+    val raw = raw
+    return "${raw.timestamp}|${raw.pid}|${raw.reasonCode}|${raw.status}|${raw.processName}"
+}
+
+private fun ProcessExitEvidenceKind.toProcessExitEvidenceLabel(): String = when (this) {
+    ProcessExitEvidenceKind.DIRECT_LOW_MEMORY -> "直接低内存回收证据"
+    ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE -> "低内存回收候选"
+    ProcessExitEvidenceKind.APP_FAILURE -> "应用故障"
+    ProcessExitEvidenceKind.SYSTEM_RESOURCE -> "系统资源限制"
+    ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE -> "受控退出或包维护"
+    ProcessExitEvidenceKind.UNATTRIBUTED -> "未归因退出"
+}
+
+@Composable
+private fun ProcessExitEvidenceKind.toProcessExitEvidenceColor(): Color = when (this) {
+    ProcessExitEvidenceKind.DIRECT_LOW_MEMORY -> MaterialTheme.colorScheme.error
+    ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE -> MaterialTheme.colorScheme.tertiary
+    ProcessExitEvidenceKind.APP_FAILURE -> MaterialTheme.colorScheme.error
+    ProcessExitEvidenceKind.SYSTEM_RESOURCE -> MaterialTheme.colorScheme.tertiary
+    ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE -> MaterialTheme.colorScheme.primary
+    ProcessExitEvidenceKind.UNATTRIBUTED -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
