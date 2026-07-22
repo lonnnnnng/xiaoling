@@ -11,6 +11,14 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-23 会话加载 UI 投影规则迁出（第 71 阶段）
+
+- 新增纯 Kotlin `ConversationLoadProjectionPolicy`，统一 Loading 清理旧结果、Loaded 原子选择会话和 Failed 错误收敛。非当前会话索引剥离 Image/Document BLOB，当前可见会话在同一次状态替换中注入完整消息与附件。
+- 一轮有效 Red/Green 先确认缺少独立投影 seam；`ConversationLoadProjectionPolicyTest` 三条覆盖 Loading、Loaded、Failed，以及 Image/Document 轻量化、当前二进制完整保留、异常消息与 fallback。聚焦结果 `3/3`。
+- `XiaoLingViewModel` 从 4200 行降到 4178 行；删除意图仍先回滚再投影失败，Loaded 仍读取目标会话的 Agent Run/审批并在投影后保存选择。`ConversationLoadCoordinator`、Repository、Room v29、协议、UI、`/agent` 与 Workflow 行为不变。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --console=plain` 通过；JVM XML 汇总 `463/463`、0 跳过、0 失败。仅向 Redmi `wsvwypiz7xwslvl7` 安装测试 APK 并执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败，用时 `37.469s`；在线的 `emulator-5554` 未接收任何 ADB 命令。
+- instrumentation 后卸载测试包、重新安装正式 Debug APK并冷启动。最终 `MainActivity` 前台 PID `29344`，Room `user_version=29`，设备仅保留 `com.longdev.xiaoling` 正式包，测试包不存在，crash buffer 为空。
+
 ## 2026-07-23 异步会话加载协调迁出（第 70 阶段）
 
 - 新增纯 Kotlin `ConversationLoadCoordinator`，统一 latest-load Job、单调选择代次和 Loading/Loaded/Failed 事件。底层查询即使在取消后仍迟到成功或失败，旧代次不会覆盖新选择、删除回滚或失败提示。

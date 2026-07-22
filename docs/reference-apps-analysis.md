@@ -24,6 +24,8 @@
 
 第 70 阶段补齐参考项目常见的 latest-request 边界：新增 `ConversationLoadCoordinator`，用单调选择代次和稳定事件隔离协作式取消后仍迟到的 Room 结果。旧选择无论迟到成功或失败都不会覆盖新会话、触发旧删除回滚或替换提示；新 Job 在可重入 Loading 前登记，回调触发新选择时仍保留正确生命周期。ViewModel 继续保留完整消息与轻量会话的原子 Compose 投影。新增 JVM `4/4`，完整 JVM `460/460` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB、协议、UI、Agent/Workflow 和后置能力不变。
 
+第 71 阶段继续把 Session/Application Service 的纯状态边界落到代码：新增 `ConversationLoadProjectionPolicy`，统一 Loading/Loaded/Failed 的 UI 投影，并把“非当前会话剥离 Image/Document BLOB、当前会话原子注入完整消息”固定为独立测试规则。删除回滚、Agent/审批映射和保存仍由 ViewModel 编排，不把副作用塞进 reducer。新增 JVM `3/3`，完整 JVM `463/463` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB 生命周期、协议、UI、Agent/Workflow 和后置能力不变。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。

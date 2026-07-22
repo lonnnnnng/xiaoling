@@ -2750,24 +2750,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             onEvent = { event ->
                 when (event) {
                     ConversationLoadEvent.Loading -> {
-                        uiState = uiState.copy(loadingConversationMessages = true, result = null)
+                        uiState = uiState.withConversationLoadEvent(event)
                     }
 
                     is ConversationLoadEvent.Loaded -> {
                         val request = event.request
-                        val lightweightConversations = request.conversations.map { it.withoutBinaryPayloads() }
-                        uiState = uiState.copy(
-                            conversations = lightweightConversations.map { item ->
-                                if (item.id == request.conversation.id) item.copy(messages = event.messages) else item
-                            },
-                            selectedConversationId = request.conversation.id,
-                            conversationTitle = request.conversation.title,
-                            conversationSummary = request.conversation.summary,
-                            chatMessages = event.messages,
+                        uiState = uiState.withConversationLoadEvent(
+                            event = event,
                             activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
                             pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
-                            loadingConversationMessages = false,
-                            result = request.result,
                         )
                         saveConversationSelection()
                     }
@@ -2776,10 +2767,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         event.request.rollbackDeletionIntentOnFailure?.let(
                             conversationPersistenceCoordinator::rollbackConversationDeletion,
                         )
-                        uiState = uiState.copy(
-                            loadingConversationMessages = false,
-                            result = OperationResult(false, "会话读取失败", event.error.message ?: "无法加载会话消息"),
-                        )
+                        uiState = uiState.withConversationLoadEvent(event)
                     }
                 }
             },
@@ -4130,16 +4118,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         messages = messages.map { it.toStored() },
         createdAt = createdAt,
         updatedAt = updatedAt,
-    )
-
-    private fun ConversationSession.withoutBinaryPayloads(): ConversationSession = copy(
-        messages = messages.map { message ->
-            message.copy(
-                parts = message.effectiveParts().filterNot {
-                    it is MessagePart.Image || it is MessagePart.Document
-                },
-            )
-        },
     )
 
     private fun ChatMessage.toStored() = StoredConversationMessage(
