@@ -460,6 +460,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             )
         },
     )
+    private val conversationLoadCoordinator = ConversationLoadCoordinator(
+        scope = viewModelScope,
+        loadMessages = { conversationId ->
+            conversationStore.loadConversationMessages(conversationId).map { it.toChatMessage() }
+        },
+    )
     // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
     private val conversationSendCoordinator = ConversationSendCoordinator(
         persistSnapshot = conversationPersistenceCoordinator::persist,
@@ -520,7 +526,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var skillLoadJob: Job? = null
     private var workflowLoadJob: Job? = null
     private var saveProfilesJob: Job? = null
-    private var conversationLoadJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
 
@@ -2565,7 +2570,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openNewConversation() {
-        conversationLoadJob?.cancel()
+        conversationLoadCoordinator.cancelPendingLoad()
         val lightweightConversations = uiState.conversations.map { it.withoutBinaryPayloads() }
         val current = lightweightConversations.firstOrNull { it.id == uiState.selectedConversationId }
         if (current != null && current.messages.isEmpty()) {
@@ -2686,7 +2691,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteCurrentConversation() {
-        conversationLoadJob?.cancel()
+        conversationLoadCoordinator.cancelPendingLoad()
         val currentId = uiState.selectedConversationId
         val deletionIntent = conversationPersistenceCoordinator.markConversationDeleted(currentId)
         val remaining = uiState.conversations.filterNot { it.id == currentId }
@@ -2735,38 +2740,50 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         result: OperationResult?,
         rollbackDeletionIntentOnFailure: ConversationDeletionIntent? = null,
     ) {
-        conversationLoadJob?.cancel()
-        uiState = uiState.copy(loadingConversationMessages = true, result = null)
-        conversationLoadJob = viewModelScope.launch {
-            try {
-                val loadedMessages = conversationStore.loadConversationMessages(conversation.id).map { it.toChatMessage() }
-                val lightweightConversations = conversations.map { it.withoutBinaryPayloads() }
-                uiState = uiState.copy(
-                    conversations = lightweightConversations.map { item ->
-                        if (item.id == conversation.id) item.copy(messages = loadedMessages) else item
-                    },
-                    selectedConversationId = conversation.id,
-                    conversationTitle = conversation.title,
-                    conversationSummary = conversation.summary,
-                    chatMessages = loadedMessages,
-                    activeAgentRun = activeAgentRunsByConversation[conversation.id],
-                    pendingAgentApproval = pendingAgentApprovalsByConversation[conversation.id],
-                    loadingConversationMessages = false,
-                    result = result,
-                )
-                saveConversationSelection()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                rollbackDeletionIntentOnFailure?.let(
-                    conversationPersistenceCoordinator::rollbackConversationDeletion,
-                )
-                uiState = uiState.copy(
-                    loadingConversationMessages = false,
-                    result = OperationResult(false, "会话读取失败", error.message ?: "无法加载会话消息"),
-                )
-            }
-        }
+        conversationLoadCoordinator.load(
+            request = ConversationLoadRequest(
+                conversation = conversation,
+                conversations = conversations,
+                result = result,
+                rollbackDeletionIntentOnFailure = rollbackDeletionIntentOnFailure,
+            ),
+            onEvent = { event ->
+                when (event) {
+                    ConversationLoadEvent.Loading -> {
+                        uiState = uiState.copy(loadingConversationMessages = true, result = null)
+                    }
+
+                    is ConversationLoadEvent.Loaded -> {
+                        val request = event.request
+                        val lightweightConversations = request.conversations.map { it.withoutBinaryPayloads() }
+                        uiState = uiState.copy(
+                            conversations = lightweightConversations.map { item ->
+                                if (item.id == request.conversation.id) item.copy(messages = event.messages) else item
+                            },
+                            selectedConversationId = request.conversation.id,
+                            conversationTitle = request.conversation.title,
+                            conversationSummary = request.conversation.summary,
+                            chatMessages = event.messages,
+                            activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
+                            pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
+                            loadingConversationMessages = false,
+                            result = request.result,
+                        )
+                        saveConversationSelection()
+                    }
+
+                    is ConversationLoadEvent.Failed -> {
+                        event.request.rollbackDeletionIntentOnFailure?.let(
+                            conversationPersistenceCoordinator::rollbackConversationDeletion,
+                        )
+                        uiState = uiState.copy(
+                            loadingConversationMessages = false,
+                            result = OperationResult(false, "会话读取失败", event.error.message ?: "无法加载会话消息"),
+                        )
+                    }
+                }
+            },
+        )
     }
 
     fun importDraftFromQr(raw: String) {

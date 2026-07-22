@@ -22,6 +22,8 @@
 
 第 69 阶段继续落实参考项目的单写者持久化边界：新增 `ConversationPersistenceCoordinator`，统一 latest-save Job、Room 串行写入、发送前等待，以及显式删除 ID 的代次确认/回滚。旧事务即使已进入不可取消提交区，最新快照仍最后写入；失败、取消、同 ID 重标记或旧失败回调晚到时不会丢失新删除意图。ViewModel 从 4189 行降到 4183 行，异步加载、删除 UI 和 Compose 副作用仍保留。新增 JVM `8/8`，完整 JVM `456/456` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB、协议、UI、Agent/Workflow 和后置能力不变。
 
+第 70 阶段补齐参考项目常见的 latest-request 边界：新增 `ConversationLoadCoordinator`，用单调选择代次和稳定事件隔离协作式取消后仍迟到的 Room 结果。旧选择无论迟到成功或失败都不会覆盖新会话、触发旧删除回滚或替换提示；新 Job 在可重入 Loading 前登记，回调触发新选择时仍保留正确生命周期。ViewModel 继续保留完整消息与轻量会话的原子 Compose 投影。新增 JVM `4/4`，完整 JVM `460/460` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB、协议、UI、Agent/Workflow 和后置能力不变。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。
