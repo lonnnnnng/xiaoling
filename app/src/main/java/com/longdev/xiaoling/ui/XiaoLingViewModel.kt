@@ -42,7 +42,6 @@ import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.VerifiedAgentContext
-import com.longdev.xiaoling.agent.retainCurrentKnowledgeReferences
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
@@ -398,60 +397,6 @@ data class AgentMemoryEditUiState(
     val confidence: Double,
 )
 
-private data class PreparedRequestContext(
-    val requestMessages: List<RequestMessage>,
-    val summary: String,
-    val summaryUntilMessageId: String?,
-    val summaryUpdatedAt: Long?,
-    val summaryModel: String?,
-) {
-    companion object {
-        fun fromConversation(
-            conversation: ConversationSession?,
-        ): PreparedRequestContext {
-            return PreparedRequestContext(
-                requestMessages = emptyList(),
-                summary = conversation?.summary.orEmpty(),
-                summaryUntilMessageId = conversation?.summaryUntilMessageId,
-                summaryUpdatedAt = conversation?.summaryUpdatedAt,
-                summaryModel = conversation?.summaryModel,
-            )
-        }
-    }
-}
-
-internal data class CurrentKnowledgeContext(
-    val messages: List<ChatMessage>,
-    val removedStaleKnowledgeMessage: Boolean,
-)
-
-internal fun List<ChatMessage>.projectCurrentKnowledgeContext(
-    currentReferences: Set<com.longdev.xiaoling.knowledge.KnowledgeReference>,
-): CurrentKnowledgeContext {
-    var removedStaleKnowledgeMessage = false
-    val filtered = mapNotNull { message ->
-        val context = message.verifiedAgentContext ?: return@mapNotNull message
-        val messageReferences = buildList {
-            addAll(context.knowledgeReferences)
-            context.toolExecutions.forEach { addAll(it.knowledgeReferences) }
-        }
-        if (messageReferences.any { it !in currentReferences }) {
-            // long: Agent 展示正文可能已合并检索片段，不能只清空 runtime_audit；整条历史展示从请求侧移除，数据库审计仍原样保留。
-            removedStaleKnowledgeMessage = true
-            return@mapNotNull null
-        }
-        val projectedContext = context.retainCurrentKnowledgeReferences(currentReferences)
-        if (projectedContext == null &&
-            (context.toolName == "knowledge.search" || context.toolExecutions.any { it.toolName == "knowledge.search" })
-        ) {
-            removedStaleKnowledgeMessage = true
-            return@mapNotNull null
-        }
-        message.copy(verifiedAgentContext = projectedContext)
-    }
-    return CurrentKnowledgeContext(filtered, removedStaleKnowledgeMessage)
-}
-
 private data class AgentRuntimeSelection(
     val config: ProviderRequestConfig,
     val profile: AgentProfileSnapshot,
@@ -465,6 +410,47 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val knowledgeDocumentStore = RoomKnowledgeDocumentStore(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
+    private val conversationRequestContextPreparer = ConversationRequestContextPreparer(
+        retainCurrentKnowledgeReferences = { references ->
+            withContext(Dispatchers.IO) {
+                knowledgeDocumentStore.retainCurrentReferences(references).toSet()
+            }
+        },
+        generateSummary = { config, existingSummary, messagesToCompress, promptSettings ->
+            if (messagesToCompress.isEmpty()) {
+                existingSummary
+            } else {
+                val transcript = PromptPolicy.summaryTranscript(
+                    messagesToCompress.map { message ->
+                        PromptContextMessage(
+                            origin = message.origin,
+                            content = message.text,
+                            verifiedAgentContext = message.verifiedAgentContext,
+                        )
+                    },
+                )
+                val prompt = buildString {
+                    appendLine("已有摘要：")
+                    appendLine(existingSummary.ifBlank { "无" })
+                    appendLine()
+                    appendLine("新增对话：")
+                    appendLine(transcript)
+                }
+                val summaryConfig = config.copy(streamingEnabled = false, reasoningSummaryEnabled = false)
+                val result = client.sendMessage(
+                    config = summaryConfig,
+                    messages = listOf(
+                        RequestMessage(
+                            role = "system",
+                            content = PromptPolicy.summarySystemPrompt(promptSettings),
+                        ),
+                        RequestMessage(role = "user", content = prompt),
+                    ),
+                )
+                result.responseText.trim().take(SUMMARY_MAX_CHARS)
+            }
+        },
+    )
     private val agentRunUseCase = AgentRunUseCase(application, client)
     private val agentProfileStore = RoomAgentProfileStore(application)
     private val agentRunRepository = RoomAgentRunRepository(application)
@@ -3016,7 +3002,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     preRequestDeletedConversationIds,
                 )
                 pendingDeletedConversationIds.removeAll(preRequestDeletedConversationIds)
-                preparedContext = prepareRequestContext(config, messagesWithUser, currentConversation)
+                preparedContext = conversationRequestContextPreparer.prepare(
+                    config = config,
+                    messages = messagesWithUser,
+                    conversation = currentConversation,
+                    promptSettings = uiState.promptSettings,
+                )
                 withContext(Dispatchers.Main.immediate) {
                     uiState = uiState
                         .withUpdatedCurrentConversation(
@@ -3783,210 +3774,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    private suspend fun prepareRequestContext(
-        config: ProviderRequestConfig,
-        messages: List<ChatMessage>,
-        conversation: ConversationSession?,
-    ): PreparedRequestContext {
-        val currentKnowledgeContext = messages
-            .filter(ChatMessage::isEligibleForConversationContext)
-            .retainCurrentKnowledgeReferences()
-        val contextMessages = currentKnowledgeContext.messages
-        // long: 已持久化摘要可能包含后来被禁用、替换或删除的知识片段；发现失效引用后废弃摘要边界，仅从过滤后的消息重建本轮上下文。
-        val reusableSummary = conversation?.summary.orEmpty().takeUnless {
-            currentKnowledgeContext.removedStaleKnowledgeMessage
-        }.orEmpty()
-        val reusableSummaryUntilMessageId = conversation?.summaryUntilMessageId.takeUnless {
-            currentKnowledgeContext.removedStaleKnowledgeMessage
-        }
-        if (contextMessages.size <= RECENT_CONTEXT_MESSAGE_LIMIT && reusableSummary.isBlank()) {
-            return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, summary = "", apiMode = config.apiMode),
-                summary = "",
-                summaryUntilMessageId = null,
-                summaryUpdatedAt = null,
-                summaryModel = null,
-            )
-        }
-
-        val olderMessages = contextMessages.dropLast(RECENT_CONTEXT_MESSAGE_LIMIT)
-        val targetSummaryMessage = olderMessages.lastOrNull()
-        val existingSummary = reusableSummary
-        if (targetSummaryMessage == null) {
-            return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
-                summary = existingSummary,
-                summaryUntilMessageId = reusableSummaryUntilMessageId,
-                summaryUpdatedAt = conversation?.summaryUpdatedAt.takeUnless {
-                    currentKnowledgeContext.removedStaleKnowledgeMessage
-                },
-                summaryModel = conversation?.summaryModel.takeUnless {
-                    currentKnowledgeContext.removedStaleKnowledgeMessage
-                },
-            )
-        }
-
-        if (existingSummary.isNotBlank() && reusableSummaryUntilMessageId == targetSummaryMessage.id) {
-            return PreparedRequestContext(
-                requestMessages = buildRequestMessages(contextMessages, existingSummary, config.apiMode),
-                summary = existingSummary,
-                summaryUntilMessageId = reusableSummaryUntilMessageId,
-                summaryUpdatedAt = conversation?.summaryUpdatedAt,
-                summaryModel = conversation?.summaryModel,
-            )
-        }
-
-        val messagesToCompress = messagesNeedingCompression(
-            contextMessages = contextMessages,
-            previousSummaryUntilMessageId = reusableSummaryUntilMessageId,
-            targetSummaryMessageId = targetSummaryMessage.id,
-        )
-        // long: 长会话压缩只处理“上次摘要边界之后、最近窗口之前”的旧消息，避免每轮都把完整历史重新塞给摘要模型。
-        val summary = runCatching {
-            generateConversationSummary(
-                config = config,
-                existingSummary = existingSummary,
-                messagesToCompress = messagesToCompress,
-            )
-        }.getOrElse {
-            localFallbackSummary(existingSummary, messagesToCompress)
-        }
-        val now = System.currentTimeMillis()
-        return PreparedRequestContext(
-            requestMessages = buildRequestMessages(contextMessages, summary, config.apiMode),
-            summary = summary,
-            summaryUntilMessageId = targetSummaryMessage.id,
-            summaryUpdatedAt = now,
-            summaryModel = config.model.trim(),
-        )
-    }
-
-    private suspend fun List<ChatMessage>.retainCurrentKnowledgeReferences(): CurrentKnowledgeContext {
-        val containsKnowledgeExecution = any { message ->
-            val context = message.verifiedAgentContext ?: return@any false
-            context.toolName == "knowledge.search" || context.toolExecutions.any { it.toolName == "knowledge.search" }
-        }
-        val references = flatMap { message ->
-            val context = message.verifiedAgentContext ?: return@flatMap emptyList()
-            buildList {
-                addAll(context.knowledgeReferences)
-                context.toolExecutions.forEach { addAll(it.knowledgeReferences) }
-            }
-        }.distinct()
-        if (references.isEmpty() && !containsKnowledgeExecution) {
-            return CurrentKnowledgeContext(this, removedStaleKnowledgeMessage = false)
-        }
-        val current = runCatching {
-            withContext(Dispatchers.IO) { knowledgeDocumentStore.retainCurrentReferences(references).toSet() }
-        }.getOrDefault(emptySet())
-        return projectCurrentKnowledgeContext(current)
-    }
-
-    private fun buildRequestMessages(
-        messages: List<ChatMessage>,
-        summary: String,
-        apiMode: ApiMode,
-    ): List<RequestMessage> {
-        val requestMessages = mutableListOf(
-            RequestMessage(
-                role = "system",
-                content = PromptPolicy.chatSystemPrompt(uiState.promptSettings),
-            ),
-        )
-        if (summary.isNotBlank()) {
-            // long: 摘要作为 system 上下文放在最前面，让模型能参考早期信息，同时避免把全部历史反复塞进请求。
-            requestMessages += RequestMessage(
-                role = "system",
-                content = "以下是较早对话的持续摘要，请在回答当前问题时一并参考：\n$summary",
-            )
-        }
-        val recentMessages = if (summary.isBlank() && messages.size <= RECENT_CONTEXT_MESSAGE_LIMIT) {
-            messages
-        } else {
-            messages.takeLast(RECENT_CONTEXT_MESSAGE_LIMIT)
-        }
-        val olderVerifiedAgentResults = messages
-            .dropLast(recentMessages.size)
-            .filter { it.origin == MessageOrigin.AGENT_RESULT && it.verifiedAgentContext != null }
-            .takeLast(VERIFIED_AGENT_CONTEXT_LIMIT)
-        // long: 已压缩出最近窗口的 Agent 结果仍以结构化来源回传，避免可信工具事实进入普通摘要后丢失身份；数量受限以控制请求体积。
-        (olderVerifiedAgentResults + recentMessages)
-            .forEach { message ->
-                requestMessages += RequestMessage(
-                    role = message.role,
-                    // long: 消息是否具备工具事实身份由持久化来源字段决定；用户文本即使复述可信标记，也不会进入 Agent 结果分支。
-                    content = PromptPolicy.historyContent(message.toPromptContextMessage()),
-                    // long: 只有 Responses 最近窗口保留用户原始附件；摘要和 Agent 可信上下文仍只消费文本/确定性工具事实，避免附件扩大执行权限。
-                    images = message.imagesForRequest(apiMode),
-                    documents = message.documentsForRequest(apiMode),
-                )
-            }
-        return requestMessages
-    }
-
-    private fun messagesNeedingCompression(
-        contextMessages: List<ChatMessage>,
-        previousSummaryUntilMessageId: String?,
-        targetSummaryMessageId: String,
-    ): List<ChatMessage> {
-        val targetIndex = contextMessages.indexOfFirst { it.id == targetSummaryMessageId }
-        if (targetIndex < 0) return emptyList()
-        val previousIndex = previousSummaryUntilMessageId
-            ?.let { id -> contextMessages.indexOfFirst { it.id == id } }
-            ?.takeIf { it >= 0 }
-            ?: -1
-        return contextMessages.subList(previousIndex + 1, targetIndex + 1)
-    }
-
-    private suspend fun generateConversationSummary(
-        config: ProviderRequestConfig,
-        existingSummary: String,
-        messagesToCompress: List<ChatMessage>,
-    ): String {
-        if (messagesToCompress.isEmpty()) return existingSummary
-        val transcript = messagesToCompress.toSummaryTranscript()
-        val prompt = buildString {
-            appendLine("已有摘要：")
-            appendLine(existingSummary.ifBlank { "无" })
-            appendLine()
-            appendLine("新增对话：")
-            appendLine(transcript)
-        }
-        val summaryConfig = config.copy(streamingEnabled = false, reasoningSummaryEnabled = false)
-        val result = client.sendMessage(
-            config = summaryConfig,
-            messages = listOf(
-                RequestMessage(
-                    role = "system",
-                    content = PromptPolicy.summarySystemPrompt(uiState.promptSettings),
-                ),
-                RequestMessage(role = "user", content = prompt),
-            ),
-        )
-        return result.responseText.trim().take(SUMMARY_MAX_CHARS)
-    }
-
-    private fun localFallbackSummary(
-        existingSummary: String,
-        messagesToCompress: List<ChatMessage>,
-    ): String {
-        return PromptPolicy.localFallbackSummary(
-            existingSummary = existingSummary,
-            messages = messagesToCompress.map { it.toPromptContextMessage() },
-            maxChars = SUMMARY_MAX_CHARS,
-        ).trim()
-    }
-
-    private fun List<ChatMessage>.toSummaryTranscript(): String {
-        return PromptPolicy.summaryTranscript(map { it.toPromptContextMessage() })
-    }
-
-    private fun ChatMessage.toPromptContextMessage() = PromptContextMessage(
-        origin = origin,
-        content = text,
-        verifiedAgentContext = verifiedAgentContext,
-    )
-
     private suspend fun syncStoredProfile(
         profile: ProviderProfile,
         showPopup: Boolean,
@@ -4427,8 +4214,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     companion object {
         private const val DEFAULT_AGENT_PROFILE_ID = "agent-profile-default"
         private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
-        private const val RECENT_CONTEXT_MESSAGE_LIMIT = 16
-        private const val VERIFIED_AGENT_CONTEXT_LIMIT = 8
         private const val SUMMARY_MAX_CHARS = 4_000
         private const val STREAMING_UI_THROTTLE_MS = 30L
         private const val AGENT_RUN_HISTORY_LIMIT = 50

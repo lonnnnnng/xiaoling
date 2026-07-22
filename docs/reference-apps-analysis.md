@@ -14,6 +14,8 @@
 
 第 65 阶段补齐该观察账本的用户可见控制面：设置页只读展示最近 30 条既有记录，六类证据使用稳定中文标签，刷新只查询 Room、不触发采集，也不把记录归因给 Agent Run、工作流或任务。Redmi 聚焦 UI `3/3`、完整 instrumentation `152/152` 通过；受控 `USER_REQUESTED` 在页面与数据库一致，刷新前后计数不变。该可见性用于长期积累真实样本，不放宽 Foreground Service、恢复或设备后台边界。
 
+第 66 阶段开始兑现参考项目共同强调的应用服务分层：普通聊天的上下文资格、知识生命周期、最近窗口、增量摘要和请求投影从 4439 行的 `XiaoLingViewModel` 迁入独立 `ConversationRequestContextPreparer`，ViewModel 只装配 Room、网络与提示词依赖。新增 JVM `8/8`，完整 JVM `439/439` 与 Redmi instrumentation `152/152` 通过；Schema、协议和 UI 不变。这一拆分为后续 Embedding 或 `/agent` 附件建立单一上下文入口，但本阶段不提前引入二者。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。

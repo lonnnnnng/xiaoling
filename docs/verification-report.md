@@ -11,6 +11,13 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-22 普通聊天上下文准备迁出 ViewModel（第 66 阶段）
+
+- 新增 `ConversationRequestContextPreparer`，通过注入 seam 独立覆盖短会话直通、长会话只压缩最近 16 条之前的增量、摘要边界复用、失效知识消息/摘要清理和摘要取消传播；原 `CurrentKnowledgeContextTest` 继续保护知识投影。
+- TDD 七轮有效 Red 分别暴露缺少新 seam、长会话保护、重复摘要调用、旧知识摘要未失效、取消被本地摘要吞掉、摘要边界 ID 丢失后仍复用旧摘要，以及边界超前导致反向增量区间；Responses 最近窗口附件另以特征测试锁定。最终聚焦新增 JVM `8/8`，完整 JVM XML 汇总 `439/439`、0 跳过、0 失败。
+- `XiaoLingViewModel` 从 4439 行降为 4224 行，只装配知识 Store、摘要网络调用和提示词设置；Room Schema 保持 v29，请求协议、消息持久化、UI 和 Agent/Workflow 边界不变。
+- `./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 通过；仅使用 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation，结果 `152/152`、0 跳过、0 失败。正式 Debug APK 已重新安装并回到 `MainActivity` 前台，测试包已清理。
+
 ## 2026-07-22 进程退出观察只读诊断 UI（第 65 阶段）
 
 实现与边界：
