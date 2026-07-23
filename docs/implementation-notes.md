@@ -14,6 +14,13 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 72 阶段实现与验证边界
+
+- `ConversationSessionPolicy` 新增 `ConversationSelectionPlan.Immediate / Load`、`planOpenNewConversation()`、`planCurrentConversationDeletion()` 和即时状态投影。策略使用可注入时钟，不依赖 Android Context、Room DAO 或协程。
+- 新建入口保持三条原行为：当前已选空会话幂等复用且不折叠其他占位；当前有内容时复用 `updatedAt` 最新空占位并折叠其余空占位；没有空占位时创建 `conversation-$now`。删除后有剩余会话选择最新项并交给加载 coordinator，删至空列表立即创建新占位。
+- `restoreRuntimeState` 只允许复用既有空会话时回填 Agent Run/审批；新建占位始终清空运行态，避免时间戳 ID 碰撞挂接旧状态。ViewModel 从 4178 行降到 4121 行，仍按原顺序取消加载、标记删除意图、清理运行态 Map、加载/回滚并保存。
+- 一轮有效 Red/Green 建立选择计划 seam；五条聚焦 JVM 覆盖当前空会话、最新空占位、新建占位、删除后加载最新会话和删空兜底。聚焦 `5/5`、完整 JVM `468/468`、Redmi instrumentation `152/152`、Lint、Debug 与 AndroidTest 构建通过；Room v29、Provider 协议、UI、`/agent` 与 Workflow 不变。
+
 ## 第 71 阶段实现与验证边界
 
 - 新增 `ConversationLoadProjectionPolicy`，把 Loading、Loaded、Failed 三类事件的纯 `XiaoLingUiState` 投影迁出 ViewModel；策略不依赖 Android Context、Room DAO 或 Compose runtime。
@@ -123,7 +130,7 @@
 | ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、会话选择/删除切换及加载副作用、普通对话事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送、会话纯状态投影、保存协调、加载 Job/代次与加载 UI 投影已不再由此类直接实现。 |
 | Conversation context | `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt` | 普通聊天上下文资格、知识生命周期核验、最近窗口、增量摘要、可信 Agent 历史与 Responses 用户附件请求投影。 |
 | Conversation send | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt` | 普通聊天发送前持久化、上下文准备、网络请求、流式增量和成功/取消/失败事件的稳定编排。 |
-| Conversation session | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt` | 会话标题、空占位折叠、创建/更新时间、摘要元数据继承、blank ID 和非当前会话更新隔离。 |
+| Conversation session | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt` | 会话标题、空占位折叠、创建/更新时间、摘要元数据继承、blank ID、非当前更新隔离，以及新建/删除后的纯选择计划与即时状态投影。 |
 | Conversation persistence | `app/src/main/java/com/longdev/xiaoling/ui/ConversationPersistenceCoordinator.kt` | latest-save Job、Room 单写者、发送前旧保存等待，以及显式删除意图的代次确认和失败回滚。 |
 | Conversation load | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadCoordinator.kt` | latest-load Job、选择代次、可重入 Loading 与迟到 Loaded/Failed 隔离。 |
 | Conversation load projection | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadProjectionPolicy.kt` | Loading/Loaded/Failed 的纯 UI 状态投影、非当前附件轻量化和当前完整消息原子切换。 |
@@ -140,16 +147,16 @@
 
 ## 当前架构边界
 
-当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态投影、保存协调、加载协调与加载 UI 投影已经迁出：
+当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调与加载 UI 投影已经迁出：
 
-- Provider 管理、模型同步、会话选择与删除切换、删除失败回滚、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责。
+- Provider 管理、模型同步、删除意图与失败回滚、运行态 Map、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 71 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态投影、保存协调、加载协调与加载 UI 投影，后续继续迁出新建/删除 UI 和其他副作用编排，但不为减少行数提前制造跨模块抽象。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 72 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调与加载 UI 投影，后续继续迁出删除失败回滚和其他副作用编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 
@@ -363,7 +370,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 463 条 JVM 与仅 Redmi 执行的 152 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 468 条 JVM 与仅 Redmi 执行的 152 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
 
 ## 任务中心需确认队列
 

@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.AgentRunSnapshot
+
 internal fun List<ChatMessage>.firstUserTitle(): String {
     // long: 会话标题只看第一条 role=user 消息；其正文为空时保持“新会话”，不能跳过它用后续输入改写历史命名语义。
     return firstOrNull { it.role == "user" }
@@ -24,6 +26,99 @@ internal fun List<ConversationSession>.collapseDuplicateEmptyConversations(
     } else {
         realConversations + keptEmptyConversation
     }
+}
+
+internal sealed interface ConversationSelectionPlan {
+    val conversations: List<ConversationSession>
+    val conversation: ConversationSession
+
+    data class Immediate(
+        override val conversations: List<ConversationSession>,
+        override val conversation: ConversationSession,
+        val restoreRuntimeState: Boolean,
+    ) : ConversationSelectionPlan
+
+    data class Load(
+        override val conversations: List<ConversationSession>,
+        override val conversation: ConversationSession,
+    ) : ConversationSelectionPlan
+}
+
+internal fun XiaoLingUiState.planOpenNewConversation(
+    currentTimeMillis: () -> Long = System::currentTimeMillis,
+): ConversationSelectionPlan.Immediate {
+    val lightweightConversations = conversations.map(ConversationSession::withoutBinaryPayloads)
+    val current = lightweightConversations.firstOrNull { it.id == selectedConversationId }
+    if (current != null && current.messages.isEmpty()) {
+        // long: 当前已经是输入占位时只复用它，不擅自折叠用户仍可见的其他空会话，保持原有“新建”按钮幂等语义。
+        return ConversationSelectionPlan.Immediate(
+            conversations = lightweightConversations,
+            conversation = current,
+            restoreRuntimeState = true,
+        )
+    }
+
+    val reusableEmptyConversation = lightweightConversations
+        .filter { it.messages.isEmpty() }
+        .maxByOrNull { it.updatedAt }
+    if (reusableEmptyConversation != null) {
+        // long: 从已有内容会话切到新输入时只保留最新空占位，避免重复草稿出现在会话列表中。
+        return ConversationSelectionPlan.Immediate(
+            conversations = lightweightConversations
+                .collapseDuplicateEmptyConversations(reusableEmptyConversation.id),
+            conversation = reusableEmptyConversation,
+            restoreRuntimeState = true,
+        )
+    }
+
+    val now = currentTimeMillis()
+    val created = newEmptyConversation(now)
+    return ConversationSelectionPlan.Immediate(
+        conversations = lightweightConversations + created,
+        conversation = created,
+        restoreRuntimeState = false,
+    )
+}
+
+internal fun XiaoLingUiState.planCurrentConversationDeletion(
+    currentTimeMillis: () -> Long = System::currentTimeMillis,
+): ConversationSelectionPlan {
+    val remaining = conversations.filterNot { it.id == selectedConversationId }
+    if (remaining.isNotEmpty()) {
+        // long: 删除当前会话后必须从剩余历史中选择 updatedAt 最新的一项，再由 ViewModel 触发完整消息加载。
+        return ConversationSelectionPlan.Load(
+            conversations = remaining,
+            conversation = remaining.maxBy { it.updatedAt },
+        )
+    }
+
+    val now = currentTimeMillis()
+    val replacement = newEmptyConversation(now)
+    // long: 删除最后一个会话仍需留下可输入的本地占位，不能让 Compose 进入无选中会话状态。
+    return ConversationSelectionPlan.Immediate(
+        conversations = listOf(replacement),
+        conversation = replacement,
+        restoreRuntimeState = false,
+    )
+}
+
+internal fun XiaoLingUiState.withImmediateConversationSelection(
+    selection: ConversationSelectionPlan.Immediate,
+    activeAgentRun: AgentRunSnapshot?,
+    pendingAgentApproval: AgentApprovalUiState?,
+): XiaoLingUiState {
+    val conversation = selection.conversation
+    return copy(
+        conversations = selection.conversations,
+        selectedConversationId = conversation.id,
+        conversationTitle = conversation.title,
+        conversationSummary = conversation.summary,
+        chatMessages = conversation.messages,
+        activeAgentRun = activeAgentRun,
+        pendingAgentApproval = pendingAgentApproval,
+        loadingConversationMessages = false,
+        result = null,
+    )
 }
 
 internal fun XiaoLingUiState.withUpdatedConversation(
@@ -93,3 +188,15 @@ internal fun XiaoLingUiState.withUpdatedCurrentConversation(
 
 private const val CONVERSATION_TITLE_MAX_CHARS = 18
 private const val NEW_CONVERSATION_TITLE = "新会话"
+
+private fun newEmptyConversation(now: Long): ConversationSession = ConversationSession(
+    id = "conversation-$now",
+    title = NEW_CONVERSATION_TITLE,
+    summary = "",
+    summaryUntilMessageId = null,
+    summaryUpdatedAt = null,
+    summaryModel = null,
+    messages = emptyList(),
+    createdAt = now,
+    updatedAt = now,
+)

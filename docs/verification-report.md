@@ -11,6 +11,15 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-23 会话新建与删除选择规则迁出（第 72 阶段）
+
+- `ConversationSessionPolicy` 新增纯 `Immediate / Load` 计划，固定当前空会话幂等复用、最新空占位折叠、新占位创建、删除后最新会话选择和删空兜底。新占位通过 `restoreRuntimeState=false` 明确清空 Agent Run/审批。
+- 一轮有效 Red/Green 建立选择计划 seam；`ConversationSelectionPolicyTest` 五条覆盖三类新建路径和两类删除路径，聚焦结果 `5/5`。第 68 至 72 阶段状态/选择/保存/加载/投影组合 `26/26` 通过。
+- `XiaoLingViewModel` 从 4178 行降到 4121 行；取消加载、删除意图、运行态 Map、完整消息加载、失败回滚和选择保存顺序不变。Room v29、Repository、协议、UI、`/agent` 与 Workflow 行为不变。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --console=plain` 通过；JVM XML 汇总 `468/468`、0 跳过、0 失败。
+- 仅使用 Redmi `wsvwypiz7xwslvl7`。第一次完整 instrumentation 为 `150/152`：两条相邻 Compose 测试在启动时报告 `No compose hierarchies found in the app`，两条单项重试均 `1/1` 通过；卸载并重装测试包后第二次完整运行 `152/152`、0 跳过、0 失败，用时 `36.841s`。没有使用或连接模拟器。
+- 最终卸载测试包、重新安装正式 Debug APK并冷启动。`MainActivity` 前台 PID `7526`，Room `user_version=29`，设备仅保留 `com.longdev.xiaoling` 正式包，测试包不存在，crash buffer 为空。
+
 ## 2026-07-23 会话加载 UI 投影规则迁出（第 71 阶段）
 
 - 新增纯 Kotlin `ConversationLoadProjectionPolicy`，统一 Loading 清理旧结果、Loaded 原子选择会话和 Failed 错误收敛。非当前会话索引剥离 Image/Document BLOB，当前可见会话在同一次状态替换中注入完整消息与附件。

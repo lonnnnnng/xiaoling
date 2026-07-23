@@ -2571,65 +2571,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun openNewConversation() {
         conversationLoadCoordinator.cancelPendingLoad()
-        val lightweightConversations = uiState.conversations.map { it.withoutBinaryPayloads() }
-        val current = lightweightConversations.firstOrNull { it.id == uiState.selectedConversationId }
-        if (current != null && current.messages.isEmpty()) {
-            uiState = uiState.copy(
-                conversations = lightweightConversations,
-                selectedConversationId = current.id,
-                conversationTitle = current.title,
-                conversationSummary = current.summary,
-                chatMessages = emptyList(),
-                activeAgentRun = activeAgentRunsByConversation[current.id],
-                pendingAgentApproval = pendingAgentApprovalsByConversation[current.id],
-                loadingConversationMessages = false,
-                result = null,
-            )
-            saveConversationSelection()
-            return
-        }
-        val reusableEmptyConversation = lightweightConversations
-            .filter { it.messages.isEmpty() }
-            .maxByOrNull { it.updatedAt }
-        if (reusableEmptyConversation != null) {
-            uiState = uiState.copy(
-                conversations = lightweightConversations
-                    .collapseDuplicateEmptyConversations(reusableEmptyConversation.id),
-                selectedConversationId = reusableEmptyConversation.id,
-                conversationTitle = reusableEmptyConversation.title,
-                conversationSummary = reusableEmptyConversation.summary,
-                chatMessages = emptyList(),
-                activeAgentRun = activeAgentRunsByConversation[reusableEmptyConversation.id],
-                pendingAgentApproval = pendingAgentApprovalsByConversation[reusableEmptyConversation.id],
-                loadingConversationMessages = false,
-                result = null,
-            )
-            saveConversationSelection()
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val conversation = ConversationSession(
-            id = "conversation-$now",
-            title = "新会话",
-            summary = "",
-            summaryUntilMessageId = null,
-            summaryUpdatedAt = null,
-            summaryModel = null,
-            messages = emptyList(),
-            createdAt = now,
-            updatedAt = now,
-        )
-        uiState = uiState.copy(
-            conversations = lightweightConversations + conversation,
-            selectedConversationId = conversation.id,
-            conversationTitle = conversation.title,
-            conversationSummary = "",
-            chatMessages = emptyList(),
-            activeAgentRun = null,
-            pendingAgentApproval = null,
-            loadingConversationMessages = false,
-            result = null,
+        val selection = uiState.planOpenNewConversation()
+        uiState = uiState.withImmediateConversationSelection(
+            selection = selection,
+            activeAgentRun = if (selection.restoreRuntimeState) {
+                activeAgentRunsByConversation[selection.conversation.id]
+            } else {
+                null
+            },
+            pendingAgentApproval = if (selection.restoreRuntimeState) {
+                pendingAgentApprovalsByConversation[selection.conversation.id]
+            } else {
+                null
+            },
         )
         saveConversationSelection()
     }
@@ -2694,44 +2648,33 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversationLoadCoordinator.cancelPendingLoad()
         val currentId = uiState.selectedConversationId
         val deletionIntent = conversationPersistenceCoordinator.markConversationDeleted(currentId)
-        val remaining = uiState.conversations.filterNot { it.id == currentId }
         activeAgentRunsByConversation.remove(currentId)
         pendingAgentApprovalsByConversation.remove(currentId)
-        if (remaining.isEmpty()) {
-            val now = System.currentTimeMillis()
-            val conversation = ConversationSession(
-                id = "conversation-$now",
-                title = "新会话",
-                summary = "",
-                summaryUntilMessageId = null,
-                summaryUpdatedAt = null,
-                summaryModel = null,
-                messages = emptyList(),
-                createdAt = now,
-                updatedAt = now,
-            )
-            uiState = uiState.copy(
-                conversations = listOf(conversation),
-                selectedConversationId = conversation.id,
-                conversationTitle = conversation.title,
-                conversationSummary = "",
-                chatMessages = emptyList(),
-                activeAgentRun = null,
-                pendingAgentApproval = null,
-                loadingConversationMessages = false,
-                result = null,
-            )
-            saveConversationSelection()
-            return
-        }
+        when (val selection = uiState.planCurrentConversationDeletion()) {
+            is ConversationSelectionPlan.Immediate -> {
+                uiState = uiState.withImmediateConversationSelection(
+                    selection = selection,
+                    activeAgentRun = if (selection.restoreRuntimeState) {
+                        activeAgentRunsByConversation[selection.conversation.id]
+                    } else {
+                        null
+                    },
+                    pendingAgentApproval = if (selection.restoreRuntimeState) {
+                        pendingAgentApprovalsByConversation[selection.conversation.id]
+                    } else {
+                        null
+                    },
+                )
+                saveConversationSelection()
+            }
 
-        val next = remaining.maxBy { it.updatedAt }
-        loadAndSelectConversation(
-            conversation = next,
-            conversations = remaining,
-            result = OperationResult(true, "已删除", "当前会话已删除"),
-            rollbackDeletionIntentOnFailure = deletionIntent,
-        )
+            is ConversationSelectionPlan.Load -> loadAndSelectConversation(
+                conversation = selection.conversation,
+                conversations = selection.conversations,
+                result = OperationResult(true, "已删除", "当前会话已删除"),
+                rollbackDeletionIntentOnFailure = deletionIntent,
+            )
+        }
     }
 
     private fun loadAndSelectConversation(
