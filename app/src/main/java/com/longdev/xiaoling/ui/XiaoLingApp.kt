@@ -116,6 +116,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -357,6 +358,7 @@ private fun XiaoLingContent(
                         viewModel = viewModel,
                         pane = settingsPane,
                         onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
+                        onOpenNetworkRequest = { settingsPane = SettingsPane.NETWORK_REQUEST },
                         onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
                         onOpenAgentProfileManagement = { settingsPane = SettingsPane.AGENT_PROFILE_MANAGEMENT },
                         onOpenDeviceAgent = { settingsPane = SettingsPane.DEVICE_AGENT },
@@ -474,6 +476,7 @@ private fun XiaoLingContent(
 private enum class SettingsPane {
     ROOT,
     PROVIDER_MANAGEMENT,
+    NETWORK_REQUEST,
     PROMPT_SETTINGS,
     AGENT_PROFILE_MANAGEMENT,
     DEVICE_AGENT,
@@ -2154,6 +2157,7 @@ private fun SettingsPage(
     viewModel: XiaoLingViewModel,
     pane: SettingsPane,
     onOpenProviderManagement: () -> Unit,
+    onOpenNetworkRequest: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenDeviceAgent: () -> Unit,
@@ -2189,6 +2193,13 @@ private fun SettingsPage(
             pane == SettingsPane.PROVIDER_MANAGEMENT -> ProviderManagementPage(
                 state = state,
                 viewModel = viewModel,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
+            pane == SettingsPane.NETWORK_REQUEST -> NetworkRequestSettingsPage(
+                userAgent = state.userAgent,
+                onUserAgentChanged = viewModel::updateUserAgent,
+                onResetUserAgent = viewModel::resetUserAgent,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -2250,9 +2261,8 @@ private fun SettingsPage(
             else -> SettingsRootPage(
                 state = state,
                 onThemeModeChanged = viewModel::updateThemeMode,
-                onUserAgentChanged = viewModel::updateUserAgent,
-                onResetUserAgent = viewModel::resetUserAgent,
                 onOpenProviderManagement = onOpenProviderManagement,
+                onOpenNetworkRequest = onOpenNetworkRequest,
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenAgentProfileManagement = onOpenAgentProfileManagement,
                 onOpenDeviceAgent = onOpenDeviceAgent,
@@ -2274,9 +2284,8 @@ private fun SettingsPage(
 private fun SettingsRootPage(
     state: XiaoLingUiState,
     onThemeModeChanged: (AppThemeMode) -> Unit,
-    onUserAgentChanged: (String) -> Unit,
-    onResetUserAgent: () -> Unit,
     onOpenProviderManagement: () -> Unit,
+    onOpenNetworkRequest: () -> Unit,
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenDeviceAgent: () -> Unit,
@@ -2319,22 +2328,13 @@ private fun SettingsRootPage(
             onClick = onOpenProviderManagement,
         )
 
-        CompactSection(
+        // long: 网络请求与其他设置项保持“入口卡片 -> 独立子页”的导航层级，避免在设置列表里出现唯一可直接编辑的行。
+        SettingsEntryCard(
             title = "网络请求",
-            action = {
-                IconButton(onClick = onResetUserAgent, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Restore, contentDescription = "恢复默认 User-Agent", modifier = Modifier.size(16.dp))
-                }
-            },
-        ) {
-            UnderlineTextField(
-                value = state.userAgent,
-                onValueChange = onUserAgentChanged,
-                label = "User-Agent",
-                placeholder = ProviderRequestConfig.DEFAULT_USER_AGENT,
-                singleLine = true,
-            )
-        }
+            subtitle = "配置模型接口请求使用的 User-Agent",
+            icon = Icons.Default.CloudDownload,
+            onClick = onOpenNetworkRequest,
+        )
 
         SettingsEntryCard(
             title = "提示词设置",
@@ -2436,6 +2436,93 @@ private fun SettingsRootPage(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun NetworkRequestSettingsPage(
+    userAgent: String,
+    onUserAgentChanged: (String) -> Unit,
+    onResetUserAgent: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val clipboardManager = LocalClipboardManager.current
+    NetworkRequestSettingsContent(
+        userAgent = userAgent,
+        onUserAgentChanged = onUserAgentChanged,
+        onResetUserAgent = onResetUserAgent,
+        onCopyUserAgent = { clipboardManager.setText(AnnotatedString(it)) },
+        onBack = onBack,
+        modifier = modifier,
+    )
+}
+
+@Composable
+internal fun NetworkRequestSettingsContent(
+    userAgent: String,
+    onUserAgentChanged: (String) -> Unit,
+    onResetUserAgent: () -> Unit,
+    onCopyUserAgent: (String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
+            }
+            PageTitle("网络请求")
+        }
+
+        CompactSection(
+            title = "User-Agent",
+            action = {
+                IconButton(onClick = onResetUserAgent, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Restore, contentDescription = "恢复默认 User-Agent", modifier = Modifier.size(16.dp))
+                }
+            },
+        ) {
+            CompactTextField(
+                value = userAgent,
+                onValueChange = onUserAgentChanged,
+                label = "User-Agent",
+                placeholder = ProviderRequestConfig.DEFAULT_USER_AGENT,
+                minLines = 5,
+                modifier = Modifier.testTag("network-request-user-agent"),
+            )
+            Spacer(Modifier.height(4.dp))
+            // long: 复制和清空紧邻编辑区右下角，用户无需离开输入上下文即可复用或重置当前值。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                IconButton(
+                    onClick = { onCopyUserAgent(userAgent) },
+                    enabled = userAgent.isNotBlank(),
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "复制 User-Agent", modifier = Modifier.size(17.dp))
+                }
+                IconButton(
+                    onClick = { onUserAgentChanged("") },
+                    enabled = userAgent.isNotBlank(),
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "清空 User-Agent", modifier = Modifier.size(17.dp))
+                }
+            }
+        }
     }
 }
 

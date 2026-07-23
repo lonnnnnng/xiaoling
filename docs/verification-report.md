@@ -11,14 +11,36 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-23 网络请求设置页交互统一（第 74 阶段）
+
+- 设置根页“网络请求”已改为与其他设置项一致的入口卡片，点击后进入独立页面，不再允许在根页行内编辑 User-Agent。独立页面输入区默认至少 5 行，右下角提供复制和清空按钮，标题区保留恢复默认操作；空值时复制和清空禁用。
+- 新增 `NetworkRequestSettingsContentInstrumentedTest`，覆盖复制当前值、清空、空值操作禁用、重新输入、恢复默认和返回设置。新增单项在 Redmi 上 `1/1` 通过，完整 instrumentation 为 `153/153`、0 跳过、0 失败；本阶段未连接或操作 Pixel_9/其他模拟器。
+- Redmi 真实 UI 验收确认根页入口样式统一且可进入独立页面；输入区域 UI bounds 为 `[47,332][1033,656]`，复制和清空按钮位于右下角，没有重叠或截断。截图与 UI tree 分别保存在本机 `/tmp/xiaoling-network-request.png` 和 `/tmp/xiaoling-network-request.xml`。
+- 标准 Gradle 门禁完整执行成功：JVM `472/472`、0 跳过、0 失败，Lint、Debug APK 和 AndroidTest APK 均构建成功。instrumentation 后测试包不存在，当前 Debug APK 覆盖安装并以 `LaunchState: COLD` 启动到 `com.longdev.xiaoling/.MainActivity`；Room `user_version=29`，正式包进程存在且 crash buffer 为空。
+
+## 2026-07-23 小灵 v0.1.11 发布
+
+发布构建与产物：
+
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease --rerun-tasks --stacktrace --console=plain` 通过；JVM `472/472`、Lint、Debug/AndroidTest APK 和 Release APK 均成功，Release `lintVital` 同时通过。
+- `aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.11`、`versionCode=12`、`minSdk=26`、`targetSdk=36`。
+- `apksigner verify --verbose --print-certs` 确认 v2 签名有效，单一签名者证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- 发布 APK：`outputs/release/xiaoling-v0.1.11.apk`，SHA-256：`f5a389d6326010fe7ae996a2df2824b9d3d07978269e21ca2f7b931118370559`；同目录已生成 `.sha256` 校验文件。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不在文档自身记录其哈希。
+
+GitHub Release：
+
+- Release：[小灵 v0.1.11](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.11)
+- APK：[xiaoling-v0.1.11.apk](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.11/xiaoling-v0.1.11.apk)
+- SHA-256：[xiaoling-v0.1.11.apk.sha256](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.11/xiaoling-v0.1.11.apk.sha256)
+
 ## 2026-07-23 会话选择与删除副作用协调迁出（第 73 阶段）
 
 - 新增 `ConversationSelectionCoordinator` 和稳定 `DeletionStarted / Immediate / Load` 事件，组合既有 Session Policy、Persistence Coordinator 与 Load Coordinator。删除路径固定为取消旧加载、标记删除代次、先清理已删除会话运行态、再即时选择或完整加载；当前加载失败先回滚捕获的删除代次，再发布 Failed。
 - `ConversationLoadRequest` 不再携带 `rollbackDeletionIntentOnFailure`，加载协调器只负责 Job/代次和 Loaded/Failed 隔离。`XiaoLingViewModel` 统一消费选择事件，只读取/清理 Agent Run 与审批 Map、执行纯 UI 投影并在 Immediate/Loaded 后保存，从 4121 行降到 4087 行。
 - 新增四条聚焦用例，覆盖失败发布前回滚、旧失败不清理同 ID 新删除意图、删最后会话先清理再即时选择，以及新建会话取消迟到加载。使用 Kotlin 2.3.20 编译相关生产源码与六个会话测试类后，聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 通过；另以 Android 36 和既有依赖 classpath 手工编译完整 `XiaoLingViewModel.kt` 通过。
-- 2026-07-23 追加验证在 `/tmp` 使用隔离 Gradle 8.13 副本：关闭跨进程文件锁通知、避免单次 daemon，并把 Gradle 任务模型识别出的 Java 源集交给同一 JDK 17 直接 `javac`。`lintDebug / assembleDebug / assembleDebugAndroidTest --rerun-tasks` 完整执行成功；Debug APK 为 `22862454` 字节、SHA-256 `f39e5571724b1972ee90a0953272b1369aeea0d8e4ffe9922c11d0c7f7b89b5b`，AndroidTest APK 为 `1843094` 字节、SHA-256 `c3a0da2746ca857316fd604e4ea318c2eceb6ad34b91ae597f6964696d717a80`。临时入口没有修改仓库或用户全局 Gradle 安装。
-- 完整 JVM 由 Gradle 任务模型提供 73 个测试类并通过 JUnit 4 `JUnitCore` 实际执行 `472` 项：`461` 项通过，`11` 项失败；11 项全部在 MockWebServer 绑定本地端口时得到 `java.net.SocketException: Operation not permitted`，没有业务断言失败。因此本阶段仍不宣称 JVM `472/472` 通过。
-- ADB 目标查询显式限定 `wsvwypiz7xwslvl7`，但启动 server 时仍失败：`could not install *smartsocket* listener: Operation not permitted`。当前进程无法安装 APK、执行 Redmi instrumentation、复装正式包或回读 Room/前台/crash buffer；最近一次完整真机门禁仍为第 72 阶段 Redmi `152/152`。本轮没有向 Pixel 或任何模拟器发送 ADB 命令。
+- 标准命令 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过；JVM XML 汇总 `472/472`、0 失败、0 跳过，Lint、Debug APK 和 AndroidTest APK 均成功。Debug APK 为 `22862454` 字节、SHA-256 `f41970c23c21f566c7dea38955ecad78412e8e6e61c61ac4f9d2bd7aff3a8fcf`，AndroidTest APK 为 `1843430` 字节、SHA-256 `f420e30615bdb3d204b7ced4e0ddf45e8daea857a0666721a3aa98a33d822851`。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 执行 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew :app:connectedDebugAndroidTest --stacktrace --console=plain`，完整 instrumentation 为 `152/152`、0 跳过、0 失败，用时 `49s`；本轮没有连接或操作 Pixel_9/其他模拟器。
+- instrumentation 后测试包不存在（卸载命令返回 `DELETE_FAILED_INTERNAL_ERROR`，表示设备上本来没有残留测试包），正式 Debug APK 覆盖安装成功并冷启动到 `com.longdev.xiaoling/.MainActivity`，前台 PID `11873`，Room `user_version=29`，设备仅保留正式包，crash buffer 为空。
 
 ## 2026-07-23 会话新建与删除选择规则迁出（第 72 阶段）
 

@@ -12,14 +12,20 @@
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.10`（`versionCode 11`）
+当前发布版本：`v0.1.11`（`versionCode 12`）
+
+## 第 74 阶段实现与验证边界
+
+- 设置根页的“网络请求”改为与模型提供方、提示词等设置一致的 `SettingsEntryCard`，点击后进入独立的 `NETWORK_REQUEST` 子页，不再在根页直接编辑 User-Agent。
+- 独立页面复用紧凑设置区和文本输入组件，User-Agent 编辑区固定至少 5 行；右下角提供复制和清空图标按钮，标题区继续提供恢复默认操作。空值时复制与清空禁用，清空仍经现有偏好保存规则回退默认 User-Agent。
+- 新增 `NetworkRequestSettingsContentInstrumentedTest`，覆盖复制、清空、空值禁用、重新输入、恢复默认和返回设置。仅使用 Redmi `wsvwypiz7xwslvl7` 完成新增单项 `1/1`、完整 instrumentation `153/153`，并在真实设置页确认入口样式、独立导航、5 行高度和右下角操作布局；未连接或操作模拟器。
 
 ## 第 73 阶段实现与验证边界
 
 - 新增 `ConversationSelectionCoordinator`，以稳定 `DeletionStarted / Immediate / Load` 事件组合既有 Session Policy、Persistence Coordinator 与 Load Coordinator；不依赖 Android Context、Compose runtime 或 Repository 实现。
 - 新建入口先取消旧加载再发布即时选择；删除入口先取消旧加载、标记版本化删除意图并要求宿主清理运行态，再即时选择或启动完整加载。当前加载失败时协调器先按捕获代次回滚，再发布 Failed；迟到旧失败仍由 Load Coordinator 代次门禁丢弃。
 - `ConversationLoadRequest` 删除 `rollbackDeletionIntentOnFailure`，加载层不再承载持久化补偿细节。ViewModel 统一消费协调器事件，只读取/清理 Agent Run 与审批 Map、调用纯投影并在 Immediate/Loaded 后保存选择，从 4121 行降到 4087 行。
-- 四条聚焦测试覆盖失败发布前回滚、旧失败不清理同 ID 新意图、删最后会话先清理再即时选择，以及新建会话取消迟到加载。聚焦 `4/4`、第 68 至 73 阶段会话组合 `30/30`、完整 ViewModel Kotlin 2.3.20 手工编译通过。标准 Gradle、Lint、APK 与 Redmi 门禁因当前沙箱禁止本地 TCP/ADB socket 待补；Room v29、Provider 协议、UI、`/agent` 与 Workflow 设计边界未改变。
+- 四条聚焦测试覆盖失败发布前回滚、旧失败不清理同 ID 新删除意图、删最后会话先清理再即时选择，以及新建会话取消迟到加载。聚焦 `4/4`、第 68 至 73 阶段会话组合 `30/30`、完整 ViewModel Kotlin 2.3.20 手工编译通过；后续标准 Gradle 门禁已通过，完整 JVM `472/472`、Redmi instrumentation `152/152`、Lint、Debug APK 与 AndroidTest APK 均成功。Room v29、Provider 协议、UI、`/agent` 与 Workflow 设计边界未改变。
 
 ## 第 72 阶段实现与验证边界
 
@@ -171,7 +177,7 @@
 用户在对话页输入消息并发送后：
 
 1. 校验 `Base URL`、已启用模型和消息内容。
-2. 从设备级网络偏好读取 `User-Agent`；默认模拟指定 Codex Desktop 版本，用户可在设置页修改或恢复默认。模型列表、Chat Completions、Responses 和后台 Agent 共用同一 Header 构造入口。
+2. 从设备级网络偏好读取 `User-Agent`；默认模拟指定 Codex Desktop 版本。设置根页只展示统一的“网络请求”入口卡片，独立子页提供至少 5 行的编辑区以及复制、清空和恢复默认操作。模型列表、Chat Completions、Responses 和后台 Agent 共用同一 Header 构造入口。
 3. 根据当前接口模式请求 `POST <api-root>/chat/completions` 或 `POST <api-root>/responses`。
 4. Chat Completions 模式发送 `model`、`messages`、`temperature`、`top_p`、`max_tokens` 和 `stream`。
 5. Responses API 模式发送 `model`、结构化 `input` Item 数组、`temperature`、`top_p`、`max_output_tokens` 和 `stream`；USER Image/Document part 分别映射为 `input_text + input_image/input_file`，附件以 Data URL 发送，PDF 使用 `detail=auto`。Adapter 还支持通过同一 `call_id` 关联的 `function_call / function_call_output`。当前 OpenAI-compatible 兼容边界下，Chat Completions 遇到附件会在请求构造阶段明确拒绝。
@@ -378,7 +384,7 @@
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
-- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 468 条 JVM 与仅 Redmi 执行的 152 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
+- 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；当前门禁为 472 条 JVM 与仅 Redmi 执行的 153 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
 
 ## 任务中心需确认队列
 

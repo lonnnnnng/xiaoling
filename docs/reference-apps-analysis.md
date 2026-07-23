@@ -28,7 +28,7 @@
 
 第 72 阶段继续完善参考项目强调的 Session 选择边界：`ConversationSessionPolicy` 以 `Immediate / Load` 计划统一新建会话、复用/折叠空占位、删除后选择最新会话和删空兜底；复用既有会话才允许恢复 Agent/审批状态，新占位始终清空。ViewModel 只执行取消、删除意图、Map、加载/回滚和保存副作用。新增 JVM `5/5`，完整 JVM `468/468` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB 生命周期、协议、UI、Agent/Workflow 和后置能力不变。
 
-第 73 阶段继续落实参考项目常见的 Application Service 组合边界：新增 `ConversationSelectionCoordinator`，不重复 Session、Persistence 或 Load 规则，只固定新建/选择/删除的副作用顺序，并把删除加载失败的版本化回滚从 ViewModel 与 Load Request 中迁出。ViewModel 只消费事件、维护 Agent/审批运行态 Map、投影 UI 和保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 与完整 ViewModel 手工编译通过；标准 Gradle、Lint、APK 和 Redmi 门禁因当前沙箱 socket 限制待补，最近完整基线仍为 JVM `468/468`、Redmi `152/152`。
+第 73 阶段继续落实参考项目常见的 Application Service 组合边界：新增 `ConversationSelectionCoordinator`，不重复 Session、Persistence 或 Load 规则，只固定新建/选择/删除的副作用顺序，并把删除加载失败的版本化回滚从 ViewModel 与 Load Request 中迁出。ViewModel 只消费事件、维护 Agent/审批运行态 Map、投影 UI 和保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 与完整 ViewModel 手工编译通过；后续标准 Gradle、Lint、APK 和 Redmi 门禁已补齐，当前完整基线为 JVM `472/472`、Redmi `153/153`。
 
 ## 1. 结论先行
 
@@ -324,7 +324,7 @@
 
 ## 5. 对小灵当前状态的判断
 
-截至 `v0.1.10`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
+截至 `v0.1.11`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
 - Chat Completions / Responses API，以及保留 system/user/assistant 边界的消息和通过 `call_id` 关联的函数调用/结果 typed Items。
