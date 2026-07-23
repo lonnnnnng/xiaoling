@@ -2,6 +2,17 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 Embedding 相关性扩样与 shadow 候选门禁（第 82 阶段）
+
+- 纯 Kotlin 策略：`KnowledgeRelevanceCalibrationPolicyTest` 覆盖可分数据的分位数与完美候选、重叠数据不得伪造完美门禁，以及缺桶、NaN、同 case ID 标签漂移拒绝。策略使用 nearest-rank，并以正例接纳率、近负例拒绝率、远负例拒绝率三桶等权计算 balanced accuracy。
+- 真实语料：原 10 篇文档各增加 1 篇同主题干扰文档，共 20 篇；正例、近负例、远负例各 10 条英文查询，每条在同一进程重复 2 次。词法命中全部为 0，每次语义检索有 20 个有效候选；20 行 1024 维 Float32 向量共 `81,920` 字节。
+- Redmi 三轮：只使用 `wsvwypiz7xwslvl7`，从外部启动三次独立 instrumentation 进程，每轮 `1/1` 通过、60 个观测，共 180 个观测。三轮 Recall@1、Recall@5、MRR、重复排序稳定率均为 `1.0`；索引耗时 `14.712–15.332s`，查询中位数 `0.797–0.807s`、P95 `0.824–0.866s`。
+- 分桶范围：正例 top1 P05/P50/P95 分别为 `0.6735–0.6741 / 0.7138–0.7145 / 0.7670–0.7678`；近负例为 `0.3463–0.3469 / 0.5144–0.5152 / 0.6063–0.6073`；远负例为 `0.3250–0.3250 / 0.3564–0.3569 / 0.4079–0.4083`。margin 的桶内分布仍有交叠，因此候选继续使用 top1 与 margin 组合。
+- Shadow 候选：三轮最优 minimumTopScore 为 `0.6735–0.6741`，minimumScoreMargin 为 `0.0179–0.0184`，正例接纳率、近负例拒绝率、远负例拒绝率和同集 balanced accuracy 均为 `1.0`。该结果在同一数据集上选参和回测，未经过冻结阈值 holdout，不构成生产拒绝证据。
+- 资源观测：PSS 基线 `174,039–174,241 KB`，索引后 `186,833–186,962 KB`，检索后 `202,124–202,359 KB`；Java heap 基线约 `5.88–5.92 MB`，索引后约 `4.89–4.91 MB`，检索后约 `27.28–27.37 MB`。网络耗时与内存继续只作当前设备/Provider 观测，不设绝对门禁。
+- 决策：第 83 阶段先冻结 Provider/模型专属候选和数据集版本，使用不参与调参的独立 holdout 预注册正例保留率与两类负例拒绝率。生产 Room v31、cosine+RRF、词法兜底和“无相关性拒绝”保持不变。
+- 完整门禁：JVM `491/491`、0 failed；Lint、Debug APK 和 AndroidTest APK 均成功。Debug APK 为 `22,927,994` 字节、SHA-256 `4ea3ba2ef068f98c1dc8319d0d8c630b8c90999bc987cd9449ca4315564d7610`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用哈希。只使用 Redmi `wsvwypiz7xwslvl7` 运行完整 instrumentation，`174/174`、0 failed，4 个真实 Provider 用例无显式参数时按设计 skipped；未启动或操作 Pixel_9/其他模拟器。
+
 ## 2026-07-24 Embedding 相关性 shadow 诊断与首轮校准（第 81 阶段）
 
 - 生产审计：`KnowledgeRetrievalRecord` 和 Room v31 的 `knowledge_retrievals` 新增可空 top1、top2、margin、有效候选数字段。v30→v31 迁移 `1/1` 通过，旧记录四项均为 `null`；受控三候选检索的 `1.0 / 0.8 / 0.2 / 3` 写入与回读 `1/1` 通过。Provider 未执行/不可用保持未知，无索引或已有索引不可比较记录候选数 `0`。

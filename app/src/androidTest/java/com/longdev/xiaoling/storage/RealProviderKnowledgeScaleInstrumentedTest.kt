@@ -10,6 +10,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationReport
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationPolicy
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationSample
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCandidateGate
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceLabel
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -183,6 +188,7 @@ class RealProviderKnowledgeScaleInstrumentedTest {
             .allowMainThreadQueries()
             .build()
         try {
+            // long: 外部会独立启动三次 instrumentation 进程；这里保留单进程两次重复，用于区分进程间漂移和同进程排序抖动。
             val semanticStore = RoomKnowledgeDocumentStore(
                 context = context,
                 database = database,
@@ -190,7 +196,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
             )
             val lexicalStore = RoomKnowledgeDocumentStore(context, database)
             val documentNames = mutableMapOf<String, String>()
-            CORPUS.forEach { entry ->
+            val memoryBefore = memorySnapshot()
+            val indexStartedAt = SystemClock.elapsedRealtimeNanos()
+            CALIBRATION_CORPUS.forEach { entry ->
                 val document = semanticStore.importUtf8Document(
                     displayName = entry.fileName,
                     mimeType = "text/markdown",
@@ -198,55 +206,123 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                 )
                 documentNames[document.id] = entry.fileName
             }
+            val indexMillis = elapsedMillisSince(indexStartedAt)
+            val memoryAfterIndex = memorySnapshot()
 
-            val observations = CALIBRATION_CASES.map { queryCase ->
+            val observations = CALIBRATION_CASES.flatMap { queryCase ->
                 val lexicalHitCount = lexicalStore.search(queryCase.query, limit = QUALITY_LIMIT).hits.size
-                val result = semanticStore.search(
-                    query = queryCase.query,
-                    limit = QUALITY_LIMIT,
-                    sourceRunId = "stage81-${queryCase.caseId}",
-                )
-                val topScore = requireNotNull(result.retrieval.embeddingTopScore)
-                val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
-                val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
-                assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
-                assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
-                assertEquals(embeddingModel, result.retrieval.embeddingModel)
                 assertEquals("校准查询不得被词法命中虚高", 0, lexicalHitCount)
-                assertEquals(CORPUS.size, result.retrieval.embeddingCandidateCount)
-                assertTrue(topScore.isFinite())
-                assertTrue(secondScore.isFinite())
-                assertTrue(margin.isFinite() && margin >= 0.0)
-                assertEquals(topScore - secondScore, margin, 0.0000001)
-                val rankedFileNames = result.hits.map { hit -> documentNames[hit.documentId] ?: hit.documentName }
-                queryCase.expectedFileName?.let { expectedFileName ->
-                    assertEquals("正例首位文档发生漂移", expectedFileName, rankedFileNames.firstOrNull())
+                (0 until CALIBRATION_QUERY_RUNS).map { runIndex ->
+                    val queryStartedAt = SystemClock.elapsedRealtimeNanos()
+                    val result = semanticStore.search(
+                        query = queryCase.query,
+                        limit = QUALITY_LIMIT,
+                        sourceRunId = "stage82-${queryCase.caseId}-$runIndex",
+                    )
+                    val queryMillis = elapsedMillisSince(queryStartedAt)
+                    val topScore = requireNotNull(result.retrieval.embeddingTopScore)
+                    val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
+                    val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
+                    assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+                    assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
+                    assertEquals(embeddingModel, result.retrieval.embeddingModel)
+                    assertEquals(CALIBRATION_CORPUS.size, result.retrieval.embeddingCandidateCount)
+                    assertTrue(topScore.isFinite())
+                    assertTrue(secondScore.isFinite())
+                    assertTrue(margin.isFinite() && margin >= 0.0)
+                    assertEquals(topScore - secondScore, margin, 0.0000001)
+                    val observation = CalibrationObservation(
+                        caseId = queryCase.caseId,
+                        label = queryCase.label,
+                        runIndex = runIndex,
+                        expectedFileName = queryCase.expectedFileName,
+                        rankedFileNames = result.hits.map { hit ->
+                            documentNames[hit.documentId] ?: hit.documentName
+                        },
+                        lexicalHitCount = lexicalHitCount,
+                        candidateCount = requireNotNull(result.retrieval.embeddingCandidateCount),
+                        queryMillis = queryMillis,
+                        topScore = topScore,
+                        secondScore = secondScore,
+                        margin = margin,
+                    )
+                    Log.i(CALIBRATION_CASE_TAG, observation.toJson().toString())
+                    println("$CALIBRATION_CASE_TAG ${observation.toJson()}")
+                    observation
                 }
-                CalibrationObservation(
-                    caseId = queryCase.caseId,
-                    caseType = queryCase.caseType,
-                    query = queryCase.query,
-                    expectedFileName = queryCase.expectedFileName,
-                    rankedFileNames = rankedFileNames,
-                    lexicalHitCount = lexicalHitCount,
-                    candidateCount = requireNotNull(result.retrieval.embeddingCandidateCount),
-                    topScore = topScore,
-                    secondScore = secondScore,
-                    margin = margin,
-                )
             }
 
-            // long: 正例、近负例和远负例只按同一 Provider/模型分桶记录分布；本阶段没有生产阈值，测试不能把某个经验分数写成拒绝断言。
+            val relevance = KnowledgeRelevanceCalibrationPolicy.evaluate(
+                observations.map { observation ->
+                    KnowledgeRelevanceCalibrationSample(
+                        caseId = observation.caseId,
+                        label = observation.label,
+                        topScore = observation.topScore,
+                        scoreMargin = observation.margin,
+                    )
+                },
+            )
+            val qualityCases = CALIBRATION_CASES.filter { it.label == KnowledgeRelevanceLabel.POSITIVE }.map { queryCase ->
+                KnowledgeSearchQualityCaseResult(
+                    caseId = queryCase.caseId,
+                    relevantDocumentIds = setOf(requireNotNull(queryCase.expectedFileName)),
+                    rankedDocumentIdsByRun = observations.filter { it.caseId == queryCase.caseId }
+                        .sortedBy { it.runIndex }
+                        .map { it.rankedFileNames },
+                    limit = QUALITY_LIMIT,
+                )
+            }
+            val quality = KnowledgeSearchQualityPolicy.evaluate(qualityCases)
+            val recallAt1 = qualityCases.count { result ->
+                result.rankedDocumentIdsByRun.first().firstOrNull() in result.relevantDocumentIds
+            }.toDouble() / qualityCases.size
+            val vectorStats = database.vectorStats(CALIBRATION_PROVIDER_ID, embeddingModel)
+            val memoryAfterSearch = memorySnapshot()
+            val queryMillis = observations.map { it.queryMillis }
+
+            // long: 候选门禁与质量指标来自同一小样本，只能作为 shadow 观测；第 82 阶段不把阈值接入生产检索或负例拒绝。
             val metrics = JSONObject()
                 .put("providerId", CALIBRATION_PROVIDER_ID)
                 .put("model", embeddingModel)
-                .put("observations", observations.toCalibrationJsonArray())
-                .put("summaries", observations.summaryJsonArray())
+                .put("shadowCandidateOnly", true)
+                .put("documents", CALIBRATION_CORPUS.size)
+                .put("casesPerBucket", CALIBRATION_CASES.size / KnowledgeRelevanceLabel.entries.size)
+                .put("runsPerCase", CALIBRATION_QUERY_RUNS)
+                .put("observations", observations.size)
+                .put("indexMillis", indexMillis)
+                .put("queryMedianMillis", queryMillis.percentile(0.50))
+                .put("queryP95Millis", queryMillis.percentile(0.95))
+                .put("candidateCount", observations.map { it.candidateCount }.distinct().single())
+                .put("vectorRows", vectorStats.rowCount)
+                .put("dimensions", vectorStats.minDimensions)
+                .put("vectorBytes", vectorStats.vectorBytes)
+                .put("recallAt1", recallAt1)
+                .put("recallAt5", quality.meanRecallAtK)
+                .put("mrr", quality.meanReciprocalRank)
+                .put("stableRankingRate", quality.stableRankingRate)
+                .put("buckets", relevance.toBucketJsonArray())
+                .put("candidateGate", relevance.candidateGate.toJson())
+                .put("pssBeforeKb", memoryBefore.pssKb)
+                .put("pssAfterIndexKb", memoryAfterIndex.pssKb)
+                .put("pssAfterSearchKb", memoryAfterSearch.pssKb)
+                .put("javaHeapBeforeBytes", memoryBefore.javaHeapBytes)
+                .put("javaHeapAfterIndexBytes", memoryAfterIndex.javaHeapBytes)
+                .put("javaHeapAfterSearchBytes", memoryAfterSearch.javaHeapBytes)
             Log.i(CALIBRATION_METRICS_TAG, metrics.toString())
             println("$CALIBRATION_METRICS_TAG $metrics")
 
-            assertEquals(CALIBRATION_CASES.size, observations.size)
-            assertEquals(CALIBRATION_CASE_TYPES, observations.map { it.caseType }.toSet())
+            assertEquals(
+                CALIBRATION_CASES.size * CALIBRATION_QUERY_RUNS,
+                observations.size,
+            )
+            assertEquals(KnowledgeRelevanceLabel.entries.toSet(), observations.map { it.label }.toSet())
+            assertEquals(CALIBRATION_CORPUS.size.toLong(), vectorStats.rowCount)
+            assertEquals(vectorStats.minDimensions, vectorStats.maxDimensions)
+            assertTrue(vectorStats.minDimensions > 0)
+            assertEquals(
+                vectorStats.rowCount * vectorStats.minDimensions * Float.SIZE_BYTES,
+                vectorStats.vectorBytes,
+            )
         } finally {
             database.close()
         }
@@ -301,38 +377,46 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         forEach(array::put)
     }
 
-    private fun List<CalibrationObservation>.toCalibrationJsonArray(): JSONArray = JSONArray().also { array ->
-        forEach { observation ->
-            array.put(
-                JSONObject()
-                    .put("caseId", observation.caseId)
-                    .put("caseType", observation.caseType)
-                    .put("query", observation.query)
-                    .put("expectedFileName", observation.expectedFileName ?: JSONObject.NULL)
-                    .put("rankedFileNames", JSONArray(observation.rankedFileNames))
-                    .put("lexicalHitCount", observation.lexicalHitCount)
-                    .put("candidateCount", observation.candidateCount)
-                    .put("topScore", observation.topScore)
-                    .put("secondScore", observation.secondScore)
-                    .put("margin", observation.margin),
-            )
-        }
-    }
+    private fun CalibrationObservation.toJson(): JSONObject = JSONObject()
+        .put("caseId", caseId)
+        .put("label", label.name)
+        .put("runIndex", runIndex)
+        .put("expectedFileName", expectedFileName ?: JSONObject.NULL)
+        .put("rankedFileNames", JSONArray(rankedFileNames))
+        .put("lexicalHitCount", lexicalHitCount)
+        .put("candidateCount", candidateCount)
+        .put("queryMillis", queryMillis)
+        .put("topScore", topScore)
+        .put("secondScore", secondScore)
+        .put("margin", margin)
 
-    private fun List<CalibrationObservation>.summaryJsonArray(): JSONArray = JSONArray().also { array ->
-        CALIBRATION_CASE_TYPES.sorted().forEach { caseType ->
-            val bucket = filter { it.caseType == caseType }
-            array.put(
-                JSONObject()
-                    .put("caseType", caseType)
-                    .put("count", bucket.size)
-                    .put("topScoreMin", bucket.minOf { it.topScore })
-                    .put("topScoreMax", bucket.maxOf { it.topScore })
-                    .put("marginMin", bucket.minOf { it.margin })
-                    .put("marginMax", bucket.maxOf { it.margin }),
-            )
+    private fun KnowledgeRelevanceCalibrationReport.toBucketJsonArray(): JSONArray =
+        JSONArray().also { array ->
+            KnowledgeRelevanceLabel.entries.forEach { label ->
+                val bucket = bucket(label)
+                array.put(
+                    JSONObject()
+                        .put("label", label.name)
+                        .put("sampleCount", bucket.sampleCount)
+                        .put("uniqueCaseCount", bucket.uniqueCaseCount)
+                        .put("topScoreP05", bucket.topScore.p05)
+                        .put("topScoreP50", bucket.topScore.p50)
+                        .put("topScoreP95", bucket.topScore.p95)
+                        .put("marginP05", bucket.scoreMargin.p05)
+                        .put("marginP50", bucket.scoreMargin.p50)
+                        .put("marginP95", bucket.scoreMargin.p95),
+                )
+            }
         }
-    }
+
+    private fun KnowledgeRelevanceCandidateGate.toJson(): JSONObject =
+        JSONObject()
+            .put("minimumTopScore", minimumTopScore)
+            .put("minimumScoreMargin", minimumScoreMargin)
+            .put("positiveAcceptanceRate", positiveAcceptanceRate)
+            .put("nearNegativeRejectionRate", nearNegativeRejectionRate)
+            .put("farNegativeRejectionRate", farNegativeRejectionRate)
+            .put("balancedAccuracy", balancedAccuracy)
 
     private data class CorpusEntry(
         val fileName: String,
@@ -347,19 +431,20 @@ class RealProviderKnowledgeScaleInstrumentedTest {
 
     private data class CalibrationQueryCase(
         val caseId: String,
-        val caseType: String,
+        val label: KnowledgeRelevanceLabel,
         val query: String,
         val expectedFileName: String? = null,
     )
 
     private data class CalibrationObservation(
         val caseId: String,
-        val caseType: String,
-        val query: String,
+        val label: KnowledgeRelevanceLabel,
+        val runIndex: Int,
         val expectedFileName: String?,
         val rankedFileNames: List<String>,
         val lexicalHitCount: Int,
         val candidateCount: Int,
+        val queryMillis: Long,
         val topScore: Double,
         val secondScore: Double,
         val margin: Double,
@@ -384,12 +469,13 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         const val PROVIDER_ID = "real-embedding-scale-baseline"
         const val CALIBRATION_PROVIDER_ID = "real-embedding-relevance-calibration"
         const val METRICS_TAG = "XIAOLING_STAGE80_METRICS"
-        const val CALIBRATION_METRICS_TAG = "XIAOLING_STAGE81_CALIBRATION"
+        const val CALIBRATION_CASE_TAG = "XIAOLING_STAGE82_CASE"
+        const val CALIBRATION_METRICS_TAG = "XIAOLING_STAGE82_SUMMARY"
         const val QUALITY_LIMIT = 5
         const val QUERY_RUNS = 2
+        const val CALIBRATION_QUERY_RUNS = 2
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val UNRELATED_QUERY = "How do coral reefs coordinate spawning under moonlight?"
-        val CALIBRATION_CASE_TYPES = setOf("positive", "near-negative", "far-negative")
 
         val CORPUS = listOf(
             CorpusEntry("01-专注节奏.md", "番茄工作法把任务拆成二十五分钟的专注区间，之后安排短暂休息。完成四轮后再进行较长休息，减少持续分心。"),
@@ -404,6 +490,20 @@ class RealProviderKnowledgeScaleInstrumentedTest {
             CorpusEntry("10-照片备份.md", "照片备份应保留至少两份副本，其中一份放在不同的物理位置。定期抽查文件能否打开，并在更换手机前确认最近同步时间。"),
         )
 
+        // long: 每个原始主题增加一篇同主题干扰文档，校准查询必须在近邻语义中辨别具体事实，避免十篇孤立主题高估效果。
+        val CALIBRATION_CORPUS = CORPUS + listOf(
+            CorpusEntry("11-深度工作.md", "深度工作可以关闭通知并预留九十分钟不被打断的区间。开始前写下单一目标，结束后统一处理消息，而不是按固定二十五分钟轮换。"),
+            CorpusEntry("12-干酵母面包.md", "使用即发干酵母时可以直接混入面粉，无需每天喂养。面团完成揉制后等待一次发酵，整形后进行最后醒发再烘焙。"),
+            CorpusEntry("13-午睡恢复.md", "短暂午睡适合安排在下午较早时段，通常控制在二十分钟左右。醒来后接触自然光并稍作活动，避免影响夜间睡意。"),
+            CorpusEntry("14-骑行清洁.md", "雨天骑行结束后先擦干车架和链条，再补充适量链条油。清理刹车边和泥沙能减少磨损，这些维护适合回家后进行。"),
+            CorpusEntry("15-缓存过期.md", "服务器可以通过缓存有效期告诉浏览器在一段时间内直接复用本地响应。有效期结束后再联系服务器，适合更新周期明确的静态资源。"),
+            CorpusEntry("16-植物施肥.md", "室内植物生长期可以按肥料说明稀释后施用，并避开刚换盆或休眠阶段。过量肥料会积累盐分，需要降低频率而不是增加浇水。"),
+            CorpusEntry("17-管弦乐排练.md", "管弦乐团排练由指挥先处理各声部进入位置和速度变化，再合并木管、铜管与弦乐。大编制排练重点是指挥手势和整体动态层次。"),
+            CorpusEntry("18-旅行行李.md", "出发前按天气和活动准备分层衣物、证件、充电器与常用药。随身行李保留一天必需品，托运行李外侧不要悬挂贵重物品。"),
+            CorpusEntry("19-计划储蓄.md", "预计一年内发生的保险、学费或家电支出可以建立专项储蓄。按目标金额和剩余月份定期存入，避免把可预见费用当作紧急事件。"),
+            CorpusEntry("20-照片整理.md", "照片整理可以按年份、事件和地点建立相册，删除重复截图并补充关键词。统一命名有助于搜索，但不等同于建立异地副本。"),
+        )
+
         val QUERY_CASES = listOf(
             QueryCase("focus-rhythm", "What routine divides concentrated work into short timed intervals followed by breaks?", "01-专注节奏.md"),
             QueryCase("natural-starter", "How should a starter be maintained before baking naturally leavened bread?", "02-天然酵种.md"),
@@ -415,35 +515,163 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         val CALIBRATION_CASES = listOf(
             CalibrationQueryCase(
                 caseId = "positive-focus",
-                caseType = "positive",
+                label = KnowledgeRelevanceLabel.POSITIVE,
                 query = "How does the Pomodoro method structure focused work and breaks?",
                 expectedFileName = "01-专注节奏.md",
             ),
             CalibrationQueryCase(
+                caseId = "positive-starter",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should a sourdough starter be fed and assessed before baking?",
+                expectedFileName = "02-天然酵种.md",
+            ),
+            CalibrationQueryCase(
                 caseId = "positive-sleep",
-                caseType = "positive",
+                label = KnowledgeRelevanceLabel.POSITIVE,
                 query = "What evening habits support regular sleep?",
                 expectedFileName = "03-睡眠习惯.md",
             ),
             CalibrationQueryCase(
-                caseId = "near-focus-sleep",
-                caseType = "near-negative",
-                query = "How can planned short breaks improve sleep quality during evening work?",
+                caseId = "positive-bicycle",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "What tire, brake, chain, and quick-release checks belong before a bicycle ride?",
+                expectedFileName = "04-骑行检查.md",
             ),
             CalibrationQueryCase(
-                caseId = "near-bicycle-travel",
-                caseType = "near-negative",
-                query = "How should I check bicycle tires before a long-distance travel itinerary?",
+                caseId = "positive-cache-validator",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How does a browser revalidate an unchanged response without downloading the full resource?",
+                expectedFileName = "05-缓存验证.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-watering",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should soil moisture be checked before thoroughly watering an indoor plant?",
+                expectedFileName = "06-植物浇水.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-quartet",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How can a string quartet rehearse bowing, intonation, and inner-voice balance?",
+                expectedFileName = "07-室内乐排练.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-itinerary",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should dates, budget, transport, lodging, and daily pacing be planned for an intercity trip?",
+                expectedFileName = "08-旅行准备.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-emergency-fund",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should a household build liquid savings for job loss, medical surprises, or urgent repairs?",
+                expectedFileName = "09-应急储备.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-photo-backup",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "What copy locations and restore checks make a photo backup resilient before changing phones?",
+                expectedFileName = "10-照片备份.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-focus-app",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which Pomodoro timer app supports team leaderboards and shared rewards?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-starter-microbes",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which bacterial species dominate a sourdough starter at different temperatures?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-sleep-melatonin",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "What melatonin dosage should change between eastbound and westbound travel?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-bicycle-compound",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which bicycle tire compound has the lowest rolling resistance on wet roads?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-cache-cdn",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "How should a global CDN invalidate cached objects across every region?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-plant-fertilizer",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which fertilizer NPK ratio produces the most orchid flowers?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-quartet-royalty",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "How should recording royalties be divided among string quartet musicians?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-travel-visa",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which visa category permits remote employment during long-term overseas travel?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-emergency-tax",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "How are interest earnings from an emergency savings account taxed?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-photo-profile",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which RAW color profile best matches a particular camera sensor?",
             ),
             CalibrationQueryCase(
                 caseId = "far-coral",
-                caseType = "far-negative",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
                 query = UNRELATED_QUERY,
             ),
             CalibrationQueryCase(
                 caseId = "far-spacecraft",
-                caseType = "far-negative",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
                 query = "What orbital maneuvers place a spacecraft around Mars?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-volcano",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How do seismic waves reveal magma movement beneath a volcano?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-roman-law",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How did Roman courts distinguish contracts from property claims?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-protein",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How do chaperone proteins prevent aggregation during cellular folding?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-whale",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "Which ocean currents guide seasonal whale migration routes?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-quantum",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How does a surface code detect errors in a quantum computer?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-ceramic",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "What kiln atmosphere creates a copper-red ceramic glaze?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-manuscript",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How were pigments prepared for illuminated medieval manuscripts?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-radio",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How do radio telescopes combine signals with very long baseline interferometry?",
             ),
         )
     }

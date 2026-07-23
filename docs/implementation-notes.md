@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 82 阶段实现与验证边界
+
+- 新增纯 Kotlin `KnowledgeRelevanceCalibrationPolicy`、标签、样本、分桶分布、候选门禁与报告模型。输入先校验三桶完整性、有限值、非空 case ID 和 case 标签稳定性；分位数使用 nearest-rank。门禁遍历已观测 top1/margin 的笛卡尔积，以三桶等权 balanced accuracy 选优，并按正例接纳率、近/远负例拒绝率和阈值固定顺序消除同分漂移。
+- `RealProviderKnowledgeScaleInstrumentedTest` 的校准语料扩为原 10 篇加 10 篇同主题干扰文档；三桶各 10 条英文查询，每条重复两次。每个观测单独输出短 JSON，汇总再输出指标，避免 Android 单条 Logcat 长度截断；日志只包含测试 Provider ID、模型、用例和指标，不输出 Base URL/API Key。
+- 校准汇总新增 top1/margin P05/P50/P95、Recall@1/5、MRR、排序稳定率、索引/查询耗时、候选数、向量行数/维度/字节、PSS、Java heap 与 shadow 候选门禁。正例质量按标注文档名计算；近负例和远负例只进入候选拒绝率观测，不伪造生产拒绝状态。
+- Redmi 三次独立进程均 `1/1` 通过，共 180 个观测。20 个候选、20 行 1024 维向量和 `81,920` 字节三轮一致；Recall@1/5、MRR、稳定率与同集 balanced accuracy 均为 `1.0`。候选 top1/margin 下限分别为 `0.6735–0.6741 / 0.0179–0.0184`，查询中位数 `0.797–0.807s`、P95 `0.824–0.866s`。
+- 该策略不被生产 `RoomKnowledgeDocumentStore.search()` 调用，也没有 Room migration、配置写入或 UI 门禁。第 83 阶段先冻结候选并执行独立 holdout；完成前继续使用 Room v31、cosine+RRF 和词法兜底。
+- 完整门禁为 JVM `491/491`、Lint、Debug/AndroidTest APK 和仅 Redmi `174/174` instrumentation 通过；默认套件 4 个显式联网用例按设计 skipped。Debug APK 为 `22,927,994` 字节、SHA-256 `4ea3ba2ef068f98c1dc8319d0d8c630b8c90999bc987cd9449ca4315564d7610`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不在文档中记录自引用哈希。
+
 ## 第 81 阶段实现与验证边界
 
 - `KnowledgeRetrievalRecord` 与 `knowledge_retrievals` 新增 `embeddingTopScore`、`embeddingSecondScore`、`embeddingScoreMargin`、`embeddingCandidateCount`。Room v30→v31 Migration 只增加可空列；旧记录四项均为 `null`，不从历史 chunk IDs 或当前索引反推分数。

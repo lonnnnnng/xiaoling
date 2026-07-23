@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 82 阶段进一步落实参考项目中“检索门禁必须以可重复校准集和离线指标驱动”的做法，但保留移动端本地知识库的证据边界。20 篇成对主题语料、三桶各 10 条查询、每条重复 2 次并在 Redmi 三个独立进程运行；三轮 Recall@1/5、MRR、排序稳定率和同集 shadow balanced accuracy 均为 `1.0`。纯 Kotlin 策略固定输出 top1/margin 分位数和可复现候选组合，生产检索未接入阈值。由于候选仍在同一数据集上选择并评估，本阶段没有照搬服务端项目常见的单阈值配置；下一阶段先冻结 Provider/模型专属候选并以独立 holdout 证明泛化，再讨论仅拒绝纯语义候选且保留词法兜底。20 行 1024 维向量和约 0.8 秒查询仍不支持提前引入 ANN 或后台批量重建。最终 JVM `491/491`、Lint、APK 和仅 Redmi `174/174` instrumentation 通过，4 个联网用例默认 skipped。
+
 第 81 阶段把参考项目强调的“相关性门禁必须先可观察、再按模型校准”落到生产审计和 Redmi 真实 Provider。Room v31 保存 top1、top2、margin 与候选数，管理页明确标为 shadow 校准观测；历史未知值不回填，生产 cosine+RRF 不拒绝候选。固定 10 篇语料的正例、近负例、远负例各 2 条形成首轮分层：top1 为 `0.6806–0.7130 / 0.6502–0.6854 / 0.3704–0.4083`，margin 为 `0.2743–0.2828 / 0.1311–0.2114 / 0.0274–0.0507`。这支持继续研究绝对下限与 margin 的组合，但样本量不足以照搬为跨 Provider/模型阈值；下一阶段先扩充标注分桶，再考虑只拒绝纯语义候选并保留词法兜底。完整 JVM `488/488`、Lint、APK 和仅 Redmi `174/174` instrumentation 通过；ANN、后台批量重建与规模化性能继续后置。
 
 第 80 阶段把参考项目强调的“质量、性能和资源证据应共享同一固定语料”落到 Redmi 真实 Provider。10 篇中文文档、5 个跨语言查询各重复两次，三轮 Recall@5/MRR/排序稳定率均为 `1.0`；10 行 1024 维向量仅 `40,960` 原始字节，索引中位数 `8.881s`，三轮查询中位数的中值 `0.836s`，每轮 P95 为 `1.016–1.496s`，检索后 PSS 增量 `7,358–15,941 KB`。这些数据不支持为 10 行索引引入 ANN 或后台批处理；更重要的是无关查询三轮均返回 5 个近邻，因此下一步应先为语义排名建立可校准的相关性拒绝证据。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `171` 个用例，`168` passed、`3` skipped、`0` failed。
@@ -16,7 +18,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-24：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性 shadow 诊断在 Room v31 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-24：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性 shadow 诊断在 Room v31 落地，第 82 阶段又完成 20 篇成对语料和三桶各 10 条查询的扩样校准；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
 第 75 阶段把参考项目强调的“输入事实与执行事实分离”落到 `/agent` 附件：Responses 规划请求可携带经校验的 USER Image/Document，summary、VerifiedAgentContext、Tool part 与 Agent 输出继续隔离附件；审批恢复与任务中心重试从 Room USER MessagePart 重建并复制到新 Run，Chat/mixed/持久化重复附件/伪造来源保持 fail-closed。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过，图片与文档真实 E2E 的工具回执均为 `PASSED`；Workflow/后台 Agent 暂无附件入口。该段是第 75 阶段当时边界；Embedding 已在第 76 至 78 阶段补齐有限规模检索、显式重建和质量诊断，设备后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
@@ -393,7 +395,7 @@
 | ToolCall/ToolResult 已独立落表，任务中心、恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。全部结果与验证已落库时可恢复本地收尾 |
 | 提交状态未知或验证事实不完整的通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；`notes.create / memory.remember` 可从完整已提交证据恢复受限只读验证，任意工具在全部 `PASSED` 后可恢复控制面收尾，但都不能继续旧规划或 Workflow 后续步骤 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
-| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v30 继续独立观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
+| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v31 继续沿用独立账本观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
 | PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Embedding、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、FTS/LIKE、有限规模 Embedding、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 ANN/规模化检索质量验证 |
 | 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；仍不能进入 Workflow/后台自动化，也不承诺任意 App |
 
@@ -418,12 +420,12 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v30 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/LIKE/Embedding/检索审计与管理 UI、`knowledge.search`、答案引用 UI、独立进程退出观察、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。Embedding 当前采用有限规模内存 cosine + 稳定 RRF，并已有固定语料质量门禁和实际检索路径诊断；Provider 失败或模型列表没有 Embedding 模型时仍回退词法结果。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v31 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/LIKE/Embedding/检索审计与管理 UI、`knowledge.search`、答案引用 UI、独立进程退出观察、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。Embedding 当前采用有限规模内存 cosine + 稳定 RRF，已有固定语料质量门禁、实际检索路径诊断、top1/top2/margin shadow 审计和第 82 阶段扩样校准；Provider 失败或模型列表没有 Embedding 模型时仍回退词法结果，生产拒绝尚未启用。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v30 已补知识全文/chunks/FTS/LIKE/Embedding/审计、管理 UI、只读 Agent 检索、引用持久化与模型上下文失效过滤 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离 |
+| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v31 已补知识全文/chunks/FTS/LIKE/Embedding/shadow 分数审计、管理 UI、只读 Agent 检索、引用持久化、模型上下文失效过滤和扩样校准 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离；生产拒绝须经独立 holdout |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、最多 4 次工具调用、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |
