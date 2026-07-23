@@ -2,6 +2,15 @@
 
 验证日期：2026-07-23（北京时间）
 
+## 2026-07-23 真实 Provider 语义检索端到端（第 79 阶段）
+
+- 配置核验：本地未跟踪 `AGENTS.md` 的 Embedding Base URL 已修正为 OpenAI 兼容 `/v1` 根路径；API Key 与模型名完整。配置文件继续由 `.gitignore` 排除，本文不记录 URL、Key 或其他凭据。
+- 协议实测：仅 Redmi `wsvwypiz7xwslvl7` 显式运行 `ProviderEmbeddingCompatibilityInstrumentedTest`，模型列表包含指定 Embedding 模型，`/embeddings` 返回两条非空、维度一致且只含有限值的向量，`1/1` 通过。
+- 语义链实测：新增 `RealProviderKnowledgeSearchInstrumentedTest`，直接使用生产 `OpenAiCompatibleClient`、`OpenAiKnowledgeEmbeddingProvider` 与 `RoomKnowledgeDocumentStore`，内存 Room 隔离正式数据。英文查询在纯词法 Store 中 0 命中并记录 `LEXICAL_ONLY`；真实向量 Store 首位命中中文“专注方法”文档并记录 `USED`，Provider/模型身份、最终 chunk IDs、索引非零维度/分块数和显式重建均通过，`1/1`，总耗时约 `5.947s`。
+- 数据边界：真实语义 E2E 不调用 `ProviderRepository.save()`，不切换正式聊天 Provider，不写手机正式知识文档、向量或检索审计；测试结束关闭内存数据库。协议冒烟后已使用本地兜底配置恢复聊天 Provider。
+- 默认套件：两个真实联网测试都要求显式 instrumentation 参数；无参数时按设计 skipped。最终 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 记录 `170` 个用例、`168` passed、`2` skipped、`0` failed，跳过项正是 `ProviderEmbeddingCompatibilityInstrumentedTest` 与 `RealProviderKnowledgeSearchInstrumentedTest`。未连接、启动或操作 Pixel_9/其他模拟器。
+- 当前证据证明该 Provider 与生产小批次请求、Float32 校验、Room 索引、cosine/RRF、检索审计和显式重建兼容；尚不代表大语料性能、任意 Provider 兼容、ANN 或后台批量索引已验证。
+
 ## 2026-07-23 Embedding 检索质量与兼容诊断（第 78 阶段）
 
 - 新增纯 Kotlin `KnowledgeSearchQualityPolicy`；排名按文档 ID 去重后截取 K，输出 Recall@K、MRR、负例准确率和重复排序稳定率。JVM 覆盖空语料、单一正例、K 外命中、负例误命中、排序漂移及非法输入。
@@ -12,7 +21,7 @@
 - JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --rerun-tasks --stacktrace --console=plain`，`488/488`、0 failed、0 skipped。
 - 静态与 APK：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain`，通过。
 - Redmi 完整 instrumentation：`ANDROID_SERIAL=wsvwypiz7xwslvl7 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:connectedDebugAndroidTest --rerun-tasks --stacktrace --console=plain`，JUnit XML 记录 `169` 个用例、`168` passed、`1` skipped、`0` failed；唯一跳过项是无显式公网参数时默认关闭的 Provider 冒烟。未连接、启动或操作 Pixel_9/其他模拟器。
-- 当前仍不宣称任意 Provider 的 Embedding 兼容、ANN、自动后台批量重建或规模化召回/性能；真实语义路径需等待可同步到 Embedding 模型的 Provider 再验收。
+- 本阶段当时不宣称任意 Provider 的 Embedding 兼容、ANN、自动后台批量重建或规模化召回/性能；第 79 阶段已使用独立真实 Embedding Provider 补齐单一兼容 Provider 的完整语义路径，其他边界不变。
 
 ## 2026-07-23 Embedding 索引生命周期（第 77 阶段）
 

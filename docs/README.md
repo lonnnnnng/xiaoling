@@ -2,7 +2,9 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
-第 78 阶段完成 Embedding 检索质量与兼容诊断：新增纯 Kotlin 质量评测，固定文档级去重后的 Recall@5、MRR、负例准确率和重复排序稳定率；项目 `docs/` 黄金语料以 5 个正例、1 个负例各执行两次，门禁满足 Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`。知识管理页的检索审计会显示实际 `USED / LEXICAL_ONLY / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 路径，并在有身份时附 Provider/模型。Redmi 真实兜底 Provider 已成功同步模型并恢复到应用，但模型列表没有可识别的 Embedding 模型，因此没有调用 `/embeddings`，真实路径保持词法兜底；这不等同任意 Provider 的 Embedding 兼容成功。完整 JVM `488/488`、Lint 和 Debug/AndroidTest APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
+第 79 阶段完成真实 Provider 语义检索端到端验收：新增默认跳过、仅显式参数才联网的 `RealProviderKnowledgeSearchInstrumentedTest`，直接组合生产 `OpenAiKnowledgeEmbeddingProvider` 与 `RoomKnowledgeDocumentStore`，并使用内存 Room 隔离正式知识库。Redmi 上真实 Embedding Provider 的模型同步、双输入向量协议和完整语义链均 `1/1` 通过；同一英文问题在纯词法路径零命中，真实向量路径首位命中中文“番茄工作法”文档，审计为 `USED`，Provider/模型、chunk IDs、索引摘要和显式重建均一致。该 E2E 总耗时约 `5.947s`，Room 保持 v30；默认完整套件仍不依赖公网。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `170` 个用例，`168` passed、`2` 个显式联网用例按设计 skipped、`0` failed。
+
+第 78 阶段完成 Embedding 检索质量与兼容诊断：新增纯 Kotlin 质量评测，固定文档级去重后的 Recall@5、MRR、负例准确率和重复排序稳定率；项目 `docs/` 黄金语料以 5 个正例、1 个负例各执行两次，门禁满足 Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`。知识管理页的检索审计会显示实际 `USED / LEXICAL_ONLY / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 路径，并在有身份时附 Provider/模型。该阶段使用的聊天兜底 Provider 没有 Embedding 模型，因此当时真实路径保持词法兜底；第 79 阶段已使用独立真实 Embedding Provider 补齐语义链证据。完整 JVM `488/488`、Lint 和 Debug/AndroidTest APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
 
 第 77 阶段完成 Embedding 索引生命周期：知识管理页展示当前文档的 Provider、模型、维度和已索引分块数，升级前没有向量的旧文档可显式重建当前 Provider/模型索引。重建在 Provider 返回并校验成功后才进入 Room 事务，事务内再次核对 revision、enabled 和 chunk 身份，只替换当前 `providerId + model` 空间；切换 Provider/模型后旧空间继续共存，失败、超时、停用或并发替换均不删除已有索引。Room 仍为 v30。完整 JVM `483/483`、Lint、Debug/AndroidTest APK 和仅 Redmi `164/164` instrumentation 已通过；本阶段未连接或操作 Pixel_9。ANN、自动后台批量重建和规模化性能仍未承诺。
 
@@ -10,7 +12,7 @@
 
 第 75 阶段完成 `/agent` 附件输入 v1：仅 Responses API 接受 USER 单条 Image 或 Document，规划请求每轮复用原附件，模型总结请求和 `VerifiedAgentContext`/Tool part 不携带附件；Chat Completions、混合附件、持久化重复附件及非 USER 来源继续 fail-closed。初次发送先提交 USER MessagePart，再创建 Run；审批恢复与任务中心重试从 Room 原消息重建附件并复制到新 USER 消息。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过；图片和文档真实 `/agent` E2E 均创建并回读成功，直接 `complete` 的无工具负向路径也按运行时规则失败。
 
-第 74 阶段完成网络请求设置页交互统一：根设置页的“网络请求”改为与其他设置项一致的入口卡片，点击进入独立子页；User-Agent 编辑区默认至少 5 行，右下角提供复制和清空，并保留恢复默认。新增 `NetworkRequestSettingsContentInstrumentedTest`，Redmi 单项 `1/1`、完整 instrumentation `153/153`，真实 UI 已确认入口、导航、输入区高度和按钮布局。第 73 阶段的会话选择与删除副作用协调器仍保持“取消旧加载 → 标记删除代次 → 清理运行态 → 即时选择或完整加载”的顺序；当前标准门禁为 JVM `472/472`、Lint、Debug/AndroidTest 构建和仅 Redmi 执行的 `153/153` instrumentation。
+第 74 阶段完成网络请求设置页交互统一：根设置页的“网络请求”改为与其他设置项一致的入口卡片，点击进入独立子页；User-Agent 编辑区默认至少 5 行，右下角提供复制和清空，并保留恢复默认。新增 `NetworkRequestSettingsContentInstrumentedTest`，Redmi 单项 `1/1`、完整 instrumentation `153/153`，真实 UI 已确认入口、导航、输入区高度和按钮布局。第 73 阶段的会话选择与删除副作用协调器仍保持“取消旧加载 → 标记删除代次 → 清理运行态 → 即时选择或完整加载”的顺序；该阶段门禁为 JVM `472/472`、Lint、Debug/AndroidTest 构建和仅 Redmi 执行的 `153/153` instrumentation。
 
 第 72 阶段完成会话新建与删除选择规则迁出：`ConversationSessionPolicy` 新增纯 `Immediate / Load` 选择计划，统一复用当前空会话、选择并折叠最新空占位、创建稳定新占位、删除后选择最新剩余会话和删空兜底。计划显式区分复用既有会话与新建占位，只有前者恢复 Agent Run/审批状态；ViewModel 继续负责取消加载、删除意图、Map 清理、完整消息加载和选择保存。Room v29、附件 BLOB 生命周期、Provider 协议、UI、`/agent` 与 Workflow 行为不变；新增聚焦 JVM `5/5`，完整 JVM `468/468`、Redmi instrumentation `152/152`、Lint 和构建均通过。
 

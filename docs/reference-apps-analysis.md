@@ -1,6 +1,8 @@
 # `reference-apps` 个人 Agent 实现分析
 
-第 78 阶段把参考项目强调的“检索质量必须可复现、实际回退必须可观察、能力探测不能靠猜测”落到固定语料与管理 UI：新增文档级去重的 Recall@5/MRR/负例准确率/重复排序稳定率门禁，知识审计显示五种 Embedding 实际路径，并只在 Provider 模型列表明确包含 Embedding 模型时执行真实向量请求。Redmi 兜底 Provider 已同步模型并恢复配置，但没有可识别的 Embedding 模型，因此当前只取得真实词法兜底证据，不把 Mock 协议测试写成上游兼容成功。完整 JVM `488/488`、Lint 和 APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
+第 79 阶段把参考项目强调的“真实集成证据必须跨过协议层并到达检索结果”落到 Redmi：显式联网测试直接复用生产 OpenAI 兼容客户端、Embedding 适配器、Room 索引和检索审计。英文查询在纯词法路径零命中，真实向量路径首位命中中文目标文档并记录 `USED`；索引身份、维度、分块、chunk IDs 和显式重建均可核对。真实协议与语义链各 `1/1` 通过，完整语义链约 `5.947s`；测试使用内存 Room，不污染正式知识库，默认套件也不依赖公网。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `170` 个用例，`168` passed、`2` skipped、`0` failed。下一步依据更大有界语料的质量、耗时和内存数据决定 ANN/后台批量索引，而不是因已有单文档成功样本提前引入复杂基础设施。
+
+第 78 阶段把参考项目强调的“检索质量必须可复现、实际回退必须可观察、能力探测不能靠猜测”落到固定语料与管理 UI：新增文档级去重的 Recall@5/MRR/负例准确率/重复排序稳定率门禁，知识审计显示五种 Embedding 实际路径，并只在 Provider 模型列表明确包含 Embedding 模型时执行真实向量请求。该阶段的聊天兜底 Provider 没有可识别的 Embedding 模型，因此当时只取得真实词法兜底证据；第 79 阶段已由独立真实 Embedding Provider 补齐协议和语义链。完整 JVM `488/488`、Lint 和 APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
 
 第 77 阶段把参考项目强调的“索引身份可见、重建失败不破坏旧能力、模型切换不混用空间”落到知识管理页和 Room Store：旧文档可显式补建，详情显示 Provider/模型/维度/分块数，写事务只替换当前 `providerId + model`，其他空间继续共存；Provider 失败、超时、停用和 revision 竞态不删除已有索引。Room 保持 v30，完整 JVM `483/483`、Lint、APK 和仅 Redmi `164/164` instrumentation 通过。ANN、自动后台批量重建与规模化性能继续后置。
 
@@ -36,7 +38,7 @@
 
 第 72 阶段继续完善参考项目强调的 Session 选择边界：`ConversationSessionPolicy` 以 `Immediate / Load` 计划统一新建会话、复用/折叠空占位、删除后选择最新会话和删空兜底；复用既有会话才允许恢复 Agent/审批状态，新占位始终清空。ViewModel 只执行取消、删除意图、Map、加载/回滚和保存副作用。新增 JVM `5/5`，完整 JVM `468/468` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB 生命周期、协议、UI、Agent/Workflow 和后置能力不变。
 
-第 73 阶段继续落实参考项目常见的 Application Service 组合边界：新增 `ConversationSelectionCoordinator`，不重复 Session、Persistence 或 Load 规则，只固定新建/选择/删除的副作用顺序，并把删除加载失败的版本化回滚从 ViewModel 与 Load Request 中迁出。ViewModel 只消费事件、维护 Agent/审批运行态 Map、投影 UI 和保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 与完整 ViewModel 手工编译通过；后续标准 Gradle、Lint、APK 和 Redmi 门禁已补齐，当前完整基线为 JVM `472/472`、Redmi `153/153`。
+第 73 阶段继续落实参考项目常见的 Application Service 组合边界：新增 `ConversationSelectionCoordinator`，不重复 Session、Persistence 或 Load 规则，只固定新建/选择/删除的副作用顺序，并把删除加载失败的版本化回滚从 ViewModel 与 Load Request 中迁出。ViewModel 只消费事件、维护 Agent/审批运行态 Map、投影 UI 和保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 与完整 ViewModel 手工编译通过；后续标准 Gradle、Lint、APK 和 Redmi 门禁已补齐，该阶段完整基线为 JVM `472/472`、Redmi `153/153`。
 
 ## 1. 结论先行
 
