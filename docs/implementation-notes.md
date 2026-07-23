@@ -14,6 +14,13 @@
 
 当前发布版本：`v0.1.10`（`versionCode 11`）
 
+## 第 73 阶段实现与验证边界
+
+- 新增 `ConversationSelectionCoordinator`，以稳定 `DeletionStarted / Immediate / Load` 事件组合既有 Session Policy、Persistence Coordinator 与 Load Coordinator；不依赖 Android Context、Compose runtime 或 Repository 实现。
+- 新建入口先取消旧加载再发布即时选择；删除入口先取消旧加载、标记版本化删除意图并要求宿主清理运行态，再即时选择或启动完整加载。当前加载失败时协调器先按捕获代次回滚，再发布 Failed；迟到旧失败仍由 Load Coordinator 代次门禁丢弃。
+- `ConversationLoadRequest` 删除 `rollbackDeletionIntentOnFailure`，加载层不再承载持久化补偿细节。ViewModel 统一消费协调器事件，只读取/清理 Agent Run 与审批 Map、调用纯投影并在 Immediate/Loaded 后保存选择，从 4121 行降到 4087 行。
+- 四条聚焦测试覆盖失败发布前回滚、旧失败不清理同 ID 新意图、删最后会话先清理再即时选择，以及新建会话取消迟到加载。聚焦 `4/4`、第 68 至 73 阶段会话组合 `30/30`、完整 ViewModel Kotlin 2.3.20 手工编译通过。标准 Gradle、Lint、APK 与 Redmi 门禁因当前沙箱禁止本地 TCP/ADB socket 待补；Room v29、Provider 协议、UI、`/agent` 与 Workflow 设计边界未改变。
+
 ## 第 72 阶段实现与验证边界
 
 - `ConversationSessionPolicy` 新增 `ConversationSelectionPlan.Immediate / Load`、`planOpenNewConversation()`、`planCurrentConversationDeletion()` 和即时状态投影。策略使用可注入时钟，不依赖 Android Context、Room DAO 或协程。
@@ -127,13 +134,14 @@
 | 模块 | 关键文件 | 职责 |
 |---|---|---|
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、普通聊天模型选择、Agent Profile 与模型提供方管理页面。 |
-| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、会话选择/删除切换及加载副作用、普通对话事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送、会话纯状态投影、保存协调、加载 Job/代次与加载 UI 投影已不再由此类直接实现。 |
+| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、会话运行态 Map、普通对话与会话选择事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送、会话纯状态投影、保存/加载/选择协调与加载 UI 投影已不再由此类直接实现。 |
 | Conversation context | `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt` | 普通聊天上下文资格、知识生命周期核验、最近窗口、增量摘要、可信 Agent 历史与 Responses 用户附件请求投影。 |
 | Conversation send | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt` | 普通聊天发送前持久化、上下文准备、网络请求、流式增量和成功/取消/失败事件的稳定编排。 |
 | Conversation session | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt` | 会话标题、空占位折叠、创建/更新时间、摘要元数据继承、blank ID、非当前更新隔离，以及新建/删除后的纯选择计划与即时状态投影。 |
 | Conversation persistence | `app/src/main/java/com/longdev/xiaoling/ui/ConversationPersistenceCoordinator.kt` | latest-save Job、Room 单写者、发送前旧保存等待，以及显式删除意图的代次确认和失败回滚。 |
 | Conversation load | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadCoordinator.kt` | latest-load Job、选择代次、可重入 Loading 与迟到 Loaded/Failed 隔离。 |
 | Conversation load projection | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadProjectionPolicy.kt` | Loading/Loaded/Failed 的纯 UI 状态投影、非当前附件轻量化和当前完整消息原子切换。 |
+| Conversation selection | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSelectionCoordinator.kt` | 新建/选择/删除的副作用顺序、版本化删除失败回滚和稳定选择事件发布。 |
 | Network | `app/src/main/java/com/longdev/xiaoling/network/LlmProviderAdapter.kt`、`OpenAiCompatibleClient.kt` | Adapter 负责 OpenAI-compatible URL、payload 与响应协议；Client 负责 HTTP、鉴权 Header、取消、计时和 SSE 读取。 |
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、AgentProfile、Conversation、Message/MessagePart、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentMemoryCandidate 表。 |
@@ -147,16 +155,16 @@
 
 ## 当前架构边界
 
-当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调与加载 UI 投影已经迁出：
+当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序已经迁出：
 
-- Provider 管理、模型同步、删除意图与失败回滚、运行态 Map、Compose 发送投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责。
+- Provider 管理、模型同步、运行态 Map、Compose 发送/选择事件投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 72 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调与加载 UI 投影，后续继续迁出删除失败回滚和其他副作用编排，但不为减少行数提前制造跨模块抽象。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，后续继续收敛运行态 Map 和其他副作用编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 

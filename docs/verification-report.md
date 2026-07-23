@@ -11,6 +11,14 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-23 会话选择与删除副作用协调迁出（第 73 阶段）
+
+- 新增 `ConversationSelectionCoordinator` 和稳定 `DeletionStarted / Immediate / Load` 事件，组合既有 Session Policy、Persistence Coordinator 与 Load Coordinator。删除路径固定为取消旧加载、标记删除代次、先清理已删除会话运行态、再即时选择或完整加载；当前加载失败先回滚捕获的删除代次，再发布 Failed。
+- `ConversationLoadRequest` 不再携带 `rollbackDeletionIntentOnFailure`，加载协调器只负责 Job/代次和 Loaded/Failed 隔离。`XiaoLingViewModel` 统一消费选择事件，只读取/清理 Agent Run 与审批 Map、执行纯 UI 投影并在 Immediate/Loaded 后保存，从 4121 行降到 4087 行。
+- 新增四条聚焦用例，覆盖失败发布前回滚、旧失败不清理同 ID 新删除意图、删最后会话先清理再即时选择，以及新建会话取消迟到加载。使用 Kotlin 2.3.20 编译相关生产源码与六个会话测试类后，聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 通过；另以 Android 36 和既有依赖 classpath 手工编译完整 `XiaoLingViewModel.kt` 通过。
+- 标准 Gradle 未能进入项目任务：当前受限进程禁止创建本地 socket，原始失败为 `FileLockContentionHandler ... SocketException: Operation not permitted`；临时关闭文件锁 UDP 通知后，单次 Gradle daemon 仍在 `TcpIncomingConnector.accept` 被同一禁令阻断。ADB 同样在启动 server 时失败：`could not install *smartsocket* listener: Operation not permitted`。这属于执行环境限制，不是代码、Provider 或 Redmi 断连结论。
+- 因此本阶段未宣称完整 JVM `472/472`、Lint、Debug/AndroidTest APK、Redmi instrumentation、正式包复装、Room v29 前台状态或 crash buffer 已通过；最近一次已完成门禁仍是第 72 阶段 JVM `468/468`、Redmi `152/152`。本轮没有向 Pixel 或任何模拟器发送 ADB 命令。
+
 ## 2026-07-23 会话新建与删除选择规则迁出（第 72 阶段）
 
 - `ConversationSessionPolicy` 新增纯 `Immediate / Load` 计划，固定当前空会话幂等复用、最新空占位折叠、新占位创建、删除后最新会话选择和删空兜底。新占位通过 `restoreRuntimeState=false` 明确清空 Agent Run/审批。

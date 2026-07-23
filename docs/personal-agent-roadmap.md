@@ -1,5 +1,9 @@
 # 小灵个人 Agent 路线图
 
+## 第 73 阶段：会话选择与删除副作用协调迁出 ViewModel
+
+实现已完成，标准门禁待补。新增 `ConversationSelectionCoordinator`，只组合既有 Session Policy、Persistence Coordinator 与 Load Coordinator，统一新建、历史选择和删除切换的副作用顺序；删除失败由协调器在发布 Failed 前按捕获代次回滚，`ConversationLoadRequest` 不再了解持久化意图。ViewModel 只清理/读取 Agent Run 与审批 Map、投影 UI 并保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 和完整 ViewModel Kotlin 2.3.20 手工编译通过。当前沙箱禁止 Gradle daemon 与 ADB server 创建本地 socket，因此完整 JVM、Lint、APK、仅 Redmi instrumentation、正式包复装与 Room/crash 检查待补；最近完成门禁仍为 JVM `468/468`、Redmi `152/152`。
+
 ## 第 72 阶段：会话新建与删除选择规则迁出 ViewModel
 
 已完成。`ConversationSessionPolicy` 新增纯 `ConversationSelectionPlan.Immediate / Load`：当前空会话幂等复用且不改变其他空占位；已有内容时复用并折叠最新空占位；无空占位时按注入时钟创建稳定新会话；删除后选择最新剩余会话并进入加载，删至空列表则立即创建占位。`restoreRuntimeState` 明确区分复用与新建，防止新占位因时间戳 ID 碰撞恢复旧 Agent Run/审批。ViewModel 从 4178 行降到 4121 行，只保留取消、删除意图、运行态 Map、加载、回滚和保存。Room v29、附件 BLOB、协议、UI、`/agent` 与 Workflow 不变。聚焦 JVM `5/5`，完整 JVM `468/468`、仅 Redmi instrumentation `152/152`、Lint 与构建通过。
@@ -56,7 +60,7 @@
 
 第 61 阶段在 Redmi 熄屏状态继续验证：Probe 退出后原 PID 消失，JobScheduler 延迟 `159.479s` 冷启动 PID `26797`，屏幕持续 `Asleep` 期间同一 WorkRequest/ScheduledTask/WorkflowRun 完成 `244.236s` 的 8 步、32 次只读工具调用。8 个 Run 的预算快照无回退，最大约 `44.856s`，32/32 工具回执和验证通过，`lowMemory=0`。这是当前最接近真实用户离开应用场景的成功样本，仍不等同自然 LMK 或 Foreground Service 需求。
 
-小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v29 已让 Text/Reasoning/Image/Document/Tool、知识引用、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v29 只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 72 阶段又把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调和加载 UI 投影迁出 ViewModel。当前完整门禁为 468 条 JVM 与仅 Redmi 执行的 152 条 instrumentation。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.10` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v29 已让 Text/Reasoning/Image/Document/Tool、知识引用、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v29 只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 73 阶段又把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调、加载 UI 投影和选择/删除副作用顺序迁出 ViewModel。第 73 阶段手工组合测试为 `30/30`，最近完成的标准门禁仍为 468 条 JVM 与仅 Redmi 执行的 152 条 instrumentation。Embedding、设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 第 43 阶段的同一 WorkRequest Redmi 冷启动重入已完成真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；该阶段当时的重点是更长/自然回收样本。第 46 阶段已进一步补充 Doze、受控内存和无压力对照，第 47 阶段解决了同一进程前台启动恢复与新 Worker 并发时的所有权隔离；当前仍缺自然 LMK。
 
@@ -99,7 +103,7 @@
 - 已有 Room v27 知识文档、chunks、FTS4/中文兜底、检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；Embedding 尚未接入。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
-- ViewModel 仍然过重；第 66 至 72 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调和加载 UI 投影。删除失败回滚、Compose 副作用与其他运行编排仍需继续拆分。
+- ViewModel 仍然过重；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影，以及会话选择/删除副作用顺序。运行态 Map、Compose 副作用与其他 Agent/Workflow 编排仍需继续拆分。
 
 ## 目标架构
 
@@ -116,6 +120,7 @@ Application services
   |-- ConversationPersistenceCoordinator
   |-- ConversationLoadCoordinator
   |-- ConversationLoadProjectionPolicy
+  |-- ConversationSelectionCoordinator
   |-- AgentService
   |-- WorkflowService
   |
@@ -160,7 +165,7 @@ com.longdev.xiaoling.ui.agent
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v29 迁移测试、Text/Reasoning/Image/Document/Tool 消息 parts、KnowledgeReference、独立进程退出观察、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter`、普通聊天上下文 Preparer、发送 Coordinator、会话状态/选择 Policy、保存 Coordinator、加载 Coordinator、加载投影 Policy 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v29 迁移测试、Text/Reasoning/Image/Document/Tool 消息 parts、KnowledgeReference、独立进程退出观察、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter`、普通聊天上下文 Preparer、发送 Coordinator、会话状态/选择 Policy、保存 Coordinator、加载 Coordinator、加载投影 Policy、选择 Coordinator 和面向用户的 Room ZIP 备份/恢复已完成；ViewModel 继续瘦身仍待完成。
 
 ### 要做什么
 
@@ -168,11 +173,11 @@ com.longdev.xiaoling.ui.agent
 - 已完成：Responses API 改为结构化消息数组，保留 system/user/assistant 边界。
 - 已完成：抽出 `LlmProviderAdapter`，由 `OpenAiCompatibleAdapter` 负责 URL、payload 和响应协议映射。
 - 已完成：Responses 输入支持 `function_call / function_call_output` typed Items，并使用 `call_id` 关联调用和结果。
-- 部分完成：`ProviderRepository`、`ConversationRepository`、`ConversationRequestContextPreparer`、`ConversationSendCoordinator`、`ConversationSessionPolicy`、`ConversationPersistenceCoordinator`、`ConversationLoadCoordinator` 与 `ConversationLoadProjectionPolicy` 已落地；普通聊天上下文资格、知识生命周期、窗口、摘要准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调及加载 UI 投影已经迁出 ViewModel，删除失败回滚、Compose 副作用与其他运行编排仍需继续迁出。
+- 部分完成：`ProviderRepository`、`ConversationRepository`、`ConversationRequestContextPreparer`、`ConversationSendCoordinator`、`ConversationSessionPolicy`、`ConversationPersistenceCoordinator`、`ConversationLoadCoordinator`、`ConversationLoadProjectionPolicy` 与 `ConversationSelectionCoordinator` 已落地；普通聊天上下文资格、知识生命周期、窗口、摘要准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影和选择/删除副作用顺序已经迁出 ViewModel，运行态 Map、Compose 副作用与其他运行编排仍需继续迁出。
 - 已完成：引入 Room，并为现有 Provider、Conversation、Message 数据实现一次性迁移。
 - 已完成：启用 Room Schema 导出，并为带旧数据的 v4→v29 migration 链、event metadata、Run 重试、Memory/Knowledge FTS、候选表、生命周期、Skill、Workflow、调度、多步骤快照、笔记幂等键、记忆 operation ledger/结果快照、独立工具账本、Agent Profile、MessagePart、知识引用和进程退出观察提供自动化测试。
 - 已完成：增加面向用户的数据库 ZIP 备份与恢复能力；恢复前校验 schema，替换前保留 `.pre-restore`，并明确 Keystore 密文不可跨设备解密。
-- 部分完成：普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调和加载 UI 投影已迁出；继续迁出 ViewModel 中的删除失败回滚与其他运行编排，使其只负责 UI 状态和副作用编排。
+- 部分完成：普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影和删除失败回滚顺序已迁出；继续收敛运行态 Map 与其他编排，使 ViewModel 更接近只负责 UI 状态投影和宿主副作用。
 
 ### 验收标准
 

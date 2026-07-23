@@ -10,7 +10,6 @@ internal data class ConversationLoadRequest(
     val conversation: ConversationSession,
     val conversations: List<ConversationSession>,
     val result: OperationResult?,
-    val rollbackDeletionIntentOnFailure: ConversationDeletionIntent? = null,
 )
 
 internal sealed interface ConversationLoadEvent {

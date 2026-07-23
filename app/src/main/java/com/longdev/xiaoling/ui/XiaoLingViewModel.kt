@@ -466,6 +466,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             conversationStore.loadConversationMessages(conversationId).map { it.toChatMessage() }
         },
     )
+    private val conversationSelectionCoordinator = ConversationSelectionCoordinator(
+        persistenceCoordinator = conversationPersistenceCoordinator,
+        loadCoordinator = conversationLoadCoordinator,
+    )
     // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
     private val conversationSendCoordinator = ConversationSendCoordinator(
         persistSnapshot = conversationPersistenceCoordinator::persist,
@@ -2570,27 +2574,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openNewConversation() {
-        conversationLoadCoordinator.cancelPendingLoad()
-        val selection = uiState.planOpenNewConversation()
-        uiState = uiState.withImmediateConversationSelection(
-            selection = selection,
-            activeAgentRun = if (selection.restoreRuntimeState) {
-                activeAgentRunsByConversation[selection.conversation.id]
-            } else {
-                null
-            },
-            pendingAgentApproval = if (selection.restoreRuntimeState) {
-                pendingAgentApprovalsByConversation[selection.conversation.id]
-            } else {
-                null
-            },
-        )
-        saveConversationSelection()
+        conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)
     }
 
     fun selectConversation(conversationId: String) {
-        val conversation = uiState.conversations.firstOrNull { it.id == conversationId } ?: return
-        loadAndSelectConversation(conversation, uiState.conversations, result = null)
+        conversationSelectionCoordinator.select(uiState, conversationId, ::handleConversationSelectionEvent)
     }
 
     fun refreshKnowledgeReferenceStatuses(references: List<KnowledgeReference>) {
@@ -2645,13 +2633,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteCurrentConversation() {
-        conversationLoadCoordinator.cancelPendingLoad()
-        val currentId = uiState.selectedConversationId
-        val deletionIntent = conversationPersistenceCoordinator.markConversationDeleted(currentId)
-        activeAgentRunsByConversation.remove(currentId)
-        pendingAgentApprovalsByConversation.remove(currentId)
-        when (val selection = uiState.planCurrentConversationDeletion()) {
-            is ConversationSelectionPlan.Immediate -> {
+        conversationSelectionCoordinator.deleteCurrent(uiState, ::handleConversationSelectionEvent)
+    }
+
+    private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
+        when (event) {
+            is ConversationSelectionEvent.DeletionStarted -> {
+                activeAgentRunsByConversation.remove(event.conversationId)
+                pendingAgentApprovalsByConversation.remove(event.conversationId)
+            }
+
+            is ConversationSelectionEvent.Immediate -> {
+                val selection = event.selection
                 uiState = uiState.withImmediateConversationSelection(
                     selection = selection,
                     activeAgentRun = if (selection.restoreRuntimeState) {
@@ -2668,53 +2661,26 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 saveConversationSelection()
             }
 
-            is ConversationSelectionPlan.Load -> loadAndSelectConversation(
-                conversation = selection.conversation,
-                conversations = selection.conversations,
-                result = OperationResult(true, "已删除", "当前会话已删除"),
-                rollbackDeletionIntentOnFailure = deletionIntent,
-            )
-        }
-    }
-
-    private fun loadAndSelectConversation(
-        conversation: ConversationSession,
-        conversations: List<ConversationSession>,
-        result: OperationResult?,
-        rollbackDeletionIntentOnFailure: ConversationDeletionIntent? = null,
-    ) {
-        conversationLoadCoordinator.load(
-            request = ConversationLoadRequest(
-                conversation = conversation,
-                conversations = conversations,
-                result = result,
-                rollbackDeletionIntentOnFailure = rollbackDeletionIntentOnFailure,
-            ),
-            onEvent = { event ->
-                when (event) {
-                    ConversationLoadEvent.Loading -> {
-                        uiState = uiState.withConversationLoadEvent(event)
-                    }
-
-                    is ConversationLoadEvent.Loaded -> {
-                        val request = event.request
-                        uiState = uiState.withConversationLoadEvent(
-                            event = event,
-                            activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
-                            pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
-                        )
-                        saveConversationSelection()
-                    }
-
-                    is ConversationLoadEvent.Failed -> {
-                        event.request.rollbackDeletionIntentOnFailure?.let(
-                            conversationPersistenceCoordinator::rollbackConversationDeletion,
-                        )
-                        uiState = uiState.withConversationLoadEvent(event)
-                    }
+            is ConversationSelectionEvent.Load -> when (val loadEvent = event.event) {
+                ConversationLoadEvent.Loading -> {
+                    uiState = uiState.withConversationLoadEvent(loadEvent)
                 }
-            },
-        )
+
+                is ConversationLoadEvent.Loaded -> {
+                    val request = loadEvent.request
+                    uiState = uiState.withConversationLoadEvent(
+                        event = loadEvent,
+                        activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
+                        pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
+                    )
+                    saveConversationSelection()
+                }
+
+                is ConversationLoadEvent.Failed -> {
+                    uiState = uiState.withConversationLoadEvent(loadEvent)
+                }
+            }
+        }
     }
 
     fun importDraftFromQr(raw: String) {

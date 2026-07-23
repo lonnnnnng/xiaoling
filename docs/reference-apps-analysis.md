@@ -28,6 +28,8 @@
 
 第 72 阶段继续完善参考项目强调的 Session 选择边界：`ConversationSessionPolicy` 以 `Immediate / Load` 计划统一新建会话、复用/折叠空占位、删除后选择最新会话和删空兜底；复用既有会话才允许恢复 Agent/审批状态，新占位始终清空。ViewModel 只执行取消、删除意图、Map、加载/回滚和保存副作用。新增 JVM `5/5`，完整 JVM `468/468` 与仅 Redmi instrumentation `152/152` 通过；Room v29、附件 BLOB 生命周期、协议、UI、Agent/Workflow 和后置能力不变。
 
+第 73 阶段继续落实参考项目常见的 Application Service 组合边界：新增 `ConversationSelectionCoordinator`，不重复 Session、Persistence 或 Load 规则，只固定新建/选择/删除的副作用顺序，并把删除加载失败的版本化回滚从 ViewModel 与 Load Request 中迁出。ViewModel 只消费事件、维护 Agent/审批运行态 Map、投影 UI 和保存成功选择，从 4121 行降到 4087 行。聚焦 `4/4`、第 68 至 73 阶段组合 `30/30` 与完整 ViewModel 手工编译通过；标准 Gradle、Lint、APK 和 Redmi 门禁因当前沙箱 socket 限制待补，最近完整基线仍为 JVM `468/468`、Redmi `152/152`。
+
 ## 1. 结论先行
 
 `reference-apps` 下共识别出 56 个独立 Git 仓库。它们并不都是“个人 Agent”：25 个主要是普通 AI 聊天客户端或 Chat SDK，9 个主要解决离线/本地模型推理，13 个属于个人 Agent 或 Agent 平台，7 个属于设备 Agent/手机自动化，1 个是独立 Agent 框架，另有 1 个是非 Agent 业务样本。
@@ -356,6 +358,7 @@
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt`
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt`
 - `app/src/main/java/com/longdev/xiaoling/ui/ConversationPersistenceCoordinator.kt`
+- `app/src/main/java/com/longdev/xiaoling/ui/ConversationSelectionCoordinator.kt`
 - `app/src/main/java/com/longdev/xiaoling/network/OpenAiCompatibleClient.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/MinimalAgentRuntime.kt`
 - `app/src/main/java/com/longdev/xiaoling/agent/XiaoLingToolRegistry.kt`
