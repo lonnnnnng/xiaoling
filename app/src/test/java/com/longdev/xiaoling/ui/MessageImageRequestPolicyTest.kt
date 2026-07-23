@@ -4,6 +4,7 @@ import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.model.MessageAttachmentSelection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +30,7 @@ class MessageImageRequestPolicyTest {
 
         assertEquals(listOf(attachment), user.imagesForRequest(ApiMode.RESPONSES))
         assertTrue(user.imagesForRequest(ApiMode.CHAT_COMPLETIONS).isEmpty())
+        assertEquals(MessageAttachmentSelection(image = attachment), user.attachmentsForAgent())
     }
 
     @Test
@@ -47,6 +49,7 @@ class MessageImageRequestPolicyTest {
         )
 
         assertTrue(assistant.imagesForRequest(ApiMode.RESPONSES).isEmpty())
+        assertEquals(MessageAttachmentSelection(), assistant.attachmentsForAgent())
     }
 
     private fun pngSignature(): ByteArray = byteArrayOf(

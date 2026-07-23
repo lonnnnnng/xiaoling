@@ -19,12 +19,32 @@ class MessageDocumentRequestPolicyTest {
         )
         val selection = MessageAttachmentSelection(document = attachment)
 
-        assertTrue(selection.agentRejectionReason().orEmpty().contains("/agent"))
+        assertTrue(selection.agentRejectionReason(ApiMode.CHAT_COMPLETIONS).orEmpty().contains("Responses"))
+        assertEquals(null, selection.agentRejectionReason(ApiMode.RESPONSES))
         assertTrue(selection.chatRejectionReason(ApiMode.CHAT_COMPLETIONS).orEmpty().contains("Responses"))
         assertEquals(null, selection.chatRejectionReason(ApiMode.RESPONSES))
         val parts = selection.toUserMessageParts("message-document", "总结文档")
         assertTrue(parts.first() is MessagePart.Document)
         assertEquals("总结文档", (parts.last() as MessagePart.Text).text)
+    }
+
+    @Test
+    fun agentRejectsMixedAttachmentsEvenInResponsesMode() {
+        val image = com.longdev.xiaoling.model.ImageAttachmentPolicy.create(
+            fileName = "receipt.png",
+            mimeType = "image/png",
+            data = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1),
+        )
+        val document = DocumentAttachmentPolicy.create(
+            fileName = "notes.md",
+            mimeType = "text/markdown",
+            data = "stage 75".toByteArray(),
+        )
+
+        val rejection = MessageAttachmentSelection(image = image, document = document)
+            .agentRejectionReason(ApiMode.RESPONSES)
+
+        assertTrue(rejection.orEmpty().contains("只能携带一种附件"))
     }
 
     @Test

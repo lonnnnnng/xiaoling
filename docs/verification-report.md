@@ -11,6 +11,16 @@
 - App 包名：`com.longdev.xiaoling`
 - App 展示名：小灵
 
+## 2026-07-23 `/agent` 附件输入 v1（第 75 阶段）
+
+- Responses 规划请求支持 USER 单一 Image 或 Document，附件沿用既有校验与 Data URL 映射；每轮规划复用同一附件，summary 请求不携带附件。
+- 初次 Agent 发送先提交含附件的 USER MessagePart，再建立 Run；进程重建审批恢复和任务中心重试从 Room 原 USER 消息重建，重试复制到新 USER 消息并保持旧 Run 不变。
+- Chat Completions、混合附件、assistant/Tool 伪造附件和 `VerifiedAgentContext`/Tool part 进入附件均 fail-closed；Workflow/后台 Agent 无附件入口。
+- 聚焦 JVM 新增持久化重复/混合附件拒绝覆盖；完整 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过，JVM `477/477`、0 失败、0 跳过，Lint、Debug APK 和 AndroidTest APK 均成功。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 执行 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew :app:connectedDebugAndroidTest --stacktrace --console=plain`，完整 instrumentation `153/153`、0 失败、0 跳过；没有连接、启动或操作 Pixel_9/其他模拟器。
+- 真实 `/agent` E2E：图片 Run `run-e2c23f3d-c7f9-41cc-9964-e0364741727e` 调用 `notes.create`，创建并回读 `IMAGE_STAGE75_E2E`，ToolResult 为 `PASSED`；文档 Run `run-9e66e0eb-7684-4d92-8e5d-cfd3ec044d10` 调用 `notes.create`，创建并回读 `DOC_STAGE75_E2E`，ToolResult 为 `PASSED`。负向 Run `run-9f4c1380-60de-4998-b689-65d570812431` 在模型直接返回 `complete` 且未调用工具时，被 Runtime 以“模型未执行任何工具就结束了 Agent Run”拒绝。
+- instrumentation 后测试包无残留；正式 Debug APK 覆盖安装并冷启动到 `com.longdev.xiaoling/.MainActivity`，前台 PID `29016`，Room `user_version=29`，crash buffer 无小灵记录。当前 Debug APK 为 `22878842` 字节，SHA-256 `bd8f7bb6d170c91acf5a60b75337be0893eb70cbef8149caca9cbed4d71e456`；AndroidTest APK 为 `1850202` 字节，SHA-256 `d64fdbf627b6d15e86b7e36c437a5443c8be5f4ffa85be2848002ba49f94b3b2`。
+
 ## 2026-07-23 网络请求设置页交互统一（第 74 阶段）
 
 - 设置根页“网络请求”已改为与其他设置项一致的入口卡片，点击后进入独立页面，不再允许在根页行内编辑 User-Agent。独立页面输入区默认至少 5 行，右下角提供复制和清空按钮，标题区保留恢复默认操作；空值时复制和清空禁用。
@@ -1184,7 +1194,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 
 - Room v24 为 `message_parts` 增加可空 `mimeType / fileName / binaryData / imageDetail`。v23→v24 只加列，不创建历史 Image；全新 v24 Schema、迁移链和磁盘数据库重开往返均有自动化保护。
 - 系统文件选择器单次接收 PNG/JPEG/WEBP。`ImageAttachmentReader` 以 8 MB 为硬上限有界读取，校验声明大小、MIME、文件签名与 Android 解码尺寸；进入消息后复制字节并写入 Room BLOB，不依赖长期 URI 权限，数据库备份自然包含附件。
-- Responses 将 USER Image 映射为 `input_text + input_image`，`image_url` 使用 Data URL，detail 为 `auto`。Chat Completions 与 `/agent` 在发送前明确拒绝图片；历史图片只在 Responses 最近上下文窗口内回传。
+- Responses 将 USER Image 映射为 `input_text + input_image`，`image_url` 使用 Data URL，detail 为 `auto`。Chat Completions 明确拒绝图片；第 75 阶段起 `/agent` 仅在 Responses 规划请求接收 USER 单一图片，普通聊天历史图片仍只在 Responses 最近上下文窗口内回传。
 - `AgentMessagePartPolicy` 只为 `MessageOrigin.USER` 保留 Image，并继续剔除伪造 Reasoning/Tool。普通 assistant、Agent 结果、摘要和 `VerifiedAgentContext` 均不能接收图片或把模型视觉描述升级为工具事实。
 - Compose 输入区支持读取状态、缩略图、文件名/大小、移除按钮；消息气泡使用采样解码展示历史图片。请求/响应日志脱敏图片 Data URL、`file_data`、生成图片结果、原始推理和 `encrypted_content`。
 
@@ -1209,7 +1219,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 - Room v25 为 `message_parts` 增加可空 `documentExtractedText / documentPageCount / documentDetail`，Document 复用 `mimeType / fileName / binaryData`。v24→v25 只加列，不创建历史 Document；全新 v25 Schema、迁移链和磁盘数据库重开往返均有自动化保护。
 - 系统附件菜单可选择图片或文档，单条 USER 消息最多携带一种附件。Document v1 支持 PDF、TXT、Markdown、JSON、CSV，文件最大 8 MB；PDF 复制到应用私有临时文件并用 `PdfRenderer` 验证，最多 50 页；文本严格按 UTF-8 解码，最多 200,000 字符并拒绝二进制空字符。
 - 原始文件 BLOB 与受限提取文本/页数在同一事务写入 Room，不依赖长期 URI 权限。Image/Document BLOB 只为当前会话加载，轻量快照保留未加载附件；网络请求前等待用户消息和 BLOB 事务完成。
-- Responses 将 USER Document 映射为 `input_text + input_file`，`filename` 保留清理后的文件名，`file_data` 使用 Data URL，PDF detail 为 `auto`。Chat Completions 与 `/agent` 明确拒绝附件；普通 assistant、Agent 结果、摘要和 `VerifiedAgentContext` 不能接收 Document 或把模型提取内容升级为工具事实。
+- Responses 将 USER Document 映射为 `input_text + input_file`，`filename` 保留清理后的文件名，`file_data` 使用 Data URL，PDF detail 为 `auto`。Chat Completions 明确拒绝附件；第 75 阶段起 `/agent` 仅在 Responses 规划请求接收 USER 单一文档，普通 assistant、Agent 结果、摘要和 `VerifiedAgentContext` 不能接收 Document 或把模型提取内容升级为工具事实。
 - Compose 输入区附件菜单、文档名称/大小/页数或字符数、移除按钮和历史 Document 展示均已完成；请求日志继续递归脱敏 `file_data`、Authorization、图片 Data URL、原始/加密推理字段。
 - 双轴代码审查补充关闭 PDF 错误 MIME 绕过：PDF 签名与扩展名由 `DocumentAttachmentPolicy` 统一判定，`.pdf` 被错报为 `text/plain` 时仍强制走 `PdfRenderer`，PDF 内容伪装为文本或与非 PDF 扩展名冲突时拒绝。待发送 Image/Document 的互斥、接口模式校验和稳定 part 顺序也已迁入 `MessageAttachmentSelection`，不再继续扩张 `sendMessage()` 的附件业务分支。
 
@@ -1237,7 +1247,7 @@ Redmi 真实模型、UI、日志与数据库验收：
 
 - Document part 在 Room v25 原有列上增加 DOCX、PPTX、XLSX MIME，不新增表或迁移；原始 OpenXML 包继续作为 BLOB 随消息、备份和当前会话加载，轻量快照和 USER-only 信任边界不变。
 - `OpenXmlDocumentPolicy` 解析 ZIP 中央目录并逐条核对 local header、文件名、加密位、磁盘号、ZIP64 extra 与数据范围，再以固定缓冲区流式解压核对条目集合、CRC 和真实展开量。DOCX/PPTX/XLSX 分别要求非空 `[Content_Types].xml` 与 `word/document.xml / ppt/presentation.xml / xl/workbook.xml`；加密、分卷、ZIP64、超过 4,096 条目、声明或实际展开总量超过 64 MB、扩展名/MIME/根入口不一致均拒绝。
-- 系统文件选择器增加三种 OpenXML MIME；Responses 继续使用 `input_file + filename + file_data`，不改变 Chat Completions 与 `/agent` 的附件拒绝策略。大于 8 MB 或需要跨文档检索的内容仍不进入直传；本阶段当时尚未实现 RAG，后续 Room v26 数据基础见下节。
+- 系统文件选择器增加三种 OpenXML MIME；Responses 继续使用 `input_file + filename + file_data`；Chat Completions 仍拒绝附件，`/agent` 的 Responses-only USER 规划附件边界由第 75 阶段补齐。大于 8 MB 或需要跨文档检索的内容仍不进入直传；本阶段当时尚未实现 RAG，后续 Room v26 数据基础见下节。
 
 官方协议与自动化：
 

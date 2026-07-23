@@ -14,6 +14,14 @@
 
 当前发布版本：`v0.1.11`（`versionCode 12`）
 
+## 第 75 阶段实现与验证边界
+
+- `MessageAttachmentSelection` 将 `/agent` 附件从统一拒绝改为 Responses-only：单条 USER 消息最多一种 Image 或 Document；Chat Completions、Image+Document 混合和错误调用方在进入请求前 fail-closed。
+- `XiaoLingViewModel.sendAgentRun()` 为 USER 消息写入稳定的 Image/Document + Text parts，先等待同一快照的 Room BLOB 事务提交，再创建 Agent Run，并在发送后清空待发送附件。
+- `OpenAiAgentLlm` 只把可信 USER 附件加入每一轮 Responses 规划请求；总结请求不接收附件。`AgentMessagePartPolicy` 继续把附件限制在 USER 消息，不进入 `VerifiedAgentContext`、Tool part 或 Agent 输出。
+- 进程重建后的审批恢复和任务中心重试从 Room 原 USER 消息重建附件；重试复制附件到新 USER 消息和新 Run，旧 Run 保持不变。Workflow/后台 Agent 没有新增附件入口。
+- 聚焦 JVM 覆盖 Image/Document 规划请求、每轮复用、总结隔离、Chat/mixed 协议门禁、持久化重复附件拒绝和 assistant 伪造 part 隔离；完整 JVM `477/477`、Lint、Debug/AndroidTest APK 与仅 Redmi `153/153` instrumentation 均通过。真实图片 Run `run-e2c23f3d-c7f9-41cc-9964-e0364741727e`、文档 Run `run-9e66e0eb-7684-4d92-8e5d-cfd3ec044d10` 的 `notes.create` ToolResult 均为 `PASSED` 并完成创建/回读；直接 `complete` 的 Run `run-9f4c1380-60de-4998-b689-65d570812431` 被运行时以“模型未执行任何工具就结束了 Agent Run”拒绝。
+
 ## 第 74 阶段实现与验证边界
 
 - 设置根页的“网络请求”改为与模型提供方、提示词等设置一致的 `SettingsEntryCard`，点击后进入独立的 `NETWORK_REQUEST` 子页，不再在根页直接编辑 User-Agent。
@@ -380,7 +388,7 @@
 - 尚未内置 MCP 和外部远程工具。动作型手机自动化已交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，只允许前台直接 `/agent`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App、Workflow 或后台设备自动化。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；附件暂不进入 `/agent`。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；剩余差距是 Embedding 和更大真实资料集的召回质量验证。
+- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；剩余差距是 Embedding 和更大真实资料集的召回质量验证。
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

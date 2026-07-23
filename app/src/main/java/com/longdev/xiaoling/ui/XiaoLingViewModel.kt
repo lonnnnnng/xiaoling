@@ -282,6 +282,16 @@ internal fun ChatMessage.documentsForRequest(apiMode: ApiMode): List<DocumentAtt
     return effectiveParts().filterIsInstance<MessagePart.Document>().map { it.attachment }
 }
 
+internal fun ChatMessage.attachmentsForAgent(): MessageAttachmentSelection {
+    if (origin != MessageOrigin.USER) return MessageAttachmentSelection()
+    // long: 重试和审批恢复只能从 USER 的可信投影重建唯一附件；assistant、Tool 或损坏的重复附件不能重新进入规划请求。
+    return when (val attachmentPart = effectiveParts().firstOrNull { it is MessagePart.Image || it is MessagePart.Document }) {
+        is MessagePart.Image -> MessageAttachmentSelection(image = attachmentPart.attachment)
+        is MessagePart.Document -> MessageAttachmentSelection(document = attachmentPart.attachment)
+        else -> MessageAttachmentSelection()
+    }
+}
+
 data class MessageMeta(
     val providerId: String? = null,
     val providerName: String? = null,
@@ -2366,13 +2376,29 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             selectedAgentRunId = sourceRun.id,
             agentRetryNavigationConversationId = sourceRun.conversationId,
         )
-        // long: 重试不是修改或续跑旧 Run，而是在原会话追加同一目标的新用户消息；同时回到来源会话，确保重新触发的写工具审批不会隐藏在任务中心后台。
-        sendAgentRun(
-            userMessage = "/agent " + sourceRun.goal,
-            runtimeSelection = runtimeSelection,
-            conversationId = sourceRun.conversationId,
-            retryOfRunId = sourceRun.id,
-        )
+        viewModelScope.launch {
+            val attachments = runCatching {
+                withContext(Dispatchers.IO) {
+                    conversationStore.loadConversationMessages(sourceRun.conversationId)
+                        .firstOrNull { it.id == sourceRun.userMessageId }
+                        ?.toChatMessage()
+                        ?.attachmentsForAgent()
+                        ?: MessageAttachmentSelection()
+                }
+            }.getOrElse { error ->
+                uiState = uiState.copy(retryingAgentRunId = null)
+                showValidation(error.message ?: "读取原任务附件失败")
+                return@launch
+            }
+            // long: 重试不是修改或续跑旧 Run，而是在原会话追加同一目标的新用户消息；原 USER 附件也复制到新消息和新规划请求，避免重试静默改变目标输入。
+            sendAgentRun(
+                userMessage = "/agent " + sourceRun.goal,
+                runtimeSelection = runtimeSelection,
+                attachments = attachments,
+                conversationId = sourceRun.conversationId,
+                retryOfRunId = sourceRun.id,
+            )
+        }
     }
 
     fun approvePendingAgentTool() {
@@ -2468,11 +2494,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             var workflowRunIdToSettle: String? = null
             try {
+                val userAttachments = withContext(Dispatchers.IO) {
+                    conversationStore.loadConversationMessages(source.conversationId)
+                        .firstOrNull { it.id == source.userMessageId }
+                        ?.toChatMessage()
+                        ?.attachmentsForAgent()
+                        ?: MessageAttachmentSelection()
+                }
                 val summary = agentRunUseCase.resumeApprovedRun(
                     detail = detail,
                     approval = approval,
                     config = runtimeSelection.config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                    userAttachments = userAttachments,
                     approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
                     approvalGate = interactiveAgentApprovalGate(source.conversationId),
                     onSnapshot = ::publishAgentRunSnapshot,
@@ -2873,14 +2907,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             document = uiState.pendingDocument,
         )
         if (AgentCommand.matches(userMessage)) {
-            attachments.agentRejectionReason()?.let { reason ->
+            val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
+            attachments.agentRejectionReason(runtimeSelection.config.apiMode)?.let { reason ->
                 showValidation(reason)
                 return
             }
-            val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
             sendAgentRun(
                 userMessage = userMessage,
                 runtimeSelection = runtimeSelection,
+                attachments = attachments,
                 memoryRecallEnabled = uiState.agentMemoryRecallEnabled,
             )
             return
@@ -3075,6 +3110,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private fun sendAgentRun(
         userMessage: String,
         runtimeSelection: AgentRuntimeSelection,
+        attachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         conversationId: String = uiState.selectedConversationId.ifBlank { "conversation-" + System.currentTimeMillis() },
         retryOfRunId: String? = null,
         memoryRecallEnabled: Boolean = runtimeSelection.profile.memoryEnabled,
@@ -3083,10 +3119,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val effectiveMemoryRecallEnabled = memoryRecallEnabled && runtimeSelection.profile.memoryEnabled
         val currentConversation = uiState.conversations.firstOrNull { it.id == conversationId }
         clearAgentStateForConversation(conversationId)
+        val userMessageId = newChatMessageId()
         val userChatMessage = ChatMessage(
+            id = userMessageId,
             role = "user",
             text = userMessage,
             createdAt = System.currentTimeMillis(),
+            parts = attachments.toUserMessageParts(userMessageId, userMessage),
         )
         val messagesWithUser = currentConversation?.messages.orEmpty() + userChatMessage
         val preparedContext = PreparedRequestContext.fromConversation(currentConversation)
@@ -3094,6 +3133,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             result = null,
             prompt = "",
+            pendingImage = null,
+            pendingDocument = null,
             agentMemoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
         ).withUpdatedConversation(
             conversationId = conversationId,
@@ -3103,16 +3144,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             summaryUpdatedAt = preparedContext.summaryUpdatedAt,
             summaryModel = preparedContext.summaryModel,
         )
-        // long: 待审批 Run 可能在用户决定前经历进程重建；先持久化发起消息，恢复后的审批卡片才能继续锚定到原消息和原 Run。
-        saveConversationSelection()
+        val preRunPersistenceSnapshot = conversationPersistenceCoordinator.captureSnapshot(
+            conversations = uiState.conversations.map { it.toStored() },
+            selectedConversationId = uiState.selectedConversationId,
+        )
         val goal = AgentCommand.goal(userMessage)
         sendMessageJob = viewModelScope.launch {
             try {
+                conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
+                // long: 附件 BLOB 必须在 Run 建立前完整提交；否则进程在审批等待期间退出时，恢复链只有 userMessageId，却可能读不到原始 Image/Document。
+                conversationPersistenceCoordinator.persist(preRunPersistenceSnapshot)
                 val approvalGate = interactiveAgentApprovalGate(conversationId)
                 val summary = agentRunUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,
+                    userAttachments = attachments,
                     config = runtimeSelection.config,
                     summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                     agentProfile = runtimeSelection.profile,

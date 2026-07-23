@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import android.content.Context
 import com.longdev.xiaoling.device.DeviceObservationComponents
+import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.storage.RoomAgentConversationStore
@@ -43,6 +44,7 @@ class AgentRunUseCase(
         memoryRecallEnabled: Boolean = true,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -73,7 +75,14 @@ class AgentRunUseCase(
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills, agentProfile),
+            llm = OpenAiAgentLlm(
+                client = client,
+                config = config,
+                summarySystemPrompt = summarySystemPrompt,
+                selectedSkills = selectedSkills,
+                agentProfile = agentProfile,
+                userAttachments = userAttachments,
+            ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )
@@ -95,6 +104,7 @@ class AgentRunUseCase(
         approval: ApprovalRequestRecord,
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
+        userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalReason: String,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
@@ -141,7 +151,14 @@ class AgentRunUseCase(
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
             toolRegistry = scopedToolRegistry,
-            llm = OpenAiAgentLlm(client, config, summarySystemPrompt, selectedSkills, agentProfile),
+            llm = OpenAiAgentLlm(
+                client = client,
+                config = config,
+                summarySystemPrompt = summarySystemPrompt,
+                selectedSkills = selectedSkills,
+                agentProfile = agentProfile,
+                userAttachments = userAttachments,
+            ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
         )

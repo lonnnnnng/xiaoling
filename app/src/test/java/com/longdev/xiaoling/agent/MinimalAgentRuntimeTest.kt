@@ -1,6 +1,10 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.model.ApiMode
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
+import com.longdev.xiaoling.model.ImageAttachmentPolicy
+import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import kotlinx.coroutines.awaitCancellation
@@ -1338,6 +1342,140 @@ class MinimalAgentRuntimeTest {
         } finally {
             server.shutdown()
         }
+    }
+
+    @Test
+    fun responsesAgentImageIsSentToPlannerButNotSummary() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"output_text":"{\"action\":\"complete\"}"}"""))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"output_text":"{\"action\":\"complete\"}"}"""))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"output_text":"{\"style\":\"compact\",\"tone\":\"neutral\"}"}"""))
+            val image = ImageAttachmentPolicy.create(
+                fileName = "receipt.png",
+                mimeType = "image/png",
+                data = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1),
+            )
+            val tool = ToolDefinition("app.current_time", "读取时间", ToolRisk.SAFE)
+            val llm = OpenAiAgentLlm(
+                client = OpenAiCompatibleClient(),
+                config = ProviderRequestConfig(
+                    baseUrl = server.url("/v1").toString(),
+                    apiKey = "test-key",
+                    model = "gpt-test",
+                    apiMode = ApiMode.RESPONSES,
+                ),
+                summarySystemPrompt = "只返回总结样式 JSON",
+                userAttachments = MessageAttachmentSelection(image = image),
+            )
+            val completed = listOf(
+                AgentToolExecution(
+                    toolCall = ToolCall(name = tool.name, arguments = emptyMap(), risk = tool.risk),
+                    toolResult = ToolExecutionResult(success = true, content = "2026-07-23 10:00"),
+                ),
+            )
+
+            assertEquals(AgentPlanDecision.Complete, llm.proposeNextAction("读取票据时间", listOf(tool), completed))
+            assertEquals(AgentPlanDecision.Complete, llm.proposeNextAction("读取票据时间", listOf(tool), completed))
+            llm.summarize("读取票据时间", completed)
+
+            val firstPlannerBody = server.takeRequest().body.readUtf8()
+            val secondPlannerBody = server.takeRequest().body.readUtf8()
+            val summaryBody = server.takeRequest().body.readUtf8()
+            assertTrue(firstPlannerBody.contains("input_image"))
+            assertTrue(secondPlannerBody.contains("input_image"))
+            assertTrue(firstPlannerBody.contains("receipt.png").not())
+            assertFalse(summaryBody.contains("input_image"))
+            assertFalse(summaryBody.contains("data:image/png"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun responsesAgentDocumentIsSentToPlannerButNotSummary() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"output_text":"{\"action\":\"complete\"}"}"""))
+            server.enqueue(MockResponse().setResponseCode(200).setBody("""{"output_text":"{\"style\":\"compact\",\"tone\":\"neutral\"}"}"""))
+            val document = DocumentAttachmentPolicy.create(
+                fileName = "notes.md",
+                mimeType = "text/markdown",
+                data = "agent attachment".toByteArray(),
+            )
+            val tool = ToolDefinition("app.current_time", "读取时间", ToolRisk.SAFE)
+            val llm = OpenAiAgentLlm(
+                client = OpenAiCompatibleClient(),
+                config = ProviderRequestConfig(
+                    baseUrl = server.url("/v1").toString(),
+                    apiKey = "test-key",
+                    model = "gpt-test",
+                    apiMode = ApiMode.RESPONSES,
+                ),
+                summarySystemPrompt = "只返回总结样式 JSON",
+                userAttachments = MessageAttachmentSelection(document = document),
+            )
+            val completed = listOf(
+                AgentToolExecution(
+                    toolCall = ToolCall(name = tool.name, arguments = emptyMap(), risk = tool.risk),
+                    toolResult = ToolExecutionResult(success = true, content = "已读取"),
+                ),
+            )
+
+            assertEquals(AgentPlanDecision.Complete, llm.proposeNextAction("总结文档", listOf(tool), completed))
+            llm.summarize("总结文档", completed)
+
+            val plannerBody = server.takeRequest().body.readUtf8()
+            val summaryBody = server.takeRequest().body.readUtf8()
+            assertTrue(plannerBody.contains("input_file"))
+            assertTrue(plannerBody.contains("notes.md"))
+            assertFalse(summaryBody.contains("input_file"))
+            assertFalse(summaryBody.contains("data:text/markdown"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun agentLlmRejectsChatCompletionsAndMixedAttachmentsBeforeRequest() {
+        val image = ImageAttachmentPolicy.create(
+            fileName = "receipt.png",
+            mimeType = "image/png",
+            data = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1),
+        )
+        val document = DocumentAttachmentPolicy.create(
+            fileName = "notes.md",
+            mimeType = "text/markdown",
+            data = "agent attachment".toByteArray(),
+        )
+        val chatFailure = runCatching {
+            OpenAiAgentLlm(
+                client = OpenAiCompatibleClient(),
+                config = ProviderRequestConfig("https://example.com/v1", "test-key", "gpt-test"),
+                summarySystemPrompt = "summary",
+                userAttachments = MessageAttachmentSelection(image = image),
+            )
+        }.exceptionOrNull()
+        val mixedFailure = runCatching {
+            OpenAiAgentLlm(
+                client = OpenAiCompatibleClient(),
+                config = ProviderRequestConfig(
+                    baseUrl = "https://example.com/v1",
+                    apiKey = "test-key",
+                    model = "gpt-test",
+                    apiMode = ApiMode.RESPONSES,
+                ),
+                summarySystemPrompt = "summary",
+                userAttachments = MessageAttachmentSelection(image = image, document = document),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(chatFailure is IllegalArgumentException)
+        assertTrue(chatFailure?.message.orEmpty().contains("Responses"))
+        assertTrue(mixedFailure is IllegalArgumentException)
+        assertTrue(mixedFailure?.message.orEmpty().contains("只能携带一种附件"))
     }
 
     @Test

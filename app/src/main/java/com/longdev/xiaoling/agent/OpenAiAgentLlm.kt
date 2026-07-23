@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
+import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.model.ModelResponseResult
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
@@ -15,7 +16,14 @@ class OpenAiAgentLlm(
     private val summarySystemPrompt: String,
     private val selectedSkills: List<AgentSkillDefinition> = emptyList(),
     private val agentProfile: AgentProfileSnapshot? = null,
+    private val userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
 ) : AgentLlm {
+    init {
+        // long: Agent 规划附件必须在 Responses 协议和单一附件边界内建立；在请求前拒绝错误调用方，避免 Chat 或混合附件落到供应商后才产生不可审计失败。
+        val rejection = userAttachments.agentRejectionReason(config.apiMode)
+        require(rejection == null) { rejection ?: "Agent 附件配置无效" }
+    }
+
     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
         return when (val decision = requestPlan(goal, tools, emptyList()).value) {
             is AgentPlanDecision.CallTool -> decision.toolCall
@@ -78,6 +86,8 @@ class OpenAiAgentLlm(
                         已执行并验证的工具历史：
                         ${completedTools.toPlannerHistoryJson()}
                     """.trimIndent(),
+                    images = userAttachments.image?.let(::listOf).orEmpty(),
+                    documents = userAttachments.document?.let(::listOf).orEmpty(),
                 ),
             ),
         )

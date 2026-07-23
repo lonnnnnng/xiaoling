@@ -10,8 +10,11 @@ data class MessageAttachmentSelection(
     private val hasMixedAttachments: Boolean
         get() = image != null && document != null
 
-    fun agentRejectionReason(): String? {
-        return if (hasAttachment) "/agent 暂不支持附件，请移除附件后再运行" else null
+    fun agentRejectionReason(apiMode: ApiMode): String? = when {
+        hasMixedAttachments -> "单条消息只能携带一种附件，请保留图片或文档"
+        hasAttachment && apiMode != ApiMode.RESPONSES ->
+            "/agent 附件仅支持 Responses 模式，请切换到 Responses"
+        else -> null
     }
 
     fun chatRejectionReason(apiMode: ApiMode): String? = when {

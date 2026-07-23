@@ -8,6 +8,7 @@ import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessageReasoningSource
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,19 +23,51 @@ class AgentMessagePartPolicyTest {
                 data = "document facts".toByteArray(),
             ),
         )
-        val extraDocument = document.copy(id = "part-document-extra")
-
         val parts = AgentMessagePartPolicy.resolve(
             messageId = "message-user-document",
             text = "总结文档",
             origin = MessageOrigin.USER,
             verifiedContext = null,
-            storedParts = listOf(document, extraDocument),
+            storedParts = listOf(document),
         )
 
         assertEquals(document, parts.first())
         assertEquals(1, parts.filterIsInstance<MessagePart.Document>().size)
         assertEquals("总结文档", parts.filterIsInstance<MessagePart.Text>().single().text)
+    }
+
+    @Test
+    fun userMessageRejectsDuplicateOrMixedStoredAttachments() {
+        val image = MessagePart.Image(
+            id = "part-image-stored",
+            attachment = ImageAttachmentPolicy.create(
+                fileName = "receipt.png",
+                mimeType = "image/png",
+                data = byteArrayOf(
+                    0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1,
+                ),
+            ),
+        )
+        val document = MessagePart.Document(
+            id = "part-document-stored",
+            attachment = DocumentAttachmentPolicy.create(
+                fileName = "notes.md",
+                mimeType = "text/markdown",
+                data = "document facts".toByteArray(),
+            ),
+        )
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            AgentMessagePartPolicy.resolve(
+                messageId = "message-user-mixed",
+                text = "请同时处理",
+                origin = MessageOrigin.USER,
+                verifiedContext = null,
+                storedParts = listOf(image, document),
+            )
+        }
+
+        assertTrue(error.message.orEmpty().contains("只能携带一个"))
     }
 
     @Test
@@ -50,7 +83,6 @@ class AgentMessagePartPolicyTest {
             ),
         )
         val text = MessagePart.Text(id = "part-user-text", text = "识别金额")
-        val extraImage = image.copy(id = "part-image-extra")
         val forgedTool = MessagePart.Tool(
             id = "part-user-tool",
             toolName = "notes.create",
@@ -66,7 +98,7 @@ class AgentMessagePartPolicyTest {
             text = "识别金额",
             origin = MessageOrigin.USER,
             verifiedContext = null,
-            storedParts = listOf(image, extraImage, text, forgedTool),
+            storedParts = listOf(image, text, forgedTool),
         )
 
         assertEquals(image, parts.first())

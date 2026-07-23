@@ -6,6 +6,8 @@
 
 实施状态同步至 2026-07-23：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
+第 75 阶段把参考项目强调的“输入事实与执行事实分离”落到 `/agent` 附件：Responses 规划请求可携带经校验的 USER Image/Document，summary、VerifiedAgentContext、Tool part 与 Agent 输出继续隔离附件；审批恢复与任务中心重试从 Room USER MessagePart 重建并复制到新 Run，Chat/mixed/持久化重复附件/伪造来源保持 fail-closed。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过，图片与文档真实 E2E 的工具回执均为 `PASSED`；Workflow/后台 Agent 暂无附件入口。Embedding、设备后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 第 62 阶段补齐了后台停止原因的可观测性：Android 12+ WorkManager 停止码以隐私安全的稳定分类写入 ScheduledTask 与 WorkflowRun，并由任务中心展示；旧 Android、未停止值、未知码和历史记录均不被猜测。Redmi `143/143` instrumentation 与 JVM `424/424` 通过；本阶段没有自然系统停止样本，不将该能力解释为更强的后台存活保证，也不提前引入 Foreground Service。
 
 第 63 阶段补齐真实应用取消路径：Redmi Android 14 的 WorkManager 实际返回 `CANCELLED_BY_APP(1)`，证明第 62 阶段读取链能取得平台事实；业务侧仍让先落库的 `STOP_REQUESTED` 用户意图优先，后到机制码不得覆盖。完整 Redmi instrumentation 更新为 `145/145`。该受控样本不等同自然 LMK、配额或超时，路线仍保持普通 WorkManager 和 Foreground Service 后置。
@@ -346,8 +348,8 @@
 - Room v21 已新增 `agent_profiles`；设置页可管理多个 Agent，新 Run 冻结 Profile typed event，工具/Skill 白名单和记忆开关在执行与恢复路径保持硬边界，前台/后台 Workflow 一次执行固定同一 Profile。
 - Room v22 已新增 `message_parts`，Text 与 Tool 在同一消息中按 sequence 持久化；Tool part 由 `AGENT_RESULT + VerifiedAgentContext` 可信投影，普通聊天无法把文本声称升级为工具事实。前台会话和后台 Workflow 已统一走 MessageRepository 写入；普通前台快照只增量 upsert，显式删除 ID 与后台新建会话可以正确共存。
 - Room v23 已为 Reasoning part 增加供应商 summary 来源、item ID 和 summary index；非流式与 SSE 流式 Responses 只接收 `summary_text`，Compose 默认折叠。原始思维链不进入正文、parts、debug 响应日志或可信 Agent 上下文。
-- Room v24 已为 USER Image part 增加 MIME、文件名、BLOB 和 detail；系统选择器图片经过 8 MB 有界读取、签名和解码校验，Responses 使用 Data URL，Compose 支持预览/移除/历史展示。图片 BLOB 只为当前会话加载，轻量快照保留未加载 BLOB，请求等待 Room 提交，陈旧前台快照不能复活已删会话。Chat Completions、`/agent` 和可信工具上下文均不接收 Image。
-- Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document 支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX；8 MB、50 页、200,000 UTF-8 字符及 OpenXML 的 ZIP/OPC 根节点、加密、条目数和展开预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载，不能进入 `/agent` 或可信工具上下文。
+- Room v24 已为 USER Image part 增加 MIME、文件名、BLOB 和 detail；系统选择器图片经过 8 MB 有界读取、签名和解码校验，Responses 使用 Data URL，Compose 支持预览/移除/历史展示。图片 BLOB 只为当前会话加载，轻量快照保留未加载 BLOB，请求等待 Room 提交，陈旧前台快照不能复活已删会话。Chat Completions 与可信工具上下文不接收 Image；`/agent` 仅在 Responses 规划请求接收 USER 单一 Image。
+- Room v25 已为 USER Document part 增加受限提取文本、PDF 页数和 detail，并复用 MIME、文件名与 BLOB。Document 支持 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX、XLSX；8 MB、50 页、200,000 UTF-8 字符及 OpenXML 的 ZIP/OPC 根节点、加密、条目数和展开预算在进入消息前执行。Responses 使用 `input_file` Data URL，Compose 支持附件菜单、待发送/历史元数据和移除。Document 与 Image 互斥、按当前会话加载；Chat Completions 与可信工具上下文不接收 Document，`/agent` 仅在 Responses 规划请求接收 USER 单一 Document。
 - 设置页长期记忆管理支持 FTS4 + 中文子串兜底搜索、状态筛选、编辑、置顶、启停、删除确认和来源会话/Run 跳转；禁用或删除后不再参与 Agent 检索。
 - Room v4、v6-v29 Schema 已导出；迁移测试覆盖历史 Provider、会话、Run、审批、记忆、Skill、Workflow、调度、多步骤快照、笔记幂等索引、记忆 operation ledger、独立工具账本、Agent Profile、消息 parts、知识引用和进程退出观察演进。v26→v27 只增加默认空引用列，v28→v29 只创建空退出观察表；迁移不补造旧 operation、旧 Run、全局 Agent 身份、Tool、Reasoning、Image、Document、KnowledgeReference 或 Task/Run 退出归因。
 
