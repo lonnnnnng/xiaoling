@@ -403,6 +403,10 @@ data class KnowledgeRetrievalEntity(
     val embeddingProviderId: String?,
     val embeddingModel: String?,
     @ColumnInfo(defaultValue = "'LEXICAL_ONLY'") val embeddingStatus: String,
+    val embeddingTopScore: Double?,
+    val embeddingSecondScore: Double?,
+    val embeddingScoreMargin: Double?,
+    val embeddingCandidateCount: Int?,
     val createdAt: Long,
 )
 

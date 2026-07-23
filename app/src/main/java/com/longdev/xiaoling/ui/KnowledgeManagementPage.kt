@@ -246,6 +246,13 @@ internal fun KnowledgeManagementContent(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            retrieval.embeddingCalibrationText()?.let { calibrationText ->
+                                Text(
+                                    text = calibrationText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -520,6 +527,20 @@ private fun KnowledgeRetrievalRecord.embeddingDiagnosticsText(): String {
         .joinToString(" / ")
     return "Embedding：$statusLabel" + identity.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
 }
+
+private fun KnowledgeRetrievalRecord.embeddingCalibrationText(): String? {
+    val candidateCount = embeddingCandidateCount ?: return null
+    val observations = buildList {
+        add("$candidateCount 个语义候选")
+        embeddingTopScore?.let { add("top1 ${it.calibrationScoreText()}") }
+        embeddingSecondScore?.let { add("top2 ${it.calibrationScoreText()}") }
+        embeddingScoreMargin?.let { add("margin ${it.calibrationScoreText()}") }
+    }
+    // long: 这行只呈现按当前 Provider/模型采集的 shadow 数据；文案不使用“通过”或“拒绝”，避免把未校准分数误解为生产门禁。
+    return "校准观测：${observations.joinToString(" · ")}"
+}
+
+private fun Double.calibrationScoreText(): String = String.format(Locale.US, "%.4f", this)
 
 private val KNOWLEDGE_PICKER_MIME_TYPES = arrayOf(
     "text/plain",

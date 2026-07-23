@@ -1,5 +1,11 @@
 # 产品需求
 
+## 第 81 阶段验证边界
+
+每次使用 Embedding 的知识检索都必须在既有 `providerId + model` 身份下记录 shadow 校准数据：有效候选数、top1、top2，以及仅在至少两个有效候选存在时计算的 `top1 - top2` margin。未执行 Provider、Provider 不可用或历史记录的字段保持 `null`；索引为空或已有索引全部无法比较时候选数为 `0`，不得用零分补造未知观测。Room 从 v30 升到 v31，迁移必须保留历史审计并让四个新字段全部为 `null`。知识管理页只能把这些值标为“校准观测”，不得显示为通过、拒绝或相关性结论。
+
+真实校准必须继续使用隔离的内存 Room 和固定 10 篇中文语料，按同一 Provider/模型至少覆盖正例、近负例、远负例三类；每类记录查询、词法命中数、top-K 文档、候选数、top1、top2 与 margin。用例只校验身份、有限值、排序关系和审计完整性，不把单次样本中的经验分数写成生产阈值。首轮 Redmi 每类 2 条的分布仅作为下一阶段扩充数据的基线；在更多标注样本和 Provider/模型分桶验证完成前，生产 cosine+RRF 行为保持不变，不新增 `RELEVANCE_INSUFFICIENT` 或其他拒绝状态。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 和 Redmi 完整 instrumentation `174/174` 通过；4 个真实 Provider 用例缺少显式参数时按设计跳过。
+
 ## 第 80 阶段验证边界
 
 真实 Embedding 规模基线必须使用固定、内置且有界的语料，不依赖手机正式知识库或外部文件。至少导入 10 篇语义不同文档，使用 5 个与目标正文无词法交集的跨语言正例，每例重复检索两次。纯词法 Store 必须零命中，真实语义 Store 必须记录 `USED` 及正确 Provider/模型；Recall@5 不低于 `0.8`、MRR 不低于 `0.7`、重复排序稳定率不低于 `0.8`。向量行数必须等于 chunk 数，维度必须一致，原始 BLOB 字节数必须等于 `rows * dimensions * 4`。索引和查询使用单调时钟记录耗时，同时记录 SQLite 页、PSS 和 Java heap；网络耗时与 PSS 只作观测证据，不作易波动的硬门禁。无关查询必须单独记录返回数；在当前没有相似度阈值时，不得伪造负例准确率。真实验收必须在 Redmi 上以三次独立 instrumentation 进程启动重复，使每轮 PSS 都有独立进程基线；单次测试内部不循环伪造三个独立样本。缺少显式 Provider 参数时默认跳过，配置和密钥不得写入 Git 或报告。本阶段最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `171` 个用例，`168` passed、`3` skipped、`0` failed。

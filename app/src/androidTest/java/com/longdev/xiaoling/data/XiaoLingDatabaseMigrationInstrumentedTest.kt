@@ -1105,6 +1105,54 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate30To31KeepsLegacyCalibrationDiagnosticsUnknown() {
+        migrationHelper.createDatabase(EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME, 30).apply {
+            execSQL(
+                """
+                INSERT INTO knowledge_retrievals (
+                    id, query, chunkIdsJson, documentIdsJson, sourceConversationId, sourceRunId,
+                    embeddingProviderId, embeddingModel, embeddingStatus, createdAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "retrieval-v30",
+                    "旧语义检索",
+                    "[]",
+                    "[]",
+                    "conversation-v30",
+                    "run-v30",
+                    "provider-v30",
+                    "embedding-v30",
+                    "USED",
+                    100L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME,
+            31,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            """
+            SELECT embeddingTopScore, embeddingSecondScore, embeddingScoreMargin, embeddingCandidateCount
+            FROM knowledge_retrievals WHERE id = 'retrieval-v30'
+            """.trimIndent(),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertTrue(cursor.isNull(1))
+            assertTrue(cursor.isNull(2))
+            assertTrue(cursor.isNull(3))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1185,5 +1233,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val WORKER_STOP_REASON_MIGRATION_DATABASE_NAME = "xiaoling-worker-stop-reason-migration-test"
         private const val PROCESS_EXIT_MIGRATION_DATABASE_NAME = "xiaoling-process-exit-migration-test"
         private const val EMBEDDING_MIGRATION_DATABASE_NAME = "xiaoling-embedding-migration-test"
+        private const val EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME = "xiaoling-embedding-calibration-migration-test"
     }
 }

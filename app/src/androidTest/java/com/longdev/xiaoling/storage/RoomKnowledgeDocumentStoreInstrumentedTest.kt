@@ -480,6 +480,37 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
     }
 
     @Test
+    fun semanticRetrievalPersistsCalibrationDiagnostics() = runBlocking {
+        val embeddingStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { text ->
+                when {
+                    text == "观察相关性" -> floatArrayOf(1f, 0f)
+                    text.contains("首位候选") -> floatArrayOf(1f, 0f)
+                    text.contains("次位候选") -> floatArrayOf(0.8f, 0.6f)
+                    else -> floatArrayOf(0f, 1f)
+                }
+            },
+        )
+        embeddingStore.importUtf8Document("首位.txt", "text/plain", "首位候选正文".toByteArray())
+        embeddingStore.importUtf8Document("次位.txt", "text/plain", "次位候选正文".toByteArray())
+        embeddingStore.importUtf8Document("远位.txt", "text/plain", "远位候选正文".toByteArray())
+
+        val retrieval = embeddingStore.search("观察相关性", limit = 3).retrieval
+
+        assertEquals(3, retrieval.embeddingCandidateCount)
+        assertEquals(1.0, retrieval.embeddingTopScore!!, 0.000001)
+        assertEquals(0.8, retrieval.embeddingSecondScore!!, 0.000001)
+        assertEquals(0.2, retrieval.embeddingScoreMargin!!, 0.000001)
+        val persisted = embeddingStore.recentRetrievals(1).single()
+        assertEquals(retrieval.embeddingCandidateCount, persisted.embeddingCandidateCount)
+        assertEquals(retrieval.embeddingTopScore, persisted.embeddingTopScore)
+        assertEquals(retrieval.embeddingSecondScore, persisted.embeddingSecondScore)
+        assertEquals(retrieval.embeddingScoreMargin, persisted.embeddingScoreMargin)
+    }
+
+    @Test
     fun semanticAndLexicalOverlapIsDeduplicatedWithStableRetrievalIds() = runBlocking {
         val embeddingStore = RoomKnowledgeDocumentStore(
             context = context,
@@ -516,6 +547,10 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
 
         assertTrue(unavailable.hits.isNotEmpty())
         assertEquals(KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE, unavailable.retrieval.embeddingStatus)
+        assertNull(unavailable.retrieval.embeddingTopScore)
+        assertNull(unavailable.retrieval.embeddingSecondScore)
+        assertNull(unavailable.retrieval.embeddingScoreMargin)
+        assertNull(unavailable.retrieval.embeddingCandidateCount)
 
         val noIndexStore = RoomKnowledgeDocumentStore(
             context = context,
@@ -526,6 +561,10 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
 
         assertTrue(noIndex.hits.isNotEmpty())
         assertEquals(KnowledgeEmbeddingStatus.NO_INDEX, noIndex.retrieval.embeddingStatus)
+        assertNull(noIndex.retrieval.embeddingTopScore)
+        assertNull(noIndex.retrieval.embeddingSecondScore)
+        assertNull(noIndex.retrieval.embeddingScoreMargin)
+        assertEquals(0, noIndex.retrieval.embeddingCandidateCount)
     }
 
     @Test
@@ -554,6 +593,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         val mismatch = mismatchStore.search("旧版向量", limit = 5)
         assertTrue(mismatch.hits.isNotEmpty())
         assertEquals(KnowledgeEmbeddingStatus.DIMENSION_MISMATCH, mismatch.retrieval.embeddingStatus)
+        assertEquals(0, mismatch.retrieval.embeddingCandidateCount)
 
         indexedStore.replaceUtf8Document(
             documentId = original.id,

@@ -40,7 +40,7 @@ import org.json.JSONObject
         WorkflowScheduleEntity::class,
         ProcessExitObservationEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -56,7 +56,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun processExitObservationDao(): ProcessExitObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 30
+        const val CURRENT_VERSION = 31
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -806,6 +806,16 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 历史检索没有原始相似度分布，新增列只能保留 null；后续检索才写入按 Provider 和模型隔离的校准观测，不能反推旧分数。
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingTopScore` REAL")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingSecondScore` REAL")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingScoreMargin` REAL")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingCandidateCount` INTEGER")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -836,6 +846,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_27_28,
             MIGRATION_28_29,
             MIGRATION_29_30,
+            MIGRATION_30_31,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

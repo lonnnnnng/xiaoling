@@ -334,6 +334,10 @@ class RoomKnowledgeDocumentStore(
                 embeddingProviderId = semantic.providerId,
                 embeddingModel = semantic.model,
                 embeddingStatus = semantic.status,
+                embeddingTopScore = semantic.topScore,
+                embeddingSecondScore = semantic.secondScore,
+                embeddingScoreMargin = semantic.scoreMargin,
+                embeddingCandidateCount = semantic.candidateCount,
                 createdAt = clock(),
             )
             // long: 空召回同样写入审计，后续才能区分“没有命中”与“根本没有执行检索”。
@@ -386,20 +390,42 @@ class RoomKnowledgeDocumentStore(
             model = batch.model,
             limit = MAX_EMBEDDING_INDEX_ROWS,
         )
-        if (index.isEmpty()) return SemanticCandidates(batch.providerId, batch.model, KnowledgeEmbeddingStatus.NO_INDEX)
+        if (index.isEmpty()) {
+            return SemanticCandidates(
+                providerId = batch.providerId,
+                model = batch.model,
+                status = KnowledgeEmbeddingStatus.NO_INDEX,
+                candidateCount = 0,
+            )
+        }
         val scored = index.mapNotNull { row ->
             val vector = runCatching { KnowledgeEmbeddingVectorCodec.decode(row.vectorBlob, row.dimensions) }.getOrNull()
                 ?: return@mapNotNull null
             KnowledgeEmbeddingSimilarity.cosine(queryVector, vector)?.let { row.chunkId to it }
         }
-        if (scored.isEmpty()) return SemanticCandidates(batch.providerId, batch.model, KnowledgeEmbeddingStatus.DIMENSION_MISMATCH)
+        if (scored.isEmpty()) {
+            return SemanticCandidates(
+                providerId = batch.providerId,
+                model = batch.model,
+                status = KnowledgeEmbeddingStatus.DIMENSION_MISMATCH,
+                candidateCount = 0,
+            )
+        }
+        val ranked = scored.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+        val topScore = ranked.first().second
+        val secondScore = ranked.getOrNull(1)?.second
         return SemanticCandidates(
             providerId = batch.providerId,
             model = batch.model,
             status = KnowledgeEmbeddingStatus.USED,
-            chunkIds = scored.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+            chunkIds = ranked
                 .take(fetchLimit)
                 .map { it.first },
+            // long: 分数只进入检索审计用于后续分桶校准，当前仍返回原有 top-K；没有标注分布前不能在这里擅自拒绝候选。
+            topScore = topScore,
+            secondScore = secondScore,
+            scoreMargin = secondScore?.let { topScore - it },
+            candidateCount = ranked.size,
         )
     }
 
@@ -555,6 +581,10 @@ class RoomKnowledgeDocumentStore(
         embeddingProviderId = embeddingProviderId,
         embeddingModel = embeddingModel,
         embeddingStatus = embeddingStatus.name,
+        embeddingTopScore = embeddingTopScore,
+        embeddingSecondScore = embeddingSecondScore,
+        embeddingScoreMargin = embeddingScoreMargin,
+        embeddingCandidateCount = embeddingCandidateCount,
         createdAt = createdAt,
     )
 
@@ -569,6 +599,10 @@ class RoomKnowledgeDocumentStore(
         embeddingModel = embeddingModel,
         embeddingStatus = runCatching { KnowledgeEmbeddingStatus.valueOf(embeddingStatus) }
             .getOrDefault(KnowledgeEmbeddingStatus.LEXICAL_ONLY),
+        embeddingTopScore = embeddingTopScore,
+        embeddingSecondScore = embeddingSecondScore,
+        embeddingScoreMargin = embeddingScoreMargin,
+        embeddingCandidateCount = embeddingCandidateCount,
         createdAt = createdAt,
     )
 
@@ -599,6 +633,10 @@ class RoomKnowledgeDocumentStore(
         val model: String? = null,
         val status: KnowledgeEmbeddingStatus = KnowledgeEmbeddingStatus.LEXICAL_ONLY,
         val chunkIds: List<String> = emptyList(),
+        val topScore: Double? = null,
+        val secondScore: Double? = null,
+        val scoreMargin: Double? = null,
+        val candidateCount: Int? = null,
     )
 }
 

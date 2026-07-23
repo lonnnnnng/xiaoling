@@ -158,6 +158,100 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         }
     }
 
+    @Test
+    fun relevanceCalibrationRecordsPositiveNearAndFarDistributions() = runBlocking {
+        val arguments = InstrumentationRegistry.getArguments()
+        val baseUrl = arguments.getString(ARG_BASE_URL).orEmpty().trim()
+        val apiKey = arguments.getString(ARG_API_KEY).orEmpty().trim()
+        val embeddingModel = arguments.getString(ARG_MODEL).orEmpty().trim()
+        assumeTrue("未显式提供真实 Embedding Provider，跳过相关性校准", baseUrl.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding API Key，跳过相关性校准", apiKey.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding 模型，跳过相关性校准", embeddingModel.isNotBlank())
+
+        val client = OpenAiCompatibleClient()
+        val config = ProviderRequestConfig(
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            model = embeddingModel,
+            providerId = CALIBRATION_PROVIDER_ID,
+            embeddingModel = embeddingModel,
+        )
+        assertTrue(client.fetchModels(config).any { it.equals(embeddingModel, ignoreCase = true) })
+
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val semanticStore = RoomKnowledgeDocumentStore(
+                context = context,
+                database = database,
+                embeddingProvider = OpenAiKnowledgeEmbeddingProvider(CALIBRATION_PROVIDER_ID, config, client),
+            )
+            val lexicalStore = RoomKnowledgeDocumentStore(context, database)
+            val documentNames = mutableMapOf<String, String>()
+            CORPUS.forEach { entry ->
+                val document = semanticStore.importUtf8Document(
+                    displayName = entry.fileName,
+                    mimeType = "text/markdown",
+                    bytes = entry.text.toByteArray(Charsets.UTF_8),
+                )
+                documentNames[document.id] = entry.fileName
+            }
+
+            val observations = CALIBRATION_CASES.map { queryCase ->
+                val lexicalHitCount = lexicalStore.search(queryCase.query, limit = QUALITY_LIMIT).hits.size
+                val result = semanticStore.search(
+                    query = queryCase.query,
+                    limit = QUALITY_LIMIT,
+                    sourceRunId = "stage81-${queryCase.caseId}",
+                )
+                val topScore = requireNotNull(result.retrieval.embeddingTopScore)
+                val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
+                val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
+                assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+                assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
+                assertEquals(embeddingModel, result.retrieval.embeddingModel)
+                assertEquals("校准查询不得被词法命中虚高", 0, lexicalHitCount)
+                assertEquals(CORPUS.size, result.retrieval.embeddingCandidateCount)
+                assertTrue(topScore.isFinite())
+                assertTrue(secondScore.isFinite())
+                assertTrue(margin.isFinite() && margin >= 0.0)
+                assertEquals(topScore - secondScore, margin, 0.0000001)
+                val rankedFileNames = result.hits.map { hit -> documentNames[hit.documentId] ?: hit.documentName }
+                queryCase.expectedFileName?.let { expectedFileName ->
+                    assertEquals("正例首位文档发生漂移", expectedFileName, rankedFileNames.firstOrNull())
+                }
+                CalibrationObservation(
+                    caseId = queryCase.caseId,
+                    caseType = queryCase.caseType,
+                    query = queryCase.query,
+                    expectedFileName = queryCase.expectedFileName,
+                    rankedFileNames = rankedFileNames,
+                    lexicalHitCount = lexicalHitCount,
+                    candidateCount = requireNotNull(result.retrieval.embeddingCandidateCount),
+                    topScore = topScore,
+                    secondScore = secondScore,
+                    margin = margin,
+                )
+            }
+
+            // long: 正例、近负例和远负例只按同一 Provider/模型分桶记录分布；本阶段没有生产阈值，测试不能把某个经验分数写成拒绝断言。
+            val metrics = JSONObject()
+                .put("providerId", CALIBRATION_PROVIDER_ID)
+                .put("model", embeddingModel)
+                .put("observations", observations.toCalibrationJsonArray())
+                .put("summaries", observations.summaryJsonArray())
+            Log.i(CALIBRATION_METRICS_TAG, metrics.toString())
+            println("$CALIBRATION_METRICS_TAG $metrics")
+
+            assertEquals(CALIBRATION_CASES.size, observations.size)
+            assertEquals(CALIBRATION_CASE_TYPES, observations.map { it.caseType }.toSet())
+        } finally {
+            database.close()
+        }
+    }
+
     private fun XiaoLingDatabase.vectorStats(providerId: String, model: String): VectorStats {
         val query = SimpleSQLiteQuery(
             """
@@ -207,6 +301,39 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         forEach(array::put)
     }
 
+    private fun List<CalibrationObservation>.toCalibrationJsonArray(): JSONArray = JSONArray().also { array ->
+        forEach { observation ->
+            array.put(
+                JSONObject()
+                    .put("caseId", observation.caseId)
+                    .put("caseType", observation.caseType)
+                    .put("query", observation.query)
+                    .put("expectedFileName", observation.expectedFileName ?: JSONObject.NULL)
+                    .put("rankedFileNames", JSONArray(observation.rankedFileNames))
+                    .put("lexicalHitCount", observation.lexicalHitCount)
+                    .put("candidateCount", observation.candidateCount)
+                    .put("topScore", observation.topScore)
+                    .put("secondScore", observation.secondScore)
+                    .put("margin", observation.margin),
+            )
+        }
+    }
+
+    private fun List<CalibrationObservation>.summaryJsonArray(): JSONArray = JSONArray().also { array ->
+        CALIBRATION_CASE_TYPES.sorted().forEach { caseType ->
+            val bucket = filter { it.caseType == caseType }
+            array.put(
+                JSONObject()
+                    .put("caseType", caseType)
+                    .put("count", bucket.size)
+                    .put("topScoreMin", bucket.minOf { it.topScore })
+                    .put("topScoreMax", bucket.maxOf { it.topScore })
+                    .put("marginMin", bucket.minOf { it.margin })
+                    .put("marginMax", bucket.maxOf { it.margin }),
+            )
+        }
+    }
+
     private data class CorpusEntry(
         val fileName: String,
         val text: String,
@@ -216,6 +343,26 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         val caseId: String,
         val query: String,
         val relevantFileName: String,
+    )
+
+    private data class CalibrationQueryCase(
+        val caseId: String,
+        val caseType: String,
+        val query: String,
+        val expectedFileName: String? = null,
+    )
+
+    private data class CalibrationObservation(
+        val caseId: String,
+        val caseType: String,
+        val query: String,
+        val expectedFileName: String?,
+        val rankedFileNames: List<String>,
+        val lexicalHitCount: Int,
+        val candidateCount: Int,
+        val topScore: Double,
+        val secondScore: Double,
+        val margin: Double,
     )
 
     private data class VectorStats(
@@ -235,11 +382,14 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         const val ARG_API_KEY = "embeddingProviderApiKey"
         const val ARG_MODEL = "embeddingProviderModel"
         const val PROVIDER_ID = "real-embedding-scale-baseline"
+        const val CALIBRATION_PROVIDER_ID = "real-embedding-relevance-calibration"
         const val METRICS_TAG = "XIAOLING_STAGE80_METRICS"
+        const val CALIBRATION_METRICS_TAG = "XIAOLING_STAGE81_CALIBRATION"
         const val QUALITY_LIMIT = 5
         const val QUERY_RUNS = 2
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val UNRELATED_QUERY = "How do coral reefs coordinate spawning under moonlight?"
+        val CALIBRATION_CASE_TYPES = setOf("positive", "near-negative", "far-negative")
 
         val CORPUS = listOf(
             CorpusEntry("01-专注节奏.md", "番茄工作法把任务拆成二十五分钟的专注区间，之后安排短暂休息。完成四轮后再进行较长休息，减少持续分心。"),
@@ -260,6 +410,41 @@ class RealProviderKnowledgeScaleInstrumentedTest {
             QueryCase("sleep-routine", "Which evening habits make it easier to fall asleep at a consistent time?", "03-睡眠习惯.md"),
             QueryCase("bicycle-check", "What should a rider inspect and adjust before leaving on a bicycle?", "04-骑行检查.md"),
             QueryCase("response-reuse", "How can a browser avoid downloading a resource again when it has not changed?", "05-缓存验证.md"),
+        )
+
+        val CALIBRATION_CASES = listOf(
+            CalibrationQueryCase(
+                caseId = "positive-focus",
+                caseType = "positive",
+                query = "How does the Pomodoro method structure focused work and breaks?",
+                expectedFileName = "01-专注节奏.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "positive-sleep",
+                caseType = "positive",
+                query = "What evening habits support regular sleep?",
+                expectedFileName = "03-睡眠习惯.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-focus-sleep",
+                caseType = "near-negative",
+                query = "How can planned short breaks improve sleep quality during evening work?",
+            ),
+            CalibrationQueryCase(
+                caseId = "near-bicycle-travel",
+                caseType = "near-negative",
+                query = "How should I check bicycle tires before a long-distance travel itinerary?",
+            ),
+            CalibrationQueryCase(
+                caseId = "far-coral",
+                caseType = "far-negative",
+                query = UNRELATED_QUERY,
+            ),
+            CalibrationQueryCase(
+                caseId = "far-spacecraft",
+                caseType = "far-negative",
+                query = "What orbital maneuvers place a spacecraft around Mars?",
+            ),
         )
     }
 }

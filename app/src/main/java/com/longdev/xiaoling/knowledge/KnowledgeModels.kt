@@ -87,6 +87,10 @@ data class KnowledgeRetrievalRecord(
     val embeddingProviderId: String? = null,
     val embeddingModel: String? = null,
     val embeddingStatus: KnowledgeEmbeddingStatus = KnowledgeEmbeddingStatus.LEXICAL_ONLY,
+    val embeddingTopScore: Double? = null,
+    val embeddingSecondScore: Double? = null,
+    val embeddingScoreMargin: Double? = null,
+    val embeddingCandidateCount: Int? = null,
     val createdAt: Long,
 )
 

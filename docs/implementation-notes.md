@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 81 阶段实现与验证边界
+
+- `KnowledgeRetrievalRecord` 与 `knowledge_retrievals` 新增 `embeddingTopScore`、`embeddingSecondScore`、`embeddingScoreMargin`、`embeddingCandidateCount`。Room v30→v31 Migration 只增加可空列；旧记录四项均为 `null`，不从历史 chunk IDs 或当前索引反推分数。
+- `RoomKnowledgeDocumentStore.loadSemanticCandidates()` 仍按当前 Provider/模型扫描有界索引并稳定排序；现在同时保存有效候选总数和前两名分数，只有第二名存在时才保存 margin。索引为空或全部向量不可比较记录候选数 `0`；Provider 未执行或不可用保持未知。最终 top-K、RRF、enabled/revision 复核和词法兜底行为不变。
+- 知识管理页在原 Embedding 状态与身份下新增“校准观测”行，分数固定显示 4 位小数；单候选不伪造 top2/margin，历史和纯词法记录不显示空占位。该 UI 不使用“通过”或“拒绝”文案。
+- `RealProviderKnowledgeScaleInstrumentedTest` 复用 10 篇固定中文语料，新增正例、近负例、远负例各 2 条的显式联网校准；输出按 `providerId + model` 隔离的 JSON 观测与分桶最小/最大值，不输出配置或密钥，也不把经验分数设为断言。Redmi 真实 top1 为 `0.6806–0.7130 / 0.6502–0.6854 / 0.3704–0.4083`，margin 为 `0.2743–0.2828 / 0.1311–0.2114 / 0.0274–0.0507`，校准 `1/1` 通过。
+- 聚焦 Redmi 验证：审计持久化 `1/1`、v30→v31 迁移 `1/1`、知识管理 Compose `6/6`。最终 JVM `488/488`、Lint、Debug/AndroidTest APK 和 Redmi 完整 instrumentation `174/174` 通过；默认套件的 4 个真实 Provider 用例按设计跳过。当前不新增生产拒绝状态、ANN 或后台批量索引。
+
 ## 第 80 阶段实现与验证边界
 
 - 新增 `RealProviderKnowledgeScaleInstrumentedTest`，显式传入 Base URL、API Key 和 Embedding 模型时才联网；默认套件缺参按设计 skipped。测试直接复用生产客户端、Embedding Provider、Room Store、cosine/RRF 与质量策略，不保存或打印真实配置。
