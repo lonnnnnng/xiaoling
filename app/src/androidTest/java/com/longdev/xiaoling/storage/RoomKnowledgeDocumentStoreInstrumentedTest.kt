@@ -22,6 +22,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
+import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
+import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -405,7 +407,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
             "reference-apps-analysis.md",
         )
         val testAssets = InstrumentationRegistry.getInstrumentation().context.assets
-        documentNames.forEach { name ->
+        val documentsByName = documentNames.associateWith { name ->
             val bytes = testAssets.open(name).use { it.readBytes() }
             store.importUtf8Document(name, "text/markdown", bytes)
         }
@@ -417,17 +419,35 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
             "并行调用 通用原地断点恢复" to "personal-agent-roadmap.md",
             "最小状态机 WAITING_APPROVAL BLOCKED" to "reference-apps-analysis.md",
         )
-        goldenQueries.forEach { (query, expectedDocument) ->
-            val result = store.search(query, limit = 5)
-            assertTrue("query=$query hits=${result.hits.map { it.documentName }}", result.hits.any {
-                it.documentName == expectedDocument
-            })
-            assertTrue(result.hits.size <= 5)
-        }
+        val qualityCases = goldenQueries.mapIndexed { index, (query, expectedDocument) ->
+            val rankings = List(2) {
+                store.search(query, limit = 5).hits.map { it.documentId }
+            }
+            KnowledgeSearchQualityCaseResult(
+                caseId = "positive-$index",
+                relevantDocumentIds = setOf(documentsByName.getValue(expectedDocument).id),
+                rankedDocumentIdsByRun = rankings,
+                limit = 5,
+            )
+        } + KnowledgeSearchQualityCaseResult(
+            caseId = "negative",
+            relevantDocumentIds = emptySet(),
+            rankedDocumentIdsByRun = List(2) {
+                store.search("NONEXISTENT_STAGE31_NEGATIVE_9A8B7C", limit = 5).hits.map { it.documentId }
+            },
+            limit = 5,
+        )
+        val quality = KnowledgeSearchQualityPolicy.evaluate(qualityCases)
+
+        assertEquals(1.0, quality.meanRecallAtK, 0.000001)
+        assertTrue("MRR=${quality.meanReciprocalRank}", quality.meanReciprocalRank >= 0.8)
+        assertEquals(1.0, quality.negativeAccuracy, 0.000001)
+        assertEquals(1.0, quality.stableRankingRate, 0.000001)
 
         val firstRanked = store.search("模型 自行声明权限 任意命令", limit = 1)
         assertEquals("requirements.md", firstRanked.hits.single().documentName)
-        assertTrue(store.search("NONEXISTENT_STAGE31_NEGATIVE_9A8B7C", limit = 5).hits.isEmpty())
+        assertEquals(5, quality.positiveCaseCount)
+        assertEquals(1, quality.negativeCaseCount)
     }
 
     @Test

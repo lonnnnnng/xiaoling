@@ -1,5 +1,9 @@
 # 小灵个人 Agent 路线图
 
+## 第 78 阶段：Embedding 检索质量与兼容诊断
+
+已完成并通过收尾门禁。新增独立质量评测，把文档级去重后的 Recall@5、MRR、负例准确率和重复排序稳定率变成可重复契约；5 份核心长期文档作为黄金语料，5 个正例与 1 个负例各运行两次，门禁满足 `1.0 / >=0.8 / 1.0 / 1.0`。知识管理页现在显示本次检索实际走过的语义融合、仅词法、无索引、Provider 不可用或维度不匹配路径，并在可用时标出 Provider/模型。Redmi 兜底 Provider 已真实同步模型并恢复配置，但没有可识别的 Embedding 模型，所以本阶段诚实停在词法兜底，没有宣称真实 `/embeddings` 成功。完整 JVM `488/488`、Lint 和 APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。下一步仍优先补具备 Embedding 模型的真实 Provider 兼容证据和更大语料质量/性能基线，再评估 ANN 或后台批量索引；设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 77 阶段：Embedding 索引生命周期
 
 已完成并通过收尾门禁。知识管理页可查看当前 revision 下各 Provider/模型索引的维度和分块数，并可对启用文档显式重建当前选中 Provider/模型。升级前旧文档不再只能永久使用 `NO_INDEX`；Provider/模型切换后多个索引空间共存，重复重建某一空间不会覆盖其他空间。写入遵循“先请求和校验、后事务替换”，事务内再次核对 revision、enabled 和 chunk 身份；异常、超时、停用或并发替换保留已有索引及词法能力。正文替换继续清理所有旧 revision 空间，删除继续清理全部索引。Room 保持 v30。完整 JVM `483/483`、Lint、Debug/AndroidTest APK 和仅 Redmi `164/164` instrumentation 通过。ANN、自动后台批量重建、设备 Workflow/后台自动化、精确定时、Foreground Service 及后续生态能力仍按既定顺序后置。

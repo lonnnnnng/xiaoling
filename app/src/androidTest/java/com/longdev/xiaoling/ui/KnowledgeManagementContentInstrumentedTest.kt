@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithText
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
@@ -80,6 +81,9 @@ class KnowledgeManagementContentInstrumentedTest {
                 documentIds = listOf(summary.id),
                 sourceConversationId = null,
                 sourceRunId = null,
+                embeddingProviderId = "provider-ui",
+                embeddingModel = "text-embedding-ui",
+                embeddingStatus = KnowledgeEmbeddingStatus.USED,
                 createdAt = 1_720_000_000_000L,
             ),
         )
@@ -108,6 +112,7 @@ class KnowledgeManagementContentInstrumentedTest {
         composeRule.onNodeWithText("命中 1 个分块", substring = true).assertExists()
         composeRule.onNodeWithText("审计 knowledge-retrieval-ui", substring = true).assertExists()
         composeRule.onNodeWithText("query：正文", substring = true).assertExists()
+        composeRule.onNodeWithText("Embedding：语义融合 · provider-ui / text-embedding-ui").assertExists()
         composeRule.onNodeWithText("offset 20..36", substring = true).assertExists()
         composeRule.onNodeWithText("知识库正文预览", substring = true).assertExists()
         composeRule.onNodeWithText("仅显示前 4,000 个字符", substring = true).assertExists()
@@ -169,5 +174,79 @@ class KnowledgeManagementContentInstrumentedTest {
 
         composeRule.onNodeWithText("Embedding：尚未建立，检索将使用词法兜底").assertExists()
         composeRule.onNodeWithContentDescription("重建 Embedding 索引").assertExists()
+    }
+
+    @Test
+    fun lexicalRetrievalDoesNotShowEmptyEmbeddingIdentity() {
+        setRetrievalDiagnosticContent(
+            status = KnowledgeEmbeddingStatus.LEXICAL_ONLY,
+            providerId = " ",
+            model = null,
+        )
+
+        composeRule.onNodeWithText("Embedding：仅词法").assertExists()
+        composeRule.onNodeWithText("Embedding：仅词法 ·", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun missingIndexRetrievalShowsFallbackReason() {
+        setRetrievalDiagnosticContent(status = KnowledgeEmbeddingStatus.NO_INDEX)
+
+        composeRule.onNodeWithText("Embedding：无可用索引，词法兜底").assertExists()
+    }
+
+    @Test
+    fun unavailableProviderRetrievalShowsFallbackReason() {
+        setRetrievalDiagnosticContent(status = KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE)
+
+        composeRule.onNodeWithText("Embedding：Provider 不可用，词法兜底").assertExists()
+    }
+
+    @Test
+    fun dimensionMismatchRetrievalShowsFallbackReason() {
+        setRetrievalDiagnosticContent(status = KnowledgeEmbeddingStatus.DIMENSION_MISMATCH)
+
+        composeRule.onNodeWithText("Embedding：维度不匹配，词法兜底").assertExists()
+    }
+
+    private fun setRetrievalDiagnosticContent(
+        status: KnowledgeEmbeddingStatus,
+        providerId: String? = null,
+        model: String? = null,
+    ) {
+        composeRule.setContent {
+            XiaoLingTheme {
+                KnowledgeManagementContent(
+                    state = KnowledgeManagementUiState(
+                        searchQuery = "诊断",
+                        lastRetrieval = KnowledgeRetrievalRecord(
+                            id = "knowledge-retrieval-diagnostic",
+                            query = "诊断",
+                            chunkIds = emptyList(),
+                            documentIds = emptyList(),
+                            sourceConversationId = null,
+                            sourceRunId = null,
+                            embeddingProviderId = providerId,
+                            embeddingModel = model,
+                            embeddingStatus = status,
+                            createdAt = 1L,
+                        ),
+                    ),
+                    onBack = {},
+                    onImport = {},
+                    onRefresh = {},
+                    onSearchQueryChanged = {},
+                    onSearch = {},
+                    onSelectDocument = {},
+                    onSetEnabled = { _, _ -> },
+                    onRebuildEmbeddings = {},
+                    onReplace = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("命中 0 个分块").assertExists()
+        composeRule.onNodeWithText("审计 knowledge-retrieval-diagnostic", substring = true).assertExists()
     }
 }

@@ -2,6 +2,18 @@
 
 验证日期：2026-07-23（北京时间）
 
+## 2026-07-23 Embedding 检索质量与兼容诊断（第 78 阶段）
+
+- 新增纯 Kotlin `KnowledgeSearchQualityPolicy`；排名按文档 ID 去重后截取 K，输出 Recall@K、MRR、负例准确率和重复排序稳定率。JVM 覆盖空语料、单一正例、K 外命中、负例误命中、排序漂移及非法输入。
+- AndroidTest 继续把 5 份核心长期 `docs/` 打包为固定语料；5 个正例、1 个负例各执行两次，Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`，并保留既有首位命中断言。
+- 知识管理页检索审计新增 `USED / LEXICAL_ONLY / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 路径说明；Provider/模型为空时不显示多余分隔符，零命中仍显示审计与回退原因。Redmi 聚焦 Compose `6/6` 通过。
+- 协议级兼容：MockWebServer 继续验证 `/v1/embeddings`、Bearer、默认/自定义 User-Agent、自定义 Header、模型字段、响应 index 恢复和异常维度拒绝。
+- 真实 Provider：只使用 Redmi `wsvwypiz7xwslvl7`，从未跟踪的本地配置显式运行兼容测试；`/models` 同步成功并把 Provider 恢复到应用。同步列表没有可识别的 Embedding 模型，测试在能力门禁处跳过 `/embeddings`。已验证的是 Provider 可用、模型同步和词法兜底，不是上游真实向量兼容。
+- JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --rerun-tasks --stacktrace --console=plain`，`488/488`、0 failed、0 skipped。
+- 静态与 APK：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain`，通过。
+- Redmi 完整 instrumentation：`ANDROID_SERIAL=wsvwypiz7xwslvl7 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:connectedDebugAndroidTest --rerun-tasks --stacktrace --console=plain`，JUnit XML 记录 `169` 个用例、`168` passed、`1` skipped、`0` failed；唯一跳过项是无显式公网参数时默认关闭的 Provider 冒烟。未连接、启动或操作 Pixel_9/其他模拟器。
+- 当前仍不宣称任意 Provider 的 Embedding 兼容、ANN、自动后台批量重建或规模化召回/性能；真实语义路径需等待可同步到 Embedding 模型的 Provider 再验收。
+
 ## 2026-07-23 Embedding 索引生命周期（第 77 阶段）
 
 - 生产实现新增前台单文档 `rebuildEmbeddings()`、索引摘要查询和知识详情重建入口；旧文档可在 revision 不变时补建当前 Provider/模型索引，详情显示 Provider、模型、维度与分块数。

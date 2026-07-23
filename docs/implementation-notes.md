@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 78 阶段实现与验证边界
+
+- 新增纯 Kotlin `KnowledgeSearchQualityPolicy`，输入按用例保存相关文档集合、重复运行排名与 K；评测先按文档 ID 去重再截断，输出正/负用例数、平均 Recall@K、MRR、负例准确率和完整排名稳定率。指标不混入 Provider 延迟或网络瞬时状态。
+- `RoomKnowledgeDocumentStoreInstrumentedTest` 继续复用打包到 AndroidTest assets 的 5 份核心长期文档；5 个固定正例和 1 个不存在词负例各检索两次，门禁满足 Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`。同一文档的多个 chunk 不会虚增 Recall。
+- 知识管理页在检索审计中显示 `LEXICAL_ONLY / USED / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 对应中文路径；只有非空身份才追加 Provider/模型。Compose 覆盖全部回退状态、零命中审计和空身份无多余分隔符。
+- 新增显式参数驱动的 `ProviderEmbeddingCompatibilityInstrumentedTest`：默认完整套件不访问公网；真实验收先同步模型并恢复 Provider 配置，只在列表明确包含 Embedding 模型时请求两个向量并校验数量、非空、维度一致和有限值。
+- Redmi 兜底 Provider 的 `/models` 已真实同步成功并恢复到应用，但列表没有可识别的 Embedding 模型，因此该单项在模型能力门禁处跳过 `/embeddings`；当前真实设备只能证明 Provider 可用与词法兜底，不能证明上游向量端点兼容。
+- 质量策略聚焦 JVM `5/5`、知识管理 Compose `6/6` 通过；完整 JVM `488/488`、Lint 和 Debug/AndroidTest APK 通过。只在 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation，共 `169` 个用例：`168` passed、`1` 个无显式参数的联网冒烟按设计 skipped、`0` failed。
+
 ## 第 77 阶段实现与验证边界
 
 - `KnowledgeDocumentStore` 新增 `rebuildEmbeddings()` 与 `getEmbeddingIndexes()`；旧文档可以在不修改正文和 revision 的前提下补建当前 Provider/模型索引，管理页同时展示 Provider、模型、维度与分块数。
@@ -406,7 +415,7 @@
 - 尚未内置 MCP 和外部远程工具。动作型手机自动化已交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，只允许前台直接 `/agent`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App、Workflow 或后台设备自动化。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
-- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；剩余差距是 Embedding 和更大真实资料集的召回质量验证。
+- Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。
 - `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
 - 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。

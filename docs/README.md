@@ -2,6 +2,8 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
+第 78 阶段完成 Embedding 检索质量与兼容诊断：新增纯 Kotlin 质量评测，固定文档级去重后的 Recall@5、MRR、负例准确率和重复排序稳定率；项目 `docs/` 黄金语料以 5 个正例、1 个负例各执行两次，门禁满足 Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`。知识管理页的检索审计会显示实际 `USED / LEXICAL_ONLY / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 路径，并在有身份时附 Provider/模型。Redmi 真实兜底 Provider 已成功同步模型并恢复到应用，但模型列表没有可识别的 Embedding 模型，因此没有调用 `/embeddings`，真实路径保持词法兜底；这不等同任意 Provider 的 Embedding 兼容成功。完整 JVM `488/488`、Lint 和 Debug/AndroidTest APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
+
 第 77 阶段完成 Embedding 索引生命周期：知识管理页展示当前文档的 Provider、模型、维度和已索引分块数，升级前没有向量的旧文档可显式重建当前 Provider/模型索引。重建在 Provider 返回并校验成功后才进入 Room 事务，事务内再次核对 revision、enabled 和 chunk 身份，只替换当前 `providerId + model` 空间；切换 Provider/模型后旧空间继续共存，失败、超时、停用或并发替换均不删除已有索引。Room 仍为 v30。完整 JVM `483/483`、Lint、Debug/AndroidTest APK 和仅 Redmi `164/164` instrumentation 已通过；本阶段未连接或操作 Pixel_9。ANN、自动后台批量重建和规模化性能仍未承诺。
 
 第 76 阶段完成 Embedding 检索 v1：Provider 模型列表仅在存在 Embedding 模型时启用向量索引；Room 升级到 v30，新增按 `providerId + model` 隔离的 Float32 向量表与检索审计字段。导入/替换建立向量时有 30 秒总时限，查询向量有 2 秒边界；服务失败、超时、无索引或维度不符均回退既有 FTS4+LIKE，并记录 `LEXICAL_ONLY / USED / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH`。语义候选与词法结果用稳定 RRF 融合，最终再次核对文档 enabled/revision，避免并发失效引用。

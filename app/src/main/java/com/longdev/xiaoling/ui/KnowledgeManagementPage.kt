@@ -52,6 +52,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import java.util.Locale
 
@@ -236,6 +238,11 @@ internal fun KnowledgeManagementContent(
                             )
                             Text(
                                 text = "query：${retrieval.query} · ${retrieval.chunkIds.size} chunks · ${retrieval.documentIds.size} documents",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = retrieval.embeddingDiagnosticsText(),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -498,6 +505,20 @@ private fun Long.knowledgeSizeLabel(): String {
         this >= 1024L -> String.format(Locale.US, "%.1f KB", this / 1024.0)
         else -> "$this B"
     }
+}
+
+private fun KnowledgeRetrievalRecord.embeddingDiagnosticsText(): String {
+    val statusLabel = when (embeddingStatus) {
+        KnowledgeEmbeddingStatus.LEXICAL_ONLY -> "仅词法"
+        KnowledgeEmbeddingStatus.USED -> "语义融合"
+        KnowledgeEmbeddingStatus.NO_INDEX -> "无可用索引，词法兜底"
+        KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE -> "Provider 不可用，词法兜底"
+        KnowledgeEmbeddingStatus.DIMENSION_MISMATCH -> "维度不匹配，词法兜底"
+    }
+    val identity = listOfNotNull(embeddingProviderId, embeddingModel)
+        .filter(String::isNotBlank)
+        .joinToString(" / ")
+    return "Embedding：$statusLabel" + identity.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
 }
 
 private val KNOWLEDGE_PICKER_MIME_TYPES = arrayOf(
