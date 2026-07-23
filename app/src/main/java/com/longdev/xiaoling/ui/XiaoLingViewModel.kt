@@ -75,6 +75,7 @@ import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.ModelReasoningSummary
 import com.longdev.xiaoling.model.ProviderMessagePartPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.model.preferredEmbeddingModel
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
@@ -3616,11 +3617,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             baseUrl = profile.baseUrl.trim(),
             apiKey = profile.apiKey.trim(),
             model = profile.model.trim(),
+            providerId = profile.id,
             userAgent = uiState.userAgent,
             apiMode = uiState.apiMode,
             streamingEnabled = uiState.streamingEnabled,
             reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
             maxTokens = ProviderProfile.FIXED_MAX_TOKENS,
+            embeddingModel = profile.preferredEmbeddingModel(),
         )
     }
 

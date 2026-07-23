@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.longdev.xiaoling.data.KnowledgeChunkEntity
+import com.longdev.xiaoling.data.KnowledgeChunkEmbeddingEntity
 import com.longdev.xiaoling.data.KnowledgeChunkFtsEntity
 import com.longdev.xiaoling.data.KnowledgeDocumentEntity
 import com.longdev.xiaoling.data.KnowledgeDocumentSummaryEntity
@@ -15,6 +16,11 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingSimilarity
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
+import com.longdev.xiaoling.knowledge.KnowledgeSearchFusionPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
@@ -26,12 +32,15 @@ import com.longdev.xiaoling.knowledge.assessAgainst
 import com.longdev.xiaoling.knowledge.ImportedKnowledgeText
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import org.json.JSONArray
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 class RoomKnowledgeDocumentStore(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
     private val clock: () -> Long = System::currentTimeMillis,
+    private val embeddingProvider: KnowledgeEmbeddingProvider? = null,
 ) : KnowledgeDocumentStore {
     override suspend fun importUtf8Document(
         displayName: String,
@@ -54,12 +63,13 @@ class RoomKnowledgeDocumentStore(
             createdAt = now,
             updatedAt = now,
         )
+        val chunks = document.buildChunks()
         database.withTransaction {
-            val chunks = document.buildChunks()
             database.knowledgeDao().insertDocument(document.toEntity())
             database.knowledgeDao().insertChunks(chunks.map { it.toEntity() })
             database.knowledgeDao().insertChunkIndexes(chunks.map { it.toFtsEntity() })
         }
+        indexEmbeddings(document, chunks)
         return document
     }
 
@@ -70,7 +80,7 @@ class RoomKnowledgeDocumentStore(
         bytes: ByteArray,
     ): KnowledgeDocumentRecord {
         val payload = prepareImport(displayName, mimeType, bytes)
-        return database.withTransaction {
+        val (replaced, chunks) = database.withTransaction {
             val dao = database.knowledgeDao()
             val existing = dao.getDocument(documentId)
                 ?: throw IllegalArgumentException("知识文档不存在")
@@ -90,10 +100,13 @@ class RoomKnowledgeDocumentStore(
             check(dao.updateDocument(replaced.toEntity()) == 1) { "知识文档替换失败" }
             dao.deleteChunkIndexes(documentId)
             dao.deleteChunks(documentId)
+            dao.deleteChunkEmbeddings(documentId)
             dao.insertChunks(chunks.map { it.toEntity() })
             dao.insertChunkIndexes(chunks.map { it.toFtsEntity() })
-            replaced
+            replaced to chunks
         }
+        indexEmbeddings(replaced, chunks)
+        return replaced
     }
 
     override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? {
@@ -177,13 +190,31 @@ class RoomKnowledgeDocumentStore(
         val canonicalQuery = query.trim()
         require(canonicalQuery.isNotBlank()) { "知识检索词不能为空" }
         val boundedLimit = limit.coerceIn(1, 20)
+        val semantic = loadSemanticCandidates(canonicalQuery, fetchLimit = (boundedLimit * 2).coerceAtMost(40))
         return database.withTransaction {
             val dao = database.knowledgeDao()
             val fetchLimit = (boundedLimit * 2).coerceAtMost(40)
             val ftsHits = dao.searchFts(buildKnowledgeFtsQuery(canonicalQuery), fetchLimit)
             val likeHits = dao.searchLike(buildKnowledgeLikeQuery(canonicalQuery, fetchLimit))
-            val chunks = (ftsHits + likeHits).distinctBy { it.id }.take(boundedLimit)
-            val documents = dao.getDocuments(chunks.map { it.documentId }.distinct()).associateBy { it.id }
+            val lexicalChunks = (ftsHits + likeHits).distinctBy { it.id }
+            val semanticChunks = semantic.chunkIds
+                .let { ids -> dao.getChunksByIds(ids).associateBy { it.id } }
+            val fusedIds = KnowledgeSearchFusionPolicy.fuse(
+                ftsIds = ftsHits.map { it.id },
+                likeIds = likeHits.map { it.id },
+                semanticIds = semantic.chunkIds,
+                // long: 先保留额外候选，最终 enabled/revision 复核淘汰并发失效项后仍能尽量补足用户请求数量。
+                limit = fetchLimit,
+            )
+            val chunksById = (lexicalChunks + semanticChunks.values).associateBy { it.id }
+            val candidateChunks = fusedIds.mapNotNull(chunksById::get)
+            val documents = dao.getDocuments(candidateChunks.map { it.documentId }.distinct()).associateBy { it.id }
+            // long: 语义向量在事务外计算，最终组装时再次核对 enabled 和 revision，避免并发禁用或替换把过期 chunk 带进新答案。
+            val chunks = candidateChunks.filter { chunk ->
+                documents[chunk.documentId]?.let { document ->
+                    document.enabled && document.revision == chunk.documentRevision
+                } == true
+            }.take(boundedLimit)
             val hits = chunks.mapNotNull { chunk ->
                 documents[chunk.documentId]?.let { document -> chunk.toHit(document) }
             }
@@ -194,6 +225,9 @@ class RoomKnowledgeDocumentStore(
                 documentIds = hits.map { it.documentId }.distinct(),
                 sourceConversationId = sourceConversationId,
                 sourceRunId = sourceRunId,
+                embeddingProviderId = semantic.providerId,
+                embeddingModel = semantic.model,
+                embeddingStatus = semantic.status,
                 createdAt = clock(),
             )
             // long: 空召回同样写入审计，后续才能区分“没有命中”与“根本没有执行检索”。
@@ -220,9 +254,85 @@ class RoomKnowledgeDocumentStore(
             if (dao.getDocument(documentId) == null) return@withTransaction false
             // long: 先删除显式维护的 FTS 行和 chunks，再删除文档；删除返回时不能留下仍可被检索的孤立索引。
             dao.deleteChunkIndexes(documentId)
+            dao.deleteChunkEmbeddings(documentId)
             dao.deleteChunks(documentId)
             dao.deleteDocument(documentId) == 1
         }
+    }
+
+    private suspend fun indexEmbeddings(
+        document: KnowledgeDocumentRecord,
+        chunks: List<KnowledgeChunkRecord>,
+    ) {
+        val provider = embeddingProvider ?: return
+        val batch = try {
+            withTimeoutOrNull(EMBEDDING_INDEX_TIMEOUT_MS) {
+                provider.embed(chunks.map(KnowledgeChunkRecord::text))
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // long: 向量服务不可用不能阻断文档导入；文档和 FTS 已提交，后续检索仍可走词法兜底。
+            return
+        } ?: return
+        if (batch.vectors.size != chunks.size) return
+        val dimensions = batch.vectors.firstOrNull()?.size ?: return
+        val embeddings = chunks.zip(batch.vectors).map { (chunk, vector) ->
+            KnowledgeChunkEmbeddingEntity(
+                chunkId = chunk.id,
+                documentId = document.id,
+                documentRevision = document.revision,
+                providerId = batch.providerId,
+                model = batch.model,
+                dimensions = dimensions,
+                vectorBlob = KnowledgeEmbeddingVectorCodec.encode(vector),
+                createdAt = clock(),
+            )
+        }
+        database.withTransaction {
+            val dao = database.knowledgeDao()
+            val current = dao.getDocument(document.id)
+            if (current?.let { it.revision == document.revision && it.enabled == document.enabled } != true) return@withTransaction
+            dao.deleteChunkEmbeddings(document.id)
+            dao.upsertChunkEmbeddings(embeddings)
+        }
+    }
+
+    private suspend fun loadSemanticCandidates(query: String, fetchLimit: Int): SemanticCandidates {
+        val provider = embeddingProvider ?: return SemanticCandidates()
+        val batch = try {
+            withTimeoutOrNull(EMBEDDING_QUERY_TIMEOUT_MS) { provider.embed(listOf(query)) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        } ?: return SemanticCandidates(
+            providerId = null,
+            model = null,
+            status = KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE,
+        )
+        val queryVector = batch.vectors.singleOrNull()
+            ?: return SemanticCandidates(batch.providerId, batch.model, KnowledgeEmbeddingStatus.DIMENSION_MISMATCH)
+        val index = database.knowledgeDao().getEmbeddingIndex(
+            providerId = batch.providerId,
+            model = batch.model,
+            limit = MAX_EMBEDDING_INDEX_ROWS,
+        )
+        if (index.isEmpty()) return SemanticCandidates(batch.providerId, batch.model, KnowledgeEmbeddingStatus.NO_INDEX)
+        val scored = index.mapNotNull { row ->
+            val vector = runCatching { KnowledgeEmbeddingVectorCodec.decode(row.vectorBlob, row.dimensions) }.getOrNull()
+                ?: return@mapNotNull null
+            KnowledgeEmbeddingSimilarity.cosine(queryVector, vector)?.let { row.chunkId to it }
+        }
+        if (scored.isEmpty()) return SemanticCandidates(batch.providerId, batch.model, KnowledgeEmbeddingStatus.DIMENSION_MISMATCH)
+        return SemanticCandidates(
+            providerId = batch.providerId,
+            model = batch.model,
+            status = KnowledgeEmbeddingStatus.USED,
+            chunkIds = scored.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+                .take(fetchLimit)
+                .map { it.first },
+        )
     }
 
     private fun KnowledgeDocumentRecord.buildChunks(): List<KnowledgeChunkRecord> {
@@ -360,6 +470,9 @@ class RoomKnowledgeDocumentStore(
         documentIdsJson = JSONArray(documentIds).toString(),
         sourceConversationId = sourceConversationId,
         sourceRunId = sourceRunId,
+        embeddingProviderId = embeddingProviderId,
+        embeddingModel = embeddingModel,
+        embeddingStatus = embeddingStatus.name,
         createdAt = createdAt,
     )
 
@@ -370,6 +483,10 @@ class RoomKnowledgeDocumentStore(
         documentIds = JSONArray(documentIdsJson).toStringList(),
         sourceConversationId = sourceConversationId,
         sourceRunId = sourceRunId,
+        embeddingProviderId = embeddingProviderId,
+        embeddingModel = embeddingModel,
+        embeddingStatus = runCatching { KnowledgeEmbeddingStatus.valueOf(embeddingStatus) }
+            .getOrDefault(KnowledgeEmbeddingStatus.LEXICAL_ONLY),
         createdAt = createdAt,
     )
 
@@ -377,6 +494,9 @@ class RoomKnowledgeDocumentStore(
 
     companion object {
         private const val SQLITE_QUERY_PARAMETER_BATCH_SIZE = 900
+        private const val MAX_EMBEDDING_INDEX_ROWS = 2_000
+        private const val EMBEDDING_INDEX_TIMEOUT_MS = 30_000L
+        private const val EMBEDDING_QUERY_TIMEOUT_MS = 2_000L
 
         private val SUPPORTED_TEXT_MIME_TYPES = setOf(
             "text/plain",
@@ -390,6 +510,13 @@ class RoomKnowledgeDocumentStore(
         val displayName: String,
         val mimeType: String,
         val text: ImportedKnowledgeText,
+    )
+
+    private data class SemanticCandidates(
+        val providerId: String? = null,
+        val model: String? = null,
+        val status: KnowledgeEmbeddingStatus = KnowledgeEmbeddingStatus.LEXICAL_ONLY,
+        val chunkIds: List<String> = emptyList(),
     )
 }
 

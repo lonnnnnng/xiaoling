@@ -46,6 +46,18 @@ class ProviderApiUrlBuilderTest {
     }
 
     @Test
+    fun `embeddings requestUrl normalizes any known endpoint suffix`() {
+        assertEquals(
+            "https://api.example.com/v1/embeddings",
+            ProviderApiUrlBuilder.embeddingsUrl("https://api.example.com/v1/responses"),
+        )
+        assertEquals(
+            "https://api.example.com/v1/embeddings",
+            ProviderApiUrlBuilder.embeddingsUrl("https://api.example.com/v1/embeddings"),
+        )
+    }
+
+    @Test
     fun `http and https inputs are accepted`() {
         assertNull(ProviderApiUrlBuilder.validate("http://192.168.1.2:11434/v1"))
         assertNull(ProviderApiUrlBuilder.validate("https://api.example.com/v1"))

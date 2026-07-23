@@ -17,6 +17,10 @@ import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceIssue
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingBatch
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -423,6 +427,126 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertTrue(store.search("NONEXISTENT_STAGE31_NEGATIVE_9A8B7C", limit = 5).hits.isEmpty())
     }
 
+    @Test
+    fun embeddingIndexRoundTripsAndSemanticOnlyHitIsAudited() = runBlocking {
+        val embeddingStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { text ->
+                if (text.contains("番茄工作法") || text == "专注方法") floatArrayOf(1f, 0f) else floatArrayOf(0f, 1f)
+            },
+        )
+        val document = embeddingStore.importUtf8Document(
+            displayName = "效率.md",
+            mimeType = "text/markdown",
+            bytes = "番茄工作法使用固定时间段帮助保持注意力。".toByteArray(Charsets.UTF_8),
+        )
+        val indexed = database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10)
+
+        assertEquals(1, indexed.size)
+        assertEquals(document.id, indexed.single().documentId)
+        assertEquals(listOf(1f, 0f), KnowledgeEmbeddingVectorCodec.decode(indexed.single().vectorBlob, 2).toList())
+
+        val result = embeddingStore.search("专注方法", limit = 5, sourceRunId = "run-semantic")
+
+        assertEquals(listOf(document.id), result.hits.map { it.documentId })
+        assertEquals(result.hits.map { it.chunkId }, result.retrieval.chunkIds)
+        assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+        assertEquals(EMBEDDING_PROVIDER_ID, result.retrieval.embeddingProviderId)
+        assertEquals(EMBEDDING_MODEL, result.retrieval.embeddingModel)
+    }
+
+    @Test
+    fun semanticAndLexicalOverlapIsDeduplicatedWithStableRetrievalIds() = runBlocking {
+        val embeddingStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { floatArrayOf(1f, 0f) },
+        )
+        embeddingStore.importUtf8Document(
+            displayName = "重叠.txt",
+            mimeType = "text/plain",
+            bytes = "重叠命中只能返回一次。".toByteArray(Charsets.UTF_8),
+        )
+
+        val result = embeddingStore.search("重叠命中", limit = 5)
+
+        assertEquals(1, result.hits.size)
+        assertEquals(result.hits.map { it.chunkId }, result.hits.map { it.chunkId }.distinct())
+        assertEquals(result.hits.map { it.chunkId }, result.retrieval.chunkIds)
+        assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+    }
+
+    @Test
+    fun unavailableProviderAndMissingIndexKeepLexicalResults() = runBlocking {
+        store.importUtf8Document(
+            displayName = "兜底.txt",
+            mimeType = "text/plain",
+            bytes = "Provider 失败时仍然保留词法检索。".toByteArray(Charsets.UTF_8),
+        )
+        val unavailableStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = KnowledgeEmbeddingProvider { error("provider unavailable") },
+        )
+        val unavailable = unavailableStore.search("词法检索", limit = 5)
+
+        assertTrue(unavailable.hits.isNotEmpty())
+        assertEquals(KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE, unavailable.retrieval.embeddingStatus)
+
+        val noIndexStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { floatArrayOf(1f, 0f) },
+        )
+        val noIndex = noIndexStore.search("词法检索", limit = 5)
+
+        assertTrue(noIndex.hits.isNotEmpty())
+        assertEquals(KnowledgeEmbeddingStatus.NO_INDEX, noIndex.retrieval.embeddingStatus)
+    }
+
+    @Test
+    fun dimensionMismatchFallsBackAndReplacementAndDeletionRemoveOldVectors() = runBlocking {
+        val indexedStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { text ->
+                if (text.contains("新版")) floatArrayOf(0f, 1f) else floatArrayOf(1f, 0f)
+            },
+        )
+        val original = indexedStore.importUtf8Document(
+            displayName = "版本.txt",
+            mimeType = "text/plain",
+            bytes = "旧版向量必须被清理。".toByteArray(Charsets.UTF_8),
+        )
+        val oldChunkIds = database.knowledgeDao()
+            .getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10)
+            .map { it.chunkId }
+
+        val mismatchStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { floatArrayOf(1f, 0f, 0f) },
+        )
+        val mismatch = mismatchStore.search("旧版向量", limit = 5)
+        assertTrue(mismatch.hits.isNotEmpty())
+        assertEquals(KnowledgeEmbeddingStatus.DIMENSION_MISMATCH, mismatch.retrieval.embeddingStatus)
+
+        indexedStore.replaceUtf8Document(
+            documentId = original.id,
+            displayName = "版本-v2.txt",
+            mimeType = "text/plain",
+            bytes = "新版向量取代旧版。".toByteArray(Charsets.UTF_8),
+        )
+        val replacedIndex = database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10)
+        assertTrue(replacedIndex.isNotEmpty())
+        assertTrue(replacedIndex.none { it.chunkId in oldChunkIds })
+        assertTrue(replacedIndex.all { it.documentRevision == 2 })
+
+        assertTrue(indexedStore.delete(original.id))
+        assertTrue(database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10).isEmpty())
+    }
+
     private fun com.longdev.xiaoling.knowledge.KnowledgeSearchHit.toReference(retrievalId: String) = KnowledgeReference(
         retrievalId = retrievalId,
         documentId = documentId,
@@ -449,5 +573,18 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
 
     companion object {
         private const val TEST_DATABASE_NAME = "xiaoling-knowledge-store-test.db"
+        private const val EMBEDDING_PROVIDER_ID = "provider-embedding-test"
+        private const val EMBEDDING_MODEL = "text-embedding-test"
+    }
+
+    private fun embeddingProvider(vectorFor: (String) -> FloatArray): KnowledgeEmbeddingProvider {
+        return KnowledgeEmbeddingProvider { texts ->
+            // long: 测试向量按输入原顺序返回，专门验证 Store 的索引身份、融合和审计，不把网络协议波动带进 Room 测试。
+            KnowledgeEmbeddingBatch(
+                providerId = EMBEDDING_PROVIDER_ID,
+                model = EMBEDDING_MODEL,
+                vectors = texts.map(vectorFor),
+            )
+        }
     }
 }

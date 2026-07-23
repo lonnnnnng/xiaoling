@@ -62,6 +62,7 @@ class AgentProfilesTest {
         val config = AgentProfileRuntimeConfigPolicy.resolve(profile, providers, "agent-test-ua")
 
         assertEquals("https://profile.example/v1", config.baseUrl)
+        assertEquals("provider-test", config.providerId)
         assertEquals("gpt-test", config.model)
         assertEquals(ApiMode.RESPONSES, config.apiMode)
         assertEquals("agent-test-ua", config.userAgent)

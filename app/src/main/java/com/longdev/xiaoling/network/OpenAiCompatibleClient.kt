@@ -17,6 +17,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -86,6 +88,27 @@ class OpenAiCompatibleClient(
             responseText = completion.text,
             reasoningSummaries = completion.reasoningSummaries,
         )
+    }
+
+    suspend fun createEmbeddings(
+        config: ProviderRequestConfig,
+        inputs: List<String>,
+    ): List<FloatArray> = withContext(Dispatchers.IO) {
+        val model = config.embeddingModel?.trim().orEmpty()
+        require(model.isNotBlank()) { "当前提供方没有可用的 Embedding 模型" }
+        require(inputs.isNotEmpty()) { "Embedding 输入不能为空" }
+        require(inputs.all { it.isNotBlank() }) { "Embedding 输入不能包含空文本" }
+        val body = JSONObject()
+            .put("model", model)
+            .put("input", JSONArray(inputs))
+            .put("encoding_format", "float")
+            .toString()
+        val requestUrl = ProviderApiUrlBuilder.embeddingsUrl(config.baseUrl)
+        val request = requestBuilder(requestUrl, config)
+            .post(body.toRequestBody(jsonMediaType))
+            .build()
+        NetworkDebugLogger.logRequest(request, body)
+        execute(request) { responseBody -> parseEmbeddings(responseBody, inputs.size) }
     }
 
     private fun requestBuilder(requestUrl: String, config: ProviderRequestConfig): Request.Builder {
@@ -254,6 +277,28 @@ class OpenAiCompatibleClient(
         val value: T,
         val firstByteLatencyMs: Long?,
     )
+}
+
+private fun parseEmbeddings(body: String, expectedCount: Int): List<FloatArray> {
+    val data = JSONObject(body).optJSONArray("data")
+        ?: throw ApiFailure(FailureKind.RESPONSE, "Embedding 响应缺少 data")
+    require(data.length() == expectedCount) {
+        "Embedding 响应数量不匹配：期望 $expectedCount，实际 ${data.length()}"
+    }
+    val indexed = buildMap<Int, FloatArray> {
+        repeat(data.length()) { position ->
+            val item = data.getJSONObject(position)
+            val index = item.optInt("index", position)
+            val values = item.optJSONArray("embedding")
+                ?: error("Embedding 响应第 $position 项缺少 embedding")
+            val vector = FloatArray(values.length()) { valueIndex -> values.getDouble(valueIndex).toFloat() }
+            require(vector.isNotEmpty() && vector.all(Float::isFinite)) { "Embedding 响应包含无效向量" }
+            require(put(index, vector) == null) { "Embedding 响应 index 重复：$index" }
+        }
+    }
+    val vectors = (0 until expectedCount).map { index -> indexed[index] ?: error("Embedding 响应缺少 index=$index") }
+    require(vectors.map(FloatArray::size).distinct().size == 1) { "Embedding 响应向量维度不一致" }
+    return vectors
 }
 
 private fun monotonicNowMs(): Long = System.nanoTime() / 1_000_000L

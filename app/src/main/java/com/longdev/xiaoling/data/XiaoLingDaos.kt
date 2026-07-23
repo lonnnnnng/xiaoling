@@ -357,6 +357,29 @@ interface KnowledgeDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertChunkIndexes(chunks: List<KnowledgeChunkFtsEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertChunkEmbeddings(embeddings: List<KnowledgeChunkEmbeddingEntity>)
+
+    @Query(
+        """
+        SELECT knowledge_chunk_embeddings.* FROM knowledge_chunk_embeddings
+        JOIN knowledge_documents ON knowledge_documents.id = knowledge_chunk_embeddings.documentId
+        JOIN knowledge_chunks ON knowledge_chunks.id = knowledge_chunk_embeddings.chunkId
+        WHERE knowledge_chunk_embeddings.providerId = :providerId
+          AND knowledge_chunk_embeddings.model = :model
+          AND knowledge_documents.enabled = 1
+          AND knowledge_documents.revision = knowledge_chunk_embeddings.documentRevision
+          AND knowledge_chunks.documentRevision = knowledge_chunk_embeddings.documentRevision
+        ORDER BY knowledge_documents.updatedAt DESC, knowledge_chunks.sequence ASC, knowledge_chunks.id ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getEmbeddingIndex(
+        providerId: String,
+        model: String,
+        limit: Int,
+    ): List<KnowledgeChunkEmbeddingEntity>
+
     @Query("SELECT * FROM knowledge_chunks WHERE id = :chunkId")
     suspend fun getChunk(chunkId: String): KnowledgeChunkEntity?
 
@@ -387,6 +410,9 @@ interface KnowledgeDao {
 
     @Query("DELETE FROM knowledge_chunks_fts WHERE documentId = :documentId")
     suspend fun deleteChunkIndexes(documentId: String)
+
+    @Query("DELETE FROM knowledge_chunk_embeddings WHERE documentId = :documentId")
+    suspend fun deleteChunkEmbeddings(documentId: String)
 
     @Query("DELETE FROM knowledge_chunks WHERE documentId = :documentId")
     suspend fun deleteChunks(documentId: String)

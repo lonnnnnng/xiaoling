@@ -12,6 +12,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.storage.KnowledgeDocumentReader
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
+import com.longdev.xiaoling.storage.SelectedProviderKnowledgeEmbeddingProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,7 +51,10 @@ class KnowledgeManagementViewModel internal constructor(
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(
         application = application,
-        store = RoomKnowledgeDocumentStore(application),
+        store = RoomKnowledgeDocumentStore(
+            context = application,
+            embeddingProvider = SelectedProviderKnowledgeEmbeddingProvider(application),
+        ),
         readImport = KnowledgeDocumentReader(application)::read,
     )
 

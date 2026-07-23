@@ -27,6 +27,7 @@ import org.json.JSONObject
         KnowledgeDocumentEntity::class,
         KnowledgeChunkEntity::class,
         KnowledgeChunkFtsEntity::class,
+        KnowledgeChunkEmbeddingEntity::class,
         KnowledgeRetrievalEntity::class,
         AgentNoteEntity::class,
         AgentSkillEntity::class,
@@ -39,7 +40,7 @@ import org.json.JSONObject
         WorkflowScheduleEntity::class,
         ProcessExitObservationEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -55,7 +56,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun processExitObservationDao(): ProcessExitObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 29
+        const val CURRENT_VERSION = 30
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -779,6 +780,32 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 向量索引必须与消息附件、工具回执和历史引用隔离；旧知识只保留词法能力，不从正文或旧检索记录推测向量模型与结果。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `knowledge_chunk_embeddings` (
+                        `chunkId` TEXT NOT NULL,
+                        `documentId` TEXT NOT NULL,
+                        `documentRevision` INTEGER NOT NULL,
+                        `providerId` TEXT NOT NULL,
+                        `model` TEXT NOT NULL,
+                        `dimensions` INTEGER NOT NULL,
+                        `vectorBlob` BLOB NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`chunkId`, `providerId`, `model`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_chunk_embeddings_documentId_documentRevision` ON `knowledge_chunk_embeddings` (`documentId`, `documentRevision`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_knowledge_chunk_embeddings_providerId_model` ON `knowledge_chunk_embeddings` (`providerId`, `model`)")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingProviderId` TEXT")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingModel` TEXT")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingStatus` TEXT NOT NULL DEFAULT 'LEXICAL_ONLY'")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -808,6 +835,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_26_27,
             MIGRATION_27_28,
             MIGRATION_28_29,
+            MIGRATION_29_30,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

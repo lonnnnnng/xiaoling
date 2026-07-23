@@ -2,6 +2,15 @@
 
 验证日期：2026-07-23（北京时间）
 
+## 2026-07-23 Embedding 检索 v1（第 76 阶段）
+
+- 生产实现新增 Provider `/embeddings` 请求、Float32 little-endian 编解码、Provider 身份隔离、RRF 融合和词法回退；Room Schema 从 29 升到 30。v29→v30 MigrationTestHelper 验证旧检索记录保留且 `embeddingStatus=LEXICAL_ONLY`，新向量表为空，不凭历史正文补造向量。
+- JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --rerun-tasks --stacktrace --console=plain`，通过；包含网络、Embedding 核心和 Agent Profile Provider 身份测试。
+- 静态与 APK：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain`，通过。
+- 真机：设备 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro，Android 14 / API 34）执行 `ANDROID_SERIAL=wsvwypiz7xwslvl7 ./gradlew :app:connectedDebugAndroidTest --stacktrace --console=plain`，共 `158/158`，0 skipped、0 failed。定向知识存储 `14/14`、数据库迁移 `25/25` 也已先行通过；未连接、启动或操作 Pixel_9/其他模拟器。
+- 关键覆盖：语义-only 命中、语义与词法重叠去重、Provider 失败和无索引回退、查询维度不符、替换/删除清理旧向量、检索审计 chunk IDs 与最终 hits 一致、最终 enabled/revision 复核。
+- 本阶段仍不等同规模化 ANN 性能验证，不引入设备 Workflow、后台设备自动化、Foreground Service 或精确定时。
+
 ## 环境
 
 - macOS 原生环境 + zsh

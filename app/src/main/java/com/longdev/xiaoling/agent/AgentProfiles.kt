@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
+import com.longdev.xiaoling.model.preferredEmbeddingModel
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 
@@ -118,10 +119,12 @@ object AgentProfileRuntimeConfigPolicy {
             baseUrl = provider.baseUrl.trim(),
             apiKey = provider.apiKey.trim(),
             model = profile.model.trim(),
+            providerId = provider.id,
             userAgent = userAgent,
             apiMode = profile.apiMode,
             streamingEnabled = false,
             maxTokens = ProviderProfile.FIXED_MAX_TOKENS,
+            embeddingModel = provider.preferredEmbeddingModel(),
         )
     }
 }

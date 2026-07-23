@@ -2,6 +2,8 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
+第 76 阶段完成 Embedding 检索 v1：Provider 模型列表仅在存在 Embedding 模型时启用向量索引；Room 升级到 v30，新增按 `providerId + model` 隔离的 Float32 向量表与检索审计字段。导入/替换建立向量时有 30 秒总时限，查询向量有 2 秒边界；服务失败、超时、无索引或维度不符均回退既有 FTS4+LIKE，并记录 `LEXICAL_ONLY / USED / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH`。语义候选与词法结果用稳定 RRF 融合，最终再次核对文档 enabled/revision，避免并发失效引用。完整 JVM、Lint、Debug/AndroidTest APK 和仅 Redmi `158/158` instrumentation 已通过；本阶段未连接或操作 Pixel_9。
+
 第 75 阶段完成 `/agent` 附件输入 v1：仅 Responses API 接受 USER 单条 Image 或 Document，规划请求每轮复用原附件，模型总结请求和 `VerifiedAgentContext`/Tool part 不携带附件；Chat Completions、混合附件、持久化重复附件及非 USER 来源继续 fail-closed。初次发送先提交 USER MessagePart，再创建 Run；审批恢复与任务中心重试从 Room 原消息重建附件并复制到新 USER 消息。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过；图片和文档真实 `/agent` E2E 均创建并回读成功，直接 `complete` 的无工具负向路径也按运行时规则失败。
 
 第 74 阶段完成网络请求设置页交互统一：根设置页的“网络请求”改为与其他设置项一致的入口卡片，点击进入独立子页；User-Agent 编辑区默认至少 5 行，右下角提供复制和清空，并保留恢复默认。新增 `NetworkRequestSettingsContentInstrumentedTest`，Redmi 单项 `1/1`、完整 instrumentation `153/153`，真实 UI 已确认入口、导航、输入区高度和按钮布局。第 73 阶段的会话选择与删除副作用协调器仍保持“取消旧加载 → 标记删除代次 → 清理运行态 → 即时选择或完整加载”的顺序；当前标准门禁为 JVM `472/472`、Lint、Debug/AndroidTest 构建和仅 Redmi 执行的 `153/153` instrumentation。
@@ -38,7 +40,7 @@
 
 第 61 阶段完成熄屏真实后台验收：Probe 在 `0.275s` 后退出、原 PID 消失，设备保持 `mWakefulness=Asleep / mScreenOn=false / mState=ACTIVE`；JobScheduler 延迟 `159.479s` 后冷启动 PID `26797`，同一 WorkRequest/ScheduledTask/WorkflowRun 在熄屏状态下完成 `244.236s` 的 8 步、32 次只读工具链。8 个 AgentRun、32/32 ToolResult 和 `tool.verify` 全部成功；每个 Run 11 条预算快照，`consumedMs` 最大值 `18.283s–44.856s`，回退次数均为 0，`llmFailures=0`。LMK 为 `supported=true / exits=16 / lowMemory=0`，仍无自然回收或 Foreground Service 依据。
 
-当前发布基线：`v0.1.11`；文档内容已同步到 Room v29、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用、设备 Agent 观察与有限动作层、网络请求独立设置页、进程退出观察账本、`/agent` Responses 附件输入，以及已迁出 ViewModel 的普通聊天上下文准备、网络发送编排、会话状态投影、保存、加载和选择/删除协调。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。Embedding、设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+当前发布基线：`v0.1.11`；工作区文档已同步到 Room v30、Embedding 检索 v1、消息 parts、Agent Profile、长期记忆、1 至 8 步 Workflow、本地知识库、答案级知识引用、设备 Agent 观察与有限动作层、网络请求独立设置页、进程退出观察账本、`/agent` Responses 附件输入，以及已迁出 ViewModel 的普通聊天上下文准备、网络发送编排、会话状态投影、保存、加载和选择/删除协调。当前恢复边界保持 fail-closed：提交未知、验证事实不完整和旧模型协程不会原地恢复；确认后只创建关联新 Run。设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 第 46 阶段完成 Redmi 长任务与系统策略取证：强制 Doze 会延后同一 WorkRequest，退出 Doze 后任务只创建一个 Workflow/Agent Run；8 步真实模型 Workflow 在约 28.5 秒内于第二步重复调用检测处安全失败。`send-trim-memory` 与退出 Doze 样本均观察到短时 `connection closed`，但无压力对照也出现启动恢复竞态，因此不建立内存压力或 Doze 与连接关闭的因果关系。该竞态曾让 ScheduledTask/Workflow 保持 `CANCELLED` 而迟到协程把 AgentRun 改成 `COMPLETED`；现已在 Room DAO 用原子非终态条件更新冻结 AgentRun 终态，并增加 Redmi 回归。仍缺 Android 自主 LMK 样本，不提前引入 Foreground Service，也不恢复旧 Executor 或 Workflow 后续步骤。
 

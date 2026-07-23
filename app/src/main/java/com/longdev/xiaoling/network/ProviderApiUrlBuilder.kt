@@ -3,6 +3,7 @@ package com.longdev.xiaoling.network
 object ProviderApiUrlBuilder {
     private val knownSuffixes = listOf(
         "/chat/completions",
+        "/embeddings",
         "/models",
         "/responses",
     )
@@ -12,6 +13,8 @@ object ProviderApiUrlBuilder {
     fun chatCompletionsUrl(input: String): String = "${apiRoot(input)}/chat/completions"
 
     fun responsesUrl(input: String): String = "${apiRoot(input)}/responses"
+
+    fun embeddingsUrl(input: String): String = "${apiRoot(input)}/embeddings"
 
     fun validate(input: String): String? {
         val normalized = input.trim()

@@ -1073,6 +1073,38 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate29To30CreatesEmbeddingIndexAndKeepsLegacyRetrievalLexicalOnly() {
+        migrationHelper.createDatabase(EMBEDDING_MIGRATION_DATABASE_NAME, 29).apply {
+            execSQL(
+                "INSERT INTO knowledge_retrievals VALUES (?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("retrieval-v29", "旧检索", "[]", "[]", "conversation-v29", "run-v29", 100L),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            EMBEDDING_MIGRATION_DATABASE_NAME,
+            30,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT embeddingProviderId, embeddingModel, embeddingStatus FROM knowledge_retrievals WHERE id = 'retrieval-v29'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertNull(cursor.getString(0))
+            assertNull(cursor.getString(1))
+            assertEquals("LEXICAL_ONLY", cursor.getString(2))
+        }
+        migrated.query("SELECT COUNT(*) FROM knowledge_chunk_embeddings").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1152,5 +1184,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val KNOWLEDGE_REFERENCE_MIGRATION_DATABASE_NAME = "xiaoling-knowledge-reference-migration-test"
         private const val WORKER_STOP_REASON_MIGRATION_DATABASE_NAME = "xiaoling-worker-stop-reason-migration-test"
         private const val PROCESS_EXIT_MIGRATION_DATABASE_NAME = "xiaoling-process-exit-migration-test"
+        private const val EMBEDDING_MIGRATION_DATABASE_NAME = "xiaoling-embedding-migration-test"
     }
 }

@@ -84,8 +84,19 @@ data class KnowledgeRetrievalRecord(
     val documentIds: List<String>,
     val sourceConversationId: String?,
     val sourceRunId: String?,
+    val embeddingProviderId: String? = null,
+    val embeddingModel: String? = null,
+    val embeddingStatus: KnowledgeEmbeddingStatus = KnowledgeEmbeddingStatus.LEXICAL_ONLY,
     val createdAt: Long,
 )
+
+enum class KnowledgeEmbeddingStatus {
+    LEXICAL_ONLY,
+    USED,
+    NO_INDEX,
+    PROVIDER_UNAVAILABLE,
+    DIMENSION_MISMATCH,
+}
 
 data class KnowledgeSearchResult(
     val hits: List<KnowledgeSearchHit>,

@@ -54,6 +54,58 @@ class OpenAiCompatibleClientTest {
     }
 
     @Test
+    fun embeddingsRequestUsesConfiguredTransportAndRestoresIndexOrder() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                    {
+                      "data": [
+                        {"index":1,"embedding":[0.0,1.0]},
+                        {"index":0,"embedding":[1.0,0.0]}
+                      ]
+                    }
+                """.trimIndent(),
+            ),
+        )
+
+        val vectors = OpenAiCompatibleClient().createEmbeddings(
+            config = config(userAgent = "Embedding Client/1.0").copy(
+                embeddingModel = "text-embedding-test",
+                customHeaders = mapOf("X-Test-Tenant" to "tenant-1"),
+            ),
+            inputs = listOf("第一段", "第二段"),
+        )
+        val request = server.takeRequest()
+
+        assertEquals("/v1/embeddings", request.path)
+        assertEquals("Embedding Client/1.0", request.getHeader("User-Agent"))
+        assertEquals("Bearer test-key", request.getHeader("Authorization"))
+        assertEquals("tenant-1", request.getHeader("X-Test-Tenant"))
+        assertTrue(request.body.readUtf8().contains("text-embedding-test"))
+        assertEquals(listOf(1.0f, 0.0f), vectors[0].toList())
+        assertEquals(listOf(0.0f, 1.0f), vectors[1].toList())
+    }
+
+    @Test
+    fun embeddingsRejectMalformedResponseBeforeReturningPartialVectors() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"data":[{"index":0,"embedding":[1.0,0.0]},{"index":1,"embedding":[1.0]}]}""",
+            ),
+        )
+
+        val failure = runCatching {
+            OpenAiCompatibleClient().createEmbeddings(
+                config = config(userAgent = "Embedding Test/1.0").copy(embeddingModel = "text-embedding-test"),
+                inputs = listOf("第一段", "第二段"),
+            )
+        }.exceptionOrNull() as ApiFailure
+
+        assertEquals(FailureKind.RESPONSE, failure.kind)
+        assertTrue(failure.message.orEmpty().contains("维度"))
+    }
+
+    @Test
     fun connectionResetDuringResponseIsClassifiedAsConnectionFailure() = runTest {
         server.enqueue(
             MockResponse()

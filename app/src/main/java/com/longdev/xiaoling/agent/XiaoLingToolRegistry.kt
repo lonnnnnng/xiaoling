@@ -27,6 +27,15 @@ class XiaoLingToolRegistry(
 ) : ToolRegistry, AgentRunContextAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
 
+    internal fun withKnowledgeStore(store: KnowledgeDocumentStore): XiaoLingToolRegistry = XiaoLingToolRegistry(
+        clock = clock,
+        conversationStore = conversationStore,
+        noteStore = noteStore,
+        memoryStore = memoryStore,
+        knowledgeStore = store,
+        deviceController = deviceController,
+    )
+
     private val tools = listOf(
         ToolDefinition(
             name = "app.current_time",

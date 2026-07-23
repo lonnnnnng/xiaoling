@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 76 阶段实现与验证边界
+
+- `ProviderProfile.preferredEmbeddingModel()` 只从已同步模型列表选择明确的 Embedding 模型；Agent Profile 与知识管理分别使用 Profile 对应或当前选中 Provider，并把 `providerId` 写入请求配置，避免向量审计身份漂移。
+- `OpenAiCompatibleClient.createEmbeddings()` 调用规范化后的 `/embeddings`，复用 Bearer、User-Agent、自定义 Header 和现有错误分类；响应按 `index` 恢复输入顺序，并拒绝数量、维度、重复索引和非有限值异常。`KnowledgeEmbeddingVectorCodec` 统一 little-endian Float32，`KnowledgeSearchFusionPolicy` 在有语义候选时使用稳定 RRF，没有语义候选时保留旧 FTS+LIKE 顺序。
+- Room v29→v30 创建 `knowledge_chunk_embeddings`（主键为 `chunkId + providerId + model`，附带 revision、维度、BLOB 和创建时间），并为 `knowledge_retrievals` 增加 embedding Provider、模型和状态列；历史记录默认 `LEXICAL_ONLY`，迁移不补造向量。
+- `RoomKnowledgeDocumentStore` 在导入/替换提交正文、chunks 和 FTS 后尝试建立向量，索引总时限 30 秒；查询向量 2 秒超时。失败、超时、无索引或维度不符只记录稳定状态并回退词法检索。语义候选与词法候选最终组装时再次核对文档 enabled/revision；替换/删除同步清理旧 revision 向量。
+- 新增 `KnowledgeEmbeddingTest`、网络协议测试、v29→v30 MigrationTestHelper 和 Room 存储 instrumentation，覆盖 Float32 编解码、cosine、RRF、语义-only、重叠去重、Provider 失败、无索引、维度不符、替换/删除清理和历史审计默认值。完整 JVM、Lint、Debug/AndroidTest APK 以及仅 Redmi `158/158` instrumentation 通过。
+- 仍未实现规模化 ANN/向量数据库、后台增量重建、同一文档多 Provider 并行索引和设备 Workflow/后台自动化；这些边界不因本阶段提前扩大。
+
 ## 技术栈
 
 - Kotlin
@@ -360,7 +369,7 @@
 - 禁用、替换或删除后，Room 中历史 Run/消息审计保持不变；普通对话准备上下文时会按当前 enabled/revision/chunk/sequence/offset/name 核验引用。任一引用失效时整条知识 Agent 消息退出请求，可能包含旧片段的已存摘要同时废弃并从过滤后的消息重建，避免仅清空 ID 后仍把旧正文送入模型。
 - Workflow 前序输出沿用相同生命周期边界：前台、后台与进程恢复完成步骤时都把真实 `VerifiedAgentContext`/Tool Ledger 引用写入版本化输出快照；重试复制旧快照但不改写来源，下一步骤使用前再次核验，失效正文不会进入新 Run。
 - Agent 回复使用独立、默认折叠的答案引用区域，只从 `effectiveParts()` 中可信 Tool part 的结构化引用投影，不扫描模型自由文本。展开后展示文档名、revision、chunk 和半开 offset 区间；Room 通过文档摘要与引用 chunk 的 projection 核验状态，不读取最大 64 MB 全文，并按最多 900 个绑定参数分批查询，避免长会话超过 SQLite 上限。精确匹配标记“当前有效”，当前启用文档 revision 更高标记“历史版本”，停用状态优先标记“当前不可用”，删除或 chunk 边界漂移也标记“当前不可用”；文档仍存在时整行可跳转知识库详情，已删除时关闭跳转。核验异常显示“暂无法核验”，会话切换或新一轮核验取消旧 Job 时保留协程取消语义，旧任务不会覆盖新状态。
-- 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。Embedding 继续后置。
+- 新工具不会自动加入旧 Profile/Skill；缺少 Profile 审计的历史 Run 使用知识工具上线前的固定工具集合，审批恢复后的后续规划也不能发现 `knowledge.search`。Embedding v1 已接入；规模化 ANN、后台增量索引和其他后置能力仍不扩大旧 Run 工具边界。
 
 ## 设备 Agent 观察与有限动作层
 

@@ -358,6 +358,25 @@ data class KnowledgeChunkFtsEntity(
 )
 
 @Entity(
+    tableName = "knowledge_chunk_embeddings",
+    primaryKeys = ["chunkId", "providerId", "model"],
+    indices = [
+        Index(value = ["documentId", "documentRevision"]),
+        Index(value = ["providerId", "model"]),
+    ],
+)
+data class KnowledgeChunkEmbeddingEntity(
+    val chunkId: String,
+    val documentId: String,
+    val documentRevision: Int,
+    val providerId: String,
+    val model: String,
+    val dimensions: Int,
+    val vectorBlob: ByteArray,
+    val createdAt: Long,
+)
+
+@Entity(
     tableName = "knowledge_retrievals",
     indices = [
         Index(value = ["createdAt"]),
@@ -372,6 +391,9 @@ data class KnowledgeRetrievalEntity(
     val documentIdsJson: String,
     val sourceConversationId: String?,
     val sourceRunId: String?,
+    val embeddingProviderId: String?,
+    val embeddingModel: String?,
+    @ColumnInfo(defaultValue = "'LEXICAL_ONLY'") val embeddingStatus: String,
     val createdAt: Long,
 )
 

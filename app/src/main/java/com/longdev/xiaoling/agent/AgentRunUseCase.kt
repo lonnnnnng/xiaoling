@@ -5,6 +5,7 @@ import com.longdev.xiaoling.device.DeviceObservationComponents
 import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
+import com.longdev.xiaoling.network.OpenAiKnowledgeEmbeddingProvider
 import com.longdev.xiaoling.storage.RoomAgentConversationStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
@@ -16,6 +17,7 @@ class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
 ) {
+    private val appContext = context.applicationContext
     // long: 无 Profile 审计的历史 Run 只能继续使用知识工具上线前的集合，避免恢复时因新注册工具扩大旧能力面。
     private val legacyRunToolNames = LEGACY_RUN_TOOL_NAMES
     private val baseLedger = RoomAgentRunRepository(context)
@@ -50,6 +52,7 @@ class AgentRunUseCase(
     ): AgentRunSummary {
         AgentProfilePolicy.validateRunnable(agentProfile)
         require(config.model == agentProfile.model) { "Agent Profile 模型快照与请求配置不一致" }
+        require(config.providerId == agentProfile.providerId) { "Agent Profile 提供方快照与请求配置不一致" }
         val invocationContext = AgentToolExecutionContext(
             conversationId = conversationId,
             userMessageId = userMessageId,
@@ -59,9 +62,10 @@ class AgentRunUseCase(
             executionOrigin = executionOrigin,
             invocationSource = invocationSource,
         )
-        val availableToolNames = toolRegistry.availableToolsFor(invocationContext)
+        val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
+        val availableToolNames = runToolRegistry.availableToolsFor(invocationContext)
             .mapTo(linkedSetOf(), ToolDefinition::name)
-        val profileToolRegistry = ProfileScopedToolRegistry(toolRegistry, agentProfile.allowedToolNames)
+        val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, agentProfile.allowedToolNames)
         val selectedSkills = skillCatalog.select(
             goal = goal,
             allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
@@ -117,6 +121,7 @@ class AgentRunUseCase(
         }
         if (agentProfile != null) {
             require(config.model == agentProfile.model) { "原 Run 的 Agent Profile 模型与恢复请求不一致，请创建新 Run 重试" }
+            require(config.providerId == agentProfile.providerId) { "原 Run 的 Agent Profile 提供方与恢复请求不一致，请创建新 Run 重试" }
         }
         val selectedSkills = if (selectionEvent == null) {
             emptyList()
@@ -134,8 +139,11 @@ class AgentRunUseCase(
                 "原 Run 的 Skill 工具超出 Agent Profile 白名单，请创建新 Run 重试"
             }
         }
+        val runToolRegistry = agentProfile
+            ?.let { toolRegistryFor(it.providerId, config) }
+            ?: toolRegistry
         val profileToolRegistry = agentProfile
-            ?.let { ProfileScopedToolRegistry(toolRegistry, it.allowedToolNames) }
+            ?.let { ProfileScopedToolRegistry(runToolRegistry, it.allowedToolNames) }
             ?: legacyRunToolRegistry(toolRegistry)
         val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
@@ -167,6 +175,18 @@ class AgentRunUseCase(
             approval = approval,
             approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        )
+    }
+
+    private fun toolRegistryFor(providerId: String, config: ProviderRequestConfig): XiaoLingToolRegistry {
+        val provider = config.embeddingModel?.takeIf(String::isNotBlank)?.let {
+            OpenAiKnowledgeEmbeddingProvider(providerId, config, client)
+        } ?: return toolRegistry
+        return toolRegistry.withKnowledgeStore(
+            RoomKnowledgeDocumentStore(
+                context = appContext,
+                embeddingProvider = provider,
+            ),
         )
     }
 
