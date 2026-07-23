@@ -16,7 +16,10 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildResult
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingSimilarity
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
@@ -41,6 +44,7 @@ class RoomKnowledgeDocumentStore(
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
     private val clock: () -> Long = System::currentTimeMillis,
     private val embeddingProvider: KnowledgeEmbeddingProvider? = null,
+    private val embeddingIndexTimeoutMillis: Long = EMBEDDING_INDEX_TIMEOUT_MS,
 ) : KnowledgeDocumentStore {
     override suspend fun importUtf8Document(
         displayName: String,
@@ -69,7 +73,7 @@ class RoomKnowledgeDocumentStore(
             database.knowledgeDao().insertChunks(chunks.map { it.toEntity() })
             database.knowledgeDao().insertChunkIndexes(chunks.map { it.toFtsEntity() })
         }
-        indexEmbeddings(document, chunks)
+        rebuildEmbeddings(document.id)
         return document
     }
 
@@ -105,7 +109,7 @@ class RoomKnowledgeDocumentStore(
             dao.insertChunkIndexes(chunks.map { it.toFtsEntity() })
             replaced to chunks
         }
-        indexEmbeddings(replaced, chunks)
+        rebuildEmbeddings(replaced.id)
         return replaced
     }
 
@@ -142,6 +146,108 @@ class RoomKnowledgeDocumentStore(
 
     override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> {
         return database.knowledgeDao().getChunks(documentId).map { it.toRecord() }
+    }
+
+    override suspend fun getEmbeddingIndexes(documentId: String): List<KnowledgeEmbeddingIndexSummary> {
+        return database.knowledgeDao().getEmbeddingIndexSummaries(documentId).map { summary ->
+            KnowledgeEmbeddingIndexSummary(
+                providerId = summary.providerId,
+                model = summary.model,
+                documentRevision = summary.documentRevision,
+                dimensions = summary.dimensions,
+                chunkCount = summary.chunkCount,
+                updatedAt = summary.updatedAt,
+            )
+        }
+    }
+
+    override suspend fun rebuildEmbeddings(documentId: String): KnowledgeEmbeddingRebuildResult {
+        val (document, chunks) = database.withTransaction {
+            val dao = database.knowledgeDao()
+            val current = dao.getDocument(documentId)?.toRecord()
+                ?: throw IllegalArgumentException("知识文档不存在")
+            current to dao.getChunks(documentId).map { it.toRecord() }
+        }
+        if (!document.enabled) {
+            return document.embeddingRebuildResult(KnowledgeEmbeddingRebuildStatus.DOCUMENT_DISABLED)
+        }
+        val provider = embeddingProvider
+            ?: return document.embeddingRebuildResult(KnowledgeEmbeddingRebuildStatus.NO_PROVIDER)
+        val batch = try {
+            withTimeoutOrNull(embeddingIndexTimeoutMillis) {
+                provider.embed(chunks.map(KnowledgeChunkRecord::text))
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: IllegalArgumentException) {
+            // long: Provider 已返回但向量身份、维度或数值校验失败属于响应无效；它与网络不可用分开呈现，同时继续保留旧索引。
+            return document.embeddingRebuildResult(KnowledgeEmbeddingRebuildStatus.INVALID_RESPONSE)
+        } catch (_: Exception) {
+            null
+        } ?: return document.embeddingRebuildResult(KnowledgeEmbeddingRebuildStatus.PROVIDER_UNAVAILABLE)
+        if (batch.vectors.size != chunks.size) {
+            return document.embeddingRebuildResult(
+                status = KnowledgeEmbeddingRebuildStatus.INVALID_RESPONSE,
+                providerId = batch.providerId,
+                model = batch.model,
+            )
+        }
+        val dimensions = batch.vectors.firstOrNull()?.size
+            ?: return document.embeddingRebuildResult(
+                status = KnowledgeEmbeddingRebuildStatus.INVALID_RESPONSE,
+                providerId = batch.providerId,
+                model = batch.model,
+            )
+        val indexedAt = clock()
+        val embeddings = chunks.zip(batch.vectors).map { (chunk, vector) ->
+            KnowledgeChunkEmbeddingEntity(
+                chunkId = chunk.id,
+                documentId = document.id,
+                documentRevision = document.revision,
+                providerId = batch.providerId,
+                model = batch.model,
+                dimensions = dimensions,
+                vectorBlob = KnowledgeEmbeddingVectorCodec.encode(vector),
+                createdAt = indexedAt,
+            )
+        }
+        return database.withTransaction {
+            val dao = database.knowledgeDao()
+            val current = dao.getDocument(document.id)
+            if (current == null || current.revision != document.revision) {
+                return@withTransaction document.embeddingRebuildResult(
+                    status = KnowledgeEmbeddingRebuildStatus.STALE_DOCUMENT,
+                    providerId = batch.providerId,
+                    model = batch.model,
+                )
+            }
+            if (!current.enabled) {
+                return@withTransaction document.embeddingRebuildResult(
+                    status = KnowledgeEmbeddingRebuildStatus.DOCUMENT_DISABLED,
+                    providerId = batch.providerId,
+                    model = batch.model,
+                )
+            }
+            val currentChunks = dao.getChunks(document.id)
+            if (currentChunks.map { it.id } != chunks.map { it.id } ||
+                currentChunks.any { it.documentRevision != document.revision }
+            ) {
+                return@withTransaction document.embeddingRebuildResult(
+                    status = KnowledgeEmbeddingRebuildStatus.STALE_DOCUMENT,
+                    providerId = batch.providerId,
+                    model = batch.model,
+                )
+            }
+            // long: 重建只替换当前 Provider 与模型的索引空间；切换模型后已有空间仍可审计和复用，失败路径也不会先删掉可用向量。
+            dao.deleteChunkEmbeddings(document.id, batch.providerId, batch.model)
+            dao.upsertChunkEmbeddings(embeddings)
+            document.embeddingRebuildResult(
+                status = KnowledgeEmbeddingRebuildStatus.INDEXED,
+                providerId = batch.providerId,
+                model = batch.model,
+                indexedChunkCount = embeddings.size,
+            )
+        }
     }
 
     override suspend fun inspectReferences(references: List<KnowledgeReference>): List<KnowledgeReferenceStatus> {
@@ -260,44 +366,6 @@ class RoomKnowledgeDocumentStore(
         }
     }
 
-    private suspend fun indexEmbeddings(
-        document: KnowledgeDocumentRecord,
-        chunks: List<KnowledgeChunkRecord>,
-    ) {
-        val provider = embeddingProvider ?: return
-        val batch = try {
-            withTimeoutOrNull(EMBEDDING_INDEX_TIMEOUT_MS) {
-                provider.embed(chunks.map(KnowledgeChunkRecord::text))
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            // long: 向量服务不可用不能阻断文档导入；文档和 FTS 已提交，后续检索仍可走词法兜底。
-            return
-        } ?: return
-        if (batch.vectors.size != chunks.size) return
-        val dimensions = batch.vectors.firstOrNull()?.size ?: return
-        val embeddings = chunks.zip(batch.vectors).map { (chunk, vector) ->
-            KnowledgeChunkEmbeddingEntity(
-                chunkId = chunk.id,
-                documentId = document.id,
-                documentRevision = document.revision,
-                providerId = batch.providerId,
-                model = batch.model,
-                dimensions = dimensions,
-                vectorBlob = KnowledgeEmbeddingVectorCodec.encode(vector),
-                createdAt = clock(),
-            )
-        }
-        database.withTransaction {
-            val dao = database.knowledgeDao()
-            val current = dao.getDocument(document.id)
-            if (current?.let { it.revision == document.revision && it.enabled == document.enabled } != true) return@withTransaction
-            dao.deleteChunkEmbeddings(document.id)
-            dao.upsertChunkEmbeddings(embeddings)
-        }
-    }
-
     private suspend fun loadSemanticCandidates(query: String, fetchLimit: Int): SemanticCandidates {
         val provider = embeddingProvider ?: return SemanticCandidates()
         val batch = try {
@@ -409,6 +477,20 @@ class RoomKnowledgeDocumentStore(
         enabled = enabled,
         createdAt = createdAt,
         updatedAt = updatedAt,
+    )
+
+    private fun KnowledgeDocumentRecord.embeddingRebuildResult(
+        status: KnowledgeEmbeddingRebuildStatus,
+        providerId: String? = null,
+        model: String? = null,
+        indexedChunkCount: Int = 0,
+    ) = KnowledgeEmbeddingRebuildResult(
+        documentId = id,
+        documentRevision = revision,
+        status = status,
+        providerId = providerId,
+        model = model,
+        indexedChunkCount = indexedChunkCount,
     )
 
     private fun KnowledgeDocumentSummaryEntity.toSummary() = KnowledgeDocumentSummary(

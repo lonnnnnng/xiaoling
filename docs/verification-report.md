@@ -2,6 +2,16 @@
 
 验证日期：2026-07-23（北京时间）
 
+## 2026-07-23 Embedding 索引生命周期（第 77 阶段）
+
+- 生产实现新增前台单文档 `rebuildEmbeddings()`、索引摘要查询和知识详情重建入口；旧文档可在 revision 不变时补建当前 Provider/模型索引，详情显示 Provider、模型、维度与分块数。
+- Room 写入在 Provider 请求和响应校验成功后执行，事务内再次核对 revision、enabled 和 chunk 身份；只删除当前 `documentId + providerId + model` 空间。Provider/模型切换后索引并存，失败、超时、停用与并发替换不删除已有向量；正文替换和删除仍清理全部旧空间。Schema 保持 v30。
+- JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --rerun-tasks --stacktrace --console=plain`，`483/483` 通过。
+- 静态与 APK：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain`，通过。
+- 真机：仅设备 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro，Android 14 / API 34）执行完整 instrumentation，`164/164`，0 skipped、0 failed。定向知识 Store `17/17`、ViewModel/Compose `9/9` 先行通过；未连接、启动或操作 Pixel_9/其他模拟器。
+- 关键覆盖：旧文档显式补建且 revision 不变、A/B Provider 空间共存、重复重建 A 不删除 B、Provider 失败/超时/无效响应保留旧索引、停用拒绝、并发 revision 漂移拒绝写入、摘要维度/分块数，以及 UI 无索引提示、索引详情和重建入口。
+- 当前仍是有限规模内存 cosine；不宣称 ANN、自动后台批量重建、任意 Provider 兼容或规模化性能。
+
 ## 2026-07-23 Embedding 检索 v1（第 76 阶段）
 
 - 生产实现新增 Provider `/embeddings` 请求、Float32 little-endian 编解码、Provider 身份隔离、RRF 融合和词法回退；Room Schema 从 29 升到 30。v29→v30 MigrationTestHelper 验证旧检索记录保留且 `embeddingStatus=LEXICAL_ONLY`，新向量表为空，不凭历史正文补造向量。

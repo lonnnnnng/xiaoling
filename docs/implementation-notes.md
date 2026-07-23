@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 77 阶段实现与验证边界
+
+- `KnowledgeDocumentStore` 新增 `rebuildEmbeddings()` 与 `getEmbeddingIndexes()`；旧文档可以在不修改正文和 revision 的前提下补建当前 Provider/模型索引，管理页同时展示 Provider、模型、维度与分块数。
+- 重建先读取同一事务内的文档与 chunks，再执行最长 30 秒的 Provider 请求。数量校验成功后构造向量行，写事务内重新核对 revision、enabled 和 chunk ID；只有全部一致才按 `documentId + providerId + model` 定向删除并写入。Provider 异常、超时、停用和并发替换均返回稳定状态，不删除已有向量。
+- `knowledge_chunk_embeddings` 原主键已经是 `chunkId + providerId + model`，因此无需升级 Room：不同 Provider/模型空间可共存，重复重建一个空间不影响其他空间；正文替换和文档删除仍全量清理旧 revision/全部空间。
+- `KnowledgeManagementViewModel` 复用文档 mutation 串行门禁，重建前取消在途检索，完成后重载详情与索引摘要；Compose 使用 Refresh 图标入口，停用文档禁用重建，无索引时明确显示 FTS4+LIKE 兜底。
+- Redmi 定向知识 Store `17/17`、ViewModel/Compose `9/9` 通过；完整 JVM `483/483`、Lint、Debug/AndroidTest APK 和 Redmi `164/164` instrumentation 全部通过，0 skipped、0 failed。未连接、启动或操作 Pixel_9。
+- 当前未实现 ANN、自动后台批量重建和规模化性能验证；显式重建仍是前台单文档操作，不进入 Workflow 或后台设备自动化。
+
 ## 第 76 阶段实现与验证边界
 
 - `ProviderProfile.preferredEmbeddingModel()` 只从已同步模型列表选择明确的 Embedding 模型；Agent Profile 与知识管理分别使用 Profile 对应或当前选中 Provider，并把 `providerId` 写入请求配置，避免向量审计身份漂移。
@@ -7,7 +16,7 @@
 - Room v29→v30 创建 `knowledge_chunk_embeddings`（主键为 `chunkId + providerId + model`，附带 revision、维度、BLOB 和创建时间），并为 `knowledge_retrievals` 增加 embedding Provider、模型和状态列；历史记录默认 `LEXICAL_ONLY`，迁移不补造向量。
 - `RoomKnowledgeDocumentStore` 在导入/替换提交正文、chunks 和 FTS 后尝试建立向量，索引总时限 30 秒；查询向量 2 秒超时。失败、超时、无索引或维度不符只记录稳定状态并回退词法检索。语义候选与词法候选最终组装时再次核对文档 enabled/revision；替换/删除同步清理旧 revision 向量。
 - 新增 `KnowledgeEmbeddingTest`、网络协议测试、v29→v30 MigrationTestHelper 和 Room 存储 instrumentation，覆盖 Float32 编解码、cosine、RRF、语义-only、重叠去重、Provider 失败、无索引、维度不符、替换/删除清理和历史审计默认值。完整 JVM、Lint、Debug/AndroidTest APK 以及仅 Redmi `158/158` instrumentation 通过。
-- 仍未实现规模化 ANN/向量数据库、后台增量重建、同一文档多 Provider 并行索引和设备 Workflow/后台自动化；这些边界不因本阶段提前扩大。
+- 第 77 阶段已补齐前台单文档显式重建和多 Provider/模型索引空间共存；规模化 ANN/向量数据库、自动后台批量重建和设备 Workflow/后台自动化仍未实现。
 
 ## 技术栈
 

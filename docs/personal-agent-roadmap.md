@@ -1,8 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 77 阶段：Embedding 索引生命周期
+
+已完成并通过收尾门禁。知识管理页可查看当前 revision 下各 Provider/模型索引的维度和分块数，并可对启用文档显式重建当前选中 Provider/模型。升级前旧文档不再只能永久使用 `NO_INDEX`；Provider/模型切换后多个索引空间共存，重复重建某一空间不会覆盖其他空间。写入遵循“先请求和校验、后事务替换”，事务内再次核对 revision、enabled 和 chunk 身份；异常、超时、停用或并发替换保留已有索引及词法能力。正文替换继续清理所有旧 revision 空间，删除继续清理全部索引。Room 保持 v30。完整 JVM `483/483`、Lint、Debug/AndroidTest APK 和仅 Redmi `164/164` instrumentation 通过。ANN、自动后台批量重建、设备 Workflow/后台自动化、精确定时、Foreground Service 及后续生态能力仍按既定顺序后置。
+
 ## 第 76 阶段：Embedding 检索 v1
 
-已完成并通过收尾门禁。Provider 只有在已同步模型列表包含 Embedding 模型时才启用语义索引；`ProviderRequestConfig` 固定 Provider 身份和可选 Embedding 模型，`/embeddings` 请求沿用鉴权、User-Agent、自定义 Header 和 URL 规范化。Room 从 v29 升到 v30，新增按 `providerId + model` 隔离的 `knowledge_chunk_embeddings`，并为 `knowledge_retrievals` 保存 Provider、模型和稳定状态。向量采用 little-endian Float32 BLOB，导入/替换索引有 30 秒总时限，查询有 2 秒边界；异常、超时、无索引和维度漂移回退 FTS4+LIKE。语义、FTS、LIKE 使用稳定 RRF 融合，最终读取再次核对 enabled/revision，替换和删除不保留旧 revision 向量。新增 JVM、Room 迁移和知识存储 instrumentation；完整 JVM、Lint、Debug/AndroidTest APK 及仅 Redmi `158/158` instrumentation 通过。规模化 ANN、后台增量重建和同一文档多 Provider 并行索引仍未承诺。
+已完成并通过收尾门禁。Provider 只有在已同步模型列表包含 Embedding 模型时才启用语义索引；`ProviderRequestConfig` 固定 Provider 身份和可选 Embedding 模型，`/embeddings` 请求沿用鉴权、User-Agent、自定义 Header 和 URL 规范化。Room 从 v29 升到 v30，新增按 `providerId + model` 隔离的 `knowledge_chunk_embeddings`，并为 `knowledge_retrievals` 保存 Provider、模型和稳定状态。向量采用 little-endian Float32 BLOB，导入/替换索引有 30 秒总时限，查询有 2 秒边界；异常、超时、无索引和维度漂移回退 FTS4+LIKE。语义、FTS、LIKE 使用稳定 RRF 融合，最终读取再次核对 enabled/revision，替换和删除不保留旧 revision 向量。新增 JVM、Room 迁移和知识存储 instrumentation；该阶段完整 JVM、Lint、Debug/AndroidTest APK 及仅 Redmi `158/158` instrumentation 通过。第 77 阶段已在此基础上补齐显式重建和多索引空间共存。
 
 ## 第 75 阶段：`/agent` 附件输入 v1
 
@@ -68,7 +72,7 @@
 
 第 61 阶段在 Redmi 熄屏状态继续验证：Probe 退出后原 PID 消失，JobScheduler 延迟 `159.479s` 冷启动 PID `26797`，屏幕持续 `Asleep` 期间同一 WorkRequest/ScheduledTask/WorkflowRun 完成 `244.236s` 的 8 步、32 次只读工具调用。8 个 Run 的预算快照无回退，最大约 `44.856s`，32/32 工具回执和验证通过，`lowMemory=0`。这是当前最接近真实用户离开应用场景的成功样本，仍不等同自然 LMK 或 Foreground Service 需求。
 
-小灵 `v0.1.11` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v30 已让 Text/Reasoning/Image/Document/Tool、知识引用、Embedding 检索、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。网络请求设置现采用独立页面，User-Agent 输入区默认至少 5 行并提供复制、清空和恢复默认。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v30 继续只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 73 阶段又把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调、加载 UI 投影和选择/删除副作用顺序迁出 ViewModel。第 74 阶段新增网络请求设置页聚焦测试；第 75 阶段完成 Responses 附件输入，第 76 阶段完成 Embedding 检索 v1，当前标准门禁为完整 JVM、Lint、APK 和仅 Redmi `158/158` instrumentation。设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.11` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v30 已让 Text/Reasoning/Image/Document/Tool、知识引用、Embedding 检索与显式索引生命周期、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。网络请求设置现采用独立页面，User-Agent 输入区默认至少 5 行并提供复制、清空和恢复默认。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v30 继续只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 73 阶段又把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调、加载 UI 投影和选择/删除副作用顺序迁出 ViewModel。第 74 阶段新增网络请求设置页聚焦测试；第 75 阶段完成 Responses 附件输入，第 76 阶段完成 Embedding 检索 v1，第 77 阶段完成显式索引重建，当前标准门禁为完整 JVM `483/483`、Lint、APK 和仅 Redmi `164/164` instrumentation。设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 第 43 阶段的同一 WorkRequest Redmi 冷启动重入已完成真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；该阶段当时的重点是更长/自然回收样本。第 46 阶段已进一步补充 Doze、受控内存和无压力对照，第 47 阶段解决了同一进程前台启动恢复与新 Worker 并发时的所有权隔离；当前仍缺自然 LMK。
 
@@ -377,7 +381,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 以下能力在前述基础稳定后再进入：
 
 - 文件附件、图片、富文档直传和 `/agent` Responses 附件输入已完成；语音输入与 TTS 仍待实现。
-- 文档解析、知识库管理、RAG 检索、Agent 接入和答案级引用 UI 已完成；Embedding 与规模化召回质量验证仍待实现。
+- 文档解析、知识库管理、RAG 检索、Agent 接入、答案级引用 UI、Embedding v1、显式索引重建和多 Provider/模型空间共存已完成；规模化 ANN、自动后台批量重建与召回质量验证仍待实现。
 - MCP Client 与远程工具，但必须增加 Server 信任、工具审核和网络权限策略。
 - 通知摘要、日历、联系人和系统分享入口。
 - 多 Agent 分工、远程 Channel、跨设备同步。
@@ -411,7 +415,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影和答案引用 UI 已完成；Embedding 和语音未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1 和显式索引重建已完成；语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法

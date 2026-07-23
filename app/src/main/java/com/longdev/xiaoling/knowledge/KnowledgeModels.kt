@@ -98,6 +98,33 @@ enum class KnowledgeEmbeddingStatus {
     DIMENSION_MISMATCH,
 }
 
+enum class KnowledgeEmbeddingRebuildStatus {
+    INDEXED,
+    NO_PROVIDER,
+    PROVIDER_UNAVAILABLE,
+    DOCUMENT_DISABLED,
+    STALE_DOCUMENT,
+    INVALID_RESPONSE,
+}
+
+data class KnowledgeEmbeddingRebuildResult(
+    val documentId: String,
+    val documentRevision: Int,
+    val status: KnowledgeEmbeddingRebuildStatus,
+    val providerId: String? = null,
+    val model: String? = null,
+    val indexedChunkCount: Int = 0,
+)
+
+data class KnowledgeEmbeddingIndexSummary(
+    val providerId: String,
+    val model: String,
+    val documentRevision: Int,
+    val dimensions: Int,
+    val chunkCount: Int,
+    val updatedAt: Long,
+)
+
 data class KnowledgeSearchResult(
     val hits: List<KnowledgeSearchHit>,
     val retrieval: KnowledgeRetrievalRecord,
@@ -211,6 +238,17 @@ interface KnowledgeDocumentStore {
     suspend fun listDocuments(): List<KnowledgeDocumentSummary>
     suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail?
     suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord>
+
+    suspend fun rebuildEmbeddings(documentId: String): KnowledgeEmbeddingRebuildResult {
+        val document = getDocument(documentId) ?: throw IllegalArgumentException("知识文档不存在")
+        return KnowledgeEmbeddingRebuildResult(
+            documentId = document.id,
+            documentRevision = document.revision,
+            status = KnowledgeEmbeddingRebuildStatus.NO_PROVIDER,
+        )
+    }
+
+    suspend fun getEmbeddingIndexes(documentId: String): List<KnowledgeEmbeddingIndexSummary> = emptyList()
 
     suspend fun inspectReferences(references: List<KnowledgeReference>): List<KnowledgeReferenceStatus> {
         val distinctReferences = references.distinct()

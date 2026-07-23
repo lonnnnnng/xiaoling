@@ -380,6 +380,29 @@ interface KnowledgeDao {
         limit: Int,
     ): List<KnowledgeChunkEmbeddingEntity>
 
+    @Query(
+        """
+        SELECT knowledge_chunk_embeddings.providerId,
+               knowledge_chunk_embeddings.model,
+               knowledge_chunk_embeddings.documentRevision,
+               knowledge_chunk_embeddings.dimensions,
+               COUNT(*) AS chunkCount,
+               MAX(knowledge_chunk_embeddings.createdAt) AS updatedAt
+        FROM knowledge_chunk_embeddings
+        JOIN knowledge_documents ON knowledge_documents.id = knowledge_chunk_embeddings.documentId
+        JOIN knowledge_chunks ON knowledge_chunks.id = knowledge_chunk_embeddings.chunkId
+        WHERE knowledge_chunk_embeddings.documentId = :documentId
+          AND knowledge_documents.revision = knowledge_chunk_embeddings.documentRevision
+          AND knowledge_chunks.documentRevision = knowledge_chunk_embeddings.documentRevision
+        GROUP BY knowledge_chunk_embeddings.providerId,
+                 knowledge_chunk_embeddings.model,
+                 knowledge_chunk_embeddings.documentRevision,
+                 knowledge_chunk_embeddings.dimensions
+        ORDER BY updatedAt DESC, knowledge_chunk_embeddings.providerId ASC, knowledge_chunk_embeddings.model ASC
+        """,
+    )
+    suspend fun getEmbeddingIndexSummaries(documentId: String): List<KnowledgeEmbeddingIndexSummaryEntity>
+
     @Query("SELECT * FROM knowledge_chunks WHERE id = :chunkId")
     suspend fun getChunk(chunkId: String): KnowledgeChunkEntity?
 
@@ -413,6 +436,18 @@ interface KnowledgeDao {
 
     @Query("DELETE FROM knowledge_chunk_embeddings WHERE documentId = :documentId")
     suspend fun deleteChunkEmbeddings(documentId: String)
+
+    @Query(
+        """
+        DELETE FROM knowledge_chunk_embeddings
+        WHERE documentId = :documentId AND providerId = :providerId AND model = :model
+        """,
+    )
+    suspend fun deleteChunkEmbeddings(
+        documentId: String,
+        providerId: String,
+        model: String,
+    )
 
     @Query("DELETE FROM knowledge_chunks WHERE documentId = :documentId")
     suspend fun deleteChunks(documentId: String)

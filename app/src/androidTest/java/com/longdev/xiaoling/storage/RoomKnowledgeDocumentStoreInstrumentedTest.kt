@@ -19,8 +19,11 @@ import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceIssue
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingBatch
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -547,6 +550,140 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertTrue(database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10).isEmpty())
     }
 
+    @Test
+    fun existingDocumentCanBeExplicitlyReindexedWithoutChangingRevision() = runBlocking {
+        val document = store.importUtf8Document(
+            displayName = "升级前文档.txt",
+            mimeType = "text/plain",
+            bytes = "旧文档也可以显式补建语义索引。".toByteArray(Charsets.UTF_8),
+        )
+        assertTrue(store.getEmbeddingIndexes(document.id).isEmpty())
+        val indexedStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { floatArrayOf(1f, 0f) },
+        )
+
+        val result = indexedStore.rebuildEmbeddings(document.id)
+        val summaries = indexedStore.getEmbeddingIndexes(document.id)
+
+        assertEquals(KnowledgeEmbeddingRebuildStatus.INDEXED, result.status)
+        assertEquals(1, result.documentRevision)
+        assertEquals(1, indexedStore.getDocument(document.id)?.revision)
+        assertEquals(1, summaries.size)
+        assertEquals(2, summaries.single().dimensions)
+        assertEquals(result.indexedChunkCount, summaries.single().chunkCount)
+    }
+
+    @Test
+    fun providerSpacesCoexistAndFailedRebuildKeepsExistingIndexes() = runBlocking {
+        val document = store.importUtf8Document(
+            displayName = "多空间.txt",
+            mimeType = "text/plain",
+            bytes = "不同 Provider 和模型的向量不能互相覆盖。".toByteArray(Charsets.UTF_8),
+        )
+        val providerA = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider(providerId = "provider-a", model = "embedding-a") {
+                floatArrayOf(1f, 0f)
+            },
+        )
+        val providerB = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider(providerId = "provider-b", model = "embedding-b") {
+                floatArrayOf(0f, 1f, 0f)
+            },
+        )
+
+        assertEquals(KnowledgeEmbeddingRebuildStatus.INDEXED, providerA.rebuildEmbeddings(document.id).status)
+        assertEquals(KnowledgeEmbeddingRebuildStatus.INDEXED, providerB.rebuildEmbeddings(document.id).status)
+        assertEquals(KnowledgeEmbeddingRebuildStatus.INDEXED, providerA.rebuildEmbeddings(document.id).status)
+        assertTrue(database.knowledgeDao().getEmbeddingIndex("provider-a", "embedding-a", 10).isNotEmpty())
+        assertTrue(database.knowledgeDao().getEmbeddingIndex("provider-b", "embedding-b", 10).isNotEmpty())
+        assertEquals(setOf("provider-a", "provider-b"), providerA.getEmbeddingIndexes(document.id).map { it.providerId }.toSet())
+
+        val unavailable = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = KnowledgeEmbeddingProvider { error("provider unavailable") },
+        ).rebuildEmbeddings(document.id)
+
+        assertEquals(KnowledgeEmbeddingRebuildStatus.PROVIDER_UNAVAILABLE, unavailable.status)
+        assertEquals(2, providerA.getEmbeddingIndexes(document.id).size)
+
+        val invalidResponse = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = KnowledgeEmbeddingProvider {
+                KnowledgeEmbeddingBatch("provider-invalid", "embedding-invalid", listOf(floatArrayOf(Float.NaN)))
+            },
+        ).rebuildEmbeddings(document.id)
+        assertEquals(KnowledgeEmbeddingRebuildStatus.INVALID_RESPONSE, invalidResponse.status)
+        assertEquals(2, providerA.getEmbeddingIndexes(document.id).size)
+    }
+
+    @Test
+    fun timeoutDisabledAndStaleRevisionNeverReplaceExistingIndex() = runBlocking {
+        val document = store.importUtf8Document(
+            displayName = "竞态.txt",
+            mimeType = "text/plain",
+            bytes = "重建必须基于当前启用的文档版本。".toByteArray(Charsets.UTF_8),
+        )
+        val indexedStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = embeddingProvider { floatArrayOf(1f, 0f) },
+        )
+        indexedStore.rebuildEmbeddings(document.id)
+        val originalChunkIds = database.knowledgeDao()
+            .getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10)
+            .map { it.chunkId }
+
+        val neverCompletes = CompletableDeferred<Unit>()
+        val timeoutStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = KnowledgeEmbeddingProvider {
+                neverCompletes.await()
+                error("unreachable")
+            },
+            embeddingIndexTimeoutMillis = 20L,
+        )
+        assertEquals(KnowledgeEmbeddingRebuildStatus.PROVIDER_UNAVAILABLE, timeoutStore.rebuildEmbeddings(document.id).status)
+        assertEquals(originalChunkIds, database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10).map { it.chunkId })
+
+        store.setEnabled(document.id, false)
+        assertEquals(KnowledgeEmbeddingRebuildStatus.DOCUMENT_DISABLED, indexedStore.rebuildEmbeddings(document.id).status)
+        store.setEnabled(document.id, true)
+
+        val providerStarted = CompletableDeferred<Unit>()
+        val releaseProvider = CompletableDeferred<Unit>()
+        val staleStore = RoomKnowledgeDocumentStore(
+            context = context,
+            database = database,
+            embeddingProvider = KnowledgeEmbeddingProvider { texts ->
+                providerStarted.complete(Unit)
+                releaseProvider.await()
+                KnowledgeEmbeddingBatch("provider-stale", "embedding-stale", texts.map { floatArrayOf(0f, 1f) })
+            },
+        )
+        val pending = async { staleStore.rebuildEmbeddings(document.id) }
+        providerStarted.await()
+        store.replaceUtf8Document(
+            documentId = document.id,
+            displayName = "竞态-v2.txt",
+            mimeType = "text/plain",
+            bytes = "新版本不能接收旧请求返回的向量。".toByteArray(Charsets.UTF_8),
+        )
+        releaseProvider.complete(Unit)
+
+        assertEquals(KnowledgeEmbeddingRebuildStatus.STALE_DOCUMENT, pending.await().status)
+        assertTrue(database.knowledgeDao().getEmbeddingIndex("provider-stale", "embedding-stale", 10).isEmpty())
+        assertTrue(database.knowledgeDao().getEmbeddingIndex(EMBEDDING_PROVIDER_ID, EMBEDDING_MODEL, 10).isEmpty())
+    }
+
     private fun com.longdev.xiaoling.knowledge.KnowledgeSearchHit.toReference(retrievalId: String) = KnowledgeReference(
         retrievalId = retrievalId,
         documentId = documentId,
@@ -577,12 +714,16 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         private const val EMBEDDING_MODEL = "text-embedding-test"
     }
 
-    private fun embeddingProvider(vectorFor: (String) -> FloatArray): KnowledgeEmbeddingProvider {
+    private fun embeddingProvider(
+        providerId: String = EMBEDDING_PROVIDER_ID,
+        model: String = EMBEDDING_MODEL,
+        vectorFor: (String) -> FloatArray,
+    ): KnowledgeEmbeddingProvider {
         return KnowledgeEmbeddingProvider { texts ->
             // long: 测试向量按输入原顺序返回，专门验证 Store 的索引身份、融合和审计，不把网络协议波动带进 Room 测试。
             KnowledgeEmbeddingBatch(
-                providerId = EMBEDDING_PROVIDER_ID,
-                model = EMBEDDING_MODEL,
+                providerId = providerId,
+                model = model,
                 vectors = texts.map(vectorFor),
             )
         }

@@ -8,6 +8,9 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentImport
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildResult
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.storage.KnowledgeDocumentReader
@@ -33,6 +36,7 @@ data class KnowledgeManagementUiState(
     val documents: List<KnowledgeDocumentSummary> = emptyList(),
     val selectedDocumentId: String? = null,
     val selectedDocument: KnowledgeDocumentDetail? = null,
+    val selectedEmbeddingIndexes: List<KnowledgeEmbeddingIndexSummary> = emptyList(),
     val loadingDetail: Boolean = false,
     val searchQuery: String = "",
     val searching: Boolean = false,
@@ -99,17 +103,24 @@ class KnowledgeManagementViewModel internal constructor(
             loadingDocuments = false,
             selectedDocumentId = documentId,
             selectedDocument = null,
+            selectedEmbeddingIndexes = emptyList(),
             loadingDetail = true,
             error = null,
         )
         detailJob = viewModelScope.launch {
             try {
-                val document = withContext(Dispatchers.IO) { store.getDocumentDetail(documentId) }
+                val detail = withContext(Dispatchers.IO) {
+                    KnowledgeDetailSnapshot(
+                        document = store.getDocumentDetail(documentId),
+                        embeddingIndexes = store.getEmbeddingIndexes(documentId),
+                    )
+                }
                 if (uiState.selectedDocumentId != documentId) return@launch
                 uiState = uiState.copy(
-                    selectedDocument = document,
+                    selectedDocument = detail.document,
+                    selectedEmbeddingIndexes = detail.embeddingIndexes,
                     loadingDetail = false,
-                    error = if (document == null) "知识文档已不存在" else null,
+                    error = if (detail.document == null) "知识文档已不存在" else null,
                 )
             } catch (error: CancellationException) {
                 throw error
@@ -241,6 +252,23 @@ class KnowledgeManagementViewModel internal constructor(
         }
     }
 
+    fun rebuildEmbeddings(documentId: String) {
+        mutateDocument(
+            documentId = documentId,
+            fallbackError = "Embedding 索引重建失败",
+            failureNotice = { error ->
+                KnowledgeManagementNotice(false, "索引重建失败", error.message ?: "无法重建 Embedding 索引")
+            },
+            operation = { store.rebuildEmbeddings(documentId) },
+        ) { result ->
+            uiState = uiState.copy(notice = result.toNotice())
+            reloadAfterMutation(
+                preferredDocumentId = documentId,
+                operationCommitted = result.status == KnowledgeEmbeddingRebuildStatus.INDEXED,
+            )
+        }
+    }
+
     fun deleteDocument(documentId: String) {
         mutateDocument(
             documentId = documentId,
@@ -269,6 +297,7 @@ class KnowledgeManagementViewModel internal constructor(
             loadingDocuments = false,
             loadingDetail = false,
             selectedDocument = if (invalidateReferences) null else uiState.selectedDocument,
+            selectedEmbeddingIndexes = if (invalidateReferences) emptyList() else uiState.selectedEmbeddingIndexes,
             searching = if (invalidateReferences) false else uiState.searching,
             searchHits = if (invalidateReferences) emptyList() else uiState.searchHits,
             lastRetrieval = if (invalidateReferences) null else uiState.lastRetrieval,
@@ -335,13 +364,15 @@ class KnowledgeManagementViewModel internal constructor(
             val selectedId: String? = preferredDocumentId?.takeIf { id -> documents.any { it.id == id } }
                 ?: documents.firstOrNull()?.id
             val selected = if (selectedId == null) null else store.getDocumentDetail(selectedId)
-            KnowledgeSnapshot(documents, selectedId, selected)
+            val embeddingIndexes = if (selectedId == null) emptyList() else store.getEmbeddingIndexes(selectedId)
+            KnowledgeSnapshot(documents, selectedId, selected, embeddingIndexes)
         }
         uiState = uiState.copy(
             loadingDocuments = false,
             documents = snapshot.documents,
             selectedDocumentId = snapshot.selectedDocumentId,
             selectedDocument = snapshot.selectedDocument,
+            selectedEmbeddingIndexes = snapshot.embeddingIndexes,
             loadingDetail = false,
         )
     }
@@ -350,5 +381,46 @@ class KnowledgeManagementViewModel internal constructor(
         val documents: List<KnowledgeDocumentSummary>,
         val selectedDocumentId: String?,
         val selectedDocument: KnowledgeDocumentDetail?,
+        val embeddingIndexes: List<KnowledgeEmbeddingIndexSummary>,
     )
+
+    private data class KnowledgeDetailSnapshot(
+        val document: KnowledgeDocumentDetail?,
+        val embeddingIndexes: List<KnowledgeEmbeddingIndexSummary>,
+    )
+
+    private fun KnowledgeEmbeddingRebuildResult.toNotice(): KnowledgeManagementNotice {
+        return when (status) {
+            KnowledgeEmbeddingRebuildStatus.INDEXED -> KnowledgeManagementNotice(
+                success = true,
+                title = "索引重建完成",
+                message = "$providerId · $model · $indexedChunkCount 个分块",
+            )
+            KnowledgeEmbeddingRebuildStatus.NO_PROVIDER -> KnowledgeManagementNotice(
+                false,
+                "索引未重建",
+                "当前没有可用的 Embedding Provider",
+            )
+            KnowledgeEmbeddingRebuildStatus.PROVIDER_UNAVAILABLE -> KnowledgeManagementNotice(
+                false,
+                "索引未重建",
+                "Embedding Provider 不可用，已有索引保持不变",
+            )
+            KnowledgeEmbeddingRebuildStatus.DOCUMENT_DISABLED -> KnowledgeManagementNotice(
+                false,
+                "索引未重建",
+                "文档已停用，请先启用后重试",
+            )
+            KnowledgeEmbeddingRebuildStatus.STALE_DOCUMENT -> KnowledgeManagementNotice(
+                false,
+                "索引未重建",
+                "文档版本已变化，请基于最新版本重试",
+            )
+            KnowledgeEmbeddingRebuildStatus.INVALID_RESPONSE -> KnowledgeManagementNotice(
+                false,
+                "索引未重建",
+                "Embedding 响应与文档分块不匹配，已有索引保持不变",
+            )
+        }
+    }
 }

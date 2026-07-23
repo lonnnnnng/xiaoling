@@ -9,6 +9,9 @@ import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildResult
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
@@ -127,6 +130,59 @@ class KnowledgeManagementViewModelInstrumentedTest {
         assertTrue(state.mutatingDocumentIds.isEmpty())
     }
 
+    @Test
+    fun embeddingRebuildPublishesStableNoticeAndReloadsIndexSummary() {
+        val store = ControlledKnowledgeStore()
+        val index = embeddingIndex()
+        store.setRebuildResult(
+            KnowledgeEmbeddingRebuildResult(
+                documentId = DOCUMENT_A,
+                documentRevision = 1,
+                status = KnowledgeEmbeddingRebuildStatus.INDEXED,
+                providerId = index.providerId,
+                model = index.model,
+                indexedChunkCount = index.chunkCount,
+            ),
+            indexesAfterRebuild = listOf(index),
+        )
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedDocument?.id == DOCUMENT_A }
+
+        onMain { viewModel.rebuildEmbeddings(DOCUMENT_A) }
+        val state = awaitState(viewModel) {
+            it.notice?.title == "索引重建完成" && it.mutatingDocumentIds.isEmpty()
+        }
+
+        assertEquals(1, store.rebuildCallCount())
+        assertEquals(listOf(index), state.selectedEmbeddingIndexes)
+        assertTrue(state.notice?.message?.contains("2 个分块") == true)
+    }
+
+    @Test
+    fun failedEmbeddingRebuildKeepsExistingSummaryWithoutReportingDocumentMutationFailure() {
+        val store = ControlledKnowledgeStore()
+        val existing = embeddingIndex()
+        store.setIndexes(listOf(existing))
+        store.setRebuildResult(
+            KnowledgeEmbeddingRebuildResult(
+                documentId = DOCUMENT_A,
+                documentRevision = 1,
+                status = KnowledgeEmbeddingRebuildStatus.PROVIDER_UNAVAILABLE,
+            ),
+        )
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedEmbeddingIndexes == listOf(existing) }
+
+        onMain { viewModel.rebuildEmbeddings(DOCUMENT_A) }
+        val state = awaitState(viewModel) {
+            it.notice?.message?.contains("已有索引保持不变") == true && it.mutatingDocumentIds.isEmpty()
+        }
+
+        assertNull(state.error)
+        assertEquals(false, state.notice?.success)
+        assertEquals(listOf(existing), state.selectedEmbeddingIndexes)
+    }
+
     private fun createViewModel(store: KnowledgeDocumentStore): KnowledgeManagementViewModel {
         return onMain {
             KnowledgeManagementViewModel(
@@ -170,6 +226,28 @@ class KnowledgeManagementViewModelInstrumentedTest {
             DOCUMENT_A to detail(DOCUMENT_A, true),
             DOCUMENT_B to detail(DOCUMENT_B, true),
         )
+        private var embeddingIndexes = emptyList<KnowledgeEmbeddingIndexSummary>()
+        private var rebuildResult = KnowledgeEmbeddingRebuildResult(
+            documentId = DOCUMENT_A,
+            documentRevision = 1,
+            status = KnowledgeEmbeddingRebuildStatus.NO_PROVIDER,
+        )
+        private var indexesAfterRebuild: List<KnowledgeEmbeddingIndexSummary>? = null
+        private var rebuildCalls = 0
+
+        fun setIndexes(indexes: List<KnowledgeEmbeddingIndexSummary>) = synchronized(lock) {
+            embeddingIndexes = indexes
+        }
+
+        fun setRebuildResult(
+            result: KnowledgeEmbeddingRebuildResult,
+            indexesAfterRebuild: List<KnowledgeEmbeddingIndexSummary>? = null,
+        ) = synchronized(lock) {
+            rebuildResult = result
+            this.indexesAfterRebuild = indexesAfterRebuild
+        }
+
+        fun rebuildCallCount(): Int = synchronized(lock) { rebuildCalls }
 
         fun blockNextDocumentBRead() = synchronized(lock) {
             documentBRead = CompletableDeferred()
@@ -240,6 +318,15 @@ class KnowledgeManagementViewModelInstrumentedTest {
                 return blockedRead.await()
             }
             return synchronized(lock) { details[documentId] }
+        }
+
+        override suspend fun getEmbeddingIndexes(documentId: String): List<KnowledgeEmbeddingIndexSummary> =
+            synchronized(lock) { embeddingIndexes }
+
+        override suspend fun rebuildEmbeddings(documentId: String): KnowledgeEmbeddingRebuildResult = synchronized(lock) {
+            rebuildCalls += 1
+            indexesAfterRebuild?.let { embeddingIndexes = it }
+            rebuildResult
         }
 
         override suspend fun listDocuments(): List<KnowledgeDocumentSummary> {
@@ -344,6 +431,15 @@ class KnowledgeManagementViewModelInstrumentedTest {
             enabled = enabled,
             createdAt = 1L,
             updatedAt = 1L,
+        )
+
+        private fun embeddingIndex() = KnowledgeEmbeddingIndexSummary(
+            providerId = "provider-test",
+            model = "embedding-test",
+            documentRevision = 1,
+            dimensions = 2,
+            chunkCount = 2,
+            updatedAt = 2L,
         )
     }
 }

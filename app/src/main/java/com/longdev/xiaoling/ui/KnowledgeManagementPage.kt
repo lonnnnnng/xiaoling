@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
+import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import java.util.Locale
 
@@ -90,6 +91,7 @@ internal fun KnowledgeManagementPage(
         onSearch = viewModel::search,
         onSelectDocument = viewModel::selectDocument,
         onSetEnabled = viewModel::setEnabled,
+        onRebuildEmbeddings = viewModel::rebuildEmbeddings,
         onReplace = { documentId ->
             replacingDocumentId = documentId
             documentLauncher.launch(KNOWLEDGE_PICKER_MIME_TYPES)
@@ -131,6 +133,7 @@ internal fun KnowledgeManagementContent(
     onSearch: () -> Unit,
     onSelectDocument: (String) -> Unit,
     onSetEnabled: (String, Boolean) -> Unit,
+    onRebuildEmbeddings: (String) -> Unit,
     onReplace: (String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -250,8 +253,10 @@ internal fun KnowledgeManagementContent(
                 KnowledgeDocumentDetailCard(
                     document = document,
                     summary = state.documents.firstOrNull { it.id == document.id },
+                    embeddingIndexes = state.selectedEmbeddingIndexes,
                     mutating = document.id in state.mutatingDocumentIds,
                     onSetEnabled = { enabled -> onSetEnabled(document.id, enabled) },
+                    onRebuildEmbeddings = { onRebuildEmbeddings(document.id) },
                     onReplace = { onReplace(document.id) },
                     onDelete = { onDelete(document.id) },
                 )
@@ -316,8 +321,10 @@ private fun KnowledgeStatusBand(text: String, success: Boolean) {
 private fun KnowledgeDocumentDetailCard(
     document: KnowledgeDocumentDetail,
     summary: KnowledgeDocumentSummary?,
+    embeddingIndexes: List<KnowledgeEmbeddingIndexSummary>,
     mutating: Boolean,
     onSetEnabled: (Boolean) -> Unit,
+    onRebuildEmbeddings: () -> Unit,
     onReplace: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -376,10 +383,37 @@ private fun KnowledgeDocumentDetailCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (embeddingIndexes.isEmpty()) {
+                Text(
+                    text = "Embedding：尚未建立，检索将使用词法兜底",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = "Embedding 索引",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                embeddingIndexes.forEach { index ->
+                    Text(
+                        text = "${index.providerId} · ${index.model} · ${index.dimensions} 维 · ${index.chunkCount} 个分块",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
+                IconButton(
+                    onClick = onRebuildEmbeddings,
+                    enabled = document.enabled && !mutating,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "重建 Embedding 索引", modifier = Modifier.size(18.dp))
+                }
                 IconButton(onClick = onReplace, enabled = !mutating, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Default.Edit, contentDescription = "替换知识文档", modifier = Modifier.size(18.dp))
                 }

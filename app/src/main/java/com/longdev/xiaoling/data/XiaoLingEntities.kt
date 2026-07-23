@@ -376,6 +376,15 @@ data class KnowledgeChunkEmbeddingEntity(
     val createdAt: Long,
 )
 
+data class KnowledgeEmbeddingIndexSummaryEntity(
+    val providerId: String,
+    val model: String,
+    val documentRevision: Int,
+    val dimensions: Int,
+    val chunkCount: Int,
+    val updatedAt: Long,
+)
+
 @Entity(
     tableName = "knowledge_retrievals",
     indices = [
