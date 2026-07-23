@@ -2,6 +2,16 @@
 
 验证日期：2026-07-23（北京时间）
 
+## 2026-07-23 真实 Embedding 有界语料基线（第 80 阶段）
+
+- 新增 `RealProviderKnowledgeScaleInstrumentedTest`，只在显式提供本地未跟踪配置时联网。测试直接组合生产 `OpenAiCompatibleClient`、`OpenAiKnowledgeEmbeddingProvider`、`RoomKnowledgeDocumentStore` 和 `KnowledgeSearchQualityPolicy`，仅写内存 Room，不写正式文档、向量或检索审计。
+- 固定语料：10 篇中文单主题短文、10 个 chunk；5 个英文正例与文档正文没有词法交集，纯词法 Store 全部零命中，真实语义 Store 每例运行两次且均为 `USED`。
+- 三轮 Redmi `wsvwypiz7xwslvl7` 真实联网验收使用三次独立 instrumentation 进程启动，均 `1/1` 通过；每轮 Recall@5 `1.0`、MRR `1.0`、重复排序稳定率 `1.0`。每轮索引耗时分别为 `8.881s / 7.935s / 10.039s`，中位数 `8.881s`；每轮 10 次查询的中位数为 `0.811s / 0.836s / 1.100s`，P95 为 `1.016s / 1.148s / 1.496s`。
+- 向量与资源：每轮 10 行、1024 维、Float32 BLOB `40,960` 字节，与理论字节数一致；SQLite 内存页 `593,920` 字节。检索后 PSS 相对各轮基线增加 `7,358 / 15,941 / 15,694 KB`；该数据同时包含测试、HTTP/TLS、SQLite 与运行时分配，不作生产内存硬阈值。
+- 负例边界：与语料无关的珊瑚产卵问题三轮均返回 5 个近邻。这符合当前无相似度阈值的排名实现，但不等同负例检索正确；下一阶段优先采集正负相似度分布并设计可校准拒绝策略。
+- 决策：当前 10 行向量的线性 cosine 扫描没有性能证据支持 ANN；10 篇前台导入也不支持立即引入后台批量索引。这不是规模化结案，文档/chunk 数量明显增长后需重新测量。
+- 最终门禁：完整 JVM `488/488`、Lint、Debug/AndroidTest APK 通过。Redmi 默认完整 instrumentation 的 JUnit XML 记录 `171` 个用例、`168` passed、`3` skipped、`0` failed；三个跳过项均是缺少显式公网参数时关闭的 Provider 验收。未连接、启动或操作 Pixel_9/其他模拟器。
+
 ## 2026-07-23 真实 Provider 语义检索端到端（第 79 阶段）
 
 - 配置核验：本地未跟踪 `AGENTS.md` 的 Embedding Base URL 已修正为 OpenAI 兼容 `/v1` 根路径；API Key 与模型名完整。配置文件继续由 `.gitignore` 排除，本文不记录 URL、Key 或其他凭据。

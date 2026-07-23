@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 80 阶段实现与验证边界
+
+- 新增 `RealProviderKnowledgeScaleInstrumentedTest`，显式传入 Base URL、API Key 和 Embedding 模型时才联网；默认套件缺参按设计 skipped。测试直接复用生产客户端、Embedding Provider、Room Store、cosine/RRF 与质量策略，不保存或打印真实配置。
+- 语料固定为 10 篇中文单主题短文；5 个英文正例在同一数据库的纯词法 Store 中零命中，真实语义 Store 各执行两次并要求 `USED`。质量硬门禁为 Recall@5 `>=0.8`、MRR `>=0.7`、稳定率 `>=0.8`；三轮 Redmi 实测三项均为 `1.0`。
+- 向量统计直接读取内存 Room：10 个 chunk 对应 10 行、1024 维向量，原始 Float32 BLOB 共 `40,960` 字节，与 `rows * dimensions * 4` 完全一致；SQLite 页总量为 `593,920` 字节。Schema 保持 v30，没有修改生产 DAO 或正式数据。
+- `SystemClock.elapsedRealtimeNanos()` 记录索引和查询端到端耗时，`Debug.getPss()` 与 Runtime heap 记录进程边界。三轮索引 `7.935–10.039s`（中位数 `8.881s`）；每轮查询中位数 `0.811–1.100s`，P95 `1.016–1.496s`；检索后 PSS 增量 `7,358–15,941 KB`。这些值受 Provider、TLS、网络和 GC 影响，只记录而不作硬阈值。
+- 无关珊瑚产卵问题三轮均返回 5 个近邻；当前索引还没有可证明的相似度拒绝线。下一阶段应先用正负配对语料采集分布并建立可迁移策略，不直接固定单一经验阈值。本规模下向量扫描和前台导入仍可用，不引入 ANN 或后台批量索引。
+- 最终完整 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 记录 `171` 个用例、`168` passed、`3` 个显式联网用例按设计 skipped、`0` failed。
+
 ## 第 79 阶段实现与验证边界
 
 - 新增 `RealProviderKnowledgeSearchInstrumentedTest`，以 instrumentation 参数接收真实 Embedding Provider；缺少任一参数即 `assume` 跳过，默认完整套件保持离线可重复。

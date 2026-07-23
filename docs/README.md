@@ -2,6 +2,8 @@
 
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
+第 80 阶段完成真实 Embedding 有界语料质量与性能基线：新增默认跳过、显式参数才联网的 `RealProviderKnowledgeScaleInstrumentedTest`，在内存 Room 中导入 10 篇中文单主题文档，用 5 个无词法命中的英文查询各执行两次。Redmi 三轮真实验收的 Recall@5、MRR 和重复排序稳定率均为 `1.0`；10 行 1024 维 Float32 向量共 `40,960` 字节，索引耗时 `7.935–10.039s`（中位数 `8.881s`），每轮查询中位数 `0.811–1.100s`，P95 `1.016–1.496s`，检索后 PSS 较基线增加 `7,358–15,941 KB`。无关问题三轮均返回 5 个近邻，因此下一阶段优先做相关性校准与拒绝，当前数据不支持提前引入 ANN 或后台批量索引。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `171` 个用例，`168` passed、`3` skipped、`0` failed。
+
 第 79 阶段完成真实 Provider 语义检索端到端验收：新增默认跳过、仅显式参数才联网的 `RealProviderKnowledgeSearchInstrumentedTest`，直接组合生产 `OpenAiKnowledgeEmbeddingProvider` 与 `RoomKnowledgeDocumentStore`，并使用内存 Room 隔离正式知识库。Redmi 上真实 Embedding Provider 的模型同步、双输入向量协议和完整语义链均 `1/1` 通过；同一英文问题在纯词法路径零命中，真实向量路径首位命中中文“番茄工作法”文档，审计为 `USED`，Provider/模型、chunk IDs、索引摘要和显式重建均一致。该 E2E 总耗时约 `5.947s`，Room 保持 v30；默认完整套件仍不依赖公网。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `170` 个用例，`168` passed、`2` 个显式联网用例按设计 skipped、`0` failed。
 
 第 78 阶段完成 Embedding 检索质量与兼容诊断：新增纯 Kotlin 质量评测，固定文档级去重后的 Recall@5、MRR、负例准确率和重复排序稳定率；项目 `docs/` 黄金语料以 5 个正例、1 个负例各执行两次，门禁满足 Recall@5 `1.0`、MRR `>= 0.8`、负例准确率 `1.0`、稳定率 `1.0`。知识管理页的检索审计会显示实际 `USED / LEXICAL_ONLY / NO_INDEX / PROVIDER_UNAVAILABLE / DIMENSION_MISMATCH` 路径，并在有身份时附 Provider/模型。该阶段使用的聊天兜底 Provider 没有 Embedding 模型，因此当时真实路径保持词法兜底；第 79 阶段已使用独立真实 Embedding Provider 补齐语义链证据。完整 JVM `488/488`、Lint 和 Debug/AndroidTest APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。

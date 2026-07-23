@@ -1,5 +1,9 @@
 # 产品需求
 
+## 第 80 阶段验证边界
+
+真实 Embedding 规模基线必须使用固定、内置且有界的语料，不依赖手机正式知识库或外部文件。至少导入 10 篇语义不同文档，使用 5 个与目标正文无词法交集的跨语言正例，每例重复检索两次。纯词法 Store 必须零命中，真实语义 Store 必须记录 `USED` 及正确 Provider/模型；Recall@5 不低于 `0.8`、MRR 不低于 `0.7`、重复排序稳定率不低于 `0.8`。向量行数必须等于 chunk 数，维度必须一致，原始 BLOB 字节数必须等于 `rows * dimensions * 4`。索引和查询使用单调时钟记录耗时，同时记录 SQLite 页、PSS 和 Java heap；网络耗时与 PSS 只作观测证据，不作易波动的硬门禁。无关查询必须单独记录返回数；在当前没有相似度阈值时，不得伪造负例准确率。真实验收必须在 Redmi 上以三次独立 instrumentation 进程启动重复，使每轮 PSS 都有独立进程基线；单次测试内部不循环伪造三个独立样本。缺少显式 Provider 参数时默认跳过，配置和密钥不得写入 Git 或报告。本阶段最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `171` 个用例，`168` passed、`3` skipped、`0` failed。
+
 ## 第 79 阶段验证边界
 
 真实 Embedding Provider 验收不得只停留在 `/embeddings` 协议或假向量 Store。显式联网测试必须直接组合生产 `OpenAiKnowledgeEmbeddingProvider` 和 `RoomKnowledgeDocumentStore`，先确认模型列表包含指定模型，再在隔离的内存 Room 中导入至少两个语义不同文档。验收查询必须与目标文档没有词法命中，并证明纯词法 Store 返回空、真实语义 Store 首位命中目标文档；检索审计必须为 `USED`，Provider/模型身份和最终 chunk IDs 必须一致。索引摘要必须记录非零维度与分块数，显式重建不得改变 document revision。测试缺少显式 Base URL、API Key 或模型参数时必须跳过，完整测试套件不得依赖公网；真实配置与密钥不得写入源码、测试报告或 Git。本阶段最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `170` 个用例，`168` passed、`2` skipped、`0` failed。

@@ -1,12 +1,14 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 80 阶段把参考项目强调的“质量、性能和资源证据应共享同一固定语料”落到 Redmi 真实 Provider。10 篇中文文档、5 个跨语言查询各重复两次，三轮 Recall@5/MRR/排序稳定率均为 `1.0`；10 行 1024 维向量仅 `40,960` 原始字节，索引中位数 `8.881s`，三轮查询中位数的中值 `0.836s`，每轮 P95 为 `1.016–1.496s`，检索后 PSS 增量 `7,358–15,941 KB`。这些数据不支持为 10 行索引引入 ANN 或后台批处理；更重要的是无关查询三轮均返回 5 个近邻，因此下一步应先为语义排名建立可校准的相关性拒绝证据。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `171` 个用例，`168` passed、`3` skipped、`0` failed。
+
 第 79 阶段把参考项目强调的“真实集成证据必须跨过协议层并到达检索结果”落到 Redmi：显式联网测试直接复用生产 OpenAI 兼容客户端、Embedding 适配器、Room 索引和检索审计。英文查询在纯词法路径零命中，真实向量路径首位命中中文目标文档并记录 `USED`；索引身份、维度、分块、chunk IDs 和显式重建均可核对。真实协议与语义链各 `1/1` 通过，完整语义链约 `5.947s`；测试使用内存 Room，不污染正式知识库，默认套件也不依赖公网。最终门禁为 JVM `488/488`、Lint、Debug/AndroidTest APK 通过；Redmi JUnit XML 共 `170` 个用例，`168` passed、`2` skipped、`0` failed。下一步依据更大有界语料的质量、耗时和内存数据决定 ANN/后台批量索引，而不是因已有单文档成功样本提前引入复杂基础设施。
 
 第 78 阶段把参考项目强调的“检索质量必须可复现、实际回退必须可观察、能力探测不能靠猜测”落到固定语料与管理 UI：新增文档级去重的 Recall@5/MRR/负例准确率/重复排序稳定率门禁，知识审计显示五种 Embedding 实际路径，并只在 Provider 模型列表明确包含 Embedding 模型时执行真实向量请求。该阶段的聊天兜底 Provider 没有可识别的 Embedding 模型，因此当时只取得真实词法兜底证据；第 79 阶段已由独立真实 Embedding Provider 补齐协议和语义链。完整 JVM `488/488`、Lint 和 APK 已通过；Redmi 完整 instrumentation 共 `169` 个用例，`168` passed、`1` 个显式联网冒烟按设计 skipped、`0` failed。
 
 第 77 阶段把参考项目强调的“索引身份可见、重建失败不破坏旧能力、模型切换不混用空间”落到知识管理页和 Room Store：旧文档可显式补建，详情显示 Provider/模型/维度/分块数，写事务只替换当前 `providerId + model`，其他空间继续共存；Provider 失败、超时、停用和 revision 竞态不删除已有索引。Room 保持 v30，完整 JVM `483/483`、Lint、APK 和仅 Redmi `164/164` instrumentation 通过。ANN、自动后台批量重建与规模化性能继续后置。
 
-第 76 阶段已把参考项目强调的“关键词与语义融合、Provider 能力隔离、检索结果可审计”落到本地知识库：Room v30 保存按 Provider/Embedding 模型隔离的 Float32 向量，FTS4+LIKE 与语义候选使用稳定 RRF，失败/超时/无索引/维度漂移保留词法回退并记录状态，最终交付前再次核对文档 enabled/revision。完整 JVM、Lint、APK 和仅 Redmi `158/158` instrumentation 通过。当前仍是有限规模内存扫描，不承诺 ANN、后台增量建索引或多 Provider 并行索引。
+第 76 阶段已把参考项目强调的“关键词与语义融合、Provider 能力隔离、检索结果可审计”落到本地知识库：Room v30 保存按 Provider/Embedding 模型隔离的 Float32 向量，FTS4+LIKE 与语义候选使用稳定 RRF，失败/超时/无索引/维度漂移保留词法回退并记录状态，最终交付前再次核对文档 enabled/revision。完整 JVM、Lint、APK 和仅 Redmi `158/158` instrumentation 通过。该阶段当时仍是有限规模内存扫描，不承诺 ANN、后台增量建索引或多 Provider 并行索引。
 
 审计日期：2026-07-16（北京时间）
 
