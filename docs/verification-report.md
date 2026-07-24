@@ -1,6 +1,16 @@
 # 验证报告
 
-验证日期：2026-07-24（北京时间）
+验证日期：2026-07-25（北京时间）
+
+## 2026-07-25 生产身份绑定与相关性灰度控制面（第 89 阶段）
+
+- 身份策略：新增 `UNBOUND / CANDIDATE / VERIFIED / REVOKED`，真实 Provider 探针只建立候选；`VERIFIED` 必须同时匹配冻结 gate、Provider、模型、配置指纹、全新 holdout 身份和明确通过的证据。配置指纹只使用规范化 Base URL 的 SHA-256，不保存原始 URL 或 API Key。
+- 控制面：灰度偏好新增证据版本和配置指纹；`KnowledgeRelevanceRolloutControlPlane` 只有在偏好、冻结 gate 与 `VERIFIED` 绑定全部一致时才允许 `ENFORCE`，候选、撤销、过期版本或身份漂移均为 `SHADOW`。`rollbackKnowledgeRelevanceRollout()` 清除执行资格，设置页撤销另行保存 `REVOKED` 身份审计。
+- UI：设置根页新增「相关性灰度控制面」，展示身份状态、Provider、模型、配置指纹、gate、证据、holdout 和固定 `SHADOW`。页面明确生产答案路径尚未接入，没有直接绑定、升级或绕过证据开启拒绝的入口。
+- JVM/静态门禁：身份策略 `6/6`、控制面 `4/4`；完整 JVM XML `532/532`、0 failed、0 skipped。Lint、Debug APK 和 AndroidTest APK 成功。Debug APK 为 `23,009,914` 字节，SHA-256 `e16763afa559160f224e9f3b8c3a89904f5e9712ff073ed058e370abf3056e87`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用哈希。
+- Redmi 默认门禁：`adb devices -l` 仅列出 `wsvwypiz7xwslvl7`。临时关闭充电屏保后运行默认完整 instrumentation，启动 `184` 条，JUnit XML 为 `184` 条、`176 passed / 8 skipped / 0 failed`；8 个真实 Provider 用例缺少显式参数按设计 skipped，未连接、启动或操作 Pixel_9/其他模拟器。
+- Redmi 真实身份探针：使用未跟踪本地 Embedding 配置显式运行 `RealProviderKnowledgeRelevanceIdentityInstrumentedTest`，`/models` 包含目标模型，`/embeddings` 返回 HTTP 200、两条非空同维度有限向量，维度 `1024`；结果 `1/1`，Provider ID 为 `redmi-production-embedding-v1`，状态严格为 `CANDIDATE`。测试未保存或输出 API Key，也未升级为 `VERIFIED` 或开启生产拒绝。
+- 决策：当前候选 Provider ID 与 Stage 85/86 实验 gate 身份不同，已有证据不能直接用于生产升级。下一阶段必须在同一正式 Provider、模型和配置指纹下重新建立 calibration、validation、冻结 gate 与 final holdout；完成前生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面，答案路径保持 `SHADOW`。
 
 ## 2026-07-24 相关性降级、引用一致性与身份灰度契约（第 88 阶段）
 
@@ -325,7 +335,7 @@ BUILD SUCCESSFUL
 
 ## 初始 Room Schema 与迁移自动化验证（历史基线）
 
-本节保留早期 v10 迁移取证；当前 Room v29 和完整回归证据见文首最新阶段记录。
+本节保留早期 v10 迁移取证；当前 Room v32 和完整回归证据见文首最新阶段记录。
 
 Schema 生成方式：
 

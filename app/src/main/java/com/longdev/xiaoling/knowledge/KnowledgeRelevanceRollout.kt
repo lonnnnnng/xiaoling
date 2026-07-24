@@ -11,6 +11,8 @@ enum class KnowledgeRelevanceRolloutReason {
     STALE_GATE_VERSION,
     IDENTITY_MISMATCH,
     INCOMPLETE_PREFERENCE,
+    PRODUCTION_IDENTITY_UNVERIFIED,
+    IDENTITY_BINDING_MISMATCH,
 }
 
 data class KnowledgeRelevanceRolloutPreference(
@@ -18,6 +20,8 @@ data class KnowledgeRelevanceRolloutPreference(
     val gateVersion: String? = null,
     val providerId: String? = null,
     val model: String? = null,
+    val identityEvidenceVersion: String? = null,
+    val configurationFingerprint: String? = null,
 )
 
 data class KnowledgeRelevanceRolloutResolution(
@@ -68,6 +72,8 @@ object KnowledgeRelevanceRolloutPolicy {
             gateVersion = null,
             providerId = null,
             model = null,
+            identityEvidenceVersion = null,
+            configurationFingerprint = null,
         )
     }
 
@@ -108,4 +114,72 @@ object KnowledgeRelevanceRolloutPolicy {
             "相关性灰度 calibration 与 validation 数据集必须不同"
         }
     }
+}
+
+data class KnowledgeRelevanceRolloutControlSnapshot(
+    val resolution: KnowledgeRelevanceRolloutResolution,
+    val bindingStatus: KnowledgeRelevanceProductionIdentityStatus,
+    val bindingIdentity: KnowledgeRelevanceProductionIdentity?,
+    val bindingEvidenceVersion: String?,
+    val rollbackAvailable: Boolean,
+)
+
+/**
+ * long: 生产控制面把“用户打开开关”和“当前真实 Provider 已完成正式身份验证”分开；候选或撤销身份永远只能显示 shadow，不能把实验资格带入答案路径。
+ */
+object KnowledgeRelevanceRolloutControlPlane {
+    fun resolve(
+        frozenGate: KnowledgeRelevanceRawTopScoreFrozenGate,
+        binding: KnowledgeRelevanceProductionIdentityBinding,
+        preference: KnowledgeRelevanceRolloutPreference,
+    ): KnowledgeRelevanceRolloutControlSnapshot {
+        val baseResolution = KnowledgeRelevanceRolloutPolicy.resolve(frozenGate, preference)
+        if (!preference.enforcementEnabled) {
+            return snapshot(baseResolution, binding, rollbackAvailable = false)
+        }
+        val identity = binding.identity
+        val expectedIdentity = frozenGate.calibrationIdentity
+        val bindingInvalid = binding.status != KnowledgeRelevanceProductionIdentityStatus.VERIFIED ||
+            identity == null
+        if (bindingInvalid) {
+            return snapshot(
+                baseResolution.copy(
+                    mode = KnowledgeRelevanceRolloutMode.SHADOW,
+                    reason = KnowledgeRelevanceRolloutReason.PRODUCTION_IDENTITY_UNVERIFIED,
+                    enforcementEnabled = false,
+                ),
+                binding,
+                rollbackAvailable = true,
+            )
+        }
+        val preferenceMatchesBinding = preference.identityEvidenceVersion == binding.evidenceVersion &&
+            preference.configurationFingerprint == identity.configurationFingerprint
+        val identityMatchesGate = identity.providerId == expectedIdentity.providerId &&
+            identity.model == expectedIdentity.model &&
+            binding.gateVersion == frozenGate.gateVersion
+        if (!preferenceMatchesBinding || !identityMatchesGate) {
+            return snapshot(
+                baseResolution.copy(
+                    mode = KnowledgeRelevanceRolloutMode.SHADOW,
+                    reason = KnowledgeRelevanceRolloutReason.IDENTITY_BINDING_MISMATCH,
+                    enforcementEnabled = false,
+                ),
+                binding,
+                rollbackAvailable = true,
+            )
+        }
+        return snapshot(baseResolution, binding, rollbackAvailable = true)
+    }
+
+    private fun snapshot(
+        resolution: KnowledgeRelevanceRolloutResolution,
+        binding: KnowledgeRelevanceProductionIdentityBinding,
+        rollbackAvailable: Boolean,
+    ) = KnowledgeRelevanceRolloutControlSnapshot(
+        resolution = resolution,
+        bindingStatus = binding.status,
+        bindingIdentity = binding.identity,
+        bindingEvidenceVersion = binding.evidenceVersion,
+        rollbackAvailable = rollbackAvailable,
+    )
 }

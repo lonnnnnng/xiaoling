@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 89 阶段把成熟系统常见的“生产身份证明”和“用户开关”进一步拆开：真实端点探针只建立 `CANDIDATE`，不会把协议成功误当成检索质量通过；`VERIFIED` 必须绑定同一 Provider、模型、配置指纹、冻结 gate 和独立 final-holdout 证据。灰度控制面只有在全部身份与证据一致时才允许 `ENFORCE`，其余情况统一 `SHADOW`；撤销保留最小审计并移除执行资格。Base URL 只保存 SHA-256 指纹，设置页也没有绕过证据直接开闸的入口。Redmi 探针得到 `2 × 1024` 有限向量并停在 `CANDIDATE`，完整 JVM `532/532`、Lint、APK 和仅 Redmi `176 passed / 8 skipped / 0 failed` 通过。下一阶段需要为正式身份重建 calibration/validation/final-holdout，而不是照搬实验 Provider ID 或服务端全局开关。
+
 第 88 阶段进一步落实成熟检索系统常见的“检索证据、执行决策和用户呈现分层”：Store 只标记词法/语义来源，纯策略决定是否移除 semantic-only，展示层再从最终候选生成引用和固定解释；任何来源未知、身份漂移或 shadow 异常都 fail-open。灰度资格同时绑定 gate 版本、Provider、模型和独立 calibration/validation 数据身份，撤销会清除全部资格，不让旧授权随同名模型复活。实现没有照搬服务端全局阈值或直接开关生产拒绝，Stage 85/86 的实验 Provider ID 也明确不能直接进入正式配置。完整 JVM `522/522`、Lint、APK 与仅 Redmi `173 passed / 7 skipped / 0 failed` 通过；下一阶段先重绑定真实生产身份和受控灰度，再讨论答案路径接入。
 
 第 87 阶段把参考项目常见的“检索评分与执行策略分离”落实为独立纯 Kotlin 设计：`KnowledgeRelevanceProductionDesignPolicy` 只读取既有审计事实，绑定冻结 gate 的 Provider/模型身份；高分保持当前语义结果，低分只规划语义移除并保留词法兜底，未知或身份漂移则 fail-open。默认开关关闭时不会改变任何检索结果，策略没有接入 Room Store，也没有新增生产拒绝状态。JVM `511/511`、Lint、APK 与仅 Redmi `171 passed / 7 skipped / 0 failed` 通过；下一步应先完成用户可见回退、灰度和撤销契约，再决定是否接入。
@@ -30,7 +32,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-24：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性绝对分数 shadow 诊断在 Room v31 落地，查询内相对分布 shadow 观测在 Room v32 落地；第 82 至 86 阶段依次完成扩样校准、失败 holdout、相对特征、独立 calibration/validation 和最终 holdout，第 87 阶段完成生产拒绝设计，第 88 阶段完成来源标记、降级/引用一致性与身份灰度契约，但生产拒绝仍关闭。答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-25：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性绝对分数 shadow 诊断在 Room v31 落地，查询内相对分布 shadow 观测在 Room v32 落地；第 82 至 86 阶段依次完成扩样校准、失败 holdout、相对特征、独立 calibration/validation 和最终 holdout，第 87 阶段完成生产拒绝设计，第 88 阶段完成来源标记、降级/引用一致性与身份灰度契约，第 89 阶段完成生产身份状态机、真实候选探针和显式灰度控制面，但生产拒绝仍关闭。答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
 第 75 阶段把参考项目强调的“输入事实与执行事实分离”落到 `/agent` 附件：Responses 规划请求可携带经校验的 USER Image/Document，summary、VerifiedAgentContext、Tool part 与 Agent 输出继续隔离附件；审批恢复与任务中心重试从 Room USER MessagePart 重建并复制到新 Run，Chat/mixed/持久化重复附件/伪造来源保持 fail-closed。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过，图片与文档真实 E2E 的工具回执均为 `PASSED`；Workflow/后台 Agent 暂无附件入口。该段是第 75 阶段当时边界；Embedding 已在第 76 至 78 阶段补齐有限规模检索、显式重建和质量诊断，设备后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
@@ -407,7 +409,7 @@
 | ToolCall/ToolResult 已独立落表，任务中心、恢复与重试判断已 Ledger-first | v20 新 Run 按调用展示四阶段，以账本恢复证据和副作用证据为准，事件只核对原子双写一致性；异常账本的重试保守要求确认，旧 Run 账本全空时回退 typed 事件。全部结果与验证已落库时可恢复本地收尾 |
 | 提交状态未知或验证事实不完整的通用执行栈仍不原地恢复 | 进程重建后默认收敛中间态，再由用户创建关联新 Run；`notes.create / memory.remember` 可从完整已提交证据恢复受限只读验证，任意工具在全部 `PASSED` 后可恢复控制面收尾，但都不能继续旧规划或 Workflow 后续步骤 |
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
-| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v31 继续沿用独立账本观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
+| 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v32 继续沿用独立账本观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
 | PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Embedding、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、FTS/LIKE、有限规模 Embedding、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 ANN/规模化检索质量验证 |
 | 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；仍不能进入 Workflow/后台自动化，也不承诺任意 App |
 

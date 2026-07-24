@@ -55,7 +55,10 @@ class KnowledgeRelevanceRolloutPolicyTest {
 
     @Test
     fun rollbackClearsExecutionEligibilityWithoutChangingFrozenGate() {
-        val preference = preference()
+        val preference = preference().copy(
+            identityEvidenceVersion = "evidence-v1",
+            configurationFingerprint = "endpoint-a",
+        )
 
         val rolledBack = KnowledgeRelevanceRolloutPolicy.rollback(preference)
         val resolution = KnowledgeRelevanceRolloutPolicy.resolve(frozenGate(), rolledBack)

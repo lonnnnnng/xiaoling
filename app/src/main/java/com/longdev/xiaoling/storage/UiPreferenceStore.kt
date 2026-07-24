@@ -3,6 +3,9 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentity
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentityBinding
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentityStatus
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRolloutPreference
 import com.longdev.xiaoling.prompt.PromptDefaults
 import com.longdev.xiaoling.prompt.PromptSettings
@@ -83,6 +86,10 @@ class UiPreferenceStore(context: Context) {
             gateVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION, null)?.trim()?.ifBlank { null },
             providerId = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID, null)?.trim()?.ifBlank { null },
             model = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_MODEL, null)?.trim()?.ifBlank { null },
+            identityEvidenceVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_ROLLOUT_EVIDENCE_VERSION, null)
+                ?.trim()?.ifBlank { null },
+            configurationFingerprint = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_CONFIGURATION_FINGERPRINT, null)
+                ?.trim()?.ifBlank { null },
         )
     }
 
@@ -97,16 +104,83 @@ class UiPreferenceStore(context: Context) {
             .putString(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION, preference.gateVersion?.trim()?.ifBlank { null })
             .putString(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID, preference.providerId?.trim()?.ifBlank { null })
             .putString(KEY_KNOWLEDGE_RELEVANCE_MODEL, preference.model?.trim()?.ifBlank { null })
+            .putString(
+                KEY_KNOWLEDGE_RELEVANCE_ROLLOUT_EVIDENCE_VERSION,
+                preference.identityEvidenceVersion?.trim()?.ifBlank { null },
+            )
+            .putString(
+                KEY_KNOWLEDGE_RELEVANCE_CONFIGURATION_FINGERPRINT,
+                preference.configurationFingerprint?.trim()?.ifBlank { null },
+            )
             .apply()
     }
 
     fun rollbackKnowledgeRelevanceRollout() {
-        // long: 撤销必须清除执行位和绑定身份，避免未来同名 gate 或模型重新出现时沿用一次旧授权。
+        // long: 这里只清除未来执行资格；独立身份绑定由控制面另行标记为 REVOKED，既保留最小审计，也避免旧授权随同名 gate 或模型复活。
         preferences.edit()
             .remove(KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED)
             .remove(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION)
             .remove(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID)
             .remove(KEY_KNOWLEDGE_RELEVANCE_MODEL)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_ROLLOUT_EVIDENCE_VERSION)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_CONFIGURATION_FINGERPRINT)
+            .apply()
+    }
+
+    fun loadKnowledgeRelevanceProductionIdentityBinding(): KnowledgeRelevanceProductionIdentityBinding {
+        val status = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_STATUS, null)
+            ?.let { stored -> KnowledgeRelevanceProductionIdentityStatus.entries.firstOrNull { it.name == stored } }
+            ?: KnowledgeRelevanceProductionIdentityStatus.UNBOUND
+        val providerId = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_PROVIDER_ID, null)
+            ?.trim()?.ifBlank { null }
+        val model = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_MODEL, null)
+            ?.trim()?.ifBlank { null }
+        val configurationFingerprint = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_FINGERPRINT, null)
+            ?.trim()?.ifBlank { null }
+        val identity = if (providerId != null && model != null && configurationFingerprint != null) {
+            KnowledgeRelevanceProductionIdentity(providerId, model, configurationFingerprint)
+        } else {
+            null
+        }
+        return KnowledgeRelevanceProductionIdentityBinding(
+            status = if (identity == null) KnowledgeRelevanceProductionIdentityStatus.UNBOUND else status,
+            identity = identity,
+            gateVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_GATE_VERSION, null)
+                ?.trim()?.ifBlank { null },
+            evidenceVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_EVIDENCE_VERSION, null)
+                ?.trim()?.ifBlank { null },
+            holdoutDatasetVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_HOLDOUT_DATASET_VERSION, null)
+                ?.trim()?.ifBlank { null },
+        )
+    }
+
+    fun saveKnowledgeRelevanceProductionIdentityBinding(binding: KnowledgeRelevanceProductionIdentityBinding) {
+        val identity = binding.identity
+        if (identity == null || binding.status == KnowledgeRelevanceProductionIdentityStatus.UNBOUND) {
+            clearKnowledgeRelevanceProductionIdentityBinding()
+            return
+        }
+        // long: 候选身份可以被控制面展示，但只有 status=VERIFIED 且证据版本与偏好同时匹配时才可能进入 enforcement。
+        preferences.edit()
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_STATUS, binding.status.name)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_PROVIDER_ID, identity.providerId)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_MODEL, identity.model)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_FINGERPRINT, identity.configurationFingerprint)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_GATE_VERSION, binding.gateVersion)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_EVIDENCE_VERSION, binding.evidenceVersion)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_HOLDOUT_DATASET_VERSION, binding.holdoutDatasetVersion)
+            .apply()
+    }
+
+    fun clearKnowledgeRelevanceProductionIdentityBinding() {
+        preferences.edit()
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_STATUS)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_PROVIDER_ID)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_MODEL)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_FINGERPRINT)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_GATE_VERSION)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_EVIDENCE_VERSION)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_IDENTITY_HOLDOUT_DATASET_VERSION)
             .apply()
     }
 
@@ -150,6 +224,15 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION = "knowledge_relevance_gate_version"
         private const val KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID = "knowledge_relevance_provider_id"
         private const val KEY_KNOWLEDGE_RELEVANCE_MODEL = "knowledge_relevance_model"
+        private const val KEY_KNOWLEDGE_RELEVANCE_ROLLOUT_EVIDENCE_VERSION = "knowledge_relevance_rollout_evidence_version"
+        private const val KEY_KNOWLEDGE_RELEVANCE_CONFIGURATION_FINGERPRINT = "knowledge_relevance_configuration_fingerprint"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_STATUS = "knowledge_relevance_identity_status"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_PROVIDER_ID = "knowledge_relevance_identity_provider_id"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_MODEL = "knowledge_relevance_identity_model"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_FINGERPRINT = "knowledge_relevance_identity_fingerprint"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_GATE_VERSION = "knowledge_relevance_identity_gate_version"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_EVIDENCE_VERSION = "knowledge_relevance_identity_evidence_version"
+        private const val KEY_KNOWLEDGE_RELEVANCE_IDENTITY_HOLDOUT_DATASET_VERSION = "knowledge_relevance_identity_holdout_dataset_version"
         private const val MAX_USER_AGENT_LENGTH = 512
     }
 }

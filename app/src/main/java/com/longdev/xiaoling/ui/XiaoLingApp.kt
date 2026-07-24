@@ -370,6 +370,7 @@ private fun XiaoLingContent(
                             requestedKnowledgeDocumentId = null
                             settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT
                         },
+                        onOpenKnowledgeRelevanceRollout = { settingsPane = SettingsPane.KNOWLEDGE_RELEVANCE_ROLLOUT },
                         onOpenSkillManagement = {
                             viewModel.refreshSkills()
                             settingsPane = SettingsPane.SKILL_MANAGEMENT
@@ -482,6 +483,7 @@ private enum class SettingsPane {
     DEVICE_AGENT,
     MEMORY_MANAGEMENT,
     KNOWLEDGE_MANAGEMENT,
+    KNOWLEDGE_RELEVANCE_ROLLOUT,
     SKILL_MANAGEMENT,
     WORKFLOW_MANAGEMENT,
     AGENT_RUN_HISTORY,
@@ -2163,6 +2165,7 @@ private fun SettingsPage(
     onOpenDeviceAgent: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
+    onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -2230,6 +2233,10 @@ private fun SettingsPage(
                 preferredDocumentId = requestedKnowledgeDocumentId,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.KNOWLEDGE_RELEVANCE_ROLLOUT -> KnowledgeRelevanceRolloutSettingsPage(
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.SKILL_MANAGEMENT -> AgentSkillManagementPage(
                 state = state,
                 viewModel = viewModel,
@@ -2268,6 +2275,7 @@ private fun SettingsPage(
                 onOpenDeviceAgent = onOpenDeviceAgent,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenKnowledgeManagement = onOpenKnowledgeManagement,
+                onOpenKnowledgeRelevanceRollout = onOpenKnowledgeRelevanceRollout,
                 onOpenSkillManagement = onOpenSkillManagement,
                 onOpenWorkflowManagement = onOpenWorkflowManagement,
                 onOpenAgentRunHistory = onOpenAgentRunHistory,
@@ -2291,6 +2299,7 @@ private fun SettingsRootPage(
     onOpenDeviceAgent: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
+    onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenWorkflowManagement: () -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -2371,6 +2380,14 @@ private fun SettingsRootPage(
             subtitle = "导入文档，管理启停、替换与本地检索预览",
             icon = Icons.Default.Description,
             onClick = onOpenKnowledgeManagement,
+        )
+
+        // long: 灰度控制面独立于知识库内容管理，用户可以查看身份与撤销状态，但不能在此页绕过正式证据直接开启生产拒绝。
+        SettingsEntryCard(
+            title = "相关性灰度控制面",
+            subtitle = "查看 Provider 身份、shadow 状态与撤销资格",
+            icon = Icons.Default.Visibility,
+            onClick = onOpenKnowledgeRelevanceRollout,
         )
 
         SettingsEntryCard(

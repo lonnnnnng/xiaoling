@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentity
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentityBinding
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceProductionIdentityStatus
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRolloutPreference
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -52,12 +55,14 @@ class UiPreferenceStoreInstrumentedTest {
     }
 
     @Test
-    fun knowledgeRelevanceRolloutIsOffByDefaultAndRollbackClearsIdentity() {
+    fun knowledgeRelevanceRolloutIsOffByDefaultAndRollbackClearsExecutionQualification() {
         val enabled = KnowledgeRelevanceRolloutPreference(
             enforcementEnabled = true,
             gateVersion = "stage85-raw-top1-qwen-v1",
             providerId = "provider-a",
             model = "embedding-a",
+            identityEvidenceVersion = "evidence-v1",
+            configurationFingerprint = "endpoint-a",
         )
         val store = UiPreferenceStore(isolatedContext)
 
@@ -70,6 +75,32 @@ class UiPreferenceStoreInstrumentedTest {
         assertEquals(
             KnowledgeRelevanceRolloutPreference(),
             UiPreferenceStore(isolatedContext).loadKnowledgeRelevanceRolloutPreference(),
+        )
+    }
+
+    @Test
+    fun productionIdentityBindingPersistsCandidateAndRevocationState() {
+        val candidate = KnowledgeRelevanceProductionIdentityBinding(
+            status = KnowledgeRelevanceProductionIdentityStatus.CANDIDATE,
+            identity = KnowledgeRelevanceProductionIdentity("provider-a", "embedding-a", "endpoint-a"),
+        )
+        val revoked = candidate.copy(status = KnowledgeRelevanceProductionIdentityStatus.REVOKED)
+        val store = UiPreferenceStore(isolatedContext)
+
+        assertEquals(
+            KnowledgeRelevanceProductionIdentityBinding(),
+            store.loadKnowledgeRelevanceProductionIdentityBinding(),
+        )
+        store.saveKnowledgeRelevanceProductionIdentityBinding(candidate)
+        assertEquals(candidate, store.loadKnowledgeRelevanceProductionIdentityBinding())
+
+        store.saveKnowledgeRelevanceProductionIdentityBinding(revoked)
+
+        assertEquals(revoked, store.loadKnowledgeRelevanceProductionIdentityBinding())
+        store.clearKnowledgeRelevanceProductionIdentityBinding()
+        assertEquals(
+            KnowledgeRelevanceProductionIdentityBinding(),
+            store.loadKnowledgeRelevanceProductionIdentityBinding(),
         )
     }
 

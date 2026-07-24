@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 89 阶段：生产身份绑定与相关性灰度控制面
+
+- 新增 `KnowledgeRelevanceProductionIdentity` 及 `UNBOUND / CANDIDATE / VERIFIED / REVOKED` 状态。真实 Provider 探针必须同时证明 Provider ID、模型、模型列表、向量数量和维度有效；协议可用只生成 `CANDIDATE`，不能据此伪造 `VERIFIED`。
+- 生产身份只保存 Provider ID、模型和配置指纹。`KnowledgeRelevanceIdentityFingerprint` 对规范化 Base URL 计算 SHA-256，偏好、Room 与日志不保存原始 Base URL 或 API Key；配置端点漂移会得到不同指纹并失去执行资格。
+- `promoteVerified()` 要求候选身份与冻结 gate 的 calibration/validation 身份、全新 holdout 身份和证据中的 Provider/模型完全一致，gate 版本、配置指纹和证据版本完整，final holdout 明确通过，且 holdout 不复用 calibration/validation 数据集。任一身份或证据漂移都拒绝升级。
+- `KnowledgeRelevanceRolloutPreference` 新增证据版本与配置指纹；`KnowledgeRelevanceRolloutControlPlane` 先执行原 gate/Provider/模型校验，再要求身份为 `VERIFIED`、证据与配置指纹匹配。候选、撤销、过期 gate、身份漂移或偏好不完整全部解析为 `SHADOW`。
+- `UiPreferenceStore` 独立保存执行资格和身份绑定。`rollbackKnowledgeRelevanceRollout()` 只清除未来执行资格；设置页撤销动作另行把身份标记为 `REVOKED`，保留最小审计但不允许旧授权复活。
+- 设置根页新增「相关性灰度控制面」入口。独立页面展示身份状态、Provider、模型、配置指纹、gate、证据、holdout 和当前固定 `SHADOW`，并明确生产答案路径尚未接入；页面没有绑定、升级或直接开启 enforcement 的入口。
+- JVM 新增身份策略 `6` 条和控制面 `4` 条，完整 JVM 为 `532/532`。仅 Redmi 默认完整 instrumentation 为 `184` 条、`176 passed / 8 skipped / 0 failed`；新增 UI `2/2`、偏好存储 `4/4` 通过。显式真实身份探针 `1/1` 返回两条 `1024` 维有限向量，状态严格为 `CANDIDATE`。
+- 当前正式 Provider 身份与 Stage 85/86 实验 Provider ID 不同，已有 gate 不能直接升级该候选。下一阶段必须在同一正式 Provider、模型和配置指纹下建立新的 calibration、validation 与 final holdout 完整身份，再评审答案路径接入；生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面。
+
 ## 第 88 阶段：相关性降级、引用一致性与身份灰度契约
 
 - `KnowledgeSearchHit` 新增 `matchChannels`，`RoomKnowledgeDocumentStore` 在既有融合结果组装时标记 `LEXICAL / SEMANTIC`：语义-only、词法-only 和两者重叠都有明确来源。来源集合只描述同一次融合输入，不进入 RRF、排序、召回、Room Schema 或历史审计。
@@ -289,7 +300,7 @@
 - Provider 管理、模型同步、运行态 Map、Compose 发送/选择事件投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
-- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v29 Schema；迁移测试覆盖 v4→v29、各关键增量迁移和全新 v29 建库。
+- Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v32 Schema；迁移测试覆盖 v4→v32、各关键增量迁移和全新 v32 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
@@ -449,7 +460,7 @@
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、独立 ProcessExitObservation、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v29，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v29 的关键增量和全新 v29 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表，不从旧正文、历史 JSON 或退出时间邻近关系猜造引用、系统停止原因或 Task/Run 关联。
+- 数据库当前版本为 v32，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v32 的关键增量和全新 v32 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表；v29→v30 增加按 Provider/模型隔离的 Embedding 索引与检索身份；v30→v31 增加 top1/top2/margin/候选数 shadow 字段；v31→v32 增加候选均值、总体标准差和 top1 z-score，所有迁移都不从旧正文、历史 JSON、当前向量或退出时间邻近关系猜造事实。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
