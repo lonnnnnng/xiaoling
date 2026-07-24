@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 92 阶段：答案可回答性策略（实现完成，真实验收待执行）
+
+- 新增 `KnowledgeAnswerability.kt`，把模型输出限制为单个严格 JSON 对象和固定 verdict 枚举：`ANSWERED`、`PARTIALLY_ANSWERED`、`NOT_ANSWERED`、`UNKNOWN`。字段集合、数值范围、证据片段长度、reason code 和 verdict/证据组合均在解析入口校验；协议错误与语义矛盾直接 fail-closed。
+- `ANSWERED` 必须携带候选正文中的原文片段。`KnowledgeAnswerabilityEvidenceMatcher` 先做有限空白归一化，再回到候选正文匹配、合并重叠区间并计算覆盖率；模型声称的、但候选正文不存在的 quote 不能被接受。`UNKNOWN` 只进入未知决策，不计作负例拒绝。
+- `KnowledgeAnswerabilityObservation` 支持 `VERDICT_AND_EXACT_EVIDENCE`、`VERDICT_EVIDENCE_AND_CONFIDENCE`、`VERDICT_EVIDENCE_CONFIDENCE_AND_COVERAGE` 三类预注册特征族。校准阶段选择门禁，验证阶段只应用冻结门禁；Judge identity 必须一致、dataset version 必须互异、三桶标签完整且 case ID 不得跨标签。该阶段只冻结策略，不读取 Room、不修改检索、不接入答案链路或生产 enforcement。
+- 新增 `KnowledgeAnswerabilityPolicyTest` 覆盖严格 JSON、证据匹配、模型幻造 quote、校准/验证隔离、UNKNOWN 计分、身份漂移和部分/矛盾回答拒绝，共 `7/7`。`RealProviderKnowledgeAnswerabilityInstrumentedTest` 预注册两套各 6 用例、每例 2 次，共 `12 + 12` 条观测；显式参数名为 `answerabilityProviderBaseUrl`、`answerabilityProviderApiKey`、`answerabilityProviderModel`、`answerabilityProviderId`，每次请求最多一次重试，最终失败进入 `UNKNOWN`。
+- 本轮 `lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功；受限通道使用 JDK 17、只读依赖缓存和仅存在于 `/private/tmp` 的临时 Gradle helper，helper 不属于项目代码或提交物。Debug APK 为 `23,042,682` 字节、SHA-256 `4a56feb945e9f9638f7c4f9480ca7bbd9412ffb7d86b55c05af4e7855d3783a2`。Gradle `testDebugUnitTest` 已完成测试类编译，但受限 worker 无法绑定本地 TCP；独立 JUnit `7/7` 通过。Redmi 安装、显式 gpt-5.5 探针、默认 instrumentation 和指标采集待 ADB 通道恢复后完成；没有使用或启动 Pixel_9。
+
 ## 第 91 阶段：跨主题平移不变特征探针否决
 
 - 新增 `KnowledgeRelevanceCrossTopicNormalizationPolicy`，预注册 `top1 - 候选均值`、`margin / 候选标准差` 和两者组合三类特征族。`fromCandidateDistribution()` 统一从已有审计字段构造特征，并拒绝非有限 top1/均值/margin、负 margin 以及不高于 `1e-12` 的候选标准差，避免零方差制造巨大比值。

@@ -1,5 +1,9 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 92 阶段把参考项目中常见的“检索排序与答案可验证性分层”进一步落成独立 Kotlin 策略。模型只能返回固定 JSON verdict 和候选原文 quote，系统必须把 quote 重新匹配到候选正文；解析失败、矛盾、部分回答和无法确认均不会被升级为可接受答案。三类特征族分别使用 verdict/原文证据、置信度和证据覆盖率，calibration 与 validation 绑定同一 Judge 身份但使用互异数据集，避免用验证集回调门禁。该实现只提供 shadow 证据，尚未接入生产检索、Room 或答案展示。
+
+这延续了第 91 阶段的判断：成熟 Agent 不能把“相似”直接当成“回答了问题”，也不能把模型自报的引用当作事实。离线策略测试 `7/7`、Lint 和 APK 构建已通过；真实 Provider/Redmi 观测仍待 ADB 通道恢复，当前不把未执行的 `12 + 12` 观测写成已验证结果，生产 enforcement 保持关闭。
+
 第 91 阶段进一步验证了成熟检索系统中的一个边界：仅把相似度改写成相对分数，不等于获得了 answerability。`top1-候选均值` 对整体分数平移不敏感，`margin/候选标准差` 还消除了正比例缩放；两者都只从已有审计构造，不引入新的生产依赖。Redmi 两套全新数据各 24 条、Recall@5 均为 `1.0`，但三轮均没有特征族达到预注册标准。最优的 `top1-均值` 与组合保留全部正例并拒绝全部远负例，却只能拒绝 `75%` 近负例；这证明“目标文档与问题同主题”仍可能被误当成“文档包含答案”。小灵因此没有照搬服务端常见的 score normalization 后直接开闸，而是保持 `productionEnforcementEnabled=false`，下一步转向 answerability/重排证据或继续关闭生产拒绝。
 
 第 90 阶段把参考项目常见的“质量门禁否决必须是可审计结果”落到正式 Provider：`KnowledgeRelevanceProductionCalibrationPolicy` 绑定 Provider、模型、配置指纹和互异 calibration/validation 数据集，只从 calibration 冻结七类特征族阈值，再在 validation 原样评估。Redmi 两套各 24 条观测的 Recall@5 均为 `1.0`，但最新 raw top1 正例接纳率 `0.75`（重复取证范围 `0.625–0.75`），七类特征族无一通过预注册相关性标准。显式测试把这个否决作为成功验收，保持 `productionEnforcementEnabled=false`；没有降低阈值、没有使用 validation 调参、没有升级 `VERIFIED` 或进入 final holdout。这里再次说明成熟系统中的排序正确不等于相关性接纳通过，跨主题绝对分数漂移仍需新的归一化/数据设计才能继续。

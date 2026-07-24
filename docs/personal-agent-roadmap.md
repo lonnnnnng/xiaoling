@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 92 阶段：答案可回答性策略（实现完成，真实 Provider 验收待执行）
+
+本阶段先把第 91 阶段暴露的“同主题不等于真正回答”问题收敛成可审计的独立策略，而不继续调检索分数。实现已完成：严格 JSON 协议、固定 verdict、候选原文 quote 匹配、矛盾/部分回答拒绝、`UNKNOWN` 保守决策，以及三类特征族的 calibration/validation 身份隔离。`KnowledgeAnswerabilityPolicyTest` 离线 `7/7` 通过；Lint、Debug APK 和 AndroidTest APK 构建成功。生产检索、Room、答案引用 UI、普通聊天和 enforcement 尚未读取该策略，`productionEnforcementEnabled=false`。
+
+真实验收仍需只在 Redmi `wsvwypiz7xwslvl7` 执行：安装主/测试 APK，使用项目未跟踪 `AGENTS.md` 的 Provider 兜底配置，以 `redmi-answerability-judge-v1 / gpt-5.5` 运行显式 calibration/validation 探针，核对 `12 + 12` 条观测、失败数、三类特征族和生产 enforcement 关闭状态，再运行默认 instrumentation 并恢复主 APK、Activity、配置和设备状态。本轮 Codex 受限通道无法连接已存在 ADB server，因此这些设备证据暂不宣称完成；没有连接或启动 Pixel_9。
+
+下一步边界：先取得新的独立 answerability 证据并评估可重复性，再讨论将 answerability 结果接到答案级知识引用的 shadow 呈现；在真实证据和用户可见回退规则完成前，不把任何结果升级为生产 `VERIFIED`、final holdout 或拒绝执行。设备工具仍不得进入 Workflow/后台自动化，精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 91 阶段：跨主题平移不变特征探针否决
 
 已完成新的跨主题归一化设计、纯 Kotlin 契约和 Redmi 三轮真实证据。`KnowledgeRelevanceCrossTopicNormalizationPolicy` 只使用已有审计字段构造 `top1 - 候选均值` 与 `margin / 候选标准差`，比较两个单特征和组合共三族；候选标准差接近零或输入非有限时直接拒绝。正式身份、配置指纹和互异 calibration/validation 版本继续强绑定，validation 不参与选阈值，生产 Room、Store、答案链路与 enforcement 不变。
@@ -646,7 +654,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 88. 已完成：完整本地门禁更新为 JVM `535/535`、Lint、Debug/AndroidTest APK；仅 Redmi 默认 instrumentation XML 为 `185` 条（`176 passed / 9 skipped / 0 failed`）。
 89. 已完成：新的跨主题归一化策略只使用 `top1-均值` 与 `margin/标准差`，绑定正式身份和独立数据集，JVM 契约覆盖冻结阈值、身份漂移、缺桶、标签漂移与零方差拒绝。
 90. 已完成：两套各 24 条 Redmi 观测的 Recall@5 均为 `1.0`，但三种归一化特征族通过数仍为 `0`；最优族近负例拒绝只有 `0.75`，稳定得到预注册门禁否决。
-91. 当前边界：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；下一步不再调同一检索分数，优先设计 answerability/重排证据或保持拒绝关闭继续积累独立数据。
-92. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+91. 已完成：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；不再调同一检索分数，转向 answerability/重排证据。
+92. 当前边界：严格答案可回答性策略和离线 `7/7` 契约已完成；Redmi `12 + 12` 真实 Provider 探针、默认 instrumentation 和指标取证待 ADB 通道恢复，生产 enforcement 继续关闭。
+93. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

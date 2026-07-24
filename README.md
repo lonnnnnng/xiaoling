@@ -105,12 +105,10 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`：通过，当前 348 项 JVM 测试通过，0 失败、0 错误。
-- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 执行完整 123 条 instrumentation，结果为 `OK (123 tests)`；模拟器未参与安装、测试、截图或验收。
-- Room v27 已完成本地知识库、`knowledge.search`、稳定引用链和引用生命周期校验；禁用、替换或删除后，旧消息与 Workflow 输出不会再次进入新模型上下文，历史审计保持不变。
-- Redmi 真实 AccessibilityService 已验证普通主界面快照成功、敏感字段节点脱敏、支付窗口 `SENSITIVE_WINDOW` 整窗拒绝；应用独立开关默认关闭和关闭即撤销 ref 均已验证，系统服务授权与绑定正常。
-- Redmi 有限动作验收覆盖计算器打开/节点点击、设置页滚动/搜索/普通文本输入、敏感输入拒绝、返回、主页和时钟启动；真实 `gpt-5.5 + Responses` `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、动作后验证、Tool Ledger 与最终总结，Run 为 `COMPLETED`。
-- 五份真实项目文档的自然改写、多词分隔、top-1 和负例检索门禁均通过；真实 `gpt-5.5` Agent Run 已完成知识工具规划与引用一致性验收。
+- 第 92 阶段离线门禁：`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功；新增 `KnowledgeAnswerabilityPolicyTest` 通过独立 JUnit `7/7`。Gradle `testDebugUnitTest` 已完成编译，但 Test Worker 受本地 TCP socket 限制未能启动。
+- 第 92 阶段 Redmi 真实安装、`gpt-5.5` Provider 探针和默认 instrumentation 尚待执行；shell 与 Node 通道均无法连接本机 ADB server（`Operation not permitted`）。仅允许使用 Redmi `wsvwypiz7xwslvl7`，没有连接或启动 Pixel_9。
+- 以下能力为此前 Redmi 里程碑的历史已验证结果：Room 知识库、`knowledge.search`、稳定引用链、Accessibility 只读观察层和有限设备动作；它们不代表第 92 阶段 answerability 真实 Provider 证据已经完成。
+- 生产 `Room`、检索、答案链路和 answerability enforcement 继续保持隔离；`productionEnforcementEnabled=false`。
 - Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
 

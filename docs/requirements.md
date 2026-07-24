@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 92 阶段答案可回答性策略边界
+
+答案可回答性 Judge 只能返回单个严格 JSON 对象，字段集合固定为 `verdict`、`confidence`、`evidence_quotes`、`contradiction_detected`、`reason_code`；verdict 只能是 `ANSWERED`、`PARTIALLY_ANSWERED`、`NOT_ANSWERED` 或 `UNKNOWN`。`ANSWERED` 必须携带候选正文中可匹配的原文 quote；`NOT_ANSWERED` 与 `UNKNOWN` 不得携带 quote；字段异常、解析错误、矛盾或部分回答必须 fail-closed，`UNKNOWN` 不得计作负例拒绝。
+
+策略必须在候选正文上重新匹配并合并 quote 区间，记录 quote 数、匹配数和覆盖率；不能把模型自行生成的“证据”直接展示或用于接受决策。三类预注册特征族分别使用固定 verdict/原文证据、置信度和证据覆盖率；calibration 只能冻结阈值，validation 只能应用冻结阈值。两侧必须绑定同一 Provider/Judge identity、prompt version 和配置指纹，dataset version 必须互异，三桶标签完整且 case ID 不得漂移。
+
+第 92 阶段只允许独立测试和显式 Redmi 探针采集 shadow 证据，不得读取生产 Room、修改召回、改变答案引用 UI、升级相关性身份或开启 `productionEnforcement`。预注册真实探针为两套各 6 个用例、每例重复 2 次（`12 + 12`）；缺参数时跳过，网络/解析最终失败进入 `UNKNOWN` 并计入失败数。当前离线策略 `7/7`、Lint 和 APK 构建已通过；Redmi 真实观测因当前 Codex ADB socket 限制尚未执行，不得把它写成通过。设备只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
+
 ## 第 91 阶段跨主题平移不变特征验证边界
 
 新的相关性实验只能使用生产检索已经具备的审计事实，不得为了实验直接修改 Room v32 或线上召回。预注册特征固定为 `top1 - 候选均值`、`margin / 候选标准差` 及两者组合；非有限 top1/均值/margin、负 margin 或不高于 `1e-12` 的候选标准差必须 fail-closed。calibration/validation 必须绑定同一生产 Provider、模型、配置指纹并使用不同数据集版本；阈值只能从 calibration 真实观测点选择，validation 不得重新选参。

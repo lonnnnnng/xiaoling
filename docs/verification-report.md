@@ -2,6 +2,14 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 答案可回答性策略离线实现（第 92 阶段，Redmi 真实验收待执行）
+
+- 实现边界：新增 `KnowledgeAnswerability.kt`，固定 JSON verdict、候选原文 quote 匹配、矛盾/部分回答拒绝和 `UNKNOWN` 保守决策；三类特征族只在 calibration 选择门禁，在互异 validation 数据上冻结评估。该切片不读取 Room、不修改检索、答案引用 UI、普通聊天、Workflow 或生产 enforcement。
+- 离线断言：`KnowledgeAnswerabilityPolicyTest` 通过独立 JUnit `7/7`。Gradle `testDebugUnitTest` 已完成新增测试类编译，但测试 worker 在 `ForkingTestClassProcessor` 绑定本地 TCP 时失败，关键错误为 `java.net.SocketException: Operation not permitted`；这属于执行通道限制，不是断言失败。
+- 静态门禁：离线 `lintDebug assembleDebug assembleDebugAndroidTest` 成功；受限通道使用 JDK 17、只读依赖缓存和仅存在于 `/private/tmp` 的临时 Gradle helper 绕过本地 worker/socket 限制，该 helper 不属于项目代码或提交物。Debug APK 为 `23,042,682` 字节，SHA-256 `4a56feb945e9f9638f7c4f9480ca7bbd9412ffb7d86b55c05af4e7855d3783a2`；AndroidTest APK 会打包本目录长期文档，不记录自引用哈希。
+- Redmi 计划：`RealProviderKnowledgeAnswerabilityInstrumentedTest` 只接受显式 `answerabilityProviderBaseUrl`、`answerabilityProviderApiKey`、`answerabilityProviderModel`、`answerabilityProviderId` 参数，目标身份为 `redmi-answerability-judge-v1 / gpt-5.5`，两套各 6 用例、每例 2 次，最终失败进入 `UNKNOWN`。本轮 shell 与 Node 两个执行通道都无法连接已存在的 5037 ADB server，错误为 `could not install *smartsocket* listener: Operation not permitted`；Mac 侧 `/models` 探针另因 DNS `Could not resolve host` 失败，均未计入 Provider 证据，因此尚未安装 APK、运行显式探针或默认 instrumentation。不能把通道限制归因于 Redmi、Provider 或模型。没有连接、启动或操作 Pixel_9。
+- 当前安全结论：`productionEnforcementEnabled=false`，生产身份、检索和答案路径保持原状态。待 ADB 通道恢复后，先安装主/测试 APK并采集 Stage 92 指标，再运行默认 instrumentation，最后恢复主 APK、Activity、Provider/Agent 配置和设备状态。
+
 ## 2026-07-25 跨主题平移不变特征预注册门禁否决（第 91 阶段）
 
 - 实现边界：新增 `KnowledgeRelevanceCrossTopicNormalizationPolicy`，只使用已有检索审计构造 `top1 - 候选均值` 与 `margin / 候选标准差`，比较两个单特征和组合共三族。候选标准差不高于 `1e-12`、输入非有限或 margin 为负时 fail-closed；calibration/validation 继续绑定正式 Provider、模型、配置指纹和互异版本，validation 不参与阈值选择。Room v32、生产 Store、`knowledge.search`、普通聊天、Workflow、答案路径和 enforcement 均未修改。
