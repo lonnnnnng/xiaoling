@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 91 阶段：跨主题平移不变特征探针否决
+
+已完成新的跨主题归一化设计、纯 Kotlin 契约和 Redmi 三轮真实证据。`KnowledgeRelevanceCrossTopicNormalizationPolicy` 只使用已有审计字段构造 `top1 - 候选均值` 与 `margin / 候选标准差`，比较两个单特征和组合共三族；候选标准差接近零或输入非有限时直接拒绝。正式身份、配置指纹和互异 calibration/validation 版本继续强绑定，validation 不参与选阈值，生产 Room、Store、答案链路与 enforcement 不变。
+
+`stage91-cross-topic-calibration-v1 / validation-v1` 各 12 篇新主题文档、三桶各 4 条查询并重复 2 次，共 `24 + 24` 条观测；Recall@5 均为 `1.0`，三轮 Redmi 均 `OK (1 test)` 且通过族为 `0`。`top1-均值` 与组合在 validation 上正例接纳 `1.0`、近负例拒绝 `0.75`、远负例拒绝 `1.0`、稳定率 `1.0`；`margin/标准差` 更弱，仅为 `0.75 / 0.25 / 1.0 / 1.0`。因此平移不变性虽然解决了本轮正例保留，却没有解决“同主题但语料未回答”的近负例误接纳。
+
+本阶段明确否决继续围绕同一检索分数微调。下一阶段若继续相关性路线，应先设计 answerability/重排证据，让系统判断候选文档是否真正包含问题答案，再重新注册 calibration/validation；新的独立证据通过前，不进入 final holdout、不升级 `VERIFIED`、不接入生产答案路径。完整本地门禁为 JVM `541/541`、Lint、Debug/AndroidTest APK；Redmi 默认全量 JUnit XML 已完成，为 `186` 条（`176 passed / 10 skipped / 0 failed`）。
+
 ## 第 90 阶段：正式相关性 calibration/validation 预注册门禁否决
 
 已完成正式 Provider 身份下的独立 calibration/validation 证据采集，但结论是质量门禁否决，不是生产通过。`KnowledgeRelevanceProductionCalibrationPolicy` 绑定 Provider、模型、配置指纹和互异 `datasetVersion`，只从 calibration 冻结七类特征族阈值，再在 validation 原样评估。Redmi `wsvwypiz7xwslvl7` 使用 `redmi-production-embedding-v1 / Qwen/Qwen3-Embedding-0.6B`，配置指纹 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`，两套数据各 24 条观测、Recall@5 均为 `1.0`；最新 raw top1 validation 正例接纳 `0.75`，近/远负例拒绝 `1.0`，七类特征族通过数 `0`，重复运行的正例接纳在 `0.625–0.75` 之间，说明跨主题绝对分数漂移仍未解决。
@@ -636,7 +644,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 86. 已完成：正式门禁否决被编码为成功的 Redmi 显式验收（`OK (1 test)`），不降低阈值、不回调 validation、不升级 `VERIFIED` 或进入 final holdout。
 87. 已完成：模型漂移身份回归，Provider、模型、配置指纹和数据集版本任一漂移均在比较前 fail-closed。
 88. 已完成：完整本地门禁更新为 JVM `535/535`、Lint、Debug/AndroidTest APK；仅 Redmi 默认 instrumentation XML 为 `185` 条（`176 passed / 9 skipped / 0 failed`）。
-89. 当前边界：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；下一步先决定新的跨主题归一化/数据设计或继续积累独立证据。
-90. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+89. 已完成：新的跨主题归一化策略只使用 `top1-均值` 与 `margin/标准差`，绑定正式身份和独立数据集，JVM 契约覆盖冻结阈值、身份漂移、缺桶、标签漂移与零方差拒绝。
+90. 已完成：两套各 24 条 Redmi 观测的 Recall@5 均为 `1.0`，但三种归一化特征族通过数仍为 `0`；最优族近负例拒绝只有 `0.75`，稳定得到预注册门禁否决。
+91. 当前边界：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；下一步不再调同一检索分数，优先设计 answerability/重排证据或保持拒绝关闭继续积累独立数据。
+92. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-后续若继续相关性工作，必须先重新注册新的跨主题归一化/数据设计，不能用第 90 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

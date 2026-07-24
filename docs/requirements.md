@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 91 阶段跨主题平移不变特征验证边界
+
+新的相关性实验只能使用生产检索已经具备的审计事实，不得为了实验直接修改 Room v32 或线上召回。预注册特征固定为 `top1 - 候选均值`、`margin / 候选标准差` 及两者组合；非有限 top1/均值/margin、负 margin 或不高于 `1e-12` 的候选标准差必须 fail-closed。calibration/validation 必须绑定同一生产 Provider、模型、配置指纹并使用不同数据集版本；阈值只能从 calibration 真实观测点选择，validation 不得重新选参。
+
+`stage91-cross-topic-calibration-v1 / validation-v1` 必须使用与第 90 阶段不同的全新主题语料，每套 12 篇文档、正例/近负例/远负例各 4 条英文查询并重复 2 次。近负例必须是同主题但语料未覆盖的具体事实，不能被 companion 文档直接回答；Recall@5 仍需 `>=0.80`。相关性标准保持正例接纳 `>=0.90`、近负例拒绝 `>=0.80`、远负例拒绝 `>=0.90`、决策稳定 `1.0`，不得因为新特征接近通过而降低标准。
+
+Redmi 三轮有效结果均为 `24 + 24` 条观测、Recall@5 `1.0 / 1.0`、通过族 `0`。`top1-均值` 与组合的 validation 为正例接纳 `1.0`、近负例拒绝 `0.75`、远负例拒绝 `1.0`、稳定率 `1.0`；`margin/标准差` 为 `0.75 / 0.25 / 1.0 / 1.0`。该结论必须记录为预期门禁否决，不能进入 final holdout、升级 `VERIFIED` 或开启 `productionEnforcement`。后续若继续，必须先建立 answerability/重排证据，而不是使用 validation 回调本轮阈值。完整本地门禁为 JVM `541/541`、Lint、Debug/AndroidTest APK；Redmi 默认全量 JUnit XML 已完成，为 `186` 条（`176 passed / 10 skipped / 0 failed`），且不得连接或操作 Pixel_9。
+
 ## 第 90 阶段正式相关性 calibration/validation 预注册门禁边界
 
 正式相关性证据必须绑定同一生产 Provider ID、模型和配置指纹，并使用互异的 calibration/validation `datasetVersion`。七类特征族（raw top1、margin、top1 z-score 及四种组合）只能从 calibration 选择阈值，validation 必须原样评估；不得使用 validation 回调阈值、降低预注册标准或复用旧 holdout。

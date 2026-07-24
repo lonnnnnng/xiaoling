@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 91 阶段：跨主题平移不变特征探针否决
+
+- 新增 `KnowledgeRelevanceCrossTopicNormalizationPolicy`，预注册 `top1 - 候选均值`、`margin / 候选标准差` 和两者组合三类特征族。`fromCandidateDistribution()` 统一从已有审计字段构造特征，并拒绝非有限 top1/均值/margin、负 margin 以及不高于 `1e-12` 的候选标准差，避免零方差制造巨大比值。
+- 正式 calibration/validation 继续绑定生产 Provider、模型、配置指纹和不同 `datasetVersion`。阈值只从 calibration 的真实观测点组合选择，validation 只应用冻结阈值；该实现不改 Room v32、生产 Store、`knowledge.search`、普通聊天、Workflow、答案路径或 enforcement。
+- Redmi `wsvwypiz7xwslvl7` 使用 `stage91-cross-topic-calibration-v1 / stage91-cross-topic-validation-v1` 两套全新主题语料，各 12 篇文档、正/近负/远负各 4 条查询并重复 2 次，共 `24 + 24` 条观测，Recall@5 均为 `1.0`。三次有效运行均 `OK (1 test)`，查询中位数约为 calibration `711–780ms`、validation `734–780ms`，通过族始终为 `0`。
+- `TOP_SCORE_MEAN_GAP` 的 calibration 阈值约 `0.2904–0.2906`；validation 正例接纳 `1.0`、近负例拒绝 `0.75`、远负例拒绝 `1.0`、稳定率 `1.0`、balanced accuracy `0.9167`。组合族得到相同决策；`MARGIN_OVER_STANDARD_DEVIATION` 只有正例接纳 `0.75`、近负例拒绝 `0.25`、远负例拒绝 `1.0`、balanced accuracy `0.6667`。
+- 结论：平移不变特征修复了第 90 阶段的正例误拒方向，但会把同主题且语料未覆盖的问题当作相关，因此仍被预注册近负例标准否决。不得用 validation 回调阈值或降低 `0.80` 近负例标准；不进入 final holdout，不升级 `VERIFIED`，`productionEnforcementEnabled=false`。下一步若继续相关性工作，应先设计能判断“文档是否真正回答问题”的 answerability/重排证据，而不是继续调同一批检索分数。
+- 完整本地门禁为 JVM `541/541`、Lint、Debug/AndroidTest APK；Debug APK 为 `23,026,298` 字节，SHA-256 `808b4b7372f717bbee1cd4ebe8962a769872d289df7c5a6d039bc0e68c0c93be`。唤醒并退出 Redmi dream/keyguard 后，默认全量 JUnit XML 为 `186` 条（`176 passed / 10 skipped / 0 failed`）；10 个显式联网用例无参数按设计 skipped。测试包已卸载，主 APK、兜底 Provider 和默认 Agent Profile 已恢复，系统亮屏/屏保设置已还原；Device Agent 与 Accessibility 仍保持新安装后的 opt-in/未授权状态，没有把测试自动授权冒充用户授权。
+
 ## 第 90 阶段：正式相关性 calibration/validation 预注册门禁否决
 
 - 新增 `KnowledgeRelevanceProductionDatasetIdentity` 与 `KnowledgeRelevanceProductionCalibrationPolicy`。正式 calibration/validation 必须同时绑定生产 Provider ID、模型、配置指纹，且 `datasetVersion` 不得复用；比较阶段继续复用既有七类特征族，只从 calibration 冻结阈值，再原样评估独立 validation，不把 validation 结果回调为新阈值。

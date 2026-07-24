@@ -2,6 +2,17 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 跨主题平移不变特征预注册门禁否决（第 91 阶段）
+
+- 实现边界：新增 `KnowledgeRelevanceCrossTopicNormalizationPolicy`，只使用已有检索审计构造 `top1 - 候选均值` 与 `margin / 候选标准差`，比较两个单特征和组合共三族。候选标准差不高于 `1e-12`、输入非有限或 margin 为负时 fail-closed；calibration/validation 继续绑定正式 Provider、模型、配置指纹和互异版本，validation 不参与阈值选择。Room v32、生产 Store、`knowledge.search`、普通聊天、Workflow、答案路径和 enforcement 均未修改。
+- Redmi 数据：仅使用 `wsvwypiz7xwslvl7`，正式身份为 `redmi-production-embedding-v1 / Qwen/Qwen3-Embedding-0.6B`，配置指纹 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`。`stage91-cross-topic-calibration-v1 / validation-v1` 各 12 篇全新主题文档、三桶各 4 条查询并重复 2 次，共 `24 + 24` 条观测；Recall@5 均为 `1.0`。
+- 质量结论：三次有效运行均 `OK (1 test)`，通过特征族始终为 `0`。`TOP_SCORE_MEAN_GAP` 的 calibration 阈值为 `0.2904–0.2906`，validation 正例接纳 `1.0`、近负例拒绝 `0.75`、远负例拒绝 `1.0`、决策稳定 `1.0`、balanced accuracy `0.9167`；组合族结果相同。`MARGIN_OVER_STANDARD_DEVIATION` 的 validation 为正例 `0.75`、近负例拒绝 `0.25`、远负例拒绝 `1.0`、稳定 `1.0`、balanced accuracy `0.6667`。
+- 性能观测：三轮 calibration 查询中位数为 `711–780ms`，validation 为 `734–780ms`；这些值只描述当前 Redmi、Provider 和网络路径，不作生产延迟门禁。
+- 决策：平移不变分数能保留本轮全部正例，却不能区分“同主题”与“文档真正回答问题”，近负例仍有 `25%` 被接纳。显式测试冻结为预期门禁否决，`productionEnforcementEnabled=false`；不得降低近负例标准、回调 validation 阈值、进入 final holdout、升级 `VERIFIED` 或接入答案路径。后续若继续，应先设计 answerability/重排证据。
+- 本地门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过，JVM XML 汇总 `541/541`，Lint、Debug APK 与 AndroidTest APK 成功。Debug APK 为 `23,026,298` 字节，SHA-256 `808b4b7372f717bbee1cd4ebe8962a769872d289df7c5a6d039bc0e68c0c93be`。
+- 默认 Redmi 全量回归：唤醒并退出 `mDreamingLockscreen`/`NotificationShade` 后，仅使用 `wsvwypiz7xwslvl7` 重跑，JUnit XML 为 `186` 条（`176 passed / 10 skipped / 0 failed`）；10 个显式联网用例无参数按设计 skipped。首次失败的 22 个 Compose 用例均由设备睡眠/系统焦点造成，唤醒后的完整重跑为 0 failed；未启动、连接或操作 Pixel_9/其他模拟器。
+- 收尾状态：完整套件按框架行为卸载主包后，已重新安装 Debug APK；Provider 兼容探针以 Keystore 恢复了 AGENTS.md 兜底 Provider，启动应用自动创建默认 Agent Profile。测试包已卸载，`MainActivity` 前台、crash buffer 为空，`stay_on_while_plugged_in=15` 与 `screensaver_enabled=1` 已恢复。Device Agent 与 Accessibility 保持新安装后的 opt-in/未授权状态，未把测试自动授权冒充用户授权。
+
 ## 2026-07-25 正式相关性 calibration/validation 预注册门禁否决（第 90 阶段）
 
 - 实现边界：新增 `KnowledgeRelevanceProductionDatasetIdentity` 与 `KnowledgeRelevanceProductionCalibrationPolicy`。calibration/validation 必须同时绑定正式 Provider ID、模型、配置指纹，且 `datasetVersion` 不同；七类特征族只从 calibration 冻结阈值，再原样评估独立 validation。该切片不修改 Room、生产 Store、`knowledge.search`、普通聊天、Workflow 或 enforcement。
