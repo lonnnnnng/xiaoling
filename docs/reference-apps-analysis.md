@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 85 阶段把成熟检索系统常用的 calibration/validation 分离落到移动端真实 Provider，但没有把“多特征”本身当作更可靠。7 个预注册特征族各自在全新 calibration 集选 gate，再在全新 validation 集原样评估；raw top1 与 raw+margin 都达到正例 `0.90`、近/远负例 `1.0`、稳定 `1.0`，而 margin、z-score 或含 z 的组合没有更好。两者 validation 决策完全相同，因此继续增加 margin 只会增加过拟合维度；下一阶段优先冻结更简单的 raw top1，并用第三套未见 holdout 决定是否仍应否决。Stage 83 holdout 保持封存，生产拒绝保持关闭。完整 JVM `502/502`、Lint、APK 和仅 Redmi `177/177` instrumentation 通过，6 个联网用例默认 skipped。
+
 第 84 阶段借鉴成熟检索系统“原始分数之外还要保存查询内分布”的做法，但没有照搬成线上置信度。Room v32 为每次真实语义检索保存当前有界语义索引候选池中全部候选的均值、总体标准差和 top1 z-score，历史记录不回填；UI 继续标为 shadow 观测。退休 Stage 83 holdout 的单次诊断显示正例 z-score `2.929–3.722`、近负例 `2.226–3.232`、远负例 `1.579–2.879`，近负例仍与正例重叠。因此查询内标准化是下一轮实验特征，不是生产门禁；不能像部分服务端方案那样直接发布一个 z-score 阈值。完整 JVM `499/499`、Lint、APK 和仅 Redmi `176/176` instrumentation 通过，5 个联网用例默认 skipped。
 
 第 83 阶段验证了参考项目中更关键的一条原则：门禁需要真正独立的未见数据，而且失败结果必须阻止上线。第 82 阶段冻结 top1/margin 候选后，全新 20 篇成对主题、三桶各 10 条查询在 Redmi 三个独立进程中复验；Recall@1/5、MRR、排序稳定率和两类负例拒绝率均为 `1.0`，但正例接纳率只有 `0.80`，低于预注册 `0.90`。两个正例仍正确排第一，却因跨主题绝对分数低于冻结阈值被拒绝，说明服务端常见的原始 cosine 单阈值不能直接照搬到当前多主题移动端语料。小灵因此没有把候选接入生产，也没有用 holdout 回调阈值。下一轮若继续，必须建立新的版本化 calibration/validation/holdout 或归一化特征设计；ANN、后台批量重建和生产拒绝继续后置。完整离线门禁为 JVM `495/495`、Lint、APK 和仅 Redmi `175/175` instrumentation 通过，5 个联网用例默认 skipped；三轮显式 holdout 失败作为否决证据保留。

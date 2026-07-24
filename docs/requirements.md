@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 85 阶段验证边界
+
+本阶段只能比较特征族，不得修改生产 `RoomKnowledgeDocumentStore`、Room Schema、UI 或相关性拒绝行为。预注册特征族固定为 raw top1、margin、top1 z-score、raw+margin、raw+z、margin+z、raw+margin+z 共 7 种；每种门禁只能从 calibration 观测值的笛卡尔积选择阈值，validation 只能应用冻结阈值，不能重新选参。数据集身份必须包含 Provider、模型和版本；calibration/validation 的 Provider、模型必须一致，版本必须不同。
+
+`stage85-calibration-v1` 与 `stage85-validation-v1` 必须使用全新且互相隔离的内存 Room，每套包含 20 篇成对主题中文短文，正例、近负例、远负例各 10 条英文查询，每条重复 2 次。近负例是同主题但语料未覆盖的具体事实，不能由 companion 文档直接回答；Stage 83 holdout、Stage 82 calibration 及其阈值不得参与本轮搜索。预注册 validation 标准为正例接纳率 `>=0.90`、近负例拒绝率 `>=0.80`、远负例拒绝率 `>=0.90`、决策稳定率 `1.0`，同时要求两套语料 Recall@5 `>=0.80`。
+
+有效 Redmi 结果中 raw top1 与 raw+margin 都满足预注册标准且结果完全相同；为减少过拟合维度，下一阶段只把更简单的 raw top1 `0.6416276358587735` 作为待冻结候选。该候选必须在第三套全新 final holdout 上原样验证，不能用 validation 回调；本阶段不得发布生产阈值。完整默认门禁为 JVM `502/502`、Lint、Debug/AndroidTest APK 和仅 Redmi instrumentation `177/177`；6 个真实 Provider 用例缺参按设计 skipped。
+
 ## 第 84 阶段验证边界
 
 第 83 阶段已证明原始 cosine 绝对阈值会跨主题漂移，本阶段只能新增相对分布 shadow 观测，不能放宽旧门禁或启用生产拒绝。每次真实语义检索必须基于现有 2000 行上限内、截断 top-K 之前的全部有效候选计算均值、总体标准差和 top1 z-score；z-score 在候选分数整体平移时应保持不变。单候选或零方差没有可证明的相对区分度，z-score 必须为 `null`，不能补零。

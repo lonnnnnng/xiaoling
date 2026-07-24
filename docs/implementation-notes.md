@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 85 阶段实现与验证边界
+
+- 新增 `KnowledgeRelevanceFeatureComparisonPolicy`，固定 7 个特征族并以统一 feature vector 表达 raw top1、margin 和 top1 z-score。每个特征族只从 calibration 真实观测值的笛卡尔积搜索，按三桶等权 balanced accuracy、正例接纳、两类负例拒绝、稳定率和阈值顺序确定可复现 gate。
+- `compare()` 强制 calibration/validation Provider 与模型一致、datasetVersion 不同；两侧都要求三桶完整、case ID 非空且不跨标签、全部特征有限。validation 只调用 `evaluateFrozenGates()`，不会参与 calibration gate 搜索。3 条 JVM 测试覆盖全部 7 个特征族、冻结阈值不回调，以及缺桶、非有限值、标签漂移和数据集复用拒绝。
+- 新增显式联网 `RealProviderKnowledgeFeatureComparisonInstrumentedTest`。`stage85-calibration-v1` 与 `stage85-validation-v1` 各自建立独立内存 Room，分别导入 20 篇全新成对主题语料；每套三桶各 10 条查询、每条重复 2 次。首轮草案曾把 companion 文档可直接回答的问题误标为近负例，已在形成阶段证据前废弃；有效版本改为同主题但语料未覆盖的具体事实。
+- Redmi 有效运行 `1/1`，耗时 `132.872s`，两套各 60 条观测且 Recall@5 均为 `1.0`。raw top1 与 raw+margin validation 均为正例接纳 `0.90`、近/远负例拒绝 `1.0`、稳定率 `1.0`、balanced accuracy `0.9667`；raw+margin 没有增益，下一阶段优先冻结 raw top1 `0.6416276358587735`。
+- 本阶段不修改生产检索、Room v32、UI 或 Provider 配置，也不复用 Stage 83 holdout。完整门禁为 JVM `502/502`、Lint、Debug/AndroidTest APK 和仅 Redmi `177/177` instrumentation；默认 6 个显式联网用例按设计 skipped。
+
 ## 第 84 阶段实现与验证边界
 
 - 新增 `KnowledgeRelevanceRelativeDiagnosticsPolicy` 与结果模型。输入必须非空且全部有限；均值和总体标准差使用当前输入候选池的全部分数，top1 z-score 只在至少两个候选且标准差高于数值容差时生成。4 条 JVM 测试覆盖准确计算、整体平移不变、单候选/零方差和非法输入。

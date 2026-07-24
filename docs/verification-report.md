@@ -2,6 +2,16 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 Embedding 特征族独立 calibration/validation（第 85 阶段）
+
+- 纯 Kotlin 契约：新增 7 个固定特征族，calibration gate 只枚举 calibration 观测点，validation 只应用冻结阈值。身份门禁要求 Provider/模型一致、数据集版本不同；输入门禁要求三桶完整、数值有限和 case 标签稳定。聚焦 JVM `3/3` 通过。
+- 数据隔离：`stage85-calibration-v1` 与 `stage85-validation-v1` 分别使用独立内存 Room，各 20 篇全新成对主题文档，正/近负/远负各 10 条英文查询，每条重复 2 次；Stage 82 calibration 与 Stage 83 holdout 均未参与。首轮错误地把 companion 可直接回答的问题标为近负例，已废弃且不记录为有效实验；修正后近负例固定为同主题但语料未覆盖的具体事实。
+- Redmi 有效运行：只在 `wsvwypiz7xwslvl7` 执行，`1/1` 通过，耗时 `132.872s`；两套均得到 60 条有效观测，Recall@5 均为 `1.0`。配置从未跟踪 `AGENTS.md` 内部读取，未输出 Base URL 或 API Key。
+- 通过候选：raw top1 阈值 `0.6416276358587735` 与 raw+margin 阈值 `0.6416276358587735 / 0.021738810541493292` 的 calibration balanced accuracy 均为 `1.0`；validation 均为正例接纳 `0.90`、近负例拒绝 `1.0`、远负例拒绝 `1.0`、稳定率 `1.0`、balanced accuracy `0.9667`，满足预注册标准。
+- 未通过候选：单 margin、单 z、margin+z 的 validation balanced accuracy 均为 `0.80`，近负例拒绝只有 `0.50`；raw+z 和 raw+margin+z 的正例接纳只有 `0.80`。z-score 没有改善本轮跨集泛化。
+- 结论：raw+margin 与 raw top1 没有产生不同 validation 决策，下一阶段按简约原则只冻结 raw top1 及其身份，用第三套全新 final holdout 验证。当前不写生产配置、不修改 Room v32/cosine+RRF/词法兜底，也不启用拒绝。
+- 完整门禁：JVM XML `502/502`、0 failed、0 skipped；Lint、Debug APK 和 AndroidTest APK 成功。仅在 Redmi 运行默认完整 instrumentation，`177/177`、0 failed，6 个显式联网用例缺参按设计 skipped；未启动或操作 Pixel_9/其他模拟器。
+
 ## 2026-07-24 Embedding 查询内相对分布 shadow 观测（第 84 阶段）
 
 - 纯 Kotlin 契约：`KnowledgeRelevanceRelativeDiagnosticsPolicyTest` 共 4 条，覆盖总体均值/标准差/top1 z-score、候选整体平移不变、单候选与零方差保持未知、空列表和非有限值拒绝。z-score 只描述首位候选在同次查询候选分布中的相对位置。

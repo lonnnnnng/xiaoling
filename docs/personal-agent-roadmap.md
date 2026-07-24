@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 85 阶段：Embedding 特征族独立 calibration/validation
+
+已完成实现与 Redmi 验证。新增 `KnowledgeRelevanceFeatureComparisonPolicy`，预注册比较 raw top1、margin、top1 z-score 及四种组合。每个特征族只从 calibration 观测点选择 gate；validation 原样应用冻结 gate。策略强制 Provider/模型一致、数据集版本不同、三桶完整、数值有限和 case 标签稳定。生产 Room v32、cosine+RRF、FTS4+LIKE 与无拒绝边界保持不变。
+
+全新 `stage85-calibration-v1` 与 `stage85-validation-v1` 分别使用独立内存 Room、20 篇成对主题文档、三桶各 10 条查询和每条 2 次重复，共 `60 + 60` 条有效观测；Recall@5 均为 `1.0`。raw top1 gate `0.6416276358587735` 与 raw+margin gate `0.6416276358587735 + 0.021738810541493292` 的 validation 指标完全相同：正例接纳 `0.90`、近/远负例拒绝 `1.0`、稳定率 `1.0`、balanced accuracy `0.9667`。单 margin、单 z 和含 z 的组合没有更优；首轮把 companion 可直接回答的问题误标为近负例的数据草案已废弃，不进入证据或阈值。
+
+下一阶段按简约原则冻结 raw top1 候选及其 Provider/模型/calibration 身份，用第三套全新 final holdout 预注册验证；若再次出现正例接纳不足，候选必须被否决，不能回调。本阶段完整门禁为 JVM `502/502`、Lint、Debug/AndroidTest APK 和仅 Redmi `177/177` instrumentation；6 个显式联网用例默认 skipped。生产相关性拒绝继续关闭。
+
 ## 第 84 阶段：Embedding 查询内相对分布 shadow 观测
 
 已完成实现与 Redmi 验证。新增纯 Kotlin `KnowledgeRelevanceRelativeDiagnosticsPolicy`，从同次查询当前有界语义索引候选池的全部有效 cosine 候选计算均值、总体标准差和 top1 z-score；整体分数平移不改变 z-score，单候选或零方差保持未知。生产 Store 在 top-K 截断前计算这些值，Room v32 持久化三个可空字段，v31 历史记录保持 `null`；知识管理页继续以“校准观测”展示，不改变召回或拒绝行为。
