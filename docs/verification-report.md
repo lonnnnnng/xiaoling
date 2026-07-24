@@ -2,6 +2,18 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 冻结候选门禁独立 holdout（第 83 阶段）
+
+- 冻结身份：模型 `Qwen/Qwen3-Embedding-0.6B`，门禁 `stage82-qwen-v1`，校准集 `stage82-calibration-v1`，holdout `stage83-holdout-v1`；top1 下限 `0.6735426515268672`，margin 下限 `0.0178535973263384`。这些值在运行 holdout 前固定，三轮后没有修改。
+- 预注册标准：正例接纳率 `>=0.90`、近负例拒绝率 `>=0.80`、远负例拒绝率 `>=0.90`、决策稳定率 `1.0`；Recall@1 `>=0.90`、Recall@5 `1.0`、MRR `>=0.90`、排序稳定率 `1.0`。
+- 策略与 JVM：新增 holdout 身份、冻结门禁、标准和报告模型；4 条 `KnowledgeRelevanceHoldoutPolicyTest` 覆盖成功评估、Provider/模型/数据集漂移、非法阈值/标准/样本，以及 holdout 失败后不得用自身样本重新调参。完整 JVM XML 为 `495/495`、0 failed、0 skipped。
+- 独立语料：20 篇全新中文成对主题文档，不复用 Stage 82 主题；正例、近负例、远负例各 10 条英文查询，每条重复 2 次。纯词法命中均为 0，每次语义检索均有 20 个候选；20 行 1024 维 Float32 向量共 `81,920` 字节。
+- Redmi 三轮：只使用 `wsvwypiz7xwslvl7`，覆盖安装当前 Debug/Test APK，并从外部启动三个独立 instrumentation 进程。三轮均完成 60 个观测，正例接纳率 `0.80`、近负例拒绝率 `1.0`、远负例拒绝率 `1.0`、决策稳定率 `1.0`；Recall@1/5、MRR 和排序稳定率均为 `1.0`。三轮都在“独立 holdout 未通过冻结相关性门禁”断言处失败，真实否决结果稳定。
+- 失败定位：手冲咖啡正例 top1 `0.6169345095`、margin `0.0880494333`；缝纫机张力正例 top1 `0.6661466830`、margin `0.1218896937`。两者重复运行分数一致、目标文档仍排第一，但 top1 低于冻结下限。失败来自绝对分数跨主题泛化不足，不是排名、margin、Provider、向量维度或重复稳定性异常。
+- 性能与资源：三轮索引耗时 `14.237 / 14.696 / 14.655s`；查询中位数 `0.757 / 0.800 / 0.779s`，P95 `0.816 / 0.836 / 0.814s`；检索后 PSS `202,753 / 202,684 / 202,935 KB`。这些数据只作当前设备与 Provider 观测。
+- 决策：第 82 阶段冻结候选不具备进入生产相关性拒绝设计的资格。不得根据 `stage83-holdout-v1` 降低当前阈值或标准；后续必须建立新版本 calibration/validation/holdout 或新的归一化特征，并再次使用未见数据。生产 Room v31、cosine+RRF、FTS4+LIKE 词法兜底和 shadow 审计保持不变。
+- 默认离线门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 通过；Lint、Debug APK 和 AndroidTest APK 均成功。Debug APK 为 `22,944,378` 字节、SHA-256 `3294e1f13cf0b782f3ec3b804663aa05070676212f6dd8daaa364a8d1da7f8c6`。文档更新后仅在 Redmi 运行默认完整 instrumentation，`175/175`、0 failed，5 个显式联网用例缺参按设计 skipped；未启动或操作 Pixel_9/其他模拟器。
+
 ## 2026-07-24 Embedding 相关性扩样与 shadow 候选门禁（第 82 阶段）
 
 - 纯 Kotlin 策略：`KnowledgeRelevanceCalibrationPolicyTest` 覆盖可分数据的分位数与完美候选、重叠数据不得伪造完美门禁，以及缺桶、NaN、同 case ID 标签漂移拒绝。策略使用 nearest-rank，并以正例接纳率、近负例拒绝率、远负例拒绝率三桶等权计算 balanced accuracy。

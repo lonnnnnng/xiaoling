@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 83 阶段验证边界
+
+第 82 阶段候选必须冻结为版本化门禁后再接触独立 holdout。冻结身份至少包含 Provider、模型、门禁版本和校准数据集版本；holdout 必须使用不同数据集版本，Provider 或模型漂移时不得复用旧阈值。门禁阈值、比例标准和输入分数必须为有限值，三个标签桶缺一不可，同一 case ID 不得标签漂移。评估只能应用冻结的 `minimumTopScore + minimumScoreMargin`，不得搜索 holdout 自身最佳阈值或用失败样本回调当前门禁。
+
+本阶段冻结模型 `Qwen/Qwen3-Embedding-0.6B`、门禁 `stage82-qwen-v1`、校准集 `stage82-calibration-v1`，top1 下限 `0.6735426515268672`、margin 下限 `0.0178535973263384`；独立 `stage83-holdout-v1` 使用全新 20 篇成对主题中文短文，正例、近负例、远负例各 10 条英文查询，每条重复 2 次。预注册标准为正例接纳率 `>=0.90`、近负例拒绝率 `>=0.80`、远负例拒绝率 `>=0.90`、决策稳定率 `1.0`、Recall@1 `>=0.90`、Recall@5 `1.0`、MRR `>=0.90`、排序稳定率 `1.0`。
+
+Redmi 三个独立进程均观测到正例接纳率 `0.80`、两类负例拒绝率 `1.0`、决策稳定率 `1.0`、Recall@1/5 `1.0`、MRR `1.0`、排序稳定率 `1.0`。手冲咖啡和缝纫机张力正例的 top1 稳定低于冻结下限，因此候选相关性门禁失败，即使所有正例仍排在首位也不得降低预注册标准后宣称通过。第 82 阶段候选不具备进入生产拒绝设计的资格；生产 Room v31、cosine+RRF、FTS4+LIKE 词法兜底和审计语义保持不变。下一阶段若继续校准，必须建立新版本并重新分离 calibration/validation/holdout，当前 holdout 只能作为既有门禁的最终否决证据。
+
+默认离线回归仍需独立全绿：JVM `495/495`、Lint、Debug/AndroidTest APK 和仅 Redmi 完整 instrumentation `175/175`；5 个真实 Provider 用例缺少显式参数时按设计 skipped。显式联网 holdout 三轮按预注册断言失败，不得与默认套件通过混写成同一结论。
+
 ## 第 82 阶段验证边界
 
 相关性校准必须继续与生产检索解耦。纯 Kotlin 策略接收带稳定 case ID、正例/近负例/远负例标签、top1 与 margin 的观测；三个桶缺一不可，分数必须为有限值，同一 case ID 不得跨标签。每桶必须同时报告样本数、唯一用例数，以及 top1、margin 的 nearest-rank P05/P50/P95。候选门禁只允许从已观测的 `minimumTopScore + minimumScoreMargin` 组合中选择，以正例接纳率、近负例拒绝率、远负例拒绝率三桶等权计算 balanced accuracy，并使用固定 tie-break 保证报告可重复。该候选是同集 shadow 诊断，不得写入生产配置、Room Schema 或检索拒绝状态。

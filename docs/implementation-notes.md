@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 第 83 阶段实现与验证边界
+
+- `KnowledgeRelevanceCalibration.kt` 新增 holdout 数据集身份、冻结门禁、预注册标准、报告与评估策略。策略先校验 Provider/模型/版本、有限阈值、0 到 1 的比例、三桶完整性和 case 标签稳定性；holdout 版本不得等于校准版本。
+- 决策严格使用传入的冻结 top1 与 margin，不调用第 82 阶段候选搜索，也不返回 holdout 最优阈值。报告只包含正例接纳率、近/远负例拒绝率、重复决策稳定率和总门禁结果；4 条 JVM 测试覆盖通过、身份漂移、非法输入和“失败后不得自身调参”。
+- `RealProviderKnowledgeScaleInstrumentedTest` 新增全新 20 篇成对主题语料和三桶各 10 条查询，每条重复 2 次。测试固定模型、门禁版本、校准/holdout 版本、阈值及预注册标准；每次观测输出短 JSON，汇总输出质量、耗时、向量和内存指标，不输出 Base URL 或 API Key。
+- Redmi 三个独立进程均完成 60 个观测，排序质量门禁通过，但相关性门禁失败：正例接纳率 `0.80`，低于 `0.90`；近/远负例拒绝率、决策稳定率、Recall@1/5、MRR 和排序稳定率均为 `1.0`。手冲咖啡与缝纫机张力正例 top1 约 `0.6169 / 0.6661`，低于冻结 `0.6735426515268672`；margin 均满足下限，因此误拒来自绝对分数跨主题漂移。
+- 三轮索引耗时 `14.237–14.696s`，查询中位数 `0.757–0.800s`、P95 `0.814–0.836s`；20 行 1024 维 Float32 向量共 `81,920` 字节，检索后 PSS `202,684–202,935 KB`。这些观测不作为阈值回调依据。
+- 本阶段不修改 `RoomKnowledgeDocumentStore.search()`、Room Schema、配置或 UI。第 82 阶段候选被否决，生产继续使用 Room v31、cosine+RRF、FTS4+LIKE 和 shadow 审计；新方案必须使用新版本和新的独立验证数据。
+- 完整离线门禁为 JVM `495/495`、Lint、Debug/AndroidTest APK 和仅 Redmi `175/175` instrumentation 通过；默认 5 个显式联网用例按设计 skipped。三轮显式 holdout 均因预注册正例接纳率断言失败，和默认离线回归结果分别记录。
+
 ## 第 82 阶段实现与验证边界
 
 - 新增纯 Kotlin `KnowledgeRelevanceCalibrationPolicy`、标签、样本、分桶分布、候选门禁与报告模型。输入先校验三桶完整性、有限值、非空 case ID 和 case 标签稳定性；分位数使用 nearest-rank。门禁遍历已观测 top1/margin 的笛卡尔积，以三桶等权 balanced accuracy 选优，并按正例接纳率、近/远负例拒绝率和阈值固定顺序消除同分漂移。

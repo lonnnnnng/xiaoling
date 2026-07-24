@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 83 阶段：冻结候选门禁的独立 holdout 验证
+
+已完成实现与 Redmi 三轮独立验证，结论是第 82 阶段候选被否决。新增 `KnowledgeRelevanceDatasetIdentity`、`KnowledgeRelevanceFrozenGate`、`KnowledgeRelevanceHoldoutCriteria`、`KnowledgeRelevanceHoldoutReport` 与 `KnowledgeRelevanceHoldoutPolicy`，强制 Provider/模型一致、校准集与 holdout 版本分离、三桶完整、数值有限和 case 标签稳定。holdout 只应用冻结 top1 `0.6735426515268672` 与 margin `0.0178535973263384`，没有候选搜索或生产配置写入。
+
+全新 20 篇成对主题语料包含三桶各 10 条英文查询、每条重复 2 次。Redmi 三个独立进程均得到正例接纳率 `0.80`、近负例拒绝率 `1.0`、远负例拒绝率 `1.0`、决策稳定率 `1.0`；Recall@1、Recall@5、MRR 和排序稳定率也均为 `1.0`。手冲咖啡正例 top1 约 `0.6169`，缝纫机张力正例约 `0.6661`，两者都稳定低于冻结下限。索引耗时 `14.237–14.696s`，查询中位数 `0.757–0.800s`、P95 `0.814–0.836s`，20 行 1024 维向量共 `81,920` 字节。
+
+这说明排序质量全对不等于拒绝门禁可用：冻结候选会稳定误拒 `20%` 正例，未达到预注册 `90%` 正例保留率。因此本阶段实施完成，但候选没有进入生产拒绝设计的资格；不得使用已见 holdout 回调当前阈值。Room v31、cosine+RRF、词法兜底和 shadow 审计保持不变。下一阶段应建立新版本的嵌套 calibration/validation/holdout 方案或可跨主题归一化的门禁特征，再用未见数据重新验证；在新的独立证据通过前，不实现生产相关性拒绝。完整离线门禁为 JVM `495/495`、Lint、Debug/AndroidTest APK 和仅 Redmi `175/175` instrumentation 通过；5 个显式联网用例默认 skipped，三轮显式 holdout 按预注册断言失败并作为否决证据保留。
+
 ## 第 82 阶段：Embedding 相关性校准扩样与 shadow 候选门禁
 
 已完成实现与 Redmi 三轮真实校准。新增纯 Kotlin `KnowledgeRelevanceCalibrationPolicy`，对三个业务桶输出 top1/margin 的 P05/P50/P95，并从观测值组合中选出同集 balanced accuracy 最优的 `minimumTopScore + minimumScoreMargin` 候选。语料由 10 篇孤立主题扩为 20 篇成对主题，正例、近负例、远负例各 10 条、每条重复 2 次；三次独立 instrumentation 共 180 个观测，Recall@1、Recall@5、MRR、重复排序稳定率和同集 shadow balanced accuracy 三轮均为 `1.0`。20 行 1024 维 Float32 向量共 `81,920` 字节，索引耗时 `14.712–15.332s`，查询中位数 `0.797–0.807s`、P95 `0.824–0.866s`；检索后 PSS 为 `202,124–202,359 KB`。
@@ -569,5 +577,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 80. 已完成：10 篇真实 Embedding 有界语料三轮质量、耗时、向量与内存基线；无关查询仍返回近邻，确认相关性拒绝优先于 ANN。
 81. 已完成：Room v31 保存 top1、top2、margin 和候选数 shadow 观测，知识管理页展示但生产检索不拒绝。
 82. 已完成：20 篇成对语料、三桶各 10 条、每条重复两次并在 Redmi 三个独立进程校准；同集候选保持 shadow。下一阶段冻结 Provider/模型候选后用独立 holdout 验证，不直接上线生产拒绝。
+83. 已完成验证并否决候选：冻结 Stage 82 的 Provider/模型、阈值和校准集身份，以全新 holdout 三轮复验；排序指标全为 `1.0`，但正例接纳率仅 `0.80`，低于预注册 `0.90`，因此不进入生产拒绝且不使用 holdout 回调阈值。
 
-后续先冻结第 82 阶段 Provider/模型候选并以独立 holdout 验证相关性泛化；同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v31 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+后续先建立新的版本化 calibration/validation/holdout 设计或可跨主题归一化的相关性特征，不复用 `stage83-holdout-v1` 调整当前冻结门禁；只有新的未见数据达到预注册标准，才重新讨论生产拒绝。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v31 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

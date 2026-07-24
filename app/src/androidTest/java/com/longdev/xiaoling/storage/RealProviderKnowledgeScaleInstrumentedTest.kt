@@ -14,6 +14,10 @@ import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationReport
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCalibrationSample
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceCandidateGate
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceDatasetIdentity
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFrozenGate
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceHoldoutCriteria
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceHoldoutPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceLabel
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
@@ -328,6 +332,207 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         }
     }
 
+    @Test
+    fun frozenGateValidatesIndependentHoldoutWithoutRetuning() = runBlocking {
+        val arguments = InstrumentationRegistry.getArguments()
+        val baseUrl = arguments.getString(ARG_BASE_URL).orEmpty().trim()
+        val apiKey = arguments.getString(ARG_API_KEY).orEmpty().trim()
+        val embeddingModel = arguments.getString(ARG_MODEL).orEmpty().trim()
+        assumeTrue("未显式提供真实 Embedding Provider，跳过冻结门禁 holdout", baseUrl.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding API Key，跳过冻结门禁 holdout", apiKey.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding 模型，跳过冻结门禁 holdout", embeddingModel.isNotBlank())
+        assertEquals("冻结门禁只适用于完成第 82 阶段校准的模型", FROZEN_MODEL, embeddingModel)
+
+        val client = OpenAiCompatibleClient()
+        val config = ProviderRequestConfig(
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            model = embeddingModel,
+            providerId = CALIBRATION_PROVIDER_ID,
+            embeddingModel = embeddingModel,
+        )
+        assertTrue(client.fetchModels(config).any { it.equals(embeddingModel, ignoreCase = true) })
+
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, XiaoLingDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val store = RoomKnowledgeDocumentStore(
+                context = context,
+                database = database,
+                embeddingProvider = OpenAiKnowledgeEmbeddingProvider(CALIBRATION_PROVIDER_ID, config, client),
+            )
+            val lexicalStore = RoomKnowledgeDocumentStore(context, database)
+            val documentNames = mutableMapOf<String, String>()
+            val memoryBefore = memorySnapshot()
+            val indexStartedAt = SystemClock.elapsedRealtimeNanos()
+            HOLDOUT_CORPUS.forEach { entry ->
+                val document = store.importUtf8Document(
+                    displayName = entry.fileName,
+                    mimeType = "text/markdown",
+                    bytes = entry.text.toByteArray(Charsets.UTF_8),
+                )
+                documentNames[document.id] = entry.fileName
+            }
+            val indexMillis = elapsedMillisSince(indexStartedAt)
+            val memoryAfterIndex = memorySnapshot()
+
+            val observations = HOLDOUT_CASES.flatMap { queryCase ->
+                val lexicalHitCount = lexicalStore.search(queryCase.query, limit = QUALITY_LIMIT).hits.size
+                assertEquals("holdout 查询不得被词法命中虚高", 0, lexicalHitCount)
+                (0 until HOLDOUT_QUERY_RUNS).map { runIndex ->
+                    val queryStartedAt = SystemClock.elapsedRealtimeNanos()
+                    val result = store.search(
+                        query = queryCase.query,
+                        limit = QUALITY_LIMIT,
+                        sourceRunId = "stage83-${queryCase.caseId}-$runIndex",
+                    )
+                    val queryMillis = elapsedMillisSince(queryStartedAt)
+                    val topScore = requireNotNull(result.retrieval.embeddingTopScore)
+                    val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
+                    val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
+                    assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+                    assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
+                    assertEquals(embeddingModel, result.retrieval.embeddingModel)
+                    assertEquals(HOLDOUT_CORPUS.size, result.retrieval.embeddingCandidateCount)
+                    assertTrue(topScore.isFinite())
+                    assertTrue(secondScore.isFinite())
+                    assertTrue(margin.isFinite() && margin >= 0.0)
+                    assertEquals(topScore - secondScore, margin, 0.0000001)
+                    val observation = CalibrationObservation(
+                        caseId = queryCase.caseId,
+                        label = queryCase.label,
+                        runIndex = runIndex,
+                        expectedFileName = queryCase.expectedFileName,
+                        rankedFileNames = result.hits.map { hit ->
+                            documentNames[hit.documentId] ?: hit.documentName
+                        },
+                        lexicalHitCount = lexicalHitCount,
+                        candidateCount = requireNotNull(result.retrieval.embeddingCandidateCount),
+                        queryMillis = queryMillis,
+                        topScore = topScore,
+                        secondScore = secondScore,
+                        margin = margin,
+                    )
+                    Log.i(HOLDOUT_CASE_TAG, observation.toJson().toString())
+                    println("$HOLDOUT_CASE_TAG ${observation.toJson()}")
+                    observation
+                }
+            }
+
+            val frozenGate = KnowledgeRelevanceFrozenGate(
+                gateVersion = FROZEN_GATE_VERSION,
+                calibrationIdentity = KnowledgeRelevanceDatasetIdentity(
+                    providerId = CALIBRATION_PROVIDER_ID,
+                    model = FROZEN_MODEL,
+                    datasetVersion = CALIBRATION_DATASET_VERSION,
+                ),
+                minimumTopScore = FROZEN_MINIMUM_TOP_SCORE,
+                minimumScoreMargin = FROZEN_MINIMUM_SCORE_MARGIN,
+            )
+            val criteria = KnowledgeRelevanceHoldoutCriteria(
+                minimumPositiveAcceptanceRate = MINIMUM_POSITIVE_ACCEPTANCE_RATE,
+                minimumNearNegativeRejectionRate = MINIMUM_NEAR_NEGATIVE_REJECTION_RATE,
+                minimumFarNegativeRejectionRate = MINIMUM_FAR_NEGATIVE_REJECTION_RATE,
+                minimumDecisionStableRate = MINIMUM_DECISION_STABLE_RATE,
+            )
+            val holdout = KnowledgeRelevanceHoldoutPolicy.evaluate(
+                frozenGate = frozenGate,
+                holdoutIdentity = KnowledgeRelevanceDatasetIdentity(
+                    providerId = CALIBRATION_PROVIDER_ID,
+                    model = embeddingModel,
+                    datasetVersion = HOLDOUT_DATASET_VERSION,
+                ),
+                samples = observations.map { observation ->
+                    KnowledgeRelevanceCalibrationSample(
+                        caseId = observation.caseId,
+                        label = observation.label,
+                        topScore = observation.topScore,
+                        scoreMargin = observation.margin,
+                    )
+                },
+                criteria = criteria,
+            )
+            val qualityCases = HOLDOUT_CASES.filter { it.label == KnowledgeRelevanceLabel.POSITIVE }.map { queryCase ->
+                KnowledgeSearchQualityCaseResult(
+                    caseId = queryCase.caseId,
+                    relevantDocumentIds = setOf(requireNotNull(queryCase.expectedFileName)),
+                    rankedDocumentIdsByRun = observations.filter { it.caseId == queryCase.caseId }
+                        .sortedBy { it.runIndex }
+                        .map { it.rankedFileNames },
+                    limit = QUALITY_LIMIT,
+                )
+            }
+            val quality = KnowledgeSearchQualityPolicy.evaluate(qualityCases)
+            val recallAt1 = qualityCases.count { result ->
+                result.rankedDocumentIdsByRun.first().firstOrNull() in result.relevantDocumentIds
+            }.toDouble() / qualityCases.size
+            val rankingGatePassed = recallAt1 >= MINIMUM_RECALL_AT_1 &&
+                quality.meanRecallAtK >= MINIMUM_RECALL_AT_5 &&
+                quality.meanReciprocalRank >= MINIMUM_MRR &&
+                quality.stableRankingRate >= MINIMUM_RANKING_STABLE_RATE
+            val vectorStats = database.vectorStats(CALIBRATION_PROVIDER_ID, embeddingModel)
+            val memoryAfterSearch = memorySnapshot()
+            val queryMillis = observations.map { it.queryMillis }
+            val passed = holdout.passed && rankingGatePassed
+
+            // long: 汇总只评价预先冻结的 Stage 82 门禁和预注册质量标准，不计算或输出 holdout 自身的最佳候选阈值。
+            val metrics = JSONObject()
+                .put("providerId", CALIBRATION_PROVIDER_ID)
+                .put("model", embeddingModel)
+                .put("gateVersion", FROZEN_GATE_VERSION)
+                .put("calibrationDatasetVersion", CALIBRATION_DATASET_VERSION)
+                .put("holdoutDatasetVersion", HOLDOUT_DATASET_VERSION)
+                .put("minimumTopScore", FROZEN_MINIMUM_TOP_SCORE)
+                .put("minimumScoreMargin", FROZEN_MINIMUM_SCORE_MARGIN)
+                .put("documents", HOLDOUT_CORPUS.size)
+                .put("casesPerBucket", HOLDOUT_CASES.size / KnowledgeRelevanceLabel.entries.size)
+                .put("runsPerCase", HOLDOUT_QUERY_RUNS)
+                .put("observations", observations.size)
+                .put("indexMillis", indexMillis)
+                .put("queryMedianMillis", queryMillis.percentile(0.50))
+                .put("queryP95Millis", queryMillis.percentile(0.95))
+                .put("candidateCount", observations.map { it.candidateCount }.distinct().single())
+                .put("vectorRows", vectorStats.rowCount)
+                .put("dimensions", vectorStats.minDimensions)
+                .put("vectorBytes", vectorStats.vectorBytes)
+                .put("positiveAcceptanceRate", holdout.positiveAcceptanceRate)
+                .put("nearNegativeRejectionRate", holdout.nearNegativeRejectionRate)
+                .put("farNegativeRejectionRate", holdout.farNegativeRejectionRate)
+                .put("decisionStableRate", holdout.decisionStableRate)
+                .put("recallAt1", recallAt1)
+                .put("recallAt5", quality.meanRecallAtK)
+                .put("mrr", quality.meanReciprocalRank)
+                .put("rankingStableRate", quality.stableRankingRate)
+                .put("holdoutGatePassed", holdout.passed)
+                .put("rankingGatePassed", rankingGatePassed)
+                .put("passed", passed)
+                .put("pssBeforeKb", memoryBefore.pssKb)
+                .put("pssAfterIndexKb", memoryAfterIndex.pssKb)
+                .put("pssAfterSearchKb", memoryAfterSearch.pssKb)
+                .put("javaHeapBeforeBytes", memoryBefore.javaHeapBytes)
+                .put("javaHeapAfterIndexBytes", memoryAfterIndex.javaHeapBytes)
+                .put("javaHeapAfterSearchBytes", memoryAfterSearch.javaHeapBytes)
+            Log.i(HOLDOUT_METRICS_TAG, metrics.toString())
+            println("$HOLDOUT_METRICS_TAG $metrics")
+
+            assertEquals(HOLDOUT_CASES.size * HOLDOUT_QUERY_RUNS, observations.size)
+            assertEquals(KnowledgeRelevanceLabel.entries.toSet(), observations.map { it.label }.toSet())
+            assertEquals(HOLDOUT_CORPUS.size.toLong(), vectorStats.rowCount)
+            assertEquals(vectorStats.minDimensions, vectorStats.maxDimensions)
+            assertTrue(vectorStats.minDimensions > 0)
+            assertEquals(
+                vectorStats.rowCount * vectorStats.minDimensions * Float.SIZE_BYTES,
+                vectorStats.vectorBytes,
+            )
+            assertTrue("独立 holdout 未通过冻结相关性门禁", holdout.passed)
+            assertTrue("独立 holdout 未通过预注册排序质量门禁", rankingGatePassed)
+        } finally {
+            database.close()
+        }
+    }
+
     private fun XiaoLingDatabase.vectorStats(providerId: String, model: String): VectorStats {
         val query = SimpleSQLiteQuery(
             """
@@ -471,11 +676,28 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         const val METRICS_TAG = "XIAOLING_STAGE80_METRICS"
         const val CALIBRATION_CASE_TAG = "XIAOLING_STAGE82_CASE"
         const val CALIBRATION_METRICS_TAG = "XIAOLING_STAGE82_SUMMARY"
+        const val HOLDOUT_CASE_TAG = "XIAOLING_STAGE83_CASE"
+        const val HOLDOUT_METRICS_TAG = "XIAOLING_STAGE83_SUMMARY"
         const val QUALITY_LIMIT = 5
         const val QUERY_RUNS = 2
         const val CALIBRATION_QUERY_RUNS = 2
+        const val HOLDOUT_QUERY_RUNS = 2
         const val NANOS_PER_MILLISECOND = 1_000_000L
         const val UNRELATED_QUERY = "How do coral reefs coordinate spawning under moonlight?"
+        const val FROZEN_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+        const val FROZEN_GATE_VERSION = "stage82-qwen-v1"
+        const val CALIBRATION_DATASET_VERSION = "stage82-calibration-v1"
+        const val HOLDOUT_DATASET_VERSION = "stage83-holdout-v1"
+        const val FROZEN_MINIMUM_TOP_SCORE = 0.6735426515268672
+        const val FROZEN_MINIMUM_SCORE_MARGIN = 0.0178535973263384
+        const val MINIMUM_POSITIVE_ACCEPTANCE_RATE = 0.90
+        const val MINIMUM_NEAR_NEGATIVE_REJECTION_RATE = 0.80
+        const val MINIMUM_FAR_NEGATIVE_REJECTION_RATE = 0.90
+        const val MINIMUM_DECISION_STABLE_RATE = 1.0
+        const val MINIMUM_RECALL_AT_1 = 0.90
+        const val MINIMUM_RECALL_AT_5 = 1.0
+        const val MINIMUM_MRR = 0.90
+        const val MINIMUM_RANKING_STABLE_RATE = 1.0
 
         val CORPUS = listOf(
             CorpusEntry("01-专注节奏.md", "番茄工作法把任务拆成二十五分钟的专注区间，之后安排短暂休息。完成四轮后再进行较长休息，减少持续分心。"),
@@ -672,6 +894,193 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                 caseId = "far-radio",
                 label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
                 query = "How do radio telescopes combine signals with very long baseline interferometry?",
+            ),
+        )
+
+        // long: holdout 主题与 Stage 82 校准集完全分离，只保留相同的成对干扰结构，避免用训练主题回测冻结阈值。
+        val HOLDOUT_CORPUS = listOf(
+            CorpusEntry("h01-手冲咖啡.md", "手冲咖啡先用约两倍粉重的热水均匀润湿咖啡粉，等待三十秒排气。之后以缓慢画圈方式分段注水，保持稳定水位并避免直接冲击滤纸边缘。"),
+            CorpusEntry("h02-家庭堆肥.md", "家庭堆肥可交替加入干燥落叶等棕色材料和果蔬残渣等绿色材料。混合物保持拧干海绵般湿润，定期翻动增加空气，出现异味时补充棕色材料。"),
+            CorpusEntry("h03-钢琴练习.md", "练习新钢琴段落时先分手并使用慢速节拍器，确保指法和节奏稳定。连续准确后再小幅提高速度，合手时从较低速度重新开始。"),
+            CorpusEntry("h04-徒步导航.md", "徒步前在纸质地图标出路线、转折点和撤退方向，并用指南针核对方位。途中在明显地标处确认位置，不能只依赖手机电量和网络信号。"),
+            CorpusEntry("h05-铸铁锅养护.md", "铸铁锅清洗后要立即擦干并用小火蒸发残余水分。锅面温热时涂一层很薄的食用油再擦去多余部分，可以减少生锈并维护油膜。"),
+            CorpusEntry("h06-间隔复习.md", "间隔复习根据回忆结果逐渐拉长复习间隔。答错的内容缩短下次间隔，稳定答对后再延长，并在每次查看答案前主动回忆。"),
+            CorpusEntry("h07-鱼缸换水.md", "鱼缸维护采用定期部分换水而不是一次全部更换。新水先除氯并调整到接近原缸温度，换水时轻柔清理底部杂物，避免破坏过滤系统。"),
+            CorpusEntry("h08-冬季车辆检查.md", "入冬前检查蓄电池状态、防冻液冰点、轮胎气压和雨刷。低温会降低胎压和电池能力，玻璃清洗液也应选择适合当地最低温度的型号。"),
+            CorpusEntry("h09-会议行动项.md", "会议记录应把讨论结论转换为明确行动项，每项写清负责人和截止日期。会后尽快发送摘要，并在下次会议开始时核对未完成事项。"),
+            CorpusEntry("h10-缝纫机张力.md", "缝纫前用同材质边角料测试上线和梭芯线张力。线结应落在布料中间；上线浮在背面时逐步提高上线张力，每次只调整一小格。"),
+            CorpusEntry("h11-意式浓缩.md", "制作意式浓缩需要细研磨并均匀布粉压实，让高压热水在较短时间穿过粉饼。流速过快时调细研磨，过慢时调粗并重新测试。"),
+            CorpusEntry("h12-家庭回收.md", "家庭回收物应按当地规则分类，容器先倒空并简单清洁，纸张保持干燥。油污严重的包装和不被接收的复合材料不能混入回收桶。"),
+            CorpusEntry("h13-钢琴调律.md", "钢琴音高会受温湿度变化影响，长期保持稳定环境有助于减少漂移。明显走音或搬运后应由专业调律师检查，不建议自行大幅旋转弦轴。"),
+            CorpusEntry("h14-帐篷搭建.md", "帐篷应搭在平整且不积水的位置，先展开地布再连接帐杆。固定四角后均匀拉紧防风绳，入口避开迎风方向并远离枯枝。"),
+            CorpusEntry("h15-不锈钢锅清洁.md", "不锈钢锅出现焦痕时先加入温水浸泡，再用木铲松动残渣。顽固污渍可配合温和清洁剂顺纹擦洗，避免使用会留下深划痕的硬质工具。"),
+            CorpusEntry("h16-跟读练习.md", "语言跟读先选择短音频，听清语调和停顿后紧跟原声模仿。录下自己的声音与原音比较，重点修正重音、连读和节奏，而不是只背单词。"),
+            CorpusEntry("h17-观赏鱼喂食.md", "观赏鱼每天少量喂食，以几分钟内吃完为准。残饵应及时移除，水温下降或鱼只活动减弱时适当减少频率，避免过量污染水质。"),
+            CorpusEntry("h18-电动车充电.md", "日常电动车充电可结合出发时间预约完成，避免车辆长时间停在极高电量。低温环境下提前预热电池，有助于充电速度和出发后的能耗表现。"),
+            CorpusEntry("h19-邮件收件箱.md", "处理收件箱时先删除无用通知，再把需要行动的邮件转成任务。两分钟内可完成的直接回复，等待他人处理的邮件单独标记并定期复查。"),
+            CorpusEntry("h20-手工刺绣.md", "手工刺绣先把布料均匀固定在绣绷上，保持平整但不要过度拉伸。针脚长度尽量一致，换线时在线背面固定线头，避免正面出现结块。"),
+        )
+
+        val HOLDOUT_CASES = listOf(
+            CalibrationQueryCase(
+                caseId = "holdout-positive-pour-over",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should coffee grounds be bloomed and then poured over in controlled circles?",
+                expectedFileName = "h01-手冲咖啡.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-compost",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should brown and green materials, moisture, and aeration be balanced in home compost?",
+                expectedFileName = "h02-家庭堆肥.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-piano",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should separate-hand piano practice use a metronome before increasing tempo?",
+                expectedFileName = "h03-钢琴练习.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-navigation",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How can a hiker use a paper map, compass bearings, and landmarks without relying on a phone?",
+                expectedFileName = "h04-徒步导航.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-cast-iron",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should a cast iron pan be dried with heat and coated with a very thin layer of oil?",
+                expectedFileName = "h05-铸铁锅养护.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-spaced-review",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should recall success and failure change the next spaced-review interval?",
+                expectedFileName = "h06-间隔复习.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-aquarium",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should partial aquarium water changes handle chlorine, temperature, and filter stability?",
+                expectedFileName = "h07-鱼缸换水.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-winter-car",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "What battery, coolant, tire-pressure, wiper, and washer-fluid checks belong before winter?",
+                expectedFileName = "h08-冬季车辆检查.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-actions",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How should meeting decisions become action items with owners, deadlines, and follow-up?",
+                expectedFileName = "h09-会议行动项.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-positive-thread-tension",
+                label = KnowledgeRelevanceLabel.POSITIVE,
+                query = "How can scrap fabric reveal whether sewing-machine upper-thread tension needs a small adjustment?",
+                expectedFileName = "h10-缝纫机张力.md",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-coffee-minerals",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which dissolved mineral concentrations create the best water chemistry for specialty coffee?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-compost-methane",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "How much methane does a household compost pile emit at different outdoor temperatures?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-piano-exam",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "How do conservatory examiners score interpretation in an advanced piano jury?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-hiking-permit",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which permit and quota rules apply to overnight hiking in a protected park?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-cast-iron-alloy",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "What carbon and silicon percentages define the alloy used in cast iron cookware?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-review-subscription",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which spaced-repetition application offers the cheapest family subscription?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-fish-genetics",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which inherited traits determine color patterns in aquarium fish hybrids?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-winter-tire-law",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "What legal tread depth and studded-tire dates apply to winter driving?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-meeting-consent",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which consent laws govern audio recording during a workplace meeting?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-near-sewing-patent",
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                query = "Which early patent introduced automatic thread tension in sewing machines?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-exoplanet",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How can transit spectroscopy identify molecules in an exoplanet atmosphere?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-glacier",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "What climate history can oxygen isotopes reveal in deep glacier ice cores?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-coins",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How do numismatists identify the mint and reign of an ancient silver coin?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-antibody",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How does affinity maturation improve antibodies inside a germinal center?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-vent",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "Which microbes obtain energy from chemicals at deep-sea hydrothermal vents?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-lensing",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How does gravitational lensing magnify a galaxy behind a massive cluster?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-bird",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How might migratory birds sense Earth's magnetic field during navigation?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-hieroglyph",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How did bilingual inscriptions help scholars decipher ancient hieroglyphs?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-crystal",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "How do vacancies and dislocations alter the strength of a crystal lattice?",
+            ),
+            CalibrationQueryCase(
+                caseId = "holdout-far-cyclone",
+                label = KnowledgeRelevanceLabel.FAR_NEGATIVE,
+                query = "What ocean and atmospheric conditions intensify a tropical cyclone eyewall?",
             ),
         )
     }
