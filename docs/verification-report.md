@@ -2,6 +2,15 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 生产相关性拒绝设计评审边界（第 87 阶段）
+
+- 设计实现：新增 `KnowledgeRelevanceProductionDesignPolicy`，复用 Stage 86 冻结 gate 的完整 calibration/validation 身份和 raw top1 下限；策略仅消费 `KnowledgeRetrievalRecord`，不接入 `RoomKnowledgeDocumentStore.search()`，不写 Room、不改 UI、不改变生产排序或拒绝。
+- 关闭行为：`enforcementEnabled=false` 时所有结果保持 `KEEP_CURRENT_RESULTS`，低分只记录 `semanticRejectionWouldApply=true` 供 shadow 观测；未来开启时低分语义候选分别规划为 `DROP_SEMANTIC_KEEP_LEXICAL` 或 `DROP_SEMANTIC_NO_LEXICAL`。
+- 安全边界：词法-only、无索引、Provider 不可用、维度不匹配、身份漂移、缺失 top1 和非有限 top1 均 fail-open；有词法命中时始终保留词法兜底。Gate 身份不完整、复用 calibration 数据集或阈值非有限时构造即拒绝。
+- JVM/静态门禁：新增策略契约 `5/5`；完整 JVM XML `511/511`、0 failed、0 skipped，Lint、Debug APK 和 AndroidTest APK 成功。Debug APK SHA-256 `9327b55ef2639ee68dacc59e84cdf39286e5ae86d2ebf25e9d2145efa8ea9306`，AndroidTest APK SHA-256 `7e56236984bf92e48b7d427ccba1613b0ecb297c11cc714b88cc1de10725db2c`。
+- Redmi 回归：只使用 `wsvwypiz7xwslvl7` 执行默认完整 instrumentation，JUnit XML `178` 条、`171 passed / 7 skipped / 0 failed`；7 个真实 Provider 用例缺少显式参数按设计 skipped，未连接、启动或操作 Pixel_9/其他模拟器。收尾后正式应用 Room `user_version=32`、Provider 模型 `gpt-5.5`、设备 Agent 开关开启，Accessibility Enabled/Bound，`Crashed services` 为空，主 Activity 前台且 crash buffer 无本应用记录。
+- 决策：第 86 阶段 holdout 通过只允许进入设计评审；第 87 阶段仍不启用生产拒绝。下一阶段需要先完成用户可见降级/引用文案、灰度和撤销契约，再重新评估接入。
+
 ## 2026-07-24 冻结 raw top1 的 final holdout 预注册（第 86 阶段）
 
 - 冻结身份：门禁 `stage85-raw-top1-qwen-v1`，calibration `stage85-calibration-v1`，validation `stage85-validation-v1`，calibration/validation 的 Provider 与模型必须一致，raw top1 下限 `0.6416276358587735`。

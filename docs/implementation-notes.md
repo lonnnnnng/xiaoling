@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 87 阶段：生产相关性拒绝设计评审边界
+
+- 新增纯 Kotlin `KnowledgeRelevanceProductionDesignPolicy`，复用 Stage 86 冻结的 `KnowledgeRelevanceRawTopScoreFrozenGate`，要求 calibration/validation Provider、模型和数据集身份完整且一致；策略构造时拒绝空身份、数据集复用和非有限阈值。
+- `USED` 语义检索且身份一致、top1 达到冻结下限时保留当前结果；低于下限时只生成“移除语义候选”的计划，若已有词法命中则明确保留词法兜底。开关关闭时始终只返回 `KEEP_CURRENT_RESULTS`，同时记录是否会触发拒绝的 shadow 判断。
+- `LEXICAL_ONLY`、无索引、Provider 不可用、维度不匹配、Provider/模型漂移、缺失分数和非有限分数全部 fail-open，保留现有结果；策略不调用 `RoomKnowledgeDocumentStore.search()`，不写 Room、不改变 UI、不新增生产拒绝状态。
+- 新增 5 条 JVM 契约，覆盖关闭开关、低分词法兜底、高分保留、非语义/身份漂移、未知/非法分数和冻结 gate 校验。聚焦测试 `5/5` 通过。
+- 完整门禁为 JVM `511/511`、Lint、Debug/AndroidTest APK 和仅 Redmi 默认 instrumentation `178` 条（`171 passed / 7 skipped / 0 failed`）。收尾后正式应用 Room `user_version=32`、Provider 模型 `gpt-5.5`、设备 Agent 开关开启，Redmi Accessibility Enabled/Bound、`Crashed services` 为空，主 Activity 在前台。
+
 ## 第 86 阶段预注册实现边界
 
 - 新增纯 Kotlin `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 gate 版本、Stage 85 calibration/validation 完整身份和 raw top1 下限；final holdout 必须使用同 Provider/模型的第三个 datasetVersion。策略只读取 `rawTopScore`，不调用 Stage 85 候选搜索，也不使用 margin 或 z-score。

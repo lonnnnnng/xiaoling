@@ -1,5 +1,11 @@
 # 产品需求
 
+## 第 87 阶段生产相关性拒绝设计边界
+
+本阶段只建立可审计的候选决策契约，不把 final holdout 结果直接变成线上拒绝。策略必须绑定 Stage 86 冻结的 gate、calibration/validation Provider/模型身份和 raw top1 下限；默认开关关闭时只能输出 shadow 结论，不得改变现有语义、FTS4 或 LIKE 结果。开关未来开启时，低于下限只能移除语义候选；若同一查询有词法命中，必须保留词法结果，不能把“语义低分”显示成“知识为空”。
+
+Provider/模型漂移、`LEXICAL_ONLY`、`NO_INDEX`、`PROVIDER_UNAVAILABLE`、`DIMENSION_MISMATCH`、缺失或非有限 top1 必须 fail-open，继续保留当前结果；未知事实不得按低分拒绝。策略不新增 Room 列、不改变历史审计、不进入 Workflow/后台路径，也不在本阶段修改 UI 文案。聚焦 JVM `5/5`、完整 JVM `511/511`、Lint、APK 和仅 Redmi 默认 instrumentation `178` 条（`171 passed / 7 skipped / 0 failed`）作为本阶段门禁。下一阶段先验收用户可见回退、灰度与撤销，再评估是否接入生产检索。
+
 ## 第 86 阶段预注册验证边界
 
 本阶段只验证 Stage 85 已冻结的 raw top1，不得重新比较特征族、搜索阈值、修改测试语料或启用生产拒绝。冻结门禁版本为 `stage85-raw-top1-qwen-v1`，raw top1 下限为 `0.6416276358587735`；身份必须保留 Stage 85 calibration 的 Provider、模型与 `stage85-calibration-v1`，并记录已见 `stage85-validation-v1`。final holdout 必须使用同一 Provider/模型且 datasetVersion 同时不同于前两套数据；任何身份漂移、空值、非有限值、缺桶或 case 标签漂移都必须 fail-closed。

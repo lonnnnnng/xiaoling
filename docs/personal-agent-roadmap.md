@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 第 87 阶段：生产相关性拒绝设计评审
+
+已完成纯策略设计与真实项目回归，但尚未把拒绝接入生产检索。`KnowledgeRelevanceProductionDesignPolicy` 复用 Stage 86 冻结 gate，要求 Provider/模型身份一致；高于 raw top1 下限的语义结果保持，低于下限只计划移除语义候选并保留词法兜底。开关默认关闭，关闭时只产生 shadow 判断；非语义状态、身份漂移、缺失或非有限分数全部 fail-open。策略没有被 `RoomKnowledgeDocumentStore.search()` 调用，不改变 Room v32、UI、检索排序或历史审计。
+
+聚焦 JVM `5/5`、完整 JVM `511/511`、Lint、Debug/AndroidTest APK 和仅 Redmi 默认 instrumentation `178` 条（`171 passed / 7 skipped / 0 failed`）通过。正式应用已恢复 Room v32、兜底 Provider、设备 Agent 开关和 Accessibility 服务。下一阶段再完成用户可见“语义候选被降级/词法兜底”的文案与引用行为、灰度/回滚开关和真实接入前的评审，不直接开启生产拒绝。
+
 ## 第 86 阶段：冻结 raw top1 的第三套 final holdout
 
 已完成实现与最终 Redmi 复验。新增 `KnowledgeRelevanceRawTopScoreFrozenGate` 与 `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 `stage85-raw-top1-qwen-v1`、Stage 85 calibration/validation 完整身份和 raw top1 `0.6416276358587735`。策略只应用冻结 raw top1，强制第三套数据身份、Provider/模型一致、三桶与有限值完整，失败后不搜索新阈值。

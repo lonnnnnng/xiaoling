@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 87 阶段把参考项目常见的“检索评分与执行策略分离”落实为独立纯 Kotlin 设计：`KnowledgeRelevanceProductionDesignPolicy` 只读取既有审计事实，绑定冻结 gate 的 Provider/模型身份；高分保持当前语义结果，低分只规划语义移除并保留词法兜底，未知或身份漂移则 fail-open。默认开关关闭时不会改变任何检索结果，策略没有接入 Room Store，也没有新增生产拒绝状态。JVM `511/511`、Lint、APK 与仅 Redmi `171 passed / 7 skipped / 0 failed` 通过；下一步应先完成用户可见回退、灰度和撤销契约，再决定是否接入。
+
 第 86 阶段把成熟检索评测中的“final holdout 必须在读取结果前冻结”落实为独立 commit，而不是直接追加一次可反复修改的联网测试。门禁只保留 Stage 85 更简单的 raw top1 `0.6416276358587735`，并冻结 calibration/validation 完整身份；第三套 `stage86-final-holdout-v1` 的 20 篇全新文档和三桶各 10 条查询在运行前固定。策略禁止从 final holdout 搜索阈值或重新引入 margin/z-score，完整排序与拒绝标准也已预注册。Redmi 首次有效观测耗时 `63.077s`，在补齐 validation 身份校验并同步重建 APK 后最终复验耗时 `67.018s`；60 条最终观测通过全部门禁，证明这个 Provider/模型下的原始 top1 候选尚未在第三套数据上失效。中间 ABI/空分数回归未被当作有效证据，也没有回调阈值；生产拒绝仍关闭，通过只获得进入设计评审的资格，不能被误解为可以直接上线。
 
 第 85 阶段把成熟检索系统常用的 calibration/validation 分离落到移动端真实 Provider，但没有把“多特征”本身当作更可靠。7 个预注册特征族各自在全新 calibration 集选 gate，再在全新 validation 集原样评估；raw top1 与 raw+margin 都达到正例 `0.90`、近/远负例 `1.0`、稳定 `1.0`，而 margin、z-score 或含 z 的组合没有更好。两者 validation 决策完全相同，因此继续增加 margin 只会增加过拟合维度；下一阶段优先冻结更简单的 raw top1，并用第三套未见 holdout 决定是否仍应否决。Stage 83 holdout 保持封存，生产拒绝保持关闭。完整 JVM `502/502`、Lint、APK 和仅 Redmi `177/177` instrumentation 通过，6 个联网用例默认 skipped。
