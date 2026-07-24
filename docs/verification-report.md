@@ -4,10 +4,12 @@
 
 ## 2026-07-24 冻结 raw top1 的 final holdout 预注册（第 86 阶段）
 
-- 冻结身份：门禁 `stage85-raw-top1-qwen-v1`，calibration `stage85-calibration-v1`，validation `stage85-validation-v1`，raw top1 下限 `0.6416276358587735`；真实运行时模型必须与 Stage 85 一致。
+- 冻结身份：门禁 `stage85-raw-top1-qwen-v1`，calibration `stage85-calibration-v1`，validation `stage85-validation-v1`，calibration/validation 的 Provider 与模型必须一致，raw top1 下限 `0.6416276358587735`。
 - 未见语料：`stage86-final-holdout-v1` 已在运行前固定 20 篇全新成对主题文档，正/近负/远负各 10 条英文查询，每条重复 2 次。近负例是两篇 companion 文档均未覆盖的具体事实；不复用 Stage 82/83/85 数据。
 - 预注册标准：正例接纳 `>=0.90`、近负例拒绝 `>=0.80`、远负例拒绝 `>=0.90`、决策稳定 `1.0`；Recall@1 `>=0.90`、Recall@5 `1.0`、MRR `>=0.90`、排序稳定 `1.0`。
-- 预运行门禁：纯 Kotlin `4/4` 与 AndroidTest APK 编译通过。此处尚无真实 Provider 指标；下一步只在 Redmi 执行一次有效采集，运行后不得更换语料、阈值或标准。
+- 预运行门禁：纯 Kotlin `4/4` 与 AndroidTest APK 编译通过；完整 JVM XML `506/506`、Lint、Debug APK 与 AndroidTest APK 通过。默认 Redmi instrumentation XML `178` 条，`171 passed / 7 skipped / 0 failed`，7 个真实 Provider 用例缺参按设计 skipped。
+- Redmi 有效运行：预注册 commit `97d0d4a` 后首次运行 `frozenRawTopScoreValidatesThirdUnseenFinalHoldoutWithoutRetuning` 为 `1/1`、`63.077s`；补齐 validation Provider/模型身份校验并同步重建 Debug/Test APK 后，在同一 Redmi 上最终复验为 `1/1`、`67.018s`。最终 60 条观测得到正例接纳 `0.90`、近/远负例拒绝 `1.0`、决策稳定 `1.0`、balanced accuracy `0.9666666667`，Recall@1/5、MRR、排序稳定均为 `1.0`；冻结 raw top1 与 8 项预注册门禁均未被回调。
+- 回归审计：中间一次 Debug/Test APK ABI 不一致导致的 `NoSuchMethodError`，以及一次同步 APK 后的检索 `embeddingTopScore=null`，均未计入有效运行；二者没有改变语料、阈值、生产检索或拒绝行为，最终同步 APK 复验通过。
 - 生产边界：Room v32、cosine+RRF、FTS4+LIKE、UI 和相关性拒绝均未修改。final holdout 通过也只进入生产设计评审，不直接上线。
 
 ## 2026-07-24 Embedding 特征族独立 calibration/validation（第 85 阶段）

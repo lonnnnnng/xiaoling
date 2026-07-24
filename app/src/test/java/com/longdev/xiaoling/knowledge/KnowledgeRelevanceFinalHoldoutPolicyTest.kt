@@ -38,6 +38,18 @@ class KnowledgeRelevanceFinalHoldoutPolicyTest {
             evaluate(frozenGate, identity("stage86-final-holdout-v1").copy(model = "embedding-b"))
         }
         assertThrows(IllegalArgumentException::class.java) {
+            evaluate(
+                frozenGate.copy(validationIdentity = identity("stage85-validation-v1").copy(providerId = "provider-b")),
+                identity("stage86-final-holdout-v1"),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            evaluate(
+                frozenGate.copy(validationIdentity = identity("stage85-validation-v1").copy(model = "embedding-b")),
+                identity("stage86-final-holdout-v1"),
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
             evaluate(frozenGate, identity("stage85-calibration-v1"))
         }
         assertThrows(IllegalArgumentException::class.java) {
@@ -57,7 +69,7 @@ class KnowledgeRelevanceFinalHoldoutPolicyTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             evaluate(
-                frozenGate.copy(validationDatasetVersion = "stage85-calibration-v1"),
+                frozenGate.copy(validationIdentity = identity("stage85-calibration-v1")),
                 identity("stage86-final-holdout-v1"),
             )
         }
@@ -122,7 +134,7 @@ class KnowledgeRelevanceFinalHoldoutPolicyTest {
     private fun frozenGate() = KnowledgeRelevanceRawTopScoreFrozenGate(
         gateVersion = "stage85-raw-top1-qwen-v1",
         calibrationIdentity = identity("stage85-calibration-v1"),
-        validationDatasetVersion = "stage85-validation-v1",
+        validationIdentity = identity("stage85-validation-v1"),
         minimumRawTopScore = 0.70,
     )
 

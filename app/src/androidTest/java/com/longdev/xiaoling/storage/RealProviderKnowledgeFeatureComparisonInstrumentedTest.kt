@@ -132,7 +132,11 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
                 model = embeddingModel,
                 datasetVersion = CALIBRATION_DATASET.version,
             ),
-            validationDatasetVersion = VALIDATION_DATASET.version,
+            validationIdentity = KnowledgeRelevanceFeatureDatasetIdentity(
+                providerId = PROVIDER_ID,
+                model = embeddingModel,
+                datasetVersion = VALIDATION_DATASET.version,
+            ),
             minimumRawTopScore = FROZEN_MINIMUM_RAW_TOP_SCORE,
         )
         val report = KnowledgeRelevanceFinalHoldoutPolicy.evaluate(
@@ -159,7 +163,7 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
             .put("model", embeddingModel)
             .put("gateVersion", frozenGate.gateVersion)
             .put("calibrationDatasetVersion", frozenGate.calibrationIdentity.datasetVersion)
-            .put("validationDatasetVersion", frozenGate.validationDatasetVersion)
+            .put("validationDatasetVersion", frozenGate.validationIdentity.datasetVersion)
             .put("finalHoldoutDatasetVersion", report.holdoutIdentity.datasetVersion)
             .put("minimumRawTopScore", frozenGate.minimumRawTopScore)
             .put("observations", holdout.samples.size)

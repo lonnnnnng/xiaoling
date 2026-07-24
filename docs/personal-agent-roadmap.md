@@ -2,9 +2,9 @@
 
 ## 第 86 阶段：冻结 raw top1 的第三套 final holdout
 
-预注册实现已完成，真实 Redmi 结果尚未读取。新增 `KnowledgeRelevanceRawTopScoreFrozenGate` 与 `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 `stage85-raw-top1-qwen-v1`、Stage 85 calibration/validation 版本和 raw top1 `0.6416276358587735`。策略只应用冻结 raw top1，强制第三套数据身份、Provider/模型一致、三桶与有限值完整，失败后不搜索新阈值。
+已完成实现与最终 Redmi 复验。新增 `KnowledgeRelevanceRawTopScoreFrozenGate` 与 `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 `stage85-raw-top1-qwen-v1`、Stage 85 calibration/validation 完整身份和 raw top1 `0.6416276358587735`。策略只应用冻结 raw top1，强制第三套数据身份、Provider/模型一致、三桶与有限值完整，失败后不搜索新阈值。
 
-`stage86-final-holdout-v1` 已在运行前固定 20 篇全新成对主题文档，三桶各 10 条英文查询、每条重复 2 次；同时预注册正例/近负例/远负例/决策稳定和 Recall@1/5、MRR、排序稳定门禁。聚焦 JVM `4/4` 与 AndroidTest APK 编译通过。下一步只在 Redmi 执行一次有效 final holdout：通过后进入生产相关性拒绝设计评审，失败则保留生产拒绝关闭并禁止回调。无论结果如何，本阶段都不直接改生产 Room v32、检索、UI 或 Provider 配置。
+`stage86-final-holdout-v1` 在运行前固定 20 篇全新成对主题文档，三桶各 10 条英文查询、每条重复 2 次；同时预注册正例/近负例/远负例/决策稳定和 Recall@1/5、MRR、排序稳定门禁。预注册后的首次有效 Redmi 运行耗时 `63.077s`；补齐 validation 身份校验并同步重建 Debug/Test APK 后，最终复验耗时 `67.018s`，60 条观测得到正例接纳 `0.90`、近/远负例拒绝 `1.0`、决策稳定 `1.0`、balanced accuracy `0.9667`，Recall@1/5、MRR、排序稳定均为 `1.0`，通过。中间 ABI 不一致和一次检索空分数回归未计入门禁。下一阶段进入生产相关性拒绝设计评审，但本阶段不直接改生产 Room v32、检索、UI 或 Provider 配置；生产拒绝继续关闭直至设计、回退与用户可见行为另行验收。
 
 ## 第 85 阶段：Embedding 特征族独立 calibration/validation
 

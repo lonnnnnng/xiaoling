@@ -6,7 +6,7 @@
 
 `stage86-final-holdout-v1` 在首次真实运行前固定为 20 篇全新成对主题中文短文，正例、近负例、远负例各 10 条英文查询，每条重复 2 次；不得复用 Stage 82 calibration、Stage 83 holdout 或 Stage 85 calibration/validation 的主题与用例。近负例只询问同主题但两篇文档均未覆盖的具体事实。预注册相关性标准为正例接纳率 `>=0.90`、近负例拒绝率 `>=0.80`、远负例拒绝率 `>=0.90`、决策稳定率 `1.0`；排序标准为 Recall@1 `>=0.90`、Recall@5 `1.0`、MRR `>=0.90`、排序稳定率 `1.0`。
 
-真实结果只能在预注册 commit 之后于 Redmi `wsvwypiz7xwslvl7` 执行一次有效采集。通过时也只能进入“生产拒绝设计评审”，不能直接修改 Room v32、cosine+RRF、FTS4+LIKE 或 UI；失败时必须保留冻结阈值和失败证据，不得使用 final holdout 回调或降低标准。显式 Provider 参数缺失时继续 skipped，日志和文档不得包含 Base URL 或 API Key。
+Redmi `wsvwypiz7xwslvl7` 已在预注册 commit 后执行有效采集：首次有效运行耗时 `63.077s`；补齐 validation Provider/模型身份校验并同步重建 Debug/Test APK 后，最终复验耗时 `67.018s`。最终 60 条观测的正例接纳 `0.90`、近/远负例拒绝 `1.0`、决策稳定 `1.0`、balanced accuracy `0.9667`，Recall@1/5、MRR 和排序稳定均为 `1.0`，满足全部标准。中间 ABI 不一致和一次检索空分数回归不得计入门禁，也不得用于调参。该结果只允许进入“生产拒绝设计评审”，不能直接修改 Room v32、cosine+RRF、FTS4+LIKE 或 UI；后续若出现失败证据，必须保留冻结阈值和失败事实，不得使用 final holdout 回调或降低标准。显式 Provider 参数缺失时继续 skipped，日志和文档不得包含 Base URL 或 API Key。
 
 ## 第 85 阶段验证边界
 

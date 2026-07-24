@@ -3,6 +3,7 @@
 /local.properties
 /local-signing/
 /AGENTS.md
+/.kotlin/
 **/build/
 outputs/
 *.iml

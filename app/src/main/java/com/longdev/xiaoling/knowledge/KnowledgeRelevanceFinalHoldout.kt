@@ -3,7 +3,7 @@ package com.longdev.xiaoling.knowledge
 data class KnowledgeRelevanceRawTopScoreFrozenGate(
     val gateVersion: String,
     val calibrationIdentity: KnowledgeRelevanceFeatureDatasetIdentity,
-    val validationDatasetVersion: String,
+    val validationIdentity: KnowledgeRelevanceFeatureDatasetIdentity,
     val minimumRawTopScore: Double,
 )
 
@@ -42,7 +42,7 @@ object KnowledgeRelevanceFinalHoldoutPolicy {
         require(holdoutIdentity.datasetVersion != frozenGate.calibrationIdentity.datasetVersion) {
             "final holdout 不能复用 calibration 数据集"
         }
-        require(holdoutIdentity.datasetVersion != frozenGate.validationDatasetVersion) {
+        require(holdoutIdentity.datasetVersion != frozenGate.validationIdentity.datasetVersion) {
             "final holdout 不能复用 validation 数据集"
         }
 
@@ -91,8 +91,19 @@ object KnowledgeRelevanceFinalHoldoutPolicy {
             identity.providerId.isNotBlank() && identity.model.isNotBlank() && identity.datasetVersion.isNotBlank()
         }) { "final holdout 数据集身份不能为空" }
         require(frozenGate.gateVersion.isNotBlank()) { "final holdout 冻结门禁版本不能为空" }
-        require(frozenGate.validationDatasetVersion.isNotBlank()) { "final holdout validation 数据集版本不能为空" }
-        require(frozenGate.validationDatasetVersion != frozenGate.calibrationIdentity.datasetVersion) {
+        val validationIdentity = frozenGate.validationIdentity
+        // long: calibration、validation 和 final holdout 必须在同一 Provider/模型上形成连续证据，不能只凭版本字符串掩盖模型漂移。
+        require(validationIdentity.providerId.isNotBlank() &&
+            validationIdentity.model.isNotBlank() &&
+            validationIdentity.datasetVersion.isNotBlank()
+        ) { "final holdout validation 数据集身份不能为空" }
+        require(validationIdentity.providerId == frozenGate.calibrationIdentity.providerId) {
+            "冻结门禁 calibration 与 validation Provider 必须一致"
+        }
+        require(validationIdentity.model == frozenGate.calibrationIdentity.model) {
+            "冻结门禁 calibration 与 validation 模型必须一致"
+        }
+        require(validationIdentity.datasetVersion != frozenGate.calibrationIdentity.datasetVersion) {
             "冻结门禁的 calibration 与 validation 数据集必须不同"
         }
         require(frozenGate.minimumRawTopScore.isFinite()) { "final holdout raw top1 阈值必须是有限值" }

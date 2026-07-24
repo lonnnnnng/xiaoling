@@ -2,10 +2,10 @@
 
 ## 第 86 阶段预注册实现边界
 
-- 新增纯 Kotlin `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 gate 版本、Stage 85 calibration 身份、validation 版本和 raw top1 下限；final holdout 必须使用同 Provider/模型的第三个 datasetVersion。策略只读取 `rawTopScore`，不调用 Stage 85 候选搜索，也不使用 margin 或 z-score。
+- 新增纯 Kotlin `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 gate 版本、Stage 85 calibration/validation 完整身份和 raw top1 下限；final holdout 必须使用同 Provider/模型的第三个 datasetVersion。策略只读取 `rawTopScore`，不调用 Stage 85 候选搜索，也不使用 margin 或 z-score。
 - 4 条 JVM 契约覆盖成功评估、Provider/模型/两套已见数据复用拒绝、非法身份/标准/样本，以及失败后冻结阈值保持不变。聚焦测试 `4/4` 通过。
 - `RealProviderKnowledgeFeatureComparisonInstrumentedTest` 新增默认跳过的 final holdout 用例；全新 `stage86-final-holdout-v1` 固定 20 篇成对主题语料、三桶各 10 条查询和每条 2 次重复，并复用生产 Embedding 适配器与独立内存 Room。采集同时输出拒绝指标、Recall@1/5、MRR 和排序稳定率。
-- 真实 Provider 结果尚未读取。当前只完成 AndroidTest APK 编译，不修改生产 `RoomKnowledgeDocumentStore`、Room v32、UI、Provider 配置或相关性拒绝。
+- Redmi final holdout 首次有效运行 `1/1` 为 `63.077s`；补齐 validation Provider/模型身份校验并同步重建 Debug/Test APK 后，最终复验 `1/1` 为 `67.018s`。最终 60 条观测的正例接纳 `0.90`、近/远负例拒绝 `1.0`、决策稳定 `1.0`、balanced accuracy `0.9667`，Recall@1/5、MRR、排序稳定均为 `1.0`。中间 ABI 不一致和一次检索空分数回归未计入证据，也未用于调参；结论只冻结为当前 Provider/模型下的评审证据，不修改生产 `RoomKnowledgeDocumentStore`、Room v32、UI、Provider 配置或相关性拒绝。
 
 ## 第 85 阶段实现与验证边界
 
