@@ -2,6 +2,14 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 答案可回答性 shadow 呈现离线实现（第 93 阶段，Redmi UI/Provider 验收待执行）
+
+- 实现边界：新增 `KnowledgeAnswerabilityShadowPresentation.kt`，将冻结门禁下的 `ACCEPT / REJECT / UNKNOWN` 转换为七类用户提示；结果保留输入引用并固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口，现有生产调用未接入，不修改普通聊天、答案、Room、检索、Workflow 或生产 enforcement。
+- 离线断言：`KnowledgeAnswerabilityPolicyTest` `7/7` 与 `KnowledgeAnswerabilityShadowPresentationPolicyTest` `5/5` 通过独立 JUnit，合计 `12/12`。主代码、UnitTest 与 AndroidTest Kotlin 编译成功；新增 `KnowledgeReferencesContentInstrumentedTest` 用例已进入 AndroidTest APK，但尚未在设备执行。
+- 静态门禁：`lintDebug assembleDebug assembleDebugAndroidTest` 成功。Debug APK 为 `23,042,682` 字节，SHA-256 `bb3eaed753166102a1a87c1cd860ff05de3357874981ce8abd49e593be48aea3`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。构建只使用 `/private/tmp` 中的临时 Gradle 副本/helper，它们不属于仓库或提交物。
+- Redmi 通道：执行 `adb -s wsvwypiz7xwslvl7 get-state` 时，ADB server 启动报 `could not install *smartsocket* listener: Operation not permitted`；对已监听的 `127.0.0.1:5037` 显式连接同样报 `failed to connect to '127.0.0.1:5037': Operation not permitted`。命令尚未到达 Redmi，因此没有安装 APK、运行第 92 阶段真实 Provider 探针、默认 instrumentation 或本阶段 UI 用例，也没有连接、启动或操作 Pixel_9。
+- 当前结论：第 93 阶段只完成离线呈现 seam；第 92 阶段真实 `12 + 12` 观测仍是生产接入前置条件。`productionEnforcementEnabled=false`，生产身份、消息流、答案和知识引用行为保持不变。
+
 ## 2026-07-25 答案可回答性策略离线实现（第 92 阶段，Redmi 真实验收待执行）
 
 - 实现边界：新增 `KnowledgeAnswerability.kt`，固定 JSON verdict、候选原文 quote 匹配、矛盾/部分回答拒绝和 `UNKNOWN` 保守决策；三类特征族只在 calibration 选择门禁，在互异 validation 数据上冻结评估。该切片不读取 Room、不修改检索、答案引用 UI、普通聊天、Workflow 或生产 enforcement。

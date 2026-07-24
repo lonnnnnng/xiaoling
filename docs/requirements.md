@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 93 阶段答案可回答性 shadow 呈现边界
+
+答案可回答性 shadow 呈现只能消费现有 `KnowledgeAnswerabilityObservation` 和冻结 `KnowledgeAnswerabilityGate`，不得在展示层重新计算阈值、调用 Provider、读取 Room 或改变检索结果。输入引用必须按原顺序和身份完整保留，结果固定 `enforcementApplied=false`；`ACCEPT` 只能显示“直接回答”的观察提示，`REJECT` 必须按部分回答、未回答、矛盾、证据无法回查或低于冻结门禁区分，缺观测、缺门禁或 `UNKNOWN` 必须显示未知。
+
+`KnowledgeReferencesContent` 的 answerability 提示入口必须默认 `null`，保证既有生产调用不变。有提示且零引用时应显示解释但不得显示“知识引用 · 0”；有引用时提示与原折叠引用必须同时存在，不能因 Judge 结果删除、替换或重排引用。当前不得把该参数接到普通聊天、生产消息持久化、Room、`knowledge.search`、Workflow 或后台 Worker。
+
+离线验收必须覆盖提示状态、引用不变和 `enforcementApplied=false`，并编译 Compose UI 用例；当前结果为既有策略 `7/7`、新增呈现 `5/5`、合计 `12/12`，Lint 与 Debug/AndroidTest APK 成功。第 92 阶段真实 Provider 证据和本阶段 Redmi UI 执行完成前，生产 enforcement、答案改写和引用过滤继续禁止。Android 真机验证只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
+
 ## 第 92 阶段答案可回答性策略边界
 
 答案可回答性 Judge 只能返回单个严格 JSON 对象，字段集合固定为 `verdict`、`confidence`、`evidence_quotes`、`contradiction_detected`、`reason_code`；verdict 只能是 `ANSWERED`、`PARTIALLY_ANSWERED`、`NOT_ANSWERED` 或 `UNKNOWN`。`ANSWERED` 必须携带候选正文中可匹配的原文 quote；`NOT_ANSWERED` 与 `UNKNOWN` 不得携带 quote；字段异常、解析错误、矛盾或部分回答必须 fail-closed，`UNKNOWN` 不得计作负例拒绝。

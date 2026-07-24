@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceUserNotice
 
 @Composable
@@ -44,33 +45,31 @@ internal fun KnowledgeReferencesContent(
     references: List<KnowledgeReference>,
     statuses: Map<KnowledgeReference, KnowledgeReferenceStatus>,
     failedReferences: Set<KnowledgeReference> = emptySet(),
+    answerabilityNotice: KnowledgeAnswerabilityUserNotice? = null,
     relevanceNotice: KnowledgeRelevanceUserNotice? = null,
     contentColor: Color,
     onOpenDocument: (String) -> Unit,
 ) {
-    if (references.isEmpty() && relevanceNotice == null) return
+    if (references.isEmpty() && answerabilityNotice == null && relevanceNotice == null) return
     var expanded by rememberSaveable(messageId) { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
+        answerabilityNotice?.let { notice ->
+            // long: answerability 只解释候选是否真正回答问题；shadow 阶段即使没有引用也要展示未知或不足原因，但不能因此删改答案。
+            KnowledgeNoticeContent(
+                testTag = "knowledge-answerability-notice",
+                title = notice.title,
+                detail = notice.detail,
+                contentColor = contentColor,
+            )
+        }
         relevanceNotice?.let { notice ->
             // long: 低分降级或无可靠知识时，即使没有可展开引用也必须保留解释，避免用户把“没有引用”误解成界面丢失。
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("knowledge-relevance-notice")
-                    .padding(top = 7.dp, bottom = 3.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    text = notice.title,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = contentColor,
-                )
-                Text(
-                    text = notice.detail,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
-                    color = contentColor.copy(alpha = 0.78f),
-                )
-            }
+            KnowledgeNoticeContent(
+                testTag = "knowledge-relevance-notice",
+                title = notice.title,
+                detail = notice.detail,
+                contentColor = contentColor,
+            )
         }
         if (references.isEmpty()) return@Column
         HorizontalDivider(
@@ -126,6 +125,33 @@ internal fun KnowledgeReferencesContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun KnowledgeNoticeContent(
+    testTag: String,
+    title: String,
+    detail: String,
+    contentColor: Color,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(testTag)
+            .padding(top = 7.dp, bottom = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = contentColor,
+        )
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = contentColor.copy(alpha = 0.78f),
+        )
     }
 }
 

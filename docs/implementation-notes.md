@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 93 阶段：答案可回答性 shadow 呈现（离线实现完成，真实证据待执行）
+
+- 新增 `KnowledgeAnswerabilityShadowPresentation.kt`，只把第 92 阶段的 `KnowledgeAnswerabilityObservation + KnowledgeAnswerabilityGate` 翻译为用户可理解的观察提示。提示区分直接回答、部分回答、未回答、证据矛盾、证据无法回查、低于冻结门禁和未知；无观测或无门禁时同样保持未知。
+- `KnowledgeAnswerabilityShadowPresentedResult` 对输入引用执行副本保留，并固定 `enforcementApplied=false`。该层没有删除引用、改写答案、写 Room、读取灰度控制面或授予生产执行资格，避免把离线 Judge 结果误当成已经上线的答案决策。
+- `KnowledgeReferencesContent` 新增默认 `null` 的 `answerabilityNotice`，并抽取与既有相关性提示共用的展示组件。有提示但零引用时只显示解释，不显示“知识引用 · 0”；有引用时提示与折叠引用共存。当前生产调用没有传入该参数，因此线上界面和消息链路不变。
+- 新增 `KnowledgeAnswerabilityShadowPresentationPolicyTest` `5/5`，与既有 `KnowledgeAnswerabilityPolicyTest` `7/7` 通过独立 JUnit 合计 `12/12`；主代码、UnitTest 和 AndroidTest Kotlin 均成功编译。新增 Compose instrumentation 用例已编译，但因 ADB 通道限制尚未在 Redmi 执行。
+- 本轮 `lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功。Debug APK 为 `23,042,682` 字节、SHA-256 `bb3eaed753166102a1a87c1cd860ff05de3357874981ce8abd49e593be48aea3`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。构建使用 `/private/tmp` 中的临时 Gradle 副本和 helper，它们不属于仓库或提交物。
+- `adb -s wsvwypiz7xwslvl7 get-state` 仍无法从当前 Codex 通道连接本机 5037：启动 server 报 `could not install *smartsocket* listener: Operation not permitted`，显式连接既有 listener 也报 `failed to connect to '127.0.0.1:5037': Operation not permitted`。因此第 92 阶段真实 Provider 探针、默认 instrumentation 与本阶段 UI 真机断言仍待执行；没有连接、启动或操作 Pixel_9。
+
 ## 第 92 阶段：答案可回答性策略（实现完成，真实验收待执行）
 
 - 新增 `KnowledgeAnswerability.kt`，把模型输出限制为单个严格 JSON 对象和固定 verdict 枚举：`ANSWERED`、`PARTIALLY_ANSWERED`、`NOT_ANSWERED`、`UNKNOWN`。字段集合、数值范围、证据片段长度、reason code 和 verdict/证据组合均在解析入口校验；协议错误与语义矛盾直接 fail-closed。

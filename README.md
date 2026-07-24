@@ -105,8 +105,9 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- 第 92 阶段离线门禁：`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功；新增 `KnowledgeAnswerabilityPolicyTest` 通过独立 JUnit `7/7`。Gradle `testDebugUnitTest` 已完成编译，但 Test Worker 受本地 TCP socket 限制未能启动。
-- 第 92 阶段 Redmi 真实安装、`gpt-5.5` Provider 探针和默认 instrumentation 尚待执行；shell 与 Node 通道均无法连接本机 ADB server（`Operation not permitted`）。仅允许使用 Redmi `wsvwypiz7xwslvl7`，没有连接或启动 Pixel_9。
+- 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；结果始终保留原知识引用，`enforcementApplied=false`。
+- `KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口；现有生产调用没有传入，因此普通聊天、答案内容和引用行为保持不变。答案可回答性策略与呈现聚焦 JUnit 合计 `12/12`，`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功。Debug APK 为 `23,042,682` 字节，SHA-256 `bb3eaed753166102a1a87c1cd860ff05de3357874981ce8abd49e593be48aea3`。
+- 第 92 阶段 Redmi 真实安装、`gpt-5.5` Provider 探针和默认 instrumentation 仍待执行；本轮 `adb -s wsvwypiz7xwslvl7 get-state` 在启动/连接本机 ADB server 时继续收到 `Operation not permitted`。仅允许使用 Redmi `wsvwypiz7xwslvl7`，没有连接或启动 Pixel_9。
 - 以下能力为此前 Redmi 里程碑的历史已验证结果：Room 知识库、`knowledge.search`、稳定引用链、Accessibility 只读观察层和有限设备动作；它们不代表第 92 阶段 answerability 真实 Provider 证据已经完成。
 - 生产 `Room`、检索、答案链路和 answerability enforcement 继续保持隔离；`productionEnforcementEnabled=false`。
 - Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
