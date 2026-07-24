@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 90 阶段：正式相关性 calibration/validation 预注册门禁否决
+
+已完成正式 Provider 身份下的独立 calibration/validation 证据采集，但结论是质量门禁否决，不是生产通过。`KnowledgeRelevanceProductionCalibrationPolicy` 绑定 Provider、模型、配置指纹和互异 `datasetVersion`，只从 calibration 冻结七类特征族阈值，再在 validation 原样评估。Redmi `wsvwypiz7xwslvl7` 使用 `redmi-production-embedding-v1 / Qwen/Qwen3-Embedding-0.6B`，配置指纹 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`，两套数据各 24 条观测、Recall@5 均为 `1.0`；最新 raw top1 validation 正例接纳 `0.75`，近/远负例拒绝 `1.0`，七类特征族通过数 `0`，重复运行的正例接纳在 `0.625–0.75` 之间，说明跨主题绝对分数漂移仍未解决。
+
+显式真实校准测试已改为“预期门禁否决即测试成功”，Redmi `OK (1 test)`；没有降低标准、没有用 validation 回调阈值、没有升级 `VERIFIED`、没有进入 final holdout，`productionEnforcementEnabled=false`。新增模型漂移 JVM 回归；完整本地 JVM `535/535`，默认 Redmi instrumentation `185` 条（`176 passed / 9 skipped / 0 failed`）。
+
+下一阶段不应把正确排序误读为相关性门禁通过，也不应继续围绕同一绝对阈值调参；应先决定是否建立新的跨主题归一化特征/标注设计并重新注册数据，或保持生产拒绝关闭继续积累证据。答案级知识引用、生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面。
+
 ## 第 89 阶段：生产身份绑定与相关性灰度控制面
 
 已完成身份状态机、持久化控制面和 Redmi 真实候选探针，但仍未启用生产拒绝。正式身份区分 `UNBOUND / CANDIDATE / VERIFIED / REVOKED`；真实 `/models + /embeddings` 只能证明端点、模型与向量协议可用，因此当前只绑定 `CANDIDATE`。Base URL 仅保存 SHA-256 配置指纹，不保存原始端点或密钥。升级为 `VERIFIED` 必须同时匹配冻结 gate、Provider、模型、配置指纹、独立数据集身份和明确通过的 final holdout 证据。
 
 灰度控制面现在把“用户请求开启”与“生产身份已验证”分开：只有 `VERIFIED` 身份、gate、Provider、模型、证据版本和配置指纹全部一致时才可能解析为 `ENFORCE`，任何漂移都回到 `SHADOW`。设置页只展示身份、证据、当前 `SHADOW` 和撤销入口；撤销清除执行资格并把绑定标为 `REVOKED`，没有直接绑定、升级或绕过证据开启生产拒绝的入口。完整 JVM `532/532`、Lint、Debug/AndroidTest APK 和仅 Redmi 默认 instrumentation `184` 条（`176 passed / 8 skipped / 0 failed`）通过；真实身份探针 `1/1` 得到 `2 × 1024` 有限向量并保持 `CANDIDATE`。
 
-下一阶段不能复用 Stage 85/86 的实验 Provider ID 直接升级当前候选。应在同一正式 Provider、模型和配置指纹下重新建立版本化 calibration、validation 与 final holdout，冻结新的生产 gate 和证据版本；只有该证据链通过后，才评审把 control-plane resolution、生产 decision 和 UX presentation 接入答案级知识路径。完成前 `RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台行为保持不变。
+第 90 阶段已在同一正式 Provider、模型和配置指纹下完成版本化 calibration/validation，但七类特征族全部被预注册标准否决。不能复用 validation 调参、降低正例标准或直接进入 final holdout；只有新的跨主题归一化/数据设计在重新注册后通过，才评审把 control-plane resolution、生产 decision 和 UX presentation 接入答案级知识路径。完成前 `RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台行为保持不变。
 
 ## 第 88 阶段：相关性降级、引用一致性与身份灰度契约
 
@@ -14,7 +22,7 @@
 
 灰度偏好默认关闭，并绑定 gate 版本、Provider 与模型；缺项、版本漂移或身份漂移自动回到 shadow，撤销清除四项资格。双轴审查进一步补齐了 calibration/validation datasetVersion 完整且不同的冻结身份约束。Stage 87+88 聚焦 JVM `16/16`、完整 JVM `522/522`、Lint、APK 和仅 Redmi instrumentation `180` 条（`173 passed / 7 skipped / 0 failed`）通过。首次完整套件的 20 个 Compose 失败由 Redmi dream/keyguard 引起，唤醒后的失败批次与保持唤醒的完整复验均全绿。
 
-下一阶段不能直接把 Stage 85/86 的实验 Provider ID 当成生产身份。应先为当前真实 Embedding Provider/模型建立可发布的身份绑定与显式灰度控制，再评审把 rollout resolution、生产 decision 和 UX presentation 串入答案级知识路径；默认仍关闭，并在 Redmi 对高分保留、低分词法兜底、低分无词法、身份漂移自动回退和 rollback 后无拒绝逐项验收。完成这些前，`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台行为保持不变。
+第 90 阶段已在正式身份下完成 calibration/validation，但七类特征族均未通过预注册标准；不能把该结果升级为生产身份或 final holdout。默认仍关闭，必须先重新注册跨主题归一化/数据设计并获得独立通过证据，才评审把 rollout resolution、生产 decision 和 UX presentation 串入答案级知识路径。完成这些前，`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台行为保持不变。
 
 ## 第 87 阶段：生产相关性拒绝设计评审
 
@@ -624,4 +632,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 83. 已完成验证并否决候选：冻结 Stage 82 的 Provider/模型、阈值和校准集身份，以全新 holdout 三轮复验；排序指标全为 `1.0`，但正例接纳率仅 `0.80`，低于预注册 `0.90`，因此不进入生产拒绝且不使用 holdout 回调阈值。
 84. 已完成：Room v32 保存候选均值、总体标准差和 top1 z-score shadow 观测；退休 holdout 显示正例与近负例 z-score 仍重叠，不启用生产拒绝。
 
-后续先建立全新版本的 calibration/validation 数据，预注册比较 raw top1、margin、z-score 及组合候选，不复用 `stage83-holdout-v1` 调整门禁；只有新的验证集达到标准，才冻结候选并准备另一个未见 final holdout。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+85. 已完成：两套全新正式身份 calibration/validation 的七类特征族比较，校准与验证数据各 24 条，Recall@5 均为 `1.0`，但七类特征族无一达到预注册相关性标准。
+86. 已完成：正式门禁否决被编码为成功的 Redmi 显式验收（`OK (1 test)`），不降低阈值、不回调 validation、不升级 `VERIFIED` 或进入 final holdout。
+87. 已完成：模型漂移身份回归，Provider、模型、配置指纹和数据集版本任一漂移均在比较前 fail-closed。
+88. 已完成：完整本地门禁更新为 JVM `535/535`、Lint、Debug/AndroidTest APK；仅 Redmi 默认 instrumentation XML 为 `185` 条（`176 passed / 9 skipped / 0 failed`）。
+89. 当前边界：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；下一步先决定新的跨主题归一化/数据设计或继续积累独立证据。
+90. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+
+后续若继续相关性工作，必须先重新注册新的跨主题归一化/数据设计，不能用第 90 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

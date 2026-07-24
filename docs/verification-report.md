@@ -2,6 +2,16 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 正式相关性 calibration/validation 预注册门禁否决（第 90 阶段）
+
+- 实现边界：新增 `KnowledgeRelevanceProductionDatasetIdentity` 与 `KnowledgeRelevanceProductionCalibrationPolicy`。calibration/validation 必须同时绑定正式 Provider ID、模型、配置指纹，且 `datasetVersion` 不同；七类特征族只从 calibration 冻结阈值，再原样评估独立 validation。该切片不修改 Room、生产 Store、`knowledge.search`、普通聊天、Workflow 或 enforcement。
+- Redmi 真实证据：仅使用 `wsvwypiz7xwslvl7`，Provider ID 为 `redmi-production-embedding-v1`，模型为 `Qwen/Qwen3-Embedding-0.6B`，配置指纹为 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`。`stage90-formal-calibration-v1` 与 `stage90-formal-validation-v1` 各完成 24 条观测，Recall@5 均为 `1.0`；最新查询中位数为 `704ms / 703ms`。
+- 质量结论：七类特征族通过数为 `0`。最新 raw top1 calibration 阈值为 `0.7111779316353192`，validation 正例接纳率 `0.75`、近/远负例拒绝 `1.0`、决策稳定率 `1.0`；重复取证正例接纳率为 `0.625`，两次均稳定得到预注册门禁否决。跨主题正例分数漂移是误拒主因，不能降低标准、使用 validation 回调阈值、升级 `VERIFIED` 或进入 final holdout。
+- 测试语义：`RealProviderKnowledgeRelevanceProductionCalibrationInstrumentedTest` 已改为把“没有特征族通过”作为预期质量否决，显式运行结果 `OK (1 test)`；日志输出 `productionEnforcementEnabled=false`。新增 JVM 模型漂移回归，确保模型身份变化在比较前 fail-closed。
+- 门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --stacktrace --console=plain` 通过，JVM XML 汇总 `535/535`，Lint、Debug APK 与 AndroidTest APK 成功。Debug APK 为 `23,009,914` 字节，SHA-256 `90caf6eb1b613fed03562a8865c88734fdb117ce1e937070f60bb5ad497edb99`。
+- Redmi 默认完整回归：`adb devices -l` 仅列出 `wsvwypiz7xwslvl7`；XML 汇总为 `185` 条、`176 passed / 9 skipped / 0 failed`。9 个显式联网 Provider/校准用例在无参数默认套件中按设计 skipped；没有启动、连接或操作 Pixel_9/其他模拟器。
+- 收尾状态：instrumentation 后主包按框架行为被移除，已重新安装 Debug APK，并通过 Debug-only E2E Repository/Keystore 入口从未跟踪 `AGENTS.md` 恢复兜底 Provider（`gpt-5.5`）、默认只读 `device.open_app` Profile、默认 User-Agent 与 Device Agent 开关；AccessibilityService 已恢复 Enabled/Bound，`MainActivity` 前台，测试包已卸载。正式身份仍为 `CANDIDATE`，答案路径与生产拒绝保持 `SHADOW`。
+
 ## 2026-07-25 生产身份绑定与相关性灰度控制面（第 89 阶段）
 
 - 身份策略：新增 `UNBOUND / CANDIDATE / VERIFIED / REVOKED`，真实 Provider 探针只建立候选；`VERIFIED` 必须同时匹配冻结 gate、Provider、模型、配置指纹、全新 holdout 身份和明确通过的证据。配置指纹只使用规范化 Base URL 的 SHA-256，不保存原始 URL 或 API Key。
@@ -10,7 +20,7 @@
 - JVM/静态门禁：身份策略 `6/6`、控制面 `4/4`；完整 JVM XML `532/532`、0 failed、0 skipped。Lint、Debug APK 和 AndroidTest APK 成功。Debug APK 为 `23,009,914` 字节，SHA-256 `e16763afa559160f224e9f3b8c3a89904f5e9712ff073ed058e370abf3056e87`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用哈希。
 - Redmi 默认门禁：`adb devices -l` 仅列出 `wsvwypiz7xwslvl7`。临时关闭充电屏保后运行默认完整 instrumentation，启动 `184` 条，JUnit XML 为 `184` 条、`176 passed / 8 skipped / 0 failed`；8 个真实 Provider 用例缺少显式参数按设计 skipped，未连接、启动或操作 Pixel_9/其他模拟器。
 - Redmi 真实身份探针：使用未跟踪本地 Embedding 配置显式运行 `RealProviderKnowledgeRelevanceIdentityInstrumentedTest`，`/models` 包含目标模型，`/embeddings` 返回 HTTP 200、两条非空同维度有限向量，维度 `1024`；结果 `1/1`，Provider ID 为 `redmi-production-embedding-v1`，状态严格为 `CANDIDATE`。测试未保存或输出 API Key，也未升级为 `VERIFIED` 或开启生产拒绝。
-- 决策：当前候选 Provider ID 与 Stage 85/86 实验 gate 身份不同，已有证据不能直接用于生产升级。下一阶段必须在同一正式 Provider、模型和配置指纹下重新建立 calibration、validation、冻结 gate 与 final holdout；完成前生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面，答案路径保持 `SHADOW`。
+- 决策：第 90 阶段已在同一正式 Provider、模型和配置指纹下完成 calibration/validation，但七类特征族均未达到预注册标准，候选仍不能升级或进入 final holdout；不得使用 validation 回调阈值。完成新的独立证据前，生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面，答案路径保持 `SHADOW`。
 
 ## 2026-07-24 相关性降级、引用一致性与身份灰度契约（第 88 阶段）
 

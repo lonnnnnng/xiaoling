@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 90 阶段：正式相关性 calibration/validation 预注册门禁否决
+
+- 新增 `KnowledgeRelevanceProductionDatasetIdentity` 与 `KnowledgeRelevanceProductionCalibrationPolicy`。正式 calibration/validation 必须同时绑定生产 Provider ID、模型、配置指纹，且 `datasetVersion` 不得复用；比较阶段继续复用既有七类特征族，只从 calibration 冻结阈值，再原样评估独立 validation，不把 validation 结果回调为新阈值。
+- 显式 Redmi 测试使用 `redmi-production-embedding-v1 / Qwen/Qwen3-Embedding-0.6B`，配置指纹为 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`，`stage90-formal-calibration-v1` 与 `stage90-formal-validation-v1` 各 24 条观测，Recall@5 均为 `1.0`。最新一次 raw top1 calibration 阈值为 `0.7111779316353192`，validation 正例接纳率 `0.75`、近/远负例拒绝 `1.0`、决策稳定 `1.0`；另一次重复取证正例接纳率为 `0.625`，两次七类特征族均无一通过预注册标准。
+- 测试把“没有特征族通过”编码为预期质量门禁否决，显式 Redmi instrumentation `OK (1 test)`；`productionEnforcementEnabled=false`，不会升级为 `VERIFIED`，不会进入 final holdout，也不修改 Room、生产 Store、`knowledge.search`、普通聊天、Workflow 或 enforcement。新增 JVM 模型漂移回归，确认模型身份变化在比较前 fail-closed。
+- 本地完整门禁为 JVM `535/535`、Lint、Debug/AndroidTest APK；默认仅 Redmi `wsvwypiz7xwslvl7` 的 instrumentation XML 为 `185` 条（`176 passed / 9 skipped / 0 failed`）。
+- 结论：本 Provider 的排序 Recall 仍好，但跨主题正例分数漂移使相关性接纳不足；不得为让 gate 通过而降低预注册标准、使用 validation 调参或把结果解释为生产可用。当前正式身份继续为 `CANDIDATE`，答案路径保持 `SHADOW`。
+
 ## 第 89 阶段：生产身份绑定与相关性灰度控制面
 
 - 新增 `KnowledgeRelevanceProductionIdentity` 及 `UNBOUND / CANDIDATE / VERIFIED / REVOKED` 状态。真实 Provider 探针必须同时证明 Provider ID、模型、模型列表、向量数量和维度有效；协议可用只生成 `CANDIDATE`，不能据此伪造 `VERIFIED`。
@@ -9,7 +17,7 @@
 - `UiPreferenceStore` 独立保存执行资格和身份绑定。`rollbackKnowledgeRelevanceRollout()` 只清除未来执行资格；设置页撤销动作另行把身份标记为 `REVOKED`，保留最小审计但不允许旧授权复活。
 - 设置根页新增「相关性灰度控制面」入口。独立页面展示身份状态、Provider、模型、配置指纹、gate、证据、holdout 和当前固定 `SHADOW`，并明确生产答案路径尚未接入；页面没有绑定、升级或直接开启 enforcement 的入口。
 - JVM 新增身份策略 `6` 条和控制面 `4` 条，完整 JVM 为 `532/532`。仅 Redmi 默认完整 instrumentation 为 `184` 条、`176 passed / 8 skipped / 0 failed`；新增 UI `2/2`、偏好存储 `4/4` 通过。显式真实身份探针 `1/1` 返回两条 `1024` 维有限向量，状态严格为 `CANDIDATE`。
-- 当前正式 Provider 身份与 Stage 85/86 实验 Provider ID 不同，已有 gate 不能直接升级该候选。下一阶段必须在同一正式 Provider、模型和配置指纹下建立新的 calibration、validation 与 final holdout 完整身份，再评审答案路径接入；生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面。
+- 当前正式 Provider 身份与 Stage 85/86 实验 Provider ID 不同；第 90 阶段已在该正式身份下完成独立 calibration/validation，但七类特征族均未达到预注册标准，因此候选仍不能升级或进入 final holdout。生产 Store、`knowledge.search`、普通聊天和 Workflow 继续不读取控制面，后续应先决定新的跨主题归一化/数据设计，再重新注册证据，不得回调本阶段阈值。
 
 ## 第 88 阶段：相关性降级、引用一致性与身份灰度契约
 

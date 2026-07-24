@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 90 阶段正式相关性 calibration/validation 预注册门禁边界
+
+正式相关性证据必须绑定同一生产 Provider ID、模型和配置指纹，并使用互异的 calibration/validation `datasetVersion`。七类特征族（raw top1、margin、top1 z-score 及四种组合）只能从 calibration 选择阈值，validation 必须原样评估；不得使用 validation 回调阈值、降低预注册标准或复用旧 holdout。
+
+第 90 阶段 Redmi 真实验收使用 `redmi-production-embedding-v1 / Qwen/Qwen3-Embedding-0.6B`，配置指纹 `2f22bfe3b9db92555f493c173116c58970490ece7fa90b8c7bf156aa7456dbf6`，两套数据各 24 条观测、Recall@5 均为 `1.0`。预注册相关性标准未有特征族通过；最新 raw top1 validation 正例接纳率为 `0.75`，重复取证范围为 `0.625–0.75`，近/远负例拒绝均为 `1.0`。因此“质量门禁否决”必须作为显式、可审计且测试成功的结果，不能把 JUnit 失败断言伪装成通过，也不能升级 `VERIFIED`、进入 final holdout 或开启 `productionEnforcement`。
+
+在新跨主题归一化特征或新标注数据重新注册并达到标准前，生产 Store、`knowledge.search`、普通聊天、答案级引用和 Workflow 不读取该控制面。门禁记录为 JVM `535/535`、仅 Redmi 默认 instrumentation `185` 条（`176 passed / 9 skipped / 0 failed`）；不得连接或操作 Pixel_9。
+
 ## 第 89 阶段生产身份绑定与灰度控制面边界
 
 相关性生产身份必须区分 `UNBOUND / CANDIDATE / VERIFIED / REVOKED`。真实 Provider 探针至少校验非空 Provider ID、模型与配置指纹，模型列表包含目标 Embedding 模型，并成功返回数量、维度和有限值均有效的向量；该探针只允许建立 `CANDIDATE`，不得因 `/models` 或 `/embeddings` 成功直接授予生产 enforcement。
@@ -8,7 +16,7 @@
 
 灰度偏好必须继续默认关闭，并新增身份证据版本和配置指纹。控制面只有在偏好本身通过 gate/Provider/模型校验、生产身份为 `VERIFIED`、身份 gate 与当前 gate 一致、证据版本和配置指纹相同时，才允许解析为 `ENFORCE`；候选、撤销、过期 gate、身份漂移或偏好不完整全部回到 `SHADOW`。撤销执行资格与身份审计必须分开：前者清除未来执行键，后者保留身份和证据指针但标记 `REVOKED`。
 
-设置页必须提供独立「相关性灰度控制面」入口，展示身份、Provider、模型、配置指纹、gate、证据和 holdout，并明确当前生产答案路径尚未接入。页面不得提供直接绑定、升级或绕过证据开启 enforcement 的入口。当前正式身份只完成 Redmi 候选探针，仍缺同一正式 Provider 身份下的新 calibration、validation 和 final holdout；因此 ViewModel、`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台 Worker 继续不读取控制面。门禁为完整 JVM `532/532`、Lint、Debug/AndroidTest APK、仅 Redmi 默认 instrumentation `184` 条（`176 passed / 8 skipped / 0 failed`），以及显式真实候选探针 `1/1`；不得连接或操作 Pixel_9。
+设置页必须提供独立「相关性灰度控制面」入口，展示身份、Provider、模型、配置指纹、gate、证据和 holdout，并明确当前生产答案路径尚未接入。页面不得提供直接绑定、升级或绕过证据开启 enforcement 的入口。第 90 阶段已完成同一正式 Provider 身份下的新 calibration/validation，但七类特征族均未达到预注册标准；因此 ViewModel、`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台 Worker 继续不读取控制面。门禁为完整 JVM `535/535`、Lint、Debug/AndroidTest APK、仅 Redmi 默认 instrumentation `185` 条（`176 passed / 9 skipped / 0 failed`），以及显式真实校准 `1/1`；不得连接或操作 Pixel_9。
 
 ## 第 88 阶段相关性降级、引用一致性与身份灰度边界
 
