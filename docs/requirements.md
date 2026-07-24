@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 88 阶段相关性降级、引用一致性与身份灰度边界
+
+本阶段必须在不接入生产拒绝的前提下冻结用户体验与灰度契约。每个 `KnowledgeSearchHit` 必须携带同一次融合输入中的 `LEXICAL / SEMANTIC` 来源；该元数据不得改变现有 RRF、FTS4+LIKE、top-K、enabled/revision 复核或 Room v32。未来低分执行只能移除 semantic-only：词法-only 和词法/语义重叠候选必须保留一次，最终引用集合必须由最终候选直接生成，不能继续暴露已移除 chunk。
+
+用户提示标题固定为“已降级为关键词匹配”“未找到足够可靠的本地知识”“相关性检查暂未应用”。没有词法兜底时允许零引用但必须保留解释；既有调用未传提示时 UI 行为不变。候选来源缺失、决策与来源矛盾，以及 shadow/关闭状态中出现任何删除 disposition 时必须 fail-open，保留当前 hits 与引用。默认关闭的正常 shadow 判断不得向用户显示未实际应用的警告。
+
+灰度资格必须同时绑定 gate 版本、Provider 和模型。偏好缺项、gate 版本过期或身份漂移时自动解析为 `SHADOW`；撤销必须清除 enforcement、gate、Provider、模型四个键。冻结 gate 的 calibration/validation 身份必须完整、Provider/模型一致且 datasetVersion 不同，阈值必须有限；结构非法时直接拒绝，不能降级成可执行资格。Stage 85/86 的实验 Provider ID 不能直接作为正式生产身份，接入前必须以真实 Provider/模型重新绑定并复验。
+
+本阶段不得让 ViewModel、`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 或后台 Worker 读取灰度偏好，也不得修改生产排序、拒绝、Room Schema 或历史记录。验收门禁为 Stage 87+88 聚焦 JVM `16/16`、完整 JVM `522/522`、Lint、Debug/AndroidTest APK，以及只在 Redmi `wsvwypiz7xwslvl7` 执行的默认 instrumentation `180` 条（`173 passed / 7 skipped / 0 failed`）。首次长套件若因设备 dream/keyguard 导致 Compose hierarchy 缺失，只能作为设备状态失败记录；唤醒后的失败批次与完整套件必须重新全绿，不能把失败静默忽略。
+
 ## 第 87 阶段生产相关性拒绝设计边界
 
 本阶段只建立可审计的候选决策契约，不把 final holdout 结果直接变成线上拒绝。策略必须绑定 Stage 86 冻结的 gate、calibration/validation Provider/模型身份和 raw top1 下限；默认开关关闭时只能输出 shadow 结论，不得改变现有语义、FTS4 或 LIKE 结果。开关未来开启时，低于下限只能移除语义候选；若同一查询有词法命中，必须保留词法结果，不能把“语义低分”显示成“知识为空”。

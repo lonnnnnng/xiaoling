@@ -3,6 +3,7 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRolloutPreference
 import com.longdev.xiaoling.prompt.PromptDefaults
 import com.longdev.xiaoling.prompt.PromptSettings
 
@@ -73,6 +74,42 @@ class UiPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadKnowledgeRelevanceRolloutPreference(): KnowledgeRelevanceRolloutPreference {
+        if (!preferences.getBoolean(KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED, false)) {
+            return KnowledgeRelevanceRolloutPreference()
+        }
+        return KnowledgeRelevanceRolloutPreference(
+            enforcementEnabled = true,
+            gateVersion = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION, null)?.trim()?.ifBlank { null },
+            providerId = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID, null)?.trim()?.ifBlank { null },
+            model = preferences.getString(KEY_KNOWLEDGE_RELEVANCE_MODEL, null)?.trim()?.ifBlank { null },
+        )
+    }
+
+    fun saveKnowledgeRelevanceRolloutPreference(preference: KnowledgeRelevanceRolloutPreference) {
+        if (!preference.enforcementEnabled) {
+            rollbackKnowledgeRelevanceRollout()
+            return
+        }
+        // long: 这里只保存用户请求的灰度身份；真正执行前仍由 rollout policy 与当前冻结 gate 逐项核对，不能把本地布尔值直接当作上线资格。
+        preferences.edit()
+            .putBoolean(KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED, true)
+            .putString(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION, preference.gateVersion?.trim()?.ifBlank { null })
+            .putString(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID, preference.providerId?.trim()?.ifBlank { null })
+            .putString(KEY_KNOWLEDGE_RELEVANCE_MODEL, preference.model?.trim()?.ifBlank { null })
+            .apply()
+    }
+
+    fun rollbackKnowledgeRelevanceRollout() {
+        // long: 撤销必须清除执行位和绑定身份，避免未来同名 gate 或模型重新出现时沿用一次旧授权。
+        preferences.edit()
+            .remove(KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID)
+            .remove(KEY_KNOWLEDGE_RELEVANCE_MODEL)
+            .apply()
+    }
+
     fun loadPromptSettings(): PromptSettings {
         return PromptSettings(
             chatPromptEnabled = preferences.getBoolean(KEY_CHAT_PROMPT_ENABLED, false),
@@ -109,6 +146,10 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_USER_AGENT = "user_agent"
         private const val KEY_REASONING_SUMMARY_ENABLED = "reasoning_summary_enabled"
         private const val KEY_DEVICE_AGENT_ENABLED = "device_agent_enabled"
+        private const val KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED = "knowledge_relevance_enforcement_enabled"
+        private const val KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION = "knowledge_relevance_gate_version"
+        private const val KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID = "knowledge_relevance_provider_id"
+        private const val KEY_KNOWLEDGE_RELEVANCE_MODEL = "knowledge_relevance_model"
         private const val MAX_USER_AGENT_LENGTH = 512
     }
 }

@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceUserNotice
 
 @Composable
 internal fun KnowledgeReferencesContent(
@@ -43,12 +44,35 @@ internal fun KnowledgeReferencesContent(
     references: List<KnowledgeReference>,
     statuses: Map<KnowledgeReference, KnowledgeReferenceStatus>,
     failedReferences: Set<KnowledgeReference> = emptySet(),
+    relevanceNotice: KnowledgeRelevanceUserNotice? = null,
     contentColor: Color,
     onOpenDocument: (String) -> Unit,
 ) {
-    if (references.isEmpty()) return
+    if (references.isEmpty() && relevanceNotice == null) return
     var expanded by rememberSaveable(messageId) { mutableStateOf(false) }
     Column(modifier = Modifier.fillMaxWidth()) {
+        relevanceNotice?.let { notice ->
+            // long: 低分降级或无可靠知识时，即使没有可展开引用也必须保留解释，避免用户把“没有引用”误解成界面丢失。
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("knowledge-relevance-notice")
+                    .padding(top = 7.dp, bottom = 3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = notice.title,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = contentColor,
+                )
+                Text(
+                    text = notice.detail,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                    color = contentColor.copy(alpha = 0.78f),
+                )
+            }
+        }
+        if (references.isEmpty()) return@Column
         HorizontalDivider(
             color = contentColor.copy(alpha = 0.16f),
             modifier = Modifier.padding(top = 7.dp),

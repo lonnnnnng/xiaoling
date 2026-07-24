@@ -22,6 +22,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
+import com.longdev.xiaoling.knowledge.KnowledgeSearchMatchChannel
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
 import kotlinx.coroutines.CompletableDeferred
@@ -477,6 +478,10 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
         assertEquals(EMBEDDING_PROVIDER_ID, result.retrieval.embeddingProviderId)
         assertEquals(EMBEDDING_MODEL, result.retrieval.embeddingModel)
+        assertEquals(
+            setOf(KnowledgeSearchMatchChannel.SEMANTIC),
+            result.hits.single().matchChannels,
+        )
         assertEquals(1.0, result.retrieval.embeddingScoreMean!!, 0.000001)
         assertEquals(0.0, result.retrieval.embeddingScoreStandardDeviation!!, 0.000001)
         assertNull(result.retrieval.embeddingTopScoreZScore)
@@ -543,6 +548,10 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(result.hits.map { it.chunkId }, result.hits.map { it.chunkId }.distinct())
         assertEquals(result.hits.map { it.chunkId }, result.retrieval.chunkIds)
         assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
+        assertEquals(
+            setOf(KnowledgeSearchMatchChannel.LEXICAL, KnowledgeSearchMatchChannel.SEMANTIC),
+            result.hits.single().matchChannels,
+        )
     }
 
     @Test
@@ -560,6 +569,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         val unavailable = unavailableStore.search("词法检索", limit = 5)
 
         assertTrue(unavailable.hits.isNotEmpty())
+        assertTrue(unavailable.hits.all { it.matchChannels == setOf(KnowledgeSearchMatchChannel.LEXICAL) })
         assertEquals(KnowledgeEmbeddingStatus.PROVIDER_UNAVAILABLE, unavailable.retrieval.embeddingStatus)
         assertNull(unavailable.retrieval.embeddingTopScore)
         assertNull(unavailable.retrieval.embeddingSecondScore)

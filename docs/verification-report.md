@@ -2,6 +2,18 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 相关性降级、引用一致性与身份灰度契约（第 88 阶段）
+
+- 来源与检索边界：`KnowledgeSearchHit` 新增 `LEXICAL / SEMANTIC` 来源集合，`RoomKnowledgeDocumentStore` 为词法-only、语义-only 和重叠命中附加同次融合来源。既有 fused IDs、排序、limit、enabled/revision 复核、检索审计和 Room v32 均未改变。
+- 用户体验：`KnowledgeRelevanceUserExperiencePolicy` 在低分 enforcement 时只移除 semantic-only，保留 lexical-only 与重叠候选；引用从最终 hits 生成。固定标题为“已降级为关键词匹配”“未找到足够可靠的本地知识”“相关性检查暂未应用”。来源缺失、决策与来源矛盾或 shadow 中出现删除指令时 fail-open；正常关闭 shadow 不展示未应用警告。
+- UI 与偏好：`KnowledgeReferencesContent` 可在零引用时单独显示相关性解释，默认 `null` 不改变既有调用。`UiPreferenceStore` 可保存 gate/Provider/模型绑定的默认关闭偏好，rollback 清除四个键；当前生产 ViewModel、Store 和 `knowledge.search` 没有读取路径，因此拒绝仍未上线。
+- 双轴审查：fixed point 为 `4ac67da`。审查发现 rollout gate 原实现没有拒绝空 datasetVersion 或 calibration/validation 数据集复用，弱于第 87 阶段冻结边界；补齐完整身份和独立数据集校验，并新增回归。Stage 85/86 测试身份仍是实验身份，正式接入前必须重绑定真实 Provider，不能直接启用。
+- JVM/静态门禁：Stage 87+88 聚焦 `16/16`；完整 JVM XML `522/522`、0 failed、0 skipped。Lint、Debug APK 和 AndroidTest APK 成功。Debug APK 为 `22,977,146` 字节，SHA-256 `f20896c7a1bb8cfb6b5ff4c560352ddcb3ae56045aade26e17b09b4f4cb332c6`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用哈希。
+- Redmi 设备状态失败：首次默认完整 instrumentation 在第 160 条前仍为 0 failed，随后 Redmi 进入 `mDreamingLockscreen=true` 且系统 `NotificationShade` 获得焦点，20 个既有 Compose 用例统一报 `No compose hierarchies found in the app`。收起通知栏、退出 dream/keyguard 后，本阶段引用 UI `2/2` 和完整失败集合 `20/20` 均通过，证明不是业务断言回归。
+- Redmi 最终门禁：临时设置 USB 连接保持唤醒并关闭充电屏保，退出时自动恢复原值；只使用 `wsvwypiz7xwslvl7` 重跑完整套件，JUnit XML `180` 条、`173 passed / 7 skipped / 0 failed`。7 个真实 Provider 用例缺少显式参数按设计 skipped；未连接、启动或操作 Pixel_9/其他模拟器。
+- 收尾状态：测试框架卸载目标包后重新安装最终 Debug APK，使用未跟踪 `AGENTS.md` 经 Debug-only 正式 Repository/Keystore 入口恢复 `gpt-5.5` Provider、7 个设备工具 Agent Profile 和设备 Agent 开关。Room `user_version=32`，Provider Base URL、API Key IV/密文、模型与 enabled models 均非空；默认 User-Agent 生效，真实 `/responses` 冒烟通过。测试包不存在，AccessibilityService Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台，crash buffer 无本应用记录。
+- 决策：第 88 阶段只完成安全呈现和灰度资格契约。下一阶段先重绑定真实生产 Provider/模型身份并建立显式控制面，再评审答案级接入；生产 `RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天和 Workflow 继续保持无相关性拒绝。
+
 ## 2026-07-24 生产相关性拒绝设计评审边界（第 87 阶段）
 
 - 设计实现：新增 `KnowledgeRelevanceProductionDesignPolicy`，复用 Stage 86 冻结 gate 的完整 calibration/validation 身份和 raw top1 下限；策略仅消费 `KnowledgeRetrievalRecord`，不接入 `RoomKnowledgeDocumentStore.search()`，不写 Room、不改 UI、不改变生产排序或拒绝。

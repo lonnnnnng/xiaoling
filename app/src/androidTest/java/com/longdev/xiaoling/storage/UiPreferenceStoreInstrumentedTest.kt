@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRolloutPreference
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -47,6 +49,28 @@ class UiPreferenceStoreInstrumentedTest {
         UiPreferenceStore(isolatedContext).saveDeviceAgentEnabled(true)
 
         assertTrue(UiPreferenceStore(isolatedContext).loadDeviceAgentEnabled())
+    }
+
+    @Test
+    fun knowledgeRelevanceRolloutIsOffByDefaultAndRollbackClearsIdentity() {
+        val enabled = KnowledgeRelevanceRolloutPreference(
+            enforcementEnabled = true,
+            gateVersion = "stage85-raw-top1-qwen-v1",
+            providerId = "provider-a",
+            model = "embedding-a",
+        )
+        val store = UiPreferenceStore(isolatedContext)
+
+        assertEquals(KnowledgeRelevanceRolloutPreference(), store.loadKnowledgeRelevanceRolloutPreference())
+        store.saveKnowledgeRelevanceRolloutPreference(enabled)
+        assertEquals(enabled, UiPreferenceStore(isolatedContext).loadKnowledgeRelevanceRolloutPreference())
+
+        store.rollbackKnowledgeRelevanceRollout()
+
+        assertEquals(
+            KnowledgeRelevanceRolloutPreference(),
+            UiPreferenceStore(isolatedContext).loadKnowledgeRelevanceRolloutPreference(),
+        )
     }
 
     private fun clearPreferences() {

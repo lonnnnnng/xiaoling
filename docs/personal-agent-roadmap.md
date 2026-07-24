@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 88 阶段：相关性降级、引用一致性与身份灰度契约
+
+已完成契约实现、审查修复和 Redmi 完整门禁，但仍未启用生产拒绝。检索 hit 现在能区分 `LEXICAL / SEMANTIC` 来源；未来低分 enforcement 只能删除 semantic-only，词法和语义重叠命中继续保留，引用始终从最终候选生成。用户侧固定三种解释：“已降级为关键词匹配”“未找到足够可靠的本地知识”“相关性检查暂未应用”；来源未知、决策矛盾或 shadow 删除指令全部 fail-open。零引用时 UI 也能独立显示解释，但生产消息流尚未传入该提示。
+
+灰度偏好默认关闭，并绑定 gate 版本、Provider 与模型；缺项、版本漂移或身份漂移自动回到 shadow，撤销清除四项资格。双轴审查进一步补齐了 calibration/validation datasetVersion 完整且不同的冻结身份约束。Stage 87+88 聚焦 JVM `16/16`、完整 JVM `522/522`、Lint、APK 和仅 Redmi instrumentation `180` 条（`173 passed / 7 skipped / 0 failed`）通过。首次完整套件的 20 个 Compose 失败由 Redmi dream/keyguard 引起，唤醒后的失败批次与保持唤醒的完整复验均全绿。
+
+下一阶段不能直接把 Stage 85/86 的实验 Provider ID 当成生产身份。应先为当前真实 Embedding Provider/模型建立可发布的身份绑定与显式灰度控制，再评审把 rollout resolution、生产 decision 和 UX presentation 串入答案级知识路径；默认仍关闭，并在 Redmi 对高分保留、低分词法兜底、低分无词法、身份漂移自动回退和 rollback 后无拒绝逐项验收。完成这些前，`RoomKnowledgeDocumentStore.search()`、`knowledge.search`、普通聊天、Workflow 和后台行为保持不变。
+
 ## 第 87 阶段：生产相关性拒绝设计评审
 
 已完成纯策略设计与真实项目回归，但尚未把拒绝接入生产检索。`KnowledgeRelevanceProductionDesignPolicy` 复用 Stage 86 冻结 gate，要求 Provider/模型身份一致；高于 raw top1 下限的语义结果保持，低于下限只计划移除语义候选并保留词法兜底。开关默认关闭，关闭时只产生 shadow 判断；非语义状态、身份漂移、缺失或非有限分数全部 fail-open。策略没有被 `RoomKnowledgeDocumentStore.search()` 调用，不改变 Room v32、UI、检索排序或历史审计。

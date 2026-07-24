@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 88 阶段：相关性降级、引用一致性与身份灰度契约
+
+- `KnowledgeSearchHit` 新增 `matchChannels`，`RoomKnowledgeDocumentStore` 在既有融合结果组装时标记 `LEXICAL / SEMANTIC`：语义-only、词法-only 和两者重叠都有明确来源。来源集合只描述同一次融合输入，不进入 RRF、排序、召回、Room Schema 或历史审计。
+- 新增纯 Kotlin `KnowledgeRelevanceUserExperiencePolicy`。未来 enforcement 低分时，`DROP_SEMANTIC_KEEP_LEXICAL` 只保留含 `LEXICAL` 的候选，因此 lexical-only 与重叠命中继续存在；`DROP_SEMANTIC_NO_LEXICAL` 返回空候选。引用统一由最终 hits 生成，不能把已移除的 semantic-only chunk 继续交给模型或 UI。
+- 用户提示标题固定为“已降级为关键词匹配”“未找到足够可靠的本地知识”“相关性检查暂未应用”。候选来源缺失、决策与来源矛盾，或 `enforcementEnabled=false` 的 shadow 快照携带删除 disposition 时全部 fail-open，并保留当前 hits 与引用。
+- `KnowledgeReferencesContent` 新增默认 `null` 的 `relevanceNotice`，所以既有调用行为不变；有提示但零引用时仍渲染解释，不显示虚假的“知识引用 · 0”。该参数当前尚未由生产消息流传入。
+- 新增 `KnowledgeRelevanceRolloutPolicy` 和 `KnowledgeRelevanceRolloutPreference`。偏好默认关闭；只有 gate 版本、Provider、模型都与冻结身份一致时才解析为 `ENFORCE`，缺项、版本过期或身份漂移自动回到 `SHADOW`。结构不完整、calibration/validation 复用同一数据集或阈值非有限的冻结 gate 直接拒绝；rollback 清除执行位、gate、Provider 与模型四项资格。
+- `UiPreferenceStore` 已能持久化上述灰度偏好，但当前 ViewModel、`RoomKnowledgeDocumentStore.search()`、`knowledge.search` 和 Workflow 都不读取它。Stage 85/86 中的实验 Provider ID 不是正式生产身份，接入前必须以真实 Provider/模型重新绑定并复验，不能把本阶段契约解释为已上线。
+- Standards/Spec 双轴审查发现 rollout gate 校验弱于第 87 阶段：原实现没有拒绝空 datasetVersion 或 calibration/validation 数据集复用。补齐校验与回归后，Stage 87+88 聚焦 JVM `16/16`、完整 JVM `522/522`、Lint、Debug/AndroidTest APK 均通过。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 执行完整 instrumentation。首次长套件因设备进入 dream/keyguard，使后段 20 个既有 Compose 用例统一报 `No compose hierarchies found in the app`；唤醒后该失败集合 `20/20` 通过，临时保持唤醒后的完整 JUnit XML 为 `180` 条、`173 passed / 7 skipped / 0 failed`。临时系统设置已恢复，未连接或操作 Pixel_9。
+- 最终 Debug APK 为 `22,977,146` 字节，SHA-256 `f20896c7a1bb8cfb6b5ff4c560352ddcb3ae56045aade26e17b09b4f4cb332c6`。正式应用恢复为 Room v32、`gpt-5.5` Provider、7 个设备工具 Profile、默认 User-Agent、设备 Agent 开关和 Accessibility Enabled/Bound；真实 `/responses` 冒烟通过，测试包与 crash buffer 无残留。
+
 ## 第 87 阶段：生产相关性拒绝设计评审边界
 
 - 新增纯 Kotlin `KnowledgeRelevanceProductionDesignPolicy`，复用 Stage 86 冻结的 `KnowledgeRelevanceRawTopScoreFrozenGate`，要求 calibration/validation Provider、模型和数据集身份完整且一致；策略构造时拒绝空身份、数据集复用和非有限阈值。

@@ -24,6 +24,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingSimilarity
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
 import com.longdev.xiaoling.knowledge.KnowledgeSearchFusionPolicy
+import com.longdev.xiaoling.knowledge.KnowledgeSearchMatchChannel
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
@@ -304,8 +305,10 @@ class RoomKnowledgeDocumentStore(
             val ftsHits = dao.searchFts(buildKnowledgeFtsQuery(canonicalQuery), fetchLimit)
             val likeHits = dao.searchLike(buildKnowledgeLikeQuery(canonicalQuery, fetchLimit))
             val lexicalChunks = (ftsHits + likeHits).distinctBy { it.id }
+            val lexicalChunkIds = lexicalChunks.mapTo(mutableSetOf()) { it.id }
             val semanticChunks = semantic.chunkIds
                 .let { ids -> dao.getChunksByIds(ids).associateBy { it.id } }
+            val semanticChunkIds = semantic.chunkIds.toSet()
             val fusedIds = KnowledgeSearchFusionPolicy.fuse(
                 ftsIds = ftsHits.map { it.id },
                 likeIds = likeHits.map { it.id },
@@ -323,7 +326,16 @@ class RoomKnowledgeDocumentStore(
                 } == true
             }.take(boundedLimit)
             val hits = chunks.mapNotNull { chunk ->
-                documents[chunk.documentId]?.let { document -> chunk.toHit(document) }
+                documents[chunk.documentId]?.let { document ->
+                    // long: 来源集合取自同一次融合输入；后续相关性降级只能移除纯语义候选，词法与语义重叠命中仍保留一次。
+                    chunk.toHit(
+                        document = document,
+                        matchChannels = buildSet {
+                            if (chunk.id in lexicalChunkIds) add(KnowledgeSearchMatchChannel.LEXICAL)
+                            if (chunk.id in semanticChunkIds) add(KnowledgeSearchMatchChannel.SEMANTIC)
+                        },
+                    )
+                }
             }
             val retrieval = KnowledgeRetrievalRecord(
                 id = "knowledge-retrieval-${UUID.randomUUID()}",
@@ -569,7 +581,10 @@ class RoomKnowledgeDocumentStore(
         text = text,
     )
 
-    private fun KnowledgeChunkEntity.toHit(document: KnowledgeDocumentEntity) = KnowledgeSearchHit(
+    private fun KnowledgeChunkEntity.toHit(
+        document: KnowledgeDocumentEntity,
+        matchChannels: Set<KnowledgeSearchMatchChannel>,
+    ) = KnowledgeSearchHit(
         chunkId = id,
         documentId = documentId,
         documentRevision = documentRevision,
@@ -578,6 +593,7 @@ class RoomKnowledgeDocumentStore(
         startOffset = startOffset,
         endOffset = endOffset,
         text = text,
+        matchChannels = matchChannels,
     )
 
     private fun KnowledgeRetrievalRecord.toEntity() = KnowledgeRetrievalEntity(

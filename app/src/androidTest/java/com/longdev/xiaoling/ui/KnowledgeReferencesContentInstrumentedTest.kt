@@ -11,6 +11,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceIssue
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceUserNotice
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -83,6 +84,29 @@ class KnowledgeReferencesContentInstrumentedTest {
         composeRule.onNodeWithTag("knowledge-reference-document-current-ui").assertTextContains("当前手册.md")
         composeRule.onNodeWithTag("knowledge-reference-document-current-ui").performClick()
         assertEquals("document-current-ui", openedDocumentId.get())
+    }
+
+    @Test
+    fun relevanceNoticeRemainsVisibleWhenNoReferenceIsRetained() {
+        composeRule.setContent {
+            XiaoLingTheme {
+                KnowledgeReferencesContent(
+                    messageId = "message-no-reliable-knowledge",
+                    references = emptyList(),
+                    statuses = emptyMap(),
+                    relevanceNotice = KnowledgeRelevanceUserNotice(
+                        title = "未找到足够可靠的本地知识",
+                        detail = "语义候选相关性不足，且没有关键词命中。",
+                    ),
+                    contentColor = Color.Black,
+                    onOpenDocument = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("未找到足够可靠的本地知识").assertExists()
+        composeRule.onNodeWithText("语义候选相关性不足，且没有关键词命中。").assertExists()
+        composeRule.onNodeWithText("知识引用 · 0").assertDoesNotExist()
     }
 
     private fun status(

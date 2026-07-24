@@ -66,6 +66,11 @@ data class KnowledgeChunkRecord(
     val text: String,
 )
 
+enum class KnowledgeSearchMatchChannel {
+    LEXICAL,
+    SEMANTIC,
+}
+
 data class KnowledgeSearchHit(
     val chunkId: String,
     val documentId: String,
@@ -75,6 +80,7 @@ data class KnowledgeSearchHit(
     val startOffset: Int,
     val endOffset: Int,
     val text: String,
+    val matchChannels: Set<KnowledgeSearchMatchChannel> = emptySet(),
 )
 
 data class KnowledgeRetrievalRecord(
