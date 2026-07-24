@@ -40,7 +40,7 @@ import org.json.JSONObject
         WorkflowScheduleEntity::class,
         ProcessExitObservationEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -56,7 +56,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun processExitObservationDao(): ProcessExitObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 31
+        const val CURRENT_VERSION = 32
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -816,6 +816,15 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: v31 历史检索只保存绝对分数，缺少当次完整候选分布；相对指标必须保持 null，不能从 top1/top2 猜造均值、标准差或 z-score。
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingScoreMean` REAL")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingScoreStandardDeviation` REAL")
+                db.execSQL("ALTER TABLE `knowledge_retrievals` ADD COLUMN `embeddingTopScoreZScore` REAL")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -847,6 +856,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_28_29,
             MIGRATION_29_30,
             MIGRATION_30_31,
+            MIGRATION_31_32,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

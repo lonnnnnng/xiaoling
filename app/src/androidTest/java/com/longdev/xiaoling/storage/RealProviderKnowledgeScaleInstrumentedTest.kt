@@ -227,6 +227,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                     val topScore = requireNotNull(result.retrieval.embeddingTopScore)
                     val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
                     val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
+                    val scoreMean = requireNotNull(result.retrieval.embeddingScoreMean)
+                    val scoreStandardDeviation = requireNotNull(result.retrieval.embeddingScoreStandardDeviation)
+                    val topScoreZScore = requireNotNull(result.retrieval.embeddingTopScoreZScore)
                     assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
                     assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
                     assertEquals(embeddingModel, result.retrieval.embeddingModel)
@@ -234,6 +237,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                     assertTrue(topScore.isFinite())
                     assertTrue(secondScore.isFinite())
                     assertTrue(margin.isFinite() && margin >= 0.0)
+                    assertTrue(scoreMean.isFinite())
+                    assertTrue(scoreStandardDeviation.isFinite() && scoreStandardDeviation > 0.0)
+                    assertTrue(topScoreZScore.isFinite() && topScoreZScore >= 0.0)
                     assertEquals(topScore - secondScore, margin, 0.0000001)
                     val observation = CalibrationObservation(
                         caseId = queryCase.caseId,
@@ -249,6 +255,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                         topScore = topScore,
                         secondScore = secondScore,
                         margin = margin,
+                        scoreMean = scoreMean,
+                        scoreStandardDeviation = scoreStandardDeviation,
+                        topScoreZScore = topScoreZScore,
                     )
                     Log.i(CALIBRATION_CASE_TAG, observation.toJson().toString())
                     println("$CALIBRATION_CASE_TAG ${observation.toJson()}")
@@ -305,6 +314,7 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                 .put("mrr", quality.meanReciprocalRank)
                 .put("stableRankingRate", quality.stableRankingRate)
                 .put("buckets", relevance.toBucketJsonArray())
+                .put("relativeBuckets", observations.toRelativeBucketJsonArray())
                 .put("candidateGate", relevance.candidateGate.toJson())
                 .put("pssBeforeKb", memoryBefore.pssKb)
                 .put("pssAfterIndexKb", memoryAfterIndex.pssKb)
@@ -392,6 +402,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                     val topScore = requireNotNull(result.retrieval.embeddingTopScore)
                     val secondScore = requireNotNull(result.retrieval.embeddingSecondScore)
                     val margin = requireNotNull(result.retrieval.embeddingScoreMargin)
+                    val scoreMean = requireNotNull(result.retrieval.embeddingScoreMean)
+                    val scoreStandardDeviation = requireNotNull(result.retrieval.embeddingScoreStandardDeviation)
+                    val topScoreZScore = requireNotNull(result.retrieval.embeddingTopScoreZScore)
                     assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
                     assertEquals(CALIBRATION_PROVIDER_ID, result.retrieval.embeddingProviderId)
                     assertEquals(embeddingModel, result.retrieval.embeddingModel)
@@ -399,6 +412,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                     assertTrue(topScore.isFinite())
                     assertTrue(secondScore.isFinite())
                     assertTrue(margin.isFinite() && margin >= 0.0)
+                    assertTrue(scoreMean.isFinite())
+                    assertTrue(scoreStandardDeviation.isFinite() && scoreStandardDeviation > 0.0)
+                    assertTrue(topScoreZScore.isFinite() && topScoreZScore >= 0.0)
                     assertEquals(topScore - secondScore, margin, 0.0000001)
                     val observation = CalibrationObservation(
                         caseId = queryCase.caseId,
@@ -414,6 +430,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                         topScore = topScore,
                         secondScore = secondScore,
                         margin = margin,
+                        scoreMean = scoreMean,
+                        scoreStandardDeviation = scoreStandardDeviation,
+                        topScoreZScore = topScoreZScore,
                     )
                     Log.i(HOLDOUT_CASE_TAG, observation.toJson().toString())
                     println("$HOLDOUT_CASE_TAG ${observation.toJson()}")
@@ -505,6 +524,7 @@ class RealProviderKnowledgeScaleInstrumentedTest {
                 .put("recallAt5", quality.meanRecallAtK)
                 .put("mrr", quality.meanReciprocalRank)
                 .put("rankingStableRate", quality.stableRankingRate)
+                .put("relativeBuckets", observations.toRelativeBucketJsonArray())
                 .put("holdoutGatePassed", holdout.passed)
                 .put("rankingGatePassed", rankingGatePassed)
                 .put("passed", passed)
@@ -594,6 +614,26 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         .put("topScore", topScore)
         .put("secondScore", secondScore)
         .put("margin", margin)
+        .put("scoreMean", scoreMean)
+        .put("scoreStandardDeviation", scoreStandardDeviation)
+        .put("topScoreZScore", topScoreZScore)
+
+    private fun List<CalibrationObservation>.toRelativeBucketJsonArray(): JSONArray =
+        JSONArray().also { array ->
+            KnowledgeRelevanceLabel.entries.forEach { label ->
+                val bucket = filter { it.label == label }
+                array.put(
+                    JSONObject()
+                        .put("label", label.name)
+                        .put("scoreMeanMin", bucket.minOf { it.scoreMean })
+                        .put("scoreMeanMax", bucket.maxOf { it.scoreMean })
+                        .put("scoreStandardDeviationMin", bucket.minOf { it.scoreStandardDeviation })
+                        .put("scoreStandardDeviationMax", bucket.maxOf { it.scoreStandardDeviation })
+                        .put("topScoreZScoreMin", bucket.minOf { it.topScoreZScore })
+                        .put("topScoreZScoreMax", bucket.maxOf { it.topScoreZScore }),
+                )
+            }
+        }
 
     private fun KnowledgeRelevanceCalibrationReport.toBucketJsonArray(): JSONArray =
         JSONArray().also { array ->
@@ -653,6 +693,9 @@ class RealProviderKnowledgeScaleInstrumentedTest {
         val topScore: Double,
         val secondScore: Double,
         val margin: Double,
+        val scoreMean: Double,
+        val scoreStandardDeviation: Double,
+        val topScoreZScore: Double,
     )
 
     private data class VectorStats(

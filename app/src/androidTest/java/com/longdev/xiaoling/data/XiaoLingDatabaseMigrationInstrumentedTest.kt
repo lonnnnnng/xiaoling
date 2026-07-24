@@ -1153,6 +1153,59 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate31To32KeepsLegacyRelativeDiagnosticsUnknown() {
+        migrationHelper.createDatabase(RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME, 31).apply {
+            execSQL(
+                """
+                INSERT INTO knowledge_retrievals (
+                    id, query, chunkIdsJson, documentIdsJson, sourceConversationId, sourceRunId,
+                    embeddingProviderId, embeddingModel, embeddingStatus,
+                    embeddingTopScore, embeddingSecondScore, embeddingScoreMargin, embeddingCandidateCount,
+                    createdAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "retrieval-v31",
+                    "旧相对分布观测",
+                    "[]",
+                    "[]",
+                    "conversation-v31",
+                    "run-v31",
+                    "provider-v31",
+                    "embedding-v31",
+                    "USED",
+                    0.8,
+                    0.7,
+                    0.1,
+                    10,
+                    100L,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME,
+            32,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            """
+            SELECT embeddingScoreMean, embeddingScoreStandardDeviation, embeddingTopScoreZScore
+            FROM knowledge_retrievals WHERE id = 'retrieval-v31'
+            """.trimIndent(),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+            assertTrue(cursor.isNull(1))
+            assertTrue(cursor.isNull(2))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1234,5 +1287,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val PROCESS_EXIT_MIGRATION_DATABASE_NAME = "xiaoling-process-exit-migration-test"
         private const val EMBEDDING_MIGRATION_DATABASE_NAME = "xiaoling-embedding-migration-test"
         private const val EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME = "xiaoling-embedding-calibration-migration-test"
+        private const val RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME = "xiaoling-relative-diagnostics-migration-test"
     }
 }

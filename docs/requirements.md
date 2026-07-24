@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 84 阶段验证边界
+
+第 83 阶段已证明原始 cosine 绝对阈值会跨主题漂移，本阶段只能新增相对分布 shadow 观测，不能放宽旧门禁或启用生产拒绝。每次真实语义检索必须基于现有 2000 行上限内、截断 top-K 之前的全部有效候选计算均值、总体标准差和 top1 z-score；z-score 在候选分数整体平移时应保持不变。单候选或零方差没有可证明的相对区分度，z-score 必须为 `null`，不能补零。
+
+Room v31→v32 只为检索审计增加可空的 `embeddingScoreMean`、`embeddingScoreStandardDeviation` 和 `embeddingTopScoreZScore`。v31 历史记录缺少完整候选分布，三个字段必须保持 `null`；不得从 top1、top2、margin 或当前向量索引回填。Provider 未执行、Provider 不可用、无索引或维度不匹配时相对字段同样保持未知。管理 UI 只能在“校准观测”中展示这些值，不使用通过、拒绝或置信度结论文案。
+
+纯 Kotlin 策略必须覆盖总体分布计算、整体平移不变性、单候选/零方差和空/非有限输入。Redmi 必须验证 v31→v32 迁移、生产 Room 写入回读、UI 展示和真实 Provider 语义链。已退休 `stage83-holdout-v1` 只允许用于确认观测链，不允许成为新校准集或阈值搜索来源；其正例与近负例 z-score 区间存在重叠，进一步证明单一 z-score 不能直接上线。完整默认门禁为 JVM `499/499`、Lint、Debug/AndroidTest APK 和仅 Redmi instrumentation `176/176`；5 个真实 Provider 用例缺参按设计 skipped。
+
 ## 第 83 阶段验证边界
 
 第 82 阶段候选必须冻结为版本化门禁后再接触独立 holdout。冻结身份至少包含 Provider、模型、门禁版本和校准数据集版本；holdout 必须使用不同数据集版本，Provider 或模型漂移时不得复用旧阈值。门禁阈值、比例标准和输入分数必须为有限值，三个标签桶缺一不可，同一 case ID 不得标签漂移。评估只能应用冻结的 `minimumTopScore + minimumScoreMargin`，不得搜索 holdout 自身最佳阈值或用失败样本回调当前门禁。
@@ -179,7 +187,7 @@ Redmi `wsvwypiz7xwslvl7` 的正式 WorkManager 已完成 `229.416s` 的 8 步复
 - WorkManager 再次拉起已处于 `RUNNING / STOP_REQUESTED` 的 ScheduledTask 时，必须按 `ScheduledTask -> WorkflowRun -> AgentRun` 关联链定向收敛旧实例，不能重新 claim、重新创建 Agent Run 或返回 `Result.retry` 复制可能已执行的副作用；Agent、Workflow、ScheduledTask 按顺序进入终态后才允许物化周期下一实例，无关前台 Run 不得受影响。`STOP_REQUESTED` 必须固定按用户停止收敛为取消，不能依据迟到 Workflow 成功改写；停止发生在 Workflow 已认领但 Agent Run 尚未关联的窗口时，也必须依据 Workflow→ScheduledTask 的持久关联取消 Run、未完成步骤和 Task，不能以“关联 Agent 缺失”写成失败。该链路已在 Redmi 完成同一 WorkRequest 的受控冷启动重入、强制 Doze 延迟、trim-memory、无压力对照和持久停止恢复；每个样本都只创建一个 Workflow/Agent Run。`run-as kill -9`、`force-idle` 与 `send-trim-memory` 不得表述为 Android 自主回收或连接关闭的因果证明。前台启动恢复与新 Worker 并发时，AgentRun 终态必须以原子条件更新保护，不能出现 Task/Workflow 已取消而 AgentRun 被迟到结果改成完成。
 - 同一进程内，ScheduledWorkflowWorker 必须在任何 Room claim、重入对账或状态修改前登记 Task 执行所有权。应用启动恢复必须在同一互斥边界冻结旧 AgentRun、WorkflowRun 和 `RUNNING / STOP_REQUESTED` ScheduledTask 候选，并沿 Task→Workflow→Agent/Step 关联排除当前进程真正 `RUNNING` 的 Worker；已经写入 `STOP_REQUESTED` 的链不得再被进程所有权排除。快照期间新 Worker 必须等待，快照后的执行不得进入旧候选。后续 Agent 恢复/关闭和 Workflow/Task 对账只能消费冻结 ID，不能重新全库扫描误伤新执行。该能力不得依赖墙上时间、不得为当前版本新增持久 owner token 或 Room Schema，也不得借此恢复旧模型协程、未知提交执行栈或 Workflow 后续步骤。
 - 系统进程退出观察必须是 Task/Run 之外的独立诊断账本。不得仅凭退出时间接近某次执行就建立因果关联；只保存 Android 稳定数值字段与应用侧稳定分类，description、trace 和进程状态摘要不得进入持久化或测试日志。只有 `REASON_LOW_MEMORY` 可作为直接 LMK，`SIGKILL` fallback 必须同时满足设备不支持直接报告且仍只能作为候选；用户停止、应用取消、权限/包变更不得冒充自然回收。重复历史稳定去重并最多保留 30 条；旁路采集异常不能阻断前台恢复或后台 Workflow，但协程取消必须传播。
-- Room v31 本地保存 Provider、Agent Profile、会话、消息及 MessagePart、Agent Run、审批、独立工具调用/结果、笔记、长期记忆、候选记忆、记忆操作映射、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule、ScheduledTask、独立进程退出观察，以及知识文档全文、chunks、FTS、Embedding 向量和检索审计；RunEvent 使用独立 typed metadata 保存时间线事实。v25→v26 只创建空知识库表，v26→v27 增加知识引用 JSON，v27→v28 增加后台 Worker 停止原因，v28→v29 创建退出观察表，v29→v30 增加按 Provider/模型隔离的向量表与检索身份/状态，v30→v31 只增加可空的 top1、top2、margin 和有效候选数字段；升级不从旧正文、URI、`verifiedAgentContext`、工具记录、旧错误文案、当前向量或历史时间邻近关系猜造知识引用、Embedding 分数、系统停止原因或 Task/Run 归因。v4→v31、各增量迁移和全新 v31 建库已有 Schema 与迁移测试保护。
+- Room v32 本地保存 Provider、Agent Profile、会话、消息及 MessagePart、Agent Run、审批、独立工具调用/结果、笔记、长期记忆、候选记忆、记忆操作映射、Skill、Workflow、WorkflowStepDefinition、WorkflowSchedule、ScheduledTask、独立进程退出观察，以及知识文档全文、chunks、FTS、Embedding 向量和检索审计；RunEvent 使用独立 typed metadata 保存时间线事实。v25→v26 只创建空知识库表，v26→v27 增加知识引用 JSON，v27→v28 增加后台 Worker 停止原因，v28→v29 创建退出观察表，v29→v30 增加按 Provider/模型隔离的向量表与检索身份/状态，v30→v31 增加可空的 top1、top2、margin 和有效候选数，v31→v32 增加可空的候选均值、总体标准差和 top1 z-score；升级不从旧正文、URI、`verifiedAgentContext`、工具记录、旧错误文案、当前向量或历史时间邻近关系猜造知识引用、Embedding 分数、相对分布、系统停止原因或 Task/Run 归因。v4→v32、各增量迁移和全新 v32 建库已有 Schema 与迁移测试保护。
 - 普通对话、会话摘要 / 记忆、Agent 回复总结三类独立提示词设置，支持开关、即时保存、恢复默认和最终 system prompt 预览。
 - 用户可通过 Android 系统文件选择器导出或恢复本地 Room ZIP 备份；恢复必须先校验版本并明确提示重启，API Key 密文不能脱离当前 Keystore 直接恢复。
 - `MessageOrigin` 与 `VerifiedAgentContext` 可信来源边界：普通聊天、用户正文和模型自由文本不能伪造工具执行事实。

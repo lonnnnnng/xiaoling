@@ -88,6 +88,9 @@ class KnowledgeManagementContentInstrumentedTest {
                 embeddingSecondScore = 0.701234,
                 embeddingScoreMargin = 0.111111,
                 embeddingCandidateCount = 12,
+                embeddingScoreMean = 0.501234,
+                embeddingScoreStandardDeviation = 0.201234,
+                embeddingTopScoreZScore = 1.545678,
                 createdAt = 1_720_000_000_000L,
             ),
         )
@@ -117,7 +120,9 @@ class KnowledgeManagementContentInstrumentedTest {
         composeRule.onNodeWithText("审计 knowledge-retrieval-ui", substring = true).assertExists()
         composeRule.onNodeWithText("query：正文", substring = true).assertExists()
         composeRule.onNodeWithText("Embedding：语义融合 · provider-ui / text-embedding-ui").assertExists()
-        composeRule.onNodeWithText("校准观测：12 个语义候选 · top1 0.8123 · top2 0.7012 · margin 0.1111").assertExists()
+        composeRule.onNodeWithText(
+            "校准观测：12 个语义候选 · top1 0.8123 · top2 0.7012 · margin 0.1111 · 均值 0.5012 · 标准差 0.2012 · top1 z 1.5457",
+        ).assertExists()
         composeRule.onNodeWithText("offset 20..36", substring = true).assertExists()
         composeRule.onNodeWithText("知识库正文预览", substring = true).assertExists()
         composeRule.onNodeWithText("仅显示前 4,000 个字符", substring = true).assertExists()

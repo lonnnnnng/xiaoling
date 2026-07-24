@@ -535,6 +535,9 @@ private fun KnowledgeRetrievalRecord.embeddingCalibrationText(): String? {
         embeddingTopScore?.let { add("top1 ${it.calibrationScoreText()}") }
         embeddingSecondScore?.let { add("top2 ${it.calibrationScoreText()}") }
         embeddingScoreMargin?.let { add("margin ${it.calibrationScoreText()}") }
+        embeddingScoreMean?.let { add("均值 ${it.calibrationScoreText()}") }
+        embeddingScoreStandardDeviation?.let { add("标准差 ${it.calibrationScoreText()}") }
+        embeddingTopScoreZScore?.let { add("top1 z ${it.calibrationScoreText()}") }
     }
     // long: 这行只呈现按当前 Provider/模型采集的 shadow 数据；文案不使用“通过”或“拒绝”，避免把未校准分数误解为生产门禁。
     return "校准观测：${observations.joinToString(" · ")}"

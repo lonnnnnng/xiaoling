@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 84 阶段实现与验证边界
+
+- 新增 `KnowledgeRelevanceRelativeDiagnosticsPolicy` 与结果模型。输入必须非空且全部有限；均值和总体标准差使用当前输入候选池的全部分数，top1 z-score 只在至少两个候选且标准差高于数值容差时生成。4 条 JVM 测试覆盖准确计算、整体平移不变、单候选/零方差和非法输入。
+- `RoomKnowledgeDocumentStore.loadSemanticCandidates()` 遵守既有 2000 行语义索引上限，并在 top-K 截断前对当前有界候选池的全部有效 cosine 分数计算相对观测，检索 limit 不改变同一查询的均值、标准差或 z-score。该数据只进入审计，不参与 `KnowledgeSearchFusionPolicy`、排序、enabled/revision 复核或回退决策。
+- `KnowledgeRetrievalRecord` 与 `KnowledgeRetrievalEntity` 新增 `embeddingScoreMean`、`embeddingScoreStandardDeviation`、`embeddingTopScoreZScore`。Room v31→v32 只增加三个可空 REAL 列；历史检索缺少完整候选分布，迁移保持 `null`。Provider 未执行、失败、无索引或维度不匹配同样不伪造相对指标。
+- 知识管理页把均值、标准差和 top1 z 追加到既有“校准观测”，仍不使用通过/拒绝文案。Redmi 迁移、生产 Room 写入回读和 Compose 展示 `3/3` 通过；真实 Provider 语义链 `1/1` 通过。
+- 已退休 Stage 83 holdout 的单次 shadow 观测仅确认字段链路：正例 z-score `2.929–3.722`、近负例 `2.226–3.232`、远负例 `1.579–2.879`。正例与近负例仍有重叠，本阶段没有计算候选阈值，也不改变旧门禁被否决的结论。
+- 完整门禁为 JVM `499/499`、Lint、Debug/AndroidTest APK 和仅 Redmi `176/176` instrumentation 通过；默认 5 个显式联网用例按设计 skipped。Debug APK 为 `22,944,378` 字节、SHA-256 `98f6e620bda4a88c0c14ecdfb2103a0a1e0ba08d58b875be5762f5ebb03da2a8`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用哈希。
+
 ## 第 83 阶段实现与验证边界
 
 - `KnowledgeRelevanceCalibration.kt` 新增 holdout 数据集身份、冻结门禁、预注册标准、报告与评估策略。策略先校验 Provider/模型/版本、有限阈值、0 到 1 的比例、三桶完整性和 case 标签稳定性；holdout 版本不得等于校准版本。

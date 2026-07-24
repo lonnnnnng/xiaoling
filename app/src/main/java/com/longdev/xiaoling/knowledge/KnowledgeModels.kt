@@ -91,6 +91,9 @@ data class KnowledgeRetrievalRecord(
     val embeddingSecondScore: Double? = null,
     val embeddingScoreMargin: Double? = null,
     val embeddingCandidateCount: Int? = null,
+    val embeddingScoreMean: Double? = null,
+    val embeddingScoreStandardDeviation: Double? = null,
+    val embeddingTopScoreZScore: Double? = null,
     val createdAt: Long,
 )
 

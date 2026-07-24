@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 84 阶段借鉴成熟检索系统“原始分数之外还要保存查询内分布”的做法，但没有照搬成线上置信度。Room v32 为每次真实语义检索保存当前有界语义索引候选池中全部候选的均值、总体标准差和 top1 z-score，历史记录不回填；UI 继续标为 shadow 观测。退休 Stage 83 holdout 的单次诊断显示正例 z-score `2.929–3.722`、近负例 `2.226–3.232`、远负例 `1.579–2.879`，近负例仍与正例重叠。因此查询内标准化是下一轮实验特征，不是生产门禁；不能像部分服务端方案那样直接发布一个 z-score 阈值。完整 JVM `499/499`、Lint、APK 和仅 Redmi `176/176` instrumentation 通过，5 个联网用例默认 skipped。
+
 第 83 阶段验证了参考项目中更关键的一条原则：门禁需要真正独立的未见数据，而且失败结果必须阻止上线。第 82 阶段冻结 top1/margin 候选后，全新 20 篇成对主题、三桶各 10 条查询在 Redmi 三个独立进程中复验；Recall@1/5、MRR、排序稳定率和两类负例拒绝率均为 `1.0`，但正例接纳率只有 `0.80`，低于预注册 `0.90`。两个正例仍正确排第一，却因跨主题绝对分数低于冻结阈值被拒绝，说明服务端常见的原始 cosine 单阈值不能直接照搬到当前多主题移动端语料。小灵因此没有把候选接入生产，也没有用 holdout 回调阈值。下一轮若继续，必须建立新的版本化 calibration/validation/holdout 或归一化特征设计；ANN、后台批量重建和生产拒绝继续后置。完整离线门禁为 JVM `495/495`、Lint、APK 和仅 Redmi `175/175` instrumentation 通过，5 个联网用例默认 skipped；三轮显式 holdout 失败作为否决证据保留。
 
 第 82 阶段进一步落实参考项目中“检索门禁必须以可重复校准集和离线指标驱动”的做法，但保留移动端本地知识库的证据边界。20 篇成对主题语料、三桶各 10 条查询、每条重复 2 次并在 Redmi 三个独立进程运行；三轮 Recall@1/5、MRR、排序稳定率和同集 shadow balanced accuracy 均为 `1.0`。纯 Kotlin 策略固定输出 top1/margin 分位数和可复现候选组合，生产检索未接入阈值。由于候选仍在同一数据集上选择并评估，本阶段没有照搬服务端项目常见的单阈值配置；下一阶段先冻结 Provider/模型专属候选并以独立 holdout 证明泛化，再讨论仅拒绝纯语义候选且保留词法兜底。20 行 1024 维向量和约 0.8 秒查询仍不支持提前引入 ANN 或后台批量重建。最终 JVM `491/491`、Lint、APK 和仅 Redmi `174/174` instrumentation 通过，4 个联网用例默认 skipped。
@@ -20,7 +22,7 @@
 
 本文负责保存参考项目分类、源码证据和借鉴判断。正式实施顺序、里程碑和验收标准以 [小灵个人 Agent 路线图](personal-agent-roadmap.md) 为准。
 
-实施状态同步至 2026-07-24：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性 shadow 诊断在 Room v31 落地，第 82 阶段完成 20 篇成对语料和三桶各 10 条查询的扩样校准，第 83 阶段又用独立 holdout 否决了同集候选并保持生产无拒绝；答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
+实施状态同步至 2026-07-24：本文提出的 AgentProfile v1 已在 Room v21 落地，Text/Tool 消息 parts 已在 Room v22 落地，供应商 Reasoning summary 已在 Room v23 落地，用户 Image part 已在 Room v24 落地，Document v1 已在 Room v25 落地，知识文档/chunks/FTS/检索审计数据基础已在 Room v26 落地，`knowledge.search` 与引用持久化已在 Room v27 落地，后台 Worker 停止原因审计已在 Room v28 落地，独立 Android 进程退出观察已在 Room v29 落地，Embedding 检索、显式索引生命周期和固定语料质量诊断在 Room v30 落地，相关性绝对分数 shadow 诊断在 Room v31 落地，查询内相对分布 shadow 观测在 Room v32 落地；第 82 阶段完成扩样校准，第 83 阶段用独立 holdout 否决同集候选，第 84 阶段确认 z-score 与近负例仍重叠并保持生产无拒绝。答案引用 UI、设备 Agent 只读观察、首批有限动作、任务中心需确认队列、结构化恢复处置、Redmi 长任务/Doze/受控内存证据、AgentRun 终态原子保护，以及 `STOP_REQUESTED` 持久化停止重对账也已完成。第 58 阶段完成后台 Worker 的 TLS 失败与网络恢复取证，第 59 阶段完成 `229.416s` 的 8 步复合只读成功链，第 60 阶段完成冷启动成功链，第 61 阶段又完成熄屏状态下 `244.236s` 的 8 步成功链；32/32 工具回执通过、预算无回退且单一 Workflow Run。Stage 64 开始按隐私安全、无 Task/Run 归因的有界账本观察平台退出，Stage 65 又补齐不触发采集的只读诊断 UI；当前受控样本仍不是自然 LMK，不引入 Foreground Service。参考项目审计日期仍保持原始取证时间。
 
 第 75 阶段把参考项目强调的“输入事实与执行事实分离”落到 `/agent` 附件：Responses 规划请求可携带经校验的 USER Image/Document，summary、VerifiedAgentContext、Tool part 与 Agent 输出继续隔离附件；审批恢复与任务中心重试从 Room USER MessagePart 重建并复制到新 Run，Chat/mixed/持久化重复附件/伪造来源保持 fail-closed。完整 JVM `477/477`、Lint、Debug/AndroidTest APK 和仅 Redmi `153/153` instrumentation 已通过，图片与文档真实 E2E 的工具回执均为 `PASSED`；Workflow/后台 Agent 暂无附件入口。该段是第 75 阶段当时边界；Embedding 已在第 76 至 78 阶段补齐有限规模检索、显式重建和质量诊断，设备后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
@@ -422,12 +424,12 @@
 
 目标：让小灵能安全、可观察地执行第一批只读工具，而不是直接做手机自动化。
 
-当前状态：Room v31 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/LIKE/Embedding/检索审计与管理 UI、`knowledge.search`、答案引用 UI、独立进程退出观察、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。Embedding 当前采用有限规模内存 cosine + 稳定 RRF，已有固定语料质量门禁、实际检索路径诊断、top1/top2/margin shadow 审计和第 82 阶段扩样校准；Provider 失败或模型列表没有 Embedding 模型时仍回退词法结果，生产拒绝尚未启用。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
+当前状态：Room v32 Schema、迁移测试、Agent Profile v1、Text/Reasoning/Image/Document/Tool 消息 parts、知识文档/chunks/FTS/LIKE/Embedding/检索审计与管理 UI、`knowledge.search`、答案引用 UI、独立进程退出观察、RunEvent typed metadata、独立 ToolCall/ToolResult Ledger、完整 Tool Registry 契约、AgentRuntime、审批/验证、任务中心、长期记忆治理和 Workflow 调度已完成。知识引用已贯穿规划历史、可信上下文、Workflow 输出和可展开引用区域；禁用、替换或删除后历史审计保留，UI 明确标记历史/不可用状态，失效消息、旧摘要和 Workflow 前序正文不再进入新模型请求。Embedding 当前采用有限规模内存 cosine + 稳定 RRF，已有固定语料质量门禁、实际检索路径诊断、top1/top2/margin 及候选均值/标准差/top1 z shadow 审计；Provider 失败或模型列表没有 Embedding 模型时仍回退词法结果，生产拒绝尚未启用。旧 Profile 和无 Profile 审计的历史 Run 不因新工具自动扩权；所有验证事实落库后的控制面收尾已可恢复，其他执行/验证中断继续采用旧 Run/活动 Step 一致取消和关联新 Run 重试。
 
 | 要做什么 | 怎么做 | 验收标准 |
 |---|---|---|
 | Room 存储 | 新建 Provider、Conversation、Message、AgentRun、AgentStep、ToolCall、Approval 表；从 SharedPreferences 一次性迁移 | 升级不丢现有 Provider/会话；迁移可重复且有单测 |
-| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v31 已补知识全文/chunks/FTS/LIKE/Embedding/shadow 分数审计、管理 UI、只读 Agent 检索、引用持久化、模型上下文失效过滤和扩样校准 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离；生产拒绝须经独立 holdout |
+| 消息 parts 与知识库 | Text/Reasoning/Image/Document/Tool 已完成独立 Room 表、用户附件和可信 Tool 投影；Room v32 已补知识全文/chunks/FTS/LIKE/Embedding、绝对与相对 shadow 分数审计、管理 UI、只读 Agent 检索、引用持久化和模型上下文失效过滤 | 工具步骤和知识引用可恢复；替换后旧 chunk 引用不进入新模型上下文，历史审计不回写，原始思维链与 Agent 工具事实保持隔离；生产拒绝仍须新的 calibration/validation/final holdout |
 | AgentProfile v1 | 已完成 name、avatar、provider/model、API mode、systemPrompt、contextPolicy、allowedTools、allowedSkills、memoryEnabled、Run 快照和恢复门禁 | 可创建多个 Agent，并为每个 Agent 选择不同模型与工具；Redmi 真实模型验收通过 |
 | ToolRegistry | 工具定义、JSON Schema、风险、权限、超时、后台能力、验证器统一注册 | 未注册工具永远不能执行；重复名称启动时报错 |
 | AgentRuntime v1 | LLM → tool call → permission → execute → tool result → LLM；支持取消、最多 4 次工具调用、超时和重复检测 | 模拟工具链成功、失败、拒绝、取消、超时、预算耗尽均有自动化测试 |

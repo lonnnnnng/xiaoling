@@ -28,6 +28,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRelativeDiagnosticsPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
@@ -338,6 +339,9 @@ class RoomKnowledgeDocumentStore(
                 embeddingSecondScore = semantic.secondScore,
                 embeddingScoreMargin = semantic.scoreMargin,
                 embeddingCandidateCount = semantic.candidateCount,
+                embeddingScoreMean = semantic.scoreMean,
+                embeddingScoreStandardDeviation = semantic.scoreStandardDeviation,
+                embeddingTopScoreZScore = semantic.topScoreZScore,
                 createdAt = clock(),
             )
             // long: 空召回同样写入审计，后续才能区分“没有命中”与“根本没有执行检索”。
@@ -414,6 +418,8 @@ class RoomKnowledgeDocumentStore(
         val ranked = scored.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
         val topScore = ranked.first().second
         val secondScore = ranked.getOrNull(1)?.second
+        // long: 相对观测使用当前有界语义索引候选池中的全部有效分数，不能只从截断后的 top-K 反推分布，否则用户 limit 会改变同一查询的校准事实。
+        val relativeDiagnostics = KnowledgeRelevanceRelativeDiagnosticsPolicy.evaluate(ranked.map { it.second })
         return SemanticCandidates(
             providerId = batch.providerId,
             model = batch.model,
@@ -426,6 +432,9 @@ class RoomKnowledgeDocumentStore(
             secondScore = secondScore,
             scoreMargin = secondScore?.let { topScore - it },
             candidateCount = ranked.size,
+            scoreMean = relativeDiagnostics.scoreMean,
+            scoreStandardDeviation = relativeDiagnostics.scoreStandardDeviation,
+            topScoreZScore = relativeDiagnostics.topScoreZScore,
         )
     }
 
@@ -585,6 +594,9 @@ class RoomKnowledgeDocumentStore(
         embeddingSecondScore = embeddingSecondScore,
         embeddingScoreMargin = embeddingScoreMargin,
         embeddingCandidateCount = embeddingCandidateCount,
+        embeddingScoreMean = embeddingScoreMean,
+        embeddingScoreStandardDeviation = embeddingScoreStandardDeviation,
+        embeddingTopScoreZScore = embeddingTopScoreZScore,
         createdAt = createdAt,
     )
 
@@ -603,6 +615,9 @@ class RoomKnowledgeDocumentStore(
         embeddingSecondScore = embeddingSecondScore,
         embeddingScoreMargin = embeddingScoreMargin,
         embeddingCandidateCount = embeddingCandidateCount,
+        embeddingScoreMean = embeddingScoreMean,
+        embeddingScoreStandardDeviation = embeddingScoreStandardDeviation,
+        embeddingTopScoreZScore = embeddingTopScoreZScore,
         createdAt = createdAt,
     )
 
@@ -637,6 +652,9 @@ class RoomKnowledgeDocumentStore(
         val secondScore: Double? = null,
         val scoreMargin: Double? = null,
         val candidateCount: Int? = null,
+        val scoreMean: Double? = null,
+        val scoreStandardDeviation: Double? = null,
+        val topScoreZScore: Double? = null,
     )
 }
 

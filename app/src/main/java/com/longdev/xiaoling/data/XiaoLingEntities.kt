@@ -407,6 +407,9 @@ data class KnowledgeRetrievalEntity(
     val embeddingSecondScore: Double?,
     val embeddingScoreMargin: Double?,
     val embeddingCandidateCount: Int?,
+    val embeddingScoreMean: Double?,
+    val embeddingScoreStandardDeviation: Double?,
+    val embeddingTopScoreZScore: Double?,
     val createdAt: Long,
 )
 

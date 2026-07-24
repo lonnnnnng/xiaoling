@@ -75,6 +75,10 @@ class RealProviderKnowledgeSearchInstrumentedTest {
             assertEquals(KnowledgeEmbeddingStatus.USED, semanticResult.retrieval.embeddingStatus)
             assertEquals(PROVIDER_ID, semanticResult.retrieval.embeddingProviderId)
             assertEquals(embeddingModel, semanticResult.retrieval.embeddingModel)
+            assertEquals(2, semanticResult.retrieval.embeddingCandidateCount)
+            assertTrue(requireNotNull(semanticResult.retrieval.embeddingScoreMean).isFinite())
+            assertTrue(requireNotNull(semanticResult.retrieval.embeddingScoreStandardDeviation) >= 0.0)
+            assertTrue(requireNotNull(semanticResult.retrieval.embeddingTopScoreZScore).isFinite())
             assertEquals(focusDocument.id, semanticResult.hits.first().documentId)
             assertEquals(semanticResult.hits.map { it.chunkId }, semanticResult.retrieval.chunkIds)
 

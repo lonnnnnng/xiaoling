@@ -477,6 +477,9 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(KnowledgeEmbeddingStatus.USED, result.retrieval.embeddingStatus)
         assertEquals(EMBEDDING_PROVIDER_ID, result.retrieval.embeddingProviderId)
         assertEquals(EMBEDDING_MODEL, result.retrieval.embeddingModel)
+        assertEquals(1.0, result.retrieval.embeddingScoreMean!!, 0.000001)
+        assertEquals(0.0, result.retrieval.embeddingScoreStandardDeviation!!, 0.000001)
+        assertNull(result.retrieval.embeddingTopScoreZScore)
     }
 
     @Test
@@ -503,11 +506,22 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(1.0, retrieval.embeddingTopScore!!, 0.000001)
         assertEquals(0.8, retrieval.embeddingSecondScore!!, 0.000001)
         assertEquals(0.2, retrieval.embeddingScoreMargin!!, 0.000001)
+        assertEquals(0.6, retrieval.embeddingScoreMean!!, 0.000001)
+        assertEquals(0.4320493799, retrieval.embeddingScoreStandardDeviation!!, 0.000001)
+        assertEquals(0.9258200998, retrieval.embeddingTopScoreZScore!!, 0.000001)
+        val limitedRetrieval = embeddingStore.search("观察相关性", limit = 1).retrieval
+        assertEquals(retrieval.embeddingCandidateCount, limitedRetrieval.embeddingCandidateCount)
+        assertEquals(retrieval.embeddingScoreMean, limitedRetrieval.embeddingScoreMean)
+        assertEquals(retrieval.embeddingScoreStandardDeviation, limitedRetrieval.embeddingScoreStandardDeviation)
+        assertEquals(retrieval.embeddingTopScoreZScore, limitedRetrieval.embeddingTopScoreZScore)
         val persisted = embeddingStore.recentRetrievals(1).single()
         assertEquals(retrieval.embeddingCandidateCount, persisted.embeddingCandidateCount)
         assertEquals(retrieval.embeddingTopScore, persisted.embeddingTopScore)
         assertEquals(retrieval.embeddingSecondScore, persisted.embeddingSecondScore)
         assertEquals(retrieval.embeddingScoreMargin, persisted.embeddingScoreMargin)
+        assertEquals(retrieval.embeddingScoreMean, persisted.embeddingScoreMean)
+        assertEquals(retrieval.embeddingScoreStandardDeviation, persisted.embeddingScoreStandardDeviation)
+        assertEquals(retrieval.embeddingTopScoreZScore, persisted.embeddingTopScoreZScore)
     }
 
     @Test
@@ -551,6 +565,9 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertNull(unavailable.retrieval.embeddingSecondScore)
         assertNull(unavailable.retrieval.embeddingScoreMargin)
         assertNull(unavailable.retrieval.embeddingCandidateCount)
+        assertNull(unavailable.retrieval.embeddingScoreMean)
+        assertNull(unavailable.retrieval.embeddingScoreStandardDeviation)
+        assertNull(unavailable.retrieval.embeddingTopScoreZScore)
 
         val noIndexStore = RoomKnowledgeDocumentStore(
             context = context,
@@ -565,6 +582,9 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertNull(noIndex.retrieval.embeddingSecondScore)
         assertNull(noIndex.retrieval.embeddingScoreMargin)
         assertEquals(0, noIndex.retrieval.embeddingCandidateCount)
+        assertNull(noIndex.retrieval.embeddingScoreMean)
+        assertNull(noIndex.retrieval.embeddingScoreStandardDeviation)
+        assertNull(noIndex.retrieval.embeddingTopScoreZScore)
     }
 
     @Test
@@ -594,6 +614,9 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertTrue(mismatch.hits.isNotEmpty())
         assertEquals(KnowledgeEmbeddingStatus.DIMENSION_MISMATCH, mismatch.retrieval.embeddingStatus)
         assertEquals(0, mismatch.retrieval.embeddingCandidateCount)
+        assertNull(mismatch.retrieval.embeddingScoreMean)
+        assertNull(mismatch.retrieval.embeddingScoreStandardDeviation)
+        assertNull(mismatch.retrieval.embeddingTopScoreZScore)
 
         indexedStore.replaceUtf8Document(
             documentId = original.id,

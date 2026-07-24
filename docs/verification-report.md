@@ -2,6 +2,16 @@
 
 验证日期：2026-07-24（北京时间）
 
+## 2026-07-24 Embedding 查询内相对分布 shadow 观测（第 84 阶段）
+
+- 纯 Kotlin 契约：`KnowledgeRelevanceRelativeDiagnosticsPolicyTest` 共 4 条，覆盖总体均值/标准差/top1 z-score、候选整体平移不变、单候选与零方差保持未知、空列表和非有限值拒绝。z-score 只描述首位候选在同次查询候选分布中的相对位置。
+- 生产审计：`RoomKnowledgeDocumentStore` 使用现有 2000 行上限内、top-K 截断前的全部有效 cosine 候选计算均值、总体标准差和 top1 z-score，检索 limit 不改变观测；相对值只写入 `KnowledgeRetrievalRecord`，不进入 RRF、排序、拒绝或回退。
+- Room v32：v31→v32 新增三个可空 REAL 列，历史检索保持 `null`。Redmi 迁移、三候选写入回读和知识管理 UI `3/3` 通过；受控分数 `1.0 / 0.8 / 0.0` 的均值 `0.6`、标准差 `0.4320493799`、top1 z `0.9258200998` 均按总体分布计算并持久化。
+- 真实 Provider：只使用 Redmi `wsvwypiz7xwslvl7` 显式运行生产语义链，模型同步、两篇文档索引、跨语言首位命中、相对指标有限值和显式重建 `1/1` 通过。配置从未跟踪 `AGENTS.md` 内部读取，未输出 Base URL 或 API Key。
+- 退休 holdout shadow：复用 `stage83-holdout-v1` 只确认新字段链路，不计算或搜索阈值。60 个观测中正例 z-score `2.9291557475–3.7221077216`、近负例 `2.2256271150–3.2324269685`、远负例 `1.5791078091–2.8788825475`；正例与近负例仍重叠。旧冻结门禁继续以正例接纳率 `0.80` 失败，结论没有被改写。
+- 边界：本阶段不把 z-score 单独或与 raw top1/margin 组合成生产门禁，不把退休 holdout 变成校准集。下一阶段必须使用全新版本的 calibration/validation 数据预注册比较特征，之后才可能冻结候选并准备另一个未见 final holdout。
+- 完整门禁：JVM XML `499/499`、0 failed、0 skipped；Lint、Debug APK 和 AndroidTest APK 成功。Debug APK 为 `22,944,378` 字节、SHA-256 `98f6e620bda4a88c0c14ecdfb2103a0a1e0ba08d58b875be5762f5ebb03da2a8`。文档更新后仅在 Redmi 运行默认完整 instrumentation，`176/176`、0 failed，5 个显式联网用例缺参按设计 skipped；未启动或操作 Pixel_9/其他模拟器。
+
 ## 2026-07-24 冻结候选门禁独立 holdout（第 83 阶段）
 
 - 冻结身份：模型 `Qwen/Qwen3-Embedding-0.6B`，门禁 `stage82-qwen-v1`，校准集 `stage82-calibration-v1`，holdout `stage83-holdout-v1`；top1 下限 `0.6735426515268672`，margin 下限 `0.0178535973263384`。这些值在运行 holdout 前固定，三轮后没有修改。
