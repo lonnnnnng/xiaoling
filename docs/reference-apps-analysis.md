@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 86 阶段先把成熟检索评测中的“final holdout 必须在读取结果前冻结”落实为独立 commit，而不是直接追加一次可反复修改的联网测试。门禁只保留 Stage 85 更简单的 raw top1 `0.6416276358587735`，并冻结 calibration/validation 身份；第三套 `stage86-final-holdout-v1` 的 20 篇全新文档和三桶各 10 条查询已经固定。策略禁止从 final holdout 搜索阈值或重新引入 margin/z-score，完整排序与拒绝标准也已预注册。当前尚未读取真实结果，生产拒绝继续关闭；通过只获得进入设计评审的资格，失败则保留否决证据且不得回调。
+
 第 85 阶段把成熟检索系统常用的 calibration/validation 分离落到移动端真实 Provider，但没有把“多特征”本身当作更可靠。7 个预注册特征族各自在全新 calibration 集选 gate，再在全新 validation 集原样评估；raw top1 与 raw+margin 都达到正例 `0.90`、近/远负例 `1.0`、稳定 `1.0`，而 margin、z-score 或含 z 的组合没有更好。两者 validation 决策完全相同，因此继续增加 margin 只会增加过拟合维度；下一阶段优先冻结更简单的 raw top1，并用第三套未见 holdout 决定是否仍应否决。Stage 83 holdout 保持封存，生产拒绝保持关闭。完整 JVM `502/502`、Lint、APK 和仅 Redmi `177/177` instrumentation 通过，6 个联网用例默认 skipped。
 
 第 84 阶段借鉴成熟检索系统“原始分数之外还要保存查询内分布”的做法，但没有照搬成线上置信度。Room v32 为每次真实语义检索保存当前有界语义索引候选池中全部候选的均值、总体标准差和 top1 z-score，历史记录不回填；UI 继续标为 shadow 观测。退休 Stage 83 holdout 的单次诊断显示正例 z-score `2.929–3.722`、近负例 `2.226–3.232`、远负例 `1.579–2.879`，近负例仍与正例重叠。因此查询内标准化是下一轮实验特征，不是生产门禁；不能像部分服务端方案那样直接发布一个 z-score 阈值。完整 JVM `499/499`、Lint、APK 和仅 Redmi `176/176` instrumentation 通过，5 个联网用例默认 skipped。

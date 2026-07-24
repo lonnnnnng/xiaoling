@@ -6,6 +6,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFinalHoldoutCriteria
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFinalHoldoutPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureComparisonPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureComparisonReport
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureDatasetIdentity
@@ -14,6 +16,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureSample
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureSet
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceFeatureVector
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceLabel
+import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRawTopScoreFrozenGate
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
@@ -106,6 +109,79 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
         )
     }
 
+    @Test
+    fun frozenRawTopScoreValidatesThirdUnseenFinalHoldoutWithoutRetuning() = runBlocking {
+        val arguments = InstrumentationRegistry.getArguments()
+        val baseUrl = arguments.getString(ARG_BASE_URL).orEmpty().trim()
+        val apiKey = arguments.getString(ARG_API_KEY).orEmpty().trim()
+        val embeddingModel = arguments.getString(ARG_MODEL).orEmpty().trim()
+        assumeTrue("未显式提供真实 Embedding Provider，跳过 final holdout", baseUrl.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding API Key，跳过 final holdout", apiKey.isNotBlank())
+        assumeTrue("未显式提供真实 Embedding 模型，跳过 final holdout", embeddingModel.isNotBlank())
+
+        val holdout = collectDataset(
+            dataset = FINAL_HOLDOUT_DATASET,
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            embeddingModel = embeddingModel,
+        )
+        val frozenGate = KnowledgeRelevanceRawTopScoreFrozenGate(
+            gateVersion = FINAL_GATE_VERSION,
+            calibrationIdentity = KnowledgeRelevanceFeatureDatasetIdentity(
+                providerId = PROVIDER_ID,
+                model = embeddingModel,
+                datasetVersion = CALIBRATION_DATASET.version,
+            ),
+            validationDatasetVersion = VALIDATION_DATASET.version,
+            minimumRawTopScore = FROZEN_MINIMUM_RAW_TOP_SCORE,
+        )
+        val report = KnowledgeRelevanceFinalHoldoutPolicy.evaluate(
+            frozenGate = frozenGate,
+            holdoutIdentity = KnowledgeRelevanceFeatureDatasetIdentity(
+                providerId = PROVIDER_ID,
+                model = embeddingModel,
+                datasetVersion = FINAL_HOLDOUT_DATASET.version,
+            ),
+            samples = holdout.samples,
+            criteria = KnowledgeRelevanceFinalHoldoutCriteria(
+                minimumPositiveAcceptanceRate = MINIMUM_POSITIVE_ACCEPTANCE_RATE,
+                minimumNearNegativeRejectionRate = MINIMUM_NEAR_NEGATIVE_REJECTION_RATE,
+                minimumFarNegativeRejectionRate = MINIMUM_FAR_NEGATIVE_REJECTION_RATE,
+                minimumDecisionStableRate = MINIMUM_DECISION_STABLE_RATE,
+            ),
+        )
+        val rankingGatePassed = holdout.recallAt1 >= MINIMUM_RECALL_AT_1 &&
+            holdout.recallAt5 >= FINAL_MINIMUM_RECALL_AT_5 &&
+            holdout.meanReciprocalRank >= MINIMUM_MRR &&
+            holdout.rankingStableRate >= MINIMUM_RANKING_STABLE_RATE
+        val metrics = JSONObject()
+            .put("providerId", PROVIDER_ID)
+            .put("model", embeddingModel)
+            .put("gateVersion", frozenGate.gateVersion)
+            .put("calibrationDatasetVersion", frozenGate.calibrationIdentity.datasetVersion)
+            .put("validationDatasetVersion", frozenGate.validationDatasetVersion)
+            .put("finalHoldoutDatasetVersion", report.holdoutIdentity.datasetVersion)
+            .put("minimumRawTopScore", frozenGate.minimumRawTopScore)
+            .put("observations", holdout.samples.size)
+            .put("positiveAcceptanceRate", report.positiveAcceptanceRate)
+            .put("nearNegativeRejectionRate", report.nearNegativeRejectionRate)
+            .put("farNegativeRejectionRate", report.farNegativeRejectionRate)
+            .put("decisionStableRate", report.decisionStableRate)
+            .put("balancedAccuracy", report.balancedAccuracy)
+            .put("recallAt1", holdout.recallAt1)
+            .put("recallAt5", holdout.recallAt5)
+            .put("meanReciprocalRank", holdout.meanReciprocalRank)
+            .put("rankingStableRate", holdout.rankingStableRate)
+            .put("relevanceGatePassed", report.passed)
+            .put("rankingGatePassed", rankingGatePassed)
+        println("$FINAL_METRICS_TAG $metrics")
+
+        assertEquals(FINAL_CASES_PER_LABEL * KnowledgeRelevanceLabel.entries.size * QUERY_RUNS, holdout.samples.size)
+        assertEquals(FROZEN_MINIMUM_RAW_TOP_SCORE, report.frozenGate.minimumRawTopScore, 0.0)
+        assertTrue("final holdout 未通过冻结 raw top1 相关性门禁", report.passed)
+        assertTrue("final holdout 未通过预注册排序质量门禁", rankingGatePassed)
+    }
+
     private suspend fun collectDataset(
         dataset: DatasetDefinition,
         baseUrl: String,
@@ -194,7 +270,10 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
                         limit = QUALITY_LIMIT,
                     )
                 }
-            val quality = KnowledgeSearchQualityPolicy.evaluate(positiveQualityCases)
+            val qualityAt5 = KnowledgeSearchQualityPolicy.evaluate(positiveQualityCases)
+            val qualityAt1 = KnowledgeSearchQualityPolicy.evaluate(
+                positiveQualityCases.map { qualityCase -> qualityCase.copy(limit = 1) },
+            )
             DatasetObservation(
                 samples = observations.map { observation ->
                     KnowledgeRelevanceFeatureSample(
@@ -203,7 +282,10 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
                         features = observation.features,
                     )
                 },
-                recallAt5 = quality.meanRecallAtK,
+                recallAt1 = qualityAt1.meanRecallAtK,
+                recallAt5 = qualityAt5.meanRecallAtK,
+                meanReciprocalRank = qualityAt5.meanReciprocalRank,
+                rankingStableRate = qualityAt5.stableRankingRate,
             )
         } finally {
             database.close()
@@ -267,7 +349,10 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
 
     private data class DatasetObservation(
         val samples: List<KnowledgeRelevanceFeatureSample>,
+        val recallAt1: Double,
         val recallAt5: Double,
+        val meanReciprocalRank: Double,
+        val rankingStableRate: Double,
     )
 
     private companion object {
@@ -276,15 +361,23 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
         const val ARG_MODEL = "embeddingProviderModel"
         const val PROVIDER_ID = "stage85-embedding-feature-comparison"
         const val METRICS_TAG = "XIAOLING_STAGE85_FEATURE_COMPARISON"
+        const val FINAL_METRICS_TAG = "XIAOLING_STAGE86_FINAL_HOLDOUT"
         const val QUALITY_LIMIT = 5
         const val QUERY_RUNS = 2
         const val CALIBRATION_CASES_PER_LABEL = 10
         const val VALIDATION_CASES_PER_LABEL = 10
+        const val FINAL_CASES_PER_LABEL = 10
         const val MINIMUM_RECALL_AT_5 = 0.8
+        const val MINIMUM_RECALL_AT_1 = 0.90
+        const val FINAL_MINIMUM_RECALL_AT_5 = 1.0
+        const val MINIMUM_MRR = 0.90
+        const val MINIMUM_RANKING_STABLE_RATE = 1.0
         const val MINIMUM_POSITIVE_ACCEPTANCE_RATE = 0.90
         const val MINIMUM_NEAR_NEGATIVE_REJECTION_RATE = 0.80
         const val MINIMUM_FAR_NEGATIVE_REJECTION_RATE = 0.90
         const val MINIMUM_DECISION_STABLE_RATE = 1.0
+        const val FINAL_GATE_VERSION = "stage85-raw-top1-qwen-v1"
+        const val FROZEN_MINIMUM_RAW_TOP_SCORE = 0.6416276358587735
 
         val CALIBRATION_DATASET = DatasetDefinition(
             version = "stage85-calibration-v1",
@@ -399,6 +492,65 @@ class RealProviderKnowledgeFeatureComparisonInstrumentedTest {
                 QueryCase("v-far-astronautics", KnowledgeRelevanceLabel.FAR_NEGATIVE, "What delta-v budget is needed for a transfer between circular orbits?"),
                 QueryCase("v-far-linguistics", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How do writing systems encode grammatical information in different languages?"),
                 QueryCase("v-far-quantum", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How does quantum entanglement change the statistics of correlated measurements?"),
+            ),
+        )
+
+        // long: final holdout 在首次真实运行前固定全新主题与查询，只验证已冻结 raw top1，不允许根据结果替换样本或回调阈值。
+        val FINAL_HOLDOUT_DATASET = DatasetDefinition(
+            version = "stage86-final-holdout-v1",
+            corpus = listOf(
+                CorpusEntry("f01-酸种喂养.md", "酸种酵母在室温下应按固定比例补充面粉和水，观察体积、气泡与气味变化。达到峰值后及时使用或转入冷藏，容器要留出膨胀空间。"),
+                CorpusEntry("f02-面包割包.md", "面包入炉前用锋利刀片快速割出切口，角度和深度应与面团张力配合。割包后立即入炉并提供初期蒸汽，避免表皮提前干硬。"),
+                CorpusEntry("f03-自行车链条.md", "清洁自行车链条时先刷掉松散泥沙，再使用合适清洁剂去除旧油。完全干燥后逐节少量上油，并擦掉外侧多余润滑剂以减少粘尘。"),
+                CorpusEntry("f04-轮胎气压.md", "自行车轮胎气压应结合胎宽、载重和路面调整，并在冷胎状态下测量。出发前检查胎壁、异物与慢漏气，不能只依赖手捏判断。"),
+                CorpusEntry("f05-育苗播种.md", "室内育苗使用洁净疏松基质，按种子大小控制覆土并保持均匀湿润。出苗后及时增加光照和通风，避免高温积水导致幼苗徒长。"),
+                CorpusEntry("f06-幼苗炼苗.md", "移栽前应逐日增加幼苗接触室外风和阳光的时间，同时减少过度浇水。遇到低温或强风先缩短暴露，叶片适应后再定植。"),
+                CorpusEntry("f07-照片备份.md", "照片备份应至少保留本机以外的独立副本，并按日期或事件建立稳定目录。抽样打开原图核对可读性，重要相册还应验证文件数量和校验值。"),
+                CorpusEntry("f08-照片元数据.md", "整理照片元数据时先保留原始拍摄时间，再补充地点和主题标签。批量修改前制作副本，导出后检查时区是否让照片顺序发生偏移。"),
+                CorpusEntry("f09-陶坯干燥.md", "陶坯应在通风但无强风的位置缓慢干燥，厚薄差异大的部位可适当遮盖。定期翻面并检查接缝，过快失水容易产生翘曲和裂纹。"),
+                CorpusEntry("f10-陶器施釉.md", "陶器施釉前清除坯体灰尘并搅匀釉浆，通过试片确认厚度和烧成效果。底部接触窑板的位置保持无釉，避免烧成时粘连。"),
+                CorpusEntry("f11-茶叶储存.md", "茶叶储存要避光、密封并远离潮气和强烈气味。每次取茶使用干燥工具，分装小罐可以减少主包装反复接触空气。"),
+                CorpusEntry("f12-茶汤冲泡.md", "冲泡茶叶时根据叶片类型调整水温、投茶量和浸泡时间。先用少量参数试泡并记录口感，连续冲泡时逐步延长时间。"),
+                CorpusEntry("f13-钢笔清洗.md", "钢笔换墨或出水不畅时，用清水反复冲洗笔尖和供墨器，直到排水基本清澈。避免使用热水和强溶剂，完全晾干后再重新上墨。"),
+                CorpusEntry("f14-墨水选择.md", "钢笔墨水应确认适用于日常书写笔，含颗粒或高防水配方需要更频繁清洁。不同墨水混用前先彻底洗笔，并观察纸张洇染和干燥时间。"),
+                CorpusEntry("f15-猫包适应.md", "让猫适应外出包时先把包长期打开并放入熟悉垫子，用零食鼓励主动进入。逐步练习关门、提起和短距离移动，不在第一次训练就长途出门。"),
+                CorpusEntry("f16-猫咪梳毛.md", "给猫梳毛应顺着毛发生长方向从短时段开始，遇到打结不要强拉。梳理时检查皮肤、耳后和腋下，猫明显紧张时暂停。"),
+                CorpusEntry("f17-水瓶清洁.md", "重复使用的水瓶每天拆下瓶盖和密封圈清洗，用软刷覆盖瓶底和螺纹。冲净后分开放置并彻底风干，出现持续异味或裂纹时更换部件。"),
+                CorpusEntry("f18-滤芯更换.md", "带滤芯水瓶应按使用量和厂家周期检查滤芯，流速明显下降或达到期限时更换。安装新滤芯前按说明冲洗，并记录启用日期。"),
+                CorpusEntry("f19-站立办公.md", "站立办公时桌面高度应让肩膀放松、肘部自然弯曲，双脚稳定支撑。坐站交替并定时活动，不能用持续站立替代姿势变化。"),
+                CorpusEntry("f20-显示器摆放.md", "显示器上缘接近视线高度，屏幕与眼睛保持舒适距离并避免窗户反光。键盘和鼠标靠近身体摆放，调整后观察颈部是否仍需前伸。"),
+            ),
+            cases = listOf(
+                QueryCase("f-positive-starter", KnowledgeRelevanceLabel.POSITIVE, "How should a sourdough starter be fed, observed at peak activity, and stored?", "f01-酸种喂养.md"),
+                QueryCase("f-positive-chain", KnowledgeRelevanceLabel.POSITIVE, "What sequence cleans, dries, and lubricates a bicycle chain without attracting excess dirt?", "f03-自行车链条.md"),
+                QueryCase("f-positive-seedling", KnowledgeRelevanceLabel.POSITIVE, "How should indoor seed-starting moisture, covering, light, and ventilation be managed?", "f05-育苗播种.md"),
+                QueryCase("f-positive-photo-backup", KnowledgeRelevanceLabel.POSITIVE, "How can photo backups be organized and verified beyond merely copying the files?", "f07-照片备份.md"),
+                QueryCase("f-positive-clay", KnowledgeRelevanceLabel.POSITIVE, "How should a clay piece be dried slowly to prevent warping and cracks?", "f09-陶坯干燥.md"),
+                QueryCase("f-positive-tea-storage", KnowledgeRelevanceLabel.POSITIVE, "How should tea leaves be protected from light, moisture, odors, and repeated air exposure?", "f11-茶叶储存.md"),
+                QueryCase("f-positive-pen-cleaning", KnowledgeRelevanceLabel.POSITIVE, "How should a fountain pen be rinsed and dried when changing ink or fixing poor flow?", "f13-钢笔清洗.md"),
+                QueryCase("f-positive-carrier", KnowledgeRelevanceLabel.POSITIVE, "How can a cat be gradually trained to enter and tolerate a travel carrier?", "f15-猫包适应.md"),
+                QueryCase("f-positive-bottle", KnowledgeRelevanceLabel.POSITIVE, "Which bottle parts should be removed, brushed, rinsed, and dried during daily cleaning?", "f17-水瓶清洁.md"),
+                QueryCase("f-positive-standing", KnowledgeRelevanceLabel.POSITIVE, "How should desk height, foot support, and sitting breaks be arranged for standing work?", "f19-站立办公.md"),
+                QueryCase("f-near-yeast-species", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which wild yeast species and bacterial percentages dominate a laboratory-tested sourdough culture?"),
+                QueryCase("f-near-chain-rating", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which bicycle chain lubricant has the lowest certified wear coefficient in an independent laboratory test?"),
+                QueryCase("f-near-seed-hormone", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "What exact plant-hormone concentration maximizes germination for a patented seed variety?"),
+                QueryCase("f-near-cloud-guarantee", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which cloud photo provider contract guarantees a specific checksum durability percentage?"),
+                QueryCase("f-near-glaze-chemistry", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "What measured thermal-expansion coefficient prevents crazing for a specific ceramic glaze formula?"),
+                QueryCase("f-near-tea-certificate", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which laboratory certificate proves the exact pesticide-residue level of a named tea harvest?"),
+                QueryCase("f-near-nib-alloy", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which nib alloy and hardness rating produces the longest fountain-pen service life?"),
+                QueryCase("f-near-airline-carrier", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "What exact pet-carrier dimensions does each international airline permit in the cabin?"),
+                QueryCase("f-near-filter-microplastic", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which certified test shows the precise microplastic removal rate of a bottle filter?"),
+                QueryCase("f-near-ergonomic-standard", KnowledgeRelevanceLabel.NEAR_NEGATIVE, "Which occupational standard mandates an exact standing-desk elbow angle for every worker?"),
+                QueryCase("f-far-volcano", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How do pressure and dissolved gases trigger an explosive volcanic eruption?"),
+                QueryCase("f-far-satellite", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How does a satellite maintain attitude using reaction wheels?"),
+                QueryCase("f-far-genetics", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How does meiotic recombination create new combinations of genetic variants?"),
+                QueryCase("f-far-economics", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How do central-bank reserve requirements affect commercial lending?"),
+                QueryCase("f-far-meteorology", KnowledgeRelevanceLabel.FAR_NEGATIVE, "Why does wind shear influence the formation of severe thunderstorms?"),
+                QueryCase("f-far-anthropology", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How do kinship systems organize inheritance across different societies?"),
+                QueryCase("f-far-mathematics", KnowledgeRelevanceLabel.FAR_NEGATIVE, "Why does a Fourier transform represent a signal with frequency components?"),
+                QueryCase("f-far-marine", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How do deep-sea organisms generate light through bioluminescence?"),
+                QueryCase("f-far-law", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How does appellate review differ from a new trial in civil procedure?"),
+                QueryCase("f-far-computing", KnowledgeRelevanceLabel.FAR_NEGATIVE, "How does a database query planner choose between an index scan and a table scan?"),
             ),
         )
     }

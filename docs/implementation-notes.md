@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 86 阶段预注册实现边界
+
+- 新增纯 Kotlin `KnowledgeRelevanceFinalHoldoutPolicy`，冻结 gate 版本、Stage 85 calibration 身份、validation 版本和 raw top1 下限；final holdout 必须使用同 Provider/模型的第三个 datasetVersion。策略只读取 `rawTopScore`，不调用 Stage 85 候选搜索，也不使用 margin 或 z-score。
+- 4 条 JVM 契约覆盖成功评估、Provider/模型/两套已见数据复用拒绝、非法身份/标准/样本，以及失败后冻结阈值保持不变。聚焦测试 `4/4` 通过。
+- `RealProviderKnowledgeFeatureComparisonInstrumentedTest` 新增默认跳过的 final holdout 用例；全新 `stage86-final-holdout-v1` 固定 20 篇成对主题语料、三桶各 10 条查询和每条 2 次重复，并复用生产 Embedding 适配器与独立内存 Room。采集同时输出拒绝指标、Recall@1/5、MRR 和排序稳定率。
+- 真实 Provider 结果尚未读取。当前只完成 AndroidTest APK 编译，不修改生产 `RoomKnowledgeDocumentStore`、Room v32、UI、Provider 配置或相关性拒绝。
+
 ## 第 85 阶段实现与验证边界
 
 - 新增 `KnowledgeRelevanceFeatureComparisonPolicy`，固定 7 个特征族并以统一 feature vector 表达 raw top1、margin 和 top1 z-score。每个特征族只从 calibration 真实观测值的笛卡尔积搜索，按三桶等权 balanced accuracy、正例接纳、两类负例拒绝、稳定率和阈值顺序确定可复现 gate。
