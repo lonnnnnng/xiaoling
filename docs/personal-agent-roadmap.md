@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 99 阶段：answerability shadow 首批低频观察（完成，持续旁路）
+
+本阶段没有继续密集扩样本，而是在新的 Redmi 真实使用窗口内显式开启 Shadow，取得 `3` 条有效前台 Judge 样本：直接回答 `2`、部分回答 `1`。Judge 尝试 `3` 次、取消 `0`、异常 `0`；本批成本为耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。
+
+首次宽英文问题连续四次未取得知识候选，Agent Run 因工具调用次数达到上限失败；因为没有成功答案和合格 Shadow 入口，tracker 保持 `0`，没有把它伪造成 Judge 失败。随后三条精确词法查询分别覆盖 Responses 文档限制、Workflow 范围/准点语义与普通聊天工具事实边界。当前窗口 Embedding Provider 不可用，候选通过词法兜底形成；本批只证明 answerability 旁路和词法候选链路，不证明 Embedding 质量。
+
+关闭开关并删除四个测试会话后，notice 从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3`；临时知识文档与下载文件已删除，恢复知识文档 `0`、原会话 `1`。第 97 至 99 阶段记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次、直接回答 `4`、部分回答 `3`，仍没有自然网络、协议或认证 Judge 失败。该跨阶段合计来自书面证据，不是跨进程持久化。
+
+本阶段继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。完整 JVM `600/600`、Lint `0 error`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。后续 Shadow 只在间隔开的真实使用窗口低频观察，不为凑数量连续采样；没有自然失败或明显成本异常前，不设计 Room Store、跨进程 notice 或生产拒绝。
+
 ## 第 98 阶段：answerability shadow Redmi 扩样本（完成）
 
 本阶段在不修改生产实现的前提下，继续使用 Redmi 收集用户显式开启、同一进程、前台直接 `/agent` 的真实 Shadow 证据。累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次均无取消或异常；完成样本分布为直接回答 `2`、部分回答 `2`。累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`。
@@ -710,7 +720,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 96. 已完成：默认关闭的生产 Judge adapter、冻结身份门禁、答案保存后异步 caller、独立设置开关和进程内 `messageId` notice 已接入；固定 `store=null / persistenceMode=NONE`，保存失败/取消与 Judge 失败均旁路跳过，完整 JVM `593/593`。
 97. 已完成：固定上限的进程内样本遥测、Judge 成本/重试失败分布和 notice 生命周期统计已接入；Redmi 真实前台样本 `1` 条完成，完整 JVM `600/600`、默认 instrumentation `OK (191 tests)`，Room Store 与 enforcement 继续关闭。
 98. 已完成：Redmi 同一进程累计 Shadow 样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成直接回答 `2`、部分回答 `2`；关闭并删除测试会话后 notice 有效 `4 -> 1`、裁剪 `0 -> 3`，Room Store 与 enforcement 继续关闭。
-99. 下一阶段：继续低频积累用户显式开启的真实前台样本，重点观察网络、协议、认证等自然 Judge 失败；不得把无候选跳过或未进入 Shadow 的 `BUDGET_EXHAUSTED` 当作 Judge 失败。
-100. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+99. 已完成：新的 Redmi 真实使用窗口新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，无取消、异常或自然 Judge 失败；宽查询导致的无候选 Agent 失败未进入 Shadow，清理后 notice 有效 `3 -> 0`、裁剪 `0 -> 3`。
+100. 下一阶段：Shadow 转为间隔开的真实使用窗口低频旁路观察，不在同一窗口继续堆样本；只有出现自然网络/协议/认证失败或明显成本异常后，才重新评审最小化持久化，当前不增加代码或执行权。
+101. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。当前累计 Shadow 样本 `6`、其中有效 Judge `4`，只出现了直接回答和部分回答，没有自然 Judge 网络/协议/认证失败；无候选跳过和未入 Shadow 的预算耗尽不得用来扩权。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 99 阶段书面记录合计 Shadow 样本 `9`、其中有效 Judge `7`，只出现直接回答和部分回答，没有自然 Judge 网络/协议/认证失败；无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该合计不是跨进程持久化，后续只在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

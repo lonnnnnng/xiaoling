@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 99 阶段：answerability shadow 首批低频观察（验收完成，生产实现不变）
+
+- 本阶段没有修改生产代码、Room schema、Shadow Store 或 enforcement，只在 Redmi 同一进程内显式开启后采集三个 `DIRECT_FOREGROUND` 真实样本；当前仍为 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false`、`productionEnforcementEnabled=false`。
+- 首次宽英文问题让模型连续四次用过宽查询调用 `knowledge.search`，均无候选并以工具调用次数超过上限结束；因为没有成功答案和合格 Shadow 候选，tracker 仍为 `0`。该 Run 只证明入口隔离，不是 Judge 失败、取消或 `SKIPPED / NO_CANDIDATE` Shadow 样本。
+- 随后使用已经由知识库检索预览确认命中的精确词法查询采样。三个完成样本中，Responses 文档格式/限制和普通聊天工具事实边界判为直接回答，一次性 Workflow 范围/准点语义加未提供的重试次数判为部分回答；notice 分布为直接回答 `2`、部分回答 `1`。
+- 本批 tracker 为样本 `3`、完成 `3`、未知 `0`、跳过 `0`，Judge 尝试 `3`、取消 `0`、异常 `0`；答案保存失败、Shadow Store 失败、绑定未知均为 `0`。累计成本为耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、输入/输出/总 Tokens `4474/638/5112`、usage attempts `3`。
+- 当前窗口的 Embedding Provider 不可用，知识检索明确降级为词法兜底；这不影响本批 answerability Judge 对冻结候选的旁路观察，但不能把本批当成 Embedding 质量证据。
+- 关闭开关并删除四个测试会话后，notice 从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3`；临时知识文档及 Redmi 下载目录中的阶段文件已删除，恢复知识文档 `0`、原会话 `ping` `1`。累计 tracker 和成本未随会话删除回退。
+- 第 97 至 99 阶段书面记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次、直接回答 `4`、部分回答 `3`，成本 `38837ms / 38775ms / 56845B / 14444+1613=16057 Tokens`。该合计由阶段证据相加，不是跨进程持久化；七次 Judge 均成功，仍没有自然网络、协议或认证失败。
+- 完整本地门禁为 JVM `600/600`、Lint `0 error`、Debug APK 和 AndroidTest APK 构建成功；仅在 Redmi 执行更新后文档语料 `OK (1 test)` 和默认完整 instrumentation `OK (191 tests)`。Lint 报告保留 `49` 条 warning 与 `1` 条 hint，没有 error。
+
 ## 第 98 阶段：answerability shadow Redmi 扩样本（验收完成，生产实现不变）
 
 - 本阶段没有修改生产代码、Room schema 或 Shadow Store，只在 Redmi 同一进程内由用户显式开启后扩充 `DIRECT_FOREGROUND` 真实样本；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 保持不变。

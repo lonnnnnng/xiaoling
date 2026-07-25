@@ -2,6 +2,17 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 answerability shadow 首批低频观察（第 99 阶段）
+
+- 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`。新应用进程中 tracker 基线为 `0`，导入当前 README、确认文档启用后由用户显式开启 Shadow；所有有效样本均为前台直接 `/agent`，答案先保存、Judge 后置。本轮没有向 Pixel_9 或其他模拟器发送 ADB 命令。
+- 检索条件：当前窗口 Embedding Provider 不可用，知识库明确显示词法兜底。首次宽英文问题连续四次用过宽查询调用 `knowledge.search`，均无候选并使 Agent Run 达到工具调用次数上限；Shadow tracker 保持 `0`，因此该 Run 不计样本、跳过、Judge 失败、取消或 usage。
+- 有效样本：先用知识库预览确认精确词法查询可命中，再采集三条真实 Run。Responses 文档格式、8 MB/50 页/200,000 字符限制判为“本地知识包含直接回答”；一次性 Workflow 的 1 分钟至 7 天范围与非精确语义加未提供的重试次数判为“本地知识仅覆盖部分问题”；普通聊天工具能力与真实工具事实来源判为直接回答。判定分布为直接回答 `2`、部分回答 `1`。
+- 本批摘要：样本 `3`、完成 `3`、未知 `0`、跳过 `0`；Judge 尝试 `3` 次、取消 `0`、异常 `0`，答案保存失败、Shadow Store 失败和绑定未知均为 `0`。成本为耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、输入/输出/总 Tokens `4474/638/5112`、usage attempts `3`。
+- 完整门禁：JVM `600/600`；Lint 任务成功、`0 error`，报告保留 `49 warnings / 1 hint`；Debug APK 与 AndroidTest APK 构建、安装成功；Redmi 文档语料 `OK (1 test)`，默认完整 instrumentation `OK (191 tests)`、耗时 `48.223s`。补写门禁结果后又强制重建 AndroidTest APK、重新安装并复跑更新后的文档语料，最终仍为 `OK (1 test)`。所有 ADB 命令均显式指定 `wsvwypiz7xwslvl7`。
+- 生命周期与清理：notice 发布 `3`。关闭开关后依次删除三个有效样本会话和一个无候选失败会话，只保留原会话 `ping`；notice 从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3`，累计样本和成本不回退。临时 `stage99-lingce-readme.md` 知识文档及 Redmi 下载目录中的第 98/99 阶段文件均已删除，恢复知识文档 `0`、原会话 `1`。
+- 跨阶段汇总：第 97 至 99 阶段书面记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次、直接回答 `4`、部分回答 `3`；累计成本 `38837ms`、TTFB `38775ms`、Prompt `56845B`、Tokens `14444/1613/16057`。该合计由阶段报告相加，不是跨进程 tracker 或 Room 数据。
+- 结论：本批三次 Judge 均成功，七次历史 Judge 仍没有自然网络、协议或认证失败。低频观察继续保留，但不在同一窗口继续堆样本；没有新自然失败或明显成本异常前，不增加 Room Store、Schema、跨进程 notice 或 enforcement。当前继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。
+
 ## 2026-07-26 answerability shadow Redmi 扩样本（第 98 阶段）
 
 - 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`，在同一应用进程中由用户显式开启 Shadow；样本来源均为 `DIRECT_FOREGROUND`，答案先保存，随后才允许 Judge。没有连接、启动或操作 Pixel_9/其他模拟器。

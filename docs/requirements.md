@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 99 阶段 answerability shadow 低频观察边界
+
+真实 Shadow 观察必须分散在间隔开的用户显式开启窗口，不得为了达到样本数量在同一窗口持续压测，也不得通过断网、篡改认证或伪造协议错误制造“自然失败”。每个窗口仍只允许同一应用进程中的 `DIRECT_FOREGROUND`、答案成功保存且存在冻结知识候选的 `/agent` Run 进入 Judge；普通聊天、Workflow、后台 Worker 和未形成成功答案的 Agent Run 不得进入样本、attempt 或失败分母。
+
+Agent Run 因无候选、预算耗尽或工具步数耗尽而失败时，只有确实进入 tracker 的稳定 Shadow 事件才允许计数；没有成功答案和合格候选时不得伪造 `SKIPPED`、Judge 失败、取消或 usage。知识检索使用词法兜底形成候选时必须如实记录，不能把 answerability Judge 结果表述为 Embedding 质量证据。
+
+第 99 阶段首批窗口新增样本 `3`、完成 `3`、Judge `3` 次，直接回答 `2`、部分回答 `1`；取消、异常、答案保存失败、Shadow Store 失败和绑定未知均为 `0`。成本为耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。关闭开关只能撤销后续授权；删除四个测试会话后 notice 必须从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3` 且累计成本不回退，删除临时知识文档后恢复文档 `0`、原会话 `1`。
+
+跨阶段样本合计只允许从阶段报告人工汇总，不得暗示 tracker 已跨进程持久化。第 97 至 99 阶段书面记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次仍没有自然网络、协议或认证失败；该证据不得用于增加 Room Store、Schema、跨进程 notice 或生产拒绝。继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。验收必须同时通过 JVM `600/600`、Lint `0 error`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)`。
+
 ## 第 98 阶段 answerability shadow Redmi 扩样本验收边界
 
 扩样本必须限定在同一应用进程、用户显式开启、`DIRECT_FOREGROUND` 且答案成功保存的真实 `/agent` 链路。没有可用知识候选时必须记为 `SKIPPED / NO_CANDIDATE`，不得调用 Judge，也不得伪造成 `UNKNOWN`、失败、取消或 token usage。自然 `BUDGET_EXHAUSTED` Agent Run 若未满足 Shadow eligibility，不得进入 Shadow 样本、attempt 或失败分母。
