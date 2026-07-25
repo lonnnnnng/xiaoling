@@ -1,6 +1,19 @@
 # 验证报告
 
-验证日期：2026-07-25（北京时间）
+验证日期：2026-07-26（北京时间）
+
+## 2026-07-26 answerability shadow Redmi 扩样本（第 98 阶段）
+
+- 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`，在同一应用进程中由用户显式开启 Shadow；样本来源均为 `DIRECT_FOREGROUND`，答案先保存，随后才允许 Judge。没有连接、启动或操作 Pixel_9/其他模拟器。
+- 累计摘要：样本 `6`、完成 `4`、未知 `0`、跳过 `2`；两条跳过均为无候选。Judge 尝试 `4` 次、取消 `0`、异常 `0`，旁路的答案保存失败、Shadow Store 失败和绑定未知均为 `0`。
+- 成本：累计耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、输入/输出/总 Tokens `9970/975/10945`、usage attempts `4`。
+- 判定分布：第 97 阶段首条基线为直接回答；本轮新增三条有效 Judge 样本为部分回答 `2`、直接回答 `1`，累计为直接回答 `2`、部分回答 `2`。部分回答分别来自“文档可答主体但没有每日成本上限”和“文档列出设备动作/后台边界但没有逐动作超时重试值”；直接回答样本由文档完整覆盖 API Key 存储和 Accessibility 隐私过滤。
+- 自然入口结果：两条过长词法 query 自然没有候选，只计 `SKIPPED / NO_CANDIDATE`，不调用 Judge；另一次 Agent Run 自然 `BUDGET_EXHAUSTED`，没有进入 Shadow，不计入这 `6` 条样本，也不能记作 Judge 失败、取消或 usage。当前四次 Judge 均成功，仍没有网络、协议、认证等自然 Judge 失败分布。
+- 生命周期与清理：notice 累计发布 `4`。关闭开关并删除测试会话后，从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`；测试 `stage98-lingce-readme.md` 已删除，知识文档恢复为 `0`，只保留原会话 `1`。累计样本和成本没有随会话删除回退。
+- 生产边界：本阶段不修改生产代码、Room schema 或 Shadow Store；继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。无候选跳过与未入 Shadow 的预算耗尽不得作为扩大持久化或 enforcement 的依据。
+- 本地门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 成功，88 个 task 全部执行；JVM XML 汇总 `600/600`，Lint XML 为 `0 issue`，Debug APK 与 AndroidTest APK 均构建成功。Debug APK SHA-256 为 `f78aff67d73562027b660fe00e19369ce13d8ea99a0cd5af5934ee88534c566d`。
+- Redmi 回归：覆盖安装两个 APK 后，更新后的 5 份核心长期文档语料门禁为 `OK (1 test)`、耗时 `1.814s`；随后默认完整 `AndroidJUnitRunner` 为 `OK (191 tests)`、耗时 `48.809s`。仅使用 Redmi `wsvwypiz7xwslvl7`，没有连接、启动或操作 Pixel_9/其他模拟器。
+- 审查后复验：修正“关闭开关不删除用户数据”的规格表述后，再次使用 `--rerun-tasks` 强制重打 AndroidTest APK，Redmi 文档语料单项仍为 `OK (1 test)`；测试包随后卸载，主应用恢复前台，知识文档 `0`、原会话 `1`，crash buffer 为空。
 
 ## 2026-07-25 answerability shadow 真实样本与进程内遥测（第 97 阶段）
 

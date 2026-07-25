@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 98 阶段：answerability shadow Redmi 扩样本（验收完成，生产实现不变）
+
+- 本阶段没有修改生产代码、Room schema 或 Shadow Store，只在 Redmi 同一进程内由用户显式开启后扩充 `DIRECT_FOREGROUND` 真实样本；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 保持不变。
+- 累计 tracker 为样本 `6`、完成 `4`、无候选跳过 `2`；Judge `4` 次、取消 `0`、异常 `0`，完成判定为直接回答 `2`、部分回答 `2`。三条新增有效 Judge 样本为部分回答 `2`、直接回答 `1`；两条过长词法 query 自然无候选，只进入跳过明细。
+- 累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、输入/输出/总 Tokens `9970/975/10945`、usage attempts `4`。另一次 Agent Run 自然进入 `BUDGET_EXHAUSTED`，因没有形成可用 Shadow 入口而不计入样本、attempt、失败或取消。
+- notice 累计发布 `4`。关闭开关并删除测试会话后，从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`；测试 README 知识文档已删除，恢复为知识文档 `0`、保留原会话 `1`。累计样本和成本不会随会话删除回退。
+- 当前四次 Judge 均成功，没有出现网络、协议、认证等自然 Judge 失败；无候选与预算耗尽不能作为持久化或 enforcement 的扩权依据。
+- 完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK 构建通过；更新后的 5 份核心长期文档在 Redmi 语料门禁中为 `OK (1 test)`，默认完整 instrumentation 为 `OK (191 tests)`。仅使用 Redmi，没有连接或操作 Pixel_9。
+
 ## 第 97 阶段：answerability shadow 真实样本与进程内遥测（实现与 Redmi 验收完成）
 
 - 新增 `KnowledgeAnswerabilityShadowSampleTracker` 与数值遥测模型，使用同步提交和饱和计数维持固定上限；只保留终态、attempt、延迟/TTFB、Prompt 字节、Tokens、usage attempt、失败枚举和 notice 数量，不持有问题、答案、候选正文、引用、原始响应、消息 ID 或凭据。

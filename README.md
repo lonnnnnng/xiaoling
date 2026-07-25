@@ -27,6 +27,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 第 98 阶段已在 Redmi 同一进程内扩充用户显式开启的真实前台 answerability shadow 样本：累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成 `2` 条直接回答与 `2` 条部分回答；自然 `BUDGET_EXHAUSTED` Run 未进入 Shadow，不能记作 Judge 失败。累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`，取消和异常均为 `0`。
   - 第 97 阶段已为默认关闭的 answerability shadow 增加有界进程内样本摘要：只记录 Judge attempt、延迟/TTFB、Prompt 字节、Tokens、失败分类和 notice 生命周期，不记录问题、答案、候选正文、引用、原始响应或凭据。真实 Redmi 前台 Agent 样本已验证答案先保存、Judge 后置、notice 可见且随会话删除裁剪；普通聊天、Workflow 和后台 Worker 不进入样本分母。
   - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权、前台直接 `/agent` 且 Profile/Skill 允许时可用；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证，Workflow 与后台运行不会看到或执行任何设备工具。
 
@@ -106,6 +107,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 98 阶段完成 Redmi 真实前台扩样本：累计 `6` 条 Shadow 样本中完成 `4`、无候选跳过 `2`，Judge `4` 次均无取消或异常，判定分布为直接回答 `2`、部分回答 `2`。关闭开关并删除测试会话后，notice 从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`；测试知识文档已删除，恢复为知识文档 `0`、保留原会话 `1`。完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
 - 第 97 阶段已完成 answerability shadow 真实前台样本与进程内遥测：统计固定上限且重启清空，重试链保留每次失败分类，设置页展示成本、失败和 notice 生命周期；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
 - 本地完整门禁为 JVM `600/600`、Lint `0 issue`、Debug APK 与 AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 执行设置页定向 `OK (1 test)` 和默认完整 instrumentation `OK (191 tests)`。真实前台 `/agent + knowledge.search` 得到 `1` 条完成样本：Judge `1` 次、耗时 `8437ms`、TTFB `8428ms`、Prompt `8952B`、输入/输出/总 Tokens `2340/361/2701`，失败、取消和异常均为 `0`；UI 显示“本地知识包含直接回答”和 `知识引用 · 3`。删除测试会话后 notice 从 `发布 1 / 当前有效 1 / 已裁剪 0` 变为 `发布 1 / 当前有效 0 / 已裁剪 1`；开启状态下普通聊天完成后样本仍为 `1`。验收后开关已恢复关闭，全程未使用 Pixel_9。
 - 第 96 阶段已完成默认关闭的生产接线：`OpenAiKnowledgeAnswerabilityJudge` 固定 Responses 非流式协议，逐请求关闭全部 HTTP Debug 日志；identity 从当前 `providerId / model / Base URL fingerprint` 派生并与冻结的 `redmi-provider-compatibility / gpt-5.5` 身份完全匹配后才请求。前台直接 Agent 先展示并保存答案，保存成功后 sibling Job 才启动 Judge；保存失败、取消、Workflow 来源或 Judge 终败都只跳过旁路，不发布猜测 notice。notice 仅以进程内 `messageId` 映射传给知识引用区域，`store=null / persistenceMode=NONE`，不改写消息、引用或生产拒绝。

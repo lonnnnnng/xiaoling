@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 98 阶段进一步验证成熟 Agent 的 eligibility 与 Run 终态必须分离：自然 `BUDGET_EXHAUSTED` Run 没有满足 Shadow 入口时，不会被包装成 Shadow 失败；知识检索没有候选时只记 `SKIPPED / NO_CANDIDATE`，不伪造 Judge `UNKNOWN`、取消或 usage。Redmi 同一进程累计样本 `6`、完成 `4`、无候选跳过 `2`，四次 Judge 形成直接回答 `2`、部分回答 `2`，累计耗时 `23100ms`、TTFB `23067ms`、Tokens `10945`，Judge 取消和异常均为 `0`。关闭开关并删除测试会话后，notice 有效 `4 -> 1`、裁剪 `0 -> 3`，测试知识文档恢复为 `0`；该生命周期仍完全在进程内，不需要 Room Store。当前四次 Judge 均成功，尚未形成网络、协议或认证等自然 Judge 失败分布，因此 `store=null / persistenceMode=NONE`、Room v32 和两层 enforcement 关闭继续是正确边界。
+
 第 97 阶段继续落实成熟 Agent 的“先旁路观测、再用证据决定是否持久化或执行”：固定上限的进程内 tracker 只累计 Judge 成本、失败分类和 notice 生命周期，不保存问题、答案、候选正文、引用、原始响应或凭据；答案保存后、Judge 发出前再次检查开关。Redmi 首条真实前台样本完成，notice 随测试会话删除被裁剪，普通聊天未增加样本。第 96 阶段的生产 adapter、默认关闭开关、答案保存后 caller 和 `messageId` notice 保持不变；当前仍为 `store=null / persistenceMode=NONE`、无 Room migration、无 enforcement。
 
 第 95 阶段进一步落实成熟 Agent 常见的“离线评测数据与线上遥测分型”：`KnowledgeAnswerabilityObservation` 继续携带人工标签用于 calibration/validation，真实 Run 只生成无标签 `KnowledgeAnswerabilityShadowMeasurement`，两者共享 `KnowledgeAnswerabilityAssessment` 和同一原文证据回查。这样线上 Judge 结果不会被误写成人工真值，也不会污染离线质量统计。
@@ -590,4 +592,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”。第 97 阶段已在 Redmi 取得首条用户显式开启后的真实前台 Agent shadow 样本，确认答案先保存、Judge 后置、成本可统计、notice 可发布/裁剪且普通聊天隔离；但单条成功样本没有形成自然失败分布，也不足以支持 Room Store 或 enforcement。下一步应继续积累更多真实前台样本并观察 Provider 成本/失败，再独立评审是否需要最小化持久化；在新证据和隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应跳到 MCP 或“任意控制手机”。第 98 阶段已把 Redmi 用户显式开启的真实前台 Shadow 扩到累计样本 `6`、有效 Judge `4`：直接回答 `2`、部分回答 `2`，另有两条无候选跳过；自然 `BUDGET_EXHAUSTED` 没有进入 Shadow。四次 Judge 均成功，因此当前证据仍不足以描述自然 Judge 失败分布，也不足以支持 Room Store 或 enforcement。更新后的文档语料单项 `OK (1 test)`、Redmi 默认完整 `OK (191 tests)`，说明保持旁路边界没有破坏现有知识与 UI 契约。下一步只需低频继续观察真实 Provider 成本以及网络、协议、认证等自然失败，再独立评审最小化持久化；在新证据和隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

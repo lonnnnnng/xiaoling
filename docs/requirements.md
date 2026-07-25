@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 98 阶段 answerability shadow Redmi 扩样本验收边界
+
+扩样本必须限定在同一应用进程、用户显式开启、`DIRECT_FOREGROUND` 且答案成功保存的真实 `/agent` 链路。没有可用知识候选时必须记为 `SKIPPED / NO_CANDIDATE`，不得调用 Judge，也不得伪造成 `UNKNOWN`、失败、取消或 token usage。自然 `BUDGET_EXHAUSTED` Agent Run 若未满足 Shadow eligibility，不得进入 Shadow 样本、attempt 或失败分母。
+
+关闭开关只能撤销后续 Shadow 授权，不得删除或修改知识文档、会话及消息。删除测试会话只能裁剪对应进程内 notice，不得回退累计样本和成本；删除本轮测试知识文档后，知识文档必须恢复为 `0`，并保留原会话 `1`。第 98 阶段验收累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次、取消 `0`、异常 `0`，完成判定为直接回答 `2`、部分回答 `2`；累计耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`。notice 发布 `4`，删除测试会话后从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`。
+
+本轮不得增加生产持久化或执行权：继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。两次自然无候选跳过与一次自然预算耗尽只证明入口隔离有效，不能表述为已经取得自然 Judge 失败分布，也不能据此开启 Room Store、跨进程 notice 或生产拒绝。验收必须保持完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK、仅 Redmi 的文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)`；不得连接或启动 Pixel_9。
+
 ## 第 97 阶段 answerability shadow 真实样本与遥测边界
 
 只有用户显式开启后，前台直接 Agent 的真实 answerability shadow 才能进入样本分母；默认关闭期间、普通聊天、Workflow 和后台 Worker 均不得产生样本。答案必须先展示并成功保存，Judge 请求发出前必须再次检查开关；用户在此之前关闭即撤销本次授权，不得继续发送问题和知识候选。Judge 已发出后的取消可以记录取消终态，但不得伪造上游未返回的 token usage。
