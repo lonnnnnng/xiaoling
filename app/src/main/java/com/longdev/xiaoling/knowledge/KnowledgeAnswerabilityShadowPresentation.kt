@@ -26,16 +26,16 @@ data class KnowledgeAnswerabilityShadowPresentedResult(
 }
 
 /**
- * long: 真实 Provider 证据和生产接入尚未完成时，只把 answerability 观测翻译成用户可理解的 shadow 提示；输入引用始终原样保留。
+ * long: shadow 结果只用于解释 Judge 测量，不能据此过滤答案或引用；输入引用始终按原顺序保留。
  */
 object KnowledgeAnswerabilityShadowPresentationPolicy {
     fun present(
         references: List<KnowledgeReference>,
-        observation: KnowledgeAnswerabilityObservation?,
+        assessment: KnowledgeAnswerabilityAssessment?,
         gate: KnowledgeAnswerabilityGate?,
     ): KnowledgeAnswerabilityShadowPresentedResult {
         val retainedReferences = references.toList()
-        if (observation == null) {
+        if (assessment == null) {
             return unknown(
                 references = retainedReferences,
                 detail = "尚未获得可回答性观测，当前答案和知识引用保持不变。",
@@ -48,7 +48,7 @@ object KnowledgeAnswerabilityShadowPresentationPolicy {
             )
         }
 
-        val decision = observation.decision(
+        val decision = assessment.decision(
             featureSet = gate.featureSet,
             minimumConfidence = gate.minimumConfidence,
             minimumEvidenceCoverage = gate.minimumEvidenceCoverage,
@@ -64,7 +64,7 @@ object KnowledgeAnswerabilityShadowPresentationPolicy {
                 title = "答案可回答性尚未确认",
                 detail = "Judge 未能形成稳定结论，当前答案和知识引用保持不变。",
             )
-            KnowledgeAnswerabilityDecision.REJECT -> rejectedNotice(observation)
+            KnowledgeAnswerabilityDecision.REJECT -> rejectedNotice(assessment)
         }
         return KnowledgeAnswerabilityShadowPresentedResult(
             references = retainedReferences,
@@ -74,16 +74,16 @@ object KnowledgeAnswerabilityShadowPresentationPolicy {
     }
 
     private fun rejectedNotice(
-        observation: KnowledgeAnswerabilityObservation,
+        assessment: KnowledgeAnswerabilityAssessment,
     ): KnowledgeAnswerabilityUserNotice {
-        if (observation.contradictionDetected) {
+        if (assessment.contradictionDetected) {
             return KnowledgeAnswerabilityUserNotice(
                 state = KnowledgeAnswerabilityUserState.CONTRADICTORY,
                 title = "本地知识证据存在矛盾",
                 detail = "候选内容与问题所需事实存在冲突；当前仅记录观察结果，不自动修改答案。",
             )
         }
-        return when (observation.verdict) {
+        return when (assessment.verdict) {
             KnowledgeAnswerabilityVerdict.PARTIALLY_ANSWERED -> KnowledgeAnswerabilityUserNotice(
                 state = KnowledgeAnswerabilityUserState.PARTIALLY_ANSWERED,
                 title = "本地知识仅覆盖部分问题",
@@ -95,8 +95,8 @@ object KnowledgeAnswerabilityShadowPresentationPolicy {
                 detail = "候选文档主题可能相关，但没有覆盖所问事实；当前仅记录观察结果。",
             )
             KnowledgeAnswerabilityVerdict.ANSWERED -> {
-                if (observation.evidenceQuoteCount <= 0 ||
-                    observation.matchedEvidenceQuoteCount != observation.evidenceQuoteCount
+                if (assessment.evidenceQuoteCount <= 0 ||
+                    assessment.matchedEvidenceQuoteCount != assessment.evidenceQuoteCount
                 ) {
                     KnowledgeAnswerabilityUserNotice(
                         state = KnowledgeAnswerabilityUserState.EVIDENCE_MISMATCH,

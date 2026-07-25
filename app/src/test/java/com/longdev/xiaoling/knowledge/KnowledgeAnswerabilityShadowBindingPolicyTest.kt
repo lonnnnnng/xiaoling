@@ -9,7 +9,7 @@ import org.junit.Test
 
 class KnowledgeAnswerabilityShadowBindingPolicyTest {
     @Test
-    fun bindsAcceptedObservationWithoutChangingReferenceOrderOrEnforcement() {
+    fun bindsAcceptedMeasurementWithoutChangingReferenceOrderOrEnforcement() {
         val first = reference("first", 0, 20)
         val second = reference("second", 20, 40)
         val candidate = KnowledgeAnswerabilityShadowCandidate(
@@ -23,7 +23,7 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
             candidate = candidate,
             actualJudgeIdentity = frozen.judgeIdentity,
             frozenBinding = frozen,
-            observation = observation(),
+            measurement = measurement(),
             observedAt = 1_000L,
         )
 
@@ -41,7 +41,7 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
             candidate = candidate(),
             actualJudgeIdentity = frozen.judgeIdentity,
             frozenBinding = frozen,
-            observation = observation(),
+            measurement = measurement(),
             observedAt = 1_001L,
         )
 
@@ -61,7 +61,7 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
             candidate = candidate(),
             actualJudgeIdentity = frozen.judgeIdentity.copy(model = "other-model"),
             frozenBinding = frozen,
-            observation = observation(confidence = 0.99),
+            measurement = measurement(confidence = 0.99),
             observedAt = 1_002L,
         )
 
@@ -72,19 +72,19 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
     }
 
     @Test
-    fun missingObservationIsUnknownInsteadOfRejectingAnswer() {
+    fun missingMeasurementIsUnknownInsteadOfRejectingAnswer() {
         val candidate = candidate()
         val frozen = frozenBinding(KnowledgeAnswerabilityFeatureSet.VERDICT_AND_EXACT_EVIDENCE)
         val result = KnowledgeAnswerabilityShadowBindingPolicy.bind(
             candidate = candidate,
             actualJudgeIdentity = frozen.judgeIdentity,
             frozenBinding = frozen,
-            observation = null,
+            measurement = null,
             observedAt = 1_003L,
         )
 
         assertEquals(KnowledgeAnswerabilityShadowBindingStatus.UNKNOWN, result.status)
-        assertEquals(KnowledgeAnswerabilityShadowBindingReason.MISSING_OBSERVATION, result.reason)
+        assertEquals(KnowledgeAnswerabilityShadowBindingReason.MISSING_MEASUREMENT, result.reason)
         assertEquals(KnowledgeAnswerabilityDecision.UNKNOWN, result.decision)
         assertEquals(candidate.references, result.references)
         assertNull(result.observedAt)
@@ -98,7 +98,7 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
             candidate = candidate().copy(sourceRunId = "", references = listOf(reference)),
             actualJudgeIdentity = frozen.judgeIdentity,
             frozenBinding = frozen,
-            observation = observation(),
+            measurement = measurement(),
             observedAt = 1_004L,
         )
 
@@ -116,7 +116,7 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
             candidate = candidate().copy(references = originalReferences),
             actualJudgeIdentity = frozen.judgeIdentity,
             frozenBinding = frozen,
-            observation = observation(),
+            measurement = measurement(),
             observedAt = 1_005L,
         )
 
@@ -151,9 +151,8 @@ class KnowledgeAnswerabilityShadowBindingPolicyTest {
         references = listOf(reference("only", 0, 20)),
     )
 
-    private fun observation(confidence: Double = 0.95) = KnowledgeAnswerabilityObservation(
-        caseId = "run-shadow",
-        label = KnowledgeRelevanceLabel.POSITIVE,
+    private fun measurement(confidence: Double = 0.95) = KnowledgeAnswerabilityShadowMeasurement(
+        sourceRunId = "run-shadow",
         verdict = KnowledgeAnswerabilityVerdict.ANSWERED,
         confidence = confidence,
         evidenceQuoteCount = 1,

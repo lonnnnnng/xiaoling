@@ -10,7 +10,7 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
         val references = listOf(reference())
         val result = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = references,
-            observation = observation(
+            assessment = observation(
                 verdict = KnowledgeAnswerabilityVerdict.ANSWERED,
                 confidence = 0.95,
                 evidenceQuoteCount = 1,
@@ -42,12 +42,12 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
         val references = listOf(reference())
         val missingObservation = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = references,
-            observation = null,
+            assessment = null,
             gate = exactEvidenceGate(),
         )
         val missingGate = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = references,
-            observation = observation(KnowledgeAnswerabilityVerdict.ANSWERED),
+            assessment = observation(KnowledgeAnswerabilityVerdict.ANSWERED),
             gate = null,
         )
 
@@ -61,7 +61,7 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
     fun contradictionAndFabricatedQuoteNeverAppearAsAnswered() {
         val contradiction = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = listOf(reference()),
-            observation = observation(
+            assessment = observation(
                 verdict = KnowledgeAnswerabilityVerdict.ANSWERED,
                 contradictionDetected = true,
             ),
@@ -69,7 +69,7 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
         )
         val fabricatedQuote = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = listOf(reference()),
-            observation = observation(
+            assessment = observation(
                 verdict = KnowledgeAnswerabilityVerdict.ANSWERED,
                 evidenceQuoteCount = 1,
                 matchedEvidenceQuoteCount = 0,
@@ -88,7 +88,7 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
         val references = listOf(reference())
         val result = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = references,
-            observation = observation(
+            assessment = observation(
                 verdict = KnowledgeAnswerabilityVerdict.ANSWERED,
                 confidence = 0.79,
                 evidenceQuoteCount = 1,
@@ -108,7 +108,7 @@ class KnowledgeAnswerabilityShadowPresentationPolicyTest {
         verdict: KnowledgeAnswerabilityVerdict,
     ) = KnowledgeAnswerabilityShadowPresentationPolicy.present(
         references = listOf(reference()),
-        observation = observation(verdict),
+        assessment = observation(verdict),
         gate = exactEvidenceGate(),
     )
 

@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 95 阶段：answerability shadow 真实测量协调（完成，生产未接入）
+
+本阶段把第 94 阶段留下的“何时调用 Judge、失败如何收敛、是否持久化”冻结成纯 Kotlin 协调契约。离线 `KnowledgeAnswerabilityObservation` 继续保留人工 `label`，线上新增无标签 `KnowledgeAnswerabilityShadowMeasurement`；共享 `KnowledgeAnswerabilityAssessment` 和同一证据回查映射保证两条路径决策一致，但线上 measurement 不会被误计入 calibration/validation。
+
+`KnowledgeAnswerabilityShadowObservationCoordinator.observe()` 默认关闭且只接受前台直接 Agent。候选不完整或缺少冻结绑定时不调用 Judge；瞬时网络、限流、服务端和协议错误最多重试一次，认证、普通请求、身份、候选和未知错误不重试；取消原样传播。Judge identity 漂移保留 measurement 但 binding 未知。可选 Store 只保存指纹、幂等键、身份、尝试次数、状态、决策、失败分类和时间，Store 失败不会改变原答案、引用或 `enforcementApplied=false`。
+
+新增协调器契约 `14/14`，完整 JVM `578/578`、Lint、Debug/AndroidTest APK 与仅 Redmi `OK (188 tests)` 通过。当前仍没有生产 Provider adapter、Room schema/store、消息 caller 或答案引用 UI 接线，普通聊天、Workflow、后台 Worker 和 enforcement 保持关闭。下一阶段只设计默认关闭的生产接线，先保证答案发布/持久化不等待 shadow，再决定 NoOp 或 Room Store；不得提前开启拒绝执行。
+
 ## 第 94 阶段：真实消息流只读 answerability shadow 绑定（完成，生产未接入）
 
 本阶段把第 93 阶段的展示 seam 与真实 Agent 消息中的可信知识检索证据连接起来，但仍保持只读。`VerifiedAgentContext.latestKnowledgeAnswerabilityCandidate(question)` 从最近的成功 `knowledge.search` ToolResult 提取候选；失败、无引用、空正文、空 Run 和其他工具不能冒充候选，旧单工具消息继续兼容。`KnowledgeAnswerabilityShadowBindingPolicy` 绑定来源 Run、同一 Judge 的强类型 calibration/validation identity、观测和冻结 gate，只让第 92 阶段已通过的两类特征族进入消息 shadow。
 
 覆盖率特征族、Judge identity 漂移、缺观测、缺冻结绑定、观测 Run 不匹配和候选证据不完整均保持 `UNKNOWN`；候选引用在绑定时冻结快照，无观测时不伪造观测时间，引用顺序/身份与原答案不变，结果固定 `enforcementApplied=false`。本阶段不调用 Provider、不写 Room、不接入 `KnowledgeReferencesContent`、不改变普通聊天或 Workflow，也不打开生产拒绝。聚焦 JVM `11/11`，完整 JVM `564/564`，Lint、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的真实套件为 `OK (188 tests)`，没有使用 Pixel_9。
 
-下一阶段应先评审 Judge 观测的真实生成时机、失败/重试与可选 shadow 持久化边界，再决定是否把结果以默认关闭的用户提示接入答案引用 UI。Provider 调用、Room schema、生产 enforcement、设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续按路线图后置。
+第 94 阶段当时留下的 Judge 生成、失败/重试和可选持久化问题已由第 95 阶段冻结。Provider 调用、Room schema、生产 caller/UI、生产 enforcement、设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续按路线图后置。
 
 ## 第 93 阶段：答案可回答性 shadow 呈现（实现与 Redmi 验收完成，生产未接入）
 
@@ -14,7 +22,7 @@
 
 离线门禁与真机 UI 验收均已完成：既有 answerability 策略 `7/7` 与新增 shadow 呈现 `5/5` 合计 `12/12`；`KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随 Redmi 默认完整 `OK (188 tests)` 通过，确认提示与原引用共存。没有连接或启动 Pixel_9。
 
-下一步边界：进入真实消息流只读 shadow 绑定的设计评审，明确 Judge 身份、观测生成时机、持久化/失败语义和用户提示来源。第 92 阶段只有两类特征族通过，覆盖率特征族未通过；因此下一阶段仍不得修改答案、移除引用、升级生产相关性身份或开启 `productionEnforcement`。
+第 93 阶段当时留下的真实消息流只读绑定、Judge 生成时机、持久化和失败语义已由第 94、95 阶段冻结。第 92 阶段仍只有两类特征族通过，覆盖率特征族未通过；因此后续生产接线仍不得修改答案、移除引用、升级生产相关性身份或开启 `productionEnforcement`。
 
 ## 第 92 阶段：答案可回答性策略（实现与真实 Provider shadow 验收完成）
 
@@ -22,7 +30,7 @@
 
 真实验收已只在 Redmi `wsvwypiz7xwslvl7` 完成：以 `redmi-answerability-judge-v1 / gpt-5.5` 运行显式 calibration/validation 探针，各取得 `12` 条观测，网络/解析失败均为 `0`，用例 `OK (1 test)`、耗时 `91.063s`。`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 通过，覆盖率特征族未通过；默认 instrumentation 为 `OK (188 tests)`。主 APK、Activity、Provider/Profile 和设备状态已恢复，没有连接或启动 Pixel_9。
 
-下一步边界：第 93 阶段已经完成不改变答案和引用的 shadow 呈现 seam 及 Redmi UI 契约。下一阶段可以评审只读绑定，但必须排除未通过的覆盖率特征族，并继续把 Judge 失败收敛为未知；本轮证据不升级生产 `VERIFIED`、不进入相关性 final holdout，也不允许拒绝执行。设备工具仍不得进入 Workflow/后台自动化，精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+第 92 阶段当时规划的 shadow 呈现、只读绑定和 Judge 协调已由第 93 至 95 阶段完成；未通过的覆盖率特征族仍被排除，Judge 失败继续收敛为未知。本轮证据不升级生产 `VERIFIED`、不进入相关性 final holdout，也不允许拒绝执行。设备工具仍不得进入 Workflow/后台自动化，精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 ## 第 91 阶段：跨主题平移不变特征探针否决
 
@@ -529,7 +537,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建和相关性扩样校准已完成；生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准和默认关闭的 answerability shadow 测量协调契约已完成；生产 Provider/Room/caller/UI 接线、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -674,7 +682,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 92. 已完成：严格答案可回答性策略、离线 `7/7` 契约和 Redmi `12 + 12` 真实 `gpt-5.5` shadow 观测；网络/解析失败为 `0`，两类特征族通过、覆盖率特征族未通过，生产 enforcement 继续关闭。
 93. 已完成：答案可回答性 shadow 提示与引用共存契约新增 `5/5`，合计聚焦 JVM `12/12`；Redmi 默认完整 `OK (188 tests)` 已覆盖提示/引用共存 UI，生产消息流仍未绑定。
 94. 已完成：真实消息流只读 answerability shadow 绑定；候选只来自可信 `knowledge.search`，强类型数据集身份、Run/观测一致性、引用快照和保守 `UNKNOWN` 契约均已验收，生产消息流仍未接入。
-95. 下一阶段：评审 Judge 观测的真实生成时机、失败/重试和可选 shadow 持久化边界，再决定是否以默认关闭方式把提示接入答案引用 UI。
-96. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+95. 已完成：线上无标签 measurement 与离线带标签 observation 分离；默认关闭、前台直接来源、两次有界尝试、取消透传、Judge 身份漂移、隐私指纹和 Store 失败隔离均已冻结，完整 JVM `578/578`。
+96. 下一阶段：设计默认关闭的生产接线，在已持久化 Agent 答案之后异步调用 Judge，并把 notice 作为旁路 UI 状态注入；先实现生产 Provider adapter 与 NoOp/可选 Store seam，不能阻塞答案、修改引用或开启 enforcement。
+97. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

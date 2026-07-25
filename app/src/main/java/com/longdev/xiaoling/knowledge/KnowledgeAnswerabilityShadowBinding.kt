@@ -47,12 +47,12 @@ enum class KnowledgeAnswerabilityShadowBindingStatus {
 
 enum class KnowledgeAnswerabilityShadowBindingReason {
     BOUND,
-    OBSERVATION_UNKNOWN,
-    MISSING_OBSERVATION,
+    MEASUREMENT_UNKNOWN,
+    MISSING_MEASUREMENT,
     MISSING_FROZEN_BINDING,
     MISSING_JUDGE_IDENTITY,
     JUDGE_IDENTITY_MISMATCH,
-    OBSERVATION_CASE_MISMATCH,
+    MEASUREMENT_RUN_MISMATCH,
     UNSUPPORTED_FEATURE_SET,
     INVALID_CANDIDATE,
 }
@@ -64,7 +64,7 @@ data class KnowledgeAnswerabilityShadowBinding(
     val candidate: KnowledgeAnswerabilityShadowCandidate,
     val status: KnowledgeAnswerabilityShadowBindingStatus,
     val reason: KnowledgeAnswerabilityShadowBindingReason,
-    val observation: KnowledgeAnswerabilityObservation?,
+    val measurement: KnowledgeAnswerabilityShadowMeasurement?,
     val decision: KnowledgeAnswerabilityDecision,
     val references: List<KnowledgeReference>,
     val notice: KnowledgeAnswerabilityUserNotice,
@@ -86,7 +86,7 @@ object KnowledgeAnswerabilityShadowBindingPolicy {
         candidate: KnowledgeAnswerabilityShadowCandidate,
         actualJudgeIdentity: KnowledgeAnswerabilityJudgeIdentity?,
         frozenBinding: KnowledgeAnswerabilityFrozenBinding?,
-        observation: KnowledgeAnswerabilityObservation?,
+        measurement: KnowledgeAnswerabilityShadowMeasurement?,
         observedAt: Long,
     ): KnowledgeAnswerabilityShadowBinding {
         // long: 绑定开始时冻结候选和引用，避免调用方后续修改可变 List 导致同一审计结果前后不一致。
@@ -99,18 +99,18 @@ object KnowledgeAnswerabilityShadowBindingPolicy {
         ): KnowledgeAnswerabilityShadowBinding {
             val notice = KnowledgeAnswerabilityShadowPresentationPolicy.present(
                 references = references,
-                observation = null,
+                assessment = null,
                 gate = null,
             ).notice.copy(detail = detail)
             return KnowledgeAnswerabilityShadowBinding(
                 candidate = candidateSnapshot,
                 status = KnowledgeAnswerabilityShadowBindingStatus.UNKNOWN,
                 reason = reason,
-                observation = observation,
+                measurement = measurement,
                 decision = KnowledgeAnswerabilityDecision.UNKNOWN,
                 references = references,
                 notice = notice,
-                observedAt = observation?.let { observedAt },
+                observedAt = measurement?.let { observedAt },
             )
         }
 
@@ -147,31 +147,31 @@ object KnowledgeAnswerabilityShadowBindingPolicy {
                 detail = "Judge 身份发生变化，当前答案和知识引用保持不变。",
             )
         }
-        val actualObservation = observation ?: return unknown(
-            reason = KnowledgeAnswerabilityShadowBindingReason.MISSING_OBSERVATION,
-            detail = "尚未获得可回答性观测，当前答案和知识引用保持不变。",
+        val actualMeasurement = measurement ?: return unknown(
+            reason = KnowledgeAnswerabilityShadowBindingReason.MISSING_MEASUREMENT,
+            detail = "尚未获得可回答性测量，当前答案和知识引用保持不变。",
         )
-        if (actualObservation.caseId != candidateSnapshot.sourceRunId) {
+        if (actualMeasurement.sourceRunId != candidateSnapshot.sourceRunId) {
             return unknown(
-                reason = KnowledgeAnswerabilityShadowBindingReason.OBSERVATION_CASE_MISMATCH,
-                detail = "可回答性观测未能对应当前 Agent Run，当前答案和知识引用保持不变。",
+                reason = KnowledgeAnswerabilityShadowBindingReason.MEASUREMENT_RUN_MISMATCH,
+                detail = "可回答性测量未能对应当前 Agent Run，当前答案和知识引用保持不变。",
             )
         }
 
         val presented = KnowledgeAnswerabilityShadowPresentationPolicy.present(
             references = references,
-            observation = actualObservation,
+            assessment = actualMeasurement,
             gate = frozen.gate,
         )
         return KnowledgeAnswerabilityShadowBinding(
             candidate = candidateSnapshot,
             status = KnowledgeAnswerabilityShadowBindingStatus.BOUND,
             reason = if (presented.decision == KnowledgeAnswerabilityDecision.UNKNOWN) {
-                KnowledgeAnswerabilityShadowBindingReason.OBSERVATION_UNKNOWN
+                KnowledgeAnswerabilityShadowBindingReason.MEASUREMENT_UNKNOWN
             } else {
                 KnowledgeAnswerabilityShadowBindingReason.BOUND
             },
-            observation = actualObservation,
+            measurement = actualMeasurement,
             decision = presented.decision,
             references = references,
             notice = presented.notice,

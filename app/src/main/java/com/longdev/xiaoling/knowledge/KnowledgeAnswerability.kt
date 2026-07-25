@@ -198,31 +198,17 @@ object KnowledgeAnswerabilityEvidenceMatcher {
         .replace(Regex("\\s+"), " ")
 }
 
-data class KnowledgeAnswerabilityObservation(
-    val caseId: String,
-    val label: KnowledgeRelevanceLabel,
-    val verdict: KnowledgeAnswerabilityVerdict,
-    val confidence: Double,
-    val evidenceQuoteCount: Int,
-    val matchedEvidenceQuoteCount: Int,
-    val evidenceCoverage: Double,
-    val contradictionDetected: Boolean,
-    val reasonCode: String,
-) {
-    init {
-        require(caseId.isNotBlank()) { "answerability 用例 ID 不能为空" }
-        require(confidence.isFinite() && confidence in 0.0..1.0) {
-            "answerability 观测置信度必须是 0 到 1 之间的有限值"
-        }
-        require(evidenceQuoteCount >= 0) { "answerability 观测证据片段数量不能为负" }
-        require(matchedEvidenceQuoteCount in 0..evidenceQuoteCount) {
-            "answerability 观测匹配证据数量无效"
-        }
-        require(evidenceCoverage.isFinite() && evidenceCoverage in 0.0..1.0) {
-            "answerability 观测证据覆盖率必须是 0 到 1 之间的有限值"
-        }
-        require(reasonCode.matches(REASON_CODE_PATTERN)) { "answerability 观测 reasonCode 无效" }
-    }
+/**
+ * long: 校准样本和线上 shadow measurement 共享同一套决策语义，但只有离线校准样本允许携带人工真值标签。
+ */
+interface KnowledgeAnswerabilityAssessment {
+    val verdict: KnowledgeAnswerabilityVerdict
+    val confidence: Double
+    val evidenceQuoteCount: Int
+    val matchedEvidenceQuoteCount: Int
+    val evidenceCoverage: Double
+    val contradictionDetected: Boolean
+    val reasonCode: String
 
     fun decision(
         featureSet: KnowledgeAnswerabilityFeatureSet,
@@ -252,10 +238,31 @@ data class KnowledgeAnswerabilityObservation(
         }
         return KnowledgeAnswerabilityDecision.ACCEPT
     }
+}
+
+data class KnowledgeAnswerabilityObservation(
+    val caseId: String,
+    val label: KnowledgeRelevanceLabel,
+    override val verdict: KnowledgeAnswerabilityVerdict,
+    override val confidence: Double,
+    override val evidenceQuoteCount: Int,
+    override val matchedEvidenceQuoteCount: Int,
+    override val evidenceCoverage: Double,
+    override val contradictionDetected: Boolean,
+    override val reasonCode: String,
+) : KnowledgeAnswerabilityAssessment {
+    init {
+        require(caseId.isNotBlank()) { "answerability 用例 ID 不能为空" }
+        validateKnowledgeAnswerabilityAssessment(
+            confidence = confidence,
+            evidenceQuoteCount = evidenceQuoteCount,
+            matchedEvidenceQuoteCount = matchedEvidenceQuoteCount,
+            evidenceCoverage = evidenceCoverage,
+            reasonCode = reasonCode,
+        )
+    }
 
     companion object {
-        private val REASON_CODE_PATTERN = Regex("[A-Z][A-Z0-9_]{0,63}")
-
         fun unknown(
             caseId: String,
             label: KnowledgeRelevanceLabel,
@@ -278,22 +285,126 @@ data class KnowledgeAnswerabilityObservation(
             candidateText: String,
             output: KnowledgeAnswerabilityModelOutput,
         ): KnowledgeAnswerabilityObservation {
-            val match = KnowledgeAnswerabilityEvidenceMatcher.match(
+            val fields = knowledgeAnswerabilityAssessmentFields(
                 candidateText = candidateText,
-                quotes = output.evidenceQuotes,
+                output = output,
             )
             return KnowledgeAnswerabilityObservation(
                 caseId = caseId,
                 label = label,
-                verdict = output.verdict,
-                confidence = output.confidence,
-                evidenceQuoteCount = match.quoteCount,
-                matchedEvidenceQuoteCount = match.matchedQuoteCount,
-                evidenceCoverage = match.coverage.coerceIn(0.0, 1.0),
-                contradictionDetected = output.contradictionDetected,
-                reasonCode = output.reasonCode,
+                verdict = fields.verdict,
+                confidence = fields.confidence,
+                evidenceQuoteCount = fields.evidenceQuoteCount,
+                matchedEvidenceQuoteCount = fields.matchedEvidenceQuoteCount,
+                evidenceCoverage = fields.evidenceCoverage,
+                contradictionDetected = fields.contradictionDetected,
+                reasonCode = fields.reasonCode,
             )
         }
+    }
+}
+
+/**
+ * long: 线上 Judge 只记录来自真实 Run 的无标签测量，避免把未知人工真值伪装成生产观测事实。
+ */
+data class KnowledgeAnswerabilityShadowMeasurement(
+    val sourceRunId: String,
+    override val verdict: KnowledgeAnswerabilityVerdict,
+    override val confidence: Double,
+    override val evidenceQuoteCount: Int,
+    override val matchedEvidenceQuoteCount: Int,
+    override val evidenceCoverage: Double,
+    override val contradictionDetected: Boolean,
+    override val reasonCode: String,
+) : KnowledgeAnswerabilityAssessment {
+    init {
+        require(sourceRunId.isNotBlank()) { "answerability shadow 来源 Run ID 不能为空" }
+        validateKnowledgeAnswerabilityAssessment(
+            confidence = confidence,
+            evidenceQuoteCount = evidenceQuoteCount,
+            matchedEvidenceQuoteCount = matchedEvidenceQuoteCount,
+            evidenceCoverage = evidenceCoverage,
+            reasonCode = reasonCode,
+        )
+    }
+
+    companion object {
+        fun fromModelOutput(
+            sourceRunId: String,
+            candidateText: String,
+            output: KnowledgeAnswerabilityModelOutput,
+        ): KnowledgeAnswerabilityShadowMeasurement {
+            val fields = knowledgeAnswerabilityAssessmentFields(
+                candidateText = candidateText,
+                output = output,
+            )
+            return KnowledgeAnswerabilityShadowMeasurement(
+                sourceRunId = sourceRunId,
+                verdict = fields.verdict,
+                confidence = fields.confidence,
+                evidenceQuoteCount = fields.evidenceQuoteCount,
+                matchedEvidenceQuoteCount = fields.matchedEvidenceQuoteCount,
+                evidenceCoverage = fields.evidenceCoverage,
+                contradictionDetected = fields.contradictionDetected,
+                reasonCode = fields.reasonCode,
+            )
+        }
+    }
+}
+
+private data class KnowledgeAnswerabilityAssessmentFields(
+    val verdict: KnowledgeAnswerabilityVerdict,
+    val confidence: Double,
+    val evidenceQuoteCount: Int,
+    val matchedEvidenceQuoteCount: Int,
+    val evidenceCoverage: Double,
+    val contradictionDetected: Boolean,
+    val reasonCode: String,
+)
+
+/**
+ * long: 离线校准和线上 shadow 必须用完全相同的证据回查结果，避免两条路径因重复映射而产生决策漂移。
+ */
+private fun knowledgeAnswerabilityAssessmentFields(
+    candidateText: String,
+    output: KnowledgeAnswerabilityModelOutput,
+): KnowledgeAnswerabilityAssessmentFields {
+    val match = KnowledgeAnswerabilityEvidenceMatcher.match(
+        candidateText = candidateText,
+        quotes = output.evidenceQuotes,
+    )
+    return KnowledgeAnswerabilityAssessmentFields(
+        verdict = output.verdict,
+        confidence = output.confidence,
+        evidenceQuoteCount = match.quoteCount,
+        matchedEvidenceQuoteCount = match.matchedQuoteCount,
+        evidenceCoverage = match.coverage.coerceIn(0.0, 1.0),
+        contradictionDetected = output.contradictionDetected,
+        reasonCode = output.reasonCode,
+    )
+}
+
+private val KNOWLEDGE_ANSWERABILITY_REASON_CODE_PATTERN = Regex("[A-Z][A-Z0-9_]{0,63}")
+
+private fun validateKnowledgeAnswerabilityAssessment(
+    confidence: Double,
+    evidenceQuoteCount: Int,
+    matchedEvidenceQuoteCount: Int,
+    evidenceCoverage: Double,
+    reasonCode: String,
+) {
+    require(confidence.isFinite() && confidence in 0.0..1.0) {
+        "answerability 评估置信度必须是 0 到 1 之间的有限值"
+    }
+    require(evidenceQuoteCount >= 0) { "answerability 评估证据片段数量不能为负" }
+    require(matchedEvidenceQuoteCount in 0..evidenceQuoteCount) {
+        "answerability 评估匹配证据数量无效"
+    }
+    require(evidenceCoverage.isFinite() && evidenceCoverage in 0.0..1.0) {
+        "answerability 评估证据覆盖率必须是 0 到 1 之间的有限值"
+    }
+    require(reasonCode.matches(KNOWLEDGE_ANSWERABILITY_REASON_CODE_PATTERN)) {
+        "answerability 评估 reasonCode 无效"
     }
 }
 
@@ -366,8 +477,8 @@ data class KnowledgeAnswerabilityGate(
         }
     }
 
-    fun accepts(observation: KnowledgeAnswerabilityObservation): Boolean =
-        observation.decision(featureSet, minimumConfidence, minimumEvidenceCoverage) ==
+    fun accepts(assessment: KnowledgeAnswerabilityAssessment): Boolean =
+        assessment.decision(featureSet, minimumConfidence, minimumEvidenceCoverage) ==
             KnowledgeAnswerabilityDecision.ACCEPT
 }
 
