@@ -9,6 +9,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationMod
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOutcome
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOrigin
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationStatus
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleKind
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleEvent
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserState
 import com.longdev.xiaoling.knowledge.KnowledgeReference
@@ -24,12 +26,14 @@ class AgentAnswerabilityShadowPublisherTest {
     fun disabledShadowDoesNotWaitForPersistenceOrCallJudge() = runTest {
         var persistenceAwaited = false
         var judgeCalled = false
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = {
                 judgeCalled = true
                 error("不应调用 Judge")
             },
             publishNotice = { _, _ -> error("不应发布 notice") },
+            publishSample = samples::add,
         )
 
         publisher.publish(
@@ -47,17 +51,20 @@ class AgentAnswerabilityShadowPublisherTest {
 
         assertFalse(persistenceAwaited)
         assertFalse(judgeCalled)
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.DISABLED, samples.single().kind)
     }
 
     @Test
     fun failedAnswerPersistenceSkipsJudgeAndNotice() = runTest {
         var judgeCalled = false
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = {
                 judgeCalled = true
                 error("不应调用 Judge")
             },
             publishNotice = { _, _ -> error("不应发布 notice") },
+            publishSample = samples::add,
         )
 
         publisher.publish(
@@ -72,14 +79,93 @@ class AgentAnswerabilityShadowPublisherTest {
         )
 
         assertFalse(judgeCalled)
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.ANSWER_PERSISTENCE_FAILED, samples.single().kind)
+    }
+
+    @Test
+    fun persistenceExceptionProducesSingleFailureSample() = runTest {
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = { error("保存失败后不应调用 Judge") },
+            publishNotice = { _, _ -> error("保存失败后不应发布 notice") },
+            publishSample = samples::add,
+        )
+
+        publisher.publish(
+            request = AgentAnswerabilityShadowPublishRequest(
+                persistedMessageId = "message-persistence-exception",
+                candidate = candidate(),
+                frozenBinding = null,
+                mode = KnowledgeAnswerabilityShadowObservationMode.SHADOW,
+                origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+            ),
+            awaitAnswerPersistence = { error("Room 写入失败") },
+        )
+
+        assertEquals(listOf(KnowledgeAnswerabilityShadowSampleKind.ANSWER_PERSISTENCE_FAILED), samples.map { it.kind })
+    }
+
+    @Test
+    fun sampleSinkFailureCannotInterruptPublishedAnswerPath() = runTest {
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = {
+                KnowledgeAnswerabilityShadowObservationOutcome(
+                    status = KnowledgeAnswerabilityShadowObservationStatus.UNKNOWN,
+                )
+            },
+            publishNotice = { _, _ -> error("UNKNOWN 不应发布 notice") },
+            publishSample = { error("设置页已销毁") },
+        )
+
+        publisher.publish(
+            request = AgentAnswerabilityShadowPublishRequest(
+                persistedMessageId = "message-sample-sink-failed",
+                candidate = candidate(),
+                frozenBinding = null,
+                mode = KnowledgeAnswerabilityShadowObservationMode.SHADOW,
+                origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+            ),
+            awaitAnswerPersistence = { true },
+        )
+    }
+
+    @Test
+    fun closingShadowBeforeJudgeCancelsThePendingSidecar() = runTest {
+        var judgeCalled = false
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = {
+                judgeCalled = true
+                error("关闭开关后不应调用 Judge")
+            },
+            publishNotice = { _, _ -> error("关闭开关后不应发布 notice") },
+            publishSample = samples::add,
+        )
+
+        publisher.publish(
+            request = AgentAnswerabilityShadowPublishRequest(
+                persistedMessageId = "message-opt-out",
+                candidate = candidate(),
+                frozenBinding = null,
+                mode = KnowledgeAnswerabilityShadowObservationMode.SHADOW,
+                origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+            ),
+            awaitAnswerPersistence = { true },
+            isStillEnabled = { false },
+        )
+
+        assertFalse(judgeCalled)
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.CANCELLED, samples.single().kind)
     }
 
     @Test
     fun cancellationPropagatesWithoutPublishingNotice() = runTest {
         var noticePublished = false
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = { throw CancellationException("页面已离开") },
             publishNotice = { _, _ -> noticePublished = true },
+            publishSample = samples::add,
         )
 
         try {
@@ -99,11 +185,13 @@ class AgentAnswerabilityShadowPublisherTest {
         }
 
         assertFalse(noticePublished)
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.CANCELLED, samples.single().kind)
     }
 
     @Test
     fun enabledShadowWaitsForPersistedAnswerBeforePublishingNotice() = runTest {
         val events = mutableListOf<String>()
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val candidate = candidate()
         val notice = KnowledgeAnswerabilityUserNotice(
             state = KnowledgeAnswerabilityUserState.DIRECTLY_ANSWERED,
@@ -128,6 +216,7 @@ class AgentAnswerabilityShadowPublisherTest {
                 )
             },
             publishNotice = { messageId, _ -> events += "notice:$messageId" },
+            publishSample = samples::add,
         )
 
         publisher.publish(
@@ -148,11 +237,13 @@ class AgentAnswerabilityShadowPublisherTest {
             listOf("persisted", "observe:message-final-answer", "notice:message-final-answer"),
             events,
         )
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.COMPLETED, samples.single().kind)
     }
 
     @Test
     fun failedJudgeOutcomeDoesNotPublishUnknownNotice() = runTest {
         var noticePublished = false
+        val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = {
                 KnowledgeAnswerabilityShadowObservationOutcome(
@@ -174,6 +265,7 @@ class AgentAnswerabilityShadowPublisherTest {
                 )
             },
             publishNotice = { _, _ -> noticePublished = true },
+            publishSample = samples::add,
         )
 
         publisher.publish(
@@ -188,6 +280,7 @@ class AgentAnswerabilityShadowPublisherTest {
         )
 
         assertFalse(noticePublished)
+        assertEquals(KnowledgeAnswerabilityShadowSampleKind.UNKNOWN, samples.single().kind)
     }
 
     private fun candidate() = KnowledgeAnswerabilityShadowCandidate(

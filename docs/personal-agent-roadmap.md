@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 97 阶段：answerability shadow 真实样本与进程内遥测（完成）
+
+已在第 96 阶段默认关闭生产接线之上增加固定上限的进程内 tracker。它只累计样本终态、Judge attempt、延迟/TTFB、Prompt 字节、Tokens、usage attempt、失败分类和 notice 生命周期，不保存问题、答案、候选正文、引用、原始响应、消息 ID 或凭据；设置页明确说明重启清空。答案保存后、Judge 发出前再次检查开关，用户关闭后不再发送问题或候选正文；重试成功仍保留前序失败分布。
+
+Redmi 真实前台 `/agent + knowledge.search` 已得到 `1` 条完成样本，Judge `1` 次，耗时 `8437ms`、TTFB `8428ms`、Prompt `8952B`、Tokens `2340/361/2701`，失败/取消/异常均为 `0`。答案先保存，UI 后置显示“本地知识包含直接回答”和 `知识引用 · 3`；删除测试会话后 notice 从有效 `1` 裁剪为 `0`。开启状态下普通聊天未增加样本；Workflow/后台仍在 caller 边界外。完整 JVM `600/600`、Lint `0 issue`、APK、Redmi 定向 `OK (1 test)` 和完整 `OK (191 tests)` 通过，验收后开关恢复关闭。
+
+本阶段没有新增 Room Store/migration，没有开启 notice 跨进程恢复或 enforcement。下一阶段应先基于更多真实前台样本评审 Provider 成本与失败分布是否稳定，再决定是否值得设计最小化持久化；单条成功样本不足以开启生产拒绝。设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 96 阶段：answerability shadow 默认关闭的生产接线（完成）
 
 本阶段完成生产 Judge adapter、冻结身份门禁、独立设置开关、答案保存后的异步 caller 和旁路 notice。Judge 固定使用第 92 阶段的 Responses 非流式协议、关闭 reasoning、`temperature=0 / topP=1 / maxTokens=220`，逐请求关闭全部 HTTP Debug 日志；实际 Provider identity 从当前配置的 ID、模型和 Base URL 指纹派生，必须与 `redmi-provider-compatibility / gpt-5.5 / configuration fingerprint / prompt version` 完全匹配，否则在请求前保持关闭。
 
 前台直接 Agent 的答案先展示并进入正常会话保存，`AgentAnswerabilityShadowPublisher` 的 sibling Job 等待对应保存 Job 成功后才调用协调器。保存失败、旧保存被新快照取消、Workflow 来源或 Judge 失败只跳过 shadow，终败不发布 notice，也不进入 Agent 主失败分支。notice 只以进程内 `messageId` 映射注入知识引用区域，不改写消息、可信上下文或引用；会话删除或重载时裁剪悬空键。当前固定 `store=null / persistenceMode=NONE`，Room 仍为 v32，没有 migration。
 
-完整 JVM `593/593`、Lint、Debug/AndroidTest APK、Redmi 默认完整 `OK (191 tests)`、显式生产 adapter `OK (1 test)` 和设置/偏好/notice `OK (3 tests)` 均通过。实际 Provider ID 下的 `12 + 12` calibration/validation 复验继续保持两类特征族通过，冻结阈值不回调。普通聊天、Workflow、后台 Worker、notice 持久化、Room shadow Store 与 enforcement 继续关闭。下一阶段先积累用户显式开启后的真实前台 shadow 样本，再决定是否需要最小化持久化；不得从旁路 notice 直接扩张为答案拒绝。
+完整 JVM `593/593`、Lint、Debug/AndroidTest APK、Redmi 默认完整 `OK (191 tests)`、显式生产 adapter `OK (1 test)` 和设置/偏好/notice `OK (3 tests)` 均通过。实际 Provider ID 下的 `12 + 12` calibration/validation 复验继续保持两类特征族通过，冻结阈值不回调。普通聊天、Workflow、后台 Worker、notice 持久化、Room shadow Store 与 enforcement 继续关闭。该阶段提出的真实前台样本后续已由第 97 阶段取得首条完成证据；最小化持久化仍需更多样本，且不得从旁路 notice 直接扩张为答案拒绝。
 
 ## 第 95 阶段：answerability shadow 真实测量协调（完成，生产未接入）
 
@@ -545,7 +553,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关和进程内 notice 已完成；Room shadow Store、notice 跨进程恢复、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice 和有界真实样本遥测已完成；Room shadow Store、notice 跨进程恢复、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -692,7 +700,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 94. 已完成：真实消息流只读 answerability shadow 绑定；候选只来自可信 `knowledge.search`，强类型数据集身份、Run/观测一致性、引用快照和保守 `UNKNOWN` 契约均已验收；该阶段当时尚未接入生产消息流。
 95. 已完成：线上无标签 measurement 与离线带标签 observation 分离；默认关闭、前台直接来源、两次有界尝试、取消透传、Judge 身份漂移、隐私指纹和 Store 失败隔离均已冻结，完整 JVM `578/578`。
 96. 已完成：默认关闭的生产 Judge adapter、冻结身份门禁、答案保存后异步 caller、独立设置开关和进程内 `messageId` notice 已接入；固定 `store=null / persistenceMode=NONE`，保存失败/取消与 Judge 失败均旁路跳过，完整 JVM `593/593`。
-97. 下一阶段：只在 Redmi 上以用户显式开启的方式积累真实前台 Agent shadow 样本，确认 notice 生命周期、Provider 成本和失败分布，再决定是否需要最小化 Room Store；不开启 enforcement。
-98. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+97. 已完成：固定上限的进程内样本遥测、Judge 成本/重试失败分布和 notice 生命周期统计已接入；Redmi 真实前台样本 `1` 条完成，完整 JVM `600/600`、默认 instrumentation `OK (191 tests)`，Room Store 与 enforcement 继续关闭。
+98. 下一阶段：继续积累更多用户显式开启的真实前台样本，观察成本和自然失败分布；样本不足前不增加 Room Store，不开启 enforcement。
+99. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

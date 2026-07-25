@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 97 阶段 answerability shadow 真实样本与遥测边界
+
+只有用户显式开启后，前台直接 Agent 的真实 answerability shadow 才能进入样本分母；默认关闭期间、普通聊天、Workflow 和后台 Worker 均不得产生样本。答案必须先展示并成功保存，Judge 请求发出前必须再次检查开关；用户在此之前关闭即撤销本次授权，不得继续发送问题和知识候选。Judge 已发出后的取消可以记录取消终态，但不得伪造上游未返回的 token usage。
+
+进程内 tracker 必须固定容量上限且重启清空，只允许记录样本终态、Judge attempt、延迟/TTFB、Prompt 字节、input/output/total Tokens、usage attempt、稳定失败枚举和 notice 发布/有效/裁剪数量。禁止记录问题、答案、候选正文、引用正文、原始响应、消息 ID、Base URL、API Key 或其他凭据。重试成功也必须保留前序失败分类；答案保存失败、Shadow Store 失败、身份不匹配、候选缺失、绑定未知、用户取消和意外异常必须分别统计。
+
+第 97 阶段继续固定 `store=null / persistenceMode=NONE`，不得增加 Room 表、migration 或 notice 持久化；`enforcementApplied=false` 与 `productionEnforcementEnabled=false` 不得改变。验收必须覆盖设置页可滚动摘要、真实 Provider 成本、notice 发布与会话删除/重载裁剪、普通聊天隔离和关闭恢复。结果为完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK、仅 Redmi `wsvwypiz7xwslvl7` 的定向 `OK (1 test)` 与默认完整 `OK (191 tests)`；真实样本 `1` 条完成、Judge `1` 次、失败/取消/异常为 `0`。不得连接或启动 Pixel_9。
+
 ## 第 96 阶段 answerability shadow 生产接线边界
 
 生产 Judge 必须复用第 92 阶段冻结协议：Responses、非流式、关闭 reasoning summary、`temperature=0`、`topP=1`、`maxTokens=220` 和严格 JSON codec。adapter 每次 attempt 只允许一个 Provider 请求，不得自行重试；实际 Judge identity 必须从当前 Provider 配置的 `providerId / model / Base URL fingerprint` 派生，不能复制调用方期望值。请求包含用户问题和知识候选，因此必须逐请求关闭全部 HTTP Debug 日志；统一 Provider 的鉴权、User-Agent 和兼容 Header 行为保持不变。

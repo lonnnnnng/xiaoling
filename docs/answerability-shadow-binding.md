@@ -2,7 +2,7 @@
 
 ## 目的
 
-第 94 阶段冻结“真实 Agent 消息中的哪一份知识证据可以进入 answerability shadow”的只读绑定；第 95 阶段补齐默认关闭的真实 Judge 测量协调、失败/重试和可选最小化持久化边界；第 96 阶段把生产 Provider adapter、答案保存后的异步 caller、设备偏好和旁路 notice 接入真实前台 Agent 消息流。三阶段都不把 shadow 结果当成生产答案决策，也不改变原答案或知识引用。
+第 94 阶段冻结“真实 Agent 消息中的哪一份知识证据可以进入 answerability shadow”的只读绑定；第 95 阶段补齐默认关闭的真实 Judge 测量协调、失败/重试和可选最小化持久化边界；第 96 阶段把生产 Provider adapter、答案保存后的异步 caller、设备偏好和旁路 notice 接入真实前台 Agent 消息流；第 97 阶段增加不含正文的进程内成本、失败和 notice 生命周期遥测，并完成首条 Redmi 真实样本。四阶段都不把 shadow 结果当成生产答案决策，也不改变原答案或知识引用。
 
 ## 候选来源
 
@@ -64,6 +64,14 @@
 - `AgentAnswerabilityShadowPublisher` 只接收前台直接 Agent。答案先进入 UI，并启动正常会话保存；旁路 sibling Job 等待对应保存 Job 成功后再调用协调器。保存失败、保存被新快照取消、Workflow 来源或 Judge 最终失败都不会进入 Agent 主失败分支，终败不发布 notice。
 - notice 使用 `messageId -> KnowledgeAnswerabilityUserNotice` 的进程内映射投影到 `KnowledgeReferencesContent`。它不写回 `ChatMessage`、`VerifiedAgentContext`、`MessagePart` 或知识引用；会话删除或重载时裁剪悬空消息键，进程重建后自然清空。
 
+## 第 97 阶段真实样本与遥测
+
+`KnowledgeAnswerabilityShadowSampleTracker` 使用固定上限的饱和计数，只累计样本终态、Judge attempt、延迟/TTFB、Prompt 字节、Tokens、usage attempt、稳定失败枚举和 notice 发布/有效/裁剪数量。它不持有问题、答案、候选正文、引用、原始响应、消息 ID、Base URL 或凭据，且只存在于当前进程，重启即清空。
+
+生产 Judge 每个 attempt 只返回数值遥测；HTTP 成功但协议失败仍保留已产生的 usage/时延，重试成功也保留前序失败分类。答案保存后、Judge 发出前再次检查开关；用户关闭时记录取消并停止发送问题和候选正文。普通聊天、Workflow 和后台 Worker 不进入样本分母。
+
+Redmi 真实前台样本验证了 `COMPLETED + BOUND + ACCEPT`：Judge `1` 次，失败/取消/异常均为 `0`，notice 在答案引用区可见，并在测试会话删除后从有效 `1` 裁剪为 `0`。该证据只证明当前 Provider、网络和候选下的单次旁路链路可用，不足以扩大为 enforcement。
+
 ## 重试与取消
 
 - 瞬时网络、限流、服务端和协议失败允许一次受控重试，总尝试次数最多两次。
@@ -82,7 +90,7 @@
 
 记录不得保存候选正文、模型原始响应或引用正文。Store 普通失败只把 `persistenceStatus` 标记为 `FAILED`，不改变绑定或原答案；Store 取消继续传播。
 
-第 96 阶段生产接线显式使用 `store=null / persistenceMode=NONE`。因此当前不创建 shadow Room 表、不升级 Room Schema，也不把 notice 或 Judge 原始响应写入持久化层。
+第 96 至 97 阶段生产接线显式使用 `store=null / persistenceMode=NONE`。因此当前不创建 shadow Room 表、不升级 Room Schema，也不把 notice、样本摘要或 Judge 原始响应写入持久化层。
 
 ## 当前不做的事
 
@@ -97,4 +105,5 @@
 - Redmi `wsvwypiz7xwslvl7` 默认完整 `AndroidJUnitRunner`：`OK (191 tests)`；
 - 显式生产 adapter Provider 探针：`OK (1 test)`；设置/偏好/notice 定向组合：`OK (3 tests)`；
 - 实际 Provider ID 下的 calibration/validation 复验：`12 + 12` 条、失败 `0 + 0`、两类既有特征族继续通过；冻结 `minimumConfidence=0.85` 未使用重复采集回调；
+- 第 97 阶段固定上限 tracker、attempt 成本/失败分布、设置页摘要和 notice 生命周期统计：完整 JVM `600/600`、Redmi 设置页定向 `OK (1 test)`、默认完整 `OK (191 tests)`，真实完成样本 `1` 条；
 - Pixel_9 和其他模拟器未参与本阶段验证。

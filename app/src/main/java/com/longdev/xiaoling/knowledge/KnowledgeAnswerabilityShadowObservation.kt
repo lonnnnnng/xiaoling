@@ -43,6 +43,7 @@ enum class KnowledgeAnswerabilityJudgeFailureKind {
     AUTHENTICATION,
     CLIENT_REQUEST,
     IDENTITY,
+    MODEL,
     INVALID_CANDIDATE,
     UNEXPECTED,
 }
@@ -50,6 +51,7 @@ enum class KnowledgeAnswerabilityJudgeFailureKind {
 class KnowledgeAnswerabilityJudgeFailure(
     val kind: KnowledgeAnswerabilityJudgeFailureKind,
     cause: Throwable? = null,
+    val telemetry: KnowledgeAnswerabilityShadowAttemptTelemetry? = null,
 ) : RuntimeException(kind.name, cause)
 
 data class KnowledgeAnswerabilityJudgeRequest(
@@ -64,6 +66,7 @@ data class KnowledgeAnswerabilityJudgeRequest(
 data class KnowledgeAnswerabilityJudgeResponse(
     val identity: KnowledgeAnswerabilityJudgeIdentity,
     val output: KnowledgeAnswerabilityModelOutput,
+    val telemetry: KnowledgeAnswerabilityShadowAttemptTelemetry? = null,
 )
 
 fun interface KnowledgeAnswerabilityJudgePort {
@@ -114,6 +117,7 @@ data class KnowledgeAnswerabilityShadowObservationOutcome(
     val binding: KnowledgeAnswerabilityShadowBinding? = null,
     val persistenceStatus: KnowledgeAnswerabilityShadowPersistenceStatus =
         KnowledgeAnswerabilityShadowPersistenceStatus.NOT_REQUESTED,
+    val telemetry: KnowledgeAnswerabilityShadowTelemetry = KnowledgeAnswerabilityShadowTelemetry.EMPTY,
 )
 
 /**
@@ -172,10 +176,12 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
             expectedIdentity = frozenBinding.judgeIdentity,
         )
         var attemptCount = 0
+        var telemetry = KnowledgeAnswerabilityShadowTelemetry.EMPTY
         while (attemptCount < MAX_ATTEMPTS) {
             attemptCount += 1
             try {
                 val response = judgePort.judge(judgeRequest)
+                response.telemetry?.let { telemetry = telemetry.plus(it) }
                 val measurement = KnowledgeAnswerabilityShadowMeasurement.fromModelOutput(
                     sourceRunId = candidate.sourceRunId,
                     candidateText = candidate.candidateText,
@@ -195,6 +201,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
                         status = KnowledgeAnswerabilityShadowObservationStatus.COMPLETED,
                         attemptCount = attemptCount,
                         binding = binding,
+                        telemetry = telemetry,
                     ),
                     judgeIdentity = response.identity,
                     recordedAt = observedAt,
@@ -203,6 +210,8 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
                 // long: 页面或上层任务取消意味着这次观测不存在，继续传播才能避免伪造 UNKNOWN 和残留持久化记录。
                 throw error
             } catch (failure: KnowledgeAnswerabilityJudgeFailure) {
+                failure.telemetry?.let { telemetry = telemetry.plus(it) }
+                telemetry = telemetry.recordFailure(failure.kind)
                 // long: 只重试可能自行恢复的传输、限流、服务端和协议故障；认证与请求错误继续请求只会放大成本和延迟。
                 if (failure.kind.isRetryable() && attemptCount < MAX_ATTEMPTS) {
                     continue
@@ -212,6 +221,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
                     judgeIdentity = frozenBinding.judgeIdentity,
                     attemptCount = attemptCount,
                     failureKind = failure.kind,
+                    telemetry = telemetry,
                 )
             } catch (_: Exception) {
                 return unknownWithoutMeasurement(
@@ -219,6 +229,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
                     judgeIdentity = frozenBinding.judgeIdentity,
                     attemptCount = attemptCount,
                     failureKind = KnowledgeAnswerabilityJudgeFailureKind.UNEXPECTED,
+                    telemetry = telemetry,
                 )
             }
         }
@@ -233,6 +244,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
         judgeIdentity: KnowledgeAnswerabilityJudgeIdentity?,
         attemptCount: Int = 0,
         failureKind: KnowledgeAnswerabilityJudgeFailureKind? = null,
+        telemetry: KnowledgeAnswerabilityShadowTelemetry = KnowledgeAnswerabilityShadowTelemetry.EMPTY,
     ): KnowledgeAnswerabilityShadowObservationOutcome {
         val recordedAt = clock()
         val binding = KnowledgeAnswerabilityShadowBindingPolicy.bind(
@@ -249,6 +261,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
                 attemptCount = attemptCount,
                 failureKind = failureKind,
                 binding = binding,
+                telemetry = telemetry,
             ),
             judgeIdentity = judgeIdentity,
             recordedAt = recordedAt,
@@ -314,6 +327,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
         KnowledgeAnswerabilityJudgeFailureKind.AUTHENTICATION,
         KnowledgeAnswerabilityJudgeFailureKind.CLIENT_REQUEST,
         KnowledgeAnswerabilityJudgeFailureKind.IDENTITY,
+        KnowledgeAnswerabilityJudgeFailureKind.MODEL,
         KnowledgeAnswerabilityJudgeFailureKind.INVALID_CANDIDATE,
         KnowledgeAnswerabilityJudgeFailureKind.UNEXPECTED,
         -> false

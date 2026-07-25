@@ -70,32 +70,65 @@ class OpenAiKnowledgeAnswerabilityJudge(
         } catch (error: IllegalArgumentException) {
             throw KnowledgeAnswerabilityJudgeFailure(KnowledgeAnswerabilityJudgeFailureKind.IDENTITY, error)
         }
+        // long: 失败请求拿不到 ModelResponseResult 时仍需核算已发送的 Prompt 规模和等待时长，因此在调用前只计算数值遥测。
+        val messages = KnowledgeAnswerabilityJudgeProtocol.messages(
+            question = request.question,
+            candidateText = request.candidateText,
+        )
+        val promptBytes = messages.sumOf { message ->
+            message.role.toByteArray(Charsets.UTF_8).size + message.content.toByteArray(Charsets.UTF_8).size
+        }.toLong()
+        val startedAtNanos = System.nanoTime()
         val result = try {
             completionClient.complete(
                 config = config,
-                messages = KnowledgeAnswerabilityJudgeProtocol.messages(
-                    question = request.question,
-                    candidateText = request.candidateText,
-                ),
+                messages = messages,
             )
         } catch (error: CancellationException) {
             throw error
         } catch (failure: ApiFailure) {
-            throw KnowledgeAnswerabilityJudgeFailure(failure.toJudgeFailureKind(), failure)
+            throw KnowledgeAnswerabilityJudgeFailure(
+                kind = failure.toJudgeFailureKind(),
+                cause = failure,
+                telemetry = KnowledgeAnswerabilityShadowAttemptTelemetry(
+                    latencyMs = elapsedMillis(startedAtNanos),
+                    promptBytes = promptBytes,
+                ),
+            )
         }
+        // long: HTTP 成功后的 usage 和时延即使最终 JSON 协议失败也是真实成本，必须随可重试失败一起交给协调器累计。
+        val responseTelemetry = result.toShadowTelemetry(promptBytes)
         val output = try {
             KnowledgeAnswerabilityResponseCodec.decode(result.responseText)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
             // long: HTTP 成功但 JSON 不满足固定字段与证据语义时属于可受控重试的协议失败，不能按未知异常静默吞掉。
-            throw KnowledgeAnswerabilityJudgeFailure(KnowledgeAnswerabilityJudgeFailureKind.PROTOCOL, error)
+            throw KnowledgeAnswerabilityJudgeFailure(
+                kind = KnowledgeAnswerabilityJudgeFailureKind.PROTOCOL,
+                cause = error,
+                telemetry = responseTelemetry,
+            )
         }
         return KnowledgeAnswerabilityJudgeResponse(
             identity = actualIdentity,
             output = output,
+            telemetry = responseTelemetry,
         )
     }
+
+    private fun ModelResponseResult.toShadowTelemetry(promptBytes: Long): KnowledgeAnswerabilityShadowAttemptTelemetry =
+        KnowledgeAnswerabilityShadowAttemptTelemetry(
+            latencyMs = latencyMs.takeIf { it >= 0L },
+            firstByteLatencyMs = firstByteLatencyMs?.takeIf { it >= 0L },
+            promptBytes = (this.promptBytes.toLong().takeIf { it > 0L } ?: promptBytes),
+            inputTokens = usage?.inputTokens?.takeIf { it >= 0L },
+            outputTokens = usage?.outputTokens?.takeIf { it >= 0L },
+            totalTokens = usage?.totalTokens?.takeIf { it >= 0L },
+        )
+
+    private fun elapsedMillis(startedAtNanos: Long): Long =
+        ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
 
     private fun ApiFailure.toJudgeFailureKind(): KnowledgeAnswerabilityJudgeFailureKind {
         // long: 只有可能自行恢复的 5xx、限流和传输故障进入协调器的一次受控重试；认证、请求和身份错误继续请求只会放大成本与延迟。
@@ -112,7 +145,7 @@ class OpenAiKnowledgeAnswerabilityJudge(
             -> KnowledgeAnswerabilityJudgeFailureKind.TRANSIENT_NETWORK
             FailureKind.RESPONSE -> KnowledgeAnswerabilityJudgeFailureKind.PROTOCOL
             FailureKind.REQUEST_URL -> KnowledgeAnswerabilityJudgeFailureKind.CLIENT_REQUEST
-            FailureKind.MODEL -> KnowledgeAnswerabilityJudgeFailureKind.IDENTITY
+            FailureKind.MODEL -> KnowledgeAnswerabilityJudgeFailureKind.MODEL
             FailureKind.UNKNOWN -> if (statusCode != null && statusCode in 400..499) {
                 KnowledgeAnswerabilityJudgeFailureKind.CLIENT_REQUEST
             } else {

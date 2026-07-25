@@ -2229,6 +2229,7 @@ private fun SettingsPage(
             )
             pane == SettingsPane.ANSWERABILITY_SHADOW -> AnswerabilityShadowSettingsContent(
                 enabled = state.answerabilityShadowEnabled,
+                sampleSummary = state.answerabilityShadowSampleSummary,
                 onEnabledChanged = viewModel::updateAnswerabilityShadowEnabled,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),

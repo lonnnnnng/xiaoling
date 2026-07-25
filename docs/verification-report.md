@@ -2,6 +2,17 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 answerability shadow 真实样本与进程内遥测（第 97 阶段）
+
+- 实现边界：新增固定上限的 `KnowledgeAnswerabilityShadowSampleTracker`，只累计样本终态、Judge attempt、延迟/TTFB、Prompt 字节、input/output/total Tokens、usage attempt、稳定失败分类和 notice 发布/有效/裁剪数量；不保存问题、答案、候选正文、引用、原始响应、消息 ID、Base URL 或凭据，进程重启即清空。
+- Judge 遥测：每次真实 Provider attempt 记录已知成本；HTTP 成功但协议解码失败仍保留 usage/时延，网络失败保留等待时长与 Prompt 规模。协调器累计完整重试失败链；`MODEL` 与 `IDENTITY` 分开分类。Judge 已发出后的取消只记录取消，不能伪造上游尚未返回的 token usage。
+- 授权与隔离：只有显式开启的前台直接 Agent 进入样本分母。答案正常保存后、Judge 发出前再次检查开关；用户关闭后不再发送问题和候选正文。普通聊天、Workflow 和后台 Worker 不触发 caller；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 与 `productionEnforcementEnabled=false` 均保持不变。
+- 本地门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 成功，88 个 task 全部执行；JVM XML 汇总 `600/600`，Lint XML 为 `0 issue`，Debug APK 与 AndroidTest APK 均构建成功。Debug APK SHA-256 为 `f78aff67d73562027b660fe00e19369ce13d8ea99a0cd5af5934ee88534c566d`。
+- Redmi instrumentation：覆盖安装两个 APK 后，仅在 `wsvwypiz7xwslvl7` 执行设置页定向用例，结果 `OK (1 test)`、耗时 `2.226s`；随后默认完整 `AndroidJUnitRunner` 为 `OK (191 tests)`、耗时 `48.515s`。长期文档同步并重新打包 AndroidTest assets 后，完整套件再次 `OK (191 tests)`、耗时 `48.027s`。没有启动、连接或操作 Pixel_9/其他模拟器。
+- 真实前台样本：通过应用设置页显式开启开关，经系统文件选择器导入 README 形成真实 `knowledge.search` 候选；前台 `/agent` Run 完成并先把答案写入 Room，随后 Judge 形成 `COMPLETED + BOUND + ACCEPT`。摘要为样本 `1`、完成 `1`、Judge `1` 次、耗时 `8437ms`、TTFB `8428ms`、Prompt `8952B`、Tokens `2340/361/2701`，失败、取消和异常均为 `0`。
+- UI 与生命周期：答案引用区域显示“本地知识包含直接回答”和 `知识引用 · 3`；notice 初始为 `发布 1 / 当前有效 1 / 已裁剪 0`。删除测试会话后变为 `发布 1 / 当前有效 0 / 已裁剪 1`，样本成本不被删除。开关仍开启时完成一次普通聊天，样本与 Judge 次数保持 `1`；验收后开关恢复关闭。
+- 结论：当前只证明单条真实成功样本和 notice 生命周期闭环可用，尚未取得自然失败分布。不得据此增加 Room Store/migration、跨进程 notice 或 production enforcement；下一阶段继续以显式 opt-in 的真实前台样本观察成本和失败。
+
 ## 2026-07-25 answerability shadow 默认关闭的生产接线（第 96 阶段）
 
 - 生产协议：新增 `OpenAiKnowledgeAnswerabilityJudge`，固定 Responses、非流式、关闭 reasoning summary、`temperature=0`、`topP=1`、`maxTokens=220` 和第 92 阶段 Prompt；adapter 不自行重试，严格 codec 失败映射为 `PROTOCOL`，HTTP 5xx 通过 `ApiFailure.statusCode` 映射为 `SERVER`。实际 identity 从 Provider 配置的 ID、模型和 Base URL 指纹派生，不复制 expected identity。

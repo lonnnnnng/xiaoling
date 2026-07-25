@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 97 阶段：answerability shadow 真实样本与进程内遥测（实现与 Redmi 验收完成）
+
+- 新增 `KnowledgeAnswerabilityShadowSampleTracker` 与数值遥测模型，使用同步提交和饱和计数维持固定上限；只保留终态、attempt、延迟/TTFB、Prompt 字节、Tokens、usage attempt、失败枚举和 notice 数量，不持有问题、答案、候选正文、引用、原始响应、消息 ID 或凭据。
+- `OpenAiKnowledgeAnswerabilityJudge` 为每次真实 Provider attempt 生成数值成本；HTTP 成功但协议失败仍保留 usage/延迟，网络失败保留已知等待时长和 Prompt 规模。协调器会累计“首轮失败、重试成功”的完整失败分布，并继续只重试既有可恢复类别；`MODEL` 与 `IDENTITY` 已拆分。
+- `AgentAnswerabilityShadowPublisher` 区分答案保存失败、用户关闭/取消、候选缺失、来源不支持、协调器异常和真实 UNKNOWN。答案保存后、Judge 发出前再次读取用户开关；关闭后不再发送问题或候选正文。普通聊天、Workflow 和后台 Worker 仍不进入 caller。
+- notice 发布、会话删除、会话重载及迟到 publish 的悬空裁剪都会校准 tracker；设置页提供可滚动的本进程摘要，明确重启清空与不写 Room。生产继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false`。
+- 完整 JVM XML 为 `600/600`，Lint `0 issue`，Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 完成设置页 `OK (1 test)` 和默认完整 `OK (191 tests)`。真实 `/agent + knowledge.search` 形成 `1` 条完成样本，Judge 成本为 `8437ms / TTFB 8428ms / Prompt 8952B / Tokens 2340+361=2701`，失败、取消、异常均为 `0`；notice 在答案引用区可见并在删除会话后累计裁剪 `1`。开启状态下普通聊天未增加样本，验收后开关恢复关闭。
+
 ## 第 96 阶段：answerability shadow 默认关闭的生产接线（实现完成）
 
 - 新增 `KnowledgeAnswerabilityProductionShadowBinding` 和 identity factory。冻结身份绑定 Redmi 当前真实 Provider ID `redmi-provider-compatibility / gpt-5.5 / 03c4b0d...cf6d / stage92-answerability-json-v1`；factory 只读取 `ProviderRequestConfig.providerId / model / Base URL fingerprint`，调用方不能注入逻辑别名。只有用户开关开启且实际 identity 完全一致时才进入 `SHADOW`，配置漂移在网络请求前 fail-closed。

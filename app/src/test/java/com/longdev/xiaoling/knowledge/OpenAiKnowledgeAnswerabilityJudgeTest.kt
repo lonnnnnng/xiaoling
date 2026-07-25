@@ -30,6 +30,7 @@ class OpenAiKnowledgeAnswerabilityJudgeTest {
                     requestUrl = "https://judge.example/v1/responses",
                     model = config.model,
                     latencyMs = 10L,
+                    promptBytes = 77,
                     responseText = "not-json",
                 )
             },
@@ -37,10 +38,10 @@ class OpenAiKnowledgeAnswerabilityJudgeTest {
 
         val failure = runCatching { judge.judge(request()) }.exceptionOrNull()
 
-        assertEquals(
-            KnowledgeAnswerabilityJudgeFailureKind.PROTOCOL,
-            (failure as KnowledgeAnswerabilityJudgeFailure).kind,
-        )
+        val typedFailure = failure as KnowledgeAnswerabilityJudgeFailure
+        assertEquals(KnowledgeAnswerabilityJudgeFailureKind.PROTOCOL, typedFailure.kind)
+        assertEquals(10L, typedFailure.telemetry?.latencyMs)
+        assertEquals(77L, typedFailure.telemetry?.promptBytes)
     }
 
     @Test
@@ -101,6 +102,30 @@ class OpenAiKnowledgeAnswerabilityJudgeTest {
             KnowledgeAnswerabilityJudgeFailureKind.SERVER,
             (failure as KnowledgeAnswerabilityJudgeFailure).kind,
         )
+        assertTrue((failure as KnowledgeAnswerabilityJudgeFailure).telemetry?.latencyMs != null)
+        assertTrue((failure as KnowledgeAnswerabilityJudgeFailure).telemetry?.promptBytes ?: 0L > 0L)
+    }
+
+    @Test
+    fun modelFailureIsNotReportedAsConfigurationIdentityDrift() = runTest {
+        val judge = OpenAiKnowledgeAnswerabilityJudge(
+            providerConfig = ProviderRequestConfig(
+                baseUrl = "https://judge.example/v1",
+                apiKey = "test-key",
+                model = "gpt-test",
+                providerId = "logical-answerability-judge-v1",
+            ),
+            completionClient = KnowledgeAnswerabilityCompletionClient { _, _ ->
+                throw ApiFailure(FailureKind.MODEL, "model unavailable")
+            },
+        )
+
+        val failure = runCatching { judge.judge(request()) }.exceptionOrNull()
+
+        assertEquals(
+            KnowledgeAnswerabilityJudgeFailureKind.MODEL,
+            (failure as KnowledgeAnswerabilityJudgeFailure).kind,
+        )
     }
 
     @Test
@@ -127,6 +152,12 @@ class OpenAiKnowledgeAnswerabilityJudgeTest {
                     requestUrl = "https://judge.example/v1/responses",
                     model = config.model,
                     latencyMs = 10L,
+                    promptBytes = 123,
+                    usage = com.longdev.xiaoling.model.ModelTokenUsage(
+                        inputTokens = 40L,
+                        outputTokens = 12L,
+                        totalTokens = 52L,
+                    ),
                     responseText = """
                         {"verdict":"ANSWERED","confidence":0.92,"evidence_quotes":["三份副本"],"contradiction_detected":false,"reason_code":"DIRECT_EVIDENCE"}
                     """.trimIndent(),
@@ -176,6 +207,9 @@ class OpenAiKnowledgeAnswerabilityJudgeTest {
         )
         assertEquals(KnowledgeAnswerabilityVerdict.ANSWERED, response.output.verdict)
         assertEquals(listOf("三份副本"), response.output.evidenceQuotes)
+        assertEquals(10L, response.telemetry?.latencyMs)
+        assertEquals(123L, response.telemetry?.promptBytes)
+        assertEquals(52L, response.telemetry?.totalTokens)
     }
 
     @Test

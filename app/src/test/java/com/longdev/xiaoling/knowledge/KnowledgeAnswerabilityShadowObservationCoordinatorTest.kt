@@ -129,9 +129,19 @@ class KnowledgeAnswerabilityShadowObservationCoordinatorTest {
                 if (judgeCalls == 1) {
                     throw KnowledgeAnswerabilityJudgeFailure(
                         KnowledgeAnswerabilityJudgeFailureKind.TRANSIENT_NETWORK,
+                        telemetry = KnowledgeAnswerabilityShadowAttemptTelemetry(
+                            latencyMs = 80L,
+                            promptBytes = 300L,
+                        ),
                     )
                 }
-                judgeResponse()
+                judgeResponse(
+                    telemetry = KnowledgeAnswerabilityShadowAttemptTelemetry(
+                        latencyMs = 120L,
+                        promptBytes = 300L,
+                        totalTokens = 24L,
+                    ),
+                )
             },
         )
 
@@ -143,6 +153,14 @@ class KnowledgeAnswerabilityShadowObservationCoordinatorTest {
         assertEquals(2, outcome.attemptCount)
         assertEquals(KnowledgeAnswerabilityShadowObservationStatus.COMPLETED, outcome.status)
         assertEquals(KnowledgeAnswerabilityDecision.ACCEPT, outcome.binding?.decision)
+        assertEquals(2, outcome.telemetry.attempts)
+        assertEquals(200L, outcome.telemetry.latencyMs)
+        assertEquals(600L, outcome.telemetry.promptBytes)
+        assertEquals(24L, outcome.telemetry.totalTokens)
+        assertEquals(
+            1,
+            outcome.telemetry.failureCounts[KnowledgeAnswerabilityJudgeFailureKind.TRANSIENT_NETWORK],
+        )
     }
 
     @Test
@@ -367,6 +385,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinatorTest {
 
     private fun judgeResponse(
         identity: KnowledgeAnswerabilityJudgeIdentity = judgeIdentity(),
+        telemetry: KnowledgeAnswerabilityShadowAttemptTelemetry? = null,
     ) = KnowledgeAnswerabilityJudgeResponse(
         identity = identity,
         output = KnowledgeAnswerabilityModelOutput(
@@ -376,6 +395,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinatorTest {
             contradictionDetected = false,
             reasonCode = "DIRECT_EVIDENCE",
         ),
+        telemetry = telemetry,
     )
 
     private fun candidate() = KnowledgeAnswerabilityShadowCandidate(
