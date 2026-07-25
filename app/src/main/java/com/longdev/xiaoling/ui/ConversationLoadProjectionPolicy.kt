@@ -30,7 +30,7 @@ internal fun XiaoLingUiState.withConversationLoadEvent(
                 pendingAgentApproval = pendingAgentApproval,
                 loadingConversationMessages = false,
                 result = request.result,
-            )
+            ).pruneAnswerabilityNotices()
         }
 
         is ConversationLoadEvent.Failed -> copy(

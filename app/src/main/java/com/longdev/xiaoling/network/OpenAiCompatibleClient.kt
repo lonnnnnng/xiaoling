@@ -35,7 +35,7 @@ class OpenAiCompatibleClient(
     suspend fun fetchModels(config: ProviderRequestConfig): List<String> = withContext(Dispatchers.IO) {
         val requestUrl = adapter.modelsUrl(config)
         val request = requestBuilder(requestUrl, config).get().build()
-        execute(request) { body ->
+        execute(request, config.httpDebugLoggingEnabled) { body ->
             adapter.parseModelsResponse(body).ifEmpty {
                 throw ApiFailure(FailureKind.RESPONSE, "服务器返回成功，但模型列表为空")
             }
@@ -56,12 +56,18 @@ class OpenAiCompatibleClient(
         val request = requestBuilder(requestUrl, config)
             .post(body.toRequestBody(jsonMediaType))
             .build()
-        NetworkDebugLogger.logRequest(request, body)
+        if (config.httpDebugLoggingEnabled) NetworkDebugLogger.logRequest(request, body)
         val startedAtMs = monotonicNowMs()
         val completion = if (config.streamingEnabled) {
-            executeStreaming(config.apiMode, request, startedAtMs, onStreamDelta)
+            executeStreaming(
+                apiMode = config.apiMode,
+                request = request,
+                startedAtMs = startedAtMs,
+                httpDebugLoggingEnabled = config.httpDebugLoggingEnabled,
+                onDelta = onStreamDelta,
+            )
         } else {
-            val execution = executeWithTiming(request, startedAtMs) { responseBody ->
+            val execution = executeWithTiming(request, startedAtMs, config.httpDebugLoggingEnabled) { responseBody ->
                 ParsedCompletion(
                     text = adapter.parseGenerationResponse(config.apiMode, responseBody),
                     reasoningSummaries = adapter.parseReasoningSummaries(config.apiMode, responseBody),
@@ -107,8 +113,8 @@ class OpenAiCompatibleClient(
         val request = requestBuilder(requestUrl, config)
             .post(body.toRequestBody(jsonMediaType))
             .build()
-        NetworkDebugLogger.logRequest(request, body)
-        execute(request) { responseBody -> parseEmbeddings(responseBody, inputs.size) }
+        if (config.httpDebugLoggingEnabled) NetworkDebugLogger.logRequest(request, body)
+        execute(request, config.httpDebugLoggingEnabled) { responseBody -> parseEmbeddings(responseBody, inputs.size) }
     }
 
     private fun requestBuilder(requestUrl: String, config: ProviderRequestConfig): Request.Builder {
@@ -128,12 +134,21 @@ class OpenAiCompatibleClient(
             }
     }
 
-    private suspend fun <T> execute(request: Request, parse: (String) -> T): T =
-        executeWithTiming(request, startedAtMs = null, parse = parse).value
+    private suspend fun <T> execute(
+        request: Request,
+        httpDebugLoggingEnabled: Boolean,
+        parse: (String) -> T,
+    ): T = executeWithTiming(
+        request = request,
+        startedAtMs = null,
+        httpDebugLoggingEnabled = httpDebugLoggingEnabled,
+        parse = parse,
+    ).value
 
     private suspend fun <T> executeWithTiming(
         request: Request,
         startedAtMs: Long?,
+        httpDebugLoggingEnabled: Boolean,
         parse: (String) -> T,
     ): HttpExecution<T> {
         val call = client.newCall(request)
@@ -151,7 +166,7 @@ class OpenAiCompatibleClient(
                     null
                 }
                 val body = bodySource?.readUtf8().orEmpty()
-                NetworkDebugLogger.logResponse(request, response.code, body)
+                if (httpDebugLoggingEnabled) NetworkDebugLogger.logResponse(request, response.code, body)
                 if (!response.isSuccessful) throw ApiFailureClassifier.fromHttp(response.code, body)
                 return try {
                     HttpExecution(parse(body), firstByteLatencyMs)
@@ -173,6 +188,7 @@ class OpenAiCompatibleClient(
         apiMode: ApiMode,
         request: Request,
         startedAtMs: Long,
+        httpDebugLoggingEnabled: Boolean,
         onDelta: (suspend (StreamDeltaUpdate) -> Unit)?,
     ): ModelCompletion {
         val call = client.newCall(request)
@@ -181,10 +197,10 @@ class OpenAiCompatibleClient(
         }
         try {
             call.execute().use { response ->
-                NetworkDebugLogger.logStreamResponseStart(request, response.code)
+                if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamResponseStart(request, response.code)
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string().orEmpty()
-                    NetworkDebugLogger.logResponse(request, response.code, errorBody)
+                    if (httpDebugLoggingEnabled) NetworkDebugLogger.logResponse(request, response.code, errorBody)
                     throw ApiFailureClassifier.fromHttp(response.code, errorBody)
                 }
 
@@ -201,7 +217,7 @@ class OpenAiCompatibleClient(
                         currentCoroutineContext().ensureActive()
                         val data = line.trim().removePrefix("data:").trim()
                         if (data.isBlank()) return@forEach
-                        NetworkDebugLogger.logStreamEvent(data)
+                        if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamEvent(data)
                         val streamEvent = adapter.parseStreamEvent(apiMode, data) ?: return@forEach
                         streamEvent.reasoningSummaryDelta?.let { summary ->
                             reasoningSummaryBuffers
@@ -248,7 +264,7 @@ class OpenAiCompatibleClient(
                     },
                     usage = null,
                 ).also {
-                    NetworkDebugLogger.logStreamCompleted(completedText)
+                    if (httpDebugLoggingEnabled) NetworkDebugLogger.logStreamCompleted(completedText)
                 }
             }
         } catch (error: IOException) {

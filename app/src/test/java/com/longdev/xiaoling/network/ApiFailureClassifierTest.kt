@@ -7,6 +7,13 @@ import java.net.ProtocolException
 
 class ApiFailureClassifierTest {
     @Test
+    fun httpFailureRetainsStatusCodeForFeatureSpecificRetryClassification() {
+        val failure = ApiFailureClassifier.fromHttp(503, """{"error":{"message":"temporarily unavailable"}}""")
+
+        assertEquals(503, failure.statusCode)
+    }
+
+    @Test
     fun interruptedResponseStreamIsAConnectionFailure() {
         val failure = ApiFailureClassifier.fromNetwork(ProtocolException("unexpected end of stream"))
 

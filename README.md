@@ -27,7 +27,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
-  - 第 94 阶段已冻结真实消息流的只读 answerability shadow 绑定：只从成功且带稳定引用的最近 `knowledge.search` 执行提取候选，固定 Judge identity/数据集/gate，未知或身份漂移保持 `UNKNOWN`；不改变答案、引用、Room 或生产拒绝。
+  - 第 96 阶段已把默认关闭的 answerability shadow 接入前台直接 Agent：答案保存成功后才异步调用生产 Judge，实际 Provider identity 必须与冻结身份完全匹配，notice 仅按 `messageId` 旁路投影到知识引用区域；不改变答案、引用、Room 或生产拒绝。普通聊天、Workflow 和后台 Worker 不会触发该旁路。
   - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权、前台直接 `/agent` 且 Profile/Skill 允许时可用；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证，Workflow 与后台运行不会看到或执行任何设备工具。
 
 - 设置页
@@ -106,9 +106,11 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- 第 94 阶段的消息流绑定契约已完成：新增候选提取与冻结绑定策略，calibration/validation 使用同一 Judge 的强类型身份且版本互异；覆盖率特征族、空 Run、缺失观测和所有身份漂移均 fail-safe 为 `UNKNOWN`，引用在绑定时做防御性快照并保持原顺序，`enforcementApplied=false`。聚焦 JVM `11/11`，完整 JVM XML `564/564`、0 失败；Lint、Debug APK 和 AndroidTest APK 构建通过。仅在 Redmi `wsvwypiz7xwslvl7` 执行真实 `AndroidJUnitRunner`，结果 `OK (188 tests)`；没有使用 Pixel_9。Provider 调用、Room 持久化、答案 UI 接线和 `productionEnforcement` 仍未开启。
+- 第 96 阶段已完成默认关闭的生产接线：`OpenAiKnowledgeAnswerabilityJudge` 固定 Responses 非流式协议，逐请求关闭全部 HTTP Debug 日志；identity 从当前 `providerId / model / Base URL fingerprint` 派生并与冻结的 `redmi-provider-compatibility / gpt-5.5` 身份完全匹配后才请求。前台直接 Agent 先展示并保存答案，保存成功后 sibling Job 才启动 Judge；保存失败、取消、Workflow 来源或 Judge 终败都只跳过旁路，不发布猜测 notice。notice 仅以进程内 `messageId` 映射传给知识引用区域，`store=null / persistenceMode=NONE`，不改写消息、引用或生产拒绝。
+- 第 96 阶段本地门禁为完整 JVM `593/593`、Lint、Debug/AndroidTest APK 通过；仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 instrumentation，结果 `OK (191 tests)`，另有真实生产 adapter `OK (1 test)`、设置/偏好/notice 定向组合 `OK (3 tests)`。冻结身份下的真实 calibration/validation 复验各 `12` 条，网络/解析失败均为 `0`；覆盖率特征族仍未通过，`minimumConfidence=0.85` 不变。没有使用 Pixel_9。
+- Redmi 收尾状态已复核：Room `v32`、Provider/Profile 各 `1` 条，Provider ID/模型为 `redmi-provider-compatibility / gpt-5.5`，Keystore IV/密文均非空；测试包已卸载，主 `MainActivity` 前台运行，AccessibilityService 为 Enabled/Bound，crash buffer 未命中本应用崩溃。`answerability_shadow_enabled` 偏好文件不存在时按代码默认值保持关闭。
 - 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现和 Redmi 真机验收：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；`KnowledgeReferencesContent` 的提示与原引用共存，`enforcementApplied=false`。新增 UI 断言 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已在 Redmi 全量回归中通过。
-- 第 92 阶段真实 `gpt-5.5` Judge 探针已在 Redmi `wsvwypiz7xwslvl7` 通过：校准/验证各 `12` 条观测，网络/解析失败均为 `0`；`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准，覆盖率特征族未通过，生产 enforcement 仍为 `false`。默认 Redmi instrumentation 为 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`；探针耗时 `91.063s`。
+- 第 92 阶段真实 `gpt-5.5` Judge 探针已在 Redmi `wsvwypiz7xwslvl7` 通过：校准/验证各 `12` 条观测，网络/解析失败均为 `0`；`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准，覆盖率特征族未通过，生产 enforcement 仍为 `false`。该阶段默认 Redmi instrumentation 为 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`；探针耗时 `94.154s`，数字保留为历史基线。
 - 收尾后通过应用设置页恢复未跟踪 `AGENTS.md` 的兜底 Provider 和 6 个可用模型，默认 Agent Profile 绑定 `gpt-5.5`；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。`MainActivity` 前台、crash buffer 为空，设备 Agent 保持默认关闭/未授权状态。配置端点与密钥未写入仓库；仅使用 Redmi，没有连接或启动 Pixel_9。
 - 生产 `Room`、检索、答案链路和 answerability enforcement 继续保持隔离；`productionEnforcementEnabled=false`。
 - Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。

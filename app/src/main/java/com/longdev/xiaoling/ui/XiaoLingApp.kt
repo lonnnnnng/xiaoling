@@ -177,6 +177,7 @@ import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.system.ProcessExitEvidenceKind
 import com.longdev.xiaoling.system.ProcessExitObservation
@@ -362,6 +363,7 @@ private fun XiaoLingContent(
                         onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
                         onOpenAgentProfileManagement = { settingsPane = SettingsPane.AGENT_PROFILE_MANAGEMENT },
                         onOpenDeviceAgent = { settingsPane = SettingsPane.DEVICE_AGENT },
+                        onOpenAnswerabilityShadow = { settingsPane = SettingsPane.ANSWERABILITY_SHADOW },
                         onOpenMemoryManagement = {
                             viewModel.refreshMemories()
                             settingsPane = SettingsPane.MEMORY_MANAGEMENT
@@ -481,6 +483,7 @@ private enum class SettingsPane {
     PROMPT_SETTINGS,
     AGENT_PROFILE_MANAGEMENT,
     DEVICE_AGENT,
+    ANSWERABILITY_SHADOW,
     MEMORY_MANAGEMENT,
     KNOWLEDGE_MANAGEMENT,
     KNOWLEDGE_RELEVANCE_ROLLOUT,
@@ -1114,6 +1117,7 @@ private fun ConversationPage(
                                 message = message,
                                 knowledgeReferenceStatuses = state.knowledgeReferenceStatuses,
                                 failedKnowledgeReferenceStatuses = state.failedKnowledgeReferenceStatuses,
+                                answerabilityNotice = state.answerabilityNotices[message.id],
                                 onOpenKnowledgeDocument = onOpenKnowledgeDocument,
                                 onReuseUserMessage = viewModel::updatePrompt,
                             )
@@ -2163,6 +2167,7 @@ private fun SettingsPage(
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenDeviceAgent: () -> Unit,
+    onOpenAnswerabilityShadow: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
@@ -2222,6 +2227,12 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.ANSWERABILITY_SHADOW -> AnswerabilityShadowSettingsContent(
+                enabled = state.answerabilityShadowEnabled,
+                onEnabledChanged = viewModel::updateAnswerabilityShadowEnabled,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.MEMORY_MANAGEMENT -> AgentMemoryManagementPage(
                 state = state,
                 viewModel = viewModel,
@@ -2273,6 +2284,7 @@ private fun SettingsPage(
                 onOpenPromptSettings = onOpenPromptSettings,
                 onOpenAgentProfileManagement = onOpenAgentProfileManagement,
                 onOpenDeviceAgent = onOpenDeviceAgent,
+                onOpenAnswerabilityShadow = onOpenAnswerabilityShadow,
                 onOpenMemoryManagement = onOpenMemoryManagement,
                 onOpenKnowledgeManagement = onOpenKnowledgeManagement,
                 onOpenKnowledgeRelevanceRollout = onOpenKnowledgeRelevanceRollout,
@@ -2297,6 +2309,7 @@ private fun SettingsRootPage(
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenDeviceAgent: () -> Unit,
+    onOpenAnswerabilityShadow: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
@@ -2366,6 +2379,17 @@ private fun SettingsRootPage(
             subtitle = "独立开关、无障碍观察和有限前台动作",
             icon = Icons.Default.Visibility,
             onClick = onOpenDeviceAgent,
+        )
+
+        SettingsEntryCard(
+            title = "答案可回答性 Shadow",
+            subtitle = if (state.answerabilityShadowEnabled) {
+                "已开启；仅匹配冻结 Judge 身份的前台 /agent 答案会异步观测"
+            } else {
+                "默认关闭；答案保存后异步生成只读观察提示"
+            },
+            icon = Icons.Default.Visibility,
+            onClick = onOpenAnswerabilityShadow,
         )
 
         SettingsEntryCard(
@@ -6333,6 +6357,7 @@ private fun ChatBubble(
     message: ChatMessage,
     knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus>,
     failedKnowledgeReferenceStatuses: Set<KnowledgeReference>,
+    answerabilityNotice: KnowledgeAnswerabilityUserNotice?,
     onOpenKnowledgeDocument: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
 ) {
@@ -6387,6 +6412,7 @@ private fun ChatBubble(
                     references = message.knowledgeReferencesForDisplay(),
                     statuses = knowledgeReferenceStatuses,
                     failedReferences = failedKnowledgeReferenceStatuses,
+                    answerabilityNotice = answerabilityNotice,
                     contentColor = contentColor,
                     onOpenDocument = onOpenKnowledgeDocument,
                 )

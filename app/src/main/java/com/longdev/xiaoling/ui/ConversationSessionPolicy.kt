@@ -118,7 +118,7 @@ internal fun XiaoLingUiState.withImmediateConversationSelection(
         pendingAgentApproval = pendingAgentApproval,
         loadingConversationMessages = false,
         result = null,
-    )
+    ).pruneAnswerabilityNotices()
 }
 
 internal fun XiaoLingUiState.withUpdatedConversation(
@@ -155,7 +155,7 @@ internal fun XiaoLingUiState.withUpdatedConversation(
     }.collapseDuplicateEmptyConversations(selectedConversationId.ifBlank { currentId })
     // long: Agent Run 可能在用户切到其他会话后才完成；目标会话应持久更新，但当前屏幕的会话身份和消息绝不能被迟到结果替换。
     if (currentId != selectedConversationId) {
-        return copy(conversations = updatedConversations)
+        return copy(conversations = updatedConversations).pruneAnswerabilityNotices()
     }
     return copy(
         conversations = updatedConversations,
@@ -163,7 +163,7 @@ internal fun XiaoLingUiState.withUpdatedConversation(
         conversationTitle = title,
         conversationSummary = summary,
         chatMessages = messages,
-    )
+    ).pruneAnswerabilityNotices()
 }
 
 internal fun XiaoLingUiState.withUpdatedCurrentConversation(

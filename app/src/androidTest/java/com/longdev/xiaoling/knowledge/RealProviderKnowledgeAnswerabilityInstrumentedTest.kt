@@ -5,7 +5,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
-import com.longdev.xiaoling.network.RequestMessage
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,8 +31,8 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
         assumeTrue("未显式提供 answerability Judge API Key，跳过第92阶段探针", apiKey.isNotBlank())
         assumeTrue("未显式提供 answerability Judge 模型，跳过第92阶段探针", model.isNotBlank())
         assumeTrue("未显式提供 answerability Judge Provider ID，跳过第92阶段探针", providerId.isNotBlank())
-        assertEquals(EXPECTED_PROVIDER_ID, providerId)
-        assertEquals(EXPECTED_MODEL, model)
+        assertEquals(KnowledgeAnswerabilityProductionShadowBinding.PROVIDER_ID, providerId)
+        assertEquals(KnowledgeAnswerabilityProductionShadowBinding.MODEL, model)
 
         val client = OpenAiCompatibleClient()
         val config = ProviderRequestConfig(
@@ -45,7 +44,7 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
             streamingEnabled = false,
             reasoningSummaryEnabled = false,
             temperature = 0.0,
-            maxTokens = 220,
+            maxTokens = KnowledgeAnswerabilityJudgeProtocol.MAX_TOKENS,
         )
         assertTrue("answerability Judge 模型未出现在 /models", client.fetchModels(config).any {
             it.equals(model, ignoreCase = true)
@@ -55,7 +54,11 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
             providerId = providerId,
             model = model,
             configurationFingerprint = KnowledgeRelevanceIdentityFingerprint.forBaseUrl(baseUrl),
-            promptVersion = PROMPT_VERSION,
+            promptVersion = KnowledgeAnswerabilityJudgeProtocol.PROMPT_VERSION,
+        )
+        assertEquals(
+            KnowledgeAnswerabilityProductionShadowBinding.CONFIGURATION_FINGERPRINT,
+            judgeIdentity.configurationFingerprint,
         )
         val calibration = collectDataset(client, config, CALIBRATION_DATASET)
         val validation = collectDataset(client, config, VALIDATION_DATASET)
@@ -105,7 +108,7 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
                 .put("providerId", providerId)
                 .put("model", model)
                 .put("configurationFingerprint", judgeIdentity.configurationFingerprint)
-                .put("promptVersion", PROMPT_VERSION)
+                .put("promptVersion", KnowledgeAnswerabilityJudgeProtocol.PROMPT_VERSION)
                 .put("calibrationDatasetVersion", CALIBRATION_DATASET.version)
                 .put("validationDatasetVersion", VALIDATION_DATASET.version)
                 .put("calibrationObservations", calibration.observations.size)
@@ -211,18 +214,9 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
     ): KnowledgeAnswerabilityModelOutput {
         val response = client.sendMessage(
             config = config,
-            messages = listOf(
-                RequestMessage(role = "system", content = SYSTEM_PROMPT),
-                RequestMessage(
-                    role = "user",
-                    content = """
-                        QUESTION:
-                        ${queryCase.question}
-
-                        CANDIDATE DOCUMENT:
-                        ${queryCase.candidateText}
-                    """.trimIndent(),
-                ),
+            messages = KnowledgeAnswerabilityJudgeProtocol.messages(
+                question = queryCase.question,
+                candidateText = queryCase.candidateText,
             ),
         )
         return KnowledgeAnswerabilityResponseCodec.decode(response.responseText)
@@ -254,9 +248,6 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
         const val ARG_API_KEY = "answerabilityProviderApiKey"
         const val ARG_MODEL = "answerabilityProviderModel"
         const val ARG_PROVIDER_ID = "answerabilityProviderId"
-        const val EXPECTED_PROVIDER_ID = "redmi-answerability-judge-v1"
-        const val EXPECTED_MODEL = "gpt-5.5"
-        const val PROMPT_VERSION = "stage92-answerability-json-v1"
         const val METRICS_TAG = "XIAOLING_STAGE92_ANSWERABILITY"
         const val FEATURE_METRICS_TAG = "XIAOLING_STAGE92_ANSWERABILITY_FEATURE"
         const val CASE_METRICS_TAG = "XIAOLING_STAGE92_ANSWERABILITY_CASE"
@@ -272,22 +263,8 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
         const val MINIMUM_KNOWN_DECISION_RATE = 0.90
         const val PRODUCTION_ENFORCEMENT_ENABLED = false
 
-        val SYSTEM_PROMPT = """
-            You are a strict evidence judge. Use only the candidate document, never outside knowledge.
-            Decide whether the candidate directly answers every material part of the question.
-            Return exactly one JSON object with exactly these keys:
-            {"verdict":"ANSWERED|PARTIALLY_ANSWERED|NOT_ANSWERED|UNKNOWN","confidence":0.0,"evidence_quotes":["verbatim substring"],"contradiction_detected":false,"reason_code":"DIRECT_EVIDENCE"}
-            ANSWERED requires enough direct information for the whole question and at least one verbatim quote.
-            PARTIALLY_ANSWERED means only some requested facts are present.
-            NOT_ANSWERED means the topic is related but the requested fact is absent.
-            UNKNOWN is only for an unreadable or ambiguous candidate.
-            evidence_quotes must be exact substrings copied from the candidate document; use [] for NOT_ANSWERED or UNKNOWN.
-            reason_code must be uppercase letters, digits, or underscores only.
-            Do not use markdown, comments, or any text before or after the JSON object.
-        """.trimIndent()
-
         val CALIBRATION_DATASET = DatasetDefinition(
-            version = "stage92-answerability-calibration-v1",
+            version = KnowledgeAnswerabilityProductionShadowBinding.CALIBRATION_DATASET_VERSION,
             cases = listOf(
                 QueryCase(
                     "s92c-positive-bread",
@@ -329,7 +306,7 @@ class RealProviderKnowledgeAnswerabilityInstrumentedTest {
         )
 
         val VALIDATION_DATASET = DatasetDefinition(
-            version = "stage92-answerability-validation-v1",
+            version = KnowledgeAnswerabilityProductionShadowBinding.VALIDATION_DATASET_VERSION,
             cases = listOf(
                 QueryCase(
                     "s92v-positive-aquarium",

@@ -77,6 +77,17 @@ class UiPreferenceStore(context: Context) {
             .apply()
     }
 
+    fun loadAnswerabilityShadowEnabled(): Boolean {
+        return preferences.getBoolean(KEY_ANSWERABILITY_SHADOW_ENABLED, false)
+    }
+
+    fun saveAnswerabilityShadowEnabled(enabled: Boolean) {
+        // long: Answerability 会把用户问题和知识候选发送给冻结 Judge，首次安装和旧版本升级都必须保持关闭，仅在用户明确同意后持久化开启。
+        preferences.edit()
+            .putBoolean(KEY_ANSWERABILITY_SHADOW_ENABLED, enabled)
+            .apply()
+    }
+
     fun loadKnowledgeRelevanceRolloutPreference(): KnowledgeRelevanceRolloutPreference {
         if (!preferences.getBoolean(KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED, false)) {
             return KnowledgeRelevanceRolloutPreference()
@@ -220,6 +231,7 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_USER_AGENT = "user_agent"
         private const val KEY_REASONING_SUMMARY_ENABLED = "reasoning_summary_enabled"
         private const val KEY_DEVICE_AGENT_ENABLED = "device_agent_enabled"
+        private const val KEY_ANSWERABILITY_SHADOW_ENABLED = "answerability_shadow_enabled"
         private const val KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED = "knowledge_relevance_enforcement_enabled"
         private const val KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION = "knowledge_relevance_gate_version"
         private const val KEY_KNOWLEDGE_RELEVANCE_PROVIDER_ID = "knowledge_relevance_provider_id"

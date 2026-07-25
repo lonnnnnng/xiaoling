@@ -19,6 +19,7 @@ data class ProviderRequestConfig(
     val maxTokens: Int = ProviderProfile.FIXED_MAX_TOKENS,
     val topP: Double = 1.0,
     val embeddingModel: String? = null,
+    val httpDebugLoggingEnabled: Boolean = true,
 ) {
     companion object {
         const val DEFAULT_USER_AGENT =

@@ -43,6 +43,7 @@ import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
+import com.longdev.xiaoling.agent.latestKnowledgeAnswerabilityCandidate
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
@@ -79,6 +80,15 @@ import com.longdev.xiaoling.model.preferredEmbeddingModel
 import com.longdev.xiaoling.model.ProviderProfile
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityCompletionClient
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityJudgeIdentityFactory
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityProductionShadowBinding
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowActivationPolicy
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationCoordinator
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationMode
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOrigin
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
+import com.longdev.xiaoling.knowledge.OpenAiKnowledgeAnswerabilityJudge
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.network.FailureKind
@@ -171,6 +181,7 @@ data class XiaoLingUiState(
     val chatMessages: List<ChatMessage> = emptyList(),
     val knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus> = emptyMap(),
     val failedKnowledgeReferenceStatuses: Set<KnowledgeReference> = emptySet(),
+    val answerabilityNotices: Map<String, KnowledgeAnswerabilityUserNotice> = emptyMap(),
     val conversations: List<ConversationSession> = emptyList(),
     val selectedConversationId: String = "",
     val conversationTitle: String = "",
@@ -181,6 +192,7 @@ data class XiaoLingUiState(
     val batchSyncResults: Map<String, String> = emptyMap(),
     val activeAgentRun: AgentRunSnapshot? = null,
     val agentMemoryRecallEnabled: Boolean = true,
+    val answerabilityShadowEnabled: Boolean = false,
     val pendingAgentApproval: AgentApprovalUiState? = null,
     val loadingAgentRunHistory: Boolean = false,
     val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
@@ -420,6 +432,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val knowledgeDocumentStore = RoomKnowledgeDocumentStore(application)
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client = OpenAiCompatibleClient()
+    private val answerabilityCompletionClient = KnowledgeAnswerabilityCompletionClient { config, messages ->
+        client.sendMessage(config = config, messages = messages)
+    }
     private val conversationRequestContextPreparer = ConversationRequestContextPreparer(
         retainCurrentKnowledgeReferences = { references ->
             withContext(Dispatchers.IO) {
@@ -551,6 +566,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             memoryCandidatesEnabled = uiPreferenceStore.loadMemoryCandidatesEnabled(),
             userAgent = uiPreferenceStore.loadUserAgent(),
             reasoningSummaryEnabled = uiPreferenceStore.loadReasoningSummaryEnabled(),
+            answerabilityShadowEnabled = uiPreferenceStore.loadAnswerabilityShadowEnabled(),
         ),
     )
         private set
@@ -636,6 +652,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
                     userAgent = uiState.userAgent,
                     reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
+                    answerabilityShadowEnabled = uiState.answerabilityShadowEnabled,
                     agentProfiles = storedAgentProfiles.profiles,
                     selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
                     registeredAgentTools = availableAgentTools,
@@ -745,6 +762,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         uiState = uiState.copy(agentMemoryRecallEnabled = value, result = null)
+    }
+
+    fun updateAnswerabilityShadowEnabled(enabled: Boolean) {
+        uiPreferenceStore.saveAnswerabilityShadowEnabled(enabled)
+        uiState = uiState.copy(answerabilityShadowEnabled = enabled, result = null)
     }
 
     fun selectAgentProfile(profileId: String) {
@@ -2676,6 +2698,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             is ConversationSelectionEvent.DeletionStarted -> {
                 activeAgentRunsByConversation.remove(event.conversationId)
                 pendingAgentApprovalsByConversation.remove(event.conversationId)
+                uiState = uiState.withoutAnswerabilityNoticesForConversation(event.conversationId)
             }
 
             is ConversationSelectionEvent.Immediate -> {
@@ -3186,13 +3209,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     agentStatus = AgentRunStatus.COMPLETED,
                     result = summary.responseText,
                 )
-                val finalMessages = messagesWithUser + ChatMessage(
+                val assistantMessage = ChatMessage(
                     role = "assistant",
                     text = summary.responseText,
                     createdAt = System.currentTimeMillis(),
                     origin = MessageOrigin.AGENT_RESULT,
                     verifiedAgentContext = summary.verifiedContext,
                 )
+                val finalMessages = messagesWithUser + assistantMessage
                 uiState = uiState
                     .withUpdatedConversation(
                         conversationId = conversationId,
@@ -3209,7 +3233,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     runId = summary.runId,
                 )
                 clearPendingApprovalForConversation(conversationId)
-                saveConversationSelection()
+                val answerPersistenceJob = saveConversationSelection()
+                publishAgentAnswerabilityShadow(
+                    persistenceJob = answerPersistenceJob,
+                    persistedMessageId = assistantMessage.id,
+                    question = goal,
+                    verifiedContext = summary.verifiedContext,
+                    providerConfig = runtimeSelection.config,
+                    workflowRunId = workflowRunId,
+                )
             } catch (error: CancellationException) {
                 settleWorkflowLedger(
                     workflowRunId = workflowRunId,
@@ -3699,11 +3731,68 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         saveProfilesSnapshot(profiles, uiState.selectedProfileId)
     }
 
-    private fun saveConversationSelection() {
-        conversationPersistenceCoordinator.saveLatest(
+    private fun saveConversationSelection(): Job {
+        return conversationPersistenceCoordinator.saveLatest(
             conversations = uiState.conversations.map { it.toStored() },
             selectedConversationId = uiState.selectedConversationId,
         )
+    }
+
+    private fun publishAgentAnswerabilityShadow(
+        persistenceJob: Job,
+        persistedMessageId: String,
+        question: String,
+        verifiedContext: VerifiedAgentContext,
+        providerConfig: ProviderRequestConfig,
+        workflowRunId: String?,
+    ) {
+        if (workflowRunId != null) return
+        val frozenBinding = KnowledgeAnswerabilityProductionShadowBinding.frozenBinding
+        val actualIdentity = runCatching {
+            KnowledgeAnswerabilityJudgeIdentityFactory.fromConfig(providerConfig)
+        }.getOrNull()
+        val mode = KnowledgeAnswerabilityShadowActivationPolicy.modeFor(
+            userEnabled = uiState.answerabilityShadowEnabled,
+            actualIdentity = actualIdentity,
+            frozenBinding = frozenBinding,
+        )
+        if (mode == KnowledgeAnswerabilityShadowObservationMode.DISABLED) return
+        val candidate = verifiedContext.latestKnowledgeAnswerabilityCandidate(question) ?: return
+        val observationCoordinator = KnowledgeAnswerabilityShadowObservationCoordinator(
+            judgePort = OpenAiKnowledgeAnswerabilityJudge(
+                providerConfig = providerConfig,
+                completionClient = answerabilityCompletionClient,
+            ),
+            clock = System::currentTimeMillis,
+        )
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = observationCoordinator::observe,
+            publishNotice = ::publishAnswerabilityNotice,
+        )
+        // long: 独立 sibling Job 只等待这一版最终答案的 latest-save；被更新快照取消或保存失败时直接放弃 shadow，不会落入 Agent 主失败分支。
+        viewModelScope.launch {
+            publisher.publish(
+                request = AgentAnswerabilityShadowPublishRequest(
+                    persistedMessageId = persistedMessageId,
+                    candidate = candidate,
+                    frozenBinding = frozenBinding,
+                    mode = mode,
+                    origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+                ),
+                awaitAnswerPersistence = {
+                    persistenceJob.join()
+                    persistenceJob.isCompleted && !persistenceJob.isCancelled
+                },
+            )
+        }
+    }
+
+    private fun publishAnswerabilityNotice(
+        persistedMessageId: String,
+        notice: KnowledgeAnswerabilityUserNotice,
+    ) {
+        // long: Judge 迟到时只给仍存在的同一消息追加旁路提示；已删除消息不能在进程状态里重新出现，也不能触发会话正文重写。
+        uiState = uiState.withAnswerabilityNotice(persistedMessageId, notice)
     }
 
     private fun saveProfilesSnapshot(profiles: List<ProviderProfile>, selectedProfileId: String) {
@@ -3969,6 +4058,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         memoryCandidatesEnabled: Boolean,
         userAgent: String,
         reasoningSummaryEnabled: Boolean,
+        answerabilityShadowEnabled: Boolean,
     ): XiaoLingUiState {
         val profile = ProviderProfile.blank()
         val now = System.currentTimeMillis()
@@ -4000,6 +4090,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 memoryCandidatesEnabled = memoryCandidatesEnabled,
                 userAgent = userAgent,
                 reasoningSummaryEnabled = reasoningSummaryEnabled,
+                answerabilityShadowEnabled = answerabilityShadowEnabled,
             )
     }
 

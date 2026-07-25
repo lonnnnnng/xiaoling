@@ -25,6 +25,7 @@ enum class FailureKind(val title: String) {
 class ApiFailure(
     val kind: FailureKind,
     override val message: String,
+    val statusCode: Int? = null,
 ) : IOException(message)
 
 object ApiFailureClassifier {
@@ -36,7 +37,7 @@ object ApiFailureClassifier {
             429 -> FailureKind.RATE_LIMIT
             else -> if (detail.contains("model", ignoreCase = true)) FailureKind.MODEL else FailureKind.UNKNOWN
         }
-        return ApiFailure(kind, "HTTP $statusCode · $detail")
+        return ApiFailure(kind, "HTTP $statusCode · $detail", statusCode)
     }
 
     fun fromNetwork(error: IOException): ApiFailure = when (error) {

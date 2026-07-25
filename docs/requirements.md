@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 96 阶段 answerability shadow 生产接线边界
+
+生产 Judge 必须复用第 92 阶段冻结协议：Responses、非流式、关闭 reasoning summary、`temperature=0`、`topP=1`、`maxTokens=220` 和严格 JSON codec。adapter 每次 attempt 只允许一个 Provider 请求，不得自行重试；实际 Judge identity 必须从当前 Provider 配置的 `providerId / model / Base URL fingerprint` 派生，不能复制调用方期望值。请求包含用户问题和知识候选，因此必须逐请求关闭全部 HTTP Debug 日志；统一 Provider 的鉴权、User-Agent 和兼容 Header 行为保持不变。
+
+生产 shadow 开关必须独立、默认关闭。只有前台直接 Agent、用户开关开启、实际 Provider identity 与冻结的 `redmi-provider-compatibility / gpt-5.5 / configuration fingerprint / prompt version` 完全匹配时才允许请求；身份漂移必须在网络前保持关闭。普通聊天、Workflow、后台 Worker、恢复链和 enforcement 不得继承该开关。
+
+Agent 答案必须先展示并进入正常会话保存。旁路 publisher 只能等待该答案对应的保存 Job 成功后异步调用 Judge；保存失败、保存被新快照取消、候选缺失、Workflow 来源或 Judge 失败都只跳过 shadow，不得把已成功 Agent Run 改为失败、不得延迟答案显示。Judge 终败或未形成真实 measurement 时不得发布猜测 notice；只有完成观测后形成的绑定可以以进程内 `messageId` 映射投影到知识引用区域，且不得改写消息、可信上下文、MessagePart 或引用。
+
+第 96 阶段固定 `store=null / persistenceMode=NONE`，不得增加 Room 表、Schema 版本或持久化 notice。验收必须覆盖默认关闭、身份完全匹配、固定请求配置、请求/响应/流事件 HTTP Debug 日志关闭、5xx/协议错误分类、保存成功后顺序、保存失败/取消跳过、Workflow 跳过、notice 不改写消息和设置偏好。完整 JVM `593/593`、Lint、Debug/AndroidTest APK、仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 `OK (191 tests)`、真实生产 adapter `OK (1 test)` 和设置/偏好/notice `OK (3 tests)` 均通过；不得连接或启动 Pixel_9。
+
 ## 第 95 阶段 answerability shadow 真实测量协调边界
 
 Judge 的共享决策字段必须抽象为 `KnowledgeAnswerabilityAssessment`。带人工真值的 calibration/validation 数据继续使用 `KnowledgeAnswerabilityObservation`，并且只有该离线类型可以携带 `KnowledgeRelevanceLabel`；真实 Agent Run 生成的线上结果必须使用不带 `label` 的 `KnowledgeAnswerabilityShadowMeasurement`，不得伪造人工真值或把线上测量混入离线质量统计。两条路径必须复用同一候选原文证据匹配和字段映射，避免决策语义漂移。
@@ -10,7 +20,7 @@ Judge 请求最多执行两次。只有瞬时网络、限流、服务端和协�
 
 shadow 持久化必须可选。记录只允许保存来源 Run、已持久化消息 ID、候选 SHA-256 指纹、幂等键、Judge 身份、尝试次数、观测/绑定状态、决策、失败分类和时间；不得保存候选正文、模型原始响应、问题原文副本或引用正文。Store 普通失败只标记持久化失败，不得反向改变已经形成的绑定或用户答案；Store 取消仍必须传播。
 
-验收门禁：新增协调器契约 `14/14`，完整 JVM `578/578`、Lint、Debug/AndroidTest APK 通过；真机只允许 Redmi `wsvwypiz7xwslvl7`，完整 `AndroidJUnitRunner` 为 `OK (188 tests)`，不得连接或启动 Pixel_9。当前仍不提供生产 Judge Provider adapter、Room schema/store、消息 caller、答案引用 UI 接线、普通聊天/Workflow/后台接入或 `productionEnforcement`；下一阶段只允许以默认关闭方式设计生产接线。
+验收门禁：新增协调器契约 `14/14`，完整 JVM `578/578`、Lint、Debug/AndroidTest APK 通过；真机只允许 Redmi `wsvwypiz7xwslvl7`，完整 `AndroidJUnitRunner` 为 `OK (188 tests)`，不得连接或启动 Pixel_9。第 95 阶段当时不提供生产 Judge Provider adapter、消息 caller 或答案引用 UI 接线；这些默认关闭的接线已由第 96 阶段完成，Room schema/store、普通聊天/Workflow/后台接入和 `productionEnforcement` 仍关闭。
 
 ## 第 94 阶段真实消息流只读 answerability shadow 绑定边界
 
@@ -18,7 +28,7 @@ shadow 持久化必须可选。记录只允许保存来源 Run、已持久化消
 
 冻结绑定必须同时包含强类型 calibration/validation `KnowledgeAnswerabilityDatasetIdentity` 和已冻结 `KnowledgeAnswerabilityGate`；两套数据必须绑定同一 Judge identity、版本非空且互异。消息 shadow 只允许 `VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE`；第 92 阶段未通过的 `VERDICT_EVIDENCE_CONFIDENCE_AND_COVERAGE` 禁止进入。实际 Judge identity 不一致、缺少冻结绑定/measurement、来源 Run 为空、measurement 的 `sourceRunId` 与候选 Run 不一致或候选证据不完整，都必须返回 `UNKNOWN`，不能抛错或把未知转换为拒绝。
 
-绑定结果必须在绑定开始时复制并按原顺序保留全部 `KnowledgeReference`，同时保留来源 Run、候选正文、已有 measurement 的时间和 shadow 提示；没有 measurement 时 `observedAt` 必须保持 `null`，不能伪造观测时间。结果固定 `enforcementApplied=false`。绑定只表达观察关系，不得删除、替换、重排答案或引用，不得写 Room、调用 Provider、修改消息 schema、接入普通聊天/Workflow 或开启 `productionEnforcement`。第 94 阶段当时只冻结纯 Kotlin 绑定契约；第 95 阶段已补齐默认关闭的 Judge 协调、失败/重试和可选最小化持久化边界，生产接线仍保持关闭。
+绑定结果必须在绑定开始时复制并按原顺序保留全部 `KnowledgeReference`，同时保留来源 Run、候选正文、已有 measurement 的时间和 shadow 提示；没有 measurement 时 `observedAt` 必须保持 `null`，不能伪造观测时间。结果固定 `enforcementApplied=false`。绑定只表达观察关系，不得删除、替换、重排答案或引用，不得写 Room、修改消息 schema、接入普通聊天/Workflow 或开启 `productionEnforcement`。第 94 阶段只冻结纯 Kotlin 绑定契约，第 95 阶段补齐 Judge 协调，第 96 阶段完成默认关闭的 Provider/caller/UI 接线；Room Store 与 enforcement 仍关闭。
 
 验收门禁：绑定策略 `7/7`、候选提取 `4/4`；完整 JVM `564/564`、Lint、Debug/AndroidTest APK 通过；真机只使用 Redmi `wsvwypiz7xwslvl7`，完整 `AndroidJUnitRunner` 为 `OK (188 tests)`，不得连接或启动 Pixel_9。
 
@@ -26,9 +36,9 @@ shadow 持久化必须可选。记录只允许保存来源 Run、已持久化消
 
 答案可回答性 shadow 呈现只能消费现有 `KnowledgeAnswerabilityObservation` 和冻结 `KnowledgeAnswerabilityGate`，不得在展示层重新计算阈值、调用 Provider、读取 Room 或改变检索结果。输入引用必须按原顺序和身份完整保留，结果固定 `enforcementApplied=false`；`ACCEPT` 只能显示“直接回答”的观察提示，`REJECT` 必须按部分回答、未回答、矛盾、证据无法回查或低于冻结门禁区分，缺观测、缺门禁或 `UNKNOWN` 必须显示未知。
 
-`KnowledgeReferencesContent` 的 answerability 提示入口必须默认 `null`，保证既有生产调用不变。有提示且零引用时应显示解释但不得显示“知识引用 · 0”；有引用时提示与原折叠引用必须同时存在，不能因 Judge 结果删除、替换或重排引用。当前不得把该参数接到普通聊天、生产消息持久化、Room、`knowledge.search`、Workflow 或后台 Worker。
+`KnowledgeReferencesContent` 的 answerability 提示入口必须默认 `null`，保证未接入的普通调用不变。有提示且零引用时应显示解释但不得显示“知识引用 · 0”；有引用时提示与原折叠引用必须同时存在，不能因 Judge 结果删除、替换或重排引用。第 93 阶段当时不得把该参数接到普通聊天、生产消息持久化、Room、`knowledge.search`、Workflow 或后台 Worker；第 96 阶段仅把它接到默认关闭的前台直接 Agent 旁路。
 
-验收必须覆盖提示状态、引用不变和 `enforcementApplied=false`，并在 Redmi 执行 Compose UI 用例；当前结果为既有策略 `7/7`、新增呈现 `5/5`、合计 `12/12`，`KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随默认完整套件 `OK (188 tests)` 通过。生产消息流仍未传入该提示，enforcement、答案改写和引用过滤继续禁止。Android 真机验证只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
+验收必须覆盖提示状态、引用不变和 `enforcementApplied=false`，并在 Redmi 执行 Compose UI 用例；第 93 阶段结果为既有策略 `7/7`、新增呈现 `5/5`、合计 `12/12`，`KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随默认完整套件 `OK (188 tests)` 通过。第 93 阶段生产消息流尚未传入该提示；第 96 阶段仅接入前台直接 Agent，enforcement、答案改写和引用过滤继续禁止。Android 真机验证只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
 
 ## 第 92 阶段答案可回答性策略边界
 

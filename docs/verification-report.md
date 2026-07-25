@@ -2,6 +2,21 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 answerability shadow 默认关闭的生产接线（第 96 阶段）
+
+- 生产协议：新增 `OpenAiKnowledgeAnswerabilityJudge`，固定 Responses、非流式、关闭 reasoning summary、`temperature=0`、`topP=1`、`maxTokens=220` 和第 92 阶段 Prompt；adapter 不自行重试，严格 codec 失败映射为 `PROTOCOL`，HTTP 5xx 通过 `ApiFailure.statusCode` 映射为 `SERVER`。实际 identity 从 Provider 配置的 ID、模型和 Base URL 指纹派生，不复制 expected identity。
+- 身份与开关：生产冻结身份为 `redmi-provider-compatibility / gpt-5.5 / 03c4b0dbea6451654f254df8ad45e640b25ea4496596b63f82cceb190c51cf6d / stage92-answerability-json-v1`，gate 为 `VERDICT_EVIDENCE_AND_CONFIDENCE / minimumConfidence=0.85`。设置项独立且默认关闭；只有用户开启且实际身份完全匹配时才请求，漂移在网络前保持 `DISABLED`。本轮只读核对 Redmi Room，当前 Provider ID/模型确为 `redmi-provider-compatibility / gpt-5.5`；identity factory 已改为从 `ProviderRequestConfig.providerId` 派生，调用方不能再注入逻辑别名满足门禁。
+- 保存与旁路：`AgentAnswerabilityShadowPublisher` 在前台直接 Agent 答案发布并启动正常会话保存后，以 sibling Job 等待对应保存 Job 成功，再异步调用协调器。保存失败、保存被新快照取消、Workflow 来源或 Judge 失败只跳过旁路且不发布 notice，不进入 Agent 主失败分支，也不阻塞答案展示。
+- 隐私与 UI：Judge 请求逐请求 `httpDebugLoggingEnabled=false`，关闭请求、响应与流事件的全部 HTTP Debug 日志。notice 只以进程内 `messageId` 映射传入 `KnowledgeReferencesContent`，不改写 `ChatMessage`、`VerifiedAgentContext`、MessagePart、可信引用或检索审计；会话删除或重载时裁剪悬空键。生产固定 `store=null / persistenceMode=NONE`，Room 仍为 v32，没有 migration；进程重建后 notice 自然清空。
+- JVM/静态门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest --rerun-tasks --stacktrace --console=plain` 成功，88 个 task 全部执行；XML 汇总 `593/593`、0 失败、0 错误、0 跳过。覆盖固定请求配置、真实 Provider ID 派生、缺失身份网络前拒绝、严格协议、5xx 分类、publisher 保存顺序/终败无 notice、notice 生命周期和偏好契约。
+- APK：Debug APK 为 `23,091,834` 字节，SHA-256 `3354b7cd38d2b504d8504a2b30464489f4f270d0b3c700f4db8a8008f567c7e7`。AndroidTest APK 会把持续维护的 `docs/` 作为测试 assets 打包，因此只记录构建通过，不在文档自身固化会递归变化的大小或哈希。
+- Redmi 默认完整门禁：文档同步后重新覆盖安装两个 APK，只在 `wsvwypiz7xwslvl7` 执行 `AndroidJUnitRunner`，结果 `OK (191 tests)`、耗时 `47.952s`。没有启动、连接或操作 Pixel_9/其他模拟器。
+- 真实 Provider adapter：从未跟踪 AGENTS.md 脱敏读取与冻结指纹匹配的配置，显式执行 `RealProviderKnowledgeAnswerabilityProductionAdapterInstrumentedTest`，结果 `OK (1 test)`、耗时 `4.772s`；形成 `BOUND + ACCEPT`、`persistenceStatus=NOT_REQUESTED` 且 `enforcementApplied=false`。
+- UI/偏好定向门禁：设置开关、跨 Store 默认关闭/恢复和 notice/引用共存组合为 `OK (3 tests)`、耗时 `2.602s`。
+- 冻结身份复验：使用实际 Provider ID 重新执行第 92 阶段 calibration/validation 探针，结果 `OK (1 test)`、耗时 `94.154s`；两套各 `12` 条观测，网络/解析失败均为 `0`，通过特征族仍为 verdict/原文证据与置信度两类。重复采集得到的置信度候选阈值为 `0.86`，本阶段不使用新采集回调门禁，生产冻结 `minimumConfidence=0.85` 保持不变。
+- 设备收尾：完整 instrumentation 后 Room v32、Provider 1 条、Profile 1 条、`gpt-5.5`、冻结配置指纹和 Keystore IV/密文均正常；测试包已卸载，主 Debug APK 保留。AccessibilityService 为 Enabled/Bound，`Crashed services:{}`，`MainActivity` 前台、进程存活，crash buffer 未命中本应用崩溃。answerability 偏好文件不存在时按代码默认值保持关闭。
+- 当前边界：普通聊天、Workflow、后台 Worker、Room shadow Store、notice 持久化和 production enforcement 仍未接入；Judge 结论不会删除引用、改写答案或改变检索。
+
 ## 2026-07-25 answerability shadow 真实测量协调（第 95 阶段）
 
 - 类型边界：新增共享 `KnowledgeAnswerabilityAssessment`；离线 calibration/validation 继续使用带人工 `label` 的 `KnowledgeAnswerabilityObservation`，线上真实 Run 使用无标签 `KnowledgeAnswerabilityShadowMeasurement`。两者复用同一候选原文证据匹配与字段映射，线上测量不会伪造人工真值或进入离线标签统计。
@@ -10,7 +25,7 @@
 - 隐私与持久化：可选 Store 记录来源 Run、已持久化消息 ID、候选 SHA-256 指纹、幂等键、Judge identity、尝试次数、状态、决策、失败分类和时间；不保存候选正文、原始响应或引用正文。Store 普通失败只得到 `persistenceStatus=FAILED`，不会改变已形成的 binding。
 - JVM/静态门禁：`KnowledgeAnswerabilityShadowObservationCoordinatorTest` `14/14`；完整 `testDebugUnitTest` 为 `578/578`、0 失败。`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。
 - Redmi 真机：仅使用 `wsvwypiz7xwslvl7` 手动安装最新 Debug/Test APK 并运行完整 `AndroidJUnitRunner`，结果 `OK (188 tests)`；没有启动、连接或操作 Pixel_9/其他模拟器。收尾确认 `versionName=0.1.11`、Room v32、Provider/Profile 配置完整、`MainActivity` 前台且 crash buffer 为空。
-- 后续边界：当前没有生产 Judge Provider adapter、Room schema/store、真实消息 caller、答案引用 UI 接线、普通聊天、Workflow、后台 Worker 或 enforcement 接入。下一阶段只设计默认关闭的生产接线，Judge 延迟、失败或 Store 故障不得阻塞答案持久化与展示。
+- 后续边界：该阶段当时没有生产 Judge Provider adapter、真实消息 caller 或答案引用 UI 接线；这些默认关闭的接线已由第 96 阶段完成。Room schema/store、普通聊天、Workflow、后台 Worker 和 enforcement 仍未接入，Judge 延迟或失败不得阻塞答案持久化与展示。
 
 ## 2026-07-25 真实消息流 answerability shadow 绑定（第 94 阶段）
 
@@ -19,23 +34,23 @@
 - 证据边界：绑定开始时复制候选与知识引用，外部可变 List 后续变化不会改变结果；没有观测时 `observedAt=null`。结果复用既有 shadow presentation，固定 `enforcementApplied=false`。本阶段没有调用 Provider、写 Room、修改消息 schema、接入 UI 或开启生产拒绝。
 - JVM 门禁：`KnowledgeAnswerabilityShadowBindingPolicyTest` `7/7`、`VerifiedAgentContextAnswerabilityCandidateTest` `4/4`；完整 `testDebugUnitTest` 报告 `564` tests、`0` failures、`0` errors、`0` skipped。`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。最终 Debug APK 为 `23,059,066` 字节，SHA-256 `effca90bb445a52b225fdff4c08d2c03c738bf5db1ecf03aa2ee6ba181fb79e7`。
 - Redmi 真机：`adb devices -l` 当前只列出 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro）。覆盖安装最新 Debug/Test APK 后直接运行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (188 tests)`；第 93 阶段既有引用 UI 用例随完整套件复验通过。没有连接、启动或操作 Pixel_9/其他模拟器。
-- 后续边界：第 94 阶段当时未实现的 Judge 生成、重试/失败语义和可选 shadow 持久化已由第 95 阶段补齐纯 Kotlin 协调契约；生产 `Room`、普通聊天、`knowledge.search` caller、Workflow、后台 Worker、用户提示接线和 `productionEnforcement` 仍保持关闭。
+- 后续边界：第 94 阶段当时未实现的 Judge 生成、重试/失败语义和可选 shadow 持久化已由第 95 阶段补齐纯 Kotlin 协调契约；第 96 阶段仅接入前台直接 Agent 的默认关闭 caller/UI，生产 `Room`、普通聊天、`knowledge.search` caller、Workflow、后台 Worker 和 `productionEnforcement` 仍保持关闭。
 
 ## 2026-07-25 答案可回答性 shadow 呈现与 Redmi 验收（第 93 阶段）
 
-- 实现边界：新增 `KnowledgeAnswerabilityShadowPresentation.kt`，将冻结门禁下的 `ACCEPT / REJECT / UNKNOWN` 转换为七类用户提示；结果保留输入引用并固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口，现有生产调用未接入，不修改普通聊天、答案、Room、检索、Workflow 或生产 enforcement。
+- 实现边界：新增 `KnowledgeAnswerabilityShadowPresentation.kt`，将冻结门禁下的 `ACCEPT / REJECT / UNKNOWN` 转换为七类用户提示；结果保留输入引用并固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口；第 93 阶段现有生产调用未接入，不修改普通聊天、答案、Room、检索、Workflow 或生产 enforcement，第 96 阶段仅增加默认关闭的前台直接 Agent 旁路。
 - 离线断言：`KnowledgeAnswerabilityPolicyTest` `7/7` 与 `KnowledgeAnswerabilityShadowPresentationPolicyTest` `5/5` 通过独立 JUnit，合计 `12/12`。主代码、UnitTest 与 AndroidTest Kotlin 编译成功。
 - Redmi UI 验收：仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`。新增 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随完整套件通过，确认 shadow 提示与原知识引用同时存在。
 - 长期文档同步后重新构建 AndroidTest APK，并使用 `--user 0` 在同一 Redmi 完整复验；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录会随文档变化的自引用大小或哈希。没有启动、连接或操作 Pixel_9/其他模拟器。
-- 当前结论：第 93 阶段的离线呈现和真机 UI 契约均已完成，但生产消息流仍未传入 `answerabilityNotice`。`productionEnforcementEnabled=false`，答案正文和引用不因 Judge 结果被删除、替换或重排。
+- 当前结论：第 93 阶段的离线呈现和真机 UI 契约均已完成；当时生产消息流尚未传入 `answerabilityNotice`，第 96 阶段已将默认关闭的旁路接入前台直接 Agent。`productionEnforcementEnabled=false`，答案正文和引用不因 Judge 结果被删除、替换或重排。
 
 ## 2026-07-25 答案可回答性策略与真实 Provider shadow 验收（第 92 阶段）
 
 - 实现边界：新增 `KnowledgeAnswerability.kt`，固定 JSON verdict、候选原文 quote 匹配、矛盾/部分回答拒绝和 `UNKNOWN` 保守决策；三类特征族只在 calibration 选择门禁，在互异 validation 数据上冻结评估。该切片不读取 Room、不修改检索、答案引用 UI、普通聊天、Workflow 或生产 enforcement。
 - 离线断言：`KnowledgeAnswerabilityPolicyTest` 覆盖严格 JSON、证据匹配、身份/数据集隔离、UNKNOWN、矛盾和部分回答，共 `7/7`；显式联网用例缺少参数时仍按设计跳过，默认套件不依赖公网。
-- Redmi 真实探针：使用项目未跟踪配置中的 `gpt-5.5` 执行 `RealProviderKnowledgeAnswerabilityInstrumentedTest`，结果 `OK (1 test)`、耗时 `91.063s`。calibration 与 validation 各取得 `12` 条观测，网络失败和解析失败均为 `0`。
+- Redmi 真实探针：使用项目未跟踪配置中的 `gpt-5.5` 执行 `RealProviderKnowledgeAnswerabilityInstrumentedTest`，结果 `OK (1 test)`、耗时 `94.154s`。calibration 与 validation 各取得 `12` 条观测，网络失败和解析失败均为 `0`。
 - 门禁结果：`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准；`VERDICT_EVIDENCE_CONFIDENCE_AND_COVERAGE` 未通过。该结果只证明当前 Judge 身份下两类 shadow 特征可重复，不允许把覆盖率特征族补写为通过，也不自动升级生产身份。
-- 收尾状态：默认完整 instrumentation 后，已通过应用设置页恢复兜底 Provider、6 个可用模型和默认 `gpt-5.5` Agent Profile；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。最终 `MainActivity` 位于前台，crash buffer 为空，设备 Agent 保持默认关闭且 Accessibility 未授权；测试与恢复全过程仅使用 Redmi，配置端点和密钥未进入 Git 或长期文档。
+- 收尾状态：默认完整 instrumentation 后，已通过应用设置页恢复兜底 Provider、6 个可用模型和默认 `gpt-5.5` Agent Profile；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。该阶段收尾时 `MainActivity` 位于前台，crash buffer 为空，设备 Agent 保持默认关闭且 Accessibility 未授权；测试与恢复全过程仅使用 Redmi，配置端点和密钥未进入 Git 或长期文档。第 96 阶段重新验收时保留主应用数据并恢复了系统 Accessibility Enabled/Bound。
 - 当前安全结论：`productionEnforcementEnabled=false`，生产 Room、检索、答案链路和引用行为继续与本策略隔离。第 93 至 95 阶段已依次完成不改写答案/引用的呈现、绑定和协调契约，但仍未直接开启拒绝执行。
 
 ## 2026-07-25 跨主题平移不变特征预注册门禁否决（第 91 阶段）

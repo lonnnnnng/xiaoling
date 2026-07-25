@@ -55,6 +55,15 @@ class UiPreferenceStoreInstrumentedTest {
     }
 
     @Test
+    fun answerabilityShadowIsOptInAndRestoredAcrossStoreInstances() {
+        assertFalse(UiPreferenceStore(isolatedContext).loadAnswerabilityShadowEnabled())
+
+        UiPreferenceStore(isolatedContext).saveAnswerabilityShadowEnabled(true)
+
+        assertTrue(UiPreferenceStore(isolatedContext).loadAnswerabilityShadowEnabled())
+    }
+
+    @Test
     fun knowledgeRelevanceRolloutIsOffByDefaultAndRollbackClearsExecutionQualification() {
         val enabled = KnowledgeRelevanceRolloutPreference(
             enforcementEnabled = true,
