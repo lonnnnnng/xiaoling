@@ -6,7 +6,7 @@
 
 `KnowledgeReferencesContent` 的 answerability 提示入口必须默认 `null`，保证既有生产调用不变。有提示且零引用时应显示解释但不得显示“知识引用 · 0”；有引用时提示与原折叠引用必须同时存在，不能因 Judge 结果删除、替换或重排引用。当前不得把该参数接到普通聊天、生产消息持久化、Room、`knowledge.search`、Workflow 或后台 Worker。
 
-离线验收必须覆盖提示状态、引用不变和 `enforcementApplied=false`，并编译 Compose UI 用例；当前结果为既有策略 `7/7`、新增呈现 `5/5`、合计 `12/12`，Lint 与 Debug/AndroidTest APK 成功。第 92 阶段真实 Provider 证据和本阶段 Redmi UI 执行完成前，生产 enforcement、答案改写和引用过滤继续禁止。Android 真机验证只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
+验收必须覆盖提示状态、引用不变和 `enforcementApplied=false`，并在 Redmi 执行 Compose UI 用例；当前结果为既有策略 `7/7`、新增呈现 `5/5`、合计 `12/12`，`KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随默认完整套件 `OK (188 tests)` 通过。生产消息流仍未传入该提示，enforcement、答案改写和引用过滤继续禁止。Android 真机验证只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
 
 ## 第 92 阶段答案可回答性策略边界
 
@@ -14,7 +14,7 @@
 
 策略必须在候选正文上重新匹配并合并 quote 区间，记录 quote 数、匹配数和覆盖率；不能把模型自行生成的“证据”直接展示或用于接受决策。三类预注册特征族分别使用固定 verdict/原文证据、置信度和证据覆盖率；calibration 只能冻结阈值，validation 只能应用冻结阈值。两侧必须绑定同一 Provider/Judge identity、prompt version 和配置指纹，dataset version 必须互异，三桶标签完整且 case ID 不得漂移。
 
-第 92 阶段只允许独立测试和显式 Redmi 探针采集 shadow 证据，不得读取生产 Room、修改召回、改变答案引用 UI、升级相关性身份或开启 `productionEnforcement`。预注册真实探针为两套各 6 个用例、每例重复 2 次（`12 + 12`）；缺参数时跳过，网络/解析最终失败进入 `UNKNOWN` 并计入失败数。当前离线策略 `7/7`、Lint 和 APK 构建已通过；Redmi 真实观测因当前 Codex ADB socket 限制尚未执行，不得把它写成通过。设备只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
+第 92 阶段只允许独立测试和显式 Redmi 探针采集 shadow 证据，不得读取生产 Room、修改召回、改变答案引用 UI、升级相关性身份或开启 `productionEnforcement`。预注册真实探针为两套各 6 个用例、每例重复 2 次（`12 + 12`）；缺参数时跳过，网络/解析最终失败进入 `UNKNOWN` 并计入失败数。Redmi 真实执行已取得 calibration/validation 各 `12` 条、网络与解析失败均为 `0`；两类 verdict/原文证据特征族通过，覆盖率特征族未通过，`productionEnforcementEnabled=false`。设备只允许 `wsvwypiz7xwslvl7`，不得连接或启动 Pixel_9。
 
 ## 第 91 阶段跨主题平移不变特征验证边界
 

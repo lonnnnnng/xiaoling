@@ -2,21 +2,22 @@
 
 验证日期：2026-07-25（北京时间）
 
-## 2026-07-25 答案可回答性 shadow 呈现离线实现（第 93 阶段，Redmi UI/Provider 验收待执行）
+## 2026-07-25 答案可回答性 shadow 呈现与 Redmi 验收（第 93 阶段）
 
 - 实现边界：新增 `KnowledgeAnswerabilityShadowPresentation.kt`，将冻结门禁下的 `ACCEPT / REJECT / UNKNOWN` 转换为七类用户提示；结果保留输入引用并固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口，现有生产调用未接入，不修改普通聊天、答案、Room、检索、Workflow 或生产 enforcement。
-- 离线断言：`KnowledgeAnswerabilityPolicyTest` `7/7` 与 `KnowledgeAnswerabilityShadowPresentationPolicyTest` `5/5` 通过独立 JUnit，合计 `12/12`。主代码、UnitTest 与 AndroidTest Kotlin 编译成功；新增 `KnowledgeReferencesContentInstrumentedTest` 用例已进入 AndroidTest APK，但尚未在设备执行。
-- 静态门禁：`lintDebug assembleDebug assembleDebugAndroidTest` 成功。Debug APK 为 `23,042,682` 字节，SHA-256 `bb3eaed753166102a1a87c1cd860ff05de3357874981ce8abd49e593be48aea3`；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。构建只使用 `/private/tmp` 中的临时 Gradle 副本/helper，它们不属于仓库或提交物。
-- Redmi 通道：执行 `adb -s wsvwypiz7xwslvl7 get-state` 时，ADB server 启动报 `could not install *smartsocket* listener: Operation not permitted`；对已监听的 `127.0.0.1:5037` 显式连接同样报 `failed to connect to '127.0.0.1:5037': Operation not permitted`。命令尚未到达 Redmi，因此没有安装 APK、运行第 92 阶段真实 Provider 探针、默认 instrumentation 或本阶段 UI 用例，也没有连接、启动或操作 Pixel_9。
-- 当前结论：第 93 阶段只完成离线呈现 seam；第 92 阶段真实 `12 + 12` 观测仍是生产接入前置条件。`productionEnforcementEnabled=false`，生产身份、消息流、答案和知识引用行为保持不变。
+- 离线断言：`KnowledgeAnswerabilityPolicyTest` `7/7` 与 `KnowledgeAnswerabilityShadowPresentationPolicyTest` `5/5` 通过独立 JUnit，合计 `12/12`。主代码、UnitTest 与 AndroidTest Kotlin 编译成功。
+- Redmi UI 验收：仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`。新增 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已随完整套件通过，确认 shadow 提示与原知识引用同时存在。
+- 长期文档同步后重新构建 AndroidTest APK，并使用 `--user 0` 在同一 Redmi 完整复验；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录会随文档变化的自引用大小或哈希。没有启动、连接或操作 Pixel_9/其他模拟器。
+- 当前结论：第 93 阶段的离线呈现和真机 UI 契约均已完成，但生产消息流仍未传入 `answerabilityNotice`。`productionEnforcementEnabled=false`，答案正文和引用不因 Judge 结果被删除、替换或重排。
 
-## 2026-07-25 答案可回答性策略离线实现（第 92 阶段，Redmi 真实验收待执行）
+## 2026-07-25 答案可回答性策略与真实 Provider shadow 验收（第 92 阶段）
 
 - 实现边界：新增 `KnowledgeAnswerability.kt`，固定 JSON verdict、候选原文 quote 匹配、矛盾/部分回答拒绝和 `UNKNOWN` 保守决策；三类特征族只在 calibration 选择门禁，在互异 validation 数据上冻结评估。该切片不读取 Room、不修改检索、答案引用 UI、普通聊天、Workflow 或生产 enforcement。
-- 离线断言：`KnowledgeAnswerabilityPolicyTest` 通过独立 JUnit `7/7`。Gradle `testDebugUnitTest` 已完成新增测试类编译，但测试 worker 在 `ForkingTestClassProcessor` 绑定本地 TCP 时失败，关键错误为 `java.net.SocketException: Operation not permitted`；这属于执行通道限制，不是断言失败。
-- 静态门禁：离线 `lintDebug assembleDebug assembleDebugAndroidTest` 成功；受限通道使用 JDK 17、只读依赖缓存和仅存在于 `/private/tmp` 的临时 Gradle helper 绕过本地 worker/socket 限制，该 helper 不属于项目代码或提交物。Debug APK 为 `23,042,682` 字节，SHA-256 `4a56feb945e9f9638f7c4f9480ca7bbd9412ffb7d86b55c05af4e7855d3783a2`；AndroidTest APK 会打包本目录长期文档，不记录自引用哈希。
-- Redmi 计划：`RealProviderKnowledgeAnswerabilityInstrumentedTest` 只接受显式 `answerabilityProviderBaseUrl`、`answerabilityProviderApiKey`、`answerabilityProviderModel`、`answerabilityProviderId` 参数，目标身份为 `redmi-answerability-judge-v1 / gpt-5.5`，两套各 6 用例、每例 2 次，最终失败进入 `UNKNOWN`。本轮 shell 与 Node 两个执行通道都无法连接已存在的 5037 ADB server，错误为 `could not install *smartsocket* listener: Operation not permitted`；Mac 侧 `/models` 探针另因 DNS `Could not resolve host` 失败，均未计入 Provider 证据，因此尚未安装 APK、运行显式探针或默认 instrumentation。不能把通道限制归因于 Redmi、Provider 或模型。没有连接、启动或操作 Pixel_9。
-- 当前安全结论：`productionEnforcementEnabled=false`，生产身份、检索和答案路径保持原状态。待 ADB 通道恢复后，先安装主/测试 APK并采集 Stage 92 指标，再运行默认 instrumentation，最后恢复主 APK、Activity、Provider/Agent 配置和设备状态。
+- 离线断言：`KnowledgeAnswerabilityPolicyTest` 覆盖严格 JSON、证据匹配、身份/数据集隔离、UNKNOWN、矛盾和部分回答，共 `7/7`；显式联网用例缺少参数时仍按设计跳过，默认套件不依赖公网。
+- Redmi 真实探针：使用项目未跟踪配置中的 `gpt-5.5` 执行 `RealProviderKnowledgeAnswerabilityInstrumentedTest`，结果 `OK (1 test)`、耗时 `91.063s`。calibration 与 validation 各取得 `12` 条观测，网络失败和解析失败均为 `0`。
+- 门禁结果：`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准；`VERDICT_EVIDENCE_CONFIDENCE_AND_COVERAGE` 未通过。该结果只证明当前 Judge 身份下两类 shadow 特征可重复，不允许把覆盖率特征族补写为通过，也不自动升级生产身份。
+- 收尾状态：默认完整 instrumentation 后，已通过应用设置页恢复兜底 Provider、6 个可用模型和默认 `gpt-5.5` Agent Profile；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。最终 `MainActivity` 位于前台，crash buffer 为空，设备 Agent 保持默认关闭且 Accessibility 未授权；测试与恢复全过程仅使用 Redmi，配置端点和密钥未进入 Git 或长期文档。
+- 当前安全结论：`productionEnforcementEnabled=false`，生产 Room、检索、答案链路和引用行为继续与本策略隔离。下一阶段只评审不改写答案/引用的真实消息流 shadow 绑定，不直接开启拒绝执行。
 
 ## 2026-07-25 跨主题平移不变特征预注册门禁否决（第 91 阶段）
 

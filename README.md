@@ -105,10 +105,9 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
-- 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；结果始终保留原知识引用，`enforcementApplied=false`。
-- `KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口；现有生产调用没有传入，因此普通聊天、答案内容和引用行为保持不变。答案可回答性策略与呈现聚焦 JUnit 合计 `12/12`，`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 成功。Debug APK 为 `23,042,682` 字节，SHA-256 `bb3eaed753166102a1a87c1cd860ff05de3357874981ce8abd49e593be48aea3`。
-- 第 92 阶段 Redmi 真实安装、`gpt-5.5` Provider 探针和默认 instrumentation 仍待执行；本轮 `adb -s wsvwypiz7xwslvl7 get-state` 在启动/连接本机 ADB server 时继续收到 `Operation not permitted`。仅允许使用 Redmi `wsvwypiz7xwslvl7`，没有连接或启动 Pixel_9。
-- 以下能力为此前 Redmi 里程碑的历史已验证结果：Room 知识库、`knowledge.search`、稳定引用链、Accessibility 只读观察层和有限设备动作；它们不代表第 92 阶段 answerability 真实 Provider 证据已经完成。
+- 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现和 Redmi 真机验收：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；`KnowledgeReferencesContent` 的提示与原引用共存，`enforcementApplied=false`。新增 UI 断言 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已在 Redmi 全量回归中通过。
+- 第 92 阶段真实 `gpt-5.5` Judge 探针已在 Redmi `wsvwypiz7xwslvl7` 通过：校准/验证各 `12` 条观测，网络/解析失败均为 `0`；`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准，覆盖率特征族未通过，生产 enforcement 仍为 `false`。默认 Redmi instrumentation 为 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`；探针耗时 `91.063s`。
+- 收尾后通过应用设置页恢复未跟踪 `AGENTS.md` 的兜底 Provider 和 6 个可用模型，默认 Agent Profile 绑定 `gpt-5.5`；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。`MainActivity` 前台、crash buffer 为空，设备 Agent 保持默认关闭/未授权状态。配置端点与密钥未写入仓库；仅使用 Redmi，没有连接或启动 Pixel_9。
 - 生产 `Room`、检索、答案链路和 answerability enforcement 继续保持隔离；`productionEnforcementEnabled=false`。
 - Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
 - APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
