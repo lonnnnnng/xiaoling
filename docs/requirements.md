@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 94 阶段真实消息流只读 answerability shadow 绑定边界
+
+消息流绑定只允许消费现有 Agent Run 中可信的 `knowledge.search` ToolResult。候选必须来自成功执行，验证状态不能是 `FAILED`，正文和稳定知识引用都不能为空；多步 Run 取最近一条满足条件的执行，旧消息没有执行列表时兼容顶层单工具字段。其他工具、失败执行、无引用或空正文不得进入 Judge 候选。
+
+冻结绑定必须同时包含强类型 calibration/validation `KnowledgeAnswerabilityDatasetIdentity` 和已冻结 `KnowledgeAnswerabilityGate`；两套数据必须绑定同一 Judge identity、版本非空且互异。消息 shadow 只允许 `VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE`；第 92 阶段未通过的 `VERDICT_EVIDENCE_CONFIDENCE_AND_COVERAGE` 禁止进入。实际 Judge identity 不一致、缺少冻结绑定/观测、来源 Run 为空、观测 `caseId` 与来源 Run 不一致或候选证据不完整，都必须返回 `UNKNOWN`，不能抛错或把未知转换为拒绝。
+
+绑定结果必须在绑定开始时复制并按原顺序保留全部 `KnowledgeReference`，同时保留来源 Run、候选正文、已有观测的时间和 shadow 提示；没有观测时 `observedAt` 必须保持 `null`，不能伪造观测时间。结果固定 `enforcementApplied=false`。绑定只表达观察关系，不得删除、替换、重排答案或引用，不得写 Room、调用 Provider、修改消息 schema、接入普通聊天/Workflow 或开启 `productionEnforcement`。本阶段的真实消息流只冻结纯 Kotlin 契约，Judge 观测生成、持久化、UI 接线和重试语义另行评审。
+
+验收门禁：绑定策略 `7/7`、候选提取 `4/4`；完整 JVM `564/564`、Lint、Debug/AndroidTest APK 通过；真机只使用 Redmi `wsvwypiz7xwslvl7`，完整 `AndroidJUnitRunner` 为 `OK (188 tests)`，不得连接或启动 Pixel_9。
+
 ## 第 93 阶段答案可回答性 shadow 呈现边界
 
 答案可回答性 shadow 呈现只能消费现有 `KnowledgeAnswerabilityObservation` 和冻结 `KnowledgeAnswerabilityGate`，不得在展示层重新计算阈值、调用 Provider、读取 Room 或改变检索结果。输入引用必须按原顺序和身份完整保留，结果固定 `enforcementApplied=false`；`ACCEPT` 只能显示“直接回答”的观察提示，`REJECT` 必须按部分回答、未回答、矛盾、证据无法回查或低于冻结门禁区分，缺观测、缺门禁或 `UNKNOWN` 必须显示未知。

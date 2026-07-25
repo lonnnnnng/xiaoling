@@ -27,6 +27,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 第 94 阶段已冻结真实消息流的只读 answerability shadow 绑定：只从成功且带稳定引用的最近 `knowledge.search` 执行提取候选，固定 Judge identity/数据集/gate，未知或身份漂移保持 `UNKNOWN`；不改变答案、引用、Room 或生产拒绝。
   - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权、前台直接 `/agent` 且 Profile/Skill 允许时可用；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证，Workflow 与后台运行不会看到或执行任何设备工具。
 
 - 设置页
@@ -105,6 +106,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 94 阶段的消息流绑定契约已完成：新增候选提取与冻结绑定策略，calibration/validation 使用同一 Judge 的强类型身份且版本互异；覆盖率特征族、空 Run、缺失观测和所有身份漂移均 fail-safe 为 `UNKNOWN`，引用在绑定时做防御性快照并保持原顺序，`enforcementApplied=false`。聚焦 JVM `11/11`，完整 JVM XML `564/564`、0 失败；Lint、Debug APK 和 AndroidTest APK 构建通过。仅在 Redmi `wsvwypiz7xwslvl7` 执行真实 `AndroidJUnitRunner`，结果 `OK (188 tests)`；没有使用 Pixel_9。Provider 调用、Room 持久化、答案 UI 接线和 `productionEnforcement` 仍未开启。
 - 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现和 Redmi 真机验收：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；`KnowledgeReferencesContent` 的提示与原引用共存，`enforcementApplied=false`。新增 UI 断言 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已在 Redmi 全量回归中通过。
 - 第 92 阶段真实 `gpt-5.5` Judge 探针已在 Redmi `wsvwypiz7xwslvl7` 通过：校准/验证各 `12` 条观测，网络/解析失败均为 `0`；`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准，覆盖率特征族未通过，生产 enforcement 仍为 `false`。默认 Redmi instrumentation 为 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`；探针耗时 `91.063s`。
 - 收尾后通过应用设置页恢复未跟踪 `AGENTS.md` 的兜底 Provider 和 6 个可用模型，默认 Agent Profile 绑定 `gpt-5.5`；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。`MainActivity` 前台、crash buffer 为空，设备 Agent 保持默认关闭/未授权状态。配置端点与密钥未写入仓库；仅使用 Redmi，没有连接或启动 Pixel_9。
@@ -119,6 +121,7 @@ local-signing/xiaoling-release.jks
 - [个人 Agent 路线图](docs/personal-agent-roadmap.md)
 - [参考项目分析](docs/reference-apps-analysis.md)
 - [当前实现说明](docs/implementation-notes.md)
+- [答案可回答性 shadow 绑定契约](docs/answerability-shadow-binding.md)
 - [验证报告](docs/verification-report.md)
 
 ## 产物

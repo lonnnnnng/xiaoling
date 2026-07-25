@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 94 阶段：真实消息流只读 answerability shadow 绑定（完成，生产未接入）
+
+本阶段把第 93 阶段的展示 seam 与真实 Agent 消息中的可信知识检索证据连接起来，但仍保持只读。`VerifiedAgentContext.latestKnowledgeAnswerabilityCandidate(question)` 从最近的成功 `knowledge.search` ToolResult 提取候选；失败、无引用、空正文、空 Run 和其他工具不能冒充候选，旧单工具消息继续兼容。`KnowledgeAnswerabilityShadowBindingPolicy` 绑定来源 Run、同一 Judge 的强类型 calibration/validation identity、观测和冻结 gate，只让第 92 阶段已通过的两类特征族进入消息 shadow。
+
+覆盖率特征族、Judge identity 漂移、缺观测、缺冻结绑定、观测 Run 不匹配和候选证据不完整均保持 `UNKNOWN`；候选引用在绑定时冻结快照，无观测时不伪造观测时间，引用顺序/身份与原答案不变，结果固定 `enforcementApplied=false`。本阶段不调用 Provider、不写 Room、不接入 `KnowledgeReferencesContent`、不改变普通聊天或 Workflow，也不打开生产拒绝。聚焦 JVM `11/11`，完整 JVM `564/564`，Lint、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的真实套件为 `OK (188 tests)`，没有使用 Pixel_9。
+
+下一阶段应先评审 Judge 观测的真实生成时机、失败/重试与可选 shadow 持久化边界，再决定是否把结果以默认关闭的用户提示接入答案引用 UI。Provider 调用、Room schema、生产 enforcement、设备 Workflow/后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续按路线图后置。
+
 ## 第 93 阶段：答案可回答性 shadow 呈现（实现与 Redmi 验收完成，生产未接入）
 
 本阶段先补齐“如果 Judge 以后产生结果，用户应该看到什么”的纯展示契约，但不提前接入生产答案链路。`KnowledgeAnswerabilityShadowPresentationPolicy` 将 `ACCEPT / REJECT / UNKNOWN` 映射为直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知提示；输入引用始终原样保留，固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 只增加默认 `null` 的可选参数，现有生产调用行为不变。
@@ -665,7 +673,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 91. 已完成：生产身份仍为 `CANDIDATE`，生产相关性拒绝与答案路径接入保持关闭；不再调同一检索分数，转向 answerability/重排证据。
 92. 已完成：严格答案可回答性策略、离线 `7/7` 契约和 Redmi `12 + 12` 真实 `gpt-5.5` shadow 观测；网络/解析失败为 `0`，两类特征族通过、覆盖率特征族未通过，生产 enforcement 继续关闭。
 93. 已完成：答案可回答性 shadow 提示与引用共存契约新增 `5/5`，合计聚焦 JVM `12/12`；Redmi 默认完整 `OK (188 tests)` 已覆盖提示/引用共存 UI，生产消息流仍未绑定。
-94. 下一阶段：评审真实消息流的只读 answerability shadow 绑定，明确身份、生成、持久化、失败和展示边界；只消费已通过特征族，不修改答案或引用，不开启 `productionEnforcement`。
-95. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+94. 已完成：真实消息流只读 answerability shadow 绑定；候选只来自可信 `knowledge.search`，强类型数据集身份、Run/观测一致性、引用快照和保守 `UNKNOWN` 契约均已验收，生产消息流仍未接入。
+95. 下一阶段：评审 Judge 观测的真实生成时机、失败/重试和可选 shadow 持久化边界，再决定是否以默认关闭方式把提示接入答案引用 UI。
+96. 仍后置：设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 94 阶段已完成真实 Agent 消息流的只读 answerability shadow 绑定契约：`VerifiedAgentContext.latestKnowledgeAnswerabilityCandidate(question)` 只提取最近一条成功、带稳定知识引用且未失败的 `knowledge.search` 执行，并兼容旧消息顶层单工具快照；空 Run 不会生成候选。`KnowledgeAnswerabilityShadowBindingPolicy` 使用同一 Judge 的强类型 calibration/validation identity、互异版本和冻结门禁，只允许第 92 阶段通过的 `VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 进入消息 shadow。覆盖率特征族、身份漂移、观测缺失、Run 不匹配和候选不完整均返回 `UNKNOWN`；绑定时对候选引用做防御性快照，无观测时不伪造观测时间，原答案、引用顺序和引用身份保持不变，`enforcementApplied=false`。本阶段不调用 Provider、不写 Room、不接入 UI 或生产拒绝。聚焦 JVM `11/11`，完整 JVM `564/564`，Lint、Debug/AndroidTest APK 通过；Redmi `wsvwypiz7xwslvl7` 真实 `AndroidJUnitRunner` 为 `OK (188 tests)`，没有使用 Pixel_9。
+
 本目录只保留当前有效、需要持续维护的文档。历史检索清单和重复比较报告已经合并到统一的参考项目分析，不再按日期散落保存。
 
 第 93 阶段已完成答案可回答性 shadow 呈现和 Redmi UI 验收：纯 Kotlin 呈现策略将冻结门禁结果转换为直接回答、部分回答、未回答、矛盾、证据无法回查、低于门禁和未知提示；输入引用始终保留，`enforcementApplied=false`。`KnowledgeReferencesContent` 只增加默认 `null` 的可选入口，现有生产调用不变。既有策略 `7/7` 与新增呈现 `5/5` 合计独立 JUnit `12/12`；提示/引用共存 Compose 用例已随 Redmi 默认完整 `OK (188 tests)` 通过（`177 passed / 11 skipped / 0 failed`，收尾基准耗时 `49.641s`）。

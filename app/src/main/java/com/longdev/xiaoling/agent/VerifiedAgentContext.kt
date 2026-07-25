@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowCandidate
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import org.json.JSONArray
@@ -34,27 +35,36 @@ data class VerifiedAgentContext(
 )
 
 /**
+ * long: 消息流只读取最近一条成功且带稳定引用的 knowledge.search；失败、无引用或其他工具的文本不能冒充 Judge 候选。
+ */
+internal fun VerifiedAgentContext.latestKnowledgeAnswerabilityCandidate(
+    question: String,
+): KnowledgeAnswerabilityShadowCandidate? {
+    if (runId.isBlank() || question.isBlank()) return null
+    val executions = toolExecutionsOrLegacyProjection()
+    val execution = executions.asReversed().firstOrNull { candidate ->
+        candidate.toolName == "knowledge.search" &&
+            candidate.success &&
+            candidate.verificationStatus != AgentVerificationStatus.FAILED &&
+            candidate.rawResult.isNotBlank() &&
+            candidate.knowledgeReferences.isNotEmpty()
+    } ?: return null
+    return KnowledgeAnswerabilityShadowCandidate(
+        sourceRunId = runId,
+        question = question,
+        candidateText = execution.rawResult,
+        references = execution.knowledgeReferences.toList(),
+    )
+}
+
+/**
  * long:
  * 把知识库生命周期变化应用到“送入模型”的可信投影；Room 中的历史审计快照仍由 Repository 原样保留。
  */
 internal fun VerifiedAgentContext.retainCurrentKnowledgeReferences(
     currentReferences: Set<KnowledgeReference>,
 ): VerifiedAgentContext? {
-    val executions = if (toolExecutions.isNotEmpty()) {
-        toolExecutions
-    } else {
-        listOf(
-            VerifiedToolExecution(
-                toolName = toolName,
-                arguments = arguments,
-                success = success,
-                verificationStatus = verificationStatus,
-                rawResult = rawResult,
-                memoryIdsUsed = memoryIdsUsed,
-                knowledgeReferences = knowledgeReferences,
-            ),
-        )
-    }
+    val executions = toolExecutionsOrLegacyProjection()
     val retainedExecutions = executions.mapNotNull { execution ->
         val knowledgeEvidenceMissing = execution.toolName == "knowledge.search" &&
             execution.knowledgeReferences.isEmpty()
@@ -79,6 +89,24 @@ internal fun VerifiedAgentContext.retainCurrentKnowledgeReferences(
         toolExecutions = if (toolExecutions.isNotEmpty()) retainedExecutions else emptyList(),
     )
 }
+
+/**
+ * long: 旧消息只有顶层单工具快照；统一投影后，知识引用保留与 answerability 候选选择才能共享同一兼容语义。
+ */
+private fun VerifiedAgentContext.toolExecutionsOrLegacyProjection(): List<VerifiedToolExecution> =
+    toolExecutions.ifEmpty {
+        listOf(
+            VerifiedToolExecution(
+                toolName = toolName,
+                arguments = arguments,
+                success = success,
+                verificationStatus = verificationStatus,
+                rawResult = rawResult,
+                memoryIdsUsed = memoryIdsUsed,
+                knowledgeReferences = knowledgeReferences,
+            ),
+        )
+    }
 
 object VerifiedAgentContextCodec {
     fun encode(context: VerifiedAgentContext): String {

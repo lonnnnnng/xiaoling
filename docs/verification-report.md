@@ -2,6 +2,15 @@
 
 验证日期：2026-07-25（北京时间）
 
+## 2026-07-25 真实消息流 answerability shadow 绑定（第 94 阶段）
+
+- 实现边界：新增 `KnowledgeAnswerabilityShadowCandidate`、`KnowledgeAnswerabilityFrozenBinding` 和 `KnowledgeAnswerabilityShadowBindingPolicy`。候选从 `VerifiedAgentContext` 最近成功、非失败验证、非空正文且带稳定引用的 `knowledge.search` 执行提取；旧顶层单工具消息保持兼容，其他工具/失败/无引用结果不会进入候选。
+- 绑定规则：calibration/validation 使用同一 Judge 的强类型数据集身份并强制版本互异；消息只允许 `VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE`。覆盖率特征族、Judge identity 漂移、空 Run、缺少冻结绑定/观测、观测 Run 不匹配和候选不完整均返回 `UNKNOWN`；有效观测可绑定为 `BOUND`，观测自身未知仍保留 `UNKNOWN` 决策。
+- 证据边界：绑定开始时复制候选与知识引用，外部可变 List 后续变化不会改变结果；没有观测时 `observedAt=null`。结果复用既有 shadow presentation，固定 `enforcementApplied=false`。本阶段没有调用 Provider、写 Room、修改消息 schema、接入 UI 或开启生产拒绝。
+- JVM 门禁：`KnowledgeAnswerabilityShadowBindingPolicyTest` `7/7`、`VerifiedAgentContextAnswerabilityCandidateTest` `4/4`；完整 `testDebugUnitTest` 报告 `564` tests、`0` failures、`0` errors、`0` skipped。`lintDebug`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。最终 Debug APK 为 `23,059,066` 字节，SHA-256 `effca90bb445a52b225fdff4c08d2c03c738bf5db1ecf03aa2ee6ba181fb79e7`。
+- Redmi 真机：`adb devices -l` 当前只列出 `wsvwypiz7xwslvl7`（Redmi Note 8 Pro）。覆盖安装最新 Debug/Test APK 后直接运行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (188 tests)`；第 93 阶段既有引用 UI 用例随完整套件复验通过。没有连接、启动或操作 Pixel_9/其他模拟器。
+- 后续边界：真实 Judge 观测生成时机、重试/失败语义、可选 shadow 持久化和用户提示接线仍未实现；生产 `Room`、普通聊天、`knowledge.search`、Workflow、后台 Worker 和 `productionEnforcement` 保持不读取该契约。
+
 ## 2026-07-25 答案可回答性 shadow 呈现与 Redmi 验收（第 93 阶段）
 
 - 实现边界：新增 `KnowledgeAnswerabilityShadowPresentation.kt`，将冻结门禁下的 `ACCEPT / REJECT / UNKNOWN` 转换为七类用户提示；结果保留输入引用并固定 `enforcementApplied=false`。`KnowledgeReferencesContent` 新增默认 `null` 的可选提示入口，现有生产调用未接入，不修改普通聊天、答案、Room、检索、Workflow 或生产 enforcement。

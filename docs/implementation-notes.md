@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 94 阶段：真实消息流 answerability shadow 绑定（实现与 Redmi 验收完成，生产未接入）
+
+- 新增 `KnowledgeAnswerabilityShadowBinding.kt`。`KnowledgeAnswerabilityShadowCandidate` 保存来源 Run、原问题、候选检索正文和稳定引用；`KnowledgeAnswerabilityFrozenBinding` 直接持有 calibration/validation 的 `KnowledgeAnswerabilityDatasetIdentity`，构造时要求同一 Judge identity 且版本互异，再绑定冻结 gate，避免消息流误用临时校准结果。
+- `VerifiedAgentContext.latestKnowledgeAnswerabilityCandidate(question)` 只检查 `knowledge.search`、成功状态、非失败验证状态、非空正文和非空引用，并从多步执行中取最近一条有效执行；旧消息没有 `toolExecutions` 时回退到顶层单工具字段，空 Run 不生成候选。`notes.search`、失败执行、无引用结果和空正文不能成为 Judge 候选。
+- `KnowledgeAnswerabilityShadowBindingPolicy.bind(...)` 只允许第 92 阶段已通过的 `VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE`；覆盖率特征族直接 `UNKNOWN`。Judge identity 不一致、空 Run、缺少 identity/冻结绑定/观测、观测 `caseId` 不等于来源 Run、候选证据不完整时全部 `UNKNOWN`，不会抛错或把不确定性转为拒绝。
+- 绑定开始时复制候选与引用列表并保留原顺序，避免外部可变 List 让同一审计结果漂移；没有观测时 `observedAt=null`。结果复用 `KnowledgeAnswerabilityShadowPresentationPolicy` 生成提示，固定 `enforcementApplied=false`。即使观测本身为 `UNKNOWN`，也只形成可审计的 `BOUND + UNKNOWN` shadow 结果，不改变答案或引用。
+- 本阶段没有调用 Provider、写 Room、修改消息 schema、接入 `KnowledgeReferencesContent`、改变普通聊天/Workflow 或启用 `productionEnforcement`；实际 Judge 观测生成时机、持久化和 UI 接线留到后续阶段评审。
+- `KnowledgeAnswerabilityShadowBindingPolicyTest` `7/7` 与 `VerifiedAgentContextAnswerabilityCandidateTest` `4/4`，覆盖 malformed candidate、引用快照、数据集 Judge 漂移、旧消息兼容和空 Run；完整 JVM XML 为 `564/564`、0 失败，Lint、Debug APK 和 AndroidTest APK 构建通过。只在 Redmi `wsvwypiz7xwslvl7` 执行真实 `AndroidJUnitRunner`，结果 `OK (188 tests)`；没有连接或操作 Pixel_9。
+
 ## 第 93 阶段：答案可回答性 shadow 呈现（实现与 Redmi 验收完成，生产未接入）
 
 - 新增 `KnowledgeAnswerabilityShadowPresentation.kt`，只把第 92 阶段的 `KnowledgeAnswerabilityObservation + KnowledgeAnswerabilityGate` 翻译为用户可理解的观察提示。提示区分直接回答、部分回答、未回答、证据矛盾、证据无法回查、低于冻结门禁和未知；无观测或无门禁时同样保持未知。
