@@ -149,7 +149,8 @@ local-signing/xiaoling-release.jks
 - [参考项目分析](docs/reference-apps-analysis.md)
 - [当前实现说明](docs/implementation-notes.md)
 - [答案可回答性 shadow 绑定契约](docs/answerability-shadow-binding.md)
-- [验证报告](docs/verification-report.md)
+- [当前验证报告](docs/verification-report.md)
+- [验证历史：基线至第 101 阶段](docs/verification-history/verification-baseline-through-stage-101.md)
 
 ## 产物
 

@@ -158,8 +158,9 @@
 2. [个人 Agent 路线图](personal-agent-roadmap.md)：后续功能、技术架构、里程碑、验收标准和暂缓项。
 3. [参考项目分析](reference-apps-analysis.md)：`reference-apps` 全量分类、重点项目实现证据和可借鉴结论。
 4. [当前实现说明](implementation-notes.md)：现有代码真实具备的能力、模块边界和当前技术债。
-5. [验证报告](verification-report.md)：构建、签名、安装和真机启动证据。
-6. [本地 Skill 示例](examples/daily-review.skill.json)：可通过系统文件选择器直接导入的 `schemaVersion=1` JSON。
+5. [当前验证报告](verification-report.md)：当前发布基线、最新构建门禁和真机收尾状态。
+6. [验证历史：基线至第 101 阶段](verification-history/verification-baseline-through-stage-101.md)：已冻结的阶段性构建、安装、恢复可靠性和真机证据。
+7. [本地 Skill 示例](examples/daily-review.skill.json)：可通过系统文件选择器直接导入的 `schemaVersion=1` JSON。
 
 ## 维护规则
 
@@ -167,7 +168,7 @@
 - 功能优先级和技术阶段变化时更新 `personal-agent-roadmap.md`，不要按日期复制路线图。
 - 新增参考项目时更新 `reference-apps-analysis.md`，结论必须附本地代码或项目文档路径。
 - 当前实现发生变化时同步更新 `implementation-notes.md`。
-- 每次发布或重要真机验证后更新 `verification-report.md`。
-- 历史阶段记录保留当时事实，但必须使用“该阶段当时的边界”等明确措辞；当前状态只以各文档顶部总结和最新阶段为准。
+- 每次发布或重要真机验证后更新当前卷 `verification-report.md`；当前卷显著增长时，按明确版本、日期和阶段截止点生成新的历史卷。
+- 历史卷冻结当时事实，除修复失效链接或明确事实错误外不再反复改写；当前状态只以 `verification-report.md` 和其他长期文档顶部总结为准。
 - 项目根目录的 `AGENTS.md` 仅保存本机代理指令并排除 Git 跟踪；不得把其中的凭据复制到文档、日志或提交记录。
 - 临时调研产物放在仓库外或未跟踪的 `outputs/`，确认结论后再合并进上述长期文档。

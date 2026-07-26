@@ -404,6 +404,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
             "requirements.md",
             "implementation-notes.md",
             "verification-report.md",
+            "verification-history/verification-baseline-through-stage-101.md",
             "personal-agent-roadmap.md",
             "reference-apps-analysis.md",
         )
@@ -416,7 +417,9 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         val goldenQueries = listOf(
             "当前启用 工具 模型 权限" to "requirements.md",
             "附件 BLOB 轻量 快照 回写" to "implementation-notes.md",
-            "历史引用 保留 临时文档 删除" to "verification-report.md",
+            "当前验证基线 Redmi 196 tests" to "verification-report.md",
+            "历史引用 保留 临时文档 删除" to
+                "verification-history/verification-baseline-through-stage-101.md",
             "并行调用 通用原地断点恢复" to "personal-agent-roadmap.md",
             "最小状态机 WAITING_APPROVAL BLOCKED" to "reference-apps-analysis.md",
         )
@@ -447,7 +450,8 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
 
         val firstRanked = store.search("模型 自行声明权限 任意命令", limit = 1)
         assertEquals("requirements.md", firstRanked.hits.single().documentName)
-        assertEquals(5, quality.positiveCaseCount)
+        // long: 每个长期文档都有独立黄金查询；新增历史卷后，正例数量应跟随语料契约，而不是继续依赖旧的固定常量。
+        assertEquals(goldenQueries.size, quality.positiveCaseCount)
         assertEquals(1, quality.negativeCaseCount)
     }
 
