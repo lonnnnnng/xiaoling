@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## Agent 审批决策协调迁出（横向可靠性工程）
+
+- 新增纯内存 `AgentApprovalDecisionCoordinator`、`AgentApprovalDecisionTicket` 和 `AgentApprovalDecisionClaim`。ticket 封装单个 `CompletableDeferred<ApprovalDecision>`；协调器只允许当前 `requestId` 领取一次 claim，并以对象身份验证完成、释放、取消和清理。
+- 注册新审批会取消旧 waiter。Room 决策写入成功后，ViewModel 才调用 `complete()`；写入异常调用 `release()` 并把同一审批恢复为 `deciding=false`，用户可以重试。Repository 返回 `null` 时调用按 claim 校验的 `cancel()`，避免 Run 已结束或审批已处理后仍执行工具。
+- `stopGenerating()` 改为取消协调器当前 ticket，再取消发送 Job；取消会让已领取 claim 失效。`awaitAgentApproval()` 的 `finally` 只清理自己的 ticket，Workflow retry、Workflow run 和 Agent Run 外层 `finally` 不再无身份地清空全局 waiter 或审批投影，因此旧 Run 收尾不能影响新审批。
+- `XiaoLingViewModel` 不再直接持有 `pendingApprovalDecision`。Room 写入、Compose 投影、用户错误提示、恢复后审批、Run/Workflow 和真正 Runtime 仍留在原职责层；Room v32 与数据库 Schema 不变。由于新增明确的异常恢复和 `null` fail-closed 分支，ViewModel 当前为 `4416` 行；本次目标是生命周期单一归属，不以行数下降冒充完成度。
+- `AgentApprovalDecisionCoordinatorTest` 五轮 red-green 为 `5/5`，覆盖一次性领取、失败释放后重试、新 ticket 取消旧 waiter、停止取消、过期 claim 隔离与无持久化决定时取消。与 `AgentConversationRuntimeStateStoreTest`、其他 Agent Coordinator 聚焦组合通过。
+- 强制完整本地门禁为 JVM `624/624`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 1 hint`；Debug、Release、AndroidTest APK 全部成功。Debug APK 为 `23,157,621` 字节、SHA-256 `da159b14f94b810d7972e644110e553d87ee6b0eb5c013796c949915e69c3de8`，Release APK 为 `15,918,038` 字节、SHA-256 `df72abccf778d99c25ac5ef84f876849bb9ebf9571cef6806d6ae8872c162504`。
+- Standards/Spec 双轴审查发现“已取消 ticket 仍可再次领取”和关键身份 guard 注释不足；现已让 `claim()` 拒绝已完成/取消 ticket、抽出当前 claim 身份判断并补齐贴近实现的 `long:` 中文业务注释，聚焦与完整门禁均在修复后重跑。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `48.776s`；7 份长期文档重新打包后的项目文档语料为 `OK (1 test)`。本轮不触发 Shadow，不改变第 101/102 项、设备后台门禁或远期路线。
+
 ## 会话级 Agent 运行态 Store 迁出（横向可靠性工程）
 
 - 新增纯内存 `AgentConversationRuntimeStateStore` 与不可变 `AgentConversationRuntimeState` 投影，以 `conversationId` 为唯一归属保存最新 `AgentRunSnapshot` 和 `AgentApprovalUiState`。后台 Run 或审批更新不会覆盖用户正在查看的其他会话。

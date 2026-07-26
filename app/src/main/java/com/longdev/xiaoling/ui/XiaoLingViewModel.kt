@@ -122,7 +122,6 @@ import com.longdev.xiaoling.storage.UiPreferenceStore
 import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -561,7 +560,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val backupManager = XiaoLingBackupManager(application)
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
-    private var pendingApprovalDecision: CompletableDeferred<ApprovalDecision>? = null
+    private val agentApprovalDecisionCoordinator = AgentApprovalDecisionCoordinator()
     private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
     private var sendMessageJob: Job? = null
     private var memoryLoadJob: Job? = null
@@ -1170,7 +1169,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun stopGenerating() {
         // long: 停止生成是用户接管当前 Run 的入口，必须取消真实网络请求，而不是只隐藏 loading。
-        pendingApprovalDecision?.cancel()
+        agentApprovalDecisionCoordinator.cancelActive()
         sendMessageJob?.cancel()
     }
 
@@ -1452,8 +1451,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
                 uiState = uiState.copy(workflowError = failure)
             } finally {
-                pendingApprovalDecision = null
-                clearPendingApprovalForConversation(sourceRun.conversationId)
                 uiState = uiState.copy(runningWorkflowId = null, sendingMessage = false)
                 sendMessageJob = null
                 refreshWorkflows()
@@ -1796,8 +1793,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
                 uiState = uiState.copy(workflowError = error.message ?: "工作流执行失败")
             } finally {
-                pendingApprovalDecision = null
-                clearPendingApprovalForConversation(conversationId)
                 uiState = uiState.copy(
                     runningWorkflowId = null,
                     sendingMessage = false,
@@ -2558,26 +2553,45 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         approved: Boolean,
         reason: String,
     ) {
-        val deferred = pendingApprovalDecision ?: return
+        val claim = agentApprovalDecisionCoordinator.claim(pending.requestId) ?: return
         val deciding = pending.copy(deciding = true)
         rememberPendingApproval(deciding)
         viewModelScope.launch {
-            withContext(NonCancellable + Dispatchers.IO) {
-                agentRunRepository.decideApprovalRequest(
-                    requestId = pending.requestId,
-                    status = status,
-                    reason = reason,
-                )
-            }
-            if (pendingApprovalDecision === deferred) {
-                pendingApprovalDecision = null
-                clearPendingApprovalForConversation(pending.conversationId)
-                deferred.complete(
-                    ApprovalDecision(
-                        approved = approved,
+            try {
+                val persisted = withContext(NonCancellable + Dispatchers.IO) {
+                    agentRunRepository.decideApprovalRequest(
+                        requestId = pending.requestId,
+                        status = status,
                         reason = reason,
-                    ),
-                )
+                    )
+                }
+                if (persisted == null) {
+                    withContext(NonCancellable + Dispatchers.Main.immediate) {
+                        if (agentApprovalDecisionCoordinator.cancel(claim)) {
+                            clearPendingApprovalForConversation(pending.conversationId)
+                            showValidation("审批请求已结束，请刷新任务中心")
+                        }
+                    }
+                    return@launch
+                }
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    if (agentApprovalDecisionCoordinator.complete(
+                            claim = claim,
+                            decision = ApprovalDecision(approved = approved, reason = reason),
+                        )
+                    ) {
+                        clearPendingApprovalForConversation(pending.conversationId)
+                    }
+                }
+            } catch (error: Throwable) {
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    if (agentApprovalDecisionCoordinator.release(claim)) {
+                        // long: Room 写入失败时恢复同一审批卡片，用户可重试；不能让一次存储异常把安全闸口永久锁在 deciding 状态。
+                        rememberPendingApproval(pending.copy(deciding = false))
+                        showValidation("审批结果保存失败，请重试：${error.message ?: "未知错误"}")
+                    }
+                }
+                if (error is CancellationException) throw error
             }
         }
     }
@@ -3343,7 +3357,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     conversationId = conversationId,
                     runId = summary.runId,
                 )
-                clearPendingApprovalForConversation(conversationId)
                 val answerPersistenceJob = saveConversationSelection()
                 publishAgentAnswerabilityShadow(
                     persistenceJob = answerPersistenceJob,
@@ -3374,7 +3387,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
-                clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } catch (error: Throwable) {
                 settleWorkflowLedger(
@@ -3397,10 +3409,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryModel = preparedContext.summaryModel,
                     )
                     .copy(sendingMessage = false, result = null)
-                clearPendingApprovalForConversation(conversationId)
                 saveConversationSelection()
             } finally {
-                pendingApprovalDecision = null
                 sendMessageJob = null
                 if (retryOfRunId != null) {
                     uiState = uiState.copy(retryingAgentRunId = null)
@@ -3487,19 +3497,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 definition = definition,
             )
         }
-        val deferred = CompletableDeferred<ApprovalDecision>()
-        withContext(Dispatchers.Main.immediate) {
+        val ticket = withContext(Dispatchers.Main.immediate) {
             // long: 审批请求是 Agent 从“模型建议”进入“真实执行”的安全闸口，UI 只展示 Runtime 已校验过的工具定义和参数，不接受模型自称的风险等级。
-            pendingApprovalDecision = deferred
+            val registered = agentApprovalDecisionCoordinator.register(
+                requestId = request.id,
+                conversationId = conversationId,
+            )
             rememberPendingApproval(AgentApprovalUiState.from(request))
+            registered
         }
         return try {
             // long: 审批是用户确认真实副作用的安全闸口，等待时间不等同于 Agent 执行耗时；这里不主动过期，避免用户阅读工具参数稍久就把任务误判失败。
-            deferred.await()
+            ticket.awaitDecision()
         } finally {
             val unresolvedStatus = when {
-                deferred.isCancelled -> ApprovalRequestStatus.CANCELLED
-                !deferred.isCompleted -> ApprovalRequestStatus.CANCELLED
+                ticket.isCancelled -> ApprovalRequestStatus.CANCELLED
+                !ticket.isCompleted -> ApprovalRequestStatus.CANCELLED
                 else -> null
             }
             if (unresolvedStatus != null) {
@@ -3512,9 +3525,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 }
             }
             withContext(NonCancellable + Dispatchers.Main.immediate) {
-                if (pendingApprovalDecision === deferred) {
-                    pendingApprovalDecision = null
-                    clearPendingApprovalForConversation(conversationId)
+                if (agentApprovalDecisionCoordinator.clear(ticket)) {
+                    clearPendingApprovalForConversation(ticket.conversationId)
                 }
             }
         }

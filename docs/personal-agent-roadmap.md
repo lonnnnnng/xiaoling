@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 横向工程：Agent 审批决策协调迁出（完成）
+
+`XiaoLingViewModel` 原先直接持有的全局 `pendingApprovalDecision` 已迁入纯内存 `AgentApprovalDecisionCoordinator`。每次审批使用独立 ticket，匹配当前 `requestId` 的首次按钮操作才能领取 claim；重复点击、过期 UI 和旧 claim 不再并发写 Room。Room 成功后才完成 waiter，异常会释放 claim 并恢复可重试审批卡片，Repository 返回 `null` 时取消 waiter；停止生成同时取消当前 ticket，使迟到持久化结果无法继续放行工具。旧 ticket 的完成、释放和清理均通过身份比较隔离，不会误伤后来注册的新审批。
+
+协调器不写 Room、不判断工具风险、不维护 Run/Workflow、不投影 Compose，也不处理进程恢复后的审批；这些职责继续留在 Repository、Runtime 和 ViewModel 原边界。五轮 TDD 聚焦 `5/5`，完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`，Debug/Release/AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `48.776s` 通过；7 份长期文档语料为 `OK (1 test)`。本轮不产生 Shadow 样本，不扩大设备工具、Workflow/后台、精确定时或 Foreground Service 能力，第 101 项继续低频观察，第 102 项保持后置。
+
 ## 横向工程：会话级 Agent 运行态 Store 迁出（完成）
 
 `XiaoLingViewModel` 原先维护的 Run/Approval 两张会话 Map 已迁入纯内存 `AgentConversationRuntimeStateStore`。Store 统一同会话替换、审批 `deciding` 更新、只清审批、删除会话整组清理、新建占位不恢复和启动明细重建后的目标会话投影；ViewModel 继续负责 Compose 状态、Room 审批决策、Run history 与真正 Agent 执行。该切片把运行态生命周期从 `4408` 行 ViewModel 中抽离后降至 `4404` 行，没有改变 Room v32、Provider、Runtime、工具审批/验证、Workflow 或设备后台门禁。

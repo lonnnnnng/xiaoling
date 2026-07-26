@@ -2,6 +2,17 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 Agent 审批决策协调迁出（横向可靠性工程）
+
+- 实现边界：新增纯内存 `AgentApprovalDecisionCoordinator`，以独立 ticket/claim 管理审批 waiter；匹配 `requestId` 的首次操作才取得决策权。Room 成功后才完成 waiter；异常释放 claim 并恢复 `deciding=false`，Repository 返回 `null` 时取消 waiter；停止生成和新 ticket 注册都会取消旧 waiter，旧 ticket 不能完成或清理新审批。
+- 保持边界：协调器不写 Room、不判断风险、不持有 Compose、Run、Workflow 或恢复后审批。Room 保持 v32，Provider、Agent Runtime、工具审批/验证、设备后台门禁、Shadow Store 与 enforcement 均未改变；没有采集或制造 Shadow 样本。
+- TDD 与完整 JVM：五轮 red-green 得到 `AgentApprovalDecisionCoordinatorTest` `5/5`；与会话运行态 Store、其他 Agent Coordinator 聚焦组合通过。强制完整 JVM XML 为 `624/624`，0 失败/错误/跳过。
+- Lint 与 APK：Lint XML 为 `0 error / 50 warnings / 1 hint`。Debug APK 为 `23,157,621` 字节，SHA-256 `da159b14f94b810d7972e644110e553d87ee6b0eb5c013796c949915e69c3de8`；Release APK 为 `15,918,038` 字节，SHA-256 `df72abccf778d99c25ac5ef84f876849bb9ebf9571cef6806d6ae8872c162504`；AndroidTest APK 构建成功，但不记录会因内嵌文档变化而递归变化的自身哈希。140 个 Gradle task 全部强制执行并成功，耗时 `1m46s`。
+- 双轴审查：Standards 发现关键完成/清理身份 guard 缺少贴近实现的 `long:` 中文 why 注释，并提示重复身份判断；Spec 发现停止或 Repository `null` 取消 ticket 后，在自身 `finally` 清理前仍可能再次领取。修复已让 `claim()` 拒绝已完成/取消 ticket、抽出当前 claim 判断并补齐注释；新增回归断言先稳定复现 `2` 个失败，再恢复 `5/5`，完整门禁均为修复后结果。
+- Redmi 完整门禁：只向 `wsvwypiz7xwslvl7` 覆盖安装 Debug/Test APK 并运行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `48.776s`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档与收尾：7 份长期文档同步后重新打包 AndroidTest assets；仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。回填本节后再以相同步骤最终复验，不记录递归变化的最后墙钟耗时。测试包已卸载，主应用恢复前台并完成状态检查。
+- 路线图边界：本次继续里程碑 0 的 ViewModel 横向可靠性收敛，不占用第 101 项低频 Shadow 窗口，不进入第 102 项，也不提前引入设备 Workflow/后台、精确定时或 Foreground Service。
+
 ## 2026-07-26 会话级 Agent 运行态 Store 迁出（横向可靠性工程）
 
 - 实现边界：新增纯内存 `AgentConversationRuntimeStateStore`，以 `conversationId` 保存最新 Run/Approval 投影；统一同会话替换、审批 `deciding` 更新、只清审批、删除会话整组清理、新建占位不恢复和启动恢复后的当前会话读取。`XiaoLingViewModel` 删除两张裸 Map，从 `4408` 行降至 `4404` 行。

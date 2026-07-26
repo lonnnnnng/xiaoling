@@ -1,5 +1,9 @@
 # `reference-apps` 个人 Agent 实现分析
 
+最新横向工程继续采用成熟 Agent 中“审批事实持久化”和“进程内等待协调”分离的原则。`AgentApprovalDecisionCoordinator` 只管理 ticket、一次性 claim 与 `CompletableDeferred`：重复点击不能并发写入，失败可释放后重试，停止或 Repository 无可决定记录时取消 waiter，旧 ticket 不能完成或清理新审批。Room 继续保存审批事实，ViewModel 继续投影 Compose 并执行 Repository 副作用，Runtime 只消费已经持久化成功的决定；没有复制第二套风险策略、Run/Workflow 状态或恢复逻辑。
+
+五轮 TDD 聚焦 `5/5`，完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `48.776s` 通过；7 份长期文档语料为 `OK (1 test)`。这个拆分提高审批并发与失败边界的确定性，但不构成设备工具扩权、Workflow/后台接线、Shadow 持久化或第 102 项能力。
+
 最新横向工程继续采用参考实现中“按会话保存运行态、UI 只投影当前会话”的原则，但没有把完整 Agent Runtime 复制进 ViewModel。纯内存 `AgentConversationRuntimeStateStore` 统一 Run/Approval 的替换、审批局部清理、删除会话整组清理、新建占位隔离与启动恢复投影；ViewModel 仍负责 Room、Compose 和执行宿主副作用。这样后台 Run 更新不会串到当前会话，审批收敛也不会误删 Run，同时没有新增跨进程状态或第二套审批事实源。
 
 五轮 TDD 聚焦 `5/5`，完整 JVM `619/619`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 与仅 Redmi 默认完整 `OK (195 tests)`、耗时 `50.018s` 通过。这个拆分只降低 ViewModel 的运行态耦合，不构成设备工具进入 Workflow/后台、任意 App 控制、Shadow 持久化或第 102 项扩权。

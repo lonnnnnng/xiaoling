@@ -1,5 +1,13 @@
 # 产品需求
 
+## Agent 审批决策协调边界（横向可靠性工程）
+
+前台直接 Agent 和前台 Workflow 的进程内审批等待必须由单一 `AgentApprovalDecisionCoordinator` 管理。每次 Repository 创建审批后注册携带 `requestId + conversationId` 的独立 ticket；注册新 ticket 必须取消旧 waiter。用户批准或拒绝时只有匹配当前 `requestId` 的首次调用能领取 claim，连续点击、批准/拒绝交叉调用、过期 UI 和旧 claim 均不得启动第二次 Room 写入。
+
+Room `decideApprovalRequest()` 成功返回后才能完成 waiter 并让 Runtime 继续。写入抛异常时必须只释放当前 claim、把同一审批投影恢复为 `deciding=false` 并显示可重试错误；Repository 因 Run 已终止、请求已处理或记录不存在返回 `null` 时必须取消 waiter，不得把未持久化的批准交给工具执行。停止生成必须取消当前 ticket 并使已领取 claim 失效；旧 ticket 的完成、释放和 `finally` 清理不得清除或完成后来注册的新审批。
+
+协调器只能拥有进程内 ticket、claim 与 `CompletableDeferred`，不得写 Room、决定风险/策略、维护 Run/Workflow、投影 Compose 或恢复进程后的审批。Room v32 继续是审批事实源，`XiaoLingViewModel` 继续执行 Repository 写入、UI 错误呈现和宿主副作用。验收必须覆盖一次性领取、失败释放后重试、替换时旧 waiter 取消、停止取消、过期 ticket 隔离和 Repository 无可决定记录时 fail-closed。当前结果为聚焦 `5/5`、完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`、三类 APK 成功、仅 Redmi 默认完整 `OK (195 tests)`；7 份长期文档语料为 `OK (1 test)`。本切片不采集 Shadow 样本，不改变第 101/102 项边界。
+
 ## 会话级 Agent 运行态 Store 边界（横向可靠性工程）
 
 进程内 Agent UI 运行态必须以 `conversationId` 为唯一归属，同时保存该会话最新 Run 和待审批投影。新 Run 只能替换同会话旧 Run；审批从等待进入 `deciding` 只能替换同会话审批，不得影响 Run 或其他会话。审批批准、拒绝或取消后只清除审批，Run 必须继续保留；删除会话时必须在新会话投影前同时清除该会话 Run 与审批。

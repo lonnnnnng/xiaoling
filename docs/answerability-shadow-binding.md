@@ -2,6 +2,8 @@
 
 ## 当前横向工程边界
 
+第 101 项持续观察期间新增的 `AgentApprovalDecisionCoordinator` 只收敛前台 Agent/Workflow 的进程内审批 waiter：独立 ticket、一次性 claim、写入失败释放、停止/过期取消与旧 ticket 身份隔离。它不读取或保存 answerability measurement、notice、候选正文、引用或成本，也不参与 Judge eligibility、Provider 请求、绑定、重试或 enforcement；Room 仍是审批事实源。该横向工程没有形成新的 Shadow 样本，不改变 `store=null / persistenceMode=NONE`、第 97 至 101 项人工合计或第 102 项后置边界。
+
 第 101 项持续观察期间新增的 `AgentConversationRuntimeStateStore` 只收敛会话级 Run/Approval 的进程内 UI 运行态：按会话替换 Run 和审批、只清审批、删除会话时清理整组状态，并在新建占位会话时禁止恢复旧投影。它不保存 answerability measurement、notice、候选正文或成本，不改变 `store=null / persistenceMode=NONE`，也不参与 Judge eligibility、绑定、重试、引用呈现或 enforcement。该横向拆分没有产生新的 Shadow 样本；第 97 至 101 项人工合计与第 102 项后置边界保持不变。
 
 ## 目的

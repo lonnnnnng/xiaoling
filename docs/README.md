@@ -1,5 +1,9 @@
 # 文档索引
 
+最新横向可靠性工程已把 `XiaoLingViewModel` 中单个全局 `pendingApprovalDecision` 的生命周期迁入纯内存 `AgentApprovalDecisionCoordinator`。每个审批注册独立 ticket；只有匹配 `requestId` 的首次操作能领取 claim，重复点击和过期 claim 均被拒绝。Room 写入成功后才完成 waiter；异常会释放 claim、恢复 `deciding=false` 供用户重试，Repository 返回 `null` 时取消 waiter，禁止未持久化的批准继续执行工具。停止生成会取消当前 ticket，旧 ticket 的完成、释放或 `finally` 清理都不能影响新审批。协调器不写 Room、不判断风险、不持有 Compose、Run、Workflow 或恢复后审批；Room v32、Agent Runtime、工具策略、后台边界和 answerability Shadow 均未改变。
+
+五轮 TDD 聚焦 `5/5`，完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`，Debug、Release、AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `48.776s` 已通过。Debug APK 为 `23,157,621` 字节、SHA-256 `da159b14f94b810d7972e644110e553d87ee6b0eb5c013796c949915e69c3de8`；Release APK 为 `15,918,038` 字节、SHA-256 `df72abccf778d99c25ac5ef84f876849bb9ebf9571cef6806d6ae8872c162504`。更新后的 7 份长期文档已重新打入 AndroidTest assets，并在 Redmi 通过项目文档语料门禁 `OK (1 test)`。本轮没有采集 Shadow 样本，第 101 项继续低频观察，第 102 项保持后置。
+
 最新横向工程已把 `XiaoLingViewModel` 中按会话维护的 Agent Run/Approval 两张运行态 Map 迁入纯内存 `AgentConversationRuntimeStateStore`。Store 统一按会话记住和替换 Run、更新 `deciding` 审批、只清审批而保留 Run、删除会话时清理整组状态，并支持新建占位会话显式不恢复旧投影；ViewModel 只在会话切换、启动恢复、snapshot 发布和审批收敛时消费该公开接口。`CompletableDeferred`、Room 审批写入、Run history、Agent Runtime、工具权限与 Workflow 均保持原语义，ViewModel 从 `4408` 行降至 `4404` 行。五轮 TDD 聚焦 `5/5`，完整 JVM `619/619`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `50.018s` 已通过。该拆分没有采集 Shadow 样本，也不提前进入第 102 项。
 
 更新后的 7 份长期文档已重新打入 AndroidTest assets，并在 Redmi 通过项目文档语料门禁 `OK (1 test)`。
