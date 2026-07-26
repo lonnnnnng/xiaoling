@@ -84,6 +84,26 @@ class XiaoLingNavigationInstrumentedTest {
         composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
     }
 
+    @Test
+    fun agentSkillPageUsesHostBackAndKeepsBottomBarHidden() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("bottom_tab_settings").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("bottom_tab_settings").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Agent Skills").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("Agent Skills").performClick()
+        composeRule.onNodeWithText("导入 JSON").assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertDoesNotExist()
+
+        // long: Skill 页面只发起管理动作；系统返回和底栏恢复仍由应用壳统一处理，不能被文件选择或列表首刷接管。
+        pressSystemBack()
+        composeRule.onNodeWithText("模型提供方管理").assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
+    }
+
     private fun pressSystemBack() {
         composeRule.runOnUiThread {
             composeRule.activity.onBackPressedDispatcher.onBackPressed()

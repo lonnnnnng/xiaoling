@@ -76,12 +76,22 @@
 - 本地完整门禁：强制重跑 `140/140` tasks，完整 JVM `670/670`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug/Release APK 分别为 `23,305,195 / 15,999,958` 字节，SHA-256 分别为 `9cce542e7e2e1bdb8c4801e7566942110e4e6713aa0dd5515e1079755c619fb8 / 39e69ece1c7d9da5afa235e054028ff37e2576034dac32978fe3ab06cf1fedf6`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
 - Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。Agent Profile 页面 Compose 聚焦为 `OK (3 tests)`，真实宿主返回与底栏为 `OK (1 test)`；最终默认完整 `AndroidJUnitRunner` 的 Gradle 控制台为 `Finished 220 tests`、`BUILD SUCCESSFUL in 1m 22s`。JUnit XML 精确记录 `208` 条（`196 passed / 12 skipped / 0 failed`），执行时间 `69.14s`；控制台与 XML 的差异来自 skipped 用例统计口径，不代表隐藏失败。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
-- 保持边界：Room v32、Agent Runtime、Workflow Ledger、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent Skill 管理垂直 UI。
+- 保持边界：Room v32、Agent Runtime、Workflow Ledger、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。后继 Agent Skill 管理见下一节。
+
+## 2026-07-27 Agent Skill 管理垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `AgentSkillManagementUiState`、按稳定 Skill ID 绑定操作资格并投影工具依赖/最近 Run 选择审计的 `AgentSkillManagementProjection`，以及五项动作组成的 `AgentSkillManagementActions`。列表、首刷、展开、启停、请求导入/删除、依赖可用性和最近三条 Skill 版本/Run 终态迁入 `ui/agentskill`；损坏旧 `skill.selected` 事件保守忽略。
+- 宿主边界：应用壳只投影 Skill、Tool Registry 与最近 Run 历史，通过动作适配器保留 Android 文件选择器，并继续持有本地 Skill 删除确认、设置返回和底栏显隐；ViewModel 保留真实 Room 刷新、启停和删除副作用。Skill JSON 校验、Runtime 选择/审计写入和 Agent Profile 白名单语义不变。
+- 结构结果：`XiaoLingApp.kt` 从 Agent Profile 阶段的 `3,631` 行降到 `3,480` 行；`AgentSkillManagementContract.kt / AgentSkillManagementPage.kt` 分别为 `126 / 295` 行。双轴 review 从 `adf00bd` 固定点执行并经复审：删除未消费的 mutating 原始字段，补齐工具依赖与 Run 审计 projection，把导入请求收口进 Actions，并移除 ViewModel 审计刷新透传；跨 source set 的小型测试 fixture 重复因提取成本高于收益而保留。
+- 本地完整门禁：强制重跑 `140/140` tasks，完整 JVM `673/673`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug/Release APK 分别为 `23,321,579 / 15,999,958` 字节，SHA-256 分别为 `cbb7f0e00d7597d288502727fb18fac3db6d2989292451959fff2b459bf10289 / f9862caff455ad8385d7c3a69a152b16a593370c8b716251a4a94a2729a34885`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。Projection JVM 为 `3/3`，页面动作/稳定展开 Compose 聚焦为 `OK (2 tests)`，真实宿主返回/底栏为 `OK (1 test)`；覆盖安装最新 Debug/Test APK 后，默认完整 `AndroidJUnitRunner` 为 `OK (211 tests)`、耗时 `70.952s`。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：Room v32、Skill 导入/持久化、Runtime 选择与历史审计、旧 Run、Agent Profile、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。下一轮从 `XiaoLingApp.kt` 剩余 `3,480` 行重新盘点完整垂直簇。
 
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理和 Agent Profile 管理已分别拥有 `ui/navigation`、`ui/workflow`、`ui/agenttask`、`ui/memory`、`ui/provider` 与 `ui/agentprofile` 垂直边界；当前下一项是 Agent Skill 管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理和 Agent Skill 管理已分别拥有独立 UI 垂直边界；下一轮从宿主剩余 `3,480` 行重新盘点完整状态/动作簇，而不是继续扩张 Agent Runtime 或设备权限。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
