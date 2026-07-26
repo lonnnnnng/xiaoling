@@ -122,6 +122,7 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -420,7 +421,9 @@ data class AgentMemoryEditUiState(
     val confidence: Double,
 )
 
-class XiaoLingViewModel(application: Application) : AndroidViewModel(application), WorkflowManagementActions {
+class XiaoLingViewModel(application: Application) : AndroidViewModel(application),
+    WorkflowManagementActions,
+    AgentTaskCenterActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1215,7 +1218,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob?.cancel()
     }
 
-    fun refreshAgentRunHistory() {
+    override fun refreshAgentRunHistory() {
         if (uiState.loadingAgentRunHistory) return
         uiState = uiState.copy(loadingAgentRunHistory = true, agentRunHistoryError = null)
         viewModelScope.launch {
@@ -1242,7 +1245,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun selectAgentRun(runId: String) {
+    override fun selectAgentRun(runId: String) {
         if (uiState.agentRunHistory.none { it.snapshot.run.id == runId }) return
         uiState = uiState.copy(selectedAgentRunId = runId)
     }
@@ -2484,7 +2487,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun requestAgentRunRetry(runId: String) {
+    override fun requestAgentRunRetry(runId: String) {
         agentRunRetryCoordinator.request(
             runId = runId,
             runHistory = uiState.agentRunHistory,

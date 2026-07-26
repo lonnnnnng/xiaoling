@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-26（北京时间）
+验证日期：2026-07-27（北京时间）
 
 ## 当前验证基线
 
@@ -35,11 +35,23 @@
 - 结构结果：`XiaoLingApp.kt` 从导航阶段的 `6,925` 行降到 `6,217` 行。新模块拥有页面局部的新建、编辑、调度和展开状态，Compose 不再自行过滤 Run/Task/Schedule 或解码步骤快照。
 - 本地完整门禁：强制重跑 `140/140` tasks，review 修复后完整回归为 JVM `664/664`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。最终 Debug/Release APK 分别为 `24,228,509 / 15,967,190` 字节；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录会被文档自身改写的包大小。
 - Redmi 门禁：只使用 `wsvwypiz7xwslvl7`，新增 fake actions Workflow Compose 单项为 `OK (1 test)`；默认完整 `AndroidJUnitRunner` 为 `OK (198 tests)`、耗时 `51.74s`；更新后的当前 README/docs 重新打包后，最终文档语料单项为 `OK (1 test)`。在线模拟器没有接收 ADB 设备命令。
-- 保持边界：Room v32、Workflow 执行/调度/停止/恢复语义、Provider、Agent Runtime、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent 任务中心垂直 UI module。
+- 保持边界：Room v32、Workflow 执行/调度/停止/恢复语义、Provider、Agent Runtime、设备工具、answerability shadow 和第 101/102 项状态均未改变。后继 Agent 任务中心切片见下一节。
+
+## 2026-07-27 Agent 任务中心垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `AgentTaskCenterUiState`、按稳定 Run ID 绑定 selected/retrying 的 `AgentTaskCenterProjection` 和三项动作组成的 `AgentTaskCenterActions`。筛选、首刷、历史指标、Run 卡片、选中详情、Ledger-first 工具明细、双源一致性、恢复处置、步骤、审批和事件呈现迁入 `ui/agenttask`，页面不再接收整份 `XiaoLingUiState` 或具体 ViewModel。
+- 宿主边界：应用壳只投影 loading、error、history、selected 和 retrying，并提供设置返回；`XiaoLingViewModel` 实现刷新、选择和请求重试。全局 Agent Run 重试确认及成功后回来源会话的导航继续属于宿主，Repository、`AgentRunRetryCoordinator`、Runtime 和旧 Run 语义不变。
+- 共享呈现：对话 Run 时间线和任务中心共用 `AgentRunUiPrimitives.kt` 的状态徽标、Step 行和中文状态文案，不复制同一业务状态的颜色与结论文案。
+- 结构结果：`XiaoLingApp.kt` 从 Workflow 阶段的 `6,217` 行降到 `5,176` 行；`AgentTaskCenterPage.kt / AgentTaskCenterContract.kt / AgentRunUiPrimitives.kt` 分别为 `1,045 / 47 / 175` 行。双轴 review 从 `d232bbc` 固定点执行；Spec 轴发现设置入口仍提前刷新，修复后空列表首刷真正由页面持有，Standards 轴无硬性违规。页面边界通过专用 projection 和 actions interface 收口，不是仅移动私有 Composable。
+- 本地完整门禁：review 修复后强制重跑 `140/140` tasks，完整 JVM `665/665`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug APK 为 `23,239,600` 字节、SHA-256 `f5210905d08774f6927a4a3ef59f36f7f18253b1678ff3a00da84b87c6bad8ee`；Release APK 为 `15,967,190` 字节、SHA-256 `b36f50f8466db3254040eb5165cee549ae4e705a7b2322e5ab9caffce3bd3ba7`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。新增页面动作路由、筛选和恢复处置 Compose 聚焦为 `OK (3 tests)`；review 修复后覆盖安装最新 Debug/Test APK，默认完整 `AndroidJUnitRunner` 为 `OK (199 tests)`、耗时 `52.659s`。在线模拟器没有接收 ADB 设备命令。
+- 文档门禁：四份长期文档完成同步后重新构建 AndroidTest APK，并在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：Room v32、任务筛选/指标、重试证据和关联新 Run 行为、Provider、Agent Runtime、Workflow、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程优先迁出长期记忆管理主体，Provider 管理随后处理。
 
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
+- 应用导航、Workflow 管理和 Agent 任务中心已分别拥有 `ui/navigation`、`ui/workflow` 与 `ui/agenttask` 垂直边界；当前下一项是长期记忆管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

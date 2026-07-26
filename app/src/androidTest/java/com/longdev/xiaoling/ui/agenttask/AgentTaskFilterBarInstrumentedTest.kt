@@ -1,9 +1,10 @@
-package com.longdev.xiaoling.ui
+package com.longdev.xiaoling.ui.agenttask
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.longdev.xiaoling.ui.AgentTaskFilter
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

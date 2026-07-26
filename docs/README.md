@@ -4,9 +4,11 @@
 
 当前发布基线为 `v0.1.12`（`versionCode 13`）。本版汇总 `v0.1.11` 之后第 75 至 101 阶段与横向可靠性工程：Responses 图片/文档附件、Android 单项分享草稿、Embedding 索引与相关性证据、默认关闭的 answerability shadow，以及 Agent Run 重试、会话运行态、审批、恢复审批、候选记忆、Provider 同步和启动前校验协调器。发布门禁为 Gradle `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、zipalign 和 v2 正式签名；仅 Redmi 默认完整 `196` 条为 `184 passed / 12 skipped / 0 failed`、耗时 `48.514s`。Release APK 为 `15,950,806` 字节，SHA-256 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`。
 
-最新横向结构工程已完成验证报告归档、应用导航宿主和 Workflow 管理垂直 UI 迁出。`ui/workflow` 通过专用 projection 统一聚合定义、Run、ScheduledTask 与周期规则，通过 actions interface 隔离具体 ViewModel，并自己持有新建、编辑、调度和展开状态；应用壳只保留字段投影、通知权限、导航与全局重试确认。`XiaoLingApp.kt` 从 `7,018` 行分两步降到 `6,217` 行。
+最新横向结构工程已完成验证报告归档、应用导航宿主、Workflow 管理和 Agent 任务中心垂直 UI 迁出。`ui/workflow` 统一聚合定义、Run、ScheduledTask 与周期规则；`ui/agenttask` 统一投影 Run 历史、稳定选中/重试状态、筛选、指标、卡片、详情、Ledger 一致性与恢复诊断。两个页面都通过窄 actions interface 隔离具体 ViewModel，应用壳只保留字段投影、导航、权限和全局重试确认。`XiaoLingApp.kt` 从 `7,018` 行分三步降到 `5,176` 行。
 
-Workflow module 聚焦 JVM `2/2` 和 Redmi Compose `OK (1 test)` 通过；强制本地门禁为 `140/140` tasks、JVM `664/664`、Lint `0 error / 50 warnings / 0 information`、Debug/AndroidTest/Release APK 与 Release lintVital 成功，仅 Redmi 默认完整 instrumentation 为 `OK (198 tests)`、耗时 `51.74s`，最终文档语料单项为 `OK (1 test)`。Room v32 与 Workflow、设备后台、Shadow 和第 101/102 项业务边界不变；下一项横向结构工程为 Agent 任务中心垂直 UI module。
+Agent 任务中心 module 只暴露刷新、选择和请求重试三项动作；筛选状态、首刷、指标、Run 卡片与完整详情由页面自己持有，设置入口不再提前触发 Room 刷新。对话时间线与任务中心共享 `AgentRunUiPrimitives.kt` 中的 Run 状态徽标、Step 行和中文状态文案，避免同一 Run 在两个入口出现不同结论。Projection JVM `1/1`、仅 Redmi 的动作路由/筛选/恢复处置 Compose `3/3`、强制本地 `140/140` tasks、JVM `665/665`、Lint `0 error / 50 warnings / 0 information` 和三类 APK 均已通过；仅 Redmi 默认完整 instrumentation 为 `OK (199 tests)`、耗时 `52.659s`。最终文档重新打入 AndroidTest APK 后，语料门禁为 `OK (1 test)`。
+
+Workflow module 聚焦 JVM `2/2` 和 Redmi Compose `OK (1 test)` 通过；强制本地门禁为 `140/140` tasks、JVM `664/664`、Lint `0 error / 50 warnings / 0 information`、Debug/AndroidTest/Release APK 与 Release lintVital 成功，仅 Redmi 默认完整 instrumentation 为 `OK (198 tests)`、耗时 `51.74s`，最终文档语料单项为 `OK (1 test)`。Room v32 与 Workflow、设备后台、Shadow 和第 101/102 项业务边界不变；其后继 Agent 任务中心切片已由上段完成。
 
 最新横向可靠性工程把五类 Agent 启动前校验从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`：普通 `/agent` 允许当前会话不存在，Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批均要求指定会话仍存在；会话失败继续优先于 Profile、未注册工具和 Provider 错误。普通、Workflow 与两类重试继续使用当前选中 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 没有有效快照时才回退当前 Profile。
 
