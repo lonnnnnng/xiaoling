@@ -1,5 +1,13 @@
 # 产品需求
 
+## 第 101 项 answerability Shadow 持续观察边界
+
+第 101 项是跨真实使用窗口的持续观察，不是一次性完成阶段。每个窗口只能在用户显式开启、同一应用进程、前台直接 `/agent`、答案成功保存且存在冻结知识候选时采样；不得在同一窗口堆样本，也不得断网、篡改认证或伪造协议错误制造自然失败。词法兜底必须如实记录，不得当作 Embedding 质量证据。
+
+首个已记录窗口仅取得 `1` 条完成样本：词法查询 `Agent Run retryOfRunId` 命中 `3` 个候选，Judge 形成直接回答；样本、完成和 Judge attempt 均为 `1`，取消、异常、未知、跳过及旁路错误均为 `0`。成本为耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、Tokens `2720/209/2929`、usage attempts `1`。关闭开关并删除测试会话后，notice 必须从有效 `1 / 裁剪 0` 变为有效 `0 / 裁剪 1` 且累计成本不回退；临时知识文档和下载文件必须删除，知识文档恢复为 `0`。
+
+第 97 至 101 项已记录窗口只允许按阶段报告人工合计：样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`；成本 `43846ms / 43777ms / 66995B / 17164+1822=18986 Tokens`。不得把该合计表述为跨进程 tracker 或 Room 持久化。八次 Judge 均未出现自然网络、协议或认证失败，也没有明显成本异常，因此继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；不得提前进入第 102 项。文档同步后必须通过强制 JVM `614/614`、Lint `0 error`、Debug/AndroidTest APK、仅 Redmi 文档语料 `OK (1 test)` 与默认完整 `OK (195 tests)`。
+
 ## Agent Run 关联重试协调边界（横向可靠性工程）
 
 失败、取消、阻塞或预算耗尽 Run 的关联重试必须继续使用 `AgentTaskRetryPolicy` 作为唯一资格与副作用证据来源。已有发送或重试正在进行、来源 Run 不存在、Run 已不再可重试时必须给出稳定失败事件；需要确认的 Run 必须冻结弹窗打开时的证据码和 canonical fingerprint。用户确认时必须重新读取当前 Run 详情并核对状态、证据码和指纹，即使分类仍相同，只要账本、Receipt、工具调用或验证证据漂移，也必须刷新确认并要求再次批准，不得沿用旧授权继续执行。

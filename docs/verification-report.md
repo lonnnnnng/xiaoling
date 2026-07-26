@@ -2,6 +2,18 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 answerability Shadow 首个持续观察窗口（第 101 项，继续观察）
+
+- 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`，只在同一应用进程、前台直接 `/agent` 且用户显式开启 Shadow 后采集 `1` 条真实样本；没有断网、修改认证或伪造协议失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
+- Provider 与知识条件：通过正式 `ProviderRepository` 与 Keystore 恢复 `redmi-provider-compatibility / gpt-5.5`，当前默认 Agent Profile 绑定显示为 `Redmi 兼容验收 · gpt-5.5`。导入当前 README 后得到 revision `1`、`8` 个 chunks、`17.6 KB`；检索预览 `Agent Run retryOfRunId` 返回 `3` 个候选，并明确显示 `Embedding：Provider 不可用，词法兜底`，因此本窗口不能作为 Embedding 质量证据。
+- 真实 Run：请求 `/agent Use local knowledge with query Agent Run retryOfRunId and explain what happens to the old Run` 于 `10:15:53` 开始、`10:16:04` 完成。模型实际选择并完成 `knowledge.search`，工具参数校验、执行和执行后验证均完成；UI 显示“已完成”“本地知识包含直接回答”和 `知识引用 · 3`。
+- 本窗口摘要：样本 `1`、完成 `1`、未知 `0`、跳过 `0`；Judge 尝试 `1`、取消 `0`、异常 `0`，答案保存失败、Shadow Store 失败、绑定未知、身份不匹配、来源不支持和无候选均为 `0`。耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、输入/输出/总 Tokens `2720/209/2929`、usage attempts `1`。
+- 生命周期与清理：notice 发布 `1`。关闭 Shadow 并删除测试会话后，样本与成本不回退，notice 从有效 `1 / 裁剪 0` 变为有效 `0 / 裁剪 1`。临时知识文档已删除，知识库恢复文档 `0`；`/sdcard/Download/stage101-lingce-readme.md` 已按精确路径删除并复核不存在；偏好为 `answerability_shadow_enabled=false`。
+- 跨窗口汇总：第 97 至 101 项已记录窗口人工合计样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`；累计耗时 `43846ms`、TTFB `43777ms`、Prompt `66995B`、Tokens `17164/1822/18986`、usage attempts `8`。该合计来自阶段报告相加，不是跨进程 tracker 或 Room 数据。
+- 完整门禁：强制重跑 `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`，88 个 task 全部执行并成功。JVM XML 为 `614/614`、0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings / 0 information`。Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`；AndroidTest APK 构建成功。覆盖安装到 Redmi 后，文档语料为 `OK (1 test)`、耗时 `1.731s`，默认完整 `AndroidJUnitRunner` 为 `OK (195 tests)`、耗时 `49.158s`。
+- 最终文档复验：回填本节门禁数字后强制重建 AndroidTest APK，覆盖安装并复跑同一文档语料，最终仍为 `OK (1 test)`。为避免验证结果本身触发递归打包，不记录最后一次墙钟耗时。
+- 结论：八次 Judge 仍没有自然网络、协议或认证失败，也没有明显成本异常。第 101 项保持持续低频观察，不增加 Room Store、Schema、跨进程 notice 或 enforcement，不进入第 102 项；继续固定 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。
+
 ## 2026-07-26 Agent Run 关联重试协调迁出（横向可靠性工程）
 
 - 实现边界：新增 `AgentRunRetryCoordinator`，统一重试资格、确认快照、确认时证据重核、原 USER 附件恢复和关联新 Run 请求；ViewModel 继续负责 Compose 状态、原会话/Profile/Provider 校验、导航和真正调用 `sendAgentRun`。旧 Run 不修改，新请求固定携带 `retryOfRunId`。

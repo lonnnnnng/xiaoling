@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 第 101 项：answerability Shadow 首个持续观察窗口（验收完成，继续低频观察）
+
+- 本窗口不修改生产代码、Room Schema、Provider 协议、Shadow Store 或 enforcement；只在 Redmi `wsvwypiz7xwslvl7` 的同一进程中由用户显式开启，并采集一条前台直接 `/agent` 真实样本。
+- 当前 README 作为临时知识导入后形成 revision `1`、`8` 个 chunks、`17.6 KB`；查询 `Agent Run retryOfRunId` 返回 `3` 个候选，并明确显示 `Embedding：Provider 不可用，词法兜底`。真实 Run 完成 `knowledge.search`，答案显示“本地知识包含直接回答”和 `知识引用 · 3`。
+- 本进程 tracker 为样本 `1`、完成 `1`、未知 `0`、跳过 `0`；Judge 尝试 `1`、取消 `0`、异常 `0`，答案保存失败、Shadow Store 失败、绑定未知及其他旁路错误均为 `0`。成本为耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、输入/输出/总 Tokens `2720/209/2929`、usage attempts `1`。
+- notice 发布 `1`。关闭 Shadow 并删除测试会话后，有效 notice `1 -> 0`、裁剪 `0 -> 1`，累计 tracker 与成本不回退；临时知识文档和 Redmi 下载文件均已删除，知识文档恢复为 `0`，偏好恢复 `answerability_shadow_enabled=false`。
+- 第 97 至 101 项已记录窗口的书面人工合计为样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`；成本 `43846ms / 43777ms / 66995B / 17164+1822=18986 Tokens`。该合计不是跨进程 tracker 或 Room 数据。
+- 八次 Judge 仍没有自然网络、协议或认证失败，也没有明显成本异常。继续保持 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项不标记为永久完成，第 102 项继续后置。
+- 强制完整本地门禁为 JVM `614/614`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug 与 AndroidTest APK 构建成功。Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`。Redmi 文档语料为 `OK (1 test)`；默认完整 `AndroidJUnitRunner` 为 `OK (195 tests)`、耗时 `49.158s`。
+
 ## Agent Run 关联重试协调迁出（横向可靠性工程）
 
 - 新增 `AgentRunRetryCoordinator`、`AgentRunRetryEvent` 与 `AgentRunRetryLaunchRequest`。`request()` 统一忙碌、来源缺失、不可重试和副作用确认分支；`confirm()` 重新读取当前详情，并以 `AgentTaskRetryPolicy.canConfirmRetry()` 同时核对证据码和 canonical fingerprint。
