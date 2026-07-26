@@ -20,6 +20,14 @@
 - Redmi 单项：只使用 `wsvwypiz7xwslvl7`。首次运行准确暴露旧固定断言 `expected:<5> but was:<6>`；修正后重新构建、安装并运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - 行为边界：本阶段只调整长期文档、AndroidTest 语料清单和质量门禁计数，不修改应用运行时、Room Schema、Provider、Agent、Workflow 或设备工具行为。
 
+## 2026-07-26 应用导航宿主迁出（横向结构工程）
+
+- 实现边界：新增纯 Kotlin `XiaoLingNavigationCoordinator`、Compose `XiaoLingNavigationController` 和独立底栏实现，统一类型化 Tab、14 个设置目标、知识文档跳转、五类跨域导航、返回优先级和严格两秒退出窗口。Android effect 仍由 `XiaoLingContent` 执行。
+- 保存兼容：Activity 重建仍只保存知识文档目标；Tab、设置子页和根返回时间按原行为重置。Provider 编辑器优先关闭，设置子页返回清除知识目标，根页面第一次返回只显示提示。
+- 结构结果：`XiaoLingApp.kt` 从 `7,018` 行降到 `6,925` 行；导航 module 的 controller interface 隐藏状态转换与 Compose 保存实现，没有引入页面级透传 wrapper。
+- 聚焦门禁：`XiaoLingNavigationCoordinatorTest` JVM `6/6`；Debug 与 AndroidTest APK 构建成功。只在 Redmi `wsvwypiz7xwslvl7` 运行新增 MainActivity 导航单项和既有知识引用跨域 E2E，两项分别为 `OK (1 test)`。未连接或操作 Pixel_9。
+- 保持边界：Room v32、Provider、Agent Runtime、Workflow Ledger、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Workflow 管理垂直 UI module。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。

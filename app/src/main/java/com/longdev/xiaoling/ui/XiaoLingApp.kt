@@ -183,6 +183,12 @@ import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.system.ProcessExitEvidenceKind
 import com.longdev.xiaoling.system.ProcessExitObservation
+import com.longdev.xiaoling.ui.navigation.XiaoLingAppTab
+import com.longdev.xiaoling.ui.navigation.XiaoLingBottomTabBar
+import com.longdev.xiaoling.ui.navigation.XiaoLingExternalNavigationTarget
+import com.longdev.xiaoling.ui.navigation.XiaoLingNavigationEffect
+import com.longdev.xiaoling.ui.navigation.XiaoLingSettingsPane as SettingsPane
+import com.longdev.xiaoling.ui.navigation.rememberXiaoLingNavigationController
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
 import com.journeyapps.barcodescanner.ScanContract
@@ -219,9 +225,7 @@ private fun XiaoLingContent(
     state: XiaoLingUiState,
     viewModel: XiaoLingViewModel,
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var settingsPane by remember { mutableStateOf(SettingsPane.ROOT) }
-    var requestedKnowledgeDocumentId by rememberSaveable { mutableStateOf<String?>(null) }
+    val navigation = rememberXiaoLingNavigationController()
     val context = LocalContext.current
     var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
@@ -243,65 +247,51 @@ private fun XiaoLingContent(
         ActivityResultContracts.RequestPermission(),
     ) { }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
-    val isProviderEditor = selectedTab == 1 && state.manageDraft != null
-    val isSettingsSubPage = selectedTab == 1 && settingsPane != SettingsPane.ROOT
-    val hideBottomBar = isProviderEditor || isSettingsSubPage
+    val isProviderEditor = navigation.tab == XiaoLingAppTab.SETTINGS && state.manageDraft != null
+    val hideBottomBar = navigation.hidesBottomBar(providerEditorOpen = isProviderEditor)
     val chatListState = rememberLazyListState()
     val chatScrollState = remember(chatListState) { ChatScrollState(chatListState) }
-    var lastRootBackAt by remember { mutableStateOf(0L) }
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
 
     LaunchedEffect(state.agentRetryNavigationConversationId) {
         val conversationId = state.agentRetryNavigationConversationId ?: return@LaunchedEffect
         // long: 任务中心可以重试任意历史会话；新 Run 启动后必须回到来源对话，用户才能看到重新触发的审批卡和实时步骤。
-        selectedTab = 0
-        settingsPane = SettingsPane.ROOT
+        navigation.routeExternal(XiaoLingExternalNavigationTarget.AGENT_RETRY)
         viewModel.consumeAgentRetryNavigation()
     }
 
     LaunchedEffect(state.workflowNavigationConversationId) {
         state.workflowNavigationConversationId ?: return@LaunchedEffect
-        selectedTab = 0
-        settingsPane = SettingsPane.ROOT
+        navigation.routeExternal(XiaoLingExternalNavigationTarget.WORKFLOW)
         viewModel.consumeWorkflowNavigation()
     }
 
     LaunchedEffect(state.memorySourceConversationNavigationId) {
         state.memorySourceConversationNavigationId ?: return@LaunchedEffect
-        selectedTab = 0
-        settingsPane = SettingsPane.ROOT
+        navigation.routeExternal(XiaoLingExternalNavigationTarget.MEMORY_CONVERSATION)
         viewModel.consumeMemorySourceConversationNavigation()
     }
 
     LaunchedEffect(state.memorySourceRunNavigationId) {
         state.memorySourceRunNavigationId ?: return@LaunchedEffect
-        selectedTab = 1
-        settingsPane = SettingsPane.AGENT_RUN_HISTORY
+        navigation.routeExternal(XiaoLingExternalNavigationTarget.MEMORY_RUN)
         viewModel.consumeMemorySourceRunNavigation()
     }
 
     LaunchedEffect(state.sharedDraftNavigationVersion) {
         if (state.sharedDraftNavigationVersion <= 0L) return@LaunchedEffect
-        selectedTab = 0
-        settingsPane = SettingsPane.ROOT
+        navigation.routeExternal(XiaoLingExternalNavigationTarget.SHARED_DRAFT)
     }
 
-    BackHandler(enabled = isProviderEditor) {
-        viewModel.closeProviderEditor()
-    }
-
-    BackHandler(enabled = !isProviderEditor && isSettingsSubPage) {
-        settingsPane = SettingsPane.ROOT
-        requestedKnowledgeDocumentId = null
-    }
-
-    BackHandler(enabled = !isProviderEditor && !isSettingsSubPage) {
-        val now = System.currentTimeMillis()
-        if (now - lastRootBackAt < 2_000) {
-            (context as? Activity)?.finish()
-        } else {
-            lastRootBackAt = now
-            centerNotice = CenterNotice("再返回一次退出应用")
+    BackHandler {
+        when (navigation.back(
+            providerEditorOpen = isProviderEditor,
+            nowMillis = System.currentTimeMillis(),
+        )) {
+            XiaoLingNavigationEffect.CLOSE_PROVIDER_EDITOR -> viewModel.closeProviderEditor()
+            XiaoLingNavigationEffect.SHOW_EXIT_NOTICE -> centerNotice = CenterNotice("再返回一次退出应用")
+            XiaoLingNavigationEffect.FINISH_ACTIVITY -> (context as? Activity)?.finish()
+            null -> Unit
         }
     }
 
@@ -328,9 +318,9 @@ private fun XiaoLingContent(
         Scaffold(
             bottomBar = {
                 if (!hideBottomBar) {
-                    CompactBottomTabBar(
-                        selectedTab = selectedTab,
-                        onSelected = { selectedTab = it },
+                    XiaoLingBottomTabBar(
+                        selectedTab = navigation.tab,
+                        onSelected = navigation::selectTab,
                     )
                 }
             },
@@ -346,7 +336,7 @@ private fun XiaoLingContent(
                     state = state,
                     viewModel = viewModel,
                     chatScrollState = chatScrollState,
-                    visible = selectedTab == 0,
+                    visible = navigation.tab == XiaoLingAppTab.CONVERSATION,
                     onAttachImage = {
                         attachImageLauncher.launch(arrayOf("image/png", "image/jpeg", "image/webp"))
                     },
@@ -354,48 +344,50 @@ private fun XiaoLingContent(
                         attachDocumentLauncher.launch(DocumentAttachmentPolicy.pickerMimeTypes())
                     },
                     onOpenKnowledgeDocument = { documentId ->
-                        requestedKnowledgeDocumentId = documentId
-                        selectedTab = 1
-                        settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT
+                        navigation.openKnowledgeDocument(documentId)
                     },
                     modifier = Modifier.matchParentSize(),
                 )
 
-                if (selectedTab == 1) {
+                if (navigation.tab == XiaoLingAppTab.SETTINGS) {
                     SettingsPage(
                         state = state,
                         viewModel = viewModel,
-                        pane = settingsPane,
-                        onOpenProviderManagement = { settingsPane = SettingsPane.PROVIDER_MANAGEMENT },
-                        onOpenNetworkRequest = { settingsPane = SettingsPane.NETWORK_REQUEST },
-                        onOpenPromptSettings = { settingsPane = SettingsPane.PROMPT_SETTINGS },
-                        onOpenAgentProfileManagement = { settingsPane = SettingsPane.AGENT_PROFILE_MANAGEMENT },
-                        onOpenDeviceAgent = { settingsPane = SettingsPane.DEVICE_AGENT },
-                        onOpenAnswerabilityShadow = { settingsPane = SettingsPane.ANSWERABILITY_SHADOW },
+                        pane = navigation.settingsPane,
+                        onOpenProviderManagement = { navigation.openSettingsPane(SettingsPane.PROVIDER_MANAGEMENT) },
+                        onOpenNetworkRequest = { navigation.openSettingsPane(SettingsPane.NETWORK_REQUEST) },
+                        onOpenPromptSettings = { navigation.openSettingsPane(SettingsPane.PROMPT_SETTINGS) },
+                        onOpenAgentProfileManagement = { navigation.openSettingsPane(SettingsPane.AGENT_PROFILE_MANAGEMENT) },
+                        onOpenDeviceAgent = { navigation.openSettingsPane(SettingsPane.DEVICE_AGENT) },
+                        onOpenAnswerabilityShadow = { navigation.openSettingsPane(SettingsPane.ANSWERABILITY_SHADOW) },
                         onOpenMemoryManagement = {
                             viewModel.refreshMemories()
-                            settingsPane = SettingsPane.MEMORY_MANAGEMENT
+                            navigation.openSettingsPane(SettingsPane.MEMORY_MANAGEMENT)
                         },
                         onOpenKnowledgeManagement = {
-                            requestedKnowledgeDocumentId = null
-                            settingsPane = SettingsPane.KNOWLEDGE_MANAGEMENT
+                            navigation.openSettingsPane(
+                                pane = SettingsPane.KNOWLEDGE_MANAGEMENT,
+                                requestedKnowledgeDocumentId = null,
+                            )
                         },
-                        onOpenKnowledgeRelevanceRollout = { settingsPane = SettingsPane.KNOWLEDGE_RELEVANCE_ROLLOUT },
+                        onOpenKnowledgeRelevanceRollout = {
+                            navigation.openSettingsPane(SettingsPane.KNOWLEDGE_RELEVANCE_ROLLOUT)
+                        },
                         onOpenSkillManagement = {
                             viewModel.refreshSkills()
-                            settingsPane = SettingsPane.SKILL_MANAGEMENT
+                            navigation.openSettingsPane(SettingsPane.SKILL_MANAGEMENT)
                         },
                         onOpenWorkflowManagement = {
                             viewModel.refreshWorkflows()
-                            settingsPane = SettingsPane.WORKFLOW_MANAGEMENT
+                            navigation.openSettingsPane(SettingsPane.WORKFLOW_MANAGEMENT)
                         },
                         onOpenAgentRunHistory = {
                             viewModel.refreshAgentRunHistory()
-                            settingsPane = SettingsPane.AGENT_RUN_HISTORY
+                            navigation.openSettingsPane(SettingsPane.AGENT_RUN_HISTORY)
                         },
                         onOpenProcessExitObservations = {
                             viewModel.refreshProcessExitObservations()
-                            settingsPane = SettingsPane.PROCESS_EXIT_OBSERVATIONS
+                            navigation.openSettingsPane(SettingsPane.PROCESS_EXIT_OBSERVATIONS)
                         },
                         onExportBackup = { exportBackupLauncher.launch(viewModel.defaultBackupFileName()) },
                         onImportBackup = { importBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
@@ -407,10 +399,12 @@ private fun XiaoLingContent(
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                         },
-                        requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+                        requestedKnowledgeDocumentId = navigation.requestedKnowledgeDocumentId,
                         onBackToSettings = {
-                            requestedKnowledgeDocumentId = null
-                            settingsPane = SettingsPane.ROOT
+                            navigation.openSettingsPane(
+                                pane = SettingsPane.ROOT,
+                                requestedKnowledgeDocumentId = null,
+                            )
                         },
                         modifier = Modifier.matchParentSize(),
                     )
@@ -482,23 +476,6 @@ private fun XiaoLingContent(
             onDismiss = viewModel::cancelLocalSkillDelete,
         )
     }
-}
-
-private enum class SettingsPane {
-    ROOT,
-    PROVIDER_MANAGEMENT,
-    NETWORK_REQUEST,
-    PROMPT_SETTINGS,
-    AGENT_PROFILE_MANAGEMENT,
-    DEVICE_AGENT,
-    ANSWERABILITY_SHADOW,
-    MEMORY_MANAGEMENT,
-    KNOWLEDGE_MANAGEMENT,
-    KNOWLEDGE_RELEVANCE_ROLLOUT,
-    SKILL_MANAGEMENT,
-    WORKFLOW_MANAGEMENT,
-    AGENT_RUN_HISTORY,
-    PROCESS_EXIT_OBSERVATIONS,
 }
 
 private val agentMemoryTypes = listOf("Preference", "ProfileFact", "Episode", "Procedure")
@@ -777,76 +754,6 @@ private fun AgentMemoryDeleteDialog(
         },
         shape = RoundedCornerShape(8.dp),
     )
-}
-
-@Composable
-private fun CompactBottomTabBar(
-    selectedTab: Int,
-    onSelected: (Int) -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(46.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(start = 42.dp, top = 4.dp, end = 42.dp, bottom = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CompactTabItem(
-                selected = selectedTab == 0,
-                label = "对话",
-                icon = { Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(12.dp)) },
-                onClick = { onSelected(0) },
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(18.dp))
-            CompactTabItem(
-                selected = selectedTab == 1,
-                label = "设置",
-                icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(12.dp)) },
-                onClick = { onSelected(1) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun CompactTabItem(
-    selected: Boolean,
-    label: String,
-    icon: @Composable () -> Unit,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val container = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-    val content = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-    val shape = RoundedCornerShape(18.dp)
-    Surface(
-        color = container,
-        contentColor = content,
-        shape = shape,
-        modifier = modifier
-            .height(36.dp)
-            .clip(shape)
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            icon()
-            Spacer(Modifier.width(4.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall)
-        }
-    }
 }
 
 @Composable

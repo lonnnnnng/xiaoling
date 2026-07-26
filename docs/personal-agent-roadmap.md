@@ -337,12 +337,13 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
-- ViewModel 仍然过重；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影和会话选择/删除副作用顺序；最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval Store、当前进程审批 waiter、恢复后审批协调、候选记忆和 Provider 模型同步编排。Compose 副作用、Workflow 等其他编排仍需继续拆分。
+- ViewModel 与 Compose 宿主仍然过重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用 Tab、设置目标、知识跳转、跨域事件和返回优先级已经迁入 `ui/navigation` deep module，`XiaoLingApp.kt` 从 7,018 行降到 6,925 行；Workflow 管理、Agent 任务中心、长期记忆等垂直 UI 簇仍需继续按业务所有权拆分。
 
 ## 目标架构
 
 ```text
 Compose UI
+  |-- App Navigation / Back Effects
   |-- Chat
   |-- Agent Run Timeline / Approval Card
   |-- Memory / Skills / Tasks / Settings
@@ -659,6 +660,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 ## 建议的下一项开发
 
 基于 `v0.1.12` 当前状态，下一批实际代码任务建议拆为：
+
+当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航宿主已迁入 `ui/navigation`。下一项是 Workflow 管理垂直 UI module，要求收口页面局部状态、状态投影和动作 interface，而不是只移动 Composable。
 
 1. 已完成：`WAITING_APPROVAL` 可在任意已验证前缀后恢复原 Run。恢复要求唯一待审批请求与链尾 ToolCall 完全匹配，前序结果全部成功并 `PASSED`，步骤、Ledger 与 typed event 一致；Runtime 重建可信前缀、工具调用预算和循环指纹，不重放前序工具。磁盘 Room 关闭重开与 Redmi 124 条完整 instrumentation 已通过。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
