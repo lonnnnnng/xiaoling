@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 横向工程：Agent 启动前校验协调迁出（完成）
+
+普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批的会话、Profile、工具注册与 Provider 校验已从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`。普通 `/agent` 保持可创建新会话；其余入口先要求指定会话存在。普通、Workflow 与两类重试使用当前 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 无有效快照时才回退当前 Profile。校验成功后的 UI、附件、Room 和 Runtime 副作用仍留在 ViewModel，长 Workflow 继续使用入口冻结配置。
+
+运行配置中的解密 API Key 只允许进程内传递，`ProviderRequestConfig.toString()` 已对 Base URL、API Key 和自定义 Header 做类型级脱敏。聚焦 JVM 为 Coordinator `10/10`、脱敏 `1/1`；强制完整门禁为 `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 0 information` 和三类 APK，仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）、耗时 `48.8s`，最终文档语料单项为 `OK (1 test)`。本轮不采集 Shadow，不改变 Room v32、第 101/102 项，也不扩展设备 Workflow/后台、精确定时、Foreground Service 或远期能力。
+
 ## 横向工程：Provider 模型同步协调迁出（完成）
 
 Provider `/models` 请求、模型去重/回退、失败分型、批量顺序和完整快照提交已从 `XiaoLingViewModel` 迁入独立 `ProviderModelSyncCoordinator`。批量同步按输入顺序执行，普通失败继续下一项，取消立即终止；并行单项只在提交阶段通过 Mutex 串行。提交端以最新 Provider 快照和规范化身份拒绝删除、配置漂移或保存期间变化，保留最新名称与仍有效模型，Room 保存成功后才发布成功并修复空模型 Agent Profile。

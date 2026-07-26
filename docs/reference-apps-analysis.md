@@ -1,5 +1,9 @@
 # `reference-apps` 个人 Agent 实现分析
 
+最新横向工程继续采用成熟 Agent 中“启动前决策纯化、宿主副作用后置”的原则。`AgentLaunchPreflightCoordinator` 统一五个启动入口的会话、Profile、工具注册与 Provider 校验，但不拥有导航、确认弹层、附件、Room 或 Runtime。普通 `/agent` 保留可创建会话的轻入口语义，需要原上下文的 Workflow、重试与恢复则先校验会话；恢复审批优先复用原 Run Profile 快照，避免新选择悄然改写旧 Run 的恢复身份。
+
+协调器只冻结校验时刻的运行配置，长 Workflow 不被改成逐步骤重校验。解密 API Key 仍只在进程内可达，`ProviderRequestConfig` 的字符串表示主动脱敏 Base URL、API Key 与自定义 Header，降低 URL userinfo/query、异常或日志误用的暴露面。聚焦 JVM `10/10 + 1/1`、完整 JVM `656/656`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）与最终文档语料 `OK (1 test)` 通过。这个拆分提高的是启动一致性和可测试性，不构成设备后台自动化、任意 App 扩权、Shadow 持久化或第 102 项能力。
+
 最新横向工程继续采用成熟 Agent 中“网络获取与配置提交分离、持久化成功才发布成功”的原则。`ProviderModelSyncCoordinator` 统一 `/models` URL 校验、请求规范化、模型去重/回退、失败分型和批量顺序；不同单项可并行获取网络结果，但完整 Provider 快照只在提交阶段互斥。提交端重新核对最新 Provider 身份，删除、配置漂移或保存期间变化都拒绝迟到结果，名称和仍有效模型保留用户最新选择，Room 保存完成后才修复空模型 Agent Profile。ViewModel 因此只保留 busy、逐项结果和弹窗投影，不再复制模型合并与保存规则。
 
 聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK、仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.373s` 与最终文档语料 `OK (1 test)` 已通过。这个拆分提升的是 Provider 配置一致性，不改变 Agent Runtime、Room v32、Shadow、第 101/102 项或设备 Workflow/后台能力。

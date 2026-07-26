@@ -1,5 +1,15 @@
 # 产品需求
 
+## Agent 启动前校验协调边界（横向可靠性工程）
+
+普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批必须通过单一 `AgentLaunchPreflightCoordinator` 完成启动前校验。普通 `/agent` 的会话为可选，继续允许既有发送链创建新会话；其余四类入口必须先证明指定会话仍存在，并保留各入口原有的缺失提示。会话错误必须先于 Profile、未注册工具和 Provider 错误返回。
+
+普通 `/agent`、Workflow 与两类重试必须使用当前选中 Profile；恢复后审批必须优先使用原 Run 的 Profile 快照，只有旧 Run 没有有效快照时才能回退当前 Profile。Profile 校验顺序固定为可运行性、未知工具、Provider 请求配置；未知工具名称必须稳定排序。Provider 仍按当前保存配置解析，校验只保证当前时刻一致性，不得在迁出时新增执行前二次校验或改成 Workflow 逐步骤重校验。
+
+协调器必须为同步、无 UI/Room/网络副作用的纯决策边界，只返回强类型 `Ready / Rejected`。成功后的导航、确认弹层清理、附件读取、发送态、Room 写入、Runtime 调用与 Workflow 后续步骤继续由 ViewModel 宿主负责。`ProviderRequestConfig` 含解密 API Key，只能在当前进程启动链内传递，不得写入日志、UI、Room 或事件；其字符串表示必须脱敏 Base URL、API Key 和全部自定义 Header。
+
+验收必须覆盖会话错误优先、Profile 缺失/非法、未知工具排序、Provider 缺失/URL/模型错误、普通空会话、历史快照优先、旧 Run 缺少快照时回退当前 Profile、冻结配置与凭据字符串脱敏。当前聚焦 JVM 为 `10/10 + 1/1`；完整门禁为 `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 0 information`、三类 APK、仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）与最终文档语料 `OK (1 test)`。本切片保持 Room v32，不采集 Shadow 样本，不改变第 101/102 项及设备后台门禁。
+
 ## Provider 模型同步协调边界（横向可靠性工程）
 
 已保存 Provider 的 `/models` 同步必须由单一 `ProviderModelSyncCoordinator` 编排。网络请求前必须校验 Base URL，并使用 trim 后的 Base URL/API Key、空模型和当前可配置 User-Agent 构造请求；上游模型按返回顺序去重，当前模型仍有效时继续保留，否则回退到首个模型或空值。`availableModels / enabledModels` 必须延续现有行为更新为本次上游全集，不得在迁出过程中顺手改成旧启用列表的交集。

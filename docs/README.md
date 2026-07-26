@@ -1,5 +1,9 @@
 # 文档索引
 
+最新横向可靠性工程把五类 Agent 启动前校验从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`：普通 `/agent` 允许当前会话不存在，Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批均要求指定会话仍存在；会话失败继续优先于 Profile、未注册工具和 Provider 错误。普通、Workflow 与两类重试继续使用当前选中 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 没有有效快照时才回退当前 Profile。
+
+协调器同步返回强类型 `Ready / Rejected`，成功后的导航、确认弹层、附件读取、Room 写入与 Runtime 调用仍由 ViewModel 负责，不新增执行前二次校验。冻结的 `ProviderRequestConfig` 只在当前进程启动链内传递，类型自身的 `toString()` 会固定脱敏 Base URL、API Key 和全部自定义 Header。Coordinator 聚焦 JVM `10/10`、配置脱敏 `1/1`；强制门禁 `140/140` tasks 在 `2m 5s` 内通过，完整 JVM `656/656`、Lint `0 error / 50 warnings / 0 information`、三类 APK 成功。仅 Redmi 默认完整为 `196` 条（`184 passed / 12 skipped / 0 failed`）、耗时 `48.8s`，最终文档语料单项为 `OK (1 test)`。Debug/Release APK 分别为 `23,190,389 / 15,950,806` 字节，SHA-256 为 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52 / 00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。本轮不采集 Shadow，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时或 Foreground Service。
+
 最新横向可靠性工程把 Provider 模型同步的网络请求、模型合并、失败分型、批量顺序和完整快照提交从 `XiaoLingViewModel` 迁入独立 `ProviderModelSyncCoordinator`。请求统一校验 Base URL，trim URL/API Key 并透传可配置 User-Agent；上游模型按顺序去重，仍有效的当前模型优先保留，否则回退首项，`availableModels / enabledModels` 延续既有语义同步为上游全集。批量同步严格串行，普通失败保留逐项结果后继续，取消原样传播并停止后续项。
 
 网络获取不被全局串行化，只有完整 Provider 快照提交使用 `Mutex`；提交端从最新 UI 快照重新查找 Provider，按规范化 `/models` URL 与 API Key 拒绝身份漂移，保留最新名称和仍有效模型，Room 保存完成后才发布成功。Provider 已删除、保存期间配置变化和持久化异常分别收敛为强类型结果或失败，迟到结果不能覆盖用户新编辑。聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `OK (196 tests)`（`49.373s`）与最终文档语料 `OK (1 test)` 通过。本轮不采集 Shadow，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时或 Foreground Service。

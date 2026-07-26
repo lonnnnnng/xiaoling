@@ -19,7 +19,6 @@ import com.longdev.xiaoling.agent.AgentContextPolicy
 import com.longdev.xiaoling.agent.AgentMessagePartPolicy
 import com.longdev.xiaoling.agent.AgentProfilePolicy
 import com.longdev.xiaoling.agent.AgentProfileRecord
-import com.longdev.xiaoling.agent.AgentProfileRuntimeConfigPolicy
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
@@ -420,11 +419,6 @@ data class AgentMemoryEditUiState(
     val confidence: Double,
 )
 
-private data class AgentRuntimeSelection(
-    val config: ProviderRequestConfig,
-    val profile: AgentProfileSnapshot,
-)
-
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
@@ -602,6 +596,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
     private val agentApprovalDecisionCoordinator = AgentApprovalDecisionCoordinator()
     private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
+    private val agentLaunchPreflightCoordinator = AgentLaunchPreflightCoordinator()
     private var sendMessageJob: Job? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
@@ -1438,12 +1433,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun startWorkflowRunRetry(sourceDetail: WorkflowRunDetail) {
         val sourceRun = sourceDetail.run
-        val conversation = uiState.conversations.firstOrNull { it.id == sourceRun.conversationId }
-        if (conversation == null) {
-            showValidation("来源会话已不存在，无法在原上下文中重试")
-            return
-        }
-        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
+        val preflight = selectedAgentLaunchPreflight(
+            AgentLaunchConversationRequirement.Existing(
+                conversationId = sourceRun.conversationId,
+                missingMessage = "来源会话已不存在，无法在原上下文中重试",
+            ),
+        ) ?: return
+        val runtimeSelection = preflight.runtimeSelection
         selectConversation(sourceRun.conversationId)
         uiState = uiState.copy(
             runningWorkflowId = sourceRun.workflowId,
@@ -1784,14 +1780,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("这个工作流已有未完成的 Run")
             return
         }
-        val conversationId = uiState.selectedConversationId.takeIf { id ->
-            id.isNotBlank() && uiState.conversations.any { it.id == id }
-        }
-        if (conversationId == null) {
-            showValidation("请先打开一个会话")
-            return
-        }
-        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
+        val preflight = selectedAgentLaunchPreflight(
+            AgentLaunchConversationRequirement.Existing(
+                conversationId = uiState.selectedConversationId,
+                missingMessage = "请先打开一个会话",
+            ),
+        ) ?: return
+        val conversationId = checkNotNull(preflight.conversationId)
+        val runtimeSelection = preflight.runtimeSelection
         uiState = uiState.copy(
             runningWorkflowId = workflowId,
             workflowError = null,
@@ -2541,12 +2537,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun prepareAgentRunRetry(detail: AgentRunDetailRecord) {
         val sourceRun = detail.snapshot.run
-        val sourceConversation = uiState.conversations.firstOrNull { it.id == sourceRun.conversationId }
-        if (sourceConversation == null) {
-            showValidation("原会话已不存在，无法在正确上下文中重试")
-            return
-        }
-        val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
+        val preflight = selectedAgentLaunchPreflight(
+            AgentLaunchConversationRequirement.Existing(
+                conversationId = sourceRun.conversationId,
+                missingMessage = "原会话已不存在，无法在正确上下文中重试",
+            ),
+        ) ?: return
+        val runtimeSelection = preflight.runtimeSelection
         selectConversation(sourceRun.conversationId)
         agentRunRetryCoordinator.prepare(detail) { event ->
             handleAgentRunRetryPreparationEvent(event, runtimeSelection)
@@ -2681,17 +2678,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         val source = detail.snapshot.run
-        val conversation = uiState.conversations.firstOrNull { it.id == source.conversationId }
-        if (conversation == null) {
-            showValidation("原会话已不存在，无法恢复 Agent Run")
-            return
-        }
         val sourceProfile = detail.agentProfileSnapshotOrNull()
-        val runtimeSelection = if (sourceProfile == null) {
-            validatedSelectedAgentRuntimeSelection()
-        } else {
-            validatedAgentRuntimeSelection(sourceProfile)
-        } ?: return
+        val profileSource = AgentLaunchProfileSource.forRecoveredRun(
+            sourceProfile = sourceProfile,
+            selectedProfileId = uiState.selectedAgentProfileId,
+        )
+        val preflight = agentLaunchPreflight(
+            profileSource = profileSource,
+            conversationRequirement = AgentLaunchConversationRequirement.Existing(
+                conversationId = source.conversationId,
+                missingMessage = "原会话已不存在，无法恢复 Agent Run",
+            ),
+        ) ?: return
+        val runtimeSelection = preflight.runtimeSelection
+        val conversation = uiState.conversations.first { it.id == checkNotNull(preflight.conversationId) }
         val preparedContext = PreparedRequestContext.fromConversation(conversation)
         val summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings)
         selectConversation(source.conversationId)
@@ -3230,7 +3230,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             document = uiState.pendingDocument,
         )
         if (AgentCommand.matches(userMessage)) {
-            val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
+            val runtimeSelection = selectedAgentLaunchPreflight()?.runtimeSelection ?: return
             attachments.agentRejectionReason(runtimeSelection.config.apiMode)?.let { reason ->
                 showValidation(reason)
                 return
@@ -3959,35 +3959,36 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    private fun validatedSelectedAgentRuntimeSelection(): AgentRuntimeSelection? {
-        val profile = uiState.agentProfiles.firstOrNull { it.id == uiState.selectedAgentProfileId }
-        if (profile == null) {
-            showValidation("请先在设置页创建并选择 Agent Profile")
-            return null
-        }
-        return validatedAgentRuntimeSelection(profile.snapshot())
+    private fun selectedAgentLaunchPreflight(
+        conversationRequirement: AgentLaunchConversationRequirement = AgentLaunchConversationRequirement.Optional,
+    ): AgentLaunchPreflightOutcome.Ready? {
+        return agentLaunchPreflight(
+            profileSource = AgentLaunchProfileSource.Selected(uiState.selectedAgentProfileId),
+            conversationRequirement = conversationRequirement,
+        )
     }
 
-    private fun validatedAgentRuntimeSelection(profile: AgentProfileSnapshot): AgentRuntimeSelection? {
-        runCatching { AgentProfilePolicy.validateRunnable(profile) }
-            .onFailure {
-                showValidation(it.message ?: "Agent Profile 配置无效")
-                return null
+    private fun agentLaunchPreflight(
+        profileSource: AgentLaunchProfileSource,
+        conversationRequirement: AgentLaunchConversationRequirement,
+    ): AgentLaunchPreflightOutcome.Ready? {
+        val outcome = agentLaunchPreflightCoordinator.evaluate(
+            AgentLaunchPreflightRequest(
+                profileSource = profileSource,
+                agentProfiles = uiState.agentProfiles,
+                providers = uiState.profiles,
+                registeredToolNames = uiState.registeredAgentTools.mapTo(hashSetOf()) { it.name },
+                userAgent = uiState.userAgent,
+                conversationRequirement = conversationRequirement,
+                existingConversationIds = uiState.conversations.mapTo(hashSetOf()) { it.id },
+            ),
+        )
+        return when (outcome) {
+            is AgentLaunchPreflightOutcome.Ready -> outcome
+            is AgentLaunchPreflightOutcome.Rejected -> {
+                showValidation(outcome.reason.message)
+                null
             }
-        val registered = uiState.registeredAgentTools.mapTo(hashSetOf()) { it.name }
-        val unknownTools = profile.allowedToolNames.filter { it !in registered }
-        if (unknownTools.isNotEmpty()) {
-            showValidation("Agent Profile 包含未注册工具：${unknownTools.sorted().joinToString()}")
-            return null
-        }
-        return runCatching {
-            AgentRuntimeSelection(
-                config = AgentProfileRuntimeConfigPolicy.resolve(profile, uiState.profiles, uiState.userAgent),
-                profile = profile,
-            )
-        }.getOrElse { error ->
-            showValidation(error.message ?: "Agent Profile 请求配置无效")
-            null
         }
     }
 

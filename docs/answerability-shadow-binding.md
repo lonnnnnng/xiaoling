@@ -2,6 +2,8 @@
 
 ## 当前横向工程边界
 
+第 101 项持续观察期间新增的 `AgentLaunchPreflightCoordinator` 只统一普通 `/agent`、Workflow 首次运行、两类重试和恢复后审批的会话、Profile、工具注册与 Provider 启动前校验。它不读取或保存 answerability measurement、notice、知识候选正文、引用或 Judge 成本，也不参与 Shadow eligibility、冻结绑定、采样或 enforcement。恢复审批仍优先使用原 Run Profile 快照，旧 Run 没有有效快照才回退当前 Profile；运行配置只在进程内传递，字符串表示会脱敏 Base URL、API Key 与自定义 Header。聚焦 JVM `10/10`、配置脱敏 `1/1`、完整 JVM `656/656`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）与最终文档语料 `OK (1 test)` 通过，没有形成新的 Shadow 样本；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。
+
 第 101 项持续观察期间新增的 `ProviderModelSyncCoordinator` 只处理 Provider `/models` 请求、模型列表合并、批量顺序、提交互斥和同步结果分型。它不读取或保存 answerability measurement、notice、知识候选正文、引用或 Judge 成本，也不参与 Shadow eligibility、冻结绑定、重试、采样或 enforcement。聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、三类 APK、Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过，没有形成新的 Shadow 样本；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。
 
 第 101 项持续观察期间新增的 `AgentMemoryCandidateCoordinator` 只处理候选记忆列表、普通聊天/Agent Run 成功后的稳定来源身份与候选采集，以及接受/拒绝的同 ID claim。它不读取或保存 answerability measurement、notice、知识候选正文、引用或 Judge 成本，也不参与 eligibility、Provider 请求、绑定、重试或 enforcement；记忆候选的敏感过滤和正式记忆治理仍由既有 Room Store/Manager 完成。该横向工程聚焦 JVM `7/7`、完整 JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过，没有形成新的 Shadow 样本；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。

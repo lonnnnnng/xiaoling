@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## Agent 启动前校验协调迁出（横向可靠性工程）
+
+- 新增纯同步 `AgentLaunchPreflightCoordinator` 与强类型 Profile 来源、会话要求、`Ready / Rejected` 结果。需要原上下文的入口先校验会话，再依次校验 Profile 可运行性、未知工具和 Provider 请求配置；普通 `/agent` 使用可选会话，保留 `sendAgentRun()` 在空占位上创建会话的既有行为。
+- 普通 `/agent`、Workflow 首次运行、Workflow Run 重试和 Agent Run 关联重试继续使用当前选中 Profile。恢复后审批优先传入原 Run 的 `AgentProfileSnapshot`；旧 Run 没有可解析快照时才回退当前 Profile。Provider 仍从当前保存配置解析，长 Workflow 继续复用入口冻结的运行配置，不增加执行前二次校验。
+- `XiaoLingViewModel` 只把当前 UI 快照投影为 preflight request，并把拒绝消息投影到既有“配置不完整”结果。校验成功后的会话导航、确认弹层生命周期、附件读取、发送态、Room 写入、Runtime 调用和 Workflow 后续步骤仍留在原宿主边界。
+- `ProviderRequestConfig` 含解密后的 API Key，只允许在当前进程启动链中传递。类型级 `toString()` 已固定将 Base URL、API Key 与全部自定义 Header 表示为 `<redacted>`，防止 URL userinfo/query、异常上下文或调试格式化隐式泄漏；该保护不改变请求字段、`copy()` 或相等性。
+- `AgentLaunchPreflightCoordinatorTest` 聚焦 `10/10`，覆盖错误优先级、Profile/Provider/工具分型、普通空会话、历史快照、旧 Run 缺少快照时回退当前 Profile 和冻结请求配置；`ProviderRequestConfigTest` 以 red-green 证明直接字符串格式化不会展开凭据。完整 JVM 为 `656/656`、0 失败/错误/跳过。
+- 强制完整门禁 `140/140` tasks 在 `2m 5s` 内完成，Lint 为 `0 error / 50 warnings / 0 information`，Debug、Release 与 AndroidTest APK 构建成功。Debug APK `23,190,389` 字节、SHA-256 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52`；Release APK `15,950,806` 字节、SHA-256 `00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装 Debug/Test APK 并运行默认完整 `AndroidJUnitRunner`，最终 `196` 条为 `184 passed / 12 skipped / 0 failed`、耗时 `48.8s`。测试用充电保持唤醒和屏保设置已恢复为 `15/1`，未连接或操作 Pixel_9。
+- README 与 7 份 `docs/` 长期文档重新打入 AndroidTest assets 后，Redmi 项目文档语料单项最终为 `OK (1 test)`。
+- Room 保持 v32；本次不修改 Agent Runtime、工具审批/验证、Workflow Ledger、设备后台门禁或 answerability Shadow，不采集 Shadow 样本，也不进入第 102 项、精确定时或 Foreground Service。
+
 ## Provider 模型同步协调迁出（横向可靠性工程）
 
 - 新增 `ProviderModelSyncCoordinator` 与 `Invalid / Failed / Missing / Stale / Succeeded` 强类型结果。单项同步先校验 Base URL，再以 trim 后的 URL/API Key、空模型和当前 User-Agent 请求 `/models`；模型按上游顺序去重，优先保留仍有效的当前模型，否则回退第一项或空值，并延续现有行为把可用/启用列表更新为上游全集。

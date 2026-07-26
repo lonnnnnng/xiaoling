@@ -21,6 +21,26 @@ data class ProviderRequestConfig(
     val embeddingModel: String? = null,
     val httpDebugLoggingEnabled: Boolean = true,
 ) {
+    override fun toString(): String {
+        // long: 请求配置可能被异常上下文或调试日志隐式格式化，类型本身必须阻止 API Key 与自定义鉴权头明文外泄。
+        return "ProviderRequestConfig(" +
+            "baseUrl=<redacted>, " +
+            "apiKey=<redacted>, " +
+            "model=$model, " +
+            "providerId=$providerId, " +
+            "userAgent=$userAgent, " +
+            "customHeaders=<redacted>, " +
+            "apiMode=$apiMode, " +
+            "streamingEnabled=$streamingEnabled, " +
+            "reasoningSummaryEnabled=$reasoningSummaryEnabled, " +
+            "temperature=$temperature, " +
+            "maxTokens=$maxTokens, " +
+            "topP=$topP, " +
+            "embeddingModel=$embeddingModel, " +
+            "httpDebugLoggingEnabled=$httpDebugLoggingEnabled" +
+            ")"
+    }
+
     companion object {
         const val DEFAULT_USER_AGENT =
             "Codex Desktop/0.145.0-alpha.18 (Mac OS 14.7.4; arm64) unknown (Codex Desktop; 26.715.31251)"

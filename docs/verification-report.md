@@ -2,6 +2,19 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 Agent 启动前校验协调迁出（横向可靠性工程）
+
+- 实现边界：新增纯同步 `AgentLaunchPreflightCoordinator`，统一普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试与恢复后审批的会话、Profile、工具注册和 Provider 校验。ViewModel 继续拥有成功后的导航、确认弹层、附件、Room、Runtime 与 Workflow 后续步骤。
+- 兼容语义：普通 `/agent` 允许当前会话不存在；其余入口要求指定会话存在并保持原提示。普通、Workflow 与两类重试使用当前选中 Profile；恢复审批优先使用原 Run Profile 快照，旧 Run 无有效快照时才回退当前 Profile。会话错误仍先于 Profile、工具和 Provider 错误，长 Workflow 继续使用入口冻结配置。
+- 凭据边界：`ProviderRequestConfig` 继续携带网络请求所需的解密 API Key，但只在当前进程启动链传递。新增类型级脱敏字符串表示，Base URL、API Key 与全部自定义 Header 均固定显示为 `<redacted>`；没有新增 UI、Room、事件或日志写入路径。
+- TDD 与 JVM：`AgentLaunchPreflightCoordinatorTest` `10/10`，`ProviderRequestConfigTest` `1/1`。旧 Run 空快照回退和三类配置凭据脱敏均先稳定形成红灯，再以最小实现恢复绿色。强制完整 JVM XML 为 `656/656`，0 失败/错误/跳过。
+- 本地门禁与产物：强制执行 `140/140` 个 Gradle task，耗时 `2m 5s`；Lint XML 为 `0 error / 50 warnings / 0 information`，Debug、Release、AndroidTest APK 成功。Debug APK 为 `23,190,389` 字节、SHA-256 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52`；Release APK 为 `15,950,806` 字节、SHA-256 `00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。
+- Redmi 完整门禁：ADB 只发现 Redmi `wsvwypiz7xwslvl7`，覆盖安装 Debug/Test APK 后默认完整 `AndroidJUnitRunner` 连续三轮均为 `OK (196 tests)`；最终一轮状态统计为 `184 passed / 12 skipped / 0 failed`、测试耗时 `48.8s`。首轮包装脚本因误用 zsh 只读变量名 `status` 在测试成功后报错，后两轮改用 `exit_code` 并取得无包装错误结果；测试设置最终恢复 `stay_on_while_plugged_in=15 / screensaver_enabled=1`。未启动、连接或向 Pixel_9/其他模拟器发送命令。
+- 文档语料：README 与 7 份 `docs/` 长期文档回填本阶段实现和门禁后强制重建 AndroidTest APK，仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终为 `OK (1 test)`。结果文本写回后再次重建并复跑同一单项，避免以旧 assets 代替最终文档。
+- 设备收尾：卸载 `com.longdev.xiaoling.test` 后覆盖安装并启动主 Debug APK；正式数据库为 Room v32，Provider/Profile/知识文档计数 `1/1/0`。answerability Shadow 与设备 Agent 应用开关均关闭，系统 Accessibility 未启用；`MainActivity` 为 `topResumedActivity`、主进程存活，crash buffer 无本应用记录。测试用设备设置保持恢复值 `15/1`。
+- 双轴审查：Spec 未发现行为错误或范围扩张，并指出旧 Run 空 Profile 快照回退缺少直接测试；Standards 指出字符串表示仍可能通过 Base URL userinfo/query 泄漏凭据。两项均以 red-green 修复，最终由 `forRecoveredRun()` 和 Base URL/API Key/Header 全脱敏测试覆盖。
+- 保持边界：Room 保持 v32；Agent Runtime、工具审批/验证、Workflow Ledger、设备后台门禁、Shadow Store 与 enforcement 未改变，没有采集或制造 Shadow 样本，也没有进入第 102 项。
+
 ## 2026-07-26 Provider 模型同步协调迁出（横向可靠性工程）
 
 - 实现边界：新增 `ProviderModelSyncCoordinator`，统一 `/models` URL 校验、trim 后请求配置、可配置 User-Agent、模型去重/回退、批量顺序与 `Invalid / Failed / Missing / Stale / Succeeded` 结果。ViewModel 只保留单项/批量 busy、逐项结果和弹窗投影。
