@@ -80,6 +80,15 @@
 - TDD 先以缺少 `ConversationProjection`、再以缺少 `ConversationPage` 的编译失败建立 Red。Projection JVM 为 `4/4`；review 修复后强制本地 `140/140` tasks、完整 JVM `677/677`、Lint `0 error / 50 warnings`、Debug/AndroidTest/Release APK 和 Release lintVital 均通过。Debug/Release APK 分别为 `23,337,963 / 16,016,342` 字节，SHA-256 分别为 `61b5cb5b14b43c8e01fe07a9ea4067e918d8c6f8e3d98baab25bc1cee2bce1f6 / f537287d9a6ec10f2e3d7e8675fef6bf9690dda00b8994961336b7afd8c6b9d9`。只使用 Redmi `wsvwypiz7xwslvl7`，会话页面聚焦 Compose 为 `OK (3 tests)`，默认完整 instrumentation 为 `OK (214 tests)`、耗时 `74.329s`；最终四份长期文档重新打包后的项目语料单项为 `OK (1 test)`。未连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - Room v32、普通聊天与 `/agent` 发送、附件读取、知识引用、Run/审批、旧会话、Workflow、设备工具、answerability Shadow 和第 101/102 项边界均未改变。下一轮从宿主剩余 `1,796` 行重新盘点仍具完整状态、动作与测试 seam 的垂直簇。
 
+## 提示词设置垂直 UI module（横向结构工程）
+
+- 新增 `ui/promptsettings` 垂直模块。`PromptSettingsPage` 只接收六字段 `PromptSettings`、九项 `PromptSettingsActions` 和返回回调，不再读取整份 `XiaoLingUiState` 或具体 ViewModel；三类编辑器、互斥最终预览和页面局部展开状态由模块自己持有。
+- `XiaoLingViewModel` 直接实现 Actions，输入仍在每次变更时通过既有 `updatePromptSettings` 同步更新 UI state 并写入 `UiPreferenceStore`；三项恢复动作只恢复对应模板，不改变开关或其他提示词。最终预览继续调用 `PromptPolicy` 组合安全尾部，不把编辑框原文误当成最终 system prompt。
+- 三个设置页共用的 `CompactSection` 已提升为共享 UI 原语；`XiaoLingApp.kt` 从 `1,796` 行降到 `1,582` 行，`PromptSettingsContract.kt / PromptSettingsPage.kt / CompactSection.kt` 分别为 `21 / 222 / 64` 行。固定点 `817f29f` 审查指出长期文档待同步以及三组显式映射存在参数重复判断项；本节完成文档同步，三类固定映射则为防止普通摘要与 Agent 摘要动作交叉绑定而保留。
+- TDD 先以缺少 `PromptSettingsPage / PromptSettingsActions` 的编译失败建立 Red；只在 Redmi `wsvwypiz7xwslvl7` 运行页面动作路由与最终预览 Compose，结果为 `OK (2 tests)`。强制本地 `140/140` tasks、完整 JVM `677/677`、Lint `0 error / 50 warnings`、Debug/AndroidTest/Release APK 和 Release lintVital 均通过。Debug/Release APK 分别为 `23,354,347 / 16,016,342` 字节，SHA-256 分别为 `194f25d3173f50d20fe8cbc3c11be1a73cdbd7738638218d3b3fc1758b9704cc / 78470c153f4a2477dec0dfb9c8377b9c55abd233435554f6b3ca54260ace4d66`。
+- Redmi 默认完整 instrumentation 的 JUnit XML 为 `216` 条（`204 passed / 12 skipped / 0 failed`）、耗时 `79.503s`；Gradle 控制台结束时按 skipped 的另一统计口径显示 `Finished 228 tests`，完整任务耗时 `2m 14s`。四份长期文档重新打包后的项目语料单项为 `OK (1 test)`；未连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- Room v32、提示词持久化、普通聊天/摘要/Agent 总结策略、Provider、Agent Runtime、Workflow、设备工具、answerability Shadow 和第 101/102 项边界均未改变。下一轮从宿主剩余 `1,582` 行重新盘点完整垂直簇。
+
 ## Agent 启动前校验协调迁出（横向可靠性工程）
 
 - 新增纯同步 `AgentLaunchPreflightCoordinator` 与强类型 Profile 来源、会话要求、`Ready / Rejected` 结果。需要原上下文的入口先校验会话，再依次校验 Profile 可运行性、未知工具和 Provider 请求配置；普通 `/agent` 使用可选会话，保留 `sendAgentRun()` 在空占位上创建会话的既有行为。
@@ -540,6 +549,7 @@
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 各 feature 的 Compose 组合宿主、Android 文件选择器、跨页面导航、全局确认，以及长期记忆编辑/删除弹窗和来源导航 effect。 |
 | App navigation | `app/src/main/java/com/longdev/xiaoling/ui/navigation/` | 类型化 Tab/设置目标、知识文档与外部事件路由、返回优先级、Compose 状态保存 adapter 和底栏渲染。 |
 | Conversation UI | `app/src/main/java/com/longdev/xiaoling/ui/conversation/` | 会话页窄状态投影、滚动跟尾、Provider/模型选择、消息与知识引用组合、附件/SharedDraft、Agent Run/审批、输入区及单一 actions interface。 |
+| Prompt settings UI | `app/src/main/java/com/longdev/xiaoling/ui/promptsettings/` | 三类设备级提示词编辑、互斥最终预览和九项窄 actions interface；只接收 `PromptSettings`，不依赖整份应用状态或具体 ViewModel。 |
 | Workflow UI | `app/src/main/java/com/longdev/xiaoling/ui/workflow/` | Workflow 管理状态投影、操作资格、局部编辑/调度状态、动作 interface，以及定义、Run 和调度账本的 Compose 呈现。 |
 | Agent task center UI | `app/src/main/java/com/longdev/xiaoling/ui/agenttask/` | Agent Run 历史投影、稳定 selected/retrying 绑定、局部筛选、指标、卡片/详情、Ledger 一致性、恢复处置、步骤/审批/事件呈现，以及刷新、选择和请求重试 actions interface。 |
 | Memory management UI | `app/src/main/java/com/longdev/xiaoling/ui/memory/` | 正式记忆与可操作候选投影、稳定 selected/mutating 绑定、首刷、搜索/筛选、来源与召回审计、生命周期操作、删除撤销呈现及窄 actions interface。 |
@@ -565,7 +575,7 @@
 | Device | `app/src/main/java/com/longdev/xiaoling/device/` | Accessibility 观察与有限动作、授权/连接健康检查、有界脱敏 snapshot、短生命周期节点引用、隐私/应用白名单、动作后验证和前台直接 Agent 门禁。 |
 | System | `app/src/main/java/com/longdev/xiaoling/system/` | ApplicationExitInfo 旁路观察、LMK/受控退出分类、30 条有界 Room 账本和取消安全的启动/Worker 采集。 |
 | Automation | `app/src/main/java/com/longdev/xiaoling/automation/`、`storage/RoomWorkflowRepository.kt` | Workflow/ScheduledTask 状态、周期规则、Room Ledger、前台手动触发、WorkManager 非精确调度、后台执行、进程内 Worker 所有权、启动恢复候选隔离、`STOP_REQUESTED` 持久化停止与结果通知。 |
-| Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界。 |
+| Prompt | `app/src/main/java/com/longdev/xiaoling/prompt/` | 三类可配置提示词的默认模板、最终 system prompt 组合和不可覆盖事实边界；设置 UI 由 `ui/promptsettings` 消费该领域模型。 |
 | Markdown | `app/src/main/java/com/longdev/xiaoling/ui/MarkdownTableParser.kt` | 补充表格边框渲染，并配合 Markdown renderer 处理常见模型输出。 |
 
 ## 当前架构边界
@@ -584,9 +594,10 @@
 - Agent Profile 管理通过 `AgentProfileManagementProjection`、`AgentProfileManagementActions` 和专用 Compose page 隔离宿主；页面自己呈现 Profile 列表、Provider/模型状态、编辑草稿、Chat/Responses、记忆开关以及工具/Skill 双向依赖。ViewModel 仍在保存入口重新校验 Provider、模型、注册工具和 Skill 依赖，防止绕过 UI 的旧草稿扩大能力；设置返回、底栏显隐与全局结果提示继续由宿主统一处理。
 - Agent Skill 管理通过 `AgentSkillManagementProjection`、`AgentSkillManagementActions` 和专用 Compose page 隔离宿主；页面自己呈现列表、工具依赖可用性、最近 Run 选择审计并持有首刷/展开状态。Android 文件选择器、本地 Skill 删除确认和真实持久化副作用继续由宿主与 ViewModel 负责。
 - 会话主界面通过 `ConversationProjection`、`ConversationActions` 和专用 Compose page 隔离宿主；页面自己持有滚动状态并组合消息、知识引用、附件、SharedDraft、Run/审批和输入区。Android picker、URI 读取与知识库跨页导航继续由应用壳执行。
+- 提示词设置通过 `PromptSettings`、`PromptSettingsActions` 和专用 Compose page 隔离宿主；页面持有三类互斥最终预览，ViewModel 继续负责输入即保存与逐项恢复默认，`PromptPolicy` 的不可覆盖安全尾部不变。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill 管理和会话主界面垂直 UI。下一轮应从 `XiaoLingApp.kt` 剩余 `1,796` 行重新盘点同时具备独立状态、动作与测试 seam 的垂直簇，继续避免按文件行数制造透传层。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面和提示词设置垂直 UI。下一轮应从 `XiaoLingApp.kt` 剩余 `1,582` 行重新盘点同时具备独立状态、动作与测试 seam 的垂直簇，继续避免按文件行数制造透传层。
 
 ## 对话请求
 

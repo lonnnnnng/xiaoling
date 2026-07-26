@@ -17,7 +17,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,15 +54,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -95,7 +91,6 @@ import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.knowledge.KnowledgeReference
-import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.system.ProcessExitEvidenceKind
 import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.ui.navigation.XiaoLingAppTab
@@ -124,6 +119,7 @@ import com.longdev.xiaoling.ui.memory.MemoryManagementUiState
 import com.longdev.xiaoling.ui.provider.ProviderManagementPage
 import com.longdev.xiaoling.ui.provider.ProviderManagementProjection
 import com.longdev.xiaoling.ui.provider.ProviderManagementUiState
+import com.longdev.xiaoling.ui.promptsettings.PromptSettingsPage
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementPage
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
@@ -964,8 +960,8 @@ private fun SettingsPage(
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.PROMPT_SETTINGS -> PromptSettingsPage(
-                state = state,
-                viewModel = viewModel,
+                settings = state.promptSettings,
+                actions = viewModel,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -1573,216 +1569,6 @@ private fun SettingsEntryCard(
             }
             trailing?.invoke()
                 ?: Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-private enum class PromptPreviewSection {
-    CHAT,
-    SUMMARY,
-    AGENT_SUMMARY,
-}
-
-@Composable
-private fun PromptSettingsPage(
-    state: XiaoLingUiState,
-    viewModel: XiaoLingViewModel,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var previewSection by remember { mutableStateOf<PromptPreviewSection?>(null) }
-    val settings = state.promptSettings
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
-            }
-            PageTitle("提示词设置")
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding(),
-            contentPadding = PaddingValues(bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item {
-                PromptEditorSection(
-                    title = "普通对话",
-                    enabled = settings.chatPromptEnabled,
-                    prompt = settings.chatPrompt,
-                    preview = PromptPolicy.chatSystemPrompt(settings),
-                    previewVisible = previewSection == PromptPreviewSection.CHAT,
-                    onEnabledChanged = viewModel::updateChatPromptEnabled,
-                    onPromptChanged = viewModel::updateChatPrompt,
-                    onRestore = viewModel::restoreChatPrompt,
-                    onTogglePreview = {
-                        previewSection = if (previewSection == PromptPreviewSection.CHAT) null else PromptPreviewSection.CHAT
-                    },
-                )
-            }
-            item {
-                PromptEditorSection(
-                    title = "会话摘要 / 记忆",
-                    enabled = settings.summaryPromptEnabled,
-                    prompt = settings.summaryPrompt,
-                    preview = PromptPolicy.summarySystemPrompt(settings),
-                    previewVisible = previewSection == PromptPreviewSection.SUMMARY,
-                    onEnabledChanged = viewModel::updateSummaryPromptEnabled,
-                    onPromptChanged = viewModel::updateSummaryPrompt,
-                    onRestore = viewModel::restoreSummaryPrompt,
-                    onTogglePreview = {
-                        previewSection = if (previewSection == PromptPreviewSection.SUMMARY) null else PromptPreviewSection.SUMMARY
-                    },
-                )
-            }
-            item {
-                PromptEditorSection(
-                    title = "Agent 回复总结",
-                    enabled = settings.agentSummaryPromptEnabled,
-                    prompt = settings.agentSummaryPrompt,
-                    preview = PromptPolicy.agentSummarySystemPrompt(settings),
-                    previewVisible = previewSection == PromptPreviewSection.AGENT_SUMMARY,
-                    onEnabledChanged = viewModel::updateAgentSummaryPromptEnabled,
-                    onPromptChanged = viewModel::updateAgentSummaryPrompt,
-                    onRestore = viewModel::restoreAgentSummaryPrompt,
-                    onTogglePreview = {
-                        previewSection = if (previewSection == PromptPreviewSection.AGENT_SUMMARY) null else PromptPreviewSection.AGENT_SUMMARY
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PromptEditorSection(
-    title: String,
-    enabled: Boolean,
-    prompt: String,
-    preview: String,
-    previewVisible: Boolean,
-    onEnabledChanged: (Boolean) -> Unit,
-    onPromptChanged: (String) -> Unit,
-    onRestore: () -> Unit,
-    onTogglePreview: () -> Unit,
-) {
-    CompactSection(
-        title = title,
-        action = {
-            Switch(
-                checked = enabled,
-                onCheckedChange = onEnabledChanged,
-            )
-        },
-    ) {
-        CompactTextField(
-            value = prompt,
-            onValueChange = onPromptChanged,
-            label = "自定义模板",
-            minLines = 4,
-        )
-        Spacer(Modifier.height(7.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            OutlinedButton(
-                onClick = onRestore,
-                shape = RoundedCornerShape(7.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp),
-            ) {
-                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("恢复默认", style = MaterialTheme.typography.labelSmall)
-            }
-            OutlinedButton(
-                onClick = onTogglePreview,
-                shape = RoundedCornerShape(7.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(34.dp),
-            ) {
-                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (previewVisible) "收起预览" else "最终提示词", style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        if (previewVisible) {
-            Spacer(Modifier.height(7.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        shape = RoundedCornerShape(6.dp),
-                    )
-                    .padding(8.dp),
-            ) {
-                Text(
-                    text = preview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompactSection(
-    title: String,
-    action: (@Composable () -> Unit)? = null,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
-    ) {
-        Column(modifier = Modifier.padding(7.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (action == null) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                } else {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    action()
-                    Spacer(Modifier.weight(1f))
-                }
-            }
-            HorizontalDivider(modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
-            content()
         }
     }
 }

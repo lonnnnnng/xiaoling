@@ -128,6 +128,7 @@ import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
 import com.longdev.xiaoling.ui.provider.ProviderEditDraft
 import com.longdev.xiaoling.ui.provider.ProviderManagementActions
+import com.longdev.xiaoling.ui.promptsettings.PromptSettingsActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -421,7 +422,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     AgentTaskCenterActions,
     MemoryManagementActions,
     ProviderManagementActions,
-    AgentProfileManagementActions {
+    AgentProfileManagementActions,
+    PromptSettingsActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1164,39 +1166,39 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiPreferenceStore.saveThemeMode(value)
     }
 
-    fun updateChatPromptEnabled(value: Boolean) = updatePromptSettings {
+    override fun updateChatPromptEnabled(value: Boolean) = updatePromptSettings {
         copy(chatPromptEnabled = value)
     }
 
-    fun updateChatPrompt(value: String) = updatePromptSettings {
+    override fun updateChatPrompt(value: String) = updatePromptSettings {
         copy(chatPrompt = value)
     }
 
-    fun restoreChatPrompt() = updatePromptSettings {
+    override fun restoreChatPrompt() = updatePromptSettings {
         copy(chatPrompt = PromptDefaults.CHAT)
     }
 
-    fun updateSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
+    override fun updateSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
         copy(summaryPromptEnabled = value)
     }
 
-    fun updateSummaryPrompt(value: String) = updatePromptSettings {
+    override fun updateSummaryPrompt(value: String) = updatePromptSettings {
         copy(summaryPrompt = value)
     }
 
-    fun restoreSummaryPrompt() = updatePromptSettings {
+    override fun restoreSummaryPrompt() = updatePromptSettings {
         copy(summaryPrompt = PromptDefaults.SUMMARY)
     }
 
-    fun updateAgentSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
+    override fun updateAgentSummaryPromptEnabled(value: Boolean) = updatePromptSettings {
         copy(agentSummaryPromptEnabled = value)
     }
 
-    fun updateAgentSummaryPrompt(value: String) = updatePromptSettings {
+    override fun updateAgentSummaryPrompt(value: String) = updatePromptSettings {
         copy(agentSummaryPrompt = value)
     }
 
-    fun restoreAgentSummaryPrompt() = updatePromptSettings {
+    override fun restoreAgentSummaryPrompt() = updatePromptSettings {
         copy(agentSummaryPrompt = PromptDefaults.AGENT_SUMMARY)
     }
 
