@@ -562,8 +562,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
     private var pendingApprovalDecision: CompletableDeferred<ApprovalDecision>? = null
-    private val activeAgentRunsByConversation = mutableMapOf<String, AgentRunSnapshot>()
-    private val pendingAgentApprovalsByConversation = mutableMapOf<String, AgentApprovalUiState>()
+    private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
     private var sendMessageJob: Job? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
@@ -2797,8 +2796,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
         when (event) {
             is ConversationSelectionEvent.DeletionStarted -> {
-                activeAgentRunsByConversation.remove(event.conversationId)
-                pendingAgentApprovalsByConversation.remove(event.conversationId)
+                agentConversationRuntimeStateStore.clearConversation(event.conversationId)
                 val previousNoticeCount = uiState.answerabilityNotices.size
                 val nextState = uiState.withoutAnswerabilityNoticesForConversation(event.conversationId)
                 uiState = nextState
@@ -2810,19 +2808,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
             is ConversationSelectionEvent.Immediate -> {
                 val selection = event.selection
+                val runtimeState = agentConversationRuntimeStateStore.stateForSelection(
+                    conversationId = selection.conversation.id,
+                    restoreRuntimeState = selection.restoreRuntimeState,
+                )
                 // long: 导入提示只属于当前编辑草稿；切换或新建会话后必须清除，避免把其他会话误标为外部分享。
                 uiState = uiState.withImmediateConversationSelection(
                     selection = selection,
-                    activeAgentRun = if (selection.restoreRuntimeState) {
-                        activeAgentRunsByConversation[selection.conversation.id]
-                    } else {
-                        null
-                    },
-                    pendingAgentApproval = if (selection.restoreRuntimeState) {
-                        pendingAgentApprovalsByConversation[selection.conversation.id]
-                    } else {
-                        null
-                    },
+                    activeAgentRun = runtimeState.activeRun,
+                    pendingAgentApproval = runtimeState.pendingApproval,
                 ).copy(sharedDraftImported = false)
                 saveConversationSelection()
             }
@@ -2834,11 +2828,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
                 is ConversationLoadEvent.Loaded -> {
                     val request = loadEvent.request
+                    val runtimeState = agentConversationRuntimeStateStore.stateFor(request.conversation.id)
                     val previousNoticeCount = uiState.answerabilityNotices.size
                     val nextState = uiState.withConversationLoadEvent(
                         event = loadEvent,
-                        activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
-                        pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
+                        activeAgentRun = runtimeState.activeRun,
+                        pendingAgentApproval = runtimeState.pendingApproval,
                     ).copy(sharedDraftImported = false)
                     uiState = nextState
                     recordAnswerabilityShadowNoticePruned(
@@ -3532,7 +3527,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun rememberAgentRun(snapshot: AgentRunSnapshot) {
-        activeAgentRunsByConversation[snapshot.run.conversationId] = snapshot
+        agentConversationRuntimeStateStore.rememberRun(snapshot)
         val existingDetail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == snapshot.run.id }
         val updatedHistory = if (uiState.agentRunHistory.isNotEmpty() || snapshot.run.retryOfRunId != null) {
             listOf(
@@ -3558,7 +3553,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun rememberPendingApproval(approval: AgentApprovalUiState) {
-        pendingAgentApprovalsByConversation[approval.conversationId] = approval
+        agentConversationRuntimeStateStore.rememberApproval(approval)
         if (approval.conversationId == uiState.selectedConversationId) {
             uiState = uiState.copy(pendingAgentApproval = approval)
         }
@@ -3586,18 +3581,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         restoredMissingUserMessage = true
                     }
                 }
-            activeAgentRunsByConversation[run.conversationId] = detail.snapshot
+            agentConversationRuntimeStateStore.rememberRun(detail.snapshot)
             detail.approvals
                 .firstOrNull { it.status == ApprovalRequestStatus.PENDING }
                 ?.let { request ->
-                    pendingAgentApprovalsByConversation[run.conversationId] =
-                        AgentApprovalUiState.from(request).copy(restoredFromProcess = true)
+                    agentConversationRuntimeStateStore.rememberApproval(
+                        AgentApprovalUiState.from(request).copy(restoredFromProcess = true),
+                    )
                 }
         }
         val selectedConversationId = uiState.selectedConversationId
+        val selectedRuntimeState = agentConversationRuntimeStateStore.stateFor(selectedConversationId)
         uiState = uiState.copy(
-            activeAgentRun = activeAgentRunsByConversation[selectedConversationId],
-            pendingAgentApproval = pendingAgentApprovalsByConversation[selectedConversationId],
+            activeAgentRun = selectedRuntimeState.activeRun,
+            pendingAgentApproval = selectedRuntimeState.pendingApproval,
             agentRunHistory = details + uiState.agentRunHistory.filterNot { existing ->
                 details.any { it.snapshot.run.id == existing.snapshot.run.id }
             },
@@ -3726,15 +3723,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun clearPendingApprovalForConversation(conversationId: String) {
-        pendingAgentApprovalsByConversation.remove(conversationId)
+        agentConversationRuntimeStateStore.clearApproval(conversationId)
         if (conversationId == uiState.selectedConversationId) {
             uiState = uiState.copy(pendingAgentApproval = null)
         }
     }
 
     private fun clearAgentStateForConversation(conversationId: String) {
-        activeAgentRunsByConversation.remove(conversationId)
-        pendingAgentApprovalsByConversation.remove(conversationId)
+        agentConversationRuntimeStateStore.clearConversation(conversationId)
         if (conversationId == uiState.selectedConversationId) {
             uiState = uiState.copy(
                 activeAgentRun = null,

@@ -1,5 +1,9 @@
 # 答案可回答性 shadow 绑定与测量协调契约
 
+## 当前横向工程边界
+
+第 101 项持续观察期间新增的 `AgentConversationRuntimeStateStore` 只收敛会话级 Run/Approval 的进程内 UI 运行态：按会话替换 Run 和审批、只清审批、删除会话时清理整组状态，并在新建占位会话时禁止恢复旧投影。它不保存 answerability measurement、notice、候选正文或成本，不改变 `store=null / persistenceMode=NONE`，也不参与 Judge eligibility、绑定、重试、引用呈现或 enforcement。该横向拆分没有产生新的 Shadow 样本；第 97 至 101 项人工合计与第 102 项后置边界保持不变。
+
 ## 目的
 
 第 94 阶段冻结“真实 Agent 消息中的哪一份知识证据可以进入 answerability shadow”的只读绑定；第 95 阶段补齐默认关闭的真实 Judge 测量协调、失败/重试和可选最小化持久化边界；第 96 阶段把生产 Provider adapter、答案保存后的异步 caller、设备偏好和旁路 notice 接入真实前台 Agent 消息流；第 97 阶段增加不含正文的进程内成本、失败和 notice 生命周期遥测，并完成首条 Redmi 真实样本；第 98 阶段扩充真实前台样本并验证入口隔离；第 99 阶段完成首批低频真实使用观察。六阶段都不把 shadow 结果当成生产答案决策，也不改变原答案或知识引用。

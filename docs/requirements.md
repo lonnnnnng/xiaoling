@@ -1,5 +1,15 @@
 # 产品需求
 
+## 会话级 Agent 运行态 Store 边界（横向可靠性工程）
+
+进程内 Agent UI 运行态必须以 `conversationId` 为唯一归属，同时保存该会话最新 Run 和待审批投影。新 Run 只能替换同会话旧 Run；审批从等待进入 `deciding` 只能替换同会话审批，不得影响 Run 或其他会话。审批批准、拒绝或取消后只清除审批，Run 必须继续保留；删除会话时必须在新会话投影前同时清除该会话 Run 与审批。
+
+新建占位会话必须显式返回空运行态，不能因 ID 复用或迟到加载恢复旧卡片；该投影不得反向删除 Store 中其他会话状态。启动恢复必须从持久化 Run/Approval 明细重建进程内 Store，并只把当前选中会话的状态投影给 UI。ViewModel 不得再绕过 Store 维护第二张 Run/Approval Map。
+
+本 Store 只能承载进程内 UI 运行态，不得持久化、决定或执行审批，不得成为 Room Run/Approval、Agent Runtime、Tool Ledger、Workflow 或 answerability Shadow 的第二事实源。验收需覆盖同会话替换、跨会话隔离、`deciding` 更新、只清审批、整组清理和禁止占位恢复；完整门禁必须记录 JVM、Lint、Debug/Release/AndroidTest APK 与仅 Redmi instrumentation。当前结果为聚焦 `5/5`、完整 JVM `619/619`、Lint `0 error / 50 warnings`、默认完整 `OK (195 tests)`，第 101/102 项边界不变。
+
+7 份长期文档更新后必须重新打入 AndroidTest assets，并通过 Redmi 项目文档语料门禁；本轮结果为 `OK (1 test)`。
+
 ## 第 101 项 answerability Shadow 持续观察边界
 
 第 101 项是跨真实使用窗口的持续观察，不是一次性完成阶段。每个窗口只能在用户显式开启、同一应用进程、前台直接 `/agent`、答案成功保存且存在冻结知识候选时采样；不得在同一窗口堆样本，也不得断网、篡改认证或伪造协议错误制造自然失败。词法兜底必须如实记录，不得当作 Embedding 质量证据。

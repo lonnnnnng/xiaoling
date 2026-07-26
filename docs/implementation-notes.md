@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 会话级 Agent 运行态 Store 迁出（横向可靠性工程）
+
+- 新增纯内存 `AgentConversationRuntimeStateStore` 与不可变 `AgentConversationRuntimeState` 投影，以 `conversationId` 为唯一归属保存最新 `AgentRunSnapshot` 和 `AgentApprovalUiState`。后台 Run 或审批更新不会覆盖用户正在查看的其他会话。
+- Store 统一五类生命周期：同会话 Run 替换、审批进入 `deciding`、审批收敛但保留 Run、删除会话同时清理 Run/Approval，以及新建占位会话在返回空投影前清理可能复用的同 ID 旧状态但保留其他会话。启动恢复继续从 Room Run/Approval 明细重建 Store，再只投影当前选中会话。
+- `XiaoLingViewModel` 删除两张裸 Map，并在会话选择、删除、Run snapshot 发布、审批记忆/清理和启动恢复处消费 Store；`CompletableDeferred`、审批 Repository 写入、Run history、Agent Runtime、Compose 状态和 Workflow 编排仍留在原边界。ViewModel 从 `4408` 行降至 `4404` 行。
+- 五轮 TDD 的 `AgentConversationRuntimeStateStoreTest` 为 `5/5`；会话选择、选择策略和恢复消息组合聚焦测试通过。完整 JVM `619/619`，Lint `0 error / 50 warnings`，Debug、Release 与 AndroidTest APK 构建成功。
+- 更新后的 7 份长期文档重新打包后，仅在 Redmi 执行项目文档语料门禁，结果 `OK (1 test)`。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 安装并执行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `50.018s`。收尾确认 Room v32、Provider/Profile 各 `1`、知识文档 `0`、默认 Profile 为 `16` 个工具/`7` 个 Skill/记忆开启、Shadow 关闭；测试包已卸载，主 Activity 前台且 crash buffer 无本应用异常。
+- 本次不修改 Room Schema、Provider 协议、Agent Runtime、审批/验证语义、Workflow、设备后台门禁、Shadow Store 或 enforcement，也不采集或制造新 Shadow 样本。第 101 项继续低频观察，第 102 项保持后置。
+
 ## 第 101 项：answerability Shadow 首个持续观察窗口（验收完成，继续低频观察）
 
 - 本窗口不修改生产代码、Room Schema、Provider 协议、Shadow Store 或 enforcement；只在 Redmi `wsvwypiz7xwslvl7` 的同一进程中由用户显式开启，并采集一条前台直接 `/agent` 真实样本。
@@ -421,14 +431,14 @@
 
 当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序已经迁出：
 
-- Provider 管理、模型同步、运行态 Map、Compose 发送/选择事件投影、流式节流和错误提示仍由同一个 ViewModel 维护；上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合。
+- Provider 管理、模型同步、Compose 发送/选择事件投影、流式节流和错误提示仍由同一个 ViewModel 维护；会话级 Run/Approval 运行态由 `AgentConversationRuntimeStateStore` 统一保存和投影。上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v32 Schema；迁移测试覆盖 v4→v32、各关键增量迁移和全新 v32 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，后续继续收敛运行态 Map 和其他副作用编排，但不为减少行数提前制造跨模块抽象。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出会话级 Run/Approval 运行态。后续继续收敛 Compose 副作用和其他编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 

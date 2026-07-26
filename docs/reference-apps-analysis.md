@@ -1,5 +1,9 @@
 # `reference-apps` 个人 Agent 实现分析
 
+最新横向工程继续采用参考实现中“按会话保存运行态、UI 只投影当前会话”的原则，但没有把完整 Agent Runtime 复制进 ViewModel。纯内存 `AgentConversationRuntimeStateStore` 统一 Run/Approval 的替换、审批局部清理、删除会话整组清理、新建占位隔离与启动恢复投影；ViewModel 仍负责 Room、Compose 和执行宿主副作用。这样后台 Run 更新不会串到当前会话，审批收敛也不会误删 Run，同时没有新增跨进程状态或第二套审批事实源。
+
+五轮 TDD 聚焦 `5/5`，完整 JVM `619/619`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 与仅 Redmi 默认完整 `OK (195 tests)`、耗时 `50.018s` 通过。这个拆分只降低 ViewModel 的运行态耦合，不构成设备工具进入 Workflow/后台、任意 App 控制、Shadow 持久化或第 102 项扩权。
+
 第 101 项首个间隔真实使用窗口继续验证成熟 Agent 的 Shadow 观测应当“低频、旁路、可撤销”。Redmi 同一前台进程只采集 `1` 条真实 `/agent` 样本；本地知识以词法兜底命中 `Agent Run retryOfRunId` 的 `3` 个候选，Run 完成 `knowledge.search`，Judge 判定为直接回答。窗口成本为耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、Tokens `2720/209/2929`，取消、异常和旁路错误均为 `0`。关闭开关并删除会话后 notice 有效 `1 -> 0`、裁剪 `0 -> 1`，临时知识文档和下载文件也已删除；这证明进程内观测生命周期可收敛，但不是 Embedding 质量或跨进程持久化证据。
 
 第 97 至 101 项已记录窗口人工合计样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次形成直接回答 `5`、部分回答 `3`；累计成本 `43846ms / 43777ms / 66995B / 17164+1822=18986 Tokens`。八次 Judge 均未出现自然网络、协议或认证失败，也没有明显成本异常。该证据继续支持保持 `store=null / persistenceMode=NONE`、Room v32 和两层 enforcement 关闭，而不是提前引入 Room Store、跨进程 notice 或第 102 项能力。同步文档后的强制门禁为 JVM `614/614`、Lint `0 error / 50 warnings`、APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (195 tests)`。

@@ -2,6 +2,17 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 会话级 Agent 运行态 Store 迁出（横向可靠性工程）
+
+- 实现边界：新增纯内存 `AgentConversationRuntimeStateStore`，以 `conversationId` 保存最新 Run/Approval 投影；统一同会话替换、审批 `deciding` 更新、只清审批、删除会话整组清理、新建占位不恢复和启动恢复后的当前会话读取。`XiaoLingViewModel` 删除两张裸 Map，从 `4408` 行降至 `4404` 行。
+- 保持边界：`CompletableDeferred`、Room 审批写入/决定、Run history、Compose 状态、Agent Runtime、工具审批/验证、Workflow 与设备后台门禁均未改变。Room 保持 v32；本轮没有触发或制造 Shadow 样本，`store=null / persistenceMode=NONE` 与两层 enforcement 关闭不变。
+- TDD 门禁：五轮 red-green 得到 `AgentConversationRuntimeStateStoreTest` `5/5`；与会话选择 Coordinator/Policy、恢复用户消息聚焦组合测试通过。完整 JVM XML 为 `619/619`，0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings`。
+- APK：Debug、Release、AndroidTest 均构建成功。Debug APK 为 `24,094,982` 字节，SHA-256 `207033237a421325d24588822fd8a57043c92f92ca4ef6d98ea895539f20d86b`；Release APK 为 `15,918,038` 字节，SHA-256 `939d65b9ead18ef0dd32a5ac2f12d5aa556ecbfe2b5c65f164ba31580ff9a44d`。
+- Redmi 完整门禁：设备列表仅有 `wsvwypiz7xwslvl7`，明确核对为 Redmi Note 8 Pro；直接安装 Debug/Test APK 并运行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `50.018s`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档语料门禁：7 份长期文档同步后重新打包 AndroidTest assets，仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。写回本条结果后再以相同步骤最终复验，不记录递归变化的最后墙钟耗时。
+- 设备收尾：Room `user_version=32`，Provider/Profile 各 `1`、知识文档 `0`；Provider 为 `gpt-5.5` 且 Keystore IV/密文非空，默认 Profile 为 `16` 个工具、`7` 个 Skill、记忆开启，`answerability_shadow_enabled=false`。测试包已卸载，`MainActivity` 前台、PID 存活，`Crashed services:{}` 且 crash buffer 无本应用异常。Accessibility 保持 instrumentation 后的未授权状态，没有把自动授权冒充用户授权。
+- 路线图边界：本次只继续里程碑 0 的 ViewModel 横向收敛；第 101 项仍为间隔真实窗口低频观察，第 102 项保持后置。
+
 ## 2026-07-26 answerability Shadow 首个持续观察窗口（第 101 项，继续观察）
 
 - 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`，只在同一应用进程、前台直接 `/agent` 且用户显式开启 Shadow 后采集 `1` 条真实样本；没有断网、修改认证或伪造协议失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。

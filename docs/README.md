@@ -1,5 +1,9 @@
 # 文档索引
 
+最新横向工程已把 `XiaoLingViewModel` 中按会话维护的 Agent Run/Approval 两张运行态 Map 迁入纯内存 `AgentConversationRuntimeStateStore`。Store 统一按会话记住和替换 Run、更新 `deciding` 审批、只清审批而保留 Run、删除会话时清理整组状态，并支持新建占位会话显式不恢复旧投影；ViewModel 只在会话切换、启动恢复、snapshot 发布和审批收敛时消费该公开接口。`CompletableDeferred`、Room 审批写入、Run history、Agent Runtime、工具权限与 Workflow 均保持原语义，ViewModel 从 `4408` 行降至 `4404` 行。五轮 TDD 聚焦 `5/5`，完整 JVM `619/619`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `50.018s` 已通过。该拆分没有采集 Shadow 样本，也不提前进入第 102 项。
+
+更新后的 7 份长期文档已重新打入 AndroidTest assets，并在 Redmi 通过项目文档语料门禁 `OK (1 test)`。
+
 路线图第 101 项已完成首个间隔真实使用窗口，整项继续保持低频观察。仅在 Redmi `wsvwypiz7xwslvl7` 的同一前台进程中显式开启 Shadow，导入当前 README 后以词法兜底检索 `Agent Run retryOfRunId`，真实 `/agent` Run 完成 `knowledge.search` 并形成直接回答 `1` 条。窗口摘要为样本/完成/Judge `1/1/1`，取消、异常、未知、跳过及旁路错误均为 `0`；耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、Tokens `2720/209/2929`。关闭 Shadow、删除测试会话和临时知识后，notice 从有效 `1 / 裁剪 0` 变为有效 `0 / 裁剪 1`，知识文档恢复 `0`。第 97 至 101 项已记录窗口人工合计为样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`；八次 Judge 均没有自然网络、协议或认证失败。该合计不是跨进程 tracker 或 Room 数据，不支持增加 Room Store、跨进程 notice 或 enforcement。强制完整门禁为 JVM `614/614`、Lint `0 error / 50 warnings`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (195 tests)`、耗时 `49.158s`。
 
 最近完成的横向可靠性工程已把 Agent Run 关联重试迁入独立 `AgentRunRetryCoordinator`。协调器统一处理忙碌/来源缺失/不可重试、需要副作用确认、确认时证据指纹漂移、用户取消、原 USER 附件异步恢复以及 `RetryStarting / RetryReady / Failed` typed event；成功准备只生成带原会话、原目标、附件和 `retryOfRunId` 的新 Run 请求，不修改旧 Run。ViewModel 继续负责 Compose 投影、会话导航、Agent Profile/Provider 校验和真正调用 `sendAgentRun`，Room Schema、Agent Runtime、工具权限、Workflow 与后台能力均未改变。新增聚焦 JVM `7/7`，完整 JVM `614/614`、Lint `0 error / 50 warnings`、Debug/AndroidTest APK 与仅 Redmi 默认完整 `OK (195 tests)` 已通过。路线图第 101 项仍是间隔真实使用窗口的低频 Shadow 观察，不因本次重构制造新样本。
