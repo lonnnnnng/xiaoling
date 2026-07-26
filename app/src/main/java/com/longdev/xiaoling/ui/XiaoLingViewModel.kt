@@ -121,6 +121,7 @@ import com.longdev.xiaoling.storage.UiPreferenceStore
 import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
+import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -419,7 +420,7 @@ data class AgentMemoryEditUiState(
     val confidence: Double,
 )
 
-class XiaoLingViewModel(application: Application) : AndroidViewModel(application) {
+class XiaoLingViewModel(application: Application) : AndroidViewModel(application), WorkflowManagementActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1303,7 +1304,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         schedules = workflowRepository.listWorkflowSchedules(),
     )
 
-    fun refreshWorkflows() {
+    override fun refreshWorkflows() {
         workflowLoadJob?.cancel()
         uiState = uiState.copy(loadingWorkflows = true, workflowError = null)
         workflowLoadJob = viewModelScope.launch {
@@ -1327,7 +1328,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createWorkflow(name: String, stepGoals: List<String>) {
+    override fun createWorkflow(name: String, stepGoals: List<String>) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -1345,7 +1346,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>) {
+    override fun updateWorkflow(workflowId: String, name: String, stepGoals: List<String>) {
         if (workflowId in uiState.mutatingWorkflowIds) return
         uiState = uiState.copy(
             mutatingWorkflowIds = uiState.mutatingWorkflowIds + workflowId,
@@ -1376,7 +1377,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun requestWorkflowRunRetry(runId: String) {
+    override fun requestWorkflowRunRetry(runId: String) {
         if (uiState.sendingMessage || uiState.runningWorkflowId != null) {
             showValidation("当前已有任务正在执行，请等待结束后再重试")
             return
@@ -1501,7 +1502,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setWorkflowEnabled(workflowId: String, enabled: Boolean) {
+    override fun setWorkflowEnabled(workflowId: String, enabled: Boolean) {
         if (workflowId in uiState.mutatingWorkflowIds) return
         uiState = uiState.copy(
             mutatingWorkflowIds = uiState.mutatingWorkflowIds + workflowId,
@@ -1555,7 +1556,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun scheduleWorkflowOnce(workflowId: String, delayMinutes: Int) {
+    override fun scheduleWorkflowOnce(workflowId: String, delayMinutes: Int) {
         if (uiState.schedulingWorkflowId != null) return
         val workflow = uiState.workflows.firstOrNull { it.id == workflowId }
         if (workflow == null || !workflow.enabled) {
@@ -1597,7 +1598,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun scheduleWorkflowRecurring(
+    override fun scheduleWorkflowRecurring(
         workflowId: String,
         type: WorkflowScheduleType,
         hour: Int,
@@ -1649,7 +1650,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun cancelWorkflowSchedule(scheduleId: String) {
+    override fun cancelWorkflowSchedule(scheduleId: String) {
         if (scheduleId in uiState.mutatingWorkflowScheduleIds) return
         uiState = uiState.copy(
             mutatingWorkflowScheduleIds = uiState.mutatingWorkflowScheduleIds + scheduleId,
@@ -1692,7 +1693,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun cancelScheduledTask(taskId: String) {
+    override fun cancelScheduledTask(taskId: String) {
         if (taskId in uiState.mutatingScheduledTaskIds) return
         val task = uiState.scheduledTasks.firstOrNull { it.id == taskId }
         if (task == null || task.status !in setOf(ScheduledTaskStatus.SCHEDULED, ScheduledTaskStatus.RUNNING)) return
@@ -1759,7 +1760,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun runWorkflow(workflowId: String) {
+    override fun runWorkflow(workflowId: String) {
         if (uiState.sendingMessage || uiState.runningWorkflowId != null) {
             showValidation("当前已有任务正在执行，请等待结束后再运行工作流")
             return

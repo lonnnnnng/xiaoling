@@ -6,6 +6,12 @@
 
 发布门禁为 Gradle `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、zipalign、v2 正式签名和仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）。Release APK SHA-256 为 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`。
 
+## 横向结构工程：Workflow 管理垂直 UI module（完成）
+
+Workflow 管理页已从 `XiaoLingApp.kt` 迁入 `ui/workflow`。模块使用专用 projection 按 Workflow 聚合定义、Run、调度实例与周期规则，统一计算运行/变更状态和操作资格，并在 Compose 前容错解码步骤快照；页面只依赖 `WorkflowManagementUiState` 与 10 个动作组成的 `WorkflowManagementActions`，新建、编辑、调度和展开状态由模块自己拥有。通知权限、设置导航和全局 Workflow 重试确认仍留在应用宿主。
+
+`XiaoLingApp.kt` 从导航阶段的 `6,925` 行降到 `6,217` 行。聚焦 projection JVM `2/2`、Redmi fake actions Compose `OK (1 test)`；强制本地 `140/140` tasks、JVM `664/664`、Lint `0 error / 50 warnings / 0 information`、三类 APK 和 Release lintVital 通过，仅 Redmi 默认完整 instrumentation 为 `OK (198 tests)`、耗时 `51.74s`，最终文档语料单项为 `OK (1 test)`。Room v32、Workflow 执行/调度/恢复语义、设备后台门禁和第 101/102 项均不变。
+
 ## 横向工程：Agent 启动前校验协调迁出（完成）
 
 普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批的会话、Profile、工具注册与 Provider 校验已从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`。普通 `/agent` 保持可创建新会话；其余入口先要求指定会话存在。普通、Workflow 与两类重试使用当前 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 无有效快照时才回退当前 Profile。校验成功后的 UI、附件、Room 和 Runtime 副作用仍留在 ViewModel，长 Workflow 继续使用入口冻结配置。
@@ -337,7 +343,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
-- ViewModel 与 Compose 宿主仍然过重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用 Tab、设置目标、知识跳转、跨域事件和返回优先级已经迁入 `ui/navigation` deep module，`XiaoLingApp.kt` 从 7,018 行降到 6,925 行；Workflow 管理、Agent 任务中心、长期记忆等垂直 UI 簇仍需继续按业务所有权拆分。
+- ViewModel 与 Compose 宿主仍然过重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用导航已迁入 `ui/navigation`，Workflow 管理已迁入拥有专用 state projection、局部状态和 actions interface 的 `ui/workflow`，`XiaoLingApp.kt` 从 7,018 行降到 6,217 行；Agent 任务中心、长期记忆和 Provider 等垂直 UI 簇仍需继续按业务所有权拆分。
 
 ## 目标架构
 
@@ -661,7 +667,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.12` 当前状态，下一批实际代码任务建议拆为：
 
-当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航宿主已迁入 `ui/navigation`。下一项是 Workflow 管理垂直 UI module，要求收口页面局部状态、状态投影和动作 interface，而不是只移动 Composable。
+当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航宿主已迁入 `ui/navigation`；Workflow 管理已迁入拥有专用状态投影、局部编辑/调度状态和动作 interface 的 `ui/workflow`。下一项是 Agent 任务中心垂直 UI module，优先收口筛选、指标、详情、恢复诊断和动作面，而不是只移动 Composable。
 
 1. 已完成：`WAITING_APPROVAL` 可在任意已验证前缀后恢复原 Run。恢复要求唯一待审批请求与链尾 ToolCall 完全匹配，前序结果全部成功并 `PASSED`，步骤、Ledger 与 typed event 一致；Runtime 重建可信前缀、工具调用预算和循环指纹，不重放前序工具。磁盘 Room 关闭重开与 Redmi 124 条完整 instrumentation 已通过。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。

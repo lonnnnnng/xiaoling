@@ -4,6 +4,10 @@
 
 当前发布基线为 `v0.1.12`（`versionCode 13`）。本版汇总 `v0.1.11` 之后第 75 至 101 阶段与横向可靠性工程：Responses 图片/文档附件、Android 单项分享草稿、Embedding 索引与相关性证据、默认关闭的 answerability shadow，以及 Agent Run 重试、会话运行态、审批、恢复审批、候选记忆、Provider 同步和启动前校验协调器。发布门禁为 Gradle `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、zipalign 和 v2 正式签名；仅 Redmi 默认完整 `196` 条为 `184 passed / 12 skipped / 0 failed`、耗时 `48.514s`。Release APK 为 `15,950,806` 字节，SHA-256 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`。
 
+最新横向结构工程已完成验证报告归档、应用导航宿主和 Workflow 管理垂直 UI 迁出。`ui/workflow` 通过专用 projection 统一聚合定义、Run、ScheduledTask 与周期规则，通过 actions interface 隔离具体 ViewModel，并自己持有新建、编辑、调度和展开状态；应用壳只保留字段投影、通知权限、导航与全局重试确认。`XiaoLingApp.kt` 从 `7,018` 行分两步降到 `6,217` 行。
+
+Workflow module 聚焦 JVM `2/2` 和 Redmi Compose `OK (1 test)` 通过；强制本地门禁为 `140/140` tasks、JVM `664/664`、Lint `0 error / 50 warnings / 0 information`、Debug/AndroidTest/Release APK 与 Release lintVital 成功，仅 Redmi 默认完整 instrumentation 为 `OK (198 tests)`、耗时 `51.74s`，最终文档语料单项为 `OK (1 test)`。Room v32 与 Workflow、设备后台、Shadow 和第 101/102 项业务边界不变；下一项横向结构工程为 Agent 任务中心垂直 UI module。
+
 最新横向可靠性工程把五类 Agent 启动前校验从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`：普通 `/agent` 允许当前会话不存在，Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批均要求指定会话仍存在；会话失败继续优先于 Profile、未注册工具和 Provider 错误。普通、Workflow 与两类重试继续使用当前选中 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 没有有效快照时才回退当前 Profile。
 
 协调器同步返回强类型 `Ready / Rejected`，成功后的导航、确认弹层、附件读取、Room 写入与 Runtime 调用仍由 ViewModel 负责，不新增执行前二次校验。冻结的 `ProviderRequestConfig` 只在当前进程启动链内传递，类型自身的 `toString()` 会固定脱敏 Base URL、API Key 和全部自定义 Header。Coordinator 聚焦 JVM `10/10`、配置脱敏 `1/1`；强制门禁 `140/140` tasks 在 `2m 5s` 内通过，完整 JVM `656/656`、Lint `0 error / 50 warnings / 0 information`、三类 APK 成功。仅 Redmi 默认完整为 `196` 条（`184 passed / 12 skipped / 0 failed`）、耗时 `48.8s`，最终文档语料单项为 `OK (1 test)`。Debug/Release APK 分别为 `23,190,389 / 15,950,806` 字节，SHA-256 为 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52 / 00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。本轮不采集 Shadow，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时或 Foreground Service。

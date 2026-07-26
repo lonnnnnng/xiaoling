@@ -28,6 +28,15 @@
 - 聚焦门禁：`XiaoLingNavigationCoordinatorTest` JVM `6/6`；Debug 与 AndroidTest APK 构建成功。只在 Redmi `wsvwypiz7xwslvl7` 运行新增 MainActivity 导航单项和既有知识引用跨域 E2E，两项分别为 `OK (1 test)`。未连接或操作 Pixel_9。
 - 保持边界：Room v32、Provider、Agent Runtime、Workflow Ledger、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Workflow 管理垂直 UI module。
 
+## 2026-07-26 Workflow 管理垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `WorkflowManagementUiState`、按 Workflow 聚合四类账本的 `WorkflowManagementProjection` 和 10 个动作组成的 `WorkflowManagementActions`。页面及条目、编辑/调度弹窗、步骤快照呈现和格式化 helper 迁入 `ui/workflow`，不再接收整份 `XiaoLingUiState` 或具体 ViewModel。
+- 宿主边界：应用壳只投影 Workflow 字段并提供通知权限与返回回调；`XiaoLingViewModel` 实现动作 interface。全局 Workflow Run 重试确认继续属于应用宿主，Repository、WorkManager、Agent preflight、Ledger 与调度恢复逻辑不变。
+- 结构结果：`XiaoLingApp.kt` 从导航阶段的 `6,925` 行降到 `6,217` 行。新模块拥有页面局部的新建、编辑、调度和展开状态，Compose 不再自行过滤 Run/Task/Schedule 或解码步骤快照。
+- 本地完整门禁：强制重跑 `140/140` tasks，review 修复后完整回归为 JVM `664/664`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。最终 Debug/Release APK 分别为 `24,228,509 / 15,967,190` 字节；AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录会被文档自身改写的包大小。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`，新增 fake actions Workflow Compose 单项为 `OK (1 test)`；默认完整 `AndroidJUnitRunner` 为 `OK (198 tests)`、耗时 `51.74s`；更新后的当前 README/docs 重新打包后，最终文档语料单项为 `OK (1 test)`。在线模拟器没有接收 ADB 设备命令。
+- 保持边界：Room v32、Workflow 执行/调度/停止/恢复语义、Provider、Agent Runtime、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent 任务中心垂直 UI module。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
