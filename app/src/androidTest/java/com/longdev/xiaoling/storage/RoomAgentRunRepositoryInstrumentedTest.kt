@@ -1361,6 +1361,70 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun recoveredApprovalRejectionAtomicallyClosesApprovalStepAndRun() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-recovered-rejection",
+            userMessageId = "message-recovered-rejection",
+            goal = "拒绝恢复后的写入",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        val pendingCall = ToolCall(
+            id = "tool-call-recovered-rejection",
+            name = "memory.remember",
+            arguments = mapOf("content" to "不应保存"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        val approvalStep = repository.appendStep(
+            run.id,
+            "approval",
+            "应用侧审批",
+            "等待应用侧审批 ${pendingCall.name}",
+            AgentStepStatus.RUNNING,
+        )
+        val request = repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = pendingCall,
+            definition = ToolDefinition(
+                name = pendingCall.name,
+                description = "写入长期记忆",
+                risk = pendingCall.risk,
+            ),
+        )
+
+        val rejected = repository.rejectRecoveredApproval(
+            requestId = request.id,
+            runId = run.id,
+            reason = "用户拒绝恢复后的工具执行",
+        )
+
+        assertEquals(AgentRunStatus.FAILED, rejected?.snapshot?.run?.status)
+        assertEquals(
+            AgentStepStatus.FAILED,
+            rejected?.snapshot?.steps?.single { it.id == approvalStep.id }?.status,
+        )
+        assertEquals(
+            ApprovalRequestStatus.DENIED,
+            rejected?.approvals?.single { it.id == request.id }?.status,
+        )
+        val eventTypes = checkNotNull(rejected).snapshot.events.map { it.type }
+        assertTrue(eventTypes.indexOf("approval.request_decided") < eventTypes.indexOf("step.status"))
+        assertTrue(eventTypes.indexOf("step.status") < eventTypes.lastIndexOf("run.status"))
+    }
+
+    @Test
     fun recoveredPendingApprovalCompletesOriginalRoomRun() = runBlocking {
         val registry = FakeToolRegistry()
         val definition = registry.definition("fake.echo")!!

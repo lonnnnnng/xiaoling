@@ -1,5 +1,17 @@
 # 文档索引
 
+最新横向可靠性工程把 Provider 模型同步的网络请求、模型合并、失败分型、批量顺序和完整快照提交从 `XiaoLingViewModel` 迁入独立 `ProviderModelSyncCoordinator`。请求统一校验 Base URL，trim URL/API Key 并透传可配置 User-Agent；上游模型按顺序去重，仍有效的当前模型优先保留，否则回退首项，`availableModels / enabledModels` 延续既有语义同步为上游全集。批量同步严格串行，普通失败保留逐项结果后继续，取消原样传播并停止后续项。
+
+网络获取不被全局串行化，只有完整 Provider 快照提交使用 `Mutex`；提交端从最新 UI 快照重新查找 Provider，按规范化 `/models` URL 与 API Key 拒绝身份漂移，保留最新名称和仍有效模型，Room 保存完成后才发布成功。Provider 已删除、保存期间配置变化和持久化异常分别收敛为强类型结果或失败，迟到结果不能覆盖用户新编辑。聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `OK (196 tests)`（`49.373s`）与最终文档语料 `OK (1 test)` 通过。本轮不采集 Shadow，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时或 Foreground Service。
+
+最新横向可靠性工程把候选记忆的有界列表、成功回合采集和接受/拒绝从 `XiaoLingViewModel` 迁入独立 `AgentMemoryCandidateCoordinator`。协调器统一普通聊天与 Agent Run 的稳定来源身份，以 `Loaded / Ignored / Captured / Updated / Missing / Busy / Failed` 等强类型结果区分正常空结果、并发和存储失败；同一候选 ID 只能有一个决定持有 claim，不同候选仍可并行，取消在不可取消清理区释放 claim。关闭候选开关同时取消旧列表 Job，迟到 Room 结果不能重新填充已关闭界面。敏感过滤、规范化去重、同主题冲突、正式记忆写入与 Room transaction 继续由既有 Store/Manager 负责，协调器不复制业务规则。
+
+聚焦 JVM `7/7` 与强制本地门禁已通过：`140/140` tasks、JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`，Debug、Release、AndroidTest APK 成功。仅 Redmi `wsvwypiz7xwslvl7` 默认完整为 `OK (196 tests)`、耗时 `49.633s`，最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,174,005` 字节、SHA-256 `4992185a39ae9844b171e51126dfbef2d97d2ce06d55edcf123bd85d5cb2007c`；Release APK 为 `15,934,422` 字节、SHA-256 `0cb3df07f601fe8cde4acb74346fd7c18eb47ffab55276e3cf4fab552fde5aab`。本轮不采集 Shadow，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时、Foreground Service 或远期能力。
+
+最新横向可靠性工程把进程重建后的链尾审批从 `XiaoLingViewModel` 迁入独立 `RecoveredAgentApprovalCoordinator`。批准与拒绝都先重新读取最新 Room detail，并复用 `AgentRunResumePolicy` 核对原 Run、会话、请求、ToolCall、参数和已验证前缀；同一时间只有一个决定能进入持久化。锁忙返回独立 `Busy` 结果，另一会话仍为 `PENDING` 的卡片不会被误判为过期。批准前先恢复原 USER 附件，附件/Skill/配置等前置失败且审批仍为合法 `PENDING` 时恢复 `deciding=false` 卡片；停止发生在决定落库前也保留可重试入口。拒绝通过 Repository 单事务依次写入 `DENIED`、失败审批 Step 和失败 Run，任一步异常整体回滚。协调器不拥有 Compose、Provider 选择、消息发布、Workflow 后续步骤或普通前台 waiter；后者继续由 `AgentApprovalDecisionCoordinator` 管理。
+
+六条协调器 JVM 用例及新增 Room 原子拒绝 instrumentation 契约已落地；强制本地门禁 `140/140` tasks 在 `1m 51s` 内通过，JVM `630/630`、Lint `0 error / 50 warnings / 1 hint`，Debug、Release、AndroidTest APK 成功。仅 Redmi `wsvwypiz7xwslvl7` 默认完整为 `OK (196 tests)`、耗时 `49.015s`，最终文档语料为 `OK (1 test)`。Debug APK 为 `23,157,621` 字节、SHA-256 `4579b5bc821bd721b77a76b3110b0451f852b9c8f84f528fa824efc8cc801e4f`；Release APK 为 `15,918,038` 字节、SHA-256 `8fb7d53170a7bff05218b0d4cced8a47dc550bb29bac7dea8278ec0b7e44c6ef`。本轮不采集 Shadow 样本，不进入第 102 项，也不扩展设备 Workflow/后台、精确定时、Foreground Service 或远期能力。
+
 最新横向可靠性工程已把 `XiaoLingViewModel` 中单个全局 `pendingApprovalDecision` 的生命周期迁入纯内存 `AgentApprovalDecisionCoordinator`。每个审批注册独立 ticket；只有匹配 `requestId` 的首次操作能领取 claim，重复点击和过期 claim 均被拒绝。Room 写入成功后才完成 waiter；异常会释放 claim、恢复 `deciding=false` 供用户重试，Repository 返回 `null` 时取消 waiter，禁止未持久化的批准继续执行工具。停止生成会取消当前 ticket，旧 ticket 的完成、释放或 `finally` 清理都不能影响新审批。协调器不写 Room、不判断风险、不持有 Compose、Run、Workflow 或恢复后审批；Room v32、Agent Runtime、工具策略、后台边界和 answerability Shadow 均未改变。
 
 五轮 TDD 聚焦 `5/5`，完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`，Debug、Release、AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `48.776s` 已通过。Debug APK 为 `23,157,621` 字节、SHA-256 `da159b14f94b810d7972e644110e553d87ee6b0eb5c013796c949915e69c3de8`；Release APK 为 `15,918,038` 字节、SHA-256 `df72abccf778d99c25ac5ef84f876849bb9ebf9571cef6806d6ae8872c162504`。更新后的 7 份长期文档已重新打入 AndroidTest assets，并在 Redmi 通过项目文档语料门禁 `OK (1 test)`。本轮没有采集 Shadow 样本，第 101 项继续低频观察，第 102 项保持后置。

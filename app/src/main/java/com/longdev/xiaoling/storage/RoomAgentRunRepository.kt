@@ -252,6 +252,50 @@ class RoomAgentRunRepository(
         decided
     }
 
+    suspend fun rejectRecoveredApproval(
+        requestId: String,
+        runId: String,
+        reason: String,
+    ): AgentRunDetailRecord? {
+        require(reason.isNotBlank()) { "拒绝原因不能为空" }
+        return database.withTransaction {
+            val dao = database.agentRunDao()
+            val run = dao.getRun(runId) ?: return@withTransaction null
+            if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction null
+            val detail = loadDetail(run)
+            val assessment = AgentRunResumePolicy.assess(detail)
+            val recovery = assessment.approvalWait
+            if (
+                assessment.kind != AgentRunResumeKind.APPROVAL_WAIT ||
+                recovery?.approvalRequestId != requestId
+            ) {
+                return@withTransaction null
+            }
+            // long: 恢复审批拒绝必须把决定、活动审批步骤和 Run 放在同一事务；任何一步失败都回滚，不能留下 WAITING_APPROVAL 与 DENIED 并存的半状态。
+            decideApprovalRequest(
+                requestId = requestId,
+                status = ApprovalRequestStatus.DENIED,
+                reason = reason,
+            ) ?: return@withTransaction null
+            updateStep(
+                stepId = recovery.approvalStepId,
+                status = AgentStepStatus.FAILED,
+                detail = reason,
+            )
+            updateRunStatus(
+                runId = runId,
+                status = AgentRunStatus.FAILED,
+                errorMessage = reason,
+            )
+            val settled = dao.getRun(runId)?.let { loadDetail(it) }
+                ?: error("拒绝恢复审批后 Agent Run 已丢失：$runId")
+            check(settled.snapshot.run.status == AgentRunStatus.FAILED) {
+                "拒绝恢复审批后 Agent Run 未进入失败终态：$runId"
+            }
+            settled
+        }
+    }
+
     suspend fun pendingApprovalRequests(conversationId: String): List<ApprovalRequestRecord> {
         return activePendingApprovalRequests(
             database.agentRunDao()

@@ -1,5 +1,33 @@
 # 产品需求
 
+## Provider 模型同步协调边界（横向可靠性工程）
+
+已保存 Provider 的 `/models` 同步必须由单一 `ProviderModelSyncCoordinator` 编排。网络请求前必须校验 Base URL，并使用 trim 后的 Base URL/API Key、空模型和当前可配置 User-Agent 构造请求；上游模型按返回顺序去重，当前模型仍有效时继续保留，否则回退到首个模型或空值。`availableModels / enabledModels` 必须延续现有行为更新为本次上游全集，不得在迁出过程中顺手改成旧启用列表的交集。
+
+批量同步必须按用户看到的 Provider 顺序逐项执行并发布结果；普通网络、协议、认证或保存失败只收敛当前项并继续下一项，协程取消必须原样传播并终止后续项。不同 Provider 的单项网络请求可以并行，但完整 Provider 快照提交必须通过同一互斥边界串行，避免迟到结果覆盖另一项刚保存的配置。
+
+提交前必须等待更早的 Provider 快照保存结束，并从最新 UI 快照重新查找 Provider。规范化 `/models` URL 或 trim 后 API Key 漂移时返回 `Stale`，Provider 已删除时返回 `Missing`；名称和当前模型采用最新用户配置。Room 保存期间若 Provider 列表、选中项或身份再次变化，必须拒绝迟到结果并重新排队最新快照。只有 `ProviderRepository.save()` 成功后才能发布 `Succeeded`，随后才允许修复空模型 Agent Profile；网络成功不得冒充配置已持久化。
+
+协调器只返回 `Invalid / Failed / Missing / Stale / Succeeded` 强类型结果，不持有 Compose 页面状态、Agent Runtime、Workflow 或 Shadow。ViewModel 只负责 busy、批量逐项结果和弹窗投影。验收必须覆盖请求规范化、去重/回退、无效 URL 网络前拒绝、稳定失败分型、取消传播、Provider 删除、身份漂移、批量顺序与失败继续，以及并发提交串行。当前聚焦 `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过。Room v32、第 101/102 项及设备后台门禁不变。
+
+## 候选记忆协调边界（横向可靠性工程）
+
+候选记忆的有界列表、成功回合来源身份、采集和接受/拒绝必须由单一 `AgentMemoryCandidateCoordinator` 编排。普通聊天来源必须包含会话 ID、空 Run ID 和稳定摘要，Agent Run 来源必须携带同一会话与真实 Run ID；Store 返回无候选、记录缺失和异常必须分别映射为 `Ignored`、`Missing` 和 `Failed`，不得把正常空结果伪造成错误。
+
+同一候选 ID 的接受与拒绝必须先领取短生命周期 claim；第二个决定返回 `Busy`，不得并发写 Room。不同候选不能被全局串行化。Room 异常、协程取消和外层 Job 取消均必须释放 claim，取消继续原样传播，后续操作可以重试。关闭候选功能必须取消旧列表 Job、清空 UI 列表并结束 loading；迟到 Room 读取不得重新填充已关闭界面，但关闭开关不得删除候选或正式记忆。
+
+协调器只能路由现有列表、创建、接受和拒绝入口并返回 typed outcome，不得复制敏感过滤、规范化去重、同主题冲突、正式记忆写入、FTS 或 transaction。候选仍只在完整成功的普通聊天或 Agent Run 后采集，失败/取消回合不采集；ViewModel 继续负责 Compose 结果、页面 Job 和刷新。验收必须覆盖有界读取、两类来源、无候选/异常分型、接受/拒绝、Missing、同 ID Busy、不同 ID 并行及取消后重试。当前聚焦 `7/7`、完整 JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、仅 Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过。Room v32、第 101/102 项及设备后台门禁不变。
+
+## 恢复后 Agent 审批协调边界（横向可靠性工程）
+
+进程重建后重新展示的链尾审批必须由独立 `RecoveredAgentApprovalCoordinator` 编排，不得复用只管理当前进程 waiter 的 `AgentApprovalDecisionCoordinator`。每次批准或拒绝都必须重新读取 Room 中的 Run detail，并通过 `AgentRunResumePolicy` 确认 Run 仍为 `WAITING_APPROVAL`、恰好一个 `PENDING` Approval 与链尾 ToolCall 完全一致、所有前序工具均已验证且请求/Run/会话/ToolCall/参数身份未漂移。旧 UI、过期 request 和证据变化必须 fail-closed，不得读取内存历史继续执行；并发第二个决定必须返回 `Busy` 且保留其 `PENDING` 卡片，不得按 stale 清除。
+
+批准路径必须在审批决定写入前恢复原 USER 消息的单一可信附件；附件、Skill、Profile 或配置前置失败且 Room 审批仍为合法 `PENDING` 时，卡片必须恢复 `deciding=false` 供用户重试，不能提前消失。停止发生在决定落库前时同样保留可重试卡片；决定已落库或 Run 已进入终态时不得把审批重新开放。真正执行仍由 `AgentRunUseCase.resumeApprovedRun()` 与 `MinimalAgentRuntime` 完成，继续使用原 Profile/Skill/预算/已验证前缀，不重放已完成工具。
+
+拒绝路径必须在同一 Room transaction 内重新核验证据，依次把 Approval 写为 `DENIED`、活动审批 Step 写为 `FAILED`、原 Run 写为 `FAILED`；任一步异常必须整体回滚。Repository 返回 `null` 时不得补写 Run 终态。协调器只能返回 `Completed / Rejected / StillPending / Busy / Stale / Failed` 等强类型结果；Compose 投影、Provider 选择、消息保存、Workflow Ledger 与后续步骤仍由 ViewModel 宿主负责。
+
+验收必须覆盖合法恢复只执行一次、最新证据漂移、附件失败保留审批、Repository 过期拒绝、原子拒绝顺序和批准/拒绝并发互斥。当前协调器 JVM 为 `6/6`，完整本地 JVM `630/630`、Lint `0 error / 50 warnings / 1 hint`，三类 APK 成功；仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.015s`，最终文档语料 `OK (1 test)`。本切片保持 Room v32，不采集 Shadow 样本，不改变第 101/102 项及设备后台门禁。
+
 ## Agent 审批决策协调边界（横向可靠性工程）
 
 前台直接 Agent 和前台 Workflow 的进程内审批等待必须由单一 `AgentApprovalDecisionCoordinator` 管理。每次 Repository 创建审批后注册携带 `requestId + conversationId` 的独立 ticket；注册新 ticket 必须取消旧 waiter。用户批准或拒绝时只有匹配当前 `requestId` 的首次调用能领取 claim，连续点击、批准/拒绝交叉调用、过期 UI 和旧 claim 均不得启动第二次 Room 写入。

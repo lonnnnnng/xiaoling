@@ -1,5 +1,17 @@
 # `reference-apps` 个人 Agent 实现分析
 
+最新横向工程继续采用成熟 Agent 中“网络获取与配置提交分离、持久化成功才发布成功”的原则。`ProviderModelSyncCoordinator` 统一 `/models` URL 校验、请求规范化、模型去重/回退、失败分型和批量顺序；不同单项可并行获取网络结果，但完整 Provider 快照只在提交阶段互斥。提交端重新核对最新 Provider 身份，删除、配置漂移或保存期间变化都拒绝迟到结果，名称和仍有效模型保留用户最新选择，Room 保存完成后才修复空模型 Agent Profile。ViewModel 因此只保留 busy、逐项结果和弹窗投影，不再复制模型合并与保存规则。
+
+聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK、仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.373s` 与最终文档语料 `OK (1 test)` 已通过。这个拆分提升的是 Provider 配置一致性，不改变 Agent Runtime、Room v32、Shadow、第 101/102 项或设备 Workflow/后台能力。
+
+最新横向工程继续采用成熟 Agent 中“应用服务编排、Store 持有业务事实、UI 只投影结果”的原则。`AgentMemoryCandidateCoordinator` 统一候选列表、普通聊天/Agent Run 来源身份、采集与接受/拒绝 typed outcome，只为同一候选 ID 持有短生命周期 claim；不同候选不互相阻塞，失败和取消都释放 claim。敏感过滤、规范化去重、同主题冲突和 transaction 仍由既有 Room Store/Manager 负责，没有复制第二套记忆治理规则。关闭功能时取消 ViewModel 的旧列表 Job，解决的是 UI 生命周期竞态，不改变用户数据。
+
+聚焦 JVM `7/7`、完整 JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK、仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.633s` 与最终文档语料 `OK (1 test)` 已通过。这个拆分降低 ViewModel 对记忆 Store 的直接编排，但不构成自动写入长期记忆、Shadow 持久化、设备 Workflow/后台扩权或第 102 项能力。
+
+最新横向工程继续采用成熟 Agent 中“恢复决定以持久化事实为准、UI 只投影结果”的原则。`RecoveredAgentApprovalCoordinator` 不相信进程重建前的内存卡片，每次决定都重新加载 Room detail 并通过既有恢复策略核验链尾证据；一次性互斥阻止批准/拒绝交叉，并以 `Busy` 区分“另一项决定处理中”和真正的 stale 证据，避免误清仍合法的审批卡片。批准在消费审批前恢复原 USER 附件，失败仍可保留可重试卡片；拒绝由 Repository 在一个事务内写入 Approval、审批 Step 和 Run 终态。这避免复制第二套 Runtime、风险策略或恢复判断，也避免只更新顶层 Run 的半状态。
+
+该边界与当前进程的 `AgentApprovalDecisionCoordinator` 分离：后者拥有 ticket/claim/waiter，前者只协调重建后的 Room Run；ViewModel 仍负责 Provider/Profile、Compose、消息和 Workflow 后续步骤。聚焦 JVM `6/6`、完整本地 JVM `630/630`、Lint `0 error / 50 warnings / 1 hint` 与三类 APK 已通过，仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.015s`，最终文档语料 `OK (1 test)`。这个拆分不构成设备工具扩权、后台执行栈恢复、Shadow 持久化或第 102 项能力。
+
 最新横向工程继续采用成熟 Agent 中“审批事实持久化”和“进程内等待协调”分离的原则。`AgentApprovalDecisionCoordinator` 只管理 ticket、一次性 claim 与 `CompletableDeferred`：重复点击不能并发写入，失败可释放后重试，停止或 Repository 无可决定记录时取消 waiter，旧 ticket 不能完成或清理新审批。Room 继续保存审批事实，ViewModel 继续投影 Compose 并执行 Repository 副作用，Runtime 只消费已经持久化成功的决定；没有复制第二套风险策略、Run/Workflow 状态或恢复逻辑。
 
 五轮 TDD 聚焦 `5/5`，完整 JVM `624/624`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 和仅 Redmi 默认完整 `OK (195 tests)`、耗时 `48.776s` 通过；7 份长期文档语料为 `OK (1 test)`。这个拆分提高审批并发与失败边界的确定性，但不构成设备工具扩权、Workflow/后台接线、Shadow 持久化或第 102 项能力。

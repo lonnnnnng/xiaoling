@@ -2,6 +2,34 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 Provider 模型同步协调迁出（横向可靠性工程）
+
+- 实现边界：新增 `ProviderModelSyncCoordinator`，统一 `/models` URL 校验、trim 后请求配置、可配置 User-Agent、模型去重/回退、批量顺序与 `Invalid / Failed / Missing / Stale / Succeeded` 结果。ViewModel 只保留单项/批量 busy、逐项结果和弹窗投影。
+- 并发与取消：批量按 Provider 列表顺序逐项执行，普通失败继续下一项，`CancellationException` 原样传播并停止后续项。不同单项可以并行完成网络获取，完整 Provider 快照只在协调器提交 Mutex 内串行。
+- 提交一致性：落库前等待更早的 Provider 保存，按规范化 `/models` URL 与 trim 后 API Key 重新核对最新身份；删除返回 `Missing`，配置或保存期间快照漂移返回 `Stale`。名称和仍有效模型采用最新用户配置，只有 Room 保存成功后才发布成功并修复空模型 Agent Profile。
+- 保持边界：Room 保持 v32；Agent Runtime、Workflow、设备后台门禁、Shadow Store 与 enforcement 未改变，没有采集或制造 Shadow 样本，也没有进入第 102 项。
+- TDD 与本地门禁：`ProviderModelSyncCoordinatorTest` `8/8`，覆盖成功规范化与去重、无效 URL、Provider 失败、取消传播、身份漂移、删除、批量顺序/失败继续和并发提交串行。强制完整 JVM XML 为 `645/645`，0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings`；Debug、Release、AndroidTest APK 构建成功。
+- Redmi 与产物：仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (196 tests)`、耗时 `49.373s`；最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,174,005` 字节、SHA-256 `9c4e674a4bf5a89675b5ad977b77d6de1591eb97bbdcc0faaa97b11bab7c62da`；Release APK 为 `15,934,422` 字节、SHA-256 `04f3d157d0f3f34250f717c63fa1944595ed611b037ce1027d500d90f96e98a7`。未启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+
+## 2026-07-26 候选记忆协调迁出（横向可靠性工程）
+
+- 实现边界：新增 `AgentMemoryCandidateCoordinator`，统一有界列表、普通聊天/Agent Run 稳定来源身份、候选采集和接受/拒绝 typed outcome。ViewModel 不再直接编排候选 Store 操作；关闭开关取消旧列表 Job，迟到 Room 结果不能重新填充已关闭页面。
+- 并发与取消：同一候选 ID 的决定通过短生命周期 claim 互斥，第二个决定返回 `Busy`；不同 ID 可并行。Room 异常、协调器内部取消和外层 Job 取消都在 `NonCancellable` 清理区释放 claim，取消原样传播，候选可以重试。
+- 保持边界：敏感过滤、规范化去重、同主题冲突、正式记忆写入与 transaction 继续由既有 Room Store/Manager 负责。Room 保持 v32；Agent Runtime、Workflow、设备后台门禁、Shadow Store 与 enforcement 未改变，没有采集或制造 Shadow 样本。
+- TDD 与本地门禁：`AgentMemoryCandidateCoordinatorTest` `7/7`，覆盖有界读取、两类来源、无候选/存储失败、接受/拒绝、Missing、同 ID Busy、不同 ID 并行和取消后重试。强制完整 JVM XML 为 `637/637`，0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings / 1 hint`；Debug、Release、AndroidTest APK 构建成功。`140/140` 个 Gradle task 全部强制执行，耗时 `2m 23s`。
+- Redmi 与产物：ADB 仅发现 Redmi `wsvwypiz7xwslvl7`；覆盖安装 Debug/Test APK 后默认完整 `AndroidJUnitRunner` 为 `OK (196 tests)`、耗时 `49.633s`。Debug APK 为 `23,174,005` 字节、SHA-256 `4992185a39ae9844b171e51126dfbef2d97d2ce06d55edcf123bd85d5cb2007c`；Release APK 为 `15,934,422` 字节、SHA-256 `0cb3df07f601fe8cde4acb74346fd7c18eb47ffab55276e3cf4fab552fde5aab`。最终文档语料单项为 `OK (1 test)`；未启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 路线图边界：本次继续里程碑 0 的 ViewModel 横向可靠性收敛，不占用第 101 项低频 Shadow 窗口，不进入第 102 项，也不提前引入设备 Workflow/后台、精确定时、Foreground Service 或远期能力。
+
+## 2026-07-26 恢复后 Agent 审批协调迁出（横向可靠性工程）
+
+- 实现边界：新增 `RecoveredAgentApprovalCoordinator`，批准/拒绝均重新加载最新 Room detail 并通过 `AgentRunResumePolicy` 核验唯一链尾审批；`Mutex.tryLock()` 阻止恢复决定重复或交叉进入，锁忙返回 `Busy` 并保留另一会话的可重试卡片。批准前恢复原 USER 附件，前置失败且审批仍合法时返回 `StillPending`；ViewModel 不再提前清除恢复卡片，决定落库前取消也从 Room 恢复可重试入口。
+- 原子拒绝：`RoomAgentRunRepository.rejectRecoveredApproval()` 在同一 transaction 内再次核验证据，并依次写 Approval=`DENIED`、活动审批 Step=`FAILED`、Run=`FAILED`。任一步异常整体回滚，Repository `null` 映射为 stale，不补写 Run。
+- 保持边界：普通当前进程 waiter 继续由 `AgentApprovalDecisionCoordinator` 管理；Provider/Profile 选择、Compose、消息/记忆候选、Workflow 结算与后续前台步骤仍由 ViewModel 负责。Room 保持 v32，Runtime、工具权限、设备后台门禁、Shadow Store 与 enforcement 均未改变；没有采集或制造 Shadow 样本。
+- TDD 与本地门禁：两轮 red-green 与并发回归形成 `RecoveredAgentApprovalCoordinatorTest` `6/6`，包含锁忙 `Busy` 语义；新增 Room 原子拒绝 instrumentation 契约。强制完整 JVM XML 为 `630/630`，0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings / 1 hint`；Debug、Release、AndroidTest APK 构建成功。`140/140` 个 Gradle task 全部强制执行，耗时 `1m 51s`。
+- Redmi 与最终产物：仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装 Debug/Test APK，默认完整 `AndroidJUnitRunner` 为 `OK (196 tests)`、耗时 `49.015s`；7 个需显式参数的真实 Provider 用例按设计 skipped。最终长期文档重打包后，项目文档语料单项 `OK (1 test)`。Debug APK 为 `23,157,621` 字节、SHA-256 `4579b5bc821bd721b77a76b3110b0451f852b9c8f84f528fa824efc8cc801e4f`；Release APK 为 `15,918,038` 字节、SHA-256 `8fb7d53170a7bff05218b0d4cced8a47dc550bb29bac7dea8278ec0b7e44c6ef`。未启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 设备收尾：卸载 `com.longdev.xiaoling.test` 后冷启动 `com.longdev.xiaoling/.MainActivity`，应用处于 `topResumedActivity`，crash buffer 无本应用异常。生产库文件头的 user version 为 `0x20`（Room v32），Provider/Profile/知识文档计数为 `1/1/0`，answerability Shadow 关闭。设备 Agent 应用开关未持久化、按默认值关闭，因此系统 Accessibility 为 Disabled/Unbound 与应用状态一致；`Crashed services:{}`。USB 保持唤醒/充电屏保已恢复原值 `15/1`。
+- 路线图边界：本次继续里程碑 0 的 ViewModel 横向可靠性收敛，不占用第 101 项低频 Shadow 窗口，不进入第 102 项，也不提前引入设备 Workflow/后台、精确定时、Foreground Service 或远期能力。
+
 ## 2026-07-26 Agent 审批决策协调迁出（横向可靠性工程）
 
 - 实现边界：新增纯内存 `AgentApprovalDecisionCoordinator`，以独立 ticket/claim 管理审批 waiter；匹配 `requestId` 的首次操作才取得决策权。Room 成功后才完成 waiter；异常释放 claim 并恢复 `deciding=false`，Repository 返回 `null` 时取消 waiter；停止生成和新 ticket 注册都会取消旧 waiter，旧 ticket 不能完成或清理新审批。

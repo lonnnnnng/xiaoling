@@ -2,6 +2,12 @@
 
 ## 当前横向工程边界
 
+第 101 项持续观察期间新增的 `ProviderModelSyncCoordinator` 只处理 Provider `/models` 请求、模型列表合并、批量顺序、提交互斥和同步结果分型。它不读取或保存 answerability measurement、notice、知识候选正文、引用或 Judge 成本，也不参与 Shadow eligibility、冻结绑定、重试、采样或 enforcement。聚焦 JVM `8/8`、完整 JVM `645/645`、Lint `0 error / 50 warnings`、三类 APK、Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过，没有形成新的 Shadow 样本；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。
+
+第 101 项持续观察期间新增的 `AgentMemoryCandidateCoordinator` 只处理候选记忆列表、普通聊天/Agent Run 成功后的稳定来源身份与候选采集，以及接受/拒绝的同 ID claim。它不读取或保存 answerability measurement、notice、知识候选正文、引用或 Judge 成本，也不参与 eligibility、Provider 请求、绑定、重试或 enforcement；记忆候选的敏感过滤和正式记忆治理仍由既有 Room Store/Manager 完成。该横向工程聚焦 JVM `7/7`、完整 JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、Redmi 默认完整 `OK (196 tests)` 与最终文档语料 `OK (1 test)` 通过，没有形成新的 Shadow 样本；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。
+
+第 101 项持续观察期间新增的 `RecoveredAgentApprovalCoordinator` 只处理进程重建后的链尾审批：从 Room 重新核验恢复证据、在批准前恢复原 USER 附件、阻止并发决定，并通过 Repository 原子拒绝收敛 Approval/Step/Run。锁忙只产生 `Busy` 控制面结果并保留另一会话的可重试卡片。它不读取或保存 answerability measurement、notice、候选正文、引用或成本，不参与 Judge eligibility、Provider 请求、绑定、重试或 enforcement；失败或锁忙保留审批卡片也不构成 Shadow 样本。本轮完整 JVM `630/630`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、Redmi 默认完整 `OK (196 tests)` 与文档语料 `OK (1 test)` 全部通过；Room v32、`store=null / persistenceMode=NONE`、第 97 至 101 项人工合计与第 102 项后置边界均未改变。
+
 第 101 项持续观察期间新增的 `AgentApprovalDecisionCoordinator` 只收敛前台 Agent/Workflow 的进程内审批 waiter：独立 ticket、一次性 claim、写入失败释放、停止/过期取消与旧 ticket 身份隔离。它不读取或保存 answerability measurement、notice、候选正文、引用或成本，也不参与 Judge eligibility、Provider 请求、绑定、重试或 enforcement；Room 仍是审批事实源。该横向工程没有形成新的 Shadow 样本，不改变 `store=null / persistenceMode=NONE`、第 97 至 101 项人工合计或第 102 项后置边界。
 
 第 101 项持续观察期间新增的 `AgentConversationRuntimeStateStore` 只收敛会话级 Run/Approval 的进程内 UI 运行态：按会话替换 Run 和审批、只清审批、删除会话时清理整组状态，并在新建占位会话时禁止恢复旧投影。它不保存 answerability measurement、notice、候选正文或成本，不改变 `store=null / persistenceMode=NONE`，也不参与 Judge eligibility、绑定、重试、引用呈现或 enforcement。该横向拆分没有产生新的 Shadow 样本；第 97 至 101 项人工合计与第 102 项后置边界保持不变。

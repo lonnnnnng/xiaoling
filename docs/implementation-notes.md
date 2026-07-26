@@ -1,5 +1,32 @@
 # 当前实现说明
 
+## Provider 模型同步协调迁出（横向可靠性工程）
+
+- 新增 `ProviderModelSyncCoordinator` 与 `Invalid / Failed / Missing / Stale / Succeeded` 强类型结果。单项同步先校验 Base URL，再以 trim 后的 URL/API Key、空模型和当前 User-Agent 请求 `/models`；模型按上游顺序去重，优先保留仍有效的当前模型，否则回退第一项或空值，并延续现有行为把可用/启用列表更新为上游全集。
+- `syncAll()` 严格按输入顺序逐项执行并即时发布 outcome。普通网络、协议或持久化失败已收敛为结果，因此继续下一项；`CancellationException` 不包装为失败，直接终止整批。多个单项请求仍可并行获取网络结果，只有 `commitProfile` 通过协调器内 `Mutex` 串行，避免完整 Provider 快照互相覆盖。
+- ViewModel 提交端在落库前等待更早的 latest-save，重新从最新 `uiState.profiles` 查找 Provider，并按规范化 `/models` URL 与 trim 后 API Key 核对身份。名称使用最新值，当前模型仍在新全集时继续保留；Provider 删除返回 `Missing`，身份或保存期间快照漂移返回 `Stale` 并重新排队用户最新快照。只有 `ProviderRepository.save()` 完成后才投影成功并修复空模型 Agent Profile。
+- `XiaoLingViewModel` 的单项/批量入口只管理 busy、逐项结果和弹窗，不再直接构造请求、合并模型或保存完整 Provider 列表。批量与单项互相排斥，取消通过 `finally` 清理忙碌态；`ApiFailure` 保留稳定失败标题与原始消息。
+- `ProviderModelSyncCoordinatorTest` 聚焦 `8/8`，覆盖成功规范化与去重、无效 URL 网络前拒绝、Provider 失败、取消传播、身份漂移、删除、批量顺序/失败继续和并发提交串行。完整 JVM `645/645`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 成功；仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.373s`，最终文档语料 `OK (1 test)`。
+- Room 保持 v32；本次不修改 Provider 协议、Agent Runtime、Workflow、设备后台门禁或 answerability Shadow，不采集 Shadow 样本，也不进入第 102 项、精确定时或 Foreground Service。
+
+## 候选记忆协调迁出（横向可靠性工程）
+
+- 新增 `AgentMemoryCandidateCoordinator` 和强类型 load/capture/decision outcome。有界列表固定走注入的 limit；普通聊天与 Agent Run 成功回合统一生成包含 `conversationId`、可空 `runId` 和稳定摘要的 `AgentMemorySource`，Store 返回 `null` 与存储异常分别映射为 `Ignored` 和 `Failed`。
+- 接受与拒绝共用按候选 ID 隔离的 claim。同一 ID 的第二个决定立即返回 `Busy`，不同 ID 不互相阻塞；Room 异常和 `CancellationException` 都会在 `NonCancellable` 中释放 claim，取消仍原样传播。协调器只路由现有 `list/create/accept/reject`，敏感过滤、规范化、去重、冲突和 transaction 继续由 `RoomAgentMemoryStore`/Manager 负责。
+- `XiaoLingViewModel` 只投影加载、错误、结果和刷新事件，不再直接编排候选 Store 操作。关闭候选开关会取消旧 `memoryCandidateLoadJob`、清空候选并结束 loading，避免迟到 Room 读取把已经关闭的页面重新填充；四条普通聊天/Agent 成功路径仍只在完整成功后采集候选，失败/取消回合不采集。
+- `AgentMemoryCandidateCoordinatorTest` 聚焦 `7/7`，覆盖有界读取、两类来源身份、无候选/存储失败分型、接受/拒绝路由、Missing、同 ID Busy、不同 ID 并行及两类取消后重试。强制本地 `140/140` tasks 在 `2m 23s` 内通过，完整 JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`，Debug/Release/AndroidTest APK 成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (196 tests)`、耗时 `49.633s`；最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,174,005` 字节、SHA-256 `4992185a39ae9844b171e51126dfbef2d97d2ce06d55edcf123bd85d5cb2007c`；Release APK 为 `15,934,422` 字节、SHA-256 `0cb3df07f601fe8cde4acb74346fd7c18eb47ffab55276e3cf4fab552fde5aab`。
+- Room 保持 v32；本次不修改候选治理、Agent Runtime、Workflow、设备后台门禁或 answerability Shadow，不采集 Shadow 样本，也不进入第 102 项、精确定时或 Foreground Service。
+
+## 恢复后 Agent 审批协调迁出（横向可靠性工程）
+
+- 新增 `RecoveredAgentApprovalCoordinator` 与强类型 `RecoveredAgentApprovalOutcome`。`approve()` / `reject()` 每次都调用注入的 `loadRunDetail()` 读取最新 Room 明细，并使用 `AgentRunResumePolicy` 核对唯一链尾审批；进程内 `Mutex.tryLock()` 只允许一个恢复决定进入持久化或 Runtime。锁忙单独返回 `Busy`，ViewModel 恢复当前会话 `deciding=false` 卡片，不会误清仍合法的另一项审批。
+- 批准先加载原 USER 消息附件，再把最新 detail、Approval 和附件交给 `AgentRunUseCase.resumeApprovedRun()`。附件或 Runtime 前置校验失败后，协调器重新读取 Room；证据仍为合法 `PENDING` 时返回 `StillPending`，ViewModel 恢复 `deciding=false` 卡片。用户停止发生在决定落库前时，ViewModel 也从 Room 恢复同一卡片；决定已消费或 Run 已终态时只收敛 Workflow，不重新开放审批。
+- `RoomAgentRunRepository.rejectRecoveredApproval()` 在单个 `withTransaction` 中再次运行恢复策略，依次写 `DENIED`、活动审批 Step=`FAILED` 和 Run=`FAILED`；任何异常回滚全部写入。协调器只接受 Repository 返回的完整终态，`null` 固定映射为 stale，不再组合两个独立事务。
+- `XiaoLingViewModel` 继续负责原会话/Profile/Provider 校验、Compose 投影、消息与记忆候选保存、Workflow 当前步骤结算和后续步骤前台执行；普通当前进程 waiter 继续由 `AgentApprovalDecisionCoordinator` 管理。两条审批边界共享 Room 事实，但不共享内存 ticket 或恢复职责。
+- TDD 新增 `RecoveredAgentApprovalCoordinatorTest` `6/6`，覆盖合法恢复、证据漂移、附件失败、stale 拒绝、原子拒绝结果和并发时 `Busy` 保留可重试决定；`RoomAgentRunRepositoryInstrumentedTest` 增加 Approval→Step→Run 同事务顺序契约。强制本地 `140/140` tasks 通过，完整 JVM `630/630`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 成功；仅 Redmi 默认完整 `OK (196 tests)`、耗时 `49.015s`，最终文档语料 `OK (1 test)`。Debug APK 为 `23,157,621` 字节、SHA-256 `4579b5bc821bd721b77a76b3110b0451f852b9c8f84f528fa824efc8cc801e4f`；Release APK 为 `15,918,038` 字节、SHA-256 `8fb7d53170a7bff05218b0d4cced8a47dc550bb29bac7dea8278ec0b7e44c6ef`。
+- Room 保持 v32；本次不修改 Agent Runtime 的工具执行、预算或验证语义，不采集 Shadow 样本，也不进入设备 Workflow/后台、精确定时、Foreground Service、第 102 项或远期能力。
+
 ## Agent 审批决策协调迁出（横向可靠性工程）
 
 - 新增纯内存 `AgentApprovalDecisionCoordinator`、`AgentApprovalDecisionTicket` 和 `AgentApprovalDecisionClaim`。ticket 封装单个 `CompletableDeferred<ApprovalDecision>`；协调器只允许当前 `requestId` 领取一次 claim，并以对象身份验证完成、释放、取消和清理。
@@ -419,7 +446,7 @@
 | 模块 | 关键文件 | 职责 |
 |---|---|---|
 | App/UI | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingApp.kt` | 「对话 / 设置」双入口、会话列表、消息输入、普通聊天模型选择、Agent Profile 与模型提供方管理页面。 |
-| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、模型同步、会话运行态 Map、普通对话与会话选择事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送、会话纯状态投影、保存/加载/选择协调与加载 UI 投影已不再由此类直接实现。 |
+| ViewModel | `app/src/main/java/com/longdev/xiaoling/ui/XiaoLingViewModel.kt` | 维护页面状态、Provider 管理页面、模型同步结果、普通对话与会话选择事件投影、Agent Profile 选择和前台 Workflow 编排；上下文、网络发送、会话纯状态投影、保存/加载/选择协调、Agent 会话运行态、审批、关联重试、候选记忆和 Provider 模型同步业务编排已迁入独立组件。 |
 | Conversation context | `app/src/main/java/com/longdev/xiaoling/ui/ConversationRequestContextPreparer.kt` | 普通聊天上下文资格、知识生命周期核验、最近窗口、增量摘要、可信 Agent 历史与 Responses 用户附件请求投影。 |
 | Conversation send | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSendCoordinator.kt` | 普通聊天发送前持久化、上下文准备、网络请求、流式增量和成功/取消/失败事件的稳定编排。 |
 | Conversation session | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSessionPolicy.kt` | 会话标题、空占位折叠、创建/更新时间、摘要元数据继承、blank ID、非当前更新隔离，以及新建/删除后的纯选择计划与即时状态投影。 |
@@ -427,6 +454,8 @@
 | Conversation load | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadCoordinator.kt` | latest-load Job、选择代次、可重入 Loading 与迟到 Loaded/Failed 隔离。 |
 | Conversation load projection | `app/src/main/java/com/longdev/xiaoling/ui/ConversationLoadProjectionPolicy.kt` | Loading/Loaded/Failed 的纯 UI 状态投影、非当前附件轻量化和当前完整消息原子切换。 |
 | Conversation selection | `app/src/main/java/com/longdev/xiaoling/ui/ConversationSelectionCoordinator.kt` | 新建/选择/删除的副作用顺序、版本化删除失败回滚和稳定选择事件发布。 |
+| Memory candidate | `app/src/main/java/com/longdev/xiaoling/ui/AgentMemoryCandidateCoordinator.kt` | 候选记忆有界读取、成功回合来源身份、采集与接受/拒绝 typed outcome，以及按候选 ID 隔离的并发 claim 和取消清理。 |
+| Provider model sync | `app/src/main/java/com/longdev/xiaoling/ui/ProviderModelSyncCoordinator.kt` | `/models` 请求规范化、模型去重/回退、批量顺序、失败分型，以及完整 Provider 快照的互斥提交。 |
 | Network | `app/src/main/java/com/longdev/xiaoling/network/LlmProviderAdapter.kt`、`OpenAiCompatibleClient.kt` | Adapter 负责 OpenAI-compatible URL、payload 与响应协议；Client 负责 HTTP、鉴权 Header、取消、计时和 SSE 读取。 |
 | URL | `app/src/main/java/com/longdev/xiaoling/network/ProviderApiUrlBuilder.kt` | 将用户输入的 API 根地址归一化成 `/models`、`/chat/completions` 和 `/responses` 请求地址。 |
 | Data | `app/src/main/java/com/longdev/xiaoling/data/` | Room 数据库、Provider、AgentProfile、Conversation、Message/MessagePart、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory 和 AgentMemoryCandidate 表。 |
@@ -440,16 +469,16 @@
 
 ## 当前架构边界
 
-当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序已经迁出：
+当前工程仍是单一 Android `app` 模块，业务状态和多项流程仍集中在 `XiaoLingViewModel`，但普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影、选择/删除副作用顺序、Agent Run 关联重试、会话级 Agent 运行态、当前进程审批 waiter、恢复后审批协调与候选记忆 Store 编排已经迁出：
 
-- Provider 管理、模型同步、Compose 发送/选择事件投影、流式节流和错误提示仍由同一个 ViewModel 维护；会话级 Run/Approval 运行态由 `AgentConversationRuntimeStateStore` 统一保存和投影。上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合。
+- Provider 管理页面、Compose 发送/选择事件投影、流式节流和错误提示仍由 ViewModel 维护；Provider 模型同步的网络、合并、批量顺序和提交互斥已由 `ProviderModelSyncCoordinator` 编排，ViewModel 只投影 busy 与结果。候选记忆的有界读取、稳定来源采集和接受/拒绝由 `AgentMemoryCandidateCoordinator` 编排，ViewModel 只投影事件并管理页面 Job。会话级 Run/Approval 运行态由 `AgentConversationRuntimeStateStore` 统一保存和投影，当前进程审批 ticket/claim 由 `AgentApprovalDecisionCoordinator` 管理，进程恢复后的链尾审批重新核验、附件准备、互斥决定与强类型结果由 `RecoveredAgentApprovalCoordinator` 管理，拒绝通过 `RoomAgentRunRepository.rejectRecoveredApproval()` 原子收敛。上下文筛选、摘要窗口和请求消息构造由 `ConversationRequestContextPreparer` 统一负责，Room 持久化→上下文准备→网络→终态事件由 `ConversationSendCoordinator` 统一负责，标题/空占位/时间戳/摘要元数据/非当前更新及新建/删除选择计划由 `ConversationSessionPolicy` 统一投影，latest-save/单写者/显式删除意图由 `ConversationPersistenceCoordinator` 协调，latest-load/选择代次与 Loading/Loaded/Failed UI 投影分别由 `ConversationLoadCoordinator` 和 `ConversationLoadProjectionPolicy` 负责，新建/选择/删除顺序与失败回滚由 `ConversationSelectionCoordinator` 组合，失败 Run 的关联重试由 `AgentRunRetryCoordinator` 负责。
 - `LlmProviderAdapter` 已成为模型协议边界，当前 `OpenAiCompatibleAdapter` 统一处理模型列表、Chat Completions、Responses API 请求与响应映射；`OpenAiCompatibleClient` 只保留 HTTP 传输、取消、计时和 SSE 读取。普通聊天和 Agent 仍复用同一 Client 与 Adapter 实例链路。
 - Provider、Agent Profile、会话、消息、最小 Agent Run、审批请求、独立 ToolCall/ToolResult、长期记忆、声明式 Skill 和 Workflow Ledger 已经迁入 Room；旧 SharedPreferences 只在首次升级时迁入一次。
 - Room compiler 已从 KAPT 切换到 KSP，`app/schemas/` 保存历史 v4、v6-v32 Schema；迁移测试覆盖 v4→v32、各关键增量迁移和全新 v32 建库。
 - UI 以聊天消息为中心，已能在 `/agent` 消息下方显示当前 Run 时间线和最小审批卡片；设置页 Agent 任务中心可以筛选任务、按调用查看 Ledger-first 四阶段工具明细、完整结果/步骤/审批/事件和双源一致性告警，并对可重试终态创建关联的新 Run。工作流页支持 1 至 8 步创建/编辑/排序、一次/每日/每周计划、定义与运行快照展开、来源 Run 标识和新 Run 重试。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出会话级 Run/Approval 运行态。后续继续收敛 Compose 副作用和其他编排，但不为减少行数提前制造跨模块抽象。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆和 Provider 模型同步协调。后续继续收敛 Compose 副作用和其他编排，但不为减少行数提前制造跨模块抽象。
 
 ## 对话请求
 
@@ -585,6 +614,7 @@
 
 ## 候选记忆与治理
 
+- 候选列表、成功回合来源构造和接受/拒绝操作统一经过 `AgentMemoryCandidateCoordinator`；同一候选 ID 不能并发决定，取消或失败后可重试，不同候选仍可并行。关闭开关会取消旧列表 Job，迟到 Room 结果不能重新填充界面。
 - 候选功能默认关闭，用户在「长期记忆」页主动开启后才会处理后续成功结束的普通对话或 Agent Run。
 - 确定性规则只从明确偏好和个人事实陈述生成 `PENDING` 候选；普通问答不生成。候选保留来源会话和可选来源 Run，但不会进入正式记忆或 Agent 检索。
 - API Key（含 `sk-`、GitHub、Google、AWS 等常见前缀）、token、密码、银行卡、身份证和手机号命中后记录 `BLOCKED_SENSITIVE`；正文、标签和来源摘要均只保存类别和固定提示，原文与规范化内容不落库。

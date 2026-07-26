@@ -126,6 +126,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -522,7 +523,46 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentProfileStore = RoomAgentProfileStore(application)
     private val agentRunRepository = RoomAgentRunRepository(application)
     private val agentMemoryStore = RoomAgentMemoryStore(application)
+    private val agentMemoryCandidateCoordinator = AgentMemoryCandidateCoordinator(
+        candidateLimit = MEMORY_CANDIDATE_LIMIT,
+        listCandidates = { limit ->
+            withContext(Dispatchers.IO) { agentMemoryStore.listCandidates(limit = limit) }
+        },
+        createCandidate = { userText, source ->
+            withContext(Dispatchers.IO) { agentMemoryStore.createCandidate(userText, source) }
+        },
+        acceptCandidate = { candidateId ->
+            withContext(Dispatchers.IO) { agentMemoryStore.acceptCandidate(candidateId) }
+        },
+        rejectCandidate = { candidateId ->
+            withContext(Dispatchers.IO) { agentMemoryStore.rejectCandidate(candidateId) }
+        },
+    )
     private val workflowRepository = RoomWorkflowRepository(application)
+    private val recoveredAgentApprovalCoordinator = RecoveredAgentApprovalCoordinator(
+        loadRunDetail = { runId ->
+            withContext(Dispatchers.IO) { agentRunRepository.runDetail(runId) }
+        },
+        loadSourceAttachments = { detail ->
+            val source = detail.snapshot.run
+            withContext(Dispatchers.IO) {
+                conversationStore.loadConversationMessages(source.conversationId)
+                    .firstOrNull { it.id == source.userMessageId }
+                    ?.toChatMessage()
+                    ?.attachmentsForAgent()
+                    ?: MessageAttachmentSelection()
+            }
+        },
+        rejectApproval = { rejection ->
+            withContext(NonCancellable + Dispatchers.IO) {
+                agentRunRepository.rejectRecoveredApproval(
+                    rejection.requestId,
+                    rejection.runId,
+                    rejection.reason,
+                )
+            }
+        },
+    )
     private val processExitObservationStore = RoomProcessExitObservationStore(application)
     private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(application)
     private val startupRecoveryCoordinator = StartupRecoveryCoordinator(
@@ -586,6 +626,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         ),
     )
         private set
+
+    private val providerModelSyncCoordinator = ProviderModelSyncCoordinator(
+        fetchModels = client::fetchModels,
+        commitProfile = ::commitSyncedProviderProfile,
+        nowSyncTimeText = ::nowSyncTimeText,
+    )
 
     init {
         viewModelScope.launch {
@@ -2020,9 +2066,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun updateMemoryCandidatesEnabled(enabled: Boolean) {
         uiPreferenceStore.saveMemoryCandidatesEnabled(enabled)
+        if (!enabled) {
+            // long: 关闭候选记忆后立即撤销旧列表读取，避免迟到 Room 结果把已清空的候选重新投影到界面。
+            memoryCandidateLoadJob?.cancel()
+        }
         uiState = uiState.copy(
             memoryCandidatesEnabled = enabled,
             memoryCandidates = if (enabled) uiState.memoryCandidates else emptyList(),
+            loadingMemoryCandidates = if (enabled) uiState.loadingMemoryCandidates else false,
             result = OperationResult(
                 success = true,
                 title = if (enabled) "候选记忆已开启" else "候选记忆已关闭",
@@ -2287,21 +2338,25 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun loadMemoryCandidates() {
         memoryCandidateLoadJob?.cancel()
-        if (!uiState.memoryCandidatesEnabled) return
+        if (!uiState.memoryCandidatesEnabled) {
+            uiState = uiState.copy(loadingMemoryCandidates = false, memoryCandidates = emptyList())
+            return
+        }
         uiState = uiState.copy(loadingMemoryCandidates = true, memoryError = null)
         memoryCandidateLoadJob = viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { agentMemoryStore.listCandidates(limit = MEMORY_CANDIDATE_LIMIT) }
-            }.onSuccess { candidates ->
-                uiState = uiState.copy(
-                    loadingMemoryCandidates = false,
-                    memoryCandidates = candidates,
-                )
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    loadingMemoryCandidates = false,
-                    memoryError = error.message ?: "无法读取候选记忆",
-                )
+            when (val outcome = agentMemoryCandidateCoordinator.load()) {
+                is AgentMemoryCandidateLoadOutcome.Loaded -> {
+                    uiState = uiState.copy(
+                        loadingMemoryCandidates = false,
+                        memoryCandidates = outcome.candidates,
+                    )
+                }
+                is AgentMemoryCandidateLoadOutcome.Failed -> {
+                    uiState = uiState.copy(
+                        loadingMemoryCandidates = false,
+                        memoryError = outcome.message,
+                    )
+                }
             }
         }
     }
@@ -2312,31 +2367,33 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         runId: String?,
     ) {
         if (!uiState.memoryCandidatesEnabled) return
-        runCatching {
-            withContext(Dispatchers.IO) {
-                agentMemoryStore.createCandidate(
+        when (
+            val outcome = agentMemoryCandidateCoordinator.capture(
+                AgentMemoryCandidateTurn(
                     userText = userText,
-                    source = com.longdev.xiaoling.agent.AgentMemorySource(
-                        conversationId = conversationId,
-                        runId = runId,
-                        summary = if (runId == null) "普通对话结束后生成的候选" else "Agent Run 结束后生成的候选",
-                    ),
-                )
+                    conversationId = conversationId,
+                    runId = runId,
+                ),
+            )
+        ) {
+            AgentMemoryCandidateCaptureOutcome.Ignored -> Unit
+            is AgentMemoryCandidateCaptureOutcome.Captured -> {
+                val candidate = outcome.candidate
+                if (candidate.status == AgentMemoryCandidateStatus.BLOCKED_SENSITIVE) {
+                    uiState = uiState.copy(
+                        result = OperationResult(
+                            success = false,
+                            title = "敏感内容未加入记忆",
+                            message = "检测到${candidate.sensitiveCategory?.displayName ?: "敏感信息"}，未保存原文",
+                        ),
+                    )
+                }
+                loadMemoryCandidates()
             }
-        }.onSuccess { candidate ->
-            if (candidate?.status == AgentMemoryCandidateStatus.BLOCKED_SENSITIVE) {
-                uiState = uiState.copy(
-                    result = OperationResult(
-                        success = false,
-                        title = "敏感内容未加入记忆",
-                        message = "检测到${candidate.sensitiveCategory?.displayName ?: "敏感信息"}，未保存原文",
-                    ),
-                )
+            is AgentMemoryCandidateCaptureOutcome.Failed -> {
+                // long: 候选提取是聊天后的附加能力，失败时只记录记忆侧错误，不能把已经成功的普通回复或 Agent Run 改成失败。
+                uiState = uiState.copy(memoryError = outcome.message)
             }
-            if (candidate != null) loadMemoryCandidates()
-        }.onFailure { error ->
-            // long: 候选提取是聊天后的附加能力，失败时只记录记忆侧错误，不能把已经成功的普通回复或 Agent Run 改成失败。
-            uiState = uiState.copy(memoryError = error.message ?: "生成候选记忆失败")
         }
     }
 
@@ -2346,43 +2403,58 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds + candidateId,
         )
         viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    if (accepted) {
-                        agentMemoryStore.acceptCandidate(candidateId)
-                    } else {
-                        agentMemoryStore.rejectCandidate(candidateId)
-                    }
+            val decision = if (accepted) {
+                AgentMemoryCandidateDecision.ACCEPT
+            } else {
+                AgentMemoryCandidateDecision.REJECT
+            }
+            when (val outcome = agentMemoryCandidateCoordinator.decide(candidateId, decision)) {
+                is AgentMemoryCandidateDecisionOutcome.Updated -> {
+                    val status = outcome.candidate.status
+                    uiState = uiState.copy(
+                        mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
+                        result = memoryCandidateDecisionResult(status),
+                    )
+                    loadMemoryCandidates()
+                    if (outcome.decision == AgentMemoryCandidateDecision.ACCEPT) loadMemories()
                 }
-            }.onSuccess { candidate ->
-                val status = candidate?.status
-                uiState = uiState.copy(
-                    mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
-                    result = OperationResult(
-                        success = candidate != null,
-                        title = when (status) {
-                            AgentMemoryCandidateStatus.ACCEPTED -> "已保存记忆"
-                            AgentMemoryCandidateStatus.DUPLICATE -> "已有相同记忆"
-                            AgentMemoryCandidateStatus.REJECTED -> "已忽略候选"
-                            else -> "候选未更新"
-                        },
-                        message = when (status) {
-                            AgentMemoryCandidateStatus.ACCEPTED -> "候选已转为正式记忆并加入检索"
-                            AgentMemoryCandidateStatus.DUPLICATE -> "未重复写入，继续使用原有记忆"
-                            AgentMemoryCandidateStatus.REJECTED -> "该候选不会进入正式记忆"
-                            else -> "候选状态已变化，请刷新后重试"
-                        },
-                    ),
-                )
-                loadMemoryCandidates()
-                if (accepted) loadMemories()
-            }.onFailure { error ->
-                uiState = uiState.copy(
-                    mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
-                    memoryError = error.message ?: "更新候选记忆失败",
-                )
+                is AgentMemoryCandidateDecisionOutcome.Missing -> {
+                    uiState = uiState.copy(
+                        mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
+                        result = memoryCandidateDecisionResult(status = null),
+                    )
+                    loadMemoryCandidates()
+                    if (outcome.decision == AgentMemoryCandidateDecision.ACCEPT) loadMemories()
+                }
+                is AgentMemoryCandidateDecisionOutcome.Busy -> {
+                    uiState = uiState.copy(memoryError = "该候选正在处理，请稍后重试")
+                }
+                is AgentMemoryCandidateDecisionOutcome.Failed -> {
+                    uiState = uiState.copy(
+                        mutatingMemoryCandidateIds = uiState.mutatingMemoryCandidateIds - candidateId,
+                        memoryError = outcome.message,
+                    )
+                }
             }
         }
+    }
+
+    private fun memoryCandidateDecisionResult(status: AgentMemoryCandidateStatus?): OperationResult {
+        return OperationResult(
+            success = status != null,
+            title = when (status) {
+                AgentMemoryCandidateStatus.ACCEPTED -> "已保存记忆"
+                AgentMemoryCandidateStatus.DUPLICATE -> "已有相同记忆"
+                AgentMemoryCandidateStatus.REJECTED -> "已忽略候选"
+                else -> "候选未更新"
+            },
+            message = when (status) {
+                AgentMemoryCandidateStatus.ACCEPTED -> "候选已转为正式记忆并加入检索"
+                AgentMemoryCandidateStatus.DUPLICATE -> "未重复写入，继续使用原有记忆"
+                AgentMemoryCandidateStatus.REJECTED -> "该候选不会进入正式记忆"
+                else -> "候选状态已变化，请刷新后重试"
+            },
+        )
     }
 
     private fun mutateMemory(
@@ -2597,6 +2669,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun resumeRecoveredAgentRun(pending: AgentApprovalUiState) {
+        if (pending.deciding) return
         val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
         if (detail == null) {
             showValidation("找不到待恢复的 Agent Run，请刷新任务中心")
@@ -2620,8 +2693,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             validatedAgentRuntimeSelection(sourceProfile)
         } ?: return
         val preparedContext = PreparedRequestContext.fromConversation(conversation)
+        val summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings)
         selectConversation(source.conversationId)
-        clearPendingApprovalForConversation(source.conversationId)
+        rememberPendingApproval(pending.copy(deciding = true))
         uiState = uiState.copy(
             sendingMessage = true,
             result = null,
@@ -2631,72 +2705,95 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             var workflowRunIdToSettle: String? = null
             try {
-                val userAttachments = withContext(Dispatchers.IO) {
-                    conversationStore.loadConversationMessages(source.conversationId)
-                        .firstOrNull { it.id == source.userMessageId }
-                        ?.toChatMessage()
-                        ?.attachmentsForAgent()
-                        ?: MessageAttachmentSelection()
-                }
-                val summary = agentRunUseCase.resumeApprovedRun(
-                    detail = detail,
-                    approval = approval,
-                    config = runtimeSelection.config,
-                    summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
-                    userAttachments = userAttachments,
-                    approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
-                    approvalGate = interactiveAgentApprovalGate(source.conversationId),
-                    onSnapshot = ::publishAgentRunSnapshot,
-                )
-                val workflowContinuation = withContext(NonCancellable + Dispatchers.IO) {
-                    val workflowRun = workflowRepository.completeByAgentRunId(
-                        agentRunId = summary.runId,
-                        status = WorkflowRunStatus.COMPLETED,
-                        result = summary.responseText,
+                when (val outcome = recoveredAgentApprovalCoordinator.approve(pending) { latestDetail, latestApproval, attachments ->
+                    agentRunUseCase.resumeApprovedRun(
+                        detail = latestDetail,
+                        approval = latestApproval,
+                        config = runtimeSelection.config,
+                        summarySystemPrompt = summarySystemPrompt,
+                        userAttachments = attachments,
+                        approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
+                        approvalGate = interactiveAgentApprovalGate(source.conversationId),
+                        onSnapshot = ::publishAgentRunSnapshot,
                     )
-                    workflowRun
-                        ?.takeIf { it.status == WorkflowRunStatus.RUNNING }
-                        ?.let { workflowRepository.runDetail(it.id) }
-                }
-                workflowRunIdToSettle = workflowContinuation?.run?.id
-                val finalMessages = conversation.messages + ChatMessage(
-                    role = "assistant",
-                    text = summary.responseText,
-                    createdAt = System.currentTimeMillis(),
-                    origin = MessageOrigin.AGENT_RESULT,
-                    verifiedAgentContext = summary.verifiedContext,
-                )
-                uiState = uiState
-                    .withUpdatedConversation(
-                        conversationId = source.conversationId,
-                        messages = finalMessages,
-                        summary = preparedContext.summary,
-                        summaryUntilMessageId = preparedContext.summaryUntilMessageId,
-                        summaryUpdatedAt = preparedContext.summaryUpdatedAt,
-                        summaryModel = preparedContext.summaryModel,
-                    )
-                    .copy(sendingMessage = false, result = null)
-                createMemoryCandidateAfterTurn(
-                    userText = source.goal,
-                    conversationId = source.conversationId,
-                    runId = summary.runId,
-                )
-                saveConversationSelection()
-                if (workflowContinuation != null) {
-                    // long: 进程恢复只续接已经由用户批准的当前步骤；步骤结果落库后继续同一 Run 的后续快照，避免留下永久 RUNNING 的 Workflow。
-                    uiState = uiState.copy(runningWorkflowId = workflowContinuation.run.workflowId)
-                    executeForegroundWorkflow(workflowContinuation, runtimeSelection, source.conversationId)
+                }) {
+                    is RecoveredAgentApprovalOutcome.Completed -> {
+                        clearPendingApprovalForConversation(source.conversationId)
+                        val summary = outcome.summary
+                        val workflowContinuation = withContext(NonCancellable + Dispatchers.IO) {
+                            val workflowRun = workflowRepository.completeByAgentRunId(
+                                agentRunId = summary.runId,
+                                status = WorkflowRunStatus.COMPLETED,
+                                result = summary.responseText,
+                            )
+                            workflowRun
+                                ?.takeIf { it.status == WorkflowRunStatus.RUNNING }
+                                ?.let { workflowRepository.runDetail(it.id) }
+                        }
+                        workflowRunIdToSettle = workflowContinuation?.run?.id
+                        val finalMessages = conversation.messages + ChatMessage(
+                            role = "assistant",
+                            text = summary.responseText,
+                            createdAt = System.currentTimeMillis(),
+                            origin = MessageOrigin.AGENT_RESULT,
+                            verifiedAgentContext = summary.verifiedContext,
+                        )
+                        uiState = uiState
+                            .withUpdatedConversation(
+                                conversationId = source.conversationId,
+                                messages = finalMessages,
+                                summary = preparedContext.summary,
+                                summaryUntilMessageId = preparedContext.summaryUntilMessageId,
+                                summaryUpdatedAt = preparedContext.summaryUpdatedAt,
+                                summaryModel = preparedContext.summaryModel,
+                            )
+                            .copy(sendingMessage = false, result = null)
+                        createMemoryCandidateAfterTurn(
+                            userText = source.goal,
+                            conversationId = source.conversationId,
+                            runId = summary.runId,
+                        )
+                        saveConversationSelection()
+                        if (workflowContinuation != null) {
+                            // long: 进程恢复只续接已经由用户批准的当前步骤；步骤结果落库后继续同一 Run 的后续快照，避免留下永久 RUNNING 的 Workflow。
+                            uiState = uiState.copy(runningWorkflowId = workflowContinuation.run.workflowId)
+                            executeForegroundWorkflow(workflowContinuation, runtimeSelection, source.conversationId)
+                        }
+                    }
+                    is RecoveredAgentApprovalOutcome.StillPending -> {
+                        restoreRecoveredPendingApproval(outcome.detail, pending)
+                        showValidation("恢复未开始，可重新决定：${outcome.message}")
+                    }
+                    is RecoveredAgentApprovalOutcome.Busy -> {
+                        // long: 全局恢复锁忙不代表当前会话的 Room 审批过期；保留卡片才能在前一项决定完成后重试。
+                        rememberPendingApproval(pending.copy(deciding = false))
+                        showValidation(outcome.message)
+                    }
+                    is RecoveredAgentApprovalOutcome.Stale -> {
+                        clearPendingApprovalForConversation(source.conversationId)
+                        showValidation(outcome.message)
+                    }
+                    is RecoveredAgentApprovalOutcome.Failed -> {
+                        clearPendingApprovalForConversation(source.conversationId)
+                        reconcileWorkflowAfterResumeFailure(source.id, outcome.message)
+                        showValidation("恢复 Agent Run 失败：${outcome.message}")
+                    }
+                    is RecoveredAgentApprovalOutcome.Rejected -> error("批准路径不能返回拒绝结果")
                 }
             } catch (error: CancellationException) {
-                workflowRunIdToSettle?.let { workflowRunId ->
-                    withContext(NonCancellable + Dispatchers.IO) {
-                        workflowRepository.completeRun(
-                            workflowRunId,
-                            WorkflowRunStatus.CANCELLED,
-                            errorMessage = "用户停止工作流执行",
-                        )
-                    }
-                } ?: reconcileWorkflowAfterResumeFailure(source.id, "用户停止工作流执行")
+                val approvalRestored = restoreRecoveredPendingApprovalAfterCancellation(pending)
+                if (!approvalRestored) {
+                    clearPendingApprovalForConversation(source.conversationId)
+                    workflowRunIdToSettle?.let { workflowRunId ->
+                        withContext(NonCancellable + Dispatchers.IO) {
+                            workflowRepository.completeRun(
+                                workflowRunId,
+                                WorkflowRunStatus.CANCELLED,
+                                errorMessage = "用户停止工作流执行",
+                            )
+                        }
+                    } ?: reconcileWorkflowAfterResumeFailure(source.id, "用户停止工作流执行")
+                }
                 uiState = uiState.copy(sendingMessage = false, runningWorkflowId = null, result = null)
             } catch (error: Throwable) {
                 val failure = error.message ?: "未知错误"
@@ -2720,28 +2817,85 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun rejectRecoveredAgentApproval(pending: AgentApprovalUiState) {
+        if (pending.deciding) return
+        rememberPendingApproval(pending.copy(deciding = true))
         viewModelScope.launch {
-            withContext(NonCancellable + Dispatchers.IO) {
-                agentRunRepository.decideApprovalRequest(
-                    requestId = pending.requestId,
-                    status = ApprovalRequestStatus.DENIED,
-                    reason = "用户拒绝恢复后的工具执行",
-                )
-                agentRunRepository.updateRunStatus(
-                    runId = pending.runId,
-                    status = AgentRunStatus.FAILED,
-                    errorMessage = "用户拒绝恢复后的工具执行",
-                )
+            when (val outcome = recoveredAgentApprovalCoordinator.reject(pending)) {
+                is RecoveredAgentApprovalOutcome.Rejected -> {
+                    settleWorkflowLedger(
+                        agentRunId = pending.runId,
+                        agentStatus = AgentRunStatus.FAILED,
+                        errorMessage = "用户拒绝恢复后的工具执行",
+                    )
+                    clearPendingApprovalForConversation(pending.conversationId)
+                }
+                is RecoveredAgentApprovalOutcome.StillPending -> {
+                    restoreRecoveredPendingApproval(outcome.detail, pending)
+                    showValidation("审批拒绝未保存，可重试：${outcome.message}")
+                }
+                is RecoveredAgentApprovalOutcome.Busy -> {
+                    // long: 另一会话正在消费恢复审批锁时，本卡片仍是可执行的安全闸口，不能按过期审批清除。
+                    rememberPendingApproval(pending.copy(deciding = false))
+                    showValidation(outcome.message)
+                }
+                is RecoveredAgentApprovalOutcome.Stale -> {
+                    clearPendingApprovalForConversation(pending.conversationId)
+                    showValidation(outcome.message)
+                }
+                is RecoveredAgentApprovalOutcome.Failed -> {
+                    clearPendingApprovalForConversation(pending.conversationId)
+                    outcome.detail?.snapshot?.run?.let { run ->
+                        settleWorkflowLedger(
+                            agentRunId = run.id,
+                            agentStatus = run.status,
+                            result = run.result,
+                            errorMessage = run.errorMessage ?: outcome.message,
+                        )
+                    }
+                    showValidation("拒绝审批失败：${outcome.message}")
+                }
+                is RecoveredAgentApprovalOutcome.Completed -> error("拒绝路径不能返回批准结果")
             }
-            settleWorkflowLedger(
-                agentRunId = pending.runId,
-                agentStatus = AgentRunStatus.FAILED,
-                errorMessage = "用户拒绝恢复后的工具执行",
-            )
-            clearPendingApprovalForConversation(pending.conversationId)
             refreshAgentRunHistory()
             refreshWorkflows()
         }
+    }
+
+    private fun restoreRecoveredPendingApproval(
+        detail: AgentRunDetailRecord,
+        fallback: AgentApprovalUiState,
+    ) {
+        val approval = detail.approvals.firstOrNull {
+            it.id == fallback.requestId && it.status == ApprovalRequestStatus.PENDING
+        } ?: return
+        // long: 恢复准备尚未消费审批时继续展示 Room 中的最新卡片，避免附件或 Skill 故障把可重试决定变成无入口的 WAITING_APPROVAL。
+        rememberPendingApproval(
+            AgentApprovalUiState.from(approval).copy(
+                deciding = false,
+                restoredFromProcess = true,
+            ),
+        )
+    }
+
+    private suspend fun restoreRecoveredPendingApprovalAfterCancellation(
+        pending: AgentApprovalUiState,
+    ): Boolean {
+        val detail = withContext(NonCancellable + Dispatchers.IO) {
+            agentRunRepository.runDetail(pending.runId)
+        } ?: return false
+        val approval = detail.approvals.firstOrNull {
+            it.id == pending.requestId && it.status == ApprovalRequestStatus.PENDING
+        } ?: return false
+        if (detail.snapshot.run.status != AgentRunStatus.WAITING_APPROVAL) return false
+        withContext(NonCancellable + Dispatchers.Main.immediate) {
+            rememberPendingApproval(
+                AgentApprovalUiState.from(approval).copy(
+                    deciding = false,
+                    restoredFromProcess = true,
+                ),
+            )
+        }
+        return true
     }
 
     fun openNewConversation() {
@@ -2938,24 +3092,46 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun syncProviderModels(profileId: String) {
         val profile = uiState.profiles.firstOrNull { it.id == profileId } ?: return
-        if (profile.id in uiState.syncingProfileIds) return
+        if (uiState.syncingAllProfiles || profile.id in uiState.syncingProfileIds) return
         viewModelScope.launch {
             syncStoredProfile(profile, showPopup = true, keepBatchResult = false)
         }
     }
 
     fun syncAllProviders() {
-        if (uiState.syncingAllProfiles) return
+        if (uiState.syncingAllProfiles || uiState.syncingProfileIds.isNotEmpty()) return
         viewModelScope.launch {
+            val profiles = uiState.profiles.toList()
+            val userAgent = uiState.userAgent
             uiState = uiState.copy(
                 syncingAllProfiles = true,
                 batchSyncResults = emptyMap(),
                 result = null,
             )
-            uiState.profiles.toList().forEach { profile ->
-                syncStoredProfile(profile, showPopup = false, keepBatchResult = true)
+            try {
+                providerModelSyncCoordinator.syncAll(
+                    profiles = profiles,
+                    userAgent = userAgent,
+                    onProfileStarted = { profile ->
+                        uiState = uiState.copy(
+                            syncingProfileIds = uiState.syncingProfileIds + profile.id,
+                            result = null,
+                        )
+                    },
+                    onOutcome = { outcome ->
+                        applyProviderModelSyncOutcome(
+                            outcome = outcome,
+                            showPopup = false,
+                            keepBatchResult = true,
+                        )
+                    },
+                )
+            } finally {
+                uiState = uiState.copy(
+                    syncingAllProfiles = false,
+                    syncingProfileIds = uiState.syncingProfileIds - profiles.mapTo(hashSetOf()) { it.id },
+                )
             }
-            uiState = uiState.copy(syncingAllProfiles = false)
         }
     }
 
@@ -4000,91 +4176,106 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         showPopup: Boolean,
         keepBatchResult: Boolean,
     ) {
-        ProviderApiUrlBuilder.validate(profile.baseUrl)?.let { message ->
-            val result = OperationResult(false, "同步失败", message)
-            applySyncFailure(profile.id, result, showPopup, keepBatchResult)
-            return
-        }
-
         uiState = uiState.copy(
             syncingProfileIds = uiState.syncingProfileIds + profile.id,
             result = null,
         )
-        val config = ProviderRequestConfig(
-            baseUrl = profile.baseUrl.trim(),
-            apiKey = profile.apiKey.trim(),
-            model = "",
-            userAgent = uiState.userAgent,
-        )
-        runCatching { client.fetchModels(config) }
-            .onSuccess { models ->
-                val distinctModels = models.distinct()
-                val selectedModel = profile.model
-                    .takeIf { it in distinctModels }
-                    ?: distinctModels.firstOrNull()
-                    ?: ""
-                val syncedProfile = profile.copy(
-                    model = selectedModel,
-                    availableModels = distinctModels,
-                    enabledModels = distinctModels,
-                    lastSyncedAt = nowSyncTimeText(),
-                )
-                val profiles = uiState.profiles.map {
-                    if (it.id == profile.id) syncedProfile else it
-                }
-                val selectedId = uiState.selectedProfileId
-                val nextState = uiState.copy(
-                    profiles = profiles,
-                    syncingProfileIds = uiState.syncingProfileIds - profile.id,
-                    batchSyncResults = if (keepBatchResult) {
-                        uiState.batchSyncResults + (profile.id to "同步成功")
-                    } else {
-                        uiState.batchSyncResults - profile.id
-                    },
-                    result = if (showPopup) {
-                        OperationResult(true, "同步成功", "获取到 ${distinctModels.size} 个模型")
-                    } else {
-                        null
-                    },
-                )
-                uiState = if (selectedId == profile.id) {
-                    nextState.fromProfile(syncedProfile, selectedId)
-                } else {
-                    nextState
-                }
-                configStore.save(profiles, selectedId)
-                repairIncompleteAgentProfiles(syncedProfile)
-            }
-            .onFailure { error ->
-                val failure = error as? ApiFailure
-                applySyncFailure(
-                    profileId = profile.id,
-                    result = OperationResult(
-                        success = false,
-                        title = "同步失败",
-                        message = error.message ?: failure?.kind?.title ?: "未知错误",
-                    ),
-                    showPopup = showPopup,
-                    keepBatchResult = keepBatchResult,
-                )
-            }
+        try {
+            applyProviderModelSyncOutcome(
+                outcome = providerModelSyncCoordinator.sync(profile, uiState.userAgent),
+                showPopup = showPopup,
+                keepBatchResult = keepBatchResult,
+            )
+        } finally {
+            uiState = uiState.copy(syncingProfileIds = uiState.syncingProfileIds - profile.id)
+        }
     }
 
-    private fun applySyncFailure(
-        profileId: String,
-        result: OperationResult,
+    private suspend fun commitSyncedProviderProfile(
+        baseline: ProviderProfile,
+        candidate: ProviderProfile,
+    ): ProviderModelSyncCommitOutcome {
+        // long: 同步结果落库前先结束更早的 Provider 快照保存，避免旧选择在完整同步快照之后才写回 Room。
+        saveProfilesJob?.cancelAndJoin()
+        saveProfilesJob = null
+        val stateBeforeSave = uiState
+        val latest = stateBeforeSave.profiles.firstOrNull { it.id == baseline.id }
+            ?: return ProviderModelSyncCommitOutcome.Missing
+        val identityChanged = ProviderApiUrlBuilder.modelsUrl(latest.baseUrl) !=
+            ProviderApiUrlBuilder.modelsUrl(baseline.baseUrl) || latest.apiKey.trim() != baseline.apiKey.trim()
+        if (identityChanged) return ProviderModelSyncCommitOutcome.Stale
+
+        val selectedModel = latest.model
+            .takeIf { it in candidate.availableModels }
+            ?: candidate.model
+        val committedProfile = latest.copy(
+            model = selectedModel,
+            availableModels = candidate.availableModels,
+            enabledModels = candidate.enabledModels,
+            lastSyncedAt = candidate.lastSyncedAt,
+        )
+        val profiles = stateBeforeSave.profiles.map { profile ->
+            if (profile.id == baseline.id) committedProfile else profile
+        }
+        val selectedId = stateBeforeSave.selectedProfileId
+        configStore.save(profiles, selectedId)
+
+        val stateAfterSave = uiState
+        if (stateAfterSave.profiles != stateBeforeSave.profiles || stateAfterSave.selectedProfileId != selectedId) {
+            // long: 保存期间发生的编辑或删除拥有更高优先级；重新排队最新快照，并拒绝让迟到同步结果覆盖用户刚完成的操作。
+            saveProfilesSnapshot(stateAfterSave.profiles, stateAfterSave.selectedProfileId)
+            return if (stateAfterSave.profiles.none { it.id == baseline.id }) {
+                ProviderModelSyncCommitOutcome.Missing
+            } else {
+                ProviderModelSyncCommitOutcome.Stale
+            }
+        }
+
+        val nextState = stateAfterSave.copy(profiles = profiles)
+        uiState = if (selectedId == baseline.id) {
+            nextState.fromProfile(committedProfile, selectedId)
+        } else {
+            nextState
+        }
+        return ProviderModelSyncCommitOutcome.Committed(committedProfile)
+    }
+
+    private fun applyProviderModelSyncOutcome(
+        outcome: ProviderModelSyncOutcome,
         showPopup: Boolean,
         keepBatchResult: Boolean,
     ) {
+        val profileId = when (outcome) {
+            is ProviderModelSyncOutcome.Failed -> outcome.profileId
+            is ProviderModelSyncOutcome.Invalid -> outcome.profileId
+            is ProviderModelSyncOutcome.Missing -> outcome.profileId
+            is ProviderModelSyncOutcome.Stale -> outcome.profileId
+            is ProviderModelSyncOutcome.Succeeded -> outcome.profile.id
+        }
+        val succeeded = outcome is ProviderModelSyncOutcome.Succeeded
+        val result = when (outcome) {
+            is ProviderModelSyncOutcome.Failed -> OperationResult(false, outcome.title, outcome.message)
+            is ProviderModelSyncOutcome.Invalid -> OperationResult(false, "同步失败", outcome.message)
+            is ProviderModelSyncOutcome.Missing -> OperationResult(false, "同步失败", outcome.message)
+            is ProviderModelSyncOutcome.Stale -> OperationResult(false, "同步失败", outcome.message)
+            is ProviderModelSyncOutcome.Succeeded -> OperationResult(
+                success = true,
+                title = "同步成功",
+                message = "获取到 ${outcome.modelCount} 个模型",
+            )
+        }
         uiState = uiState.copy(
             syncingProfileIds = uiState.syncingProfileIds - profileId,
             batchSyncResults = if (keepBatchResult) {
-                uiState.batchSyncResults + (profileId to "同步失败")
+                uiState.batchSyncResults + (profileId to if (succeeded) "同步成功" else "同步失败")
             } else {
                 uiState.batchSyncResults - profileId
             },
             result = if (showPopup) result else null,
         )
+        if (outcome is ProviderModelSyncOutcome.Succeeded) {
+            repairIncompleteAgentProfiles(outcome.profile)
+        }
     }
 
     private fun updateAndSaveSelectedProfile(block: XiaoLingUiState.() -> XiaoLingUiState) {
