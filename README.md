@@ -6,6 +6,8 @@
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
+最新版本：[小灵 v0.1.12](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.12)
+
 ## 当前定位
 
 - 移动端个人 Agent 入口。
@@ -116,6 +118,8 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 小灵 `v0.1.12` 发布门禁通过：强制 Gradle `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`，Debug、AndroidTest、正式签名 Release APK 均成功。Release 为 `0.1.12 (13)`、`15,950,806` 字节，SHA-256 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`，zipalign 和 APK Signature Scheme v2 均验证通过。仅 Redmi `wsvwypiz7xwslvl7` 执行默认完整 instrumentation，`196` 条为 `184 passed / 12 skipped / 0 failed`、耗时 `48.514s`；测试包已卸载，最终 Debug 包无损覆盖并冷启动到前台，设备为 `0.1.12 (13)`，crash 检查为空，测试设置恢复为 `15/1`，未使用 Pixel_9。
+- 最终 README/docs 重新打入 AndroidTest APK 后，仅在 Redmi 复跑项目文档语料门禁为 `OK (1 test)`；测试包随后卸载，主应用恢复前台。
 - Agent 启动前校验协调迁出完成聚焦 JVM `10/10`，另有运行配置字符串脱敏 `1/1`；覆盖五类入口错误优先级、当前/历史 Profile 来源、旧 Run 空快照回退、冻结请求配置，以及 Base URL/API Key/自定义 Header 脱敏。强制本地门禁 `140/140` tasks 在 `2m 5s` 内通过：JVM `656/656`，Lint `0 error / 50 warnings / 0 information`，Debug/Release/AndroidTest APK 成功。仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `196` 条（`184 passed / 12 skipped / 0 failed`），最终测试耗时 `48.8s`；最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,190,389` 字节、SHA-256 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52`；Release APK 为 `15,950,806` 字节、SHA-256 `00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。Room v32、Shadow、第 101/102 项和设备后台门禁不变，未使用 Pixel_9。
 - Provider 模型同步协调迁出完成聚焦 JVM `8/8`，覆盖请求规范化、模型去重、无效 URL、稳定失败分型、取消传播、配置漂移、Provider 删除、批量顺序/失败继续和并发提交串行。完整 JVM `645/645`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 已通过；仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (196 tests)`、耗时 `49.373s`，最终文档语料单项为 `OK (1 test)`。Room v32、Shadow、第 101/102 项和设备后台门禁不变，未使用 Pixel_9。
 - 候选记忆协调迁出完成聚焦 JVM `7/7`，覆盖有界读取、普通聊天/Agent 来源、无候选与存储失败分型、接受/拒绝路由、同 ID 并发、无关候选并行和取消后可重试。强制本地门禁 `140/140` tasks 在 `2m 23s` 内通过：JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 成功；仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (196 tests)`、耗时 `49.633s`，最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,174,005` 字节、SHA-256 `4992185a39ae9844b171e51126dfbef2d97d2ce06d55edcf123bd85d5cb2007c`；Release APK 为 `15,934,422` 字节、SHA-256 `0cb3df07f601fe8cde4acb74346fd7c18eb47ffab55276e3cf4fab552fde5aab`。Room v32、Shadow、第 101/102 项和后台门禁不变，未使用 Pixel_9。

@@ -2,6 +2,17 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 小灵 v0.1.12 发布
+
+- 发布范围：汇总 `v0.1.11` 之后第 75 至 101 阶段与横向可靠性工程，包括 Responses 图片/文档附件、Android 单项分享草稿、Embedding 检索/索引/相关性证据、默认关闭的 answerability shadow，以及 Agent Run 重试、会话运行态、审批、恢复审批、候选记忆、Provider 同步和启动前校验协调器。
+- 版本元数据：`aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.12`、`versionCode=13`、`minSdk=26`、`targetSdk=36`。
+- 本地门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease --rerun-tasks --stacktrace --console=plain` 执行 `140/140` tasks，耗时 `2m 7s`。JVM XML 为 `656/656`、0 失败/错误/跳过；Lint 为 `0 error / 50 warnings / 1 hint`；Debug、AndroidTest、Release APK 与 Release lintVital 均成功。
+- 正式产物：`outputs/release/xiaoling-v0.1.12.apk`，大小 `15,950,806` 字节，SHA-256 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`；同目录生成 `xiaoling-v0.1.12.apk.sha256`。`zipalign -c -P 16 -v 4` 通过；`apksigner verify --verbose --print-certs` 确认 v2 签名有效、单一签名者，证书 SHA-256 仍为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- Redmi 完整门禁：仅使用 `wsvwypiz7xwslvl7` 覆盖安装 Debug/Test APK，默认完整 `AndroidJUnitRunner` 为 `OK (196 tests)`，其中 `184 passed / 12 skipped / 0 failed`，测试耗时 `48.514s`。充电保持唤醒与屏保设置从 `15/1` 临时调整后已恢复为 `15/1`，未向 Pixel_9 或其他模拟器发送 ADB 命令。
+- 最终文档语料：README 与长期 `docs/` 发布记录写完后强制重建 AndroidTest APK，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。该单项验证使用最终 assets；结束后测试包再次卸载。
+- 设备收尾：测试包 `com.longdev.xiaoling.test` 已卸载；最终 Debug APK 以 `adb install -r` 无损覆盖并冷启动，设备报告 `versionName=0.1.12 / versionCode=13`，`MainActivity` 为 `topResumedActivity`、进程存活，近期 AndroidRuntime crash 检查为空。设备保留 Debug 签名包，没有为切换正式签名而卸载应用或清除本地数据。
+- GitHub Release：[小灵 v0.1.12](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.12)；资产为 [xiaoling-v0.1.12.apk](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.12/xiaoling-v0.1.12.apk) 与 [xiaoling-v0.1.12.apk.sha256](https://github.com/lonnnnnng/xiaoling/releases/download/v0.1.12/xiaoling-v0.1.12.apk.sha256)。
+
 ## 2026-07-26 Agent 启动前校验协调迁出（横向可靠性工程）
 
 - 实现边界：新增纯同步 `AgentLaunchPreflightCoordinator`，统一普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试与恢复后审批的会话、Profile、工具注册和 Provider 校验。ViewModel 继续拥有成功后的导航、确认弹层、附件、Room、Runtime 与 Workflow 后续步骤。

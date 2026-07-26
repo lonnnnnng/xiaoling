@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 小灵 v0.1.12 发布基线
+
+- `versionName=0.1.12 / versionCode=13`，保持 `minSdk=26 / targetSdk=36`、Room v32 和既有本地正式签名证书。
+- 发布范围为 `v0.1.11` 之后第 75 至 101 阶段与横向可靠性迁出：Responses 图片/文档附件、Android 单项分享草稿、Embedding 检索/索引/相关性证据、默认关闭的 answerability shadow，以及 Agent Run 重试、会话运行态、审批、恢复审批、候选记忆、Provider 同步和启动前校验协调器。
+- 强制发布门禁为 Gradle `140/140` tasks（`2m 7s`）、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、Debug/AndroidTest/Release APK、zipalign 和 v2 正式签名。Release APK `15,950,806` 字节，SHA-256 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`。
+- 仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `196` 条（`184 passed / 12 skipped / 0 failed`）、耗时 `48.514s`。测试包已卸载，最终 Debug 包无损覆盖后冷启动到前台，设备版本为 `0.1.12 (13)`，crash 检查为空，设置恢复为 `15/1`；未使用 Pixel_9。
+- 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
+- Release 只发布 APK 与同名 `.sha256`；设备保留 Debug 签名包，避免为切换正式签名而卸载并清除 Provider、会话或 Keystore 数据。
+
 ## Agent 启动前校验协调迁出（横向可靠性工程）
 
 - 新增纯同步 `AgentLaunchPreflightCoordinator` 与强类型 Profile 来源、会话要求、`Ready / Rejected` 结果。需要原上下文的入口先校验会话，再依次校验 Profile 可运行性、未知工具和 Provider 请求配置；普通 `/agent` 使用可选会话，保留 `sendAgentRun()` 在空占位上创建会话的既有行为。
@@ -322,7 +331,7 @@
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.11`（`versionCode 12`）
+当前发布版本：`v0.1.12`（`versionCode 13`）
 
 ## 第 75 阶段实现与验证边界
 

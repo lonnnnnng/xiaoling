@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+`v0.1.12` 是当前对照基线：它把第 75 至 101 阶段的附件、分享、Embedding 检索、相关性证据和 answerability shadow，与近期 Agent 编排协调器一起纳入可发布构建。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则；没有因为发布而扩展设备 Workflow/后台、任意 App、精确定时、Foreground Service、MCP 或本地模型边界。发布门禁为 JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、zipalign、v2 正式签名和仅 Redmi `196` 条（`184 passed / 12 skipped / 0 failed`）。
+
 最新横向工程继续采用成熟 Agent 中“启动前决策纯化、宿主副作用后置”的原则。`AgentLaunchPreflightCoordinator` 统一五个启动入口的会话、Profile、工具注册与 Provider 校验，但不拥有导航、确认弹层、附件、Room 或 Runtime。普通 `/agent` 保留可创建会话的轻入口语义，需要原上下文的 Workflow、重试与恢复则先校验会话；恢复审批优先复用原 Run Profile 快照，避免新选择悄然改写旧 Run 的恢复身份。
 
 协调器只冻结校验时刻的运行配置，长 Workflow 不被改成逐步骤重校验。解密 API Key 仍只在进程内可达，`ProviderRequestConfig` 的字符串表示主动脱敏 Base URL、API Key 与自定义 Header，降低 URL userinfo/query、异常或日志误用的暴露面。聚焦 JVM `10/10 + 1/1`、完整 JVM `656/656`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）与最终文档语料 `OK (1 test)` 通过。这个拆分提高的是启动一致性和可测试性，不构成设备后台自动化、任意 App 扩权、Shadow 持久化或第 102 项能力。
@@ -412,7 +414,7 @@
 
 ## 5. 对小灵当前状态的判断
 
-截至 `v0.1.11`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
+截至 `v0.1.12`，小灵已经具备可靠聊天底座和可执行应用内任务的最小 Agent 闭环：
 
 - 多 Provider、模型发现和启用列表。
 - Chat Completions / Responses API，以及保留 system/user/assistant 边界的消息和通过 `call_id` 关联的函数调用/结果 typed Items。
