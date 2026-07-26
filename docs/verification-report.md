@@ -2,6 +2,16 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 Android 系统分享入口 v1（第 100 阶段）
+
+- 实现边界：`MainActivity` 以 `singleTop` 接收 `ACTION_SEND`，Manifest 只暴露 `text/plain`、PNG、JPEG/JPG、WEBP。文本最多 20,000 字符；图片必须是单个小写 `content://` 并复用既有附件校验。分享只进入新会话可编辑草稿，不自动发送、不进入 `/agent`、Workflow 或后台。
+- 安全加固：不信任可由发送方伪造的 referrer 和 Intent extra；来源固定显示为外部分享，Activity 去重只依据框架重建状态。`EXTRA_STREAM` 与 `ClipData` 携带相同 URI 时按单图兼容，URI 不同时按多图拒绝。已有未决分享时保留首个，并明确提示新的分享已忽略、处理后需重试。
+- 聚焦 JVM：`SharedDraftParserTest` 4 条、`SharedDraftProjectionPolicyTest` 3 条，合计 `7/7`，覆盖空/超长/不支持 MIME、文本与图片多项、缺图、`file://`、大写 scheme、文本规范化、单图片和草稿冲突策略。
+- 聚焦 Redmi：仅使用 `wsvwypiz7xwslvl7`，显式安装 Debug/Test APK 后执行 4 条新增 instrumentation，结果 `OK (4 tests)`、最终一次耗时 `5.577s`。覆盖 Manifest MIME 与 `ACTION_SEND_MULTIPLE` 不可解析、文本多项 `ClipData`、双来源不同图片 URI 拒绝、冷/热文本分享、Activity 重建、伪造“已处理” extra、PNG `content://` 成功/失败读取、编辑/移除/切换会话后的提示清理、冲突操作与无自动发送。
+- 完整本地门禁：强制重跑 `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` 成功。JVM XML 为 `607/607`、0 失败/错误/跳过；Lint 为 `0 error / 50 warnings / 1 hint`。Debug APK 为 `23,141,237` 字节，SHA-256 `ff0e929fefa46fa538d320621f12ea3bd281d2aaf13936f1a98071ea4c766a47`；AndroidTest APK 构建成功，其持续打包 `docs/`，不记录会递归变化的最终哈希。
+- Redmi 完整门禁：安装包含本阶段文档的 Debug/Test APK 后，文档语料单项 `OK (1 test)`。默认完整 `AndroidJUnitRunner` 的最终 JUnit XML 为 `195` 条：`183 passed / 12 skipped / 0 failed / 0 errors`，耗时 `50.130s`；控制台结束横幅把 skipped 重复累计后显示 `Finished 207 tests`，不作为真实总数。所有 ADB 命令均显式指定 `wsvwypiz7xwslvl7`，没有向 Pixel_9 或其他模拟器发送命令。
+- 最终文档复验：补写上述门禁数字后强制重建 AndroidTest APK，并重新安装、执行同一文档语料单项，最终仍为 `OK (1 test)`。该复验只证明提交中的长期文档语料满足固定检索门禁，不改变应用功能或第 99 阶段 Shadow 历史事实。
+
 ## 2026-07-26 answerability shadow 首批低频观察（第 99 阶段）
 
 - 采样边界：只使用 Redmi `wsvwypiz7xwslvl7`。新应用进程中 tracker 基线为 `0`，导入当前 README、确认文档启用后由用户显式开启 Shadow；所有有效样本均为前台直接 `/agent`，答案先保存、Judge 后置。本轮没有向 Pixel_9 或其他模拟器发送 ADB 命令。

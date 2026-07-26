@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 100 阶段把 Android 系统分享实现为 Intent 到既有编辑器/附件校验的薄适配层，而不是复制一套消息或 Agent Runtime。Manifest 精确声明单项 `text/plain`、PNG、JPEG/JPG、WEBP，并明确拒绝 `ACTION_SEND_MULTIPLE`；文本有 20,000 字符上限，图片只接受单个 `content://` 并复用既有 8 MB、MIME、签名和解码校验。Intent 适配层会合并判断 `EXTRA_STREAM` 与 `ClipData`：相同 URI 兼容，不同 URI 按多图拒绝。外部内容只生成用户可编辑的新会话草稿，永不自动发送；本地草稿冲突由用户明确打开或忽略，已有未决分享时拒绝新分享。冷/热启动与 Activity 重建分别处理，外部 referrer 和 extra 不用于可信来源归因或内部去重。聚焦 JVM `7/7`、Redmi `OK (4 tests)`，完整 JVM `607/607`、Lint、APK、文档语料和默认完整 `195` 条（`183 passed / 12 skipped`）已通过。该取舍延续成熟 Agent 的单一事实源原则：入口可以增加，但发送、审批、工具和后台边界不能因入口变化而复制或放宽。
+
 第 99 阶段把 answerability Shadow 从同一窗口扩样本转为间隔真实使用窗口中的低频观察。Redmi 同一进程新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，累计耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`，取消、异常和旁路错误均为 `0`。首次宽英文问题连续四次没有知识候选并使 Agent Run 达到工具调用次数上限，但没有成功答案和合格 Shadow 入口，tracker 保持 `0`，不能记作 Judge 失败、取消、跳过或 usage。当前窗口 Embedding Provider 不可用，有效候选来自词法兜底，因此本批只验证 answerability 旁路与词法候选链路，不能外推为 Embedding 质量证据。
 
 第 97 至 99 阶段书面记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次形成直接回答 `4`、部分回答 `3`；七次 Judge 均未出现自然网络、协议或认证失败。该合计来自阶段报告相加，不是跨进程持久化 tracker。关闭开关并删除四个测试会话后，本批 notice 有效 `3 -> 0`、裁剪 `0 -> 3`，临时知识文档和下载文件均已删除。完整 JVM `600/600`、Lint `0 error`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。当前证据不支持增加 Room Store、Schema、跨进程 notice 或 enforcement；后续只在间隔开的真实使用窗口继续观察自然失败或明显成本异常，不为凑数量在同一窗口密集采样。
@@ -386,6 +388,7 @@
 - Chat Completions / Responses API，以及保留 system/user/assistant 边界的消息和通过 `call_id` 关联的函数调用/结果 typed Items。
 - SSE 流式输出与 30ms UI 节流。
 - 多轮会话、本地保存和摘要压缩。
+- Android 系统分享入口 v1：单文本或单张受支持图片进入可编辑新会话草稿，冲突需显式确认，不自动发送，不信任外部来源标记。
 - Markdown、错误分类、结构化消息元数据。
 - API Key 使用 Android Keystore + AES-GCM。
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
@@ -596,4 +599,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应跳到 MCP 或“任意控制手机”。第 97 至 99 阶段书面记录合计 Shadow 样本 `9`、有效 Judge `7`：直接回答 `4`、部分回答 `3`，另有两条无候选跳过；未进入 Shadow 的预算或工具步数耗尽没有冒充 Judge 失败。七次 Judge 均成功，因此当前证据仍不足以描述自然 Judge 失败分布，也不足以支持 Room Store 或 enforcement。第 99 阶段有效样本来自词法兜底，不能外推为 Embedding 质量证据。更新后的文档语料单项 `OK (1 test)`、Redmi 默认完整 `OK (191 tests)`，说明保持旁路边界没有破坏既有知识与 UI 契约。下一步只在间隔开的真实使用窗口低频观察真实 Provider 成本以及网络、协议、认证等自然失败；出现新证据或明显成本异常后，再独立评审最小化持久化，在隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应把系统分享 v1 扩成任意 Intent、任意文件、自动发送或后台处理，也不应跳到 MCP 或“任意控制手机”。第 97 至 99 阶段书面记录合计 Shadow 样本 `9`、有效 Judge `7`：直接回答 `4`、部分回答 `3`，另有两条无候选跳过；未进入 Shadow 的预算或工具步数耗尽没有冒充 Judge 失败。七次 Judge 均成功，因此当前证据仍不足以描述自然 Judge 失败分布，也不足以支持 Room Store 或 enforcement。第 99 阶段有效样本来自词法兜底，不能外推为 Embedding 质量证据。更新后的文档语料单项 `OK (1 test)`、Redmi 默认完整 `OK (191 tests)`，说明保持旁路边界没有破坏既有知识与 UI 契约。下一步只在间隔开的真实使用窗口低频观察真实 Provider 成本以及网络、协议、认证等自然失败；出现新证据或明显成本异常后，再独立评审最小化持久化，在隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

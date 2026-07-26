@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
@@ -179,6 +180,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.prompt.PromptPolicy
+import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.system.ProcessExitEvidenceKind
 import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
@@ -276,6 +278,12 @@ private fun XiaoLingContent(
         selectedTab = 1
         settingsPane = SettingsPane.AGENT_RUN_HISTORY
         viewModel.consumeMemorySourceRunNavigation()
+    }
+
+    LaunchedEffect(state.sharedDraftNavigationVersion) {
+        if (state.sharedDraftNavigationVersion <= 0L) return@LaunchedEffect
+        selectedTab = 0
+        settingsPane = SettingsPane.ROOT
     }
 
     BackHandler(enabled = isProviderEditor) {
@@ -1176,6 +1184,8 @@ private fun ConversationPage(
                 onAttachDocument = onAttachDocument,
                 onRemovePendingImage = viewModel::removePendingImage,
                 onRemovePendingDocument = viewModel::removePendingDocument,
+                onOpenPendingSharedDraft = viewModel::openPendingSharedDraft,
+                onDiscardPendingSharedDraft = viewModel::discardPendingSharedDraft,
                 onSend = viewModel::sendMessage,
                 onStop = viewModel::stopGenerating,
             )
@@ -1308,6 +1318,8 @@ private fun MessageInputBar(
     onAttachDocument: () -> Unit,
     onRemovePendingImage: () -> Unit,
     onRemovePendingDocument: () -> Unit,
+    onOpenPendingSharedDraft: () -> Unit,
+    onDiscardPendingSharedDraft: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
@@ -1324,6 +1336,17 @@ private fun MessageInputBar(
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            state.pendingSharedDraft?.let { payload ->
+                SharedDraftPendingNotice(
+                    payload = payload,
+                    enabled = !sendingMessage && !attaching && !state.loadingConversationMessages,
+                    onOpen = onOpenPendingSharedDraft,
+                    onDiscard = onDiscardPendingSharedDraft,
+                )
+            }
+            if (state.sharedDraftImported) {
+                SharedDraftSourceLabel()
+            }
             state.pendingImage?.let { attachment ->
                 PendingImagePreview(
                     attachment = attachment,
@@ -1443,6 +1466,75 @@ private fun MessageInputBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun SharedDraftPendingNotice(
+    payload: SharedDraftPayload,
+    enabled: Boolean,
+    onOpen: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(start = 10.dp, top = 5.dp, end = 4.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Share,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "来自外部应用的分享",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (payload.imageUri == null) "文本" else "图片",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
+        TextButton(onClick = onOpen, enabled = enabled) {
+            Text("打开分享", style = MaterialTheme.typography.labelSmall)
+        }
+        IconButton(onClick = onDiscard, enabled = enabled, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "忽略分享", modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+internal fun SharedDraftSourceLabel() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 10.dp, top = 8.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Share,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "已从外部分享导入",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

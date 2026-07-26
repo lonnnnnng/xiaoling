@@ -1,5 +1,15 @@
 # 产品需求
 
+## 第 100 阶段 Android 系统分享入口 v1 边界
+
+系统分享入口只接收 `ACTION_SEND`，不得声明或兼容 `ACTION_SEND_MULTIPLE`；即使调用方在单个 `ACTION_SEND` 中塞入多项 `ClipData`，文本和图片也必须统一拒绝。Manifest 仅暴露 `text/plain`、`image/png`、`image/jpeg`、`image/jpg` 和 `image/webp`；不支持 GIF、PDF、任意文档或通配 `image/*`。文本需规范 CRLF/CR、去除首尾空白，规范化后必须非空且不超过 20,000 字符。图片必须只有一项、使用小写 `content://` URI，并继续通过既有 `ImageAttachmentReader` 的 8 MB、MIME、文件签名和解码验证；`EXTRA_STREAM` 与 `ClipData` 携带相同 URI 属于兼容性重复，携带不同 URI 必须按多图拒绝，不得为分享入口建立放宽的第二套附件读取路径。
+
+外部 Intent 只能创建用户可编辑的新会话草稿，不得自动发送、调用普通聊天 Provider、启动 `/agent`、触发工具、Workflow 或后台任务。编辑器稳定空闲时可直接打开草稿；已有文本、图片、文档、未决分享或正在发送、附加、加载时不得静默覆盖。已有本地草稿时必须展示“打开分享/忽略分享”，只有用户明确打开才替换；已有未决分享时保留第一个并明确拒绝新的分享，用户处理完后需从来源应用重试。
+
+冷启动分享必须等待 Room/Keystore 初始化完成后再投影，不能被初始化快照覆盖；`singleTop + onNewIntent` 必须支持运行中分享；Activity 重建不得重复导入。外部应用可以控制 referrer 和任意 Intent extra，因此二者不得作为可信来源身份或内部去重凭据；界面只显示稳定的“外部分享”提示，用户编辑、移除分享图片、图片读取失败或切换会话后清理提示。解析异常、空内容、超长文本、多附件、缺失 URI、非 `content://`、不支持 MIME 均需给出稳定拒绝结果，不得崩溃或降级为自动发送。
+
+验收必须覆盖纯 Kotlin 解析/投影策略、Manifest MIME 与 `ACTION_SEND_MULTIPLE` 不可解析、双来源 URI 冲突、冷/热启动、Activity 重建、伪造 extra、草稿冲突、图片成功/失败校验、编辑/移除/切换会话后的来源提示清理和“无自动发送”。真机只允许 Redmi `wsvwypiz7xwslvl7`；完整门禁必须以实际 JVM、Lint、APK、文档语料和默认 instrumentation 结果记录，不能由第 99 阶段数字算术推导。
+
 ## 第 99 阶段 answerability shadow 低频观察边界
 
 真实 Shadow 观察必须分散在间隔开的用户显式开启窗口，不得为了达到样本数量在同一窗口持续压测，也不得通过断网、篡改认证或伪造协议错误制造“自然失败”。每个窗口仍只允许同一应用进程中的 `DIRECT_FOREGROUND`、答案成功保存且存在冻结知识候选的 `/agent` Run 进入 Judge；普通聊天、Workflow、后台 Worker 和未形成成功答案的 Agent Run 不得进入样本、attempt 或失败分母。

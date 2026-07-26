@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 100 阶段：Android 系统分享入口 v1（实现与聚焦 Redmi 验收完成）
+
+- `AndroidManifest.xml` 把 `MainActivity` 设为 `singleTop`，并以独立 `ACTION_SEND` filter 精确声明 `text/plain`、PNG、JPEG/JPG 和 WEBP；不声明多项分享、通配图片或文档 MIME。
+- `SharedDraftParser` 把外部输入转换为 `SharedDraftImport.Accepted / Rejected / Ignored`。多项 `ClipData` 在进入 MIME 分支前统一拒绝，避免 `ACTION_SEND + text/plain` 绕过单项边界；文本统一换行、trim 且限制 20,000 字符，图片限制单项小写 `content://`。解析层只产生 `SharedDraftPayload`，不暴露任何发送动作。
+- `AndroidShareIntentReader` 联合读取 action、MIME、文本、`EXTRA_STREAM` 与 `ClipData`。两处重复同一 URI 时按单图兼容，两处 URI 不同时把条目数投影为多图并由解析器拒绝；外部 referrer 与 extra 均不可信，因此不解析具体来源应用，也不读取外部“已处理”标记，所有来源提示统一为外部分享。
+- `MainActivity` 首次创建时处理冷启动 Intent，`onNewIntent` 处理热启动；系统重建带 `savedInstanceState` 时不重复导入。`XiaoLingViewModel.acceptSharedDraft()` 在初始化完成前排队，避免 Room/Keystore 初始化状态覆盖分享草稿。
+- `SharedDraftProjectionPolicy` 区分立即打开、确认替换和保留首个未决分享。编辑器有文本、附件或活动操作时必须由用户点击“打开分享”；已有未决分享时明确忽略新分享并要求来源应用重试，不建立无界队列。
+- `openSharedDraft()` 先打开新会话，再写入文本并调用现有 `attachImage()`；图片继续经过 `ImageAttachmentReader` 的 8 MB、MIME、签名与解码校验。`sharedDraftImported` 只控制导入提示，用户编辑、移除图片、读取失败、切换会话或发送后立即清理。
+- Compose 在输入区展示“来自外部应用的分享”冲突条和“已从外部分享导入”提示；提示不声称已验证具体来源，也不提供自动发送入口。
+- 聚焦 JVM：`SharedDraftParserTest` 4 条、`SharedDraftProjectionPolicyTest` 3 条，共 `7/7`。Redmi 定向 instrumentation：Manifest 1 条、Activity 冷/热文本与 PNG 2 条、Compose 冲突提示 1 条，共 `OK (4 tests)`。Manifest 用例额外确认 `ACTION_SEND_MULTIPLE` 不可解析；Activity 用例覆盖文本多项 `ClipData`、双来源图片 URI 冲突、伪造内部 extra、重建防重复、图片读取失败、编辑/移除/切换会话后的导入提示清理和不产生 USER 消息。完整门禁为 JVM `607/607`、Lint `0 error`（`50 warnings / 1 hint`）、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `195` 条（`183 passed / 12 skipped`）。
+- 本阶段不修改 Room Schema、Provider 协议、Agent Runtime、工具权限、Workflow、后台执行、精确定时、Foreground Service、MCP、多 Agent 或本地模型；第 99 阶段 Shadow 继续作为低频只读旁路。
+
 ## 第 99 阶段：answerability shadow 首批低频观察（验收完成，生产实现不变）
 
 - 本阶段没有修改生产代码、Room schema、Shadow Store 或 enforcement，只在 Redmi 同一进程内显式开启后采集三个 `DIRECT_FOREGROUND` 真实样本；当前仍为 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false`、`productionEnforcementEnabled=false`。

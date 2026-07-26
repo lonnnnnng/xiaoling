@@ -103,6 +103,8 @@ import com.longdev.xiaoling.prompt.PromptDefaults
 import com.longdev.xiaoling.prompt.PromptContextMessage
 import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.prompt.PromptSettings
+import com.longdev.xiaoling.share.SharedDraftImport
+import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.storage.ConversationRepository
 import com.longdev.xiaoling.storage.ImageAttachmentReader
 import com.longdev.xiaoling.storage.DocumentAttachmentReader
@@ -179,6 +181,9 @@ data class XiaoLingUiState(
     val reasoningSummaryEnabled: Boolean = false,
     val pendingImage: ImageAttachment? = null,
     val pendingDocument: DocumentAttachment? = null,
+    val pendingSharedDraft: SharedDraftPayload? = null,
+    val sharedDraftImported: Boolean = false,
+    val sharedDraftNavigationVersion: Long = 0L,
     val attachingImage: Boolean = false,
     val attachingDocument: Boolean = false,
     val loadingConversationMessages: Boolean = false,
@@ -565,6 +570,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var saveProfilesJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
+    private val queuedSharedDraftImports = ArrayDeque<SharedDraftImport>()
+    private var initializationComplete = false
 
     var uiState by mutableStateOf(
         initialUiState(
@@ -679,6 +686,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             restoreRecoveredAgentRuns(resumableApprovalRuns)
             resumeRecoveredCommittedToolRuns(resumableCommittedToolRuns)
             resumeRecoveredVerifiedToolRuns(resumableVerifiedToolRuns)
+            initializationComplete = true
+            while (queuedSharedDraftImports.isNotEmpty()) {
+                handleSharedDraftImport(queuedSharedDraftImports.removeFirst())
+            }
         }
     }
 
@@ -699,7 +710,87 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updatePrompt(value: String) {
-        uiState = uiState.copy(prompt = value, result = null)
+        uiState = uiState.copy(prompt = value, sharedDraftImported = false, result = null)
+    }
+
+    internal fun acceptSharedDraft(result: SharedDraftImport) {
+        if (!initializationComplete) {
+            // long: 冷启动会在 Room/Keystore 读取完成后重建整份 UI 状态；先排队可避免分享草稿被初始化快照覆盖。
+            queuedSharedDraftImports.addLast(result)
+            return
+        }
+        handleSharedDraftImport(result)
+    }
+
+    fun openPendingSharedDraft() {
+        val payload = uiState.pendingSharedDraft ?: return
+        if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument || uiState.loadingConversationMessages) {
+            showValidation("当前操作结束后再打开分享")
+            return
+        }
+        openSharedDraft(payload)
+    }
+
+    fun discardPendingSharedDraft() {
+        uiState = uiState.copy(pendingSharedDraft = null, result = null)
+    }
+
+    private fun handleSharedDraftImport(result: SharedDraftImport) {
+        when (result) {
+            is SharedDraftImport.Accepted -> when (val plan = uiState.planSharedDraftProjection(result.payload)) {
+                is SharedDraftProjectionPlan.OpenNow -> openSharedDraft(plan.payload)
+                is SharedDraftProjectionPlan.ConfirmReplacement -> {
+                    uiState = uiState.copy(
+                        pendingSharedDraft = plan.payload,
+                        sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
+                        result = null,
+                    )
+                }
+
+                is SharedDraftProjectionPlan.KeepPending -> {
+                    uiState = uiState.copy(
+                        sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
+                        result = OperationResult(
+                            success = false,
+                            title = "已有待处理分享",
+                            message = "新的分享已忽略，请先打开或忽略当前分享后重试",
+                        ),
+                    )
+                }
+            }
+
+            is SharedDraftImport.Rejected -> {
+                uiState = uiState.copy(
+                    result = OperationResult(
+                        success = false,
+                        title = "无法导入分享",
+                        message = result.reason.userMessage,
+                    ),
+                )
+            }
+
+            SharedDraftImport.Ignored -> Unit
+        }
+    }
+
+    private fun openSharedDraft(payload: SharedDraftPayload) {
+        // long: 只有空编辑器或用户明确确认替换时才清理原草稿；分享始终进入新会话编辑态，不调用发送入口。
+        uiState = uiState.copy(
+            prompt = "",
+            pendingImage = null,
+            pendingDocument = null,
+            pendingSharedDraft = null,
+            sharedDraftImported = false,
+            result = null,
+        )
+        conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)
+        uiState = uiState.copy(
+            prompt = payload.text,
+            sharedDraftImported = true,
+            sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
+            result = null,
+        )
+        payload.imageUri?.let { attachImage(Uri.parse(it)) }
     }
 
     fun attachImage(uri: Uri) {
@@ -718,6 +809,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(
                     attachingImage = false,
+                    sharedDraftImported = false,
                     result = OperationResult(
                         success = false,
                         title = "图片不可用",
@@ -730,7 +822,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun removePendingImage() {
         if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
-        uiState = uiState.copy(pendingImage = null, result = null)
+        uiState = uiState.copy(pendingImage = null, sharedDraftImported = false, result = null)
     }
 
     fun attachDocument(uri: Uri) {
@@ -2718,6 +2810,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
             is ConversationSelectionEvent.Immediate -> {
                 val selection = event.selection
+                // long: 导入提示只属于当前编辑草稿；切换或新建会话后必须清除，避免把其他会话误标为外部分享。
                 uiState = uiState.withImmediateConversationSelection(
                     selection = selection,
                     activeAgentRun = if (selection.restoreRuntimeState) {
@@ -2730,7 +2823,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     } else {
                         null
                     },
-                )
+                ).copy(sharedDraftImported = false)
                 saveConversationSelection()
             }
 
@@ -2746,7 +2839,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         event = loadEvent,
                         activeAgentRun = activeAgentRunsByConversation[request.conversation.id],
                         pendingAgentApproval = pendingAgentApprovalsByConversation[request.conversation.id],
-                    )
+                    ).copy(sharedDraftImported = false)
                     uiState = nextState
                     recordAnswerabilityShadowNoticePruned(
                         prunedCount = previousNoticeCount - nextState.answerabilityNotices.size,
@@ -2989,6 +3082,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             prompt = "",
             pendingImage = null,
             pendingDocument = null,
+            sharedDraftImported = false,
             activeAgentRun = null,
             pendingAgentApproval = null,
         ).withUpdatedCurrentConversation(
@@ -3180,6 +3274,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             prompt = "",
             pendingImage = null,
             pendingDocument = null,
+            sharedDraftImported = false,
             agentMemoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
         ).withUpdatedConversation(
             conversationId = conversationId,

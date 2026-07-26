@@ -27,6 +27,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 第 100 阶段新增 Android 系统分享入口 v1：分享面板只接收单项 `text/plain` 或单张 PNG/JPEG/JPG/WEBP 图片，文本最多 20,000 字符，图片必须是 `content://` 且继续复用现有 8 MB、MIME、签名和解码校验。`EXTRA_STREAM` 与 `ClipData` 同时携带同一 URI 时按单图兼容，URI 不同时按多图拒绝。内容只进入可编辑的新会话草稿，永不自动发送；已有草稿、附件或活动操作时必须显式“打开分享/忽略分享”，第二个未决分享不会覆盖第一个。冷启动初始化、热启动 `onNewIntent` 和 Activity 重建均有独立处理；来源统一标为外部分享，不信任可伪造的 referrer 或 Intent extra。
   - 第 99 阶段完成首批 Redmi 低频 answerability shadow 观察：同一进程新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，Judge 取消、异常和旁路错误均为 `0`；本批累计耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。首次宽英文检索连续无候选并使 Agent Run 达到工具步数上限，但没有进入 Shadow，不能记作 Judge 失败。
   - 第 98 阶段已在 Redmi 同一进程内扩充用户显式开启的真实前台 answerability shadow 样本：累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成 `2` 条直接回答与 `2` 条部分回答；自然 `BUDGET_EXHAUSTED` Run 未进入 Shadow，不能记作 Judge 失败。累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`，取消和异常均为 `0`。
   - 第 97 阶段已为默认关闭的 answerability shadow 增加有界进程内样本摘要：只记录 Judge attempt、延迟/TTFB、Prompt 字节、Tokens、失败分类和 notice 生命周期，不记录问题、答案、候选正文、引用、原始响应或凭据。真实 Redmi 前台 Agent 样本已验证答案先保存、Judge 后置、notice 可见且随会话删除裁剪；普通聊天、Workflow 和后台 Worker 不进入样本分母。
@@ -67,10 +68,11 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
    - `API Key`：服务需要鉴权时填写。
 3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
-5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
-6. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
-7. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
-8. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟和系统设置等首批白名单应用；设备工具仍不能进入 Workflow 或后台自动化。
+5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。也可从 Android 分享面板选择「小灵」，把单段文本或单张支持的图片导入新会话草稿，确认内容后再自行发送。
+6. 输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
+7. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
+8. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
+9. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟和系统设置等首批白名单应用；设备工具仍不能进入 Workflow 或后台自动化。
 
 ## 本地 mock 调试
 
@@ -108,6 +110,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 100 阶段系统分享入口 v1 已完成聚焦 JVM `7/7` 与 Redmi `OK (4 tests)`：验证 Manifest 只暴露五种单项 MIME 且不解析 `ACTION_SEND_MULTIPLE`，双来源不同 URI 按多图拒绝，冷/热启动与 Activity 重建不会自动发送或重复投影，外部伪造“已处理” extra 不能跳过导入，PNG 继续走既有附件读取，草稿冲突需显式确认，导入提示在编辑、移除、图片失败和切换会话后清理。完整门禁为 JVM `607/607`、Lint `0 error`（`50 warnings / 1 hint`）、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `195` 条（`183 passed / 12 skipped`）；该入口不扩展到多附件、文档、任意 MIME、自动发送、Workflow 或后台处理。
 - 第 99 阶段在 Redmi 完成首批低频真实前台观察：导入当前 README 后因 Embedding Provider 在该窗口不可用而使用词法兜底，三条精确查询均形成有效候选和 Judge measurement，判定为直接回答 `2`、部分回答 `1`。关闭开关并删除 `4` 个测试会话后，notice 从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3`；临时知识文档与下载文件已删除，恢复知识文档 `0`、原会话 `ping` `1`。第 97 至 99 阶段记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次仍未出现自然网络、协议或认证失败；完整 JVM `600/600`、Lint `0 error`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。Room v32、`store=null / persistenceMode=NONE` 与两层 enforcement 关闭不变。
 - 第 98 阶段完成 Redmi 真实前台扩样本：累计 `6` 条 Shadow 样本中完成 `4`、无候选跳过 `2`，Judge `4` 次均无取消或异常，判定分布为直接回答 `2`、部分回答 `2`。关闭开关并删除测试会话后，notice 从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`；测试知识文档已删除，恢复为知识文档 `0`、保留原会话 `1`。完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
 - 第 97 阶段已完成 answerability shadow 真实前台样本与进程内遥测：统计固定上限且重启清空，重试链保留每次失败分类，设置页展示成本、失败和 notice 生命周期；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
