@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.MessageReasoningSource
+import com.longdev.xiaoling.ui.conversation.ReasoningMessagePartContent
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import org.junit.Rule
 import org.junit.Test

@@ -7,6 +7,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.foundation.layout.Column
 import com.longdev.xiaoling.share.SharedDraftPayload
+import com.longdev.xiaoling.ui.conversation.SharedDraftPendingNotice
+import com.longdev.xiaoling.ui.conversation.SharedDraftSourceLabel
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule

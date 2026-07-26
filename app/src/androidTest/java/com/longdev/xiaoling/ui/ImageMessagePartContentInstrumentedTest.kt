@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import com.longdev.xiaoling.model.ImageAttachmentPolicy
 import com.longdev.xiaoling.model.MessagePart
+import com.longdev.xiaoling.ui.conversation.ImageMessagePartContent
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import org.junit.Rule
 import org.junit.Test

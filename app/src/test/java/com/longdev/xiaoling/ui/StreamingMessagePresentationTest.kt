@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.ui.conversation.assistantFooterLabel
+import com.longdev.xiaoling.ui.conversation.isStreamingInProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

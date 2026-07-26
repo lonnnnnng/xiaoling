@@ -82,16 +82,26 @@
 
 - 实现边界：新增 `AgentSkillManagementUiState`、按稳定 Skill ID 绑定操作资格并投影工具依赖/最近 Run 选择审计的 `AgentSkillManagementProjection`，以及五项动作组成的 `AgentSkillManagementActions`。列表、首刷、展开、启停、请求导入/删除、依赖可用性和最近三条 Skill 版本/Run 终态迁入 `ui/agentskill`；损坏旧 `skill.selected` 事件保守忽略。
 - 宿主边界：应用壳只投影 Skill、Tool Registry 与最近 Run 历史，通过动作适配器保留 Android 文件选择器，并继续持有本地 Skill 删除确认、设置返回和底栏显隐；ViewModel 保留真实 Room 刷新、启停和删除副作用。Skill JSON 校验、Runtime 选择/审计写入和 Agent Profile 白名单语义不变。
-- 结构结果：`XiaoLingApp.kt` 从 Agent Profile 阶段的 `3,631` 行降到 `3,480` 行；`AgentSkillManagementContract.kt / AgentSkillManagementPage.kt` 分别为 `126 / 295` 行。双轴 review 从 `adf00bd` 固定点执行并经复审：删除未消费的 mutating 原始字段，补齐工具依赖与 Run 审计 projection，把导入请求收口进 Actions，并移除 ViewModel 审计刷新透传；跨 source set 的小型测试 fixture 重复因提取成本高于收益而保留。
+- 结构结果：`XiaoLingApp.kt` 从 Agent Profile 阶段的 `3,631` 行降到 `3,497` 行；`AgentSkillManagementContract.kt / AgentSkillManagementPage.kt` 分别为 `126 / 295` 行。双轴 review 从 `adf00bd` 固定点执行并经复审：删除未消费的 mutating 原始字段，补齐工具依赖与 Run 审计 projection，把导入请求收口进 Actions，并移除 ViewModel 审计刷新透传；跨 source set 的小型测试 fixture 重复因提取成本高于收益而保留。
 - 本地完整门禁：强制重跑 `140/140` tasks，完整 JVM `673/673`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug/Release APK 分别为 `23,321,579 / 15,999,958` 字节，SHA-256 分别为 `cbb7f0e00d7597d288502727fb18fac3db6d2989292451959fff2b459bf10289 / f9862caff455ad8385d7c3a69a152b16a593370c8b716251a4a94a2729a34885`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
 - Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。Projection JVM 为 `3/3`，页面动作/稳定展开 Compose 聚焦为 `OK (2 tests)`，真实宿主返回/底栏为 `OK (1 test)`；覆盖安装最新 Debug/Test APK 后，默认完整 `AndroidJUnitRunner` 为 `OK (211 tests)`、耗时 `70.952s`。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
-- 保持边界：Room v32、Skill 导入/持久化、Runtime 选择与历史审计、旧 Run、Agent Profile、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。下一轮从 `XiaoLingApp.kt` 剩余 `3,480` 行重新盘点完整垂直簇。
+- 保持边界：Room v32、Skill 导入/持久化、Runtime 选择与历史审计、旧 Run、Agent Profile、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。下一轮从 `XiaoLingApp.kt` 剩余 `3,497` 行重新盘点完整垂直簇。
+
+## 2026-07-27 会话主界面垂直 UI module（横向结构工程）
+
+- 实现边界：新增分组 `ConversationUiState`、统一派生发送/附件/记忆/等待/知识引用状态的 `ConversationProjection`、单一 `ConversationActions`，以及独立 `ConversationPage` 与消息渲染文件。页面不再读取整份 `XiaoLingUiState` 或具体 ViewModel，并自己持有滚动跟尾、消息组合、附件/SharedDraft、Agent Run/审批和输入区。
+- 宿主边界：`XiaoLingContent` 只投影会话字段并适配 Actions；图片/文档 `OpenDocument`、URI 读取和答案知识引用跨页导航仍属于应用壳。原 ViewModel 的会话、Provider/模型、输入、发送/停止、审批和草稿副作用原样复用。
+- 结构结果：Agent Skill 阶段的真实宿主基线经复核为 `3,497` 行，本轮 `XiaoLingApp.kt` 降到 `1,796` 行；`ConversationContract.kt / ConversationPage.kt / ConversationMessageContent.kt` 分别为 `224 / 1,235 / 643` 行。双轴 review 未发现明确行为回归；同模块重复时间格式已合并，普通聊天无模型禁发、附件/加载忙态、知识引用去重和更多 Actions 路由已补测试。
+- 本地完整门禁：review 修复后强制重跑 `140/140` tasks，完整 JVM `677/677`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug APK 为 `23,337,963` 字节、SHA-256 `61b5cb5b14b43c8e01fe07a9ea4067e918d8c6f8e3d98baab25bc1cee2bce1f6`；Release APK 为 `16,016,342` 字节、SHA-256 `f537287d9a6ec10f2e3d7e8675fef6bf9690dda00b8994961336b7afd8c6b9d9`。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7` 覆盖安装最终 Debug/Test APK，会话页面图片/文档、发送/停止与 SharedDraft 路由为 `OK (3 tests)`；默认完整 instrumentation 为 `OK (214 tests)`、测试耗时 `74.329s`、墙钟 `76.96s`。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：切会话归尾、Tab 往返保留阅读位置、用户离尾后不被流式更新强拉、流式完成后二次校准、普通聊天与 `/agent`、附件、知识引用、审批、Room v32、Workflow、设备工具、answerability shadow 和第 101/102 项均未改变。下一轮从宿主剩余 `1,796` 行重新盘点完整垂直簇。
 
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理和 Agent Skill 管理已分别拥有独立 UI 垂直边界；下一轮从宿主剩余 `3,480` 行重新盘点完整状态/动作簇，而不是继续扩张 Agent Runtime 或设备权限。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理和会话主界面已分别拥有独立 UI 垂直边界；下一轮从宿主剩余 `1,796` 行重新盘点完整状态/动作簇，而不是继续扩张 Agent Runtime 或设备权限。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
