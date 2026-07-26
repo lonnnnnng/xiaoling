@@ -122,6 +122,8 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.agentprofile.AgentProfileEditDraft
+import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
 import com.longdev.xiaoling.ui.provider.ProviderEditDraft
@@ -418,7 +420,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     WorkflowManagementActions,
     AgentTaskCenterActions,
     MemoryManagementActions,
-    ProviderManagementActions {
+    ProviderManagementActions,
+    AgentProfileManagementActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -911,7 +914,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(answerabilityShadowEnabled = enabled, result = null)
     }
 
-    fun selectAgentProfile(profileId: String) {
+    override fun selectAgentProfile(profileId: String) {
         val profile = uiState.agentProfiles.firstOrNull { it.id == profileId } ?: return
         uiState = uiState.copy(
             selectedAgentProfileId = profile.id,
@@ -927,62 +930,52 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun saveAgentProfile(
-        profileId: String?,
-        name: String,
-        avatar: String,
-        providerId: String,
-        model: String,
-        apiMode: ApiMode,
-        systemPrompt: String,
-        memoryEnabled: Boolean,
-        allowedToolNames: Set<String>,
-        allowedSkillIds: Set<String>,
-    ) {
-        val provider = uiState.profiles.firstOrNull { it.id == providerId }
+    override fun saveAgentProfile(draft: AgentProfileEditDraft) {
+        val provider = uiState.profiles.firstOrNull { it.id == draft.providerId }
         if (provider == null) {
             showValidation("Agent 选择的模型提供方不存在")
             return
         }
-        if (model !in provider.enabledModels) {
+        if (draft.model !in provider.enabledModels) {
             showValidation("Agent 选择的模型没有在提供方中启用")
             return
         }
         val registeredToolNames = uiState.registeredAgentTools.mapTo(linkedSetOf()) { it.name }
-        val unknownTools = allowedToolNames - registeredToolNames
+        val unknownTools = draft.allowedToolNames - registeredToolNames
         if (unknownTools.isNotEmpty()) {
             showValidation("Agent 包含未注册工具：${unknownTools.sorted().joinToString()}")
             return
         }
         val knownSkills = uiState.skills.associateBy { it.definition.id }
-        val unknownSkills = allowedSkillIds - knownSkills.keys
+        val unknownSkills = draft.allowedSkillIds - knownSkills.keys
         if (unknownSkills.isNotEmpty()) {
             showValidation("Agent 包含不存在的 Skill：${unknownSkills.sorted().joinToString()}")
             return
         }
-        val incompatibleSkill = allowedSkillIds
+        // long: 页面会主动维持工具与 Skill 的勾选一致性，但持久化入口仍需防御旧页面状态、测试替身或未来调用方绕过 UI。
+        val incompatibleSkill = draft.allowedSkillIds
             .mapNotNull(knownSkills::get)
-            .firstOrNull { skill -> skill.definition.toolNames.any { it !in allowedToolNames } }
+            .firstOrNull { skill -> skill.definition.toolNames.any { it !in draft.allowedToolNames } }
         if (incompatibleSkill != null) {
             showValidation("Skill ${incompatibleSkill.definition.name} 使用了未授权工具，请先勾选对应工具")
             return
         }
-        val old = profileId?.let { id -> uiState.agentProfiles.firstOrNull { it.id == id } }
-        val now = System.currentTimeMillis()
+        val existingProfile = draft.id?.let { id -> uiState.agentProfiles.firstOrNull { it.id == id } }
+        val updatedAtMillis = System.currentTimeMillis()
         val profile = AgentProfileRecord(
-            id = old?.id ?: "agent-profile-${UUID.randomUUID()}",
-            name = name.trim(),
-            avatar = avatar.trim(),
+            id = existingProfile?.id ?: "agent-profile-${UUID.randomUUID()}",
+            name = draft.name.trim(),
+            avatar = draft.avatar.trim(),
             providerId = provider.id,
-            model = model,
-            apiMode = apiMode,
-            systemPrompt = systemPrompt.trim(),
+            model = draft.model,
+            apiMode = draft.apiMode,
+            systemPrompt = draft.systemPrompt.trim(),
             contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
-            allowedToolNames = allowedToolNames.sorted(),
-            allowedSkillIds = allowedSkillIds.sorted(),
-            memoryEnabled = memoryEnabled,
-            createdAt = old?.createdAt ?: now,
-            updatedAt = now,
+            allowedToolNames = draft.allowedToolNames.sorted(),
+            allowedSkillIds = draft.allowedSkillIds.sorted(),
+            memoryEnabled = draft.memoryEnabled,
+            createdAt = existingProfile?.createdAt ?: updatedAtMillis,
+            updatedAt = updatedAtMillis,
         )
         runCatching { AgentProfilePolicy.validateRunnable(profile) }
             .onFailure {
@@ -1014,7 +1007,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun deleteAgentProfile(profileId: String) {
+    override fun deleteAgentProfile(profileId: String) {
         if (uiState.agentProfiles.size <= 1) {
             showValidation("至少保留一个 Agent Profile")
             return

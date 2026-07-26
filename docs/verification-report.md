@@ -68,10 +68,20 @@
 - 文档门禁：四份长期文档完成同步后重新构建 AndroidTest APK，并在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果为 `OK (1 test)`。
 - 保持边界：Room v32、Provider 持久化/删除/选中修复、模型同步协调、Agent 启动前校验、扫码参数、Agent Runtime、Workflow、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent Profile 管理垂直 UI。
 
+## 2026-07-27 Agent Profile 管理垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `AgentProfileManagementUiState`、按稳定 Profile ID 绑定 selected/mutating/deleteEnabled/providerModelValid 的 `AgentProfileManagementProjection`，以及三项动作组成的 `AgentProfileManagementActions`。列表、增删改选、编辑草稿、Provider/模型选择、Chat/Responses 模式、长期记忆开关、工具与 Skill 双向依赖和字段长度限制迁入 `ui/agentprofile`；`CompactTextField` 提升为共享控件。
+- 宿主边界：应用壳只负责 projection、设置返回、底栏显隐和全局结果提示；`XiaoLingViewModel` 实现 actions，并在持久化入口重新校验 Provider、模型、注册工具与 Skill 依赖。编辑状态按稳定 Profile ID 持有，列表重排或记录替换不会把保存/删除动作绑定到错误对象；旧 Run/Profile 快照、Provider/模型删除保护和业务保存顺序不变。
+- 结构结果：`XiaoLingApp.kt` 从 Provider 阶段的 `4,003` 行降到 `3,631` 行；`AgentProfileManagementContract.kt / AgentProfileManagementPage.kt / CompactTextField.kt` 分别为 `104 / 610 / 46` 行。双轴 review 从 `8a12c90` 固定点执行：Standards 轴发现文档未同步、业务不变量注释和命名问题，已修复；Spec 轴要求的稳定 ID 重排/对象替换回归已补齐，无范围膨胀。
+- 本地完整门禁：强制重跑 `140/140` tasks，完整 JVM `670/670`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug/Release APK 分别为 `23,305,195 / 15,999,958` 字节，SHA-256 分别为 `9cce542e7e2e1bdb8c4801e7566942110e4e6713aa0dd5515e1079755c619fb8 / 39e69ece1c7d9da5afa235e054028ff37e2576034dac32978fe3ab06cf1fedf6`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。Agent Profile 页面 Compose 聚焦为 `OK (3 tests)`，真实宿主返回与底栏为 `OK (1 test)`；最终默认完整 `AndroidJUnitRunner` 的 Gradle 控制台为 `Finished 220 tests`、`BUILD SUCCESSFUL in 1m 22s`。JUnit XML 精确记录 `208` 条（`196 passed / 12 skipped / 0 failed`），执行时间 `69.14s`；控制台与 XML 的差异来自 skipped 用例统计口径，不代表隐藏失败。没有连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：Room v32、Agent Runtime、Workflow Ledger、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent Skill 管理垂直 UI。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理和 Provider 管理已分别拥有 `ui/navigation`、`ui/workflow`、`ui/agenttask`、`ui/memory` 与 `ui/provider` 垂直边界；当前下一项是 Agent Profile 管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理和 Agent Profile 管理已分别拥有 `ui/navigation`、`ui/workflow`、`ui/agenttask`、`ui/memory`、`ui/provider` 与 `ui/agentprofile` 垂直边界；当前下一项是 Agent Skill 管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

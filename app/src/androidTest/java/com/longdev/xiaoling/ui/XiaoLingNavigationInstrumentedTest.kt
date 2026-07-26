@@ -64,6 +64,26 @@ class XiaoLingNavigationInstrumentedTest {
         composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
     }
 
+    @Test
+    fun agentProfilePageUsesHostBackAndKeepsBottomBarHidden() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("bottom_tab_settings").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("bottom_tab_settings").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithText("Agent Profiles").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("Agent Profiles").performClick()
+        composeRule.onNodeWithContentDescription("新增 Agent Profile").assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertDoesNotExist()
+
+        // long: Agent Profile 页面只承载管理交互；系统返回和底栏恢复必须继续由应用壳统一处理。
+        pressSystemBack()
+        composeRule.onNodeWithText("模型提供方管理").assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
+    }
+
     private fun pressSystemBack() {
         composeRule.runOnUiThread {
             composeRule.activity.onBackPressedDispatcher.onBackPressed()
