@@ -32,9 +32,6 @@ import com.longdev.xiaoling.agent.AgentSkillDocumentCodec
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
-import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
-import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
-import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
@@ -408,13 +405,6 @@ data class AgentApprovalUiState(
     }
 }
 
-data class AgentRetryConfirmationUiState(
-    val runId: String,
-    val goal: String,
-    val evidenceCode: AgentTaskRetryEvidenceCode,
-    val evidenceFingerprint: String,
-)
-
 data class WorkflowRetryConfirmationUiState(
     val runId: String,
     val workflowName: String,
@@ -507,6 +497,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val conversationSelectionCoordinator = ConversationSelectionCoordinator(
         persistenceCoordinator = conversationPersistenceCoordinator,
         loadCoordinator = conversationLoadCoordinator,
+    )
+    private val agentRunRetryCoordinator = AgentRunRetryCoordinator(
+        scope = viewModelScope,
+        loadSourceAttachments = { detail ->
+            val sourceRun = detail.snapshot.run
+            withContext(Dispatchers.IO) {
+                conversationStore.loadConversationMessages(sourceRun.conversationId)
+                    .firstOrNull { it.id == sourceRun.userMessageId }
+                    ?.toChatMessage()
+                    ?.attachmentsForAgent()
+                    ?: MessageAttachmentSelection()
+            }
+        },
     )
     // long: 普通聊天的持久化、上下文准备和网络发送顺序由应用服务统一；ViewModel 只消费事件并更新 Compose 状态。
     private val conversationSendCoordinator = ConversationSendCoordinator(
@@ -2419,73 +2422,58 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun requestAgentRunRetry(runId: String) {
-        if (uiState.sendingMessage || uiState.retryingAgentRunId != null) {
-            showValidation("当前已有任务正在执行，请等待结束后再重试")
-            return
-        }
-        val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == runId }
-        if (detail == null) {
-            showValidation("找不到要重试的 Agent Run，请刷新任务中心")
-            return
-        }
-        when (val eligibility = AgentTaskRetryPolicy.evaluate(detail)) {
-            AgentTaskRetryEligibility.NotRetryable -> {
-                showValidation("当前状态不支持重试")
-            }
-            is AgentTaskRetryEligibility.Retryable -> {
-                if (eligibility.requiresConfirmation) {
-                    val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
-                    uiState = uiState.copy(
-                        pendingAgentRetryConfirmation = AgentRetryConfirmationUiState(
-                            runId = runId,
-                            goal = detail.snapshot.run.goal,
-                            evidenceCode = evidence.code,
-                            evidenceFingerprint = evidence.fingerprint,
-                        ),
-                    )
-                } else {
-                    startAgentRunRetry(detail)
-                }
-            }
-        }
+        agentRunRetryCoordinator.request(
+            runId = runId,
+            runHistory = uiState.agentRunHistory,
+            busy = uiState.sendingMessage || uiState.retryingAgentRunId != null,
+            onEvent = ::handleAgentRunRetryDecisionEvent,
+        )
     }
 
     fun confirmAgentRunRetry() {
         val pending = uiState.pendingAgentRetryConfirmation ?: return
         uiState = uiState.copy(pendingAgentRetryConfirmation = null)
-        val detail = uiState.agentRunHistory.firstOrNull { it.snapshot.run.id == pending.runId }
-        if (detail == null) {
-            showValidation("来源 Agent Run 已不存在，请刷新任务中心")
-            return
-        }
-        if (AgentTaskRetryPolicy.evaluate(detail) is AgentTaskRetryEligibility.NotRetryable) {
-            uiState = uiState.copy(pendingAgentRetryConfirmation = null)
-            showValidation("当前状态已变化，请刷新任务中心")
-            return
-        }
-        if (!AgentTaskRetryPolicy.canConfirmRetry(pending.evidenceCode, detail, pending.evidenceFingerprint)) {
-            val currentEvidence = AgentTaskRetryPolicy.assessEvidence(detail)
-            uiState = uiState.copy(
-                pendingAgentRetryConfirmation = pending.copy(
-                    evidenceCode = currentEvidence.code,
-                    evidenceFingerprint = currentEvidence.fingerprint,
-                ),
-            )
-            showValidation("重试证据已变化，请重新确认")
-            return
-        }
-        startAgentRunRetry(detail)
+        agentRunRetryCoordinator.confirm(
+            pending = pending,
+            runHistory = uiState.agentRunHistory,
+            onEvent = ::handleAgentRunRetryDecisionEvent,
+        )
     }
 
     fun cancelAgentRunRetry() {
-        uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+        val pending = uiState.pendingAgentRetryConfirmation
+        if (pending == null) {
+            uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+        } else {
+            agentRunRetryCoordinator.cancel(pending.runId, ::handleAgentRunRetryDecisionEvent)
+        }
     }
 
     fun consumeAgentRetryNavigation() {
         uiState = uiState.copy(agentRetryNavigationConversationId = null)
     }
 
-    private fun startAgentRunRetry(detail: AgentRunDetailRecord) {
+    private fun handleAgentRunRetryDecisionEvent(event: AgentRunRetryEvent) {
+        when (event) {
+            is AgentRunRetryEvent.ConfirmationRequired -> {
+                uiState = uiState.copy(pendingAgentRetryConfirmation = event.confirmation)
+            }
+            is AgentRunRetryEvent.ConfirmationRefreshed -> {
+                uiState = uiState.copy(pendingAgentRetryConfirmation = event.confirmation)
+                showValidation("重试证据已变化，请重新确认")
+            }
+            is AgentRunRetryEvent.PreparationRequired -> prepareAgentRunRetry(event.detail)
+            is AgentRunRetryEvent.Failed -> showValidation(event.message)
+            is AgentRunRetryEvent.Cancelled -> {
+                uiState = uiState.copy(pendingAgentRetryConfirmation = null)
+            }
+            is AgentRunRetryEvent.RetryStarting,
+            is AgentRunRetryEvent.RetryReady,
+            -> error("重试准备事件不能进入决策投影")
+        }
+    }
+
+    private fun prepareAgentRunRetry(detail: AgentRunDetailRecord) {
         val sourceRun = detail.snapshot.run
         val sourceConversation = uiState.conversations.firstOrNull { it.id == sourceRun.conversationId }
         if (sourceConversation == null) {
@@ -2494,34 +2482,46 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         val runtimeSelection = validatedSelectedAgentRuntimeSelection() ?: return
         selectConversation(sourceRun.conversationId)
-        uiState = uiState.copy(
-            retryingAgentRunId = sourceRun.id,
-            pendingAgentRetryConfirmation = null,
-            selectedAgentRunId = sourceRun.id,
-            agentRetryNavigationConversationId = sourceRun.conversationId,
-        )
-        viewModelScope.launch {
-            val attachments = runCatching {
-                withContext(Dispatchers.IO) {
-                    conversationStore.loadConversationMessages(sourceRun.conversationId)
-                        .firstOrNull { it.id == sourceRun.userMessageId }
-                        ?.toChatMessage()
-                        ?.attachmentsForAgent()
-                        ?: MessageAttachmentSelection()
-                }
-            }.getOrElse { error ->
-                uiState = uiState.copy(retryingAgentRunId = null)
-                showValidation(error.message ?: "读取原任务附件失败")
-                return@launch
+        agentRunRetryCoordinator.prepare(detail) { event ->
+            handleAgentRunRetryPreparationEvent(event, runtimeSelection)
+        }
+    }
+
+    private fun handleAgentRunRetryPreparationEvent(
+        event: AgentRunRetryEvent,
+        runtimeSelection: AgentRuntimeSelection,
+    ) {
+        when (event) {
+            is AgentRunRetryEvent.RetryStarting -> {
+                uiState = uiState.copy(
+                    retryingAgentRunId = event.runId,
+                    pendingAgentRetryConfirmation = null,
+                    selectedAgentRunId = event.runId,
+                    agentRetryNavigationConversationId = event.conversationId,
+                )
             }
-            // long: 重试不是修改或续跑旧 Run，而是在原会话追加同一目标的新用户消息；原 USER 附件也复制到新消息和新规划请求，避免重试静默改变目标输入。
-            sendAgentRun(
-                userMessage = "/agent " + sourceRun.goal,
-                runtimeSelection = runtimeSelection,
-                attachments = attachments,
-                conversationId = sourceRun.conversationId,
-                retryOfRunId = sourceRun.id,
-            )
+            is AgentRunRetryEvent.RetryReady -> {
+                val request = event.request
+                // long: ViewModel 只把协调器冻结的关联请求交给 Agent Runtime；旧 Run 不续跑，原附件和 retryOfRunId 一起进入新 Run。
+                sendAgentRun(
+                    userMessage = request.userMessage,
+                    runtimeSelection = runtimeSelection,
+                    attachments = request.attachments,
+                    conversationId = request.conversationId,
+                    retryOfRunId = request.retryOfRunId,
+                )
+            }
+            is AgentRunRetryEvent.Failed -> {
+                if (uiState.retryingAgentRunId == event.runId) {
+                    uiState = uiState.copy(retryingAgentRunId = null)
+                }
+                showValidation(event.message)
+            }
+            is AgentRunRetryEvent.ConfirmationRequired,
+            is AgentRunRetryEvent.ConfirmationRefreshed,
+            is AgentRunRetryEvent.PreparationRequired,
+            is AgentRunRetryEvent.Cancelled,
+            -> error("重试决策事件不能进入准备投影")
         }
     }
 

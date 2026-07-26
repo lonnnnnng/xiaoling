@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+最新横向可靠性工程继续采用参考项目中“UI 只投影、应用服务编排、Runtime 执行”的分层原则。`AgentRunRetryCoordinator` 统一重试资格、副作用证据确认与漂移复核、附件恢复和关联新 Run 请求；ViewModel 继续负责会话/Profile/Provider 宿主副作用，Agent Runtime 继续负责真正执行。协调器只产生 typed event 和带 `retryOfRunId` 的不可变请求，不写旧 Run、不持有 Runtime，也不复制审批或工具策略。聚焦 JVM `7/7`、完整 JVM `614/614`、Lint `0 error / 50 warnings`、APK 构建与仅 Redmi 默认完整 `OK (195 tests)` 已通过。这个拆分提高失败恢复的确定性，但不构成设备后台自动化、任意 App 或远程工具扩权。
+
 第 100 阶段把 Android 系统分享实现为 Intent 到既有编辑器/附件校验的薄适配层，而不是复制一套消息或 Agent Runtime。Manifest 精确声明单项 `text/plain`、PNG、JPEG/JPG、WEBP，并明确拒绝 `ACTION_SEND_MULTIPLE`；文本有 20,000 字符上限，图片只接受单个 `content://` 并复用既有 8 MB、MIME、签名和解码校验。Intent 适配层会合并判断 `EXTRA_STREAM` 与 `ClipData`：相同 URI 兼容，不同 URI 按多图拒绝。外部内容只生成用户可编辑的新会话草稿，永不自动发送；本地草稿冲突由用户明确打开或忽略，已有未决分享时拒绝新分享。冷/热启动与 Activity 重建分别处理，外部 referrer 和 extra 不用于可信来源归因或内部去重。聚焦 JVM `7/7`、Redmi `OK (4 tests)`，完整 JVM `607/607`、Lint、APK、文档语料和默认完整 `195` 条（`183 passed / 12 skipped`）已通过。该取舍延续成熟 Agent 的单一事实源原则：入口可以增加，但发送、审批、工具和后台边界不能因入口变化而复制或放宽。
 
 第 99 阶段把 answerability Shadow 从同一窗口扩样本转为间隔真实使用窗口中的低频观察。Redmi 同一进程新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，累计耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`，取消、异常和旁路错误均为 `0`。首次宽英文问题连续四次没有知识候选并使 Agent Run 达到工具调用次数上限，但没有成功答案和合格 Shadow 入口，tracker 保持 `0`，不能记作 Judge 失败、取消、跳过或 usage。当前窗口 Embedding Provider 不可用，有效候选来自词法兜底，因此本批只验证 answerability 旁路与词法候选链路，不能外推为 Embedding 质量证据。

@@ -1,5 +1,13 @@
 # 产品需求
 
+## Agent Run 关联重试协调边界（横向可靠性工程）
+
+失败、取消、阻塞或预算耗尽 Run 的关联重试必须继续使用 `AgentTaskRetryPolicy` 作为唯一资格与副作用证据来源。已有发送或重试正在进行、来源 Run 不存在、Run 已不再可重试时必须给出稳定失败事件；需要确认的 Run 必须冻结弹窗打开时的证据码和 canonical fingerprint。用户确认时必须重新读取当前 Run 详情并核对状态、证据码和指纹，即使分类仍相同，只要账本、Receipt、工具调用或验证证据漂移，也必须刷新确认并要求再次批准，不得沿用旧授权继续执行。
+
+确认通过或无需确认时，协调器只进入准备阶段。原会话存在性、当前 Agent Profile/Provider 可运行性、会话导航和真正的 `sendAgentRun` 仍由 ViewModel 宿主负责；协调器只能异步读取来源 USER 消息的可信单一附件，并生成包含原会话、`/agent` 原目标、附件快照和 `retryOfRunId` 的启动请求。来源 Run 的状态、步骤、事件、审批与 Tool Ledger 均不得修改；新 Run 继续重新规划、审批和验证。附件读取失败必须发布稳定 `Failed` 事件并清理忙碌态，协程取消继续传播；用户取消确认必须发布 `Cancelled` 并只清理未决确认。
+
+ViewModel 只投影 `ConfirmationRequired / ConfirmationRefreshed / PreparationRequired / RetryStarting / RetryReady / Failed / Cancelled` 事件，并继续保有 Compose 状态和宿主副作用。本次迁移不得修改 Room Schema、Agent Runtime、工具权限、Workflow、设备工具后台门禁或第 101 项 Shadow 低频规则。验收必须覆盖无需确认、成功写工具需确认、同码证据漂移、附件恢复、旧 Run 不变、`retryOfRunId`、附件读取失败、请求拒绝、确认来源消失/状态变化和用户取消；聚焦 JVM 为 `7/7`，完整门禁必须以实际 JVM、Lint、APK 和仅 Redmi 默认 instrumentation 结果记录。
+
 ## 第 100 阶段 Android 系统分享入口 v1 边界
 
 系统分享入口只接收 `ACTION_SEND`，不得声明或兼容 `ACTION_SEND_MULTIPLE`；即使调用方在单个 `ACTION_SEND` 中塞入多项 `ClipData`，文本和图片也必须统一拒绝。Manifest 仅暴露 `text/plain`、`image/png`、`image/jpeg`、`image/jpg` 和 `image/webp`；不支持 GIF、PDF、任意文档或通配 `image/*`。文本需规范 CRLF/CR、去除首尾空白，规范化后必须非空且不超过 20,000 字符。图片必须只有一项、使用小写 `content://` URI，并继续通过既有 `ImageAttachmentReader` 的 8 MB、MIME、文件签名和解码验证；`EXTRA_STREAM` 与 `ClipData` 携带相同 URI 属于兼容性重复，携带不同 URI 必须按多图拒绝，不得为分享入口建立放宽的第二套附件读取路径。

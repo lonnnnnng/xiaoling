@@ -2,6 +2,15 @@
 
 验证日期：2026-07-26（北京时间）
 
+## 2026-07-26 Agent Run 关联重试协调迁出（横向可靠性工程）
+
+- 实现边界：新增 `AgentRunRetryCoordinator`，统一重试资格、确认快照、确认时证据重核、原 USER 附件恢复和关联新 Run 请求；ViewModel 继续负责 Compose 状态、原会话/Profile/Provider 校验、导航和真正调用 `sendAgentRun`。旧 Run 不修改，新请求固定携带 `retryOfRunId`。
+- 聚焦门禁：`AgentRunRetryCoordinatorTest` `7/7`，覆盖无需确认、成功写工具确认、证据码不变但指纹漂移、附件恢复、旧 Run 不变、附件失败、请求拒绝、确认失效和取消；与既有 `AgentTaskRetryPolicyTest` 组合执行通过。
+- 完整本地门禁：强制重跑 `testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest`，88 个 task 全部执行并成功。JVM XML 为 `614/614`、0 失败/错误/跳过；Lint XML 为 `0 error / 50 warnings / 0 information`。最终 Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`；AndroidTest APK 构建成功。
+- Redmi 完整门禁：覆盖安装包含本轮代码和长期文档的 Debug/Test APK 后，只在 `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `48.619s`。没有连接、启动或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 最终文档复验：回填完整门禁后强制重建 AndroidTest APK，覆盖安装并执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`；最终提交前再次以相同步骤复验更新后的 README 与验证报告，结果 `OK (1 test)`。为避免验证结果本身触发递归打包，不记录最后一次墙钟耗时。
+- 路线图边界：本次属于横向工程，不占用第 101 项低频 Shadow 观察，不采集或制造新 Shadow 样本；Room v32、Agent Runtime、Workflow/后台设备工具、精确定时、Foreground Service 与远期能力均保持不变。
+
 ## 2026-07-26 Android 系统分享入口 v1（第 100 阶段）
 
 - 实现边界：`MainActivity` 以 `singleTop` 接收 `ACTION_SEND`，Manifest 只暴露 `text/plain`、PNG、JPEG/JPG、WEBP。文本最多 20,000 字符；图片必须是单个小写 `content://` 并复用既有附件校验。分享只进入新会话可编辑草稿，不自动发送、不进入 `/agent`、Workflow 或后台。

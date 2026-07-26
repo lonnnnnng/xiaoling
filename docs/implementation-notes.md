@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## Agent Run 关联重试协调迁出（横向可靠性工程）
+
+- 新增 `AgentRunRetryCoordinator`、`AgentRunRetryEvent` 与 `AgentRunRetryLaunchRequest`。`request()` 统一忙碌、来源缺失、不可重试和副作用确认分支；`confirm()` 重新读取当前详情，并以 `AgentTaskRetryPolicy.canConfirmRetry()` 同时核对证据码和 canonical fingerprint。
+- `ConfirmationRefreshed` 明确承接“分类相同但证据内容漂移”的二次确认；`Failed` 与 `Cancelled` 让拒绝、附件读取失败和用户取消都通过稳定事件返回，不再由 ViewModel 多处分支直接早退。
+- `prepare()` 先发布 `RetryStarting`，再异步调用注入的附件读取函数；成功后只发布带 `/agent <原目标>`、原会话、原 USER 附件和 `retryOfRunId` 的 `RetryReady`。协调器没有 Agent Runtime、Room 写入或 Compose 状态权限，因此不能修改或续跑旧 Run。
+- `XiaoLingViewModel` 注入 `ConversationRepository` 的 USER 消息附件读取，继续校验原会话与选中 Agent Profile/Provider、执行会话导航并消费 typed event；只有 `RetryReady` 才调用既有 `sendAgentRun()`。原有用户提示、确认刷新、任务中心选中与导航行为保持不变。
+- `AgentRunRetryCoordinatorTest` 新增 `7/7`：直接准备、写工具确认、同码指纹漂移、附件恢复与旧 Run 不变、附件读取失败、三类请求拒绝、确认失败与取消。既有 `AgentTaskRetryPolicyTest` 组合复验通过。
+- 强制完整本地门禁为 JVM `614/614`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug 与 AndroidTest APK 构建成功。最终 Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`。仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 `AndroidJUnitRunner`，结果 `OK (195 tests)`、耗时 `48.619s`。
+- 本次是 ViewModel 横向瘦身，不新增阶段性产品能力，不修改 Room v32、Provider 协议、Agent Runtime、工具审批/验证语义、Workflow、设备工具、Shadow Store 或 enforcement。第 101 项仍只允许间隔真实使用窗口中的低频 Shadow 观察。
+
 ## 第 100 阶段：Android 系统分享入口 v1（实现与聚焦 Redmi 验收完成）
 
 - `AndroidManifest.xml` 把 `MainActivity` 设为 `singleTop`，并以独立 `ACTION_SEND` filter 精确声明 `text/plain`、PNG、JPEG/JPG 和 WEBP；不声明多项分享、通配图片或文档 MIME。
