@@ -123,6 +123,7 @@ import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
+import com.longdev.xiaoling.ui.memory.MemoryManagementActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -423,7 +424,8 @@ data class AgentMemoryEditUiState(
 
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application),
     WorkflowManagementActions,
-    AgentTaskCenterActions {
+    AgentTaskCenterActions,
+    MemoryManagementActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1278,7 +1280,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun refreshMemories() {
+    override fun refreshMemories() {
         loadMemories()
         loadMemoryCandidates()
     }
@@ -2064,7 +2066,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             .toString()
     }
 
-    fun updateMemoryCandidatesEnabled(enabled: Boolean) {
+    override fun updateMemoryCandidatesEnabled(enabled: Boolean) {
         uiPreferenceStore.saveMemoryCandidatesEnabled(enabled)
         if (!enabled) {
             // long: 关闭候选记忆后立即撤销旧列表读取，避免迟到 Room 结果把已清空的候选重新投影到界面。
@@ -2083,15 +2085,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (enabled) loadMemoryCandidates()
     }
 
-    fun acceptMemoryCandidate(candidateId: String) {
+    override fun acceptMemoryCandidate(candidateId: String) {
         mutateMemoryCandidate(candidateId, accepted = true)
     }
 
-    fun rejectMemoryCandidate(candidateId: String) {
+    override fun rejectMemoryCandidate(candidateId: String) {
         mutateMemoryCandidate(candidateId, accepted = false)
     }
 
-    fun updateMemorySearchQuery(query: String) {
+    override fun updateMemorySearchQuery(query: String) {
         uiState = uiState.copy(memorySearchQuery = query, memoryError = null)
         memorySearchJob?.cancel()
         memorySearchJob = viewModelScope.launch {
@@ -2100,18 +2102,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateMemoryFilter(filter: AgentMemoryFilter) {
+    override fun updateMemoryFilter(filter: AgentMemoryFilter) {
         if (filter == uiState.memoryFilter) return
         uiState = uiState.copy(memoryFilter = filter, memoryError = null)
         loadMemories()
     }
 
-    fun selectMemory(memoryId: String) {
+    override fun selectMemory(memoryId: String) {
         if (uiState.memories.none { it.id == memoryId }) return
         uiState = uiState.copy(selectedMemoryId = memoryId)
     }
 
-    fun openMemoryEdit(memoryId: String) {
+    override fun openMemoryEdit(memoryId: String) {
         val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
         uiState = uiState.copy(
             editingMemory = AgentMemoryEditUiState(
@@ -2168,7 +2170,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setMemoryEnabled(memoryId: String, enabled: Boolean) {
+    override fun setMemoryEnabled(memoryId: String, enabled: Boolean) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = if (enabled) "记忆已启用" else "记忆已禁用，不再参与 Agent 检索",
@@ -2177,7 +2179,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setMemoryPinned(memoryId: String, pinned: Boolean) {
+    override fun setMemoryPinned(memoryId: String, pinned: Boolean) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = if (pinned) "记忆已置顶" else "已取消置顶",
@@ -2186,7 +2188,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) {
+    override fun setMemoryExpiry(memoryId: String, option: AgentMemoryExpiryOption) {
         mutateMemory(
             memoryId = memoryId,
             successMessage = "记忆过期策略已更新",
@@ -2198,7 +2200,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun requestMemoryDelete(memoryId: String) {
+    override fun requestMemoryDelete(memoryId: String) {
         val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
         uiState = uiState.copy(pendingMemoryDelete = memory)
     }
@@ -2237,7 +2239,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun undoMemoryDelete() {
+    override fun undoMemoryDelete() {
         val memory = uiState.deletedMemoryForUndo ?: return
         if (memory.id in uiState.mutatingMemoryIds) return
         uiState = uiState.copy(mutatingMemoryIds = uiState.mutatingMemoryIds + memory.id)
@@ -2260,7 +2262,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun openMemorySourceConversation(memoryId: String) {
+    override fun openMemorySourceConversation(memoryId: String) {
         val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
         val conversationId = memory.sourceConversationId
         if (conversationId == null || uiState.conversations.none { it.id == conversationId }) {
@@ -2271,7 +2273,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(memorySourceConversationNavigationId = conversationId)
     }
 
-    fun openMemorySourceRun(memoryId: String) {
+    override fun openMemorySourceRun(memoryId: String) {
         val memory = uiState.memories.firstOrNull { it.id == memoryId } ?: return
         val runId = memory.sourceRunId
         if (runId.isNullOrBlank()) {
