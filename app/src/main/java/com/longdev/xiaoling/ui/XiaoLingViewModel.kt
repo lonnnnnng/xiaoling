@@ -124,6 +124,8 @@ import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
+import com.longdev.xiaoling.ui.provider.ProviderEditDraft
+import com.longdev.xiaoling.ui.provider.ProviderManagementActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -257,16 +259,6 @@ data class XiaoLingUiState(
     val backupBusy: Boolean = false,
     val backupRestartRequired: Boolean = false,
     val result: OperationResult? = null,
-)
-
-data class ProviderEditDraft(
-    val id: String?,
-    val name: String,
-    val baseUrl: String,
-    val apiKey: String,
-    val upstreamModels: List<String>,
-    val enabledModels: Set<String>,
-    val loadingModels: Boolean = false,
 )
 
 private data class WorkflowUiData(
@@ -425,7 +417,8 @@ data class AgentMemoryEditUiState(
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application),
     WorkflowManagementActions,
     AgentTaskCenterActions,
-    MemoryManagementActions {
+    MemoryManagementActions,
+    ProviderManagementActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1054,7 +1047,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun openNewProvider() {
+    override fun openNewProvider() {
         uiState = uiState.copy(
             manageDraft = ProviderEditDraft(
                 id = null,
@@ -1068,7 +1061,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun openEditProvider(profileId: String) {
+    override fun openEditProvider(profileId: String) {
         val profile = uiState.profiles.firstOrNull { it.id == profileId } ?: return
         uiState = uiState.copy(
             manageDraft = ProviderEditDraft(
@@ -1083,7 +1076,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun closeProviderEditor() {
+    override fun closeProviderEditor() {
         uiState = uiState.copy(manageDraft = null, result = null)
     }
 
@@ -1144,9 +1137,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateDraftName(value: String) = updateDraft { copy(name = value) }
-    fun updateDraftBaseUrl(value: String) = updateDraft { copy(baseUrl = value) }
-    fun updateDraftApiKey(value: String) = updateDraft { copy(apiKey = value) }
+    override fun updateDraftName(value: String) = updateDraft { copy(name = value) }
+    override fun updateDraftBaseUrl(value: String) = updateDraft { copy(baseUrl = value) }
+    override fun updateDraftApiKey(value: String) = updateDraft { copy(apiKey = value) }
     fun updateUserAgent(value: String) {
         val normalized = value.filterNot { it == '\r' || it == '\n' }.take(512)
         uiState = uiState.copy(userAgent = normalized, result = null)
@@ -3024,11 +3017,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun importDraftFromQr(raw: String) {
+    override fun importDraftFromQr(raw: String) {
         importDraftCredentials(raw, successTitle = "扫码导入成功", invalidMessage = "二维码内容必须是 baseUrl,apiKey")
     }
 
-    fun importDraftFromClipboard(raw: String) {
+    override fun importDraftFromClipboard(raw: String) {
         importDraftCredentials(raw, successTitle = "剪切板导入成功", invalidMessage = "剪切板内容必须是 baseUrl,apiKey")
     }
 
@@ -3055,7 +3048,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         showSuccess(successTitle, baseUrl)
     }
 
-    fun toggleDraftModel(model: String, enabled: Boolean) = updateDraft {
+    override fun toggleDraftModel(model: String, enabled: Boolean) = updateDraft {
         copy(
             enabledModels = if (enabled) {
                 enabledModels + model
@@ -3065,7 +3058,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun fetchDraftModels() {
+    override fun fetchDraftModels() {
         val draft = uiState.manageDraft ?: return
         ProviderApiUrlBuilder.validate(draft.baseUrl)?.let {
             showValidation(it)
@@ -3096,7 +3089,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun syncProviderModels(profileId: String) {
+    override fun syncProviderModels(profileId: String) {
         val profile = uiState.profiles.firstOrNull { it.id == profileId } ?: return
         if (uiState.syncingAllProfiles || profile.id in uiState.syncingProfileIds) return
         viewModelScope.launch {
@@ -3104,7 +3097,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun syncAllProviders() {
+    override fun syncAllProviders() {
         if (uiState.syncingAllProfiles || uiState.syncingProfileIds.isNotEmpty()) return
         viewModelScope.launch {
             val profiles = uiState.profiles.toList()
@@ -3141,7 +3134,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun saveDraftProvider() {
+    override fun saveDraftProvider() {
         val draft = uiState.manageDraft ?: return
         ProviderApiUrlBuilder.validate(draft.baseUrl)?.let {
             showValidation(it)
@@ -3191,7 +3184,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         repairIncompleteAgentProfiles(savedProfile)
     }
 
-    fun deleteProvider(profileId: String) {
+    override fun deleteProvider(profileId: String) {
         if (uiState.profiles.size <= 1) {
             showValidation("至少保留一个模型提供方")
             return

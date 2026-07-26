@@ -5,7 +5,6 @@ import android.Manifest
 import android.graphics.BitmapFactory
 import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -184,13 +183,14 @@ import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
 import com.longdev.xiaoling.ui.memory.MemoryManagementUiState
+import com.longdev.xiaoling.ui.provider.ProviderManagementPage
+import com.longdev.xiaoling.ui.provider.ProviderManagementProjection
+import com.longdev.xiaoling.ui.provider.ProviderManagementUiState
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementPage
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementUiState
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.highlightedCodeBlock
@@ -201,7 +201,6 @@ import com.mikepenz.markdown.m3.markdownTypography
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -1926,16 +1925,6 @@ private fun String.compactModelLabel(maxChars: Int = 16): String {
     return value.take(maxChars - 1) + "…"
 }
 
-private fun String.toFullSyncTimeLabel(): String {
-    val value = trim()
-    if (value.isBlank()) return "未同步"
-    if (Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}""").matches(value)) return value
-    if (Regex("""\d{2}-\d{2} \d{2}:\d{2}""").matches(value)) {
-        return "${Calendar.getInstance().get(Calendar.YEAR)}-$value:00"
-    }
-    return value
-}
-
 private fun ChatMessage.footerLabel(): String? {
     return when (role) {
         "user" -> createdAt.toFullTimeLabel()
@@ -1971,6 +1960,8 @@ private fun Long.toSecondsText(): String = String.format(Locale.US, "%.2f s", th
 private fun Long.toFullTimeLabel(): String {
     return SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date(this))
 }
+
+private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 private fun XiaoLingUiState.toWorkflowManagementUiState(): WorkflowManagementUiState {
     // long: 应用壳只在模块边界投影 Workflow 字段，页面不再感知整份全局状态，也不会自行关联 Run 与调度记录。
@@ -2019,6 +2010,19 @@ private fun XiaoLingUiState.toMemoryManagementUiState(): MemoryManagementUiState
     )
 }
 
+private fun XiaoLingUiState.toProviderManagementUiState(): ProviderManagementUiState {
+    // long: Provider 页面只接收列表、编辑草稿和同步状态；全局返回优先级与底栏显隐继续由应用壳统一处理。
+    return ProviderManagementProjection.project(
+        profiles = profiles,
+        selectedProfileId = selectedProfileId,
+        syncingProfileIds = syncingProfileIds,
+        syncingAllProfiles = syncingAllProfiles,
+        batchSyncResults = batchSyncResults,
+        draft = manageDraft,
+        result = result,
+    )
+}
+
 @Composable
 private fun ModelWaitingIndicator(modifier: Modifier = Modifier) {
     CircularProgressIndicator(
@@ -2063,15 +2067,9 @@ private fun SettingsPage(
             .clickable(interactionSource = blocker, indication = null) {},
     ) {
         when {
-            state.manageDraft != null -> ProviderEditorPage(
-                draft = state.manageDraft,
-                result = state.result,
-                viewModel = viewModel,
-                modifier = Modifier.matchParentSize(),
-            )
-            pane == SettingsPane.PROVIDER_MANAGEMENT -> ProviderManagementPage(
-                state = state,
-                viewModel = viewModel,
+            state.manageDraft != null || pane == SettingsPane.PROVIDER_MANAGEMENT -> ProviderManagementPage(
+                state = state.toProviderManagementUiState(),
+                actions = viewModel,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -3341,425 +3339,6 @@ private fun PromptEditorSection(
 }
 
 @Composable
-private fun ProviderManagementPage(
-    state: XiaoLingUiState,
-    viewModel: XiaoLingViewModel,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        ProviderManagementHeader(
-            syncing = state.syncingAllProfiles,
-            onBack = onBack,
-            onSyncAll = viewModel::syncAllProviders,
-        )
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 76.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (state.profiles.isEmpty()) {
-                    item {
-                        CompactSection(title = "模型提供方") {
-                            Text(
-                                text = "还没有模型提供方，点击右下角新增。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                } else {
-                    items(
-                        count = state.profiles.size,
-                        key = { index -> state.profiles[index].id },
-                    ) { index ->
-                        ProviderListItem(
-                            profile = state.profiles[index],
-                            selected = state.profiles[index].id == state.selectedProfileId,
-                            syncing = state.syncingAllProfiles || state.profiles[index].id in state.syncingProfileIds,
-                            syncResult = state.batchSyncResults[state.profiles[index].id],
-                            onSync = { viewModel.syncProviderModels(state.profiles[index].id) },
-                            onEdit = { viewModel.openEditProvider(state.profiles[index].id) },
-                            onDelete = { viewModel.deleteProvider(state.profiles[index].id) },
-                        )
-                    }
-                }
-            }
-
-            Button(
-                onClick = viewModel::openNewProvider,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .size(40.dp),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "新增模型提供方", modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProviderManagementHeader(
-    syncing: Boolean,
-    onBack: () -> Unit,
-    onSyncAll: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
-        }
-        PageTitle("模型提供方管理")
-        Spacer(Modifier.weight(1f))
-        IconButton(
-            onClick = onSyncAll,
-            enabled = !syncing,
-            modifier = Modifier.size(30.dp),
-        ) {
-            if (syncing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(15.dp),
-                    strokeWidth = 1.6.dp,
-                )
-            } else {
-                Icon(Icons.Default.CloudDownload, contentDescription = "批量同步", modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
-
-@Composable
-private fun ProviderEditorPage(
-    draft: ProviderEditDraft,
-    result: OperationResult?,
-    viewModel: XiaoLingViewModel,
-    modifier: Modifier = Modifier,
-) {
-    val clipboardManager = LocalClipboardManager.current
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let(viewModel::importDraftFromQr)
-    }
-    var base64DialogVisible by remember { mutableStateOf(false) }
-
-    if (base64DialogVisible) {
-        Base64DecodeDialog(
-            onDismiss = { base64DialogVisible = false },
-            onCopyPlainText = { plainText -> clipboardManager.setText(AnnotatedString(plainText)) },
-        )
-    }
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0.dp),
-        bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.background, tonalElevation = 2.dp) {
-                Button(
-                    onClick = viewModel::saveDraftProvider,
-                    shape = RoundedCornerShape(7.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(10.dp)
-                        .height(40.dp),
-                ) {
-                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("保存", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        },
-        modifier = modifier,
-    ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .imePadding(),
-            contentPadding = PaddingValues(start = 9.dp, top = 2.dp, end = 9.dp, bottom = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(5.dp),
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    IconButton(onClick = viewModel::closeProviderEditor, modifier = Modifier.size(34.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", modifier = Modifier.size(18.dp))
-                    }
-                    Text(
-                        text = if (draft.id == null) "新增模型提供方" else "编辑模型提供方",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            scanLauncher.launch(
-                                ScanOptions()
-                                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                    .setPrompt("扫描 baseUrl,apiKey 二维码")
-                                    .setBeepEnabled(false)
-                                    .setOrientationLocked(true),
-                            )
-                        },
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = "扫码导入", modifier = Modifier.size(16.dp))
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.importDraftFromClipboard(clipboardManager.getText()?.text.orEmpty())
-                        },
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = "从剪切板导入", modifier = Modifier.size(16.dp))
-                    }
-                    OutlinedButton(
-                        onClick = { base64DialogVisible = true },
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(34.dp),
-                    ) {
-                        Text(
-                            text = "64",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                        )
-                    }
-                }
-            }
-
-            item {
-                CompactSection(title = "基础信息") {
-                    UnderlineTextField(
-                        value = draft.name,
-                        onValueChange = viewModel::updateDraftName,
-                        label = "名称（不填则使用 URL）",
-                        singleLine = true,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    UnderlineTextField(
-                        value = draft.baseUrl,
-                        onValueChange = viewModel::updateDraftBaseUrl,
-                        label = "URL",
-                        placeholder = "https://api.example.com/v1",
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        trailingLabelAction = {
-                            LabelCopyButton(
-                                enabled = draft.baseUrl.isNotBlank(),
-                                contentDescription = "复制 URL",
-                                onClick = { clipboardManager.setText(AnnotatedString(draft.baseUrl)) },
-                            )
-                        },
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    UnderlineTextField(
-                        value = draft.apiKey,
-                        onValueChange = viewModel::updateDraftApiKey,
-                        label = "API Key",
-                        singleLine = true,
-                        trailingLabelAction = {
-                            LabelCopyButton(
-                                enabled = draft.apiKey.isNotBlank(),
-                                contentDescription = "复制 API Key",
-                                onClick = { clipboardManager.setText(AnnotatedString(draft.apiKey)) },
-                            )
-                        },
-                    )
-                }
-            }
-
-            item {
-                CompactSection(
-                    title = "上游模型",
-                    action = {
-                        OutlinedButton(
-                            onClick = viewModel::fetchDraftModels,
-                            enabled = !draft.loadingModels,
-                            shape = RoundedCornerShape(7.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp),
-                        ) {
-                            if (draft.loadingModels) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(13.dp),
-                                    strokeWidth = 1.6.dp,
-                                )
-                            } else {
-                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            Text("获取", style = MaterialTheme.typography.labelSmall)
-                        }
-                    },
-                ) {
-                    if (draft.upstreamModels.isEmpty()) {
-                        Text(
-                            text = "获取成功后可以勾选允许在对话页使用的模型。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        Text(
-                            text = "已勾选 ${draft.enabledModels.size} / ${draft.upstreamModels.size} 个模型",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            draft.upstreamModels.forEach { model ->
-                                ModelCheckRow(
-                                    model = model,
-                                    checked = model in draft.enabledModels,
-                                    onCheckedChange = { checked -> viewModel.toggleDraftModel(model, checked) },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            result?.takeIf { it.shouldStayInline() }?.let { item { ResultPanel(it) } }
-
-            item {
-                Spacer(Modifier.height(56.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProviderListItem(
-    profile: ProviderProfile,
-    selected: Boolean,
-    syncing: Boolean,
-    syncResult: String?,
-    onSync: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                width = 1.dp,
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(8.dp),
-            ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(profile.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                Text(profile.baseUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = buildString {
-                        append("共 ${profile.enabledModels.size} 个模型")
-                        syncResult?.let { append(" · $it") }
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (syncResult == "同步失败") {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onSync, enabled = !syncing, modifier = Modifier.size(28.dp)) {
-                        if (syncing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(13.dp),
-                                strokeWidth = 1.5.dp,
-                            )
-                        } else {
-                            Icon(Icons.Default.CloudDownload, contentDescription = "同步模型", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "编辑", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除", modifier = Modifier.size(16.dp))
-                    }
-                }
-                Text(
-                    text = profile.lastSyncedAt.toFullSyncTimeLabel(),
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, lineHeight = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelCheckRow(
-    model: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 26.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.size(28.dp),
-        )
-        Text(model, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
 private fun ProviderDropdown(state: XiaoLingUiState, onSelected: (String) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxWidth()) {
@@ -3835,177 +3414,6 @@ private fun CompactSection(
             content()
         }
     }
-}
-
-@Composable
-private fun UnderlineTextField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    label: String,
-    modifier: Modifier = Modifier,
-    placeholder: String = "",
-    singleLine: Boolean = false,
-    minLines: Int = 1,
-    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    trailingLabelAction: (@Composable () -> Unit)? = null,
-) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            trailingLabelAction?.let {
-                Spacer(Modifier.width(3.dp))
-                it()
-            }
-            Spacer(Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(1.dp))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = singleLine,
-            minLines = minLines,
-            keyboardOptions = keyboardOptions,
-            textStyle = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = if (singleLine) 28.dp else 58.dp),
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp, bottom = 3.dp),
-                    contentAlignment = Alignment.TopStart,
-                ) {
-                    if (value.isBlank() && placeholder.isNotBlank()) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    }
-}
-
-@Composable
-private fun LabelCopyButton(
-    enabled: Boolean,
-    contentDescription: String,
-    onClick: () -> Unit,
-) {
-    Icon(
-        Icons.Default.ContentCopy,
-        contentDescription = contentDescription,
-        modifier = Modifier
-            .size(18.dp)
-            .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(2.dp),
-        tint = if (enabled) {
-            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-        } else {
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-        },
-    )
-}
-
-@Composable
-private fun Base64DecodeDialog(
-    onDismiss: () -> Unit,
-    onCopyPlainText: (String) -> Unit,
-) {
-    var encodedText by remember { mutableStateOf("") }
-    val decodedResult = remember(encodedText) { decodeBase64PlainText(encodedText) }
-    val decodedText = decodedResult.getOrNull().orEmpty()
-    val decodeError = decodedResult.exceptionOrNull()?.message.orEmpty()
-
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "Base64 解码",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.OutlinedTextField(
-                    value = encodedText,
-                    onValueChange = { encodedText = it },
-                    label = { Text("Base64 密文", style = MaterialTheme.typography.labelSmall) },
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    minLines = 4,
-                    shape = RoundedCornerShape(7.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                androidx.compose.material3.OutlinedTextField(
-                    value = when {
-                        encodedText.isBlank() -> ""
-                        decodeError.isNotBlank() -> decodeError
-                        else -> decodedText
-                    },
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("明文", style = MaterialTheme.typography.labelSmall) },
-                    textStyle = MaterialTheme.typography.bodySmall.copy(
-                        color = if (decodeError.isNotBlank()) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    ),
-                    minLines = 4,
-                    shape = RoundedCornerShape(7.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onCopyPlainText(decodedText) },
-                enabled = decodedText.isNotBlank() && decodeError.isBlank(),
-            ) {
-                Text("复制明文", style = MaterialTheme.typography.labelSmall)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭", style = MaterialTheme.typography.labelSmall)
-            }
-        },
-    )
-}
-
-private fun decodeBase64PlainText(raw: String): Result<String> {
-    if (raw.isBlank()) return Result.success("")
-    val compact = raw.filterNot { it.isWhitespace() }
-    val flagCandidates = listOf(
-        Base64.DEFAULT,
-        Base64.NO_WRAP,
-        Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
-        Base64.URL_SAFE,
-    )
-    flagCandidates.forEach { flags ->
-        runCatching {
-            // long: Provider 二维码和第三方后台常见密文可能带换行、无 padding 或 URL-safe 字符，这里逐个兼容，避免用户手动改密文格式。
-            String(Base64.decode(compact, flags), Charsets.UTF_8)
-        }.onSuccess { return Result.success(it) }
-    }
-    return Result.failure(IllegalArgumentException("Base64 解码失败，请检查密文格式"))
 }
 
 @Composable
@@ -4590,55 +3998,6 @@ private fun markdownTableCellWidth(columnCount: Int): Dp = when {
     columnCount <= 2 -> 136.dp
     columnCount == 3 -> 108.dp
     else -> 92.dp
-}
-
-@Composable
-private fun ResultPanel(result: OperationResult) {
-    val containerColor = if (result.success) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.errorContainer
-    }
-    val contentColor = if (result.success) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onErrorContainer
-    }
-
-    Surface(
-        color = containerColor,
-        contentColor = contentColor,
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (result.success) Icons.Default.CheckCircle else Icons.Default.Error,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(result.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                }
-                result.latencyMs?.let {
-                    Text("总 ${it} ms", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Text(result.message, style = MaterialTheme.typography.bodySmall)
-            result.requestUrl?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
 }
 
 private fun OperationResult.shouldStayInline(): Boolean = requestUrl != null || latencyMs != null

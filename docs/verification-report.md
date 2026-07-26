@@ -58,10 +58,20 @@
 - 文档门禁：四份长期文档完成同步后重新构建 AndroidTest APK，并在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果为 `OK (1 test)`。
 - 保持边界：Room v32、候选协调器、敏感过滤、去重/冲突、FTS、生命周期、来源审计、跨进程删除撤销、Provider、Agent Runtime、Workflow、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Provider 管理垂直 UI。
 
+## 2026-07-27 Provider 管理垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `ProviderManagementUiState`、按稳定 Provider ID 绑定 selected/syncing/result 的 `ProviderManagementProjection`，以及 14 项动作组成的 `ProviderManagementActions`。列表、空态、批量/单项同步、新增/编辑/删除入口、扫码/剪切板/Base64 辅助、字段编辑、模型获取/勾选和保存入口迁入 `ui/provider`，页面不再接收整份 `XiaoLingUiState` 或具体 ViewModel。
+- 宿主边界：应用壳只投影 Provider 字段并继续统一处理编辑草稿优先级、系统返回与底栏显隐；聊天 Provider 下拉仍属于对话宿主。`XiaoLingViewModel` 实现窄 actions interface，原 Provider 保存、删除、模型同步、Agent Profile 修复和二维码解析语义不变。
+- 结构结果：`XiaoLingApp.kt` 从长期记忆阶段的 `4,644` 行降到 `4,003` 行；`ProviderManagementPage.kt / ProviderManagementContract.kt` 分别为 `793 / 85` 行。双轴 review 从 `05a2f99` 固定点执行；Standards 轴无 finding，Spec 轴发现最终文档与真实宿主组合覆盖尚未完成，现已补齐 MainActivity 的编辑器返回/底栏回归并同步四份长期文档。
+- 本地完整门禁：强制重跑 `140/140` tasks，完整 JVM `668/668`、0 失败/错误/跳过；Lint `0 error / 50 warnings / 0 information`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug APK 为 `23,288,752` 字节、SHA-256 `c03cddc3a08824e3f92302ccd6caff1efa9a25c69a189d95b654e4273f583e66`；Release APK 为 `15,983,574` 字节、SHA-256 `2b3b8c1952125c6a99e7cb2573a08b3ea62732639d628c7b3dc36bd8a1b86566`。AndroidTest APK 会打包持续维护的 `docs/` corpus，因此不记录自引用大小或哈希。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。Projection JVM 为 `2/2`，Provider 页面列表动作与编辑器字段/平台回调 Compose 为 `OK (2 tests)`，真实宿主设置返回与编辑器优先级/底栏显隐为 `OK (2 tests)`；覆盖安装最新 Debug/Test APK 后，默认完整 `AndroidJUnitRunner` 为 `OK (204 tests)`、耗时 `59.619s`。在线模拟器没有接收 ADB 设备命令。
+- 文档门禁：四份长期文档完成同步后重新构建 AndroidTest APK，并在同一 Redmi 复验 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果为 `OK (1 test)`。
+- 保持边界：Room v32、Provider 持久化/删除/选中修复、模型同步协调、Agent 启动前校验、扫码参数、Agent Runtime、Workflow、设备工具、answerability shadow 和第 101/102 项状态均未改变。下一项横向结构工程为 Agent Profile 管理垂直 UI。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心和长期记忆管理已分别拥有 `ui/navigation`、`ui/workflow`、`ui/agenttask` 与 `ui/memory` 垂直边界；当前下一项是 Provider 管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理和 Provider 管理已分别拥有 `ui/navigation`、`ui/workflow`、`ui/agenttask`、`ui/memory` 与 `ui/provider` 垂直边界；当前下一项是 Agent Profile 管理 UI，而不是继续扩张 Agent Runtime 或设备权限。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
