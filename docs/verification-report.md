@@ -126,12 +126,22 @@
 - 本地完整门禁：强制重跑 `140/140` tasks，JVM `677/677`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功，Release 通过 zipalign 与 v2 单签名。Debug APK 为 `23,370,731` 字节、SHA-256 `8e1d71862a6c6ec428834936bf607bdb15237fc9bfb5e4845e7473c7975034e9`；Release APK 为 `16,016,342` 字节、SHA-256 `0101fed9730bc2787f94471e553d7d75747b5aae3aaa5e5b7c5a1523efd51ccc`。
 - Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。复制、清空、输入替换、恢复默认和返回动作 Compose 聚焦为 `OK (1 test)`；默认完整为 `217` 条（`205 passed / 12 skipped / 0 failed`）、耗时 `78.642s`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
-- 保持边界：模型列表、Chat Completions、Responses 和后台 Agent 继续共用原 Header 构造；Room v32、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。下一项结构工程先为设置根页建立窄投影与 Actions，`SettingsPage` composition root 暂不机械迁移。
+- 保持边界：模型列表、Chat Completions、Responses 和后台 Agent 继续共用原 Header 构造；Room v32、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。后继设置根页已由下一节完成窄投影、Actions 和页面迁出，`SettingsPage` composition root 继续留在应用壳。
+
+## 2026-07-27 设置根页垂直 UI module（横向结构工程）
+
+- 实现边界：新增 `SettingsRootUiState`、`SettingsRootActions`、`SettingsRootProjection` 和独立 `SettingsRootPage`。Projection 按稳定 Profile ID 绑定当前 Agent 身份，并将 Provider/模型、Shadow、Skill、Workflow、Agent Run、进程退出观察和备份状态压缩成显示摘要；原 14 项顺序、主题选择和备份交互迁入 `ui/settingsroot`。
+- 宿主边界：`SettingsPage` 只负责从 `XiaoLingUiState` 产生窄投影，并把 ViewModel 主题动作、13 个子页导航及 Android 备份 launcher 适配为 Actions。pane 分派、Provider editor 优先级、底栏显隐、平台生命周期和跨模块协调仍属于 composition root，没有机械迁移。
+- 结构结果：`XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行；`SettingsRootContract.kt / SettingsRootPage.kt` 为 `88 / 264` 行。TDD 分别取得 projection 与 page/actions 未定义的编译 Red，再转绿并删除旧内嵌实现。双轴 review 的 Spec 轴无 finding；Standards 轴无硬性违规，匿名 Actions 适配和显式摘要字段属于保留依赖方向的有意结构。
+- 本地完整门禁：强制重跑 `140/140` tasks（`1m 58s`），JVM `678/678`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功，Release 通过 zipalign 与 v2 单签名。Debug APK 为 `23,387,174` 字节、SHA-256 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757`；Release APK 为 `16,032,726` 字节、SHA-256 `cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。动态摘要、14 项入口、主题选择、空态和备份 busy 交互 Compose 为 `OK (4 tests)`；默认完整 JUnit XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`。Gradle 控制台按 skipped 的另一口径显示 `Finished 233 tests`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：备份忙时两个图标继续禁用、父卡仍可触发导出；Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
 
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察和网络请求设置已分别拥有独立 UI 垂直边界；宿主剩余 `1,317` 行，下一轮先为设置根页建立窄状态/动作边界，而不是继续扩张 Agent Runtime、设备权限或机械迁移 composition root。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别拥有独立 UI 垂直边界；宿主剩余 `1,097` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root，下一轮重新盘点剩余对话框簇，不继续扩张 Agent Runtime、设备权限或机械搬文件。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

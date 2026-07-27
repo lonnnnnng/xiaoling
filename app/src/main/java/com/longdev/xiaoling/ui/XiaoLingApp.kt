@@ -9,7 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -30,27 +29,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -66,8 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -76,10 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.agent.AgentMemoryRecord
-import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentSkillRecord
-import com.longdev.xiaoling.agent.AgentSkillSource
-import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeReference
@@ -114,6 +97,10 @@ import com.longdev.xiaoling.ui.provider.ProviderManagementUiState
 import com.longdev.xiaoling.ui.promptsettings.PromptSettingsPage
 import com.longdev.xiaoling.ui.processexit.ProcessExitObservationPage
 import com.longdev.xiaoling.ui.processexit.ProcessExitObservationUiState
+import com.longdev.xiaoling.ui.settingsroot.SettingsRootActions
+import com.longdev.xiaoling.ui.settingsroot.SettingsRootPage
+import com.longdev.xiaoling.ui.settingsroot.SettingsRootProjection
+import com.longdev.xiaoling.ui.settingsroot.SettingsRootUiState
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementPage
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
@@ -915,6 +902,22 @@ private fun XiaoLingUiState.toNetworkRequestSettingsUiState(): NetworkRequestSet
     return NetworkRequestSettingsUiState(userAgent = userAgent)
 }
 
+private fun XiaoLingUiState.toSettingsRootUiState(): SettingsRootUiState {
+    return SettingsRootProjection.project(
+        themeMode = themeMode,
+        providers = profiles,
+        agentProfiles = agentProfiles,
+        selectedAgentProfileId = selectedAgentProfileId,
+        answerabilityShadowEnabled = answerabilityShadowEnabled,
+        skills = skills,
+        workflows = workflows,
+        workflowRunStatuses = workflowRuns.map { it.run.status },
+        agentRunStatuses = agentRunHistory.map { it.snapshot.run.status },
+        processExitObservationCount = processExitObservations.size,
+        backupBusy = backupBusy,
+    )
+}
+
 @Composable
 private fun SettingsPage(
     state: XiaoLingUiState,
@@ -1043,206 +1046,29 @@ private fun SettingsPage(
                 modifier = Modifier.matchParentSize(),
             )
             else -> SettingsRootPage(
-                state = state,
-                onThemeModeChanged = viewModel::updateThemeMode,
-                onOpenProviderManagement = onOpenProviderManagement,
-                onOpenNetworkRequest = onOpenNetworkRequest,
-                onOpenPromptSettings = onOpenPromptSettings,
-                onOpenAgentProfileManagement = onOpenAgentProfileManagement,
-                onOpenDeviceAgent = onOpenDeviceAgent,
-                onOpenAnswerabilityShadow = onOpenAnswerabilityShadow,
-                onOpenMemoryManagement = onOpenMemoryManagement,
-                onOpenKnowledgeManagement = onOpenKnowledgeManagement,
-                onOpenKnowledgeRelevanceRollout = onOpenKnowledgeRelevanceRollout,
-                onOpenSkillManagement = onOpenSkillManagement,
-                onOpenWorkflowManagement = onOpenWorkflowManagement,
-                onOpenAgentRunHistory = onOpenAgentRunHistory,
-                onOpenProcessExitObservations = onOpenProcessExitObservations,
-                onExportBackup = onExportBackup,
-                onImportBackup = onImportBackup,
+                state = state.toSettingsRootUiState(),
+                actions = object : SettingsRootActions {
+                    override fun updateThemeMode(value: AppThemeMode) = viewModel.updateThemeMode(value)
+
+                    override fun openProviderManagement() = onOpenProviderManagement()
+                    override fun openNetworkRequest() = onOpenNetworkRequest()
+                    override fun openPromptSettings() = onOpenPromptSettings()
+                    override fun openAgentProfileManagement() = onOpenAgentProfileManagement()
+                    override fun openDeviceAgent() = onOpenDeviceAgent()
+                    override fun openAnswerabilityShadow() = onOpenAnswerabilityShadow()
+                    override fun openMemoryManagement() = onOpenMemoryManagement()
+                    override fun openKnowledgeManagement() = onOpenKnowledgeManagement()
+                    override fun openKnowledgeRelevanceRollout() = onOpenKnowledgeRelevanceRollout()
+                    override fun openSkillManagement() = onOpenSkillManagement()
+                    override fun openWorkflowManagement() = onOpenWorkflowManagement()
+                    override fun openAgentRunHistory() = onOpenAgentRunHistory()
+                    override fun openProcessExitObservations() = onOpenProcessExitObservations()
+                    override fun exportBackup() = onExportBackup()
+                    override fun importBackup() = onImportBackup()
+                },
                 modifier = Modifier.matchParentSize(),
             )
         }
-    }
-}
-
-@Composable
-private fun SettingsRootPage(
-    state: XiaoLingUiState,
-    onThemeModeChanged: (AppThemeMode) -> Unit,
-    onOpenProviderManagement: () -> Unit,
-    onOpenNetworkRequest: () -> Unit,
-    onOpenPromptSettings: () -> Unit,
-    onOpenAgentProfileManagement: () -> Unit,
-    onOpenDeviceAgent: () -> Unit,
-    onOpenAnswerabilityShadow: () -> Unit,
-    onOpenMemoryManagement: () -> Unit,
-    onOpenKnowledgeManagement: () -> Unit,
-    onOpenKnowledgeRelevanceRollout: () -> Unit,
-    onOpenSkillManagement: () -> Unit,
-    onOpenWorkflowManagement: () -> Unit,
-    onOpenAgentRunHistory: () -> Unit,
-    onOpenProcessExitObservations: () -> Unit,
-    onExportBackup: () -> Unit,
-    onImportBackup: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            PageTitle("设置")
-            ThemeModeSelector(
-                themeMode = state.themeMode,
-                onThemeModeChanged = onThemeModeChanged,
-            )
-        }
-
-        SettingsEntryCard(
-            title = "模型提供方管理",
-            subtitle = if (state.profiles.isEmpty()) {
-                "还没有模型提供方"
-            } else {
-                "已配置 ${state.profiles.size} 个提供方 · 可对话模型 ${state.profiles.sumOf { it.enabledModels.size }} 个"
-            },
-            onClick = onOpenProviderManagement,
-        )
-
-        // long: 网络请求与其他设置项保持“入口卡片 -> 独立子页”的导航层级，避免在设置列表里出现唯一可直接编辑的行。
-        SettingsEntryCard(
-            title = "网络请求",
-            subtitle = "配置模型接口请求使用的 User-Agent",
-            icon = Icons.Default.CloudDownload,
-            onClick = onOpenNetworkRequest,
-        )
-
-        SettingsEntryCard(
-            title = "提示词设置",
-            subtitle = "普通对话 · 会话摘要 / 记忆 · Agent 回复总结",
-            icon = Icons.Default.Tune,
-            onClick = onOpenPromptSettings,
-        )
-
-        SettingsEntryCard(
-            title = "Agent Profiles",
-            subtitle = state.agentProfiles.firstOrNull { it.id == state.selectedAgentProfileId }
-                ?.let { "当前：${it.name} · ${it.model.ifBlank { "未配置模型" }} · ${state.agentProfiles.size} 个 Profile" }
-                ?: "配置 Agent 身份、模型、工具、Skill 和记忆边界",
-            icon = Icons.Default.Tune,
-            onClick = onOpenAgentProfileManagement,
-        )
-
-        SettingsEntryCard(
-            title = "设备 Agent",
-            subtitle = "独立开关、无障碍观察和有限前台动作",
-            icon = Icons.Default.Visibility,
-            onClick = onOpenDeviceAgent,
-        )
-
-        SettingsEntryCard(
-            title = "答案可回答性 Shadow",
-            subtitle = if (state.answerabilityShadowEnabled) {
-                "已开启；仅匹配冻结 Judge 身份的前台 /agent 答案会异步观测"
-            } else {
-                "默认关闭；答案保存后异步生成只读观察提示"
-            },
-            icon = Icons.Default.Visibility,
-            onClick = onOpenAnswerabilityShadow,
-        )
-
-        SettingsEntryCard(
-            title = "长期记忆",
-            subtitle = "搜索、编辑、禁用、删除并查看来源",
-            icon = Icons.Default.Memory,
-            onClick = onOpenMemoryManagement,
-        )
-
-        SettingsEntryCard(
-            title = "知识库",
-            subtitle = "导入文档，管理启停、替换与本地检索预览",
-            icon = Icons.Default.Description,
-            onClick = onOpenKnowledgeManagement,
-        )
-
-        // long: 灰度控制面独立于知识库内容管理，用户可以查看身份与撤销状态，但不能在此页绕过正式证据直接开启生产拒绝。
-        SettingsEntryCard(
-            title = "相关性灰度控制面",
-            subtitle = "查看 Provider 身份、shadow 状态与撤销资格",
-            icon = Icons.Default.Visibility,
-            onClick = onOpenKnowledgeRelevanceRollout,
-        )
-
-        SettingsEntryCard(
-            title = "Agent Skills",
-            subtitle = if (state.skills.isEmpty()) {
-                "管理内置与本地 Skill"
-            } else {
-                "${state.skills.count { it.enabled }} 个启用 · ${state.skills.count { it.definition.source == AgentSkillSource.LOCAL }} 个本地"
-            },
-            icon = Icons.Default.Settings,
-            onClick = onOpenSkillManagement,
-        )
-
-        SettingsEntryCard(
-            title = "工作流",
-            subtitle = if (state.workflows.isEmpty()) {
-                "保存可重复的 Agent 目标并查看执行记录"
-            } else {
-                "${state.workflows.count { it.enabled }} 个启用 · ${state.workflowRuns.count { it.run.status == WorkflowRunStatus.RUNNING }} 个运行中"
-            },
-            icon = Icons.Default.PlayArrow,
-            onClick = onOpenWorkflowManagement,
-        )
-
-        SettingsEntryCard(
-            title = "Agent 任务中心",
-            subtitle = if (state.agentRunHistory.isEmpty()) {
-                "查看最近 Agent Run 的步骤、审批和事件"
-            } else {
-                "最近 ${state.agentRunHistory.size} 条 · ${state.agentRunHistory.count { it.snapshot.run.status == AgentRunStatus.COMPLETED }} 条已完成"
-            },
-            onClick = onOpenAgentRunHistory,
-        )
-
-        SettingsEntryCard(
-            title = "进程退出观察",
-            subtitle = if (state.processExitObservations.isEmpty()) {
-                "只读查看最近 30 条 Android 系统退出证据"
-            } else {
-                "已记录 ${state.processExitObservations.size} 条 · 不关联 Agent Run 或工作流"
-            },
-            icon = Icons.Default.Memory,
-            onClick = onOpenProcessExitObservations,
-        )
-
-        SettingsEntryCard(
-            title = "数据备份与恢复",
-            subtitle = if (state.backupBusy) {
-                "正在处理备份..."
-            } else {
-                "导出或恢复 Room 数据；API Key 依赖当前设备 Keystore"
-            },
-            icon = Icons.Default.Save,
-            onClick = onExportBackup,
-            trailing = {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onExportBackup, enabled = !state.backupBusy, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Save, contentDescription = "导出备份", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = onImportBackup, enabled = !state.backupBusy, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Restore, contentDescription = "恢复备份", modifier = Modifier.size(18.dp))
-                    }
-                }
-            },
-        )
     }
 }
 
@@ -1266,52 +1092,6 @@ private fun LocalSkillDeleteDialog(
             TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
         },
     )
-}
-
-@Composable
-private fun SettingsEntryCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector = Icons.Default.Memory,
-    onClick: () -> Unit,
-    trailing: (@Composable () -> Unit)? = null,
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(9.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(9.dp))
-            .clip(RoundedCornerShape(9.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            trailing?.invoke()
-                ?: Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(18.dp))
-        }
-    }
 }
 
 private fun OperationResult.shouldStayInline(): Boolean = requestUrl != null || latencyMs != null

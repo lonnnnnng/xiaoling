@@ -64,7 +64,13 @@ Agent Skill 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentskill`。`AgentSkil
 
 网络请求设置页已从 `XiaoLingApp.kt` 迁入 `ui/networksettings`。页面只接收单字段 `NetworkRequestSettingsUiState`、更新/恢复默认两项 `NetworkRequestSettingsActions` 和返回回调，自己拥有五行 User-Agent 编辑区、复制、清空、恢复默认及剪贴板适配；`XiaoLingViewModel` 继续负责去除换行、512 字符上限、即时 UI 更新与偏好保存。
 
-`XiaoLingApp.kt` 从 `1,404` 行降到 `1,317` 行，Contract/Page 为 `11 / 116` 行。TDD 编译 Red、Redmi 页面 Compose `OK (1 test)` 和双轴审查均通过；强制本地 `140/140` tasks、JVM `677/677`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,370,731 / 16,016,342` 字节，SHA-256 为 `8e1d71862a6c6ec428834936bf607bdb15237fc9bfb5e4845e7473c7975034e9 / 0101fed9730bc2787f94471e553d7d75747b5aae3aaa5e5b7c5a1523efd51ccc`。仅 Redmi 默认完整为 `217` 条（`205 passed / 12 skipped / 0 failed`）、耗时 `78.642s`，最终文档语料单项为 `OK (1 test)`。清空后当前页面为空、重启后恢复默认的既有时序及所有请求共用 Header 的语义不变；下一轮先为设置根页建立窄投影与 Actions，不直接迁移 `SettingsPage` composition root。
+`XiaoLingApp.kt` 从 `1,404` 行降到 `1,317` 行，Contract/Page 为 `11 / 116` 行。TDD 编译 Red、Redmi 页面 Compose `OK (1 test)` 和双轴审查均通过；强制本地 `140/140` tasks、JVM `677/677`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,370,731 / 16,016,342` 字节，SHA-256 为 `8e1d71862a6c6ec428834936bf607bdb15237fc9bfb5e4845e7473c7975034e9 / 0101fed9730bc2787f94471e553d7d75747b5aae3aaa5e5b7c5a1523efd51ccc`。仅 Redmi 默认完整为 `217` 条（`205 passed / 12 skipped / 0 failed`）、耗时 `78.642s`，最终文档语料单项为 `OK (1 test)`。清空后当前页面为空、重启后恢复默认的既有时序及所有请求共用 Header 的语义不变；后继设置根页窄投影、Actions 和页面迁出已由下一节完成，`SettingsPage` composition root 继续保留。
+
+## 横向结构工程：设置根页垂直 UI module（完成）
+
+设置根页已从 `XiaoLingApp.kt` 迁入 `ui/settingsroot`。`SettingsRootProjection` 把全局状态压缩为主题、当前 Agent Profile、Provider/模型、Shadow、Skill、Workflow、Agent Run、进程退出观察和备份摘要；页面只接收 `SettingsRootUiState / SettingsRootActions`，拥有原 14 项顺序、动态文案、主题选择及备份按钮。宿主继续把导航、ViewModel 主题动作和 Android 备份 launcher 映射为 Actions，`SettingsPage` 仍是 composition root。
+
+`XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行，Contract/Page 为 `88 / 264` 行。Projection JVM `1/1`、Redmi 页面 Compose `OK (4 tests)`、双轴审查和强制本地 `140/140` tasks 均通过；JVM `678/678`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。仅 Redmi 默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。备份 busy 语义、Room v32、全部设置子页、Agent/Workflow、设备后台门禁和第 101/102 项不变；下一轮重新盘点宿主剩余对话框簇，不机械迁移 `SettingsPage`。
 
 ## 横向工程：Agent 启动前校验协调迁出（完成）
 
@@ -397,7 +403,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
-- ViewModel 与 Compose 宿主仍然过重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察和网络请求设置已分别迁入独立 UI module，并拥有窄状态、局部呈现状态和 actions interface；`XiaoLingApp.kt` 从 `7,018` 行降到 `1,317` 行。剩余优先工作是先为设置根页建立窄投影与 Actions，继续避免直接搬运 composition root。
+- ViewModel 与 Compose 宿主仍然偏重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别迁入独立 UI module，并拥有窄状态、局部呈现状态和 actions interface；`XiaoLingApp.kt` 从 `7,018` 行降到 `1,097` 行。剩余优先工作是重新盘点对话框簇，同时继续保留 `SettingsPage` composition root 的平台协调职责。
 
 ## 目标架构
 
@@ -729,7 +735,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.12` 当前状态，下一批实际代码任务建议拆为：
 
-当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察和网络请求设置已分别迁入独立 UI module。下一轮先为设置根页建立窄状态投影、Actions 与直接交互测试，再判断是否迁出；`SettingsPage` 继续作为跨页面导航、Android launcher 与模块适配的 composition root。
+当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别迁入独立 UI module。下一轮从宿主剩余 `1,097` 行重新盘点对话框簇；`SettingsPage` 继续作为跨页面导航、Android launcher 与模块适配的 composition root，不按行数机械迁移。
 
 1. 已完成：`WAITING_APPROVAL` 可在任意已验证前缀后恢复原 Run。恢复要求唯一待审批请求与链尾 ToolCall 完全匹配，前序结果全部成功并 `PASSED`，步骤、Ledger 与 typed event 一致；Runtime 重建可信前缀、工具调用预算和循环指纹，不重放前序工具。磁盘 Room 关闭重开与 Redmi 124 条完整 instrumentation 已通过。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
@@ -868,6 +874,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 101. 持续观察：首个间隔真实使用窗口已新增 `1` 条直接回答，已记录窗口人工合计为样本 `10`、有效 Judge `8`；Shadow 继续保持低频旁路，不在同一窗口堆样本，只有出现自然网络/协议/认证失败或明显成本异常后，才重新评审最小化持久化。
 102. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察和网络请求设置均已迁入独立 UI module；宿主剩余 `1,317` 行，下一目标是先收窄设置根页状态/动作边界，而不是扩张第 102 项的执行范围或机械搬运 composition root。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；宿主剩余 `1,097` 行，下一目标是重新盘点对话框簇，而不是扩张第 102 项的执行范围或机械搬运 `SettingsPage` composition root。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该合计不是跨进程持久化，后续只在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

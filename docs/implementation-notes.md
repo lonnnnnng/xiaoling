@@ -9,6 +9,14 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；设备保留 Debug 签名包，避免为切换正式签名而卸载并清除 Provider、会话或 Keystore 数据。
 
+## 设置根页垂直 UI module（横向结构工程）
+
+- 新增 `ui/settingsroot` 垂直模块。`SettingsRootUiState` 只保留主题、当前 Agent Profile、Provider/模型、Shadow、Skill、Workflow、Agent Run、进程退出观察和备份忙状态的显示摘要；`SettingsRootActions` 只暴露主题切换、13 个设置子页入口及备份导入/导出动作。
+- `SettingsRootProjection` 按稳定 Profile ID 绑定当前身份，并统一统计启用模型、Skill 来源、Workflow 运行态和 Agent Run 完成态。页面拥有原 14 项顺序、动态摘要、主题菜单及备份交互；`SettingsPage` 继续持有 pane 分派、Android launcher、跨页导航和真实副作用适配，不机械迁移 composition root。
+- `XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行，`SettingsRootContract.kt / SettingsRootPage.kt` 为 `88 / 264` 行。TDD 先后取得 projection 和 page/actions 未定义的编译 Red，再转绿并删除旧内嵌页面；双轴 review 的 Spec 轴无 finding，Standards 轴无硬性违规，两个结构性判断均属于保留显式 composition root 与窄 contract 的有意取舍。
+- 强制本地门禁为 `140/140` tasks（`1m 58s`）、JVM `678/678`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 和 Release lintVital 均通过；Release 通过 zipalign 与 v2 单签名。仅 Redmi `wsvwypiz7xwslvl7` 的页面 Compose 为 `OK (4 tests)`；默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。
+- 备份忙时两个图标继续禁用，但父卡点击仍触发导出的既有行为已由测试固定。Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项状态均未改变。
+
 ## 进程退出观察垂直 UI module（横向结构工程）
 
 - 新增 `ui/processexit` 垂直模块。`ProcessExitObservationUiState` 只包含独立退出账本、加载态和读取错误；`ProcessExitObservationActions` 只暴露刷新；页面自己呈现六类证据、稳定数值、加载/失败/空态和“不关联 Agent Run、工作流或任务”的固定边界。
@@ -24,7 +32,7 @@
 - `SettingsPage` 只投影 `state.userAgent` 并传入 Actions/返回回调。`XiaoLingViewModel.updateUserAgent()` 继续去除 CR/LF、截断到 512 字符、即时更新 UI 并写入 `UiPreferenceStore`；清空后本次 UI 保持空字符串，而持久化层保存默认值，重启后恢复默认的既有时序没有改变。
 - `XiaoLingApp.kt` 从 `1,404` 行降到 `1,317` 行，`NetworkRequestSettingsContract.kt / NetworkRequestSettingsPage.kt` 为 `11 / 116` 行。TDD 先以新 state/actions/page seam 未定义取得编译 Red，再迁入原 `NetworkRequestSettingsContent` 交互并转绿；双轴审查未发现规范或行为 finding。
 - 强制本地门禁为 `140/140` tasks（`2m 26s`）、JVM `677/677`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 和 Release lintVital 均通过；Release 通过 zipalign 与 v2 单签名。仅 Redmi `wsvwypiz7xwslvl7` 的页面 Compose 为 `OK (1 test)`；默认完整为 `217` 条（`205 passed / 12 skipped / 0 failed`）、耗时 `78.642s`。最终文档语料单项为 `OK (1 test)`。Debug/Release APK 为 `23,370,731 / 16,016,342` 字节，SHA-256 为 `8e1d71862a6c6ec428834936bf607bdb15237fc9bfb5e4845e7473c7975034e9 / 0101fed9730bc2787f94471e553d7d75747b5aae3aaa5e5b7c5a1523efd51ccc`。
-- 模型列表、Chat Completions、Responses 和后台 Agent 继续共用 `ProviderRequestConfig.userAgent` 的原 Header 构造；Room v32、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项状态均未改变。下一项结构工程应先为设置根页建立窄投影与 Actions，再决定是否迁出；`SettingsPage` composition root 暂不机械搬文件。
+- 模型列表、Chat Completions、Responses 和后台 Agent 继续共用 `ProviderRequestConfig.userAgent` 的原 Header 构造；Room v32、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项状态均未改变。后继设置根页已建立窄投影与 Actions 并迁出页面内容；`SettingsPage` composition root 继续留在应用壳。
 
 ## 应用导航宿主迁出（横向结构工程）
 
@@ -616,9 +624,10 @@
 - 提示词设置通过 `PromptSettings`、`PromptSettingsActions` 和专用 Compose page 隔离宿主；页面持有三类互斥最终预览，ViewModel 继续负责输入即保存与逐项恢复默认，`PromptPolicy` 的不可覆盖安全尾部不变。
 - 进程退出观察通过 `ProcessExitObservationUiState`、`ProcessExitObservationActions` 和专用 Compose page 隔离宿主；页面只呈现独立退出账本，宿主继续保持进入前只读刷新，ViewModel 继续持有 `latest()` IO Job，平台采集不会由查看页面触发。
 - 网络请求设置通过 `NetworkRequestSettingsUiState`、`NetworkRequestSettingsActions` 和专用 Compose page 隔离宿主；页面持有 User-Agent 编辑、复制、清空、恢复默认和剪贴板适配，ViewModel 继续负责规范化与即时持久化。
+- 设置根页通过 `SettingsRootProjection`、`SettingsRootUiState`、`SettingsRootActions` 和专用 Compose page 隔离宿主；页面只呈现主题、14 项入口和业务摘要，pane 分派、Android launcher、导航及真实副作用继续由 `SettingsPage` composition root 负责。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面、提示词设置、进程退出观察和网络请求设置垂直 UI。下一轮应先为设置根页建立窄状态投影、Actions 与直接交互测试，再决定是否迁出；`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root，不按剩余 `1,317` 行机械搬文件。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页垂直 UI。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；下一轮从剩余 `1,097` 行重新盘点对话框簇，不机械搬运 composition root。
 
 ## 对话请求
 
