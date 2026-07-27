@@ -45,7 +45,11 @@ private fun AgentRetryConfirmationDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "确认重新运行",
+                text = if (pending.kind == AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY) {
+                    "确认受控关联重试"
+                } else {
+                    "确认重新运行"
+                },
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -64,11 +68,20 @@ private fun AgentRetryConfirmationDialog(
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(
-                    text = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (pending.kind == AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY) {
+                    Text(
+                        text = "将创建关联新 Run 并使用来源 Run 冻结的工具名称、风险和参数。" +
+                            "不会恢复旧 Run、旧模型协程或旧 Executor；新 Run 内的工具仍需重新审批。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        text = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         confirmButton = {

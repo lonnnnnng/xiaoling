@@ -58,6 +58,7 @@ object AgentEventTypes {
     const val LLM_REQUEST_FAILED = "llm.request.failed"
     const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
     const val PROFILE_SELECTED = "agent.profile.selected"
+    const val CONTROLLED_REPLAY_LINKED = "run.controlled_replay.linked"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
     const val RECOVERY_FAILED = "run.recovery_failed"
 }
@@ -118,6 +119,13 @@ data class RunEventRecord(
 sealed interface RunEventMetadata {
     data class AgentProfileSelection(
         val profile: AgentProfileSnapshot,
+    ) : RunEventMetadata
+
+    data class ControlledReplay(
+        val sourceRunId: String,
+        val sourceToolCallId: String,
+        val newToolCallId: String,
+        val definitionFingerprint: String,
     ) : RunEventMetadata
 
     data class LlmRequest(
@@ -270,6 +278,12 @@ data class AgentRunDetailRecord(
     val approvals: List<ApprovalRequestRecord>,
     val toolLedger: AgentToolLedgerRecord = AgentToolLedgerRecord(),
 )
+
+internal fun AgentRunDetailRecord.latestRecoveryMetadata(): RunEventMetadata.Recovery? =
+    snapshot.events.asReversed().firstNotNullOfOrNull { event ->
+        (event.metadata as? RunEventMetadata.Recovery)
+            ?.takeIf { event.type == "run.recovered" }
+    }
 
 data class AgentToolCallRecord(
     val id: String,

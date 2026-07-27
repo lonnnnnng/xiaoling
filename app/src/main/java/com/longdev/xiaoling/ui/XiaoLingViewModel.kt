@@ -490,6 +490,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     )
     private val agentRunRetryCoordinator = AgentRunRetryCoordinator(
         scope = viewModelScope,
+        loadRunDetail = { runId ->
+            withContext(Dispatchers.IO) { agentRunRepository.runDetail(runId) }
+        },
+        requalifyNotCommittedReplay = { detail ->
+            agentRunUseCase.requalifyNotCommittedReplay(detail)
+        },
         loadSourceAttachments = { detail ->
             val sourceRun = detail.snapshot.run
             withContext(Dispatchers.IO) {
@@ -2485,7 +2491,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     override fun requestAgentRunRetry(runId: String) {
         agentRunRetryCoordinator.request(
             runId = runId,
-            runHistory = uiState.agentRunHistory,
             busy = uiState.sendingMessage || uiState.retryingAgentRunId != null,
             onEvent = ::handleAgentRunRetryDecisionEvent,
         )
@@ -2496,7 +2501,6 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(pendingAgentRetryConfirmation = null)
         agentRunRetryCoordinator.confirm(
             pending = pending,
-            runHistory = uiState.agentRunHistory,
             onEvent = ::handleAgentRunRetryDecisionEvent,
         )
     }
@@ -2523,7 +2527,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 uiState = uiState.copy(pendingAgentRetryConfirmation = event.confirmation)
                 showValidation("重试证据已变化，请重新确认")
             }
-            is AgentRunRetryEvent.PreparationRequired -> prepareAgentRunRetry(event.detail)
+            is AgentRunRetryEvent.PreparationRequired -> prepareAgentRunRetry(
+                detail = event.detail,
+                controlledReplayQualification = event.controlledReplayQualification,
+            )
             is AgentRunRetryEvent.Failed -> showValidation(event.message)
             is AgentRunRetryEvent.Cancelled -> {
                 uiState = uiState.copy(pendingAgentRetryConfirmation = null)
@@ -2534,19 +2541,36 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun prepareAgentRunRetry(detail: AgentRunDetailRecord) {
+    private fun prepareAgentRunRetry(
+        detail: AgentRunDetailRecord,
+        controlledReplayQualification: com.longdev.xiaoling.agent.AgentNotCommittedReplayQualification? = null,
+    ) {
         val sourceRun = detail.snapshot.run
-        val preflight = selectedAgentLaunchPreflight(
-            AgentLaunchConversationRequirement.Existing(
+        val conversationRequirement = AgentLaunchConversationRequirement.Existing(
                 conversationId = sourceRun.conversationId,
                 missingMessage = "原会话已不存在，无法在正确上下文中重试",
-            ),
-        ) ?: return
+            )
+        val preflight = if (controlledReplayQualification == null) {
+            selectedAgentLaunchPreflight(conversationRequirement)
+        } else {
+            val sourceProfile = detail.agentProfileSnapshotOrNull()
+            if (sourceProfile == null) {
+                showValidation("来源 Agent Run 缺少有效 Profile 快照，无法受控重放")
+                return
+            }
+            agentLaunchPreflight(
+                profileSource = AgentLaunchProfileSource.Snapshot(sourceProfile),
+                conversationRequirement = conversationRequirement,
+            )
+        }
+        preflight ?: return
         val runtimeSelection = preflight.runtimeSelection
         selectConversation(sourceRun.conversationId)
-        agentRunRetryCoordinator.prepare(detail) { event ->
-            handleAgentRunRetryPreparationEvent(event, runtimeSelection)
-        }
+        agentRunRetryCoordinator.prepare(
+            detail = detail,
+            onEvent = { event -> handleAgentRunRetryPreparationEvent(event, runtimeSelection) },
+            controlledReplayQualification = controlledReplayQualification,
+        )
     }
 
     private fun handleAgentRunRetryPreparationEvent(
@@ -2571,6 +2595,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     attachments = request.attachments,
                     conversationId = request.conversationId,
                     retryOfRunId = request.retryOfRunId,
+                    controlledReplayQualification = request.controlledReplayQualification,
                 )
             }
             is AgentRunRetryEvent.Failed -> {
@@ -3436,6 +3461,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         attachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         conversationId: String = uiState.selectedConversationId.ifBlank { "conversation-" + System.currentTimeMillis() },
         retryOfRunId: String? = null,
+        controlledReplayQualification: com.longdev.xiaoling.agent.AgentNotCommittedReplayQualification? = null,
         memoryRecallEnabled: Boolean = runtimeSelection.profile.memoryEnabled,
         workflowRunId: String? = null,
     ) {
@@ -3479,7 +3505,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 // long: 附件 BLOB 必须在 Run 建立前完整提交；否则进程在审批等待期间退出时，恢复链只有 userMessageId，却可能读不到原始 Image/Document。
                 conversationPersistenceCoordinator.persist(preRunPersistenceSnapshot)
                 val approvalGate = interactiveAgentApprovalGate(conversationId)
-                val summary = agentRunUseCase.run(
+                val summary = if (controlledReplayQualification == null) agentRunUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
                     goal = goal,
@@ -3503,7 +3529,23 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         }
                         publishAgentRunSnapshot(snapshot)
                     },
-                )
+                ) else {
+                    require(workflowRunId == null) { "受控关联重试不能进入 Workflow" }
+                    agentRunUseCase.runControlledReplay(
+                        conversationId = conversationId,
+                        userMessageId = userChatMessage.id,
+                        goal = goal,
+                        sourceRunId = requireNotNull(retryOfRunId),
+                        expectedQualification = controlledReplayQualification,
+                        userAttachments = attachments,
+                        config = runtimeSelection.config,
+                        summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
+                        agentProfile = runtimeSelection.profile,
+                        memoryRecallEnabled = effectiveMemoryRecallEnabled,
+                        approvalGate = approvalGate,
+                        onSnapshot = ::publishAgentRunSnapshot,
+                    )
+                }
                 settleWorkflowLedger(
                     workflowRunId = workflowRunId,
                     agentStatus = AgentRunStatus.COMPLETED,

@@ -19,6 +19,11 @@ internal object RunEventMetadataCodec {
                 .put("allowedToolNames", metadata.profile.allowedToolNames.toStringJsonArray())
                 .put("allowedSkillIds", metadata.profile.allowedSkillIds.toStringJsonArray())
                 .put("memoryEnabled", metadata.profile.memoryEnabled)
+            is RunEventMetadata.ControlledReplay -> JSONObject()
+                .put("sourceRunId", metadata.sourceRunId)
+                .put("sourceToolCallId", metadata.sourceToolCallId)
+                .put("newToolCallId", metadata.newToolCallId)
+                .put("definitionFingerprint", metadata.definitionFingerprint)
             is RunEventMetadata.LlmRequest -> JSONObject()
                 .put("phase", metadata.phase.name)
                 .put("model", metadata.model)
@@ -116,6 +121,12 @@ internal object RunEventMetadataCodec {
                         allowedSkillIds = json.stringListOrEmpty("allowedSkillIds"),
                         memoryEnabled = json.getBoolean("memoryEnabled"),
                     ),
+                )
+                AgentEventTypes.CONTROLLED_REPLAY_LINKED -> RunEventMetadata.ControlledReplay(
+                    sourceRunId = json.requiredString("sourceRunId"),
+                    sourceToolCallId = json.requiredString("sourceToolCallId"),
+                    newToolCallId = json.requiredString("newToolCallId"),
+                    definitionFingerprint = json.requiredString("definitionFingerprint"),
                 )
                 AgentEventTypes.LLM_REQUEST_COMPLETED -> RunEventMetadata.LlmRequest(
                     phase = AgentLlmPhase.valueOf(json.requiredString("phase")),

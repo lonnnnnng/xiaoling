@@ -3,6 +3,7 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.latestRecoveryMetadata
 import com.longdev.xiaoling.agent.toApprovalExpiryPolicyLabel
 
 internal data class AgentRunEventPresentation(
@@ -43,9 +44,7 @@ internal fun presentAgentRunRestartDisposition(
 }
 
 internal fun AgentRunDetailRecord.latestRestartDispositionPresentation(): AgentRunRestartDispositionPresentation? =
-    snapshot.events.asReversed().firstNotNullOfOrNull { event ->
-        (event.metadata as? RunEventMetadata.Recovery)?.let(::presentAgentRunRestartDisposition)
-    }
+    latestRecoveryMetadata()?.let(::presentAgentRunRestartDisposition)
 
 private val eventTitles = mapOf(
     "run.created" to "Run 已创建",
@@ -69,6 +68,7 @@ private val eventTitles = mapOf(
     "run.recovered" to "Run 恢复收敛",
     "run.recovery_failed" to "恢复验证失败",
     "agent.profile.selected" to "Agent Profile 已选择",
+    "run.controlled_replay.linked" to "受控关联重试",
     "skill.selected" to "Skill 已选择",
     "memory.recall.disabled" to "关闭记忆召回",
     "llm.request.completed" to "模型请求完成",
@@ -103,6 +103,15 @@ internal fun presentAgentRunEvent(
                 "记忆" to metadata.profile.memoryEnabled.toDisplayText(),
                 "工具" to metadata.profile.allowedToolNames.joinToString("、"),
                 "Skill" to metadata.profile.allowedSkillIds.takeIf { it.isNotEmpty() }?.joinToString("、"),
+            ),
+        )
+        is RunEventMetadata.ControlledReplay -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "来源 Run" to metadata.sourceRunId,
+                "来源 ToolCall" to metadata.sourceToolCallId,
+                "新 ToolCall" to metadata.newToolCallId,
+                "定义指纹" to metadata.definitionFingerprint,
             ),
         )
         is RunEventMetadata.LlmRequest -> AgentRunEventPresentation(

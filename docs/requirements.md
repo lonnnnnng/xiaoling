@@ -1,5 +1,15 @@
 # 产品需求
 
+## 尚未提交受控关联重试边界（通用执行恢复矩阵）
+
+只有已持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE` 的旧 Run 才能进入受控关联重试。请求和确认必须分别读取 Room 最新 Detail，重新核对来源 Profile、当前 Registry、typed `run.recovered -> run.status=CANCELLED` 收敛链、`fromStatus=EXECUTING / toStatus=CANCELLED`、恢复处置码和重试证据指纹；任何恢复后业务事件、Tool Ledger、状态、定义或指纹漂移都必须 fail-closed。普通 `NOT_COMMITTED` 不得被自动升级为受控重放。
+
+第一次用户确认只允许创建关联新 Run，不代表工具审批。确认通过后必须继续恢复来源 USER 附件并使用来源 Profile/Provider preflight；创建新 Run 前必须再次从 Room 与生产 Registry 权威重核完整资格，执行前还要匹配冻结恢复契约。新 Run 必须带 `retryOfRunId`，生成与来源不同的 ToolCall ID，并持久化来源 Run、来源 ToolCall、新 ToolCall 和定义指纹。来源工具名称、风险和参数不得重新规划或改写。
+
+新 Run 必须走正常工具校验、权限和逐次审批；批准后只允许执行该冻结调用一次并直接总结，不得调用模型规划额外工具。旧 Run、旧 Tool Ledger、旧审批、旧模型协程、旧 Executor 和旧 Workflow 必须保持不变。受控重放只开放前台直接 Agent Run 重试，不进入 Workflow 或后台自动化；Room Schema 保持 v32，真机验收只使用 Redmi `wsvwypiz7xwslvl7`。
+
+验收必须覆盖：收敛事件缺失或状态错误、恢复后异常业务事件、证据/当前定义/处置码漂移、请求与确认两次 Room 读取、创建前第三次重核、来源 Profile、新 ToolCall ID、新审批、零次模型规划、工具只执行一次、关联审计 Codec 持久化和旧 Run 完全不变。当前实现已通过 JVM `707/707`、仅 Redmi 真实磁盘纵向 `OK (1 test)`、专用 Compose `OK (1 test)` 和默认完整 instrumentation `OK (235 tests)`；本需求文本第一次重新打包后的项目语料为 `OK (1 test)`，写回验收与设备收尾结果后的最终复验同为 `OK (1 test)`。
+
 ## 尚未提交安全重放资格边界（通用执行恢复矩阵）
 
 `NOT_COMMITTED` 只能说明当前持久化证据没有进入工具副作用边界，不能直接授权重放。工具默认必须使用 `ToolNotCommittedReplayPolicy.DENY`；只有同时具备稳定幂等键、显式 `CONTROLLED_SAME_CALL` 和逐次用户审批的工具才允许进入资格评估。当前生产范围只包括 `notes.create` 与 `memory.remember`，新工具不得因为风险等级或当前实现看似安全而自动继承资格。
@@ -8,7 +18,7 @@ Runtime 必须在 ToolCall proposed 与 validated 事件中持久化同一版本
 
 Run 资格必须同时满足：状态为 `EXECUTING`；原 Profile 快照允许该工具；独立 Tool Ledger 完整；链尾 ToolCall 已 validated、没有 ToolResult、没有对应 `TOOL_EXECUTE`；所有前序调用成功且验证通过；唯一审批记录为 `APPROVED`。审批 requested 事件必须保留原始 `PENDING`，requested/decided 的工具、风险、参数和定义指纹必须一致，顺序必须为 validated→requested→decided；最后一个审批 Step 必须完成，且其后不得出现任何步骤。任一字段、事件顺序、步骤或定义漂移均拒绝资格，出现执行步骤时必须继续按 `COMMIT_UNKNOWN` 处理。
 
-资格通过只允许持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`，供后续在重新核验证据和用户控制下创建 `retryOfRunId` 关联新 Run。本阶段不得调用工具、恢复旧模型协程/Executor、继续旧 Workflow、伪造 ToolResult 或原地继续旧 Run；启动收敛继续把旧 Run 与活动 Step 置为 `CANCELLED`。Room Schema 保持 v32。验收必须覆盖当前定义、参数、审批指纹、状态与事件顺序漂移，历史契约缺失、默认拒绝、执行步骤降级、Codec 未知策略、Runtime 双事件一致性和 Room 磁盘重开；真机只允许 Redmi `wsvwypiz7xwslvl7`。
+资格通过只允许持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`，供后继受控关联重试在重新核验证据和用户控制下创建 `retryOfRunId` 新 Run。本资格阶段不得调用工具、恢复旧模型协程/Executor、继续旧 Workflow、伪造 ToolResult 或原地继续旧 Run；启动收敛继续把旧 Run 与活动 Step 置为 `CANCELLED`。Room Schema 保持 v32。验收必须覆盖当前定义、参数、审批指纹、状态与事件顺序漂移，历史契约缺失、默认拒绝、执行步骤降级、Codec 未知策略、Runtime 双事件一致性和 Room 磁盘重开；真机只允许 Redmi `wsvwypiz7xwslvl7`。
 
 ## Agent 启动前校验协调边界（横向可靠性工程）
 

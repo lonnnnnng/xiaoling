@@ -29,6 +29,82 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun notCommittedReplayEligibilityRequiresConfirmationBeforeLinkedRetry() {
+        val interrupted = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = null,
+        )
+        val base = interrupted.copy(
+            snapshot = interrupted.snapshot.copy(
+                run = interrupted.snapshot.run.copy(status = AgentRunStatus.CANCELLED),
+                events = interrupted.snapshot.events + event(
+                    type = "run.recovered",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.EXECUTING,
+                        toStatus = AgentRunStatus.CANCELLED,
+                        reason = "应用重启后终止上次未完成 Agent 任务",
+                        retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                        restartDisposition = AgentRunRestartDisposition(
+                            code = AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                            reason = "尚未进入工具执行边界",
+                            evidenceBoundary = "原工具调用已通过受控同调用资格核验",
+                            suggestedAction = "确认后创建关联新 Run",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val fingerprint = AgentTaskRetryEvidenceFingerprint.calculate(base)
+        val detail = base.copy(
+            snapshot = base.snapshot.copy(
+                events = base.snapshot.events.map { event ->
+                    val recovery = event.metadata as? RunEventMetadata.Recovery
+                    if (recovery == null) event else event.copy(
+                        metadata = recovery.copy(retryEvidenceFingerprint = fingerprint),
+                    )
+                },
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidence(detail).code,
+        )
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
+    @Test
+    fun recoveryMetadataOnAnotherEventTypeDoesNotGrantControlledReplayConfirmation() {
+        val detail = detail(
+            status = AgentRunStatus.CANCELLED,
+            events = listOf(
+                event(
+                    type = "tool.result",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.THINKING,
+                        toStatus = AgentRunStatus.CANCELLED,
+                        reason = "伪装的恢复 metadata",
+                        restartDisposition = AgentRunRestartDisposition(
+                            code = AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                            reason = "不应被信任",
+                            evidenceBoundary = "事件类型不匹配",
+                            suggestedAction = "拒绝",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = false),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
+    @Test
     fun successfulWriteToolRequiresConfirmationBeforeRetry() {
         val eligibility = AgentTaskRetryPolicy.evaluate(
             detail(

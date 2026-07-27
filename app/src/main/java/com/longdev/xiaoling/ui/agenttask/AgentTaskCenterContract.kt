@@ -1,13 +1,21 @@
 package com.longdev.xiaoling.ui.agenttask
 
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
+import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
+
+enum class AgentRetryConfirmationKind {
+    EVIDENCE_RETRY,
+    NOT_COMMITTED_CONTROLLED_REPLAY,
+}
 
 data class AgentRetryConfirmationUiState(
     val runId: String,
     val goal: String,
     val evidenceCode: AgentTaskRetryEvidenceCode,
     val evidenceFingerprint: String,
+    val kind: AgentRetryConfirmationKind = AgentRetryConfirmationKind.EVIDENCE_RETRY,
+    val expectedRestartDispositionCode: AgentRunRestartDispositionCode? = null,
 )
 
 interface AgentTaskCenterActions {

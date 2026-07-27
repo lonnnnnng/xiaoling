@@ -16,6 +16,59 @@ sealed interface AgentNotCommittedReplayQualificationAssessment {
 }
 
 object AgentNotCommittedReplayQualificationPolicy {
+    fun assessRecovered(
+        detail: AgentRunDetailRecord,
+        agentProfile: AgentProfileSnapshot?,
+        definitionLookup: (String) -> ToolDefinition?,
+    ): AgentNotCommittedReplayQualificationAssessment {
+        if (detail.snapshot.run.status != AgentRunStatus.CANCELLED) {
+            return ineligible("只有已经完成启动收敛的 Run 才能重新核验受控重放资格")
+        }
+        val recoveryIndex = detail.snapshot.events.indexOfLast { it.type == "run.recovered" }
+        if (recoveryIndex < 0) return ineligible("Run 缺少最新的启动恢复事件")
+        val recoveryEvent = detail.snapshot.events[recoveryIndex]
+        val trailingEvents = detail.snapshot.events.drop(recoveryIndex + 1)
+        if (
+            trailingEvents.size != 1 ||
+            trailingEvents.single().let { event ->
+                event.type != "run.status" ||
+                    event.message != AgentRunStatus.CANCELLED.name ||
+                    event.metadata != null
+            }
+        ) {
+            return ineligible("启动恢复事件之后出现了非预期运行证据")
+        }
+        val recovery = recoveryEvent.metadata as? RunEventMetadata.Recovery
+            ?: return ineligible("最新启动恢复事件缺少结构化证据")
+        if (
+            recovery.fromStatus != AgentRunStatus.EXECUTING ||
+            recovery.toStatus != AgentRunStatus.CANCELLED ||
+            recovery.resumeKind != AgentRunResumeKind.RESTART_REQUIRED ||
+            recovery.restartDisposition?.code !=
+            AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE ||
+            recovery.retryEvidenceCode != AgentTaskRetryEvidenceCode.NOT_COMMITTED
+        ) {
+            return ineligible("启动恢复事件不再匹配尚未提交受控重放资格")
+        }
+        val persistedFingerprint = recovery.retryEvidenceFingerprint
+            ?: return ineligible("启动恢复事件缺少重试证据指纹")
+        if (persistedFingerprint != AgentTaskRetryEvidenceFingerprint.calculate(detail)) {
+            return ineligible("启动恢复后的 Tool Ledger 或事件证据已经漂移")
+        }
+
+        // long: 旧 Run 已被永久收敛为 CANCELLED；这里仅构造不落库的收敛前视图复用完整资格规则，避免为了重试再次修改旧 Run 或放宽原始执行边界。
+        val preRecoveryView = detail.copy(
+            snapshot = detail.snapshot.copy(
+                run = detail.snapshot.run.copy(
+                    status = recovery.fromStatus,
+                    completedAt = null,
+                ),
+                events = detail.snapshot.events.take(recoveryIndex),
+            ),
+        )
+        return assess(preRecoveryView, agentProfile, definitionLookup)
+    }
+
     fun assess(
         detail: AgentRunDetailRecord,
         agentProfile: AgentProfileSnapshot?,

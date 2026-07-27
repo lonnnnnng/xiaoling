@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -53,6 +54,33 @@ class AgentTaskCenterDialogsInstrumentedTest {
             assertEquals(1, actions.confirmCount)
             assertEquals(1, actions.cancelCount)
         }
+    }
+
+    @Test
+    fun controlledReplayExplainsLinkedRunBoundaryAndFreshToolApproval() {
+        val pending = AgentRetryConfirmationUiState(
+            runId = "run-controlled-replay",
+            goal = "重新创建资格笔记",
+            evidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            evidenceFingerprint = "fingerprint-controlled-replay",
+            kind = AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY,
+            expectedRestartDispositionCode =
+                AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+        )
+        val actions = FakeAgentTaskCenterActions(onConfirmed = {}, onCancelled = {})
+        composeRule.setContent {
+            MaterialTheme {
+                AgentTaskCenterDialogs(
+                    state = AgentTaskCenterUiState(pendingRetryConfirmation = pending),
+                    actions = actions,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("确认受控关联重试").assertExists()
+        composeRule.onNodeWithText(
+            "将创建关联新 Run 并使用来源 Run 冻结的工具名称、风险和参数。不会恢复旧 Run、旧模型协程或旧 Executor；新 Run 内的工具仍需重新审批。",
+        ).assertExists()
     }
 
     private class FakeAgentTaskCenterActions(

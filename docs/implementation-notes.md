@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：尚未提交受控关联重试（完成）
+
+- `AgentNotCommittedReplayQualificationPolicy.assessRecovered()` 只接受已经收敛为 `CANCELLED` 的旧 Run，并要求最后的恢复链恰好为 typed `run.recovered` 与一个无 metadata 的 `run.status=CANCELLED`；`fromStatus=EXECUTING`、`toStatus=CANCELLED`、`RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`、`NOT_COMMITTED` 和冻结证据指纹必须同时稳定。它只构造不落库的收敛前视图复用完整资格策略，不修改旧 Run。
+- `AgentRunRetryCoordinator` 在请求和确认时分别从 Room 读取最新 Detail，并强制展示 `NOT_COMMITTED_CONTROLLED_REPLAY` 专用确认；处置码、证据 code/fingerprint 或资格任一漂移都会拒绝或刷新确认。普通 `NOT_COMMITTED` 仍保持无需确认的既有重试语义。
+- ViewModel 使用来源 Run 的 Profile 快照执行 preflight，不使用当前选中 Profile。`AgentRunUseCase.runControlledReplay()` 在创建新 Run 前第三次读取 Room，以生产 Registry 重新核对来源 Profile 和完整资格；随后用同一来源 Profile/Provider 构造 Profile-scoped Registry。Runtime 还会再次匹配恢复契约，形成确认后、创建前和执行前的连续 fail-closed 边界。
+- `MinimalAgentRuntime.runControlledReplay()` 创建带 `retryOfRunId` 的新 Run和全新 ToolCall ID，持久化来源 Run、来源 ToolCall、新 ToolCall 与定义指纹；它不进入 LLM planning，仍通过正常审批门禁创建新审批，批准后只执行一次冻结调用并进入总结。旧 Run、旧 Tool Ledger、旧审批和旧 Executor 均不写入；Workflow 与后台入口没有接线。Room Schema 保持 v32。
+- JVM 覆盖普通/受控确认分流、Room 双重读取、处置码和指纹漂移、收敛状态链、恢复后异常业务事件、当前定义漂移、来源 Profile、无模型规划、新 ToolCall、新审批和单次执行。双轴审查修复真实 Room 尾事件顺序、测试夹具强转和三处恢复 metadata 解析重复；最终完整 JVM 为 `707/707`。
+- 强制本地门禁为 `141/141` tasks（`2m 39s`）、JVM `707/707`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 与 Release lintVital 全部通过。Debug/Release APK 为 `23,403,609 / 3,187,250` 字节，SHA-256 为 `f8595e8671da28b59b87fbe85b2732d481263f39c1df3b60d17e1df6276764e0 / 7593288da547e95782da1b45d7a7e660dbbcab6d8ffe77102dcf8022636c6a02`，Release 为 `0.1.13 (14)` 且通过 zipalign、v2 正式证书和单签名者校验。仅 Redmi 的真实磁盘纵向单项为 `OK (1 test)`、耗时 `1.573s`；专用 Compose 对话框为 `OK (1 test)`、耗时 `2.306s`；默认完整 instrumentation 为 `OK (235 tests)`、耗时 `92.954s`。当前文档第一次重新打包后的项目语料为 `OK (1 test)`、耗时 `2.405s`，写回验收与设备收尾结果后的最终复验同为 `OK (1 test)`、耗时 `2.546s`。正式 Release 已无损恢复，冷启动 `532ms`，版本 `0.1.13 (14)`、`MainActivity` resumed、PID 存活、测试包卸载、保持唤醒关闭和空 crash buffer 均已核对。未向在线模拟器发送安装或测试命令。
+
 ## 通用执行恢复矩阵：尚未提交安全重放资格（完成）
 
 - `ToolDefinition` 新增默认 `DENY` 的 `notCommittedReplayPolicy` 与正整数 `recoveryContractVersion`。只有同时声明 `ToolReplaySafety.IDEMPOTENT_BY_KEY`、`ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL` 和 `ToolApprovalPolicy.REQUIRE_CONFIRMATION` 的工具才能 opt-in；当前仅 `notes.create`、`memory.remember`。构造期约束阻止非幂等或无需审批工具误开资格。

@@ -29,6 +29,123 @@ class MinimalAgentRuntime internal constructor(
     private val faultInjector: AgentRuntimeFaultInjector = NoOpAgentRuntimeFaultInjector,
     private val monotonicClock: MonotonicClock = systemMonotonicClock,
 ) {
+    suspend fun runControlledReplay(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        sourceRunId: String,
+        qualification: AgentNotCommittedReplayQualification,
+        executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        memoryRecallEnabled: Boolean = true,
+        agentProfile: AgentProfileSnapshot,
+    ): AgentRunSummary {
+        require(sourceRunId.isNotBlank()) { "受控重放缺少来源 Run" }
+        val sourceToolCall = qualification.toolCall
+        val definition = toolRegistry.definition(sourceToolCall.name)
+            ?: error("受控重放时找不到已登记工具：${sourceToolCall.name}")
+        require(ToolDefinitionRecoveryContract.matches(definition, qualification.recoveryContract)) {
+            "当前工具定义与用户确认时的恢复契约不一致"
+        }
+        require(definition.risk == sourceToolCall.risk) { "当前工具风险等级与来源 ToolCall 不一致" }
+        val replayToolCall = ToolCall(
+            name = sourceToolCall.name,
+            arguments = sourceToolCall.arguments.toMap(),
+            risk = sourceToolCall.risk,
+        )
+        if (definition.validateBeforeAudit) validateToolArguments(definition, replayToolCall)
+
+        val run = ledger.createRun(conversationId, userMessageId, goal, sourceRunId)
+        (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = conversationId,
+                userMessageId = userMessageId,
+                runId = run.id,
+                goal = goal,
+                memoryRecallEnabled = memoryRecallEnabled,
+                executionOrigin = executionOrigin,
+                invocationSource = invocationSource,
+            ),
+        )
+        val state = AgentRuntimeExecutionState(options.runTimeoutMs, monotonicClock = monotonicClock)
+        return try {
+            persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
+            ledger.appendEvent(
+                runId = run.id,
+                type = AgentEventTypes.PROFILE_SELECTED,
+                message = "已选择 Agent：${agentProfile.name} · ${agentProfile.model}",
+                metadata = RunEventMetadata.AgentProfileSelection(agentProfile),
+            )
+            if (!memoryRecallEnabled) {
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = MEMORY_RECALL_DISABLED_EVENT_TYPE,
+                    message = "本次 Run 已关闭长期记忆召回",
+                    metadata = RunEventMetadata.Reason("用户关闭本次 Run 的长期记忆召回"),
+                )
+            }
+            // long: 新 Run 只继承来源调用的名称、风险和参数语义，并生成全新 ToolCall ID；这样既能审计来源，又不会与旧 Tool Ledger 主键冲突或复用旧批准。
+            ledger.appendEvent(
+                runId = run.id,
+                type = AgentEventTypes.CONTROLLED_REPLAY_LINKED,
+                message = "已关联来源 Run 的尚未提交工具调用",
+                metadata = RunEventMetadata.ControlledReplay(
+                    sourceRunId = sourceRunId,
+                    sourceToolCallId = sourceToolCall.id,
+                    newToolCallId = replayToolCall.id,
+                    definitionFingerprint = qualification.recoveryContract.definitionFingerprint,
+                ),
+            )
+            ledger.appendEvent(
+                runId = run.id,
+                type = "tool.call.proposed",
+                message = "受控关联重试提出工具调用：${replayToolCall.name}",
+                metadata = AgentEventMetadata.toolCall(replayToolCall, definition),
+            )
+            executeToolCall(
+                runId = run.id,
+                definition = definition,
+                toolCall = replayToolCall,
+                executionOrigin = executionOrigin,
+                state = state,
+                recordValidationStep = true,
+                approvalAlreadyGranted = false,
+            )
+            // long: 受控重放只执行用户确认的单个冻结调用；成功后直接进入总结，禁止再次规划出额外工具或重复副作用。
+            completeRun(run, goal, state)
+        } catch (error: AgentProcessTerminationSimulation) {
+            throw error
+        } catch (error: AgentBudgetExceededException) {
+            withContext(NonCancellable) {
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 预算耗尽") }
+                ledger.appendEvent(run.id, "run.budget_exhausted", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 预算耗尽")
+            }
+            throw error
+        } catch (error: AgentTimeoutException) {
+            withContext(NonCancellable) {
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 步骤超时") }
+                ledger.appendEvent(run.id, "run.timeout", error.message.orEmpty(), RunEventMetadata.Reason(error.message.orEmpty()))
+                ledger.updateRunStatus(run.id, AgentRunStatus.BUDGET_EXHAUSTED, errorMessage = error.message ?: "Agent 步骤超时")
+            }
+            throw error
+        } catch (error: AgentBackgroundApprovalRequiredException) {
+            settleBlockedRun(run.id, state, error)
+            throw error
+        } catch (error: CancellationException) {
+            settleCancelledRun(run.id, state, "用户取消受控关联重试")
+            throw error
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                val reason = error.message ?: "受控关联重试失败"
+                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            }
+            throw error
+        }
+    }
+
     suspend fun run(
         conversationId: String,
         userMessageId: String,

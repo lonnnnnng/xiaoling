@@ -33,18 +33,24 @@ object AgentTaskRetryPolicy {
         // long: 只有已明确结束且没有成功结果的 Run 才能重新运行；处理中或已完成 Run 禁止重试，避免同一目标被并发执行或重复产生结果。
         return if (detail.snapshot.run.status in retryableStatuses) {
             AgentTaskRetryEligibility.Retryable(
-                requiresConfirmation = assessEvidence(detail).requiresConfirmation,
+                requiresConfirmation = assessEvidence(detail).requiresConfirmation ||
+                    hasNotCommittedReplayEligibility(detail),
             )
         } else {
             AgentTaskRetryEligibility.NotRetryable
         }
     }
 
+    private fun hasNotCommittedReplayEligibility(detail: AgentRunDetailRecord): Boolean {
+        val latestRecovery = detail.latestRecoveryMetadata()
+        // long: 受控同调用资格虽然仍属于“尚未提交”，但它会创建携带原调用语义的新 Run，必须由用户单独确认，不能沿用普通未提交任务的直接重试入口。
+        return latestRecovery?.restartDisposition?.code ==
+            AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE
+    }
+
     fun assessEvidence(detail: AgentRunDetailRecord): AgentTaskRetryEvidence {
-        val recoverySnapshot = detail.snapshot.events.asReversed().firstNotNullOfOrNull { event ->
-            (event.metadata as? RunEventMetadata.Recovery)
-                ?.takeIf { it.toStatus == AgentRunStatus.CANCELLED }
-        }
+        val recoverySnapshot = detail.latestRecoveryMetadata()
+            ?.takeIf { it.toStatus == AgentRunStatus.CANCELLED }
         val persistedAtRecovery = recoverySnapshot?.retryEvidenceCode
         val current = assessCurrentEvidence(detail, recoverySnapshot)
         // long: 启动收敛会冻结当时的副作用分类和证据指纹；后续账本即使分类不变，只要身份或内容漂移也必须升级为证据不完整。
@@ -85,6 +91,7 @@ object AgentTaskRetryPolicy {
                 recoverySnapshot.retryEvidenceCode in uncertainEvidenceCodes
         } else {
             detail.snapshot.events.any { event ->
+                if (event.type != "run.recovered") return@any false
                 val recovery = event.metadata as? RunEventMetadata.Recovery ?: return@any false
                 recovery.fromStatus in sideEffectStatuses
             } || detail.snapshot.steps.any { step ->
@@ -124,4 +131,5 @@ object AgentTaskRetryPolicy {
         AgentTaskRetryEvidenceCode.COMMITTED_VERIFIED,
         AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
     )
+
 }

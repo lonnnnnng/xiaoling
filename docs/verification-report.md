@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-27（北京时间）
+验证日期：2026-07-28（北京时间）
 
 ## 当前验证基线
 
@@ -13,6 +13,15 @@
 - 文档语料门禁：最终 README 与长期 `docs/` 打包进 AndroidTest assets 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
+
+## 2026-07-28 通用执行恢复矩阵：尚未提交受控关联重试
+
+- 实现边界：`AgentRunRetryCoordinator` 在请求和确认时分别读取 Room 最新 Detail，对 `NOT_COMMITTED_REPLAY_ELIGIBLE` 强制显示专用确认。收敛后资格重核要求旧 Run 为 `CANCELLED`，恢复链恰好是 typed `run.recovered` 后跟无 metadata 的 `run.status=CANCELLED`，并核对原 `EXECUTING` 状态、处置码、重试证据指纹、来源 Profile、Tool Ledger 与当前 Registry。普通 `NOT_COMMITTED` 仍保持既有直接重试。
+- 执行边界：确认后使用来源 Profile/Provider preflight；UseCase 在创建新 Run 前第三次读取 Room 并以生产 Registry 比较完整资格，Runtime 再次匹配恢复契约。新 Run 带 `retryOfRunId`，生成新 ToolCall ID，写入来源 Run、来源 ToolCall、新 ToolCall 与定义指纹；不调用 LLM planning，重新创建工具审批，批准后只执行一次并总结。旧 Run、旧 Tool Ledger、旧审批、旧协程与旧 Executor 不变，Workflow/后台没有接线，Room 保持 v32。
+- TDD 与审查：聚焦策略、协调器和 Runtime 测试覆盖收敛事件缺失/状态错误、恢复后业务事件、证据/定义/处置码漂移、两次 Room 读取、来源 Profile、新 ToolCall、新审批、零规划与单次执行。双轴审查发现真实 Room 的尾随状态事件会使协调器误取绝对最后事件，以及测试夹具对尾事件 metadata 强转；修复后抽出共享 typed Recovery helper，并加强 Room Codec 审计断言。
+- 本地完整门禁：强制重跑 Gradle `141/141` tasks，耗时 `2m 39s`；JVM `707/707`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug/Release APK 为 `23,403,609 / 3,187,250` 字节，SHA-256 为 `f8595e8671da28b59b87fbe85b2732d481263f39c1df3b60d17e1df6276764e0 / 7593288da547e95782da1b45d7a7e660dbbcab6d8ffe77102dcf8022636c6a02`；Release 为 `0.1.13 (14)`，zipalign、v2 正式证书和单签名者通过。
+- Redmi 已验证：只向 `wsvwypiz7xwslvl7` 发送设备命令，使用同一正式证书签署当前 Debug/Test APK 后无损覆盖。`controlledReplayCreatesFreshApprovedLedgerAndLeavesClosedSourceRunUnchanged` 为 `OK (1 test)`、耗时 `1.573s`，证明新 Run、ToolCall、审批、单次结果和关联 metadata 从 Room 读取完整，来源 Detail 前后相等。
+- Redmi 完整验收：设备接入时处于安全锁屏；仅向 `wsvwypiz7xwslvl7` 发送唤醒、滑动和测试命令，并根据设备实际 `AC powered=true` 临时启用全插电保持唤醒。`controlledReplayExplainsLinkedRunBoundaryAndFreshToolApproval` 为 `OK (1 test)`、耗时 `2.306s`；默认完整 `AndroidJUnitRunner` 为 `OK (235 tests)`、耗时 `92.954s`，受控重放 UI 同时包含在全量回归中。当前报告第一次重新打包后的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、耗时 `2.405s`，写回验收与设备收尾结果后的最终复验同为 `OK (1 test)`、耗时 `2.546s`。随后已无损覆盖当前正式签名 Release，卸载测试包并关闭保持唤醒；冷启动 `532ms`，设备报告 `0.1.13 (14)`、`MainActivity` resumed、PID `23208` 存活，清空后 crash buffer 无小灵相关 FATAL。
 
 ## 2026-07-27 通用执行恢复矩阵：尚未提交安全重放资格
 

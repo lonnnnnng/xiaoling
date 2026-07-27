@@ -215,6 +215,116 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun settledControlledReplayRequalifiesAgainstLatestPersistedEvidence() {
+        val fixture = controlledReplayFixture()
+        val settled = settledControlledReplayDetail(fixture)
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = settled,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Eligible)
+        assertEquals(
+            "tool-call-safe-replay",
+            (assessment as AgentNotCommittedReplayQualificationAssessment.Eligible).qualification.toolCall.id,
+        )
+        assertEquals(AgentRunStatus.CANCELLED, settled.snapshot.run.status)
+    }
+
+    @Test
+    fun settledControlledReplayRejectsMissingRecoveryEvent() {
+        val fixture = controlledReplayFixture()
+        val settled = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                run = fixture.detail.snapshot.run.copy(status = AgentRunStatus.CANCELLED),
+            ),
+        )
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = settled,
+            agentProfile = fixture.profile,
+            definitionLookup = { fixture.definition },
+        )
+
+        assertIneligibleReason(assessment, "缺少最新的启动恢复事件")
+    }
+
+    @Test
+    fun settledControlledReplayRejectsRecoveryStatusDrift() {
+        val fixture = controlledReplayFixture()
+        val cases = listOf(
+            settledControlledReplayDetail(fixture, fromStatus = AgentRunStatus.THINKING),
+            settledControlledReplayDetail(fixture, toStatus = AgentRunStatus.FAILED),
+        )
+
+        cases.forEach { settled ->
+            val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+                detail = settled,
+                agentProfile = fixture.profile,
+                definitionLookup = { fixture.definition },
+            )
+            assertIneligibleReason(assessment, "不再匹配")
+        }
+    }
+
+    @Test
+    fun settledControlledReplayRejectsBusinessEvidenceAfterRecovery() {
+        val fixture = controlledReplayFixture()
+        val settled = settledControlledReplayDetail(
+            fixture = fixture,
+            extraTrailingEvents = listOf(
+                event("tool.result", RunEventMetadata.Reason("恢复后出现异常业务证据"), 7L),
+            ),
+        )
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = settled,
+            agentProfile = fixture.profile,
+            definitionLookup = { fixture.definition },
+        )
+
+        assertIneligibleReason(assessment, "非预期运行证据")
+    }
+
+    @Test
+    fun settledControlledReplayRejectsRetryEvidenceFingerprintDrift() {
+        val fixture = controlledReplayFixture()
+        val settled = settledControlledReplayDetail(fixture)
+        val drifted = settled.copy(
+            toolLedger = settled.toolLedger.copy(
+                calls = settled.toolLedger.calls.map { call ->
+                    call.copy(arguments = call.arguments + ("content" to "证据已变化"))
+                },
+            ),
+        )
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = drifted,
+            agentProfile = fixture.profile,
+            definitionLookup = { fixture.definition },
+        )
+
+        assertIneligibleReason(assessment, "证据已经漂移")
+    }
+
+    @Test
+    fun settledControlledReplayRejectsCurrentToolDefinitionDrift() {
+        val fixture = controlledReplayFixture()
+        val settled = settledControlledReplayDetail(fixture)
+        val driftedDefinition = fixture.definition.copy(description = "创建本地笔记 v2")
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = settled,
+            agentProfile = fixture.profile,
+            definitionLookup = { driftedDefinition },
+        )
+
+        assertIneligibleReason(assessment, "指纹不一致")
+    }
+
+    @Test
     fun controlledReplayRejectsCurrentToolDefinitionDrift() {
         val fixture = controlledReplayFixture()
         val driftedDefinition = fixture.definition.copy(description = "创建本地笔记 v2")
@@ -930,6 +1040,68 @@ class AgentRunResumePolicyTest {
         replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
         notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
     )
+
+    private fun settledControlledReplayDetail(
+        fixture: ControlledReplayFixture,
+        fromStatus: AgentRunStatus = AgentRunStatus.EXECUTING,
+        toStatus: AgentRunStatus = AgentRunStatus.CANCELLED,
+        extraTrailingEvents: List<RunEventRecord> = emptyList(),
+    ): AgentRunDetailRecord {
+        val settledWithoutFingerprint = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                run = fixture.detail.snapshot.run.copy(
+                    status = AgentRunStatus.CANCELLED,
+                    completedAt = 6L,
+                ),
+                events = fixture.detail.snapshot.events + event(
+                    "run.recovered",
+                    RunEventMetadata.Recovery(
+                        fromStatus = fromStatus,
+                        toStatus = toStatus,
+                        reason = "应用重启后终止上次未完成 Agent 任务",
+                        retryEvidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+                        resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
+                        restartDisposition = AgentRunRestartDisposition(
+                            code = AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                            reason = "尚未进入工具执行边界",
+                            evidenceBoundary = "原工具调用已通过受控同调用资格核验",
+                            suggestedAction = "确认后创建关联新 Run",
+                        ),
+                    ),
+                    5L,
+                ) + RunEventRecord(
+                    id = "event-6",
+                    runId = "run-1",
+                    type = "run.status",
+                    message = AgentRunStatus.CANCELLED.name,
+                    createdAt = 6L,
+                    metadata = null,
+                ) + extraTrailingEvents,
+            ),
+        )
+        val fingerprint = AgentTaskRetryEvidenceFingerprint.calculate(settledWithoutFingerprint)
+        return settledWithoutFingerprint.copy(
+            snapshot = settledWithoutFingerprint.snapshot.copy(
+                events = settledWithoutFingerprint.snapshot.events.map { event ->
+                    val recovery = event.metadata as? RunEventMetadata.Recovery
+                    if (recovery == null) event else event.copy(
+                        metadata = recovery.copy(retryEvidenceFingerprint = fingerprint),
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun assertIneligibleReason(
+        assessment: AgentNotCommittedReplayQualificationAssessment,
+        expectedReason: String,
+    ) {
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue(
+            (assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible)
+                .reason.contains(expectedReason),
+        )
+    }
 
     private fun controlledReplayFixture(
         definition: ToolDefinition = controlledReplayDefinition(),

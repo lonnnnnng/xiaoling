@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.AgentLlm
+import com.longdev.xiaoling.agent.AgentNotCommittedReplayQualificationAssessment
+import com.longdev.xiaoling.agent.AgentNotCommittedReplayQualificationPolicy
 import com.longdev.xiaoling.agent.AgentContextPolicy
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentStepStatus
@@ -15,6 +18,7 @@ import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.AgentToolExecutionContext
 import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.ApprovalDecision
+import com.longdev.xiaoling.agent.ApprovalGate
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.FakeToolRegistry
 import com.longdev.xiaoling.agent.MinimalAgentRuntime
@@ -34,6 +38,7 @@ import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
+import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeReference
@@ -921,6 +926,106 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
                 checkNotNull(recovery.restartDisposition).code,
             )
+        }
+    }
+
+    @Test
+    fun controlledReplayCreatesFreshApprovedLedgerAndLeavesClosedSourceRunUnchanged() = runBlocking {
+        withDiskReopenedNotCommittedReplayRun("xiaoling-not-committed-controlled-replay-test.db") {
+                restartedRepository,
+                restartedRegistry,
+                runId,
+                sourceCallId,
+            ->
+            assertEquals(
+                1,
+                restartedRepository.closeInterruptedRuns(
+                    definitionLookup = restartedRegistry::definition,
+                    committedVerificationSupport = restartedRegistry::supportsCommittedEffectVerification,
+                    runIds = setOf(runId),
+                ),
+            )
+            val sourceBeforeReplay = checkNotNull(restartedRepository.runDetail(runId))
+            val sourceProfile = checkNotNull(sourceBeforeReplay.agentProfileSnapshotOrNull())
+            val qualification = when (
+                val assessment = AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+                    detail = sourceBeforeReplay,
+                    agentProfile = sourceProfile,
+                    definitionLookup = restartedRegistry::definition,
+                )
+            ) {
+                is AgentNotCommittedReplayQualificationAssessment.Eligible -> assessment.qualification
+                is AgentNotCommittedReplayQualificationAssessment.Ineligible -> error(assessment.reason)
+            }
+            var approvalCount = 0
+            val summary = MinimalAgentRuntime(
+                ledger = restartedRepository,
+                toolRegistry = restartedRegistry,
+                llm = object : AgentLlm {
+                    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                        error("受控重放不应重新规划")
+                    }
+
+                    override suspend fun summarize(
+                        goal: String,
+                        toolCall: ToolCall,
+                        toolResult: ToolExecutionResult,
+                    ): String = """{"style":"compact","tone":"neutral"}"""
+                },
+                approvalGate = object : ApprovalGate {
+                    override suspend fun requestApproval(
+                        runId: String,
+                        toolCall: ToolCall,
+                        definition: ToolDefinition,
+                    ): ApprovalDecision {
+                        approvalCount += 1
+                        val request = restartedRepository.createApprovalRequest(
+                            conversationId = sourceBeforeReplay.snapshot.run.conversationId,
+                            runId = runId,
+                            toolCall = toolCall,
+                            definition = definition,
+                        )
+                        checkNotNull(
+                            restartedRepository.decideApprovalRequest(
+                                requestId = request.id,
+                                status = ApprovalRequestStatus.APPROVED,
+                                reason = "用户批准关联新 Run 工具",
+                            ),
+                        )
+                        return ApprovalDecision(true, "用户批准关联新 Run 工具")
+                    }
+                },
+            ).runControlledReplay(
+                conversationId = sourceBeforeReplay.snapshot.run.conversationId,
+                userMessageId = "message-controlled-replay",
+                goal = sourceBeforeReplay.snapshot.run.goal,
+                sourceRunId = runId,
+                qualification = qualification,
+                agentProfile = sourceProfile,
+            )
+
+            val newDetail = checkNotNull(restartedRepository.runDetail(summary.runId))
+            val newCall = newDetail.toolLedger.calls.single()
+            assertEquals(1, approvalCount)
+            assertEquals(AgentRunStatus.COMPLETED, newDetail.snapshot.run.status)
+            assertEquals(runId, newDetail.snapshot.run.retryOfRunId)
+            assertFalse(sourceCallId == newCall.id)
+            assertEquals(qualification.toolCall.name, newCall.toolName)
+            assertEquals(qualification.toolCall.arguments, newCall.arguments)
+            assertEquals(newCall.id, newDetail.approvals.single().toolCallId)
+            assertEquals(ApprovalRequestStatus.APPROVED, newDetail.approvals.single().status)
+            assertEquals(1, newDetail.toolLedger.results.size)
+            val replayLink = newDetail.snapshot.events
+                .single { it.type == AgentEventTypes.CONTROLLED_REPLAY_LINKED }
+                .metadata as RunEventMetadata.ControlledReplay
+            assertEquals(runId, replayLink.sourceRunId)
+            assertEquals(sourceCallId, replayLink.sourceToolCallId)
+            assertEquals(newCall.id, replayLink.newToolCallId)
+            assertEquals(
+                qualification.recoveryContract.definitionFingerprint,
+                replayLink.definitionFingerprint,
+            )
+            assertEquals(sourceBeforeReplay, restartedRepository.runDetail(runId))
         }
     }
 

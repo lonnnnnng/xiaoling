@@ -6,13 +6,21 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 通用执行恢复矩阵：尚未提交受控关联重试（完成）
+
+`NOT_COMMITTED_REPLAY_ELIGIBLE` 现在具备用户控制的生产入口。任务中心请求和确认不再依赖内存历史，而是分别读取 Room 最新 Detail，核对 `run.recovered -> run.status=CANCELLED` 收敛链、来源 Profile、当前 Registry、资格码和证据指纹；确认只授权创建关联新 Run，不替代新 Run 内的工具审批。UseCase 在写入新 Run 前第三次读取 Room 并比较完整资格，Runtime 在执行前再次匹配冻结恢复契约，关闭确认与执行之间的定义/账本漂移窗口。
+
+新 Run 使用来源会话、来源 Profile 与 `retryOfRunId`，冻结来源工具名称、风险、参数和定义指纹，同时生成全新 ToolCall ID 并写入 `run.controlled_replay.linked`。它不调用模型重新规划，重新创建独立审批；批准后只执行该调用一次并直接总结。旧 Run、旧 Tool Ledger、旧审批、旧模型协程和旧 Executor 保持原终态，Workflow 与后台入口不开放受控重放。Room 仍为 v32。
+
+强制本地 `141/141` tasks（`2m 39s`）、JVM `707/707`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 单签名通过。仅 Redmi 的真实磁盘纵向单项为 `OK (1 test)`（`1.573s`），证明新 Run、新 ToolCall、新审批、单次结果和来源审计持久化且旧 Run 完全不变；专用 Compose 对话框为 `OK (1 test)`（`2.306s`），默认完整 instrumentation 为 `OK (235 tests)`（`92.954s`）。当前路线图第一次重新打包后的项目语料为 `OK (1 test)`（`2.405s`），写回验收与设备收尾结果后的最终复验同为 `OK (1 test)`（`2.546s`）；正式 Release 已恢复并通过版本、前台 Activity、PID、测试包卸载、保持唤醒关闭和 crash buffer 收尾。未向模拟器发送安装或测试命令。该切片完成后回到恢复矩阵，统一复核“已提交只读验证”和“已验证只补控制面”，仍不开放旧 Run 原地续跑。
+
 ## 通用执行恢复矩阵：尚未提交安全重放资格（完成）
 
 “尚未提交”现在只是一项持久化资格，不是执行动作。Runtime 在 ToolCall proposed/validated 时写入版本化恢复契约；契约指纹覆盖 Schema/契约版本、工具名称与说明、风险、审批/验证/重放策略、超时、后台能力、Android 权限、参数 Schema 和业务校验器数量。业务校验器代码本身不可序列化，其语义变化必须显式递增 `recoveryContractVersion`。审批 requested/decided 事件沿用请求时冻结的定义指纹，未知未来策略或缺少契约的历史事件按无资格处理。
 
 资格只允许默认拒绝之外的显式 opt-in：工具必须同时为 `IDEMPOTENT_BY_KEY`、`CONTROLLED_SAME_CALL` 和 `REQUIRE_CONFIRMATION`；当前只有 `notes.create`、`memory.remember`。此外还必须证明原 Profile 允许该工具、Tool Ledger 完整、链尾已 validated 且无 ToolResult/`TOOL_EXECUTE`、前序调用全部成功验证、唯一审批已经批准、requested 状态原本为 `PENDING`、requested/decided 参数与定义指纹一致、事件顺序为 validated→requested→decided，且审批 Step 完成后没有新步骤。任何定义、参数、指纹、顺序或步骤漂移都 fail-closed。
 
-通过资格时 `AgentRunResumePolicy` 只写入 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`；启动收敛仍把旧 Run 和活动 Step 置为 `CANCELLED`。本阶段不调用工具、不恢复旧模型协程或 Executor、不继续旧 Workflow，也不原地继续旧 Run。强制本地 `141/141` tasks、JVM `694/694`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 单签名通过；仅 Redmi 的磁盘 Room 单项 `OK (2 tests)`（`0.783s`），默认完整 `OK (233 tests)`（`90.924s`），同步后的最终文档语料为 `OK (1 test)`。下一切片应先把该资格接入有证据漂移复核和用户控制的关联新 Run 入口，再统一复核已提交只读验证、已验证只补控制面两格；不得从资格直接跳到旧 Run 原地续跑。
+通过资格时 `AgentRunResumePolicy` 只写入 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`；启动收敛仍把旧 Run 和活动 Step 置为 `CANCELLED`。本资格切片不调用工具、不恢复旧模型协程或 Executor、不继续旧 Workflow，也不原地继续旧 Run。强制本地 `141/141` tasks、JVM `694/694`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 单签名通过；仅 Redmi 的磁盘 Room 单项 `OK (2 tests)`（`0.783s`），默认完整 `OK (233 tests)`（`90.924s`），同步后的最终文档语料为 `OK (1 test)`。后继受控关联新 Run 入口已由上一节完成，但仍不得从资格直接跳到旧 Run 原地续跑。
 
 ## 通用执行恢复矩阵：提交状态未知（完成）
 

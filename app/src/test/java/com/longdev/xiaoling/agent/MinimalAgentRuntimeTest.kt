@@ -29,6 +29,201 @@ import java.util.UUID
 
 class MinimalAgentRuntimeTest {
     @Test
+    fun controlledReplayCreatesLinkedRunWithFreshToolIdentityAndWaitsForNewApproval() = runTest {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("title", "标题", required = true),
+                ToolInputField("content", "正文", required = true),
+            ),
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+        )
+        val sourceCall = ToolCall(
+            id = "tool-call-source-replay",
+            name = definition.name,
+            arguments = mapOf("title" to "资格", "content" to "尚未执行"),
+            risk = definition.risk,
+        )
+        val qualification = AgentNotCommittedReplayQualification(
+            toolCall = sourceCall,
+            recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
+        )
+        val ledger = InMemoryAgentRunLedger()
+        var executorCalls = 0
+        var approvalCall: ToolCall? = null
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executorCalls += 1
+                return ToolExecutionResult(success = true, content = "不应执行")
+            }
+        }
+        val profile = AgentProfileSnapshot(
+            id = "agent-notes",
+            name = "笔记 Agent",
+            avatar = "记",
+            providerId = "provider-1",
+            model = "gpt-test",
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf(definition.name),
+            allowedSkillIds = emptyList(),
+            memoryEnabled = false,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall =
+                    error("受控重放不应重新调用模型规划")
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = error("工具尚未批准时不应总结")
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    approvalCall = toolCall
+                    throw AgentProcessTerminationSimulation()
+                }
+            },
+        )
+
+        val failure = runCatching {
+            runtime.runControlledReplay(
+                conversationId = "conversation-replay",
+                userMessageId = "message-replay",
+                goal = "创建资格笔记",
+                sourceRunId = "run-source-replay",
+                qualification = qualification,
+                agentProfile = profile,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentProcessTerminationSimulation)
+        val snapshot = ledger.snapshot(checkNotNull(ledger.lastRunId))
+        val newCall = checkNotNull(approvalCall)
+        assertEquals("run-source-replay", snapshot.run.retryOfRunId)
+        assertEquals(sourceCall.name, newCall.name)
+        assertEquals(sourceCall.arguments, newCall.arguments)
+        assertEquals(sourceCall.risk, newCall.risk)
+        assertFalse(sourceCall.id == newCall.id)
+        assertEquals(0, executorCalls)
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, snapshot.run.status)
+        assertTrue(snapshot.events.none { it.type == AgentEventTypes.LLM_REQUEST_COMPLETED })
+        val replaySource = snapshot.events.single { it.type == AgentEventTypes.CONTROLLED_REPLAY_LINKED }
+            .metadata as RunEventMetadata.ControlledReplay
+        assertEquals(sourceCall.id, replaySource.sourceToolCallId)
+        assertEquals(newCall.id, replaySource.newToolCallId)
+    }
+
+    @Test
+    fun approvedControlledReplayExecutesFrozenCallOnceWithoutModelPlanning() = runTest {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("title", "标题", required = true),
+                ToolInputField("content", "正文", required = true),
+            ),
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+        )
+        val sourceCall = ToolCall(
+            id = "tool-call-source-approved-replay",
+            name = definition.name,
+            arguments = mapOf("title" to "资格", "content" to "尚未执行"),
+            risk = definition.risk,
+        )
+        val qualification = AgentNotCommittedReplayQualification(
+            toolCall = sourceCall,
+            recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
+        )
+        val profile = AgentProfileSnapshot(
+            id = "agent-notes",
+            name = "笔记 Agent",
+            avatar = "记",
+            providerId = "provider-1",
+            model = "gpt-test",
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf(definition.name),
+            allowedSkillIds = emptyList(),
+            memoryEnabled = false,
+        )
+        val executedCalls = mutableListOf<ToolCall>()
+        var approvalCount = 0
+        var planningCount = 0
+        val ledger = InMemoryAgentRunLedger()
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    executedCalls += call
+                    return ToolExecutionResult(success = true, content = "笔记已创建")
+                }
+            },
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    planningCount += 1
+                    error("受控重放不应重新规划")
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    approvalCount += 1
+                    return ApprovalDecision(approved = true, reason = "用户批准新 Run 工具")
+                }
+            },
+        )
+
+        val summary = runtime.runControlledReplay(
+            conversationId = "conversation-approved-replay",
+            userMessageId = "message-approved-replay",
+            goal = "创建资格笔记",
+            sourceRunId = "run-source-approved-replay",
+            qualification = qualification,
+            agentProfile = profile,
+        )
+
+        val snapshot = ledger.snapshot(summary.runId)
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertEquals(1, approvalCount)
+        assertEquals(1, executedCalls.size)
+        assertEquals(0, planningCount)
+        assertEquals(sourceCall.name, executedCalls.single().name)
+        assertEquals(sourceCall.arguments, executedCalls.single().arguments)
+        assertFalse(sourceCall.id == executedCalls.single().id)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertTrue(snapshot.steps.none { it.type == AgentStepTypes.LLM_PLAN })
+    }
+
+    @Test
     fun invalidPlanningJsonStillPersistsReturnedRequestTelemetry() = runBlocking {
         val server = MockWebServer()
         server.start()

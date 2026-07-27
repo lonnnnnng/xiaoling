@@ -103,6 +103,68 @@ class AgentRunUseCase(
         )
     }
 
+    suspend fun runControlledReplay(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        sourceRunId: String,
+        expectedQualification: AgentNotCommittedReplayQualification,
+        config: ProviderRequestConfig,
+        summarySystemPrompt: String,
+        agentProfile: AgentProfileSnapshot,
+        memoryRecallEnabled: Boolean = true,
+        userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
+        approvalGate: ApprovalGate = AutoApprovalGate(),
+        onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
+    ): AgentRunSummary {
+        AgentProfilePolicy.validateRunnable(agentProfile)
+        require(config.model == agentProfile.model) { "来源 Agent Profile 模型与受控重放请求不一致" }
+        require(config.providerId == agentProfile.providerId) { "来源 Agent Profile 提供方与受控重放请求不一致" }
+        val latestSource = baseLedger.runDetail(sourceRunId)
+            ?: error("来源 Agent Run 已不存在：$sourceRunId")
+        val persistedProfile = when (val audit = latestSource.inspectAgentProfileAudit()) {
+            AgentProfileAuditAssessment.Legacy -> error("来源 Agent Run 缺少 Agent Profile 快照")
+            is AgentProfileAuditAssessment.Available -> audit.profile
+            is AgentProfileAuditAssessment.Invalid -> error(audit.reason)
+        }
+        require(persistedProfile == agentProfile) { "来源 Agent Profile 快照已变化，请重新发起重试" }
+        val currentQualification = when (val assessment = requalifyNotCommittedReplay(latestSource)) {
+            is AgentNotCommittedReplayQualificationAssessment.Eligible -> assessment.qualification
+            is AgentNotCommittedReplayQualificationAssessment.Ineligible -> {
+                error("受控重放资格已失效：${assessment.reason}")
+            }
+        }
+        require(currentQualification == expectedQualification) { "受控重放 ToolCall 或恢复契约已变化" }
+
+        val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
+        val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, agentProfile.allowedToolNames)
+        val ledger = ReportingAgentRunLedger(delegate = baseLedger, onSnapshot = onSnapshot)
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = profileToolRegistry,
+            llm = OpenAiAgentLlm(
+                client = client,
+                config = config,
+                summarySystemPrompt = summarySystemPrompt,
+                selectedSkills = emptyList(),
+                agentProfile = agentProfile,
+                userAttachments = userAttachments,
+            ),
+            approvalGate = approvalGate,
+            permissionChecker = permissionChecker,
+        )
+        // long: UseCase 在创建新 Run 前重新读取 Room 并复核生产 Registry；任务中心确认只授权进入这条路径，工具本身仍由 Runtime 创建新审批。
+        return runtime.runControlledReplay(
+            conversationId = conversationId,
+            userMessageId = userMessageId,
+            goal = goal,
+            sourceRunId = sourceRunId,
+            qualification = currentQualification,
+            memoryRecallEnabled = memoryRecallEnabled,
+            agentProfile = agentProfile,
+        )
+    }
+
     suspend fun resumeApprovedRun(
         detail: AgentRunDetailRecord,
         approval: ApprovalRequestRecord,
@@ -207,6 +269,24 @@ class AgentRunUseCase(
             toolRegistry::definition,
             toolRegistry::supportsCommittedEffectVerification,
             runIds,
+        )
+    }
+
+    fun requalifyNotCommittedReplay(
+        detail: AgentRunDetailRecord,
+    ): AgentNotCommittedReplayQualificationAssessment {
+        val sourceProfile = when (val assessment = detail.inspectAgentProfileAudit()) {
+            AgentProfileAuditAssessment.Legacy -> null
+            is AgentProfileAuditAssessment.Available -> assessment.profile
+            is AgentProfileAuditAssessment.Invalid -> {
+                return AgentNotCommittedReplayQualificationAssessment.Ineligible(assessment.reason)
+            }
+        }
+        // long: 任务中心每次请求与确认都用生产 Registry 重新核对来源 Profile 和冻结定义，不能只相信启动时写入的资格码。
+        return AgentNotCommittedReplayQualificationPolicy.assessRecovered(
+            detail = detail,
+            agentProfile = sourceProfile,
+            definitionLookup = toolRegistry::definition,
         )
     }
 

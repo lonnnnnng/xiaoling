@@ -47,7 +47,8 @@ internal object AgentTaskRetryEvidenceFingerprint {
             append("events\n")
             detail.snapshot.events
                 .asSequence()
-                .filter { it.type != "run.recovered" }
+                // long: Run/Step 状态事件没有结构化业务载荷，启动收敛会按设计追加这些控制面记录；指纹只绑定 Tool Ledger 与 typed 业务事件，避免清理动作自己制造漂移。
+                .filter { it.type != "run.recovered" && it.metadata != null }
                 .forEach { event ->
                     field("event.id", event.id)
                     field("event.runId", event.runId)
