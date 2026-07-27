@@ -17,13 +17,17 @@
 - 强制本地门禁为 `140/140` tasks（`1m 58s`）、JVM `678/678`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 和 Release lintVital 均通过；Release 通过 zipalign 与 v2 单签名。仅 Redmi `wsvwypiz7xwslvl7` 的页面 Compose 为 `OK (4 tests)`；默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。
 - 备份忙时两个图标继续禁用，但父卡点击仍触发导出的既有行为已由测试固定。Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项状态均未改变。
 
-## 启动与设置页滚动体验收尾
+## 启动、Release Profile 与设置页滚动体验收尾
 
 - Android 12+ 继续由 `Theme.XiaoLing` 的 `windowSplashScreen*` 展示系统 Splash Logo；`MainActivity` 不再经过 `XiaoLingLaunch`，首个 Compose 内容直接进入 `XiaoLingApp`。已删除 Compose 品牌页及其 `880ms` 固定等待、`260ms` Crossfade，避免系统和应用各显示一次启动图。
 - 设置根页的标题和主题选择器保持在外层固定区域，只有设置卡片 Column 使用独立滚动状态。新增 `headerStaysVisibleWhenSettingsEntriesScrollToTheEnd`，以“滚到数据备份与恢复后标题和主题入口仍显示”固定公共行为；页面聚焦 Compose 为 `OK (5 tests)`。
-- Redmi `wsvwypiz7xwslvl7` 的 9.229 秒冷启动录屏确认系统 Logo 后直接进入主界面，不再出现“小灵 / 你的个人 Agent”第二画面；系统 `am start -W` 报告 `LaunchState: COLD / TotalTime: 4040ms`，该剩余首帧耗时未在本轮扩展为启动性能重构。正式设置页滚到底截图确认标题和主题选择器固定。
-- 完整本地门禁为强制 `140/140` tasks（`2m 20s`）、JVM `678/678`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 与 Release lintVital 通过。Redmi 默认完整首次暴露 PNG 分享测试轮询瞬时 `result` 的竞态；测试改为等待分享导航版本递增及附件读取终态后，单项 `OK (1 test)`、默认完整 `OK (222 tests)`，耗时 `83.429s`。四份长期文档重新打入 AndroidTest APK 后，项目文档语料单项为 `OK (1 test)`。
-- Debug/Release APK 为 `23,370,790 / 16,016,342` 字节，SHA-256 为 `d873b870b6fa2aad576f4e70f49a1fe963efc0ada01accaaf0fdcf2798071330 / dfe60c112e967c09c1afb63d76dc267de5723a86d4ed8e6e7f44612b91f2fc25`。Room v32、分享解析/附件校验业务、设置导航、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项均未改变。
+- `XiaoLingViewModel` 把 Provider、会话、附件、知识库、网络客户端、Agent Runtime、Workflow、进程退出观察、WorkManager Scheduler 和备份等重型对象改为 `lazy`。`XiaoLingApp` 使用 `withFrameNanos` 先交付可见首帧，再调用只能启动一次的 `initialize()`；冷启动分享继续在初始化完成前排队，不丢失 Intent。
+- Manifest 只移除 `androidx.work.WorkManagerInitializer`，保留其他 AndroidX Startup 组件。`XiaoLingApplication : Configuration.Provider` 提供默认 WorkManager 配置，使 `WorkManager.getInstance(context)` 在首次调度时按官方入口初始化，不改变既有 Worker、周期任务或恢复对账语义。
+- Release 启用 `isMinifyEnabled=true`和 `proguard-android-optimize.txt`。Compose 依赖带有 Kotlin 2.4 metadata，根工程按 Android 官方兼容表从 `https://storage.googleapis.com/r8-releases/raw` 引入 R8 `9.1.29`；干净 Release 构建成功，原 metadata 警告消失，只剩两条 `Class file resource provider does not support async parsing` 性能能力提示。
+- 新增 `baselineprofile` Android Test module 和 `BaselineProfileGenerator.startup`，仅采集真实冷启动，不主动访问设置、Agent 或 Workflow 页。生成命令必须显式限定 `ANDROID_SERIAL=wsvwypiz7xwslvl7`：`ANDROID_SERIAL=wsvwypiz7xwslvl7 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:generateBaselineProfile --console=plain`。`baseline-prof.txt / startup-prof.txt` 各 `18,011` 行；R8 重写后 Release APK 内 `baseline.prof / baseline.profm` 为 `13,847 / 719` 字节，远低于官方 `1.5 MB` 上限。
+- Redmi 上原 Debug 冷启动约 `3.4–3.7s`；最终 R8 Release 覆盖安装后首次 `am start -W` 为 `533ms`，强制 `speed-profile` 编译后三次为 `580 / 504 / 587ms`。这是 Redmi 当次设备与编译状态下的 TTID，不等同所有冷启动的固定 Splash 持续时间。Release 主界面、设置滚到底、前台 Activity、PID 和空 crash buffer 均已真机验证。
+- PNG 分享测试在发起缺失图片分享前通过 `snapshotFlow` 监听瞬时 `OperationResult`，明确断言标题为“图片不可用”、`success=false`，并继续验证附件为空、不自动发送，静默丢弃附件不再能通过该回归。
+- 最终本地门禁为 JVM `678/678`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 成功。Release 为 `3,170,866` 字节，zipalign、v2 固定证书和单签名者通过，SHA-256 为 `6c28ac665471e4cddda4d58f0c36a79458cadb929bc3fe11c289113cf9ba004e`；Debug 为 `23,354,457` 字节，SHA-256 为 `7394d986be7a12d0b2b0b853d54f7af4ac438017a7f2ec28f843e816ce556c84`。仅 Redmi 默认完整 instrumentation 为 `OK (222 tests)`、耗时 `83.58s`；四份长期文档重新打入 AndroidTest APK 后，项目语料门禁为 `OK (1 test)`。Room v32、分享解析/附件校验业务、设置导航、Provider、Agent Runtime、Workflow、设备工具后台门禁、answerability Shadow 和第 101/102 项均未改变。
 
 ## 进程退出观察垂直 UI module（横向结构工程）
 
@@ -635,7 +639,7 @@
 - 设置根页通过 `SettingsRootProjection`、`SettingsRootUiState`、`SettingsRootActions` 和专用 Compose page 隔离宿主；页面只呈现主题、14 项入口和业务摘要，pane 分派、Android launcher、导航及真实副作用继续由 `SettingsPage` composition root 负责。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页垂直 UI。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；下一轮从剩余 `1,097` 行重新盘点对话框簇，不机械搬运 composition root。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主，以及 Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页垂直 UI。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；下一轮从当前 `1,103` 行重新盘点对话框簇，不机械搬运 composition root。
 
 ## 对话请求
 

@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "XiaoLing"
 include(":app")
+include(":baselineprofile")

@@ -5,12 +5,21 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.compose.runtime.snapshotFlow
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.MainActivity
+import com.longdev.xiaoling.ui.OperationResult
 import com.longdev.xiaoling.ui.XiaoLingUiState
 import com.longdev.xiaoling.ui.XiaoLingViewModel
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -66,11 +75,20 @@ class SharedDraftActivityInstrumentedTest {
                 val removedState = scenario.awaitState { it.pendingImage == null }
                 assertFalse(removedState.sharedDraftImported)
                 val navigationVersionBeforeMissingImage = removedState.sharedDraftNavigationVersion
+                val missingImageResult = CompletableDeferred<OperationResult>()
 
                 val missingUri = Uri.parse("content://com.longdev.xiaoling.test/missing.png")
                 scenario.onActivity { activity ->
                     val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
                     viewModel.updatePrompt("")
+                    activity.lifecycleScope.launch {
+                        // long: 中心提示会迅速消费 OperationResult；在发起缺失图片分享前监听状态，才能区分“正确报错”与“静默丢弃附件”。
+                        missingImageResult.complete(
+                            snapshotFlow { viewModel.uiState.result }
+                                .filterNotNull()
+                                .first(),
+                        )
+                    }
                     activity.startActivity(
                         Intent(activity, MainActivity::class.java).apply {
                             action = Intent.ACTION_SEND
@@ -90,6 +108,11 @@ class SharedDraftActivityInstrumentedTest {
                 assertNull(failedState.pendingImage)
                 assertFalse(failedState.sharedDraftImported)
                 assertFalse(failedState.sendingMessage)
+                val result = runBlocking {
+                    withTimeout(5_000L) { missingImageResult.await() }
+                }
+                assertEquals("\u56fe\u7247\u4e0d\u53ef\u7528", result.title)
+                assertFalse(result.success)
             }
         } finally {
             ApplicationProviderHolder.context.contentResolver.delete(imageUri, null, null)

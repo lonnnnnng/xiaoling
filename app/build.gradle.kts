@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("androidx.room")
+    id("androidx.baselineprofile")
 }
 
 val releaseSigningProperties = Properties().apply {
@@ -46,7 +47,8 @@ android {
             buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "true")
         }
         release {
-            isMinifyEnabled = false
+            // long: Release 通过 R8 重写 Baseline/Startup Profile 并按启动热路径布局 DEX；Debug 保持不压缩，便于日常诊断。
+            isMinifyEnabled = true
             // long: release 包默认关闭 HTTP 日志，避免用户的请求内容和模型返回进入生产日志。
             buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "false")
             signingConfig = signingConfigs.getByName("releaseLocal")
@@ -54,6 +56,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        create("nonMinifiedRelease") {
+            initWith(getByName("release"))
+            // long: Baseline Profile 生成包只在 Redmi 覆盖当前 Debug 安装；使用 Debug 证书避免卸载清数据，正式 releaseLocal 证书和发布包保持不变。
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("benchmarkRelease") {
+            initWith(getByName("release"))
+            // long: 启动基准与 Profile 生成使用同一内部证书，确保后续对比能在 Redmi 上无损切换内部测试变体。
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -111,6 +123,9 @@ dependencies {
     implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.41.0")
     implementation("com.mikepenz:multiplatform-markdown-renderer-code:0.41.0")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+
+    baselineProfile(project(":baselineprofile"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

@@ -138,19 +138,21 @@
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
 - 保持边界：备份忙时两个图标继续禁用、父卡仍可触发导出；Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
 
-## 2026-07-27 单一启动画面与固定设置标题
+## 2026-07-27 单一启动画面、Release Profile 与固定设置标题
 
 - 实现边界：Android 12+ 继续保留 `Theme.XiaoLing` 的系统 Splash Logo；删除 `XiaoLingLaunch.kt`，`MainActivity` 直接渲染 `XiaoLingApp`，不再保留 Compose 品牌页、`880ms` 等待或 `260ms` Crossfade。设置根页将标题/主题选择器留在固定外层，仅让 14 项卡片区域滚动。
-- 测试边界：设置根页新增滚到底后标题和主题入口仍显示的 Compose 回归，聚焦为 `OK (5 tests)`。完整套件首次运行发现 PNG 分享测试轮询 Compose 会立即消费的瞬时 `result`；改为等待分享导航版本递增、附件读取结束且未保留图片后，聚焦 `OK (1 test)`，生产分享流程未改。
-- 本地完整门禁：强制重跑 `140/140` tasks（`2m 20s`），JVM `678/678`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug APK 为 `23,370,790` 字节、SHA-256 `d873b870b6fa2aad576f4e70f49a1fe963efc0ada01accaaf0fdcf2798071330`；Release APK 为 `16,016,342` 字节、SHA-256 `dfe60c112e967c09c1afb63d76dc267de5723a86d4ed8e6e7f44612b91f2fc25`。
-- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。默认完整 instrumentation 最终为 `OK (222 tests)`、耗时 `83.429s`。9.229 秒冷启动录屏与逐帧联系表确认只出现系统 Splash Logo，随后直接进入主界面；`am start -W` 为 `LaunchState: COLD / TotalTime: 4040ms`。正式设置页滚到底截图确认“设置”和主题选择器持续可见；没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 启动初始化：Provider、会话、附件、知识库、网络、Agent、Workflow、WorkManager Scheduler、退出观察和备份对象改为惰性构造；`XiaoLingApp` 交付可见首帧后才调用单次 `initialize()`。Manifest 只移除 WorkManager Startup initializer，`XiaoLingApplication : Configuration.Provider` 保留官方按需初始化路径。
+- Profile/R8：Release 启用 R8，并按 Android 官方 Kotlin metadata 兼容表使用 `9.1.29`；干净 Release 构建成功且旧 metadata 警告消失。`baselineprofile` module 只在 Redmi 生成冷启动 Profile；`baseline-prof.txt / startup-prof.txt` 各 `18,011` 行，Release APK 内 `baseline.prof / baseline.profm` 为 `13,847 / 719` 字节，低于 `1.5 MB` 上限。
+- 测试边界：设置根页保留“滚到底后标题和主题入口仍显示”回归。PNG 分享测试在发起缺失图片分享前监听瞬时 `OperationResult`，明确断言“图片不可用”和 `success=false`，同时验证附件为空、不自动发送。
+- 本地完整门禁：JVM `678/678`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 全部成功。Release 通过 zipalign、v2 固定证书与单签名者校验。Debug APK 为 `23,354,457` 字节、SHA-256 `7394d986be7a12d0b2b0b853d54f7af4ac438017a7f2ec28f843e816ce556c84`；Release APK 为 `3,170,866` 字节、SHA-256 `6c28ac665471e4cddda4d58f0c36a79458cadb929bc3fe11c289113cf9ba004e`。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。原 Debug 冷启动约 `3.4–3.7s`；最终 R8 Release 覆盖安装后首次 `am start -W` 为 `533ms`，`speed-profile` 编译后三次为 `580 / 504 / 587ms`。Release 主页、设置滚到底、前台 Activity、PID 与空 crash buffer 通过；默认完整 instrumentation 为 `OK (222 tests)`、耗时 `83.58s`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
 - 文档门禁：四份长期文档同步后重新构建 AndroidTest APK，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
-- 保持边界：Android 系统 Splash 不移除；本轮不进一步重构约 4 秒首帧初始化。Room v32、分享解析/附件校验、设置子页导航、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
+- 保持边界：Android 系统 Splash 不移除，当前已无应用人为等待；后续只在 Macrobenchmark 数据证明回归时继续调整 Profile 范围。Room v32、分享解析/附件校验、设置子页导航、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
 
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别拥有独立 UI 垂直边界；宿主剩余 `1,097` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root，下一轮重新盘点剩余对话框簇，不继续扩张 Agent Runtime、设备权限或机械搬文件。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别拥有独立 UI 垂直边界；启动收尾后宿主当前 `1,103` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root，下一轮重新盘点剩余对话框簇，不继续扩张 Agent Runtime、设备权限或机械搬文件。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

@@ -20,6 +20,7 @@
         android:required="false" />
 
     <application
+        android:name=".XiaoLingApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -27,6 +28,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.XiaoLing"
         android:usesCleartextTraffic="true">
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <!-- long: WorkManager 首次被调度器或 Worker 使用时再初始化，避免后台能力对象图占用冷启动首帧；其他 AndroidX Startup 组件继续保留。 -->
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
+
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
             android:screenOrientation="portrait"

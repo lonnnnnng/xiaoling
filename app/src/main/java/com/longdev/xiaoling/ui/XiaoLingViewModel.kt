@@ -428,13 +428,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     NetworkRequestSettingsActions,
     PromptSettingsActions,
     ProcessExitObservationActions {
-    private val configStore = ProviderRepository(application)
-    private val conversationStore = ConversationRepository(application)
-    private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
-    private val documentAttachmentReader = DocumentAttachmentReader(application)
-    private val knowledgeDocumentStore = RoomKnowledgeDocumentStore(application)
+    private val configStore by lazy { ProviderRepository(application) }
+    private val conversationStore by lazy { ConversationRepository(application) }
+    private val imageAttachmentReader by lazy { ImageAttachmentReader(application.contentResolver) }
+    private val documentAttachmentReader by lazy { DocumentAttachmentReader(application) }
+    private val knowledgeDocumentStore by lazy { RoomKnowledgeDocumentStore(application) }
     private val uiPreferenceStore = UiPreferenceStore(application)
-    private val client = OpenAiCompatibleClient()
+    private val client by lazy { OpenAiCompatibleClient() }
     private val answerabilityShadowSampleTracker = KnowledgeAnswerabilityShadowSampleTracker()
     private val answerabilityCompletionClient = KnowledgeAnswerabilityCompletionClient { config, messages ->
         client.sendMessage(config = config, messages = messages)
@@ -521,10 +521,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             client.sendMessage(config, messages, onStreamDelta)
         },
     )
-    private val agentRunUseCase = AgentRunUseCase(application, client)
-    private val agentProfileStore = RoomAgentProfileStore(application)
-    private val agentRunRepository = RoomAgentRunRepository(application)
-    private val agentMemoryStore = RoomAgentMemoryStore(application)
+    private val agentRunUseCase by lazy { AgentRunUseCase(application, client) }
+    private val agentProfileStore by lazy { RoomAgentProfileStore(application) }
+    private val agentRunRepository by lazy { RoomAgentRunRepository(application) }
+    private val agentMemoryStore by lazy { RoomAgentMemoryStore(application) }
     private val agentMemoryCandidateCoordinator = AgentMemoryCandidateCoordinator(
         candidateLimit = MEMORY_CANDIDATE_LIMIT,
         listCandidates = { limit ->
@@ -540,7 +540,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             withContext(Dispatchers.IO) { agentMemoryStore.rejectCandidate(candidateId) }
         },
     )
-    private val workflowRepository = RoomWorkflowRepository(application)
+    private val workflowRepository by lazy { RoomWorkflowRepository(application) }
     private val recoveredAgentApprovalCoordinator = RecoveredAgentApprovalCoordinator(
         loadRunDetail = { runId ->
             withContext(Dispatchers.IO) { agentRunRepository.runDetail(runId) }
@@ -565,41 +565,49 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             }
         },
     )
-    private val processExitObservationStore = RoomProcessExitObservationStore(application)
-    private val scheduledTaskScheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(application)
-    private val startupRecoveryCoordinator = StartupRecoveryCoordinator(
-        processExecutionRegistry = ScheduledWorkflowProcessExecutionRegistry.process,
-        loadAgentRunIds = agentRunRepository::activeRunIds,
-        loadWorkflowCandidates = workflowRepository::startupRecoveryCandidates,
-    )
-    private val scheduledWorkflowStopFallback = ScheduledWorkflowStopFallbackCoordinator(
-        loadTask = workflowRepository::getScheduledTask,
-        loadWorkflowRun = workflowRepository::runDetail,
-        cancelAgentRun = agentRunUseCase::cancelActiveRunForScheduledTaskStop,
-        settleWorkflowAndTask = { taskId, workflowRunId, reason ->
-            workflowRepository.settleScheduledWorkflowRun(
-                taskId = taskId,
-                workflowRunId = workflowRunId,
-                workflowStatus = WorkflowRunStatus.CANCELLED,
-                taskStatus = ScheduledTaskStatus.CANCELLED,
-                errorMessage = reason,
-            )
-        },
-        settleTaskWithoutWorkflow = { taskId, reason ->
-            workflowRepository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
-        },
-    )
-    private val scheduledWorkflowStopCoordinator = ScheduledWorkflowStopCoordinator(
-        loadTask = workflowRepository::getScheduledTask,
-        cancelPendingTask = workflowRepository::cancelScheduledTask,
-        requestScheduledTaskStop = { taskId ->
-            workflowRepository.requestScheduledTaskStop(taskId, "用户请求停止后台工作流")
-        },
-        cancelSystemWork = scheduledTaskScheduler::cancel,
-        waitForWorkerSettlement = { delay(100L) },
-        reconcileUnsettledTask = scheduledWorkflowStopFallback::reconcile,
-    )
-    private val backupManager = XiaoLingBackupManager(application)
+    private val processExitObservationStore by lazy { RoomProcessExitObservationStore(application) }
+    private val scheduledTaskScheduler: ScheduledTaskScheduler by lazy {
+        WorkManagerScheduledTaskScheduler(application)
+    }
+    private val startupRecoveryCoordinator by lazy {
+        StartupRecoveryCoordinator(
+            processExecutionRegistry = ScheduledWorkflowProcessExecutionRegistry.process,
+            loadAgentRunIds = agentRunRepository::activeRunIds,
+            loadWorkflowCandidates = workflowRepository::startupRecoveryCandidates,
+        )
+    }
+    private val scheduledWorkflowStopFallback by lazy {
+        ScheduledWorkflowStopFallbackCoordinator(
+            loadTask = workflowRepository::getScheduledTask,
+            loadWorkflowRun = workflowRepository::runDetail,
+            cancelAgentRun = agentRunUseCase::cancelActiveRunForScheduledTaskStop,
+            settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+                workflowRepository.settleScheduledWorkflowRun(
+                    taskId = taskId,
+                    workflowRunId = workflowRunId,
+                    workflowStatus = WorkflowRunStatus.CANCELLED,
+                    taskStatus = ScheduledTaskStatus.CANCELLED,
+                    errorMessage = reason,
+                )
+            },
+            settleTaskWithoutWorkflow = { taskId, reason ->
+                workflowRepository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+            },
+        )
+    }
+    private val scheduledWorkflowStopCoordinator by lazy {
+        ScheduledWorkflowStopCoordinator(
+            loadTask = workflowRepository::getScheduledTask,
+            cancelPendingTask = workflowRepository::cancelScheduledTask,
+            requestScheduledTaskStop = { taskId ->
+                workflowRepository.requestScheduledTaskStop(taskId, "用户请求停止后台工作流")
+            },
+            cancelSystemWork = scheduledTaskScheduler::cancel,
+            waitForWorkerSettlement = { delay(100L) },
+            reconcileUnsettledTask = scheduledWorkflowStopFallback::reconcile,
+        )
+    }
+    private val backupManager by lazy { XiaoLingBackupManager(application) }
     private var streamingThrottleJob: Job? = null
     private var pendingStreamingUpdate: StreamDeltaUpdate? = null
     private val agentApprovalDecisionCoordinator = AgentApprovalDecisionCoordinator()
@@ -615,6 +623,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
     private val queuedSharedDraftImports = ArrayDeque<SharedDraftImport>()
+    private var initializationStarted = false
     private var initializationComplete = false
 
     var uiState by mutableStateOf(
@@ -630,13 +639,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     )
         private set
 
-    private val providerModelSyncCoordinator = ProviderModelSyncCoordinator(
-        fetchModels = client::fetchModels,
-        commitProfile = ::commitSyncedProviderProfile,
-        nowSyncTimeText = ::nowSyncTimeText,
-    )
+    private val providerModelSyncCoordinator by lazy {
+        ProviderModelSyncCoordinator(
+            fetchModels = client::fetchModels,
+            commitProfile = ::commitSyncedProviderProfile,
+            nowSyncTimeText = ::nowSyncTimeText,
+        )
+    }
 
-    init {
+    internal fun initialize() {
+        if (initializationStarted) return
+        initializationStarted = true
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 // long: 前台启动只补采系统退出观察；采集失败不能阻塞聊天和恢复，也不能把时间邻近的退出强行归因到某个旧 Run。

@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,6 +113,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun XiaoLingApp(viewModel: XiaoLingViewModel = viewModel()) {
     val state = viewModel.uiState
+    LaunchedEffect(viewModel) {
+        // long: 先让 Compose 交付可见首帧并结束系统 Splash，再启动 Room、Agent 与 Workflow 恢复；恢复仍只启动一次并继续处理冷启动分享队列。
+        withFrameNanos { }
+        viewModel.initialize()
+    }
     XiaoLingTheme(themeMode = state.themeMode) {
         XiaoLingContent(
             state = state,
