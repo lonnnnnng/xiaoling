@@ -126,6 +126,10 @@ class WorkflowManagementPageInstrumentedTest {
             retryRunIds += runId
         }
 
+        override fun confirmWorkflowRunRetry() = Unit
+
+        override fun cancelWorkflowRunRetry() = Unit
+
         override fun scheduleWorkflowOnce(workflowId: String, delayMinutes: Int) {
             oneTimeSchedules += workflowId to delayMinutes
         }

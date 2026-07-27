@@ -122,9 +122,12 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.workflow.WorkflowRetryConfirmationUiState
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileEditDraft
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
+import com.longdev.xiaoling.ui.agenttask.AgentRetryConfirmationUiState
+import com.longdev.xiaoling.ui.memory.AgentMemoryEditUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
 import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsActions
 import com.longdev.xiaoling.ui.provider.ProviderEditDraft
@@ -403,21 +406,6 @@ data class AgentApprovalUiState(
         }
     }
 }
-
-data class WorkflowRetryConfirmationUiState(
-    val runId: String,
-    val workflowName: String,
-    val retryFromSequence: Int,
-    val reusedStepCount: Int,
-)
-
-data class AgentMemoryEditUiState(
-    val id: String,
-    val content: String,
-    val tags: String,
-    val type: String,
-    val confidence: Double,
-)
 
 class XiaoLingViewModel(application: Application) : AndroidViewModel(application),
     WorkflowManagementActions,
@@ -1427,7 +1415,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun confirmWorkflowRunRetry() {
+    override fun confirmWorkflowRunRetry() {
         val pending = uiState.pendingWorkflowRetryConfirmation ?: return
         uiState = uiState.copy(pendingWorkflowRetryConfirmation = null)
         val detail = uiState.workflowRuns.firstOrNull { it.run.id == pending.runId }
@@ -1438,7 +1426,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         startWorkflowRunRetry(detail)
     }
 
-    fun cancelWorkflowRunRetry() {
+    override fun cancelWorkflowRunRetry() {
         uiState = uiState.copy(pendingWorkflowRetryConfirmation = null)
     }
 
@@ -2131,29 +2119,29 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun updateMemoryEditContent(value: String) {
+    override fun updateMemoryEditContent(value: String) {
         uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(content = value)) }
     }
 
-    fun updateMemoryEditTags(value: String) {
+    override fun updateMemoryEditTags(value: String) {
         uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(tags = value)) }
     }
 
-    fun updateMemoryEditType(value: String) {
+    override fun updateMemoryEditType(value: String) {
         uiState.editingMemory?.let { uiState = uiState.copy(editingMemory = it.copy(type = value)) }
     }
 
-    fun updateMemoryEditConfidence(value: Double) {
+    override fun updateMemoryEditConfidence(value: Double) {
         uiState.editingMemory?.let {
             uiState = uiState.copy(editingMemory = it.copy(confidence = value.coerceIn(0.0, 1.0)))
         }
     }
 
-    fun cancelMemoryEdit() {
+    override fun cancelMemoryEdit() {
         uiState = uiState.copy(editingMemory = null)
     }
 
-    fun saveMemoryEdit() {
+    override fun saveMemoryEdit() {
         val draft = uiState.editingMemory ?: return
         if (draft.content.isBlank()) {
             showValidation("记忆内容不能为空")
@@ -2210,11 +2198,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(pendingMemoryDelete = memory)
     }
 
-    fun cancelMemoryDelete() {
+    override fun cancelMemoryDelete() {
         uiState = uiState.copy(pendingMemoryDelete = null)
     }
 
-    fun confirmMemoryDelete() {
+    override fun confirmMemoryDelete() {
         val memory = uiState.pendingMemoryDelete ?: return
         if (memory.id in uiState.mutatingMemoryIds) return
         uiState = uiState.copy(
@@ -2503,7 +2491,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun confirmAgentRunRetry() {
+    override fun confirmAgentRunRetry() {
         val pending = uiState.pendingAgentRetryConfirmation ?: return
         uiState = uiState.copy(pendingAgentRetryConfirmation = null)
         agentRunRetryCoordinator.confirm(
@@ -2513,7 +2501,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun cancelAgentRunRetry() {
+    override fun cancelAgentRunRetry() {
         val pending = uiState.pendingAgentRetryConfirmation
         if (pending == null) {
             uiState = uiState.copy(pendingAgentRetryConfirmation = null)

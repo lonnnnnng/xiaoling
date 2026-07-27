@@ -5,6 +5,7 @@ import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.model.MessageAttachmentSelection
+import com.longdev.xiaoling.ui.agenttask.AgentRetryConfirmationUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -15,13 +16,6 @@ internal data class AgentRunRetryLaunchRequest(
     val conversationId: String,
     val retryOfRunId: String,
     val attachments: MessageAttachmentSelection,
-)
-
-data class AgentRetryConfirmationUiState(
-    val runId: String,
-    val goal: String,
-    val evidenceCode: AgentTaskRetryEvidenceCode,
-    val evidenceFingerprint: String,
 )
 
 internal sealed interface AgentRunRetryEvent {

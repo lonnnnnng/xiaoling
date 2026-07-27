@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.ui.agenttask.AgentRetryConfirmationUiState
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot

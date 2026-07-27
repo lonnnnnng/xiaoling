@@ -10,6 +10,13 @@ import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 
+data class WorkflowRetryConfirmationUiState(
+    val runId: String,
+    val workflowName: String,
+    val retryFromSequence: Int,
+    val reusedStepCount: Int,
+)
+
 interface WorkflowManagementActions {
     fun refreshWorkflows()
 
@@ -22,6 +29,10 @@ interface WorkflowManagementActions {
     fun runWorkflow(workflowId: String)
 
     fun requestWorkflowRunRetry(runId: String)
+
+    fun confirmWorkflowRunRetry()
+
+    fun cancelWorkflowRunRetry()
 
     fun scheduleWorkflowOnce(workflowId: String, delayMinutes: Int)
 
@@ -42,6 +53,7 @@ internal data class WorkflowManagementUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val items: List<WorkflowItemUiState> = emptyList(),
+    val pendingRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
 )
 
 internal data class WorkflowItemUiState(
@@ -124,6 +136,7 @@ internal object WorkflowManagementProjection {
         schedulingWorkflowId: String?,
         runningWorkflowId: String?,
         sendingMessage: Boolean,
+        pendingRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
     ): WorkflowManagementUiState {
         // long: Run、调度实例和周期规则只在这里按 workflowId 汇合，避免 Compose 重组时各自筛选并产生不一致的 busy 判断。
         val runsByWorkflow = runs.groupBy { it.run.workflowId }
@@ -169,6 +182,7 @@ internal object WorkflowManagementProjection {
                     canToggleEnabled = !mutating && !running,
                 )
             },
+            pendingRetryConfirmation = pendingRetryConfirmation,
         )
     }
 

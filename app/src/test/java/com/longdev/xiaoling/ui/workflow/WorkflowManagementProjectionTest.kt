@@ -68,6 +68,12 @@ class WorkflowManagementProjectionTest {
             status = ScheduledTaskStatus.COMPLETED,
         )
         val schedule = schedule(workflowId = activeWorkflow.id)
+        val pendingRetry = WorkflowRetryConfirmationUiState(
+            runId = failedRun.run.id,
+            workflowName = activeWorkflow.name,
+            retryFromSequence = 1,
+            reusedStepCount = 0,
+        )
 
         val result = WorkflowManagementProjection.project(
             loading = false,
@@ -82,10 +88,12 @@ class WorkflowManagementProjectionTest {
             schedulingWorkflowId = activeWorkflow.id,
             runningWorkflowId = null,
             sendingMessage = false,
+            pendingRetryConfirmation = pendingRetry,
         )
 
         assertEquals("last refresh failed", result.error)
         assertEquals(listOf(activeWorkflow.id, disabledWorkflow.id), result.items.map { it.id })
+        assertEquals(pendingRetry, result.pendingRetryConfirmation)
 
         val active = result.items.first()
         assertTrue(active.running)

@@ -6,6 +6,12 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 横向结构工程：功能对话框归属收口（完成）
+
+Agent Run 重试证据确认、Workflow Run 重试步骤复用确认、长期记忆编辑/删除和本地 Skill 删除已分别迁入 `ui/agenttask`、`ui/workflow`、`ui/memory`、`ui/agentskill`。确认草稿、待删除对象和 busy 状态进入各模块 `UiState`/Projection；Agent、Workflow 与 Memory 通过功能 Actions 路由，Skill 删除使用窄确认/取消回调。四个 dialog host 仍由 `XiaoLingContent` 全局挂载，切换 pane 不会丢失待处理对话框。
+
+`SettingsPage` 继续承担 pane、Android launcher、跨页导航和模块适配；备份恢复继续留在根层处理 `Uri`、Room 替换、Keystore 与重启提示，全局通知也不迁移。`XiaoLingApp.kt` 从 `1,103` 行降到 `817` 行。JVM `678/678`、Lint、Debug/AndroidTest/R8 Release APK 和 Release lintVital 已通过；仅 Redmi `wsvwypiz7xwslvl7` 的新增 7 条 Compose 为 `OK (7 tests)`、测试耗时 `9.247s`，默认完整 instrumentation 为 `OK (229 tests)`、测试耗时 `89.151s`，最终文档重新打包后的项目语料单项为 `OK (1 test)`。未使用在线模拟器。达到本轮停止条件后不再继续结构拆分，下一主线正式切到通用执行恢复。
+
 ## 横向结构工程：Workflow 管理垂直 UI module（完成）
 
 Workflow 管理页已从 `XiaoLingApp.kt` 迁入 `ui/workflow`。模块使用专用 projection 按 Workflow 聚合定义、Run、调度实例与周期规则，统一计算运行/变更状态和操作资格，并在 Compose 前容错解码步骤快照；页面只依赖 `WorkflowManagementUiState` 与 10 个动作组成的 `WorkflowManagementActions`，新建、编辑、调度和展开状态由模块自己拥有。通知权限、设置导航和全局 Workflow 重试确认仍留在应用宿主。
@@ -22,7 +28,7 @@ Agent 任务中心已从 `XiaoLingApp.kt` 迁入 `ui/agenttask`。`AgentTaskCent
 
 长期记忆管理页已从 `XiaoLingApp.kt` 迁入 `ui/memory`。`MemoryManagementProjection` 统一投影正式记忆、仍可决定的 `PENDING / CONFLICT` 候选、搜索/筛选、删除撤销和按稳定 ID 绑定的 selected/mutating；`MemoryManagementPage` 只依赖窄 UI state、15 项 `MemoryManagementActions` 和返回回调，自己呈现空列表首刷、候选开关、搜索/筛选、来源与召回审计、生命周期操作和撤销入口。
 
-编辑/删除确认弹窗及来源会话/Run 导航 effect 继续留在应用宿主；真实 Room、候选协调器和跨进程撤销由 ViewModel 动作实现复用。`XiaoLingApp.kt` 从任务中心阶段的 `5,176` 行降到 `4,644` 行。双轴 review 已把候选标签、主按钮文案和冲突标记进一步收口到 projection，页面不再处理已过滤的不可达状态。Projection JVM `1/1`、仅 Redmi 动作路由与跨重组首刷 Compose `OK (2 tests)`、强制本地 `140/140` tasks、JVM `666/666`、Lint `0 error / 50 warnings / 0 information`、三类 APK 和 Release lintVital 通过，仅 Redmi 默认完整 instrumentation 为 `OK (201 tests)`、耗时 `54.857s`，最终文档语料单项为 `OK (1 test)`。Room v32、候选治理、FTS、生命周期、来源审计、跨进程删除撤销、设备后台门禁和第 101/102 项均不变。
+该阶段编辑/删除确认弹窗及来源会话/Run 导航 effect 留在应用宿主；后继收口已将弹窗迁入 `ui/memory`，来源导航仍由宿主处理；真实 Room、候选协调器和跨进程撤销由 ViewModel 动作实现复用。`XiaoLingApp.kt` 从任务中心阶段的 `5,176` 行降到 `4,644` 行。双轴 review 已把候选标签、主按钮文案和冲突标记进一步收口到 projection，页面不再处理已过滤的不可达状态。Projection JVM `1/1`、仅 Redmi 动作路由与跨重组首刷 Compose `OK (2 tests)`、强制本地 `140/140` tasks、JVM `666/666`、Lint `0 error / 50 warnings / 0 information`、三类 APK 和 Release lintVital 通过，仅 Redmi 默认完整 instrumentation 为 `OK (201 tests)`、耗时 `54.857s`，最终文档语料单项为 `OK (1 test)`。Room v32、候选治理、FTS、生命周期、来源审计、跨进程删除撤销、设备后台门禁和第 101/102 项均不变。
 
 ## 横向结构工程：Provider 管理垂直 UI module（完成）
 
@@ -38,7 +44,7 @@ Agent Profile 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentprofile`。`Agent
 
 ## 横向结构工程：Agent Skill 管理垂直 UI module（完成）
 
-Agent Skill 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentskill`。`AgentSkillManagementProjection` 按稳定 Skill ID 绑定启停/删除资格，以 Tool Registry 标记依赖的已注册/缺失状态，并从最近 Run 的 `skill.selected` 事件投影最多三条版本与终态审计；损坏旧事件保守忽略。`AgentSkillManagementPage` 只依赖窄 UI state、刷新 Skill/审计、请求导入、启停和请求删除五项 Actions 及返回回调，自己持有首刷和稳定 ID 展开状态。Android 文件选择器、全局删除确认与真实持久化副作用仍留在应用宿主。
+Agent Skill 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentskill`。`AgentSkillManagementProjection` 按稳定 Skill ID 绑定启停/删除资格，以 Tool Registry 标记依赖的已注册/缺失状态，并从最近 Run 的 `skill.selected` 事件投影最多三条版本与终态审计；损坏旧事件保守忽略。`AgentSkillManagementPage` 只依赖窄 UI state、刷新 Skill/审计、请求导入、启停和请求删除五项 Actions 及返回回调，自己持有首刷和稳定 ID 展开状态。该阶段 Android 文件选择器、全局删除确认与真实持久化副作用留在应用宿主；后继收口已将删除确认迁入 `ui/agentskill` 并继续由宿主全局挂载。
 
 `XiaoLingApp.kt` 从 Agent Profile 阶段的 `3,631` 行降到 `3,497` 行。双轴 review 已删除未消费的 mutating 原始字段，补齐依赖/Run 审计 projection，并把导入意图收口进 Actions、移除 ViewModel 审计刷新透传。Projection JVM `3/3`、仅 Redmi 页面 Compose `OK (2 tests)`、宿主返回/底栏 `OK (1 test)`、强制本地 `140/140` tasks、JVM `673/673`、Lint `0 error / 50 warnings / 0 information`、三类 APK 和 Release lintVital 均通过；Redmi 默认完整 `OK (211 tests)`、耗时 `70.952s`，最终文档语料单项为 `OK (1 test)`。Room v32、Skill 导入/Runtime/旧 Run、设备工具后台门禁和第 101/102 项均不变；下一轮从宿主剩余 `3,497` 行重新盘点完整垂直簇。
 
@@ -70,7 +76,7 @@ Agent Skill 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentskill`。`AgentSkil
 
 设置根页已从 `XiaoLingApp.kt` 迁入 `ui/settingsroot`。`SettingsRootProjection` 把全局状态压缩为主题、当前 Agent Profile、Provider/模型、Shadow、Skill、Workflow、Agent Run、进程退出观察和备份摘要；页面只接收 `SettingsRootUiState / SettingsRootActions`，拥有原 14 项顺序、动态文案、主题选择及备份按钮。宿主继续把导航、ViewModel 主题动作和 Android 备份 launcher 映射为 Actions，`SettingsPage` 仍是 composition root。
 
-`XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行，Contract/Page 为 `88 / 264` 行。Projection JVM `1/1`、Redmi 页面 Compose `OK (4 tests)`、双轴审查和强制本地 `140/140` tasks 均通过；JVM `678/678`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。仅 Redmi 默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。备份 busy 语义、Room v32、全部设置子页、Agent/Workflow、设备后台门禁和第 101/102 项不变；下一轮重新盘点宿主剩余对话框簇，不机械迁移 `SettingsPage`。
+`XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行，Contract/Page 为 `88 / 264` 行。Projection JVM `1/1`、Redmi 页面 Compose `OK (4 tests)`、双轴审查和强制本地 `140/140` tasks 均通过；JVM `678/678`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。仅 Redmi 默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。备份 busy 语义、Room v32、全部设置子页、Agent/Workflow、设备后台门禁和第 101/102 项不变；后继有界对话框簇已完成且没有机械迁移 `SettingsPage`。
 
 ## 横向体验收尾：单一启动画面、启动性能与固定设置标题（完成）
 
@@ -409,7 +415,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付，但设备工具仍没有 Workflow/后台执行、坐标/截图兜底或任意 App 通用能力。
-- ViewModel 与 Compose 宿主仍然偏重；第 66 至 73 阶段及后续横向工程已迁出普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排。应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别迁入独立 UI module，并拥有窄状态、局部呈现状态和 actions interface；`XiaoLingApp.kt` 从 `7,018` 行降到当前 `1,103` 行。剩余优先工作是重新盘点对话框簇，同时继续保留 `SettingsPage` composition root 的平台协调职责。
+- ViewModel 仍偏重，但本轮 Compose 结构工程已到停止点：第 66 至 73 阶段及后续横向工程迁出了普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排；应用导航、十一个业务页面和四组功能对话框均已拥有窄状态、局部呈现状态与 actions/callback 边界。`XiaoLingApp.kt` 从 `7,018` 行降到当前 `817` 行，`SettingsPage` 继续保留平台协调职责。后续不继续按行数拆宿主或 ViewModel，当前优先工作已经切换到通用执行恢复矩阵。
 
 ## 目标架构
 
@@ -486,7 +492,7 @@ com.longdev.xiaoling.ui.agentskill
 
 目标：在引入 Agent 前，让现有请求和数据结构具备扩展条件。
 
-当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v32 迁移测试、Text/Reasoning/Image/Document/Tool 消息 parts、KnowledgeReference、独立进程退出观察、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter`、普通聊天上下文 Preparer、发送 Coordinator、会话状态/选择 Policy、保存 Coordinator、加载 Coordinator、加载投影 Policy、选择 Coordinator、Agent Run 重试 Coordinator、会话级 Agent 运行态 Store、当前进程审批决策 Coordinator、恢复后审批 Coordinator、候选记忆 Coordinator、Provider 模型同步 Coordinator，以及导航、Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill 和会话主界面 UI 垂直模块均已完成；面向用户的 Room ZIP 备份/恢复也已交付，ViewModel 与 Compose 宿主继续瘦身仍待完成。
+当前状态：请求取消、停止生成、Room 迁移、Schema 导出、v4→v32 迁移测试、Text/Reasoning/Image/Document/Tool 消息 parts、KnowledgeReference、独立进程退出观察、Repository、Responses API 结构化文本/附件历史、函数 typed Items、可选 Reasoning summary、`LlmProviderAdapter`、普通聊天上下文 Preparer、发送 Coordinator、会话状态/选择 Policy、保存 Coordinator、加载 Coordinator、加载投影 Policy、选择 Coordinator、Agent Run 重试 Coordinator、会话级 Agent 运行态 Store、当前进程审批决策 Coordinator、恢复后审批 Coordinator、候选记忆 Coordinator、Provider 模型同步 Coordinator，以及导航、Workflow、Agent 任务中心、长期记忆、Provider、Agent Profile、Agent Skill、会话主界面和功能对话框 UI 边界均已完成；面向用户的 Room ZIP 备份/恢复也已交付。结构瘦身达到停止条件，后续只在通用执行恢复需要新的可靠接口时继续调整 ViewModel 或宿主。
 
 ### 要做什么
 
@@ -742,8 +748,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 基于 `v0.1.12` 之后 15 个已验证提交，后续主线固定为以下顺序：
 
 1. 已完成：发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
-2. 发布后只进行一轮有停止条件的对话框簇收尾。仅当对话框具有独立状态、动作接口、复用价值或可验证业务边界时才迁出；`SettingsPage` 继续承担跨页面导航、Android launcher、pane 分派和模块适配等 composition root 职责。完成这一轮盘点与合格候选迁移后即停止，不以压低 `XiaoLingApp.kt` 或 `XiaoLingViewModel.kt` 行数为目标。
-3. 随后把主线切换到通用执行恢复。先建立持久化恢复矩阵，明确“尚未提交可重放、已提交且有稳定 operation ID 可只读验证、已验证只补控制面/可信总结、提交状态未知继续 fail-closed”四类边界；旧 Run 保持不变，不用恢复名义放宽副作用安全策略。
+2. 已完成：发布后有停止条件的对话框簇收尾。只迁移 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除；`SettingsPage`、备份恢复、全局通知与 Android launcher 继续留在 composition root。`XiaoLingApp.kt` 收敛到 `817` 行后停止结构拆分，不再以压低宿主或 ViewModel 行数为目标。
+3. 当前主线：切换到通用执行恢复。先建立持久化恢复矩阵，明确“尚未提交可重放、已提交且有稳定 operation ID 可只读验证、已验证只补控制面/可信总结、提交状态未知继续 fail-closed”四类边界；旧 Run 保持不变，不用恢复名义放宽副作用安全策略。
 4. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
 5. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
 6. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
@@ -889,6 +895,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 101. 持续观察：首个间隔真实使用窗口已新增 `1` 条直接回答，已记录窗口人工合计为样本 `10`、有效 Judge `8`；Shadow 继续保持低频旁路，不在同一窗口堆样本，只有出现自然网络/协议/认证失败或明显成本异常后，才重新评审最小化持久化。
 102. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；启动收尾后宿主当前 `1,103` 行，下一目标是重新盘点对话框簇，而不是扩张第 102 项的执行范围或机械搬运 `SettingsPage` composition root。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，下一目标是通用执行恢复矩阵，而不是扩张第 102 项或机械搬运 `SettingsPage` composition root。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该合计不是跨进程持久化，后续只在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

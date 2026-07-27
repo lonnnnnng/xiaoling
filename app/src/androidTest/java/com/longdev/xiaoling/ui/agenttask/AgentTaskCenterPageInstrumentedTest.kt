@@ -91,5 +91,9 @@ class AgentTaskCenterPageInstrumentedTest {
         override fun requestAgentRunRetry(runId: String) {
             retryRunIds += runId
         }
+
+        override fun confirmAgentRunRetry() = Unit
+
+        override fun cancelAgentRunRetry() = Unit
     }
 }

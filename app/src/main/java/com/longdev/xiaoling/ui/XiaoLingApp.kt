@@ -7,11 +7,8 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,27 +18,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,12 +47,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.longdev.xiaoling.agent.AgentMemoryRecord
-import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeReference
@@ -74,12 +60,14 @@ import com.longdev.xiaoling.ui.navigation.XiaoLingNavigationEffect
 import com.longdev.xiaoling.ui.navigation.XiaoLingSettingsPane as SettingsPane
 import com.longdev.xiaoling.ui.navigation.rememberXiaoLingNavigationController
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterPage
+import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterDialogs
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterProjection
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterUiState
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementProjection
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementUiState
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementActions
+import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementDialogs
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementPage
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementProjection
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementUiState
@@ -88,6 +76,7 @@ import com.longdev.xiaoling.ui.conversation.ConversationPage
 import com.longdev.xiaoling.ui.conversation.ConversationProjection
 import com.longdev.xiaoling.ui.conversation.ConversationUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
+import com.longdev.xiaoling.ui.memory.MemoryManagementDialogs
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
 import com.longdev.xiaoling.ui.memory.MemoryManagementUiState
 import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsPage
@@ -104,6 +93,7 @@ import com.longdev.xiaoling.ui.settingsroot.SettingsRootProjection
 import com.longdev.xiaoling.ui.settingsroot.SettingsRootUiState
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementPage
+import com.longdev.xiaoling.ui.workflow.WorkflowManagementDialogs
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementUiState
 import kotlinx.coroutines.delay
@@ -380,20 +370,14 @@ private fun XiaoLingContent(
         }
     }
 
-    state.pendingAgentRetryConfirmation?.let { pending ->
-        AgentRetryConfirmationDialog(
-            pending = pending,
-            onConfirm = viewModel::confirmAgentRunRetry,
-            onDismiss = viewModel::cancelAgentRunRetry,
-        )
-    }
-    state.pendingWorkflowRetryConfirmation?.let { pending ->
-        WorkflowRetryConfirmationDialog(
-            pending = pending,
-            onConfirm = viewModel::confirmWorkflowRunRetry,
-            onDismiss = viewModel::cancelWorkflowRunRetry,
-        )
-    }
+    AgentTaskCenterDialogs(
+        state = state.toAgentTaskCenterUiState(),
+        actions = viewModel,
+    )
+    WorkflowManagementDialogs(
+        state = state.toWorkflowManagementUiState(),
+        actions = viewModel,
+    )
     pendingBackupRestoreUri?.let { uri ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { pendingBackupRestoreUri = null },
@@ -413,32 +397,16 @@ private fun XiaoLingContent(
             },
         )
     }
-    state.editingMemory?.let { draft ->
-        AgentMemoryEditDialog(
-            draft = draft,
-            saving = draft.id in state.mutatingMemoryIds,
-            viewModel = viewModel,
-        )
-    }
-    state.pendingMemoryDelete?.let { memory ->
-        AgentMemoryDeleteDialog(
-            memory = memory,
-            deleting = memory.id in state.mutatingMemoryIds,
-            onConfirm = viewModel::confirmMemoryDelete,
-            onDismiss = viewModel::cancelMemoryDelete,
-        )
-    }
-    state.pendingLocalSkillDelete?.let { skill ->
-        LocalSkillDeleteDialog(
-            skill = skill,
-            deleting = skill.definition.id in state.mutatingSkillIds,
-            onConfirm = viewModel::confirmLocalSkillDelete,
-            onDismiss = viewModel::cancelLocalSkillDelete,
-        )
-    }
+    MemoryManagementDialogs(
+        state = state.toMemoryManagementUiState(),
+        actions = viewModel,
+    )
+    AgentSkillManagementDialogs(
+        state = state.toAgentSkillManagementUiState(),
+        onConfirmLocalSkillDelete = viewModel::confirmLocalSkillDelete,
+        onCancelLocalSkillDelete = viewModel::cancelLocalSkillDelete,
+    )
 }
-
-private val agentMemoryTypes = listOf("Preference", "ProfileFact", "Episode", "Procedure")
 
 private data class CenterNotice(
     val text: String,
@@ -477,243 +445,6 @@ private fun CenterNoticePopup(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
         )
     }
-}
-
-@Composable
-private fun AgentRetryConfirmationDialog(
-    pending: AgentRetryConfirmationUiState,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "确认重新运行",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = pending.goal,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                val evidence = presentAgentTaskRetryEvidence(pending.evidenceCode)
-                Text(
-                    text = "${evidence.label} · ${evidence.code.name}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onConfirm) {
-                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("创建新 Run")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        },
-        shape = RoundedCornerShape(8.dp),
-    )
-}
-
-@Composable
-private fun WorkflowRetryConfirmationDialog(
-    pending: WorkflowRetryConfirmationUiState,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("确认重试工作流", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(pending.workflowName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "将从步骤 ${pending.retryFromSequence} 重新执行，复用前 ${pending.reusedStepCount} 个已完成步骤。新 Run 会保留来源 Run ID，旧 Run 和历史快照不会修改。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    "待重试步骤可能已产生部分外部副作用；写入工具仍会重新请求审批。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onConfirm) {
-                Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("创建新 Run")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-        shape = RoundedCornerShape(8.dp),
-    )
-}
-
-@Composable
-private fun AgentMemoryEditDialog(
-    draft: AgentMemoryEditUiState,
-    saving: Boolean,
-    viewModel: XiaoLingViewModel,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = { if (!saving) viewModel.cancelMemoryEdit() },
-        title = {
-            Text(
-                text = "编辑长期记忆",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 520.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                androidx.compose.material3.OutlinedTextField(
-                    value = draft.content,
-                    onValueChange = viewModel::updateMemoryEditContent,
-                    label = { Text("记忆内容") },
-                    minLines = 3,
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    shape = RoundedCornerShape(7.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                androidx.compose.material3.OutlinedTextField(
-                    value = draft.tags,
-                    onValueChange = viewModel::updateMemoryEditTags,
-                    label = { Text("标签") },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    shape = RoundedCornerShape(7.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("类型", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    agentMemoryTypes.forEach { type ->
-                        val selected = type == draft.type
-                        Surface(
-                            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                            ),
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier
-                                .height(30.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable(enabled = !saving) { viewModel.updateMemoryEditType(type) },
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 9.dp),
-                            ) {
-                                Text(type, style = MaterialTheme.typography.labelSmall)
-                            }
-                        }
-                    }
-                }
-                Text(
-                    text = "置信度 " + (draft.confidence * 100).toInt() + "%",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Slider(
-                    value = draft.confidence.toFloat(),
-                    onValueChange = { viewModel.updateMemoryEditConfidence(it.toDouble()) },
-                    enabled = !saving,
-                    valueRange = 0f..1f,
-                    steps = 19,
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = viewModel::saveMemoryEdit,
-                enabled = !saving && draft.content.isNotBlank(),
-            ) {
-                if (saving) {
-                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
-                } else {
-                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-                Spacer(Modifier.width(6.dp))
-                Text("保存")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = viewModel::cancelMemoryEdit, enabled = !saving) {
-                Text("取消")
-            }
-        },
-        shape = RoundedCornerShape(8.dp),
-    )
-}
-
-@Composable
-private fun AgentMemoryDeleteDialog(
-    memory: AgentMemoryRecord,
-    deleting: Boolean,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = { if (!deleting) onDismiss() },
-        title = { Text("删除长期记忆", style = MaterialTheme.typography.titleSmall) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = memory.content,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "删除后，该记忆及其检索索引会立即移除，之后不再参与 Agent 检索。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = !deleting,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("删除")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
-        },
-        shape = RoundedCornerShape(8.dp),
-    )
 }
 
 @Composable
@@ -808,7 +539,7 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
 }
 
 private fun XiaoLingUiState.toWorkflowManagementUiState(): WorkflowManagementUiState {
-    // long: 应用壳只在模块边界投影 Workflow 字段，页面不再感知整份全局状态，也不会自行关联 Run 与调度记录。
+    // long: Workflow 列表和重试确认共用同一功能投影；弹层仍由应用根全局挂载，切换页面不会丢失待确认操作。
     return WorkflowManagementProjection.project(
         loading = loadingWorkflows,
         error = workflowError,
@@ -822,22 +553,24 @@ private fun XiaoLingUiState.toWorkflowManagementUiState(): WorkflowManagementUiS
         schedulingWorkflowId = schedulingWorkflowId,
         runningWorkflowId = runningWorkflowId,
         sendingMessage = sendingMessage,
+        pendingRetryConfirmation = pendingWorkflowRetryConfirmation,
     )
 }
 
 private fun XiaoLingUiState.toAgentTaskCenterUiState(): AgentTaskCenterUiState {
-    // long: 任务中心只接收 Run 历史和两个稳定操作状态，确认弹层与跨会话导航继续由应用壳消费，避免页面生命周期接管全局流程。
+    // long: 任务列表和重试证据确认共用同一功能投影；跨会话导航仍由应用壳消费，避免页面生命周期接管全局流程。
     return AgentTaskCenterProjection.project(
         loading = loadingAgentRunHistory,
         error = agentRunHistoryError,
         history = agentRunHistory,
         selectedRunId = selectedAgentRunId,
         retryingRunId = retryingAgentRunId,
+        pendingRetryConfirmation = pendingAgentRetryConfirmation,
     )
 }
 
 private fun XiaoLingUiState.toMemoryManagementUiState(): MemoryManagementUiState {
-    // long: 长期记忆页面只接收列表、候选和稳定操作状态；编辑/删除弹窗及来源导航信号仍由应用壳持有，避免页面生命周期接管跨域流程。
+    // long: 长期记忆列表、编辑草稿和删除确认由同一功能投影收口；来源导航信号仍由应用壳处理，因为它会切换全局会话与页面。
     return MemoryManagementProjection.project(
         loading = loadingMemories,
         error = memoryError,
@@ -851,6 +584,8 @@ private fun XiaoLingUiState.toMemoryManagementUiState(): MemoryManagementUiState
         mutatingMemoryIds = mutatingMemoryIds,
         mutatingCandidateIds = mutatingMemoryCandidateIds,
         deletedMemoryForUndo = deletedMemoryForUndo,
+        editingMemory = editingMemory,
+        pendingMemoryDelete = pendingMemoryDelete,
     )
 }
 
@@ -881,7 +616,7 @@ private fun XiaoLingUiState.toAgentProfileManagementUiState(): AgentProfileManag
 }
 
 private fun XiaoLingUiState.toAgentSkillManagementUiState(): AgentSkillManagementUiState {
-    // long: Skill 页面只接收依赖与 Run 审计的只读投影；系统文件选择、删除确认及全局结果提示仍由应用壳持有。
+    // long: Skill 列表、Run 审计与本地删除确认由同一功能投影收口；Android 文件选择器仍由应用壳持有。
     return AgentSkillManagementProjection.project(
         skills = skills,
         loading = loadingSkills,
@@ -892,6 +627,7 @@ private fun XiaoLingUiState.toAgentSkillManagementUiState(): AgentSkillManagemen
         loadingAudits = loadingAgentRunHistory,
         auditError = agentRunHistoryError,
         error = skillError,
+        pendingLocalSkillDelete = pendingLocalSkillDelete,
     )
 }
 
@@ -1076,28 +812,6 @@ private fun SettingsPage(
             )
         }
     }
-}
-
-@Composable
-private fun LocalSkillDeleteDialog(
-    skill: AgentSkillRecord,
-    deleting: Boolean,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = { if (!deleting) onDismiss() },
-        title = { Text("删除本地 Skill", style = MaterialTheme.typography.titleSmall) },
-        text = { Text(skill.definition.name, style = MaterialTheme.typography.bodySmall) },
-        confirmButton = {
-            TextButton(onClick = onConfirm, enabled = !deleting) {
-                Text(if (deleting) "删除中" else "删除")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !deleting) { Text("取消") }
-        },
-    )
 }
 
 private fun OperationResult.shouldStayInline(): Boolean = requestUrl != null || latencyMs != null

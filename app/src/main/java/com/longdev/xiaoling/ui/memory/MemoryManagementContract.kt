@@ -6,6 +6,14 @@ import com.longdev.xiaoling.agent.AgentMemoryExpiryOption
 import com.longdev.xiaoling.agent.AgentMemoryFilter
 import com.longdev.xiaoling.agent.AgentMemoryRecord
 
+data class AgentMemoryEditUiState(
+    val id: String,
+    val content: String,
+    val tags: String,
+    val type: String,
+    val confidence: Double,
+)
+
 interface MemoryManagementActions {
     fun refreshMemories()
 
@@ -31,7 +39,23 @@ interface MemoryManagementActions {
 
     fun openMemoryEdit(memoryId: String)
 
+    fun updateMemoryEditContent(value: String)
+
+    fun updateMemoryEditTags(value: String)
+
+    fun updateMemoryEditType(value: String)
+
+    fun updateMemoryEditConfidence(value: Double)
+
+    fun saveMemoryEdit()
+
+    fun cancelMemoryEdit()
+
     fun requestMemoryDelete(memoryId: String)
+
+    fun confirmMemoryDelete()
+
+    fun cancelMemoryDelete()
 
     fun openMemorySourceConversation(memoryId: String)
 
@@ -48,6 +72,10 @@ internal data class MemoryManagementUiState(
     val searchQuery: String = "",
     val filter: AgentMemoryFilter = AgentMemoryFilter.ALL,
     val deletedMemoryForUndo: AgentMemoryRecord? = null,
+    val editingMemory: AgentMemoryEditUiState? = null,
+    val savingMemoryEdit: Boolean = false,
+    val pendingMemoryDelete: AgentMemoryRecord? = null,
+    val deletingMemory: Boolean = false,
 )
 
 internal data class MemoryManagementItemUiState(
@@ -78,6 +106,8 @@ internal object MemoryManagementProjection {
         mutatingMemoryIds: Set<String>,
         mutatingCandidateIds: Set<String>,
         deletedMemoryForUndo: AgentMemoryRecord?,
+        editingMemory: AgentMemoryEditUiState? = null,
+        pendingMemoryDelete: AgentMemoryRecord? = null,
     ): MemoryManagementUiState {
         // long: 管理页只展示仍需用户决定的候选；已保存、已忽略和敏感阻断记录继续留在审计数据中，但不能重新出现可操作按钮。
         val actionableCandidates = candidates.filter { candidate ->
@@ -110,6 +140,10 @@ internal object MemoryManagementProjection {
             searchQuery = searchQuery,
             filter = filter,
             deletedMemoryForUndo = deletedMemoryForUndo,
+            editingMemory = editingMemory,
+            savingMemoryEdit = editingMemory?.id?.let(mutatingMemoryIds::contains) == true,
+            pendingMemoryDelete = pendingMemoryDelete,
+            deletingMemory = pendingMemoryDelete?.id?.let(mutatingMemoryIds::contains) == true,
         )
     }
 }

@@ -152,7 +152,23 @@ class MemoryManagementPageInstrumentedTest {
             editedMemoryIds += memoryId
         }
 
+        override fun updateMemoryEditContent(value: String) = Unit
+
+        override fun updateMemoryEditTags(value: String) = Unit
+
+        override fun updateMemoryEditType(value: String) = Unit
+
+        override fun updateMemoryEditConfidence(value: Double) = Unit
+
+        override fun saveMemoryEdit() = Unit
+
+        override fun cancelMemoryEdit() = Unit
+
         override fun requestMemoryDelete(memoryId: String) = Unit
+
+        override fun confirmMemoryDelete() = Unit
+
+        override fun cancelMemoryDelete() = Unit
 
         override fun openMemorySourceConversation(memoryId: String) {
             sourceConversationMemoryIds += memoryId

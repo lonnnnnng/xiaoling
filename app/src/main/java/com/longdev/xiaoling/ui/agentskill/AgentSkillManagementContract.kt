@@ -27,6 +27,8 @@ internal data class AgentSkillManagementUiState(
     val loadingAudits: Boolean = false,
     val error: String? = null,
     val auditError: String? = null,
+    val pendingLocalSkillDelete: AgentSkillRecord? = null,
+    val deletingLocalSkill: Boolean = false,
 )
 
 internal data class AgentSkillManagementItemUiState(
@@ -60,6 +62,7 @@ internal object AgentSkillManagementProjection {
         loadingAudits: Boolean,
         auditError: String?,
         error: String?,
+        pendingLocalSkillDelete: AgentSkillRecord? = null,
     ): AgentSkillManagementUiState {
         val toolsByName = registeredTools.associateBy(ToolDefinition::name)
         val auditsBySkillId = projectRunAudits(runHistory)
@@ -88,6 +91,9 @@ internal object AgentSkillManagementProjection {
             loadingAudits = loadingAudits,
             error = error,
             auditError = auditError,
+            pendingLocalSkillDelete = pendingLocalSkillDelete,
+            deletingLocalSkill = pendingLocalSkillDelete?.definition?.id
+                ?.let(mutatingSkillIds::contains) == true,
         )
     }
 

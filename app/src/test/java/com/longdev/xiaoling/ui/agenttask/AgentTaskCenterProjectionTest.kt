@@ -4,6 +4,7 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +15,12 @@ class AgentTaskCenterProjectionTest {
     fun projectKeepsHistoryOrderAndMarksSelectedAndRetryingRuns() {
         val first = runDetail("run-1", AgentRunStatus.COMPLETED)
         val second = runDetail("run-2", AgentRunStatus.FAILED)
+        val pending = AgentRetryConfirmationUiState(
+            runId = second.snapshot.run.id,
+            goal = second.snapshot.run.goal,
+            evidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
+            evidenceFingerprint = "fingerprint-2",
+        )
 
         val result = AgentTaskCenterProjection.project(
             loading = true,
@@ -21,6 +28,7 @@ class AgentTaskCenterProjectionTest {
             history = listOf(first, second),
             selectedRunId = first.snapshot.run.id,
             retryingRunId = second.snapshot.run.id,
+            pendingRetryConfirmation = pending,
         )
 
         assertTrue(result.loading)
@@ -30,6 +38,7 @@ class AgentTaskCenterProjectionTest {
         assertFalse(result.runs.first().retrying)
         assertFalse(result.runs.last().selected)
         assertTrue(result.runs.last().retrying)
+        assertEquals(pending, result.pendingRetryConfirmation)
     }
 
     private fun runDetail(id: String, status: AgentRunStatus): AgentRunDetailRecord {

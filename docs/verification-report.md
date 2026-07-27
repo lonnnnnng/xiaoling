@@ -14,6 +14,16 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-27 功能对话框归属收口（横向结构工程完成）
+
+- 实现边界：Agent Run 重试、Workflow Run 重试、长期记忆编辑/删除和本地 Skill 删除的实现分别迁入 `ui/agenttask`、`ui/workflow`、`ui/memory`、`ui/agentskill`。待确认/编辑状态和按稳定 ID 推导的 busy 状态进入对应 Projection；确认类型定义也归属各自 contract。
+- 宿主边界：四个 dialog host 继续在 `XiaoLingContent` 页面内容之外全局挂载，切换 pane 不会丢失对话框。备份恢复继续由根层持有 `ActivityResultLauncher`、`Uri`、Room 替换、Keystore 提示与重启语义；`CenterNoticePopup`、Android 文件选择器和 `SettingsPage` composition root 未迁移。
+- 结构结果：`XiaoLingApp.kt` 从 `1,103` 行降到 `817` 行；AgentTask/Workflow/Memory/AgentSkill dialogs 文件分别为 `94 / 90 / 233 / 44` 行。新增 7 条 Compose 测试覆盖重试证据与步骤复用文案、确认/取消、记忆编辑路由和 busy 禁用；Projection JVM 同步覆盖 overlay 身份与 busy 推导。
+- 本地已验证：`git diff --check`、JVM `678/678`、`lintDebug`、Debug APK、AndroidTest APK、R8 Release APK 与 `lintVitalRelease` 通过。Debug/Release APK 分别为 `24,106,927 / 3,187,250` 字节；对应 SHA-256 为 `683746618cb0ff4e8f8e7d0f81ad963b156f55750719ff9797b527ca7da213e2 / 7fa5e68999551d42385a915151f3ca8145de535142c6a851565459e075a1c724`。AndroidTest APK 会打包持续更新的 `docs/` corpus，不记录自引用大小或哈希。
+- Redmi 已验证：仅向真机 `wsvwypiz7xwslvl7` 发送设备命令，使用同一正式证书签署最新 Debug/Test APK 后无损覆盖安装；新增四个对话框测试类共 `OK (7 tests)`，测试耗时 `9.247s`、墙钟 `11.48s`。默认完整 `AndroidJUnitRunner` 为 `OK (229 tests)`，测试耗时 `89.151s`、墙钟 `91.71s`，无失败。最终 README/docs 重新打包后的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。在线的 `emulator-5554` 未用于安装或测试。
+- 设备收尾：重新覆盖正式 `outputs/release/xiaoling-v0.1.13.apk` 并卸载 `com.longdev.xiaoling.test`；设备报告 `0.1.13 (14)`，冷启动 `546ms`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 crash buffer 为空。
+- 保持边界：旧 Run、Room v32、Agent/Workflow 执行语义、Skill 导入、记忆持久化、设备工具前台门禁、answerability shadow、精确定时、Foreground Service 和第 101/102 项均未改变。结构工程达到停止条件，下一主线切换到通用执行恢复矩阵。
+
 ## 2026-07-26 验证报告历史归档
 
 - 归档边界：原 2,391 行验证报告冻结为 [基线至第 101 阶段](verification-history/verification-baseline-through-stage-101.md)，当前卷收敛为发布基线、当前工程边界、历史索引和归档点之后的新验证。历史卷的 Skill 示例相对链接已按新目录修正。
@@ -154,7 +164,7 @@
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别拥有独立 UI 垂直边界；启动收尾后宿主当前 `1,103` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root，下一轮重新盘点剩余对话框簇，不继续扩张 Agent Runtime、设备权限或机械搬文件。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件，下一主线转向通用执行恢复，不继续扩张 Agent Runtime、设备权限或机械搬文件。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

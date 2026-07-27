@@ -32,6 +32,7 @@ class AgentSkillManagementProjectionTest {
             loadingAudits = false,
             auditError = null,
             error = null,
+            pendingLocalSkillDelete = local,
         )
 
         val builtInItem = state.skills.single { it.skill.definition.id == "built-in" }
@@ -41,6 +42,8 @@ class AgentSkillManagementProjectionTest {
         assertTrue(localItem.showDelete)
         assertFalse(localItem.deleteEnabled)
         assertFalse(localItem.toggleEnabled)
+        assertEquals(local, state.pendingLocalSkillDelete)
+        assertTrue(state.deletingLocalSkill)
     }
 
     @Test

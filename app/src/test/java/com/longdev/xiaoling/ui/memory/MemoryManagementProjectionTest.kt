@@ -31,6 +31,14 @@ class MemoryManagementProjectionTest {
             mutatingMemoryIds = setOf(first.id),
             mutatingCandidateIds = setOf(conflict.id),
             deletedMemoryForUndo = first,
+            editingMemory = AgentMemoryEditUiState(
+                id = first.id,
+                content = first.content,
+                tags = first.tags,
+                type = first.type,
+                confidence = first.confidence,
+            ),
+            pendingMemoryDelete = first,
         )
 
         assertTrue(result.loading)
@@ -40,6 +48,10 @@ class MemoryManagementProjectionTest {
         assertEquals("偏好", result.searchQuery)
         assertEquals(AgentMemoryFilter.ENABLED, result.filter)
         assertEquals(first, result.deletedMemoryForUndo)
+        assertEquals(first.id, result.editingMemory?.id)
+        assertTrue(result.savingMemoryEdit)
+        assertEquals(first, result.pendingMemoryDelete)
+        assertTrue(result.deletingMemory)
         assertEquals(listOf("memory-1", "memory-2"), result.memories.map { it.record.id })
         assertTrue(result.memories.first().mutating)
         assertFalse(result.memories.first().selected)
