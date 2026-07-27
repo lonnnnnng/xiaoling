@@ -3,6 +3,7 @@
 ## 小灵 v0.1.13 发布基线
 
 - `versionName=0.1.13 / versionCode=14`，保持 `minSdk=26 / targetSdk=36`、Room v32 和既有本地正式签名证书。
+- 发布提交为 `e5e0839eb37588be901d4ecda2db4f75fe7bd296`；annotated tag `v0.1.13` 与 [GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.13) 已发布，Release 非草稿、非预发布，远端 APK digest 与本地 SHA-256 一致。
 - 发布范围为 `v0.1.12` 之后 15 个工程提交，并由本次版本与文档提交封版：验证报告归档、应用导航与主要设置/会话垂直 UI module、单一系统 Splash、固定设置标题、首帧后初始化、R8 和 Baseline/Startup Profile；不扩展 Runtime、设备后台或生产 answerability enforcement。
 - 强制发布门禁为 Gradle `141/141` tasks（`3m 57s`）、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 和 v2 正式单签名。Release APK `3,170,866` 字节，SHA-256 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 - 仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (222 tests)`、耗时 `82.798s`。设备原有 `0.1.12 (13)` 正式签名包，因此使用同一正式证书签署临时 Debug/Test APK 后无损覆盖测试；未卸载主应用或清除 Provider、会话和 Keystore 数据，未使用 Pixel_9。

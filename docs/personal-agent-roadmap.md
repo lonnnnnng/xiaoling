@@ -741,7 +741,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 基于 `v0.1.12` 之后 15 个已验证提交，后续主线固定为以下顺序：
 
-1. 先发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
+1. 已完成：发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
 2. 发布后只进行一轮有停止条件的对话框簇收尾。仅当对话框具有独立状态、动作接口、复用价值或可验证业务边界时才迁出；`SettingsPage` 继续承担跨页面导航、Android launcher、pane 分派和模块适配等 composition root 职责。完成这一轮盘点与合格候选迁移后即停止，不以压低 `XiaoLingApp.kt` 或 `XiaoLingViewModel.kt` 行数为目标。
 3. 随后把主线切换到通用执行恢复。先建立持久化恢复矩阵，明确“尚未提交可重放、已提交且有稳定 operation ID 可只读验证、已验证只补控制面/可信总结、提交状态未知继续 fail-closed”四类边界；旧 Run 保持不变，不用恢复名义放宽副作用安全策略。
 4. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。

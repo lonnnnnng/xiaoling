@@ -5,13 +5,14 @@
 ## 当前验证基线
 
 - 当前发布版本：小灵 `v0.1.13`，`versionCode=14`、`minSdk=26`、`targetSdk=36`。
-- 发布范围：`v0.1.12` 之后 15 个工程提交，并由本次版本与文档提交封版；包含验证报告归档、主要 UI 垂直模块、单一系统 Splash、固定设置标题、首帧初始化收敛、R8 和 Baseline/Startup Profile。精确 tag 目标在 GitHub Release 创建后回填。
+- 发布范围：`v0.1.12` 之后 15 个工程提交，并由本次版本与文档提交封版；包含验证报告归档、主要 UI 垂直模块、单一系统 Splash、固定设置标题、首帧初始化收敛、R8 和 Baseline/Startup Profile。
+- 发布提交：`e5e0839eb37588be901d4ecda2db4f75fe7bd296`（`发布小灵 0.1.13`）；annotated tag `v0.1.13` 解引用到该提交，GitHub Release 为 [小灵 v0.1.13](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.13)，状态为非草稿、非预发布。
 - 正式产物：`outputs/release/xiaoling-v0.1.13.apk`，大小 `3,170,866` 字节，SHA-256 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`3m 57s`），JVM `678/678`，0 失败、0 错误、0 跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，为保留正式签名应用数据，使用同一正式证书签署临时 Debug/Test APK 后无损覆盖；默认 `AndroidJUnitRunner` 为 `OK (222 tests)`、耗时 `82.798s`，没有向 Pixel_9 或其他模拟器发送 ADB 命令。
 - 文档语料门禁：最终 README 与长期 `docs/` 打包进 AndroidTest assets 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
-- 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；冷启动 `553ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，最近 500 行 AndroidRuntime 缓冲区没有小灵相关 FATAL。
+- 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
 ## 2026-07-26 验证报告历史归档
 
