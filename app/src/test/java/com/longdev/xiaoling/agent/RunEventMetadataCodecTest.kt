@@ -6,6 +6,37 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun stepControlMetadataRoundTripsWithStableIdentity() {
+        val created = RunEventMetadata.StepCreated(
+            stepId = "step-3",
+            sequence = 3,
+            stepType = AgentStepTypes.RECOVERY_SUMMARIZE,
+            status = AgentStepStatus.RUNNING,
+        )
+        val completed = RunEventMetadata.StepStatus(
+            stepId = "step-3",
+            sequence = 3,
+            fromStatus = AgentStepStatus.RUNNING,
+            toStatus = AgentStepStatus.COMPLETED,
+        )
+
+        assertEquals(
+            created,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.STEP_CREATED,
+                RunEventMetadataCodec.encode(created),
+            ),
+        )
+        assertEquals(
+            completed,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.STEP_STATUS,
+                RunEventMetadataCodec.encode(completed),
+            ),
+        )
+    }
+
+    @Test
     fun toolCallRecoveryContractRoundTrips() {
         val metadata = RunEventMetadata.ToolCall(
             id = "tool-call-recovery-contract",
@@ -130,6 +161,7 @@ class RunEventMetadataCodecTest {
             retryEvidenceCode = AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN,
             retryEvidenceFingerprint = "f".repeat(64),
             resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
+            recoveryBoundaryKey = "tool-call-42",
             restartDisposition = AgentRunRestartDisposition(
                 code = AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
                 reason = "工具账本与事件不一致",
@@ -166,6 +198,7 @@ class RunEventMetadataCodecTest {
         assertEquals(null, legacy.retryEvidenceCode)
         assertEquals(null, legacy.retryEvidenceFingerprint)
         assertEquals(null, legacy.resumeKind)
+        assertEquals(null, legacy.recoveryBoundaryKey)
         assertEquals(null, legacy.restartDisposition)
     }
 

@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
+
+- `RunEventMetadata.StepCreated / StepStatus` 与 Codec 新增 typed Step 身份，保存 `stepId`、sequence、step type 与 from/to status；`AgentRunResumePolicy` 逐项核对最后验证 Step、恢复 marker、恢复总结 Step 和尾随事件。仅有字符串事件类型、错绑其他 Step、损坏 metadata、总结后业务事件或 `COMPLETED recovery.summarize` 缺 typed 总结事件都会返回 `RESTART_REQUIRED`。
+- `RoomAgentRunRepository.ensureRecoveryMarker()` 在一个 Room transaction 中重新读取 Run 与完整事件流。同一边界只允许零或一条 marker；存在记录时必须同时匹配 `resumeKind / recoveryBoundaryKey / fromStatus / toStatus / reason / message`，先合法后冲突、重复、损坏或新旧格式半缺字段都拒绝。committed 恢复的状态 CAS、`run.status` 与 marker 同事务提交；各恢复入口随后重新读取 Room 并重新运行策略，不能用写入前快照继续。
+- `closeInterruptedRuns()` 把活动 Step、PENDING Approval、typed Recovery、`CANCELLED` 状态和尾随 `run.status` 放入同一个 Room transaction；并发状态漂移由 CAS 拒绝，进程中断不能留下 Run 已终态但子账本或恢复结论只完成一半的可见状态。
+- 全部工具已验证后的 Runtime 只使用持久化 ToolResult/Verification 构造本地可信总结。策略允许尚未创建总结、`RUNNING` 总结（typed 总结事件写入前或后）和总结 Step/Event 已完成但 Run 未终态三个控制面阶段重入；总结 Step 与 `run.recovery_summary` 在 Repository transaction 内 get-or-create，`updateStep()` 与终态 Run 写入继续幂等。两个协调器同时恢复同一磁盘边界时只保留一个总结 Step、一个总结事件和一个终态。
+- 该实现不恢复旧 LLM 规划/总结协程，不调用 Executor、不追加第二条 ToolResult/`tool.verify`，也不继续 Workflow 后续步骤。旧 marker 只在确实同时缺少新边界键和恢复类型、状态与固定文案一致时兼容；任何可疑证据都 fail-closed。Room Schema 保持 v32。
+- 验证覆盖 marker 冲突、typed Step 身份、三种总结崩溃尾部、已完成总结缺事件、尾随业务事件、状态 CAS/事务回滚、启动关闭原子收敛、重复与双协程并发恢复，以及旧 LLM/Executor 不可达。恢复聚焦 JVM `123/123`，完整 JVM `717/717`；强制 Gradle `141/141` tasks（`3m 14s`）、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 与 Release lintVital 通过。Debug/Release APK 为 `23,419,993 / 3,203,634` 字节，SHA-256 为 `09c360e3a8429e72dd82bf32b21f398c6ae77fa7eb8d3e0dde4c979d223dc6ef / 5878510423499f3de1b1764376b24573abcc04c3d9440b94a97f000e48a14da8`；Release 通过 zipalign、v2 正式证书与单签名者校验。仅 Redmi Room 定向为 `OK (36 tests)`、耗时 `8.434s`。默认完整首轮在设备锁屏时产生 `59` 条 Activity/Compose 前台失败；失败单项解锁复跑为 `OK (1 test)`，保持唤醒后的完整套件为 `OK (237 tests)`、耗时 `93.062s`，证明首轮属于环境干扰。当前文档语料首次为 `OK (1 test)`、耗时 `2.447s`，最终文档重新打包后复验同为 `OK (1 test)`；随后恢复正式 `v0.1.13`、卸载测试包并还原保持唤醒设置。
+
 ## 通用执行恢复矩阵：尚未提交受控关联重试（完成）
 
 - `AgentNotCommittedReplayQualificationPolicy.assessRecovered()` 只接受已经收敛为 `CANCELLED` 的旧 Run，并要求最后的恢复链恰好为 typed `run.recovered` 与一个无 metadata 的 `run.status=CANCELLED`；`fromStatus=EXECUTING`、`toStatus=CANCELLED`、`RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`、`NOT_COMMITTED` 和冻结证据指纹必须同时稳定。它只构造不落库的收敛前视图复用完整资格策略，不修改旧 Run。
@@ -889,9 +898,9 @@
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。
-- `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实不完整和旧模型协程仍必须安全重新运行。
+- `/agent` 目前接入第一批应用内工具、知识检索和限定设备工具；任务中心已支持失败终态安全重新运行。进程重建后的恢复边界策略已经落地：链尾待审批 Run 可从任意已验证前缀原地恢复；`notes.create / memory.remember` 的完整已提交证据可进入受限只读验证；所有工具结果与 `PASSED` 验证完整落库后可恢复本地收尾。两类控制面恢复现已具备唯一 marker、typed Step 身份、事务收敛、重新读取复核和并发幂等。旧 typed 验证事件缺少 `toolCallId` 时固定判为关联未知，不按工具名或顺序猜配。提交状态未知、验证事实仍不完整和旧模型协程继续安全重新运行或 fail-closed。
 - 当前模型请求审计不保存 Prompt 正文，也不估算价格；只保存最终请求体字节、计时和上游明确返回的 Token usage。流式普通对话仍沿用消息级首 Token 指标，Agent 非流式请求使用 TTFB，两者不混算。
-- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
+- 启动协调器已保留 `APPROVAL_WAIT` Run 并把待审批请求重建到当前会话；发起 `/agent` 后会先持久化用户消息，旧数据缺少消息锚点时再依据 Run 的 `userMessageId / goal / createdAt` 补回。审批恢复会从 Ledger/Event 重建前序可信工具、调用额度和循环指纹，批准后只执行链尾 ToolCall；执行/验证中 Agent Run 默认与活动 Step 一致安全收敛，只有两个白名单写工具的只读验证或全部工具已经 `PASSED` 的控制面收尾可以完成原 Run。两类例外写 marker 后都会重新读取 Room，marker/状态和启动关闭事务边界已统一，全部验证后的总结尾部可以重复或并发重入但不会复制 Step/Event。多步骤 Workflow、步骤快照、安全重试、真实后台执行和审批后继续下一步骤均已完成真机验收；后台通用执行栈断点续跑仍不开放，Foreground Service 暂无真实耗时依据支持引入。
 - 恢复测试覆盖首步与第二次审批同 Run 完成、前序工具不重放、最终可信上下文保留完整工具链、工具调用预算和累计时间预算均不因重启清零、两个白名单写工具的已提交结果不调用写入方法而完成验证恢复、`tool.verify` 落库后与验证 Step 完成后两个终止点不重复 ToolResult/验证、恢复工具失败写入原 Run `FAILED`、旧验证缺少 ToolCall ID 时拒绝顺序猜配、Workflow 步骤落库后的进程终止与下一步骤不重复启动、Worker 重入按 ID 定向关闭关联 Agent/Workflow/Task 且不影响无关 Agent、启动恢复快照期间新 Worker 等待、旧链收敛而当前进程链保持并完成且不新增 Run、用户停止定向收敛目标链、迟到 Step/Event/Approval 不污染终态、其他执行/验证中 Run 与 Step 一致取消、稳定重试证据分类、结构化恢复处置、确认前二次评估，以及失败后安全重试必须二次确认。Room instrumentation 覆盖关闭并重开磁盘数据库后保留第二次审批与已验证前缀、Workflow 完成前缀和关联新 Run 重试；该阶段门禁为 472 条 JVM 与仅 Redmi 执行的 153 条 instrumentation；进程退出观察的受控记录不代表自然 LMK，只读诊断页也不会触发新采集。
 
 ## 任务中心需确认队列

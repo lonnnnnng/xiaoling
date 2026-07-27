@@ -54,6 +54,8 @@ object AgentStepTypes {
 }
 
 object AgentEventTypes {
+    const val STEP_CREATED = "step.created"
+    const val STEP_STATUS = "step.status"
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
     const val LLM_REQUEST_FAILED = "llm.request.failed"
     const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
@@ -117,6 +119,20 @@ data class RunEventRecord(
 )
 
 sealed interface RunEventMetadata {
+    data class StepCreated(
+        val stepId: String,
+        val sequence: Int,
+        val stepType: String,
+        val status: AgentStepStatus,
+    ) : RunEventMetadata
+
+    data class StepStatus(
+        val stepId: String,
+        val sequence: Int,
+        val fromStatus: AgentStepStatus,
+        val toStatus: AgentStepStatus,
+    ) : RunEventMetadata
+
     data class AgentProfileSelection(
         val profile: AgentProfileSnapshot,
     ) : RunEventMetadata
@@ -211,6 +227,7 @@ sealed interface RunEventMetadata {
         val retryEvidenceFingerprint: String? = null,
         val resumeKind: AgentRunResumeKind? = null,
         val restartDisposition: AgentRunRestartDisposition? = null,
+        val recoveryBoundaryKey: String? = null,
     ) : RunEventMetadata
 
     data class RecoveryFailure(

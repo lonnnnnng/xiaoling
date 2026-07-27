@@ -14,6 +14,16 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-28 通用执行恢复矩阵：已提交与已验证控制面幂等收尾
+
+- 实现边界：`StepCreated / StepStatus` 使用 typed metadata 绑定 Step 身份、sequence、type 和状态变化；恢复 marker 使用 `resumeKind + recoveryBoundaryKey + from/to status + reason` 绑定唯一持久化边界。Repository 完整扫描边界后的 marker，重复、损坏、字段半缺和先合法后冲突全部拒绝；恢复写入后重新读取 Room 并重新评估。
+- 原子与幂等：committed 状态 CAS、`run.status` 和 marker 同事务提交；`closeInterruptedRuns()` 在单个 Room transaction 内收敛活动 Step、Approval、Recovery 与 Run 终态。全部已验证后的总结 Step/Event 在 Room 内 get-or-create，双协调器并发恢复只生成一份总结事实。允许的控制面尾部限定为尚未创建总结、`RUNNING` 总结在 typed 总结事件前后，以及总结 Step/Event 已完成但 Run 未终态；`COMPLETED recovery.summarize` 缺事件或总结后出现业务事件一律 fail-closed。
+- 安全边界：该路径只消费已持久化 ToolResult、`PASSED` Verification、Profile 与预算证据，使用本地可信总结完成原 Run；不调用旧 LLM、Executor，不重放工具或验证事件，也不继续 Workflow 后续步骤。Room 保持 v32，设备工具仍不进入 Workflow/后台。
+- TDD 与审查：恢复聚焦 JVM `123/123`，覆盖 marker 唯一性/漂移、typed Step 错配、状态 CAS、事务回滚、三个总结持久化窗口、已完成总结缺事件、尾随业务事件、重复与双协程并发恢复。完整 JVM 为 `717/717`。
+- 本地完整门禁：强制 Gradle `141/141` tasks、耗时 `3m 14s`；JVM `717/717`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug/Release APK 为 `23,419,993 / 3,203,634` 字节，SHA-256 为 `09c360e3a8429e72dd82bf32b21f398c6ae77fa7eb8d3e0dde4c979d223dc6ef / 5878510423499f3de1b1764376b24573abcc04c3d9440b94a97f000e48a14da8`；Release 通过 zipalign、v2 正式证书和单签名者校验，证书 SHA-256 仍为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- Redmi 定向门禁：只使用 `wsvwypiz7xwslvl7`，Room 恢复/事务/并发组合为 `OK (36 tests)`、耗时 `8.434s`；未向 Pixel_9 或其他模拟器发送 ADB 命令。默认完整 runner 首轮因设备进入 `mWakefulness=Asleep / screenState=OFF / Keyguard showing=true` 产生 `59` 条前台失败，其中第一条 Activity 停在 `STOPPED`，其余均为 `No compose hierarchies found`。解锁后的第一条失败单项为 `OK (1 test)`、耗时 `3.71s`；临时保持唤醒后的默认完整复验为 `OK (237 tests)`、耗时 `93.062s`，因此首轮失败属于测试前台条件，不是产品逻辑回归。
+- 文档与设备收尾：当前文本第一次重新打包前的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、耗时 `2.447s`；写回本节并重新构建、签名、覆盖后的最终语料复验同为 `OK (1 test)`。验收后恢复正式 `outputs/release/xiaoling-v0.1.13.apk`，卸载测试包并把 `stay_on_while_plugged_in` 从临时值 `7` 还原为原值 `0`；设备报告 `0.1.13 (14)`、`MainActivity` resumed、主进程存活，清空后 crash buffer 没有小灵相关 FATAL。
+
 ## 2026-07-28 通用执行恢复矩阵：尚未提交受控关联重试
 
 - 实现边界：`AgentRunRetryCoordinator` 在请求和确认时分别读取 Room 最新 Detail，对 `NOT_COMMITTED_REPLAY_ELIGIBLE` 强制显示专用确认。收敛后资格重核要求旧 Run 为 `CANCELLED`，恢复链恰好是 typed `run.recovered` 后跟无 metadata 的 `run.status=CANCELLED`，并核对原 `EXECUTING` 状态、处置码、重试证据指纹、来源 Profile、Tool Ledger 与当前 Registry。普通 `NOT_COMMITTED` 仍保持既有直接重试。
@@ -193,7 +203,7 @@
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件，下一主线转向通用执行恢复，不继续扩张 Agent Runtime、设备权限或机械搬文件。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证和全部已验证控制面收尾已完成持久化幂等复核，下一主线只处理仍可严格证明的验证事实不完整边界，不继续扩张设备权限或机械搬文件。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

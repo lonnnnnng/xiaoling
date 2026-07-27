@@ -50,6 +50,7 @@ data class AgentVerifiedToolRecovery(
     val verifiedTools: List<AgentToolExecution>,
     val lastVerificationStepId: String,
     val evidenceSource: AgentRunRecoveryEvidenceSource,
+    val recoverySummaryStepId: String? = null,
 )
 
 data class AgentRunResumeAssessment(
@@ -170,11 +171,134 @@ object AgentRunResumePolicy {
                 "最后一个已验证工具步骤处于不可恢复终态",
             )
         }
-        if (detail.snapshot.steps.any { it.sequence > lastVerificationStep.sequence }) {
+        val trailingSteps = detail.snapshot.steps.filter { it.sequence > lastVerificationStep.sequence }
+        val recoverySummaryStep = when {
+            trailingSteps.isEmpty() -> null
+            trailingSteps.size == 1 && trailingSteps.single().type == AgentStepTypes.RECOVERY_SUMMARIZE &&
+                trailingSteps.single().status in setOf(AgentStepStatus.RUNNING, AgentStepStatus.COMPLETED) ->
+                trailingSteps.single()
+            else -> return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                "最后一个已验证工具之后出现了非幂等的运行步骤",
+            )
+        }
+        val recoverySummarySteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.RECOVERY_SUMMARIZE }
+        if (recoverySummarySteps.size > 1 || recoverySummarySteps.singleOrNull()?.id != recoverySummaryStep?.id) {
             return restartRequired(
                 AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
-                "最后一个已验证工具之后已经出现新的运行步骤",
+                "恢复总结步骤不是唯一且连续的控制面收尾",
             )
+        }
+        val lastVerificationEventIndex = detail.snapshot.events.indexOfLast { it.type == AgentStepTypes.TOOL_VERIFY }
+        if (lastVerificationEventIndex < 0) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                "最后一个工具验证步骤缺少对应的验证事件",
+            )
+        }
+        val trailingEvents = detail.snapshot.events.drop(lastVerificationEventIndex + 1)
+        var trailingCursor = 0
+        // long: tool.verify 事件先于验证 Step COMPLETED 落库；首个可选 step.status 只用于补齐这一个验证步骤，不能被当成恢复总结的状态事件。
+        if (
+            lastVerificationStep.status == AgentStepStatus.COMPLETED &&
+            trailingEvents.getOrNull(trailingCursor)?.type == AgentEventTypes.STEP_STATUS
+        ) {
+            val metadata = trailingEvents[trailingCursor].metadata as? RunEventMetadata.StepStatus
+            if (
+                metadata?.stepId != lastVerificationStep.id ||
+                metadata.sequence != lastVerificationStep.sequence ||
+                metadata.fromStatus != AgentStepStatus.RUNNING ||
+                metadata.toStatus != AgentStepStatus.COMPLETED
+            ) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "最后一个工具验证步骤的状态事件身份不一致",
+                )
+            }
+            trailingCursor += 1
+        }
+        if (trailingEvents.getOrNull(trailingCursor)?.type == "run.recovered") {
+            val metadata = trailingEvents[trailingCursor].metadata as? RunEventMetadata.Recovery
+            if (
+                metadata?.resumeKind != AgentRunResumeKind.VERIFIED_TOOL_COMPLETION ||
+                metadata.recoveryBoundaryKey !=
+                "${AgentRunResumeKind.VERIFIED_TOOL_COMPLETION.name}:${lastVerificationStep.id}" ||
+                metadata.fromStatus != AgentRunStatus.VERIFYING ||
+                metadata.toStatus != AgentRunStatus.VERIFYING
+            ) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "已验证工具恢复 marker 与当前验证边界不一致",
+                )
+            }
+            trailingCursor += 1
+        }
+        if (recoverySummaryStep == null) {
+            if (trailingCursor != trailingEvents.size) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "最后一个工具验证事实之后出现了非幂等业务事件",
+                )
+            }
+        } else {
+            if (trailingEvents.getOrNull(trailingCursor)?.type == AgentEventTypes.STEP_CREATED) {
+                val metadata = trailingEvents[trailingCursor].metadata as? RunEventMetadata.StepCreated
+                if (
+                    metadata?.stepId != recoverySummaryStep.id ||
+                    metadata.sequence != recoverySummaryStep.sequence ||
+                    metadata.stepType != AgentStepTypes.RECOVERY_SUMMARIZE ||
+                    metadata.status != AgentStepStatus.RUNNING
+                ) {
+                    return restartRequired(
+                        AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                        "恢复总结步骤创建事件身份不一致",
+                    )
+                }
+                trailingCursor += 1
+            }
+            val recoverySummaryEvent = trailingEvents.getOrNull(trailingCursor)
+                ?.takeIf { it.type == AgentEventTypes.RECOVERY_SUMMARY }
+            if (recoverySummaryEvent != null) {
+                val metadata = recoverySummaryEvent.metadata as? RunEventMetadata.Reason
+                if (metadata?.reason.isNullOrBlank()) {
+                    return restartRequired(
+                        AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                        "恢复总结事件缺少唯一、完整的 Reason 元数据或对应控制面步骤",
+                    )
+                }
+                trailingCursor += 1
+            }
+            // long: Runtime 的持久化顺序固定为 RUNNING Step -> typed summary event -> COMPLETED Step；COMPLETED 但缺事件属于不可达状态，不能在恢复时补造。
+            if (recoverySummaryStep.status == AgentStepStatus.COMPLETED && recoverySummaryEvent == null) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "恢复总结步骤已完成但总结事件缺失",
+                )
+            }
+            if (
+                recoverySummaryStep.status == AgentStepStatus.COMPLETED &&
+                trailingEvents.getOrNull(trailingCursor)?.type == AgentEventTypes.STEP_STATUS
+            ) {
+                val metadata = trailingEvents[trailingCursor].metadata as? RunEventMetadata.StepStatus
+                if (
+                    metadata?.stepId != recoverySummaryStep.id ||
+                    metadata.sequence != recoverySummaryStep.sequence ||
+                    metadata.fromStatus != AgentStepStatus.RUNNING ||
+                    metadata.toStatus != AgentStepStatus.COMPLETED
+                ) {
+                    return restartRequired(
+                        AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                        "恢复总结步骤状态事件身份不一致",
+                    )
+                }
+                trailingCursor += 1
+            }
+            if (trailingCursor != trailingEvents.size) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "恢复总结控制面事件顺序与步骤状态不一致",
+                )
+            }
         }
         val verifiedTools = persistedExecutions.mapIndexed { index, persisted ->
             val result = persisted.result
@@ -211,6 +335,7 @@ object AgentRunResumePolicy {
                 verifiedTools = verifiedTools,
                 lastVerificationStepId = lastVerificationStep.id,
                 evidenceSource = recoveryEvidence.source,
+                recoverySummaryStepId = recoverySummaryStep?.id,
             ),
         )
     }

@@ -3088,6 +3088,137 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentStepStatus.COMPLETED, finalSnapshot.steps.single { it.type == AgentStepTypes.TOOL_VERIFY }.status)
         assertEquals(1, summary.verifiedContext.toolExecutions.size)
     }
+
+    @Test
+    fun verifiedToolRecoveryAfterRecoverySummaryEventIsIdempotent() = runTest {
+        val baseLedger = InMemoryAgentRunLedger()
+        val delegateRegistry = FakeToolRegistry()
+        var executionCount = 0
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = delegateRegistry.availableTools()
+            override fun definition(name: String): ToolDefinition? = delegateRegistry.definition(name)
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executionCount += 1
+                return delegateRegistry.execute(call)
+            }
+        }
+        val firstFailure = runCatching {
+            MinimalAgentRuntime(
+                ledger = baseLedger,
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+                faultInjector = object : AgentRuntimeFaultInjector {
+                    override fun afterToolVerificationPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) {
+                        throw AgentProcessTerminationSimulation()
+                    }
+                },
+            ).run("conversation-recovery-tail", "message-recovery-tail", "恢复总结事件中断")
+        }.exceptionOrNull()
+
+        assertTrue(firstFailure is AgentProcessTerminationSimulation)
+        val runId = checkNotNull(baseLedger.lastRunId)
+        val beforeRecoverySummary = AgentRunDetailRecord(
+            snapshot = baseLedger.snapshot(runId),
+            approvals = emptyList(),
+        )
+        val recoverySummaryFailure = runCatching {
+            MinimalAgentRuntime(
+                ledger = ThrowAfterRecoverySummaryEventLedger(baseLedger),
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+            ).resumeVerifiedToolRun(beforeRecoverySummary)
+        }.exceptionOrNull()
+
+        assertTrue(recoverySummaryFailure is AgentProcessTerminationSimulation)
+        val interruptedDuringSummary = AgentRunDetailRecord(
+            snapshot = baseLedger.snapshot(runId),
+            approvals = emptyList(),
+        )
+        // long: 恢复总结事件已经落库但 Run 尚未终态时，下一次启动仍应识别为同一控制面收尾，而不是凭“多了一个 Step”拒绝恢复。
+        val summaryAssessment = AgentRunResumePolicy.assess(interruptedDuringSummary)
+        assertEquals(AgentRunResumeKind.VERIFIED_TOOL_COMPLETION, summaryAssessment.kind)
+
+        val summary = MinimalAgentRuntime(
+            ledger = baseLedger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeVerifiedToolRun(interruptedDuringSummary)
+
+        val finalSnapshot = baseLedger.snapshot(runId)
+        assertEquals(1, executionCount)
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.verify" })
+        assertEquals(1, finalSnapshot.events.count { it.type == AgentEventTypes.RECOVERY_SUMMARY })
+        assertEquals(1, finalSnapshot.steps.count { it.type == AgentStepTypes.RECOVERY_SUMMARIZE })
+        assertEquals(AgentRunStatus.COMPLETED, finalSnapshot.run.status)
+        assertEquals(1, summary.verifiedContext.toolExecutions.size)
+    }
+
+    @Test
+    fun verifiedToolRecoveryAfterRecoverySummaryStepCompletionIsIdempotent() = runTest {
+        val baseLedger = InMemoryAgentRunLedger()
+        val delegateRegistry = FakeToolRegistry()
+        var executionCount = 0
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = delegateRegistry.availableTools()
+            override fun definition(name: String): ToolDefinition? = delegateRegistry.definition(name)
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executionCount += 1
+                return delegateRegistry.execute(call)
+            }
+        }
+        val firstFailure = runCatching {
+            MinimalAgentRuntime(
+                ledger = baseLedger,
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+                faultInjector = object : AgentRuntimeFaultInjector {
+                    override fun afterToolVerificationPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) {
+                        throw AgentProcessTerminationSimulation()
+                    }
+                },
+            ).run("conversation-recovery-step-tail", "message-recovery-step-tail", "恢复总结步骤中断")
+        }.exceptionOrNull()
+
+        assertTrue(firstFailure is AgentProcessTerminationSimulation)
+        val runId = checkNotNull(baseLedger.lastRunId)
+        val beforeRecoverySummary = AgentRunDetailRecord(
+            snapshot = baseLedger.snapshot(runId),
+            approvals = emptyList(),
+        )
+        val recoverySummaryFailure = runCatching {
+            MinimalAgentRuntime(
+                ledger = ThrowAfterRecoverySummaryStepCompletionLedger(baseLedger, runId),
+                toolRegistry = registry,
+                llm = FakeAgentLlm(),
+            ).resumeVerifiedToolRun(beforeRecoverySummary)
+        }.exceptionOrNull()
+
+        assertTrue(recoverySummaryFailure is AgentProcessTerminationSimulation)
+        val interruptedDuringSummary = AgentRunDetailRecord(
+            snapshot = baseLedger.snapshot(runId),
+            approvals = emptyList(),
+        )
+        assertEquals(
+            AgentRunResumeKind.VERIFIED_TOOL_COMPLETION,
+            AgentRunResumePolicy.assess(interruptedDuringSummary).kind,
+        )
+        val summary = MinimalAgentRuntime(
+            ledger = baseLedger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeVerifiedToolRun(interruptedDuringSummary)
+
+        val finalSnapshot = baseLedger.snapshot(runId)
+        assertEquals(1, executionCount)
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, finalSnapshot.events.count { it.type == "tool.verify" })
+        assertEquals(1, finalSnapshot.events.count { it.type == AgentEventTypes.RECOVERY_SUMMARY })
+        assertEquals(1, finalSnapshot.steps.count { it.type == AgentStepTypes.RECOVERY_SUMMARIZE })
+        assertEquals(AgentStepStatus.COMPLETED, finalSnapshot.steps.single { it.type == AgentStepTypes.RECOVERY_SUMMARIZE }.status)
+        assertEquals(AgentRunStatus.COMPLETED, finalSnapshot.run.status)
+        assertEquals(1, summary.verifiedContext.toolExecutions.size)
+    }
 }
 
 private class ThrowAfterVerificationLedger(
@@ -3124,6 +3255,66 @@ private class ThrowAfterVerificationLedger(
             throw AgentProcessTerminationSimulation()
         }
     }
+
+    override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
+}
+
+private class ThrowAfterRecoverySummaryEventLedger(
+    private val delegate: AgentRunLedger,
+) : AgentRunLedger {
+    private var interrupted = false
+
+    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String, retryOfRunId: String?): AgentRunRecord =
+        delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
+
+    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) =
+        delegate.updateRunStatus(runId, status, result, errorMessage)
+
+    override suspend fun appendStep(runId: String, type: String, title: String, detail: String, status: AgentStepStatus): AgentStepRecord =
+        delegate.appendStep(runId, type, title, detail, status)
+
+    override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) =
+        delegate.updateStep(stepId, status, detail)
+
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
+        delegate.appendEvent(runId, type, message, metadata)
+        if (!interrupted && type == AgentEventTypes.RECOVERY_SUMMARY) {
+            interrupted = true
+            throw AgentProcessTerminationSimulation()
+        }
+    }
+
+    override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
+}
+
+private class ThrowAfterRecoverySummaryStepCompletionLedger(
+    private val delegate: AgentRunLedger,
+    private val runId: String,
+) : AgentRunLedger {
+    private var interrupted = false
+
+    override suspend fun createRun(conversationId: String, userMessageId: String, goal: String, retryOfRunId: String?): AgentRunRecord =
+        delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
+
+    override suspend fun updateRunStatus(runId: String, status: AgentRunStatus, result: String?, errorMessage: String?) =
+        delegate.updateRunStatus(runId, status, result, errorMessage)
+
+    override suspend fun appendStep(runId: String, type: String, title: String, detail: String, status: AgentStepStatus): AgentStepRecord =
+        delegate.appendStep(runId, type, title, detail, status)
+
+    override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) {
+        delegate.updateStep(stepId, status, detail)
+        if (!interrupted && status == AgentStepStatus.COMPLETED) {
+            val step = delegate.snapshot(runId).steps.singleOrNull { it.id == stepId }
+            if (step?.type == AgentStepTypes.RECOVERY_SUMMARIZE) {
+                interrupted = true
+                throw AgentProcessTerminationSimulation()
+            }
+        }
+    }
+
+    override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) =
+        delegate.appendEvent(runId, type, message, metadata)
 
     override suspend fun snapshot(runId: String): AgentRunSnapshot = delegate.snapshot(runId)
 }
@@ -3297,6 +3488,9 @@ internal class InMemoryAgentRunLedger : AgentRunLedger {
         detail: String,
         status: AgentStepStatus,
     ): AgentStepRecord {
+        if (type == AgentStepTypes.RECOVERY_SUMMARIZE) {
+            steps.values.singleOrNull { it.runId == runId && it.type == type }?.let { return it }
+        }
         val now = System.currentTimeMillis()
         val step = AgentStepRecord(
             id = "step-${UUID.randomUUID()}",
@@ -3310,25 +3504,43 @@ internal class InMemoryAgentRunLedger : AgentRunLedger {
             completedAt = null,
         )
         steps[step.id] = step
-        appendEvent(runId, "step.created", title)
+        appendEvent(
+            runId,
+            AgentEventTypes.STEP_CREATED,
+            title,
+            RunEventMetadata.StepCreated(step.id, step.sequence, step.type, step.status),
+        )
         return step
     }
 
     override suspend fun updateStep(stepId: String, status: AgentStepStatus, detail: String?) {
         val current = steps.getValue(stepId)
+        val nextDetail = detail ?: current.detail
+        if (current.status == status && nextDetail == current.detail) return
         steps[stepId] = current.copy(
             status = status,
-            detail = detail ?: current.detail,
+            detail = nextDetail,
             completedAt = if (status in setOf(AgentStepStatus.COMPLETED, AgentStepStatus.BLOCKED, AgentStepStatus.FAILED, AgentStepStatus.CANCELLED)) {
                 System.currentTimeMillis()
             } else {
                 current.completedAt
             },
         )
-        appendEvent(current.runId, "step.status", status.name)
+        appendEvent(
+            current.runId,
+            AgentEventTypes.STEP_STATUS,
+            status.name,
+            RunEventMetadata.StepStatus(current.id, current.sequence, current.status, status),
+        )
     }
 
     override suspend fun appendEvent(runId: String, type: String, message: String, metadata: RunEventMetadata?) {
+        if (type == AgentEventTypes.RECOVERY_SUMMARY) {
+            events.values.singleOrNull { it.runId == runId && it.type == type }?.let { existing ->
+                check(existing.message == message && existing.metadata == metadata)
+                return
+            }
+        }
         val event = RunEventRecord(
             id = "event-${UUID.randomUUID()}",
             runId = runId,

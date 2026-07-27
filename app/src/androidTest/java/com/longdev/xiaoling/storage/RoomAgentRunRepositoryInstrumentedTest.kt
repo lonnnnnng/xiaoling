@@ -42,6 +42,9 @@ import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -753,8 +756,10 @@ class RoomAgentRunRepositoryInstrumentedTest {
         repository.updateRunStatus(run.id, AgentRunStatus.THINKING)
 
         assertEquals(1, repository.closeInterruptedRuns())
+        assertEquals(0, repository.closeInterruptedRuns())
 
-        val recovered = repository.snapshot(run.id).events.single { it.type == "run.recovered" }
+        val snapshot = repository.snapshot(run.id)
+        val recovered = snapshot.events.single { it.type == "run.recovered" }
         val metadata = recovered.metadata as RunEventMetadata.Recovery
         assertEquals(AgentRunStatus.THINKING, metadata.fromStatus)
         assertEquals(AgentRunStatus.CANCELLED, metadata.toStatus)
@@ -769,6 +774,10 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertTrue(metadata.restartDisposition?.evidenceBoundary.orEmpty().contains("旧模型协程"))
         assertTrue(metadata.restartDisposition?.suggestedAction.orEmpty().contains("关联新 Run"))
         assertFalse(recovered.message.trimStart().startsWith("{"))
+        assertEquals(
+            1,
+            snapshot.events.count { it.type == "run.status" && it.message == AgentRunStatus.CANCELLED.name },
+        )
     }
 
     @Test
@@ -1279,6 +1288,17 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 executionReceipt = receipt,
             ),
         )
+        repository.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+        repository.appendEvent(
+            runId = run.id,
+            type = "run.recovered",
+            message = "已恢复已提交工具结果，准备只读验证",
+            metadata = RunEventMetadata.Recovery(
+                fromStatus = AgentRunStatus.EXECUTING,
+                toStatus = AgentRunStatus.VERIFYING,
+                reason = "旧版本已经登记同一已提交工具边界",
+            ),
+        )
         val restartedRepository = RoomAgentRunRepository(context, database)
         val assessment = AgentRunResumePolicy.assess(
             checkNotNull(restartedRepository.runDetail(run.id)),
@@ -1288,6 +1308,12 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunRecoveryEvidenceSource.LEDGER, assessment.committedTool?.evidenceSource)
 
         val recovered = restartedRepository
+            .recoverCommittedToolRuns(
+                registry::definition,
+                registry::supportsCommittedEffectVerification,
+            )
+            .single { it.snapshot.run.id == run.id }
+        val recoveredAgain = restartedRepository
             .recoverCommittedToolRuns(
                 registry::definition,
                 registry::supportsCommittedEffectVerification,
@@ -1318,8 +1344,92 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.COMPLETED, finalDetail.snapshot.run.status)
         assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.result" })
         assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(1, finalDetail.snapshot.events.count { it.type == "run.recovered" })
+        assertEquals(1, finalDetail.snapshot.events.count { it.type == "run.status" && it.message == AgentRunStatus.VERIFYING.name })
+        assertEquals(AgentRunStatus.VERIFYING, recoveredAgain.snapshot.run.status)
         assertEquals(listOf(receipt.operationId), noteStore.list(10).map { it.id })
         assertTrue(summary.responseText.contains("进程恢复笔记"))
+    }
+
+    @Test
+    fun firstCommittedRecoveryAtomicallyWritesStatusAndBoundaryMarkerOnce() = runBlocking {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val run = repository.createRun(
+            conversationId = "conversation-committed-marker-cas",
+            userMessageId = "message-committed-marker-cas",
+            goal = "验证首次 committed 恢复事务",
+        )
+        val call = ToolCall(
+            id = "tool-call-committed-marker-cas",
+            name = definition.name,
+            arguments = mapOf("title" to "事务恢复", "content" to "只读验证"),
+            risk = definition.risk,
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_EXECUTE,
+            "执行工具",
+            "结果已提交，等待只读验证",
+            AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具结果已提交",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "笔记已提交",
+                durationMs = 5L,
+                success = true,
+                verified = true,
+                toolCallId = call.id,
+                replaySafety = definition.replaySafety,
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "note-committed-marker-cas",
+                    idempotencyKey = call.id,
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ),
+        )
+
+        val first = repository.recoverCommittedToolRuns({ definition }, { true }).single()
+        val second = repository.recoverCommittedToolRuns({ definition }, { true }).single()
+        val snapshot = repository.snapshot(run.id)
+
+        assertEquals(AgentRunStatus.VERIFYING, first.snapshot.run.status)
+        assertEquals(AgentRunStatus.VERIFYING, second.snapshot.run.status)
+        assertEquals(1, snapshot.events.count { it.type == "run.recovered" })
+        assertEquals(
+            1,
+            snapshot.events.count { it.type == "run.status" && it.message == AgentRunStatus.VERIFYING.name },
+        )
+        val recovery = snapshot.events.single { it.type == "run.recovered" }.metadata as RunEventMetadata.Recovery
+        assertEquals(AgentRunStatus.EXECUTING, recovery.fromStatus)
+        assertEquals(AgentRunStatus.VERIFYING, recovery.toStatus)
+        assertEquals(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, recovery.resumeKind)
+        assertEquals(
+            "${AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION.name}:${call.id}",
+            recovery.recoveryBoundaryKey,
+        )
     }
 
     @Test
@@ -1543,22 +1653,32 @@ class RoomAgentRunRepositoryInstrumentedTest {
                 .also { restartedDatabase = it }
             val restartedRepository = RoomAgentRunRepository(context, reopened)
             val recovered = restartedRepository.recoverVerifiedToolRuns().single { it.snapshot.run.id == run.id }
+            val recoveredAgain = restartedRepository.recoverVerifiedToolRuns().single { it.snapshot.run.id == run.id }
             val closedCount = restartedRepository.closeInterruptedRuns()
-            val summary = MinimalAgentRuntime(
+            fun recoveredRuntime() = MinimalAgentRuntime(
                 ledger = restartedRepository,
                 toolRegistry = registry,
                 llm = object : AgentLlm {
                     override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = error("已验证恢复不应重新规划")
                     override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String = error("已验证恢复不应调用模型总结")
                 },
-            ).resumeVerifiedToolRun(recovered)
+            )
+            // long: 两个初始化调用者可以同时拿到同一持久化边界；Room 的总结 Step/Event 必须原子复用，不能因重复控制面收尾破坏旧 Run。
+            val summaries = listOf(
+                async(Dispatchers.Default) { recoveredRuntime().resumeVerifiedToolRun(recovered) },
+                async(Dispatchers.Default) { recoveredRuntime().resumeVerifiedToolRun(recoveredAgain) },
+            ).awaitAll()
 
             val finalDetail = checkNotNull(restartedRepository.runDetail(run.id))
             assertEquals(0, closedCount)
-            assertEquals(run.id, summary.runId)
+            assertEquals(listOf(run.id, run.id), summaries.map { it.runId })
             assertEquals(AgentRunStatus.COMPLETED, finalDetail.snapshot.run.status)
             assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.result" })
             assertEquals(1, finalDetail.snapshot.events.count { it.type == "tool.verify" })
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == "run.recovered" })
+            assertEquals(1, finalDetail.snapshot.events.count { it.type == AgentEventTypes.RECOVERY_SUMMARY })
+            assertEquals(1, finalDetail.snapshot.steps.count { it.type == AgentStepTypes.RECOVERY_SUMMARIZE })
+            assertEquals(AgentRunStatus.VERIFYING, recoveredAgain.snapshot.run.status)
             assertEquals(AgentStepStatus.COMPLETED, finalDetail.snapshot.steps.single { it.id == verificationStep.id }.status)
         } finally {
             firstDatabase?.close()
@@ -1575,6 +1695,16 @@ class RoomAgentRunRepositoryInstrumentedTest {
             goal = "恢复待审批任务",
         )
         repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        repository.appendEvent(
+            run.id,
+            "run.recovered",
+            "已恢复待审批 Run，等待用户决定",
+            RunEventMetadata.Recovery(
+                fromStatus = AgentRunStatus.WAITING_APPROVAL,
+                toStatus = AgentRunStatus.WAITING_APPROVAL,
+                reason = "旧审批边界的历史恢复事件",
+            ),
+        )
         val pendingCall = ToolCall(
             id = "tool-call-pending-recovery",
             name = "memory.remember",
@@ -1612,10 +1742,12 @@ class RoomAgentRunRepositoryInstrumentedTest {
         )
 
         val resumable = repository.recoverPendingApprovalRuns()
+        val resumableAgain = repository.recoverPendingApprovalRuns()
         val closedCount = repository.closeInterruptedRuns()
         val snapshot = repository.snapshot(run.id)
 
         assertEquals(listOf(run.id), resumable.map { it.snapshot.run.id })
+        assertEquals(listOf(run.id), resumableAgain.map { it.snapshot.run.id })
         assertEquals(0, closedCount)
         assertEquals(AgentRunStatus.WAITING_APPROVAL, snapshot.run.status)
         assertEquals(ApprovalRequestStatus.PENDING, repository.pendingApprovalRequests(run.conversationId).single { it.id == request.id }.status)
@@ -1624,6 +1756,78 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.fromStatus)
         assertEquals(AgentRunStatus.WAITING_APPROVAL, metadata.toStatus)
         assertEquals(null, metadata.retryEvidenceCode)
+        assertEquals(AgentRunResumeKind.APPROVAL_WAIT, metadata.resumeKind)
+        assertEquals("${AgentRunResumeKind.APPROVAL_WAIT.name}:${request.id}", metadata.recoveryBoundaryKey)
+        // long: 当前审批边界必须写入自己的 marker；旧版没有边界键的更早恢复事件不能吞掉新审批，连续重复当前恢复也不能再追加第三条。
+        assertEquals(2, snapshot.events.count { it.type == "run.recovered" })
+    }
+
+    @Test
+    fun pendingApprovalRecoveryRejectsConflictAfterValidBoundaryMarker() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-pending-marker-drift",
+            userMessageId = "message-pending-marker-drift",
+            goal = "拒绝漂移的审批恢复证据",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        val pendingCall = ToolCall(
+            id = "tool-call-pending-marker-drift",
+            name = "memory.remember",
+            arguments = mapOf("content" to "不应静默接受漂移 marker"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${pendingCall.name}",
+            RunEventMetadata.ToolCall(pendingCall.id, pendingCall.name, pendingCall.risk, pendingCall.arguments),
+        )
+        repository.appendStep(
+            run.id,
+            "approval",
+            "应用侧审批",
+            "等待用户决定",
+            AgentStepStatus.RUNNING,
+        )
+        val request = repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = pendingCall,
+            definition = ToolDefinition(
+                name = pendingCall.name,
+                description = "写入长期记忆",
+                risk = pendingCall.risk,
+            ),
+        )
+        assertEquals(
+            listOf(run.id),
+            repository.recoverPendingApprovalRuns(setOf(run.id)).map { it.snapshot.run.id },
+        )
+        repository.appendEvent(
+            run.id,
+            "run.recovered",
+            "已恢复待审批 Run，等待用户决定",
+            RunEventMetadata.Recovery(
+                fromStatus = AgentRunStatus.WAITING_APPROVAL,
+                toStatus = AgentRunStatus.WAITING_APPROVAL,
+                reason = "与当前策略不一致的恢复原因",
+                resumeKind = AgentRunResumeKind.APPROVAL_WAIT,
+                recoveryBoundaryKey = "${AgentRunResumeKind.APPROVAL_WAIT.name}:${request.id}",
+            ),
+        )
+
+        val recovered = repository.recoverPendingApprovalRuns(setOf(run.id))
+        val snapshot = repository.snapshot(run.id)
+
+        assertTrue(recovered.isEmpty())
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, snapshot.run.status)
+        assertEquals(2, snapshot.events.count { it.type == "run.recovered" })
     }
 
     @Test

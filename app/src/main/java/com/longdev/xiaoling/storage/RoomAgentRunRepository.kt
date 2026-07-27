@@ -10,10 +10,12 @@ import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
 import com.longdev.xiaoling.agent.AgentStepStatus
+import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
 import com.longdev.xiaoling.agent.AgentToolCallRecord
 import com.longdev.xiaoling.agent.AgentToolLedgerRecord
@@ -42,6 +44,29 @@ import com.longdev.xiaoling.data.XiaoLingDatabase
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+
+private data class RecoveryBoundary(
+    val kind: AgentRunResumeKind,
+    val evidenceId: String,
+) {
+    val key: String = "${kind.name}:$evidenceId"
+}
+
+private data class RecoveryMarkerSpec(
+    val runId: String,
+    val fromStatus: AgentRunStatus,
+    val toStatus: AgentRunStatus,
+    val boundary: RecoveryBoundary,
+    val boundaryEventId: String?,
+    val message: String,
+    val reason: String,
+)
+
+private enum class RecoveryMarkerWriteResult {
+    APPENDED,
+    EXISTING,
+    REJECTED,
+}
 
 class RoomAgentRunRepository(
     context: Context,
@@ -99,7 +124,14 @@ class RoomAgentRunRepository(
         val run = dao.getRun(runId) ?: error("Agent Run 不存在：$runId")
         // long: Run 进入终态后整条子账本随之冻结；迟到模型回调不能再追加步骤，否则取消后的任务会重新出现执行痕迹。
         check(run.status !in TERMINAL_RUN_STATUS_NAMES) { "Agent Run 已结束，不能追加步骤：$runId" }
-        val sequence = dao.getSteps(runId).size + 1
+        val currentSteps = dao.getSteps(runId)
+        if (type == AgentStepTypes.RECOVERY_SUMMARIZE) {
+            val existingRecoverySteps = currentSteps.filter { it.type == AgentStepTypes.RECOVERY_SUMMARIZE }
+            check(existingRecoverySteps.size <= 1) { "恢复总结步骤出现重复：$runId" }
+            // long: 两个启动协调器可能同时进入同一 verified boundary；事务内 get-or-create 让它们复用同一个总结 Step，避免并发追加后永久失去恢复资格。
+            existingRecoverySteps.singleOrNull()?.let { return@withTransaction it.toRecord() }
+        }
+        val sequence = currentSteps.size + 1
         val now = System.currentTimeMillis()
         val step = AgentStepRecord(
             id = "step-${UUID.randomUUID()}",
@@ -113,7 +145,17 @@ class RoomAgentRunRepository(
             completedAt = null,
         )
         dao.upsertStep(step.toEntity())
-        appendEventInternal(runId, "step.created", "$sequence. $title", metadata = null)
+        appendEventInternal(
+            runId,
+            AgentEventTypes.STEP_CREATED,
+            "$sequence. $title",
+            metadata = RunEventMetadata.StepCreated(
+                stepId = step.id,
+                sequence = step.sequence,
+                stepType = step.type,
+                status = step.status,
+            ),
+        )
         step
     }
 
@@ -124,10 +166,13 @@ class RoomAgentRunRepository(
             val run = dao.getRun(snapshot.runId) ?: return@withTransaction
             // long: 用户停止或恢复收敛完成后，旧协程只能退出，不能把已取消 Step 改回 RUNNING/COMPLETED。
             if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction
+            val fromStatus = AgentStepStatus.valueOf(snapshot.status)
+            val nextDetail = detail ?: snapshot.detail
+            if (fromStatus == status && nextDetail == snapshot.detail) return@withTransaction
             dao.upsertStep(
                 snapshot.copy(
                     status = status.name,
-                    detail = detail ?: snapshot.detail,
+                    detail = nextDetail,
                     completedAt = if (status == AgentStepStatus.RUNNING || status == AgentStepStatus.PENDING) {
                         snapshot.completedAt
                     } else {
@@ -137,9 +182,14 @@ class RoomAgentRunRepository(
             )
             appendEventInternal(
                 snapshot.runId,
-                "step.status",
+                AgentEventTypes.STEP_STATUS,
                 "${snapshot.sequence}. ${snapshot.title} -> ${status.name}",
-                metadata = null,
+                metadata = RunEventMetadata.StepStatus(
+                    stepId = snapshot.id,
+                    sequence = snapshot.sequence,
+                    fromStatus = fromStatus,
+                    toStatus = status,
+                ),
             )
         }
     }
@@ -168,6 +218,17 @@ class RoomAgentRunRepository(
             val run = dao.getRun(runId) ?: return@withTransaction
             // long: 终态后的迟到模型、工具与恢复事件一律丢弃；仅 Repository 自己写入终态 status 审计时显式放行。
             if (!allowTerminalRun && run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction
+            if (type == AgentEventTypes.RECOVERY_SUMMARY) {
+                val existingSummaryEvents = dao.getEvents(runId).filter { it.type == AgentEventTypes.RECOVERY_SUMMARY }
+                check(existingSummaryEvents.size <= 1) { "恢复总结事件出现重复：$runId" }
+                existingSummaryEvents.singleOrNull()?.let { existing ->
+                    val record = existing.toRecord()
+                    check(record.message == message && record.metadata == metadata) {
+                        "恢复总结事件与既有控制面事实冲突：$runId"
+                    }
+                    return@withTransaction
+                }
+            }
             dao.insertEvent(event)
             // long: RunEvent 在迁移期仍是时间线事实源；工具账本必须与对应事件同事务写入，避免进程中断后两套审计证据只成功一半。
             when {
@@ -359,21 +420,35 @@ class RoomAgentRunRepository(
             .filter { runIds == null || it.id in runIds }
             .mapNotNull { run ->
                 val detail = loadDetail(run)
-                if (AgentRunResumePolicy.assess(detail).kind != AgentRunResumeKind.APPROVAL_WAIT) {
+                val assessment = AgentRunResumePolicy.assess(detail)
+                if (assessment.kind != AgentRunResumeKind.APPROVAL_WAIT) {
                     return@mapNotNull null
                 }
+                val recovery = checkNotNull(assessment.approvalWait) { "恢复策略缺少待审批边界" }
+                val boundaryEventId = detail.snapshot.events.lastOrNull { event ->
+                    event.type == "approval.requested" &&
+                        (event.metadata as? RunEventMetadata.ApprovalRequest)?.id == recovery.approvalRequestId
+                }?.id
                 // long: 进程重建后保留链尾尚未执行的审批边界；前序工具必须已有完整成功验证证据，批准后从原 Run 继续且不会重放已完成副作用。
-                appendEvent(
-                    runId = run.id,
-                    type = "run.recovered",
-                    message = "已恢复待审批 Run，等待用户决定",
-                    metadata = RunEventMetadata.Recovery(
+                val writeResult = ensureRecoveryMarker(
+                    RecoveryMarkerSpec(
+                        runId = run.id,
                         fromStatus = AgentRunStatus.WAITING_APPROVAL,
                         toStatus = AgentRunStatus.WAITING_APPROVAL,
-                        reason = AgentRunResumePolicy.assess(detail).reason,
+                        boundary = RecoveryBoundary(AgentRunResumeKind.APPROVAL_WAIT, recovery.approvalRequestId),
+                        boundaryEventId = boundaryEventId,
+                        message = "已恢复待审批 Run，等待用户决定",
+                        reason = assessment.reason,
                     ),
                 )
-                loadDetail(run)
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
+                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                val freshDetail = loadDetail(freshRun)
+                val freshAssessment = AgentRunResumePolicy.assess(freshDetail)
+                freshDetail.takeIf {
+                    freshAssessment.kind == AgentRunResumeKind.APPROVAL_WAIT &&
+                        freshAssessment.approvalWait?.approvalRequestId == recovery.approvalRequestId
+                }
             }
         return resumable
     }
@@ -390,27 +465,41 @@ class RoomAgentRunRepository(
         return candidates
             .filter { runIds == null || it.id in runIds }
             .mapNotNull { run ->
-            val detail = loadDetail(run)
-            val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
-            if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
-                return@mapNotNull null
+                val detail = loadDetail(run)
+                val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
+                if (assessment.kind != AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION) {
+                    return@mapNotNull null
+                }
+                val recovery = checkNotNull(assessment.committedTool) { "恢复策略缺少已提交工具边界" }
+                val fromStatus = AgentRunStatus.valueOf(run.status)
+                val boundaryEventId = detail.snapshot.events.lastOrNull { event ->
+                    event.type == TOOL_RESULT_EVENT_TYPE &&
+                        (event.metadata as? RunEventMetadata.ToolResult)?.toolCallId == recovery.toolCall.id
+                }?.id
+                val writeResult = ensureRecoveryMarker(
+                    RecoveryMarkerSpec(
+                        runId = run.id,
+                        fromStatus = fromStatus,
+                        toStatus = AgentRunStatus.VERIFYING,
+                        boundary = RecoveryBoundary(AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION, recovery.toolCall.id),
+                        boundaryEventId = boundaryEventId,
+                        message = "已恢复已提交工具结果，准备只读验证",
+                        reason = assessment.reason,
+                    ),
+                )
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
+                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                val freshDetail = loadDetail(freshRun)
+                val freshAssessment = AgentRunResumePolicy.assess(
+                    freshDetail,
+                    definitionLookup,
+                    committedVerificationSupport,
+                )
+                freshDetail.takeIf {
+                    freshAssessment.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION &&
+                        freshAssessment.committedTool?.toolCall?.id == recovery.toolCall.id
+                }
             }
-            val fromStatus = AgentRunStatus.valueOf(run.status)
-            if (fromStatus != AgentRunStatus.VERIFYING) {
-                updateRunStatus(run.id, AgentRunStatus.VERIFYING)
-            }
-            appendEvent(
-                runId = run.id,
-                type = "run.recovered",
-                message = "已恢复已提交工具结果，准备只读验证",
-                metadata = RunEventMetadata.Recovery(
-                    fromStatus = fromStatus,
-                    toStatus = AgentRunStatus.VERIFYING,
-                    reason = assessment.reason,
-                ),
-            )
-            loadDetail(dao.getRun(run.id) ?: return@mapNotNull null)
-        }
     }
 
     suspend fun recoverVerifiedToolRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
@@ -423,19 +512,155 @@ class RoomAgentRunRepository(
                 if (assessment.kind != AgentRunResumeKind.VERIFIED_TOOL_COMPLETION) {
                     return@mapNotNull null
                 }
+                val recovery = checkNotNull(assessment.verifiedTool) { "恢复策略缺少已验证工具边界" }
+                val boundaryToolCallId = recovery.verifiedTools.last().toolCall.id
+                val boundaryEventId = detail.snapshot.events.lastOrNull { event ->
+                    event.type == TOOL_VERIFICATION_EVENT_TYPE &&
+                        (event.metadata as? RunEventMetadata.ToolVerification)?.toolCallId == boundaryToolCallId
+                }?.id
                 // long: 所有 tool.verify 均已落库时不再触碰 Executor；启动阶段只登记控制面恢复，随后由 Runtime 补齐 Step 和本地总结。
-                appendEvent(
-                    runId = run.id,
-                    type = "run.recovered",
-                    message = "已恢复全部验证通过的工具结果，准备完成原 Run",
-                    metadata = RunEventMetadata.Recovery(
+                val writeResult = ensureRecoveryMarker(
+                    RecoveryMarkerSpec(
+                        runId = run.id,
                         fromStatus = AgentRunStatus.VERIFYING,
                         toStatus = AgentRunStatus.VERIFYING,
+                        boundary = RecoveryBoundary(AgentRunResumeKind.VERIFIED_TOOL_COMPLETION, recovery.lastVerificationStepId),
+                        boundaryEventId = boundaryEventId,
+                        message = "已恢复全部验证通过的工具结果，准备完成原 Run",
                         reason = assessment.reason,
                     ),
                 )
-                loadDetail(dao.getRun(run.id) ?: return@mapNotNull null)
+                if (writeResult == RecoveryMarkerWriteResult.REJECTED) return@mapNotNull null
+                val freshRun = dao.getRun(run.id) ?: return@mapNotNull null
+                val freshDetail = loadDetail(freshRun)
+                val freshAssessment = AgentRunResumePolicy.assess(freshDetail)
+                freshDetail.takeIf {
+                    freshAssessment.kind == AgentRunResumeKind.VERIFIED_TOOL_COMPLETION &&
+                        freshAssessment.verifiedTool?.lastVerificationStepId == recovery.lastVerificationStepId
+                }
             }
+    }
+
+    private suspend fun ensureRecoveryMarker(
+        spec: RecoveryMarkerSpec,
+    ): RecoveryMarkerWriteResult = database.withTransaction {
+        val dao = database.agentRunDao()
+        val run = dao.getRun(spec.runId) ?: return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        if (run.status != spec.fromStatus.name && run.status != spec.toStatus.name) {
+            return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        }
+        val events = dao.getEvents(spec.runId)
+        val boundaryIndex = spec.boundaryEventId
+            ?.let { id -> events.indexOfFirst { event -> event.id == id } }
+            ?.takeIf { it >= 0 }
+            ?: return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        val recoveryEvents = events.withIndex().filter { (index, event) ->
+            index >= boundaryIndex && event.type == RECOVERY_EVENT_TYPE
+        }
+        // long: 同一恢复边界只能有一条 marker；先完整计数再解析，避免第一条合法记录掩盖后续损坏或漂移证据。
+        if (recoveryEvents.size > 1) return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        recoveryEvents.singleOrNull()?.let { (_, event) ->
+            val metadata = RunEventMetadataCodec.decode(event.type, event.metadataJson) as? RunEventMetadata.Recovery
+                ?: return@withTransaction RecoveryMarkerWriteResult.REJECTED
+            val hasBoundaryKey = metadata.recoveryBoundaryKey != null
+            val hasResumeKind = metadata.resumeKind != null
+            if (hasBoundaryKey != hasResumeKind) {
+                return@withTransaction RecoveryMarkerWriteResult.REJECTED
+            }
+            if (hasBoundaryKey) {
+                if (metadata.recoveryBoundaryKey != spec.boundary.key) {
+                    return@withTransaction RecoveryMarkerWriteResult.REJECTED
+                }
+                val statusMatches = metadata.toStatus == spec.toStatus &&
+                    (
+                        metadata.fromStatus == spec.fromStatus ||
+                            (
+                                spec.boundary.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION &&
+                                    metadata.fromStatus == AgentRunStatus.EXECUTING &&
+                                    spec.fromStatus == AgentRunStatus.VERIFYING
+                                )
+                        )
+                val exactMatch = metadata.resumeKind == spec.boundary.kind &&
+                    statusMatches &&
+                    metadata.reason == spec.reason &&
+                    event.message == spec.message
+                return@withTransaction if (exactMatch && run.status == spec.toStatus.name) {
+                    RecoveryMarkerWriteResult.EXISTING
+                } else {
+                    RecoveryMarkerWriteResult.REJECTED
+                }
+            }
+            // long: 旧版 marker 只有状态和固定文案；兼容分支必须同时缺少边界键与恢复类型，并位于当前边界事件之后，不能让新格式冲突记录降级命中。
+            val legacyStatusMatches = metadata.toStatus == spec.toStatus &&
+                (
+                    metadata.fromStatus == spec.fromStatus ||
+                        (
+                            spec.boundary.kind == AgentRunResumeKind.COMMITTED_TOOL_VERIFICATION &&
+                                metadata.fromStatus == AgentRunStatus.EXECUTING &&
+                                spec.fromStatus == AgentRunStatus.VERIFYING
+                            )
+                    )
+            val legacyMatch = metadata.retryEvidenceCode == null &&
+                metadata.retryEvidenceFingerprint == null &&
+                metadata.restartDisposition == null &&
+                metadata.reason.isNotBlank() &&
+                legacyStatusMatches &&
+                event.message == spec.message
+            return@withTransaction if (legacyMatch && run.status == spec.toStatus.name) {
+                RecoveryMarkerWriteResult.EXISTING
+            } else {
+                RecoveryMarkerWriteResult.REJECTED
+            }
+        }
+        val now = System.currentTimeMillis()
+        if (spec.fromStatus != spec.toStatus) {
+            if (run.status != spec.fromStatus.name) {
+                return@withTransaction RecoveryMarkerWriteResult.REJECTED
+            }
+            val updatedRows = dao.updateRunStatusIfExpected(
+                runId = spec.runId,
+                expectedStatus = spec.fromStatus.name,
+                status = spec.toStatus.name,
+                result = null,
+                errorMessage = null,
+                updatedAt = now,
+                completedAt = null,
+            )
+            if (updatedRows != 1) return@withTransaction RecoveryMarkerWriteResult.REJECTED
+            // long: committed 恢复的状态迁移、run.status 与 marker 共用一个事务；任何进程中断只能看见完整边界或完全看不见。
+            dao.insertEvent(
+                RunEventEntity(
+                    id = "event-${UUID.randomUUID()}",
+                    runId = spec.runId,
+                    type = "run.status",
+                    message = spec.toStatus.name,
+                    metadataJson = null,
+                    createdAt = now,
+                ),
+            )
+        } else if (run.status != spec.toStatus.name) {
+            return@withTransaction RecoveryMarkerWriteResult.REJECTED
+        }
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = spec.runId,
+                type = RECOVERY_EVENT_TYPE,
+                message = spec.message,
+                metadataJson = RunEventMetadataCodec.encode(
+                    RunEventMetadata.Recovery(
+                        fromStatus = spec.fromStatus,
+                        toStatus = spec.toStatus,
+                        reason = spec.reason,
+                        resumeKind = spec.boundary.kind,
+                        recoveryBoundaryKey = spec.boundary.key,
+                    ),
+                ),
+                createdAt = now,
+            ),
+        )
+        RecoveryMarkerWriteResult.APPENDED
     }
 
     suspend fun closeInterruptedRuns(
@@ -451,49 +676,78 @@ class RoomAgentRunRepository(
         val reason = "应用重启后终止上次未完成 Agent 任务"
         var closedCount = 0
         interruptedRuns.forEach { run ->
-            val detail = loadDetail(run)
-            val resumeAssessment = AgentRunResumePolicy.assess(
-                detail,
-                definitionLookup,
-                committedVerificationSupport,
-            )
-            if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) return@forEach
-            val fromStatus = AgentRunStatus.valueOf(run.status)
-            val retryEvidence = AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(detail, fromStatus)
-            // long: 进程被系统杀掉后，内存里的协程和网络请求已经不存在；启动时把中间态 Run 收敛成 CANCELLED，避免任务中心长期显示不可继续的执行中状态。
-            detail.snapshot.steps
-                .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
-                .forEach { step ->
-                    // long: Run 与活动步骤必须在同一次启动收敛中进入一致终态；保留 RUNNING 会误导用户并削弱重试的副作用判断。
-                    updateStep(step.id, AgentStepStatus.CANCELLED, reason)
+            val closed = database.withTransaction {
+                val freshRun = dao.getRun(run.id) ?: return@withTransaction false
+                if (freshRun.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction false
+                val detail = loadDetail(freshRun)
+                val resumeAssessment = AgentRunResumePolicy.assess(
+                    detail,
+                    definitionLookup,
+                    committedVerificationSupport,
+                )
+                if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) {
+                    return@withTransaction false
                 }
-            dao.getApprovalRequests(run.id)
-                .map { it.toRecord() }
-                .filter { it.status == ApprovalRequestStatus.PENDING }
-                .forEach { request ->
-                    decideApprovalRequest(
-                        requestId = request.id,
-                        status = ApprovalRequestStatus.CANCELLED,
-                        reason = reason,
-                    )
-                }
-            // long: 启动收敛必须冻结“为什么不能原地恢复”的策略结论；后续任务中心只读历史事件，不用当前代码重新猜测旧 Run 的执行边界。
-            appendEvent(
-                runId = run.id,
-                type = "run.recovered",
-                message = reason,
-                metadata = RunEventMetadata.Recovery(
-                    fromStatus = fromStatus,
-                    toStatus = AgentRunStatus.CANCELLED,
-                    reason = reason,
-                    retryEvidenceCode = retryEvidence.code,
-                    retryEvidenceFingerprint = retryEvidence.fingerprint,
-                    resumeKind = resumeAssessment.kind,
-                    restartDisposition = resumeAssessment.restartDisposition,
-                ),
-            )
-            updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = reason)
-            closedCount += 1
+                val fromStatus = AgentRunStatus.valueOf(freshRun.status)
+                val retryEvidence = AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(detail, fromStatus)
+                // long: 活动 Step、待审批、恢复结论和 CANCELLED 状态必须同事务收敛；进程中断不能留下“Run 已结束但缺 marker/status”的半条时间线。
+                detail.snapshot.steps
+                    .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
+                    .forEach { step -> updateStep(step.id, AgentStepStatus.CANCELLED, reason) }
+                detail.approvals
+                    .filter { it.status == ApprovalRequestStatus.PENDING }
+                    .forEach { request ->
+                        decideApprovalRequest(
+                            requestId = request.id,
+                            status = ApprovalRequestStatus.CANCELLED,
+                            reason = reason,
+                        )
+                    }
+                val now = System.currentTimeMillis()
+                val updatedRows = dao.updateRunStatusIfExpected(
+                    runId = freshRun.id,
+                    expectedStatus = fromStatus.name,
+                    status = AgentRunStatus.CANCELLED.name,
+                    result = null,
+                    errorMessage = reason,
+                    updatedAt = now,
+                    completedAt = now,
+                )
+                check(updatedRows == 1) { "Agent Run 启动收敛状态发生并发漂移：${freshRun.id}" }
+                // long: 恢复处置先于终态 status 出现在时间线中，任务中心可以按固定顺序解释旧 Run 为什么被关闭。
+                dao.insertEvent(
+                    RunEventEntity(
+                        id = "event-${UUID.randomUUID()}",
+                        runId = freshRun.id,
+                        type = RECOVERY_EVENT_TYPE,
+                        message = reason,
+                        metadataJson = RunEventMetadataCodec.encode(
+                            RunEventMetadata.Recovery(
+                                fromStatus = fromStatus,
+                                toStatus = AgentRunStatus.CANCELLED,
+                                reason = reason,
+                                retryEvidenceCode = retryEvidence.code,
+                                retryEvidenceFingerprint = retryEvidence.fingerprint,
+                                resumeKind = resumeAssessment.kind,
+                                restartDisposition = resumeAssessment.restartDisposition,
+                            ),
+                        ),
+                        createdAt = now,
+                    ),
+                )
+                dao.insertEvent(
+                    RunEventEntity(
+                        id = "event-${UUID.randomUUID()}",
+                        runId = freshRun.id,
+                        type = "run.status",
+                        message = AgentRunStatus.CANCELLED.name,
+                        metadataJson = null,
+                        createdAt = now,
+                    ),
+                )
+                true
+            }
+            if (closed) closedCount += 1
         }
         return closedCount
     }
@@ -878,6 +1132,7 @@ class RoomAgentRunRepository(
     }
 
     private companion object {
+        const val RECOVERY_EVENT_TYPE = "run.recovered"
         const val TOOL_CALL_PROPOSED_EVENT_TYPE = "tool.call.proposed"
         const val TOOL_RESULT_EVENT_TYPE = "tool.result"
         const val TOOL_VERIFICATION_EVENT_TYPE = "tool.verify"

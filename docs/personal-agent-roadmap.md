@@ -6,6 +6,14 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
+
+两个既有原地恢复例外已经完成统一持久化复核。恢复 marker 现在以 `resumeKind + recoveryBoundaryKey + fromStatus + toStatus + reason` 绑定唯一边界；同一边界只允许一条完整一致的 marker，合法 marker 后追加第二条、损坏或冲突记录都会 fail-closed。Step 创建与状态变化使用 typed `stepId / sequence / stepType / fromStatus / toStatus`，恢复策略逐项核对事件归属和顺序，不再仅凭 `step.created / step.status` 类型接受尾部。
+
+`COMMITTED_TOOL_VERIFICATION` 的状态 CAS、`run.status` 和 marker 在同一 Room 事务提交；`closeInterruptedRuns()` 也在一个事务内收敛活动 Step、Approval、Recovery 与 Run 终态。恢复入口写入或命中 marker 后重新读取 Room 并重新评估，不能携带旧快照直接进入 Runtime。全部工具结果和 `PASSED` 验证完整时，恢复只补控制面：尚未创建恢复总结时创建一次，`RUNNING` 总结在 typed 总结事件前后都可重入，Step/Event 已完成但 Run 未终态时只补终态；总结 Step/Event 在 Room 内 get-or-create，两个协调器并发恢复只留下唯一记录。`COMPLETED recovery.summarize` 缺少总结事件、边界后出现业务事件、typed Step 身份不一致或 marker 漂移一律拒绝。
+
+本切片仍不调用旧 LLM、Executor 或 Workflow 后续步骤，不把设备工具开放到 Workflow/后台，也不改变 Room v32。恢复聚焦 JVM `123/123`、完整 JVM `717/717`；强制 Gradle `141/141` tasks、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 正式单签名通过。仅 Redmi Room 定向为 `OK (36 tests)`、耗时 `8.434s`；解锁并保持唤醒后的默认完整为 `OK (237 tests)`、耗时 `93.062s`。首轮锁屏的 `59` 条前台失败已由失败单项和完整套件复验排除，最终文档语料为 `OK (1 test)`，正式 `v0.1.13` 已恢复。下一格只处理仍能由持久化事实严格证明的验证不完整边界，提交未知和旧执行栈继续 fail-closed。
+
 ## 通用执行恢复矩阵：尚未提交受控关联重试（完成）
 
 `NOT_COMMITTED_REPLAY_ELIGIBLE` 现在具备用户控制的生产入口。任务中心请求和确认不再依赖内存历史，而是分别读取 Room 最新 Detail，核对 `run.recovered -> run.status=CANCELLED` 收敛链、来源 Profile、当前 Registry、资格码和证据指纹；确认只授权创建关联新 Run，不替代新 Run 内的工具审批。UseCase 在写入新 Run 前第三次读取 Room 并比较完整资格，Runtime 在执行前再次匹配冻结恢复契约，关闭确认与执行之间的定义/账本漂移窗口。
@@ -773,10 +781,12 @@ idle -> deciding -> waiting_model -> waiting_approval
 2. 已完成：发布后有停止条件的对话框簇收尾。只迁移 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除；`SettingsPage`、备份恢复、全局通知与 Android launcher 继续留在 composition root。`XiaoLingApp.kt` 收敛到 `817` 行后停止结构拆分，不再以压低宿主或 ViewModel 行数为目标。
 3. 已完成：通用执行恢复矩阵首个“提交状态未知”切片。真实执行步骤缺结果稳定冻结为 `COMMIT_UNKNOWN`；proposed-only 和执行步骤尚未落库保持 `NOT_COMMITTED / RECOVERY_EVIDENCE_INVALID`，旧 Run 不重放、不续跑。
 4. 已完成：“尚未提交”的安全重放资格。只有副作用边界明确未进入、原请求可重建、当前/历史工具恢复契约一致且用户审批语义不漂移时，才冻结 `NOT_COMMITTED_REPLAY_ELIGIBLE`；旧 Run 仍取消，不执行重放。
-5. 当前主线：把该资格接入有证据漂移复核和用户控制的关联新 Run 入口，并统一复核已提交可只读验证、已验证只补控制面两格的持久化矩阵与端到端入口。不能直接恢复旧协程或把所有 `NOT_COMMITTED` 一概重放。
-6. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
-7. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
-8. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
+5. 已完成：把安全重放资格接入证据漂移复核和用户控制的关联新 Run；确认、创建和执行前分别重新核验，旧 Run 不变，新 Run 使用新 ToolCall 与新审批且只执行一次。
+6. 已完成：统一复核“已提交结果只读验证”和“全部已验证只补控制面”两格。marker、状态与启动关闭实现事务收敛，Step/Event 使用 typed 身份，恢复入口重新读取 Room，总结尾部并发幂等；旧 LLM、Executor 和 Workflow 后续步骤仍不恢复。
+7. 当前主线：继续处理剩余“验证事实不完整”边界，但只有持久化 Tool Ledger、预算、验证和 Step/Event 能严格证明唯一安全动作时才增加能力；提交未知、身份漂移或不可达尾部继续关联新 Run 或 fail-closed。
+8. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+9. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
+10. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

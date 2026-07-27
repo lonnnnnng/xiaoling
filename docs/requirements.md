@@ -1,5 +1,15 @@
 # 产品需求
 
+## 已提交与已验证控制面幂等收尾边界（通用执行恢复矩阵）
+
+已提交结果只读验证与全部已验证后的控制面收尾必须共享严格的持久化身份边界。每条恢复 marker 必须同时保存恢复类型、稳定边界键、来源/目标状态和具体原因；同一恢复边界只允许一条完整一致的 marker。边界后的第二条、损坏、字段不完整或内容冲突的 marker 必须 fail-closed，不得因为先遇到一条合法记录而忽略后续漂移。状态变化需要 CAS 时，Run 状态、`run.status` 事件与 marker 必须在同一 Room transaction 提交；启动关闭旧 Run 的活动 Step、待审批、Recovery 与 Run 终态也必须原子收敛。
+
+`step.created / step.status` 必须使用 typed metadata 绑定 `stepId`、sequence、step type 和 from/to status。恢复策略必须逐项核对最后验证 Step、恢复总结 Step 与对应事件，不得只按事件类型、文案或时间邻近猜测归属。恢复入口写入或命中 marker 后必须重新读取 Room Detail 并重新评估；旧快照不能继续进入 Runtime。`COMPLETED recovery.summarize` 缺少 typed 总结事件、总结后出现模型/审批/工具等业务事件、Step/Event 身份不一致或边界漂移时必须拒绝恢复。
+
+全部 ToolResult 成功且所有 `tool.verify` 为 `PASSED` 时，只允许三个可达控制面阶段幂等重入：尚未创建恢复总结；恢复总结 Step 为 `RUNNING`，typed 总结事件可能尚未写入或已经写入；恢复总结 Step 与 typed 事件已完成但 Run 尚未进入终态。总结 Step 与事件必须在 Room transaction 内 get-or-create，并发启动协调器只能留下一个 Step、一个总结事件和一个 Run 终态。该路径只能重建已持久化可信工具上下文并生成本地总结，不得调用旧 LLM、Executor、重放工具、追加第二条验证事实或继续 Workflow 后续步骤。
+
+验收必须覆盖 marker 缺失/重复/损坏/冲突、状态 CAS 漂移、事务回滚、typed Step 身份错配、不可达业务尾部、已完成总结缺事件、三个可达总结持久化窗口、重复与双协程并发恢复、启动关闭原子收敛，以及不调用旧模型/Executor/Workflow。当前恢复聚焦 JVM `123/123`、完整 JVM `717/717`，强制 Gradle `141/141` tasks、Lint `0 error / 51 warnings` 和三类 APK 通过；仅 Redmi Room 定向 `OK (36 tests)`。解锁并保持唤醒后的 Redmi 默认完整为 `OK (237 tests)`、耗时 `93.062s`；首轮锁屏的 `59` 条前台失败已由失败单项和完整复验确认不是产品回归。最终 README/docs 语料门禁为 `OK (1 test)`，正式 `v0.1.13` 已恢复。Room 保持 v32，设备工具仍不进入 Workflow/后台。
+
 ## 尚未提交受控关联重试边界（通用执行恢复矩阵）
 
 只有已持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE` 的旧 Run 才能进入受控关联重试。请求和确认必须分别读取 Room 最新 Detail，重新核对来源 Profile、当前 Registry、typed `run.recovered -> run.status=CANCELLED` 收敛链、`fromStatus=EXECUTING / toStatus=CANCELLED`、恢复处置码和重试证据指纹；任何恢复后业务事件、Tool Ledger、状态、定义或指纹漂移都必须 fail-closed。普通 `NOT_COMMITTED` 不得被自动升级为受控重放。

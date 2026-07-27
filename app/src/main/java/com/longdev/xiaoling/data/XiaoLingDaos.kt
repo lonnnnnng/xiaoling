@@ -129,6 +129,27 @@ interface AgentRunDao {
         terminalStatuses: List<String>,
     ): Int
 
+    @Query(
+        """
+        UPDATE agent_runs
+        SET status = :status,
+            result = COALESCE(:result, result),
+            errorMessage = COALESCE(:errorMessage, errorMessage),
+            updatedAt = :updatedAt,
+            completedAt = COALESCE(:completedAt, completedAt)
+        WHERE id = :runId AND status = :expectedStatus
+        """,
+    )
+    suspend fun updateRunStatusIfExpected(
+        runId: String,
+        expectedStatus: String,
+        status: String,
+        result: String?,
+        errorMessage: String?,
+        updatedAt: Long,
+        completedAt: Long?,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertStep(step: AgentStepEntity)
 

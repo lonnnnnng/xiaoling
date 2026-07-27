@@ -389,7 +389,10 @@ class MinimalAgentRuntime internal constructor(
                 // long: ToolResult 与 COMMITTED 回执已落库时，可以把中断的执行 Step 收敛为完成；这里不再调用 Executor。
                 ledger.updateStep(executionStep.id, AgentStepStatus.COMPLETED, recovery.persistedResult.content)
             }
-            ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            if (run.status != AgentRunStatus.VERIFYING) {
+                // long: 启动恢复协调器可能已经把 EXECUTING 收敛到 VERIFYING；只有状态仍未切换时才补写一次，避免同一恢复边界产生重复 run.status 事实。
+                ledger.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+            }
             val verifyStep = recovery.verificationStepId?.let { stepId ->
                 detail.snapshot.steps.single { it.id == stepId }
             } ?: ledger.appendStep(
@@ -433,6 +436,9 @@ class MinimalAgentRuntime internal constructor(
             state.activeStepId = null
             state.completedTools += AgentToolExecution(recovery.toolCall, recoveredResult)
             completeRecoveredRun(run, state)
+        } catch (error: AgentProcessTerminationSimulation) {
+            // long: 故障注入代表进程在控制面写入边界直接消失；不能把模拟的“进程死亡”伪造成业务失败终态，否则下一次恢复看不到真实中断位置。
+            throw error
         } catch (error: CancellationException) {
             // long: 用户取消恢复时必须同时关闭活动验证 Step 和原 Run，避免任务中心留下仍在验证的假状态。
             settleCancelledRun(run.id, state, "用户取消恢复验证")
@@ -494,7 +500,10 @@ class MinimalAgentRuntime internal constructor(
                 )
             }
             state.activeStepId = null
-            completeRecoveredRun(run, state)
+            completeRecoveredRun(run, state, recovery.recoverySummaryStepId)
+        } catch (error: AgentProcessTerminationSimulation) {
+            // long: 控制面恢复的故障注入必须保留半写入状态，交给下一次启动按 Step/Event 证据幂等收尾，不能提前写 FAILED。
+            throw error
         } catch (error: CancellationException) {
             settleCancelledRun(run.id, state, "用户取消已验证结果恢复")
             throw error
@@ -803,25 +812,36 @@ class MinimalAgentRuntime internal constructor(
     private suspend fun completeRecoveredRun(
         run: AgentRunRecord,
         state: AgentRuntimeExecutionState,
+        recoverySummaryStepId: String? = null,
     ): AgentRunSummary {
         require(state.completedTools.isNotEmpty()) { "验证阶段恢复缺少已验证工具结果" }
-        val summaryStep = ledger.appendStep(
-            runId = run.id,
-            type = AgentStepTypes.RECOVERY_SUMMARIZE,
-            title = "生成恢复验证总结",
-            detail = "使用已持久化 ToolCall 和只读回读结果生成本地可信总结。",
-            status = AgentStepStatus.RUNNING,
-        )
+        val currentSnapshot = ledger.snapshot(run.id)
+        val summaryStep = recoverySummaryStepId
+            ?.let { stepId -> currentSnapshot.steps.single { it.id == stepId } }
+            ?: currentSnapshot.steps.singleOrNull { it.type == AgentStepTypes.RECOVERY_SUMMARIZE }
+            ?: ledger.appendStep(
+                runId = run.id,
+                type = AgentStepTypes.RECOVERY_SUMMARIZE,
+                title = "生成恢复验证总结",
+                detail = "使用已持久化 ToolCall 和只读回读结果生成本地可信总结。",
+                status = AgentStepStatus.RUNNING,
+            )
         state.activeStepId = summaryStep.id
         // long: 旧模型请求与规划协程已丢失，恢复只使用已验证工具事实生成本地总结，避免为了文案再开放旧执行栈。
         val response = buildFallbackResponse(run.id, run.goal, state.completedTools)
-        ledger.appendEvent(
-            runId = run.id,
-            type = AgentEventTypes.RECOVERY_SUMMARY,
-            message = "已使用验证后工具事实生成本地总结",
-            metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程"),
-        )
-        ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, "已生成本地可信总结")
+        // long: 控制面收尾可能在写事件或 Step 状态后被进程打断；重入时复用已有记录，确保不会追加第二个恢复总结或把合法尾部误判成新执行步骤。
+        val hasRecoverySummaryEvent = currentSnapshot.events.any { it.type == AgentEventTypes.RECOVERY_SUMMARY }
+        if (!hasRecoverySummaryEvent) {
+            ledger.appendEvent(
+                runId = run.id,
+                type = AgentEventTypes.RECOVERY_SUMMARY,
+                message = "已使用验证后工具事实生成本地总结",
+                metadata = RunEventMetadata.Reason("验证阶段恢复不恢复旧模型协程"),
+            )
+        }
+        if (summaryStep.status != AgentStepStatus.COMPLETED) {
+            ledger.updateStep(summaryStep.id, AgentStepStatus.COMPLETED, "已生成本地可信总结")
+        }
         state.activeStepId = null
         ledger.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = response)
         return AgentRunSummary(

@@ -7,6 +7,16 @@ import org.json.JSONObject
 internal object RunEventMetadataCodec {
     fun encode(metadata: RunEventMetadata): String {
         return when (metadata) {
+            is RunEventMetadata.StepCreated -> JSONObject()
+                .put("stepId", metadata.stepId)
+                .put("sequence", metadata.sequence)
+                .put("stepType", metadata.stepType)
+                .put("status", metadata.status.name)
+            is RunEventMetadata.StepStatus -> JSONObject()
+                .put("stepId", metadata.stepId)
+                .put("sequence", metadata.sequence)
+                .put("fromStatus", metadata.fromStatus.name)
+                .put("toStatus", metadata.toStatus.name)
             is RunEventMetadata.AgentProfileSelection -> JSONObject()
                 .put("id", metadata.profile.id)
                 .put("name", metadata.profile.name)
@@ -87,6 +97,7 @@ internal object RunEventMetadataCodec {
                     metadata.retryEvidenceCode?.let { put("retryEvidenceCode", it.name) }
                     metadata.retryEvidenceFingerprint?.let { put("retryEvidenceFingerprint", it) }
                     metadata.resumeKind?.let { put("resumeKind", it.name) }
+                    metadata.recoveryBoundaryKey?.let { put("recoveryBoundaryKey", it) }
                     metadata.restartDisposition?.let { disposition ->
                         put("restartDispositionCode", disposition.code.name)
                         put("policyReason", disposition.reason)
@@ -107,6 +118,18 @@ internal object RunEventMetadataCodec {
         return runCatching {
             val json = JSONObject(raw)
             when (type) {
+                AgentEventTypes.STEP_CREATED -> RunEventMetadata.StepCreated(
+                    stepId = json.requiredString("stepId"),
+                    sequence = json.getInt("sequence"),
+                    stepType = json.requiredString("stepType"),
+                    status = AgentStepStatus.valueOf(json.requiredString("status")),
+                )
+                AgentEventTypes.STEP_STATUS -> RunEventMetadata.StepStatus(
+                    stepId = json.requiredString("stepId"),
+                    sequence = json.getInt("sequence"),
+                    fromStatus = AgentStepStatus.valueOf(json.requiredString("fromStatus")),
+                    toStatus = AgentStepStatus.valueOf(json.requiredString("toStatus")),
+                )
                 AgentEventTypes.PROFILE_SELECTED -> RunEventMetadata.AgentProfileSelection(
                     profile = AgentProfileSnapshot(
                         id = json.requiredString("id"),
@@ -222,6 +245,7 @@ internal object RunEventMetadataCodec {
                         runCatching { AgentRunResumeKind.valueOf(value) }
                             .getOrElse { AgentRunResumeKind.RESTART_REQUIRED }
                     },
+                    recoveryBoundaryKey = json.stringOrNull("recoveryBoundaryKey"),
                     restartDisposition = json.stringOrNull("restartDispositionCode")?.let { value ->
                         val policyReason = json.stringOrNull("policyReason") ?: return@let null
                         val evidenceBoundary = json.stringOrNull("evidenceBoundary") ?: return@let null

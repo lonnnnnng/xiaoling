@@ -690,6 +690,186 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun fullyVerifiedToolCanResumeAfterRecoverySummaryTailWasPartiallyPersisted() {
+        listOf(AgentStepStatus.RUNNING, AgentStepStatus.COMPLETED).forEach { summaryStepStatus ->
+            val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+            val withRecoveryTail = base.copy(
+                snapshot = base.snapshot.copy(
+                    steps = base.snapshot.steps + step(
+                        type = AgentStepTypes.RECOVERY_SUMMARIZE,
+                        status = summaryStepStatus,
+                        sequence = 3,
+                    ),
+                    events = base.snapshot.events + event(
+                        AgentEventTypes.RECOVERY_SUMMARY,
+                        RunEventMetadata.Reason("恢复总结事件已落库"),
+                        5L,
+                    ),
+                ),
+            )
+
+            val assessment = AgentRunResumePolicy.assess(withRecoveryTail)
+
+            assertEquals(AgentRunResumeKind.VERIFIED_TOOL_COMPLETION, assessment.kind)
+            assertEquals(
+                "step-3",
+                checkNotNull(assessment.verifiedTool).recoverySummaryStepId,
+            )
+        }
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsCompletedRecoverySummaryStepWithoutEvent() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                steps = base.snapshot.steps + step(
+                    type = AgentStepTypes.RECOVERY_SUMMARIZE,
+                    status = AgentStepStatus.COMPLETED,
+                    sequence = 3,
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("步骤已完成但总结事件缺失"))
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsRecoverySummaryWithoutTypedReason() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                steps = base.snapshot.steps + step(
+                    type = AgentStepTypes.RECOVERY_SUMMARIZE,
+                    status = AgentStepStatus.RUNNING,
+                    sequence = 3,
+                ),
+                events = base.snapshot.events + RunEventRecord(
+                    id = "event-5",
+                    runId = "run-1",
+                    type = AgentEventTypes.RECOVERY_SUMMARY,
+                    message = "损坏的恢复总结",
+                    createdAt = 5L,
+                    metadata = null,
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("Reason 元数据"))
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsForeignVerificationStepStatusEvent() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                events = base.snapshot.events + event(
+                    AgentEventTypes.STEP_STATUS,
+                    RunEventMetadata.StepStatus(
+                        stepId = "step-foreign",
+                        sequence = 2,
+                        fromStatus = AgentStepStatus.RUNNING,
+                        toStatus = AgentStepStatus.COMPLETED,
+                    ),
+                    5L,
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("状态事件身份不一致"))
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsRecoveryMarkerForAnotherBoundary() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                events = base.snapshot.events + event(
+                    "run.recovered",
+                    RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.VERIFYING,
+                        toStatus = AgentRunStatus.VERIFYING,
+                        reason = "边界漂移",
+                        resumeKind = AgentRunResumeKind.VERIFIED_TOOL_COMPLETION,
+                        recoveryBoundaryKey = "${AgentRunResumeKind.VERIFIED_TOOL_COMPLETION.name}:step-foreign",
+                    ),
+                    5L,
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("marker"))
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsBusinessEventAfterRecoverySummary() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                steps = base.snapshot.steps + step(
+                    type = AgentStepTypes.RECOVERY_SUMMARIZE,
+                    status = AgentStepStatus.RUNNING,
+                    sequence = 3,
+                ),
+                events = base.snapshot.events + listOf(
+                    event(
+                        AgentEventTypes.RECOVERY_SUMMARY,
+                        RunEventMetadata.Reason("恢复总结事件已落库"),
+                        5L,
+                    ),
+                    event(
+                        AgentEventTypes.LLM_REQUEST_COMPLETED,
+                        RunEventMetadata.Reason("不应恢复旧模型请求"),
+                        6L,
+                    ),
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun fullyVerifiedToolRejectsBusinessStepAfterRecoveryVerification() {
+        val base = fullyVerifiedDetail(AgentStepStatus.COMPLETED)
+        val invalid = base.copy(
+            snapshot = base.snapshot.copy(
+                steps = base.snapshot.steps + step(
+                    type = AgentStepTypes.LLM_PLAN,
+                    status = AgentStepStatus.RUNNING,
+                    sequence = 3,
+                ),
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(invalid)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun fullyVerifiedToolWithFailedVerificationStepRequiresRestart() {
         val assessment = AgentRunResumePolicy.assess(fullyVerifiedDetail(AgentStepStatus.FAILED))
 

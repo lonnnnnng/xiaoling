@@ -91,6 +91,24 @@ internal fun presentAgentRunEvent(
 
     // long: sealed metadata 让每类事件只暴露合法字段组合；UI 不再按 type 猜测 JSON shape，未知历史载荷统一回退到可读 message。
     return when (metadata) {
+        is RunEventMetadata.StepCreated -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "Step" to metadata.stepId,
+                "序号" to metadata.sequence.toString(),
+                "类型" to metadata.stepType,
+                "状态" to metadata.status.name,
+            ),
+        )
+        is RunEventMetadata.StepStatus -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields(
+                "Step" to metadata.stepId,
+                "序号" to metadata.sequence.toString(),
+                "原状态" to metadata.fromStatus.name,
+                "新状态" to metadata.toStatus.name,
+            ),
+        )
         is RunEventMetadata.AgentProfileSelection -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
             fields = fields(
