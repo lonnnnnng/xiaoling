@@ -32,8 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -70,10 +68,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,7 +82,6 @@ import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
-import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.ui.navigation.XiaoLingAppTab
 import com.longdev.xiaoling.ui.navigation.XiaoLingBottomTabBar
@@ -111,6 +106,8 @@ import com.longdev.xiaoling.ui.conversation.ConversationUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
 import com.longdev.xiaoling.ui.memory.MemoryManagementUiState
+import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsPage
+import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsUiState
 import com.longdev.xiaoling.ui.provider.ProviderManagementPage
 import com.longdev.xiaoling.ui.provider.ProviderManagementProjection
 import com.longdev.xiaoling.ui.provider.ProviderManagementUiState
@@ -914,6 +911,10 @@ private fun XiaoLingUiState.toProcessExitObservationUiState(): ProcessExitObserv
     )
 }
 
+private fun XiaoLingUiState.toNetworkRequestSettingsUiState(): NetworkRequestSettingsUiState {
+    return NetworkRequestSettingsUiState(userAgent = userAgent)
+}
+
 @Composable
 private fun SettingsPage(
     state: XiaoLingUiState,
@@ -956,9 +957,8 @@ private fun SettingsPage(
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.NETWORK_REQUEST -> NetworkRequestSettingsPage(
-                userAgent = state.userAgent,
-                onUserAgentChanged = viewModel::updateUserAgent,
-                onResetUserAgent = viewModel::resetUserAgent,
+                state = state.toNetworkRequestSettingsUiState(),
+                actions = viewModel,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -1243,93 +1243,6 @@ private fun SettingsRootPage(
                 }
             },
         )
-    }
-}
-
-@Composable
-private fun NetworkRequestSettingsPage(
-    userAgent: String,
-    onUserAgentChanged: (String) -> Unit,
-    onResetUserAgent: () -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val clipboardManager = LocalClipboardManager.current
-    NetworkRequestSettingsContent(
-        userAgent = userAgent,
-        onUserAgentChanged = onUserAgentChanged,
-        onResetUserAgent = onResetUserAgent,
-        onCopyUserAgent = { clipboardManager.setText(AnnotatedString(it)) },
-        onBack = onBack,
-        modifier = modifier,
-    )
-}
-
-@Composable
-internal fun NetworkRequestSettingsContent(
-    userAgent: String,
-    onUserAgentChanged: (String) -> Unit,
-    onResetUserAgent: () -> Unit,
-    onCopyUserAgent: (String) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回设置", modifier = Modifier.size(18.dp))
-            }
-            PageTitle("网络请求")
-        }
-
-        CompactSection(
-            title = "User-Agent",
-            action = {
-                IconButton(onClick = onResetUserAgent, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Restore, contentDescription = "恢复默认 User-Agent", modifier = Modifier.size(16.dp))
-                }
-            },
-        ) {
-            CompactTextField(
-                value = userAgent,
-                onValueChange = onUserAgentChanged,
-                label = "User-Agent",
-                placeholder = ProviderRequestConfig.DEFAULT_USER_AGENT,
-                minLines = 5,
-                modifier = Modifier.testTag("network-request-user-agent"),
-            )
-            Spacer(Modifier.height(4.dp))
-            // long: 复制和清空紧邻编辑区右下角，用户无需离开输入上下文即可复用或重置当前值。
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                IconButton(
-                    onClick = { onCopyUserAgent(userAgent) },
-                    enabled = userAgent.isNotBlank(),
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = "复制 User-Agent", modifier = Modifier.size(17.dp))
-                }
-                IconButton(
-                    onClick = { onUserAgentChanged("") },
-                    enabled = userAgent.isNotBlank(),
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "清空 User-Agent", modifier = Modifier.size(17.dp))
-                }
-            }
-        }
     }
 }
 

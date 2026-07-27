@@ -118,10 +118,20 @@
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
 - 保持边界：查看或刷新不触发 `collect()`，不新增 Agent Run、Workflow 或 Task 关联；Room v32、自然 LMK 证据、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
 
+## 2026-07-27 网络请求设置垂直 UI module（横向结构工程）
+
+- 实现边界：新增单字段 `NetworkRequestSettingsUiState`、更新/恢复默认两项 `NetworkRequestSettingsActions` 和独立 `NetworkRequestSettingsPage`。五行 User-Agent 编辑器、复制、清空、恢复默认与剪贴板适配迁入 `ui/networksettings`，页面不再接收整份 `XiaoLingUiState` 或具体 ViewModel。
+- 宿主边界：`SettingsPage` 只投影 `state.userAgent`、传入 Actions 和返回回调；`XiaoLingViewModel` 继续执行 CR/LF 过滤、512 字符截断、即时 UI 更新和 `UiPreferenceStore` 保存。清空后当前页面为空、重启后回到默认值的既有时序保持不变。
+- 结构结果：`XiaoLingApp.kt` 从 `1,404` 行降到 `1,317` 行；`NetworkRequestSettingsContract.kt / NetworkRequestSettingsPage.kt` 为 `11 / 116` 行。TDD 先取得新 seam 未定义的编译 Red，再以原页面交互转绿并迁入完整页面；双轴审查未发现规范或行为 finding。
+- 本地完整门禁：强制重跑 `140/140` tasks，JVM `677/677`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功，Release 通过 zipalign 与 v2 单签名。Debug APK 为 `23,370,731` 字节、SHA-256 `8e1d71862a6c6ec428834936bf607bdb15237fc9bfb5e4845e7473c7975034e9`；Release APK 为 `16,016,342` 字节、SHA-256 `0101fed9730bc2787f94471e553d7d75747b5aae3aaa5e5b7c5a1523efd51ccc`。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。复制、清空、输入替换、恢复默认和返回动作 Compose 聚焦为 `OK (1 test)`；默认完整为 `217` 条（`205 passed / 12 skipped / 0 failed`）、耗时 `78.642s`。没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：模型列表、Chat Completions、Responses 和后台 Agent 继续共用原 Header 构造；Room v32、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。下一项结构工程先为设置根页建立窄投影与 Actions，`SettingsPage` composition root 暂不机械迁移。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置和进程退出观察已分别拥有独立 UI 垂直边界；下一轮从宿主剩余 `1,404` 行重新盘点完整状态/动作簇，而不是继续扩张 Agent Runtime 或设备权限。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察和网络请求设置已分别拥有独立 UI 垂直边界；宿主剩余 `1,317` 行，下一轮先为设置根页建立窄状态/动作边界，而不是继续扩张 Agent Runtime、设备权限或机械迁移 composition root。
 - answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。

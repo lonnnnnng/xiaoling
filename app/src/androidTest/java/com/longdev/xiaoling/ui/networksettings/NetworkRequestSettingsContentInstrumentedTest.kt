@@ -1,4 +1,4 @@
-package com.longdev.xiaoling.ui
+package com.longdev.xiaoling.ui.networksettings
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
@@ -24,16 +24,22 @@ class NetworkRequestSettingsContentInstrumentedTest {
         var copiedUserAgent: String? = null
         var resetCount = 0
         var backCount = 0
+        val actions = object : NetworkRequestSettingsActions {
+            override fun updateUserAgent(value: String) {
+                userAgent.value = value
+            }
+
+            override fun resetUserAgent() {
+                resetCount += 1
+                userAgent.value = ProviderRequestConfig.DEFAULT_USER_AGENT
+            }
+        }
 
         composeRule.setContent {
             MaterialTheme {
                 NetworkRequestSettingsContent(
-                    userAgent = userAgent.value,
-                    onUserAgentChanged = { userAgent.value = it },
-                    onResetUserAgent = {
-                        resetCount += 1
-                        userAgent.value = ProviderRequestConfig.DEFAULT_USER_AGENT
-                    },
+                    state = NetworkRequestSettingsUiState(userAgent = userAgent.value),
+                    actions = actions,
                     onCopyUserAgent = { copiedUserAgent = it },
                     onBack = { backCount += 1 },
                 )

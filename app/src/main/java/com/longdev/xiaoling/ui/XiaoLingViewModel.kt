@@ -126,6 +126,7 @@ import com.longdev.xiaoling.ui.agentprofile.AgentProfileEditDraft
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementActions
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterActions
 import com.longdev.xiaoling.ui.memory.MemoryManagementActions
+import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsActions
 import com.longdev.xiaoling.ui.provider.ProviderEditDraft
 import com.longdev.xiaoling.ui.provider.ProviderManagementActions
 import com.longdev.xiaoling.ui.promptsettings.PromptSettingsActions
@@ -424,6 +425,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     MemoryManagementActions,
     ProviderManagementActions,
     AgentProfileManagementActions,
+    NetworkRequestSettingsActions,
     PromptSettingsActions,
     ProcessExitObservationActions {
     private val configStore = ProviderRepository(application)
@@ -1137,13 +1139,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     override fun updateDraftName(value: String) = updateDraft { copy(name = value) }
     override fun updateDraftBaseUrl(value: String) = updateDraft { copy(baseUrl = value) }
     override fun updateDraftApiKey(value: String) = updateDraft { copy(apiKey = value) }
-    fun updateUserAgent(value: String) {
+    override fun updateUserAgent(value: String) {
         val normalized = value.filterNot { it == '\r' || it == '\n' }.take(512)
         uiState = uiState.copy(userAgent = normalized, result = null)
         uiPreferenceStore.saveUserAgent(normalized)
     }
 
-    fun resetUserAgent() {
+    override fun resetUserAgent() {
         updateUserAgent(ProviderRequestConfig.DEFAULT_USER_AGENT)
     }
     fun updateApiMode(value: ApiMode) {
