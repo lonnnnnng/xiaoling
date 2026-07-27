@@ -138,6 +138,15 @@
 - 文档门禁：四份长期文档完成同步并重新构建 AndroidTest APK 后，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
 - 保持边界：备份忙时两个图标继续禁用、父卡仍可触发导出；Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
 
+## 2026-07-27 单一启动画面与固定设置标题
+
+- 实现边界：Android 12+ 继续保留 `Theme.XiaoLing` 的系统 Splash Logo；删除 `XiaoLingLaunch.kt`，`MainActivity` 直接渲染 `XiaoLingApp`，不再保留 Compose 品牌页、`880ms` 等待或 `260ms` Crossfade。设置根页将标题/主题选择器留在固定外层，仅让 14 项卡片区域滚动。
+- 测试边界：设置根页新增滚到底后标题和主题入口仍显示的 Compose 回归，聚焦为 `OK (5 tests)`。完整套件首次运行发现 PNG 分享测试轮询 Compose 会立即消费的瞬时 `result`；改为等待分享导航版本递增、附件读取结束且未保留图片后，聚焦 `OK (1 test)`，生产分享流程未改。
+- 本地完整门禁：强制重跑 `140/140` tasks（`2m 20s`），JVM `678/678`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug、AndroidTest、Release APK 和 Release lintVital 全部成功。Debug APK 为 `23,370,790` 字节、SHA-256 `d873b870b6fa2aad576f4e70f49a1fe963efc0ada01accaaf0fdcf2798071330`；Release APK 为 `16,016,342` 字节、SHA-256 `dfe60c112e967c09c1afb63d76dc267de5723a86d4ed8e6e7f44612b91f2fc25`。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。默认完整 instrumentation 最终为 `OK (222 tests)`、耗时 `83.429s`。9.229 秒冷启动录屏与逐帧联系表确认只出现系统 Splash Logo，随后直接进入主界面；`am start -W` 为 `LaunchState: COLD / TotalTime: 4040ms`。正式设置页滚到底截图确认“设置”和主题选择器持续可见；没有启动、连接或向 Pixel_9/其他模拟器发送 ADB 命令。
+- 文档门禁：四份长期文档同步后重新构建 AndroidTest APK，在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`。
+- 保持边界：Android 系统 Splash 不移除；本轮不进一步重构约 4 秒首帧初始化。Room v32、分享解析/附件校验、设置子页导航、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability shadow、Foreground Service 和第 101/102 项均未改变。
+
 ## 当前工程边界
 
 - Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。

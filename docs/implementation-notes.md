@@ -17,6 +17,14 @@
 - 强制本地门禁为 `140/140` tasks（`1m 58s`）、JVM `678/678`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 和 Release lintVital 均通过；Release 通过 zipalign 与 v2 单签名。仅 Redmi `wsvwypiz7xwslvl7` 的页面 Compose 为 `OK (4 tests)`；默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。
 - 备份忙时两个图标继续禁用，但父卡点击仍触发导出的既有行为已由测试固定。Room v32、设置子页实现、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项状态均未改变。
 
+## 启动与设置页滚动体验收尾
+
+- Android 12+ 继续由 `Theme.XiaoLing` 的 `windowSplashScreen*` 展示系统 Splash Logo；`MainActivity` 不再经过 `XiaoLingLaunch`，首个 Compose 内容直接进入 `XiaoLingApp`。已删除 Compose 品牌页及其 `880ms` 固定等待、`260ms` Crossfade，避免系统和应用各显示一次启动图。
+- 设置根页的标题和主题选择器保持在外层固定区域，只有设置卡片 Column 使用独立滚动状态。新增 `headerStaysVisibleWhenSettingsEntriesScrollToTheEnd`，以“滚到数据备份与恢复后标题和主题入口仍显示”固定公共行为；页面聚焦 Compose 为 `OK (5 tests)`。
+- Redmi `wsvwypiz7xwslvl7` 的 9.229 秒冷启动录屏确认系统 Logo 后直接进入主界面，不再出现“小灵 / 你的个人 Agent”第二画面；系统 `am start -W` 报告 `LaunchState: COLD / TotalTime: 4040ms`，该剩余首帧耗时未在本轮扩展为启动性能重构。正式设置页滚到底截图确认标题和主题选择器固定。
+- 完整本地门禁为强制 `140/140` tasks（`2m 20s`）、JVM `678/678`、Lint `0 error / 50 warnings`，Debug、AndroidTest、Release APK 与 Release lintVital 通过。Redmi 默认完整首次暴露 PNG 分享测试轮询瞬时 `result` 的竞态；测试改为等待分享导航版本递增及附件读取终态后，单项 `OK (1 test)`、默认完整 `OK (222 tests)`，耗时 `83.429s`。四份长期文档重新打入 AndroidTest APK 后，项目文档语料单项为 `OK (1 test)`。
+- Debug/Release APK 为 `23,370,790 / 16,016,342` 字节，SHA-256 为 `d873b870b6fa2aad576f4e70f49a1fe963efc0ada01accaaf0fdcf2798071330 / dfe60c112e967c09c1afb63d76dc267de5723a86d4ed8e6e7f44612b91f2fc25`。Room v32、分享解析/附件校验业务、设置导航、Provider、Agent Runtime、Workflow、设备工具前台门禁、answerability Shadow 和第 101/102 项均未改变。
+
 ## 进程退出观察垂直 UI module（横向结构工程）
 
 - 新增 `ui/processexit` 垂直模块。`ProcessExitObservationUiState` 只包含独立退出账本、加载态和读取错误；`ProcessExitObservationActions` 只暴露刷新；页面自己呈现六类证据、稳定数值、加载/失败/空态和“不关联 Agent Run、工作流或任务”的固定边界。

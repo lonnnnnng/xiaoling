@@ -72,6 +72,12 @@ Agent Skill 管理页已从 `XiaoLingApp.kt` 迁入 `ui/agentskill`。`AgentSkil
 
 `XiaoLingApp.kt` 从 `1,317` 行降到 `1,097` 行，Contract/Page 为 `88 / 264` 行。Projection JVM `1/1`、Redmi 页面 Compose `OK (4 tests)`、双轴审查和强制本地 `140/140` tasks 均通过；JVM `678/678`、Lint `0 error / 50 warnings`、三类 APK、Release lintVital、zipalign 与 v2 单签名均通过。Debug/Release APK 为 `23,387,174 / 16,032,726` 字节，SHA-256 为 `309faa26a77d42fccca4108e9849a474ca9ec53ba38e190570facfd82659f757 / cee1e20edd6ce0ae536e9331fa18729e1e793ac946ae6dde08da62734c7962cd`。仅 Redmi 默认完整 XML 为 `221` 条（`209 passed / 12 skipped / 0 failed`）、耗时 `85.834s`，控制台为 `Finished 233 tests`。备份 busy 语义、Room v32、全部设置子页、Agent/Workflow、设备后台门禁和第 101/102 项不变；下一轮重新盘点宿主剩余对话框簇，不机械迁移 `SettingsPage`。
 
+## 横向体验收尾：单一启动画面与固定设置标题（完成）
+
+Android 12+ 系统 Splash 继续保留品牌 Logo；应用内 Compose 品牌页及 `880ms + 260ms` 人工过渡已删除，`MainActivity` 首帧直接组合 `XiaoLingApp`。设置根页则把标题和主题入口保留在滚动区域之外，仅让 14 项设置卡片滚动。Redmi 冷启动录屏确认系统 Logo 后直接进入主界面，正式设置页滚到底后标题仍固定；页面 Compose 为 `OK (5 tests)`。
+
+强制本地门禁为 `140/140` tasks、JVM `678/678`、Lint `0 error / 50 warnings` 和三类 APK/Release lintVital；Redmi 默认完整为 `OK (222 tests)`、耗时 `83.429s`。完整套件发现并修复 PNG 分享测试对瞬时 UI `result` 的竞态观察，生产分享解析、附件校验与不自动发送行为未改；最终文档语料单项为 `OK (1 test)`。Debug/Release APK 为 `23,370,790 / 16,016,342` 字节，SHA-256 为 `d873b870b6fa2aad576f4e70f49a1fe963efc0ada01accaaf0fdcf2798071330 / dfe60c112e967c09c1afb63d76dc267de5723a86d4ed8e6e7f44612b91f2fc25`。Room v32、个人 Agent 路线、第 101/102 项和下一轮宿主对话框盘点顺序不变。
+
 ## 横向工程：Agent 启动前校验协调迁出（完成）
 
 普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批的会话、Profile、工具注册与 Provider 校验已从 `XiaoLingViewModel` 迁入独立 `AgentLaunchPreflightCoordinator`。普通 `/agent` 保持可创建新会话；其余入口先要求指定会话存在。普通、Workflow 与两类重试使用当前 Profile，恢复审批优先使用原 Run Profile 快照，旧 Run 无有效快照时才回退当前 Profile。校验成功后的 UI、附件、Room 和 Runtime 副作用仍留在 ViewModel，长 Workflow 继续使用入口冻结配置。

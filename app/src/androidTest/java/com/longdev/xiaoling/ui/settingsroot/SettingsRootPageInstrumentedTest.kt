@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.ui.settingsroot
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -82,6 +83,22 @@ class SettingsRootPageInstrumentedTest {
                 actions.events,
             )
         }
+    }
+
+    @Test
+    fun headerStaysVisibleWhenSettingsEntriesScrollToTheEnd() {
+        composeRule.setContent {
+            MaterialTheme {
+                SettingsRootPage(
+                    state = populatedState(),
+                    actions = FakeSettingsRootActions(),
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("数据备份与恢复").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("设置").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("切换主题").assertIsDisplayed()
     }
 
     @Test

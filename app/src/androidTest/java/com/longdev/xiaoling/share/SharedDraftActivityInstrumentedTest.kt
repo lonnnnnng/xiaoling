@@ -65,6 +65,7 @@ class SharedDraftActivityInstrumentedTest {
                 }
                 val removedState = scenario.awaitState { it.pendingImage == null }
                 assertFalse(removedState.sharedDraftImported)
+                val navigationVersionBeforeMissingImage = removedState.sharedDraftNavigationVersion
 
                 val missingUri = Uri.parse("content://com.longdev.xiaoling.test/missing.png")
                 scenario.onActivity { activity ->
@@ -81,10 +82,14 @@ class SharedDraftActivityInstrumentedTest {
                     )
                 }
                 val failedState = scenario.awaitState {
-                    !it.attachingImage && it.result?.title == "图片不可用"
+                    // long: 页面会立即把错误结果消费成轻提示；以导航版本和附件终态验证业务结果，避免轮询瞬时 UI 事件产生竞态。
+                    it.sharedDraftNavigationVersion > navigationVersionBeforeMissingImage &&
+                        !it.attachingImage &&
+                        it.pendingImage == null
                 }
                 assertNull(failedState.pendingImage)
                 assertFalse(failedState.sharedDraftImported)
+                assertFalse(failedState.sendingMessage)
             }
         } finally {
             ApplicationProviderHolder.context.contentResolver.delete(imageUri, null, null)

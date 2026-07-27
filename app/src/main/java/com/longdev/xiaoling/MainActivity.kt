@@ -8,7 +8,6 @@ import androidx.activity.viewModels
 import com.longdev.xiaoling.share.AndroidShareIntentReader
 import com.longdev.xiaoling.share.SharedDraftImport
 import com.longdev.xiaoling.ui.XiaoLingApp
-import com.longdev.xiaoling.ui.XiaoLingLaunch
 import com.longdev.xiaoling.ui.XiaoLingViewModel
 
 class MainActivity : ComponentActivity() {
@@ -21,9 +20,8 @@ class MainActivity : ComponentActivity() {
             handleShareIntent(intent)
         }
         setContent {
-            XiaoLingLaunch {
-                XiaoLingApp(viewModel)
-            }
+            // long: Android 已提供系统启动画面，首帧直接进入应用，避免重复品牌页额外阻塞启动流程。
+            XiaoLingApp(viewModel)
         }
     }
 
