@@ -14,6 +14,7 @@ enum class AgentRunRestartDispositionCode {
     APPROVAL_BOUNDARY_INVALID,
     RECOVERY_EVIDENCE_INVALID,
     COMMIT_UNKNOWN,
+    NOT_COMMITTED_REPLAY_ELIGIBLE,
     PROFILE_CAPABILITY_MISMATCH,
     EXECUTION_STEP_EVIDENCE_INVALID,
     COMMITTED_VERIFICATION_UNAVAILABLE,
@@ -96,6 +97,19 @@ object AgentRunResumePolicy {
                 code = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
                 reason = "只有等待用户审批且尚未执行工具的 Run 可以原地恢复",
             )
+        }
+        if (snapshot.run.status == AgentRunStatus.EXECUTING) {
+            val replayQualification = AgentNotCommittedReplayQualificationPolicy.assess(
+                detail = detail,
+                agentProfile = agentProfile,
+                definitionLookup = definitionLookup,
+            )
+            if (replayQualification is AgentNotCommittedReplayQualificationAssessment.Eligible) {
+                return restartRequired(
+                    code = AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                    reason = "链尾 ToolCall 已具备尚未提交的受控重放资格；当前阶段仍只收敛旧 Run，不执行重放",
+                )
+            }
         }
         assessVerifiedToolCompletion(detail, agentProfile)?.let { return it }
         return assessCommittedToolVerification(detail, agentProfile, definitionLookup, committedVerificationSupport)
@@ -459,6 +473,8 @@ object AgentRunResumePolicy {
             "Tool Ledger、typed event 或验证结果不完整或不一致，不能证明历史副作用边界。"
         AgentRunRestartDispositionCode.COMMIT_UNKNOWN ->
             "ToolCall 已进入执行边界但没有持久化结果或提交回执，无法证明副作用未发生。"
+        AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE ->
+            "ToolCall、工具恢复契约、原 Profile 与用户审批证据一致，且持久化 TOOL_EXECUTE 步骤明确尚未出现。"
         AgentRunRestartDispositionCode.PROFILE_CAPABILITY_MISMATCH ->
             "历史工具超出原 Agent Profile 能力快照，当前配置不能为旧 Run 事后扩权。"
         AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID ->

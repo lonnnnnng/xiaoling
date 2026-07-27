@@ -199,6 +199,146 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun validatedIdempotentToolBeforeExecutionBoundaryQualifiesForControlledReplay() {
+        val fixture = controlledReplayFixture()
+        val assessment = AgentRunResumePolicy.assess(
+            fixture.detail,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertFalse(assessment.canResumeInPlace)
+        assertEquals(
+            AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun controlledReplayRejectsCurrentToolDefinitionDrift() {
+        val fixture = controlledReplayFixture()
+        val driftedDefinition = fixture.definition.copy(description = "创建本地笔记 v2")
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> driftedDefinition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("指纹不一致"))
+    }
+
+    @Test
+    fun controlledReplayRejectsApprovalDecisionFingerprintDrift() {
+        val fixture = controlledReplayFixture(decidedDefinitionFingerprint = "drifted-definition")
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("审批事件"))
+    }
+
+    @Test
+    fun controlledReplayRejectsApprovalArgumentsDrift() {
+        val fixture = controlledReplayFixture(
+            decidedArguments = mapOf("title" to "被替换", "content" to "尚未执行"),
+        )
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("审批事件"))
+    }
+
+    @Test
+    fun controlledReplayRejectsRequestedEventThatIsNotPending() {
+        val fixture = controlledReplayFixture(requestedStatus = ApprovalRequestStatus.APPROVED)
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("审批事件"))
+    }
+
+    @Test
+    fun controlledReplayRejectsApprovalEventsPersistedOutOfOrder() {
+        val fixture = controlledReplayFixture(reverseApprovalEventOrder = true)
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("顺序"))
+    }
+
+    @Test
+    fun controlledReplayRejectsLegacyToolCallWithoutRecoveryContract() {
+        val fixture = controlledReplayFixture(
+            proposedRecoveryContract = null,
+            validatedRecoveryContract = null,
+        )
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("历史记录"))
+    }
+
+    @Test
+    fun controlledReplayRejectsToolWhosePolicyDefaultsToDeny() {
+        val definition = controlledReplayDefinition().copy(
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.DENY,
+        )
+        val fixture = controlledReplayFixture(definition = definition)
+
+        val assessment = AgentNotCommittedReplayQualificationPolicy.assess(
+            detail = fixture.detail,
+            agentProfile = fixture.profile,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertTrue(assessment is AgentNotCommittedReplayQualificationAssessment.Ineligible)
+        assertTrue((assessment as AgentNotCommittedReplayQualificationAssessment.Ineligible).reason.contains("没有声明"))
+    }
+
+    @Test
+    fun controlledReplayWithPersistedExecutionStepRemainsCommitUnknown() {
+        val fixture = controlledReplayFixture(includeExecutionStep = true)
+
+        val assessment = AgentRunResumePolicy.assess(
+            fixture.detail,
+            definitionLookup = { name -> fixture.definition.takeIf { it.name == name } },
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertFalse(assessment.canResumeInPlace)
+        assertEquals(
+            AgentRunRestartDispositionCode.COMMIT_UNKNOWN,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun legacyValidatedCallWithRunningExecutionStepUsesCommitUnknownDisposition() {
         val call = ToolCall(
             id = "legacy-tool-call-commit-unknown",
@@ -771,6 +911,151 @@ class AgentRunResumePolicyTest {
         assertEquals(pendingResult, recovery.persistedResult)
         assertEquals("step-3", recovery.executionStepId)
         assertEquals("step-4", recovery.verificationStepId)
+    }
+
+    private data class ControlledReplayFixture(
+        val definition: ToolDefinition,
+        val profile: AgentProfileSnapshot,
+        val detail: AgentRunDetailRecord,
+    )
+
+    private fun controlledReplayDefinition() = ToolDefinition(
+        name = "notes.create",
+        description = "创建笔记",
+        risk = ToolRisk.REQUIRES_APPROVAL,
+        inputSchema = listOf(
+            ToolInputField("title", "标题", required = true),
+            ToolInputField("content", "正文", required = true),
+        ),
+        replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+    )
+
+    private fun controlledReplayFixture(
+        definition: ToolDefinition = controlledReplayDefinition(),
+        proposedRecoveryContract: ToolDefinitionRecoverySnapshot? = ToolDefinitionRecoveryContract.snapshot(definition),
+        validatedRecoveryContract: ToolDefinitionRecoverySnapshot? = ToolDefinitionRecoveryContract.snapshot(definition),
+        decidedDefinitionFingerprint: String? = ToolDefinitionRecoveryContract.snapshot(definition).definitionFingerprint,
+        decidedArguments: Map<String, String> = mapOf("title" to "资格", "content" to "尚未执行"),
+        requestedStatus: ApprovalRequestStatus = ApprovalRequestStatus.PENDING,
+        reverseApprovalEventOrder: Boolean = false,
+        includeExecutionStep: Boolean = false,
+    ): ControlledReplayFixture {
+        val recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition)
+        val call = ToolCall(
+            id = "tool-call-safe-replay",
+            name = definition.name,
+            arguments = mapOf("title" to "资格", "content" to "尚未执行"),
+            risk = definition.risk,
+        )
+        val profile = AgentProfileSnapshot(
+            id = "agent-notes",
+            name = "笔记 Agent",
+            avatar = "记",
+            providerId = "provider-1",
+            model = "gpt-test",
+            apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+            systemPrompt = "",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf(definition.name),
+            allowedSkillIds = listOf("local-notes"),
+            memoryEnabled = false,
+        )
+        val approval = ApprovalRequestRecord(
+            id = "approval-safe-replay",
+            runId = "run-1",
+            conversationId = "conversation-1",
+            toolCallId = call.id,
+            toolName = call.name,
+            toolDescription = definition.description,
+            risk = call.risk,
+            arguments = call.arguments,
+            status = ApprovalRequestStatus.APPROVED,
+            decisionReason = "用户已批准",
+            createdAt = 3L,
+            expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+            decidedAt = 4L,
+        )
+        val steps = buildList {
+            add(step("approval", AgentStepStatus.COMPLETED))
+            if (includeExecutionStep) {
+                add(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING, sequence = 2))
+            }
+        }
+        val requestedEvent = event(
+            "approval.requested",
+            RunEventMetadata.ApprovalRequest(
+                id = approval.id,
+                toolName = approval.toolName,
+                risk = approval.risk,
+                arguments = approval.arguments,
+                status = requestedStatus,
+                expiresAt = approval.expiresAt,
+                reason = null,
+                definitionFingerprint = recoveryContract.definitionFingerprint,
+            ),
+            3L,
+        )
+        val decidedEvent = event(
+            "approval.request_decided",
+            RunEventMetadata.ApprovalRequest(
+                id = approval.id,
+                toolName = approval.toolName,
+                risk = approval.risk,
+                arguments = decidedArguments,
+                status = ApprovalRequestStatus.APPROVED,
+                expiresAt = approval.expiresAt,
+                reason = approval.decisionReason,
+                definitionFingerprint = decidedDefinitionFingerprint,
+            ),
+            4L,
+        )
+        return ControlledReplayFixture(
+            definition = definition,
+            profile = profile,
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = steps,
+                approvals = listOf(approval),
+                events = listOf(
+                    event(
+                        AgentEventTypes.PROFILE_SELECTED,
+                        RunEventMetadata.AgentProfileSelection(profile),
+                        0L,
+                    ),
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments, proposedRecoveryContract),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments, validatedRecoveryContract),
+                        2L,
+                    ),
+                    *(if (reverseApprovalEventOrder) {
+                        arrayOf(decidedEvent, requestedEvent)
+                    } else {
+                        arrayOf(requestedEvent, decidedEvent)
+                    }),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                    ),
+                ),
+            ),
+        )
     }
 
     private fun detail(

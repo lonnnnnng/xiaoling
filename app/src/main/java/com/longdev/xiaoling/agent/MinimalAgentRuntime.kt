@@ -449,7 +449,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = run.id,
                 type = "tool.call.proposed",
                 message = "模型提出工具调用：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall),
+                metadata = AgentEventMetadata.toolCall(toolCall, definition),
             )
             ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型选择工具：${toolCall.name}")
             state.activeStepId = null
@@ -498,7 +498,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = runId,
                 type = "tool.call.validated",
                 message = "工具调用已校验：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall),
+                metadata = AgentEventMetadata.toolCall(toolCall, definition),
             )
             ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
             state.activeStepId = null
@@ -1127,12 +1127,13 @@ private object AgentSummaryPresentationParser {
 }
 
 private object AgentEventMetadata {
-    fun toolCall(call: ToolCall): RunEventMetadata {
+    fun toolCall(call: ToolCall, definition: ToolDefinition): RunEventMetadata {
         return RunEventMetadata.ToolCall(
             id = call.id,
             toolName = call.name,
             risk = call.risk,
             arguments = call.arguments.toSortedMap(),
+            recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
         )
     }
 

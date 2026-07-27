@@ -23,6 +23,7 @@ import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.RunEventMetadataCodec
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolDefinitionRecoveryContract
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
@@ -220,7 +221,9 @@ class RoomAgentRunRepository(
             runId = runId,
             type = "approval.requested",
             message = "等待审批：${request.toolName}",
-            metadata = request.toEventMetadata(),
+            metadata = request.toEventMetadata(
+                definitionFingerprint = ToolDefinitionRecoveryContract.snapshot(definition).definitionFingerprint,
+            ),
         )
         request
     }
@@ -242,12 +245,19 @@ class RoomAgentRunRepository(
             decisionReason = reason,
             decidedAt = System.currentTimeMillis(),
         )
+        // long: 审批决定必须沿用请求时冻结的工具定义指纹，恢复资格才能证明用户批准的是同一份工具语义，而不是事后变化的 Registry。
+        val definitionFingerprint = dao.getEvents(current.runId)
+            .asSequence()
+            .filter { it.type == "approval.requested" }
+            .mapNotNull { it.toRecord().metadata as? RunEventMetadata.ApprovalRequest }
+            .singleOrNull { it.id == current.id }
+            ?.definitionFingerprint
         dao.upsertApprovalRequest(decided.toEntity())
         appendEventInternal(
             runId = decided.runId,
             type = "approval.request_decided",
             message = "审批状态已更新：${decided.toolName} -> ${decided.status.name}",
-            metadata = decided.toEventMetadata(),
+            metadata = decided.toEventMetadata(definitionFingerprint),
         )
         decided
     }
@@ -852,7 +862,9 @@ class RoomAgentRunRepository(
         }.getOrDefault(emptyList())
     }
 
-    private fun ApprovalRequestRecord.toEventMetadata(): RunEventMetadata {
+    private fun ApprovalRequestRecord.toEventMetadata(
+        definitionFingerprint: String? = null,
+    ): RunEventMetadata {
         return RunEventMetadata.ApprovalRequest(
             id = id,
             toolName = toolName,
@@ -861,6 +873,7 @@ class RoomAgentRunRepository(
             status = status,
             expiresAt = expiresAt,
             reason = decisionReason,
+            definitionFingerprint = definitionFingerprint,
         )
     }
 

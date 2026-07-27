@@ -10,6 +10,16 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：尚未提交安全重放资格（完成）
+
+- `ToolDefinition` 新增默认 `DENY` 的 `notCommittedReplayPolicy` 与正整数 `recoveryContractVersion`。只有同时声明 `ToolReplaySafety.IDEMPOTENT_BY_KEY`、`ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL` 和 `ToolApprovalPolicy.REQUIRE_CONFIRMATION` 的工具才能 opt-in；当前仅 `notes.create`、`memory.remember`。构造期约束阻止非幂等或无需审批工具误开资格。
+- `ToolDefinitionRecoveryContract` 把 Schema/契约版本、名称、说明、风险、审批/验证/重放策略、审计时序、超时、后台能力、Android 权限、业务校验器数量与完整输入 Schema 做长度前缀规范化后计算 SHA-256。Runtime 在 `tool.call.proposed / validated` 事件冻结同一 `ToolDefinitionRecoverySnapshot`；Codec 对未知未来策略或损坏快照返回 `null`，历史 Run 不会被当前定义事后升级。业务校验器实现不可序列化，改变语义时必须同步递增契约版本。
+- `AgentNotCommittedReplayQualificationPolicy` 只接受 `EXECUTING` 且 Tool Ledger 完整的 Run：链尾必须 validated、无 ToolResult 与 `TOOL_EXECUTE`，前序调用必须成功且验证通过；原 Profile 必须包含该工具，当前 Registry 指纹必须与 proposed/validated 快照一致。链尾还必须有唯一 `APPROVED` 审批，requested 必须原始为 `PENDING`，requested/decided 的名称、风险、参数和定义指纹一致，事件严格按 validated→requested→decided，最后一个审批 Step 已完成且之后无任何步骤。
+- `RoomAgentRunRepository` 在创建审批时冻结当前定义指纹，决定审批时从唯一 requested 事件继承同一指纹，避免 Registry 后续变化重写用户批准语义。Room Schema 仍为 v32，不新增 migration。磁盘完全关闭并重开的 instrumentation 证明资格与启动收敛只依赖持久化 Profile、Tool Ledger、审批事件和当前 Registry，不依赖旧进程对象。
+- 资格通过时 `AgentRunResumePolicy` 仍返回 `RESTART_REQUIRED`，只把处置码细分为 `NOT_COMMITTED_REPLAY_ELIGIBLE`。`closeInterruptedRuns()` 继续将旧 Run 与活动 Step 收敛为 `CANCELLED` 并写入 `run.recovered`；本阶段没有重放 ToolCall、调用旧 Executor、恢复模型协程、继续 Workflow 或原地修改旧 Run。该码只为后续用户控制的关联新 Run 入口提供持久化资格。
+- TDD 新增 11 条 JVM，覆盖正例、当前定义/审批指纹/参数漂移、requested 非 `PENDING`、审批事件倒序、历史契约缺失、默认 `DENY`、执行步骤仍为 `COMMIT_UNKNOWN`、Codec round-trip 和未知策略 fail-closed；既有 Runtime 审计测试增加 proposed/validated 同契约断言。双轴审查发现并修复 decided 指纹、requested 状态和事件顺序三个缺口。
+- 强制本地门禁为 Gradle `141/141` tasks（`3m 19s`）、JVM `694/694`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 正式单签名。Debug/Release APK 为 `23,387,225 / 3,187,250` 字节，SHA-256 为 `9b298babd168842031ad5221b2b1c488d5bc7a2b2ee046efdad101ad9f468c97 / c861055daed1ff8cf3264439c1795ed4085fe17b2220fc1c405e67d963e1cbbe`。仅 Redmi 磁盘重开单项为 `OK (2 tests)`、耗时 `0.783s`；解锁并启用 USB 保持唤醒后的默认完整 instrumentation 为 `OK (233 tests)`、耗时 `90.924s`，随后已关闭保持唤醒。同步后的最终文档语料单项为 `OK (1 test)`。
+
 ## 通用执行恢复矩阵：提交状态未知（完成）
 
 - 新增 `AgentRunRecoveryEvidenceAssessment.CommitUnknown` 与稳定 `AgentRunRestartDispositionCode.COMMIT_UNKNOWN`。恢复策略只在独立 Tool Ledger 可证明链尾 ToolCall 已 validated、`TOOL_EXECUTE` 步骤已经持久化且 ToolResult 缺失时返回 `RESTART_REQUIRED / COMMIT_UNKNOWN`；证据边界固定说明“无法证明副作用未发生”。
@@ -17,7 +27,7 @@
 - 启动收敛前的重试证据复用同一执行边界。proposed-only 和“Run 状态已写成 EXECUTING、执行步骤尚未落库”的窗口固定为 `NOT_COMMITTED`，不会与同一 `run.recovered` 中的恢复处置冲突；真正缺结果的执行步骤仍为 `COMMIT_UNKNOWN` 并要求用户确认关联新 Run。旧 Run 和活动 Step 收敛为 `CANCELLED`，不恢复旧模型协程、不调用旧 Executor、不继续旧 Workflow，也不补造 ToolResult。
 - TDD 新增 5 条 JVM，覆盖 validated+执行步骤缺结果、proposed-only、validated-only 无执行步骤、legacy typed-event 和重试证据一致性；Room 新增 2 条跨 Repository 实例测试，覆盖 `COMMIT_UNKNOWN` 与 `NOT_COMMITTED + RECOVERY_EVIDENCE_INVALID` 的持久化。双轴审查发现并修复了“validated 早于执行边界”和“重试证据只看 Run 状态”两处问题。
 - 强制本地门禁为 Gradle `141/141` tasks（`3m 11s`）、JVM `683/683`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 正式单签名。Debug/Release APK 为 `23,370,841 / 3,187,250` 字节，SHA-256 为 `d5470aa909bae8a93ff10bcb088ef9ce3b36bbec1da17caaf8ed3c001716b936 / cf0a2cc320bb7ebc6828850e271860ed775a5ebcdc65bc5e9be18e0c5b267dc3`。仅 Redmi `wsvwypiz7xwslvl7` 的两个 Room 单项分别为 `OK (1 test)`、耗时 `0.592s / 0.507s`；默认完整 instrumentation 为 `OK (231 tests)`、耗时 `90.302s`，最终文档语料为 `OK (1 test)`。未向在线模拟器发送安装或测试命令。
-- 下一切片处理“尚未提交”的安全重放资格：必须先建立明确未进入副作用边界、原请求可重建且工具重放契约允许的持久化证据；本阶段仍不允许任何旧 Run 原地重放。
+- 相邻的“尚未提交安全重放资格”已由上一节完成；它仍只签发关联新 Run 的未来资格，不允许任何旧 Run 原地重放。
 
 ## 功能对话框归属收口（横向结构工程完成）
 

@@ -1,5 +1,15 @@
 # 产品需求
 
+## 尚未提交安全重放资格边界（通用执行恢复矩阵）
+
+`NOT_COMMITTED` 只能说明当前持久化证据没有进入工具副作用边界，不能直接授权重放。工具默认必须使用 `ToolNotCommittedReplayPolicy.DENY`；只有同时具备稳定幂等键、显式 `CONTROLLED_SAME_CALL` 和逐次用户审批的工具才允许进入资格评估。当前生产范围只包括 `notes.create` 与 `memory.remember`，新工具不得因为风险等级或当前实现看似安全而自动继承资格。
+
+Runtime 必须在 ToolCall proposed 与 validated 事件中持久化同一版本化恢复契约。契约必须冻结工具名称、说明、风险、审批/验证/重放策略、超时、后台能力、Android 权限、输入 Schema 和业务校验器版本语义，并使用 canonical SHA-256 指纹防止当前 Registry 事后升级历史证据。未知未来策略、缺少快照、Schema/契约版本不匹配或当前定义漂移必须 fail-closed。业务校验器代码无法稳定序列化时，语义变化必须显式递增契约版本。
+
+Run 资格必须同时满足：状态为 `EXECUTING`；原 Profile 快照允许该工具；独立 Tool Ledger 完整；链尾 ToolCall 已 validated、没有 ToolResult、没有对应 `TOOL_EXECUTE`；所有前序调用成功且验证通过；唯一审批记录为 `APPROVED`。审批 requested 事件必须保留原始 `PENDING`，requested/decided 的工具、风险、参数和定义指纹必须一致，顺序必须为 validated→requested→decided；最后一个审批 Step 必须完成，且其后不得出现任何步骤。任一字段、事件顺序、步骤或定义漂移均拒绝资格，出现执行步骤时必须继续按 `COMMIT_UNKNOWN` 处理。
+
+资格通过只允许持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`，供后续在重新核验证据和用户控制下创建 `retryOfRunId` 关联新 Run。本阶段不得调用工具、恢复旧模型协程/Executor、继续旧 Workflow、伪造 ToolResult 或原地继续旧 Run；启动收敛继续把旧 Run 与活动 Step 置为 `CANCELLED`。Room Schema 保持 v32。验收必须覆盖当前定义、参数、审批指纹、状态与事件顺序漂移，历史契约缺失、默认拒绝、执行步骤降级、Codec 未知策略、Runtime 双事件一致性和 Room 磁盘重开；真机只允许 Redmi `wsvwypiz7xwslvl7`。
+
 ## Agent 启动前校验协调边界（横向可靠性工程）
 
 普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批必须通过单一 `AgentLaunchPreflightCoordinator` 完成启动前校验。普通 `/agent` 的会话为可选，继续允许既有发送链创建新会话；其余四类入口必须先证明指定会话仍存在，并保留各入口原有的缺失提示。会话错误必须先于 Profile、未注册工具和 Provider 错误返回。

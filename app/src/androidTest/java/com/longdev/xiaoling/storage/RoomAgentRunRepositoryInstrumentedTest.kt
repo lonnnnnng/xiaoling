@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentLlm
+import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
@@ -25,6 +27,7 @@ import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.SystemAgentClock
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
+import com.longdev.xiaoling.agent.ToolDefinitionRecoveryContract
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolExecutionResult
@@ -864,6 +867,61 @@ class RoomAgentRunRepositoryInstrumentedTest {
             AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
             checkNotNull(recovery.restartDisposition).code,
         )
+    }
+
+    @Test
+    fun notCommittedReplayQualificationSurvivesDiskRoomReopen() = runBlocking {
+        withDiskReopenedNotCommittedReplayRun("xiaoling-not-committed-qualification-test.db") {
+                restartedRepository,
+                restartedRegistry,
+                runId,
+                _,
+            ->
+            val assessment = AgentRunResumePolicy.assess(
+                detail = checkNotNull(restartedRepository.runDetail(runId)),
+                definitionLookup = restartedRegistry::definition,
+                committedVerificationSupport = restartedRegistry::supportsCommittedEffectVerification,
+            )
+
+            assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+            assertFalse(assessment.canResumeInPlace)
+            assertEquals(
+                AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                checkNotNull(assessment.restartDisposition).code,
+            )
+        }
+    }
+
+    @Test
+    fun closeInterruptedRunPersistsReplayQualificationWithoutChangingOldRunBoundary() = runBlocking {
+        withDiskReopenedNotCommittedReplayRun("xiaoling-not-committed-recovery-test.db") {
+                restartedRepository,
+                restartedRegistry,
+                runId,
+                callId,
+            ->
+            assertEquals(
+                1,
+                restartedRepository.closeInterruptedRuns(
+                    definitionLookup = restartedRegistry::definition,
+                    committedVerificationSupport = restartedRegistry::supportsCommittedEffectVerification,
+                    runIds = setOf(runId),
+                ),
+            )
+
+            val closed = checkNotNull(restartedRepository.runDetail(runId))
+            assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+            assertTrue(closed.toolLedger.results.isEmpty())
+            assertEquals(callId, closed.toolLedger.calls.single().id)
+            val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+                .metadata as RunEventMetadata.Recovery
+            assertEquals(AgentTaskRetryEvidenceCode.NOT_COMMITTED, recovery.retryEvidenceCode)
+            assertEquals(AgentRunResumeKind.RESTART_REQUIRED, recovery.resumeKind)
+            assertEquals(
+                AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE,
+                checkNotNull(recovery.restartDisposition).code,
+            )
+        }
     }
 
     @Test
@@ -1779,5 +1837,119 @@ class RoomAgentRunRepositoryInstrumentedTest {
 
         assertEquals(sourceRun.id, repository.snapshot(retryRun.id).run.retryOfRunId)
         assertEquals(sourceBeforeRetry, repository.snapshot(sourceRun.id))
+    }
+
+    private suspend fun withDiskReopenedNotCommittedReplayRun(
+        databaseName: String,
+        verify: suspend (
+            repository: RoomAgentRunRepository,
+            registry: XiaoLingToolRegistry,
+            runId: String,
+            callId: String,
+        ) -> Unit,
+    ) {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.deleteDatabase(databaseName)
+        var firstDatabase: XiaoLingDatabase? = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .allowMainThreadQueries()
+            .build()
+        var restartedDatabase: XiaoLingDatabase? = null
+        try {
+            val opened = checkNotNull(firstDatabase)
+            val firstRepository = RoomAgentRunRepository(context, opened)
+            val firstRegistry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context, opened),
+                noteStore = RoomAgentNoteStore(context, opened),
+                memoryStore = RoomAgentMemoryStore(context, opened),
+                knowledgeStore = RoomKnowledgeDocumentStore(context, opened),
+            )
+            val definition = checkNotNull(firstRegistry.definition("notes.create"))
+            val recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition)
+            val run = firstRepository.createRun(
+                conversationId = "conversation-not-committed-replay",
+                userMessageId = "message-not-committed-replay",
+                goal = "创建尚未执行的受控重放资格样本",
+            )
+            val call = ToolCall(
+                id = "tool-call-not-committed-replay",
+                name = definition.name,
+                arguments = mapOf("title" to "恢复资格", "content" to "工具尚未执行"),
+                risk = definition.risk,
+            )
+            val profile = AgentProfileSnapshot(
+                id = "agent-notes-recovery",
+                name = "笔记恢复 Agent",
+                avatar = "记",
+                providerId = "provider-not-committed-replay",
+                model = "gpt-test",
+                apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+                systemPrompt = "",
+                contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+                allowedToolNames = listOf(definition.name),
+                allowedSkillIds = emptyList(),
+                memoryEnabled = false,
+            )
+            firstRepository.appendEvent(
+                run.id,
+                com.longdev.xiaoling.agent.AgentEventTypes.PROFILE_SELECTED,
+                "冻结 Agent Profile",
+                RunEventMetadata.AgentProfileSelection(profile),
+            )
+            val callMetadata = RunEventMetadata.ToolCall(
+                id = call.id,
+                toolName = call.name,
+                risk = call.risk,
+                arguments = call.arguments,
+                recoveryContract = recoveryContract,
+            )
+            firstRepository.appendEvent(run.id, "tool.call.proposed", "模型提出工具调用", callMetadata)
+            firstRepository.appendEvent(run.id, "tool.call.validated", "工具调用通过校验", callMetadata)
+            val approvalStep = firstRepository.appendStep(
+                run.id,
+                "approval",
+                "应用侧审批",
+                "等待批准同一 ToolCall",
+                AgentStepStatus.RUNNING,
+            )
+            val approval = firstRepository.createApprovalRequest(
+                conversationId = run.conversationId,
+                runId = run.id,
+                toolCall = call,
+                definition = definition,
+            )
+            checkNotNull(
+                firstRepository.decideApprovalRequest(
+                    approval.id,
+                    ApprovalRequestStatus.APPROVED,
+                    "用户批准",
+                ),
+            )
+            firstRepository.updateStep(approvalStep.id, AgentStepStatus.COMPLETED, "用户已批准")
+            firstRepository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+
+            // long: 资格必须在数据库完全关闭后仍可重建，证明它只依赖持久化 Profile、Tool Ledger、审批和定义指纹，不依赖旧进程对象。
+            opened.close()
+            firstDatabase = null
+            val reopened = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+                .also { restartedDatabase = it }
+            val restartedRepository = RoomAgentRunRepository(context, reopened)
+            val restartedRegistry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context, reopened),
+                noteStore = RoomAgentNoteStore(context, reopened),
+                memoryStore = RoomAgentMemoryStore(context, reopened),
+                knowledgeStore = RoomKnowledgeDocumentStore(context, reopened),
+            )
+            verify(restartedRepository, restartedRegistry, run.id, call.id)
+        } finally {
+            firstDatabase?.close()
+            restartedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 }

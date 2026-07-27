@@ -6,6 +6,40 @@ import org.junit.Test
 
 class RunEventMetadataCodecTest {
     @Test
+    fun toolCallRecoveryContractRoundTrips() {
+        val metadata = RunEventMetadata.ToolCall(
+            id = "tool-call-recovery-contract",
+            toolName = "notes.create",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf("title" to "恢复资格", "content" to "尚未执行"),
+            recoveryContract = ToolDefinitionRecoverySnapshot(
+                schemaVersion = 1,
+                contractVersion = 3,
+                notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+                definitionFingerprint = "a".repeat(64),
+            ),
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                "tool.call.validated",
+                RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
+    fun unknownNotCommittedReplayPolicyDropsRecoveryContract() {
+        val decoded = RunEventMetadataCodec.decode(
+            "tool.call.validated",
+            """{"id":"tool-call-future","toolName":"notes.create","risk":"REQUIRES_APPROVAL","arguments":{"title":"future"},"recoveryContract":{"schemaVersion":1,"contractVersion":1,"notCommittedReplayPolicy":"FUTURE_POLICY","definitionFingerprint":"${"b".repeat(64)}"}}""",
+        ) as RunEventMetadata.ToolCall
+
+        assertEquals(null, decoded.recoveryContract)
+    }
+
+    @Test
     fun executionBudgetRoundTripsWithoutLosingAccumulatedTime() {
         val metadata = RunEventMetadata.ExecutionBudget(
             totalTimeoutMs = 120_000,

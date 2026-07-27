@@ -40,6 +40,7 @@ internal object RunEventMetadataCodec {
                 .put("toolName", metadata.toolName)
                 .put("risk", metadata.risk.name)
                 .putArguments(metadata.arguments)
+                .put("recoveryContract", metadata.recoveryContract?.toJson())
             is RunEventMetadata.ToolResult -> JSONObject()
                 .put("toolName", metadata.toolName)
                 .put("content", metadata.content)
@@ -59,6 +60,7 @@ internal object RunEventMetadataCodec {
                 .put("status", metadata.status.name)
                 .put("expiresAt", metadata.expiresAt)
                 .put("reason", metadata.reason)
+                .put("definitionFingerprint", metadata.definitionFingerprint)
             is RunEventMetadata.ApprovalDecision -> JSONObject()
                 .put("toolName", metadata.toolName)
                 .put("approved", metadata.approved)
@@ -143,6 +145,7 @@ internal object RunEventMetadataCodec {
                     toolName = json.requiredToolName(),
                     risk = ToolRisk.valueOf(json.requiredString("risk")),
                     arguments = json.arguments(),
+                    recoveryContract = json.recoveryContractOrNull(),
                 )
                 "tool.result" -> RunEventMetadata.ToolResult(
                     toolName = json.requiredToolName(),
@@ -169,6 +172,7 @@ internal object RunEventMetadataCodec {
                     expiresAt = json.getLong("expiresAt"),
                     // long: v6 审批事件使用 decisionReason，新格式统一为 reason；别名兼容保证升级后用户决定仍可审计。
                     reason = json.stringOrNull("reason") ?: json.stringOrNull("decisionReason"),
+                    definitionFingerprint = json.stringOrNull("definitionFingerprint"),
                 )
                 "approval.granted",
                 "approval.denied" -> RunEventMetadata.ApprovalDecision(
@@ -282,6 +286,26 @@ internal object RunEventMetadataCodec {
         .put("operationId", operationId)
         .put("idempotencyKey", idempotencyKey)
         .put("status", status.name)
+
+    private fun ToolDefinitionRecoverySnapshot.toJson(): JSONObject = JSONObject()
+        .put("schemaVersion", schemaVersion)
+        .put("contractVersion", contractVersion)
+        .put("notCommittedReplayPolicy", notCommittedReplayPolicy.name)
+        .put("definitionFingerprint", definitionFingerprint)
+
+    private fun JSONObject.recoveryContractOrNull(): ToolDefinitionRecoverySnapshot? {
+        val contract = optJSONObject("recoveryContract") ?: return null
+        return runCatching {
+            ToolDefinitionRecoverySnapshot(
+                schemaVersion = contract.getInt("schemaVersion"),
+                contractVersion = contract.getInt("contractVersion"),
+                notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.valueOf(
+                    contract.requiredString("notCommittedReplayPolicy"),
+                ),
+                definitionFingerprint = contract.requiredString("definitionFingerprint"),
+            )
+        }.getOrNull()
+    }
 
     private fun JSONObject.executionReceiptOrNull(): ToolExecutionReceipt? {
         // long: 旧 Run 没有执行回执时保持 null，不能从成功文本或工具名反推已经提交的副作用证据。

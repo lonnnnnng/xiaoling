@@ -14,6 +14,16 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-27 通用执行恢复矩阵：尚未提交安全重放资格
+
+- 实现边界：新增默认 `DENY` 的 `ToolNotCommittedReplayPolicy`、版本化 `ToolDefinitionRecoverySnapshot/Contract` 和 `AgentNotCommittedReplayQualificationPolicy`。只有 `IDEMPOTENT_BY_KEY + CONTROLLED_SAME_CALL + REQUIRE_CONFIRMATION` 的工具才可 opt-in；当前仅 `notes.create`、`memory.remember`。Runtime 在 proposed/validated 事件冻结同一恢复契约，审批 requested/decided 冻结请求时的定义指纹；未知策略、旧事件缺快照和当前定义漂移均 fail-closed。
+- 资格边界：Run 必须为 `EXECUTING`，原 Profile 白名单、独立 Tool Ledger 和当前定义一致；链尾已 validated 且没有 ToolResult/`TOOL_EXECUTE`，前序调用全部成功验证；唯一审批已批准，requested 原状态为 `PENDING`，requested/decided 的名称、风险、参数与指纹一致，事件严格按 validated→requested→decided，审批 Step 完成后没有新步骤。出现任一漂移或执行步骤时不签发资格。
+- 安全语义：资格只以 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE` 写入 `run.recovered`，用于未来有用户控制的关联新 Run 入口。启动收敛仍把旧 Run 和活动 Step 置为 `CANCELLED`；没有重放工具、恢复旧模型协程/Executor、继续 Workflow、伪造 ToolResult 或原地续跑。Room 保持 v32。
+- TDD 与审查：新增 11 条 JVM，覆盖正例、当前定义/审批指纹/参数漂移、requested 非 `PENDING`、审批事件倒序、历史契约缺失、默认 `DENY`、执行步骤仍为 `COMMIT_UNKNOWN`、Codec round-trip 和未知策略 fail-closed；既有 Runtime 用例增加 proposed/validated 同契约断言。双轴审查发现并修复 decided 指纹、requested 状态和事件顺序三个缺口；代码业务注释与默认拒绝约束已补齐。
+- 本地完整门禁：强制重跑 Gradle `141/141` tasks，耗时 `3m 19s`；JVM `694/694`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug APK 为 `23,387,225` 字节、SHA-256 `9b298babd168842031ad5221b2b1c488d5bc7a2b2ee046efdad101ad9f468c97`；Release APK 为 `3,187,250` 字节、SHA-256 `c861055daed1ff8cf3264439c1795ed4085fe17b2220fc1c405e67d963e1cbbe`，版本 `0.1.13 (14)`，zipalign、v2 正式证书和单签名者通过。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`。磁盘 Room 完全关闭重开的两个资格/收敛用例合并执行为 `OK (2 tests)`、`0.783s`。首轮默认完整因设备熄屏锁定使 Activity 停在 `STOPPED`，触发用例在解锁后单独复验为 `OK (1 test)`；临时启用 USB 保持唤醒后重跑默认完整为 `OK (233 tests)`、`90.924s`，随后执行 `svc power stayon false` 恢复设备设置。该首轮失败属于测试前台条件，不是产品逻辑失败；没有向任何模拟器发送 ADB 命令。
+- 文档门禁：README 与长期 `docs/` 同步后重新打包 AndroidTest assets；只在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首次结果为 `OK (1 test)`、耗时 `2.171s`。写回该结果后再次重建，最终复验同为 `OK (1 test)`，确保提交文档与 APK assets 一致。
+
 ## 2026-07-27 通用执行恢复矩阵：提交状态未知
 
 - 实现边界：新增 `AgentRunRecoveryEvidenceAssessment.CommitUnknown` 和 `AgentRunRestartDispositionCode.COMMIT_UNKNOWN`。独立 Tool Ledger 只有在链尾 ToolCall 已 validated、对应 `TOOL_EXECUTE` 步骤持久化且 ToolResult 缺失时，才返回 `RESTART_REQUIRED` 并冻结“无法证明副作用未发生”的证据边界。v19 及更早 typed event 只有在稳定 ToolCall ID、唯一链尾 validated 调用与执行步骤同时成立时进入同一分类。
@@ -22,7 +32,7 @@
 - TDD 与审查：新增 5 条 JVM，覆盖 ledger 缺结果、proposed-only、validated-only 无执行步骤、legacy fallback 和重试证据一致性；新增 2 条 Room instrumentation 跨 Repository 实例验证恢复事件持久化。双轴审查发现 `validated` 早于执行边界、`retryEvidenceCode` 只看 Run 状态两项问题，补红测后修复；最终 `git diff --check` 通过。
 - 本地完整门禁：强制重跑 Gradle `141/141` tasks，耗时 `3m 11s`；JVM `683/683`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug APK 为 `23,370,841` 字节、SHA-256 `d5470aa909bae8a93ff10bcb088ef9ce3b36bbec1da17caaf8ed3c001716b936`；Release APK 为 `3,187,250` 字节、SHA-256 `cf0a2cc320bb7ebc6828850e271860ed775a5ebcdc65bc5e9be18e0c5b267dc3`，版本 `0.1.13 (14)`，zipalign、v2 正式证书和单签名者校验通过。
 - Redmi 门禁：只使用 `wsvwypiz7xwslvl7`，以同一正式证书签署最新 Debug/Test APK 后无损覆盖。`interruptedExecutingToolWithoutResultPersistsCommitUnknownDisposition` 为 `OK (1 test)`、`0.592s`；`interruptedBeforeExecutionStepDoesNotPersistCommitUnknownDisposition` 为 `OK (1 test)`、`0.507s`。默认完整 `AndroidJUnitRunner` 为 `OK (231 tests)`、耗时 `90.302s`，无失败；在线 `emulator-5554` 未接收安装、测试或其他设备命令。
-- 文档与下一步：README 和长期 `docs/` 更新后重新打包，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。恢复矩阵下一格处理“尚未提交”的安全重放资格，但必须同时证明未进入副作用边界、请求可重建和工具重放契约允许；本切片没有开放任何旧 Run 原地重放。
+- 文档与相邻矩阵：README 和长期 `docs/` 更新后重新打包，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。相邻的“尚未提交安全重放资格”已由上一节完成，但本切片和新资格都没有开放旧 Run 原地重放。
 
 ## 2026-07-27 功能对话框归属收口（横向结构工程完成）
 

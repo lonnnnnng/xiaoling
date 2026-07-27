@@ -152,6 +152,7 @@ class XiaoLingToolRegistry(
             ),
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -183,6 +184,7 @@ class XiaoLingToolRegistry(
             description = "把用户明确希望长期保留的偏好、事实或备注写入本机长期记忆；写入前必须经过用户审批。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
             inputSchema = listOf(
                 ToolInputField(
                     name = "note",

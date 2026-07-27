@@ -6,11 +6,19 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 通用执行恢复矩阵：尚未提交安全重放资格（完成）
+
+“尚未提交”现在只是一项持久化资格，不是执行动作。Runtime 在 ToolCall proposed/validated 时写入版本化恢复契约；契约指纹覆盖 Schema/契约版本、工具名称与说明、风险、审批/验证/重放策略、超时、后台能力、Android 权限、参数 Schema 和业务校验器数量。业务校验器代码本身不可序列化，其语义变化必须显式递增 `recoveryContractVersion`。审批 requested/decided 事件沿用请求时冻结的定义指纹，未知未来策略或缺少契约的历史事件按无资格处理。
+
+资格只允许默认拒绝之外的显式 opt-in：工具必须同时为 `IDEMPOTENT_BY_KEY`、`CONTROLLED_SAME_CALL` 和 `REQUIRE_CONFIRMATION`；当前只有 `notes.create`、`memory.remember`。此外还必须证明原 Profile 允许该工具、Tool Ledger 完整、链尾已 validated 且无 ToolResult/`TOOL_EXECUTE`、前序调用全部成功验证、唯一审批已经批准、requested 状态原本为 `PENDING`、requested/decided 参数与定义指纹一致、事件顺序为 validated→requested→decided，且审批 Step 完成后没有新步骤。任何定义、参数、指纹、顺序或步骤漂移都 fail-closed。
+
+通过资格时 `AgentRunResumePolicy` 只写入 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`；启动收敛仍把旧 Run 和活动 Step 置为 `CANCELLED`。本阶段不调用工具、不恢复旧模型协程或 Executor、不继续旧 Workflow，也不原地继续旧 Run。强制本地 `141/141` tasks、JVM `694/694`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 单签名通过；仅 Redmi 的磁盘 Room 单项 `OK (2 tests)`（`0.783s`），默认完整 `OK (233 tests)`（`90.924s`），同步后的最终文档语料为 `OK (1 test)`。下一切片应先把该资格接入有证据漂移复核和用户控制的关联新 Run 入口，再统一复核已提交只读验证、已验证只补控制面两格；不得从资格直接跳到旧 Run 原地续跑。
+
 ## 通用执行恢复矩阵：提交状态未知（完成）
 
 恢复矩阵的“提交状态未知”已形成首个持久化垂直切片。只有 validated ToolCall、对应 `TOOL_EXECUTE` 步骤和缺失 ToolResult 同时成立，旧 Run 才冻结 `RESTART_REQUIRED / COMMIT_UNKNOWN`；proposed-only、validated-only 但执行步骤尚未落库和不一致步骤链继续按恢复证据无效处理。启动收敛同时冻结重试证据：真正越过执行边界的调用要求用户确认后创建关联新 Run，尚未进入执行步骤的调用保持 `NOT_COMMITTED`。legacy typed event 也必须有唯一链尾调用和执行步骤双重证据。
 
-该切片不重放工具、不恢复旧模型协程或 Workflow 后续步骤，也不伪造 ToolResult；旧 Run 与活动 Step 保持可审计终态。强制本地 `141/141` tasks、JVM `683/683`、Lint `0 error / 51 warnings`、三类 APK、Release lintVital、zipalign 和 v2 正式单签名通过；仅 Redmi 两个 Room 单项分别为 `OK (1 test)`，默认完整为 `OK (231 tests)`、耗时 `90.302s`，最终文档语料为 `OK (1 test)`。下一切片转向“尚未提交”的可重放资格，但必须先证明副作用边界未进入、请求可重建且工具重放契约允许；不能把 `NOT_COMMITTED` 直接等同于允许恢复旧执行栈。
+该切片不重放工具、不恢复旧模型协程或 Workflow 后续步骤，也不伪造 ToolResult；旧 Run 与活动 Step 保持可审计终态。强制本地 `141/141` tasks、JVM `683/683`、Lint `0 error / 51 warnings`、三类 APK、Release lintVital、zipalign 和 v2 正式单签名通过；仅 Redmi 两个 Room 单项分别为 `OK (1 test)`，默认完整为 `OK (231 tests)`、耗时 `90.302s`，最终文档语料为 `OK (1 test)`。相邻的“尚未提交安全重放资格”已由上一节完成，但不能把 `NOT_COMMITTED` 或该资格直接等同于允许恢复旧执行栈。
 
 ## 横向结构工程：功能对话框归属收口（完成）
 
@@ -756,10 +764,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 1. 已完成：发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
 2. 已完成：发布后有停止条件的对话框簇收尾。只迁移 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除；`SettingsPage`、备份恢复、全局通知与 Android launcher 继续留在 composition root。`XiaoLingApp.kt` 收敛到 `817` 行后停止结构拆分，不再以压低宿主或 ViewModel 行数为目标。
 3. 已完成：通用执行恢复矩阵首个“提交状态未知”切片。真实执行步骤缺结果稳定冻结为 `COMMIT_UNKNOWN`；proposed-only 和执行步骤尚未落库保持 `NOT_COMMITTED / RECOVERY_EVIDENCE_INVALID`，旧 Run 不重放、不续跑。
-4. 当前主线：完成“尚未提交”的安全重放资格。只有副作用边界明确未进入、原请求可重建、工具重放契约允许且用户审批语义不漂移时，才考虑创建受控恢复动作；不能直接恢复旧协程或把所有 `NOT_COMMITTED` 一概重放。随后补齐已提交可只读验证、已验证只补控制面两格的统一持久化矩阵与端到端入口。
-5. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
-6. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
-7. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
+4. 已完成：“尚未提交”的安全重放资格。只有副作用边界明确未进入、原请求可重建、当前/历史工具恢复契约一致且用户审批语义不漂移时，才冻结 `NOT_COMMITTED_REPLAY_ELIGIBLE`；旧 Run 仍取消，不执行重放。
+5. 当前主线：把该资格接入有证据漂移复核和用户控制的关联新 Run 入口，并统一复核已提交可只读验证、已验证只补控制面两格的持久化矩阵与端到端入口。不能直接恢复旧协程或把所有 `NOT_COMMITTED` 一概重放。
+6. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+7. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
+8. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

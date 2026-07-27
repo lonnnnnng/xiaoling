@@ -242,8 +242,10 @@ class MinimalAgentRuntimeTest {
     @Test
     fun runCompletesWithAuditableSteps() = runTest {
         val ledger = InMemoryAgentRunLedger()
+        val registry = FakeToolRegistry()
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
+            toolRegistry = registry,
             llm = FakeAgentLlm(),
         )
 
@@ -265,6 +267,15 @@ class MinimalAgentRuntimeTest {
         assertTrue(snapshot.events.any {
             it.type == "tool.call.proposed" && (it.metadata as? RunEventMetadata.ToolCall)?.toolName == "fake.echo"
         })
+        val proposed = snapshot.events.single { it.type == "tool.call.proposed" }
+            .metadata as RunEventMetadata.ToolCall
+        val validated = snapshot.events.single { it.type == "tool.call.validated" }
+            .metadata as RunEventMetadata.ToolCall
+        assertEquals(proposed.recoveryContract, validated.recoveryContract)
+        assertEquals(
+            ToolDefinitionRecoveryContract.snapshot(checkNotNull(registry.definition("fake.echo"))),
+            proposed.recoveryContract,
+        )
         assertTrue(snapshot.events.any {
             it.type == "tool.result" && (it.metadata as? RunEventMetadata.ToolResult)?.success == true
         })

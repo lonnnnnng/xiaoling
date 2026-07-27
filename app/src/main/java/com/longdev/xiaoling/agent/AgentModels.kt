@@ -147,6 +147,7 @@ sealed interface RunEventMetadata {
         val toolName: String,
         val risk: ToolRisk,
         val arguments: Map<String, String>,
+        val recoveryContract: ToolDefinitionRecoverySnapshot? = null,
     ) : RunEventMetadata
 
     data class ToolResult(
@@ -170,6 +171,7 @@ sealed interface RunEventMetadata {
         val status: ApprovalRequestStatus,
         val expiresAt: Long,
         val reason: String?,
+        val definitionFingerprint: String? = null,
     ) : RunEventMetadata
 
     data class ApprovalDecision(
@@ -323,6 +325,8 @@ data class ToolDefinition(
     val approvalPolicy: ToolApprovalPolicy = risk.defaultApprovalPolicy(),
     val verificationPolicy: ToolVerificationPolicy = ToolVerificationPolicy.RESULT_READABLE,
     val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
+    val notCommittedReplayPolicy: ToolNotCommittedReplayPolicy = ToolNotCommittedReplayPolicy.DENY,
+    val recoveryContractVersion: Int = 1,
     val validateBeforeAudit: Boolean = false,
     val timeoutMs: Long? = null,
 ) {
@@ -330,10 +334,20 @@ data class ToolDefinition(
         require(name.isNotBlank()) { "工具名称不能为空" }
         require(description.isNotBlank()) { "工具描述不能为空" }
         require(timeoutMs == null || timeoutMs > 0) { "工具超时时间必须大于 0" }
+        require(recoveryContractVersion > 0) { "工具恢复契约版本必须大于 0" }
         require(inputSchema.map { it.name }.distinct().size == inputSchema.size) { "工具参数名称不能重复" }
         require(risk == ToolRisk.SAFE || approvalPolicy == ToolApprovalPolicy.REQUIRE_CONFIRMATION) {
             "非 SAFE 工具必须要求用户确认"
         }
+        // long: 尚未进入副作用边界也不能默认重放；只有具备稳定幂等键且每次由用户重新确认的工具，才能签发关联新 Run 的受控资格。
+        require(
+            notCommittedReplayPolicy == ToolNotCommittedReplayPolicy.DENY ||
+                replaySafety == ToolReplaySafety.IDEMPOTENT_BY_KEY
+        ) { "尚未提交重放只允许显式幂等工具开启" }
+        require(
+            notCommittedReplayPolicy == ToolNotCommittedReplayPolicy.DENY ||
+                approvalPolicy == ToolApprovalPolicy.REQUIRE_CONFIRMATION
+        ) { "尚未提交重放必须绑定逐次用户审批" }
     }
 
     fun validateArguments(arguments: Map<String, String>): ToolValidationResult {
@@ -508,6 +522,18 @@ enum class ToolReplaySafety {
     RESTART_REQUIRED,
     IDEMPOTENT_BY_KEY,
 }
+
+enum class ToolNotCommittedReplayPolicy {
+    DENY,
+    CONTROLLED_SAME_CALL,
+}
+
+data class ToolDefinitionRecoverySnapshot(
+    val schemaVersion: Int,
+    val contractVersion: Int,
+    val notCommittedReplayPolicy: ToolNotCommittedReplayPolicy,
+    val definitionFingerprint: String,
+)
 
 data class ToolExecutionReceipt(
     val toolCallId: String,
