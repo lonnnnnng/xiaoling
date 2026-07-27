@@ -1,4 +1,4 @@
-package com.longdev.xiaoling.ui
+package com.longdev.xiaoling.ui.processexit
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
@@ -15,58 +15,86 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
-class ProcessExitObservationContentInstrumentedTest {
+class ProcessExitObservationPageInstrumentedTest {
     @get:Rule
     val composeRule = createComposeRule()
 
     @Test
-    fun emptyLedgerExplainsEvidenceBoundaryAndAllowsReadOnlyRefresh() {
-        var refreshCount = 0
+    fun emptyLedgerKeepsEvidenceBoundaryAndRoutesPageActions() {
+        val actions = FakeProcessExitObservationActions()
+        var backCount = 0
         composeRule.setContent {
             MaterialTheme {
-                ProcessExitObservationContent(
-                    observations = emptyList(),
-                    loading = false,
-                    error = null,
-                    onBack = {},
-                    onRefresh = { refreshCount += 1 },
+                ProcessExitObservationPage(
+                    state = ProcessExitObservationUiState(),
+                    actions = actions,
+                    onBack = { backCount += 1 },
                 )
             }
         }
 
         composeRule.onNodeWithText("暂无进程退出记录").assertExists()
-        composeRule.onNodeWithText("记录仅用于系统诊断，不关联 Agent Run、工作流或任务。", substring = true)
-            .assertExists()
+        composeRule.onNodeWithText(
+            "记录仅用于系统诊断，不关联 Agent Run、工作流或任务。受控退出和候选记录不能作为自然低内存回收结论。",
+        ).assertExists()
         composeRule.onNodeWithContentDescription("刷新进程退出记录").performClick()
-        composeRule.runOnIdle { assertEquals(1, refreshCount) }
+        composeRule.onNodeWithContentDescription("返回设置").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.refreshCount)
+            assertEquals(1, backCount)
+        }
+    }
+
+    @Test
+    fun loadingAndErrorStatesRemainExplicit() {
+        val state = mutableStateOf(ProcessExitObservationUiState(loading = true))
+        composeRule.setContent {
+            MaterialTheme {
+                ProcessExitObservationPage(
+                    state = state.value,
+                    actions = FakeProcessExitObservationActions(),
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("正在读取进程退出记录").assertExists()
+        composeRule.onNodeWithContentDescription("刷新进程退出记录").assertDoesNotExist()
+
+        composeRule.runOnIdle {
+            state.value = ProcessExitObservationUiState(error = "读取账本失败")
+        }
+        composeRule.onNodeWithText("读取失败").assertExists()
+        composeRule.onNodeWithText("读取账本失败").assertExists()
     }
 
     @Test
     fun ledgerSeparatesDirectLowMemoryEvidenceFromControlledExit() {
         composeRule.setContent {
             MaterialTheme {
-                ProcessExitObservationContent(
-                    observations = listOf(
-                        observation(
-                            pid = 101,
-                            reasonName = "LOW_MEMORY",
-                            evidenceKind = ProcessExitEvidenceKind.DIRECT_LOW_MEMORY,
-                        ),
-                        observation(
-                            pid = 202,
-                            reasonName = "USER_REQUESTED",
-                            evidenceKind = ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE,
-                        ),
-                        observation(
-                            pid = 303,
-                            reasonName = "SIGNALED",
-                            evidenceKind = ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE,
+                ProcessExitObservationPage(
+                    state = ProcessExitObservationUiState(
+                        observations = listOf(
+                            observation(
+                                pid = 101,
+                                reasonName = "LOW_MEMORY",
+                                evidenceKind = ProcessExitEvidenceKind.DIRECT_LOW_MEMORY,
+                            ),
+                            observation(
+                                pid = 202,
+                                reasonName = "USER_REQUESTED",
+                                evidenceKind = ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE,
+                            ),
+                            observation(
+                                pid = 303,
+                                reasonName = "SIGNALED",
+                                evidenceKind = ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE,
+                            ),
                         ),
                     ),
-                    loading = false,
-                    error = null,
+                    actions = FakeProcessExitObservationActions(),
                     onBack = {},
-                    onRefresh = {},
                 )
             }
         }
@@ -90,12 +118,10 @@ class ProcessExitObservationContentInstrumentedTest {
         )
         composeRule.setContent {
             MaterialTheme {
-                ProcessExitObservationContent(
-                    observations = listOf(current.value),
-                    loading = false,
-                    error = null,
+                ProcessExitObservationPage(
+                    state = ProcessExitObservationUiState(observations = listOf(current.value)),
+                    actions = FakeProcessExitObservationActions(),
                     onBack = {},
-                    onRefresh = {},
                 )
             }
         }
@@ -136,4 +162,12 @@ class ProcessExitObservationContentInstrumentedTest {
         lowMemoryReportSupported = true,
         observedAt = 1_753_161_700_000L + pid,
     )
+
+    private class FakeProcessExitObservationActions : ProcessExitObservationActions {
+        var refreshCount = 0
+
+        override fun refreshProcessExitObservations() {
+            refreshCount += 1
+        }
+    }
 }

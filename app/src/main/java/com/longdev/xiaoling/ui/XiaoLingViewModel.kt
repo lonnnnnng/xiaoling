@@ -129,6 +129,7 @@ import com.longdev.xiaoling.ui.memory.MemoryManagementActions
 import com.longdev.xiaoling.ui.provider.ProviderEditDraft
 import com.longdev.xiaoling.ui.provider.ProviderManagementActions
 import com.longdev.xiaoling.ui.promptsettings.PromptSettingsActions
+import com.longdev.xiaoling.ui.processexit.ProcessExitObservationActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
@@ -423,7 +424,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     MemoryManagementActions,
     ProviderManagementActions,
     AgentProfileManagementActions,
-    PromptSettingsActions {
+    PromptSettingsActions,
+    ProcessExitObservationActions {
     private val configStore = ProviderRepository(application)
     private val conversationStore = ConversationRepository(application)
     private val imageAttachmentReader = ImageAttachmentReader(application.contentResolver)
@@ -1240,7 +1242,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(selectedAgentRunId = runId)
     }
 
-    fun refreshProcessExitObservations() {
+    override fun refreshProcessExitObservations() {
         processExitObservationLoadJob?.cancel()
         uiState = uiState.copy(
             loadingProcessExitObservations = true,

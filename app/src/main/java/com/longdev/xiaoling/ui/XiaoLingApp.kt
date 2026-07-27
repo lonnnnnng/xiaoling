@@ -17,7 +17,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,7 +27,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,7 +39,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
@@ -91,8 +88,6 @@ import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.knowledge.KnowledgeReference
-import com.longdev.xiaoling.system.ProcessExitEvidenceKind
-import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.ui.navigation.XiaoLingAppTab
 import com.longdev.xiaoling.ui.navigation.XiaoLingBottomTabBar
 import com.longdev.xiaoling.ui.navigation.XiaoLingExternalNavigationTarget
@@ -120,15 +115,14 @@ import com.longdev.xiaoling.ui.provider.ProviderManagementPage
 import com.longdev.xiaoling.ui.provider.ProviderManagementProjection
 import com.longdev.xiaoling.ui.provider.ProviderManagementUiState
 import com.longdev.xiaoling.ui.promptsettings.PromptSettingsPage
+import com.longdev.xiaoling.ui.processexit.ProcessExitObservationPage
+import com.longdev.xiaoling.ui.processexit.ProcessExitObservationUiState
 import com.longdev.xiaoling.ui.theme.XiaoLingTheme
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementPage
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Suppress("DEPRECATION")
 @Composable
@@ -911,6 +905,15 @@ private fun XiaoLingUiState.toAgentSkillManagementUiState(): AgentSkillManagemen
     )
 }
 
+private fun XiaoLingUiState.toProcessExitObservationUiState(): ProcessExitObservationUiState {
+    // long: 诊断页面只消费独立退出账本的只读状态，不接收 Agent、Workflow 或 Task 字段，避免 UI 通过时间邻近制造不存在的关联。
+    return ProcessExitObservationUiState(
+        observations = processExitObservations,
+        loading = loadingProcessExitObservations,
+        error = processExitObservationError,
+    )
+}
+
 @Composable
 private fun SettingsPage(
     state: XiaoLingUiState,
@@ -1033,12 +1036,10 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
-            pane == SettingsPane.PROCESS_EXIT_OBSERVATIONS -> ProcessExitObservationContent(
-                observations = state.processExitObservations,
-                loading = state.loadingProcessExitObservations,
-                error = state.processExitObservationError,
+            pane == SettingsPane.PROCESS_EXIT_OBSERVATIONS -> ProcessExitObservationPage(
+                state = state.toProcessExitObservationUiState(),
+                actions = viewModel,
                 onBack = onBackToSettings,
-                onRefresh = viewModel::refreshProcessExitObservations,
                 modifier = Modifier.matchParentSize(),
             )
             else -> SettingsRootPage(
@@ -1355,179 +1356,6 @@ private fun LocalSkillDeleteDialog(
 }
 
 @Composable
-internal fun ProcessExitObservationContent(
-    observations: List<ProcessExitObservation>,
-    loading: Boolean,
-    error: String?,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            IconButton(onClick = onBack, modifier = Modifier.size(30.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回设置",
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            PageTitle("进程退出观察")
-            Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = onRefresh,
-                enabled = !loading,
-                modifier = Modifier.size(30.dp),
-            ) {
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 1.6.dp)
-                } else {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "刷新进程退出记录",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item(key = "process-exit-boundary") {
-                CompactSection(title = "证据边界") {
-                    Text(
-                        text = "记录仅用于系统诊断，不关联 Agent Run、工作流或任务。受控退出和候选记录不能作为自然低内存回收结论。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            when {
-                error != null -> item(key = "process-exit-error") {
-                    CompactSection(title = "读取失败") {
-                        Text(
-                            text = error,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                loading && observations.isEmpty() -> item(key = "process-exit-loading") {
-                    CompactSection(title = "系统记录") {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                            Text("正在读取进程退出记录", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-                observations.isEmpty() -> item(key = "process-exit-empty") {
-                    CompactSection(title = "系统记录") {
-                        Text(
-                            text = "暂无进程退出记录",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                else -> items(
-                    count = observations.size,
-                    key = { index -> observations[index].stableUiKey() },
-                ) { index ->
-                    ProcessExitObservationCard(observations[index])
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProcessExitObservationCard(observation: ProcessExitObservation) {
-    val raw = observation.raw
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 11.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = observation.evidenceKind.toProcessExitEvidenceLabel(),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = observation.evidenceKind.toProcessExitEvidenceColor(),
-            )
-            Text(
-                text = "${observation.reasonName} · PID ${raw.pid} · status ${raw.status}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = raw.processName,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "退出 ${raw.timestamp.toFullTimeLabel()} · 首次观察 ${observation.observedAt.toFullTimeLabel()}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "importance ${raw.importance} · PSS ${raw.pssKb} KB · RSS ${raw.rssKb} KB · " +
-                    if (observation.lowMemoryReportSupported) "支持直接 LMK 原因" else "不支持直接 LMK 原因",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-private fun ProcessExitObservation.stableUiKey(): String {
-    val raw = raw
-    return "${raw.timestamp}|${raw.pid}|${raw.reasonCode}|${raw.status}|${raw.processName}"
-}
-
-private fun ProcessExitEvidenceKind.toProcessExitEvidenceLabel(): String = when (this) {
-    ProcessExitEvidenceKind.DIRECT_LOW_MEMORY -> "直接低内存回收证据"
-    ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE -> "低内存回收候选"
-    ProcessExitEvidenceKind.APP_FAILURE -> "应用故障"
-    ProcessExitEvidenceKind.SYSTEM_RESOURCE -> "系统资源限制"
-    ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE -> "受控退出或包维护"
-    ProcessExitEvidenceKind.UNATTRIBUTED -> "未归因退出"
-}
-
-@Composable
-private fun ProcessExitEvidenceKind.toProcessExitEvidenceColor(): Color = when (this) {
-    ProcessExitEvidenceKind.DIRECT_LOW_MEMORY -> MaterialTheme.colorScheme.error
-    ProcessExitEvidenceKind.LOW_MEMORY_CANDIDATE -> MaterialTheme.colorScheme.tertiary
-    ProcessExitEvidenceKind.APP_FAILURE -> MaterialTheme.colorScheme.error
-    ProcessExitEvidenceKind.SYSTEM_RESOURCE -> MaterialTheme.colorScheme.tertiary
-    ProcessExitEvidenceKind.CONTROLLED_OR_MAINTENANCE -> MaterialTheme.colorScheme.primary
-    ProcessExitEvidenceKind.UNATTRIBUTED -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-@Composable
 private fun SettingsEntryCard(
     title: String,
     subtitle: String,
@@ -1572,11 +1400,5 @@ private fun SettingsEntryCard(
         }
     }
 }
-
-private fun Long.toFullTimeLabel(): String {
-    return SimpleDateFormat(FULL_TIME_PATTERN, Locale.getDefault()).format(Date(this))
-}
-
-private const val FULL_TIME_PATTERN = "yyyy-MM-dd HH:mm:ss"
 
 private fun OperationResult.shouldStayInline(): Boolean = requestUrl != null || latencyMs != null
