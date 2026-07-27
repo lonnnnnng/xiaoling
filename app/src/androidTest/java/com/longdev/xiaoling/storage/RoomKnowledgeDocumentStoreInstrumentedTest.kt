@@ -417,7 +417,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         val goldenQueries = listOf(
             "当前启用 工具 模型 权限" to "requirements.md",
             "附件 BLOB 轻量 快照 回写" to "implementation-notes.md",
-            "当前验证基线 Redmi 196 tests" to "verification-report.md",
+            "当前验证基线 Redmi 222 tests" to "verification-report.md",
             "历史引用 保留 临时文档 删除" to
                 "verification-history/verification-baseline-through-stage-101.md",
             "并行调用 通用原地断点恢复" to "personal-agent-roadmap.md",

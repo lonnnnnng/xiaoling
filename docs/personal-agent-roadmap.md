@@ -1,10 +1,10 @@
 # 小灵个人 Agent 路线图
 
-## v0.1.12 发布基线（完成）
+## v0.1.13 发布基线（完成）
 
-`v0.1.12` 汇总第 75 至 101 阶段和后续横向可靠性工程：Responses 图片/文档附件、Android 单项分享草稿、Embedding 检索与索引生命周期、相关性校准/留出证据、默认关闭的 answerability shadow，以及 Agent Run 重试、会话运行态、审批、恢复审批、候选记忆、Provider 同步和启动前校验协调器。发布不改变 Room v32、设备 Workflow/后台门禁、精确定时或 Foreground Service 边界，也不提前进入第 102 项及 MCP、远程 Channel、多 Agent、本地模型等远期能力。
+`v0.1.13` 汇总 `v0.1.12` 之后 15 个工程提交，并由本次版本与文档提交封版：验证报告归档、应用导航及主要设置/会话垂直 UI module、单一 Android 系统 Splash、固定设置页标题、首帧后初始化、R8 和 Redmi 生成的 Baseline/Startup Profile。`XiaoLingApp.kt` 从 `7,018` 行收敛到 `1,103` 行；发布不改变 Room v32、Agent Runtime、设备 Workflow/后台门禁、answerability enforcement、精确定时或 Foreground Service 边界。
 
-发布门禁为 Gradle `140/140` tasks、JVM `656/656`、Lint `0 error / 50 warnings / 1 hint`、三类 APK、zipalign、v2 正式签名和仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）。Release APK SHA-256 为 `0076dbc952fbc5a9db03ce3ebce89261315db43290fe3e407a70707c4939ab66`。
+发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
 ## 横向结构工程：Workflow 管理垂直 UI module（完成）
 
@@ -366,7 +366,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 
 第 61 阶段在 Redmi 熄屏状态继续验证：Probe 退出后原 PID 消失，JobScheduler 延迟 `159.479s` 冷启动 PID `26797`，屏幕持续 `Asleep` 期间同一 WorkRequest/ScheduledTask/WorkflowRun 完成 `244.236s` 的 8 步、32 次只读工具调用。8 个 Run 的预算快照无回退，最大约 `44.856s`，32/32 工具回执和验证通过，`lowMemory=0`。这是当前最接近真实用户离开应用场景的成功样本，仍不等同自然 LMK 或 Foreground Service 需求。
 
-小灵 `v0.1.12` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v32 已让 Text/Reasoning/Image/Document/Tool、知识引用、Embedding 检索/显式索引生命周期/相关性 shadow 观测、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。网络请求设置现采用独立页面，User-Agent 输入区默认至少 5 行并提供复制、清空和恢复默认。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v32 继续只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 73 阶段把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调、加载 UI 投影和选择/删除副作用顺序迁出 ViewModel，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval Store、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步和启动前校验协调。第 74 阶段完成网络请求独立设置页，第 75 阶段完成 Responses 附件输入，第 76 至 96 阶段完成 Embedding 检索/索引/质量证据、answerability 策略与默认关闭生产旁路，第 97 至 99 阶段形成有界真实 Shadow 样本，第 100 阶段完成 Android 单项系统分享草稿入口，第 101 阶段形成首个间隔真实使用窗口。当前发布门禁为完整 JVM `656/656`、Lint `0 error / 50 warnings / 1 hint` 和 Debug/Release/AndroidTest APK；仅 Redmi 默认完整为 `OK (196 tests)`、耗时 `48.514s`，最终文档语料为 `OK (1 test)`。相关性生产拒绝与 answerability enforcement 继续关闭；Shadow 只在间隔开的真实使用窗口低频观察，设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
+小灵 `v0.1.13` 已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v32 已让 Text/Reasoning/Image/Document/Tool、知识引用、Embedding 检索/显式索引生命周期/相关性 shadow 观测、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、`knowledge.search`、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。`device.snapshot / open_app / back / home / tap_ref / type_text / swipe` 具备独立默认关闭开关、Accessibility 四态健康检查、200 节点/4000 字符有界快照、30 秒 ref、页面 generation/路径/指纹失效、应用白名单、敏感输入拒绝、风险审批和动作后重新观察验证，仅开放给前台直接 `/agent`。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App。网络请求设置现采用独立页面，User-Agent 输入区默认至少 5 行并提供复制、清空和恢复默认。多步骤 Run 已支持在第二次及后续工具审批处重建已验证前缀并继续原 Run；所有 ToolResult 与 `PASSED` 验证均已持久化时，也可不重放工具、不调用模型地完成原 Run 控制面收尾。不能原地恢复的 Run 现会把稳定处置码、策略原因、证据边界和建议动作冻结到 `run.recovered` 并在任务中心直接展示；旧验证事件缺少 ToolCall ID 时不再按工具名或顺序猜配，固定判为关联未知。Run 进入终态后，Step、Approval、Event 和 Tool Ledger 也同步冻结，迟到执行不能污染 `CANCELLED`。启动恢复先冻结旧候选，并排除当前进程真正 `RUNNING` 的 Worker 链；后台停止则先写入持久化 `STOP_REQUESTED` 栅栏，所以系统取消、即时 fallback、迟到 Worker 与进程重建都不能丢失或覆盖用户意图。即使 Agent Run 尚未关联，Worker 重入也优先读取该栅栏，把 Workflow、未完成步骤和 Task 收敛为取消。Workflow/Task 在同一事务原子结算，周期下一实例只在旧任务终态后物化。模型与工具段使用单调时钟共享累计执行预算。第 59 阶段已取得约 229.416 秒复合 SAFE 后台成功样本；Room v32 继续只把系统退出事实保存在独立账本，不凭时间邻近关联旧 Run；第 65 阶段已提供不触发采集的只读诊断 UI；第 66 至 73 阶段把普通聊天上下文准备、网络发送编排、会话状态/选择投影、保存、加载协调、加载 UI 投影和选择/删除副作用顺序迁出 ViewModel，最新横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval Store、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步和启动前校验协调。第 74 阶段完成网络请求独立设置页，第 75 阶段完成 Responses 附件输入，第 76 至 96 阶段完成 Embedding 检索/索引/质量证据、answerability 策略与默认关闭生产旁路，第 97 至 99 阶段形成有界真实 Shadow 样本，第 100 阶段完成 Android 单项系统分享草稿入口，第 101 阶段形成首个间隔真实使用窗口。当前发布门禁为完整 JVM `678/678`、Lint `0 error / 51 warnings` 和 Debug/R8 Release/AndroidTest APK；仅 Redmi 默认完整为 `OK (222 tests)`、耗时 `82.798s`，最终文档语料为 `OK (1 test)`。相关性生产拒绝与 answerability enforcement 继续关闭；Shadow 只在间隔开的真实使用窗口低频观察，设备 Workflow/后台自动化、精确定时与 Foreground Service 仍未交付。
 
 第 43 阶段的同一 WorkRequest Redmi 冷启动重入已完成真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；该阶段当时的重点是更长/自然回收样本。第 46 阶段已进一步补充 Doze、受控内存和无压力对照，第 47 阶段解决了同一进程前台启动恢复与新 Worker 并发时的所有权隔离；当前仍缺自然 LMK。
 
@@ -737,11 +737,20 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 不在缺少 Run Ledger、取消和恢复前上线后台自动化。
 - 不在缺少权限隔离和工具审核前开放 Skill 市场或 MCP Server 任意接入。
 
-## 建议的下一项开发
+## 已确认的后续执行顺序
 
-基于 `v0.1.12` 当前状态，下一批实际代码任务建议拆为：
+基于 `v0.1.12` 之后 15 个已验证提交，后续主线固定为以下顺序：
 
-当前横向顺序：验证报告已拆为当前卷与“基线至第 101 阶段”历史卷；应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页已分别迁入独立 UI module，启动画面与首帧性能也已收尾。下一轮从宿主当前 `1,103` 行重新盘点对话框簇；`SettingsPage` 继续作为跨页面导航、Android launcher 与模块适配的 composition root，不按行数机械迁移。
+1. 先发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
+2. 发布后只进行一轮有停止条件的对话框簇收尾。仅当对话框具有独立状态、动作接口、复用价值或可验证业务边界时才迁出；`SettingsPage` 继续承担跨页面导航、Android launcher、pane 分派和模块适配等 composition root 职责。完成这一轮盘点与合格候选迁移后即停止，不以压低 `XiaoLingApp.kt` 或 `XiaoLingViewModel.kt` 行数为目标。
+3. 随后把主线切换到通用执行恢复。先建立持久化恢复矩阵，明确“尚未提交可重放、已提交且有稳定 operation ID 可只读验证、已验证只补控制面/可信总结、提交状态未知继续 fail-closed”四类边界；旧 Run 保持不变，不用恢复名义放宽副作用安全策略。
+4. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+5. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
+6. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
+
+本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
+
+## 已完成阶段索引
 
 1. 已完成：`WAITING_APPROVAL` 可在任意已验证前缀后恢复原 Run。恢复要求唯一待审批请求与链尾 ToolCall 完全匹配，前序结果全部成功并 `PASSED`，步骤、Ledger 与 typed event 一致；Runtime 重建可信前缀、工具调用预算和循环指纹，不重放前序工具。磁盘 Room 关闭重开与 Redmi 124 条完整 instrumentation 已通过。
 2. 已完成跨进程删除撤销；后续后台任务必须复用原子快照与 Room 状态核对边界。
