@@ -6,6 +6,12 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 通用执行恢复矩阵：提交状态未知（完成）
+
+恢复矩阵的“提交状态未知”已形成首个持久化垂直切片。只有 validated ToolCall、对应 `TOOL_EXECUTE` 步骤和缺失 ToolResult 同时成立，旧 Run 才冻结 `RESTART_REQUIRED / COMMIT_UNKNOWN`；proposed-only、validated-only 但执行步骤尚未落库和不一致步骤链继续按恢复证据无效处理。启动收敛同时冻结重试证据：真正越过执行边界的调用要求用户确认后创建关联新 Run，尚未进入执行步骤的调用保持 `NOT_COMMITTED`。legacy typed event 也必须有唯一链尾调用和执行步骤双重证据。
+
+该切片不重放工具、不恢复旧模型协程或 Workflow 后续步骤，也不伪造 ToolResult；旧 Run 与活动 Step 保持可审计终态。强制本地 `141/141` tasks、JVM `683/683`、Lint `0 error / 51 warnings`、三类 APK、Release lintVital、zipalign 和 v2 正式单签名通过；仅 Redmi 两个 Room 单项分别为 `OK (1 test)`，默认完整为 `OK (231 tests)`、耗时 `90.302s`，最终文档语料为 `OK (1 test)`。下一切片转向“尚未提交”的可重放资格，但必须先证明副作用边界未进入、请求可重建且工具重放契约允许；不能把 `NOT_COMMITTED` 直接等同于允许恢复旧执行栈。
+
 ## 横向结构工程：功能对话框归属收口（完成）
 
 Agent Run 重试证据确认、Workflow Run 重试步骤复用确认、长期记忆编辑/删除和本地 Skill 删除已分别迁入 `ui/agenttask`、`ui/workflow`、`ui/memory`、`ui/agentskill`。确认草稿、待删除对象和 busy 状态进入各模块 `UiState`/Projection；Agent、Workflow 与 Memory 通过功能 Actions 路由，Skill 删除使用窄确认/取消回调。四个 dialog host 仍由 `XiaoLingContent` 全局挂载，切换 pane 不会丢失待处理对话框。
@@ -749,10 +755,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. 已完成：发布 `v0.1.13`，把验证报告归档、主要 UI 垂直模块、单一系统启动画面、固定设置标题、R8 和 Baseline/Startup Profile 形成可回退的稳定基线。
 2. 已完成：发布后有停止条件的对话框簇收尾。只迁移 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除；`SettingsPage`、备份恢复、全局通知与 Android launcher 继续留在 composition root。`XiaoLingApp.kt` 收敛到 `817` 行后停止结构拆分，不再以压低宿主或 ViewModel 行数为目标。
-3. 当前主线：切换到通用执行恢复。先建立持久化恢复矩阵，明确“尚未提交可重放、已提交且有稳定 operation ID 可只读验证、已验证只补控制面/可信总结、提交状态未知继续 fail-closed”四类边界；旧 Run 保持不变，不用恢复名义放宽副作用安全策略。
-4. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
-5. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
-6. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
+3. 已完成：通用执行恢复矩阵首个“提交状态未知”切片。真实执行步骤缺结果稳定冻结为 `COMMIT_UNKNOWN`；proposed-only 和执行步骤尚未落库保持 `NOT_COMMITTED / RECOVERY_EVIDENCE_INVALID`，旧 Run 不重放、不续跑。
+4. 当前主线：完成“尚未提交”的安全重放资格。只有副作用边界明确未进入、原请求可重建、工具重放契约允许且用户审批语义不漂移时，才考虑创建受控恢复动作；不能直接恢复旧协程或把所有 `NOT_COMMITTED` 一概重放。随后补齐已提交可只读验证、已验证只补控制面两格的统一持久化矩阵与端到端入口。
+5. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+6. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
+7. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

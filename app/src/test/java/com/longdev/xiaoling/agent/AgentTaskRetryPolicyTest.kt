@@ -570,6 +570,49 @@ class AgentTaskRetryPolicyTest {
         )
     }
 
+    @Test
+    fun startupRecoveryRequiresExecutionStepBeforeClaimingUnknownCommit() {
+        val validated = v20Detail(
+            callRisk = ToolRisk.REQUIRES_APPROVAL,
+            resultSuccess = null,
+        ).let { detail ->
+            detail.copy(
+                snapshot = detail.snapshot.copy(
+                    run = detail.snapshot.run.copy(status = AgentRunStatus.EXECUTING),
+                ),
+            )
+        }
+        val validatedCall = validated.toolLedger.calls.single()
+        val proposedOnly = validated.copy(
+            snapshot = validated.snapshot.copy(
+                events = validated.snapshot.events.filter { it.type == "tool.call.proposed" },
+            ),
+            toolLedger = validated.toolLedger.copy(
+                calls = listOf(
+                    validatedCall.copy(
+                        validatedEventId = null,
+                        validatedAt = null,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(
+                proposedOnly,
+                AgentRunStatus.EXECUTING,
+            ).code,
+        )
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidenceBeforeRecovery(
+                validated,
+                AgentRunStatus.EXECUTING,
+            ).code,
+        )
+    }
+
     private fun detail(
         status: AgentRunStatus,
         events: List<RunEventRecord> = emptyList(),

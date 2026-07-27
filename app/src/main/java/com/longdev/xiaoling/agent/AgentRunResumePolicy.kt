@@ -13,6 +13,7 @@ enum class AgentRunRestartDispositionCode {
     EXECUTION_BUDGET_INVALID,
     APPROVAL_BOUNDARY_INVALID,
     RECOVERY_EVIDENCE_INVALID,
+    COMMIT_UNKNOWN,
     PROFILE_CAPABILITY_MISMATCH,
     EXECUTION_STEP_EVIDENCE_INVALID,
     COMMITTED_VERIFICATION_UNAVAILABLE,
@@ -113,6 +114,10 @@ object AgentRunResumePolicy {
         }
         val recoveryEvidence = when (val assessment = AgentRunRecoveryEvidencePolicy.read(detail)) {
             is AgentRunRecoveryEvidenceAssessment.Available -> assessment
+            is AgentRunRecoveryEvidenceAssessment.CommitUnknown -> return restartRequired(
+                AgentRunRestartDispositionCode.COMMIT_UNKNOWN,
+                assessment.reason,
+            )
             is AgentRunRecoveryEvidenceAssessment.Invalid -> return restartRequired(
                 AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
                 assessment.reason,
@@ -296,6 +301,10 @@ object AgentRunResumePolicy {
         val verificationSteps = detail.snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
         val recoveryEvidence = when (val assessment = AgentRunRecoveryEvidencePolicy.read(detail)) {
             is AgentRunRecoveryEvidenceAssessment.Available -> assessment
+            is AgentRunRecoveryEvidenceAssessment.CommitUnknown -> return restartRequired(
+                AgentRunRestartDispositionCode.COMMIT_UNKNOWN,
+                assessment.reason,
+            )
             is AgentRunRecoveryEvidenceAssessment.Invalid -> return restartRequired(
                 AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
                 assessment.reason,
@@ -448,6 +457,8 @@ object AgentRunResumePolicy {
             "审批请求、链尾 ToolCall 或步骤位置无法唯一对应，不能证明待执行动作尚未发生。"
         AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID ->
             "Tool Ledger、typed event 或验证结果不完整或不一致，不能证明历史副作用边界。"
+        AgentRunRestartDispositionCode.COMMIT_UNKNOWN ->
+            "ToolCall 已进入执行边界但没有持久化结果或提交回执，无法证明副作用未发生。"
         AgentRunRestartDispositionCode.PROFILE_CAPABILITY_MISMATCH ->
             "历史工具超出原 Agent Profile 能力快照，当前配置不能为旧 Run 事后扩权。"
         AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID ->

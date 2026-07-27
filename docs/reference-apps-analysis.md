@@ -4,6 +4,8 @@
 
 发布后的有界对话框簇收尾继续采用“功能拥有业务状态、应用根拥有平台协调”的边界。Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除进入对应 UI module 的 contract、projection 与 dialog host，但仍由 `XiaoLingContent` 全局挂载以跨 pane 保持待确认状态；备份恢复、Android 文件选择器、全局通知和跨页面导航没有被抽成参数型 wrapper。`XiaoLingApp.kt` 由 `1,103` 行降到 `817` 行后触发停止条件，后续不继续按行数拆分，而转向通用执行恢复。本地 JVM/Lint/三类 APK/Release lintVital 已通过；仅 Redmi `wsvwypiz7xwslvl7` 的新增对话框聚焦测试为 `OK (7 tests)`、测试耗时 `9.247s`，默认完整 instrumentation 为 `OK (229 tests)`、测试耗时 `89.151s`，最终文档重新打包后的项目语料单项为 `OK (1 test)`。在线模拟器未被使用。
 
+通用执行恢复矩阵首个切片采用成熟 Agent 常见的“运行状态不是副作用事实”原则：`EXECUTING` 或 `tool.call.validated` 都不能单独证明 Executor 已启动，必须同时核对持久化 `TOOL_EXECUTE` 步骤和 ToolResult。真实执行步骤缺结果时冻结 `COMMIT_UNKNOWN` 并保持 `RESTART_REQUIRED`；proposed-only 或执行步骤尚未落库时，恢复处置保持证据无效、重试证据保持 `NOT_COMMITTED`。这避免了两类常见错误：把进程中断窗口误报为已提交，以及因无结果就自动重放写工具。legacy typed event 也只有在稳定 ToolCall ID、唯一链尾和执行步骤同时成立时进入提交未知；所有分支都保留旧 Run，不恢复旧协程或补造结果。完整 JVM `683/683`、Lint、三类 APK、Release lintVital 与仅 Redmi `OK (231 tests)` 已通过，最终文档语料为 `OK (1 test)`。
+
 最新横向工程继续采用成熟 Agent 中“启动前决策纯化、宿主副作用后置”的原则。`AgentLaunchPreflightCoordinator` 统一五个启动入口的会话、Profile、工具注册与 Provider 校验，但不拥有导航、确认弹层、附件、Room 或 Runtime。普通 `/agent` 保留可创建会话的轻入口语义，需要原上下文的 Workflow、重试与恢复则先校验会话；恢复审批优先复用原 Run Profile 快照，避免新选择悄然改写旧 Run 的恢复身份。
 
 协调器只冻结校验时刻的运行配置，长 Workflow 不被改成逐步骤重校验。解密 API Key 仍只在进程内可达，`ProviderRequestConfig` 的字符串表示主动脱敏 Base URL、API Key 与自定义 Header，降低 URL userinfo/query、异常或日志误用的暴露面。聚焦 JVM `10/10 + 1/1`、完整 JVM `656/656`、Lint `0 error / 50 warnings`、三类 APK、仅 Redmi 默认完整 `196` 条（`184 passed / 12 skipped / 0 failed`）与最终文档语料 `OK (1 test)` 通过。这个拆分提高的是启动一致性和可测试性，不构成设备后台自动化、任意 App 扩权、Shadow 持久化或第 102 项能力。

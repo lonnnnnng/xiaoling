@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：提交状态未知（完成）
+
+- 新增 `AgentRunRecoveryEvidenceAssessment.CommitUnknown` 与稳定 `AgentRunRestartDispositionCode.COMMIT_UNKNOWN`。恢复策略只在独立 Tool Ledger 可证明链尾 ToolCall 已 validated、`TOOL_EXECUTE` 步骤已经持久化且 ToolResult 缺失时返回 `RESTART_REQUIRED / COMMIT_UNKNOWN`；证据边界固定说明“无法证明副作用未发生”。
+- `validated` 事件发生在审批和 Executor 之前，因此不能单独代表工具已执行。共享 `hasPersistedToolExecutionBoundary()` 要求执行步骤数量与调用链一致、前缀执行步骤完成、链尾执行步骤为 `RUNNING / COMPLETED`；仅 proposed、仅 validated 但无执行步骤或步骤链不一致均保留 `RECOVERY_EVIDENCE_INVALID`。v19 及更早的 typed-event fallback 也只有在唯一链尾 validated 调用和执行步骤可核对时才标记提交未知。
+- 启动收敛前的重试证据复用同一执行边界。proposed-only 和“Run 状态已写成 EXECUTING、执行步骤尚未落库”的窗口固定为 `NOT_COMMITTED`，不会与同一 `run.recovered` 中的恢复处置冲突；真正缺结果的执行步骤仍为 `COMMIT_UNKNOWN` 并要求用户确认关联新 Run。旧 Run 和活动 Step 收敛为 `CANCELLED`，不恢复旧模型协程、不调用旧 Executor、不继续旧 Workflow，也不补造 ToolResult。
+- TDD 新增 5 条 JVM，覆盖 validated+执行步骤缺结果、proposed-only、validated-only 无执行步骤、legacy typed-event 和重试证据一致性；Room 新增 2 条跨 Repository 实例测试，覆盖 `COMMIT_UNKNOWN` 与 `NOT_COMMITTED + RECOVERY_EVIDENCE_INVALID` 的持久化。双轴审查发现并修复了“validated 早于执行边界”和“重试证据只看 Run 状态”两处问题。
+- 强制本地门禁为 Gradle `141/141` tasks（`3m 11s`）、JVM `683/683`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 与 v2 正式单签名。Debug/Release APK 为 `23,370,841 / 3,187,250` 字节，SHA-256 为 `d5470aa909bae8a93ff10bcb088ef9ce3b36bbec1da17caaf8ed3c001716b936 / cf0a2cc320bb7ebc6828850e271860ed775a5ebcdc65bc5e9be18e0c5b267dc3`。仅 Redmi `wsvwypiz7xwslvl7` 的两个 Room 单项分别为 `OK (1 test)`、耗时 `0.592s / 0.507s`；默认完整 instrumentation 为 `OK (231 tests)`、耗时 `90.302s`，最终文档语料为 `OK (1 test)`。未向在线模拟器发送安装或测试命令。
+- 下一切片处理“尚未提交”的安全重放资格：必须先建立明确未进入副作用边界、原请求可重建且工具重放契约允许的持久化证据；本阶段仍不允许任何旧 Run 原地重放。
+
 ## 功能对话框归属收口（横向结构工程完成）
 
 - 本轮只迁移四组具备独立业务状态和动作边界的对话框：Agent Run 重试证据确认进入 `ui/agenttask`，Workflow Run 重试步骤复用确认进入 `ui/workflow`，长期记忆编辑/删除进入 `ui/memory`，本地 Skill 删除进入 `ui/agentskill`。对应草稿/确认类型现在定义在各自 contract，不再由功能模块反向依赖应用根 `ui` 包。

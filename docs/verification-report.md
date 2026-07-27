@@ -14,6 +14,16 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-27 通用执行恢复矩阵：提交状态未知
+
+- 实现边界：新增 `AgentRunRecoveryEvidenceAssessment.CommitUnknown` 和 `AgentRunRestartDispositionCode.COMMIT_UNKNOWN`。独立 Tool Ledger 只有在链尾 ToolCall 已 validated、对应 `TOOL_EXECUTE` 步骤持久化且 ToolResult 缺失时，才返回 `RESTART_REQUIRED` 并冻结“无法证明副作用未发生”的证据边界。v19 及更早 typed event 只有在稳定 ToolCall ID、唯一链尾 validated 调用与执行步骤同时成立时进入同一分类。
+- 相邻边界：`tool.call.validated` 在审批和 Executor 之前落库，不能单独证明工具已启动。proposed-only、validated-only 但执行步骤尚未落库，以及调用/步骤数量不一致统一保留 `RECOVERY_EVIDENCE_INVALID`；启动收敛的重试证据在这些窗口保持 `NOT_COMMITTED`。真正执行步骤缺结果时，重试证据与恢复处置均为 `COMMIT_UNKNOWN`，同一 `run.recovered` 不再出现相互冲突的分类。
+- 安全语义：所有不能原地恢复的旧 Run 与活动 Step 仍收敛为 `CANCELLED`，Tool Ledger 和 typed event 原样保留；策略不恢复旧模型协程、不调用旧 Executor、不继续旧 Workflow、不伪造 ToolResult。后续重试仍经过确认并创建带 `retryOfRunId` 的关联新 Run。
+- TDD 与审查：新增 5 条 JVM，覆盖 ledger 缺结果、proposed-only、validated-only 无执行步骤、legacy fallback 和重试证据一致性；新增 2 条 Room instrumentation 跨 Repository 实例验证恢复事件持久化。双轴审查发现 `validated` 早于执行边界、`retryEvidenceCode` 只看 Run 状态两项问题，补红测后修复；最终 `git diff --check` 通过。
+- 本地完整门禁：强制重跑 Gradle `141/141` tasks，耗时 `3m 11s`；JVM `683/683`、0 失败/错误/跳过；Lint `0 error / 51 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug APK 为 `23,370,841` 字节、SHA-256 `d5470aa909bae8a93ff10bcb088ef9ce3b36bbec1da17caaf8ed3c001716b936`；Release APK 为 `3,187,250` 字节、SHA-256 `cf0a2cc320bb7ebc6828850e271860ed775a5ebcdc65bc5e9be18e0c5b267dc3`，版本 `0.1.13 (14)`，zipalign、v2 正式证书和单签名者校验通过。
+- Redmi 门禁：只使用 `wsvwypiz7xwslvl7`，以同一正式证书签署最新 Debug/Test APK 后无损覆盖。`interruptedExecutingToolWithoutResultPersistsCommitUnknownDisposition` 为 `OK (1 test)`、`0.592s`；`interruptedBeforeExecutionStepDoesNotPersistCommitUnknownDisposition` 为 `OK (1 test)`、`0.507s`。默认完整 `AndroidJUnitRunner` 为 `OK (231 tests)`、耗时 `90.302s`，无失败；在线 `emulator-5554` 未接收安装、测试或其他设备命令。
+- 文档与下一步：README 和长期 `docs/` 更新后重新打包，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。恢复矩阵下一格处理“尚未提交”的安全重放资格，但必须同时证明未进入副作用边界、请求可重建和工具重放契约允许；本切片没有开放任何旧 Run 原地重放。
+
 ## 2026-07-27 功能对话框归属收口（横向结构工程完成）
 
 - 实现边界：Agent Run 重试、Workflow Run 重试、长期记忆编辑/删除和本地 Skill 删除的实现分别迁入 `ui/agenttask`、`ui/workflow`、`ui/memory`、`ui/agentskill`。待确认/编辑状态和按稳定 ID 推导的 busy 状态进入对应 Projection；确认类型定义也归属各自 contract。

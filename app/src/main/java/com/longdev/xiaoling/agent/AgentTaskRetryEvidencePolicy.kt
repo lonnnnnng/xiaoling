@@ -12,6 +12,7 @@ internal object AgentTaskRetryEvidencePolicy {
             )
             is AgentToolLedgerConsistencyAssessment.Invalid -> AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE
             is AgentToolLedgerConsistencyAssessment.Available -> readLedger(
+                detail,
                 consistency.executions,
                 interruptedDuringSideEffect,
             )
@@ -20,16 +21,20 @@ internal object AgentTaskRetryEvidencePolicy {
     }
 
     private fun readLedger(
+        detail: AgentRunDetailRecord,
         executions: List<AgentToolLedgerExecutionRecord>,
         interruptedDuringSideEffect: Boolean,
     ): AgentTaskRetryEvidenceCode {
         val nonSafeExecutions = executions.filter { it.call.risk != ToolRisk.SAFE }
         if (nonSafeExecutions.isEmpty()) return AgentTaskRetryEvidenceCode.NO_SIDE_EFFECT
         val codes = nonSafeExecutions.map { execution ->
-            val result = execution.result ?: return@map if (interruptedDuringSideEffect) {
-                AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN
-            } else {
-                AgentTaskRetryEvidenceCode.NOT_COMMITTED
+            val result = execution.result ?: return@map when {
+                execution.call.validatedEventId == null -> AgentTaskRetryEvidenceCode.NOT_COMMITTED
+                interruptedDuringSideEffect && detail.hasPersistedToolExecutionBoundary(executions.size) -> {
+                    // long: Run 状态可能先于执行步骤落库；只有执行步骤已持久化，才需要用户按“提交未知”确认重试，避免把尚未调用工具的窗口误报为副作用风险。
+                    AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN
+                }
+                else -> AgentTaskRetryEvidenceCode.NOT_COMMITTED
             }
             when (result.executionReceipt?.status) {
                 ToolExecutionReceiptStatus.UNKNOWN -> AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN

@@ -764,6 +764,109 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun interruptedExecutingToolWithoutResultPersistsCommitUnknownDisposition() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-commit-unknown",
+            userMessageId = "message-commit-unknown",
+            goal = "冻结提交状态未知的执行边界",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        val executionStep = repository.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行工具",
+            detail = "notes.create",
+            status = AgentStepStatus.RUNNING,
+        )
+        val call = ToolCall(
+            id = "tool-call-commit-unknown",
+            name = "notes.create",
+            arguments = mapOf("title" to "提交状态未知"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.validated",
+            message = "工具调用已通过校验：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+
+        assertEquals(1, restartedRepository.closeInterruptedRuns())
+
+        val closed = checkNotNull(restartedRepository.runDetail(run.id))
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertEquals(
+            AgentStepStatus.CANCELLED,
+            closed.snapshot.steps.single { it.id == executionStep.id }.status,
+        )
+        assertTrue(closed.toolLedger.results.isEmpty())
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, recovery.retryEvidenceCode)
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, recovery.resumeKind)
+        val disposition = checkNotNull(recovery.restartDisposition)
+        assertEquals(AgentRunRestartDispositionCode.COMMIT_UNKNOWN, disposition.code)
+        assertTrue(disposition.reason.contains("提交状态未知"))
+        assertTrue(disposition.evidenceBoundary.contains("持久化结果"))
+    }
+
+    @Test
+    fun interruptedBeforeExecutionStepDoesNotPersistCommitUnknownDisposition() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-before-execution-step",
+            userMessageId = "message-before-execution-step",
+            goal = "冻结执行步骤落库前的边界",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        val call = ToolCall(
+            id = "tool-call-before-execution-step",
+            name = "notes.create",
+            arguments = mapOf("title" to "尚未进入执行步骤"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            runId = run.id,
+            type = "tool.call.validated",
+            message = "工具调用已通过校验：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+
+        assertEquals(1, restartedRepository.closeInterruptedRuns())
+
+        val closed = checkNotNull(restartedRepository.runDetail(run.id))
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertTrue(closed.toolLedger.results.isEmpty())
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(AgentTaskRetryEvidenceCode.NOT_COMMITTED, recovery.retryEvidenceCode)
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, recovery.resumeKind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(recovery.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun userStopCancelsOnlyTargetActiveRunAndItsRunningStep() = runBlocking {
         val target = repository.createRun(
             conversationId = "conversation-user-stop-target",

@@ -36,6 +36,18 @@ sealed interface AgentRunRecoveryEvidenceAssessment {
     data class Invalid(
         val reason: String,
     ) : AgentRunRecoveryEvidenceAssessment
+
+    data class CommitUnknown(
+        val reason: String,
+    ) : AgentRunRecoveryEvidenceAssessment
+}
+
+internal fun AgentRunDetailRecord.hasPersistedToolExecutionBoundary(expectedExecutionCount: Int): Boolean {
+    val executionSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
+    if (executionSteps.size != expectedExecutionCount || executionSteps.isEmpty()) return false
+    // long: 前序调用只有在执行步骤完成后才可能进入下一次调用；链尾则允许停在工具返回前或结果落库后的短窗口，用于保守识别提交状态未知。
+    return executionSteps.dropLast(1).all { it.status == AgentStepStatus.COMPLETED } &&
+        executionSteps.last().status in setOf(AgentStepStatus.RUNNING, AgentStepStatus.COMPLETED)
 }
 
 object AgentRunRecoveryEvidencePolicy {
@@ -70,9 +82,18 @@ object AgentRunRecoveryEvidencePolicy {
             AgentToolLedgerConsistencyAssessment.Empty -> readEventFallback(detail)
             is AgentToolLedgerConsistencyAssessment.Invalid -> invalid(consistency.reason)
             is AgentToolLedgerConsistencyAssessment.Available -> {
-                // long: 共享一致性策略允许最后一个调用停在执行前；恢复路径更严格，只有每个调用均已持久化结果时才能证明“最后一步仅待验证”。
-                if (consistency.executions.any { it.result == null }) {
-                    return invalid("工具账本中的每个调用必须恰好对应一个结果")
+                // long: 只有 validated 锚点能证明调用已经越过校验并进入执行边界；若仍停在 proposed，副作用尚未建立可信归属，应继续按恢复证据无效处理。
+                consistency.executions.firstOrNull { it.result == null }?.let { execution ->
+                    if (execution.call.validatedEventId == null) {
+                        return invalid("工具调用缺少 validated 事件锚点：${execution.call.id}")
+                    }
+                    if (!detail.hasPersistedToolExecutionBoundary(consistency.executions.size)) {
+                        return invalid("工具调用缺少对应的运行中执行步骤：${execution.call.id}")
+                    }
+                    // long: 已校验调用没有 ToolResult 时，进程中断点可能位于副作用提交之后、结果落库之前；必须标记提交未知并禁止重放旧执行栈。
+                    return AgentRunRecoveryEvidenceAssessment.CommitUnknown(
+                        reason = "工具调用缺少持久化结果，提交状态未知：${execution.call.id}",
+                    )
                 }
                 AgentRunRecoveryEvidenceAssessment.Available(
                     source = AgentRunRecoveryEvidenceSource.LEDGER,
@@ -97,6 +118,7 @@ object AgentRunRecoveryEvidencePolicy {
     private fun readEventFallback(detail: AgentRunDetailRecord): AgentRunRecoveryEvidenceAssessment {
         // long: v19 及更早 Run 没有独立账本，只能使用 typed RunEvent；回退仍要求结果携带 ToolCall ID 并唯一匹配历史调用，不能从文案或时间顺序补造身份。
         val callMetadataById = linkedMapOf<String, RunEventMetadata.ToolCall>()
+        val validatedCallIds = mutableSetOf<String>()
         detail.snapshot.events.forEach { event ->
             val call = (event.metadata as? RunEventMetadata.ToolCall)
                 ?.takeIf { event.type == "tool.call.proposed" || event.type == "tool.call.validated" }
@@ -104,6 +126,9 @@ object AgentRunRecoveryEvidencePolicy {
             val existing = callMetadataById[call.id]
             if (existing != null && existing != call) {
                 return invalid("旧 Run 的 ToolCall 身份或参数发生漂移：${call.id}")
+            }
+            if (event.type == "tool.call.validated" && !validatedCallIds.add(call.id)) {
+                return invalid("旧 Run 的 ToolCall 存在重复 validated 事件：${call.id}")
             }
             callMetadataById[call.id] = call
         }
@@ -127,6 +152,22 @@ object AgentRunRecoveryEvidencePolicy {
                 result = result,
             )
         }.toMutableList()
+        val resultCallIds = executions.mapTo(mutableSetOf()) { it.toolCall.id }
+        val missingCalls = callMetadataById.values.filter { it.id !in resultCallIds }
+        if (missingCalls.isNotEmpty()) {
+            val missingCall = missingCalls.singleOrNull()
+                ?: return invalid("旧 Run 存在多个缺少结果的 ToolCall")
+            if (missingCall.id != callMetadataById.keys.lastOrNull() || missingCall.id !in validatedCallIds) {
+                return invalid("旧 Run 只有链尾已校验 ToolCall 可以进入提交未知边界：${missingCall.id}")
+            }
+            if (!detail.hasPersistedToolExecutionBoundary(callMetadataById.size)) {
+                return invalid("旧 Run 的 ToolCall 缺少对应的运行中执行步骤：${missingCall.id}")
+            }
+            // long: legacy Run 没有独立 Tool Ledger；只有 typed validated 调用、链尾缺结果和执行步骤三项同时成立时，才能保守认定副作用提交状态未知。
+            return AgentRunRecoveryEvidenceAssessment.CommitUnknown(
+                reason = "旧 Run 的工具调用缺少持久化结果，提交状态未知：${missingCall.id}",
+            )
+        }
         if (executions.isEmpty()) {
             return invalid("旧 Run 没有 typed 工具结果证据")
         }

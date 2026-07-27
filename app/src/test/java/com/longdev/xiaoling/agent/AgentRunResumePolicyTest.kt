@@ -99,6 +99,186 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun executingLedgerCallWithoutResultUsesCommitUnknownDisposition() {
+        val call = ToolCall(
+            id = "tool-call-commit-unknown",
+            name = "notes.create",
+            arguments = mapOf("title" to "提交状态未知"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        2L,
+                    ),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertFalse(assessment.canResumeInPlace)
+        val disposition = checkNotNull(assessment.restartDisposition)
+        assertEquals(AgentRunRestartDispositionCode.COMMIT_UNKNOWN, disposition.code)
+        assertTrue(disposition.reason.contains("提交状态未知"))
+        assertTrue(disposition.evidenceBoundary.contains("持久化结果"))
+    }
+
+    @Test
+    fun validatedLedgerCallWithoutExecutionStepDoesNotClaimCommitUnknown() {
+        val call = ToolCall(
+            id = "tool-call-before-execution-step",
+            name = "notes.create",
+            arguments = mapOf("title" to "尚未进入执行步骤"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.EXECUTING,
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        2L,
+                    ),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun legacyValidatedCallWithRunningExecutionStepUsesCommitUnknownDisposition() {
+        val call = ToolCall(
+            id = "legacy-tool-call-commit-unknown",
+            name = "notes.create",
+            arguments = mapOf("title" to "旧 Run 提交状态未知"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        1L,
+                    ),
+                    event(
+                        "tool.call.validated",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        2L,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.COMMIT_UNKNOWN,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun executingLedgerCallWithoutValidationDoesNotClaimCommitUnknown() {
+        val call = ToolCall(
+            id = "tool-call-not-validated",
+            name = "notes.create",
+            arguments = mapOf("title" to "尚未校验"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val assessment = AgentRunResumePolicy.assess(
+            detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event(
+                        "tool.call.proposed",
+                        RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                        1L,
+                    ),
+                ),
+                toolLedger = AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = null,
+                            createdAt = 1L,
+                            validatedAt = null,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun secondApprovalAfterVerifiedToolCanResumeInPlace() {
         val firstCall = ToolCall(
             id = "tool-call-first",
