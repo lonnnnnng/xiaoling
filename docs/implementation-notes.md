@@ -272,7 +272,7 @@
 - 本进程 tracker 为样本 `1`、完成 `1`、未知 `0`、跳过 `0`；Judge 尝试 `1`、取消 `0`、异常 `0`，答案保存失败、Shadow Store 失败、绑定未知及其他旁路错误均为 `0`。成本为耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、输入/输出/总 Tokens `2720/209/2929`、usage attempts `1`。
 - notice 发布 `1`。关闭 Shadow 并删除测试会话后，有效 notice `1 -> 0`、裁剪 `0 -> 1`，累计 tracker 与成本不回退；临时知识文档和 Redmi 下载文件均已删除，知识文档恢复为 `0`，偏好恢复 `answerability_shadow_enabled=false`。
 - 第 97 至 101 项已记录窗口的书面人工合计为样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`；成本 `43846ms / 43777ms / 66995B / 17164+1822=18986 Tokens`。该合计不是跨进程 tracker 或 Room 数据。
-- 八次 Judge 仍没有自然网络、协议或认证失败，也没有明显成本异常。继续保持 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项不标记为永久完成，第 102 项继续后置。
+- 八次 Judge 仍没有自然网络、协议或认证失败，也没有明显成本异常。当时继续保持 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项不标记为永久完成，第 102 项在该窗口仍后置。
 - 强制完整本地门禁为 JVM `614/614`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug 与 AndroidTest APK 构建成功。Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`。Redmi 文档语料为 `OK (1 test)`；默认完整 `AndroidJUnitRunner` 为 `OK (195 tests)`、耗时 `49.158s`。
 
 ## 第 102 阶段：answerability 离线评测导出契约（完成）
@@ -281,6 +281,15 @@
 - 匿名 Shadow envelope 不提供原始 Judge 或 dataset identity，只允许 v33 不可逆 fingerprint、状态/绑定/决策/失败枚举、失败分桶和保持 `null` 的未知成本 telemetry，`eligibleForCalibrationOrValidation()` 固定返回 false；显式内容 envelope 才携带完整 dataset identity，并要求正文、引用、label、assessment 与 case identity 一致及明确 `EXPLICIT_OFFLINE_EVALUATION` 授权。
 - 本阶段未增加 production enforcement，也未接入 Workflow/后台、检索排序、答案路径、JSON/SAF 出口；下一步继续用 Room v33 新匿名账本积累间隔真实样本，样本足够后再评估导出出口。
 - 修正后完整门禁为 JVM `736/736`、Lint `0 error / 51 warnings`、Debug/AndroidTest/Release APK 构建成功（Debug `23,685,840` bytes，SHA-256 `f0dc66a6300553511771aeb395fbd07d0b57e97f709c1cea566b78130bb89e2f`；AndroidTest `2,698,577` bytes，SHA-256 `79c9087384471b1dfaa217b171a488ed1aeb34427f72d8b904184d5db885168d`；Release `3,220,018` bytes，SHA-256 `bfcf4deee50861e51ac044e60c5b96590ea62f06b71494e651c9a83dd8d87f79`）。仅 Redmi 完整 instrumentation XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 打印 `260 tests`；文档 corpus gate `1/1` 通过。首轮套件曾因设备 Activity 停在 `STOPPED` 造成 Compose 级联失败，唤醒/停止应用后重跑通过，业务代码未因该偶发状态改动。
+
+## 第 103 阶段：Room v33 首个间隔真实 Shadow 样本（完成）
+
+- 采样前只构建当前源码 Debug 与 AndroidTest APK，分别耗时 `11s / 7s`；两个 APK 使用既有正式证书在 `/tmp` 重新签名，以 `adb install -r` 无损覆盖 Redmi 上的正式签名应用并保留 Provider、Profile 与 Room 数据。没有执行完整 JVM、Lint、默认完整 instrumentation 或 Release 构建。
+- Room 从 v32 成功迁移到 v33，初始 `knowledge_answerability_shadow_observations` 为 `0`。现有 Provider 为空占位后，只运行 `ProviderEmbeddingCompatibilityInstrumentedTest`，结果 `OK (1 test)`；它把 AGENTS 兜底配置加密保存为 `redmi-provider-compatibility`，Embedding 因该 Provider 没有 Embedding 模型按假设跳过。随后通过真实 Agent Profile UI 保存默认 Agent，绑定 `gpt-5.5`，保留既有 `16` 个工具和 `7` 个 Skills。
+- 本窗口距第 101 阶段记录时间约 `69` 小时，且 v33 采样前匿名账本为 `0`。当前 README 以 `xiaoling-stage103-shadow.md` 导入后形成 revision `1`、`19` 个 chunks；Embedding 不可用，检索 `Agent Run retryOfRunId` 通过词法兜底命中 `5` 个 chunks。显式开启 Shadow 后发送 `/agent Call knowledge.search with query Agent Run retryOfRunId and explain the result.`，前台 Run 完成并保留本地知识引用。
+- 停进程 Room 快照确认 Schema `33`，匿名账本恰好 `1` 条：`COMPLETED / BOUND / ACCEPT`，Judge identity 桶 `1`，attempt `1`，耗时/TTFB `9663/9655ms`，Prompt `10879B`，输入/输出/总 Tokens `2801/469/3270`，usage samples `1`；unknown、reject、undecided、binding unknown 与十类失败计数均为 `0`，记录时间为 `2026-07-29 07:27:36`（北京时间）。
+- 通过应用内正式入口删除临时知识文档和 Agent 会话，知识文档/chunks 回到 `0`；精确删除 Redmi 下载文件并卸载 `com.longdev.xiaoling.test`。`answerability_shadow_enabled=false`，production enforcement 偏好不存在，Provider/Profile 均仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`；再次停进程复核后账本仍为 `1`、知识数据仍为 `0`。当前源码 Debug 保留在设备上，避免以 Room v32 的发布 APK 降级覆盖 v33 数据库；最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
+- 本阶段完成的是第一条跨进程真实样本，不把第 97 至 101 项人工统计回填或合并。下一步继续等待第二个及后续分隔真实窗口；样本量不足前不实现 JSON codec、UI/SAF 出口或 production enforcement。
 
 ## Agent Run 关联重试协调迁出（横向可靠性工程）
 

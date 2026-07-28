@@ -12,11 +12,17 @@ answerability Shadow 已从只保留当前进程 tracker 扩展为 Room v33 匿�
 
 设置页新增独立跨进程匿名摘要；现有进程内摘要继续记录 notice 生命周期与旁路失败，notice 不从历史消息恢复。v32→v33 迁移只创建空表，第 97–101 阶段人工合计不回填，因此历史“不持久化”结论仍按当时窗口成立。production enforcement、检索排序、答案路径、Workflow/后台、ANN 和自动后台索引重建不变。
 
-本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。下一步已冻结类型级离线评测导出契约；继续用 Room v33 新匿名账本积累间隔真实样本，样本足够后再做可导出数据/JSON codec 或 UI/SAF 出口。production enforcement 继续关闭。
+本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。类型级离线评测导出契约与首个 Room v33 间隔真实样本均已完成；继续用新匿名账本在分隔窗口低频积累，样本足够后再评估 JSON codec 或 UI/SAF 出口。production enforcement 继续关闭。
 
 ## 第 102 阶段：answerability 离线评测导出契约（完成）
 
 新增版本化 Kotlin sealed envelope，匿名 Shadow 观测证据与显式授权内容评测案例使用两个不能混装的强类型结构。匿名导出不携带原始 Judge 或数据集身份，只允许 v33 不可逆 fingerprint、枚举、失败分桶和保持未知 `null` 的数值 telemetry，不得用于 calibration/validation；显式内容导出才允许携带授权、数据集/评测身份和可校验正文、引用、label/assessment。未增加 production enforcement，Workflow/后台、检索排序和答案路径保持不变。
+
+## 第 103 阶段：Room v33 首个间隔真实 Shadow 样本（完成）
+
+仅在 Redmi `wsvwypiz7xwslvl7` 前台直接 `/agent` 中短时开启 Shadow，导入当前 README 后以词法兜底检索 `Agent Run retryOfRunId`，形成首条 v33 匿名记录。停进程数据库快照确认只有 `1` 条 `COMPLETED / BOUND / ACCEPT`，Judge 尝试 `1` 次，耗时/TTFB `9663/9655ms`、Prompt `10879B`、Tokens `2801/469/3270`、usage `1`，所有失败计数和未知绑定均为 `0`。
+
+测试会话、知识文档、chunks、下载文件和测试包已清理，Schema 保持 `33`，Shadow 偏好为关闭，production enforcement 偏好不存在，Provider/Profile 仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后账本与清理状态不变，最终冷启动 `3441ms` 且 crash buffer 为空。本阶段按分级验证没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。下一步继续采集第二个及后续分隔样本；样本量不足前不实现 JSON/SAF，不启用生产拒绝。
 
 ## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
 
@@ -772,7 +778,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；Workflow/后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice 和有界真实样本遥测已完成；Room shadow Store、notice 跨进程恢复、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法
@@ -798,7 +804,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 7. 已完成：持久化失败 ToolResult 的原子失败终态结算。只接受 v20 完整 Ledger、完整成功验证前缀、唯一失败链尾、结果后完整预算、最后运行中执行 Step 和无业务尾部；原 Step/Run 只结算为 `FAILED`，不重放、不验证、不总结、不继续 Workflow。双轴审查补齐 Step sequence 与 typed 事件身份核验；完整门禁为 `141/141` tasks、JVM `726/726`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (240 tests)`。
 8. 已完成：持久化失败工具验证的原子失败终态结算。只接受成功 ToolResult、typed `tool.verify=FAILED(reason)`、结果后完整预算、完整 v20 Ledger/Step/Event 身份与最后运行中验证 Step；原 Step/Run 只结算为 `FAILED`，不重复 Executor/验证器/LLM，不总结、不继续 Workflow。双轴审查补齐预算 `Available` 硬门槛并收紧异常捕获；完整门禁为 `141/141` tasks、JVM `732/732`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (243 tests)`。当前文档 corpus 首轮/中间复验为 `OK (1 test)`（`2.907s / 2.471s`），最终文本 gate 也已通过；正式 `v0.1.13` 已恢复并完成版本、前台、PID、测试包、保持唤醒与 crash 收尾。
 9. 已完成：通用恢复矩阵剩余持久化窗口闭环审计。成功结果缺 typed 验证结论时按工具定义、已提交幂等回执、只读恢复验证支持依次判定，分别稳定落入 `TOOL_DEFINITION_UNAVAILABLE / COMMITTED_EFFECT_EVIDENCE_INVALID / COMMITTED_VERIFICATION_UNAVAILABLE`；没有唯一安全动作的形状继续关联新 Run 或 fail-closed，不扩大原地恢复能力。完整门禁为 `141/141` tasks、JVM `734/734`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (243 tests)`。
-10. 当前主线：推进知识质量工程。answerability Shadow 匿名跨进程持久化已经完成；下一步依次积累真实使用样本、冻结离线评测集并完成独立阈值校准，再决定是否设计生产拒绝。ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+10. 当前主线：推进知识质量工程。answerability Shadow 匿名跨进程持久化、强类型离线评测契约和首个 Room v33 间隔真实样本已经完成；下一步继续积累分隔真实样本，样本量足够后再评估 JSON/SAF、显式授权离线评测集与独立阈值校准，最后才决定是否设计生产拒绝。ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
 11. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
 12. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
@@ -940,9 +946,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 98. 已完成：Redmi 同一进程累计 Shadow 样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成直接回答 `2`、部分回答 `2`；关闭并删除测试会话后 notice 有效 `4 -> 1`、裁剪 `0 -> 3`，Room Store 与 enforcement 继续关闭。
 99. 已完成：新的 Redmi 真实使用窗口新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，无取消、异常或自然 Judge 失败；宽查询导致的无候选 Agent 失败未进入 Shadow，清理后 notice 有效 `3 -> 0`、裁剪 `0 -> 3`。
 100. 已完成：Android 系统分享入口 v1。单文本/单图片只进入新会话草稿，冲突需用户确认，冷/热启动和重建行为明确；不自动发送、不信任来源、不扩展工具权或后台能力。
-101. 持续观察：首个间隔真实使用窗口已新增 `1` 条直接回答，已记录窗口人工合计为样本 `10`、有效 Judge `8`；Shadow 继续保持低频旁路，不在同一窗口堆样本，只有出现自然网络/协议/认证失败或明显成本异常后，才重新评审最小化持久化。
-102. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+101. 已完成历史观察窗口：v33 之前的首个间隔真实使用窗口新增 `1` 条直接回答，第 97 至 101 项书面人工合计为样本 `10`、有效 Judge `8`；这些历史数字不回填新账本。
+102. 已完成：冻结匿名 Shadow 与显式授权内容不能混装的版本化离线评测导出契约；匿名证据固定不能用于 calibration/validation，JSON/SAF 与 production enforcement 未接入。
+103. 已完成首个 Room v33 间隔真实样本：账本 `1` 条 `COMPLETED / BOUND / ACCEPT`，失败计数为 `0`，清理后知识文档/分块为 `0`、Shadow 关闭。当前继续低频积累第二个及后续分隔样本，不在单一窗口堆数量。
+104. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程的匿名跨进程持久化已经完成；下一目标是新账本真实样本与离线评测契约，不扩张第 102 项或机械搬运 `SettingsPage` composition root。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约和第 103 阶段首个 v33 间隔样本；下一目标是继续积累分隔样本，不机械搬运 `SettingsPage` composition root。
 
-后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；后续新样本才进入跨进程累计，并继续在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103 阶段起的新账本当前只有 `1` 条完成且接纳记录，后续继续在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

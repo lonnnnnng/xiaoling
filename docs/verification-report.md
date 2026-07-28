@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-28（北京时间）
+验证日期：2026-07-29（北京时间）
 
 ## 当前验证基线
 
@@ -13,6 +13,21 @@
 - 文档语料门禁：最终 README 与长期 `docs/` 打包进 AndroidTest assets 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
+- 当前开发设备状态：第 103 阶段为保留已迁移的 Room v33 数据，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
+
+## 2026-07-29 第 103 阶段：Room v33 首个间隔真实 Shadow 样本
+
+- 分级构建与配置恢复：只执行 `assembleDebug` 和 `assembleDebugAndroidTest`，分别在 `11s / 7s` 内成功；没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。Debug APK 为 `23,685,840` 字节，SHA-256 `f0dc66a6300553511771aeb395fbd07d0b57e97f709c1cea566b78130bb89e2f`。Debug/Test APK 使用正式证书重新签名并在 Redmi `wsvwypiz7xwslvl7` 覆盖安装，未使用 Pixel_9 或其他模拟器。
+- Provider 定向验证：只运行 `ProviderEmbeddingCompatibilityInstrumentedTest`，结果 `OK (1 test)`；Provider 配置加密保存为 `redmi-provider-compatibility`，Embedding 因该 Provider 没有 Embedding 模型按假设跳过。随后从真实 Agent Profile UI 保存默认 Agent，绑定 `gpt-5.5`，既有 `16` 个工具与 `7` 个 Skills 保持不变。
+- 真实样本：本窗口距第 101 阶段记录时间约 `69` 小时，且 v33 采样前匿名账本为 `0`。当前 README 导入为 `xiaoling-stage103-shadow.md`，形成 revision `1`、`19` 个 chunks；Embedding 不可用时查询 `Agent Run retryOfRunId` 由词法兜底命中 `5` 个 chunks。显式开启 Shadow 后，前台直接 `/agent` 完成 `knowledge.search`、答案和引用保存，并触发一次真实 Judge。
+- 停进程 Room 证据：Schema 为 `33`，`knowledge_answerability_shadow_observations` 恰好 `1` 条，Judge 匿名身份桶 `1`；状态 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `9663/9655ms`，Prompt `10879B`，输入/输出/总 Tokens `2801/469/3270`，usage samples `1`。unknown、reject、undecided、binding unknown 和全部失败分桶均为 `0`；记录时间 `2026-07-29 07:27:36`（北京时间）。
+- 文档与最终状态：通过应用 UI 删除临时知识文档和 Agent 会话，知识文档/chunks 均恢复为 `0`；精确删除 `/sdcard/Download/xiaoling-stage103-shadow.md`，卸载 `com.longdev.xiaoling.test`。同步后的 AndroidTest 文档 assets 以正式证书签署，只在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首次结果 `OK (1 test)`、耗时 `1.988s`；安装器的 incremental 尝试被设备拒绝后自动回退 streamed install 并成功，补充间隔证据后的最终文本复验同样通过。再次停进程快照仍为 `documents=0 / chunks=0 / shadow=1 / completed=1 / accepted=1 / failures=0`，Shadow 偏好为 `false`，production enforcement 偏好不存在，测试包已卸载，Provider/Profile 仍绑定 `gpt-5.5`。最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
+- 结论：这是 Room v33 新匿名账本的第一条间隔真实样本，不与第 97 至 101 项人工合计混算。当前证据不足以进入 JSON/SAF、独立阈值校准或生产拒绝；下一阶段继续等待第二个及后续分隔真实窗口。
+
+## 2026-07-29 第 102 阶段：answerability 离线评测导出契约
+
+- 冻结版本化 `KnowledgeAnswerabilityExportEnvelope` sealed 契约，匿名 Shadow 与显式授权内容分别使用不能混装的 envelope。匿名 envelope 不提供原始 Judge 或 dataset identity，只允许 v33 不可逆 fingerprint、状态/绑定/决策/失败枚举、失败分桶和保持 `null` 的未知成本，`eligibleForCalibrationOrValidation()` 固定为 false；显式内容 envelope 才携带授权、数据集身份、正文、引用、label 与 assessment。
+- 该阶段未增加 production enforcement，也未接入 Workflow/后台、检索排序、答案路径、JSON codec 或 UI/SAF 出口。完整门禁为 JVM `736/736`、Lint `0 error / 51 warnings`、Debug/AndroidTest/Release APK；仅 Redmi 完整 instrumentation XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 打印 `260 tests`，文档 corpus gate `1/1` 通过。
 
 ## 2026-07-28 知识质量工程：answerability Shadow 匿名跨进程账本
 
@@ -241,9 +256,9 @@
 
 ## 当前工程边界
 
-- Room 当前为 v32；Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
+- 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
 - 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。下一主线完成剩余窗口闭环审计；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不继续扩张设备权限或机械搬文件。
-- answerability shadow 默认关闭，继续固定 `store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项保持低频观察，第 102 项尚未进入。
+- answerability shadow 默认关闭；第 103 阶段后 Room v33 匿名账本为 `1` 条完成且接纳记录，`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 
