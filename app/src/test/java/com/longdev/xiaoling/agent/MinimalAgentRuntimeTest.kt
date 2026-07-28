@@ -2304,7 +2304,11 @@ class MinimalAgentRuntimeTest {
         assertTrue(snapshot.events.any {
             it.type == "tool.result" && (it.metadata as? RunEventMetadata.ToolResult)?.success == true
         })
-        assertTrue(snapshot.events.none { it.type == "tool.verify" })
+        val verification = snapshot.events.single { it.type == "tool.verify" }
+            .metadata as RunEventMetadata.ToolVerification
+        assertEquals(ToolVerificationStatus.FAILED, verification.status)
+        assertTrue(verification.reason.orEmpty().contains("验证前"))
+        assertTrue(verification.reason.orEmpty().contains(cameraPermission))
         assertEquals(
             AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
             AgentTaskRetryPolicy.evaluate(AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList())),
@@ -2592,6 +2596,10 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("未通过 Executor 回读验证"))
         assertEquals(AgentStepStatus.FAILED, snapshot.steps.single { it.type == AgentStepTypes.TOOL_VERIFY }.status)
+        val verification = snapshot.events.single { it.type == "tool.verify" }
+            .metadata as RunEventMetadata.ToolVerification
+        assertEquals(ToolVerificationStatus.FAILED, verification.status)
+        assertTrue(verification.reason.orEmpty().contains("未通过 Executor 回读验证"))
     }
 
     @Test

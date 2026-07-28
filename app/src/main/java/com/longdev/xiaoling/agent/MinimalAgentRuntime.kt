@@ -715,11 +715,37 @@ class MinimalAgentRuntime internal constructor(
         )
         state.activeStepId = verify.id
         currentCoroutineContext().ensureActive()
-        // long: Executor 运行期间系统权限仍可能被撤销；验证前再次检查，保留已发生的工具结果，同时拒绝把失去授权后的状态标记为已验证完成。
-        validateRequiredAndroidPermissions(definition, checkpoint = "验证前")
-        when (definition.verificationPolicy) {
-            ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
-            ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
+        val verificationFailure = try {
+            // long: Executor 运行期间系统权限仍可能被撤销；验证前再次检查，保留已发生的工具结果，同时拒绝把失去授权后的状态标记为已验证完成。
+            validateRequiredAndroidPermissions(definition, checkpoint = "验证前")
+            when (definition.verificationPolicy) {
+                ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
+                ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
+            }
+            null
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: AgentProcessTerminationSimulation) {
+            throw error
+        } catch (error: Exception) {
+            error
+        }
+        if (verificationFailure != null) {
+            val reason = verificationFailure.message ?: "工具未通过执行后验证"
+            // long: 验证结论先进入 typed Event 与 Tool Ledger；若进程随后消失，启动恢复可只补失败控制面，而不是重新回读或猜测验证结果。
+            ledger.appendEvent(
+                runId = runId,
+                type = "tool.verify",
+                message = "工具验证失败：${toolCall.name}",
+                metadata = RunEventMetadata.ToolVerification(
+                    toolName = toolCall.name,
+                    status = ToolVerificationStatus.FAILED,
+                    toolCallId = toolCall.id,
+                    reason = reason,
+                ),
+            )
+            faultInjector.afterToolVerificationPersisted(runId, toolCall, toolResult)
+            throw verificationFailure
         }
         ledger.appendEvent(
             runId = runId,

@@ -5,6 +5,7 @@ enum class AgentRunResumeKind {
     COMMITTED_TOOL_VERIFICATION,
     VERIFIED_TOOL_COMPLETION,
     PERSISTED_TOOL_FAILURE_SETTLEMENT,
+    PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
     RESTART_REQUIRED,
 }
 
@@ -60,6 +61,12 @@ data class AgentPersistedToolFailureRecovery(
     val failureReason: String,
 )
 
+data class AgentPersistedToolVerificationFailureRecovery(
+    val toolCall: ToolCall,
+    val verificationStepId: String,
+    val failureReason: String,
+)
+
 data class AgentRunResumeAssessment(
     val kind: AgentRunResumeKind,
     val reason: String,
@@ -67,6 +74,7 @@ data class AgentRunResumeAssessment(
     val approvalWait: AgentApprovalWaitRecovery? = null,
     val verifiedTool: AgentVerifiedToolRecovery? = null,
     val persistedToolFailure: AgentPersistedToolFailureRecovery? = null,
+    val persistedToolVerificationFailure: AgentPersistedToolVerificationFailureRecovery? = null,
     val restartDisposition: AgentRunRestartDisposition? = null,
 ) {
     init {
@@ -80,6 +88,13 @@ data class AgentRunResumeAssessment(
                 (persistedToolFailure != null)
         ) {
             "PERSISTED_TOOL_FAILURE_SETTLEMENT 必须且只能携带 persistedToolFailure"
+        }
+        // long: 验证失败结算只携带已经落库的失败验证边界；类型与载荷必须同步，避免 Repository 根据空载荷猜测验证 Step。
+        require(
+            (kind == AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT) ==
+                (persistedToolVerificationFailure != null)
+        ) {
+            "PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT 必须且只能携带 persistedToolVerificationFailure"
         }
     }
 
@@ -128,8 +143,158 @@ object AgentRunResumePolicy {
             }
             assessPersistedToolFailureSettlement(detail, agentProfile)?.let { return it }
         }
+        assessPersistedToolVerificationFailureSettlement(detail, agentProfile)?.let { return it }
         assessVerifiedToolCompletion(detail, agentProfile)?.let { return it }
         return assessCommittedToolVerification(detail, agentProfile, definitionLookup, committedVerificationSupport)
+    }
+
+    private fun assessPersistedToolVerificationFailureSettlement(
+        detail: AgentRunDetailRecord,
+        agentProfile: AgentProfileSnapshot?,
+    ): AgentRunResumeAssessment? {
+        if (detail.snapshot.run.status != AgentRunStatus.VERIFYING) return null
+        val recoveryEvidence = when (val assessment = AgentRunRecoveryEvidencePolicy.read(detail)) {
+            is AgentRunRecoveryEvidenceAssessment.Available -> assessment
+            is AgentRunRecoveryEvidenceAssessment.CommitUnknown,
+            is AgentRunRecoveryEvidenceAssessment.Invalid -> return null
+        }
+        val executions = recoveryEvidence.executions
+        val failedVerification = executions.lastOrNull()?.takeIf {
+            it.result.success && it.verificationStatus == ToolVerificationStatus.FAILED
+        } ?: return null
+        if (recoveryEvidence.source != AgentRunRecoveryEvidenceSource.LEDGER) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                "失败工具验证原地收敛只接受完整独立 Tool Ledger",
+            )
+        }
+        if (AgentExecutionBudgetEvidencePolicy.read(detail) !is AgentExecutionBudgetEvidenceAssessment.Available) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_BUDGET_INVALID,
+                "失败工具验证缺少完整且位于结果之后的执行预算快照",
+            )
+        }
+        if (detail.approvals.any { it.status == ApprovalRequestStatus.PENDING }) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.APPROVAL_BOUNDARY_INVALID,
+                "失败工具验证已落库时不能同时保留待审批请求",
+            )
+        }
+        if (agentProfile != null && executions.any { it.toolCall.name !in agentProfile.allowedToolNames }) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.PROFILE_CAPABILITY_MISMATCH,
+                "失败工具验证超出原 Agent Profile 白名单",
+            )
+        }
+        if (executions.dropLast(1).any {
+                !it.result.success || it.verificationStatus != ToolVerificationStatus.PASSED
+            }
+        ) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                "失败验证之前的工具没有形成完整成功验证前缀",
+            )
+        }
+
+        val executionSteps = detail.snapshot.steps
+            .filter { it.type == AgentStepTypes.TOOL_EXECUTE }
+            .sortedBy { it.sequence }
+        val verificationSteps = detail.snapshot.steps
+            .filter { it.type == AgentStepTypes.TOOL_VERIFY }
+            .sortedBy { it.sequence }
+        if (
+            executionSteps.size != executions.size ||
+            verificationSteps.size != executions.size ||
+            executionSteps.any { it.status != AgentStepStatus.COMPLETED } ||
+            verificationSteps.dropLast(1).any { it.status != AgentStepStatus.COMPLETED } ||
+            detail.snapshot.steps.map { it.sequence }.distinct().size != detail.snapshot.steps.size
+        ) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                "失败验证的执行与验证步骤无法一一对应",
+            )
+        }
+        executions.indices.forEach { index ->
+            val executionStep = executionSteps[index]
+            val verificationStep = verificationSteps[index]
+            val nextExecutionStep = executionSteps.getOrNull(index + 1)
+            if (
+                executionStep.sequence >= verificationStep.sequence ||
+                nextExecutionStep?.let { verificationStep.sequence >= it.sequence } == true ||
+                !hasMatchingStepCreatedEvent(detail, executionStep) ||
+                !hasMatchingStepCompletionEvent(detail, executionStep) ||
+                !hasMatchingStepCreatedEvent(detail, verificationStep) ||
+                (index < executions.lastIndex && !hasMatchingStepCompletionEvent(detail, verificationStep))
+            ) {
+                return restartRequired(
+                    AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                    "失败验证的执行与验证步骤顺序或 typed 身份不一致",
+                )
+            }
+        }
+        val failedVerificationStep = verificationSteps.last()
+        if (
+            failedVerificationStep.status != AgentStepStatus.RUNNING ||
+            hasStepStatusEvent(detail, failedVerificationStep) ||
+            detail.snapshot.steps.maxByOrNull { it.sequence }?.id != failedVerificationStep.id
+        ) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                "链尾失败验证必须对应最后一个仍在运行的验证步骤",
+            )
+        }
+        val ledgerResult = detail.toolLedger.results.singleOrNull {
+            it.toolCallId == failedVerification.toolCall.id
+        } ?: return restartRequired(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            "链尾失败验证缺少唯一 ToolResult 账本记录",
+        )
+        val verificationEvent = detail.snapshot.events.singleOrNull { it.id == ledgerResult.verifiedEventId }
+            ?: return restartRequired(
+                AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                "链尾失败验证缺少唯一事件锚点",
+            )
+        val verificationMetadata = verificationEvent.metadata as? RunEventMetadata.ToolVerification
+        val verificationReason = verificationMetadata?.reason?.takeIf { it.isNotBlank() }
+            ?: return restartRequired(
+                AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+                "链尾失败验证缺少稳定失败原因",
+            )
+        val verificationEventIndex = detail.snapshot.events.indexOfFirst { it.id == verificationEvent.id }
+        if (
+            verificationMetadata.status != ToolVerificationStatus.FAILED ||
+            verificationMetadata.toolCallId != failedVerification.toolCall.id ||
+            verificationMetadata.toolName != failedVerification.toolCall.name ||
+            verificationEventIndex < 0 ||
+            detail.snapshot.events.drop(verificationEventIndex + 1).isNotEmpty()
+        ) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+                "失败工具验证之后不能存在额外控制面或业务事件",
+            )
+        }
+        if (
+            detail.snapshot.run.result != null ||
+            detail.snapshot.run.errorMessage != null ||
+            detail.snapshot.run.completedAt != null
+        ) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                "验证中 Run 已混入终态结果，不能自动补齐失败收敛",
+            )
+        }
+
+        val failureReason = "工具验证失败：$verificationReason"
+        // long: 验证失败事实已经原子写入 Event 与 Tool Ledger；唯一安全动作是补齐失败 Step/Run，不能再次调用验证器、Executor 或模型。
+        return AgentRunResumeAssessment(
+            kind = AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
+            reason = "失败工具验证已完整持久化，只补齐原 Run 失败终态",
+            persistedToolVerificationFailure = AgentPersistedToolVerificationFailureRecovery(
+                toolCall = failedVerification.toolCall,
+                verificationStepId = failedVerificationStep.id,
+                failureReason = failureReason,
+            ),
+        )
     }
 
     private fun assessPersistedToolFailureSettlement(

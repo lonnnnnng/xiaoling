@@ -87,6 +87,7 @@ internal object RunEventMetadataCodec {
                 .put("toolName", metadata.toolName)
                 .put("status", metadata.status.name)
                 .put("toolCallId", metadata.toolCallId)
+                .put("reason", metadata.reason)
             is RunEventMetadata.Reason -> JSONObject()
                 .put("reason", metadata.reason)
             is RunEventMetadata.Recovery -> JSONObject()
@@ -222,6 +223,7 @@ internal object RunEventMetadataCodec {
                     toolName = json.requiredToolName(),
                     status = ToolVerificationStatus.valueOf(json.requiredString("status").uppercase()),
                     toolCallId = json.stringOrNull("toolCallId"),
+                    reason = json.stringOrNull("reason"),
                 )
                 "llm.summarize.fallback",
                 AgentEventTypes.RECOVERY_SUMMARY,

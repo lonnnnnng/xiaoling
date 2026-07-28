@@ -362,6 +362,16 @@ class RunEventMetadataCodecTest {
                 """{"toolName":"notes.create","status":"PASSED"}""",
             ),
         )
+        val failed = RunEventMetadata.ToolVerification(
+            toolName = "notes.create",
+            status = ToolVerificationStatus.FAILED,
+            toolCallId = "tool-call-verify-failed",
+            reason = "Executor 回读结果不一致",
+        )
+        assertEquals(
+            failed,
+            RunEventMetadataCodec.decode("tool.verify", RunEventMetadataCodec.encode(failed)),
+        )
     }
 
     @Test

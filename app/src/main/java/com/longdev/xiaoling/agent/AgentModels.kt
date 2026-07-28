@@ -213,6 +213,7 @@ sealed interface RunEventMetadata {
         val toolName: String,
         val status: ToolVerificationStatus,
         val toolCallId: String? = null,
+        val reason: String? = null,
     ) : RunEventMetadata
 
     data class Reason(
@@ -240,6 +241,7 @@ sealed interface RunEventMetadata {
 
 enum class ToolVerificationStatus {
     PASSED,
+    FAILED,
 }
 
 data class AgentRunSnapshot(

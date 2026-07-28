@@ -1158,6 +1158,98 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun completeV20FailedVerificationWithRunningStepSettlesOriginalRunFailureInPlace() {
+        val fixture = persistedVerificationFailureFixture()
+
+        val assessment = AgentRunResumePolicy.assess(fixture.detail)
+
+        assertEquals(
+            AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
+            assessment.kind,
+        )
+        val recovery = checkNotNull(assessment.persistedToolVerificationFailure)
+        assertEquals(fixture.call, recovery.toolCall)
+        assertEquals("step-2", recovery.verificationStepId)
+        assertEquals("工具验证失败：Executor 回读结果不一致", recovery.failureReason)
+    }
+
+    @Test
+    fun failedVerificationWithoutExecutionBudgetRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedVerificationFailureFixture(
+                includeInitialBudget = false,
+                includePostResultBudget = false,
+            ).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_BUDGET_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("执行预算快照"))
+    }
+
+    @Test
+    fun failedVerificationWithoutPostResultBudgetRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedVerificationFailureFixture(includePostResultBudget = false).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_BUDGET_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("后续执行预算快照"))
+    }
+
+    @Test
+    fun legacyEventOnlyFailedVerificationRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedVerificationFailureFixture(includeLedger = false).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("独立 Tool Ledger"))
+    }
+
+    @Test
+    fun failedVerificationWithoutTypedReasonRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedVerificationFailureFixture(verificationReason = null).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("失败原因"))
+    }
+
+    @Test
+    fun businessEventAfterFailedVerificationRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedVerificationFailureFixture(
+                extraTrailingEvents = listOf(
+                    event("business.tail", RunEventMetadata.Reason("不可达业务尾部"), 6L),
+                ),
+            ).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun multiStepV20LedgerRestoresVerifiedPrefixAndOnlyVerifiesTheLastResult() {
         val firstCall = ToolCall(
             id = "tool-call-ledger-prefix",
@@ -1338,6 +1430,137 @@ class AgentRunResumePolicyTest {
         val call: ToolCall,
         val detail: AgentRunDetailRecord,
     )
+
+    private data class PersistedVerificationFailureFixture(
+        val call: ToolCall,
+        val detail: AgentRunDetailRecord,
+    )
+
+    private fun persistedVerificationFailureFixture(
+        includeInitialBudget: Boolean = true,
+        includePostResultBudget: Boolean = true,
+        includeLedger: Boolean = true,
+        verificationReason: String? = "Executor 回读结果不一致",
+        extraTrailingEvents: List<RunEventRecord> = emptyList(),
+    ): PersistedVerificationFailureFixture {
+        val call = ToolCall(
+            id = "tool-call-v20-verification-failed-settlement",
+            name = "notes.create",
+            arguments = mapOf("title" to "验证失败边界", "content" to "不重复验证"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val result = RunEventMetadata.ToolResult(
+            toolName = call.name,
+            content = "笔记写入返回成功",
+            durationMs = 12L,
+            success = true,
+            verified = false,
+            toolCallId = call.id,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = "note-verification-failed-settlement",
+                idempotencyKey = call.id,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+        val executionStep = step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, sequence = 1)
+        val verificationStep = step(AgentStepTypes.TOOL_VERIFY, AgentStepStatus.RUNNING, sequence = 2)
+        return PersistedVerificationFailureFixture(
+            call = call,
+            detail = detail(
+                status = AgentRunStatus.VERIFYING,
+                steps = listOf(executionStep, verificationStep),
+                approvals = emptyList(),
+                events = buildList {
+                    if (includeInitialBudget) {
+                        add(
+                            event(
+                                AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                                RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 0L),
+                                0L,
+                            )
+                        )
+                    }
+                    add(
+                        event(
+                            "tool.call.proposed",
+                            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                            1L,
+                        )
+                    )
+                    add(
+                        event(
+                            "tool.call.validated",
+                            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+                            2L,
+                        )
+                    )
+                    add(stepCreatedEvent(executionStep))
+                    add(event("tool.result", result, 3L))
+                    if (includePostResultBudget) {
+                        add(
+                            event(
+                                AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                                RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 12L),
+                                4L,
+                            )
+                        )
+                    }
+                    add(stepCompletedEvent(executionStep))
+                    add(stepCreatedEvent(verificationStep))
+                    add(
+                        event(
+                            "tool.verify",
+                            RunEventMetadata.ToolVerification(
+                                toolName = call.name,
+                                status = ToolVerificationStatus.FAILED,
+                                toolCallId = call.id,
+                                reason = verificationReason,
+                            ),
+                            5L,
+                        )
+                    )
+                    addAll(extraTrailingEvents)
+                },
+                toolLedger = if (includeLedger) AgentToolLedgerRecord(
+                    calls = listOf(
+                        AgentToolCallRecord(
+                            id = call.id,
+                            runId = "run-1",
+                            toolName = call.name,
+                            risk = call.risk,
+                            arguments = call.arguments,
+                            proposedEventId = "event-1",
+                            validatedEventId = "event-2",
+                            createdAt = 1L,
+                            validatedAt = 2L,
+                        ),
+                    ),
+                    results = listOf(
+                        AgentToolResultRecord(
+                            toolCallId = call.id,
+                            runId = "run-1",
+                            eventId = "event-3",
+                            toolName = call.name,
+                            content = result.content,
+                            success = true,
+                            errorMessage = null,
+                            durationMs = result.durationMs,
+                            executorVerified = false,
+                            verificationStatus = ToolVerificationStatus.FAILED,
+                            verifiedEventId = "event-5",
+                            memoryIdsUsed = emptyList(),
+                            replaySafety = result.replaySafety,
+                            executionReceipt = result.executionReceipt,
+                            createdAt = 3L,
+                            verifiedAt = 5L,
+                        ),
+                    ),
+                ) else AgentToolLedgerRecord(),
+            ),
+        )
+    }
 
     private fun persistedFailureFixture(
         includePostResultBudget: Boolean = true,

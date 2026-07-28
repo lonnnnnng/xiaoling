@@ -40,6 +40,7 @@ import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.ToolRegistry
+import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.data.ApprovalRequestEntity
@@ -948,6 +949,252 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val secondEvidence = AgentTaskRetryPolicy.assessEvidence(checkNotNull(repository.runDetail(run.id)))
         assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, firstEvidence.code)
         assertEquals(firstEvidence, secondEvidence)
+    }
+
+    @Test
+    fun interruptedAfterFailedToolVerificationAtomicallySettlesOriginalRunAsFailed() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-failed-verification-settlement",
+            userMessageId = "message-failed-verification-settlement",
+            goal = "恢复失败工具验证的终态",
+        )
+        val call = ToolCall(
+            id = "tool-call-failed-verification-settlement",
+            name = "notes.create",
+            arguments = mapOf("title" to "验证失败终态", "content" to "不应重复验证"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "初始化执行预算",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 0L),
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val executionStep = repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_EXECUTE,
+            "执行工具",
+            "正在执行 ${call.name}",
+            AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${call.name}",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "笔记写入返回成功",
+                durationMs = 12L,
+                success = true,
+                verified = false,
+                toolCallId = call.id,
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "note-failed-verification-settlement",
+                    idempotencyKey = call.id,
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ),
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "工具执行预算：${call.name}",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 12L),
+        )
+        repository.updateStep(executionStep.id, AgentStepStatus.COMPLETED, "笔记写入返回成功")
+        repository.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+        val verificationStep = repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_VERIFY,
+            "执行后验证",
+            "检查 Executor 回读结果",
+            AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.verify",
+            "工具验证失败：${call.name}",
+            RunEventMetadata.ToolVerification(
+                toolName = call.name,
+                status = ToolVerificationStatus.FAILED,
+                toolCallId = call.id,
+                reason = "Executor 回读结果不一致",
+            ),
+        )
+
+        val competingRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        val closeCounts = listOf(
+            async(Dispatchers.Default) { repository.closeInterruptedRuns(runIds = setOf(run.id)) },
+            async(Dispatchers.Default) { competingRepository.closeInterruptedRuns(runIds = setOf(run.id)) },
+        ).awaitAll()
+        assertEquals(listOf(0, 1), closeCounts.sorted())
+        assertEquals(0, repository.closeInterruptedRuns(runIds = setOf(run.id)))
+
+        val settled = checkNotNull(repository.runDetail(run.id))
+        assertEquals(AgentRunStatus.FAILED, settled.snapshot.run.status)
+        assertEquals("工具验证失败：Executor 回读结果不一致", settled.snapshot.run.errorMessage)
+        assertEquals(
+            AgentStepStatus.COMPLETED,
+            settled.snapshot.steps.single { it.id == executionStep.id }.status,
+        )
+        assertEquals(
+            AgentStepStatus.FAILED,
+            settled.snapshot.steps.single { it.id == verificationStep.id }.status,
+        )
+        assertEquals(1, settled.snapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, settled.snapshot.events.count { it.type == "tool.verify" })
+        assertEquals(1, settled.snapshot.events.count { it.type == "run.failed" })
+        val recovery = settled.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(AgentRunStatus.VERIFYING, recovery.fromStatus)
+        assertEquals(AgentRunStatus.FAILED, recovery.toStatus)
+        assertEquals(
+            AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
+            recovery.resumeKind,
+        )
+        assertEquals(
+            "${AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT.name}:${call.id}",
+            recovery.recoveryBoundaryKey,
+        )
+    }
+
+    @Test
+    fun failedToolVerificationSettlementRollsBackWhenTerminalAuditWriteFails() = runBlocking {
+        val candidate = createPersistedVerificationFailureSettlementCandidate("rollback")
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER abort_failed_tool_verification_settlement
+            BEFORE INSERT ON run_events
+            WHEN NEW.type = 'run.failed'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected run.failed failure');
+            END
+            """.trimIndent(),
+        )
+
+        val failure = runCatching {
+            repository.closeInterruptedRuns(runIds = setOf(candidate.runId))
+        }.exceptionOrNull()
+        val rolledBack = checkNotNull(repository.runDetail(candidate.runId))
+
+        assertTrue(failure != null)
+        assertEquals(AgentRunStatus.VERIFYING, rolledBack.snapshot.run.status)
+        assertEquals(
+            AgentStepStatus.RUNNING,
+            rolledBack.snapshot.steps.single { it.id == candidate.verificationStepId }.status,
+        )
+        assertEquals(0, rolledBack.snapshot.events.count { it.type == "run.recovered" })
+        assertEquals(0, rolledBack.snapshot.events.count { it.type == "run.failed" })
+
+        database.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER abort_failed_tool_verification_settlement",
+        )
+        assertEquals(1, repository.closeInterruptedRuns(runIds = setOf(candidate.runId)))
+        assertEquals(
+            AgentRunStatus.FAILED,
+            checkNotNull(repository.runDetail(candidate.runId)).snapshot.run.status,
+        )
+    }
+
+    @Test
+    fun runtimeVerificationFailureBoundaryPersistsFailureOnceBeforeRepositorySettles() = runBlocking {
+        val definition = ToolDefinition(
+            name = "test.verification_failure_once",
+            description = "返回成功结果但失败回读验证，用于验证进程重建不会重复验证。",
+            risk = ToolRisk.SAFE,
+            replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+            verificationPolicy = com.longdev.xiaoling.agent.ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        val call = ToolCall(
+            id = "tool-call-runtime-verification-failure-once",
+            name = definition.name,
+            arguments = emptyMap(),
+            risk = definition.risk,
+        )
+        var executeCount = 0
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executeCount += 1
+                return ToolExecutionResult(
+                    success = true,
+                    content = "工具返回成功，但 Executor 回读不一致",
+                    verified = false,
+                )
+            }
+        }
+        val failure = runCatching {
+            MinimalAgentRuntime(
+                ledger = repository,
+                toolRegistry = registry,
+                llm = object : AgentLlm {
+                    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = call
+
+                    override suspend fun summarize(
+                        goal: String,
+                        toolCall: ToolCall,
+                        toolResult: ToolExecutionResult,
+                    ): String = error("验证失败后不应进入总结")
+                },
+                faultInjector = object : AgentRuntimeFaultInjector {
+                    override fun afterToolVerificationPersisted(
+                        runId: String,
+                        call: ToolCall,
+                        result: ToolExecutionResult,
+                    ) {
+                        throw AgentProcessTerminationSimulation()
+                    }
+                },
+            ).run(
+                conversationId = "conversation-runtime-verification-failure-once",
+                userMessageId = "message-runtime-verification-failure-once",
+                goal = "验证失败事实落库后进程终止",
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is AgentProcessTerminationSimulation)
+        assertEquals(1, executeCount)
+        val activeRunId = database.agentRunDao()
+            .getRunsByStatuses(listOf(AgentRunStatus.VERIFYING.name))
+            .single()
+            .id
+        val interrupted = checkNotNull(repository.runDetail(activeRunId))
+        assertEquals(
+            AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
+            AgentRunResumePolicy.assess(interrupted).kind,
+        )
+
+        assertEquals(1, repository.closeInterruptedRuns(runIds = setOf(activeRunId)))
+
+        val settled = checkNotNull(repository.runDetail(activeRunId))
+        assertEquals(1, executeCount)
+        assertEquals(AgentRunStatus.FAILED, settled.snapshot.run.status)
+        assertEquals(1, settled.snapshot.events.count { it.type == "tool.result" })
+        val verification = settled.snapshot.events.single { it.type == "tool.verify" }
+            .metadata as RunEventMetadata.ToolVerification
+        assertEquals(ToolVerificationStatus.FAILED, verification.status)
+        assertTrue(verification.reason.orEmpty().contains("未通过 Executor 回读验证"))
     }
 
     @Test
@@ -2393,6 +2640,103 @@ class RoomAgentRunRepositoryInstrumentedTest {
         val runId: String,
         val executionStepId: String,
     )
+
+    private data class PersistedVerificationFailureSettlementCandidate(
+        val runId: String,
+        val verificationStepId: String,
+    )
+
+    private suspend fun createPersistedVerificationFailureSettlementCandidate(
+        suffix: String,
+    ): PersistedVerificationFailureSettlementCandidate {
+        val run = repository.createRun(
+            conversationId = "conversation-verification-failed-settlement-$suffix",
+            userMessageId = "message-verification-failed-settlement-$suffix",
+            goal = "验证失败验证收敛事务：$suffix",
+        )
+        val call = ToolCall(
+            id = "tool-call-verification-failed-settlement-$suffix",
+            name = "notes.create",
+            arguments = mapOf("title" to suffix, "content" to "失败验证事务必须原子"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "初始化执行预算",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 0L),
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val executionStep = repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_EXECUTE,
+            "执行工具",
+            "正在执行 ${call.name}",
+            AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行成功：${call.name}",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "工具执行成功，等待验证",
+                durationMs = 8L,
+                success = true,
+                verified = false,
+                toolCallId = call.id,
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                executionReceipt = ToolExecutionReceipt(
+                    toolCallId = call.id,
+                    operationId = "verification-failed-operation-$suffix",
+                    idempotencyKey = call.id,
+                    status = ToolExecutionReceiptStatus.COMMITTED,
+                ),
+            ),
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "工具执行预算：${call.name}",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 8L),
+        )
+        repository.updateStep(executionStep.id, AgentStepStatus.COMPLETED, "工具执行成功")
+        repository.updateRunStatus(run.id, AgentRunStatus.VERIFYING)
+        val verificationStep = repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_VERIFY,
+            "执行后验证",
+            "验证失败事实即将落库",
+            AgentStepStatus.RUNNING,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.verify",
+            "工具验证失败：${call.name}",
+            RunEventMetadata.ToolVerification(
+                toolName = call.name,
+                status = ToolVerificationStatus.FAILED,
+                toolCallId = call.id,
+                reason = "稳定验证失败：$suffix",
+            ),
+        )
+        return PersistedVerificationFailureSettlementCandidate(
+            runId = run.id,
+            verificationStepId = verificationStep.id,
+        )
+    }
 
     private suspend fun createPersistedFailureSettlementCandidate(
         suffix: String,

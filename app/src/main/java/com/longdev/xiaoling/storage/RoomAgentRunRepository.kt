@@ -12,6 +12,7 @@ import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.AgentPersistedToolFailureRecovery
+import com.longdev.xiaoling.agent.AgentPersistedToolVerificationFailureRecovery
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
@@ -692,6 +693,19 @@ class RoomAgentRunRepository(
                     }
                     return@withTransaction settlePersistedToolFailure(detail, recovery, resumeAssessment.reason)
                 }
+                if (
+                    resumeAssessment.kind ==
+                    AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT
+                ) {
+                    val recovery = checkNotNull(resumeAssessment.persistedToolVerificationFailure) {
+                        "恢复策略缺少失败工具验证收敛边界"
+                    }
+                    return@withTransaction settlePersistedToolVerificationFailure(
+                        detail,
+                        recovery,
+                        resumeAssessment.reason,
+                    )
+                }
                 if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) {
                     return@withTransaction false
                 }
@@ -826,6 +840,103 @@ class RoomAgentRunRepository(
                         resumeKind = AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT,
                         recoveryBoundaryKey = RecoveryBoundary(
                             AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT,
+                            recovery.toolCall.id,
+                        ).key,
+                    ),
+                ),
+                createdAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = "run.failed",
+                message = recovery.failureReason,
+                metadataJson = RunEventMetadataCodec.encode(RunEventMetadata.Reason(recovery.failureReason)),
+                createdAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = "run.status",
+                message = AgentRunStatus.FAILED.name,
+                metadataJson = null,
+                createdAt = now,
+            ),
+        )
+        return true
+    }
+
+    private suspend fun settlePersistedToolVerificationFailure(
+        detail: AgentRunDetailRecord,
+        recovery: AgentPersistedToolVerificationFailureRecovery,
+        recoveryReason: String,
+    ): Boolean {
+        val dao = database.agentRunDao()
+        val runId = detail.snapshot.run.id
+        val run = dao.getRun(runId) ?: return false
+        if (run.status != AgentRunStatus.VERIFYING.name) return false
+        val verificationStep = dao.getStep(recovery.verificationStepId) ?: return false
+        if (
+            verificationStep.runId != runId ||
+            verificationStep.type != AgentStepTypes.TOOL_VERIFY ||
+            verificationStep.status != AgentStepStatus.RUNNING.name
+        ) {
+            return false
+        }
+        val now = System.currentTimeMillis()
+        // long: 失败验证已经作为 typed event 与 Tool Ledger 原子落库；这里只补正常异常出口原本应写入的 Step/Run 失败终态，不再执行任何回读或工具副作用。
+        dao.upsertStep(
+            verificationStep.copy(
+                status = AgentStepStatus.FAILED.name,
+                detail = recovery.failureReason,
+                completedAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = AgentEventTypes.STEP_STATUS,
+                message = "${verificationStep.sequence}. ${verificationStep.title} -> ${AgentStepStatus.FAILED.name}",
+                metadataJson = RunEventMetadataCodec.encode(
+                    RunEventMetadata.StepStatus(
+                        stepId = verificationStep.id,
+                        sequence = verificationStep.sequence,
+                        fromStatus = AgentStepStatus.RUNNING,
+                        toStatus = AgentStepStatus.FAILED,
+                    ),
+                ),
+                createdAt = now,
+            ),
+        )
+        val updatedRows = dao.updateRunStatusIfExpected(
+            runId = runId,
+            expectedStatus = AgentRunStatus.VERIFYING.name,
+            status = AgentRunStatus.FAILED.name,
+            result = null,
+            errorMessage = recovery.failureReason,
+            updatedAt = now,
+            completedAt = now,
+        )
+        check(updatedRows == 1) { "失败工具验证收敛时 Run 状态发生并发漂移：$runId" }
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = RECOVERY_EVENT_TYPE,
+                message = "已恢复失败工具验证，完成原 Run 失败收敛",
+                metadataJson = RunEventMetadataCodec.encode(
+                    RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.VERIFYING,
+                        toStatus = AgentRunStatus.FAILED,
+                        reason = recoveryReason,
+                        resumeKind = AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
+                        recoveryBoundaryKey = RecoveryBoundary(
+                            AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT,
                             recovery.toolCall.id,
                         ).key,
                     ),
