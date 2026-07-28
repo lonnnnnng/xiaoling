@@ -184,6 +184,22 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun persistedToolFailureSettlementMarkerRoundTrips() {
+        val metadata = RunEventMetadata.Recovery(
+            fromStatus = AgentRunStatus.EXECUTING,
+            toStatus = AgentRunStatus.FAILED,
+            reason = "失败工具结果与执行预算已完整持久化，只补齐原 Run 失败终态",
+            resumeKind = AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT,
+            recoveryBoundaryKey = "PERSISTED_TOOL_FAILURE_SETTLEMENT:tool-call-failed",
+        )
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode("run.recovered", RunEventMetadataCodec.encode(metadata)),
+        )
+    }
+
+    @Test
     fun unknownRecoveryEvidenceCodeFailsClosedWithoutBreakingLegacyMissingField() {
         val unknown = RunEventMetadataCodec.decode(
             "run.recovered",

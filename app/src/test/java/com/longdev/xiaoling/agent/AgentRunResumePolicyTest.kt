@@ -1027,6 +1027,137 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun completeV20FailedResultWithPostResultBudgetSettlesOriginalRunFailureInPlace() {
+        val fixture = persistedFailureFixture()
+        val assessment = AgentRunResumePolicy.assess(fixture.detail)
+
+        assertEquals(AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT, assessment.kind)
+        val recovery = checkNotNull(assessment.persistedToolFailure)
+        assertEquals(fixture.call, recovery.toolCall)
+        assertEquals("step-1", recovery.executionStepId)
+        assertEquals("工具执行失败：网络请求失败", recovery.failureReason)
+    }
+
+    @Test
+    fun failedResultWithoutPostResultBudgetRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedFailureFixture(includePostResultBudget = false).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_BUDGET_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun legacyEventOnlyFailedResultRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedFailureFixture(includeLedger = false).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RECOVERY_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("独立 Tool Ledger"))
+    }
+
+    @Test
+    fun businessEventAfterFailedResultBudgetRemainsFailClosed() {
+        val assessment = AgentRunResumePolicy.assess(
+            persistedFailureFixture(
+                extraTrailingEvents = listOf(
+                    event("business.tail", RunEventMetadata.Reason("不可达业务尾部"), 5L),
+                ),
+            ).detail,
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun verifiedPrefixAndFailedChainTailSettleOnlyTheFailure() {
+        val fixture = persistedFailureFixture(includeVerifiedPrefix = true)
+        val assessment = AgentRunResumePolicy.assess(fixture.detail)
+
+        assertEquals(AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT, assessment.kind)
+        val recovery = checkNotNull(assessment.persistedToolFailure)
+        assertEquals(fixture.call, recovery.toolCall)
+        assertEquals("step-3", recovery.executionStepId)
+    }
+
+    @Test
+    fun failedResultWithDriftedExecutionStepSequenceRemainsFailClosed() {
+        val fixture = persistedFailureFixture()
+        val drifted = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                steps = fixture.detail.snapshot.steps.map { it.copy(sequence = 9) },
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(drifted)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun failedResultWithMismatchedTypedStepCreatedIdentityRemainsFailClosed() {
+        val fixture = persistedFailureFixture()
+        val drifted = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                events = fixture.detail.snapshot.events.map { event ->
+                    val metadata = event.metadata as? RunEventMetadata.StepCreated
+                    if (metadata?.stepId != "step-1") event else event.copy(
+                        metadata = metadata.copy(stepId = "step-forged"),
+                    )
+                },
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(drifted)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
+    fun verifiedPrefixWithMismatchedTypedStepStatusIdentityRemainsFailClosed() {
+        val fixture = persistedFailureFixture(includeVerifiedPrefix = true)
+        val drifted = fixture.detail.copy(
+            snapshot = fixture.detail.snapshot.copy(
+                events = fixture.detail.snapshot.events.map { event ->
+                    val metadata = event.metadata as? RunEventMetadata.StepStatus
+                    if (metadata?.stepId != "step-2") event else event.copy(
+                        metadata = metadata.copy(sequence = 99),
+                    )
+                },
+            ),
+        )
+
+        val assessment = AgentRunResumePolicy.assess(drifted)
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+    }
+
+    @Test
     fun multiStepV20LedgerRestoresVerifiedPrefixAndOnlyVerifiesTheLastResult() {
         val firstCall = ToolCall(
             id = "tool-call-ledger-prefix",
@@ -1201,6 +1332,209 @@ class AgentRunResumePolicyTest {
         assertEquals(pendingResult, recovery.persistedResult)
         assertEquals("step-3", recovery.executionStepId)
         assertEquals("step-4", recovery.verificationStepId)
+    }
+
+    private data class PersistedFailureFixture(
+        val call: ToolCall,
+        val detail: AgentRunDetailRecord,
+    )
+
+    private fun persistedFailureFixture(
+        includePostResultBudget: Boolean = true,
+        includeLedger: Boolean = true,
+        includeVerifiedPrefix: Boolean = false,
+        extraTrailingEvents: List<RunEventRecord> = emptyList(),
+    ): PersistedFailureFixture {
+        val failedCall = ToolCall(
+            id = "tool-call-v20-failed-settlement",
+            name = "notes.create",
+            arguments = mapOf("title" to "失败边界", "content" to "不会重放"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val failedReceipt = ToolExecutionReceipt(
+            toolCallId = failedCall.id,
+            operationId = "note-failed-settlement",
+            idempotencyKey = failedCall.id,
+            status = ToolExecutionReceiptStatus.UNKNOWN,
+        )
+        val failedResult = RunEventMetadata.ToolResult(
+            toolName = failedCall.name,
+            content = "网络请求失败",
+            durationMs = 12L,
+            success = false,
+            verified = false,
+            toolCallId = failedCall.id,
+            replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+            executionReceipt = failedReceipt,
+        )
+        val firstCall = ToolCall(
+            id = "tool-call-v20-failed-prefix",
+            name = "app.current_time",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val firstResult = RunEventMetadata.ToolResult(
+            toolName = firstCall.name,
+            content = "当前时间：2026-07-28 09:30:00",
+            durationMs = 4L,
+            success = true,
+            verified = true,
+            toolCallId = firstCall.id,
+        )
+        val events = buildList {
+            add(
+                event(
+                    AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                    RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 0L),
+                    0L,
+                ),
+            )
+            if (includeVerifiedPrefix) {
+                add(event("tool.call.proposed", RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments), 1L))
+                add(event("tool.call.validated", RunEventMetadata.ToolCall(firstCall.id, firstCall.name, firstCall.risk, firstCall.arguments), 2L))
+                add(event("tool.result", firstResult, 3L))
+                add(
+                    event(
+                        "tool.verify",
+                        RunEventMetadata.ToolVerification(firstCall.name, ToolVerificationStatus.PASSED, firstCall.id),
+                        4L,
+                    ),
+                )
+            }
+            val callOffset = if (includeVerifiedPrefix) 4L else 0L
+            add(
+                event(
+                    "tool.call.proposed",
+                    RunEventMetadata.ToolCall(failedCall.id, failedCall.name, failedCall.risk, failedCall.arguments),
+                    callOffset + 1L,
+                ),
+            )
+            add(
+                event(
+                    "tool.call.validated",
+                    RunEventMetadata.ToolCall(failedCall.id, failedCall.name, failedCall.risk, failedCall.arguments),
+                    callOffset + 2L,
+                ),
+            )
+            add(event("tool.result", failedResult, callOffset + 3L))
+            if (includePostResultBudget) {
+                add(
+                    event(
+                        AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+                        RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 16L),
+                        callOffset + 4L,
+                    ),
+                )
+            }
+            addAll(extraTrailingEvents)
+        }
+        val calls = buildList {
+            if (includeVerifiedPrefix) {
+                add(
+                    AgentToolCallRecord(
+                        id = firstCall.id,
+                        runId = "run-1",
+                        toolName = firstCall.name,
+                        risk = firstCall.risk,
+                        arguments = firstCall.arguments,
+                        proposedEventId = "event-1",
+                        validatedEventId = "event-2",
+                        createdAt = 1L,
+                        validatedAt = 2L,
+                    ),
+                )
+            }
+            val callOffset = if (includeVerifiedPrefix) 4L else 0L
+            add(
+                AgentToolCallRecord(
+                    id = failedCall.id,
+                    runId = "run-1",
+                    toolName = failedCall.name,
+                    risk = failedCall.risk,
+                    arguments = failedCall.arguments,
+                    proposedEventId = "event-${callOffset + 1L}",
+                    validatedEventId = "event-${callOffset + 2L}",
+                    createdAt = callOffset + 1L,
+                    validatedAt = callOffset + 2L,
+                ),
+            )
+        }
+        val results = buildList {
+            if (includeVerifiedPrefix) {
+                add(
+                    AgentToolResultRecord(
+                        toolCallId = firstCall.id,
+                        runId = "run-1",
+                        eventId = "event-3",
+                        toolName = firstCall.name,
+                        content = firstResult.content,
+                        success = true,
+                        errorMessage = null,
+                        durationMs = firstResult.durationMs,
+                        executorVerified = true,
+                        verificationStatus = ToolVerificationStatus.PASSED,
+                        verifiedEventId = "event-4",
+                        memoryIdsUsed = emptyList(),
+                        replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+                        executionReceipt = null,
+                        createdAt = 3L,
+                        verifiedAt = 4L,
+                    ),
+                )
+            }
+            val callOffset = if (includeVerifiedPrefix) 4L else 0L
+            add(
+                AgentToolResultRecord(
+                    toolCallId = failedCall.id,
+                    runId = "run-1",
+                    eventId = "event-${callOffset + 3L}",
+                    toolName = failedCall.name,
+                    content = failedResult.content,
+                    success = false,
+                    errorMessage = failedResult.content,
+                    durationMs = failedResult.durationMs,
+                    executorVerified = false,
+                    verificationStatus = null,
+                    verifiedEventId = null,
+                    memoryIdsUsed = emptyList(),
+                    replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+                    executionReceipt = failedReceipt,
+                    createdAt = callOffset + 3L,
+                    verifiedAt = null,
+                ),
+            )
+        }
+        val steps = if (includeVerifiedPrefix) {
+            listOf(
+                step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.COMPLETED, sequence = 1),
+                step(AgentStepTypes.TOOL_VERIFY, AgentStepStatus.COMPLETED, sequence = 2),
+                step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING, sequence = 3),
+            )
+        } else {
+            listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING))
+        }
+        val stepEvents = buildList {
+            steps.forEach { step ->
+                add(stepCreatedEvent(step))
+                if (step.status == AgentStepStatus.COMPLETED) {
+                    add(stepCompletedEvent(step))
+                }
+            }
+        }
+        return PersistedFailureFixture(
+            call = failedCall,
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = steps,
+                approvals = emptyList(),
+                events = stepEvents + events,
+                toolLedger = if (includeLedger) {
+                    AgentToolLedgerRecord(calls = calls, results = results)
+                } else {
+                    AgentToolLedgerRecord()
+                },
+            ),
+        )
     }
 
     private data class ControlledReplayFixture(
@@ -1622,5 +1956,33 @@ class AgentRunResumePolicyTest {
         message = type,
         createdAt = createdAt,
         metadata = metadata,
+    )
+
+    private fun stepCreatedEvent(step: AgentStepRecord) = RunEventRecord(
+        id = "step-created-${step.sequence}",
+        runId = step.runId,
+        type = AgentEventTypes.STEP_CREATED,
+        message = AgentEventTypes.STEP_CREATED,
+        createdAt = step.createdAt,
+        metadata = RunEventMetadata.StepCreated(
+            stepId = step.id,
+            sequence = step.sequence,
+            stepType = step.type,
+            status = AgentStepStatus.RUNNING,
+        ),
+    )
+
+    private fun stepCompletedEvent(step: AgentStepRecord) = RunEventRecord(
+        id = "step-status-${step.sequence}",
+        runId = step.runId,
+        type = AgentEventTypes.STEP_STATUS,
+        message = AgentEventTypes.STEP_STATUS,
+        createdAt = step.createdAt + 1L,
+        metadata = RunEventMetadata.StepStatus(
+            stepId = step.id,
+            sequence = step.sequence,
+            fromStatus = AgentStepStatus.RUNNING,
+            toStatus = AgentStepStatus.COMPLETED,
+        ),
     )
 }

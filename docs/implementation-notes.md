@@ -10,6 +10,14 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：持久化失败 ToolResult 原子失败终态结算（完成）
+
+- `AgentRunResumeKind` 新增 `PERSISTED_TOOL_FAILURE_SETTLEMENT`，并由 `AgentPersistedToolFailureRecovery` 只携带事务结算需要的原 ToolCall、执行 Step 和稳定失败原因。失败 ToolResult、事件锚点与 Ledger 来源在策略资格评估内完成核验，不向 Repository 重复透传；`AgentRunResumeAssessment` 强制恢复类型与载荷同时出现，Repository 不会收到半份结算指令。
+- `AgentRunResumePolicy.assessPersistedToolFailureSettlement()` 只在 `EXECUTING` 分支评估，并且只接受 v20 完整非空独立 Tool Ledger。前序执行必须全部成功且 `PASSED`；唯一链尾结果必须失败、错误非空且无验证，结果后恰有一份完整预算快照；执行/验证 Step 必须与账本一一对应，链尾执行 Step 是最后一个 Step 且仍为 `RUNNING`；Profile、审批、Run 终态字段与尾随事件也必须保持严格形状。event fallback、预算缺失、成功结果待验证和任何身份/步骤/尾部漂移都返回 `RESTART_REQUIRED` 或继续既有 fail-closed 分类。
+- `RoomAgentRunRepository.closeInterruptedRuns()` 在原有 `database.withTransaction` 内优先执行失败结算。`settlePersistedToolFailure()` 先重新读取 Run 与执行 Step，要求状态仍为 `EXECUTING / RUNNING`，随后把 Step 置为 `FAILED`，条件更新 Run 为 `FAILED`，并写入 typed `run.recovered(PERSISTED_TOOL_FAILURE_SETTLEMENT)`、`run.failed` 与 `run.status`。状态并发漂移由 CAS/事务拒绝；任一审计事件插入失败会整体回滚。
+- 该路径复现正常 Runtime 在失败 ToolResult 后的控制面终态，不调用 Executor、验证器或 LLM，不追加 ToolResult/`tool.verify`，不构造成功可信上下文，也不继续 Workflow。失败结算 marker 不改变既有证据指纹排除规则；结算后的 `run.failed` 进入稳定终态指纹，重复读取保持一致。
+- TDD/JVM 已覆盖正例、前序/链尾/预算/Profile/审批/Step/Event/Run 漂移与 Codec round-trip；Room 真机用例已覆盖磁盘结算、Runtime 故障注入后 Executor 仅执行一次、双 Repository 并发只有一个成功者、重复进入无变更，以及 `run.failed` 强制插入失败时事务整体回滚。双轴审查发现并修复 Step sequence、typed 创建/完成事件身份未核验，以及恢复载荷包含 Repository 不消费字段的问题。强制本地门禁为 `141/141` tasks（`3m 1s`）、JVM `726/726`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 与 Release lintVital；仅 Redmi 默认完整为 `OK (240 tests)`、测试耗时 `93.258s`、墙钟 `95.73s`。Debug/Release APK 为 `23,419,993 / 3,203,634` 字节，SHA-256 为 `75a62310b023d090eebb89b702f1276fba86b015bbec5a865c660620388a4b14 / 74f546b4f8c77f497ebd5eb5058e4ed850464bdfbbe99aeed14cd8283a655e9a`；Release 通过 zipalign、v2 正式证书和单签名者校验。更新后的文档 corpus 首次复验为 `OK (1 test)`、耗时 `2.644s`，写回完整门禁与设备收尾后的复验同为 `OK (1 test)`、耗时 `2.553s`；正式 `v0.1.13` 冷启动 `499ms`，设备版本、前台 Activity、PID、测试包卸载、保持唤醒还原和空 crash buffer 已核对。
+
 ## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
 
 - `RunEventMetadata.StepCreated / StepStatus` 与 Codec 新增 typed Step 身份，保存 `stepId`、sequence、step type 与 from/to status；`AgentRunResumePolicy` 逐项核对最后验证 Step、恢复 marker、恢复总结 Step 和尾随事件。仅有字符串事件类型、错绑其他 Step、损坏 metadata、总结后业务事件或 `COMPLETED recovery.summarize` 缺 typed 总结事件都会返回 `RESTART_REQUIRED`。
@@ -684,7 +692,7 @@
 - 进程退出观察通过 `ProcessExitObservationUiState`、`ProcessExitObservationActions` 和专用 Compose page 隔离宿主；页面只呈现独立退出账本，宿主继续保持进入前只读刷新，ViewModel 继续持有 `latest()` IO Job，平台采集不会由查看页面触发。
 - 网络请求设置通过 `NetworkRequestSettingsUiState`、`NetworkRequestSettingsActions` 和专用 Compose page 隔离宿主；页面持有 User-Agent 编辑、复制、清空、恢复默认和剪贴板适配，ViewModel 继续负责规范化与即时持久化。
 - 设置根页通过 `SettingsRootProjection`、`SettingsRootUiState`、`SettingsRootActions` 和专用 Compose page 隔离宿主；页面只呈现主题、14 项入口和业务摘要，pane 分派、Android launcher、导航及真实副作用继续由 `SettingsPage` composition root 负责。
-- `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run。提交状态未知、验证事实不完整和旧模型协程仍保持 fail-closed。
+- `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run；严格持久化失败 ToolResult 可在不重放工具的前提下原子结算原 Step/Run 为 `FAILED`。提交状态未知、成功结果待验证、event-only、预算缺失和其他证据漂移仍保持 fail-closed，旧模型协程始终不恢复。
 
 当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，后续横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主、十一个业务页面和四组功能对话框。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；宿主当前 `817` 行并达到停止条件，下一主线转向通用执行恢复，不机械搬运 composition root。
 

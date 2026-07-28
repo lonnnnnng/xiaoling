@@ -439,7 +439,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 ### 主要缺口
 
 - 当前重试默认采用安全重新运行：旧 Run 保持不变，新 Run 关联 `retryOfRunId` 并重新走模型规划、工具审批和验证；`WAITING_APPROVAL` 原地恢复、两个白名单写工具的已提交结果只读验证，以及全部工具已验证后的本地收尾恢复已经接入。
-- 旧模型协程、提交状态未知和验证事实不完整的通用工具执行栈仍不恢复。已交付例外都有完整持久化证据：待审批路径不重放已验证前缀，白名单写工具只读验证原 operation，全部 `PASSED` 路径只补控制面与本地总结。
+- 旧模型协程、提交状态未知、成功结果待验证和其他证据不完整形状的通用工具执行栈仍不恢复。已交付例外都有完整持久化证据：待审批路径不重放已验证前缀，白名单写工具只读验证原 operation，全部 `PASSED` 路径只补控制面与本地总结，严格失败 ToolResult 路径只原子结算原 Step/Run 为 `FAILED`。
 - 第一批真实 Tool Registry 已统一声明 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、后台能力、超时和验证策略；生产权限检查器默认 fail-closed，Runtime 已按前台/后台来源执行能力门禁。
 - 已有结构化长期记忆表、`memory.search / memory.remember`、FTS 检索、管理 UI、候选确认、敏感过滤、跨进程删除撤销、生命周期、时间衰减、引用审计、去重和冲突处理；更大数据量下的召回质量仍需持续验证。
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
@@ -547,7 +547,7 @@ com.longdev.xiaoling.ui.agentskill
 
 目标：完成“判断是否需要工具 -> 调用工具 -> 获取结果 -> 继续推理 -> 输出最终答案”的受控闭环。
 
-当前状态：`/agent` 最多 4 步的顺序工具闭环、单调累计执行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；链尾待审批恢复可从任意已验证前缀继续，并恢复已消耗调用数、累计执行时间与循环指纹。所有成功 ToolResult 和 `PASSED` 验证已经落库时，原 Run 还可补齐最后验证 Step 并用本地可信总结收尾。其他执行/验证中断仍采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心、三类恢复与失败 Run 重试副作用判断均已切换为 Ledger-first；账本异常时重试 fail-safe 要求确认，账本完全为空的旧 Run 保守回退 typed RunEvent。并行调用与提交状态未知、验证事实不完整的通用原地断点恢复继续关闭。
+当前状态：`/agent` 最多 4 步的顺序工具闭环、单调累计执行预算、超时、取消、逐步审批、后置验证、多工具可信上下文、Run 时间线、RunEvent typed metadata、独立 ToolCall/ToolResult Room Ledger、可操作任务中心、安全重新运行和第一批应用内工具已完成；链尾待审批恢复可从任意已验证前缀继续，并恢复已消耗调用数、累计执行时间与循环指纹。所有成功 ToolResult 和 `PASSED` 验证已经落库时，原 Run 还可补齐最后验证 Step 并用本地可信总结收尾；严格失败 ToolResult、结果后完整预算、唯一运行中链尾 Step 与无业务尾部同时成立时，原 Step/Run 可在单个 Room transaction 内结算为 `FAILED`，不调用 Executor、验证器或 LLM。除该失败终态结算外，其他执行/验证中断仍采用 Run/活动 Step 一致取消和关联新 Run 重试。独立账本承接 v20 新事件的原子双写，任务中心、各类恢复与失败 Run 重试副作用判断均已切换为 Ledger-first；账本异常时重试 fail-safe 要求确认，账本完全为空的旧 Run 保守回退 typed RunEvent，但失败终态结算禁止 event fallback。并行调用、提交状态未知、成功结果待验证和其他证据不完整形状的通用原地断点恢复继续关闭。
 
 ### 核心数据模型
 
@@ -751,7 +751,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 |---|---|---|---|
 | P0 | 请求取消、结构化 Responses 输入、Provider Adapter | 已完成，包括用户 Image/Document、函数调用与结果 typed Items、可选 Reasoning summary | 后续 Agent 循环的基础协议 |
 | P0 | Room、Repository、迁移测试和导出 | Room/Repository、普通聊天上下文 Preparer、发送 Coordinator、会话状态 Policy 与保存 Coordinator、Schema 导出、v4→v32、event metadata、Memory/Knowledge FTS、Embedding/相关性 shadow 审计、Tool Ledger、Agent Profile、MessagePart、知识引用、进程退出观察和用户 ZIP 备份/恢复已完成 | 保证升级和本地数据可恢复 |
-| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止、运行中撤权、多步骤审批等待恢复、两个白名单写工具受限验证，以及全部工具 `PASSED` 后的本地收尾恢复已完成；提交状态未知与验证事实不完整的执行栈仍 fail-closed | 决定任务是否可靠、可观察 |
+| P0 | AgentRun 状态机、事件日志、取消与恢复 | 最小状态机、事件、取消、安全重新运行、进程终止、运行中撤权、多步骤审批等待恢复、两个白名单写工具受限验证、全部工具 `PASSED` 后的本地收尾，以及严格失败 ToolResult 原子失败终态结算已完成；提交状态未知、成功结果待验证和其他证据不完整形状仍 fail-closed | 决定任务是否可靠、可观察 |
 | P0 | Tool Registry、Schema、风险、确认和验证 | 已完成完整类型/约束/枚举、业务校验器、风险/确认、Android 权限、前后台来源门禁、超时、回读验证策略和重复名称启动校验 | 决定执行边界和安全性 |
 | P1 | 应用内低风险工具和任务时间线 UI | 第一批工具、对话时间线、任务中心、完整工具结果、失败重试及 Run/历史运行指标已完成 | 已形成第一条端到端 Agent 链路 |
 | P1 | 长期记忆管理与 FTS 检索 | 管理 UI、FTS、中文兜底、来源审计、候选确认、敏感过滤、去重/冲突、跨进程删除撤销、引用 ID 审计、单次召回关闭、过期策略和时间衰减已完成 | 形成个人化和跨会话连续性 |
@@ -783,10 +783,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 4. 已完成：“尚未提交”的安全重放资格。只有副作用边界明确未进入、原请求可重建、当前/历史工具恢复契约一致且用户审批语义不漂移时，才冻结 `NOT_COMMITTED_REPLAY_ELIGIBLE`；旧 Run 仍取消，不执行重放。
 5. 已完成：把安全重放资格接入证据漂移复核和用户控制的关联新 Run；确认、创建和执行前分别重新核验，旧 Run 不变，新 Run 使用新 ToolCall 与新审批且只执行一次。
 6. 已完成：统一复核“已提交结果只读验证”和“全部已验证只补控制面”两格。marker、状态与启动关闭实现事务收敛，Step/Event 使用 typed 身份，恢复入口重新读取 Room，总结尾部并发幂等；旧 LLM、Executor 和 Workflow 后续步骤仍不恢复。
-7. 当前主线：继续处理剩余“验证事实不完整”边界，但只有持久化 Tool Ledger、预算、验证和 Step/Event 能严格证明唯一安全动作时才增加能力；提交未知、身份漂移或不可达尾部继续关联新 Run 或 fail-closed。
-8. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
-9. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
-10. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
+7. 已完成：持久化失败 ToolResult 的原子失败终态结算。只接受 v20 完整 Ledger、完整成功验证前缀、唯一失败链尾、结果后完整预算、最后运行中执行 Step 和无业务尾部；原 Step/Run 只结算为 `FAILED`，不重放、不验证、不总结、不继续 Workflow。双轴审查补齐 Step sequence 与 typed 事件身份核验；完整门禁为 `141/141` tasks、JVM `726/726`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (240 tests)`。
+8. 当前主线：继续处理剩余“验证事实不完整”边界，但只有持久化 Tool Ledger、预算、验证和 Step/Event 能严格证明唯一安全动作时才增加能力；提交未知、成功结果待验证、event-only、身份漂移或不可达尾部继续关联新 Run 或 fail-closed。
+9. 通用恢复形成稳定闭环后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+10. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
+11. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

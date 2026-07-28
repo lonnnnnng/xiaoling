@@ -11,6 +11,7 @@ import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentEventTypes
+import com.longdev.xiaoling.agent.AgentPersistedToolFailureRecovery
 import com.longdev.xiaoling.agent.AgentRunResumeKind
 import com.longdev.xiaoling.agent.AgentRunResumePolicy
 import com.longdev.xiaoling.agent.AgentStepRecord
@@ -685,6 +686,12 @@ class RoomAgentRunRepository(
                     definitionLookup,
                     committedVerificationSupport,
                 )
+                if (resumeAssessment.kind == AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT) {
+                    val recovery = checkNotNull(resumeAssessment.persistedToolFailure) {
+                        "恢复策略缺少失败 ToolResult 收敛边界"
+                    }
+                    return@withTransaction settlePersistedToolFailure(detail, recovery, resumeAssessment.reason)
+                }
                 if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) {
                     return@withTransaction false
                 }
@@ -750,6 +757,103 @@ class RoomAgentRunRepository(
             if (closed) closedCount += 1
         }
         return closedCount
+    }
+
+    private suspend fun settlePersistedToolFailure(
+        detail: AgentRunDetailRecord,
+        recovery: AgentPersistedToolFailureRecovery,
+        recoveryReason: String,
+    ): Boolean {
+        val dao = database.agentRunDao()
+        val runId = detail.snapshot.run.id
+        val run = dao.getRun(runId) ?: return false
+        if (run.status != AgentRunStatus.EXECUTING.name) return false
+        val executionStep = dao.getStep(recovery.executionStepId) ?: return false
+        if (
+            executionStep.runId != runId ||
+            executionStep.type != AgentStepTypes.TOOL_EXECUTE ||
+            executionStep.status != AgentStepStatus.RUNNING.name
+        ) {
+            return false
+        }
+        val now = System.currentTimeMillis()
+        // long: 失败 ToolResult 已经证明 Executor 返回了失败；这里只复现正常 Runtime catch 的控制面终态，原始回执和重试风险继续留在 Tool Ledger，不追加验证或再次执行工具。
+        dao.upsertStep(
+            executionStep.copy(
+                status = AgentStepStatus.FAILED.name,
+                detail = recovery.failureReason,
+                completedAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = AgentEventTypes.STEP_STATUS,
+                message = "${executionStep.sequence}. ${executionStep.title} -> ${AgentStepStatus.FAILED.name}",
+                metadataJson = RunEventMetadataCodec.encode(
+                    RunEventMetadata.StepStatus(
+                        stepId = executionStep.id,
+                        sequence = executionStep.sequence,
+                        fromStatus = AgentStepStatus.RUNNING,
+                        toStatus = AgentStepStatus.FAILED,
+                    ),
+                ),
+                createdAt = now,
+            ),
+        )
+        val updatedRows = dao.updateRunStatusIfExpected(
+            runId = runId,
+            expectedStatus = AgentRunStatus.EXECUTING.name,
+            status = AgentRunStatus.FAILED.name,
+            result = null,
+            errorMessage = recovery.failureReason,
+            updatedAt = now,
+            completedAt = now,
+        )
+        check(updatedRows == 1) { "失败 ToolResult 收敛时 Run 状态发生并发漂移：$runId" }
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = RECOVERY_EVENT_TYPE,
+                message = "已恢复失败工具结果，完成原 Run 失败收敛",
+                metadataJson = RunEventMetadataCodec.encode(
+                    RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.EXECUTING,
+                        toStatus = AgentRunStatus.FAILED,
+                        reason = recoveryReason,
+                        resumeKind = AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT,
+                        recoveryBoundaryKey = RecoveryBoundary(
+                            AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT,
+                            recovery.toolCall.id,
+                        ).key,
+                    ),
+                ),
+                createdAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = "run.failed",
+                message = recovery.failureReason,
+                metadataJson = RunEventMetadataCodec.encode(RunEventMetadata.Reason(recovery.failureReason)),
+                createdAt = now,
+            ),
+        )
+        dao.insertEvent(
+            RunEventEntity(
+                id = "event-${UUID.randomUUID()}",
+                runId = runId,
+                type = "run.status",
+                message = AgentRunStatus.FAILED.name,
+                metadataJson = null,
+                createdAt = now,
+            ),
+        )
+        return true
     }
 
     suspend fun recentRunDetails(limit: Int): List<AgentRunDetailRecord> {
