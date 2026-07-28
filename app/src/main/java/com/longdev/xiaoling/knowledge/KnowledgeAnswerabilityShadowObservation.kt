@@ -77,6 +77,10 @@ fun interface KnowledgeAnswerabilityShadowObservationStore {
     suspend fun persist(record: KnowledgeAnswerabilityShadowObservationRecord)
 }
 
+interface KnowledgeAnswerabilityShadowObservationLedger : KnowledgeAnswerabilityShadowObservationStore {
+    suspend fun summary(): KnowledgeAnswerabilityShadowPersistentSummary
+}
+
 data class KnowledgeAnswerabilityShadowObservationRequest(
     val persistedMessageId: String,
     val candidate: KnowledgeAnswerabilityShadowCandidate,
@@ -106,6 +110,7 @@ data class KnowledgeAnswerabilityShadowObservationRecord(
     val bindingReason: KnowledgeAnswerabilityShadowBindingReason?,
     val decision: KnowledgeAnswerabilityDecision,
     val failureKind: KnowledgeAnswerabilityJudgeFailureKind?,
+    val telemetry: KnowledgeAnswerabilityShadowTelemetry,
     val recordedAt: Long,
 )
 
@@ -298,6 +303,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinator(
             bindingReason = outcome.binding?.reason,
             decision = outcome.binding?.decision ?: KnowledgeAnswerabilityDecision.UNKNOWN,
             failureKind = outcome.failureKind,
+            telemetry = outcome.telemetry,
             recordedAt = recordedAt,
         )
         return try {

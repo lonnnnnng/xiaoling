@@ -39,8 +39,9 @@ import org.json.JSONObject
         ScheduledTaskEntity::class,
         WorkflowScheduleEntity::class,
         ProcessExitObservationEntity::class,
+        KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -54,9 +55,10 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun agentProfileDao(): AgentProfileDao
     abstract fun workflowDao(): WorkflowDao
     abstract fun processExitObservationDao(): ProcessExitObservationDao
+    abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 32
+        const val CURRENT_VERSION = 33
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -825,6 +827,49 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 跨进程质量账本从空表开始，只保存不可逆指纹、稳定枚举和数值遥测；历史消息、Run、检索正文及凭据均不得回填。
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `knowledge_answerability_shadow_observations` (
+                        `idempotencyKey` TEXT NOT NULL,
+                        `candidateFingerprint` TEXT NOT NULL,
+                        `judgeFingerprint` TEXT,
+                        `attemptCount` INTEGER NOT NULL,
+                        `observationStatus` TEXT NOT NULL,
+                        `bindingStatus` TEXT,
+                        `bindingReason` TEXT,
+                        `decision` TEXT NOT NULL,
+                        `failureKind` TEXT,
+                        `latencyMs` INTEGER,
+                        `firstByteLatencyMs` INTEGER,
+                        `promptBytes` INTEGER,
+                        `inputTokens` INTEGER,
+                        `outputTokens` INTEGER,
+                        `totalTokens` INTEGER,
+                        `usageSamples` INTEGER NOT NULL,
+                        `transientNetworkFailureCount` INTEGER NOT NULL,
+                        `rateLimitFailureCount` INTEGER NOT NULL,
+                        `serverFailureCount` INTEGER NOT NULL,
+                        `protocolFailureCount` INTEGER NOT NULL,
+                        `authenticationFailureCount` INTEGER NOT NULL,
+                        `clientRequestFailureCount` INTEGER NOT NULL,
+                        `identityFailureCount` INTEGER NOT NULL,
+                        `modelFailureCount` INTEGER NOT NULL,
+                        `invalidCandidateFailureCount` INTEGER NOT NULL,
+                        `unexpectedFailureCount` INTEGER NOT NULL,
+                        `recordedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`idempotencyKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_knowledge_answerability_shadow_observations_recordedAt` ON `knowledge_answerability_shadow_observations` (`recordedAt`)",
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -857,6 +902,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_29_30,
             MIGRATION_30_31,
             MIGRATION_31_32,
+            MIGRATION_32_33,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

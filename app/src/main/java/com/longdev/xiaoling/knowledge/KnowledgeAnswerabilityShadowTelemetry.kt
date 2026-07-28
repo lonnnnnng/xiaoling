@@ -120,6 +120,36 @@ data class KnowledgeAnswerabilityShadowSampleSummary(
 )
 
 /**
+ * long: 跨进程摘要只聚合匿名观测账本中的枚举和数值字段；notice 生命周期仍属于当前进程，不能借历史消息 ID 恢复。
+ */
+data class KnowledgeAnswerabilityShadowPersistentSummary(
+    val observationCount: Int = 0,
+    val judgeIdentityCount: Int = 0,
+    val completedCount: Int = 0,
+    val unknownCount: Int = 0,
+    val boundCount: Int = 0,
+    val bindingUnknownCount: Int = 0,
+    val acceptCount: Int = 0,
+    val rejectCount: Int = 0,
+    val undecidedCount: Int = 0,
+    val judgeAttemptCount: Int = 0,
+    val latencyMs: Long? = null,
+    val firstByteLatencyMs: Long? = null,
+    val promptBytes: Long? = null,
+    val inputTokens: Long? = null,
+    val outputTokens: Long? = null,
+    val totalTokens: Long? = null,
+    val usageSampleCount: Int = 0,
+    val failureCounts: Map<KnowledgeAnswerabilityJudgeFailureKind, Int> = emptyMap(),
+    val oldestRecordedAt: Long? = null,
+    val latestRecordedAt: Long? = null,
+) {
+    companion object {
+        const val MAX_RETAINED_OBSERVATIONS = 2_000
+    }
+}
+
+/**
  * long: 统计使用固定上限的计数和失败枚举 Map，长时间运行时也不会因为 shadow 旁路无限增长。
  */
 class KnowledgeAnswerabilityShadowSampleTracker(

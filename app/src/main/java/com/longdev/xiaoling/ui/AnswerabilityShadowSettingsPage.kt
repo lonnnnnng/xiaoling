@@ -28,11 +28,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityJudgeFailureKind
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleSummary
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistentSummary
 
 @Composable
 internal fun AnswerabilityShadowSettingsContent(
     enabled: Boolean,
     sampleSummary: KnowledgeAnswerabilityShadowSampleSummary = KnowledgeAnswerabilityShadowSampleSummary(),
+    persistentSummary: KnowledgeAnswerabilityShadowPersistentSummary = KnowledgeAnswerabilityShadowPersistentSummary(),
     onEnabledChanged: (Boolean) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -96,7 +98,46 @@ internal fun AnswerabilityShadowSettingsContent(
                 }
                 // long: Shadow 只增加消息旁路提示；Judge 延迟、失败或否决都不会删除引用、改写答案或开启生产 enforcement。
                 Text(
-                    "当前边界：默认关闭 · 仅匹配冻结 gpt-5.5 身份时请求 · 不进入普通聊天、Workflow 或后台任务 · 不写入 Room 观测表。",
+                    "当前边界：默认关闭 · 仅匹配冻结 gpt-5.5 身份时请求 · 不进入普通聊天、Workflow 或后台任务 · 只写入匿名 Room 观测账本。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        Card(
+            shape = RoundedCornerShape(8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    "跨进程匿名摘要",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "观测 ${persistentSummary.observationCount} · Judge 身份 ${persistentSummary.judgeIdentityCount} · 完成 ${persistentSummary.completedCount} · 未知 ${persistentSummary.unknownCount}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "判定：接受 ${persistentSummary.acceptCount} · 拒绝 ${persistentSummary.rejectCount} · 未决 ${persistentSummary.undecidedCount} · 绑定未知 ${persistentSummary.bindingUnknownCount}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Judge 尝试 ${persistentSummary.judgeAttemptCount} 次 · 累计耗时 ${persistentSummary.latencyMs?.let { "${it}ms" } ?: "未知"} · Tokens ${persistentSummary.totalTokens ?: "未知"}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (persistentSummary.failureCounts.isNotEmpty()) {
+                    Text(
+                        "Judge 失败分布：${persistentSummary.failureCounts.entries.sortedBy { it.key.ordinal }.joinToString { (kind, count) -> "${kind.toChineseLabel()} $count" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    "最多保留 ${KnowledgeAnswerabilityShadowPersistentSummary.MAX_RETAINED_OBSERVATIONS} 条；只包含不可逆指纹、状态枚举和数值遥测，不包含消息或 Run ID、问题、答案、引用、原始响应、URL 或密钥。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -151,7 +192,7 @@ internal fun AnswerabilityShadowSettingsContent(
                     )
                 }
                 Text(
-                    "仅保存在当前进程内；重启后清空，不包含问题、答案、引用、原始响应或密钥。",
+                    "本卡片仅保存在当前进程内，重启后清空；notice 不会从历史消息恢复。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

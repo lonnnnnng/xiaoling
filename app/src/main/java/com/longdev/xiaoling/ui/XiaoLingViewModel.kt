@@ -83,6 +83,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowActivationPoli
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationCoordinator
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationMode
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOrigin
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistenceStatus
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleEvent
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleKind
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleSummary
@@ -115,6 +117,7 @@ import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
+import com.longdev.xiaoling.storage.RoomKnowledgeAnswerabilityShadowObservationStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.XiaoLingBackupManager
 import com.longdev.xiaoling.storage.UiPreferenceStore
@@ -213,6 +216,8 @@ data class XiaoLingUiState(
     val answerabilityShadowEnabled: Boolean = false,
     val answerabilityShadowSampleSummary: KnowledgeAnswerabilityShadowSampleSummary =
         KnowledgeAnswerabilityShadowSampleSummary(),
+    val answerabilityShadowPersistentSummary: KnowledgeAnswerabilityShadowPersistentSummary =
+        KnowledgeAnswerabilityShadowPersistentSummary(),
     val pendingAgentApproval: AgentApprovalUiState? = null,
     val loadingAgentRunHistory: Boolean = false,
     val agentRunHistory: List<AgentRunDetailRecord> = emptyList(),
@@ -424,6 +429,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client by lazy { OpenAiCompatibleClient() }
     private val answerabilityShadowSampleTracker = KnowledgeAnswerabilityShadowSampleTracker()
+    private val answerabilityShadowObservationStore by lazy {
+        RoomKnowledgeAnswerabilityShadowObservationStore(application)
+    }
     private val answerabilityCompletionClient = KnowledgeAnswerabilityCompletionClient { config, messages ->
         client.sendMessage(config = config, messages = messages)
     }
@@ -616,6 +624,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var saveProfilesJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
+    private var answerabilityShadowSummaryLoadJob: Job? = null
     private val queuedSharedDraftImports = ArrayDeque<SharedDraftImport>()
     private var initializationStarted = false
     private var initializationComplete = false
@@ -644,6 +653,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     internal fun initialize() {
         if (initializationStarted) return
         initializationStarted = true
+        refreshAnswerabilityShadowPersistentSummary()
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 // long: 前台启动只补采系统退出观察；采集失败不能阻塞聊天和恢复，也不能把时间邻近的退出强行归因到某个旧 Run。
@@ -4120,6 +4130,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 completionClient = answerabilityCompletionClient,
             ),
             clock = System::currentTimeMillis,
+            store = answerabilityShadowObservationStore,
         )
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = observationCoordinator::observe,
@@ -4174,6 +4185,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             uiState = uiState.copy(
                 answerabilityShadowSampleSummary = answerabilityShadowSampleTracker.record(event),
             )
+        }
+        if (event.outcome?.persistenceStatus == KnowledgeAnswerabilityShadowPersistenceStatus.PERSISTED) {
+            refreshAnswerabilityShadowPersistentSummary()
+        }
+    }
+
+    private fun refreshAnswerabilityShadowPersistentSummary() {
+        answerabilityShadowSummaryLoadJob?.cancel()
+        answerabilityShadowSummaryLoadJob = viewModelScope.launch {
+            val summary = withContext(Dispatchers.IO) {
+                runCatching { answerabilityShadowObservationStore.summary() }.getOrNull()
+            } ?: return@launch
+            // long: 账本读取也是旁路状态，失败时保留上一次摘要；成功时只替换匿名累计，不触碰当前消息 notice 或 Agent 主状态。
+            uiState = uiState.copy(answerabilityShadowPersistentSummary = summary)
         }
     }
 

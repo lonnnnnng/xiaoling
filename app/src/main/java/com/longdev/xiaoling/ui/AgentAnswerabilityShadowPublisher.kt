@@ -81,7 +81,7 @@ internal class AgentAnswerabilityShadowPublisher(
                     frozenBinding = request.frozenBinding,
                     mode = request.mode,
                     origin = request.origin,
-                    persistenceMode = KnowledgeAnswerabilityShadowPersistenceMode.NONE,
+                    persistenceMode = KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL,
                 ),
             )
         } catch (error: CancellationException) {

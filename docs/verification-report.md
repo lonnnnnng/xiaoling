@@ -14,6 +14,18 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-28 知识质量工程：answerability Shadow 匿名跨进程账本
+
+- TDD：Publisher 聚焦测试先要求生产请求使用 `OPTIONAL`，Coordinator 聚焦测试先要求持久记录携带聚合 telemetry；首次编译因 `KnowledgeAnswerabilityShadowObservationRecord.telemetry` 不存在而失败，最小实现后两个测试类转绿。随后 Redmi 单项先证明“最终异常无 attempt telemetry”在持久失败分布中得到 `null`，补齐 fallback 分类后同一用例转绿。
+- Room/隐私聚焦：v32→v33 迁移创建空 `knowledge_answerability_shadow_observations` 表；两条观测加一次重复幂等写入在数据库关闭重开后仍为 `2` 条，attempt 为 `3`，已知耗时/Tokens 正确累计，未知数值保持 `null`。PRAGMA 与全行值检查确认新表不含消息/Run ID、Provider/模型、问题/答案、URL/密钥列或值；原始候选正文冒充指纹会被 Store 拒绝。设置页 Compose 同时显示跨进程与当前进程摘要。新增聚焦组合在 Redmi 为 `OK (4 tests)`，补充分布用例 red→green 后单项 `OK (1 test)`。
+- 审查修复：Standards/Spec 双轴审查分别得到 `1 / 0` 个发现。Standards 指出无盐 Judge SHA-256 可按低熵公开配置枚举，已改为 Android Keystore 不可导出安装级密钥驱动的 HMAC-SHA-256；Spec 没有功能偏差，但指出 2,000 条裁剪缺少第 2,001 条直接测试。Redmi Store 最终 `OK (4 tests)`，同时证明公开 SHA-256 不等于落库 HMAC、数据库重开后同一身份桶稳定，以及第 2,001 条写入后只保留最新 2,000 条。
+- 完整本地门禁：`./gradlew --rerun-tasks testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease lintVitalRelease` 为 `BUILD SUCCESSFUL`，`141/141` tasks，耗时 `2m 38s`。JUnit XML 为 JVM `734/734`、0 失败/错误/跳过；Lint 为 `0 error / 51 warnings`。Debug、AndroidTest 和 R8 Release APK 均成功。
+- Redmi 完整门禁：只向 `wsvwypiz7xwslvl7` 发送目标化 ADB 命令。首轮默认完整在设备没有保持唤醒时出现 `2` 个前台生命周期失败：分享 Activity 重建停在 `STOPPED`，设置页测试没有 Compose hierarchy；同一轮其余用例无业务断言失败。读取设备原值 `stay_on_while_plugged_in=0` 后临时设为 `15`，两个失败用例分别 `OK (1 test)`（`16s / 15s`），排除产品回归。审查修复后的最终默认完整 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`）；12 条显式真实 Provider 用例因没有 runner 参数按预期跳过，runner 最终打印 `Finished 260 tests`，Gradle `BUILD SUCCESSFUL in 1m 51s`。未使用 Pixel_9 或其他模拟器。
+- 产物：最终 Debug / Release APK 分别为 `23,452,761 / 3,220,018` 字节，SHA-256 分别为 `f186eecb97d84251e241e4e9f97d2d68a2c8b7ca2a70060f30cab29f9cd5a397 / fd840fca412fdcf0b23aa5f2b43c9b90fd0c714881b4fe6fe294d8e1acb1da16`；AndroidTest APK 构建成功并在每次文档写回后重新打包，不把随语料变化的中间哈希记作稳定发布证据。Release 通过 zipalign、APK Signature Scheme v2、正式证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9` 和单签名者校验。
+- 文档语料门禁：写回完整本地、Redmi 与产物证据后重新打包 AndroidTest APK，仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首次为 `OK (1 test)`、用例耗时 `2.505s`；把该结果写回六份长期文档并再次重新打包后的最终复验同样通过。
+- 设备收尾：两个 `adb uninstall` 在包已由 Gradle 清理/替换的设备状态下返回 `DELETE_FAILED_INTERNAL_ERROR`，因此没有把命令返回值误记为成功，而是继续用 `pm path` 核对。固定正式 `outputs/release/xiaoling-v0.1.13.apk` 安装成功并冷启动 `554ms`；设备报告 `0.1.13 (14)`、`MainActivity` resumed、PID `11988` 存活、测试包路径不存在、`stay_on_while_plugged_in` 已从临时 `15` 还原为原值 `0`，crash 与 AndroidRuntime 缓冲区均无小灵异常。最终 corpus gate 后再次恢复同一固定产物并复核上述状态。
+- 边界：第 97–101 阶段“不持久化”和人工样本合计保留为历史事实，新 v33 表从空账本开始，只记录本切片上线后的新观测。notice、答案、引用和 enforcement 不持久化或改写；Workflow/后台、ANN、自动索引重建、相关性生产拒绝与 answerability enforcement 继续后置。
+
 ## 2026-07-28 通用执行恢复矩阵：成功 ToolResult 缺 typed 验证结论闭环审计
 
 - 审计边界：逐项复核成功 `tool.result` 落库后、typed `tool.verify` 落库前的全部持久化窗口。结果后预算缺失继续为 `EXECUTION_BUDGET_INVALID`；预算完整时只有既有严格定义、已提交幂等回执和只读回查能力同时成立才进入 `COMMITTED_TOOL_VERIFICATION`；全部 typed 验证为 `PASSED` 才进入 `VERIFIED_TOOL_COMPLETION`。`ToolResult.verified=true` 不替代 typed 验证状态。

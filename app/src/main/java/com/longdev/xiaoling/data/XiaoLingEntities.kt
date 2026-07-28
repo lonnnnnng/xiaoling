@@ -637,3 +637,37 @@ data class ProcessExitObservationEntity(
     val evidenceKind: String,
     val observedAt: Long,
 )
+
+@Entity(
+    tableName = "knowledge_answerability_shadow_observations",
+    indices = [Index(value = ["recordedAt"])],
+)
+data class KnowledgeAnswerabilityShadowObservationEntity(
+    @PrimaryKey val idempotencyKey: String,
+    val candidateFingerprint: String,
+    val judgeFingerprint: String?,
+    val attemptCount: Int,
+    val observationStatus: String,
+    val bindingStatus: String?,
+    val bindingReason: String?,
+    val decision: String,
+    val failureKind: String?,
+    val latencyMs: Long?,
+    val firstByteLatencyMs: Long?,
+    val promptBytes: Long?,
+    val inputTokens: Long?,
+    val outputTokens: Long?,
+    val totalTokens: Long?,
+    val usageSamples: Int,
+    val transientNetworkFailureCount: Int,
+    val rateLimitFailureCount: Int,
+    val serverFailureCount: Int,
+    val protocolFailureCount: Int,
+    val authenticationFailureCount: Int,
+    val clientRequestFailureCount: Int,
+    val identityFailureCount: Int,
+    val modelFailureCount: Int,
+    val invalidCandidateFailureCount: Int,
+    val unexpectedFailureCount: Int,
+    val recordedAt: Long,
+)

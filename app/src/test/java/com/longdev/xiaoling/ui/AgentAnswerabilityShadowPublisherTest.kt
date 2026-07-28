@@ -8,6 +8,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowCandidate
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationMode
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOutcome
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationOrigin
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistenceMode
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowObservationStatus
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleKind
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleEvent
@@ -201,6 +202,7 @@ class AgentAnswerabilityShadowPublisherTest {
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = { request ->
                 events += "observe:${request.persistedMessageId}"
+                assertEquals(KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL, request.persistenceMode)
                 KnowledgeAnswerabilityShadowObservationOutcome(
                     status = KnowledgeAnswerabilityShadowObservationStatus.COMPLETED,
                     binding = KnowledgeAnswerabilityShadowBinding(

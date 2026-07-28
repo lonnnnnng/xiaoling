@@ -343,6 +343,7 @@ class KnowledgeAnswerabilityShadowObservationCoordinatorTest {
         assertEquals(64, records.single().candidateFingerprint.length)
         assertEquals(64, records.single().idempotencyKey.length)
         assertFalse(records.single().candidateFingerprint.contains(candidate().candidateText))
+        assertEquals(stored.telemetry, records.single().telemetry)
 
         val failedPersistence = coordinator(
             judge = { judgeResponse() },

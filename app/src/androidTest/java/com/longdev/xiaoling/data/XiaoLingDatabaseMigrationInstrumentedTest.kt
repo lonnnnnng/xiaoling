@@ -1074,6 +1074,37 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate32To33CreatesEmptyAnonymousAnswerabilityLedgerWithoutInventingHistory() {
+        migrationHelper.createDatabase(ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME, 32).close()
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME,
+            33,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT COUNT(*) FROM knowledge_answerability_shadow_observations").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        val columns = buildSet {
+            migrated.query("PRAGMA table_info(knowledge_answerability_shadow_observations)").use { cursor ->
+                while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+        }
+        assertTrue("匿名账本不得保存消息 ID", "persistedMessageId" !in columns)
+        assertTrue("匿名账本不得保存 Run ID", "sourceRunId" !in columns)
+        assertTrue("匿名账本不得保存 Provider 身份", "providerId" !in columns)
+        assertTrue("匿名账本不得保存模型名", "model" !in columns)
+        assertTrue("匿名账本不得保存问题正文", "question" !in columns)
+        assertTrue("匿名账本不得保存答案正文", "candidateText" !in columns)
+        assertTrue("匿名账本不得保存接口地址", "baseUrl" !in columns)
+        assertTrue("匿名账本不得保存密钥", "apiKey" !in columns)
+        migrated.close()
+    }
+
+    @Test
     fun migrate29To30CreatesEmbeddingIndexAndKeepsLegacyRetrievalLexicalOnly() {
         migrationHelper.createDatabase(EMBEDDING_MIGRATION_DATABASE_NAME, 29).apply {
             execSQL(
@@ -1288,5 +1319,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val EMBEDDING_MIGRATION_DATABASE_NAME = "xiaoling-embedding-migration-test"
         private const val EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME = "xiaoling-embedding-calibration-migration-test"
         private const val RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME = "xiaoling-relative-diagnostics-migration-test"
+        private const val ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME = "xiaoling-answerability-shadow-migration-test"
     }
 }

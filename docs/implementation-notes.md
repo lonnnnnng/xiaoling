@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 知识质量工程：answerability Shadow 匿名跨进程账本（完成）
+
+- `KnowledgeAnswerabilityShadowObservationCoordinator` 继续是唯一 Judge 入口；持久记录新增完整匿名 `telemetry`，但 `sourceRunId / persistedMessageId / judgeIdentity` 只存在于进程内协调契约。`AgentAnswerabilityShadowPublisher` 将已保存答案的观测请求从 `NONE` 切换为 `OPTIONAL`，ViewModel 只在既有显式开关、前台 direct `/agent` 与冻结身份门禁通过后注入真实 Room Store。
+- Room Schema 升至 v33，新增 `knowledge_answerability_shadow_observations`。`idempotencyKey` 是唯一主键，`candidateFingerprint` 与幂等键落库前都必须匹配 64 位小写 SHA-256；Judge 配置只经 Android Keystore 内不可导出的安装级密钥生成 HMAC-SHA-256 匿名桶，Entity 不含消息/Run ID、原始 Judge 身份、问题、答案、引用、原始响应、URL 或凭据。`INSERT IGNORE + prune` 在同一事务执行，保留首次观测并把总量限制为 2,000 条。
+- 数值遥测以可空列保存，失败枚举使用固定独立计数列而非正文或原始 JSON；聚合器沿用进程内 tracker 的语义，已知值饱和求和、全部未知保持 `null`。最终 `failureKind` 没有出现在 attempt telemetry 时补计一次，因此候选校验和意外异常不会从跨进程失败分布消失。
+- `KnowledgeAnswerabilityShadowPersistentSummary` 与进程内 `KnowledgeAnswerabilityShadowSampleSummary` 分离。应用初始化和成功持久化后在 IO 调度读取账本，读取失败保留旧 UI 摘要；设置页新增“跨进程匿名摘要”，原本进程内 card 继续负责 notice 发布/有效/裁剪和保存/Store 失败。notice 的 `messageId` Map 不写 Room，重启后不恢复。
+- v32→v33 migration 只创建空表和时间索引，不扫描或回填消息、Run、检索审计或第 97–101 阶段人工统计。旧版本备份继续通过 `CURRENT_VERSION=33` 迁移，未来版本备份仍按既有高版本拒绝策略处理。production enforcement、知识检索与排序、普通聊天、Workflow/后台、ANN 和自动索引重建均未改变。
+- TDD 先以缺少 `telemetry` 的编译失败和 Publisher 仍请求 `NONE` 建立 red；第二轮以 Redmi 上最终异常失败分布为 `null` 建立 red，随后修正为稳定失败枚举；Judge 身份桶加入后，迁移、Store、失败分布和设置页聚焦组合为 `OK (5 tests)`。双轴审查发现公开配置的无盐摘要可枚举，并指出缺少 2,001 条裁剪边界；改用 Keystore HMAC 后 Store `4/4` 证明落库桶不等于公开 SHA-256，且第 2,001 条会删除最旧记录。最终完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital 通过；Redmi 保持唤醒后的最终 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。更新后的项目文档首次 corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验也已通过；固定正式 `v0.1.13` 恢复后测试包不存在、保持唤醒还原为 `0`，crash buffer 为空。
+
 ## 通用执行恢复矩阵：成功 ToolResult 缺 typed 验证结论闭环审计（完成）
 
 - `AgentRunResumePolicy.assessCommittedToolVerification()` 的短路顺序固定为：先查当前工具定义，再由 `ToolExecutionRecoveryEvidencePolicy` 审计历史定义、成功结果、`COMMITTED` 回执和幂等键，最后查询当前工具是否开放只读恢复验证。定义缺失、回执损坏和能力未开放分别保留独立稳定处置码。
@@ -709,7 +718,7 @@
 - 设置根页通过 `SettingsRootProjection`、`SettingsRootUiState`、`SettingsRootActions` 和专用 Compose page 隔离宿主；页面只呈现主题、14 项入口和业务摘要，pane 分派、Android launcher、导航及真实副作用继续由 `SettingsPage` composition root 负责。
 - `WAITING_APPROVAL` Run 可从任意已验证工具前缀恢复链尾审批；所有 ToolResult 与 `PASSED` 验证均已落库时，可补齐最后验证 Step 并用本地可信总结完成原 Run；严格持久化失败 ToolResult 或 typed 失败验证可在不重放工具的前提下原子结算对应 Step/Run 为 `FAILED`。提交状态未知、成功结果尚无 typed 验证结论、event-only、预算缺失和其他证据漂移仍保持 fail-closed，旧模型协程始终不恢复。
 
-当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，后续横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主、十一个业务页面和四组功能对话框。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；宿主当前 `817` 行并达到停止条件，下一主线转向通用执行恢复，不机械搬运 composition root。
+当前已经建立最小 domain、data、runtime 和 tool 边界。后续功能不应继续堆进 `sendMessage()`；第 66 至 73 阶段已迁出普通聊天上下文准备、网络发送状态机、会话纯状态/选择投影、保存协调、加载协调、加载 UI 投影与选择/删除副作用顺序，后续横向工程又迁出 Agent Run 关联重试、会话级 Run/Approval 运行态、当前进程审批 waiter、恢复后审批、候选记忆、Provider 模型同步协调、应用导航宿主、十一个业务页面和四组功能对话框。`SettingsPage` 仍是承接导航、Android launcher 和跨模块适配的 composition root；宿主当前 `817` 行并达到停止条件，不再机械搬运 composition root。通用执行恢复闭环审计和 answerability Shadow 匿名跨进程持久化均已完成，下一主线是新账本真实样本与离线评测契约。
 
 ## 对话请求
 

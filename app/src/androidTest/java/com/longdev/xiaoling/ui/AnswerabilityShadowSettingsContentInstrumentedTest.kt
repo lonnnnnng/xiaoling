@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleSummary
+import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistentSummary
 import org.junit.Rule
 import org.junit.Test
 
@@ -30,6 +31,14 @@ class AnswerabilityShadowSettingsContentInstrumentedTest {
                         judgeAttemptCount = 3,
                         totalTokens = 42L,
                     ),
+                    persistentSummary = KnowledgeAnswerabilityShadowPersistentSummary(
+                        observationCount = 5,
+                        judgeIdentityCount = 1,
+                        completedCount = 4,
+                        unknownCount = 1,
+                        judgeAttemptCount = 6,
+                        totalTokens = 84L,
+                    ),
                     onEnabledChanged = { enabled.value = it },
                     onBack = {},
                 )
@@ -41,8 +50,9 @@ class AnswerabilityShadowSettingsContentInstrumentedTest {
         composeRule.onNodeWithContentDescription("启用答案可回答性 Shadow").assertIsOn()
         composeRule.onNodeWithText("样本 3 · 完成 2 · 未知 1 · 跳过 0").assertExists()
         composeRule.onNodeWithText("Judge 尝试 3 次 · 取消 0 · 异常 0").assertExists()
+        composeRule.onNodeWithText("观测 5 · Judge 身份 1 · 完成 4 · 未知 1").performScrollTo().assertExists()
         composeRule
-            .onNodeWithText("仅保存在当前进程内；重启后清空，不包含问题、答案、引用、原始响应或密钥。")
+            .onNodeWithText("本卡片仅保存在当前进程内，重启后清空；notice 不会从历史消息恢复。")
             .performScrollTo()
             .assertExists()
     }

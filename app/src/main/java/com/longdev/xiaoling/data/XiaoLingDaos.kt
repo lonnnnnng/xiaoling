@@ -659,3 +659,23 @@ interface ProcessExitObservationDao {
     )
     suspend fun pruneToLatest(maxEntries: Int): Int
 }
+
+@Dao
+interface KnowledgeAnswerabilityShadowObservationDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(observation: KnowledgeAnswerabilityShadowObservationEntity): Long
+
+    @Query("SELECT * FROM knowledge_answerability_shadow_observations ORDER BY recordedAt ASC, idempotencyKey ASC")
+    suspend fun getAll(): List<KnowledgeAnswerabilityShadowObservationEntity>
+
+    @Query(
+        """
+        DELETE FROM knowledge_answerability_shadow_observations
+        WHERE idempotencyKey NOT IN (
+            SELECT idempotencyKey FROM knowledge_answerability_shadow_observations
+            ORDER BY recordedAt DESC, idempotencyKey DESC LIMIT :maxEntries
+        )
+        """,
+    )
+    suspend fun pruneToLatest(maxEntries: Int): Int
+}
