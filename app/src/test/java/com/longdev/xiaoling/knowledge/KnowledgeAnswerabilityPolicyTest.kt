@@ -2,11 +2,87 @@ package com.longdev.xiaoling.knowledge
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KnowledgeAnswerabilityPolicyTest {
+    @Test
+    fun shadowExportPreservesUnknownTelemetryAndIsNeverEvaluationEligible() {
+        val row = KnowledgeAnswerabilityShadowExportRow(
+            idempotencyFingerprint = "a".repeat(64),
+            candidateFingerprint = "b".repeat(64),
+            judgeFingerprint = null,
+            attemptCount = 0,
+            observationStatus = KnowledgeAnswerabilityShadowObservationStatus.UNKNOWN,
+            bindingStatus = KnowledgeAnswerabilityShadowBindingStatus.UNKNOWN,
+            bindingReason = KnowledgeAnswerabilityShadowBindingReason.MISSING_JUDGE_IDENTITY,
+            decision = KnowledgeAnswerabilityDecision.UNKNOWN,
+            failureKind = null,
+            latencyMs = null,
+            firstByteLatencyMs = null,
+            promptBytes = null,
+            inputTokens = null,
+            outputTokens = null,
+            totalTokens = null,
+            usageSamples = 0,
+            failureCounts = emptyMap(),
+            recordedAt = 100L,
+        )
+        val export = KnowledgeAnswerabilityShadowExportEnvelope(
+            schemaVersion = 1,
+            createdAtEpochMillis = 200L,
+            rows = listOf(row),
+        )
+        assertEquals(KnowledgeAnswerabilityExportKind.SHADOW_OBSERVATIONS, export.kind)
+        assertEquals(KnowledgeAnswerabilityExportProvenance.ROOM_V33_ANONYMOUS_LEDGER, export.provenance)
+        assertNull(export.rows.single().latencyMs)
+        assertFalse(export.eligibleForCalibrationOrValidation())
+        assertThrows(IllegalArgumentException::class.java) {
+            KnowledgeAnswerabilityShadowExportEnvelope(
+                schemaVersion = 2,
+                createdAtEpochMillis = 200L,
+                rows = export.rows,
+            )
+        }
+    }
+
+    @Test
+    fun authorizedContentExportRequiresIdentityAuthorizationAndMatchingLabel() {
+        val assessment = observation("case-1", KnowledgeRelevanceLabel.POSITIVE)
+        val export = KnowledgeAnswerabilityAuthorizedContentExportEnvelope(
+            schemaVersion = 1,
+            createdAtEpochMillis = 200L,
+            datasetIdentity = dataset("calibration-v1"),
+            contentAuthorization = KnowledgeAnswerabilityContentAuthorization.EXPLICIT_OFFLINE_EVALUATION,
+            cases = listOf(
+                KnowledgeAnswerabilityAuthorizedContentCase(
+                    caseId = "case-1",
+                    question = "q",
+                    candidate = "c",
+                    answer = "a",
+                    references = listOf("r"),
+                    label = KnowledgeRelevanceLabel.POSITIVE,
+                    assessment = assessment,
+                ),
+            ),
+        )
+        assertEquals(KnowledgeAnswerabilityExportKind.AUTHORIZED_CONTENT_CASES, export.kind)
+        assertEquals(KnowledgeAnswerabilityExportProvenance.EXPLICIT_USER_AUTHORIZED_CASES, export.provenance)
+        assertTrue(export.eligibleForCalibrationOrValidation())
+        assertThrows(IllegalArgumentException::class.java) {
+            KnowledgeAnswerabilityAuthorizedContentCase(
+                caseId = "case-1",
+                question = "q",
+                candidate = "c",
+                answer = "a",
+                references = listOf("r"),
+                label = KnowledgeRelevanceLabel.NEAR_NEGATIVE,
+                assessment = assessment,
+            )
+        }
+    }
     @Test
     fun strictJsonAndCandidateQuoteMatchingProduceAuditableObservation() {
         val output = KnowledgeAnswerabilityResponseCodec.decode(

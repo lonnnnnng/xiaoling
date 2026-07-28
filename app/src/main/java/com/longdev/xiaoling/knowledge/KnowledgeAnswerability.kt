@@ -511,6 +511,127 @@ data class KnowledgeAnswerabilityReport(
     val validationEvaluations: Map<KnowledgeAnswerabilityFeatureSet, KnowledgeAnswerabilityEvaluation>,
 )
 
+enum class KnowledgeAnswerabilityExportKind { SHADOW_OBSERVATIONS, AUTHORIZED_CONTENT_CASES }
+
+enum class KnowledgeAnswerabilityContentAuthorization { EXPLICIT_OFFLINE_EVALUATION }
+
+enum class KnowledgeAnswerabilityExportProvenance {
+    ROOM_V33_ANONYMOUS_LEDGER,
+    EXPLICIT_USER_AUTHORIZED_CASES,
+}
+
+data class KnowledgeAnswerabilityShadowExportRow(
+    val idempotencyFingerprint: String,
+    val candidateFingerprint: String,
+    val judgeFingerprint: String?,
+    val attemptCount: Int,
+    val observationStatus: KnowledgeAnswerabilityShadowObservationStatus,
+    val bindingStatus: KnowledgeAnswerabilityShadowBindingStatus?,
+    val bindingReason: KnowledgeAnswerabilityShadowBindingReason?,
+    val decision: KnowledgeAnswerabilityDecision,
+    val failureKind: KnowledgeAnswerabilityJudgeFailureKind?,
+    val latencyMs: Long?,
+    val firstByteLatencyMs: Long?,
+    val promptBytes: Long?,
+    val inputTokens: Long?,
+    val outputTokens: Long?,
+    val totalTokens: Long?,
+    val usageSamples: Int,
+    val failureCounts: Map<KnowledgeAnswerabilityJudgeFailureKind, Int>,
+    val recordedAt: Long,
+) {
+    init {
+        require(idempotencyFingerprint.matches(SHA_256_PATTERN)) { "answerability shadow 幂等指纹必须是 SHA-256" }
+        require(candidateFingerprint.matches(SHA_256_PATTERN)) { "answerability shadow 候选指纹必须是 SHA-256" }
+        require(judgeFingerprint == null || judgeFingerprint.matches(SHA_256_PATTERN)) {
+            "answerability shadow Judge 指纹必须为空或 SHA-256"
+        }
+        require(attemptCount >= 0 && usageSamples >= 0 && recordedAt >= 0L) { "answerability shadow 计数或时间不能为负数" }
+        require(listOf(latencyMs, firstByteLatencyMs, promptBytes, inputTokens, outputTokens, totalTokens).all { it == null || it >= 0L }) {
+            "answerability shadow 未知成本必须保持为空，已知成本不能为负数"
+        }
+        require(failureCounts.values.all { it >= 0 }) { "answerability shadow 失败计数不能为负数" }
+    }
+}
+
+data class KnowledgeAnswerabilityAuthorizedContentCase(
+    val caseId: String,
+    val question: String,
+    val candidate: String,
+    val answer: String,
+    val references: List<String>,
+    val label: KnowledgeRelevanceLabel,
+    val assessment: KnowledgeAnswerabilityObservation,
+) {
+    init {
+        require(caseId.isNotBlank() && question.isNotBlank() && candidate.isNotBlank() && answer.isNotBlank()) {
+            "answerability 授权评测正文不能为空"
+        }
+        require(references.isNotEmpty() && references.all { it.isNotBlank() }) { "answerability 授权评测引用不能为空" }
+        require(assessment.caseId == caseId && assessment.label == label) {
+            "answerability 授权评测案例身份或标签不一致"
+        }
+    }
+}
+
+sealed interface KnowledgeAnswerabilityExportEnvelope {
+    val schemaVersion: Int
+    val kind: KnowledgeAnswerabilityExportKind
+    val createdAtEpochMillis: Long
+    val provenance: KnowledgeAnswerabilityExportProvenance
+
+    fun eligibleForCalibrationOrValidation(): Boolean
+}
+
+/**
+ * long: v33 匿名账本导出只能携带不可逆指纹、枚举和可空数值遥测；类型本身不提供原始 Judge 或数据集身份，不能进入校准/验证。
+ */
+data class KnowledgeAnswerabilityShadowExportEnvelope(
+    override val schemaVersion: Int,
+    override val createdAtEpochMillis: Long,
+    val rows: List<KnowledgeAnswerabilityShadowExportRow>,
+) : KnowledgeAnswerabilityExportEnvelope {
+    override val kind: KnowledgeAnswerabilityExportKind = KnowledgeAnswerabilityExportKind.SHADOW_OBSERVATIONS
+    override val provenance: KnowledgeAnswerabilityExportProvenance = KnowledgeAnswerabilityExportProvenance.ROOM_V33_ANONYMOUS_LEDGER
+
+    init {
+        validateKnowledgeAnswerabilityExportMetadata(schemaVersion, createdAtEpochMillis)
+        require(rows.isNotEmpty()) { "answerability shadow 导出不能为空" }
+    }
+
+    override fun eligibleForCalibrationOrValidation(): Boolean = false
+}
+
+/**
+ * long: 只有用户明确授权的正文案例才绑定完整 Judge 与数据集身份；匿名账本无法通过构造参数混入这条离线评测路径。
+ */
+data class KnowledgeAnswerabilityAuthorizedContentExportEnvelope(
+    override val schemaVersion: Int,
+    override val createdAtEpochMillis: Long,
+    val datasetIdentity: KnowledgeAnswerabilityDatasetIdentity,
+    val contentAuthorization: KnowledgeAnswerabilityContentAuthorization,
+    val cases: List<KnowledgeAnswerabilityAuthorizedContentCase>,
+) : KnowledgeAnswerabilityExportEnvelope {
+    override val kind: KnowledgeAnswerabilityExportKind = KnowledgeAnswerabilityExportKind.AUTHORIZED_CONTENT_CASES
+    override val provenance: KnowledgeAnswerabilityExportProvenance = KnowledgeAnswerabilityExportProvenance.EXPLICIT_USER_AUTHORIZED_CASES
+
+    init {
+        validateKnowledgeAnswerabilityExportMetadata(schemaVersion, createdAtEpochMillis)
+        require(contentAuthorization == KnowledgeAnswerabilityContentAuthorization.EXPLICIT_OFFLINE_EVALUATION)
+        require(cases.isNotEmpty()) { "answerability 授权内容导出不能为空" }
+    }
+
+    override fun eligibleForCalibrationOrValidation(): Boolean = true
+}
+
+private fun validateKnowledgeAnswerabilityExportMetadata(schemaVersion: Int, createdAtEpochMillis: Long) {
+    require(schemaVersion == KNOWLEDGE_ANSWERABILITY_EXPORT_SCHEMA_VERSION) { "answerability 导出 schema 版本不支持" }
+    require(createdAtEpochMillis >= 0L) { "answerability 导出时间不能为负数" }
+}
+
+const val KNOWLEDGE_ANSWERABILITY_EXPORT_SCHEMA_VERSION = 1
+private val SHA_256_PATTERN = Regex("^[0-9a-f]{64}$")
+
 /**
  * long: 第92阶段只冻结 answerability 证据阈值并验证独立数据；它不读取 Room、不修改召回，也不生成生产 enforcement 决策。
  */

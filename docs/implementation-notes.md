@@ -275,6 +275,13 @@
 - 八次 Judge 仍没有自然网络、协议或认证失败，也没有明显成本异常。继续保持 `store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`；第 101 项不标记为永久完成，第 102 项继续后置。
 - 强制完整本地门禁为 JVM `614/614`、0 失败/错误/跳过；Lint `0 error / 50 warnings`；Debug 与 AndroidTest APK 构建成功。Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`。Redmi 文档语料为 `OK (1 test)`；默认完整 `AndroidJUnitRunner` 为 `OK (195 tests)`、耗时 `49.158s`。
 
+## 第 102 阶段：answerability 离线评测导出契约（完成）
+
+- 冻结版本化 Kotlin `KnowledgeAnswerabilityExportEnvelope` sealed 契约：匿名 Shadow 与显式授权内容分别使用独立 envelope，不能通过同一对象混装 rows/cases。
+- 匿名 Shadow envelope 不提供原始 Judge 或 dataset identity，只允许 v33 不可逆 fingerprint、状态/绑定/决策/失败枚举、失败分桶和保持 `null` 的未知成本 telemetry，`eligibleForCalibrationOrValidation()` 固定返回 false；显式内容 envelope 才携带完整 dataset identity，并要求正文、引用、label、assessment 与 case identity 一致及明确 `EXPLICIT_OFFLINE_EVALUATION` 授权。
+- 本阶段未增加 production enforcement，也未接入 Workflow/后台、检索排序、答案路径、JSON/SAF 出口；下一步继续用 Room v33 新匿名账本积累间隔真实样本，样本足够后再评估导出出口。
+- 修正后完整门禁为 JVM `736/736`、Lint `0 error / 51 warnings`、Debug/AndroidTest/Release APK 构建成功（Debug `23,685,840` bytes，SHA-256 `f0dc66a6300553511771aeb395fbd07d0b57e97f709c1cea566b78130bb89e2f`；AndroidTest `2,698,577` bytes，SHA-256 `79c9087384471b1dfaa217b171a488ed1aeb34427f72d8b904184d5db885168d`；Release `3,220,018` bytes，SHA-256 `bfcf4deee50861e51ac044e60c5b96590ea62f06b71494e651c9a83dd8d87f79`）。仅 Redmi 完整 instrumentation XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 打印 `260 tests`；文档 corpus gate `1/1` 通过。首轮套件曾因设备 Activity 停在 `STOPPED` 造成 Compose 级联失败，唤醒/停止应用后重跑通过，业务代码未因该偶发状态改动。
+
 ## Agent Run 关联重试协调迁出（横向可靠性工程）
 
 - 新增 `AgentRunRetryCoordinator`、`AgentRunRetryEvent` 与 `AgentRunRetryLaunchRequest`。`request()` 统一忙碌、来源缺失、不可重试和副作用确认分支；`confirm()` 重新读取当前详情，并以 `AgentTaskRetryPolicy.canConfirmRetry()` 同时核对证据码和 canonical fingerprint。

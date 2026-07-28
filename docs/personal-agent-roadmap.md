@@ -12,7 +12,11 @@ answerability Shadow 已从只保留当前进程 tracker 扩展为 Room v33 匿�
 
 设置页新增独立跨进程匿名摘要；现有进程内摘要继续记录 notice 生命周期与旁路失败，notice 不从历史消息恢复。v32→v33 迁移只创建空表，第 97–101 阶段人工合计不回填，因此历史“不持久化”结论仍按当时窗口成立。production enforcement、检索排序、答案路径、Workflow/后台、ANN 和自动后台索引重建不变。
 
-本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。下一切片先用新账本积累间隔真实样本并冻结可导出的离线评测数据契约，再做独立 calibration/validation 与阈值校准；达到预注册标准前不讨论生产拒绝。
+本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。下一步已冻结类型级离线评测导出契约；继续用 Room v33 新匿名账本积累间隔真实样本，样本足够后再做可导出数据/JSON codec 或 UI/SAF 出口。production enforcement 继续关闭。
+
+## 第 102 阶段：answerability 离线评测导出契约（完成）
+
+新增版本化 Kotlin sealed envelope，匿名 Shadow 观测证据与显式授权内容评测案例使用两个不能混装的强类型结构。匿名导出不携带原始 Judge 或数据集身份，只允许 v33 不可逆 fingerprint、枚举、失败分桶和保持未知 `null` 的数值 telemetry，不得用于 calibration/validation；显式内容导出才允许携带授权、数据集/评测身份和可校验正文、引用、label/assessment。未增加 production enforcement，Workflow/后台、检索排序和答案路径保持不变。
 
 ## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
 
