@@ -14,6 +14,15 @@
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 
+## 2026-07-28 通用执行恢复矩阵：成功 ToolResult 缺 typed 验证结论闭环审计
+
+- 审计边界：逐项复核成功 `tool.result` 落库后、typed `tool.verify` 落库前的全部持久化窗口。结果后预算缺失继续为 `EXECUTION_BUDGET_INVALID`；预算完整时只有既有严格定义、已提交幂等回执和只读回查能力同时成立才进入 `COMMITTED_TOOL_VERIFICATION`；全部 typed 验证为 `PASSED` 才进入 `VERIFIED_TOOL_COMPLETION`。`ToolResult.verified=true` 不替代 typed 验证状态。
+- 实现变化：`AgentRunResumePolicy` 现在先核工具定义，再核 `COMMITTED + IDEMPOTENT_BY_KEY` 提交证据，最后查询只读恢复验证支持。定义缺失固定为 `TOOL_DEFINITION_UNAVAILABLE`，回执缺失/损坏固定为 `COMMITTED_EFFECT_EVIDENCE_INVALID`，证据完整但能力未开放保持 `COMMITTED_VERIFICATION_UNAVAILABLE`；前两类不会调用 support 回调。
+- 安全结论：本轮不新增 resume kind、恢复载荷、Repository 写路径、Room Schema 或工具白名单，不补造 `PASSED / FAILED`，不重放 Executor，不调用旧 LLM，也不继续 Workflow。没有唯一持久化结论的形状继续关联新 Run 或 fail-closed。
+- TDD 与本地门禁：两条新增策略用例分别先红后绿，完整策略测试类通过。强制 Gradle `141/141` tasks、耗时 `4m 15s`；JVM `734/734`、0 失败/错误/跳过；Lint `0 error / 52 warnings`；Debug、AndroidTest、R8 Release APK 与 Release lintVital 成功。Debug/Release APK 为 `23,436,377 / 3,203,634` 字节，SHA-256 为 `954f71d5a90a6f2b63160490eab45ea67486b92f3fe8275ca7cb15498a4de6b5 / 4ecb44ae0a189cd956b9e4f12d5827d5d2477be981ea6ed371c71a0cf6ab3fae`；Release 通过 zipalign、v2 正式证书和单签名者校验。
+- Redmi 完整门禁：只向真机 `wsvwypiz7xwslvl7` 发送目标化 ADB 命令；在线模拟器只出现在设备清单。以同一正式证书签署本轮 Debug/Test APK 后无损覆盖，默认 `AndroidJUnitRunner` 为 `OK (243 tests)`、耗时 `95.348s`，0 失败；测试前 `stay_on_while_plugged_in=0`，期间临时保持唤醒。
+- 文档与设备收尾：最终 README/docs 已重新打包进 AndroidTest assets 并在同一 Redmi 通过 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`。随后卸载测试包、覆盖固定 `outputs/release/xiaoling-v0.1.13.apk`；设备报告 `0.1.13 (14)`、`MainActivity` resumed、主进程存活、测试包不存在、`stay_on_while_plugged_in=0`，crash buffer 无小灵相关 FATAL。
+
 ## 2026-07-28 通用执行恢复矩阵：持久化失败工具验证原子失败终态结算
 
 - 实现边界：`ToolVerificationStatus.FAILED` 与稳定 `reason` 进入 typed Event/Tool Ledger；Runtime 在失败验证后、正常 catch 前提供持久化故障窗口。恢复只接受 `VERIFYING` Run、完整 v20 Ledger、成功 ToolResult、完整 `PASSED` 前缀、唯一链尾 `FAILED` 验证、结果后的 `Available` 预算、最后一个 `RUNNING TOOL_VERIFY` Step、完整 typed Step/Event 身份、无待审批和无尾随事件。

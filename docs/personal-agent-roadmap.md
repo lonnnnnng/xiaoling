@@ -785,8 +785,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 6. 已完成：统一复核“已提交结果只读验证”和“全部已验证只补控制面”两格。marker、状态与启动关闭实现事务收敛，Step/Event 使用 typed 身份，恢复入口重新读取 Room，总结尾部并发幂等；旧 LLM、Executor 和 Workflow 后续步骤仍不恢复。
 7. 已完成：持久化失败 ToolResult 的原子失败终态结算。只接受 v20 完整 Ledger、完整成功验证前缀、唯一失败链尾、结果后完整预算、最后运行中执行 Step 和无业务尾部；原 Step/Run 只结算为 `FAILED`，不重放、不验证、不总结、不继续 Workflow。双轴审查补齐 Step sequence 与 typed 事件身份核验；完整门禁为 `141/141` tasks、JVM `726/726`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (240 tests)`。
 8. 已完成：持久化失败工具验证的原子失败终态结算。只接受成功 ToolResult、typed `tool.verify=FAILED(reason)`、结果后完整预算、完整 v20 Ledger/Step/Event 身份与最后运行中验证 Step；原 Step/Run 只结算为 `FAILED`，不重复 Executor/验证器/LLM，不总结、不继续 Workflow。双轴审查补齐预算 `Available` 硬门槛并收紧异常捕获；完整门禁为 `141/141` tasks、JVM `732/732`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (243 tests)`。当前文档 corpus 首轮/中间复验为 `OK (1 test)`（`2.907s / 2.471s`），最终文本 gate 也已通过；正式 `v0.1.13` 已恢复并完成版本、前台、PID、测试包、保持唤醒与 crash 收尾。
-9. 当前主线：完成通用恢复矩阵剩余窗口的闭环审计，重点确认“成功结果但尚无验证结论”没有可持久化的唯一安全动作；如果缺少 typed 验证结论，继续关联新 Run 或 fail-closed，不以扩大原地恢复能力作为完成标准。
-10. 通用恢复闭环审计完成后再推进知识质量工程：先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
+9. 已完成：通用恢复矩阵剩余持久化窗口闭环审计。成功结果缺 typed 验证结论时按工具定义、已提交幂等回执、只读恢复验证支持依次判定，分别稳定落入 `TOOL_DEFINITION_UNAVAILABLE / COMMITTED_EFFECT_EVIDENCE_INVALID / COMMITTED_VERIFICATION_UNAVAILABLE`；没有唯一安全动作的形状继续关联新 Run 或 fail-closed，不扩大原地恢复能力。完整门禁为 `141/141` tasks、JVM `734/734`、Lint、三类 APK、Release lintVital 和仅 Redmi `OK (243 tests)`。
+10. 当前主线：推进知识质量工程。先完成 answerability Shadow 跨进程持久化、真实使用样本、离线评测集和阈值校准，再决定生产拒绝；ANN 与自动后台索引重建只在语料规模和延迟证据证明需要时进入。
 11. 设备工具进入 Workflow/后台、截图和视觉定位必须以通用恢复和隐私策略为前置。精确定时、Foreground Service 继续依据真实失败、时效需求和系统回收证据决定，不预先引入。
 12. MCP、日历/通知、远程 Channel、多 Agent、跨设备同步和本地模型保持最后推进。
 
@@ -931,6 +931,6 @@ idle -> deciding -> waiting_model -> waiting_approval
 101. 持续观察：首个间隔真实使用窗口已新增 `1` 条直接回答，已记录窗口人工合计为样本 `10`、有效 Judge `8`；Shadow 继续保持低频旁路，不在同一窗口堆样本，只有出现自然网络/协议/认证失败或明显成本异常后，才重新评审最小化持久化。
 102. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，下一目标是通用执行恢复矩阵，而不是扩张第 102 项或机械搬运 `SettingsPage` composition root。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成；下一目标转为第 10 项知识质量工程，而不是扩张第 102 项或机械搬运 `SettingsPage` composition root。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该合计不是跨进程持久化，后续只在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v32 中自 v29 延续的独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

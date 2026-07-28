@@ -10,6 +10,13 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 通用执行恢复矩阵：成功 ToolResult 缺 typed 验证结论闭环审计（完成）
+
+- `AgentRunResumePolicy.assessCommittedToolVerification()` 的短路顺序固定为：先查当前工具定义，再由 `ToolExecutionRecoveryEvidencePolicy` 审计历史定义、成功结果、`COMMITTED` 回执和幂等键，最后查询当前工具是否开放只读恢复验证。定义缺失、回执损坏和能力未开放分别保留独立稳定处置码。
+- 新增两条公共策略边界 JVM 回归：`definition=null + support=false` 返回 `TOOL_DEFINITION_UNAVAILABLE`；定义存在但 receipt 缺失且 `support=false` 返回 `COMMITTED_EFFECT_EVIDENCE_INVALID`。两条错误路径都断言 support 回调未被调用；既有证据完整但 `support=false` 用例继续返回 `COMMITTED_VERIFICATION_UNAVAILABLE`。
+- 本轮没有新增 `AgentRunResumeKind`、恢复载荷、Repository 事务、Room Schema 或恢复工具白名单。缺 typed 验证结论时仍不得使用 `ToolResult.verified` 猜造状态，也不调用旧 Executor、LLM 或 Workflow；调整只让 fail-closed 原因忠实对应最早可证明的损坏边界。
+- 强制本地门禁为 `141/141` tasks（`4m 15s`）、JVM `734/734`、Lint `0 error / 52 warnings`、Debug/AndroidTest/R8 Release APK 与 Release lintVital；仅 Redmi 默认完整为 `OK (243 tests)`、耗时 `95.348s`。Debug/Release APK 为 `23,436,377 / 3,203,634` 字节，SHA-256 为 `954f71d5a90a6f2b63160490eab45ea67486b92f3fe8275ca7cb15498a4de6b5 / 4ecb44ae0a189cd956b9e4f12d5827d5d2477be981ea6ed371c71a0cf6ab3fae`；Release 通过 zipalign、v2 正式证书与单签名者校验。最终文档重新打包后已通过 Redmi corpus gate；正式 `v0.1.13` 已恢复，测试包已卸载、保持唤醒已还原为 `0`，crash buffer 无小灵相关异常。
+
 ## 通用执行恢复矩阵：持久化失败工具验证原子失败终态结算（完成）
 
 - `ToolVerificationStatus` 新增 `FAILED`，`RunEventMetadata.ToolVerification` 增加可空 `reason`，Codec 完整往返新状态与原因。Runtime 在验证异常时先写 typed `tool.verify(FAILED, reason)` 和 Tool Ledger 验证锚点，再经过故障注入点抛出原异常；协程取消与进程终止模拟继续直接传播，其他可恢复验证异常只捕获 `Exception`，不吞掉 `Error` 或编程级故障。

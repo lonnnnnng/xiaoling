@@ -1,5 +1,13 @@
 # 产品需求
 
+## 成功 ToolResult 缺少 typed 验证结论的闭环审计边界（通用执行恢复矩阵）
+
+成功 ToolResult 已落库但没有 typed `tool.verify` 时，不得从 `ToolResult.verified`、工具名、事件顺序或当前 Registry 猜造 `PASSED / FAILED`。现有严格白名单只读验证资格保持不变；其他形状没有唯一可持久化安全动作，必须关联新 Run 或 fail-closed，不得新增原 Run 恢复、旧 Executor 重放、LLM 总结或 Workflow 后续步骤。
+
+处置必须依次核验当前工具定义存在性、`COMMITTED + IDEMPOTENT_BY_KEY` 提交证据、当前工具是否显式开放只读恢复验证。`definition=null + support=false` 必须返回 `TOOL_DEFINITION_UNAVAILABLE`；定义存在但回执缺失/损坏且 `support=false` 必须返回 `COMMITTED_EFFECT_EVIDENCE_INVALID`；只有定义与提交证据完整但 `support=false` 才返回 `COMMITTED_VERIFICATION_UNAVAILABLE`。前两类错误阶段不得调用 support 回调，避免较宽泛的能力结论遮蔽更准确的持久化事实。
+
+验收必须覆盖上述三类组合，并证明处置优先级调整不改变任何恢复资格。当前实现已通过强制本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 52 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital，以及仅 Redmi 默认完整 `OK (243 tests)`（`95.348s`）；Room Schema 保持 v32。
+
 ## 持久化失败工具验证原子失败终态结算边界（通用执行恢复矩阵）
 
 进程在成功 ToolResult、结果后的执行预算以及 typed 失败验证均已落库，但正常 Runtime 尚未把验证 Step/Run 写成失败终态时，只允许补齐与原验证异常路径等价的失败控制面。资格必须同时满足：Run 为 `VERIFYING` 且没有终态字段；证据来自完整非空 v20 Tool Ledger；所有 ToolResult 均为成功，前序验证全部为 `PASSED`，唯一链尾验证为 `FAILED` 且带非空稳定原因；预算证据必须为 `Available` 并位于链尾 ToolResult 之后；执行与验证 Step 和 typed 创建/完成事件一一对应，链尾 `TOOL_VERIFY` 是最后一个 Step、仍为 `RUNNING` 且没有状态事件；原 Profile 允许全部工具；不存在待审批或失败验证后的任何控制面/业务事件。
@@ -460,9 +468,9 @@ Redmi `wsvwypiz7xwslvl7` 的正式 WorkManager 已完成 `229.416s` 的 8 步复
 - 审批恢复和已提交结果恢复必须使用原 Run 的 Agent Profile 快照，而不是当前选中的 Profile。缺少 Profile 审计的历史 Run 只能使用知识工具上线前的固定工具集合；新 Run 出现重复、损坏、引用未注册工具或 Skill 越权的 Profile 审计时必须拒绝恢复，不能回退当前 Profile 或当前 Registry 扩大能力。既有 Profile 和 Skill 也不得因注册新工具自动扩权。
 - 应用重启后可恢复的链尾审批批准后，会从持久化审批步骤继续同一 Run；前序已验证工具不会重放，`completedTools`、已消耗工具调用数和重复调用指纹会从持久化证据重建，再执行当前 ToolCall、后续规划和最终总结。第一步已经执行后在第二次或后续审批处中断现已支持原 Run 恢复；若当前工具已经进入执行/验证阶段，则按两个受限恢复例外或安全新 Run 边界处理，提交状态未知时不得猜测执行结果。
 
-当前仍未交付相关性生产拒绝、规模化 ANN 和自动后台批量 Embedding 重建，以及提交状态未知、成功结果尚无 typed 验证结论或其他验证事实不完整形状的通用执行栈原地恢复、并行工具调用、后台 Workflow 执行栈断点续跑、精确定时和 Foreground Service。多步骤审批等待恢复、“全部验证通过后的控制面收尾恢复”、失败 ToolResult 与 typed 失败验证的两类原子失败终态结算、跨模型/工具段累计预算、当前进程 Worker 启动恢复隔离、后台运行中可见停止、`STOP_REQUESTED` 持久化异常重对账、旧验证事件缺少 ToolCall ID 时的 fail-closed 证据降级、Ledger/Event 指纹漂移拒绝，以及 Result/预算/验证三段持久化边界故障注入、模型异常预算审计和总结本地兜底已经交付，但都不等同于恢复旧模型协程或任意执行栈。设备 Agent 的 Accessibility 授权、健康检查、`device.snapshot`、短生命周期节点引用、隐私过滤、有限动作、风险审批、操作后重新观察和结果验证已交付，并已在 Redmi 上限定小灵、系统计算器、时钟、设置与桌面完成首批验收；不承诺任意 App。通用执行恢复和长任务可靠性完成前，设备工具不得进入 Workflow 或后台自动化。多步骤 Workflow 与非精确调度已完成真机验收；当前约 229.416 秒八步复合只读成功和 32.6 秒停止样本尚无引入 Foreground Service 的依据。Room v32 沿用 v29 引入的独立账本有界观察 Android 进程退出事实；Redmi 支持 LMK 原因报告，现有受控 `force-stop` 只产生 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`，仍没有 Android 自主 LMK。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+当前仍未交付相关性生产拒绝、规模化 ANN 和自动后台批量 Embedding 重建，以及提交状态未知、成功结果尚无 typed 验证结论或其他验证事实不完整形状的通用执行栈原地恢复、并行工具调用、后台 Workflow 执行栈断点续跑、精确定时和 Foreground Service。成功结果缺 typed 验证结论的持久化窗口已完成审计，结论是除既有严格白名单只读回查外没有唯一安全动作，因此“不交付原地恢复”是明确安全边界，不是待补实现。多步骤审批等待恢复、“全部验证通过后的控制面收尾恢复”、失败 ToolResult 与 typed 失败验证的两类原子失败终态结算、跨模型/工具段累计预算、当前进程 Worker 启动恢复隔离、后台运行中可见停止、`STOP_REQUESTED` 持久化异常重对账、旧验证事件缺少 ToolCall ID 时的 fail-closed 证据降级、Ledger/Event 指纹漂移拒绝，以及 Result/预算/验证三段持久化边界故障注入、模型异常预算审计和总结本地兜底已经交付，但都不等同于恢复旧模型协程或任意执行栈。设备 Agent 的 Accessibility 授权、健康检查、`device.snapshot`、短生命周期节点引用、隐私过滤、有限动作、风险审批、操作后重新观察和结果验证已交付，并已在 Redmi 上限定小灵、系统计算器、时钟、设置与桌面完成首批验收；不承诺任意 App。通用执行恢复和长任务可靠性完成前，设备工具不得进入 Workflow 或后台自动化。多步骤 Workflow 与非精确调度已完成真机验收；当前约 229.416 秒八步复合只读成功和 32.6 秒停止样本尚无引入 Foreground Service 的依据。Room v32 沿用 v29 引入的独立账本有界观察 Android 进程退出事实；Redmi 支持 LMK 原因报告，现有受控 `force-stop` 只产生 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`，仍没有 Android 自主 LMK。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
 
-补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上保留任意长度的已验证前缀，并继续链尾工具、验证、后续规划和总结；恢复同时继承持久化累计执行预算，不因进程重建获得新的总时长。`notes.create` 与 `memory.remember` 开放已提交但尚未验证结果的受限只读验证；所有工具都可在成功结果和 `PASSED` 验证已经完整持久化后恢复本地收尾；严格持久化失败结果或 typed 失败验证只允许原子结算为 `FAILED`。上述未交付项指提交状态未知、成功结果尚无 typed 验证结论和其他证据不完整形状的通用执行栈、Workflow 后续步骤断点续跑以及尚未完成的自动化能力。
+补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上保留任意长度的已验证前缀，并继续链尾工具、验证、后续规划和总结；恢复同时继承持久化累计执行预算，不因进程重建获得新的总时长。`notes.create` 与 `memory.remember` 开放已提交但尚未验证结果的受限只读验证；所有工具都可在成功结果和 `PASSED` 验证已经完整持久化后恢复本地收尾；严格持久化失败结果或 typed 失败验证只允许原子结算为 `FAILED`。成功结果缺 typed 验证结论的处置优先级已经审计并固定，但不扩大恢复资格；上述未交付项指这些证据不完整形状的通用执行栈、Workflow 后续步骤断点续跑以及尚未完成的自动化能力。
 
 长期记忆最近一次删除的撤销快照保存在应用私有原子文件中；启动时会与 Room 正式记录核对，陈旧或损坏快照不会复活未删除数据，也不会阻断应用启动。
 

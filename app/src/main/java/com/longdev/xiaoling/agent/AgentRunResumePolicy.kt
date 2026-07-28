@@ -914,22 +914,23 @@ object AgentRunResumePolicy {
         }
         val persistedResult = pendingVerification.result
         val toolCall = pendingVerification.toolCall
-        if (!committedVerificationSupport(toolCall.name)) {
-            return restartRequired(
-                AgentRunRestartDispositionCode.COMMITTED_VERIFICATION_UNAVAILABLE,
-                "工具未开放已提交结果的只读恢复验证",
-            )
-        }
         val definition = definitionLookup(toolCall.name)
             ?: return restartRequired(
                 AgentRunRestartDispositionCode.TOOL_DEFINITION_UNAVAILABLE,
                 "当前注册表中找不到历史工具定义",
             )
+        // long: 先固定历史定义和提交回执是否可信，再查询只读回查能力；这样损坏证据不会被较宽泛的“不支持恢复验证”遮蔽。
         val replayEvidence = ToolExecutionRecoveryEvidencePolicy.assess(definition, persistedResult)
         if (!replayEvidence.canReuseCommittedEffect) {
             return restartRequired(
                 AgentRunRestartDispositionCode.COMMITTED_EFFECT_EVIDENCE_INVALID,
                 replayEvidence.reason,
+            )
+        }
+        if (!committedVerificationSupport(toolCall.name)) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.COMMITTED_VERIFICATION_UNAVAILABLE,
+                "工具未开放已提交结果的只读恢复验证",
             )
         }
         // long: 策略只把已提交且尚未验证的最后一步交给恢复入口；既不重放写工具，也不恢复旧规划协程。

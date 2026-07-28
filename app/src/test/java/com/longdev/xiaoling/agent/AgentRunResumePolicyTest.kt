@@ -878,6 +878,112 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun missingToolDefinitionTakesPrecedenceOverReadOnlyVerificationSupport() {
+        val call = ToolCall(
+            id = "tool-call-missing-definition",
+            name = "notes.create",
+            arguments = mapOf("title" to "定义缺失"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        var supportChecks = 0
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                    event(
+                        "tool.result",
+                        RunEventMetadata.ToolResult(
+                            toolName = call.name,
+                            content = "已创建笔记",
+                            durationMs = 10L,
+                            success = true,
+                            verified = true,
+                            toolCallId = call.id,
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = ToolExecutionReceipt(
+                                toolCallId = call.id,
+                                operationId = "note-missing-definition",
+                                idempotencyKey = call.id,
+                                status = ToolExecutionReceiptStatus.COMMITTED,
+                            ),
+                        ),
+                        2L,
+                    ),
+                ),
+            ),
+            definitionLookup = { null },
+            committedVerificationSupport = {
+                supportChecks += 1
+                false
+            },
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.TOOL_DEFINITION_UNAVAILABLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertEquals(0, supportChecks)
+    }
+
+    @Test
+    fun invalidCommittedEffectEvidenceTakesPrecedenceOverReadOnlyVerificationSupport() {
+        val definition = ToolDefinition(
+            name = "notes.create",
+            description = "创建笔记",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val call = ToolCall(
+            id = "tool-call-invalid-receipt",
+            name = definition.name,
+            arguments = mapOf("title" to "回执损坏"),
+            risk = definition.risk,
+        )
+        var supportChecks = 0
+        val assessment = AgentRunResumePolicy.assess(
+            detail = detail(
+                status = AgentRunStatus.EXECUTING,
+                steps = listOf(step(AgentStepTypes.TOOL_EXECUTE, AgentStepStatus.RUNNING)),
+                approvals = emptyList(),
+                events = listOf(
+                    event("tool.call.validated", RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments), 1L),
+                    event(
+                        "tool.result",
+                        RunEventMetadata.ToolResult(
+                            toolName = call.name,
+                            content = "已创建笔记",
+                            durationMs = 10L,
+                            success = true,
+                            verified = true,
+                            toolCallId = call.id,
+                            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                            executionReceipt = null,
+                        ),
+                        2L,
+                    ),
+                ),
+            ),
+            definitionLookup = { name -> definition.takeIf { it.name == name } },
+            committedVerificationSupport = {
+                supportChecks += 1
+                false
+            },
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertTrue(assessment.reason.contains("缺少持久化执行回执"))
+        assertEquals(
+            AgentRunRestartDispositionCode.COMMITTED_EFFECT_EVIDENCE_INVALID,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertEquals(0, supportChecks)
+    }
+
+    @Test
     fun idempotentToolWithoutReadOnlyVerificationSupportStillRequiresRestart() {
         val definition = ToolDefinition(
             name = "memory.remember",
