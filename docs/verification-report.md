@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-29（北京时间）
+验证日期：2026-07-30（北京时间）
 
 ## 当前验证基线
 
@@ -15,13 +15,23 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-30 第 111 阶段：Workflow 设备观察真实双 Run 与输出净化
+
+- 范围：在第 110 阶段本地判定契约上执行真实前台多步 Workflow，证明新 Agent Run 只能消费前序白名单判定，不复用旧 Run 工具调用；同时检查 Workflow 自身持久输出是否排除原始 snapshot。不开放设备动作、后台设备工具、截图、坐标、视觉定位或任意 App，不修改 Room Schema。
+- 首轮阻塞：Debug Receiver 在进程存活期间将 Profile 工具从单个 `device.snapshot` 更新为 `device.snapshot + app.current_time`，Room 已正确持久，但 `XiaoLingViewModel.initialize()` 只加载一次，所以旧运行态报“模型选择了未注册工具：app.current_time”。源码 Registry 已注册该工具，Debug Profile 没有 Skill 白名单，因此排除 Skill 收窄与设备门禁。冷启动重建 ViewModel 后页面显示双工具 Profile，未为调试旁路修改生产权限。
+- Ledger 修复：真实 `device.snapshot` 结果为 `success=1 / verificationStatus=PASSED / executorVerified=NULL`。旧前台完成路径评估进程内 `VerifiedAgentContext`，将 `RESULT_READABLE` 误判为缺失 Executor 验证。现在 `RoomWorkflowRepository.requireDeviceObservationDecisions()` 成为前台、恢复和重试的共同事实源；`PASSED` 仍可生成 `LIMITED`，可空 Executor 布尔值不再误拒绝。
+- 持久化净化：首个成功双 Run 的第二步 `previousOutputs[0]` 已为 169 字符白名单判定，但第一步 `outputSnapshot.text` 仍有 `6702` 字符并含 `snapshot_id`。新 TDD 首轮三条全部失败；修复后 `completeWorkflowStep()` 在完成事务中重新回查同 Run Tool Ledger，校验调用方判定，并用 `renderForPrompt()` 替换 step `result/outputSnapshot.text`。前台 Workflow 消息与后台会话文本也只发布净化结果；未验证快照在完成事务前拒绝。双轴审查又发现 `completeRun()` 单步骤兼容路径与 Run 汇总仍信任调用方正文，现已让兼容步骤同样回查 Ledger，Run result 只从净化 step 聚合。
+- 聚焦验证：`assembleDebug` 与 `assembleDebugAndroidTest` 成功。仅向 Redmi `wsvwypiz7xwslvl7` 安装主包/测试包并运行 `workflowReplacesVerifiedDeviceSnapshotWithLocalDecisionForNextStepAndRetry`、`workflowBlocksNextStepWhenPersistedDeviceSnapshotIsNotVerified`、`scheduledWorkflowPersistsAndPublishesOnlyLocalDeviceDecision`、`completeRunSanitizesSingleStepDeviceObservationAndRunResult`、`completeRunAggregatesMultiStepResultFromSanitizedStepOutputs`，结果 `OK (5 tests)`、耗时 `1.21s`。第 110 阶段新增的可空 Executor 单项在本阶段前置验证也已为 `OK (1 test)`；最终项目文档 corpus 为 `OK (1 test)`。按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 真实最终证据：Workflow `workflow-run-0a2cc22f-1212-413c-8026-76576e009dce` 与两步均 `COMPLETED`。Agent Run `run-8dc7eebb-a162-464a-86f2-ed00184db905` 只有 `device.snapshot / SAFE / success=1 / PASSED / 278ms`，Agent Run `run-7f1ff488-7583-4961-942b-f6b33d6ee0a4` 只有 `app.current_time / SAFE / success=1 / PASSED / 1ms`，两者 `executorVerified=NULL`，审批 `0`。第一步 `outputSnapshot` 只有 `schema/text/requiresCurrentKnowledgeReferences/knowledgeReferences/deviceObservationDecisions`，判定只有 `ruleVersion/status/packageName/nodeCount/redactedNodeCount/truncated/capturedAt`；`result` 和第二步 `previousOutputs[0]` 均为 169 字符，`snapshot_id / nodes / ref` 均为 0 命中。当次 `LIMITED` 判定为 `com.longdev.xiaoling / 49 节点 / 6 脱敏 / 未截断`。
+- UI 与设备收尾：最新 Run 详情显示“设备观察 · 已验证”、“本地判断 · 有限可复核”、`6 个节点已脱敏 · 规则 workflow-device-observation-v1`和“节点引用已过期，不可用于后续动作”。Accessibility 保持 `Bound services` 且 `Crashed services:{}`；在线模拟器只出现于 `adb devices -l` 清单，没有收到安装、测试、UI、截图或其他定向 ADB 命令。
+
 ## 2026-07-30 第 110 阶段：Workflow 设备观察本地判定
 
 - 范围：在第 109 阶段已验证设备观察证据之上形成最小本地判定，并安全传给后续前台 Workflow 步骤；不开放设备动作、后台设备工具、截图、坐标、视觉定位或任意 App，不修改 Room Schema、精确定时或 Foreground Service。
 - 实现：`workflow-device-observation-v1` 只从同 Run、`device.snapshot / success / PASSED` 且结构合法的 Ledger 生成“可复核/有限可复核”。输入和持久 output snapshot 只包含 package、节点/脱敏数、截断与采集时间。下一步准备时重新回查 Ledger并用该判定替换模型步骤正文；关联重试沿 `reusedFromStepId` 回查来源。来源缺失、未验证、畸形或持久判定漂移会在 input snapshot 落库前失败，后续 Agent Run 不启动。
 - TDD 与构建：新增 policy `4/4`、Workflow snapshot/prompt `8/8`、管理页 Projection `7/7`，聚焦 JVM 合计 `19/19`；`compileDebugAndroidTestKotlin`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。双轴 Standards 首轮唯一硬 finding 是长期文档尚未同步，本节与 README/路线图/实现说明/需求同步后已修复；轻微重复适配保留在存储与 UI 边界，未发现动作权限扩大。
 - Redmi 定向验证：设备列表同时存在 Redmi 与在线模拟器，因此未使用通用 `connectedDebugAndroidTest`；主包、测试包安装与 instrumentation 每条命令都显式指定 `wsvwypiz7xwslvl7`。`workflowReplacesVerifiedDeviceSnapshotWithLocalDecisionForNextStepAndRetry`、`workflowBlocksNextStepWhenPersistedDeviceSnapshotIsNotVerified` 和 `pageDisplaysVerifiedDeviceObservationAsExpiredReadOnlyEvidence` 为 `OK (3 tests)`、耗时 `3.343s`；更新后的项目文档 corpus 首次/最终均为 `OK (1 test)`、耗时 `2.662s / 2.534s`。测试包已卸载；当前 Debug 主应用冷启动 `3.540s`，版本 `0.1.13 (14)`、`MainActivity` 为 top resumed、PID `10641` 存活，清空后的 crash buffer 没有小灵 FATAL。模拟器没有收到安装、测试、截图、UI 或其他定向 ADB 命令。
-- 边界：本地判断只确认采集时的包名和快照摘要；即使状态为“可复核”，也不确认节点正文、用户目标完成、当前页面仍未变化或动作授权。历史原始结果继续保留审计，但不会进入下一步 Prompt；本阶段按分级验证没有运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 边界：本地判断只确认采集时的包名和快照摘要；即使状态为“可复核”，也不确认节点正文、用户目标完成、当前页面仍未变化或动作授权。原始工具结果仅保留在独立 Agent Tool Ledger 中审计，不会进入 Workflow step、Run 汇总或下一步 Prompt；本阶段按分级验证没有运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
 ## 2026-07-29 第 109 阶段：Workflow 设备观察证据 UI
 

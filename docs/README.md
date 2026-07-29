@@ -1,5 +1,7 @@
 # 文档索引
 
+第 111 阶段完成 Workflow 设备观察本地判定的真实双 Run 闭环。首轮真机验收先暴露 Debug Receiver 写 Room 后活动 ViewModel 仍持有旧 Profile，重启应用加载双工具 Profile 后，第一 Run 只执行 `device.snapshot`、第二 Run 只执行 `app.current_time`，两者均 `SAFE / PASSED / executorVerified=NULL`，动作和审批都为 `0`。真实数据又发现第一步 output text 仍含模型转述的 `snapshot_id`；现在由 `RoomWorkflowRepository` 在完成事务内重新回查同 Run Tool Ledger，并统一净化 step `result/outputSnapshot`、前台 Workflow 消息、后台会话文本与单步骤兼容完成路径，Run 汇总只从净化 step 聚合。Redmi 最终 Run 的白名单判定为 169 字符，第一步输出和第二步前序输入对 `snapshot_id / nodes / ref` 均为 0 命中；聚焦 instrumentation `OK (5 tests)`、最终项目文档 corpus `OK (1 test)`，真实 Workflow/UI 均已完成。
+
 第 110 阶段在 Workflow 已验证 `device.snapshot` 证据上增加 `workflow-device-observation-v1` 本地判定：只确认包名、节点/脱敏数、截断和采集时间，并明确不确认节点正文、目标完成或动作授权。新步骤把安全判定写入既有 output snapshot；下一步和关联重试重新回查 Tool Ledger 后，只接收版本化判定而非模型快照正文。来源缺失、未验证、畸形或判定漂移会 fail-closed，后续 Agent Run 不启动。聚焦 JVM `19/19`、Debug/AndroidTest 构建、仅 Redmi 定向 `OK (3 tests)` 和文档 corpus `OK (1 test)` 通过；设备动作、后台设备工具、截图、坐标、视觉定位和任意 App 仍关闭。
 
 第 109 阶段完成前台 Workflow 的答案级设备观察证据 UI。Workflow step 通过既有 `agentRunId` 分块关联独立 Tool Ledger，只有成功、`PASSED` 且顶层与逐节点结构都合法的 `device.snapshot` 才生成包名、节点数、脱敏数、截断状态、采集时间和耗时组成的白名单摘要；原始 JSON 不复制到 Workflow 表，也不进入 Compose 根状态。历史步骤输出、前序输入和 Run 汇总中的 snapshot JSON 及缺少 ID、camelCase、转义变体统一 fail-closed 脱敏，节点 ref 明确标记为已过期。审查收尾后聚焦投影 JVM `7/7`、快照策略 JVM `9/9`、Debug/AndroidTest 构建、仅 Redmi Workflow 页面 `OK (2 tests)` 与文档 corpus `OK (1 test)` 通过；真实 `stage108_snapshot` 历史 Ledger 显示 `38` 个节点、脱敏 `2`、执行 `193ms`，最终页面层级不再包含 `snapshot_id / window_title / bounds / actions / ref`。最终测试包卸载，主应用前台、进程存活且 crash buffer 为空；动作、截图、坐标、视觉定位与后台设备工具仍关闭。

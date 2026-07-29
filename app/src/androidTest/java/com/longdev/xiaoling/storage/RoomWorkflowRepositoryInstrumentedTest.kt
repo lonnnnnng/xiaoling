@@ -19,6 +19,7 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionStatus
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceException
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -299,16 +300,26 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val first = source.steps.first()
         val agentRunId = "agent-run-device-decision"
         repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
-        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId))
-        repository.completeWorkflowStep(
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null),
+        )
+        val completedFirst = repository.completeWorkflowStep(
             workflowRunId = source.run.id,
             workflowStepId = first.id,
             status = WorkflowStepStatus.COMPLETED,
             result = "Agent 任务已完成\n${validDeviceSnapshot()}",
         )
 
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        assertEquals(1, persistedOutput.deviceObservationDecisions.size)
+        assertTrue(persistedOutput.text.contains("本地设备观察判定 1（workflow-device-observation-v1）"))
+        assertFalse(persistedOutput.text.contains("snapshot-secret"))
+        assertFalse(persistedOutput.text.contains("ref-secret"))
+        assertFalse(completedFirst.result.orEmpty().contains("银行卡密码"))
+
         val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
         val previousOutput = WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single()
+        assertEquals(persistedOutput.text, previousOutput)
         assertTrue(previousOutput.contains("本地设备观察判定 1（workflow-device-observation-v1）"))
         assertTrue(previousOutput.contains("com.example.notes"))
         assertFalse(previousOutput.contains("snapshot-secret"))
@@ -326,6 +337,95 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun workflowUsesPassedLedgerForReadableDeviceSnapshot() = runBlocking {
+        val agentRunId = "agent-run-readable-device-snapshot"
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null),
+        )
+
+        val decision = repository.requireDeviceObservationDecisions(agentRunId).single()
+
+        assertEquals(WorkflowDeviceObservationDecisionStatus.LIMITED, decision.status)
+        assertEquals("com.example.notes", decision.packageName)
+        assertEquals(2, decision.nodeCount)
+        assertEquals(1, decision.redactedNodeCount)
+    }
+
+    @Test
+    fun completeRunSanitizesSingleStepDeviceObservationAndRunResult() = runBlocking {
+        val workflow = repository.createWorkflow("单步骤设备观察净化", "观察当前页面")
+        val created = repository.createManualRun(workflow.id, "conversation-complete-run-device")
+        val agentRunId = "agent-run-complete-run-device"
+        repository.markAgentRunStarted(created.run.id, created.steps.single().id, agentRunId)
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null),
+        )
+
+        repository.completeRun(
+            workflowRunId = created.run.id,
+            status = WorkflowRunStatus.COMPLETED,
+            result = "Agent 任务已完成\n${validDeviceSnapshot()}",
+        )
+
+        val completed = repository.runDetail(created.run.id)!!
+        val step = completed.steps.single()
+        val persistedText = WorkflowStepSnapshotCodec.outputText(step.outputSnapshot)!!
+        assertEquals(persistedText, step.result)
+        assertEquals(persistedText, completed.run.result)
+        assertTrue(persistedText.contains("本地设备观察判定"))
+        assertFalse(persistedText.contains("snapshot-secret"))
+        assertFalse(persistedText.contains("ref-secret"))
+        assertFalse(persistedText.contains("银行卡密码"))
+    }
+
+    @Test
+    fun completeRunAggregatesMultiStepResultFromSanitizedStepOutputs() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "多步骤设备观察汇总净化",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察当前页面"),
+                WorkflowStepDefinitionInput("生成后续说明"),
+            ),
+        )
+        val created = repository.createManualRun(workflow.id, "conversation-complete-run-multi-step")
+        val firstAgentRunId = "agent-run-complete-run-multi-step-device"
+        repository.markAgentRunStarted(created.run.id, created.steps[0].id, firstAgentRunId)
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = firstAgentRunId, executorVerified = null),
+        )
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = created.run.id,
+            workflowStepId = created.steps[0].id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "Agent 任务已完成\n${validDeviceSnapshot()}",
+        )
+        repository.markAgentRunStarted(
+            created.run.id,
+            created.steps[1].id,
+            "agent-run-complete-run-multi-step-summary",
+        )
+        repository.completeWorkflowStep(
+            workflowRunId = created.run.id,
+            workflowStepId = created.steps[1].id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "第二步完成",
+        )
+
+        repository.completeRun(
+            workflowRunId = created.run.id,
+            status = WorkflowRunStatus.COMPLETED,
+            result = validDeviceSnapshot(),
+        )
+
+        val completed = repository.runDetail(created.run.id)!!
+        val firstText = WorkflowStepSnapshotCodec.outputText(completedFirst.outputSnapshot)!!
+        assertEquals("$firstText\n\n第二步完成", completed.run.result)
+        assertFalse(completed.run.result.orEmpty().contains("snapshot-secret"))
+        assertFalse(completed.run.result.orEmpty().contains("ref-secret"))
+        assertFalse(completed.run.result.orEmpty().contains("银行卡密码"))
+    }
+
+    @Test
     fun workflowBlocksNextStepWhenPersistedDeviceSnapshotIsNotVerified() = runBlocking {
         val workflow = repository.createWorkflow(
             name = "设备观察证据不足",
@@ -340,20 +440,49 @@ class RoomWorkflowRepositoryInstrumentedTest {
         database.agentRunDao().insertToolResult(
             deviceSnapshotResult(agentRunId = agentRunId, verificationStatus = "FAILED"),
         )
-        repository.completeWorkflowStep(
-            workflowRunId = run.run.id,
-            workflowStepId = run.steps[0].id,
-            status = WorkflowStepStatus.COMPLETED,
-            result = validDeviceSnapshot(),
-        )
-
         val failure = runCatching {
-            repository.prepareWorkflowStep(run.run.id, run.steps[1].id)
+            repository.completeWorkflowStep(
+                workflowRunId = run.run.id,
+                workflowStepId = run.steps[0].id,
+                status = WorkflowStepStatus.COMPLETED,
+                result = validDeviceSnapshot(),
+            )
         }.exceptionOrNull()
 
         assertTrue(failure is WorkflowDeviceObservationEvidenceException)
         assertTrue(failure?.message.orEmpty().contains("VERIFICATION_MISSING"))
+        assertEquals(WorkflowStepStatus.RUNNING, repository.runDetail(run.run.id)!!.steps[0].status)
         assertEquals(WorkflowStepStatus.PENDING, repository.runDetail(run.run.id)!!.steps[1].status)
+    }
+
+    @Test
+    fun scheduledWorkflowPersistsAndPublishesOnlyLocalDeviceDecision() = runBlocking {
+        val workflow = repository.createWorkflow("后台设备观察净化", "观察当前页面")
+        val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)
+        repository.attachWorkRequest(task.id, "work-request-device-decision")
+        val claim = repository.claimScheduledRun(task.id)!!
+        val step = claim.run.steps.single()
+        val agentRunId = "agent-run-scheduled-device-decision"
+        repository.markAgentRunStarted(claim.run.run.id, step.id, agentRunId)
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null),
+        )
+
+        val completed = repository.completeScheduledWorkflowStep(
+            taskId = task.id,
+            workflowRunId = claim.run.run.id,
+            workflowStepId = step.id,
+            result = "Agent 任务已完成\n${validDeviceSnapshot()}",
+        )
+
+        val persistedText = WorkflowStepSnapshotCodec.outputText(completed.outputSnapshot)!!
+        assertTrue(persistedText.contains("本地设备观察判定"))
+        assertFalse(persistedText.contains("snapshot-secret"))
+        assertFalse(persistedText.contains("ref-secret"))
+        val conversationMessages = database.conversationDao()
+            .getMessagesByConversationId(claim.run.run.conversationId)
+        assertTrue(conversationMessages.any { it.role == "assistant" && it.text == persistedText })
+        assertTrue(conversationMessages.none { it.text.contains("snapshot-secret") || it.text.contains("ref-secret") })
     }
 
     @Test
@@ -1107,6 +1236,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
     private fun deviceSnapshotResult(
         agentRunId: String,
         verificationStatus: String = "PASSED",
+        executorVerified: Boolean? = verificationStatus == "PASSED",
     ) = AgentToolResultEntity(
         toolCallId = "tool-call-$agentRunId",
         runId = agentRunId,
@@ -1116,7 +1246,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
         success = true,
         errorMessage = null,
         durationMs = 193L,
-        executorVerified = verificationStatus == "PASSED",
+        executorVerified = executorVerified,
         verificationStatus = verificationStatus,
         verifiedEventId = "event-verified-$agentRunId",
         memoryIdsJson = "[]",

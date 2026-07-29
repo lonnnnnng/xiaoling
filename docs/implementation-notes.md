@@ -10,6 +10,14 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 111 阶段：Workflow 设备观察真实双 Run 与输出净化（完成）
+
+- 首轮真实 Workflow 暴露了两个只在运行态出现的缺口。首先，Debug Receiver 将 `app.current_time` 写入 Room Profile 后，已初始化的 `XiaoLingViewModel` 仍使用旧工具白名单，因此第二 Run 曾报“模型选择了未注册工具：app.current_time”。`XiaoLingToolRegistry` 实际已注册该工具，Debug Profile 的 `allowedSkillIds` 为空，所以该次不是 Skill 收窄或设备权限问题；重建应用进程后从 Room 重新加载 Profile 即恢复。正常 UI 保存 Profile 会同步更新 `uiState`，本阶段不为 Debug 旁路引入生产广播或扩权机制。
+- `RoomWorkflowRepository.requireDeviceObservationDecisions()` 统一从同 Run 持久 Tool Ledger 投影本地判定。`RESULT_READABLE` 工具的 `executorVerified` 可为 `null`；只要 `verificationStatus=PASSED`、执行成功且快照可解码，就依然生成 `REVIEWABLE / LIMITED`。前台完成、恢复完成与关联重试不再使用进程内 `VerifiedAgentContext` 作为 Workflow 事实源。
+- 第一次双 Run 成功后，只读检查又发现第一步 `outputSnapshot.text` 长 `6702`、仍包含 `snapshot_id`，而第二步 `previousOutputs[0]` 已正确收窄为 169 字符。根因是下一步准备时才替换模型正文，step 完成事务仍持久化 `summary.responseText`。现在 `completeWorkflowStep()` 对所有成功 Agent step 重新查询同 Run Ledger；存在合法 snapshot 时，同一事务内用 `renderForPrompt()` 替换 `result/outputSnapshot.text`，并核对调用方判定与 Ledger 一致。前台 Workflow 消息和 `completeScheduledWorkflowStep()` 后台会话均改用已持久化的净化文本。
+- TDD 聚焦覆盖新 Workflow 输出/重试净化、未验证证据完成前拒绝、后台 step 与会话净化，旧实现为 `3` 失败。双轴审查随后发现 `completeRun()` 单步骤兼容分支仍会原样写入 step 与 Run result；现已统一回查 Ledger，并让单步骤和多步骤 Run 都只聚合净化 step。修复后仅 Redmi 定向为 `OK (5 tests)`、耗时 `1.21s`。`assembleDebug / assembleDebugAndroidTest` 成功，最终项目文档 corpus 为 `OK (1 test)`；按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 最终真实 Workflow Run `workflow-run-0a2cc22f-1212-413c-8026-76576e009dce` 为 `COMPLETED`。观察 Run `run-8dc7eebb-a162-464a-86f2-ed00184db905` 只调用 `device.snapshot`，消费 Run `run-7f1ff488-7583-4961-942b-f6b33d6ee0a4` 只调用 `app.current_time`；两者均 `SAFE / success=1 / PASSED / executorVerified=NULL`，审批数 `0`。第一步 `result` 与第二步 `previousOutputs[0]` 均为 169 字符，`snapshot_id / nodes / ref` 均为 false。判定为 `LIMITED`，包名 `com.longdev.xiaoling`、节点 `49`、脱敏 `6`、未截断；Workflow 页面显示已验证、有限可复核、规则版本和 ref 过期。Accessibility 最终保持 Bound，`Crashed services:{}`。
+
 ## 第 110 阶段：Workflow 设备观察本地判定（完成）
 
 - `WorkflowDeviceObservationDecisionPolicy` 是纯 Kotlin 单一入口。`evaluate()` 只接受同 Run 的 `device.snapshot`、成功结果、验证事实和 `DeviceSnapshotCodec.decodeSummary()` 白名单摘要；跨 Run、失败、未验证和畸形结构返回稳定 `InsufficientEvidence`。`REVIEWABLE / LIMITED` 只表达摘要是否完整可复核，规则版本固定为 `workflow-device-observation-v1`。

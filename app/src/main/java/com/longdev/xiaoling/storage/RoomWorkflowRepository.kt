@@ -771,9 +771,11 @@ class RoomWorkflowRepository(
                 requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
                 deviceObservationDecisions = deviceObservationDecisions,
             )
+            val publishedResult = WorkflowStepSnapshotCodec.outputText(completed.outputSnapshot ?: completed.result)
+                ?: result
             appendScheduledConversationResult(
                 conversationId = run.conversationId,
-                text = result,
+                text = publishedResult,
                 origin = MessageOrigin.AGENT_RESULT,
                 verifiedAgentContext = verifiedAgentContext,
             )
@@ -875,17 +877,40 @@ class RoomWorkflowRepository(
             val step = dao.getStep(workflowStepId) ?: error("工作流步骤不存在：$workflowStepId")
             require(step.workflowRunId == workflowRunId) { "工作流步骤不属于当前 Run" }
             if (step.status in TERMINAL_STEP_STATUSES.map { it.name }) return@withTransaction step.toRecord()
+            val persistedDeviceObservationDecisions = when {
+                status != WorkflowStepStatus.COMPLETED -> {
+                    require(deviceObservationDecisions.isEmpty()) { "未完成步骤不能持久化设备观察判定" }
+                    emptyList()
+                }
+                step.agentRunId == null -> {
+                    require(deviceObservationDecisions.isEmpty()) { "设备观察判定缺少 Agent Run 来源" }
+                    emptyList()
+                }
+                else -> {
+                    val ledgerDecisions = requireDeviceObservationDecisions(step.agentRunId)
+                    require(deviceObservationDecisions.isEmpty() || deviceObservationDecisions == ledgerDecisions) {
+                        "设备观察判定与持久 Tool Ledger 不一致"
+                    }
+                    ledgerDecisions
+                }
+            }
+            // long: Workflow 步骤和后台会话只持久化可复核的本地白名单判定；原始节点、ref 和模型转述仅留在独立 Tool Ledger 中审计，不进入 Workflow 输出。
+            val persistedResult = if (persistedDeviceObservationDecisions.isNotEmpty()) {
+                WorkflowDeviceObservationDecisionPolicy.renderForPrompt(persistedDeviceObservationDecisions)
+            } else {
+                result
+            }
             val now = System.currentTimeMillis()
             val updated = step.copy(
                 status = status.name,
-                result = result,
+                result = persistedResult,
                 errorMessage = errorMessage,
-                outputSnapshot = result?.let { output ->
+                outputSnapshot = persistedResult?.let { output ->
                     WorkflowStepSnapshotCodec.encodeOutput(
                         text = output,
                         knowledgeReferences = knowledgeReferences,
                         requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
-                        deviceObservationDecisions = deviceObservationDecisions,
+                        deviceObservationDecisions = persistedDeviceObservationDecisions,
                     )
                 },
                 completedAt = now,
@@ -910,14 +935,6 @@ class RoomWorkflowRepository(
             val current = dao.getRun(workflowRunId) ?: error("工作流 Run 不存在：$workflowRunId")
             if (current.status in TERMINAL_RUN_STATUSES) return@withTransaction current.toRecord()
             val now = System.currentTimeMillis()
-            val updated = current.copy(
-                status = status.name,
-                result = result,
-                errorMessage = errorMessage,
-                workerStopReasonCode = workerStopReasonCode,
-                workerStopReasonName = workerStopReasonName,
-                completedAt = now,
-            )
             val terminalStepStatus = when (status) {
                 WorkflowRunStatus.COMPLETED -> null
                 WorkflowRunStatus.BLOCKED -> WorkflowStepStatus.BLOCKED
@@ -926,23 +943,46 @@ class RoomWorkflowRepository(
                 else -> error("非终态不能完成工作流步骤")
             }
             val steps = dao.getSteps(workflowRunId)
+            var persistedSteps = steps
             if (status == WorkflowRunStatus.COMPLETED) {
                 val unfinished = steps.filter { it.status !in SUCCESSFUL_STEP_STATUSES }
                 if (steps.size == 1 && unfinished.size == 1) {
                     // long: 兼容 v15 单步骤调用方直接收敛 Run；多步骤执行必须逐步完成，不能用最终回调一次性伪造所有步骤成功。
                     val onlyStep = unfinished.single()
-                    dao.upsertStep(
-                        onlyStep.copy(
-                            status = WorkflowStepStatus.COMPLETED.name,
-                            result = result,
-                            outputSnapshot = result,
-                            completedAt = now,
+                    persistedSteps = listOf(
+                        sanitizeSuccessfulWorkflowStepForRun(
+                            onlyStep.copy(
+                                status = WorkflowStepStatus.COMPLETED.name,
+                                result = result,
+                                outputSnapshot = result,
+                                completedAt = now,
+                            ),
                         ),
                     )
                 } else {
                     require(unfinished.isEmpty()) { "工作流仍有未完成步骤" }
+                    persistedSteps = steps.map { step -> sanitizeSuccessfulWorkflowStepForRun(step) }
+                }
+                persistedSteps.filterIndexed { index, step -> step != steps[index] }.forEach { step ->
+                    dao.upsertStep(step)
                 }
             }
+            // long: Run 汇总只能从已持久化步骤重新聚合；调用方传入的最终模型正文不能绕过步骤级 Tool Ledger 净化，把原始 snapshot 复制到 Workflow Run。
+            val persistedResult = if (status == WorkflowRunStatus.COMPLETED) {
+                persistedSteps.mapNotNull { step ->
+                    WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
+                }.joinToString(separator = "\n\n").takeIf { it.isNotEmpty() }
+            } else {
+                result
+            }
+            val updated = current.copy(
+                status = status.name,
+                result = persistedResult,
+                errorMessage = errorMessage,
+                workerStopReasonCode = workerStopReasonCode,
+                workerStopReasonName = workerStopReasonName,
+                completedAt = now,
+            )
             dao.upsertRun(updated)
             if (terminalStepStatus != null) {
                 var terminalAssigned = false
@@ -984,21 +1024,7 @@ class RoomWorkflowRepository(
         }
         val toolResults = database.agentRunDao().getToolResults(agentRunId)
         val deviceObservationDecisions = if (status == WorkflowRunStatus.COMPLETED) {
-            WorkflowDeviceObservationDecisionPolicy.requireDecisions(
-                WorkflowDeviceObservationDecisionPolicy.evaluate(
-                    expectedAgentRunId = agentRunId,
-                    results = toolResults.map { result ->
-                        WorkflowDeviceObservationEvidenceInput(
-                            runId = result.runId,
-                            toolName = result.toolName,
-                            content = result.content,
-                            success = result.success,
-                            verified = result.verificationStatus == "PASSED",
-                            durationMs = result.durationMs,
-                        )
-                    },
-                ),
-            )
+            requireDeviceObservationDecisions(agentRunId)
         } else {
             emptyList()
         }
@@ -1029,6 +1055,15 @@ class RoomWorkflowRepository(
             }
             completeRun(workflowRun.id, status, workflowResult, errorMessage)
         }
+    }
+
+    internal suspend fun requireDeviceObservationDecisions(
+        agentRunId: String,
+    ): List<WorkflowDeviceObservationDecision> {
+        // long: 前台、恢复和重试都必须以同一 Run 的持久 Tool Ledger 为权威；RESULT_READABLE 工具没有 Executor 布尔值，但 PASSED 验证事件仍是完整证据链。
+        return WorkflowDeviceObservationDecisionPolicy.requireDecisions(
+            evaluateDeviceObservationEvidence(agentRunId),
+        )
     }
 
     suspend fun isWorkflowAgentRun(agentRunId: String): Boolean {
@@ -1293,19 +1328,7 @@ class RoomWorkflowRepository(
                 WorkflowDeviceObservationResolution.NotApplicable
             }
         }
-        val resolution = WorkflowDeviceObservationDecisionPolicy.evaluate(
-            expectedAgentRunId = agentRunId,
-            results = database.agentRunDao().getToolResults(agentRunId).map { result ->
-                WorkflowDeviceObservationEvidenceInput(
-                    runId = result.runId,
-                    toolName = result.toolName,
-                    content = result.content,
-                    success = result.success,
-                    verified = result.verificationStatus == "PASSED",
-                    durationMs = result.durationMs,
-                )
-            },
-        )
+        val resolution = evaluateDeviceObservationEvidence(agentRunId)
         if (storedDecisions.isNotEmpty()) {
             val current = (resolution as? WorkflowDeviceObservationResolution.Decided)?.decisions
             if (current != storedDecisions) {
@@ -1327,6 +1350,51 @@ class RoomWorkflowRepository(
             )
         }
         return resolution
+    }
+
+    private suspend fun sanitizeSuccessfulWorkflowStepForRun(
+        step: WorkflowStepEntity,
+    ): WorkflowStepEntity {
+        val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result) ?: return step
+        return when (val resolution = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)) {
+            WorkflowDeviceObservationResolution.NotApplicable -> step
+            is WorkflowDeviceObservationResolution.Decided -> {
+                val persistedText = WorkflowDeviceObservationDecisionPolicy.renderForPrompt(resolution.decisions)
+                step.copy(
+                    result = persistedText,
+                    outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
+                        text = persistedText,
+                        knowledgeReferences = output.knowledgeReferences,
+                        requiresCurrentKnowledgeReferences = output.requiresCurrentKnowledgeReferences,
+                        deviceObservationDecisions = resolution.decisions,
+                    ),
+                )
+            }
+            is WorkflowDeviceObservationResolution.InsufficientEvidence -> {
+                throw WorkflowDeviceObservationEvidenceException(
+                    resolution.reason,
+                    "步骤 ${step.sequence}：${resolution.message}",
+                )
+            }
+        }
+    }
+
+    private suspend fun evaluateDeviceObservationEvidence(
+        agentRunId: String,
+    ): WorkflowDeviceObservationResolution {
+        return WorkflowDeviceObservationDecisionPolicy.evaluate(
+            expectedAgentRunId = agentRunId,
+            results = database.agentRunDao().getToolResults(agentRunId).map { result ->
+                WorkflowDeviceObservationEvidenceInput(
+                    runId = result.runId,
+                    toolName = result.toolName,
+                    content = result.content,
+                    success = result.success,
+                    verified = result.verificationStatus == "PASSED",
+                    durationMs = result.durationMs,
+                )
+            },
+        )
     }
 
     private fun WorkflowEntity.toRecord(

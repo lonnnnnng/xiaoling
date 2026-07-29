@@ -49,7 +49,6 @@ import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepExecutionPolicy
-import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepPromptPolicy
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
@@ -1927,10 +1926,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     publishAgentRunSnapshot(snapshot)
                 },
             )
-            val deviceObservationDecisions = WorkflowDeviceObservationDecisionPolicy.requireDecisions(
-                WorkflowDeviceObservationDecisionPolicy.evaluate(summary.verifiedContext),
-            )
-            withContext(Dispatchers.IO) {
+            val deviceObservationDecisions = withContext(Dispatchers.IO) {
+                workflowRepository.requireDeviceObservationDecisions(summary.runId)
+            }
+            val completedStep = withContext(Dispatchers.IO) {
                 workflowRepository.completeWorkflowStep(
                     workflowRunId = detail.run.id,
                     workflowStepId = preparedStep.id,
@@ -1942,11 +1941,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     deviceObservationDecisions = deviceObservationDecisions,
                 )
             }
+            val workflowResponseText = WorkflowStepSnapshotCodec.outputText(
+                completedStep.outputSnapshot ?: completedStep.result,
+            ) ?: summary.responseText
             appendWorkflowMessage(
                 conversationId,
                 ChatMessage(
                     role = "assistant",
-                    text = summary.responseText,
+                    text = workflowResponseText,
                     createdAt = System.currentTimeMillis(),
                     origin = MessageOrigin.AGENT_RESULT,
                     verifiedAgentContext = summary.verifiedContext,
