@@ -6,7 +6,7 @@ answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答�
 
 当前源码和 Redmi 开发数据使用 Room v33。生产请求通过 `KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL` 写入 `knowledge_answerability_shadow_observations`；旧阶段的 `store=null / persistenceMode=NONE` 只属于第 96 至 101 阶段的历史事实，不再代表当前实现。Shadow 默认关闭，notice 仍只存在于当前进程，`enforcementApplied=false`，production enforcement 继续关闭。
 
-第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口，不新增真实样本。当前两条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
+第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口；第 106 阶段只把匿名账本的最早/最新时间与跨度投影到设置页。当前两条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
 
 ## 候选来源
 
@@ -128,6 +128,12 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 
 候选缺失、答案保存失败、用户在调用前关闭或并发答案已经抢先消费时，不会误用同一采样窗口。本阶段用 `AgentAnswerabilityShadowPublisherTest` 覆盖消费顺序、候选缺失、保存失败和提前撤销，用 `AnswerabilityShadowObservationWindowGateTest` 的 20 路并发覆盖唯一消费者；聚焦 JVM 合计 `11/11`。没有新增 Room 行，也没有改变 Judge 重试、匿名账本、notice、离线评测资格或 production enforcement。
 
+## 第 106 阶段时间窗口证据投影
+
+`KnowledgeAnswerabilityShadowPersistentSummary` 已从 Room 聚合最早和最新 `recordedAt`，设置页现在通过纯 `projectAnswerabilityShadowWindowEvidence()` 按设备本地时区显示两端时间，并用实际毫秒差显示精确跨度。第 103/104 阶段两条记录对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`，跨度 `46 分钟 14 秒`。
+
+该投影在时间缺失或逆序时显示未知，不定义小时/天数阈值，也不返回 ready/eligible 状态。它只消除停进程查数据库的人工成本，不能把短间隔记录升级为长期分隔样本，不能触发 Judge、修改 Room、导出 JSON/SAF、进入 calibration/validation 或开启 production enforcement。聚焦 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译通过；未安装或运行设备测试。
+
 ## 当前不做的事
 
 - 不把 Shadow 结论用于删除引用、改写答案、改变检索排序或拒绝生产回答。
@@ -145,4 +151,5 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 - 第 103 阶段按分级验证只执行 Debug/AndroidTest 构建、Provider 兼容单项、真实前台 Shadow 链和 Redmi 文档 corpus `OK (1 test)`；
 - 第 104 阶段按分级验证执行聚焦 JVM、Debug/AndroidTest 构建、第二条真实前台 Shadow 链、冷启动设置页复验和 Redmi 文档 corpus 单项；当前 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新打包后的最终复验同样通过；
 - 第 105 阶段按分级验证执行 Publisher `10/10` 与原子门禁 20 路并发 `1/1`，聚焦 JVM 合计 `11/11`；未新增真实样本，未运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release；
+- 第 106 阶段按分级验证执行时间投影 JVM `3/3` 与 AndroidTest APK 编译；未新增真实样本，未安装 APK、运行 Redmi instrumentation、完整 JVM、Lint 或 Release；
 - Pixel_9 和其他模拟器未参与上述验证。

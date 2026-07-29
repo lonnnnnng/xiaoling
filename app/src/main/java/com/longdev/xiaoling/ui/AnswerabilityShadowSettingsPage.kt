@@ -29,6 +29,56 @@ import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityJudgeFailureKind
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleSummary
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowPersistentSummary
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+internal data class AnswerabilityShadowWindowEvidenceProjection(
+    val recordedRangeText: String,
+    val observationSpanText: String,
+)
+
+/**
+ * long: 时间投影只帮助人工核对样本是否真正分隔；它不能根据少量匿名记录自动授予校准、导出或生产拒绝资格。
+ */
+internal fun projectAnswerabilityShadowWindowEvidence(
+    summary: KnowledgeAnswerabilityShadowPersistentSummary,
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): AnswerabilityShadowWindowEvidenceProjection {
+    val oldest = summary.oldestRecordedAt
+    val latest = summary.latestRecordedAt
+    val oldestText = oldest?.toShadowRecordedAtText(zoneId) ?: "未知"
+    val latestText = latest?.toShadowRecordedAtText(zoneId) ?: "未知"
+    val spanText = if (oldest != null && latest != null && latest >= oldest) {
+        formatShadowObservationSpan(latest - oldest)
+    } else {
+        "未知"
+    }
+    return AnswerabilityShadowWindowEvidenceProjection(
+        recordedRangeText = "最早 $oldestText · 最新 $latestText",
+        observationSpanText = "记录跨度 $spanText · 仅展示匿名账本时间证据，不自动判定为分隔窗口",
+    )
+}
+
+private fun Long.toShadowRecordedAtText(zoneId: ZoneId): String =
+    Instant.ofEpochMilli(this).atZone(zoneId).format(SHADOW_RECORDED_AT_FORMATTER)
+
+private fun formatShadowObservationSpan(spanMillis: Long): String {
+    val totalSeconds = spanMillis / 1_000L
+    val days = totalSeconds / 86_400L
+    val hours = totalSeconds % 86_400L / 3_600L
+    val minutes = totalSeconds % 3_600L / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        days > 0L -> "$days 天 $hours 小时 $minutes 分钟 $seconds 秒"
+        hours > 0L -> "$hours 小时 $minutes 分钟 $seconds 秒"
+        minutes > 0L -> "$minutes 分钟 $seconds 秒"
+        else -> "$seconds 秒"
+    }
+}
+
+private val SHADOW_RECORDED_AT_FORMATTER: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 @Composable
 internal fun AnswerabilityShadowSettingsContent(
@@ -39,6 +89,7 @@ internal fun AnswerabilityShadowSettingsContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val windowEvidence = projectAnswerabilityShadowWindowEvidence(persistentSummary)
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -129,6 +180,15 @@ internal fun AnswerabilityShadowSettingsContent(
                 Text(
                     "Judge 尝试 ${persistentSummary.judgeAttemptCount} 次 · 累计耗时 ${persistentSummary.latencyMs?.let { "${it}ms" } ?: "未知"} · Tokens ${persistentSummary.totalTokens ?: "未知"}",
                     style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    windowEvidence.recordedRangeText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    windowEvidence.observationSpanText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (persistentSummary.failureCounts.isNotEmpty()) {
                     Text(

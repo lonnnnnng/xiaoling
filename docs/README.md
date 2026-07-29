@@ -1,6 +1,8 @@
 # 文档索引
 
-第 105 阶段把 answerability Shadow 设置收紧为单次显式采样窗口：候选存在且答案保存成功后，Publisher 通过原子门禁同时检查并消费授权，只有成功关闭并持久化开关的答案才能进入观测协调器；并发答案只有一条成功，候选缺失、保存失败或提前撤销不消费窗口。Publisher 与 20 路并发门禁聚焦 JVM合计 `11/11`，本阶段没有新增真实样本，也没有执行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。
+第 106 阶段把 Room v33 匿名摘要已有的最早/最新记录时间与精确跨度投影到 Shadow 设置页。当前两条证据对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`、跨度 `46 分钟 14 秒`；界面明确只展示时间证据，不自动判定为分隔窗口。投影 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译成功，同时修正 Stage 105 后 Compose 测试仍引用旧开关语义的问题。本阶段没有安装 APK、连接设备、调用 Judge、增加 Room 行或进入 JSON/SAF、校准和 production enforcement。
+
+第 105 阶段把 answerability Shadow 设置收紧为单次显式采样窗口：候选存在且答案保存成功后，Publisher 通过原子门禁同时检查并消费授权，只有成功关闭并持久化开关的答案才能进入观测协调器；并发答案只有一条成功，候选缺失、保存失败或提前撤销不消费窗口。Publisher 与 20 路并发门禁聚焦 JVM 合计 `11/11`，本阶段没有新增真实样本，也没有执行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。
 
 第 104 阶段 README/docs 已重新打入 AndroidTest APK，并仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`；前两轮结果均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，写回设备收尾并重新打包后的最终复验同样通过。该结果验证的是第 104 阶段提交文档，不是改写前的旧 assets。
 

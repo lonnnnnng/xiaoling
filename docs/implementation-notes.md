@@ -19,6 +19,12 @@
 - v32→v33 migration 只创建空表和时间索引，不扫描或回填消息、Run、检索审计或第 97–101 阶段人工统计。旧版本备份继续通过 `CURRENT_VERSION=33` 迁移，未来版本备份仍按既有高版本拒绝策略处理。production enforcement、知识检索与排序、普通聊天、Workflow/后台、ANN 和自动索引重建均未改变。
 - TDD 先以缺少 `telemetry` 的编译失败和 Publisher 仍请求 `NONE` 建立 red；第二轮以 Redmi 上最终异常失败分布为 `null` 建立 red，随后修正为稳定失败枚举；Judge 身份桶加入后，迁移、Store、失败分布和设置页聚焦组合为 `OK (5 tests)`。双轴审查发现公开配置的无盐摘要可枚举，并指出缺少 2,001 条裁剪边界；改用 Keystore HMAC 后 Store `4/4` 证明落库桶不等于公开 SHA-256，且第 2,001 条会删除最旧记录。最终完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital 通过；Redmi 保持唤醒后的最终 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。更新后的项目文档首次 corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验也已通过；固定正式 `v0.1.13` 恢复后测试包不存在、保持唤醒还原为 `0`，crash buffer 为空。
 
+## 第 106 阶段：Shadow 时间窗口证据投影（完成）
+
+- `projectAnswerabilityShadowWindowEvidence()` 只读取 `KnowledgeAnswerabilityShadowPersistentSummary.oldestRecordedAt / latestRecordedAt`，按设备本地时区生成最早/最新文本，并用实际毫秒差格式化天、小时、分钟和秒；缺失或逆序时间固定显示未知。
+- 设置页在跨进程匿名摘要中展示时间范围与跨度，并明确“不自动判定为分隔窗口”。该投影不定义时间阈值，不调用 Judge、不写 Room，也不改变离线评测资格、JSON/SAF 或 production enforcement。
+- TDD 使用第 103/104 阶段真实时间建立 Red，缺少投影函数时按预期编译失败；最小实现后经复核补齐单端缺失与时间逆序边界，聚焦 JVM `3/3`。既有 Compose instrumentation 同步改用“授权下一次答案可回答性 Shadow”语义并断言范围/跨度，`assembleDebugAndroidTest` 成功。没有安装 APK、连接 Redmi 或运行 instrumentation。
+
 ## 第 105 阶段：单次显式 Shadow 采样窗口（完成）
 
 - `AgentAnswerabilityShadowPublisher.publish()` 新增必填的 `tryConsumeObservationWindow` seam，不提供默认放行。只有候选存在、答案持久化成功且原子消费返回 `true` 时才调用 `observe()`；候选缺失、保存失败、提前撤销或授权已被并发答案消费都会保守取消旁路。
