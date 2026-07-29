@@ -8,7 +8,9 @@ Room v33 的 `knowledge_answerability_shadow_observations` 必须以 64 位小�
 
 设置页必须把跨进程匿名累计与当前进程样本/notice 生命周期分开展示。notice 继续使用短生命周期 `messageId` Map，重启后不得从历史消息恢复。v32→v33 迁移只能创建空表，不得从历史消息、Run、检索审计或第 97–101 阶段人工汇总猜造记录；旧阶段“不持久化”是当时证据下的历史边界，保留原文，不得改写成已由新账本采集。生产相关性拒绝与 answerability enforcement 继续关闭；本切片不改变检索排序、答案、Workflow/后台权限、ANN 或自动后台索引重建。
 
-验收必须覆盖 `OPTIONAL` 生产请求、持久记录携带数值遥测、幂等重复、数据库关闭重开、未知数值保持 `null`、无 attempt telemetry 的最终稳定失败分类、Judge HMAC 匿名分桶、公开 SHA-256 与落库 HMAC 不同、第 2,001 条裁剪最旧记录、v32→v33 空迁移、Schema/表值隐私和原始正文误入摘要字段的拒绝。当前实现已通过本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital，以及仅 Redmi 最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`）；更新后的项目文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，验收结束后恢复固定正式版。
+应用冷启动时，跨进程摘要读取可能先于 Profile、会话和 Workflow 初始化完成。后续整表状态重建必须保留已经读取的 `answerabilityShadowPersistentSummary`、当前 Shadow 开关和进程内摘要，禁止使用默认零值覆盖真实 Room 累计。该合并只恢复 UI 投影，不得改写匿名账本、补造记录或把进程内 notice 持久化。
+
+验收必须覆盖 `OPTIONAL` 生产请求、持久记录携带数值遥测、幂等重复、数据库关闭重开、未知数值保持 `null`、无 attempt telemetry 的最终稳定失败分类、Judge HMAC 匿名分桶、公开 SHA-256 与落库 HMAC 不同、第 2,001 条裁剪最旧记录、v32→v33 空迁移、Schema/表值隐私、原始正文误入摘要字段的拒绝，以及冷启动状态重建不会丢失已加载跨进程摘要。当前实现已通过本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital，以及仅 Redmi 最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`）；第 104 阶段新增聚焦 JVM 回归和 Redmi 冷启动真实摘要复验。更新后的项目文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，正式发布基线与当前 Room v33 开发设备态继续分开记录。
 
 ## 成功 ToolResult 缺少 typed 验证结论的闭环审计边界（通用执行恢复矩阵）
 

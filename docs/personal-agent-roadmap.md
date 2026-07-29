@@ -14,6 +14,12 @@ answerability Shadow 已从只保留当前进程 tracker 扩展为 Room v33 匿�
 
 本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。类型级离线评测导出契约与首个 Room v33 间隔真实样本均已完成；继续用新匿名账本在分隔窗口低频积累，样本足够后再评估 JSON codec 或 UI/SAF 出口。production enforcement 继续关闭。
 
+## 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复（完成）
+
+完整清理并重启进程后，Redmi 使用词法兜底命中 `anonymous shadow calibration validation` 本地知识，形成第二条 `COMPLETED / BOUND / ACCEPT` 匿名记录。两条累计为观测 `2`、Judge 身份桶 `1`、完成/绑定/接受 `2/2/2`、attempt `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`、usage `2`，全部失败分桶为 `0`。
+
+第二条距首条约 `46` 分钟，只记为独立短间隔复验，不满足长期分隔样本的证据强度。冷启动时跨进程摘要被初始化整表重建覆盖为零的问题已经通过纯状态合并函数和 JVM 回归修复，Redmi 设置页已显示真实累计。清理后知识文档/chunks、消息均为 `0`，两个旧 Run 均保持 `COMPLETED`，Shadow 关闭，测试包与临时文件不存在。聚焦 JVM、Debug/AndroidTest 构建通过；当前文档 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新打包后的最终复验同样通过。主应用最终冷启动 `3385ms`、前台进程正常且 crash buffer 为空。下一步等待真正分隔开的低频使用窗口，不在当前窗口继续采样；JSON/SAF、显式授权评测集、独立阈值校准和 production enforcement 继续后置。
+
 ## 第 102 阶段：answerability 离线评测导出契约（完成）
 
 新增版本化 Kotlin sealed envelope，匿名 Shadow 观测证据与显式授权内容评测案例使用两个不能混装的强类型结构。匿名导出不携带原始 Judge 或数据集身份，只允许 v33 不可逆 fingerprint、枚举、失败分桶和保持未知 `null` 的数值 telemetry，不得用于 calibration/validation；显式内容导出才允许携带授权、数据集/评测身份和可校验正文、引用、label/assessment。未增加 production enforcement，Workflow/后台、检索排序和答案路径保持不变。

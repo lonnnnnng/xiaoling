@@ -274,6 +274,16 @@ data class XiaoLingUiState(
     val result: OperationResult? = null,
 )
 
+internal fun mergeAnswerabilityShadowInitializationState(
+    initializedState: XiaoLingUiState,
+    runtimeState: XiaoLingUiState,
+): XiaoLingUiState = initializedState.copy(
+    answerabilityShadowEnabled = runtimeState.answerabilityShadowEnabled,
+    answerabilityShadowSampleSummary = runtimeState.answerabilityShadowSampleSummary,
+    // long: 匿名账本可能在 Profile/会话加载完成前已经读回；启动整表状态重建必须保留该结果，不能让默认零值覆盖真实跨进程累计。
+    answerabilityShadowPersistentSummary = runtimeState.answerabilityShadowPersistentSummary,
+)
+
 private data class WorkflowUiData(
     val workflows: List<WorkflowRecord>,
     val runs: List<WorkflowRunDetail>,
@@ -725,31 +735,32 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
             }
             // long: Room/Keystore 读取放在协程里执行，首屏先用安全的空白状态，避免应用启动阶段因为解密或数据库迁移阻塞主线程。
-            uiState = storedProfiles
-                .toUiState()
-                .withConversations(storedConversations)
-                .copy(
-                    themeMode = uiState.themeMode,
-                    promptSettings = uiState.promptSettings,
-                    memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
-                    userAgent = uiState.userAgent,
-                    reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
-                    answerabilityShadowEnabled = uiState.answerabilityShadowEnabled,
-                    answerabilityShadowSampleSummary = uiState.answerabilityShadowSampleSummary,
-                    agentProfiles = storedAgentProfiles.profiles,
-                    selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
-                    registeredAgentTools = availableAgentTools,
-                    skills = availableSkills,
-                    agentMemoryRecallEnabled = storedAgentProfiles.profiles
-                        .first { it.id == storedAgentProfiles.selectedProfileId }
-                        .memoryEnabled,
-                    deletedMemoryForUndo = latestDeletedMemory,
-                    workflows = workflowState.workflows,
-                    workflowRuns = workflowState.runs,
-                    scheduledTasks = workflowState.tasks,
-                    workflowSchedules = workflowState.schedules,
-                    result = uiState.result,
-                )
+            uiState = mergeAnswerabilityShadowInitializationState(
+                initializedState = storedProfiles
+                    .toUiState()
+                    .withConversations(storedConversations)
+                    .copy(
+                        themeMode = uiState.themeMode,
+                        promptSettings = uiState.promptSettings,
+                        memoryCandidatesEnabled = uiState.memoryCandidatesEnabled,
+                        userAgent = uiState.userAgent,
+                        reasoningSummaryEnabled = uiState.reasoningSummaryEnabled,
+                        agentProfiles = storedAgentProfiles.profiles,
+                        selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
+                        registeredAgentTools = availableAgentTools,
+                        skills = availableSkills,
+                        agentMemoryRecallEnabled = storedAgentProfiles.profiles
+                            .first { it.id == storedAgentProfiles.selectedProfileId }
+                            .memoryEnabled,
+                        deletedMemoryForUndo = latestDeletedMemory,
+                        workflows = workflowState.workflows,
+                        workflowRuns = workflowState.runs,
+                        scheduledTasks = workflowState.tasks,
+                        workflowSchedules = workflowState.schedules,
+                        result = uiState.result,
+                    ),
+                runtimeState = uiState,
+            )
             restoreRecoveredAgentRuns(resumableApprovalRuns)
             resumeRecoveredCommittedToolRuns(resumableCommittedToolRuns)
             resumeRecoveredVerifiedToolRuns(resumableVerifiedToolRuns)

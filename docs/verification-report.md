@@ -13,7 +13,16 @@
 - 文档语料门禁：最终 README 与长期 `docs/` 打包进 AndroidTest assets 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
-- 当前开发设备状态：第 103 阶段为保留已迁移的 Room v33 数据，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
+- 当前开发设备状态：第 104 阶段为保留已迁移的 Room v33 数据和两条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
+
+## 2026-07-29 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复
+
+- 第二条真实样本：完整清理第 103 阶段临时数据并重启进程后，把 `docs/answerability-shadow-binding.md` 导入为 `xiaoling-stage104-shadow.md`，形成 revision `1`、`5` 个 chunks、`11.4 KB`。Embedding 不可用，查询 `anonymous shadow calibration validation` 通过词法兜底命中 `1` 个 chunk；真实请求 `/agent Use knowledge.search with query anonymous shadow calibration validation and explain why anonymous Shadow cannot be used for calibration or validation.` 完成检索、答案/引用保存和 Judge。
+- 停进程 Room 证据：新增记录为 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7645/7632ms`，Prompt `3967B`，输入/输出/总 Tokens `905/372/1277`，usage `1`，所有失败分桶为 `0`，记录时间 `2026-07-29 08:13:50`（北京时间）。第 103+104 阶段累计为 rows `2`、Judge identity buckets `1`、completed/bound/accept `2/2/2`、attempts `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`、usage `2`，所有失败分桶仍为 `0`。
+- 证据边界：第二条距首条约 `46` 分钟，只能视为完整清理和进程重启后的独立短间隔窗口，不能夸大为长期分隔样本。两条匿名记录仍不得用于 calibration/validation；本阶段不进入 JSON codec、UI/SAF、显式授权评测集、独立阈值校准或 production enforcement，并停止在当前窗口继续制造样本。
+- 冷启动回归与修复：数据库已有 `2` 条记录时，设置页“跨进程匿名摘要”曾稳定显示全零。根因是异步摘要读取完成后，Profile/会话初始化整表重建 `uiState` 时遗漏 `answerabilityShadowPersistentSummary`。新增纯状态合并函数和聚焦 JVM 回归，保留 Shadow 开关、进程内摘要与跨进程摘要；正式证书签署的源码 Debug 无损覆盖 Redmi 后，真实冷启动设置页显示观测 `2`、Judge 身份 `1`、完成/接受 `2/2`、Judge 尝试 `2`、累计耗时 `17308ms`、Tokens `4547`。
+- 清理状态：通过应用 UI 删除临时 Agent 会话正文和知识文档，精确删除 `/sdcard/Download/xiaoling-stage104-shadow.md`。最终停进程快照为 documents/chunks `0/0`、messages `0`、自动保留空壳会话 `1`、Agent Run `2` 且均为 `COMPLETED`、shadow rows `2`、Provider/Profile `1/1`、Shadow `false`、production enforcement 偏好不存在；测试包和临时下载文件不存在。旧 Run 保持不变。
+- 分级门禁：`XiaoLingInitializationStateTest` 聚焦 JVM、`assembleDebug` 和 `assembleDebugAndroidTest` 均通过；没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。两个 APK 使用正式证书签署并只覆盖 Redmi；当前文档 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充本节设备收尾并重新打包后的最终复验同样通过。最终测试包不存在，源码 Debug 冷启动 `3385ms`，`MainActivity` resumed、PID `19521` 存活，清空后 crash buffer 为空。Pixel_9 和其他模拟器未参与。
 
 ## 2026-07-29 第 103 阶段：Room v33 首个间隔真实 Shadow 样本
 

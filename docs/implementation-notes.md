@@ -19,6 +19,15 @@
 - v32→v33 migration 只创建空表和时间索引，不扫描或回填消息、Run、检索审计或第 97–101 阶段人工统计。旧版本备份继续通过 `CURRENT_VERSION=33` 迁移，未来版本备份仍按既有高版本拒绝策略处理。production enforcement、知识检索与排序、普通聊天、Workflow/后台、ANN 和自动索引重建均未改变。
 - TDD 先以缺少 `telemetry` 的编译失败和 Publisher 仍请求 `NONE` 建立 red；第二轮以 Redmi 上最终异常失败分布为 `null` 建立 red，随后修正为稳定失败枚举；Judge 身份桶加入后，迁移、Store、失败分布和设置页聚焦组合为 `OK (5 tests)`。双轴审查发现公开配置的无盐摘要可枚举，并指出缺少 2,001 条裁剪边界；改用 Keystore HMAC 后 Store `4/4` 证明落库桶不等于公开 SHA-256，且第 2,001 条会删除最旧记录。最终完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital 通过；Redmi 保持唤醒后的最终 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。更新后的项目文档首次 corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验也已通过；固定正式 `v0.1.13` 恢复后测试包不存在、保持唤醒还原为 `0`，crash buffer 为空。
 
+## 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 在第 103 阶段完整清理并重新启动进程后导入 `docs/answerability-shadow-binding.md`，形成 revision `1`、`5` 个 chunks、`11.4 KB`。Embedding Provider 在该窗口不可用，查询 `anonymous shadow calibration validation` 通过词法兜底命中 `1` 个 chunk；前台直接 `/agent` 完成知识检索、答案/引用保存和真实 Judge。
+- 新记录为 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7645/7632ms`，Prompt `3967B`，输入/输出/总 Tokens `905/372/1277`，usage `1`，十类失败计数均为 `0`，时间 `2026-07-29 08:13:50`（北京时间）。与首条累计为观测 `2`、Judge 身份桶 `1`、完成/绑定/接受 `2/2/2`、attempt `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`、usage `2`，全部失败分桶为 `0`。
+- 两条记录只相隔约 `46` 分钟。本次只证明完整清理与进程重启后的独立短间隔链路仍可用，不作为长期低频窗口，不足以进入 JSON/SAF、显式授权评测集、独立阈值校准或 production enforcement；当前窗口不再继续采样，下一步等待真正分隔开的使用窗口。
+- 冷启动复验发现数据库已有 `2` 条记录，但设置页跨进程摘要显示全零。根因是 `refreshAnswerabilityShadowPersistentSummary()` 先异步读取真实摘要，随后初始化完成时整表重建 `uiState` 只保留 Shadow 开关和进程内摘要，遗漏跨进程摘要并用默认零值覆盖。现在使用纯 `mergeAnswerabilityShadowInitializationState()` 保留三项运行态，新增 JVM 回归固定该合并边界；Redmi 冷启动后设置页显示观测 `2`、Judge 身份 `1`、完成 `2`、接受 `2`、Judge 尝试 `2`、累计耗时 `17308ms`、Tokens `4547`。
+- 清理通过应用 UI 删除临时 Agent 会话正文和知识文档，并精确删除 Redmi 下载文件。最终停进程快照为 documents/chunks `0/0`、messages `0`、应用自动保留空壳会话 `1`、Agent Run `2` 且均为 `COMPLETED`、Shadow rows `2`、Provider/Profile `1/1`、Shadow 关闭、production enforcement 偏好不存在、测试包和临时下载文件不存在。删除会话没有删除旧 Run，符合旧 Run 保持不变的审计边界。
+- 分级门禁为新增 `XiaoLingInitializationStateTest` 聚焦 JVM、Debug APK 和 AndroidTest APK 构建；三项均通过。正式证书签署的 Debug/Test APK 只覆盖安装到 Redmi，当前文档 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新构建 AndroidTest APK 后最终复验同样通过。测试包已卸载；主应用冷启动 `3385ms`，Activity resumed、PID 存活、crash buffer 为空。没有运行完整 JVM、Lint、默认完整 instrumentation、Release 或模拟器测试。
+
 ## 通用执行恢复矩阵：成功 ToolResult 缺 typed 验证结论闭环审计（完成）
 
 - `AgentRunResumePolicy.assessCommittedToolVerification()` 的短路顺序固定为：先查当前工具定义，再由 `ToolExecutionRecoveryEvidencePolicy` 审计历史定义、成功结果、`COMMITTED` 回执和幂等键，最后查询当前工具是否开放只读恢复验证。定义缺失、回执损坏和能力未开放分别保留独立稳定处置码。
