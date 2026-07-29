@@ -10,7 +10,7 @@ Room v33 的 `knowledge_answerability_shadow_observations` 必须以 64 位小�
 
 应用冷启动时，跨进程摘要读取可能先于 Profile、会话和 Workflow 初始化完成。后续整表状态重建必须保留已经读取的 `answerabilityShadowPersistentSummary`、当前 Shadow 开关和进程内摘要，禁止使用默认零值覆盖真实 Room 累计。该合并只恢复 UI 投影，不得改写匿名账本、补造记录或把进程内 notice 持久化。
 
-验收必须覆盖 `OPTIONAL` 生产请求、持久记录携带数值遥测、幂等重复、数据库关闭重开、未知数值保持 `null`、无 attempt telemetry 的最终稳定失败分类、Judge HMAC 匿名分桶、公开 SHA-256 与落库 HMAC 不同、第 2,001 条裁剪最旧记录、v32→v33 空迁移、Schema/表值隐私、原始正文误入摘要字段的拒绝，以及冷启动状态重建不会丢失已加载跨进程摘要。当前实现已通过本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital，以及仅 Redmi 最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`）；第 104 阶段新增聚焦 JVM 回归和 Redmi 冷启动真实摘要复验。更新后的项目文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，正式发布基线与当前 Room v33 开发设备态继续分开记录。
+验收必须覆盖 `OPTIONAL` 生产请求、持久记录携带数值遥测、幂等重复、数据库关闭重开、未知数值保持 `null`、无 attempt telemetry 的最终稳定失败分类、Judge HMAC 匿名分桶、公开 SHA-256 与落库 HMAC 不同、第 2,001 条裁剪最旧记录、v32→v33 空迁移、Schema/表值隐私、原始正文误入摘要字段的拒绝，以及冷启动状态重建不会丢失已加载跨进程摘要。当前实现已通过本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital，以及仅 Redmi 最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`）；第 104 阶段新增聚焦 JVM 回归和 Redmi 冷启动真实摘要复验。第 107 阶段进一步通过真实预算耗尽 Run 验证“没有成功答案不消费一次性授权”，并形成第三条独立同日记录；三条仍不授予长期分隔、校准、导出或生产拒绝资格。更新后的项目文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，正式发布基线与当前 Room v33 开发设备态继续分开记录。
 
 ## 成功 ToolResult 缺少 typed 验证结论的闭环审计边界（通用执行恢复矩阵）
 
@@ -159,6 +159,8 @@ ViewModel 只投影 `ConfirmationRequired / ConfirmationRefreshed / PreparationR
 设置页必须从匿名跨进程摘要展示最早记录时间、最新记录时间和二者的实际跨度，使用设备本地时区并在证据缺失、顺序异常时显示未知。该投影只能帮助人工核对，不得内置未经预注册的小时/天数阈值，不得自动声明样本已满足分隔、calibration/validation、JSON/SAF 出口或 production enforcement 资格。
 
 Agent Run 因无候选、预算耗尽或工具步数耗尽而失败时，只有确实进入 tracker 的稳定 Shadow 事件才允许计数；没有成功答案和合格候选时不得伪造 `SKIPPED`、Judge 失败、取消或 usage。知识检索使用词法兜底形成候选时必须如实记录，不能把 answerability Judge 结果表述为 Embedding 质量证据。
+
+第 107 阶段 Redmi 真实窗口验证了这一边界：首次 Run 连续执行 4 次 `knowledge.search` 后因工具预算耗尽，没有成功答案，因此一次性授权保持开启，Room v33 匿名账本仍为 `2`，attempt、usage 和失败分桶均不增加；随后第二个 Run 只执行 1 次检索并成功保存答案后才消费授权，新增第三条 `COMPLETED / BOUND / ACCEPT`。当前三条最早到最新跨度 `5 小时 24 分 46.689 秒`，仍只属于同日证据，不满足长期分隔、calibration/validation、JSON/SAF 或 production enforcement 资格。
 
 第 99 阶段首批窗口新增样本 `3`、完成 `3`、Judge `3` 次，直接回答 `2`、部分回答 `1`；取消、异常、答案保存失败、Shadow Store 失败和绑定未知均为 `0`。成本为耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。关闭开关只能撤销后续授权；删除四个测试会话后 notice 必须从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3` 且累计成本不回退，删除临时知识文档后恢复文档 `0`、原会话 `1`。
 

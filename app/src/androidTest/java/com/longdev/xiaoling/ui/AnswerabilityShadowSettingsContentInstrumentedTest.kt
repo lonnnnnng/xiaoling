@@ -39,8 +39,8 @@ class AnswerabilityShadowSettingsContentInstrumentedTest {
                         unknownCount = 1,
                         judgeAttemptCount = 6,
                         totalTokens = 84L,
-                        oldestRecordedAt = Instant.parse("2026-07-28T23:27:36Z").toEpochMilli(),
-                        latestRecordedAt = Instant.parse("2026-07-29T00:13:50Z").toEpochMilli(),
+                        oldestRecordedAt = Instant.parse("2026-07-28T23:27:36.666Z").toEpochMilli(),
+                        latestRecordedAt = Instant.parse("2026-07-29T00:13:50.112Z").toEpochMilli(),
                     ),
                     onEnabledChanged = { enabled.value = it },
                     onBack = {},
@@ -56,7 +56,7 @@ class AnswerabilityShadowSettingsContentInstrumentedTest {
         composeRule.onNodeWithText("观测 5 · Judge 身份 1 · 完成 4 · 未知 1").performScrollTo().assertExists()
         composeRule.onNodeWithText("最早 2026-07-29 07:27:36 · 最新 2026-07-29 08:13:50").assertExists()
         composeRule
-            .onNodeWithText("记录跨度 46 分钟 14 秒 · 仅展示匿名账本时间证据，不自动判定为分隔窗口")
+            .onNodeWithText("记录跨度 46 分钟 13 秒 · 仅展示匿名账本时间证据，不自动判定为分隔窗口")
             .assertExists()
         composeRule
             .onNodeWithText("本卡片仅保存在当前进程内，重启后清空；notice 不会从历史消息恢复。")

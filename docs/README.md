@@ -1,6 +1,8 @@
 # 文档索引
 
-第 106 阶段把 Room v33 匿名摘要已有的最早/最新记录时间与精确跨度投影到 Shadow 设置页。当前两条证据对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`、跨度 `46 分钟 14 秒`；界面明确只展示时间证据，不自动判定为分隔窗口。投影 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译成功，同时修正 Stage 105 后 Compose 测试仍引用旧开关语义的问题。本阶段没有安装 APK、连接设备、调用 Judge、增加 Room 行或进入 JSON/SAF、校准和 production enforcement。
+第 107 阶段在 Redmi 取得 Room v33 第三条真实 Shadow 记录。首次较宽请求连续 4 次 `knowledge.search` 后以 `BUDGET_EXHAUSTED` 收敛，没有成功答案、没有消费一次性授权或写入匿名账本；第二次请求只执行 1 次检索并新增 `COMPLETED / BOUND / ACCEPT`。第三条记录时间为北京时间 `2026-07-29 12:52:23`，距第二条 `4 小时 38 分 33 秒`；当前三条总跨度 `5 小时 24 分 46 秒`，仍只属于同日独立窗口。清理后知识文档/chunks/messages 为 `0/0/0`，Shadow 自动关闭；JSON/SAF、显式授权评测集、校准和 production enforcement 继续关闭。真实毫秒夹具修正后的投影 JVM `3/3` 与 AndroidTest APK 编译通过，同步后的 Redmi 文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。
+
+第 106 阶段把 Room v33 匿名摘要已有的最早/最新记录时间与精确跨度投影到 Shadow 设置页。该阶段当时的两条证据对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`、跨度 `46 分钟 13 秒`；界面明确只展示时间证据，不自动判定为分隔窗口。投影 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译成功，同时修正 Stage 105 后 Compose 测试仍引用旧开关语义的问题。本阶段没有安装 APK、连接设备、调用 Judge、增加 Room 行或进入 JSON/SAF、校准和 production enforcement。
 
 第 105 阶段把 answerability Shadow 设置收紧为单次显式采样窗口：候选存在且答案保存成功后，Publisher 通过原子门禁同时检查并消费授权，只有成功关闭并持久化开关的答案才能进入观测协调器；并发答案只有一条成功，候选缺失、保存失败或提前撤销不消费窗口。Publisher 与 20 路并发门禁聚焦 JVM 合计 `11/11`，本阶段没有新增真实样本，也没有执行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。
 
@@ -16,7 +18,7 @@
 
 第 102 阶段已冻结 answerability 离线评测强类型导出契约：匿名 Shadow 与显式授权内容案例使用不能混装的版本化 envelope。匿名证据只允许 v33 不可逆 fingerprint、枚举、失败分桶和保持未知 `null` 的数值 telemetry，固定不能作为 calibration/validation 数据；显式内容案例才携带授权、数据集身份、正文、引用与人工评估。该阶段没有接入 JSON codec、UI/SAF 出口或生产 enforcement。
 
-第 103 阶段完成首个 Room v33 间隔真实 Shadow 样本。只在 Redmi 前台直接 `/agent` 中短时显式开启，使用词法兜底命中的 `Agent Run retryOfRunId` 本地知识形成 `1` 条 `COMPLETED / BOUND / ACCEPT` 匿名记录；Judge 尝试 `1` 次，耗时/TTFB `9663/9655ms`，Prompt `10879B`，Tokens `2801/469/3270`，失败计数为 `0`。停进程快照确认 Schema `33`、知识文档/分块恢复 `0`、Shadow 关闭、生产 enforcement 偏好不存在，Provider/Profile 仍绑定可用模型；临时会话、知识文档、下载文件和测试包均已清理。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后第 103 阶段当时账本仍为 `1`、知识数据仍为 `0`，最终冷启动 `3441ms` 且 crash buffer 为空。第 104 阶段随后已形成第二条短间隔记录，当前总账本为 `2`，真正分隔样本仍需继续积累。
+第 103 阶段完成首个 Room v33 间隔真实 Shadow 样本。只在 Redmi 前台直接 `/agent` 中短时显式开启，使用词法兜底命中的 `Agent Run retryOfRunId` 本地知识形成 `1` 条 `COMPLETED / BOUND / ACCEPT` 匿名记录；Judge 尝试 `1` 次，耗时/TTFB `9663/9655ms`，Prompt `10879B`，Tokens `2801/469/3270`，失败计数为 `0`。停进程快照确认 Schema `33`、知识文档/分块恢复 `0`、Shadow 关闭、生产 enforcement 偏好不存在，Provider/Profile 仍绑定可用模型；临时会话、知识文档、下载文件和测试包均已清理。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后第 103 阶段当时账本仍为 `1`、知识数据仍为 `0`，最终冷启动 `3441ms` 且 crash buffer 为空。第 104 阶段随后形成第二条短间隔记录，第 107 阶段又形成第三条独立同日记录；真正跨日或长期分隔样本仍需继续积累。
 
 通用执行恢复矩阵已完成“成功 ToolResult 缺少 typed 验证结论”的闭环审计。策略按工具定义、已提交幂等回执、只读恢复验证支持的顺序核验，分别稳定落入 `TOOL_DEFINITION_UNAVAILABLE`、`COMMITTED_EFFECT_EVIDENCE_INVALID` 与 `COMMITTED_VERIFICATION_UNAVAILABLE`；定义或回执无效时不会调用 support 回调。该调整只防止宽泛处置遮蔽更准确证据，不新增恢复资格、不补造验证终态，也不调用旧 Executor、LLM 或 Workflow。强制本地 `141/141` tasks、JVM `734/734`、Lint `0 error / 52 warnings`、三类 APK 与 Release lintVital 通过；仅 Redmi 默认完整为 `OK (243 tests)`（`95.348s`）。Debug/Release SHA-256 为 `954f71d5a90a6f2b63160490eab45ea67486b92f3fe8275ca7cb15498a4de6b5 / 4ecb44ae0a189cd956b9e4f12d5827d5d2477be981ea6ed371c71a0cf6ab3fae`，Release 通过 zipalign 与 v2 正式单签名。最终 README/docs 已重新打包并通过 Redmi 文档语料 gate；正式 `v0.1.13` 已恢复，版本、前台 Activity、主进程、测试包卸载、保持唤醒还原和 crash buffer 均已核对。
 

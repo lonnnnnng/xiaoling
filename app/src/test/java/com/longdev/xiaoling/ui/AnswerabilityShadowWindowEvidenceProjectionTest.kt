@@ -12,8 +12,8 @@ class AnswerabilityShadowWindowEvidenceProjectionTest {
         val projection = projectAnswerabilityShadowWindowEvidence(
             summary = KnowledgeAnswerabilityShadowPersistentSummary(
                 observationCount = 2,
-                oldestRecordedAt = Instant.parse("2026-07-28T23:27:36Z").toEpochMilli(),
-                latestRecordedAt = Instant.parse("2026-07-29T00:13:50Z").toEpochMilli(),
+                oldestRecordedAt = Instant.parse("2026-07-28T23:27:36.666Z").toEpochMilli(),
+                latestRecordedAt = Instant.parse("2026-07-29T00:13:50.112Z").toEpochMilli(),
             ),
             zoneId = ZoneId.of("Asia/Shanghai"),
         )
@@ -23,7 +23,7 @@ class AnswerabilityShadowWindowEvidenceProjectionTest {
             projection.recordedRangeText,
         )
         assertEquals(
-            "记录跨度 46 分钟 14 秒 · 仅展示匿名账本时间证据，不自动判定为分隔窗口",
+            "记录跨度 46 分钟 13 秒 · 仅展示匿名账本时间证据，不自动判定为分隔窗口",
             projection.observationSpanText,
         )
     }
@@ -34,7 +34,7 @@ class AnswerabilityShadowWindowEvidenceProjectionTest {
             summary = KnowledgeAnswerabilityShadowPersistentSummary(
                 observationCount = 1,
                 oldestRecordedAt = null,
-                latestRecordedAt = Instant.parse("2026-07-29T00:13:50Z").toEpochMilli(),
+                latestRecordedAt = Instant.parse("2026-07-29T00:13:50.112Z").toEpochMilli(),
             ),
             zoneId = ZoneId.of("Asia/Shanghai"),
         )
@@ -54,8 +54,8 @@ class AnswerabilityShadowWindowEvidenceProjectionTest {
         val projection = projectAnswerabilityShadowWindowEvidence(
             summary = KnowledgeAnswerabilityShadowPersistentSummary(
                 observationCount = 2,
-                oldestRecordedAt = Instant.parse("2026-07-29T00:13:50Z").toEpochMilli(),
-                latestRecordedAt = Instant.parse("2026-07-28T23:27:36Z").toEpochMilli(),
+                oldestRecordedAt = Instant.parse("2026-07-29T00:13:50.112Z").toEpochMilli(),
+                latestRecordedAt = Instant.parse("2026-07-28T23:27:36.666Z").toEpochMilli(),
             ),
             zoneId = ZoneId.of("Asia/Shanghai"),
         )

@@ -19,6 +19,14 @@
 - v32→v33 migration 只创建空表和时间索引，不扫描或回填消息、Run、检索审计或第 97–101 阶段人工统计。旧版本备份继续通过 `CURRENT_VERSION=33` 迁移，未来版本备份仍按既有高版本拒绝策略处理。production enforcement、知识检索与排序、普通聊天、Workflow/后台、ANN 和自动索引重建均未改变。
 - TDD 先以缺少 `telemetry` 的编译失败和 Publisher 仍请求 `NONE` 建立 red；第二轮以 Redmi 上最终异常失败分布为 `null` 建立 red，随后修正为稳定失败枚举；Judge 身份桶加入后，迁移、Store、失败分布和设置页聚焦组合为 `OK (5 tests)`。双轴审查发现公开配置的无盐摘要可枚举，并指出缺少 2,001 条裁剪边界；改用 Keystore HMAC 后 Store `4/4` 证明落库桶不等于公开 SHA-256，且第 2,001 条会删除最旧记录。最终完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital 通过；Redmi 保持唤醒后的最终 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。更新后的项目文档首次 corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验也已通过；固定正式 `v0.1.13` 恢复后测试包不存在、保持唤醒还原为 `0`，crash buffer 为空。
 
+## 第 107 阶段：第三条独立同日 Shadow 记录（完成）
+
+- 当前源码 Debug 使用正式证书覆盖 Redmi 后保留 Room v33、Provider/Profile 和前两条匿名记录。临时导入 `docs/answerability-shadow-binding.md` 为 `xiaoling-stage107-shadow.md`，形成 revision `1`、`8` 个 chunks、`16.3 KB`；Embedding 未建立，真实 Agent 使用词法兜底。
+- 首次较宽请求连续执行 4 次 `knowledge.search`，第五次在参数校验处触发工具预算上限，Run 收敛为 `BUDGET_EXHAUSTED`。没有成功答案，因此一次性开关继续保持开启，账本、attempt 和失败分桶均未变化。第二次使用已验证查询模式后只执行 1 次检索，Run `COMPLETED`，开关自动关闭，并新增 `COMPLETED / BOUND / ACCEPT` 记录。
+- 第三条记录时间为北京时间 `2026-07-29 12:52:23.355`，距第二条 `4 小时 38 分 33.243 秒`；attempt `1`，耗时/TTFB `7288/7274ms`，Prompt `6664B`，Tokens `1715/314/2029`，usage `1`，失败全为 `0`。累计三条完成/绑定/接受 `3/3/3`、Judge 匿名桶 `1`、总跨度 `5 小时 24 分 46.689 秒`，仍只作为同日独立窗口。
+- 真机首次展示暴露 Stage 106 夹具把带毫秒的真实时间截成整秒后误记为 `46 分钟 14 秒`。Room 精确差为 `46 分钟 13.446 秒`，页面按秒显示 `46 分钟 13 秒`；JVM 与 Compose 夹具改用真实 epoch millis，聚焦 JVM `3/3` 和 `assembleDebugAndroidTest` 通过。
+- 应用 UI 删除临时会话和知识文档，精确删除下载文件。最终 documents/chunks/messages `0/0/0`、空壳会话 `1`、Agent Run `4`（完成 `3`、预算耗尽 `1`）、Shadow rows `3`、Provider/Profile `1/1`、Shadow `false`、失败合计 `0`，测试包不存在。同步后的 Redmi 项目文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`，测试包均随后卸载。没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release；JSON/SAF、校准和 production enforcement 继续关闭。
+
 ## 第 106 阶段：Shadow 时间窗口证据投影（完成）
 
 - `projectAnswerabilityShadowWindowEvidence()` 只读取 `KnowledgeAnswerabilityShadowPersistentSummary.oldestRecordedAt / latestRecordedAt`，按设备本地时区生成最早/最新文本，并用实际毫秒差格式化天、小时、分钟和秒；缺失或逆序时间固定显示未知。
@@ -311,7 +319,7 @@
 - 本窗口距第 101 阶段记录时间约 `69` 小时，且 v33 采样前匿名账本为 `0`。当前 README 以 `xiaoling-stage103-shadow.md` 导入后形成 revision `1`、`19` 个 chunks；Embedding 不可用，检索 `Agent Run retryOfRunId` 通过词法兜底命中 `5` 个 chunks。显式开启 Shadow 后发送 `/agent Call knowledge.search with query Agent Run retryOfRunId and explain the result.`，前台 Run 完成并保留本地知识引用。
 - 停进程 Room 快照确认 Schema `33`，匿名账本恰好 `1` 条：`COMPLETED / BOUND / ACCEPT`，Judge identity 桶 `1`，attempt `1`，耗时/TTFB `9663/9655ms`，Prompt `10879B`，输入/输出/总 Tokens `2801/469/3270`，usage samples `1`；unknown、reject、undecided、binding unknown 与十类失败计数均为 `0`，记录时间为 `2026-07-29 07:27:36`（北京时间）。
 - 通过应用内正式入口删除临时知识文档和 Agent 会话，知识文档/chunks 回到 `0`；精确删除 Redmi 下载文件并卸载 `com.longdev.xiaoling.test`。`answerability_shadow_enabled=false`，production enforcement 偏好不存在，Provider/Profile 均仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`；再次停进程复核后，第 103 阶段当时账本仍为 `1`、知识数据仍为 `0`。当前源码 Debug 保留在设备上，避免以 Room v32 的发布 APK 降级覆盖 v33 数据库；最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
-- 本阶段完成的是第一条跨进程真实样本，不把第 97 至 101 项人工统计回填或合并。第 104 阶段随后已增加第二条短间隔记录，当前总账本为 `2`；继续等待真正分隔的后续窗口，样本量不足前不实现 JSON codec、UI/SAF 出口或 production enforcement。
+- 本阶段完成的是第一条跨进程真实样本，不把第 97 至 101 项人工统计回填或合并。第 104 阶段随后增加第二条短间隔记录，第 107 阶段又增加第三条独立同日记录；继续等待真正跨日或长期分隔的后续窗口，样本量不足前不实现 JSON codec、UI/SAF 出口或 production enforcement。
 
 ## Agent Run 关联重试协调迁出（横向可靠性工程）
 

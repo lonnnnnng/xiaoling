@@ -6,7 +6,7 @@ answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答�
 
 当前源码和 Redmi 开发数据使用 Room v33。生产请求通过 `KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL` 写入 `knowledge_answerability_shadow_observations`；旧阶段的 `store=null / persistenceMode=NONE` 只属于第 96 至 101 阶段的历史事实，不再代表当前实现。Shadow 默认关闭，notice 仍只存在于当前进程，`enforcementApplied=false`，production enforcement 继续关闭。
 
-第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口；第 106 阶段只把匿名账本的最早/最新时间与跨度投影到设置页。当前两条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
+第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口；第 106 阶段只把匿名账本的最早/最新时间与跨度投影到设置页；第 107 阶段形成第三条独立同日记录。当前三条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
 
 ## 候选来源
 
@@ -130,9 +130,17 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 
 ## 第 106 阶段时间窗口证据投影
 
-`KnowledgeAnswerabilityShadowPersistentSummary` 已从 Room 聚合最早和最新 `recordedAt`，设置页现在通过纯 `projectAnswerabilityShadowWindowEvidence()` 按设备本地时区显示两端时间，并用实际毫秒差显示精确跨度。第 103/104 阶段两条记录对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`，跨度 `46 分钟 14 秒`。
+`KnowledgeAnswerabilityShadowPersistentSummary` 已从 Room 聚合最早和最新 `recordedAt`，设置页现在通过纯 `projectAnswerabilityShadowWindowEvidence()` 按设备本地时区显示两端时间，并用实际毫秒差显示精确跨度。第 103/104 阶段两条记录对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`，跨度 `46 分钟 13 秒`。
 
 该投影在时间缺失或逆序时显示未知，不定义小时/天数阈值，也不返回 ready/eligible 状态。它只消除停进程查数据库的人工成本，不能把短间隔记录升级为长期分隔样本，不能触发 Judge、修改 Room、导出 JSON/SAF、进入 calibration/validation 或开启 production enforcement。聚焦 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译通过；未安装或运行设备测试。
+
+## 第 107 阶段第三条独立同日记录
+
+Redmi 在第二条记录后 `4 小时 38 分 33.243 秒` 开启新的显式窗口。临时导入本契约为 `xiaoling-stage107-shadow.md`，revision `1`、`8` 个 chunks，Embedding 未建立，检索使用词法兜底。首次较宽请求已经完成 4 次 `knowledge.search`，第五次参数校验因工具预算耗尽而让 Run 收敛为 `BUDGET_EXHAUSTED`；由于没有成功答案，Publisher 没有消费一次性授权，匿名账本仍为 `2`，这次失败不计入 Shadow attempt 或失败分桶。
+
+随后使用已验证的 `anonymous shadow calibration validation` 查询，只执行 1 次 `knowledge.search` 并完成答案、引用保存和真实 Judge。新增记录为 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7288/7274ms`，Prompt `6664B`，输入/输出/总 Tokens `1715/314/2029`，usage `1`，十类失败分桶全为 `0`，记录时间为北京时间 `2026-07-29 12:52:23.355`。三条累计为耗时/TTFB `24596/24561ms`、Prompt `21510B`、Tokens `5421/1155/6576`，Judge 匿名桶仍为 `1`。
+
+最早到最新总跨度为 `5 小时 24 分 46.689 秒`，设置页按秒显示 `5 小时 24 分 46 秒`。本轮只证明同日分隔窗口的完整链路和“预算耗尽不消费授权”真实行为，不能声明已经取得长期分隔证据。清理后 documents/chunks/messages 为 `0/0/0`，空壳会话 `1`，Agent Run `4` 条保留审计（完成 `3`、预算耗尽 `1`），Shadow `false`，Provider/Profile `1/1`，测试包与临时下载文件不存在。JSON/SAF、显式授权评测集、独立阈值校准和 production enforcement 继续关闭。
 
 ## 当前不做的事
 
@@ -152,4 +160,5 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 - 第 104 阶段按分级验证执行聚焦 JVM、Debug/AndroidTest 构建、第二条真实前台 Shadow 链、冷启动设置页复验和 Redmi 文档 corpus 单项；当前 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新打包后的最终复验同样通过；
 - 第 105 阶段按分级验证执行 Publisher `10/10` 与原子门禁 20 路并发 `1/1`，聚焦 JVM 合计 `11/11`；未新增真实样本，未运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release；
 - 第 106 阶段按分级验证执行时间投影 JVM `3/3` 与 AndroidTest APK 编译；未新增真实样本，未安装 APK、运行 Redmi instrumentation、完整 JVM、Lint 或 Release；
+- 第 107 阶段只在 Redmi 执行第三个真实窗口、聚焦时间投影 JVM `3/3`、AndroidTest APK 编译和项目文档 corpus 单项；首次/最终 corpus 均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - Pixel_9 和其他模拟器未参与上述验证。

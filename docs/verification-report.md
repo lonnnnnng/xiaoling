@@ -13,15 +13,24 @@
 - 文档语料门禁：最终 README 与长期 `docs/` 打包进 AndroidTest assets 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
 - 测试目标边界：最终语料复验首次误以 R8 Release 作为 Debug AndroidTest 的目标，AndroidJUnitRunner 在进入测试前因缺少 `kotlin.jvm.internal.Intrinsics` 崩溃；改回同一正式证书签署的 Debug 主包后运行通过。该失败属于不兼容的测试目标组合，不是产品冷启动崩溃；验收后重新覆盖正式 Release。
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
-- 当前开发设备状态：第 104 阶段为保留已迁移的 Room v33 数据和两条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
+- 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
+
+## 2026-07-29 第 107 阶段：第三条独立同日 Shadow 记录
+
+- 安装与临时知识：只使用 Redmi `wsvwypiz7xwslvl7`。当前 Debug 以与设备既有应用相同的正式证书签署并覆盖安装，证书摘要前后一致，Room v33、Provider/Profile 和前两条匿名记录保留。`docs/answerability-shadow-binding.md` 导入为 `xiaoling-stage107-shadow.md`，形成 revision `1`、`8` 个 chunks、`16.3 KB`；Embedding 未建立，检索使用词法兜底。
+- 预算耗尽边界：首次较宽请求连续完成 4 次 `knowledge.search`，第五次参数校验触发工具预算上限，Run 收敛为 `BUDGET_EXHAUSTED`。该 Run 没有成功答案，未进入答案保存后的 Publisher，因此一次性 Shadow 授权没有消费，开关仍为 `true`，匿名账本保持 `2` 条，attempt、usage 与全部失败分桶均未变化。
+- 第三条真实记录：第二次使用已验证的 `anonymous shadow calibration validation` 查询，只执行 1 次 `knowledge.search` 并完成答案、引用保存和真实 Judge。Run 为 `COMPLETED`，授权自动关闭；新增记录为 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7288/7274ms`，Prompt `6664B`，输入/输出/总 Tokens `1715/314/2029`，usage `1`，失败分桶全为 `0`，记录时间为北京时间 `2026-07-29 12:52:23.355`。
+- 累计与时间窗口：第三条距第二条 `4 小时 38 分 33.243 秒`。三条累计 completed/bound/accept `3/3/3`、Judge 匿名桶 `1`、耗时/TTFB `24596/24561ms`、Prompt `21510B`、Tokens `5421/1155/6576`；最早到最新跨度 `5 小时 24 分 46.689 秒`。这只是第三个独立同日窗口，不能表述为长期分隔证据，也不解锁 JSON/SAF、显式授权评测集、独立阈值校准或 production enforcement。
+- 夹具修正与分级验证：Room 原始毫秒证明第 103/104 阶段精确差为 `46 分钟 13.446 秒`，页面按秒显示 `46 分钟 13 秒`；此前 `46 分钟 14 秒` 属于夹具提前截断的误差。JVM 与 Compose 夹具改为真实 epoch millis，聚焦 `AnswerabilityShadowWindowEvidenceProjectionTest` JVM `3/3` 和 `assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`，只有既存 `createComposeRule` v1 弃用 warning。最新文档重新打入 AndroidTest assets 后，Redmi 项目文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+- 清理状态：应用 UI 删除临时会话正文和知识文档，精确删除 `/sdcard/Download/xiaoling-stage107-shadow.md`。最终 documents/chunks/messages `0/0/0`、空壳会话 `1`、Agent Run `4`（`COMPLETED` 为 `3`、`BUDGET_EXHAUSTED` 为 `1`）、Shadow rows `3`、Provider/Profile `1/1`、Shadow `false`，production enforcement 偏好不存在，测试包与临时下载文件不存在。旧 Run 均保持原终态，应用已 force-stop；没有向 Pixel_9 或其他模拟器发送定向 ADB 命令。
 
 ## 2026-07-29 第 106 阶段：Shadow 时间窗口证据投影
 
-- TDD Red：新增 `AnswerabilityShadowWindowEvidenceProjectionTest`，使用第 103/104 阶段真实时间要求北京时间 `2026-07-29 07:27:36 -> 08:13:50` 和精确跨度 `46 分钟 14 秒`；首次运行因投影函数不存在而按预期编译失败。
+- TDD Red：新增 `AnswerabilityShadowWindowEvidenceProjectionTest`，使用第 103/104 阶段真实时间要求北京时间 `2026-07-29 07:27:36 -> 08:13:50` 和精确跨度 `46 分钟 13 秒`；首次运行因投影函数不存在而按预期编译失败。
 - Green 实现：`projectAnswerabilityShadowWindowEvidence()` 从跨进程摘要读取最早/最新时间，按设备本地时区格式化，并以真实毫秒差投影天、小时、分钟和秒。缺失或逆序时间保守显示未知；界面固定说明该证据不自动判定为分隔窗口。
 - UI 契约修复：Stage 105 已把开关语义改成“授权下一次”，但既有 Compose instrumentation 仍查找旧的“启用”content description。测试现已同步新语义，注入两条真实时间并断言范围与跨度。
 - 分级验证：投影聚焦 JVM `3/3` 为 `BUILD SUCCESSFUL`，覆盖真实正向跨度、单端缺失和时间逆序；`./gradlew :app:assembleDebugAndroidTest` 成功，包含更新后的 Compose 测试。仅有既存 `createComposeRule` v1 弃用 warning；本阶段没有安装 APK、连接设备、调用 Judge、增加 Room 行，也没有运行完整 JVM、Lint、Redmi instrumentation 或 Release。
-- 证据边界：当前 Room v33 仍为 `2` 条 `COMPLETED / BOUND / ACCEPT`，时间跨度 `46 分钟 14 秒`；投影不内置分隔阈值，不支持 calibration/validation、JSON/SAF、显式授权评测集或 production enforcement。
+- 证据边界：第 106 阶段结束时 Room v33 为 `2` 条 `COMPLETED / BOUND / ACCEPT`，时间跨度 `46 分钟 13 秒`；投影不内置分隔阈值，不支持 calibration/validation、JSON/SAF、显式授权评测集或 production enforcement。第 107 阶段随后新增第三条同日记录，未改变该边界。
 
 ## 2026-07-29 第 105 阶段：单次显式 Shadow 采样窗口
 
@@ -282,8 +291,8 @@
 ## 当前工程边界
 
 - 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。下一主线完成剩余窗口闭环审计；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不继续扩张设备权限或机械搬文件。
-- answerability shadow 默认关闭；第 103/104 阶段后 Room v33 匿名账本为 `2` 条完成且接纳记录，两条精确跨度为 `46 分钟 14 秒`。第 105 阶段已把每次开启收紧为最多一轮观测，第 106 阶段把时间证据投影到设置页但不自动判定资格；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线转回知识质量工程，等待真正跨日或长期分隔的低频 Shadow 窗口；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不继续扩张设备权限或机械搬文件。
+- answerability shadow 默认关闭；第 103/104/107 阶段后 Room v33 匿名账本为 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍只属于同日证据。第 105 阶段已把每次开启收紧为最多一轮观测，第 106 阶段把时间证据投影到设置页但不自动判定资格，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 
