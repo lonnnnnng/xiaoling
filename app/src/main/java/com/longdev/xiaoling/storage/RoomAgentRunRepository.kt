@@ -1014,9 +1014,15 @@ class RoomAgentRunRepository(
         val distinctRunIds = runIds.distinct()
         if (distinctRunIds.isEmpty()) return emptyMap()
         val dao = database.agentRunDao()
-        // long: Workflow 详情会同时关联多条 Agent Run；账本按 Run 批量读取并回填空记录，避免页面刷新退化成逐步骤 N+1 查询。
-        val callsByRunId = dao.getToolCallsForRuns(distinctRunIds).groupBy { it.runId }
-        val resultsByRunId = dao.getToolResultsForRuns(distinctRunIds).groupBy { it.runId }
+        // long: Workflow 历史可能累积超过 SQLite 单条语句的参数上限；保留批量读取避免 N+1，同时分块为 Room 的 IN 查询预留安全余量。
+        val callsByRunId = distinctRunIds
+            .chunked(ROOM_IN_QUERY_BATCH_SIZE)
+            .flatMap { dao.getToolCallsForRuns(it) }
+            .groupBy { it.runId }
+        val resultsByRunId = distinctRunIds
+            .chunked(ROOM_IN_QUERY_BATCH_SIZE)
+            .flatMap { dao.getToolResultsForRuns(it) }
+            .groupBy { it.runId }
         return distinctRunIds.associateWith { runId ->
             AgentToolLedgerRecord(
                 calls = callsByRunId[runId].orEmpty().map { it.toRecord() },
@@ -1362,6 +1368,7 @@ class RoomAgentRunRepository(
     }
 
     private companion object {
+        const val ROOM_IN_QUERY_BATCH_SIZE = 900
         const val RECOVERY_EVENT_TYPE = "run.recovered"
         const val TOOL_CALL_PROPOSED_EVENT_TYPE = "tool.call.proposed"
         const val TOOL_RESULT_EVENT_TYPE = "tool.result"

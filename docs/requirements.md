@@ -2,11 +2,11 @@
 
 ## 前台 Workflow 设备观察证据 UI 边界
 
-Workflow 管理页必须从持久化 Agent Tool Ledger 而不是模型自由文本生成设备观察证据。每个 Workflow step 只能通过自己已保存的 `agentRunId` 关联对应 Ledger；结果必须同时满足 Run 身份一致、工具名为 `device.snapshot`、`success=true`、`verificationStatus=PASSED` 且快照 JSON 结构合法，才能标记为“已验证”。失败、未验证、跨 Run、非 snapshot 或畸形结果必须 fail-closed，不得生成已确认证据。
+Workflow 管理页必须从持久化 Agent Tool Ledger 而不是模型自由文本生成设备观察证据。每个 Workflow step 只能通过自己已保存的 `agentRunId` 关联对应 Ledger；结果必须同时满足 Run 身份一致、工具名为 `device.snapshot`、`success=true`、`verificationStatus=PASSED` 且快照 JSON 结构合法，才能标记为“已验证”。结构合法必须能对齐当前 `DeviceSnapshotCodec` 的顶层身份、窗口、时间、计数字段和逐节点对象；节点必须具备索引、层级、角色、边界、布尔状态与动作数组，脱敏计数必须与节点一致。失败、未验证、跨 Run、非 snapshot 或任意层级畸形的结果必须 fail-closed，不得生成已确认证据。
 
 证据白名单只包括应用包名、节点数量、脱敏节点数量、是否截断、采集时间和工具执行耗时。窗口标题、snapshot ID、window ID/generation、节点正文、description、hint、ref、bounds、actions 与原始 JSON 不得进入 Workflow UI state。Ledger 批量读取后必须在 IO 加载边界立即收敛为安全 DTO；不得把完整 JSON 复制到 Workflow 表、Compose 根状态、文档、日志或新的 Room 列。
 
-旧 Workflow step output、previous outputs 和 Workflow Run result 可能已经持有模型转述的完整 snapshot JSON。只要文本同时出现设备快照核心结构字段，历史页必须整段替换为稳定脱敏提示，宁可少展示模型原文也不能回流节点数据。证据卡必须明确持久化 ref 已过期、不可用于后续动作；任何动作前仍需在允许的前台直接 `/agent` 中重新 snapshot，不得从历史 UI 复活 ref。
+旧 Workflow step output、previous outputs 和 Workflow Run result 可能已经持有模型转述的完整 snapshot JSON。只要文本同时出现 `nodes` 与至少三类设备快照特征，历史页必须整段替换为稳定脱敏提示；识别必须兼容 snake_case、camelCase 和再次 JSON 转义形态。宁可少展示模型原文也不能回流节点数据。证据卡必须明确持久化 ref 已过期、不可用于后续动作；任何动作前仍需在允许的前台直接 `/agent` 中重新 snapshot，不得从历史 UI 复活 ref。
 
 验收至少覆盖：合法 `PASSED` snapshot 只产生白名单字段；窗口标题、节点正文、ref 和 snapshot ID 不存在于证据 DTO；失败、`FAILED`、畸形、非 snapshot 与跨 Run 结果均被忽略；旧步骤输出、前序输入和 Run 汇总被脱敏；Compose 页面显示已验证证据和过期提示；Redmi 真实历史 Ledger 能显示包名、节点/脱敏数和耗时，且最终页面层级不含原始快照字段。该 UI 不开放设备动作、截图、坐标、视觉定位、任意 App 或后台设备工具。
 

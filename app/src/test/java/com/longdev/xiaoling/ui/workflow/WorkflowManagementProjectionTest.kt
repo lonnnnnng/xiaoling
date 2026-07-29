@@ -90,6 +90,60 @@ class WorkflowManagementProjectionTest {
     }
 
     @Test
+    fun projectRedactsEscapedAndLegacyDeviceSnapshotShapes() {
+        val workflow = workflow(id = "workflow-redact-legacy", enabled = true)
+        val escapedLegacySnapshot = """{\"packageName\":\"com.example.notes\",\"capturedAt\":1700000000000,\"redactedNodeCount\":0,\"nodes\":[{\"text\":\"银行卡密码 123456\",\"ref\":\"ref-secret\"}]}"""
+        val partialCurrentSnapshot = """{"package":"com.example.notes","captured_at":1700000000000,"truncated":false,"nodes":[{"text":"银行卡密码 123456"}]}"""
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-redact-legacy",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-redact-legacy",
+                workflowRunId = "workflow-run-redact-legacy",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "观察当前页面",
+                detail = "观察设备",
+                agentRunId = null,
+                result = partialCurrentSnapshot,
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+                    goal = "观察设备",
+                    previousOutputs = listOf(escapedLegacySnapshot),
+                ),
+            ),
+        ).let { detail ->
+            detail.copy(run = detail.run.copy(result = escapedLegacySnapshot))
+        }
+
+        val projectedRun = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single()
+
+        assertEquals("设备观察已记录，请查看下方已验证证据", projectedRun.steps.single().output)
+        assertEquals(listOf("设备观察输出已脱敏，请查看对应步骤证据"), projectedRun.steps.single().previousOutputs)
+        assertEquals("设备观察已记录，请查看步骤中的已验证证据", projectedRun.result)
+        assertFalse(projectedRun.toString().contains("银行卡密码"))
+        assertFalse(projectedRun.toString().contains("ref-secret"))
+    }
+
+    @Test
     fun projectRejectsFailedUnverifiedAndMalformedDeviceObservationEvidence() {
         val workflow = workflow(id = "workflow-reject-evidence", enabled = true)
         val agentRunId = "agent-run-reject-evidence"
@@ -114,7 +168,7 @@ class WorkflowManagementProjectionTest {
             ),
         )
         val validSnapshot = """
-            {"package":"com.example.notes","captured_at":1700000000000,"redacted_node_count":0,"truncated":false,"nodes":[]}
+            {"snapshot_id":"snapshot-valid","package":"com.example.notes","window_id":7,"window_generation":8,"captured_at":1700000000000,"expires_at":1700000030000,"redacted_node_count":0,"truncated":false,"nodes":[]}
         """.trimIndent()
 
         val projectedStep = WorkflowManagementProjection.project(
@@ -178,7 +232,7 @@ class WorkflowManagementProjectionTest {
             ),
         )
         val validSnapshot = """
-            {"package":"com.example.other","captured_at":1700000000000,"redacted_node_count":0,"truncated":false,"nodes":[]}
+            {"snapshot_id":"snapshot-other","package":"com.example.other","window_id":7,"window_generation":8,"captured_at":1700000000000,"expires_at":1700000030000,"redacted_node_count":0,"truncated":false,"nodes":[]}
         """.trimIndent()
 
         val projectedStep = WorkflowManagementProjection.project(
@@ -239,8 +293,8 @@ class WorkflowManagementProjectionTest {
               "redacted_node_count":1,
               "truncated":false,
               "nodes":[
-                {"index":0,"text":"银行卡密码 123456","ref":"ref-secret","bounds":[0,0,100,100],"actions":["tap"]},
-                {"index":1,"redacted":true}
+                {"index":0,"depth":0,"role":"button","text":"银行卡密码 123456","bounds":[0,0,100,100],"enabled":true,"selected":false,"redacted":false,"ref":"ref-secret","actions":["tap"]},
+                {"index":1,"parent_index":0,"depth":1,"role":"text","bounds":[0,0,100,100],"enabled":true,"selected":false,"redacted":true,"actions":[]}
               ]
             }
         """.trimIndent()

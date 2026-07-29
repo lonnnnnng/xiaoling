@@ -18,11 +18,11 @@
 ## 2026-07-29 第 109 阶段：Workflow 设备观察证据 UI
 
 - 范围：前台 Workflow 消费已持久化 `device.snapshot`，在步骤详情中形成可复核的白名单证据；不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，不修改 Room Schema、Workflow 执行语义、精确定时或 Foreground Service。
-- 实现：Workflow step 以 `agentRunId` 批量读取独立 Tool Ledger，IO 加载边界立即通过安全 Projection 转成 DTO，Compose 根状态不保存原始 JSON。只有 Run 身份一致、`device.snapshot / success / PASSED` 且结构合法的结果进入证据；卡片只显示 package、节点/脱敏数、截断状态、采集时间、耗时和过期 ref 提示。旧 step output、previous outputs 与 Run result 中的完整 snapshot JSON统一 fail-closed 替换。
-- TDD 与构建：`WorkflowManagementProjectionTest` 聚焦 JVM `6/6`，覆盖白名单、跨 Run、失败/未验证/畸形/非 snapshot 拒绝以及三处历史输出脱敏；`compileDebugKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 实现：Workflow step 以 `agentRunId` 批量读取独立 Tool Ledger，IO 加载边界立即通过安全 Projection 转成 DTO，Compose 根状态不保存原始 JSON。读取按 `900` 个 runId 分块，避免超长历史超过 SQLite bind 上限。只有 Run 身份一致、`device.snapshot / success / PASSED` 且当前 codec 顶层与逐节点结构都合法的结果进入证据；卡片只显示 package、节点/脱敏数、截断状态、采集时间、耗时和过期 ref 提示。旧 step output、previous outputs 与 Run result 中缺少 `snapshot_id`、camelCase 或再次转义的 snapshot JSON 变体也统一 fail-closed 替换。
+- TDD 与构建：审查收尾后 `WorkflowManagementProjectionTest` 聚焦 JVM `7/7`、`DeviceSnapshotPolicyTest` `9/9`，覆盖白名单、跨 Run、失败/未验证/逐节点畸形/非 snapshot 拒绝，以及三处历史输出与旧形态脱敏；`compileDebugKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 - Redmi 页面单项：只向 `wsvwypiz7xwslvl7` 定向安装与测试。主应用因现有正式证书与默认 Debug 证书不同，第一次覆盖明确失败为 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，未卸载、未清数据；随后使用同一正式证书签署 Debug/Test APK，ROM 的 incremental 安装以 `Incremental installation not allowed` 拒绝后自动回退 streamed install 成功。Compose 首轮 1/2 因 test tag 位于 unmerged semantics tree 失败，按框架提示修正测试后为 `OK (2 tests)`、耗时 `4.164s`，再次复验为 `OK (2 tests)`、耗时 `4.277s`。
 - 真实历史证据：保留的 `stage108_snapshot` Workflow Run 通过现有 Ledger 投影为 `设备观察 · 已验证 / com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 2026-07-29 15:48:35 / 193ms`，ref 明确显示已过期。首次展开同时发现旧“输出”和 Run“结果”仍包含完整 JSON、节点正文、ref、bounds 与 actions；新增 Red 后修复，最终真实页面只保留步骤/Run 脱敏提示和证据卡，层级检查 `snapshot_id / window_title / bounds / actions` 为 0 命中。
-- 文档与收尾：README 与五份长期文档重新打入 AndroidTest APK 后，Redmi 文档 corpus 为 `OK (1 test)`、耗时 `2.453s`。最终测试包已卸载，Room v33、Provider/Profile、Stage 108 Workflow 与旧 Run 均保留，设备 Agent/Accessibility 仍保持关闭；主应用为 `0.1.13 (14)`，`MainActivity` 前台 resumed、进程存活，清空后 crash buffer 为空。在线模拟器只出现在 `adb devices -l` 清单，没有收到安装、测试、截图、UI 或其他定向 ADB 命令。
+- 文档与收尾：README 与五份长期文档重新打入 AndroidTest APK 后，Redmi 文档 corpus 为 `OK (1 test)`、耗时 `2.453s`；审查加固文本再次打包后复验为 `OK (1 test)`、耗时 `2.785s`。最终测试包已卸载，Room v33、Provider/Profile、Stage 108 Workflow 与旧 Run 均保留，设备 Agent/Accessibility 仍保持关闭；主应用为 `0.1.13 (14)`，`MainActivity` 前台 resumed、进程存活，清空后 crash buffer 为空。在线模拟器只出现在 `adb devices -l` 清单，没有收到安装、测试、截图、UI 或其他定向 ADB 命令。
 
 ## 2026-07-29 第 108 阶段：前台 Workflow 只读设备观察
 

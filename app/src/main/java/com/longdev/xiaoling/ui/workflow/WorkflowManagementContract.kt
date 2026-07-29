@@ -241,12 +241,16 @@ internal object WorkflowManagementProjection {
     }
 
     private fun String.redactRawDeviceSnapshot(notice: String): String {
-        // long: 旧 Workflow 可能把完整 snapshot JSON 写入步骤结果和前序输入；只要同时出现设备快照核心字段就整段替换，宁可少展示模型文本也不能让节点正文与 ref 回流历史 UI。
-        val containsRawSnapshot = contains("\"snapshot_id\"") &&
-            contains("\"package\"") &&
-            contains("\"captured_at\"") &&
-            contains("\"nodes\"")
+        // long: 旧 Workflow 可能保存缺少 snapshot_id、使用 camelCase 或被再次 JSON 转义的快照；命中 nodes 与三类特征就整段替换，宁可少展示模型文本也不能让节点正文与 ref 回流历史 UI。
+        val signatureCount = DEVICE_SNAPSHOT_TEXT_SIGNATURES.count { aliases ->
+            aliases.any { alias -> containsJsonKey(alias) }
+        }
+        val containsRawSnapshot = DEVICE_SNAPSHOT_NODE_KEYS.any { key -> containsJsonKey(key) } && signatureCount >= 3
         return if (containsRawSnapshot) notice else this
+    }
+
+    private fun String.containsJsonKey(key: String): Boolean {
+        return contains("\"$key\"") || contains("\\\"$key\\\"")
     }
 
     private fun projectTask(
@@ -294,6 +298,17 @@ internal object WorkflowManagementProjection {
     private const val DEVICE_OBSERVATION_STEP_OUTPUT_NOTICE = "设备观察已记录，请查看下方已验证证据"
     private const val DEVICE_OBSERVATION_PREVIOUS_OUTPUT_NOTICE = "设备观察输出已脱敏，请查看对应步骤证据"
     private const val DEVICE_OBSERVATION_RUN_RESULT_NOTICE = "设备观察已记录，请查看步骤中的已验证证据"
+    private val DEVICE_SNAPSHOT_NODE_KEYS = setOf("nodes")
+    private val DEVICE_SNAPSHOT_TEXT_SIGNATURES = listOf(
+        setOf("snapshot_id", "snapshotId"),
+        setOf("package", "packageName"),
+        setOf("window_id", "windowId"),
+        setOf("window_generation", "windowGeneration"),
+        setOf("captured_at", "capturedAt"),
+        setOf("expires_at", "expiresAt"),
+        setOf("redacted_node_count", "redactedNodeCount"),
+        setOf("truncated"),
+    )
 }
 
 internal object WorkflowDeviceObservationProjection {

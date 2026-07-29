@@ -44,6 +44,26 @@ class DeviceSnapshotPolicyTest {
     }
 
     @Test
+    fun summaryAcceptsCurrentSnapshotStructureAndRejectsMalformedNodes() {
+        val result = DeviceSnapshotPolicy().build(
+            window = rawWindow(children = listOf(rawNode(text = "继续", clickable = true, path = listOf(0)))),
+            snapshotId = "snapshot-summary",
+            nowMillis = 1_000L,
+        ) as DeviceSnapshotAssessment.Available
+
+        val summary = DeviceSnapshotCodec.decodeSummary(DeviceSnapshotCodec.encode(result.snapshot))
+        assertEquals("com.example.safe", summary?.packageName)
+        assertEquals(1, summary?.nodeCount)
+        assertEquals(0, summary?.redactedNodeCount)
+        assertEquals(1_000L, summary?.capturedAt)
+        assertNull(
+            DeviceSnapshotCodec.decodeSummary(
+                """{"snapshot_id":"broken","package":"com.example.safe","window_id":7,"window_generation":11,"captured_at":1000,"expires_at":31000,"redacted_node_count":0,"truncated":false,"nodes":[1]}""",
+            ),
+        )
+    }
+
+    @Test
     fun paymentWindowIsBlockedWithoutReturningPackageOrNodeContent() {
         val result = DeviceSnapshotPolicy().build(
             window = rawWindow(
