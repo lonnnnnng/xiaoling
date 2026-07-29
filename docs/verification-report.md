@@ -15,6 +15,15 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-30 第 112 阶段：前台 Workflow 有限设备动作安全契约
+
+- 范围：先冻结前台 Workflow 设备动作进入生产前必须满足的安全证据，不开放任何生产动作，不修改 Registry、Room、Accessibility、Workflow Repository、Room Schema、后台设备工具、截图、坐标、视觉定位、任意 App、精确定时或 Foreground Service。
+- 实现：新增纯 Kotlin `WorkflowDeviceActionSafetyPolicy`。默认动作白名单为空，未知动作名直接拒绝；显式动作只接受 `WORKFLOW + FOREGROUND`、用户步骤意图、完整 Workflow/Step/AgentRun/ToolCall 身份、同 Run 独立且已验证的 `device.snapshot`、有效 window/ref、当前进程逐动作审批和完整参数绑定。通过时签发不可变 `workflow-device-action-safety-v1` 授权快照。
+- 恢复与完成边界：旧 Run、关联重试、前一动作、进程重建前审批、过期 ref、页面 generation 漂移、取消后迟到结果或身份/参数不一致都 fail-closed。完成还要求同一授权、同一 Run/ToolCall 成功结果、Executor 验证、typed `tool.verify=PASSED` 和后置 snapshot；后置观察绑定当前 Agent Run 与动作 ToolCall，动作完成晚于审批且观察不早于动作完成。Android 接收动作本身不构成完成证据。
+- 双轴审查：Standards 轴发现初版没有强制 `expiresAt - capturedAt <= 30_000`，Spec 轴发现后置 snapshot 缺少 Run/ToolCall 与动作时序身份。两项均先以新增 Red 复现，再分别增加 30 秒最大 TTL 与强类型后置观察证据；审查后没有遗留 finding。
+- 聚焦验证：`WorkflowDeviceActionSafetyPolicyTest` `11/11`、`WorkflowDeviceObservationDecisionPolicyTest` `4/4`、`XiaoLingToolRegistryTest` `20/20`，合计 `35/35`；命令使用 JDK 21、`--rerun-tasks --console=plain`，结果 `BUILD SUCCESSFUL in 26s`。
+- 验证边界：本阶段没有执行完整 JVM、Lint、APK、Release、文档 corpus 或 Redmi instrumentation，没有安装应用或执行真实设备动作。下一阶段才从 Redmi 已验收的限定动作中选择一个最小生产切片，接入前仍保持 Workflow 动作面为空。
+
 ## 2026-07-30 第 111 阶段：Workflow 设备观察真实双 Run 与输出净化
 
 - 范围：在第 110 阶段本地判定契约上执行真实前台多步 Workflow，证明新 Agent Run 只能消费前序白名单判定，不复用旧 Run 工具调用；同时检查 Workflow 自身持久输出是否排除原始 snapshot。不开放设备动作、后台设备工具、截图、坐标、视觉定位或任意 App，不修改 Room Schema。

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 112 阶段冻结前台 Workflow 有限设备动作安全契约，生产动作继续关闭。新增纯 Kotlin `WorkflowDeviceActionSafetyPolicy`，默认白名单为空；后续动作只有同时绑定用户步骤意图、当前 Workflow/Step/AgentRun/ToolCall、同 Run 已验证 snapshot、30 秒 ref 与 window generation、当前进程逐动作审批和后置 typed 验证，才可能获得 `workflow-device-action-safety-v1` 授权。恢复、重试、取消、旧审批、旧 ref、页面漂移与证据缺失全部 fail-closed。双轴审查又补齐 30 秒最大 TTL 和后置观察对当前 Run/动作 ToolCall/动作完成时间的强绑定；新策略、相邻观察判定与 Tool Registry 聚焦 JVM 合计 `35/35`。本阶段没有接入 Registry、Room、Accessibility 或 Workflow 生产执行链，也没有执行 APK、Lint、Release、Redmi instrumentation 或真实动作。
+
 第 111 阶段完成 Workflow 设备观察本地判定的真实双 Run 闭环。首轮真机验收先暴露 Debug Receiver 写 Room 后活动 ViewModel 仍持有旧 Profile，重启应用加载双工具 Profile 后，第一 Run 只执行 `device.snapshot`、第二 Run 只执行 `app.current_time`，两者均 `SAFE / PASSED / executorVerified=NULL`，动作和审批都为 `0`。真实数据又发现第一步 output text 仍含模型转述的 `snapshot_id`；现在由 `RoomWorkflowRepository` 在完成事务内重新回查同 Run Tool Ledger，并统一净化 step `result/outputSnapshot`、前台 Workflow 消息、后台会话文本与单步骤兼容完成路径，Run 汇总只从净化 step 聚合。Redmi 最终 Run 的白名单判定为 169 字符，第一步输出和第二步前序输入对 `snapshot_id / nodes / ref` 均为 0 命中；聚焦 instrumentation `OK (5 tests)`、最终项目文档 corpus `OK (1 test)`，真实 Workflow/UI 均已完成。
 
 第 110 阶段在 Workflow 已验证 `device.snapshot` 证据上增加 `workflow-device-observation-v1` 本地判定：只确认包名、节点/脱敏数、截断和采集时间，并明确不确认节点正文、目标完成或动作授权。新步骤把安全判定写入既有 output snapshot；下一步和关联重试重新回查 Tool Ledger 后，只接收版本化判定而非模型快照正文。来源缺失、未验证、畸形或判定漂移会 fail-closed，后续 Agent Run 不启动。聚焦 JVM `19/19`、Debug/AndroidTest 构建、仅 Redmi 定向 `OK (3 tests)` 和文档 corpus `OK (1 test)` 通过；设备动作、后台设备工具、截图、坐标、视觉定位和任意 App 仍关闭。

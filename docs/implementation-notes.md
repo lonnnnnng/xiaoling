@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 112 阶段：前台 Workflow 有限设备动作安全契约（完成，生产未开放）
+
+- 新增纯 Kotlin `WorkflowDeviceActionSafetyPolicy`，只负责冻结生产接线前必须满足的证据契约，不直接依赖 Registry、Room、Accessibility 或 Workflow Repository。构造默认白名单为空，未知动作名在构造时拒绝；因此当前模型工具面和 Executor 行为没有变化，前台 Workflow 仍只能使用 `device.snapshot`。
+- 执行资格固定为 `WORKFLOW + FOREGROUND`，并绑定用户明确编写的步骤意图、完整 `workflowRunId / workflowStepId / agentRunId / toolCallId`、完整参数、同 Run 独立且已验证的 `device.snapshot`、30 秒有效期、当前 window generation 和实时 ref 匹配。节点动作仍要求 snapshot/ref 同时匹配；后台、直接对话借道、页面漂移、过期或畸形观察均拒绝。
+- 每个动作审批必须绑定同一 Agent Run、ToolCall、工具名、完整参数、观察之后的决定时间和当前进程会话。旧 Run、关联重试、前一动作或进程重建前的审批不能复用；通过时只签发不可变的 `workflow-device-action-safety-v1` 授权快照。
+- 完成判定必须消费同一身份与规则版本的授权，且结果属于同一 Run/ToolCall、执行成功、Executor 已验证、typed `tool.verify` 已通过并存在后置 snapshot。后置观察自身还要绑定当前 Agent Run 和动作 ToolCall，动作完成时间必须晚于审批、观察时间不得早于动作完成；Workflow 已取消后的迟到结果、旧授权、失败结果或任一后置证据缺失都不能收敛为完成。
+- 双轴审查发现初版只检查 `expiresAt` 尚未到期、没有硬限制 30 秒上限，且后置 snapshot 使用三个裸字段、缺少 Run/ToolCall 与动作时序绑定。两轮 TDD 分别以行为失败和编译失败复现后，现已通过最大 TTL 常量与强类型 `WorkflowDeviceActionPostObservationEvidence` 修复。
+- 最终聚焦结果为新策略 `11/11`、相邻 `WorkflowDeviceObservationDecisionPolicyTest` `4/4`、`XiaoLingToolRegistryTest` `20/20`，合计 `35/35`，`BUILD SUCCESSFUL in 26s`。本阶段按快速迭代分级没有运行完整 JVM、Lint、APK、Release、文档 corpus 或 Redmi instrumentation，也没有执行真实设备动作。
+
 ## 第 111 阶段：Workflow 设备观察真实双 Run 与输出净化（完成）
 
 - 首轮真实 Workflow 暴露了两个只在运行态出现的缺口。首先，Debug Receiver 将 `app.current_time` 写入 Room Profile 后，已初始化的 `XiaoLingViewModel` 仍使用旧工具白名单，因此第二 Run 曾报“模型选择了未注册工具：app.current_time”。`XiaoLingToolRegistry` 实际已注册该工具，Debug Profile 的 `allowedSkillIds` 为空，所以该次不是 Skill 收窄或设备权限问题；重建应用进程后从 Room 重新加载 Profile 即恢复。正常 UI 保存 Profile 会同步更新 `uiState`，本阶段不为 Debug 旁路引入生产广播或扩权机制。

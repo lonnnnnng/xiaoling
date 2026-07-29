@@ -1,5 +1,17 @@
 # 产品需求
 
+## 前台 Workflow 有限设备动作安全契约（第 112 阶段冻结，生产未开放）
+
+前台手动 Workflow 的设备动作必须先经过独立、默认全关闭的安全策略 Module，不得直接放宽 `XiaoLingToolRegistry` 的全部动作集。策略只接受 `invocationSource=WORKFLOW + executionOrigin=FOREGROUND` 和显式列入当前阶段白名单的动作；后台、定时、恢复自动续跑、坐标、截图、视觉定位和任意 App 仍固定拒绝。第 112 阶段的生产白名单为空，本阶段只冻结 Interface 与可验收拒绝语义，不向模型工具面暴露任何 Workflow 动作。
+
+每个动作必须同时绑定用户明确编写的 Workflow 步骤意图、当前 `workflowRunId / workflowStepId / agentRunId / toolCallId`、完整参数和一个独立审批。审批必须是当前进程会话内的实时用户决定；前一个动作的批准、旧 Run 审批、关联重试审批、进程重建前已批准决定和只按工具名匹配的决定都不得复用。审批、参数、Run 或 ToolCall 任一漂移时必须 fail-closed。
+
+动作执行前必须存在同一 Agent Run 中已通过验证、尚在 30 秒有效期内的 `device.snapshot` 证据，并确认当前 window generation 未漂移。`tap_ref / type_text / swipe` 还必须使用该 snapshot 的 ref，并在 Accessibility Adapter 内再次核对 node path 与 fingerprint；旧 Workflow 输出、`reusedFromStepId`、历史 Tool Ledger 或进程重建前的 ref 不得恢复为可执行引用。页面漂移、ref 过期、服务断连、权限变化、取消或证据缺失都必须在 Executor 之前拒绝。
+
+动作结束后必须由现有 `DeviceController` Adapter 重新 snapshot，并将同一 ToolCall 的成功 ToolResult、`executorVerified=true`、typed `tool.verify=PASSED` 和后置观察绑定为完成资格。“Android 已接收动作”、只有 ToolResult、验证为假、后置快照缺失、取消后迟到结果或身份不一致都不得宣称完成。后续生产接线必须把动作前后白名单证据写入独立 Tool Ledger，Workflow step、Run result、`previousOutputs` 和 Compose 只消费版本化本地判定，不复制节点正文、ref、指纹、坐标或原始快照。
+
+验收至少覆盖：默认全关闭；仅前台 Workflow 来源可进入策略；用户意图、当前 Run/Step/ToolCall、同 Run snapshot、window generation、ref 和当前进程审批的独立漂移矩阵；每个动作必须独立审批；重试、恢复和取消不复用旧证据；后置观察与 typed 验证缺失时拒绝完成。第一个生产动作只能在该纯 Kotlin 契约经过聚焦 JVM 门禁后另立阶段接入，并只用 Redmi `wsvwypiz7xwslvl7` 做真实动作验收。
+
 ## 前台 Workflow 设备观察双 Run 与持久化净化边界
 
 设备观察 Workflow 必须能由两个独立 Agent Run 完成：观察 Run 只调用 `device.snapshot`，消费 Run 不得再调用任何设备工具，只能使用前序步骤传入的版本化本地判定。两个 Run 必须各自建立 Tool Ledger，旧 Run 的工具调用不能被视为新 Run 已完成的步骤；验收必须确认没有设备动作或审批请求。
