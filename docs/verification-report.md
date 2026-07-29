@@ -15,6 +15,14 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-30 第 110 阶段：Workflow 设备观察本地判定
+
+- 范围：在第 109 阶段已验证设备观察证据之上形成最小本地判定，并安全传给后续前台 Workflow 步骤；不开放设备动作、后台设备工具、截图、坐标、视觉定位或任意 App，不修改 Room Schema、精确定时或 Foreground Service。
+- 实现：`workflow-device-observation-v1` 只从同 Run、`device.snapshot / success / PASSED` 且结构合法的 Ledger 生成“可复核/有限可复核”。输入和持久 output snapshot 只包含 package、节点/脱敏数、截断与采集时间。下一步准备时重新回查 Ledger并用该判定替换模型步骤正文；关联重试沿 `reusedFromStepId` 回查来源。来源缺失、未验证、畸形或持久判定漂移会在 input snapshot 落库前失败，后续 Agent Run 不启动。
+- TDD 与构建：新增 policy `4/4`、Workflow snapshot/prompt `8/8`、管理页 Projection `7/7`，聚焦 JVM 合计 `19/19`；`compileDebugAndroidTestKotlin`、`assembleDebug` 和 `assembleDebugAndroidTest` 通过。双轴 Standards 首轮唯一硬 finding 是长期文档尚未同步，本节与 README/路线图/实现说明/需求同步后已修复；轻微重复适配保留在存储与 UI 边界，未发现动作权限扩大。
+- Redmi 定向验证：设备列表同时存在 Redmi 与在线模拟器，因此未使用通用 `connectedDebugAndroidTest`；主包、测试包安装与 instrumentation 每条命令都显式指定 `wsvwypiz7xwslvl7`。`workflowReplacesVerifiedDeviceSnapshotWithLocalDecisionForNextStepAndRetry`、`workflowBlocksNextStepWhenPersistedDeviceSnapshotIsNotVerified` 和 `pageDisplaysVerifiedDeviceObservationAsExpiredReadOnlyEvidence` 为 `OK (3 tests)`、耗时 `3.343s`；更新后的项目文档 corpus 首次/最终均为 `OK (1 test)`、耗时 `2.662s / 2.534s`。测试包已卸载；当前 Debug 主应用冷启动 `3.540s`，版本 `0.1.13 (14)`、`MainActivity` 为 top resumed、PID `10641` 存活，清空后的 crash buffer 没有小灵 FATAL。模拟器没有收到安装、测试、截图、UI 或其他定向 ADB 命令。
+- 边界：本地判断只确认采集时的包名和快照摘要；即使状态为“可复核”，也不确认节点正文、用户目标完成、当前页面仍未变化或动作授权。历史原始结果继续保留审计，但不会进入下一步 Prompt；本阶段按分级验证没有运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+
 ## 2026-07-29 第 109 阶段：Workflow 设备观察证据 UI
 
 - 范围：前台 Workflow 消费已持久化 `device.snapshot`，在步骤详情中形成可复核的白名单证据；不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，不修改 Room Schema、Workflow 执行语义、精确定时或 Foreground Service。

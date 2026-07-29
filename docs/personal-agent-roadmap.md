@@ -6,13 +6,21 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 第 110 阶段：Workflow 设备观察本地判定（完成）
+
+前台 Workflow 新增纯 Kotlin `workflow-device-observation-v1` 规则。它只消费同 Run、成功、验证通过且结构合法的 `device.snapshot` Tool Ledger，把包名、节点/脱敏数、截断状态和采集时间投影为“可复核”或“有限可复核”；规则明确不确认节点正文、用户目标完成、页面仍然有效或动作授权。窗口标题、snapshot/window 身份、ref、bounds、actions 和原始 JSON 均不进入本地判定。
+
+新 Run 会把安全判定写入既有 Workflow output snapshot。下一步骤不再接收可能包含完整快照或模型语义扩张的步骤正文，而是重新通过 `agentRunId` 回查 Ledger，并用版本化本地判定替换；关联重试通过 `reusedFromStepId` 回查来源步骤，持久判定与 Ledger 漂移、来源缺失、未验证或畸形证据都会 fail-closed，后续 Agent Run 不会启动。历史原始步骤结果仍原样保留用于审计，不升级为可信事实。
+
+Workflow 证据卡现在同时显示已验证来源、本地判断、规则版本、受限原因和结论范围。聚焦 JVM `19/19`、AndroidTest 编译、Debug/AndroidTest APK 均通过；仅 Redmi 定向执行本地判定传递、关联重试、未验证阻断和 Compose 卡片为 `OK (3 tests)`、耗时 `3.343s`，更新后的文档 corpus 首次/最终均为 `OK (1 test)`、耗时 `2.662s / 2.534s`。测试包已卸载，当前 Debug 主应用冷启动 `3.540s`，`0.1.13 (14)`、前台 Activity 与进程正常，清空后的 crash buffer 为空。本阶段没有运行完整 JVM、Lint、Release 或默认完整 instrumentation，也没有向在线模拟器发送定向命令。设备动作、后台设备工具、截图、坐标、视觉定位、任意 App、精确定时与 Foreground Service 继续关闭；下一阶段先以真实前台多步骤 Workflow 验收该本地判定链，再决定是否增加新的只读声明式判断类型。
+
 ## 第 109 阶段：Workflow 设备观察证据 UI（完成）
 
 前台 Workflow 现在能消费已持久化 `device.snapshot` 结果并形成答案级可复核证据。读取链复用 Workflow step 的 `agentRunId` 与 Agent Tool Ledger，不改 Room Schema、不复制原始 JSON；runId 以 `900` 个为一批读取，避免长期历史触发 SQLite bind 上限。读取后立即投影成安全 DTO，Compose 根状态只保留包名、节点/脱敏节点数、截断状态、采集时间、耗时和已验证标签。只有工具名匹配、Run 身份一致、`success=true`、`verificationStatus=PASSED` 且当前 codec 顶层与逐节点 JSON 都合法的结果可进入 UI。
 
 Workflow 详情页在步骤输出下展示紧凑证据卡，并明确持久化节点引用已过期、不可用于动作。窗口标题、节点正文、hint、ref、bounds、actions、snapshot ID 和原始 JSON 不进入证据 DTO；旧步骤输出、前序输入和 Run 汇总一旦同时出现 `nodes` 与三类 snapshot 特征就整段替换，并兼容缺少 `snapshot_id`、camelCase 和转义 JSON。真实 Redmi 首次复核由此发现 Stage 108 历史输出仍渲染完整 JSON，修复后 `stage108_snapshot` 显示 `com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 193ms`，页面层级对原始快照字段为 0 命中。
 
-审查收尾后投影 JVM `7/7`、快照策略 JVM `9/9`、`compileDebugKotlin`、Debug/AndroidTest APK、仅 Redmi Workflow Compose `OK (2 tests)` 和同步后的文档 corpus `OK (1 test)` 通过；最终主应用为 `0.1.13 (14)`、前台进程存活、测试包不存在且 crash buffer 为空。本阶段不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，也不提前引入精确定时与 Foreground Service。下一阶段才评估前台 Workflow 基于观察证据进行本地可复核决策的最小闭环，仍不扩大动作权限。
+审查收尾后投影 JVM `7/7`、快照策略 JVM `9/9`、`compileDebugKotlin`、Debug/AndroidTest APK、仅 Redmi Workflow Compose `OK (2 tests)` 和同步后的文档 corpus `OK (1 test)` 通过；最终主应用为 `0.1.13 (14)`、前台进程存活、测试包不存在且 crash buffer 为空。本阶段不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，也不提前引入精确定时与 Foreground Service。第 110 阶段已在该证据之上补齐本地可复核判定与下一步 fail-closed 传递，仍未扩大动作权限。
 
 ## 第 108 阶段：前台 Workflow 只读设备观察（完成）
 

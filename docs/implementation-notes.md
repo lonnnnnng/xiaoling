@@ -10,6 +10,14 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 110 阶段：Workflow 设备观察本地判定（完成）
+
+- `WorkflowDeviceObservationDecisionPolicy` 是纯 Kotlin 单一入口。`evaluate()` 只接受同 Run 的 `device.snapshot`、成功结果、验证事实和 `DeviceSnapshotCodec.decodeSummary()` 白名单摘要；跨 Run、失败、未验证和畸形结构返回稳定 `InsufficientEvidence`。`REVIEWABLE / LIMITED` 只表达摘要是否完整可复核，规则版本固定为 `workflow-device-observation-v1`。
+- `WorkflowStepOutputSnapshot` 在既有 `workflow-step-output-v1` JSON 中增加安全 `deviceObservationDecisions`，只保存规则版本、状态、包名、节点/脱敏数、截断和采集时间，不保存 snapshot/window 身份、节点正文、ref、bounds、actions 或原始 JSON。codec 对每个字段和规则版本严格校验，旧纯文本和无设备判定输出继续兼容。
+- `RoomWorkflowRepository.currentPreviousOutputs()` 对每个成功前序步骤重新查询 Tool Ledger。普通步骤和知识证据路径保持原语义；设备步骤则用本地判定文本替换模型正文。关联重试通过 `reusedFromStepId` 回查来源步骤及其 `agentRunId`，并比较已保存判定与 Ledger 当前投影；来源缺失、证据未验证、结构损坏或漂移抛出带稳定原因码的 `WorkflowDeviceObservationEvidenceException`，事务不写入下一步 input snapshot。
+- 前台 ViewModel、后台 Worker 和恢复完成路径都通过同一 policy 生成 output snapshot 判定。后台仍无法获得任何设备工具，因此正常返回 `NotApplicable`；这只是共享持久化契约，不开放后台设备观察。Workflow 页面继续只从 Ledger Projection 标记“已验证”，并新增本地判断、受限原因、规则版本与“只确认包名/摘要，不确认目标完成或动作授权”的范围说明。
+- 聚焦 JVM 为 `19/19`，`compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 构建通过。Redmi `wsvwypiz7xwslvl7` 定向 Room 数据链 `2` 条与 Compose 卡片 `1` 条合计 `OK (3 tests)`、耗时 `3.343s`；更新后的文档 corpus 首次/最终均为 `OK (1 test)`、耗时 `2.662s / 2.534s`。测试包已卸载，当前 Debug 主应用冷启动 `3.540s`，`0.1.13 (14)`、`MainActivity` resumed、PID 存活且 crash buffer 为空。在线模拟器仅出现在设备列表，没有收到安装、测试或其他定向 ADB 命令。按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+
 ## 第 109 阶段：Workflow 设备观察证据 UI（完成）
 
 - `RoomAgentRunRepository.toolLedgers()` 复用既有批量 ToolCall/ToolResult DAO，按 Workflow steps 的 `agentRunId` 去重并以 `900` 个为一批读取分组，既避免 N+1，也不会在超长历史中超过 SQLite bind 参数上限；没有新增表、迁移或把 Ledger JSON 复制进 Workflow snapshot。`XiaoLingViewModel.loadWorkflowUiData()` 在 IO 边界通过 `WorkflowDeviceObservationProjection` 立即把 Ledger 收敛成白名单 DTO，根 `XiaoLingUiState` 不持有原始节点 JSON。

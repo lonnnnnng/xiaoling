@@ -19,6 +19,7 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceException
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
@@ -26,6 +27,7 @@ import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.data.AgentRunEntity
+import com.longdev.xiaoling.data.AgentToolResultEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
@@ -282,6 +284,76 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val retriedSecond = repository.prepareWorkflowStep(retried.run.id, retried.steps[1].id)
         assertTrue(WorkflowStepSnapshotCodec.decodeInput(retriedSecond.inputSnapshot).previousOutputs.isEmpty())
         assertEquals(sourceOutput, repository.runDetail(source.run.id)!!.steps.first().outputSnapshot)
+    }
+
+    @Test
+    fun workflowReplacesVerifiedDeviceSnapshotWithLocalDecisionForNextStepAndRetry() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "设备观察本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察当前页面"),
+                WorkflowStepDefinitionInput("根据本地判定生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-decision"
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId))
+        repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "Agent 任务已完成\n${validDeviceSnapshot()}",
+        )
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        val previousOutput = WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single()
+        assertTrue(previousOutput.contains("本地设备观察判定 1（workflow-device-observation-v1）"))
+        assertTrue(previousOutput.contains("com.example.notes"))
+        assertFalse(previousOutput.contains("snapshot-secret"))
+        assertFalse(previousOutput.contains("ref-secret"))
+        assertFalse(previousOutput.contains("银行卡密码"))
+
+        repository.markAgentRunStarted(source.run.id, source.steps[1].id, "agent-run-device-next")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "测试重试")
+        val retried = repository.retryRun(source.run.id, "conversation-device-retry")
+        val retriedPrepared = repository.prepareWorkflowStep(retried.run.id, retried.steps[1].id)
+        assertEquals(
+            previousOutput,
+            WorkflowStepSnapshotCodec.decodeInput(retriedPrepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
+    fun workflowBlocksNextStepWhenPersistedDeviceSnapshotIsNotVerified() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "设备观察证据不足",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察当前页面"),
+                WorkflowStepDefinitionInput("根据观察确认事实"),
+            ),
+        )
+        val run = repository.createManualRun(workflow.id, "conversation-device-insufficient")
+        val agentRunId = "agent-run-device-insufficient"
+        repository.markAgentRunStarted(run.run.id, run.steps[0].id, agentRunId)
+        database.agentRunDao().insertToolResult(
+            deviceSnapshotResult(agentRunId = agentRunId, verificationStatus = "FAILED"),
+        )
+        repository.completeWorkflowStep(
+            workflowRunId = run.run.id,
+            workflowStepId = run.steps[0].id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = validDeviceSnapshot(),
+        )
+
+        val failure = runCatching {
+            repository.prepareWorkflowStep(run.run.id, run.steps[1].id)
+        }.exceptionOrNull()
+
+        assertTrue(failure is WorkflowDeviceObservationEvidenceException)
+        assertTrue(failure?.message.orEmpty().contains("VERIFICATION_MISSING"))
+        assertEquals(WorkflowStepStatus.PENDING, repository.runDetail(run.run.id)!!.steps[1].status)
     }
 
     @Test
@@ -1031,4 +1103,48 @@ class RoomWorkflowRepositoryInstrumentedTest {
         updatedAt = 2L,
         completedAt = if (status == AgentRunStatus.CANCELLED) 2L else null,
     )
+
+    private fun deviceSnapshotResult(
+        agentRunId: String,
+        verificationStatus: String = "PASSED",
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-result-$agentRunId",
+        toolName = "device.snapshot",
+        content = validDeviceSnapshot(),
+        success = true,
+        errorMessage = null,
+        durationMs = 193L,
+        executorVerified = verificationStatus == "PASSED",
+        verificationStatus = verificationStatus,
+        verifiedEventId = "event-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 4L,
+        verifiedAt = 5L,
+    )
+
+    private fun validDeviceSnapshot(): String = """
+        {
+          "snapshot_id":"snapshot-secret",
+          "package":"com.example.notes",
+          "window_title":"私人笔记",
+          "window_id":7,
+          "window_generation":8,
+          "captured_at":1700000000000,
+          "expires_at":1700000005000,
+          "redacted_node_count":1,
+          "truncated":false,
+          "nodes":[
+            {"index":0,"depth":0,"role":"button","text":"公开按钮","bounds":[0,0,100,100],"enabled":true,"selected":false,"redacted":false,"ref":"ref-secret","actions":["tap"]},
+            {"index":1,"parent_index":0,"depth":1,"role":"text","bounds":[0,0,100,100],"enabled":true,"selected":false,"redacted":true,"actions":[]}
+          ]
+        }
+    """.trimIndent()
 }

@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.automation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -83,6 +84,28 @@ class WorkflowStepExecutionPolicyTest {
             WorkflowStepSnapshotCodec.decodeOutput(encoded),
         )
         assertEquals("旧版输出", WorkflowStepSnapshotCodec.outputText("旧版输出"))
+    }
+
+    @Test
+    fun outputSnapshotKeepsSafeDeviceObservationDecisionWithoutRawNodes() {
+        val decision = WorkflowDeviceObservationDecision(
+            status = WorkflowDeviceObservationDecisionStatus.LIMITED,
+            packageName = "com.example.notes",
+            nodeCount = 12,
+            redactedNodeCount = 2,
+            truncated = true,
+            capturedAt = 1_700_000_000_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "观察完成",
+            deviceObservationDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceObservationDecisions)
+        assertFalse(encoded.contains("nodes"))
+        assertFalse(encoded.contains("snapshot_id"))
+        assertFalse(encoded.contains("ref"))
     }
 
     @Test

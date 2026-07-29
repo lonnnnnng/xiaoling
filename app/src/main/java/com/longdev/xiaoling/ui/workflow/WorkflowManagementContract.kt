@@ -9,9 +9,12 @@ import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionStatus
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceInput
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationResolution
 import com.longdev.xiaoling.agent.AgentToolLedgerRecord
 import com.longdev.xiaoling.agent.ToolVerificationStatus
-import com.longdev.xiaoling.device.DeviceSnapshotCodec
 
 data class WorkflowRetryConfirmationUiState(
     val runId: String,
@@ -109,6 +112,10 @@ data class WorkflowDeviceObservationUiState(
     val capturedAt: Long,
     val durationMs: Long,
     val verificationLabel: String,
+    val decisionLabel: String,
+    val decisionReason: String,
+    val decisionRuleVersion: String,
+    val decisionScope: String,
 )
 
 internal data class WorkflowScheduledTaskUiState(
@@ -241,16 +248,8 @@ internal object WorkflowManagementProjection {
     }
 
     private fun String.redactRawDeviceSnapshot(notice: String): String {
-        // long: 旧 Workflow 可能保存缺少 snapshot_id、使用 camelCase 或被再次 JSON 转义的快照；命中 nodes 与三类特征就整段替换，宁可少展示模型文本也不能让节点正文与 ref 回流历史 UI。
-        val signatureCount = DEVICE_SNAPSHOT_TEXT_SIGNATURES.count { aliases ->
-            aliases.any { alias -> containsJsonKey(alias) }
-        }
-        val containsRawSnapshot = DEVICE_SNAPSHOT_NODE_KEYS.any { key -> containsJsonKey(key) } && signatureCount >= 3
-        return if (containsRawSnapshot) notice else this
-    }
-
-    private fun String.containsJsonKey(key: String): Boolean {
-        return contains("\"$key\"") || contains("\\\"$key\\\"")
+        // long: UI 与执行链共享同一快照签名规则，避免历史 JSON 在页面已脱敏、送入下一 Workflow 步骤时却仍被当作普通模型文本。
+        return if (WorkflowDeviceObservationDecisionPolicy.containsPotentialRawSnapshot(this)) notice else this
     }
 
     private fun projectTask(
@@ -298,17 +297,6 @@ internal object WorkflowManagementProjection {
     private const val DEVICE_OBSERVATION_STEP_OUTPUT_NOTICE = "设备观察已记录，请查看下方已验证证据"
     private const val DEVICE_OBSERVATION_PREVIOUS_OUTPUT_NOTICE = "设备观察输出已脱敏，请查看对应步骤证据"
     private const val DEVICE_OBSERVATION_RUN_RESULT_NOTICE = "设备观察已记录，请查看步骤中的已验证证据"
-    private val DEVICE_SNAPSHOT_NODE_KEYS = setOf("nodes")
-    private val DEVICE_SNAPSHOT_TEXT_SIGNATURES = listOf(
-        setOf("snapshot_id", "snapshotId"),
-        setOf("package", "packageName"),
-        setOf("window_id", "windowId"),
-        setOf("window_generation", "windowGeneration"),
-        setOf("captured_at", "capturedAt"),
-        setOf("expires_at", "expiresAt"),
-        setOf("redacted_node_count", "redactedNodeCount"),
-        setOf("truncated"),
-    )
 }
 
 internal object WorkflowDeviceObservationProjection {
@@ -316,25 +304,43 @@ internal object WorkflowDeviceObservationProjection {
         expectedAgentRunId: String,
         ledger: AgentToolLedgerRecord,
     ): List<WorkflowDeviceObservationUiState> {
-        return ledger.results.mapNotNull { result ->
-            if (
-                result.runId != expectedAgentRunId ||
-                result.toolName != DEVICE_SNAPSHOT_TOOL_NAME ||
-                !result.success ||
-                result.verificationStatus != ToolVerificationStatus.PASSED
-            ) {
-                return@mapNotNull null
-            }
-            val summary = DeviceSnapshotCodec.decodeSummary(result.content) ?: return@mapNotNull null
-            // long: “已验证”只能来自独立 Tool Ledger 的 PASSED 结果；模型自由文本不能生成或提升设备观察证据。
+        val deviceResults = ledger.results.filter { it.toolName == DEVICE_SNAPSHOT_TOOL_NAME }
+        val resolution = WorkflowDeviceObservationDecisionPolicy.evaluate(
+            expectedAgentRunId = expectedAgentRunId,
+            results = ledger.results.map { result ->
+                WorkflowDeviceObservationEvidenceInput(
+                    runId = result.runId,
+                    toolName = result.toolName,
+                    content = result.content,
+                    success = result.success,
+                    verified = result.verificationStatus == ToolVerificationStatus.PASSED,
+                    durationMs = result.durationMs,
+                )
+            },
+        )
+        val decisions = (resolution as? WorkflowDeviceObservationResolution.Decided)?.decisions
+            ?: return emptyList()
+        return decisions.mapIndexed { index, decision ->
+            val decisionReason = buildList {
+                if (decision.redactedNodeCount > 0) add("${decision.redactedNodeCount} 个节点已脱敏")
+                if (decision.truncated) add("节点或文本达到快照上限")
+            }.joinToString("；").ifBlank { "快照未脱敏且未截断" }
+            // long: “已验证”与本地结论都只能来自独立 Tool Ledger；模型自由文本不能生成证据，也不能把摘要提升为“目标已完成”。
             WorkflowDeviceObservationUiState(
-                packageName = summary.packageName,
-                nodeCount = summary.nodeCount,
-                redactedNodeCount = summary.redactedNodeCount,
-                truncated = summary.truncated,
-                capturedAt = summary.capturedAt,
-                durationMs = result.durationMs,
+                packageName = decision.packageName,
+                nodeCount = decision.nodeCount,
+                redactedNodeCount = decision.redactedNodeCount,
+                truncated = decision.truncated,
+                capturedAt = decision.capturedAt,
+                durationMs = deviceResults.getOrNull(index)?.durationMs ?: 0L,
                 verificationLabel = "已验证",
+                decisionLabel = when (decision.status) {
+                    WorkflowDeviceObservationDecisionStatus.REVIEWABLE -> "可复核"
+                    WorkflowDeviceObservationDecisionStatus.LIMITED -> "有限可复核"
+                },
+                decisionReason = decisionReason,
+                decisionRuleVersion = decision.ruleVersion,
+                decisionScope = "仅确认包名与快照摘要，不确认节点正文、目标完成或动作授权",
             )
         }
     }

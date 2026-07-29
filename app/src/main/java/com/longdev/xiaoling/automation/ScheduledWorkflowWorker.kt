@@ -178,6 +178,9 @@ class ScheduledWorkflowExecutor(
         step: WorkflowStepRecord,
         summary: AgentRunSummary,
     ): WorkflowStepRecord {
+        val deviceObservationDecisions = WorkflowDeviceObservationDecisionPolicy.requireDecisions(
+            WorkflowDeviceObservationDecisionPolicy.evaluate(summary.verifiedContext),
+        )
         return workflowRepository.completeScheduledWorkflowStep(
             taskId = claim.task.id,
             workflowRunId = claim.run.run.id,
@@ -186,6 +189,7 @@ class ScheduledWorkflowExecutor(
             knowledgeReferences = summary.verifiedContext.knowledgeReferences,
             requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
                 summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
+            deviceObservationDecisions = deviceObservationDecisions,
             verifiedAgentContext = VerifiedAgentContextCodec.encode(summary.verifiedContext),
         )
     }

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 110 阶段在 Workflow 已验证 `device.snapshot` 证据上增加 `workflow-device-observation-v1` 本地判定：只确认包名、节点/脱敏数、截断和采集时间，并明确不确认节点正文、目标完成或动作授权。新步骤把安全判定写入既有 output snapshot；下一步和关联重试重新回查 Tool Ledger 后，只接收版本化判定而非模型快照正文。来源缺失、未验证、畸形或判定漂移会 fail-closed，后续 Agent Run 不启动。聚焦 JVM `19/19`、Debug/AndroidTest 构建、仅 Redmi 定向 `OK (3 tests)` 和文档 corpus `OK (1 test)` 通过；设备动作、后台设备工具、截图、坐标、视觉定位和任意 App 仍关闭。
+
 第 109 阶段完成前台 Workflow 的答案级设备观察证据 UI。Workflow step 通过既有 `agentRunId` 分块关联独立 Tool Ledger，只有成功、`PASSED` 且顶层与逐节点结构都合法的 `device.snapshot` 才生成包名、节点数、脱敏数、截断状态、采集时间和耗时组成的白名单摘要；原始 JSON 不复制到 Workflow 表，也不进入 Compose 根状态。历史步骤输出、前序输入和 Run 汇总中的 snapshot JSON 及缺少 ID、camelCase、转义变体统一 fail-closed 脱敏，节点 ref 明确标记为已过期。审查收尾后聚焦投影 JVM `7/7`、快照策略 JVM `9/9`、Debug/AndroidTest 构建、仅 Redmi Workflow 页面 `OK (2 tests)` 与文档 corpus `OK (1 test)` 通过；真实 `stage108_snapshot` 历史 Ledger 显示 `38` 个节点、脱敏 `2`、执行 `193ms`，最终页面层级不再包含 `snapshot_id / window_title / bounds / actions / ref`。最终测试包卸载，主应用前台、进程存活且 crash buffer 为空；动作、截图、坐标、视觉定位与后台设备工具仍关闭。
 
 第 108 阶段已把主线从等待 answerability Shadow 样本切回个人 Agent 能力。前台手动 Workflow 现在只可获得脱敏 `device.snapshot`，设备动作仍限定前台直接 `/agent`，后台或定时 Workflow 继续拒绝全部设备工具；审批恢复会从 Room 关联还原 `WORKFLOW / DIRECT` 来源，避免进程重建扩大权限。双轴审查补齐统一 `READY` 健康门禁，Accessibility 未授权或服务断连时，规划清单与 Executor 均 fail-closed。聚焦 JVM `88/88`、Debug/AndroidTest 构建、Redmi Room 单项和更新后的文档 corpus 单项均通过；真实 `stage108_snapshot` Workflow 在 `18.868s` 内完成，唯一工具结果为 `device.snapshot / SAFE / PASSED / 193ms / 6128B`，节点 `15`、脱敏节点 `2`、动作与审批均为 `0`。Shadow 降为低频并行观察，JSON/SAF、校准和 production enforcement 继续关闭。

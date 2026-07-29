@@ -473,6 +473,21 @@ private fun WorkflowItem(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    Text(
+                                        "本地判断 · ${observation.decisionLabel}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        "${observation.decisionReason} · 规则 ${observation.decisionRuleVersion}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        observation.decisionScope,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
                                     // long: 历史 Workflow 只用于复核当时的观察结果；持久化 ref 已脱离原窗口世代，任何后续动作都必须重新 snapshot。
                                     Text(
                                         "节点引用已过期，不可用于后续动作",

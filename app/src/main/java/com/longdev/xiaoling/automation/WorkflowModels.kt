@@ -123,6 +123,7 @@ data class WorkflowStepOutputSnapshot(
     val requiresCurrentKnowledgeReferences: Boolean,
     val knowledgeReferences: List<KnowledgeReference>,
     val expectedKnowledgeReferenceCount: Int,
+    val deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
 )
 
 object WorkflowStepSnapshotCodec {
@@ -148,13 +149,35 @@ object WorkflowStepSnapshotCodec {
         text: String,
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
+        deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
     ): String {
-        if (!requiresCurrentKnowledgeReferences && knowledgeReferences.isEmpty()) return text
+        if (
+            !requiresCurrentKnowledgeReferences &&
+            knowledgeReferences.isEmpty() &&
+            deviceObservationDecisions.isEmpty()
+        ) return text
         return JSONObject()
             .put("schema", OUTPUT_SCHEMA)
             .put("text", text)
             .put("requiresCurrentKnowledgeReferences", requiresCurrentKnowledgeReferences)
             .put("knowledgeReferences", KnowledgeReferenceCodec.encode(knowledgeReferences.distinct()))
+            .put(
+                "deviceObservationDecisions",
+                JSONArray().apply {
+                    deviceObservationDecisions.forEach { decision ->
+                        put(
+                            JSONObject()
+                                .put("ruleVersion", decision.ruleVersion)
+                                .put("status", decision.status.name)
+                                .put("packageName", decision.packageName)
+                                .put("nodeCount", decision.nodeCount)
+                                .put("redactedNodeCount", decision.redactedNodeCount)
+                                .put("truncated", decision.truncated)
+                                .put("capturedAt", decision.capturedAt),
+                        )
+                    }
+                },
+            )
             .toString()
     }
 
@@ -167,15 +190,47 @@ object WorkflowStepSnapshotCodec {
                 requiresCurrentKnowledgeReferences = false,
                 knowledgeReferences = emptyList(),
                 expectedKnowledgeReferenceCount = 0,
+                deviceObservationDecisions = emptyList(),
             )
         }
         return runCatching {
             val referencesJson = json.optJSONArray("knowledgeReferences") ?: JSONArray()
+            val deviceDecisionsJson = json.optJSONArray("deviceObservationDecisions") ?: JSONArray()
             WorkflowStepOutputSnapshot(
                 text = json.getString("text"),
                 requiresCurrentKnowledgeReferences = json.optBoolean("requiresCurrentKnowledgeReferences"),
                 knowledgeReferences = KnowledgeReferenceCodec.decode(referencesJson),
                 expectedKnowledgeReferenceCount = referencesJson.length(),
+                deviceObservationDecisions = buildList {
+                    repeat(deviceDecisionsJson.length()) { index ->
+                        val encodedDecision = deviceDecisionsJson.getJSONObject(index)
+                        val ruleVersion = encodedDecision.getString("ruleVersion")
+                        require(ruleVersion == WorkflowDeviceObservationDecisionPolicy.RULE_VERSION) {
+                            "未知设备观察判定规则：$ruleVersion"
+                        }
+                        val packageName = encodedDecision.getString("packageName").trim()
+                        val nodeCount = encodedDecision.getInt("nodeCount")
+                        val redactedNodeCount = encodedDecision.getInt("redactedNodeCount")
+                        val capturedAt = encodedDecision.getLong("capturedAt")
+                        require(packageName.isNotEmpty()) { "设备观察包名不能为空" }
+                        require(nodeCount >= 0) { "设备观察节点数无效" }
+                        require(redactedNodeCount in 0..nodeCount) { "设备观察脱敏节点数无效" }
+                        require(capturedAt >= 0L) { "设备观察采集时间无效" }
+                        add(
+                            WorkflowDeviceObservationDecision(
+                                status = WorkflowDeviceObservationDecisionStatus.valueOf(
+                                    encodedDecision.getString("status"),
+                                ),
+                                packageName = packageName,
+                                nodeCount = nodeCount,
+                                redactedNodeCount = redactedNodeCount,
+                                truncated = encodedDecision.getBoolean("truncated"),
+                                capturedAt = capturedAt,
+                                ruleVersion = ruleVersion,
+                            ),
+                        )
+                    }
+                },
             )
         }.getOrNull()
     }

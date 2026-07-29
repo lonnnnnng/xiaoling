@@ -1,5 +1,15 @@
 # 产品需求
 
+## 前台 Workflow 设备观察本地判定边界
+
+前台 Workflow 只能从同一 Agent Run 的持久化 Tool Ledger 生成设备观察本地判定。输入必须是 `device.snapshot`、`success=true`、验证通过且能被当前 `DeviceSnapshotCodec` 完整解码的快照；模型自由文本、跨 Run 结果、失败/未验证结果和畸形 JSON 均不得形成判定。规则版本固定为 `workflow-device-observation-v1`，结果只能确认采集时的应用包名、节点数量、脱敏数量、截断状态和采集时间。
+
+本地判定只区分“可复核”和“有限可复核”：未脱敏且未截断时为可复核；存在脱敏节点或截断时为有限可复核。两者都不确认节点正文、用户目标完成、页面仍处于原状态或任何设备动作授权。窗口标题、snapshot ID、window ID/generation、节点正文、description、hint、ref、bounds、actions 和原始 JSON 不得进入判定 DTO、下一步 Prompt 或 Compose 根状态。
+
+新步骤完成时，安全判定必须进入既有 Workflow output snapshot；下一步骤准备时仍需通过当前 step 的 `agentRunId`，或重试步骤的 `reusedFromStepId` 回查来源 Tool Ledger，并核对持久化判定与当前证据一致。合法设备观察必须用版本化本地判定替换模型步骤正文后再进入 `previousOutputs`；来源缺失、结果未验证、结构畸形或判定漂移必须以稳定原因 fail-closed，阻止后续步骤继续声称已确认设备事实。历史原始输出保留在来源 Run 中供审计，不回写或伪造新判定。
+
+Workflow 详情页必须同时展示已验证来源、本地判定结果、规则版本、白名单输入摘要和明确的结论范围。该闭环不新增 Room 表或列，不开放 `open_app / back / home / tap_ref / type_text / swipe`，不恢复历史 ref，也不改变后台/定时 Workflow、截图、坐标、视觉定位、任意 App、精确定时或 Foreground Service 边界。验收至少覆盖完整/受限判定、非设备结果不受影响、跨 Run/失败/未验证/畸形证据拒绝、安全 output snapshot、下一步 Prompt 替换、关联重试来源回查、证据不足阻断和 Redmi Compose 展示。
+
 ## 前台 Workflow 设备观察证据 UI 边界
 
 Workflow 管理页必须从持久化 Agent Tool Ledger 而不是模型自由文本生成设备观察证据。每个 Workflow step 只能通过自己已保存的 `agentRunId` 关联对应 Ledger；结果必须同时满足 Run 身份一致、工具名为 `device.snapshot`、`success=true`、`verificationStatus=PASSED` 且快照 JSON 结构合法，才能标记为“已验证”。结构合法必须能对齐当前 `DeviceSnapshotCodec` 的顶层身份、窗口、时间、计数字段和逐节点对象；节点必须具备索引、层级、角色、边界、布尔状态与动作数组，脱敏计数必须与节点一致。失败、未验证、跨 Run、非 snapshot 或任意层级畸形的结果必须 fail-closed，不得生成已确认证据。

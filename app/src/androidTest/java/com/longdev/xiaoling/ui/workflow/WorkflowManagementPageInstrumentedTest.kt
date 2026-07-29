@@ -74,6 +74,15 @@ class WorkflowManagementPageInstrumentedTest {
         ).assertExists()
         composeRule.onNodeWithText("设备观察 · 已验证", useUnmergedTree = true).assertExists()
         composeRule.onNodeWithText("应用：com.example.notes", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("本地判断 · 有限可复核", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "2 个节点已脱敏 · 规则 workflow-device-observation-v1",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "仅确认包名与快照摘要，不确认节点正文、目标完成或动作授权",
+            useUnmergedTree = true,
+        ).assertExists()
         composeRule.onNodeWithText(
             "节点引用已过期，不可用于后续动作",
             useUnmergedTree = true,
@@ -107,6 +116,10 @@ class WorkflowManagementPageInstrumentedTest {
                             capturedAt = 1_700_000_000_000L,
                             durationMs = 193L,
                             verificationLabel = "已验证",
+                            decisionLabel = "有限可复核",
+                            decisionReason = "2 个节点已脱敏",
+                            decisionRuleVersion = "workflow-device-observation-v1",
+                            decisionScope = "仅确认包名与快照摘要，不确认节点正文、目标完成或动作授权",
                         ),
                     ),
                     reusedFromStepId = null,

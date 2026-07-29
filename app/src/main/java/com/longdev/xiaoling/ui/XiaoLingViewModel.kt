@@ -49,6 +49,7 @@ import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepExecutionPolicy
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepPromptPolicy
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
@@ -1926,6 +1927,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     publishAgentRunSnapshot(snapshot)
                 },
             )
+            val deviceObservationDecisions = WorkflowDeviceObservationDecisionPolicy.requireDecisions(
+                WorkflowDeviceObservationDecisionPolicy.evaluate(summary.verifiedContext),
+            )
             withContext(Dispatchers.IO) {
                 workflowRepository.completeWorkflowStep(
                     workflowRunId = detail.run.id,
@@ -1935,6 +1939,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     knowledgeReferences = summary.verifiedContext.knowledgeReferences,
                     requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
                         summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
+                    deviceObservationDecisions = deviceObservationDecisions,
                 )
             }
             appendWorkflowMessage(
