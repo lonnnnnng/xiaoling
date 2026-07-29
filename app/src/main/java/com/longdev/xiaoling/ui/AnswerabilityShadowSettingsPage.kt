@@ -80,12 +80,12 @@ internal fun AnswerabilityShadowSettingsContent(
                 ) {
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(
-                            "启用答案可回答性 Shadow",
+                            "授权下一次答案可回答性 Shadow",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            "仅对前台直接 /agent 答案生效；答案先展示并保存，之后才把问题和知识候选发送给冻结 Judge。",
+                            "仅授权下一次符合条件的前台直接 /agent 观测；答案先展示并保存，开始观测时自动关闭本开关。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -93,12 +93,12 @@ internal fun AnswerabilityShadowSettingsContent(
                     Switch(
                         checked = enabled,
                         onCheckedChange = onEnabledChanged,
-                        modifier = Modifier.semantics { contentDescription = "启用答案可回答性 Shadow" },
+                        modifier = Modifier.semantics { contentDescription = "授权下一次答案可回答性 Shadow" },
                     )
                 }
                 // long: Shadow 只增加消息旁路提示；Judge 延迟、失败或否决都不会删除引用、改写答案或开启生产 enforcement。
                 Text(
-                    "当前边界：默认关闭 · 仅匹配冻结 gpt-5.5 身份时请求 · 不进入普通聊天、Workflow 或后台任务 · 只写入匿名 Room 观测账本。",
+                    "当前边界：默认关闭 · 每次显式开启最多启动一轮观测 · 仅匹配冻结 gpt-5.5 身份时请求 · 不进入普通聊天、Workflow 或后台任务 · 只写入匿名 Room 观测账本。",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

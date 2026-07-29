@@ -39,7 +39,7 @@ internal class AgentAnswerabilityShadowPublisher(
     suspend fun publish(
         request: AgentAnswerabilityShadowPublishRequest,
         awaitAnswerPersistence: suspend () -> Boolean,
-        isStillEnabled: () -> Boolean = { true },
+        tryConsumeObservationWindow: () -> Boolean,
     ) {
         if (request.mode == KnowledgeAnswerabilityShadowObservationMode.DISABLED) {
             recordSample(KnowledgeAnswerabilityShadowSampleEvent(KnowledgeAnswerabilityShadowSampleKind.DISABLED))
@@ -67,8 +67,23 @@ internal class AgentAnswerabilityShadowPublisher(
             )
             return
         }
-        if (!isStillEnabled()) {
-            // long: 用户在 Judge 真正发出前关闭开关即撤销本次旁路授权；答案已保存，但不得继续发送问题和候选正文。
+        val observationWindowConsumed = try {
+            // long: 原子消费同时完成“仍开启”检查和关闭写入；返回 false 说明授权已被用户或另一条并发答案抢先收回。
+            tryConsumeObservationWindow()
+        } catch (error: CancellationException) {
+            recordSample(KnowledgeAnswerabilityShadowSampleEvent(KnowledgeAnswerabilityShadowSampleKind.CANCELLED))
+            throw error
+        } catch (_: Exception) {
+            recordSample(
+                KnowledgeAnswerabilityShadowSampleEvent(
+                    kind = KnowledgeAnswerabilityShadowSampleKind.UNEXPECTED,
+                    failureKind = KnowledgeAnswerabilityJudgeFailureKind.UNEXPECTED,
+                ),
+            )
+            return
+        }
+        if (!observationWindowConsumed) {
+            // long: 用户撤销或并发答案已经消费本次窗口时，只放弃当前旁路；已保存答案与 Agent Run 保持不变。
             recordSample(KnowledgeAnswerabilityShadowSampleEvent(KnowledgeAnswerabilityShadowSampleKind.CANCELLED))
             return
         }

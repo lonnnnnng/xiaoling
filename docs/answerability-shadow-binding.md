@@ -2,11 +2,11 @@
 
 ## 当前边界
 
-answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答案。候选必须来自同一 Run 中最近一次成功、验证未失败且带稳定引用的 `knowledge.search`；答案必须先成功保存，冻结 Judge 身份必须与当前 Provider 配置完全一致。普通聊天、Workflow、后台 Worker、候选缺失、身份漂移或答案保存失败都不得请求 Judge 或写入匿名账本。
+answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答案。每次显式开启最多授权一轮观测：候选存在、答案成功保存且调用前仍开启时，Publisher 先关闭并持久化开关，再进入观测协调器；候选缺失、答案保存失败或用户提前撤销不消费本次窗口。候选必须来自同一 Run 中最近一次成功、验证未失败且带稳定引用的 `knowledge.search`；冻结 Judge 身份必须与当前 Provider 配置完全一致。普通聊天、Workflow、后台 Worker、候选缺失、身份漂移或答案保存失败都不得请求 Judge 或写入匿名账本。
 
 当前源码和 Redmi 开发数据使用 Room v33。生产请求通过 `KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL` 写入 `knowledge_answerability_shadow_observations`；旧阶段的 `store=null / persistenceMode=NONE` 只属于第 96 至 101 阶段的历史事实，不再代表当前实现。Shadow 默认关闭，notice 仍只存在于当前进程，`enforcementApplied=false`，production enforcement 继续关闭。
 
-第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。两条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
+第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口，不新增真实样本。当前两条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
 
 ## 候选来源
 
@@ -52,7 +52,7 @@ answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答�
 
 `OpenAiKnowledgeAnswerabilityJudge` 固定使用 Responses 非流式请求，关闭 reasoning summary，使用 `temperature=0`、`topP=1` 和 `maxTokens=220`。adapter 单次只发一个请求，不自行叠加重试；响应只通过严格 codec 解码。请求复用统一 Provider 鉴权、可配置 User-Agent 和兼容 Header，并逐请求关闭 HTTP Debug 请求、响应与流事件日志。
 
-`AgentAnswerabilityShadowPublisher` 只接收前台直接 Agent。答案先进入 UI 并启动正常会话保存；旁路 Job 等待对应保存成功，再次确认开关仍开启后才调用协调器。保存失败、开关撤销、Workflow 来源或 Judge 终败都不会进入 Agent 主失败分支。
+`AgentAnswerabilityShadowPublisher` 只接收前台直接 Agent。答案先进入 UI 并启动正常会话保存；旁路 Job 等待对应保存成功，再通过 `tryConsumeObservationWindow` 原子检查并消费一次性授权，只有成功关闭并持久化开关的调用才能进入协调器。无候选、保存失败、提前撤销或授权已被并发答案消费时不会请求 Judge；协调器开始后的取消、未知或异常仍保持开关关闭。所有旁路终态都不会进入 Agent 主失败分支。
 
 ## 状态、失败与重试
 
@@ -122,6 +122,12 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 
 两条记录只相隔约 `46` 分钟，本次只证明完整清理和进程重启后的独立短间隔链路，不视为长期分隔样本。数据库已有 `2` 条记录但设置页冷启动曾显示全零，现已修复初始化状态合并并由 JVM/Redmi 复验。清理后 documents/chunks 与 messages 为 `0`，两个 Agent Run 均保持 `COMPLETED`，Shadow 关闭，production enforcement 偏好、测试包和临时下载文件均不存在。当前窗口停止继续采样。
 
+## 第 105 阶段单次显式采样窗口
+
+第 103/104 阶段证明链路可用后，开关不再代表持续授权。Publisher 只有在候选存在且答案保存成功时才调用 `tryConsumeObservationWindow`；ViewModel 使用 `AnswerabilityShadowObservationWindowGate` 在同一临界区检查开关、同步关闭 UI 状态并写入 `UiPreferenceStore`。并发答案只有一条能消费同一授权并进入协调器，一次成功、未知、取消或异常观测都需要下一次新的用户显式开启。
+
+候选缺失、答案保存失败、用户在调用前关闭或并发答案已经抢先消费时，不会误用同一采样窗口。本阶段用 `AgentAnswerabilityShadowPublisherTest` 覆盖消费顺序、候选缺失、保存失败和提前撤销，用 `AnswerabilityShadowObservationWindowGateTest` 的 20 路并发覆盖唯一消费者；聚焦 JVM 合计 `11/11`。没有新增 Room 行，也没有改变 Judge 重试、匿名账本、notice、离线评测资格或 production enforcement。
+
 ## 当前不做的事
 
 - 不把 Shadow 结论用于删除引用、改写答案、改变检索排序或拒绝生产回答。
@@ -138,4 +144,5 @@ Redmi `wsvwypiz7xwslvl7` 在与第 101 阶段相隔约 69 小时的独立窗口�
 - 第 102 阶段导出契约：完整 JVM `736/736`，三类 APK、Lint、Redmi 完整 instrumentation 与文档 corpus gate 通过；
 - 第 103 阶段按分级验证只执行 Debug/AndroidTest 构建、Provider 兼容单项、真实前台 Shadow 链和 Redmi 文档 corpus `OK (1 test)`；
 - 第 104 阶段按分级验证执行聚焦 JVM、Debug/AndroidTest 构建、第二条真实前台 Shadow 链、冷启动设置页复验和 Redmi 文档 corpus 单项；当前 corpus 前两轮均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新打包后的最终复验同样通过；
+- 第 105 阶段按分级验证执行 Publisher `10/10` 与原子门禁 20 路并发 `1/1`，聚焦 JVM 合计 `11/11`；未新增真实样本，未运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release；
 - Pixel_9 和其他模拟器未参与上述验证。

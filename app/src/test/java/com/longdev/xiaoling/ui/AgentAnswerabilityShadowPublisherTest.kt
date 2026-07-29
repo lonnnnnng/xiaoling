@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -48,6 +49,7 @@ class AgentAnswerabilityShadowPublisherTest {
                 persistenceAwaited = true
                 true
             },
+            tryConsumeObservationWindow = { error("关闭状态不应消费窗口") },
         )
 
         assertFalse(persistenceAwaited)
@@ -58,6 +60,7 @@ class AgentAnswerabilityShadowPublisherTest {
     @Test
     fun failedAnswerPersistenceSkipsJudgeAndNotice() = runTest {
         var judgeCalled = false
+        var observationWindowConsumed = false
         val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = {
@@ -77,9 +80,14 @@ class AgentAnswerabilityShadowPublisherTest {
                 origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
             ),
             awaitAnswerPersistence = { false },
+            tryConsumeObservationWindow = {
+                observationWindowConsumed = true
+                true
+            },
         )
 
         assertFalse(judgeCalled)
+        assertFalse(observationWindowConsumed)
         assertEquals(KnowledgeAnswerabilityShadowSampleKind.ANSWER_PERSISTENCE_FAILED, samples.single().kind)
     }
 
@@ -101,6 +109,7 @@ class AgentAnswerabilityShadowPublisherTest {
                 origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
             ),
             awaitAnswerPersistence = { error("Room 写入失败") },
+            tryConsumeObservationWindow = { error("答案保存失败不应消费窗口") },
         )
 
         assertEquals(listOf(KnowledgeAnswerabilityShadowSampleKind.ANSWER_PERSISTENCE_FAILED), samples.map { it.kind })
@@ -127,12 +136,14 @@ class AgentAnswerabilityShadowPublisherTest {
                 origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
             ),
             awaitAnswerPersistence = { true },
+            tryConsumeObservationWindow = { true },
         )
     }
 
     @Test
     fun closingShadowBeforeJudgeCancelsThePendingSidecar() = runTest {
         var judgeCalled = false
+        var consumptionChecked = false
         val samples = mutableListOf<KnowledgeAnswerabilityShadowSampleEvent>()
         val publisher = AgentAnswerabilityShadowPublisher(
             observe = {
@@ -152,11 +163,75 @@ class AgentAnswerabilityShadowPublisherTest {
                 origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
             ),
             awaitAnswerPersistence = { true },
-            isStillEnabled = { false },
+            tryConsumeObservationWindow = {
+                consumptionChecked = true
+                false
+            },
         )
 
         assertFalse(judgeCalled)
+        assertTrue(consumptionChecked)
         assertEquals(KnowledgeAnswerabilityShadowSampleKind.CANCELLED, samples.single().kind)
+    }
+
+    @Test
+    fun startingObservationConsumesTheExplicitWindowBeforeJudge() = runTest {
+        val events = mutableListOf<String>()
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = {
+                events += "observe"
+                KnowledgeAnswerabilityShadowObservationOutcome(
+                    status = KnowledgeAnswerabilityShadowObservationStatus.UNKNOWN,
+                )
+            },
+            publishNotice = { _, _ -> error("UNKNOWN 不应发布 notice") },
+        )
+
+        publisher.publish(
+            request = AgentAnswerabilityShadowPublishRequest(
+                persistedMessageId = "message-one-shot-window",
+                candidate = candidate(),
+                frozenBinding = null,
+                mode = KnowledgeAnswerabilityShadowObservationMode.SHADOW,
+                origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+            ),
+            awaitAnswerPersistence = {
+                events += "persisted"
+                true
+            },
+            tryConsumeObservationWindow = {
+                events += "consumed"
+                true
+            },
+        )
+
+        assertEquals(listOf("persisted", "consumed", "observe"), events)
+    }
+
+    @Test
+    fun missingCandidateDoesNotConsumeTheExplicitWindow() = runTest {
+        var observationWindowConsumed = false
+        val publisher = AgentAnswerabilityShadowPublisher(
+            observe = { error("无候选时不应调用 Judge") },
+            publishNotice = { _, _ -> error("无候选时不应发布 notice") },
+        )
+
+        publisher.publish(
+            request = AgentAnswerabilityShadowPublishRequest(
+                persistedMessageId = "message-no-candidate",
+                candidate = null,
+                frozenBinding = null,
+                mode = KnowledgeAnswerabilityShadowObservationMode.SHADOW,
+                origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
+            ),
+            awaitAnswerPersistence = { error("无候选时不应等待答案持久化") },
+            tryConsumeObservationWindow = {
+                observationWindowConsumed = true
+                true
+            },
+        )
+
+        assertFalse(observationWindowConsumed)
     }
 
     @Test
@@ -179,6 +254,7 @@ class AgentAnswerabilityShadowPublisherTest {
                     origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
                 ),
                 awaitAnswerPersistence = { true },
+                tryConsumeObservationWindow = { true },
             )
             fail("取消必须继续传播")
         } catch (error: CancellationException) {
@@ -233,10 +309,14 @@ class AgentAnswerabilityShadowPublisherTest {
                 events += "persisted"
                 true
             },
+            tryConsumeObservationWindow = {
+                events += "consumed"
+                true
+            },
         )
 
         assertEquals(
-            listOf("persisted", "observe:message-final-answer", "notice:message-final-answer"),
+            listOf("persisted", "consumed", "observe:message-final-answer", "notice:message-final-answer"),
             events,
         )
         assertEquals(KnowledgeAnswerabilityShadowSampleKind.COMPLETED, samples.single().kind)
@@ -279,6 +359,7 @@ class AgentAnswerabilityShadowPublisherTest {
                 origin = KnowledgeAnswerabilityShadowObservationOrigin.DIRECT_FOREGROUND,
             ),
             awaitAnswerPersistence = { true },
+            tryConsumeObservationWindow = { true },
         )
 
         assertFalse(noticePublished)

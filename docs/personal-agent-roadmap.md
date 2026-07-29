@@ -14,6 +14,12 @@ answerability Shadow 已从只保留当前进程 tracker 扩展为 Room v33 匿�
 
 本切片完成 TDD、Schema、迁移、磁盘重开、幂等、未知数值、稳定失败 fallback、Judge HMAC 匿名分桶、隐私字段和值检查、2,001 条裁剪边界和设置页验收。完整本地为 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital；Redmi 保持唤醒后的最终 JUnit XML `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`；更新后的文档 corpus gate 首次与写回设备收尾后的最终复验均为 `OK (1 test)`，固定正式 `v0.1.13` 已恢复。类型级离线评测导出契约与首个 Room v33 间隔真实样本均已完成；继续用新匿名账本在分隔窗口低频积累，样本足够后再评估 JSON codec 或 UI/SAF 出口。production enforcement 继续关闭。
 
+## 第 105 阶段：单次显式 Shadow 采样窗口（完成）
+
+答案可回答性 Shadow 开关已从持续授权收紧为一次性显式采样窗口。只有候选存在且最终答案保存成功时，Publisher 才通过 `AnswerabilityShadowObservationWindowGate` 在同一临界区检查开关、关闭并持久化设置；并发答案只有一条能让 `tryConsumeObservationWindow()` 返回成功并进入协调器。候选缺失、答案保存失败或用户提前撤销不会消费窗口。即使 Judge 取消、未知或异常，本次已经开始的观测也不会让开关继续保持开启。
+
+本阶段只修改前台直接 `/agent` 的 Shadow 授权生命周期和设置页说明，不新增采样、不改变 Room v33 账本、Judge 重试、匿名字段、notice、Workflow/后台或 production enforcement。首轮 TDD 确认缺少消费 seam；双轴审查发现检查与关闭分离的并发风险后，第二轮用 20 路并发 Red 固定原子边界。Publisher `10/10`、门禁并发 `1/1`，聚焦 JVM 合计 `11/11`；本轮按分级验证不执行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。当前账本仍为第 103/104 阶段形成的 `2` 条短间隔记录，继续等待真正分隔开的低频使用窗口。
+
 ## 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复（完成）
 
 完整清理并重启进程后，Redmi 使用词法兜底命中 `anonymous shadow calibration validation` 本地知识，形成第二条 `COMPLETED / BOUND / ACCEPT` 匿名记录。两条累计为观测 `2`、Judge 身份桶 `1`、完成/绑定/接受 `2/2/2`、attempt `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`、usage `2`，全部失败分桶为 `0`。
@@ -28,7 +34,7 @@ answerability Shadow 已从只保留当前进程 tracker 扩展为 Room v33 匿�
 
 仅在 Redmi `wsvwypiz7xwslvl7` 前台直接 `/agent` 中短时开启 Shadow，导入当前 README 后以词法兜底检索 `Agent Run retryOfRunId`，形成首条 v33 匿名记录。停进程数据库快照确认只有 `1` 条 `COMPLETED / BOUND / ACCEPT`，Judge 尝试 `1` 次，耗时/TTFB `9663/9655ms`、Prompt `10879B`、Tokens `2801/469/3270`、usage `1`，所有失败计数和未知绑定均为 `0`。
 
-测试会话、知识文档、chunks、下载文件和测试包已清理，Schema 保持 `33`，Shadow 偏好为关闭，production enforcement 偏好不存在，Provider/Profile 仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后账本与清理状态不变，最终冷启动 `3441ms` 且 crash buffer 为空。本阶段按分级验证没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。下一步继续采集第二个及后续分隔样本；样本量不足前不实现 JSON/SAF，不启用生产拒绝。
+测试会话、知识文档、chunks、下载文件和测试包已清理，Schema 保持 `33`，Shadow 偏好为关闭，production enforcement 偏好不存在，Provider/Profile 仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后账本与清理状态不变，最终冷启动 `3441ms` 且 crash buffer 为空。本阶段按分级验证没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release。以上为第 103 阶段当时的首条快照；第 104 阶段已形成第二条短间隔记录，当前继续等待真正分隔样本。样本量不足前不实现 JSON/SAF，不启用生产拒绝。
 
 ## 通用执行恢复矩阵：已提交与已验证控制面幂等收尾（完成）
 
@@ -954,9 +960,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 100. 已完成：Android 系统分享入口 v1。单文本/单图片只进入新会话草稿，冲突需用户确认，冷/热启动和重建行为明确；不自动发送、不信任来源、不扩展工具权或后台能力。
 101. 已完成历史观察窗口：v33 之前的首个间隔真实使用窗口新增 `1` 条直接回答，第 97 至 101 项书面人工合计为样本 `10`、有效 Judge `8`；这些历史数字不回填新账本。
 102. 已完成：冻结匿名 Shadow 与显式授权内容不能混装的版本化离线评测导出契约；匿名证据固定不能用于 calibration/validation，JSON/SAF 与 production enforcement 未接入。
-103. 已完成首个 Room v33 间隔真实样本：账本 `1` 条 `COMPLETED / BOUND / ACCEPT`，失败计数为 `0`，清理后知识文档/分块为 `0`、Shadow 关闭。当前继续低频积累第二个及后续分隔样本，不在单一窗口堆数量。
-104. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
+103. 已完成首个 Room v33 间隔真实样本：第 103 阶段当时账本 `1` 条 `COMPLETED / BOUND / ACCEPT`，失败计数为 `0`，清理后知识文档/分块为 `0`、Shadow 关闭。
+104. 已完成第二条 Room v33 短间隔真实样本与冷启动摘要修复：当前账本 `2` 条，均为 `COMPLETED / BOUND / ACCEPT`；两条只相隔约 `46` 分钟，继续等待真正分隔窗口。
+105. 已完成单次显式 Shadow 采样窗口：原子门禁保证每次开启最多启动一轮观测，开始前自动关闭并持久化；并发答案、无候选、保存失败或提前撤销不能复用授权。
+106. 仍后置：多项/任意文件分享与后台自动处理、设备工具进入 Workflow/后台自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约和第 103 阶段首个 v33 间隔样本；下一目标是继续积累分隔样本，不机械搬运 `SettingsPage` composition root。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约、第 103/104 阶段两条 v33 短间隔样本和第 105 阶段单次显式采样窗口；下一目标是等待真正分隔的后续样本，不机械搬运 `SettingsPage` composition root。
 
-后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103 阶段起的新账本当前只有 `1` 条完成且接纳记录，后续继续在间隔开的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103/104 阶段的新账本当前有 `2` 条完成且接纳记录，两条只相隔约 `46` 分钟，仍不足以作为长期分隔或 calibration/validation 证据。第 105 阶段已把每次显式开启收紧为最多一轮观测，后续继续在真正分隔的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。设备工具继续禁止进入 Workflow 或后台自动化；精确定时、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。

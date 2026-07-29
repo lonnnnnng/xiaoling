@@ -19,6 +19,13 @@
 - v32→v33 migration 只创建空表和时间索引，不扫描或回填消息、Run、检索审计或第 97–101 阶段人工统计。旧版本备份继续通过 `CURRENT_VERSION=33` 迁移，未来版本备份仍按既有高版本拒绝策略处理。production enforcement、知识检索与排序、普通聊天、Workflow/后台、ANN 和自动索引重建均未改变。
 - TDD 先以缺少 `telemetry` 的编译失败和 Publisher 仍请求 `NONE` 建立 red；第二轮以 Redmi 上最终异常失败分布为 `null` 建立 red，随后修正为稳定失败枚举；Judge 身份桶加入后，迁移、Store、失败分布和设置页聚焦组合为 `OK (5 tests)`。双轴审查发现公开配置的无盐摘要可枚举，并指出缺少 2,001 条裁剪边界；改用 Keystore HMAC 后 Store `4/4` 证明落库桶不等于公开 SHA-256，且第 2,001 条会删除最旧记录。最终完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、三类 APK 与 Release lintVital 通过；Redmi 保持唤醒后的最终 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。更新后的项目文档首次 corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验也已通过；固定正式 `v0.1.13` 恢复后测试包不存在、保持唤醒还原为 `0`，crash buffer 为空。
 
+## 第 105 阶段：单次显式 Shadow 采样窗口（完成）
+
+- `AgentAnswerabilityShadowPublisher.publish()` 新增必填的 `tryConsumeObservationWindow` seam，不提供默认放行。只有候选存在、答案持久化成功且原子消费返回 `true` 时才调用 `observe()`；候选缺失、保存失败、提前撤销或授权已被并发答案消费都会保守取消旁路。
+- `AnswerabilityShadowObservationWindowGate` 在同一 `synchronized` 临界区读取开关并执行关闭写入；`XiaoLingViewModel` 通过该 Gate 调用既有 `updateAnswerabilityShadowEnabled(false)`，同步关闭 UI 状态并持久化偏好。观测已经开始后即使 Judge 返回未知、取消或异常，也不会留下持续授权。
+- 设置页标题、辅助说明和无障碍语义改为“授权下一次”，并明确每次显式开启最多启动一轮观测。Room v33、Judge 重试、匿名账本、notice、Workflow/后台和 production enforcement 均不改变。
+- TDD 先增加消费顺序、候选缺失和提前撤销测试，Red 阶段因缺少消费 seam 编译失败；双轴审查随后发现检查与关闭分离存在并发竞态，第二轮 Red 以 20 路并发消费者证明原子 Gate 尚不存在。最终 Publisher `10/10`、Gate 并发 `1/1`，聚焦 JVM 合计 `11/11`。本阶段按分级验证不运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release，也不采集新的真实 Shadow 样本。
+
 ## 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 在第 103 阶段完整清理并重新启动进程后导入 `docs/answerability-shadow-binding.md`，形成 revision `1`、`5` 个 chunks、`11.4 KB`。Embedding Provider 在该窗口不可用，查询 `anonymous shadow calibration validation` 通过词法兜底命中 `1` 个 chunk；前台直接 `/agent` 完成知识检索、答案/引用保存和真实 Judge。
@@ -297,8 +304,8 @@
 - Room 从 v32 成功迁移到 v33，初始 `knowledge_answerability_shadow_observations` 为 `0`。现有 Provider 为空占位后，只运行 `ProviderEmbeddingCompatibilityInstrumentedTest`，结果 `OK (1 test)`；它把 AGENTS 兜底配置加密保存为 `redmi-provider-compatibility`，Embedding 因该 Provider 没有 Embedding 模型按假设跳过。随后通过真实 Agent Profile UI 保存默认 Agent，绑定 `gpt-5.5`，保留既有 `16` 个工具和 `7` 个 Skills。
 - 本窗口距第 101 阶段记录时间约 `69` 小时，且 v33 采样前匿名账本为 `0`。当前 README 以 `xiaoling-stage103-shadow.md` 导入后形成 revision `1`、`19` 个 chunks；Embedding 不可用，检索 `Agent Run retryOfRunId` 通过词法兜底命中 `5` 个 chunks。显式开启 Shadow 后发送 `/agent Call knowledge.search with query Agent Run retryOfRunId and explain the result.`，前台 Run 完成并保留本地知识引用。
 - 停进程 Room 快照确认 Schema `33`，匿名账本恰好 `1` 条：`COMPLETED / BOUND / ACCEPT`，Judge identity 桶 `1`，attempt `1`，耗时/TTFB `9663/9655ms`，Prompt `10879B`，输入/输出/总 Tokens `2801/469/3270`，usage samples `1`；unknown、reject、undecided、binding unknown 与十类失败计数均为 `0`，记录时间为 `2026-07-29 07:27:36`（北京时间）。
-- 通过应用内正式入口删除临时知识文档和 Agent 会话，知识文档/chunks 回到 `0`；精确删除 Redmi 下载文件并卸载 `com.longdev.xiaoling.test`。`answerability_shadow_enabled=false`，production enforcement 偏好不存在，Provider/Profile 均仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`；再次停进程复核后账本仍为 `1`、知识数据仍为 `0`。当前源码 Debug 保留在设备上，避免以 Room v32 的发布 APK 降级覆盖 v33 数据库；最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
-- 本阶段完成的是第一条跨进程真实样本，不把第 97 至 101 项人工统计回填或合并。下一步继续等待第二个及后续分隔真实窗口；样本量不足前不实现 JSON codec、UI/SAF 出口或 production enforcement。
+- 通过应用内正式入口删除临时知识文档和 Agent 会话，知识文档/chunks 回到 `0`；精确删除 Redmi 下载文件并卸载 `com.longdev.xiaoling.test`。`answerability_shadow_enabled=false`，production enforcement 偏好不存在，Provider/Profile 均仍绑定 `gpt-5.5`。同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`；再次停进程复核后，第 103 阶段当时账本仍为 `1`、知识数据仍为 `0`。当前源码 Debug 保留在设备上，避免以 Room v32 的发布 APK 降级覆盖 v33 数据库；最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
+- 本阶段完成的是第一条跨进程真实样本，不把第 97 至 101 项人工统计回填或合并。第 104 阶段随后已增加第二条短间隔记录，当前总账本为 `2`；继续等待真正分隔的后续窗口，样本量不足前不实现 JSON codec、UI/SAF 出口或 production enforcement。
 
 ## Agent Run 关联重试协调迁出（横向可靠性工程）
 

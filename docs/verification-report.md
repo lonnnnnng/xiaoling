@@ -15,6 +15,14 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：第 104 阶段为保留已迁移的 Room v33 数据和两条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-29 第 105 阶段：单次显式 Shadow 采样窗口
+
+- TDD Red：在 `AgentAnswerabilityShadowPublisherTest` 增加观测开始前消费授权、候选缺失不消费、保存失败不消费和提前撤销不消费的断言；首次运行因 `publish()` 不存在消费 seam 而按预期编译失败。
+- Green 与审查修复：首版 Publisher 在候选存在、答案保存成功且调用前仍开启后先关闭开关再进入协调器。Standards / Spec 双轴审查共同发现“检查后关闭”不是原子操作，两个并发答案可能复用同一授权；第二轮 Red 增加 20 路并发消费者，随后由 `AnswerabilityShadowObservationWindowGate` 在同一临界区检查并关闭，Publisher 只在必填的 `tryConsumeObservationWindow()` 返回成功时继续，不保留默认放行路径。
+- 设置页：开关语义调整为“授权下一次答案可回答性 Shadow”，说明每次显式开启最多启动一轮观测并在开始时自动关闭；候选缺失、答案保存失败和提前撤销仍不消费窗口。
+- 分级验证：Publisher `10/10` 与原子门禁 20 路并发 `1/1` 合计 `11/11`，`BUILD SUCCESSFUL`，同时完成 Debug 主源码编译。本阶段未新增 Room 行或真实 Judge 请求，未执行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。
+- 证据边界：Room v33 匿名账本仍为第 103/104 阶段形成的 `2` 条 `COMPLETED / BOUND / ACCEPT`；两条相隔约 `46` 分钟，仍不作为长期分隔、calibration/validation 或 production enforcement 依据。JSON/SAF、显式授权评测集、独立阈值校准继续后置。
+
 ## 2026-07-29 第 104 阶段：第二条真实 Shadow 样本与冷启动摘要修复
 
 - 第二条真实样本：完整清理第 103 阶段临时数据并重启进程后，把 `docs/answerability-shadow-binding.md` 导入为 `xiaoling-stage104-shadow.md`，形成 revision `1`、`5` 个 chunks、`11.4 KB`。Embedding 不可用，查询 `anonymous shadow calibration validation` 通过词法兜底命中 `1` 个 chunk；真实请求 `/agent Use knowledge.search with query anonymous shadow calibration validation and explain why anonymous Shadow cannot be used for calibration or validation.` 完成检索、答案/引用保存和 Judge。
@@ -31,7 +39,7 @@
 - 真实样本：本窗口距第 101 阶段记录时间约 `69` 小时，且 v33 采样前匿名账本为 `0`。当前 README 导入为 `xiaoling-stage103-shadow.md`，形成 revision `1`、`19` 个 chunks；Embedding 不可用时查询 `Agent Run retryOfRunId` 由词法兜底命中 `5` 个 chunks。显式开启 Shadow 后，前台直接 `/agent` 完成 `knowledge.search`、答案和引用保存，并触发一次真实 Judge。
 - 停进程 Room 证据：Schema 为 `33`，`knowledge_answerability_shadow_observations` 恰好 `1` 条，Judge 匿名身份桶 `1`；状态 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `9663/9655ms`，Prompt `10879B`，输入/输出/总 Tokens `2801/469/3270`，usage samples `1`。unknown、reject、undecided、binding unknown 和全部失败分桶均为 `0`；记录时间 `2026-07-29 07:27:36`（北京时间）。
 - 文档与最终状态：通过应用 UI 删除临时知识文档和 Agent 会话，知识文档/chunks 均恢复为 `0`；精确删除 `/sdcard/Download/xiaoling-stage103-shadow.md`，卸载 `com.longdev.xiaoling.test`。同步后的 AndroidTest 文档 assets 以正式证书签署，只在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首次结果 `OK (1 test)`、耗时 `1.988s`；安装器的 incremental 尝试被设备拒绝后自动回退 streamed install 并成功，补充间隔证据后的最终文本复验同样通过。再次停进程快照仍为 `documents=0 / chunks=0 / shadow=1 / completed=1 / accepted=1 / failures=0`，Shadow 偏好为 `false`，production enforcement 偏好不存在，测试包已卸载，Provider/Profile 仍绑定 `gpt-5.5`。最终冷启动 `3441ms`，`MainActivity` resumed，crash buffer 为空。
-- 结论：这是 Room v33 新匿名账本的第一条间隔真实样本，不与第 97 至 101 项人工合计混算。当前证据不足以进入 JSON/SAF、独立阈值校准或生产拒绝；下一阶段继续等待第二个及后续分隔真实窗口。
+- 结论：截至第 103 阶段，这是 Room v33 新匿名账本的第一条间隔真实样本，不与第 97 至 101 项人工合计混算。第 104 阶段随后已增加第二条短间隔记录；当前证据仍不足以进入 JSON/SAF、独立阈值校准或生产拒绝，继续等待真正分隔的后续窗口。
 
 ## 2026-07-29 第 102 阶段：answerability 离线评测导出契约
 
@@ -267,7 +275,7 @@
 
 - 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
 - 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。下一主线完成剩余窗口闭环审计；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不继续扩张设备权限或机械搬文件。
-- answerability shadow 默认关闭；第 103 阶段后 Room v33 匿名账本为 `1` 条完成且接纳记录，`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
+- answerability shadow 默认关闭；第 103/104 阶段后 Room v33 匿名账本为 `2` 条完成且接纳记录，两条只相隔约 `46` 分钟。第 105 阶段已把每次开启收紧为最多一轮观测；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
 - 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 

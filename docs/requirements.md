@@ -154,7 +154,7 @@ ViewModel 只投影 `ConfirmationRequired / ConfirmationRefreshed / PreparationR
 
 ## 第 99 阶段 answerability shadow 低频观察边界
 
-真实 Shadow 观察必须分散在间隔开的用户显式开启窗口，不得为了达到样本数量在同一窗口持续压测，也不得通过断网、篡改认证或伪造协议错误制造“自然失败”。每个窗口仍只允许同一应用进程中的 `DIRECT_FOREGROUND`、答案成功保存且存在冻结知识候选的 `/agent` Run 进入 Judge；普通聊天、Workflow、后台 Worker 和未形成成功答案的 Agent Run 不得进入样本、attempt 或失败分母。
+真实 Shadow 观察必须分散在间隔开的用户显式开启窗口，不得为了达到样本数量在同一窗口持续压测，也不得通过断网、篡改认证或伪造协议错误制造“自然失败”。每次显式开启最多授权一轮观测：只有候选存在、答案成功保存且调用前仍保持开启时才消费授权，开关检查、关闭和持久化必须在同一原子门禁内完成，多个并发答案只能有一个进入协调器；候选缺失、保存失败或提前撤销不消费窗口，观测开始后的成功、未知、取消或异常均不得让开关继续保持开启。每个窗口仍只允许同一应用进程中的 `DIRECT_FOREGROUND` `/agent` Run 进入 Judge；普通聊天、Workflow、后台 Worker 和未形成成功答案的 Agent Run 不得进入样本、attempt 或失败分母。
 
 Agent Run 因无候选、预算耗尽或工具步数耗尽而失败时，只有确实进入 tracker 的稳定 Shadow 事件才允许计数；没有成功答案和合格候选时不得伪造 `SKIPPED`、Judge 失败、取消或 usage。知识检索使用词法兜底形成候选时必须如实记录，不能把 answerability Judge 结果表述为 Embedding 质量证据。
 

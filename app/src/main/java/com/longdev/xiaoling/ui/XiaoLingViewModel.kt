@@ -439,6 +439,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val uiPreferenceStore = UiPreferenceStore(application)
     private val client by lazy { OpenAiCompatibleClient() }
     private val answerabilityShadowSampleTracker = KnowledgeAnswerabilityShadowSampleTracker()
+    private val answerabilityShadowObservationWindowGate = AnswerabilityShadowObservationWindowGate()
     private val answerabilityShadowObservationStore by lazy {
         RoomKnowledgeAnswerabilityShadowObservationStore(application)
     }
@@ -4165,7 +4166,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     }
                     persistenceJob.isCompleted
                 },
-                isStillEnabled = { uiState.answerabilityShadowEnabled },
+                tryConsumeObservationWindow = {
+                    answerabilityShadowObservationWindowGate.tryConsume(
+                        isEnabled = { uiState.answerabilityShadowEnabled },
+                        consume = {
+                            // long: 原子门禁内同步关闭并持久化，后续并发答案和下一条样本都必须等待用户重新开启。
+                            updateAnswerabilityShadowEnabled(false)
+                        },
+                    )
+                },
             )
         }
     }
