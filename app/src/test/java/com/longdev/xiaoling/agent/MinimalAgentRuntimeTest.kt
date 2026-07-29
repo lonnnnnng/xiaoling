@@ -696,6 +696,7 @@ class MinimalAgentRuntimeTest {
             detail = detail,
             approval = detail.approvals.single(),
             approvalDecision = ApprovalDecision(approved = true, reason = "用户确认继续"),
+            invocationSource = AgentInvocationSource.WORKFLOW,
         )
 
         val snapshot = ledger.snapshot(created.id)
@@ -707,6 +708,7 @@ class MinimalAgentRuntimeTest {
         assertEquals(2, snapshot.events.count { it.type == "tool.result" })
         assertEquals(2, snapshot.events.count { it.type == "tool.verify" })
         assertEquals(false, restoredRunContext?.memoryRecallEnabled)
+        assertEquals(AgentInvocationSource.WORKFLOW, restoredRunContext?.invocationSource)
         assertEquals(listOf(created.goal, "恢复后的第二步"), summary.verifiedContext.toolExecutions.map {
             it.arguments.getValue("goal")
         })

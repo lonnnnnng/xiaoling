@@ -35,6 +35,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 候选记忆的列表、成功回合采集和接受/拒绝已由独立 `AgentMemoryCandidateCoordinator` 编排：普通聊天与 Agent Run 使用稳定来源身份，同一候选 ID 的并发决定返回 `Busy`，不同候选可以并行；失败和取消都会释放 claim。关闭候选开关会取消旧列表读取，避免迟到 Room 结果重新填充界面。敏感过滤、去重、冲突、事务与正式记忆检索继续由既有 Room Store/Manager 负责。
   - Provider 模型同步已由独立 `ProviderModelSyncCoordinator` 编排：单项与批量同步统一 URL 校验、请求规范化、模型去重与当前模型回退；批量严格按列表顺序执行，普通失败继续下一项，取消立即终止。网络请求可以并行，但完整 Provider 快照通过提交互斥串行落库；保存前后都会拒绝已删除或身份漂移的迟到结果，成功必须以 Room 持久化完成为准。ViewModel 只保留忙碌态、逐项结果和弹窗投影。
   - Agent 启动前校验已由独立 `AgentLaunchPreflightCoordinator` 编排：普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批统一执行会话、Profile、工具注册与 Provider 校验。普通 `/agent` 仍可在没有当前会话时创建会话；其余入口要求原会话存在。恢复审批优先使用原 Run 的 Profile 快照，旧 Run 没有有效快照时才回退当前选中 Profile；其他入口继续使用当前 Profile。校验只冻结本次进程内运行配置，不写 UI、Room 或日志；运行配置自身的字符串表示会脱敏 Base URL、API Key 与自定义 Header。
+  - 个人 Agent 主线已重新启动。用户在前台手动运行 Workflow 时，可在设备 Agent 独立开关和 Accessibility 授权均有效、且 Profile/Skill 允许的前提下使用只读 `device.snapshot`；`open_app / back / home / tap_ref / type_text / swipe` 仍只允许前台直接 `/agent`，后台或定时 Workflow 看不到也不能执行任何设备工具。工具清单与 Executor 保持两层门禁，审批恢复会从 Room 中的 Workflow 关联还原原调用来源，不能因进程重建退化成直接对话权限。
   - 知识质量工程已完成 answerability Shadow 跨进程持久化的首个最小切片：显式开启且身份匹配的前台直接 `/agent` 答案仍在保存后旁路调用 Judge，观测结果改为 `OPTIONAL` 写入 Room v33 匿名账本。账本以 SHA-256 幂等键去重、最多保留 2,000 条，只保存候选摘要、Keystore 密钥生成的 Judge HMAC 匿名桶、状态枚举和数值遥测；不保存消息/Run ID、问题、答案、引用、原始响应、Provider/模型、URL 或凭据。设置页分开展示跨进程累计与当前进程 notice 生命周期；notice 不跨进程恢复，生产 enforcement 继续关闭。
   - 第 102 阶段已冻结版本化离线评测导出契约：匿名 Shadow 观测与显式授权内容案例使用不能混装的强类型 envelope。匿名证据只携带 v33 不可逆 fingerprint、枚举、失败分桶和可空成本，不能用于 calibration/validation；显式内容案例才允许携带授权、数据集身份、正文、引用与人工评估。本阶段没有增加 JSON/SAF 出口或生产 enforcement。
   - 第 107 阶段在 Redmi 形成第三条 Room v33 真实 Shadow 记录。一次较宽的请求连续执行 4 次 `knowledge.search` 后以 `BUDGET_EXHAUSTED` 收敛，没有成功答案、没有消费一次性授权，也没有写入匿名账本；随后复用已验证查询模式的前台 `/agent` 只执行 1 次检索并新增 `COMPLETED / BOUND / ACCEPT` 记录。第三条 attempt `1`，耗时/TTFB `7288/7274ms`，Prompt `6664B`，Tokens `1715/314/2029`，全部失败计数为 `0`；累计账本为 `3` 条、Judge 身份桶 `1`、完成/绑定/接受 `3/3/3`。本轮距第二条 `4 小时 38 分 33 秒`，只记为独立同日窗口，仍不解锁 JSON/SAF、校准或生产拒绝。
@@ -47,7 +48,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 第 99 阶段完成首批 Redmi 低频 answerability shadow 观察：同一进程新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，Judge 取消、异常和旁路错误均为 `0`；本批累计耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。首次宽英文检索连续无候选并使 Agent Run 达到工具步数上限，但没有进入 Shadow，不能记作 Judge 失败。
   - 第 98 阶段已在 Redmi 同一进程内扩充用户显式开启的真实前台 answerability shadow 样本：累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成 `2` 条直接回答与 `2` 条部分回答；自然 `BUDGET_EXHAUSTED` Run 未进入 Shadow，不能记作 Judge 失败。累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`，取消和异常均为 `0`。
   - 第 97 阶段已为默认关闭的 answerability shadow 增加有界进程内样本摘要：只记录 Judge attempt、延迟/TTFB、Prompt 字节、Tokens、失败分类和 notice 生命周期，不记录问题、答案、候选正文、引用、原始响应或凭据。真实 Redmi 前台 Agent 样本已验证答案先保存、Judge 后置、notice 可见且随会话删除裁剪；普通聊天、Workflow 和后台 Worker 不进入样本分母。
-  - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权、前台直接 `/agent` 且 Profile/Skill 允许时可用；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证，Workflow 与后台运行不会看到或执行任何设备工具。
+  - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权且 Profile/Skill 允许时可用。前台直接 `/agent` 可使用完整限定工具集；前台手动 Workflow 只可使用脱敏 `device.snapshot`；打开应用、点击和输入必须审批，所有动作完成后重新观察并验证；后台或定时 Workflow 不会看到或执行任何设备工具。
 
 - 设置页
   - 一级入口为「模型提供方管理」。
@@ -88,7 +89,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 6. 输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
 7. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
 8. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
-9. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟和系统设置等首批白名单应用；设备工具仍不能进入 Workflow 或后台自动化。
+9. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟和系统设置等首批白名单应用；前台手动 Workflow 只可使用 `device.snapshot`，设备动作和全部后台设备工具仍关闭。
 
 ## 本地 mock 调试
 
@@ -126,6 +127,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 108 阶段把主线从 Shadow 样本等待切回个人 Agent 能力，并完成前台手动 Workflow 的只读设备观察闭环。双轴审查后，设备控制器以统一 `READY` 健康态同时约束规划清单和 Executor，Accessibility 未授权或服务断连时不再向模型暴露设备工具；聚焦 JVM `88/88`、`compileDebugKotlin`、Debug APK 和 AndroidTest APK 构建成功，仅 Redmi 的 Room 关联单项为 `OK (1 test)`、耗时 `0.476s`。真实 `stage108_snapshot` 手动 Workflow 在前台完成 6 个步骤，总耗时 `18.868s`，唯一工具调用为 `device.snapshot`，结果 `SAFE / success=1 / PASSED / 193ms / 6128B`，快照含 `15` 个节点、`redacted_node_count=2`、ref 有效期 `30000ms`；设备动作调用与审批请求均为 `0`。更新后的文档语料单项在 Redmi 为 `OK (1 test)`。临时会话已删除，临时 Workflow 因当前没有删除入口而禁用保留，设备 Agent 与 Accessibility 均恢复关闭。验收后曾误装 Room v32 固定 Release，启动明确报 `A migration from 33 to 32 was required but not found`；已在不卸载、不清数据的前提下恢复正式证书签署的当前 Debug，最终 `0.1.13 (14)`、`MainActivity` resumed、PID 存活且 crash buffer 为空。该错误属于开发设备向下覆盖，不新增数据库降级迁移。
 - 第 107 阶段只在 Redmi `wsvwypiz7xwslvl7` 执行第三个 Room v33 Shadow 窗口。正式证书签署的当前 Debug 覆盖安装后，导入 `xiaoling-stage107-shadow.md` 为 revision `1`、`8` 个 chunks；Embedding 未建立，真实请求通过词法兜底。首次 Run 因 4 次工具预算耗尽而未消费授权，第二次 Run 只调用 1 次 `knowledge.search` 后完成并新增第三条匿名记录。停进程最终快照为知识文档/chunks/messages `0/0/0`、空壳会话 `1`、Agent Run `4`（完成 `3`、预算耗尽 `1`）、Shadow rows `3`、Provider/Profile `1/1`、Shadow `false`、失败分桶合计 `0`；测试包与临时下载文件不存在。投影真实毫秒夹具同步修正为 `46 分钟 13 秒`，聚焦 JVM `3/3` 与 `assembleDebugAndroidTest` 通过；同步后的 Redmi 文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 106 阶段按分级验证完成 Shadow 时间窗口证据投影。`AnswerabilityShadowWindowEvidenceProjectionTest` 使用第 103/104 阶段真实时间固定北京时间范围与 `46 分钟 13 秒` 跨度，并覆盖单端缺失和时间逆序时跨度未知，聚焦 JVM `3/3`；`assembleDebugAndroidTest` 成功并编译更新后的 Compose 设置页测试。没有安装 APK、连接设备、调用真实 Judge 或新增 Room 行，也没有运行完整 JVM、Lint、Redmi instrumentation 或 Release。
 - 第 105 阶段按分级验证完成单次显式 Shadow 采样窗口。首轮 Red 因缺少消费 seam 按预期编译失败；双轴审查发现检查与关闭分离存在并发复用授权风险，第二轮 Red 增加 20 路并发门禁测试。最终 `tryConsumeObservationWindow` 与 `AnswerabilityShadowObservationWindowGate` 原子完成检查和消费，Publisher `10/10`、门禁并发 `1/1`，聚焦 JVM 合计 `11/11` 并完成 Debug 主源码编译。没有调用真实 Judge、没有新增 Room 行，也没有运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。第 103/104 阶段匿名账本仍为 `2` 条短间隔记录。

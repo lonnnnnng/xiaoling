@@ -4,6 +4,7 @@ import com.longdev.xiaoling.device.DeviceBounds
 import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionFailure
 import com.longdev.xiaoling.device.DeviceActionOutcome
+import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceScrollDirection
@@ -138,7 +139,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun deviceSnapshotIsOnlyAvailableToDirectForegroundRunsWhenOptedIn() = runTest {
+    fun foregroundWorkflowCanObserveButCannotUseDeviceActionsWhenOptedIn() = runTest {
         val provider = FakeDeviceController(enabled = true)
         val registry = testRegistry(deviceController = provider)
         registry.bindRunContext(
@@ -172,11 +173,24 @@ class XiaoLingToolRegistryTest {
                 invocationSource = AgentInvocationSource.WORKFLOW,
             ),
         )
-        assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
+        assertEquals(
+            setOf("device.snapshot"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
         val workflowResult = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
-        assertFalse(workflowResult.success)
-        assertTrue(workflowResult.content.contains("Workflow"))
-        assertEquals(1, provider.captureCount)
+        assertTrue(workflowResult.success)
+        assertTrue(workflowResult.content.contains("snapshot-direct"))
+        val workflowActionResult = registry.execute(
+            ToolCall(
+                name = "device.open_app",
+                arguments = mapOf("package_name" to "com.android.calculator2"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        assertFalse(workflowActionResult.success)
+        assertTrue(workflowActionResult.content.contains("Workflow"))
+        assertEquals(2, provider.captureCount)
+        assertTrue(provider.actions.isEmpty())
 
         registry.bindRunContext(
             AgentToolExecutionContext(
@@ -185,14 +199,18 @@ class XiaoLingToolRegistryTest {
                 runId = "run-background",
                 goal = "后台读取界面",
                 executionOrigin = AgentExecutionOrigin.BACKGROUND,
-                invocationSource = AgentInvocationSource.DIRECT,
+                invocationSource = AgentInvocationSource.WORKFLOW,
             ),
         )
         assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
         val backgroundResult = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
         assertFalse(backgroundResult.success)
         assertTrue(backgroundResult.content.contains("前台"))
-        assertEquals(1, provider.captureCount)
+        val backgroundActionResult = registry.execute(ToolCall(name = "device.back", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        assertFalse(backgroundActionResult.success)
+        assertTrue(backgroundActionResult.content.contains("前台"))
+        assertEquals(2, provider.captureCount)
+        assertTrue(provider.actions.isEmpty())
     }
 
     @Test
@@ -215,6 +233,33 @@ class XiaoLingToolRegistryTest {
         assertFalse(result.success)
         assertTrue(result.content.contains("尚未启用"))
         assertEquals(0, provider.captureCount)
+    }
+
+    @Test
+    fun unavailableAccessibilityCannotExposeOrExecuteDeviceTools() = runTest {
+        listOf(
+            DeviceAgentHealthState.ACCESSIBILITY_NOT_AUTHORIZED to "未授权",
+            DeviceAgentHealthState.SERVICE_DISCONNECTED to "尚未连接",
+        ).forEach { (healthState, expectedMessage) ->
+            val provider = FakeDeviceController(enabled = true, healthState = healthState)
+            val registry = testRegistry(deviceController = provider)
+            registry.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-device-${healthState.name.lowercase()}",
+                    userMessageId = "message-device-${healthState.name.lowercase()}",
+                    runId = "run-device-${healthState.name.lowercase()}",
+                    goal = "读取当前界面",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.WORKFLOW,
+                ),
+            )
+
+            assertTrue(registry.availableTools().none { it.name.startsWith("device.") })
+            val result = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+            assertFalse(result.success)
+            assertTrue(result.content.contains(expectedMessage))
+            assertEquals(0, provider.captureCount)
+        }
     }
 
     @Test
@@ -658,12 +703,17 @@ class XiaoLingToolRegistryTest {
 }
 
 private class FakeDeviceController(
-    private val enabled: Boolean,
+    enabled: Boolean,
+    private val healthState: DeviceAgentHealthState = if (enabled) {
+        DeviceAgentHealthState.READY
+    } else {
+        DeviceAgentHealthState.AGENT_DISABLED
+    },
 ) : DeviceController {
     var captureCount: Int = 0
     val actions = mutableListOf<String>()
 
-    override fun isAgentEnabled(): Boolean = enabled
+    override fun health(): DeviceAgentHealthState = healthState
 
     override suspend fun capture(): DeviceSnapshotCapture {
         captureCount += 1

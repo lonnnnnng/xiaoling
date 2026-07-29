@@ -22,7 +22,7 @@ interface DeviceAccessibilityGateway {
 }
 
 interface DeviceSnapshotProvider {
-    fun isAgentEnabled(): Boolean
+    fun health(): DeviceAgentHealthState
     suspend fun capture(): DeviceSnapshotCapture
 }
 
@@ -35,15 +35,13 @@ class DeviceObservationController(
     private val clock: () -> Long = System::currentTimeMillis,
     private val snapshotIdFactory: () -> String = { "device-snapshot-${UUID.randomUUID()}" },
 ) : DeviceController {
-    fun health(): DeviceAgentHealthState {
+    override fun health(): DeviceAgentHealthState {
         return DeviceAgentHealthPolicy.evaluate(
             agentEnabled = agentEnabled(),
             serviceAuthorized = gateway.isServiceAuthorized(),
             serviceConnected = gateway.isServiceConnected(),
         )
     }
-
-    override fun isAgentEnabled(): Boolean = agentEnabled()
 
     override suspend fun capture(): DeviceSnapshotCapture {
         when (health()) {

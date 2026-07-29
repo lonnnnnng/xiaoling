@@ -1001,6 +1001,11 @@ class RoomWorkflowRepository(
         }
     }
 
+    suspend fun isWorkflowAgentRun(agentRunId: String): Boolean {
+        // long: 审批恢复必须从已落库的 Workflow Step 关联还原调用来源，不能把进程重建后的 Run 默认当作前台直接对话并扩大设备动作工具面。
+        return database.workflowDao().getRunByAgentRunId(agentRunId) != null
+    }
+
     suspend fun recentRunDetails(limit: Int = 50): List<WorkflowRunDetail> {
         val dao = database.workflowDao()
         return loadRunDetails(dao.recentRuns(limit))

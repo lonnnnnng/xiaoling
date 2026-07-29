@@ -251,6 +251,7 @@ class MinimalAgentRuntime internal constructor(
         approval: ApprovalRequestRecord,
         approvalDecision: ApprovalDecision,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
     ): AgentRunSummary {
         val assessment = AgentRunResumePolicy.assess(detail)
         require(assessment.kind == AgentRunResumeKind.APPROVAL_WAIT) { assessment.reason }
@@ -275,6 +276,8 @@ class MinimalAgentRuntime internal constructor(
                 runId = run.id,
                 goal = run.goal,
                 memoryRecallEnabled = memoryRecallEnabled,
+                executionOrigin = executionOrigin,
+                invocationSource = invocationSource,
             ),
         )
         val restoredBudget = restoredExecutionBudget(detail)

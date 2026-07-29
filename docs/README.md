@@ -1,5 +1,7 @@
 # 文档索引
 
+第 108 阶段已把主线从等待 answerability Shadow 样本切回个人 Agent 能力。前台手动 Workflow 现在只可获得脱敏 `device.snapshot`，设备动作仍限定前台直接 `/agent`，后台或定时 Workflow 继续拒绝全部设备工具；审批恢复会从 Room 关联还原 `WORKFLOW / DIRECT` 来源，避免进程重建扩大权限。双轴审查补齐统一 `READY` 健康门禁，Accessibility 未授权或服务断连时，规划清单与 Executor 均 fail-closed。聚焦 JVM `88/88`、Debug/AndroidTest 构建、Redmi Room 单项和更新后的文档 corpus 单项均通过；真实 `stage108_snapshot` Workflow 在 `18.868s` 内完成，唯一工具结果为 `device.snapshot / SAFE / PASSED / 193ms / 6128B`，节点 `15`、脱敏节点 `2`、动作与审批均为 `0`。Shadow 降为低频并行观察，JSON/SAF、校准和 production enforcement 继续关闭。
+
 第 107 阶段在 Redmi 取得 Room v33 第三条真实 Shadow 记录。首次较宽请求连续 4 次 `knowledge.search` 后以 `BUDGET_EXHAUSTED` 收敛，没有成功答案、没有消费一次性授权或写入匿名账本；第二次请求只执行 1 次检索并新增 `COMPLETED / BOUND / ACCEPT`。第三条记录时间为北京时间 `2026-07-29 12:52:23`，距第二条 `4 小时 38 分 33 秒`；当前三条总跨度 `5 小时 24 分 46 秒`，仍只属于同日独立窗口。清理后知识文档/chunks/messages 为 `0/0/0`，Shadow 自动关闭；JSON/SAF、显式授权评测集、校准和 production enforcement 继续关闭。真实毫秒夹具修正后的投影 JVM `3/3` 与 AndroidTest APK 编译通过，同步后的 Redmi 文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。
 
 第 106 阶段把 Room v33 匿名摘要已有的最早/最新记录时间与精确跨度投影到 Shadow 设置页。该阶段当时的两条证据对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`、跨度 `46 分钟 13 秒`；界面明确只展示时间证据，不自动判定为分隔窗口。投影 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译成功，同时修正 Stage 105 后 Compose 测试仍引用旧开关语义的问题。本阶段没有安装 APK、连接设备、调用 Judge、增加 Room 行或进入 JSON/SAF、校准和 production enforcement。

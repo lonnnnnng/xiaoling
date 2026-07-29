@@ -2752,6 +2752,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             var workflowRunIdToSettle: String? = null
             try {
                 when (val outcome = recoveredAgentApprovalCoordinator.approve(pending) { latestDetail, latestApproval, attachments ->
+                    val invocationSource = withContext(Dispatchers.IO) {
+                        // long: 恢复审批会继续原 Run 的模型规划，必须由 Workflow Step 的持久化关联还原调用来源，不能因进程重建默认获得直接对话的设备动作权限。
+                        if (workflowRepository.isWorkflowAgentRun(latestDetail.snapshot.run.id)) {
+                            AgentInvocationSource.WORKFLOW
+                        } else {
+                            AgentInvocationSource.DIRECT
+                        }
+                    }
                     agentRunUseCase.resumeApprovedRun(
                         detail = latestDetail,
                         approval = latestApproval,
@@ -2759,6 +2767,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summarySystemPrompt = summarySystemPrompt,
                         userAttachments = attachments,
                         approvalReason = "用户批准恢复后的工具执行：${pending.toolName}",
+                        invocationSource = invocationSource,
                         approvalGate = interactiveAgentApprovalGate(source.conversationId),
                         onSnapshot = ::publishAgentRunSnapshot,
                     )

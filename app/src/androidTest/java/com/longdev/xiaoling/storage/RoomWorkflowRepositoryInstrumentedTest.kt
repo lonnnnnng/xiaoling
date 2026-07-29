@@ -33,6 +33,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -60,6 +61,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(WorkflowRunStatus.QUEUED, created.run.status)
         assertEquals(WorkflowStepStatus.PENDING, created.steps.single().status)
         assertNull(created.run.agentRunId)
+        assertFalse(repository.isWorkflowAgentRun("agent-run-1"))
         val duplicateError = runCatching {
             repository.createManualRun(workflow.id, "conversation-1")
         }.exceptionOrNull()
@@ -67,6 +69,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
 
         repository.markAgentRunStarted(created.run.id, "agent-run-1")
         repository.markAgentRunStarted(created.run.id, "agent-run-1")
+        assertTrue(repository.isWorkflowAgentRun("agent-run-1"))
         repository.completeRun(created.run.id, WorkflowRunStatus.COMPLETED, result = "回顾完成")
 
         val completed = repository.recentRunDetails().single()

@@ -15,6 +15,16 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-29 第 108 阶段：前台 Workflow 只读设备观察
+
+- 范围：主线从等待 answerability Shadow 样本切回个人 Agent 能力。本切片只允许用户主动在前台运行的 Workflow 使用 `device.snapshot`；`device.open_app / back / home / tap_ref / type_text / swipe` 仍只允许前台直接 `/agent`，后台或定时 Workflow 拒绝全部设备工具。设备开关、Accessibility、Profile/Skill 白名单、隐私过滤、200 节点/4,000 字符、30 秒 ref 和整窗拒绝边界均未放宽。
+- 实现：`XiaoLingToolRegistry` 将 snapshot 与动作工具的清单/执行门禁拆开。`MinimalAgentRuntime.resumeApprovedRun()` 和 `AgentRunUseCase.resumeApprovedRun()` 显式传递 `invocationSource`；`XiaoLingViewModel` 在 IO 调度调用 `RoomWorkflowRepository.isWorkflowAgentRun()`，从已持久化 WorkflowRun↔AgentRun 关联恢复来源，防止审批恢复后的 Workflow Run 默认为 `DIRECT` 并获得动作权限。
+- 聚焦验证：双轴审查发现规划清单只检查设备开关、没有检查 Accessibility 授权/连接；修复后 `DeviceController.health()` 同时约束清单与 Executor，并增加未授权、断连和后台动作强行执行反例。Registry、Runtime、设备控制器和健康策略 JVM 合计 `88/88`，`compileDebugKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 通过。Redmi 定向 `RoomWorkflowRepositoryInstrumentedTest#manualRunKeepsSingleIdempotentAgentStepAndCompletes` 为 `OK (1 test)`、耗时 `0.476s`，覆盖绑定 AgentRun 前关联为 false、绑定后为 true；更新后的项目文档 corpus 单项为 `OK (1 test)`。本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 真实服务快照：只使用 Redmi `wsvwypiz7xwslvl7`。正常应用进程中临时开启 Accessibility 与设备 Agent 后，设置页真实 snapshot 包名为 `com.longdev.xiaoling`，包含 `15` 个节点，ref 有效期 `30000ms`。
+- 真实 Workflow：前台手动 Workflow `stage108_snapshot` 的 Workflow Run `workflow-run-002160cf-e1cc-4039-9ca2-709550ee0462` 与 Agent Run `run-8c5b7b82-197d-4f4c-8751-ffbda0af260e` 均为 `COMPLETED`，总耗时 `18.868s`。唯一工具调用为 `device.snapshot`，结果 `SAFE / success=1 / PASSED / 193ms / 6128B`，`redacted_node_count=2`；设备动作调用 `0`，审批请求 `0`，规划、校验、执行、验证、再规划和总结六个步骤全部完成。Workflow 定义 ID 为 `workflow-a15308cf-65ba-428c-ac15-f9beb3ae4f0a`。
+- 清理：临时会话已删除；当前产品没有 Workflow 删除入口，因此临时 Workflow 禁用后保留验收证据。设备 Agent 开关恢复关闭，Accessibility 恢复 `0/null`，测试包卸载。Shadow 保持默认关闭，本阶段没有调用 Judge、增加匿名记录或进入 JSON/SAF、校准和 production enforcement。
+- 降级覆盖事故：验收结束时曾误安装固定 `outputs/release/xiaoling-v0.1.13.apk`。该发布包为 Room v32，而设备数据已是 v33，启动因此明确报 `A migration from 33 to 32 was required but not found`；多条 crash buffer 记录均来自重复恢复旧 Release，不是 Workflow 执行崩溃。随后使用正式证书签署的 `app/build/outputs/apk/debug/app-debug-release-signed.apk` 执行保留数据的 `adb install -r`；incremental 安装被 ROM 以 `Incremental installation not allowed` 拒绝后自动回退 streamed install 并成功。最终设备为 `0.1.13 (14)`、`MainActivity` resumed、PID `29886` 存活，清空后 crash buffer 为空。该问题不通过增加 Room 降级迁移解决，后续不得再用 v32 固定 Release 覆盖 v33 开发数据。
+
 ## 2026-07-29 第 107 阶段：第三条独立同日 Shadow 记录
 
 - 安装与临时知识：只使用 Redmi `wsvwypiz7xwslvl7`。当前 Debug 以与设备既有应用相同的正式证书签署并覆盖安装，证书摘要前后一致，Room v33、Provider/Profile 和前两条匿名记录保留。`docs/answerability-shadow-binding.md` 导入为 `xiaoling-stage107-shadow.md`，形成 revision `1`、`8` 个 chunks、`16.3 KB`；Embedding 未建立，检索使用词法兜底。
@@ -291,9 +301,9 @@
 ## 当前工程边界
 
 - 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线转回知识质量工程，等待真正跨日或长期分隔的低频 Shadow 窗口；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不继续扩张设备权限或机械搬文件。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线已切回个人 Agent 能力，并完成前台手动 Workflow 的只读 snapshot；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不机械搬文件，也不把只读观察扩大成动作授权。
 - answerability shadow 默认关闭；第 103/104/107 阶段后 Room v33 匿名账本为 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍只属于同日证据。第 105 阶段已把每次开启收紧为最多一轮观测，第 106 阶段把时间证据投影到设置页但不自动判定资格，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
-- 设备工具仍不进入 Workflow 或后台自动化；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
+- 前台手动 Workflow 只允许 `device.snapshot`；设备动作与全部后台/定时设备工具仍关闭。精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 
 ## 历史证据

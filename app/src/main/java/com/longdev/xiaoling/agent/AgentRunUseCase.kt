@@ -172,6 +172,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalReason: String,
+        invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
     ): AgentRunSummary {
@@ -237,6 +238,7 @@ class AgentRunUseCase(
             approval = approval,
             approvalDecision = ApprovalDecision(approved = true, reason = approvalReason),
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = invocationSource,
         )
     }
 

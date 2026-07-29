@@ -4,6 +4,7 @@ import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionCodec
 import com.longdev.xiaoling.device.DeviceActionFailure
 import com.longdev.xiaoling.device.DeviceActionPolicy
+import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
@@ -349,9 +350,13 @@ class XiaoLingToolRegistry(
             // long: 关闭单次记忆召回时从规划器工具清单移除 memory.search，避免模型先提出调用再由执行器拒绝造成误导性审计。
             available = available.filterNot { it.name == "memory.search" }
         }
-        if (!deviceToolsAllowed(context)) {
-            // long: 设备能力仍限定前台直接对话；Workflow、后台、未启用或缺少 Run Context 时全部从模型工具面移除，执行层还会再次校验。
-            available = available.filterNot { it.name in DEVICE_TOOL_NAMES }
+        if (!deviceSnapshotAllowed(context)) {
+            // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
+            available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
+        }
+        if (!deviceActionsAllowed(context)) {
+            // long: 设备动作继续限定前台直接对话，避免 Workflow 从只读观察隐式升级为点击、输入或系统导航能力。
+            available = available.filterNot { it.name in DEVICE_ACTION_TOOL_NAMES }
         }
         return available
     }
@@ -422,7 +427,7 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun snapshotDevice(): ToolExecutionResult {
-        deviceToolContextError()?.let { return it }
+        deviceSnapshotContextError()?.let { return it }
         return when (val capture = deviceController.capture()) {
             is DeviceSnapshotCapture.Success -> ToolExecutionResult(
                 success = true,
@@ -436,7 +441,7 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun executeDeviceAction(block: suspend () -> DeviceActionCapture): ToolExecutionResult {
-        deviceToolContextError()?.let { return it }
+        deviceActionContextError()?.let { return it }
         val capture = block()
         return when (capture) {
             is DeviceActionCapture.Success -> ToolExecutionResult(
@@ -451,25 +456,61 @@ class XiaoLingToolRegistry(
         }
     }
 
-    private fun deviceToolContextError(): ToolExecutionResult? {
+    private fun deviceSnapshotContextError(): ToolExecutionResult? {
+        val context = runContext
+            ?: return ToolExecutionResult(success = false, content = "device.snapshot 缺少当前 Agent Run 上下文")
+        if (context.invocationSource !in DEVICE_SNAPSHOT_INVOCATION_SOURCES) {
+            return ToolExecutionResult(success = false, content = "device.snapshot 不允许当前调用来源")
+        }
+        if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
+            return ToolExecutionResult(success = false, content = "device.snapshot 仅允许用户在前台执行")
+        }
+        deviceHealthContextError()?.let { return it }
+        return null
+    }
+
+    private fun deviceActionContextError(): ToolExecutionResult? {
         val context = runContext
             ?: return ToolExecutionResult(success = false, content = "设备工具缺少当前 Agent Run 上下文")
         if (context.invocationSource != AgentInvocationSource.DIRECT) {
-            return ToolExecutionResult(success = false, content = "设备工具尚未开放给 Workflow，请使用前台直接 /agent 对话")
+            return ToolExecutionResult(success = false, content = "设备动作尚未开放给 Workflow，请使用前台直接 /agent 对话")
         }
         if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
             return ToolExecutionResult(success = false, content = "设备工具仅允许前台直接执行")
         }
-        if (!deviceController.isAgentEnabled()) {
-            return ToolExecutionResult(success = false, content = "设备 Agent 尚未启用，请先在设置中明确开启")
-        }
+        deviceHealthContextError()?.let { return it }
         return null
     }
 
-    private fun deviceToolsAllowed(context: AgentToolExecutionContext?): Boolean {
+    private fun deviceSnapshotAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
+            context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            deviceController.health() == DeviceAgentHealthState.READY
+    }
+
+    private fun deviceActionsAllowed(context: AgentToolExecutionContext?): Boolean {
         return context?.invocationSource == AgentInvocationSource.DIRECT &&
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
-            deviceController.isAgentEnabled()
+            deviceController.health() == DeviceAgentHealthState.READY
+    }
+
+    private fun deviceHealthContextError(): ToolExecutionResult? {
+        // long: 规划清单和 Executor 必须消费同一健康状态，避免模型在无障碍未授权或服务断连时看到实际上不可执行的设备工具。
+        return when (deviceController.health()) {
+            DeviceAgentHealthState.AGENT_DISABLED -> ToolExecutionResult(
+                success = false,
+                content = "设备 Agent 尚未启用，请先在设置中明确开启",
+            )
+            DeviceAgentHealthState.ACCESSIBILITY_NOT_AUTHORIZED -> ToolExecutionResult(
+                success = false,
+                content = "无障碍服务未授权或授权已失效，请前往系统设置重新确认",
+            )
+            DeviceAgentHealthState.SERVICE_DISCONNECTED -> ToolExecutionResult(
+                success = false,
+                content = "无障碍服务已授权但尚未连接，请稍后刷新或重新启用服务",
+            )
+            DeviceAgentHealthState.READY -> null
+        }
     }
 
     private suspend fun listConversations(call: ToolCall): ToolExecutionResult {
@@ -811,7 +852,7 @@ class XiaoLingToolRegistry(
 }
 
 private object DisabledDeviceController : DeviceController {
-    override fun isAgentEnabled(): Boolean = false
+    override fun health(): DeviceAgentHealthState = DeviceAgentHealthState.AGENT_DISABLED
 
     override suspend fun capture(): DeviceSnapshotCapture {
         return DeviceSnapshotCapture.Failed(
@@ -860,6 +901,13 @@ private val DEVICE_TOOL_NAMES = setOf(
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
     DEVICE_SWIPE_TOOL_NAME,
+)
+
+private val DEVICE_ACTION_TOOL_NAMES = DEVICE_TOOL_NAMES - DEVICE_SNAPSHOT_TOOL_NAME
+
+private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
+    AgentInvocationSource.DIRECT,
+    AgentInvocationSource.WORKFLOW,
 )
 
 private fun referenceInputSchema(): List<ToolInputField> = listOf(
