@@ -125,6 +125,8 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.workflow.WorkflowDeviceObservationProjection
+import com.longdev.xiaoling.ui.workflow.WorkflowDeviceObservationUiState
 import com.longdev.xiaoling.ui.workflow.WorkflowRetryConfirmationUiState
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileEditDraft
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementActions
@@ -259,6 +261,7 @@ data class XiaoLingUiState(
     val loadingWorkflows: Boolean = false,
     val workflows: List<WorkflowRecord> = emptyList(),
     val workflowRuns: List<WorkflowRunDetail> = emptyList(),
+    val workflowDeviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>> = emptyMap(),
     val scheduledTasks: List<ScheduledTaskRecord> = emptyList(),
     val workflowSchedules: List<WorkflowScheduleRecord> = emptyList(),
     val mutatingWorkflowIds: Set<String> = emptySet(),
@@ -287,6 +290,7 @@ internal fun mergeAnswerabilityShadowInitializationState(
 private data class WorkflowUiData(
     val workflows: List<WorkflowRecord>,
     val runs: List<WorkflowRunDetail>,
+    val deviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>>,
     val tasks: List<ScheduledTaskRecord>,
     val schedules: List<WorkflowScheduleRecord>,
 )
@@ -756,6 +760,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         deletedMemoryForUndo = latestDeletedMemory,
                         workflows = workflowState.workflows,
                         workflowRuns = workflowState.runs,
+                        workflowDeviceObservationsByAgentRunId = workflowState.deviceObservationsByAgentRunId,
                         scheduledTasks = workflowState.tasks,
                         workflowSchedules = workflowState.schedules,
                         result = uiState.result,
@@ -1323,12 +1328,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun loadWorkflowUiData() = WorkflowUiData(
-        workflows = workflowRepository.listWorkflows(),
-        runs = workflowRepository.allRunDetails(),
-        tasks = workflowRepository.listScheduledTasks(),
-        schedules = workflowRepository.listWorkflowSchedules(),
-    )
+    private suspend fun loadWorkflowUiData(): WorkflowUiData {
+        val runs = workflowRepository.allRunDetails()
+        val agentRunIds = runs.flatMap { detail -> detail.steps.mapNotNull { it.agentRunId } }.distinct()
+        val deviceObservationsByAgentRunId = agentRunRepository.toolLedgers(agentRunIds).mapValues { (runId, ledger) ->
+            WorkflowDeviceObservationProjection.project(runId, ledger)
+        }
+        return WorkflowUiData(
+            workflows = workflowRepository.listWorkflows(),
+            runs = runs,
+            deviceObservationsByAgentRunId = deviceObservationsByAgentRunId,
+            tasks = workflowRepository.listScheduledTasks(),
+            schedules = workflowRepository.listWorkflowSchedules(),
+        )
+    }
 
     override fun refreshWorkflows() {
         workflowLoadJob?.cancel()
@@ -1341,6 +1354,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     loadingWorkflows = false,
                     workflows = data.workflows,
                     workflowRuns = data.runs,
+                    workflowDeviceObservationsByAgentRunId = data.deviceObservationsByAgentRunId,
                     scheduledTasks = data.tasks,
                     workflowSchedules = data.schedules,
                     workflowError = null,

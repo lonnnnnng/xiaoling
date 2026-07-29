@@ -441,6 +441,47 @@ private fun WorkflowItem(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                        step.deviceObservations.forEachIndexed { observationIndex, observation ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("workflow-device-observation-${run.id}-${step.sequence}-$observationIndex"),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        "设备观察 · ${observation.verificationLabel}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        "应用：${observation.packageName}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        "节点 ${observation.nodeCount} · 脱敏 ${observation.redactedNodeCount} · " +
+                                            if (observation.truncated) "已截断" else "未截断",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        "采集：${observation.capturedAt.toFullTimeLabel()} · 执行 ${observation.durationMs} ms",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    // long: 历史 Workflow 只用于复核当时的观察结果；持久化 ref 已脱离原窗口世代，任何后续动作都必须重新 snapshot。
+                                    Text(
+                                        "节点引用已过期，不可用于后续动作",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                            }
+                        }
                         step.reusedFromStepId?.let { sourceStepId ->
                             Text("复用步骤：$sourceStepId", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

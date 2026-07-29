@@ -9,6 +9,9 @@ import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
+import com.longdev.xiaoling.agent.AgentToolLedgerRecord
+import com.longdev.xiaoling.agent.ToolVerificationStatus
+import com.longdev.xiaoling.device.DeviceSnapshotCodec
 
 data class WorkflowRetryConfirmationUiState(
     val runId: String,
@@ -94,7 +97,18 @@ internal data class WorkflowStepUiState(
     val goal: String,
     val previousOutputs: List<String>,
     val output: String?,
+    val deviceObservations: List<WorkflowDeviceObservationUiState> = emptyList(),
     val reusedFromStepId: String?,
+)
+
+data class WorkflowDeviceObservationUiState(
+    val packageName: String,
+    val nodeCount: Int,
+    val redactedNodeCount: Int,
+    val truncated: Boolean,
+    val capturedAt: Long,
+    val durationMs: Long,
+    val verificationLabel: String,
 )
 
 internal data class WorkflowScheduledTaskUiState(
@@ -136,6 +150,7 @@ internal object WorkflowManagementProjection {
         schedulingWorkflowId: String?,
         runningWorkflowId: String?,
         sendingMessage: Boolean,
+        deviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>> = emptyMap(),
         pendingRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
     ): WorkflowManagementUiState {
         // long: Run、调度实例和周期规则只在这里按 workflowId 汇合，避免 Compose 重组时各自筛选并产生不一致的 busy 判断。
@@ -157,6 +172,7 @@ internal object WorkflowManagementProjection {
                     projectRun(
                         detail = detail,
                         retryAllowed = workflow.enabled && !running && !globalRunBusy,
+                        deviceObservationsByAgentRunId = deviceObservationsByAgentRunId,
                     )
                 }
                 WorkflowItemUiState(
@@ -189,31 +205,48 @@ internal object WorkflowManagementProjection {
     private fun projectRun(
         detail: WorkflowRunDetail,
         retryAllowed: Boolean,
+        deviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>>,
     ): WorkflowRunUiState {
+        val projectedSteps = detail.steps.map { step ->
+            val input = runCatching { WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot) }.getOrNull()
+            WorkflowStepUiState(
+                sequence = step.sequence,
+                title = step.title,
+                statusLabel = workflowStatusLabel(step.status.name),
+                goal = input?.goal ?: step.detail,
+                previousOutputs = input?.previousOutputs.orEmpty().map { output ->
+                    output.redactRawDeviceSnapshot(DEVICE_OBSERVATION_PREVIOUS_OUTPUT_NOTICE)
+                },
+                output = WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
+                    ?.takeIf(String::isNotBlank)
+                    ?.redactRawDeviceSnapshot(DEVICE_OBSERVATION_STEP_OUTPUT_NOTICE),
+                deviceObservations = step.agentRunId
+                    ?.let(deviceObservationsByAgentRunId::get)
+                    .orEmpty(),
+                reusedFromStepId = step.reusedFromStepId,
+            )
+        }
         return WorkflowRunUiState(
             id = detail.run.id,
             status = detail.run.status,
             createdAt = detail.run.createdAt,
             retryOfWorkflowRunId = detail.run.retryOfWorkflowRunId,
-            result = detail.run.result,
+            result = detail.run.result?.redactRawDeviceSnapshot(DEVICE_OBSERVATION_RUN_RESULT_NOTICE),
             errorMessage = detail.run.errorMessage,
             workerStopReasonCode = detail.run.workerStopReasonCode,
             workerStopReasonName = detail.run.workerStopReasonName,
-            steps = detail.steps.map { step ->
-                val input = runCatching { WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot) }.getOrNull()
-                WorkflowStepUiState(
-                    sequence = step.sequence,
-                    title = step.title,
-                    statusLabel = workflowStatusLabel(step.status.name),
-                    goal = input?.goal ?: step.detail,
-                    previousOutputs = input?.previousOutputs.orEmpty(),
-                    output = WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
-                        ?.takeIf(String::isNotBlank),
-                    reusedFromStepId = step.reusedFromStepId,
-                )
-            },
+            steps = projectedSteps,
             canRetry = retryAllowed && detail.run.status in RETRYABLE_RUN_STATUSES,
         )
+    }
+
+    private fun String.redactRawDeviceSnapshot(notice: String): String {
+        // long: 旧 Workflow 可能把完整 snapshot JSON 写入步骤结果和前序输入；只要同时出现设备快照核心字段就整段替换，宁可少展示模型文本也不能让节点正文与 ref 回流历史 UI。
+        val containsRawSnapshot = contains("\"snapshot_id\"") &&
+            contains("\"package\"") &&
+            contains("\"captured_at\"") &&
+            contains("\"nodes\"")
+        return if (containsRawSnapshot) notice else this
     }
 
     private fun projectTask(
@@ -258,6 +291,40 @@ internal object WorkflowManagementProjection {
         WorkflowRunStatus.FAILED,
         WorkflowRunStatus.CANCELLED,
     )
+    private const val DEVICE_OBSERVATION_STEP_OUTPUT_NOTICE = "设备观察已记录，请查看下方已验证证据"
+    private const val DEVICE_OBSERVATION_PREVIOUS_OUTPUT_NOTICE = "设备观察输出已脱敏，请查看对应步骤证据"
+    private const val DEVICE_OBSERVATION_RUN_RESULT_NOTICE = "设备观察已记录，请查看步骤中的已验证证据"
+}
+
+internal object WorkflowDeviceObservationProjection {
+    fun project(
+        expectedAgentRunId: String,
+        ledger: AgentToolLedgerRecord,
+    ): List<WorkflowDeviceObservationUiState> {
+        return ledger.results.mapNotNull { result ->
+            if (
+                result.runId != expectedAgentRunId ||
+                result.toolName != DEVICE_SNAPSHOT_TOOL_NAME ||
+                !result.success ||
+                result.verificationStatus != ToolVerificationStatus.PASSED
+            ) {
+                return@mapNotNull null
+            }
+            val summary = DeviceSnapshotCodec.decodeSummary(result.content) ?: return@mapNotNull null
+            // long: “已验证”只能来自独立 Tool Ledger 的 PASSED 结果；模型自由文本不能生成或提升设备观察证据。
+            WorkflowDeviceObservationUiState(
+                packageName = summary.packageName,
+                nodeCount = summary.nodeCount,
+                redactedNodeCount = summary.redactedNodeCount,
+                truncated = summary.truncated,
+                capturedAt = summary.capturedAt,
+                durationMs = result.durationMs,
+                verificationLabel = "已验证",
+            )
+        }
+    }
+
+    private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
 }
 
 internal fun workflowStatusLabel(status: String): String = when (status) {

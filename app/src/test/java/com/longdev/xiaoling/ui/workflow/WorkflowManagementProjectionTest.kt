@@ -14,6 +14,10 @@ import com.longdev.xiaoling.automation.WorkflowStepRecord
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.WorkflowTrigger
+import com.longdev.xiaoling.agent.AgentToolLedgerRecord
+import com.longdev.xiaoling.agent.AgentToolResultRecord
+import com.longdev.xiaoling.agent.ToolReplaySafety
+import com.longdev.xiaoling.agent.ToolVerificationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -21,6 +25,259 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkflowManagementProjectionTest {
+    @Test
+    fun projectRedactsRawDeviceSnapshotFromStepPreviousOutputsAndRunResult() {
+        val workflow = workflow(id = "workflow-redact-output", enabled = true)
+        val agentRunId = "agent-run-redact-output"
+        val rawSnapshot = """
+            {"snapshot_id":"snapshot-secret","package":"com.example.notes","captured_at":1700000000000,"redacted_node_count":0,"truncated":false,"nodes":[{"text":"银行卡密码 123456","ref":"ref-secret"}]}
+        """.trimIndent()
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-redact-output",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-redact-output",
+                workflowRunId = "workflow-run-redact-output",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "观察当前页面",
+                detail = "观察设备",
+                agentRunId = agentRunId,
+                result = "Agent 任务已完成\n- 工具：device.snapshot\n- 结果：$rawSnapshot",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+                    goal = "观察设备",
+                    previousOutputs = listOf(rawSnapshot),
+                ),
+            ),
+        ).let { detail ->
+            detail.copy(run = detail.run.copy(result = "执行结果：$rawSnapshot"))
+        }
+
+        val projectedRun = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceObservationsByAgentRunId = observationsFor(
+                agentRunId = agentRunId,
+                results = listOf(toolResult(content = rawSnapshot, runId = agentRunId)),
+            ),
+        ).items.single().runs.single()
+
+        assertEquals("设备观察已记录，请查看下方已验证证据", projectedRun.steps.single().output)
+        assertEquals(
+            listOf("设备观察输出已脱敏，请查看对应步骤证据"),
+            projectedRun.steps.single().previousOutputs,
+        )
+        assertEquals("设备观察已记录，请查看步骤中的已验证证据", projectedRun.result)
+        assertFalse(projectedRun.toString().contains("银行卡密码"))
+        assertFalse(projectedRun.toString().contains("ref-secret"))
+        assertFalse(projectedRun.toString().contains("snapshot-secret"))
+    }
+
+    @Test
+    fun projectRejectsFailedUnverifiedAndMalformedDeviceObservationEvidence() {
+        val workflow = workflow(id = "workflow-reject-evidence", enabled = true)
+        val agentRunId = "agent-run-reject-evidence"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-reject-evidence",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-reject-evidence",
+                workflowRunId = "workflow-run-reject-evidence",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "观察当前页面",
+                detail = "观察设备",
+                agentRunId = agentRunId,
+                result = "观察未形成可信证据",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+        val validSnapshot = """
+            {"package":"com.example.notes","captured_at":1700000000000,"redacted_node_count":0,"truncated":false,"nodes":[]}
+        """.trimIndent()
+
+        val projectedStep = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceObservationsByAgentRunId = observationsFor(
+                agentRunId = agentRunId,
+                results = listOf(
+                    toolResult(
+                        content = validSnapshot,
+                        runId = agentRunId,
+                        success = false,
+                        verificationStatus = ToolVerificationStatus.PASSED,
+                    ),
+                    toolResult(
+                        content = validSnapshot,
+                        runId = agentRunId,
+                        verificationStatus = ToolVerificationStatus.FAILED,
+                    ),
+                    toolResult(content = "not-json", runId = agentRunId),
+                    toolResult(content = validSnapshot, runId = agentRunId, toolName = "notes.list"),
+                ),
+            ),
+        ).items.single().runs.single().steps.single()
+
+        assertTrue(projectedStep.deviceObservations.isEmpty())
+    }
+
+    @Test
+    fun projectDoesNotBindDeviceObservationFromAnotherAgentRun() {
+        val workflow = workflow(id = "workflow-isolated", enabled = true)
+        val expectedAgentRunId = "agent-run-expected"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-isolated",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-isolated",
+                workflowRunId = "workflow-run-isolated",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "观察当前页面",
+                detail = "观察设备",
+                agentRunId = expectedAgentRunId,
+                result = "已观察当前页面",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+        val validSnapshot = """
+            {"package":"com.example.other","captured_at":1700000000000,"redacted_node_count":0,"truncated":false,"nodes":[]}
+        """.trimIndent()
+
+        val projectedStep = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceObservationsByAgentRunId = observationsFor(
+                agentRunId = expectedAgentRunId,
+                results = listOf(toolResult(content = validSnapshot, runId = "agent-run-other")),
+            ),
+        ).items.single().runs.single().steps.single()
+
+        assertTrue(projectedStep.deviceObservations.isEmpty())
+    }
+
+    @Test
+    fun projectIncludesVerifiedDeviceObservationWithoutExposingRawSnapshotData() {
+        val workflow = workflow(id = "workflow-observe", enabled = true)
+        val agentRunId = "agent-run-observe"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-observe",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-observe",
+                workflowRunId = "workflow-run-observe",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "观察当前页面",
+                detail = "观察设备",
+                agentRunId = agentRunId,
+                result = "已观察当前页面",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+        val rawSnapshot = """
+            {
+              "snapshot_id":"snapshot-secret",
+              "package":"com.example.notes",
+              "window_title":"私人笔记",
+              "window_id":7,
+              "window_generation":8,
+              "captured_at":1700000000000,
+              "expires_at":1700000005000,
+              "redacted_node_count":1,
+              "truncated":false,
+              "nodes":[
+                {"index":0,"text":"银行卡密码 123456","ref":"ref-secret","bounds":[0,0,100,100],"actions":["tap"]},
+                {"index":1,"redacted":true}
+              ]
+            }
+        """.trimIndent()
+
+        val result = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceObservationsByAgentRunId = observationsFor(
+                agentRunId = agentRunId,
+                results = listOf(toolResult(content = rawSnapshot)),
+            ),
+        )
+
+        val observation = result.items.single().runs.single().steps.single().deviceObservations.single()
+        assertEquals("com.example.notes", observation.packageName)
+        assertEquals(2, observation.nodeCount)
+        assertEquals(1, observation.redactedNodeCount)
+        assertFalse(observation.truncated)
+        assertEquals(1_700_000_000_000L, observation.capturedAt)
+        assertEquals(193L, observation.durationMs)
+        assertEquals("已验证", observation.verificationLabel)
+        assertFalse(observation.toString().contains("私人笔记"))
+        assertFalse(observation.toString().contains("银行卡密码"))
+        assertFalse(observation.toString().contains("ref-secret"))
+        assertFalse(observation.toString().contains("snapshot-secret"))
+    }
+
     @Test
     fun projectAggregatesWorkflowStateAndDerivesAvailableActions() {
         val activeWorkflow = workflow(id = "workflow-active", enabled = true)
@@ -257,6 +514,45 @@ class WorkflowManagementProjectionTest {
             nextPlannedAt = 10L,
             createdAt = 1L,
             updatedAt = 2L,
+        )
+    }
+
+    private fun toolResult(
+        content: String,
+        runId: String = "agent-run-observe",
+        toolName: String = "device.snapshot",
+        success: Boolean = true,
+        verificationStatus: ToolVerificationStatus = ToolVerificationStatus.PASSED,
+    ): AgentToolResultRecord {
+        return AgentToolResultRecord(
+            toolCallId = "tool-call-snapshot",
+            runId = runId,
+            eventId = "event-result",
+            toolName = toolName,
+            content = content,
+            success = success,
+            errorMessage = null,
+            durationMs = 193L,
+            executorVerified = true,
+            verificationStatus = verificationStatus,
+            verifiedEventId = "event-verified",
+            memoryIdsUsed = emptyList(),
+            replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+            executionReceipt = null,
+            createdAt = 4L,
+            verifiedAt = 5L,
+        )
+    }
+
+    private fun observationsFor(
+        agentRunId: String,
+        results: List<AgentToolResultRecord>,
+    ): Map<String, List<WorkflowDeviceObservationUiState>> {
+        return mapOf(
+            agentRunId to WorkflowDeviceObservationProjection.project(
+                expectedAgentRunId = agentRunId,
+                ledger = AgentToolLedgerRecord(results = results),
+            ),
         )
     }
 }

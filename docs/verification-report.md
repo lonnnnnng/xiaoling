@@ -15,6 +15,15 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-29 第 109 阶段：Workflow 设备观察证据 UI
+
+- 范围：前台 Workflow 消费已持久化 `device.snapshot`，在步骤详情中形成可复核的白名单证据；不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，不修改 Room Schema、Workflow 执行语义、精确定时或 Foreground Service。
+- 实现：Workflow step 以 `agentRunId` 批量读取独立 Tool Ledger，IO 加载边界立即通过安全 Projection 转成 DTO，Compose 根状态不保存原始 JSON。只有 Run 身份一致、`device.snapshot / success / PASSED` 且结构合法的结果进入证据；卡片只显示 package、节点/脱敏数、截断状态、采集时间、耗时和过期 ref 提示。旧 step output、previous outputs 与 Run result 中的完整 snapshot JSON统一 fail-closed 替换。
+- TDD 与构建：`WorkflowManagementProjectionTest` 聚焦 JVM `6/6`，覆盖白名单、跨 Run、失败/未验证/畸形/非 snapshot 拒绝以及三处历史输出脱敏；`compileDebugKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 均通过。本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- Redmi 页面单项：只向 `wsvwypiz7xwslvl7` 定向安装与测试。主应用因现有正式证书与默认 Debug 证书不同，第一次覆盖明确失败为 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，未卸载、未清数据；随后使用同一正式证书签署 Debug/Test APK，ROM 的 incremental 安装以 `Incremental installation not allowed` 拒绝后自动回退 streamed install 成功。Compose 首轮 1/2 因 test tag 位于 unmerged semantics tree 失败，按框架提示修正测试后为 `OK (2 tests)`、耗时 `4.164s`，再次复验为 `OK (2 tests)`、耗时 `4.277s`。
+- 真实历史证据：保留的 `stage108_snapshot` Workflow Run 通过现有 Ledger 投影为 `设备观察 · 已验证 / com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 2026-07-29 15:48:35 / 193ms`，ref 明确显示已过期。首次展开同时发现旧“输出”和 Run“结果”仍包含完整 JSON、节点正文、ref、bounds 与 actions；新增 Red 后修复，最终真实页面只保留步骤/Run 脱敏提示和证据卡，层级检查 `snapshot_id / window_title / bounds / actions` 为 0 命中。
+- 文档与收尾：README 与五份长期文档重新打入 AndroidTest APK 后，Redmi 文档 corpus 为 `OK (1 test)`、耗时 `2.453s`。最终测试包已卸载，Room v33、Provider/Profile、Stage 108 Workflow 与旧 Run 均保留，设备 Agent/Accessibility 仍保持关闭；主应用为 `0.1.13 (14)`，`MainActivity` 前台 resumed、进程存活，清空后 crash buffer 为空。在线模拟器只出现在 `adb devices -l` 清单，没有收到安装、测试、截图、UI 或其他定向 ADB 命令。
+
 ## 2026-07-29 第 108 阶段：前台 Workflow 只读设备观察
 
 - 范围：主线从等待 answerability Shadow 样本切回个人 Agent 能力。本切片只允许用户主动在前台运行的 Workflow 使用 `device.snapshot`；`device.open_app / back / home / tap_ref / type_text / swipe` 仍只允许前台直接 `/agent`，后台或定时 Workflow 拒绝全部设备工具。设备开关、Accessibility、Profile/Skill 白名单、隐私过滤、200 节点/4,000 字符、30 秒 ref 和整窗拒绝边界均未放宽。

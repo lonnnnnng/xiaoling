@@ -10,6 +10,14 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 109 阶段：Workflow 设备观察证据 UI（完成）
+
+- `RoomAgentRunRepository.toolLedgers()` 复用既有批量 ToolCall/ToolResult DAO，按 Workflow steps 的 `agentRunId` 一次读取并分组；没有新增表、迁移或把 Ledger JSON 复制进 Workflow snapshot。`XiaoLingViewModel.loadWorkflowUiData()` 在 IO 边界通过 `WorkflowDeviceObservationProjection` 立即把 Ledger 收敛成白名单 DTO，根 `XiaoLingUiState` 不持有原始节点 JSON。
+- `DeviceSnapshotCodec.decodeSummary()` 只读取 package、节点数量、脱敏数量、截断状态和采集时间。Projection 同时核验 AgentRun 身份、工具名、`success` 与 `PASSED`；失败、未验证、跨 Run、非 snapshot 和畸形 JSON 都不生成“已验证”证据。窗口标题、snapshot ID、节点正文、hint、ref、bounds 和 actions 不进入 DTO。
+- `WorkflowManagementPage` 在对应 step 下展示应用、节点/脱敏数、截断状态、采集时间、执行耗时与“节点引用已过期”提示。投影层同时识别旧 step output、previous outputs 和 Workflow Run result 中的完整 snapshot JSON并整段替换，避免历史 Ledger 内容经模型总结再次回流 UI。
+- TDD 的 `WorkflowManagementProjectionTest` 为 `6/6`，覆盖安全字段、跨 Run 绑定、失败/未验证/畸形拒绝和三处历史输出脱敏；`compileDebugKotlin`、Debug/AndroidTest APK 构建通过。正式证书签署的 Debug/Test APK 仅覆盖 Redmi，Workflow 页面为 `OK (2 tests)`，更新后的文档 corpus 为 `OK (1 test)`。
+- 真实 `stage108_snapshot` 历史 Run 首次复核显示证据卡 `com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 193ms`，同时暴露旧输出与 Run 结果含原始 JSON；修复后页面只显示两处脱敏提示与证据卡，层级搜索 `snapshot_id / window_title / bounds / actions / ref` 为 0 命中。最终测试包卸载，主应用 `0.1.13 (14)` 前台、进程存活、crash buffer 为空；设备动作、截图、坐标、视觉定位和后台设备工具均未开放。
+
 ## 第 108 阶段：前台 Workflow 只读设备观察（完成）
 
 - `XiaoLingToolRegistry` 把设备观察与设备动作拆成两套门禁。`device.snapshot` 允许 `DIRECT / WORKFLOW + FOREGROUND`，动作工具仍只允许 `DIRECT + FOREGROUND`；后台、设备 Agent 未开启、Accessibility 未授权、服务断连或缺少 Run Context 时，两类工具都从规划清单移除并由 Executor 二次拒绝。`DeviceController.health()` 成为清单和执行层共享的无副作用健康 seam，既有 200 节点、4,000 字符、敏感字段脱敏、整窗隐私拒绝和 30 秒 ref 生命周期不变。

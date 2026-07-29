@@ -53,6 +53,33 @@ class WorkflowManagementPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun pageDisplaysVerifiedDeviceObservationAsExpiredReadOnlyEvidence() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithTag(
+            "workflow-device-observation-run-1-1-0",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText("设备观察 · 已验证", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("应用：com.example.notes", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "节点引用已过期，不可用于后续动作",
+            useUnmergedTree = true,
+        ).assertExists()
+    }
+
     private fun workflowState(): WorkflowManagementUiState {
         val run = WorkflowRunUiState(
             id = "run-1",
@@ -63,7 +90,28 @@ class WorkflowManagementPageInstrumentedTest {
             errorMessage = "provider unavailable",
             workerStopReasonCode = null,
             workerStopReasonName = null,
-            steps = emptyList(),
+            steps = listOf(
+                WorkflowStepUiState(
+                    sequence = 1,
+                    title = "观察当前页面",
+                    statusLabel = "已完成",
+                    goal = "观察设备",
+                    previousOutputs = emptyList(),
+                    output = "已观察当前页面",
+                    deviceObservations = listOf(
+                        WorkflowDeviceObservationUiState(
+                            packageName = "com.example.notes",
+                            nodeCount = 15,
+                            redactedNodeCount = 2,
+                            truncated = false,
+                            capturedAt = 1_700_000_000_000L,
+                            durationMs = 193L,
+                            verificationLabel = "已验证",
+                        ),
+                    ),
+                    reusedFromStepId = null,
+                ),
+            ),
             canRetry = true,
         )
         return WorkflowManagementUiState(

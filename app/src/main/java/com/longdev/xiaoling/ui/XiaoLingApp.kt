@@ -545,6 +545,7 @@ private fun XiaoLingUiState.toWorkflowManagementUiState(): WorkflowManagementUiS
         error = workflowError,
         workflows = workflows,
         runs = workflowRuns,
+        deviceObservationsByAgentRunId = workflowDeviceObservationsByAgentRunId,
         scheduledTasks = scheduledTasks,
         schedules = workflowSchedules,
         mutatingWorkflowIds = mutatingWorkflowIds,

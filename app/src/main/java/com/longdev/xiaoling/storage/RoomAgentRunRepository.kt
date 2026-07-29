@@ -1010,6 +1010,21 @@ class RoomAgentRunRepository(
         )
     }
 
+    suspend fun toolLedgers(runIds: Collection<String>): Map<String, AgentToolLedgerRecord> {
+        val distinctRunIds = runIds.distinct()
+        if (distinctRunIds.isEmpty()) return emptyMap()
+        val dao = database.agentRunDao()
+        // long: Workflow 详情会同时关联多条 Agent Run；账本按 Run 批量读取并回填空记录，避免页面刷新退化成逐步骤 N+1 查询。
+        val callsByRunId = dao.getToolCallsForRuns(distinctRunIds).groupBy { it.runId }
+        val resultsByRunId = dao.getToolResultsForRuns(distinctRunIds).groupBy { it.runId }
+        return distinctRunIds.associateWith { runId ->
+            AgentToolLedgerRecord(
+                calls = callsByRunId[runId].orEmpty().map { it.toRecord() },
+                results = resultsByRunId[runId].orEmpty().map { it.toRecord() },
+            )
+        }
+    }
+
     private suspend fun persistToolCall(event: RunEventEntity, metadata: RunEventMetadata.ToolCall) {
         val dao = database.agentRunDao()
         val current = dao.getToolCall(metadata.id)

@@ -1,9 +1,24 @@
 package com.longdev.xiaoling.device
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+
+data class DeviceSnapshotSummary(
+    val packageName: String,
+    val nodeCount: Int,
+    val redactedNodeCount: Int,
+    val truncated: Boolean,
+    val capturedAt: Long,
+)
 
 object DeviceSnapshotCodec {
     fun encode(snapshot: DeviceSnapshot): String {
@@ -59,4 +74,29 @@ object DeviceSnapshotCodec {
                 },
             )
         }
+
+    fun decodeSummary(value: String): DeviceSnapshotSummary? = runCatching {
+        val json = Json.parseToJsonElement(value).jsonObject
+        val packageName = json["package"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+        val nodes = json["nodes"]?.jsonArray ?: return null
+        val redactedNodeCount = json["redacted_node_count"]?.jsonPrimitive?.longOrNull
+            ?.takeIf { it in 0..nodes.size.toLong() }
+            ?.toInt()
+            ?: return null
+        val capturedAt = json["captured_at"]?.jsonPrimitive?.longOrNull
+            ?.takeIf { it >= 0L }
+            ?: return null
+        val truncated = json["truncated"]?.jsonPrimitive?.booleanOrNull ?: return null
+
+        // long: Workflow 历史页只接收固定白名单字段；节点正文、窗口标题、ref 与坐标即使存在于账本 JSON，也不能穿透到 UI 状态。
+        DeviceSnapshotSummary(
+            packageName = packageName,
+            nodeCount = nodes.size,
+            redactedNodeCount = redactedNodeCount,
+            truncated = truncated,
+            capturedAt = capturedAt,
+        )
+    }.getOrNull()
 }

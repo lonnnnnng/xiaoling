@@ -6,6 +6,14 @@
 
 发布门禁为 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi 默认完整 `OK (222 tests)`（`82.798s`）。Release APK 为 `3,170,866` 字节，SHA-256 为 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`。
 
+## 第 109 阶段：Workflow 设备观察证据 UI（完成）
+
+前台 Workflow 现在能消费已持久化 `device.snapshot` 结果并形成答案级可复核证据。读取链复用 Workflow step 的 `agentRunId` 与 Agent Tool Ledger，不改 Room Schema、不复制原始 JSON；批量读取后立即投影成安全 DTO，Compose 根状态只保留包名、节点/脱敏节点数、截断状态、采集时间、耗时和已验证标签。只有工具名匹配、Run 身份一致、`success=true`、`verificationStatus=PASSED` 且 JSON 合法的结果可进入 UI。
+
+Workflow 详情页在步骤输出下展示紧凑证据卡，并明确持久化节点引用已过期、不可用于动作。窗口标题、节点正文、hint、ref、bounds、actions、snapshot ID 和原始 JSON 不进入证据 DTO；旧步骤输出、前序输入和 Run 汇总一旦识别为完整设备快照就整段替换为脱敏提示。真实 Redmi 首次复核由此发现 Stage 108 历史输出仍渲染完整 JSON，修复后 `stage108_snapshot` 显示 `com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 193ms`，页面层级对原始快照字段为 0 命中。
+
+投影 JVM `6/6`、`compileDebugKotlin`、Debug/AndroidTest APK、仅 Redmi Workflow Compose `OK (2 tests)` 和同步后的文档 corpus `OK (1 test)` 通过；最终主应用为 `0.1.13 (14)`、前台进程存活、测试包不存在且 crash buffer 为空。本阶段不开放动作、截图、坐标、视觉定位、任意 App 或后台设备工具，也不提前引入精确定时与 Foreground Service。下一阶段才评估前台 Workflow 基于观察证据进行本地可复核决策的最小闭环，仍不扩大动作权限。
+
 ## 第 108 阶段：前台 Workflow 只读设备观察（完成）
 
 主线已从等待 Shadow 样本切回个人 Agent 能力。前台手动 Workflow 在设备 Agent 开关、Accessibility 与 Profile/Skill 白名单都有效时，只能看到并执行 `device.snapshot`；`open_app / back / home / tap_ref / type_text / swipe` 继续限定前台直接 `/agent`，后台或定时 Workflow 拒绝全部设备工具。Registry 的工具清单和 Executor 分别门禁，审批恢复从 Room 关联还原原 Run 的 `WORKFLOW / DIRECT` 来源，避免进程重建扩大权限。
