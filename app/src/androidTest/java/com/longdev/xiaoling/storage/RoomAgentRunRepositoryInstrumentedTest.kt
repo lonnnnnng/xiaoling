@@ -803,6 +803,127 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun typeTextApprovalPersistsFingerprintWithoutInputText() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-type-text-privacy",
+            userMessageId = "message-type-text-privacy",
+            goal = "输入普通文本",
+        )
+        val inputText = "Direct safe text"
+        val call = ToolCall(
+            id = "tool-call-type-text-privacy",
+            name = "device.type_text",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-current",
+                "ref" to "r1",
+                "text" to inputText,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val expectedArguments = mapOf(
+            "snapshot_id" to "snapshot-current",
+            "ref" to "r1",
+            "text_sha256" to "a9479104e48af2c58b1c68bbadbb38d4143c934508229270f7e84b282f59ff89",
+            "text_length" to inputText.length.toString(),
+        )
+
+        val request = repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = call,
+            definition = ToolDefinition(
+                name = call.name,
+                description = "向普通文本框输入非敏感文本",
+                risk = call.risk,
+            ),
+        )
+        repository.decideApprovalRequest(
+            requestId = request.id,
+            status = ApprovalRequestStatus.APPROVED,
+            reason = "用户确认输入",
+        )
+
+        val detail = checkNotNull(repository.runDetail(run.id))
+        assertEquals(expectedArguments, request.arguments)
+        assertEquals(expectedArguments, detail.approvals.single().arguments)
+        detail.snapshot.events
+            .filter { it.type == "approval.requested" || it.type == "approval.request_decided" }
+            .map { checkNotNull(it.metadata as? RunEventMetadata.ApprovalRequest) }
+            .forEach { metadata ->
+                assertEquals(expectedArguments, metadata.arguments)
+                assertFalse(metadata.toString().contains(inputText))
+            }
+    }
+
+    @Test
+    fun typeTextPendingApprovalClosesAfterProcessRecoveryWithoutInputText() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-type-text-recovery",
+            userMessageId = "message-type-text-recovery",
+            goal = "等待确认文本输入",
+        )
+        val inputText = "Direct safe text"
+        val persistedArguments = mapOf(
+            "snapshot_id" to "snapshot-current",
+            "ref" to "r1",
+            "text_sha256" to "a9479104e48af2c58b1c68bbadbb38d4143c934508229270f7e84b282f59ff89",
+            "text_length" to inputText.length.toString(),
+        )
+        val call = ToolCall(
+            id = "tool-call-type-text-recovery",
+            name = "device.type_text",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-current",
+                "ref" to "r1",
+                "text" to inputText,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val definition = ToolDefinition(
+            name = call.name,
+            description = "向普通文本框输入非敏感文本",
+            risk = call.risk,
+        )
+        val callMetadata = RunEventMetadata.ToolCall(
+            id = call.id,
+            toolName = call.name,
+            risk = call.risk,
+            arguments = persistedArguments,
+            recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出文本输入", callMetadata)
+        repository.appendEvent(run.id, "tool.call.validated", "文本输入参数已校验", callMetadata)
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        repository.appendStep(
+            runId = run.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待用户确认文本输入",
+            status = AgentStepStatus.RUNNING,
+        )
+        repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = call,
+            definition = definition,
+        )
+
+        assertTrue(repository.recoverPendingApprovalRuns(setOf(run.id)).isEmpty())
+        assertEquals(1, repository.closeInterruptedRuns(runIds = setOf(run.id)))
+
+        val closed = checkNotNull(repository.runDetail(run.id))
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertEquals(ApprovalRequestStatus.CANCELLED, closed.approvals.single().status)
+        assertFalse(closed.toString().contains(inputText))
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(
+            AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+            recovery.restartDisposition?.code,
+        )
+    }
+
+    @Test
     fun interruptedRunRecoveryUsesTypedStatusMetadata() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-recovery-metadata",

@@ -1,10 +1,20 @@
 # 产品需求
 
+## `device.type_text` 跨入口持久化隐私统一（第 118 阶段）
+
+前台直接 `/agent` 与前台手动 Workflow 的 `device.type_text` 必须共享同一持久化安全投影。原始 `text` 只允许驻留当前执行进程，用于当前 ToolCall 的用户确认、Executor 输入和动作后精确回读；Runtime 的 `tool.call.proposed / tool.call.validated`、独立 ToolCall ledger、Room Approval、`approval.requested / approval.request_decided` 事件、Workflow gate、`VerifiedAgentContext` 与消息 Tool parts 只能保存 `snapshot_id / ref / text_sha256 / text_length`。任何入口都不得以会话类型、审批 UI 或消息投影为由绕过该边界。
+
+`RoomAgentRunRepository.createApprovalRequest()` 必须作为所有审批调用方共享的最终持久化防线：即使上层误传含原文的 ToolCall，也要在事务写入前重新生成安全投影。当前进程的直接 `/agent` 审批卡可以显示内存中的真实输入，便于用户确认即将写入的内容，但展示前必须证明 Room 请求与原 ToolCall 的 Run/ToolCall ID、工具名、风险和安全投影完全一致；只按工具名或指纹匹配不足以恢复或展示原文。
+
+文本 SHA-256 与长度只能用于同一当前进程内的身份绑定，不能用于恢复输入。应用重启后，历史 `type_text` 待审批 Run 不得重新进入可批准状态；`AgentRunResumePolicy` 必须返回 `EPHEMERAL_TOOL_INPUT_UNAVAILABLE`，并在启动收敛事务中安全取消旧 Approval 与旧 Run。用户若仍需执行输入，必须新建 Run、重新生成 ToolCall 并重新确认原文，旧 Run、旧 ToolCall 与旧审批保持终态不变。
+
+验收至少覆盖直接 `/agent` 与 Workflow 的 Runtime 审计投影、Repository 最终净化、`VerifiedAgentContext`/消息 Tool parts 无原文、当前进程审批卡的强身份绑定，以及进程重建后旧文本审批 fail-closed。当前阶段不因此开放 `swipe / open_app / back / home`、后台或定时设备工具、恢复自动续跑、截图、坐标、视觉定位或任意 App；下一动作只能另立单一前台 Workflow 切片，独立冻结意图、风险或 SAFE 依据、后置验证、答案级证据和 Redmi 验收。
+
 ## 前台 Workflow `type_text` 生产闭环（第 117 阶段）
 
 前台手动 Workflow 的生产设备工具面可以从 `device.snapshot / device.tap_ref` 扩展为精确的 `device.snapshot / device.tap_ref / device.type_text`，但文本输入必须继续同时满足第 112、115、116 阶段冻结的前台来源、同 Run/ToolCall、当前 snapshot/ref、30 秒 TTL、window generation、可编辑且未脱敏目标、敏感文本预审计、Executor/typed 验证、动作后观察和原 `nodePath` 精确回读。`open_app / back / home / swipe`、全部后台或定时设备工具、恢复自动续跑、截图、坐标、视觉定位和任意 App 继续在规划清单与 Executor 两层拒绝。
 
-Workflow 的 `device.type_text` 必须使用独立 Room 审批和 Accessibility 安全浮层。原始 `text` 只允许留在当前 ToolCall 内存中供执行和精确回读，不得进入 `tool.call.proposed / tool.call.validated`、ToolCall ledger、Approval record、`approval.requested / approval.request_decided` 事件或浮层请求；这些持久参数只能包含 `snapshot_id / ref / text_sha256 / text_length`。浮层只展示 Workflow 步骤意图、工具说明和“输入 N 个字符，内容不展示”的脱敏摘要，不得展示原文、指纹、snapshot ID 或 ref。该无原文持久化承诺只覆盖 Workflow 来源；前台直接 `/agent` 继续沿用既有会话审批卡和 ToolCall 审计语义，若后续统一其隐私模型必须另立需求，不能把本阶段边界泛化。
+Workflow 的 `device.type_text` 必须使用独立 Room 审批和 Accessibility 安全浮层。原始 `text` 只允许留在当前 ToolCall 内存中供执行和精确回读，不得进入 `tool.call.proposed / tool.call.validated`、ToolCall ledger、Approval record、`approval.requested / approval.request_decided` 事件或浮层请求；这些持久参数只能包含 `snapshot_id / ref / text_sha256 / text_length`。浮层只展示 Workflow 步骤意图、工具说明和“输入 N 个字符，内容不展示”的脱敏摘要，不得展示原文、指纹、snapshot ID 或 ref。第 117 阶段最初只冻结 Workflow 来源；第 118 阶段已经把同一持久化边界扩展到直接 `/agent`、可信消息上下文和 Tool parts，同时保留当前进程审批卡显示原文的核对体验。
 
 Accessibility overlay 移除后允许最多 `100ms` 的短结算窗口，用于吸收 Redmi 连续产生的自有 `TYPE_WINDOWS_CHANGED`。只有活动根仍是原目标且完整窗口集合精确回到显示前基线时，才可返回用户批准或拒绝；结算期间的外来窗口、活动根切换、目标内容变化、服务断连或最终窗口集合漂移必须返回稳定失败并使旧 generation/ref 失效。连续基线 detach 事件只能调度一次结算，不能提前完成，也不能吞掉外来窗口变化。
 

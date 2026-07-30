@@ -29,7 +29,7 @@ import java.util.UUID
 
 class MinimalAgentRuntimeTest {
     @Test
-    fun workflowTypeTextAuditHidesInputWithoutChangingDirectAudit() = runTest {
+    fun typeTextAuditHidesInputForWorkflowAndDirectRuns() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val inputText = "stage117_private_text"
         val definition = ToolDefinition(
@@ -79,7 +79,7 @@ class MinimalAgentRuntimeTest {
             },
         )
 
-        runtime.run(
+        val workflowSummary = runtime.run(
             conversationId = "conversation-workflow-type-text-audit",
             userMessageId = "message-workflow-type-text-audit",
             goal = "输入普通文本",
@@ -101,6 +101,9 @@ class MinimalAgentRuntimeTest {
             assertEquals(expectedArguments, auditedCall.arguments)
             assertFalse(auditedCall.toString().contains(inputText))
         }
+        assertEquals(expectedArguments, workflowSummary.verifiedContext.arguments)
+        assertEquals(expectedArguments, workflowSummary.verifiedContext.toolExecutions.single().arguments)
+        assertFalse(workflowSummary.verifiedContext.toString().contains(inputText))
         assertEquals(inputText, executedText)
 
         val directLedger = InMemoryAgentRunLedger()
@@ -127,7 +130,7 @@ class MinimalAgentRuntimeTest {
                 ): String = """{"style":"compact","tone":"neutral"}"""
             },
         )
-        directRuntime.run(
+        val directSummary = directRuntime.run(
             conversationId = "conversation-direct-type-text-audit",
             userMessageId = "message-direct-type-text-audit",
             goal = "直接输入普通文本",
@@ -135,10 +138,21 @@ class MinimalAgentRuntimeTest {
         )
 
         val directSnapshot = directLedger.snapshot(requireNotNull(directLedger.lastRunId))
+        val expectedDirectArguments = expectedArguments + mapOf(
+            "snapshot_id" to "snapshot-direct",
+            "ref" to "r2",
+        )
         directSnapshot.events
             .filter { it.type == "tool.call.proposed" || it.type == "tool.call.validated" }
             .map { requireNotNull(it.metadata as? RunEventMetadata.ToolCall) }
-            .forEach { auditedCall -> assertEquals(inputText, auditedCall.arguments["text"]) }
+            .forEach { auditedCall ->
+                assertEquals(expectedDirectArguments, auditedCall.arguments)
+                assertFalse(auditedCall.toString().contains(inputText))
+            }
+        assertEquals(expectedDirectArguments, directSummary.verifiedContext.arguments)
+        assertEquals(expectedDirectArguments, directSummary.verifiedContext.toolExecutions.single().arguments)
+        assertFalse(directSummary.verifiedContext.toString().contains(inputText))
+        assertEquals(inputText, executedText)
     }
 
     @Test

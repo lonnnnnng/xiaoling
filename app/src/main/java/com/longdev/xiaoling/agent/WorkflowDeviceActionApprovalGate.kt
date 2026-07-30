@@ -159,7 +159,7 @@ class WorkflowDeviceActionApprovalGate(
                 actionSummary = "点击当前页面节点",
             )
         }
-        val projection = WorkflowTypeTextAuditPolicy.project(this) ?: return null
+        val projection = DeviceTypeTextAuditPolicy.project(this) ?: return null
         return WorkflowDeviceActionApprovalInput(
             persistedToolCall = projection.persistedToolCall,
             actionSummary = "输入 ${projection.textLength} 个字符，内容不展示",
@@ -174,7 +174,7 @@ class WorkflowDeviceActionApprovalGate(
     private companion object {
         val WORKFLOW_OVERLAY_APPROVAL_TOOL_NAMES = setOf(
             DEVICE_TAP_REF_TOOL_NAME,
-            WorkflowTypeTextAuditPolicy.TOOL_NAME,
+            DeviceTypeTextAuditPolicy.TOOL_NAME,
         )
     }
 }

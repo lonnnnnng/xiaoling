@@ -36,6 +36,7 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
+import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
@@ -419,6 +420,26 @@ data class AgentApprovalUiState(
 ) {
     companion object {
         fun from(request: ApprovalRequestRecord): AgentApprovalUiState {
+            return create(request, request.arguments)
+        }
+
+        fun fromCurrentProcess(
+            request: ApprovalRequestRecord,
+            toolCall: ToolCall,
+        ): AgentApprovalUiState {
+            val persistedToolCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(toolCall)
+            // long: 当前进程审批卡可以显示未落盘原文，但必须先证明它与 Room 中的请求属于同一 ToolCall 和同一安全投影，不能把另一条调用的参数错配给用户确认。
+            require(request.toolCallId == persistedToolCall.id) { "审批请求与当前 ToolCall ID 不一致" }
+            require(request.toolName == persistedToolCall.name) { "审批请求与当前工具名称不一致" }
+            require(request.risk == persistedToolCall.risk) { "审批请求与当前工具风险不一致" }
+            require(request.arguments == persistedToolCall.arguments) { "审批请求与当前工具参数投影不一致" }
+            return create(request, toolCall.arguments)
+        }
+
+        private fun create(
+            request: ApprovalRequestRecord,
+            visibleArguments: Map<String, String>,
+        ): AgentApprovalUiState {
             return AgentApprovalUiState(
                 requestId = request.id,
                 runId = request.runId,
@@ -427,7 +448,8 @@ data class AgentApprovalUiState(
                 toolName = request.toolName,
                 toolDescription = request.toolDescription,
                 riskLabel = request.risk.toUiLabel(),
-                arguments = request.arguments,
+                // long: 当前进程可用内存中的原始参数帮助用户核对真实副作用；默认值始终来自 Room 安全投影，历史记录和进程恢复不能重新获得未持久化原文。
+                arguments = visibleArguments.toMap(),
                 expiresAt = request.expiresAt,
             )
         }
@@ -3801,11 +3823,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         val ticket = withContext(Dispatchers.Main.immediate) {
             // long: 审批请求是 Agent 从“模型建议”进入“真实执行”的安全闸口，UI 只展示 Runtime 已校验过的工具定义和参数，不接受模型自称的风险等级。
+            val approvalUiState = AgentApprovalUiState.fromCurrentProcess(
+                request = request,
+                toolCall = toolCall,
+            )
             val registered = agentApprovalDecisionCoordinator.register(
                 requestId = request.id,
                 conversationId = conversationId,
             )
-            rememberPendingApproval(AgentApprovalUiState.from(request))
+            rememberPendingApproval(approvalUiState)
             registered
         }
         return try {

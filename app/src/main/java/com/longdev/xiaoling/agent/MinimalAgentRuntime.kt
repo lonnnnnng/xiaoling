@@ -78,7 +78,6 @@ class MinimalAgentRuntime internal constructor(
         val state = AgentRuntimeExecutionState(
             runTimeoutMs = options.runTimeoutMs,
             monotonicClock = monotonicClock,
-            invocationSource = invocationSource,
         )
         return try {
             persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
@@ -112,7 +111,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = run.id,
                 type = "tool.call.proposed",
                 message = "受控关联重试提出工具调用：${replayToolCall.name}",
-                metadata = AgentEventMetadata.toolCall(replayToolCall, definition, state.invocationSource),
+                metadata = AgentEventMetadata.toolCall(replayToolCall, definition),
             )
             executeToolCall(
                 runId = run.id,
@@ -187,7 +186,6 @@ class MinimalAgentRuntime internal constructor(
         val state = AgentRuntimeExecutionState(
             runTimeoutMs = options.runTimeoutMs,
             monotonicClock = monotonicClock,
-            invocationSource = invocationSource,
         )
         return try {
             persistExecutionBudget(run.id, "初始化执行预算", state.executionBudget)
@@ -306,7 +304,6 @@ class MinimalAgentRuntime internal constructor(
             activeStepId = recovery.approvalStepId,
             monotonicClock = monotonicClock,
             initialConsumedMs = restoredBudget.snapshot.consumedMs,
-            invocationSource = invocationSource,
         )
         // long: 前序工具的结果、调用额度和循环指纹都属于原 Run；进程重建不能把这些约束清零，也不能重新执行已经验证的工具。
         state.completedTools += recovery.verifiedPrefix
@@ -600,7 +597,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = run.id,
                 type = "tool.call.proposed",
                 message = "模型提出工具调用：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall, definition, state.invocationSource),
+                metadata = AgentEventMetadata.toolCall(toolCall, definition),
             )
             ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型选择工具：${toolCall.name}")
             state.activeStepId = null
@@ -650,7 +647,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = runId,
                 type = "tool.call.validated",
                 message = "工具调用已校验：${toolCall.name}",
-                metadata = AgentEventMetadata.toolCall(toolCall, definition, state.invocationSource),
+                metadata = AgentEventMetadata.toolCall(toolCall, definition),
             )
             ledger.updateStep(validation.id, AgentStepStatus.COMPLETED, "参数校验通过")
             state.activeStepId = null
@@ -1089,9 +1086,11 @@ class MinimalAgentRuntime internal constructor(
             false -> AgentVerificationStatus.FAILED
             null -> AgentVerificationStatus.READABLE_ONLY
         }
+        // long: VerifiedAgentContext 会随 Agent 消息进入会话历史；这里必须复用 Tool Ledger 的统一持久化投影，不能把 Executor 使用过的文本原文复制到消息 parts 或后续提示词上下文。
+        val persistedToolCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(toolCall)
         return VerifiedToolExecution(
-            toolName = toolCall.name,
-            arguments = toolCall.arguments.toSortedMap(),
+            toolName = persistedToolCall.name,
+            arguments = persistedToolCall.arguments.toSortedMap(),
             success = toolResult.success,
             verificationStatus = verificationStatus,
             rawResult = toolResult.content,
@@ -1244,7 +1243,6 @@ private class AgentRuntimeExecutionState(
     activeStepId: String? = null,
     monotonicClock: MonotonicClock,
     initialConsumedMs: Long = 0,
-    val invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
 ) {
     var activeStepId: String? = activeStepId
     var executedToolCalls: Int = 0
@@ -1337,9 +1335,8 @@ private object AgentEventMetadata {
     fun toolCall(
         call: ToolCall,
         definition: ToolDefinition,
-        invocationSource: AgentInvocationSource,
     ): RunEventMetadata {
-        val auditedCall = WorkflowTypeTextAuditPolicy.toolCallForAudit(call, invocationSource)
+        val auditedCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(call)
         return RunEventMetadata.ToolCall(
             id = auditedCall.id,
             toolName = auditedCall.name,

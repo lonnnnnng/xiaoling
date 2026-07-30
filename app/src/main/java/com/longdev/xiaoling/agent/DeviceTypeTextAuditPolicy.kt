@@ -2,21 +2,21 @@ package com.longdev.xiaoling.agent
 
 import java.security.MessageDigest
 
-internal data class WorkflowTypeTextAuditProjection(
+internal data class DeviceTypeTextAuditProjection(
     val persistedToolCall: ToolCall,
     val textLength: Int,
 )
 
-internal object WorkflowTypeTextAuditPolicy {
+internal object DeviceTypeTextAuditPolicy {
     const val TOOL_NAME = "device.type_text"
 
-    fun project(toolCall: ToolCall): WorkflowTypeTextAuditProjection? {
+    fun project(toolCall: ToolCall): DeviceTypeTextAuditProjection? {
         if (toolCall.name != TOOL_NAME || toolCall.arguments.keys != REQUIRED_ARGUMENT_NAMES) return null
         val snapshotId = toolCall.arguments[SNAPSHOT_ARGUMENT_NAME]?.takeIf(String::isNotBlank) ?: return null
         val ref = toolCall.arguments[REFERENCE_ARGUMENT_NAME]?.takeIf(String::isNotBlank) ?: return null
         val text = toolCall.arguments[TEXT_ARGUMENT_NAME] ?: return null
-        // long: Workflow 文本原文只供当前执行链完成输入和精确回读；所有持久审计统一投影为目标引用、不可逆指纹和长度，避免不同 ledger 各自实现脱敏后出现旁路。
-        return WorkflowTypeTextAuditProjection(
+        // long: 文本原文只供当前执行链完成用户确认、设备输入和精确回读；所有持久审计统一投影为目标引用、指纹和长度，避免 Runtime、审批与 Tool Ledger 各自脱敏后出现旁路。
+        return DeviceTypeTextAuditProjection(
             persistedToolCall = toolCall.copy(
                 arguments = mapOf(
                     SNAPSHOT_ARGUMENT_NAME to snapshotId,
@@ -29,12 +29,19 @@ internal object WorkflowTypeTextAuditPolicy {
         )
     }
 
-    fun toolCallForAudit(
-        toolCall: ToolCall,
-        invocationSource: AgentInvocationSource,
-    ): ToolCall {
-        if (invocationSource != AgentInvocationSource.WORKFLOW || toolCall.name != TOOL_NAME) return toolCall
-        return requireNotNull(project(toolCall)) { "Workflow 文本输入审计参数不完整" }.persistedToolCall
+    fun toolCallForPersistence(toolCall: ToolCall): ToolCall {
+        if (toolCall.name != TOOL_NAME) return toolCall
+        project(toolCall)?.let { return it.persistedToolCall }
+        require(toolCall.isPersistedProjection()) { "设备文本输入审计参数不完整" }
+        return toolCall
+    }
+
+    private fun ToolCall.isPersistedProjection(): Boolean {
+        if (arguments.keys != PERSISTED_ARGUMENT_NAMES) return false
+        if (arguments[SNAPSHOT_ARGUMENT_NAME].isNullOrBlank()) return false
+        if (arguments[REFERENCE_ARGUMENT_NAME].isNullOrBlank()) return false
+        if (!arguments[TEXT_FINGERPRINT_ARGUMENT_NAME].orEmpty().matches(LOWERCASE_SHA256)) return false
+        return arguments[TEXT_LENGTH_ARGUMENT_NAME]?.toIntOrNull()?.let { it > 0 } == true
     }
 
     private fun String.sha256(): String {
@@ -53,4 +60,11 @@ internal object WorkflowTypeTextAuditPolicy {
         REFERENCE_ARGUMENT_NAME,
         TEXT_ARGUMENT_NAME,
     )
+    private val PERSISTED_ARGUMENT_NAMES = setOf(
+        SNAPSHOT_ARGUMENT_NAME,
+        REFERENCE_ARGUMENT_NAME,
+        TEXT_FINGERPRINT_ARGUMENT_NAME,
+        TEXT_LENGTH_ARGUMENT_NAME,
+    )
+    private val LOWERCASE_SHA256 = Regex("[0-9a-f]{64}")
 }

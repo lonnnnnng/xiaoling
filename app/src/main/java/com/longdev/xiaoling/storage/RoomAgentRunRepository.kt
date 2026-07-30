@@ -33,6 +33,7 @@ import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.ToolVerificationStatus
+import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
 import com.longdev.xiaoling.agent.isTerminal
 import com.longdev.xiaoling.data.AgentRunEntity
@@ -264,15 +265,17 @@ class RoomAgentRunRepository(
         val run = dao.getRun(runId) ?: error("Agent Run 不存在：$runId")
         check(run.status !in TERMINAL_RUN_STATUS_NAMES) { "Agent Run 已结束，不能创建审批：$runId" }
         val now = System.currentTimeMillis()
+        // long: 文本输入原文只服务当前进程里的用户确认、Executor 输入和精确回读；Repository 是所有审批调用方共享的最后持久化边界，必须统一收窄为指纹和长度，避免未来新增入口绕过上层投影。
+        val persistedToolCall = DeviceTypeTextAuditPolicy.toolCallForPersistence(toolCall)
         val request = ApprovalRequestRecord(
             id = "approval-${UUID.randomUUID()}",
             runId = runId,
             conversationId = conversationId,
-            toolCallId = toolCall.id,
-            toolName = toolCall.name,
+            toolCallId = persistedToolCall.id,
+            toolName = persistedToolCall.name,
             toolDescription = definition.description,
             risk = definition.risk,
-            arguments = toolCall.arguments,
+            arguments = persistedToolCall.arguments,
             status = ApprovalRequestStatus.PENDING,
             decisionReason = null,
             createdAt = now,

@@ -19,6 +19,7 @@ enum class AgentRunRestartDispositionCode {
     NOT_COMMITTED_REPLAY_ELIGIBLE,
     PROFILE_CAPABILITY_MISMATCH,
     EXECUTION_STEP_EVIDENCE_INVALID,
+    EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
     COMMITTED_VERIFICATION_UNAVAILABLE,
     TOOL_DEFINITION_UNAVAILABLE,
     COMMITTED_EFFECT_EVIDENCE_INVALID,
@@ -761,6 +762,12 @@ object AgentRunResumePolicy {
                 "待审批请求与最后一个未执行 ToolCall 不一致",
             )
         }
+        if (pendingToolCall.name == DeviceTypeTextAuditPolicy.TOOL_NAME) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+                "设备文本输入原文未持久化，应用重启后不能继续旧审批，请创建新 Run 重新确认",
+            )
+        }
         val executionSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
         val verificationSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
         if (
@@ -987,6 +994,8 @@ object AgentRunResumePolicy {
             "历史工具超出原 Agent Profile 能力快照，当前配置不能为旧 Run 事后扩权。"
         AgentRunRestartDispositionCode.EXECUTION_STEP_EVIDENCE_INVALID ->
             "执行步骤、验证步骤与持久化工具事实无法一一对应，不能定位可信续跑点。"
+        AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE ->
+            "文本输入原文只存在于发起审批的应用进程，进程重建后不能从指纹恢复待执行内容。"
         AgentRunRestartDispositionCode.COMMITTED_VERIFICATION_UNAVAILABLE ->
             "当前工具未提供已提交结果的只读回查能力，不能验证副作用是否仍然成立。"
         AgentRunRestartDispositionCode.TOOL_DEFINITION_UNAVAILABLE ->

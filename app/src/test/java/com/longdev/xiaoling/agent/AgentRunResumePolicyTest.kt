@@ -555,6 +555,39 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun typeTextApprovalWithPrivacyProjectionCannotResumeWithoutEphemeralInput() {
+        val firstCall = ToolCall(
+            id = "tool-call-first",
+            name = "notes.create",
+            arguments = mapOf("title" to "第一步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-type-text",
+            name = "device.type_text",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-current",
+                "ref" to "r1",
+                "text_sha256" to "436fe0a3fa0af22183e6584a91e42c2921bf3e096a4dca139f866a8b8296d752",
+                "text_length" to "18",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val assessment = AgentRunResumePolicy.assess(
+            pendingApprovalAfterVerifiedPrefix(firstCall, pendingCall),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("原文未持久化"))
+        assertFalse(assessment.canResumeInPlace)
+    }
+
+    @Test
     fun secondApprovalWithMismatchedRequestRequiresRestart() {
         val firstCall = ToolCall(
             id = "tool-call-first",
