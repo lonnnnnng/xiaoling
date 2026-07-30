@@ -16,8 +16,123 @@ import org.junit.Rule
 import org.junit.Test
 
 class WorkflowManagementPageInstrumentedTest {
+    @Test
+    fun pageDisplaysDistinctDeviceActionFailureStates() {
+        val failures = listOf(
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.USER_DENIED,
+                action = "tap_ref",
+                detail = "用户拒绝了本次设备动作",
+            ),
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.CANCELLED,
+                action = "tap_ref",
+                detail = "本次设备动作审批已取消",
+            ),
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                action = "tap_ref",
+                detail = "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE,
+                action = "tap_ref",
+                detail = "设备动作审批浮层不可用，设备动作未执行",
+            ),
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED,
+                action = "tap_ref",
+                detail = "无障碍服务已断开，设备动作未执行",
+            ),
+            WorkflowDeviceActionUiState(
+                outcome = WorkflowDeviceActionUiOutcome.BUSY,
+                action = "tap_ref",
+                detail = "已有设备动作审批正在处理，本次动作未执行",
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(deviceActions = failures),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        listOf(
+            "设备动作 · 用户已拒绝" to "用户拒绝了本次设备动作",
+            "设备动作 · 已取消" to "本次设备动作审批已取消",
+            "设备动作 · 窗口已变化" to "审批期间页面窗口发生变化，设备动作未执行",
+            "设备动作 · 审批浮层不可用" to "设备动作审批浮层不可用，设备动作未执行",
+            "设备动作 · 无障碍服务已断开" to "无障碍服务已断开，设备动作未执行",
+            "设备动作 · 审批正忙" to "已有设备动作审批正在处理，本次动作未执行",
+        ).forEach { (title, detail) ->
+            composeRule.onNodeWithText(title, useUnmergedTree = true).assertExists()
+            composeRule.onNodeWithText(detail, useUnmergedTree = true).assertExists()
+        }
+    }
+
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun pageDisplaysVerifiedDeviceActionAsSafeAnswerEvidence() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(
+                        deviceActions = listOf(
+                            WorkflowDeviceActionUiState(
+                                outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+                                action = "tap_ref",
+                                detail = "已执行并验证",
+                                beforePackageName = "com.example.before",
+                                afterPackageName = "com.example.after",
+                                afterNodeCount = 12,
+                                afterRedactedNodeCount = 2,
+                                afterTruncated = true,
+                                afterObservedAt = 1_700_000_000_000L,
+                                decisionRuleVersion = "workflow-device-action-decision-v1",
+                            ),
+                        ),
+                    ),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithTag(
+            "workflow-device-action-run-1-1-0",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText("设备动作 · 已执行并验证", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText("动作：tap_ref", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "应用：com.example.before → com.example.after",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "后置节点 12 · 脱敏 2 · 已截断",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText("后置观察：", substring = true, useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "规则 workflow-device-action-decision-v1",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "仅确认当前设备动作和后置观察已验证，不确认最终业务目标",
+            useUnmergedTree = true,
+        ).assertExists()
+    }
 
     @Test
     fun pageRoutesWorkflowActionsWithoutConcreteViewModel() {
@@ -89,7 +204,9 @@ class WorkflowManagementPageInstrumentedTest {
         ).assertExists()
     }
 
-    private fun workflowState(): WorkflowManagementUiState {
+    private fun workflowState(
+        deviceActions: List<WorkflowDeviceActionUiState> = emptyList(),
+    ): WorkflowManagementUiState {
         val run = WorkflowRunUiState(
             id = "run-1",
             status = WorkflowRunStatus.FAILED,
@@ -122,6 +239,7 @@ class WorkflowManagementPageInstrumentedTest {
                             decisionScope = "仅确认包名与快照摘要，不确认节点正文、目标完成或动作授权",
                         ),
                     ),
+                    deviceActions = deviceActions,
                     reusedFromStepId = null,
                 ),
             ),

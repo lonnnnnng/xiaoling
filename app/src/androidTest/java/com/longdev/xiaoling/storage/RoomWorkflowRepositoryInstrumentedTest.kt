@@ -34,6 +34,8 @@ import com.longdev.xiaoling.data.AgentToolResultEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.model.MessageOrigin
+import com.longdev.xiaoling.ui.workflow.WorkflowDeviceActionUiOutcome
+import com.longdev.xiaoling.ui.workflow.WorkflowManagementProjection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -370,6 +372,29 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertFalse(persistedOutput.text.contains("snapshot-secret"))
         assertFalse(persistedOutput.text.contains("ref-secret"))
         assertFalse(persistedOutput.text.contains("银行卡密码"))
+
+        val projectedAction = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = repository.recentRunDetails(),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.first().deviceActions.single()
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
+        assertEquals("com.example.notes", projectedAction.beforePackageName)
+        assertEquals("com.example.notes", projectedAction.afterPackageName)
+        assertEquals(3, projectedAction.afterNodeCount)
+        assertEquals(1, projectedAction.afterRedactedNodeCount)
+        assertFalse(projectedAction.toString().contains("snapshot-secret"))
+        assertFalse(projectedAction.toString().contains("ref-secret"))
+        assertFalse(projectedAction.toString().contains("银行卡密码"))
 
         val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
         val previousOutput = WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single()

@@ -497,6 +497,85 @@ private fun WorkflowItem(
                                 }
                             }
                         }
+                        step.deviceActions.forEachIndexed { actionIndex, action ->
+                            val verified = action.outcome == WorkflowDeviceActionUiOutcome.VERIFIED
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("workflow-device-action-${run.id}-${step.sequence}-$actionIndex"),
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (verified) {
+                                    MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.42f)
+                                } else {
+                                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.42f)
+                                },
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        "设备动作 · ${action.outcome.toUiLabel()}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text("动作：${action.action}", style = MaterialTheme.typography.labelSmall)
+                                    if (verified) {
+                                        action.beforePackageName?.let { beforePackageName ->
+                                            action.afterPackageName?.let { afterPackageName ->
+                                                Text(
+                                                    "应用：$beforePackageName → $afterPackageName",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                )
+                                            }
+                                        }
+                                        if (
+                                            action.afterNodeCount != null &&
+                                            action.afterRedactedNodeCount != null &&
+                                            action.afterTruncated != null
+                                        ) {
+                                            Text(
+                                                "后置节点 ${action.afterNodeCount} · 脱敏 ${action.afterRedactedNodeCount} · " +
+                                                    if (action.afterTruncated) "已截断" else "未截断",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        action.afterObservedAt?.let { observedAt ->
+                                            Text(
+                                                "后置观察：${observedAt.toFullTimeLabel()}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        action.decisionRuleVersion?.takeIf(String::isNotBlank)?.let { ruleVersion ->
+                                            Text(
+                                                "规则 $ruleVersion",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        // long: 证据卡只证明 tap_ref 与后置观察通过本地验证；业务目标是否完成仍由后续步骤判断，旧引用也不能再次执行。
+                                        Text(
+                                            "仅确认当前设备动作和后置观察已验证，不确认最终业务目标",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            "节点引用已失效，后续动作必须重新观察和审批",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    } else {
+                                        Text(
+                                            action.detail,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         step.reusedFromStepId?.let { sourceStepId ->
                             Text("复用步骤：$sourceStepId", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -527,6 +606,16 @@ private fun WorkflowItem(
             }
         }
     }
+}
+
+private fun WorkflowDeviceActionUiOutcome.toUiLabel(): String = when (this) {
+    WorkflowDeviceActionUiOutcome.VERIFIED -> "已执行并验证"
+    WorkflowDeviceActionUiOutcome.USER_DENIED -> "用户已拒绝"
+    WorkflowDeviceActionUiOutcome.CANCELLED -> "已取消"
+    WorkflowDeviceActionUiOutcome.WINDOW_CHANGED -> "窗口已变化"
+    WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE -> "审批浮层不可用"
+    WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED -> "无障碍服务已断开"
+    WorkflowDeviceActionUiOutcome.BUSY -> "审批正忙"
 }
 
 @Composable

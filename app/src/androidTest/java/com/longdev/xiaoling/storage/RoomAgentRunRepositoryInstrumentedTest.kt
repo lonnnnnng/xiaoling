@@ -351,6 +351,58 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun approvalRequestsLoadsOnlyRequestedAgentRuns() = runBlocking {
+        val firstRun = repository.createRun(
+            conversationId = "conversation-approval-list-1",
+            userMessageId = "message-approval-list-1",
+            goal = "读取第一条设备动作审批",
+        )
+        val secondRun = repository.createRun(
+            conversationId = "conversation-approval-list-2",
+            userMessageId = "message-approval-list-2",
+            goal = "读取第二条设备动作审批",
+        )
+        val definition = ToolDefinition(
+            name = "device.tap_ref",
+            description = "点击节点引用",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val firstApproval = repository.createApprovalRequest(
+            conversationId = firstRun.conversationId,
+            runId = firstRun.id,
+            toolCall = ToolCall(
+                id = "tool-call-approval-list-1",
+                name = definition.name,
+                arguments = mapOf("ref" to "ref-first"),
+                risk = definition.risk,
+            ),
+            definition = definition,
+        )
+        repository.createApprovalRequest(
+            conversationId = secondRun.conversationId,
+            runId = secondRun.id,
+            toolCall = ToolCall(
+                id = "tool-call-approval-list-2",
+                name = definition.name,
+                arguments = mapOf("ref" to "ref-second"),
+                risk = definition.risk,
+            ),
+            definition = definition,
+        )
+        repository.decideApprovalRequest(
+            firstApproval.id,
+            ApprovalRequestStatus.DENIED,
+            "用户已在设备动作审批浮层拒绝",
+        )
+
+        val approvalsByRunId = repository.approvalRequests(listOf(firstRun.id, firstRun.id))
+
+        assertEquals(setOf(firstRun.id), approvalsByRunId.keys)
+        assertEquals(ApprovalRequestStatus.DENIED, approvalsByRunId.getValue(firstRun.id).single().status)
+        assertEquals("ref-first", approvalsByRunId.getValue(firstRun.id).single().arguments["ref"])
+    }
+
+    @Test
     fun toolLedgerStoresFailedResultAsErrorWithoutInventingVerification() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-tool-error",

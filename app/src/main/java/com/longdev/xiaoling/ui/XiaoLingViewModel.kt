@@ -129,6 +129,8 @@ import com.longdev.xiaoling.system.ProcessExitObservation
 import com.longdev.xiaoling.system.RoomProcessExitObservationStore
 import com.longdev.xiaoling.system.collectProcessExitObservationsBestEffort
 import com.longdev.xiaoling.ui.workflow.WorkflowManagementActions
+import com.longdev.xiaoling.ui.workflow.WorkflowDeviceActionApprovalEvidence
+import com.longdev.xiaoling.ui.workflow.WorkflowDeviceActionApprovalEvidencePolicy
 import com.longdev.xiaoling.ui.workflow.WorkflowDeviceObservationProjection
 import com.longdev.xiaoling.ui.workflow.WorkflowDeviceObservationUiState
 import com.longdev.xiaoling.ui.workflow.WorkflowRetryConfirmationUiState
@@ -266,6 +268,7 @@ data class XiaoLingUiState(
     val workflows: List<WorkflowRecord> = emptyList(),
     val workflowRuns: List<WorkflowRunDetail> = emptyList(),
     val workflowDeviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>> = emptyMap(),
+    val workflowDeviceActionApprovalsByAgentRunId: Map<String, List<WorkflowDeviceActionApprovalEvidence>> = emptyMap(),
     val scheduledTasks: List<ScheduledTaskRecord> = emptyList(),
     val workflowSchedules: List<WorkflowScheduleRecord> = emptyList(),
     val mutatingWorkflowIds: Set<String> = emptySet(),
@@ -295,6 +298,7 @@ private data class WorkflowUiData(
     val workflows: List<WorkflowRecord>,
     val runs: List<WorkflowRunDetail>,
     val deviceObservationsByAgentRunId: Map<String, List<WorkflowDeviceObservationUiState>>,
+    val deviceActionApprovalsByAgentRunId: Map<String, List<WorkflowDeviceActionApprovalEvidence>>,
     val tasks: List<ScheduledTaskRecord>,
     val schedules: List<WorkflowScheduleRecord>,
 )
@@ -768,6 +772,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         workflows = workflowState.workflows,
                         workflowRuns = workflowState.runs,
                         workflowDeviceObservationsByAgentRunId = workflowState.deviceObservationsByAgentRunId,
+                        workflowDeviceActionApprovalsByAgentRunId = workflowState.deviceActionApprovalsByAgentRunId,
                         scheduledTasks = workflowState.tasks,
                         workflowSchedules = workflowState.schedules,
                         result = uiState.result,
@@ -1341,10 +1346,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val deviceObservationsByAgentRunId = agentRunRepository.toolLedgers(agentRunIds).mapValues { (runId, ledger) ->
             WorkflowDeviceObservationProjection.project(runId, ledger)
         }
+        val deviceActionApprovalsByAgentRunId = agentRunRepository.approvalRequests(agentRunIds).mapValues { (_, approvals) ->
+            approvals.mapNotNull(WorkflowDeviceActionApprovalEvidencePolicy::project)
+        }
         return WorkflowUiData(
             workflows = workflowRepository.listWorkflows(),
             runs = runs,
             deviceObservationsByAgentRunId = deviceObservationsByAgentRunId,
+            deviceActionApprovalsByAgentRunId = deviceActionApprovalsByAgentRunId,
             tasks = workflowRepository.listScheduledTasks(),
             schedules = workflowRepository.listWorkflowSchedules(),
         )
@@ -1362,6 +1371,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflows = data.workflows,
                     workflowRuns = data.runs,
                     workflowDeviceObservationsByAgentRunId = data.deviceObservationsByAgentRunId,
+                    workflowDeviceActionApprovalsByAgentRunId = data.deviceActionApprovalsByAgentRunId,
                     scheduledTasks = data.tasks,
                     workflowSchedules = data.schedules,
                     workflowError = null,

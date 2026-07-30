@@ -546,6 +546,7 @@ private fun XiaoLingUiState.toWorkflowManagementUiState(): WorkflowManagementUiS
         workflows = workflows,
         runs = workflowRuns,
         deviceObservationsByAgentRunId = workflowDeviceObservationsByAgentRunId,
+        deviceActionApprovalsByAgentRunId = workflowDeviceActionApprovalsByAgentRunId,
         scheduledTasks = scheduledTasks,
         schedules = workflowSchedules,
         mutatingWorkflowIds = mutatingWorkflowIds,

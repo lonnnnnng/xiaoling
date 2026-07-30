@@ -10,6 +10,16 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 114 阶段：Workflow 设备动作答案级证据 UI（完成）
+
+- `RoomAgentRunRepository.approvalRequests()` 按 Workflow step 的 Agent Run ID 去重，并以 `ROOM_IN_QUERY_BATCH_SIZE=900` 分块调用既有 `getApprovalRequestsForRuns()`；返回 Map 同时保留空列表，避免 N+1 和 SQLite bind 上限问题，不增加 Room Schema 或复制审批数据。
+- `XiaoLingViewModel.loadWorkflowUiData()` 在 IO 边界立即通过 `WorkflowDeviceActionApprovalEvidencePolicy` 把 `ApprovalRequestRecord` 收敛为 `runId / toolName / outcome`。原始 `arguments`、snapshot/ref、节点正文和 `decisionReason` 不进入 `XiaoLingUiState`；`WorkflowManagementProjection` 还会再次核对证据自身 `runId`，跨 Run 审批无法绑定到当前步骤。
+- 成功动作只从既有 `WorkflowStepOutputSnapshot.deviceActionDecisions` 投影，Compose DTO 白名单为动作、前后应用、后置节点/脱敏/截断、观察时间和判定规则。页面明确说明该证据只确认 `tap_ref` 与后置观察，不确认最终业务目标；历史 ref 固定失效，后续必须重新观察和审批。
+- 审批失败投影稳定区分 `USER_DENIED / CANCELLED / WINDOW_CHANGED / OVERLAY_UNAVAILABLE / SERVICE_DISCONNECTED / BUSY`。审批已为 `APPROVED` 但步骤因 window generation 或服务断连失败时，页面显示“未通过执行验证”；同一 Run 的早期取消与后续批准后失败会同时保留。成功本地判定存在时，以其作为步骤最终可信结果，不再混入早期失败尝试。
+- 历史 step output、previous outputs、Run result 和 Run error 统一调用 `WorkflowDeviceActionDecisionPolicy.containsPotentialRawActionResult()`；命中原始动作结果版本或至少四个动作字段签名时整段替换为固定提示。该规则不把原始 JSON 复制到新 DTO、日志或文档。
+- 固定点 `f300dfc` 的 Standards/Spec 双轴复审发现首版原因签名只覆盖“额外窗口/窗口集合变化”，遗漏活动页面切换、目标内容变化、多 overlay、overlay 身份漂移和“当前窗口状态不允许显示审批”；同时 `.ifEmpty` 链会让早期取消遮蔽批准后的执行验证失败。两项均已补测试并修复，复审后无遗留 finding。
+- 最终聚焦 JVM 为 `WorkflowManagementProjectionTest 14/14`、动作判定 `3/3`、观察判定 `4/4`、步骤执行策略 `9/9`，合计 `30/30`；Debug/AndroidTest APK 通过，`git diff --check` 通过。仅 Redmi `wsvwypiz7xwslvl7` 定向页面 `OK (4 tests)`、批量审批读取 `OK (1 test)`、Room 动作判定到 UI 投影 `OK (1 test)`；更新后的文档 corpus 首次 `OK (1 test)`、耗时 `2.677s`，写回设备收尾后的最终复验同样通过。测试包已卸载，主应用恢复前台；Accessibility 保持关闭且 `Crashed services:{}`，crash buffer 无小灵 FATAL。未运行完整 JVM、Lint、Release 或默认完整 instrumentation，也未向在线模拟器发送定向命令。
+
 ## 第 113 阶段：前台 Workflow `tap_ref` 首个生产切片（完成）
 
 - `WorkflowDeviceActionApprovalGate` 只截获 `device.tap_ref`。它用当前 Workflow 步骤意图创建 Room 审批请求，再调用 `DeviceActionApprovalOverlayRequester`；其他工具转交原 `interactiveAgentApprovalGate()`，直接 `/agent` 行为不变。`RoomWorkflowDeviceActionApprovalPersistence` 统一在 IO 调度调用现有 `RoomAgentRunRepository`，批准只有在落库后的身份、状态、原因和决定时间仍与原请求完全一致时才返回 Runtime；取消在 `NonCancellable` 区先收敛 Room 再传播。
@@ -1025,7 +1035,7 @@
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前只交付同 Run `device.snapshot -> device.tap_ref`，答案级动作证据 UI、其他动作和全部后台自动化仍未完成。
+- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前只交付同 Run `device.snapshot -> device.tap_ref` 及答案级动作证据 UI，其他动作和全部后台自动化仍未完成。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。

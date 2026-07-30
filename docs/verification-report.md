@@ -15,6 +15,16 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-30 第 114 阶段：Workflow 设备动作答案级证据 UI
+
+- 范围：只把第 113 阶段已持久化的 `workflow-device-action-decision-v1` 和 Room 审批终态投影为 Workflow 详情证据；不新增设备动作，不改变 `device.snapshot -> device.tap_ref` 的前台安全门禁，不开放后台/定时设备工具、恢复自动续跑、截图、坐标、视觉定位、任意 App、精确定时或 Foreground Service。
+- 成功证据：步骤卡显示 `tap_ref`、动作前后应用、后置节点/脱敏数、截断、观察时间和规则版本，并固定声明“仅确认当前设备动作和后置观察已验证，不确认最终业务目标”“节点引用已失效”。成功事实只来自版本化 output snapshot，不从模型正文或审批状态猜造。
+- 失败证据与隐私：Room 审批在 IO 边界转换为只含 `runId / toolName / outcome` 的安全 DTO，稳定区分用户拒绝、普通取消、窗口变化、浮层不可用、Accessibility 断连和 BUSY；批准后 window generation 或服务断连显示为执行验证失败。原始审批参数、snapshot/ref、节点正文和完整原因不进入 `XiaoLingUiState` 或 Compose。step output、previous outputs、Run result 和 Run error 中的动作 JSON 统一替换为固定提示。
+- 批量与身份：`RoomAgentRunRepository.approvalRequests()` 对 Run ID 去重并按 `900` 个分块查询；投影层再次要求证据自身 `runId` 等于 step 的 Agent Run，跨 Run 记录不绑定。同一 Run 多次动作尝试时，早期取消和批准后的执行失败都保留；已有成功本地判定时，以成功作为步骤最终可信结果。
+- 双轴复审：Standards/Spec 子代理仍因本地 `/responses` 404 无法产出，主线程以 `f300dfc` 为固定点完成复审。首版遗漏活动页面切换、目标内容变化、多个 overlay、overlay 身份漂移和“当前窗口状态不允许显示审批”等生产原因，且 `.ifEmpty` 组合会让早期取消遮蔽后续批准后的执行失败；新增回归后修复，未发现权限扩大、原始参数回流或跨 Run 绑定。
+- JVM/构建：最终聚焦为 `WorkflowManagementProjectionTest 14/14`、`WorkflowDeviceActionDecisionPolicyTest 3/3`、`WorkflowDeviceObservationDecisionPolicyTest 4/4`、`WorkflowStepExecutionPolicyTest 9/9`，合计 `30/30`；`assembleDebug`、`assembleDebugAndroidTest` 与 `git diff --check` 通过。本阶段按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- Redmi 定向：设备列表同时存在 Redmi 与在线模拟器，因此所有安装和 instrumentation 均显式使用 `wsvwypiz7xwslvl7`。Workflow 页面类为 `OK (4 tests)`；`approvalRequestsLoadsOnlyRequestedAgentRuns` 为 `OK (1 test)`；`workflowReplacesVerifiedTapRefWithLocalActionDecisionForNextStepAndRetry` 为 `OK (1 test)`。README/docs 首次重新打入 AndroidTest APK 后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、耗时 `2.677s`；写回设备收尾后最终复验同样通过。测试包随后卸载，主应用恢复前台；Accessibility 保持用户原有关闭状态，`Bound services:{}`、`Crashed services:{}`，crash buffer 没有小灵 FATAL；在线 `emulator-5554` 没有收到定向命令。
+
 ## 2026-07-30 第 113 阶段：前台 Workflow `tap_ref` 首个生产切片
 
 - 范围：只把 `device.tap_ref` 接入前台手动 Workflow，必须先有同 Run 已验证 `device.snapshot`；`open_app / back / home / type_text / swipe`、后台/定时 Workflow、恢复自动续跑、截图、坐标、视觉定位与任意 App 继续关闭。直接 `/agent` 的原会话审批卡保持不变，未改 Room Schema、精确定时或 Foreground Service。
@@ -349,9 +359,9 @@
 ## 当前工程边界
 
 - 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
-- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线已切回个人 Agent 能力，并完成前台手动 Workflow 的只读 snapshot、答案级观察证据、本地判定、真实双 Run、安全契约和 `tap_ref` 首个生产动作；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不机械搬文件，也不把当前单动作授权扩大到其他动作。
+- 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线已切回个人 Agent 能力，并完成前台手动 Workflow 的只读 snapshot、答案级观察证据、本地判定、真实双 Run、安全契约、`tap_ref` 首个生产动作和答案级动作证据 UI；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不机械搬文件，也不把当前单动作授权扩大到其他动作。
 - answerability shadow 默认关闭；第 103/104/107 阶段后 Room v33 匿名账本为 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍只属于同日证据。第 105 阶段已把每次开启收紧为最多一轮观测，第 106 阶段把时间证据投影到设置页但不自动判定资格，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
-- 前台手动 Workflow 当前只允许同一 Agent Run 的 `device.snapshot -> device.tap_ref`，并要求逐动作 Room/overlay 审批、实时 generation/ref、`executorVerified=true + typed PASSED` 和白名单后置判定；答案级动作证据 UI、其他前台动作与全部后台/定时设备工具仍关闭。精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
+- 前台手动 Workflow 当前只允许同一 Agent Run 的 `device.snapshot -> device.tap_ref`，并要求逐动作 Room/overlay 审批、实时 generation/ref、`executorVerified=true + typed PASSED` 和白名单后置判定；答案级动作证据 UI 已交付，其他前台动作与全部后台/定时设备工具仍关闭。下一步只冻结 `type_text` 的独立隐私与安全契约，生产白名单在门禁完成前不变；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 
 ## 历史证据

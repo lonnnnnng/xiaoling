@@ -4,6 +4,8 @@ import com.longdev.xiaoling.automation.ScheduledTaskRecord
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.automation.WorkflowRecord
+import com.longdev.xiaoling.automation.WorkflowDeviceActionDecision
+import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionStatus
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRecord
 import com.longdev.xiaoling.automation.WorkflowRunStatus
@@ -16,7 +18,10 @@ import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.WorkflowTrigger
 import com.longdev.xiaoling.agent.AgentToolLedgerRecord
 import com.longdev.xiaoling.agent.AgentToolResultRecord
+import com.longdev.xiaoling.agent.ApprovalRequestRecord
+import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
+import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.ToolVerificationStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,6 +30,476 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkflowManagementProjectionTest {
+    @Test
+    fun projectDoesNotBindDeviceActionApprovalFromAnotherAgentRun() {
+        val workflow = workflow(id = "workflow-device-action-isolated", enabled = true)
+        val expectedAgentRunId = "agent-run-device-action-expected"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-device-action-isolated",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-device-action-isolated",
+                workflowRunId = "workflow-run-device-action-isolated",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = expectedAgentRunId,
+                result = null,
+                errorMessage = "用户未批准工具执行",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val projectedStep = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                expectedAgentRunId to listOf(
+                    approval(
+                        runId = "agent-run-device-action-other",
+                        status = ApprovalRequestStatus.DENIED,
+                        decisionReason = "用户已在设备动作审批浮层拒绝",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single()
+
+        assertTrue(projectedStep.deviceActions.isEmpty())
+    }
+
+    @Test
+    fun projectUsesExecutionFailureAfterApprovedDeviceActionWhenNoDecisionWasPersisted() {
+        val workflow = workflow(id = "workflow-device-action-window-changed", enabled = true)
+        val agentRunId = "agent-run-device-action-window-changed"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-device-action-window-changed",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-device-action-window-changed",
+                workflowRunId = "workflow-run-device-action-window-changed",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = agentRunId,
+                result = null,
+                errorMessage = "页面 window generation 已变化，必须重新观察",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                agentRunId to listOf(
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.APPROVED,
+                        decisionReason = "用户已在设备动作审批浮层批准",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.WINDOW_CHANGED, action.outcome)
+        assertEquals("审批后页面窗口发生变化，设备动作未通过执行验证", action.detail)
+        assertFalse(action.toString().contains("window generation"))
+    }
+
+    @Test
+    fun projectKeepsApprovedExecutionFailureVisibleAlongsideEarlierCancelledAttempt() {
+        val workflow = workflow(id = "workflow-device-action-multiple-attempts", enabled = true)
+        val agentRunId = "agent-run-device-action-multiple-attempts"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-device-action-multiple-attempts",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-device-action-multiple-attempts",
+                workflowRunId = "workflow-run-device-action-multiple-attempts",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = agentRunId,
+                result = null,
+                errorMessage = "页面 window generation 已变化，必须重新观察",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val actions = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                agentRunId to listOf(
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.CANCELLED,
+                        decisionReason = "设备动作审批等待已取消",
+                    ),
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.APPROVED,
+                        decisionReason = "用户已在设备动作审批浮层批准",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single().deviceActions
+
+        assertEquals(
+            listOf(WorkflowDeviceActionUiOutcome.CANCELLED, WorkflowDeviceActionUiOutcome.WINDOW_CHANGED),
+            actions.map(WorkflowDeviceActionUiState::outcome),
+        )
+        assertFalse(actions.toString().contains("window generation"))
+    }
+
+    @Test
+    fun projectClassifiesCancelledDeviceActionApprovalsIntoStableUiOutcomes() {
+        val cases = listOf(
+            Triple(
+                "设备动作审批等待已取消",
+                WorkflowDeviceActionUiOutcome.CANCELLED,
+                "本次设备动作审批已取消",
+            ),
+            Triple(
+                "审批期间活动页面已经切换",
+                WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            Triple(
+                "审批期间目标页面内容已经变化",
+                WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            Triple(
+                "审批期间出现了多个无法区分的 Accessibility overlay",
+                WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            Triple(
+                "审批期间 Accessibility overlay 身份发生变化",
+                WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            Triple(
+                "审批期间出现了额外窗口或原窗口集合发生变化",
+                WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
+                "审批期间页面窗口发生变化，设备动作未执行",
+            ),
+            Triple(
+                "当前窗口状态不允许显示设备动作审批",
+                WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE,
+                "设备动作审批浮层不可用，设备动作未执行",
+            ),
+            Triple(
+                "系统拒绝显示设备动作审批浮层",
+                WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE,
+                "设备动作审批浮层不可用，设备动作未执行",
+            ),
+            Triple(
+                "无障碍服务已断开，设备动作审批已取消",
+                WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED,
+                "无障碍服务已断开，设备动作未执行",
+            ),
+            Triple(
+                "已有设备动作审批正在显示，本次请求已取消",
+                WorkflowDeviceActionUiOutcome.BUSY,
+                "已有设备动作审批正在处理，本次动作未执行",
+            ),
+        )
+
+        cases.forEachIndexed { index, (reason, expectedOutcome, expectedDetail) ->
+            val workflow = workflow(id = "workflow-device-action-cancelled-$index", enabled = true)
+            val agentRunId = "agent-run-device-action-cancelled-$index"
+            val workflowRun = run(
+                workflowId = workflow.id,
+                runId = "workflow-run-device-action-cancelled-$index",
+                status = WorkflowRunStatus.FAILED,
+                step = WorkflowStepRecord(
+                    id = "step-device-action-cancelled-$index",
+                    workflowRunId = "workflow-run-device-action-cancelled-$index",
+                    sequence = 1,
+                    type = "AGENT",
+                    status = WorkflowStepStatus.FAILED,
+                    title = "点击安全按钮",
+                    detail = "点击当前页面中的安全按钮",
+                    agentRunId = agentRunId,
+                    result = null,
+                    errorMessage = reason,
+                    createdAt = 1L,
+                    startedAt = 2L,
+                    completedAt = 3L,
+                ),
+            )
+
+            val action = WorkflowManagementProjection.project(
+                loading = false,
+                error = null,
+                workflows = listOf(workflow),
+                runs = listOf(workflowRun),
+                scheduledTasks = emptyList(),
+                schedules = emptyList(),
+                mutatingWorkflowIds = emptySet(),
+                mutatingScheduledTaskIds = emptySet(),
+                mutatingWorkflowScheduleIds = emptySet(),
+                schedulingWorkflowId = null,
+                runningWorkflowId = null,
+                sendingMessage = false,
+                deviceActionApprovalsByAgentRunId = mapOf(
+                    agentRunId to listOf(
+                        approval(
+                            runId = agentRunId,
+                            status = ApprovalRequestStatus.CANCELLED,
+                            decisionReason = reason,
+                        ),
+                    ),
+                ),
+            ).items.single().runs.single().steps.single().deviceActions.single()
+
+            assertEquals(expectedOutcome, action.outcome)
+            assertEquals(expectedDetail, action.detail)
+            assertFalse(action.toString().contains(reason))
+        }
+    }
+
+    @Test
+    fun projectShowsDeniedDeviceActionAsStableSafeUiOutcome() {
+        val workflow = workflow(id = "workflow-device-action-denied", enabled = true)
+        val agentRunId = "agent-run-device-action-denied"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-device-action-denied",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-device-action-denied",
+                workflowRunId = "workflow-run-device-action-denied",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = agentRunId,
+                result = null,
+                errorMessage = "用户未批准工具执行",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                agentRunId to listOf(
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.DENIED,
+                        decisionReason = "用户已在设备动作审批浮层拒绝",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.USER_DENIED, action.outcome)
+        assertEquals("tap_ref", action.action)
+        assertEquals("用户拒绝了本次设备动作", action.detail)
+        assertNull(action.beforePackageName)
+        assertNull(action.afterPackageName)
+        assertFalse(action.toString().contains("snapshot-secret"))
+        assertFalse(action.toString().contains("ref-secret"))
+        assertFalse(action.toString().contains("银行卡密码"))
+    }
+
+    @Test
+    fun projectRedactsRawDeviceActionResultFromStepPreviousOutputsAndRunResult() {
+        val workflow = workflow(id = "workflow-redact-device-action", enabled = true)
+        val rawActionResult = """
+            {"ruleVersion":"workflow-device-action-result-v1","safetyRuleVersion":"workflow-device-action-safety-v1","action":"tap_ref","beforePackageName":"com.example.before","afterPackageName":"com.example.after","afterNodeCount":12,"afterRedactedNodeCount":2,"afterTruncated":false,"afterObservedAt":1700000000000,"verified":true}
+        """.trimIndent()
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-redact-device-action",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-redact-device-action",
+                workflowRunId = "workflow-run-redact-device-action",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = "agent-run-redact-device-action",
+                result = rawActionResult,
+                errorMessage = "动作结果未形成可信判定",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+                    goal = "点击安全按钮",
+                    previousOutputs = listOf(rawActionResult),
+                ),
+            ),
+        ).let { detail ->
+            detail.copy(
+                run = detail.run.copy(
+                    result = rawActionResult,
+                    errorMessage = rawActionResult,
+                ),
+            )
+        }
+
+        val projectedRun = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single()
+
+        assertEquals("设备动作原始结果已隐藏，请查看下方本地判定", projectedRun.steps.single().output)
+        assertEquals(
+            listOf("设备动作原始输出已隐藏，请查看对应步骤证据"),
+            projectedRun.steps.single().previousOutputs,
+        )
+        assertEquals("设备动作原始结果已隐藏，请查看步骤中的本地判定", projectedRun.result)
+        assertEquals("设备动作错误详情已隐藏，请查看步骤中的本地判定", projectedRun.errorMessage)
+        assertFalse(projectedRun.toString().contains("workflow-device-action-result-v1"))
+        assertFalse(projectedRun.toString().contains("afterObservedAt"))
+    }
+
+    @Test
+    fun projectIncludesVerifiedDeviceActionDecisionWithoutRawActionIdentity() {
+        val workflow = workflow(id = "workflow-device-action", enabled = true)
+        val agentRunId = "agent-run-device-action"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-device-action",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-device-action",
+                workflowRunId = "workflow-run-device-action",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "点击安全按钮",
+                detail = "点击当前页面中的安全按钮",
+                agentRunId = agentRunId,
+                result = "已完成设备动作",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
+                    text = "已完成设备动作",
+                    deviceActionDecisions = listOf(
+                        WorkflowDeviceActionDecision(
+                            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+                            action = "tap_ref",
+                            beforePackageName = "com.example.before",
+                            afterPackageName = "com.example.after",
+                            afterNodeCount = 12,
+                            afterRedactedNodeCount = 2,
+                            afterTruncated = true,
+                            afterObservedAt = 1_700_000_000_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, action.outcome)
+        assertEquals("tap_ref", action.action)
+        assertEquals("com.example.before", action.beforePackageName)
+        assertEquals("com.example.after", action.afterPackageName)
+        assertEquals(12, action.afterNodeCount)
+        assertEquals(2, action.afterRedactedNodeCount)
+        assertEquals(true, action.afterTruncated)
+        assertEquals(1_700_000_000_000L, action.afterObservedAt)
+        assertEquals("workflow-device-action-decision-v1", action.decisionRuleVersion)
+        assertFalse(action.toString().contains("snapshot-secret"))
+        assertFalse(action.toString().contains("ref-secret"))
+        assertFalse(action.toString().contains("fingerprint-secret"))
+        assertFalse(action.toString().contains("[0,0,100,100]"))
+        assertFalse(action.toString().contains("raw-arguments-secret"))
+    }
+
     @Test
     fun projectRedactsRawDeviceSnapshotFromStepPreviousOutputsAndRunResult() {
         val workflow = workflow(id = "workflow-redact-output", enabled = true)
@@ -600,6 +1075,33 @@ class WorkflowManagementProjectionTest {
             createdAt = 4L,
             verifiedAt = 5L,
         )
+    }
+
+    private fun approval(
+        runId: String,
+        status: ApprovalRequestStatus,
+        decisionReason: String,
+    ): WorkflowDeviceActionApprovalEvidence {
+        val rawApproval = ApprovalRequestRecord(
+            id = "approval-$runId-${status.name}",
+            runId = runId,
+            conversationId = "conversation-1",
+            toolCallId = "tool-call-tap-ref",
+            toolName = "device.tap_ref",
+            toolDescription = "点击节点引用",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-secret",
+                "ref" to "ref-secret",
+                "content" to "银行卡密码",
+            ),
+            status = status,
+            decisionReason = "$decisionReason；不得展示 snapshot-secret/ref-secret/银行卡密码",
+            createdAt = 4L,
+            expiresAt = Long.MAX_VALUE,
+            decidedAt = 5L,
+        )
+        return checkNotNull(WorkflowDeviceActionApprovalEvidencePolicy.project(rawApproval))
     }
 
     private fun observationsFor(

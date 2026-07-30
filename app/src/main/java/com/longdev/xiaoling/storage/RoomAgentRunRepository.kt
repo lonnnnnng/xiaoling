@@ -1031,6 +1031,20 @@ class RoomAgentRunRepository(
         }
     }
 
+    suspend fun approvalRequests(runIds: Collection<String>): Map<String, List<ApprovalRequestRecord>> {
+        val distinctRunIds = runIds.distinct()
+        if (distinctRunIds.isEmpty()) return emptyMap()
+        val dao = database.agentRunDao()
+        // long: Workflow 详情只需要关联步骤对应 Run 的审批证据；按 SQLite 参数上限分块读取，避免历史 Run 增长后退化为逐条查询。
+        val approvalsByRunId = distinctRunIds
+            .chunked(ROOM_IN_QUERY_BATCH_SIZE)
+            .flatMap { dao.getApprovalRequestsForRuns(it) }
+            .groupBy { it.runId }
+        return distinctRunIds.associateWith { runId ->
+            approvalsByRunId[runId].orEmpty().map { it.toRecord() }
+        }
+    }
+
     private suspend fun persistToolCall(event: RunEventEntity, metadata: RunEventMetadata.ToolCall) {
         val dao = database.agentRunDao()
         val current = dao.getToolCall(metadata.id)
