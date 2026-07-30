@@ -10,6 +10,16 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 115 阶段：前台 Workflow `type_text` 专属安全契约（完成，生产未开放）
+
+- 新增 `WorkflowTypeTextSafetyPolicy` 纯策略 seam。执行入口要求工具名为 `device.type_text`、Run/Step/AgentRun/ToolCall 身份完整且参数键精确等于 `snapshot_id / ref / text`；文本继续调用 `DeviceActionPolicy.validateTextInput()`，目标证据必须同时满足 enabled、editable、非 redacted 和支持 `TYPE_TEXT`。
+- `WorkflowTypeTextAuthorization` 只保存规则版本、Run/ToolCall 身份、SHA-256 文本指纹与字符长度，不保存输入原文、snapshot ID 或 ref。完成入口重新计算指纹并绑定同一身份，要求 Executor/typed/动作后观察均已验证、观察时间不早于动作完成且 `readBackText` 与获批文本精确相等。
+- `WorkflowDeviceActionSafetyPolicy` 的 execution/completion evidence 增加可空专属证据，授权增加可空专属授权，失败原因增加 `TYPE_TEXT_POLICY_DENIED`。只要工具为 `type_text` 就必须委托专属策略；通用授权 identity 会移除 `text`、保留 `snapshot_id / ref`，非 `type_text` 行为与既有授权相等性保持不变。
+- 生产 `XiaoLingToolRegistry` 仍只对白名单加入 `device.tap_ref`。新增强行执行 `device.type_text` 的 Workflow 反例，固定返回“尚未开放给 Workflow”且 Fake controller 动作列表不增加；没有修改 Room、Accessibility、Workflow Repository 或真实设备输入路径。
+- TDD 首轮按预期在 `compileDebugUnitTestKotlin` 因专属类型不存在而 Red；实现后新策略 `4/4`，相邻 `WorkflowDeviceActionSafetyPolicyTest 11/11`、`DeviceActionPolicyTest 2/2`、`XiaoLingToolRegistryTest 21/21` 和敏感参数预审计 `1/1`，合计 `39/39`。首次 `--rerun-tasks` 同时完成 Debug 主代码和测试代码编译，`assembleDebug / assembleDebugAndroidTest` 通过。Standards/Spec 子代理因本地 `/responses` 404 无法产出，主线程以 `4c22efc` 为固定点完成双轴复审，未发现遗留 finding；`git diff --check` 通过。
+- Redmi 首次覆盖因错误使用正式证书副本而明确失败为 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`，没有卸载或清数据。只读拉取当前 `base.apk` 后确认设备安装包与默认 Debug APK 证书 SHA-256 同为 `6c8823ff4295d7b29e8e2c58b13c864f795b082255b67c80aa8cb783155e3899`；改用匹配证书的原始 Debug/Test APK 后无损覆盖成功。文档 corpus 单项为 `OK (1 test)`、首轮耗时 `2.658s`，写回本节后的最终 assets 以相同步骤复验；两个在线模拟器只出现在设备列表，没有收到定向命令。
+- 本阶段按快速迭代分级不运行完整 JVM、Lint、Release、默认完整 instrumentation 或真实输入动作。下一阶段才把节点结构证据与精确回读接到 Registry/Accessibility，并在生产白名单变化前完成 Redmi 正反例验收。
+
 ## 第 114 阶段：Workflow 设备动作答案级证据 UI（完成）
 
 - `RoomAgentRunRepository.approvalRequests()` 按 Workflow step 的 Agent Run ID 去重，并以 `ROOM_IN_QUERY_BATCH_SIZE=900` 分块调用既有 `getApprovalRequestsForRuns()`；返回 Map 同时保留空列表，避免 N+1 和 SQLite bind 上限问题，不增加 Room Schema 或复制审批数据。
@@ -1035,7 +1045,7 @@
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前只交付同 Run `device.snapshot -> device.tap_ref` 及答案级动作证据 UI，其他动作和全部后台自动化仍未完成。
+- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前只交付同 Run `device.snapshot -> device.tap_ref` 及答案级动作证据 UI。`type_text` 的专属纯策略契约已经完成，但 Registry/Accessibility 节点证据、精确回读接线和 Redmi Workflow 动作验收尚未完成，因此它与其他动作及全部后台自动化仍不进入生产。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。

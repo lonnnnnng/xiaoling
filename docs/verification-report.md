@@ -15,6 +15,17 @@
 - 设备收尾：正式 `v0.1.13` APK 已无损覆盖临时测试构建，测试包已卸载；最终冷启动 `491ms`，设备报告 `0.1.13 (14)`，`MainActivity` 为前台 resumed Activity、主进程存活，清空后重新采集的 AndroidRuntime 缓冲区没有小灵相关 FATAL。
 - 当前开发设备状态：为保留已迁移的 Room v33 数据和三条匿名记录，Redmi 当前安装的是以同一正式证书签署的源码 Debug，版本仍为 `0.1.13 (14)`；不以 Room v32 的固定发布 APK 向下覆盖。正式发布基线及产物不变，当前设备态与已发布产物明确分开记录。
 
+## 2026-07-30 第 115 阶段：前台 Workflow `type_text` 专属安全契约
+
+- 范围：只冻结 `device.type_text` 进入前台 Workflow 前必须满足的独立文本、节点和完成证据，不把它加入生产 Registry 白名单，不修改 Room、Accessibility、Workflow Repository、后台/定时设备工具、恢复自动续跑、截图、坐标、视觉定位、任意 App、精确定时或 Foreground Service。
+- TDD Red：先新增 `WorkflowTypeTextSafetyPolicyTest` 和 Registry 强制调用反例。首轮 `:app:compileDebugUnitTestKotlin FAILED`，核心错误为 `Unresolved reference 'WorkflowTypeTextSafetyPolicy'`，同时确认通用证据、授权和失败枚举尚无专属契约；其余类型推断错误均为缺少新类型引起的连锁错误。
+- 执行契约：新增纯 Kotlin `WorkflowTypeTextSafetyPolicy`。参数键必须精确为 `snapshot_id / ref / text`，文本复用 `DeviceActionPolicy` 的 500 字符、控制字符和敏感信息拒绝规则；当前目标节点必须启用、可编辑、未脱敏且支持 `TYPE_TEXT`。专属授权只保存规则版本、Run/ToolCall 身份、文本 SHA-256 指纹和长度，不保存输入原文、snapshot ID 或 ref。
+- 通用门禁与完成：`WorkflowDeviceActionSafetyPolicy` 对 `type_text` 强制委托专属策略，通用授权 identity 移除 `text` 并携带专属授权；缺少任一专属证据时以 `TYPE_TEXT_POLICY_DENIED` 拒绝。完成要求原文本指纹、同一 Run/ToolCall 结果、Executor 验证、typed 验证、动作后已验证观察、正确时序和精确文本回读全部一致。
+- 生产关闭反例：`XiaoLingToolRegistry` 的 Workflow 工具面仍为 `device.snapshot / device.tap_ref`。测试绕过工具清单直接执行 `device.type_text` 时返回失败，文案包含“尚未开放给 Workflow”，Fake controller 只保留此前 `tap_ref` 动作，没有输入动作。
+- 双轴复审：Standards/Spec 子代理均被本地 `/responses` 404 阻断，主线程以 `4c22efc` 为固定点审查完整工作树 diff。代码符合项目中文业务注释和 fail-closed 约束；规格中的精确参数、敏感文本、可编辑目标、最小授权、强制委托、同 Run/ToolCall 与精确回读均已实现，未发现遗留 finding。
+- 聚焦验证：新策略 `4/4`；相邻通用策略 `11/11`、文本策略 `2/2`、Registry `21/21`、敏感参数预审计 `1/1`，合计 `39/39`，均为 `0 failed / 0 errors / 0 skipped`。首次 `--rerun-tasks` 完成 Debug 主代码与测试编译，`assembleDebug / assembleDebugAndroidTest` 和 `git diff --check` 通过。本阶段按分级验证不运行完整 JVM、Lint、Release、默认完整 instrumentation 或真实文本输入。
+- Redmi 文档门禁：只向 `wsvwypiz7xwslvl7` 发送安装和 instrumentation 命令。首次误用正式证书签署的临时 Debug，覆盖明确以 `INSTALL_FAILED_UPDATE_INCOMPATIBLE` 失败，未卸载或清数据；只读拉取设备 `base.apk` 后确认当前安装包与默认 Debug APK 的证书 SHA-256 同为 `6c8823ff4295d7b29e8e2c58b13c864f795b082255b67c80aa8cb783155e3899`。改用匹配证书的 Debug/Test APK 后无损覆盖成功，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、首轮耗时 `2.658s`；写回本节后的最终 assets 以相同步骤复验。在线 `emulator-5554 / emulator-5556` 仅出现在设备列表，没有收到定向命令。
+
 ## 2026-07-30 第 114 阶段：Workflow 设备动作答案级证据 UI
 
 - 范围：只把第 113 阶段已持久化的 `workflow-device-action-decision-v1` 和 Room 审批终态投影为 Workflow 详情证据；不新增设备动作，不改变 `device.snapshot -> device.tap_ref` 的前台安全门禁，不开放后台/定时设备工具、恢复自动续跑、截图、坐标、视觉定位、任意 App、精确定时或 Foreground Service。
@@ -361,7 +372,7 @@
 - 当前源码与 Redmi 开发数据为 Room v33；固定发布产物 `v0.1.13` 仍是 Room v32 基线，不能在保留 v33 数据时直接向下覆盖。Agent Runtime、Workflow Ledger、设备 Agent 有限动作、长期记忆、声明式 Skill、RAG/Embedding 与 answerability shadow 既有边界不因文档归档而改变。
 - 应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置、设置根页和四组功能对话框已分别拥有独立 UI 边界；宿主当前 `817` 行。`SettingsPage` 继续作为 pane、Android launcher、导航和跨模块适配的 composition root。结构工程已达到停止条件；受控关联新 Run、已提交只读验证、全部已验证控制面收尾，以及失败 ToolResult/typed 失败验证两类原子失败结算已完成持久化幂等复核。当前主线已切回个人 Agent 能力，并完成前台手动 Workflow 的只读 snapshot、答案级观察证据、本地判定、真实双 Run、安全契约、`tap_ref` 首个生产动作和答案级动作证据 UI；提交未知、成功结果尚无 typed 验证结论和其他证据漂移继续 fail-closed，不机械搬文件，也不把当前单动作授权扩大到其他动作。
 - answerability shadow 默认关闭；第 103/104/107 阶段后 Room v33 匿名账本为 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍只属于同日证据。第 105 阶段已把每次开启收紧为最多一轮观测，第 106 阶段把时间证据投影到设置页但不自动判定资格，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。第 102 阶段强类型离线契约已完成，但 JSON/SAF、显式授权评测集、独立阈值校准和生产拒绝尚未进入。
-- 前台手动 Workflow 当前只允许同一 Agent Run 的 `device.snapshot -> device.tap_ref`，并要求逐动作 Room/overlay 审批、实时 generation/ref、`executorVerified=true + typed PASSED` 和白名单后置判定；答案级动作证据 UI 已交付，其他前台动作与全部后台/定时设备工具仍关闭。下一步只冻结 `type_text` 的独立隐私与安全契约，生产白名单在门禁完成前不变；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
+- 前台手动 Workflow 当前只允许同一 Agent Run 的 `device.snapshot -> device.tap_ref`，并要求逐动作 Room/overlay 审批、实时 generation/ref、`executorVerified=true + typed PASSED` 和白名单后置判定；答案级动作证据 UI 与 `type_text` 独立隐私/安全契约已交付，其他前台动作与全部后台/定时设备工具仍关闭。下一步只接 Registry/Accessibility 的可编辑节点证据和动作后精确回读，并在 Redmi 正反例通过前保持生产白名单不变；精确定时和 Foreground Service 继续依据真实耗时与系统回收证据决定。
 - 知识引用生命周期继续按当前文档状态复核；验收产生的临时知识数据必须确认文档、chunks 和检索索引均已清理。
 
 ## 历史证据

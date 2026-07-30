@@ -44,6 +44,7 @@ data class WorkflowDeviceActionExecutionEvidence(
     val nowMillis: Long,
     val currentWindowGeneration: Long,
     val liveReferenceMatched: Boolean,
+    val typeText: WorkflowTypeTextExecutionEvidence? = null,
 )
 
 data class WorkflowDeviceActionAuthorization(
@@ -54,6 +55,7 @@ data class WorkflowDeviceActionAuthorization(
     val beforeWindowGeneration: Long,
     val approvedAt: Long,
     val processSessionId: String,
+    val typeTextAuthorization: WorkflowTypeTextAuthorization? = null,
 )
 
 data class WorkflowDeviceActionPostObservationEvidence(
@@ -77,6 +79,7 @@ data class WorkflowDeviceActionCompletionEvidence(
     val actionCompletedAt: Long,
     val afterObservation: WorkflowDeviceActionPostObservationEvidence?,
     val cancelled: Boolean,
+    val typeText: WorkflowTypeTextCompletionEvidence? = null,
 )
 
 enum class WorkflowDeviceActionSafetyFailure {
@@ -92,6 +95,7 @@ enum class WorkflowDeviceActionSafetyFailure {
     OBSERVATION_EXPIRED,
     WINDOW_CHANGED,
     REFERENCE_MISMATCH,
+    TYPE_TEXT_POLICY_DENIED,
     APPROVAL_MISSING,
     APPROVAL_NOT_APPROVED,
     APPROVAL_MISMATCH,
@@ -117,6 +121,7 @@ sealed interface WorkflowDeviceActionSafetyDecision {
 
 class WorkflowDeviceActionSafetyPolicy(
     enabledToolNames: Set<String> = emptySet(),
+    private val typeTextSafetyPolicy: WorkflowTypeTextSafetyPolicy = WorkflowTypeTextSafetyPolicy(),
 ) {
     private val enabledToolNames = enabledToolNames.toSet()
 
@@ -226,6 +231,24 @@ class WorkflowDeviceActionSafetyPolicy(
                 )
             }
         }
+        val typeTextAuthorization = if (evidence.identity.toolName == DEVICE_TYPE_TEXT_TOOL_NAME) {
+            val typeTextEvidence = evidence.typeText
+                ?: return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.TYPE_TEXT_POLICY_DENIED,
+                    "device.type_text 缺少专属节点与文本安全证据",
+                )
+            when (val decision = typeTextSafetyPolicy.assessExecution(evidence.identity, typeTextEvidence)) {
+                is WorkflowTypeTextSafetyDecision.Allowed -> decision.authorization
+                is WorkflowTypeTextSafetyDecision.Denied -> {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.TYPE_TEXT_POLICY_DENIED,
+                        decision.message,
+                    )
+                }
+            }
+        } else {
+            null
+        }
         val approval = evidence.approval
             ?: return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.APPROVAL_MISSING,
@@ -260,12 +283,14 @@ class WorkflowDeviceActionSafetyPolicy(
         return WorkflowDeviceActionSafetyDecision.Allowed(
             WorkflowDeviceActionAuthorization(
                 ruleVersion = RULE_VERSION,
-                identity = evidence.identity.copy(arguments = evidence.identity.arguments.toMap()),
+                // long: type_text 的通用授权只绑定 snapshot 与 ref；文本原文改由专属不可逆指纹授权绑定，防止通用授权对象复制输入内容。
+                identity = minimizedAuthorizationIdentity(evidence.identity),
                 observationToolCallId = observation.toolCallId,
                 beforeSnapshotId = observation.snapshotId,
                 beforeWindowGeneration = observation.windowGeneration,
                 approvedAt = approval.decidedAt,
                 processSessionId = evidence.currentProcessSessionId,
+                typeTextAuthorization = typeTextAuthorization,
             ),
         )
     }
@@ -293,7 +318,12 @@ class WorkflowDeviceActionSafetyPolicy(
                 WorkflowDeviceActionSafetyFailure.EXECUTION_AUTHORIZATION_MISSING,
                 "设备动作结果缺少执行前安全门禁授权",
             )
-        if (authorization.ruleVersion != RULE_VERSION || authorization.identity != evidence.identity) {
+        val expectedAuthorizationIdentity = minimizedAuthorizationIdentity(evidence.identity)
+        if (
+            authorization.ruleVersion != RULE_VERSION ||
+            authorization.identity != expectedAuthorizationIdentity ||
+            (evidence.identity.toolName != DEVICE_TYPE_TEXT_TOOL_NAME && authorization.typeTextAuthorization != null)
+        ) {
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.EXECUTION_AUTHORIZATION_MISMATCH,
                 "执行前授权与当前规则版本或动作身份不一致",
@@ -340,12 +370,44 @@ class WorkflowDeviceActionSafetyPolicy(
                 "设备动作缺少 Executor、typed 验证或后置 snapshot 证据",
             )
         }
+        if (evidence.identity.toolName == DEVICE_TYPE_TEXT_TOOL_NAME) {
+            val typeTextEvidence = evidence.typeText
+                ?: return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.TYPE_TEXT_POLICY_DENIED,
+                    "device.type_text 缺少专属动作后精确回读证据",
+                )
+            when (
+                val decision = typeTextSafetyPolicy.assessCompletion(
+                    identity = evidence.identity,
+                    authorization = authorization.typeTextAuthorization,
+                    evidence = typeTextEvidence,
+                )
+            ) {
+                is WorkflowTypeTextSafetyDecision.Allowed -> Unit
+                is WorkflowTypeTextSafetyDecision.Denied -> {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.TYPE_TEXT_POLICY_DENIED,
+                        decision.message,
+                    )
+                }
+            }
+        }
         return WorkflowDeviceActionSafetyDecision.Allowed(authorization)
+    }
+
+    private fun minimizedAuthorizationIdentity(identity: WorkflowDeviceActionIdentity): WorkflowDeviceActionIdentity {
+        val authorizedArguments = if (identity.toolName == DEVICE_TYPE_TEXT_TOOL_NAME) {
+            identity.arguments - "text"
+        } else {
+            identity.arguments
+        }
+        return identity.copy(arguments = authorizedArguments.toMap())
     }
 
     companion object {
         const val RULE_VERSION = "workflow-device-action-safety-v1"
         private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+        private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val MAX_OBSERVATION_LIFETIME_MILLIS = 30_000L
         private val KNOWN_DEVICE_ACTION_TOOL_NAMES = setOf(
             "device.open_app",

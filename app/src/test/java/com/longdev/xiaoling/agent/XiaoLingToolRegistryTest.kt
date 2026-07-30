@@ -217,6 +217,20 @@ class XiaoLingToolRegistryTest {
         assertFalse(tapResult.content.contains("\"snapshot_id\""))
         registry.afterToolVerification(tapCall, tapResult)
         assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
+        val workflowTypeTextResult = registry.execute(
+            ToolCall(
+                name = "device.type_text",
+                arguments = mapOf(
+                    "snapshot_id" to "snapshot-direct",
+                    "ref" to "r1",
+                    "text" to "Workflow must remain closed",
+                ),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        assertFalse(workflowTypeTextResult.success)
+        assertTrue(workflowTypeTextResult.content.contains("尚未开放给 Workflow"))
+        assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
         val workflowActionResult = registry.execute(
             ToolCall(
                 name = "device.open_app",
