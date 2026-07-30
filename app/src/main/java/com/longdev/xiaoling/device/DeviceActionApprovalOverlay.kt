@@ -11,6 +11,7 @@ data class DeviceActionApprovalOverlayRequest(
     val toolName: String,
     val userIntent: String,
     val toolDescription: String,
+    val actionSummary: String,
 ) {
     init {
         require(approvalRequestId.isNotBlank()) { "设备动作审批请求 ID 不能为空" }
@@ -19,6 +20,7 @@ data class DeviceActionApprovalOverlayRequest(
         require(toolName.isNotBlank()) { "设备动作审批工具名不能为空" }
         require(userIntent.isNotBlank()) { "设备动作审批必须展示用户步骤意图" }
         require(toolDescription.isNotBlank()) { "设备动作审批工具说明不能为空" }
+        require(actionSummary.isNotBlank()) { "设备动作审批的脱敏动作摘要不能为空" }
     }
 }
 
@@ -62,6 +64,7 @@ data class DeviceActionApprovalOverlayObservation(
     val suppressGenerationInvalidation: Boolean = false,
     val removeOverlay: Boolean = false,
     val completion: DeviceActionApprovalOverlayDecision? = null,
+    val settleToken: Long? = null,
 )
 
 internal class DeviceActionApprovalOverlayCoordinator {
@@ -164,13 +167,14 @@ internal class DeviceActionApprovalOverlayCoordinator {
 
         val pendingDecision = current.pendingDecision
         if (pendingDecision != null && baselineOnly) {
+            // long: Redmi 在移除 Accessibility overlay 后可能连续发送多条 WINDOWS_CHANGED；只要活动根与窗口集合仍精确等于基线，就继续把它们视为同一次自有浮层移除，直到短窗口结算再返回用户决定。
             val suppressDetachInvalidation = eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED &&
-                eventWindowId == current.targetWindowId &&
                 (current.overlayWindowId != null || current.overlayViewAdded)
-            active = null
+            val settleToken = current.token.takeIf { !current.detachSettleScheduled }
+            current.detachSettleScheduled = true
             return DeviceActionApprovalOverlayObservation(
                 suppressGenerationInvalidation = suppressDetachInvalidation,
-                completion = pendingDecision,
+                settleToken = settleToken,
             )
         }
 
@@ -211,6 +215,25 @@ internal class DeviceActionApprovalOverlayCoordinator {
         return decision(DeviceActionApprovalOverlayDecisionKind.OVERLAY_UNAVAILABLE, "系统拒绝显示设备动作审批浮层")
     }
 
+    @Synchronized
+    fun settleDetachedOverlay(
+        token: Long,
+        activeRootWindowId: Int,
+        windows: Set<DeviceAccessibilityWindowSnapshot>,
+    ): DeviceActionApprovalOverlayDecision? {
+        val current = active?.takeIf { it.token == token } ?: return null
+        val pendingDecision = current.pendingDecision ?: return null
+        active = null
+        return if (activeRootWindowId == current.targetWindowId && windows == current.baselineWindows) {
+            pendingDecision
+        } else {
+            decision(
+                DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED,
+                "审批浮层移除后页面窗口已发生变化",
+            )
+        }
+    }
+
     private fun finishWindowChanged(reason: String): DeviceActionApprovalOverlayObservation {
         active = null
         return DeviceActionApprovalOverlayObservation(
@@ -231,6 +254,7 @@ internal class DeviceActionApprovalOverlayCoordinator {
         var overlayViewAdded: Boolean = false,
         var overlayWindowId: Int? = null,
         var pendingDecision: DeviceActionApprovalOverlayDecision? = null,
+        var detachSettleScheduled: Boolean = false,
     )
 
     private companion object {

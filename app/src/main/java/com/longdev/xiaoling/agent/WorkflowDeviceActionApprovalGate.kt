@@ -35,9 +35,14 @@ class WorkflowDeviceActionApprovalGate(
         toolCall: ToolCall,
         definition: ToolDefinition,
     ): ApprovalDecision {
-        if (toolCall.name != DEVICE_TAP_REF_TOOL_NAME) {
+        if (toolCall.name !in WORKFLOW_OVERLAY_APPROVAL_TOOL_NAMES) {
             return fallback.requestApproval(runId, toolCall, definition)
         }
+        val approvalInput = toolCall.toApprovalInput()
+            ?: return ApprovalDecision(
+                approved = false,
+                reason = "Workflow 设备动作审批参数不完整",
+            )
 
         var request: ApprovalRequestRecord? = null
         var decisionAttempted = false
@@ -45,10 +50,10 @@ class WorkflowDeviceActionApprovalGate(
             request = persistence.createApprovalRequest(
                 conversationId = conversationId,
                 runId = runId,
-                toolCall = toolCall,
+                toolCall = approvalInput.persistedToolCall,
                 definition = definition,
             )
-            if (!request.matches(runId, toolCall, definition)) {
+            if (!request.matches(runId, approvalInput.persistedToolCall, definition)) {
                 val reason = "持久化审批身份与当前 Workflow ToolCall 不一致"
                 persistDecision(request, ApprovalRequestStatus.CANCELLED, reason)
                 decisionAttempted = true
@@ -63,6 +68,7 @@ class WorkflowDeviceActionApprovalGate(
                     toolName = toolCall.name,
                     userIntent = userIntent,
                     toolDescription = definition.description,
+                    actionSummary = approvalInput.actionSummary,
                 ),
             )
             val status = when (overlayDecision.kind) {
@@ -144,5 +150,31 @@ class WorkflowDeviceActionApprovalGate(
             status == expectedStatus &&
             decisionReason == expectedReason &&
             decidedAt != null
+    }
+
+    private fun ToolCall.toApprovalInput(): WorkflowDeviceActionApprovalInput? {
+        if (name == DEVICE_TAP_REF_TOOL_NAME) {
+            return WorkflowDeviceActionApprovalInput(
+                persistedToolCall = this,
+                actionSummary = "点击当前页面节点",
+            )
+        }
+        val projection = WorkflowTypeTextAuditPolicy.project(this) ?: return null
+        return WorkflowDeviceActionApprovalInput(
+            persistedToolCall = projection.persistedToolCall,
+            actionSummary = "输入 ${projection.textLength} 个字符，内容不展示",
+        )
+    }
+
+    private data class WorkflowDeviceActionApprovalInput(
+        val persistedToolCall: ToolCall,
+        val actionSummary: String,
+    )
+
+    private companion object {
+        val WORKFLOW_OVERLAY_APPROVAL_TOOL_NAMES = setOf(
+            DEVICE_TAP_REF_TOOL_NAME,
+            WorkflowTypeTextAuditPolicy.TOOL_NAME,
+        )
     }
 }

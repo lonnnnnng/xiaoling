@@ -33,6 +33,19 @@ import org.junit.Test
 
 class XiaoLingToolRegistryTest {
     @Test
+    fun productionForegroundWorkflowExposesTypeTextAfterSafetyClosure() {
+        val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
+        registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
+
+        assertEquals(
+            setOf("device.snapshot", "device.tap_ref", "device.type_text"),
+            registry.availableTools()
+                .filter { it.name.startsWith("device.") }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+    }
+
+    @Test
     fun registryExposesFirstInternalAgentTools() {
         val registry = testRegistry()
 
@@ -924,6 +937,19 @@ class XiaoLingToolRegistryTest {
             knowledgeStore = knowledgeStore,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
+        )
+    }
+
+    private fun productionRegistry(
+        deviceController: DeviceController,
+    ): XiaoLingToolRegistry {
+        return XiaoLingToolRegistry(
+            clock = FakeAgentClock(),
+            conversationStore = InMemoryAgentConversationStore(),
+            noteStore = InMemoryAgentNoteStore(),
+            memoryStore = InMemoryAgentMemoryStore(),
+            knowledgeStore = InMemoryKnowledgeDocumentStore(),
+            deviceController = deviceController,
         )
     }
 

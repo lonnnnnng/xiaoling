@@ -29,6 +29,119 @@ import java.util.UUID
 
 class MinimalAgentRuntimeTest {
     @Test
+    fun workflowTypeTextAuditHidesInputWithoutChangingDirectAudit() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val inputText = "stage117_private_text"
+        val definition = ToolDefinition(
+            name = "device.type_text",
+            description = "向当前安全输入框输入普通文本",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("snapshot_id", "当前设备快照 ID", required = true),
+                ToolInputField("ref", "当前快照节点引用", required = true),
+                ToolInputField("text", "输入文本", required = true, minLength = 1, maxLength = 500),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            validateBeforeAudit = true,
+        )
+        var executedText: String? = null
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executedText = call.arguments["text"]
+                return ToolExecutionResult(success = true, content = "输入已完成", verified = true)
+            }
+        }
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(
+                        name = definition.name,
+                        arguments = mapOf(
+                            "snapshot_id" to "snapshot-current",
+                            "ref" to "r1",
+                            "text" to inputText,
+                        ),
+                        risk = definition.risk,
+                    )
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+        )
+
+        runtime.run(
+            conversationId = "conversation-workflow-type-text-audit",
+            userMessageId = "message-workflow-type-text-audit",
+            goal = "输入普通文本",
+            invocationSource = AgentInvocationSource.WORKFLOW,
+        )
+
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        val expectedArguments = mapOf(
+            "snapshot_id" to "snapshot-current",
+            "ref" to "r1",
+            "text_sha256" to "1f51a65950a77fa631e3d5adf97a1ab17e7963fa630787f6f472b92e73fbf695",
+            "text_length" to inputText.length.toString(),
+        )
+        val auditedCalls = snapshot.events
+            .filter { it.type == "tool.call.proposed" || it.type == "tool.call.validated" }
+            .map { requireNotNull(it.metadata as? RunEventMetadata.ToolCall) }
+        assertEquals(2, auditedCalls.size)
+        auditedCalls.forEach { auditedCall ->
+            assertEquals(expectedArguments, auditedCall.arguments)
+            assertFalse(auditedCall.toString().contains(inputText))
+        }
+        assertEquals(inputText, executedText)
+
+        val directLedger = InMemoryAgentRunLedger()
+        val directRuntime = MinimalAgentRuntime(
+            ledger = directLedger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(
+                        name = definition.name,
+                        arguments = mapOf(
+                            "snapshot_id" to "snapshot-direct",
+                            "ref" to "r2",
+                            "text" to inputText,
+                        ),
+                        risk = definition.risk,
+                    )
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+        )
+        directRuntime.run(
+            conversationId = "conversation-direct-type-text-audit",
+            userMessageId = "message-direct-type-text-audit",
+            goal = "直接输入普通文本",
+            invocationSource = AgentInvocationSource.DIRECT,
+        )
+
+        val directSnapshot = directLedger.snapshot(requireNotNull(directLedger.lastRunId))
+        directSnapshot.events
+            .filter { it.type == "tool.call.proposed" || it.type == "tool.call.validated" }
+            .map { requireNotNull(it.metadata as? RunEventMetadata.ToolCall) }
+            .forEach { auditedCall -> assertEquals(inputText, auditedCall.arguments["text"]) }
+    }
+
+    @Test
     fun runtimeBindsApprovalBeforeExecutionAndNotifiesRegistryAfterTypedVerification() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val definition = ToolDefinition(

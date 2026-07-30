@@ -278,7 +278,9 @@ object WorkflowStepSnapshotCodec {
                         val afterNodeCount = encodedDecision.getInt("afterNodeCount")
                         val afterRedactedNodeCount = encodedDecision.getInt("afterRedactedNodeCount")
                         val afterObservedAt = encodedDecision.getLong("afterObservedAt")
-                        require(action == "tap_ref") { "当前阶段只接受 tap_ref 动作判定" }
+                        require(action in DEVICE_ACTION_DECISION_ACTIONS) {
+                            "当前阶段不接受该设备动作判定：$action"
+                        }
                         require(beforePackageName.isNotEmpty() && afterPackageName.isNotEmpty()) {
                             "设备动作判定包名不能为空"
                         }
@@ -311,6 +313,7 @@ object WorkflowStepSnapshotCodec {
     fun outputText(raw: String?): String? = decodeOutput(raw)?.text
 
     private const val OUTPUT_SCHEMA = "workflow-step-output-v1"
+    private val DEVICE_ACTION_DECISION_ACTIONS = setOf("tap_ref", "type_text")
 }
 
 object WorkflowStepExecutionPolicy {

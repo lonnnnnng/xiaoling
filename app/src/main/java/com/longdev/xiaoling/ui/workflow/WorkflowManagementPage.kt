@@ -519,8 +519,16 @@ private fun WorkflowItem(
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                     )
-                                    Text("动作：${action.action}", style = MaterialTheme.typography.labelSmall)
+                                    Text("动作：${action.action.toDeviceActionUiLabel()}", style = MaterialTheme.typography.labelSmall)
                                     if (verified) {
+                                        if (action.action == "type_text") {
+                                            // long: 答案级证据只说明文本输入动作已验证；原文不进入 Compose 状态，避免历史页、截图或辅助工具将其二次暴露。
+                                            Text(
+                                                "输入原文未保存到答案级证据",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                         action.beforePackageName?.let { beforePackageName ->
                                             action.afterPackageName?.let { afterPackageName ->
                                                 Text(
@@ -555,7 +563,7 @@ private fun WorkflowItem(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
-                                        // long: 证据卡只证明 tap_ref 与后置观察通过本地验证；业务目标是否完成仍由后续步骤判断，旧引用也不能再次执行。
+                                        // long: 证据卡只证明当前白名单动作与后置观察通过本地验证；业务目标是否完成仍由后续步骤判断，旧引用也不能再次执行。
                                         Text(
                                             "仅确认当前设备动作和后置观察已验证，不确认最终业务目标",
                                             style = MaterialTheme.typography.labelSmall,
@@ -616,6 +624,11 @@ private fun WorkflowDeviceActionUiOutcome.toUiLabel(): String = when (this) {
     WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE -> "审批浮层不可用"
     WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED -> "无障碍服务已断开"
     WorkflowDeviceActionUiOutcome.BUSY -> "审批正忙"
+}
+
+private fun String.toDeviceActionUiLabel(): String = when (this) {
+    "type_text" -> "输入文本（内容不展示）"
+    else -> this
 }
 
 @Composable

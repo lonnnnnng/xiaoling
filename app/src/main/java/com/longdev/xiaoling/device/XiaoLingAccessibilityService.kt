@@ -183,6 +183,14 @@ class XiaoLingAccessibilityService : AccessibilityService() {
                 setTextColor(Color.LTGRAY)
                 textSize = 12f
                 maxLines = 2
+                setPadding(0, dp(4), 0, 0)
+            })
+            addView(TextView(context).apply {
+                // long: 文本输入只告知字符数，不把原文、指纹或节点引用放到可截图、UIAutomator 或其他 Accessibility 服务可读的界面中。
+                text = request.actionSummary
+                setTextColor(Color.LTGRAY)
+                textSize = 12f
+                maxLines = 1
                 setPadding(0, dp(4), 0, dp(8))
             })
         }
@@ -217,15 +225,36 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         val completion = observation.completion
         if (observation.removeOverlay && completion != null) {
             val active = activeApprovalOverlay ?: return
+            if (!active.viewAttached) {
+                completeApproval(active.token, completion)
+                return
+            }
             active.pendingCompletion = completion
             removeApprovalView(active.token)
             scheduleOverlayDetachTimeout(active.token)
             return
         }
+        observation.settleToken?.let(::scheduleOverlaySettlement)
         if (completion != null) {
             val token = activeApprovalOverlay?.token ?: return
             completeApproval(token, completion)
         }
+    }
+
+    private fun scheduleOverlaySettlement(token: Long) {
+        val active = activeApprovalOverlay?.takeIf { it.token == token } ?: return
+        if (active.settleConfirmation != null) return
+        val confirmation = Runnable {
+            val current = activeApprovalOverlay?.takeIf { it.token == token } ?: return@Runnable
+            val decision = approvalCoordinator.settleDetachedOverlay(
+                token = token,
+                activeRootWindowId = rootInActiveWindow?.windowId ?: UNKNOWN_WINDOW_ID,
+                windows = captureAccessibilityWindows(),
+            ) ?: return@Runnable
+            completeApproval(current.token, decision)
+        }
+        active.settleConfirmation = confirmation
+        mainHandler.postDelayed(confirmation, OVERLAY_SETTLE_DELAY_MS)
     }
 
     private fun confirmPendingOverlayRemoval(windows: Set<DeviceAccessibilityWindowSnapshot>) {
@@ -309,6 +338,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
 
     private fun clearApproval(active: ActiveApprovalOverlay) {
         active.detachTimeout?.let(mainHandler::removeCallbacks)
+        active.settleConfirmation?.let(mainHandler::removeCallbacks)
         activeApprovalOverlay = null
     }
 
@@ -439,6 +469,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         private const val MAX_RAW_DEPTH = 30
         private const val UNKNOWN_WINDOW_ID = -1
         private const val OVERLAY_DETACH_TIMEOUT_MS = 1_500L
+        private const val OVERLAY_SETTLE_DELAY_MS = 100L
     }
 
     private data class ActiveApprovalOverlay(
@@ -449,6 +480,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         var viewAttached: Boolean = true,
         var pendingCompletion: DeviceActionApprovalOverlayDecision? = null,
         var detachTimeout: Runnable? = null,
+        var settleConfirmation: Runnable? = null,
     )
 }
 

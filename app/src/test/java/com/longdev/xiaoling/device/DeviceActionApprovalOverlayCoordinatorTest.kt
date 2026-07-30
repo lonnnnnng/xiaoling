@@ -4,11 +4,175 @@ import android.view.accessibility.AccessibilityEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DeviceActionApprovalOverlayCoordinatorTest {
+    @Test
+    fun repeatedDetachEventsStaySuppressedUntilBaselineSettlement() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val baseline = baselineWindows()
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        val withOverlay = baseline + DeviceAccessibilityWindowSnapshot(
+            id = OVERLAY_WINDOW_ID,
+            ownedApprovalOverlay = true,
+        )
+        coordinator.observeWindows(
+            eventWindowId = OVERLAY_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = withOverlay,
+        )
+        assertTrue(coordinator.recordUserDecision(started.token, approved = true))
+
+        val firstDetach = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+        val trailingDetach = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+
+        assertTrue(firstDetach.suppressGenerationInvalidation)
+        assertNotNull(firstDetach.settleToken)
+        assertNull(firstDetach.completion)
+        assertTrue(trailingDetach.suppressGenerationInvalidation)
+        assertNull(trailingDetach.completion)
+        assertNull(trailingDetach.settleToken)
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.APPROVED,
+            coordinator.settleDetachedOverlay(
+                token = started.token,
+                activeRootWindowId = TARGET_WINDOW_ID,
+                windows = baseline,
+            )?.kind,
+        )
+    }
+
+    @Test
+    fun settlementRejectsChangedActiveRootAfterOwnedOverlayDetach() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val baseline = baselineWindows()
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        val withOverlay = baseline + DeviceAccessibilityWindowSnapshot(
+            id = OVERLAY_WINDOW_ID,
+            ownedApprovalOverlay = true,
+        )
+        coordinator.observeWindows(
+            eventWindowId = OVERLAY_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = withOverlay,
+        )
+        assertTrue(coordinator.recordUserDecision(started.token, approved = true))
+        val detached = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+
+        assertEquals(started.token, detached.settleToken)
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED,
+            coordinator.settleDetachedOverlay(
+                token = started.token,
+                activeRootWindowId = FOREIGN_WINDOW_ID,
+                windows = baseline,
+            )?.kind,
+        )
+        assertNull(coordinator.disconnect())
+    }
+
+    @Test
+    fun settlementRejectsChangedWindowSetWhenNoTrailingEventArrives() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val baseline = baselineWindows()
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        val withOverlay = baseline + DeviceAccessibilityWindowSnapshot(
+            id = OVERLAY_WINDOW_ID,
+            ownedApprovalOverlay = true,
+        )
+        coordinator.observeWindows(
+            eventWindowId = OVERLAY_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = withOverlay,
+        )
+        assertTrue(coordinator.recordUserDecision(started.token, approved = true))
+        val detached = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+
+        assertEquals(started.token, detached.settleToken)
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED,
+            coordinator.settleDetachedOverlay(
+                token = started.token,
+                activeRootWindowId = TARGET_WINDOW_ID,
+                windows = baseline + DeviceAccessibilityWindowSnapshot(
+                    id = FOREIGN_WINDOW_ID,
+                    ownedApprovalOverlay = false,
+                ),
+            )?.kind,
+        )
+        assertNull(coordinator.disconnect())
+    }
+
+    @Test
+    fun foreignWindowDuringDetachSettlementFailsClosedInsteadOfBeingSuppressed() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val baseline = baselineWindows()
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        val withOverlay = baseline + DeviceAccessibilityWindowSnapshot(
+            id = OVERLAY_WINDOW_ID,
+            ownedApprovalOverlay = true,
+        )
+        coordinator.observeWindows(
+            eventWindowId = OVERLAY_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = withOverlay,
+        )
+        assertTrue(coordinator.recordUserDecision(started.token, approved = true))
+        val detached = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+        assertEquals(started.token, detached.settleToken)
+
+        val changed = coordinator.observeWindows(
+            eventWindowId = FOREIGN_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline + DeviceAccessibilityWindowSnapshot(
+                id = FOREIGN_WINDOW_ID,
+                ownedApprovalOverlay = false,
+            ),
+        )
+
+        assertFalse(changed.suppressGenerationInvalidation)
+        assertTrue(changed.removeOverlay)
+        assertEquals(DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED, changed.completion?.kind)
+        assertNull(coordinator.settleDetachedOverlay(started.token, TARGET_WINDOW_ID, baseline))
+    }
+
     @Test
     fun ownedOverlayKeepsTargetGenerationUntilVerifiedDetach() {
         val coordinator = DeviceActionApprovalOverlayCoordinator()
@@ -65,7 +229,12 @@ class DeviceActionApprovalOverlayCoordinatorTest {
             suppressInvalidation = detached.suppressGenerationInvalidation,
         )
 
-        assertEquals(DeviceActionApprovalOverlayDecisionKind.APPROVED, detached.completion?.kind)
+        assertNull(detached.completion)
+        assertEquals(started.token, detached.settleToken)
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.APPROVED,
+            coordinator.settleDetachedOverlay(started.token, TARGET_WINDOW_ID, baseline)?.kind,
+        )
         assertEquals(capturedGeneration, tracker.currentGeneration())
     }
 
@@ -94,7 +263,11 @@ class DeviceActionApprovalOverlayCoordinatorTest {
         )
 
         assertTrue(detached.suppressGenerationInvalidation)
-        assertEquals(DeviceActionApprovalOverlayDecisionKind.APPROVED, detached.completion?.kind)
+        assertEquals(started.token, detached.settleToken)
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.APPROVED,
+            coordinator.settleDetachedOverlay(started.token, TARGET_WINDOW_ID, baseline)?.kind,
+        )
         assertEquals(capturedGeneration, tracker.currentGeneration())
     }
 

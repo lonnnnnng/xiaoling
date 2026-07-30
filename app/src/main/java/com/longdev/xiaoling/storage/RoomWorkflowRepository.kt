@@ -1099,7 +1099,7 @@ class RoomWorkflowRepository(
     internal suspend fun requireDeviceActionDecisions(
         agentRunId: String,
     ): List<WorkflowDeviceActionDecision> {
-        // long: 只有同 Run Tool Ledger 中 success、PASSED 且严格符合白名单 codec 的 tap_ref，才允许形成 Workflow 本地动作判定。
+        // long: 只有同 Run Tool Ledger 中 success、PASSED 且严格符合白名单 codec 的 tap_ref/type_text，才允许形成 Workflow 本地动作判定。
         return WorkflowDeviceActionDecisionPolicy.requireDecisions(
             evaluateDeviceActionEvidence(agentRunId),
         )

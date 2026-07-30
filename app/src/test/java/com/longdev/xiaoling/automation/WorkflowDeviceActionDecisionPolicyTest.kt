@@ -7,6 +7,28 @@ import org.junit.Test
 
 class WorkflowDeviceActionDecisionPolicyTest {
     @Test
+    fun verifiedTypeTextProducesAnswerEvidenceWithoutInputTextOrReferenceData() {
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.type_text",
+                    content = validActionResult(action = "type_text"),
+                ),
+            ),
+        )
+
+        val decision = (resolution as WorkflowDeviceActionResolution.Decided).decisions.single()
+        assertEquals("type_text", decision.action)
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        assertTrue(prompt.contains("已执行并验证 type_text"))
+        assertTrue(prompt.contains("输入内容未进入答案级证据"))
+        assertFalse(prompt.contains("Workflow safe text"))
+        assertFalse(prompt.contains("snapshot-secret"))
+        assertFalse(prompt.contains("ref-secret"))
+    }
+
+    @Test
     fun verifiedTapRefProducesVersionedLocalDecisionWithoutRawReferenceData() {
         val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
             expectedAgentRunId = "agent-run-current",
@@ -98,21 +120,22 @@ class WorkflowDeviceActionDecisionPolicyTest {
     private fun actionEvidence(
         executorVerified: Boolean? = true,
         verified: Boolean = true,
+        toolName: String = "device.tap_ref",
         content: String,
     ) = WorkflowDeviceActionEvidenceInput(
         runId = "agent-run-current",
-        toolName = "device.tap_ref",
+        toolName = toolName,
         content = content,
         success = true,
         executorVerified = executorVerified,
         verified = verified,
     )
 
-    private fun validActionResult(): String = """
+    private fun validActionResult(action: String = "tap_ref"): String = """
         {
           "ruleVersion":"workflow-device-action-result-v1",
           "safetyRuleVersion":"workflow-device-action-safety-v1",
-          "action":"tap_ref",
+          "action":"$action",
           "beforePackageName":"com.example.before",
           "afterPackageName":"com.example.after",
           "afterNodeCount":4,

@@ -17,6 +17,46 @@ import org.junit.Test
 
 class WorkflowManagementPageInstrumentedTest {
     @Test
+    fun pageDisplaysVerifiedTypeTextWithoutInputContent() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(
+                        deviceActions = listOf(
+                            WorkflowDeviceActionUiState(
+                                outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+                                action = "type_text",
+                                detail = "已执行并验证",
+                                beforePackageName = "com.example.before",
+                                afterPackageName = "com.example.after",
+                                afterNodeCount = 5,
+                                afterRedactedNodeCount = 0,
+                                afterTruncated = false,
+                                afterObservedAt = 1_700_000_000_000L,
+                                decisionRuleVersion = "workflow-device-action-decision-v1",
+                            ),
+                        ),
+                    ),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithText("动作：输入文本（内容不展示）", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "输入原文未保存到答案级证据",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText("Workflow safe text", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithText("snapshot-secret", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithText("ref-secret", substring = true, useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
     fun pageDisplaysDistinctDeviceActionFailureStates() {
         val failures = listOf(
             WorkflowDeviceActionUiState(

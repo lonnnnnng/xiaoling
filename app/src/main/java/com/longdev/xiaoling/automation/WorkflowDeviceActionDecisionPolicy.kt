@@ -57,11 +57,12 @@ object WorkflowDeviceActionDecisionPolicy {
         expectedAgentRunId: String,
         results: List<WorkflowDeviceActionEvidenceInput>,
     ): WorkflowDeviceActionResolution {
-        val actionResults = results.filter { it.toolName == DEVICE_TAP_REF_TOOL_NAME }
+        val actionResults = results.filter { it.toolName in ACTION_BY_TOOL_NAME }
         if (actionResults.isEmpty()) return WorkflowDeviceActionResolution.NotApplicable
 
         val decisions = buildList {
             actionResults.forEach { result ->
+                val expectedAction = ACTION_BY_TOOL_NAME.getValue(result.toolName)
                 if (result.runId != expectedAgentRunId) {
                     return insufficient(
                         WorkflowDeviceActionInsufficientReason.RUN_ID_MISMATCH,
@@ -71,27 +72,27 @@ object WorkflowDeviceActionDecisionPolicy {
                 if (!result.success) {
                     return insufficient(
                         WorkflowDeviceActionInsufficientReason.EXECUTION_FAILED,
-                        "device.tap_ref 没有成功执行",
+                        "${result.toolName} 没有成功执行",
                     )
                 }
                 if (result.executorVerified != true) {
                     return insufficient(
                         WorkflowDeviceActionInsufficientReason.EXECUTOR_VERIFICATION_MISSING,
-                        "device.tap_ref 缺少 Executor 回读验证事实",
+                        "${result.toolName} 缺少 Executor 回读验证事实",
                     )
                 }
                 if (!result.verified) {
                     return insufficient(
                         WorkflowDeviceActionInsufficientReason.VERIFICATION_MISSING,
-                        "device.tap_ref 缺少通过验证的 Tool Ledger 结果",
+                        "${result.toolName} 缺少通过验证的 Tool Ledger 结果",
                     )
                 }
                 val evidence = WorkflowDeviceActionResultCodec.decode(result.content)
-                    // long: codec 为执行生命周期识别 type_text，但答案级判定本阶段仍只能消费 tap_ref，工具名与结果动作必须双重一致。
-                    ?.takeIf { it.verified && it.action == DEVICE_TAP_REF_ACTION }
+                    // long: 答案级只消费严格 codec 的白名单摘要；工具名必须与结果 action 一一对应，type_text 也不能携带原文或节点引用混入答案。
+                    ?.takeIf { it.verified && it.action == expectedAction }
                     ?: return insufficient(
                         WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
-                        "device.tap_ref 结果不是完整的白名单动作证据",
+                        "${result.toolName} 结果不是完整的白名单动作证据",
                     )
                 add(
                     WorkflowDeviceActionDecision(
@@ -133,7 +134,10 @@ object WorkflowDeviceActionDecisionPolicy {
                 append("脱敏节点 ${decision.afterRedactedNodeCount}；")
                 append(if (decision.afterTruncated) "后置观察已截断" else "后置观察未截断")
                 append("；后置观察时间 ${decision.afterObservedAt}\n")
-                // long: 下游只能知道当前 tap_ref 已通过执行和验证；原节点、ref、snapshot 身份及更高层业务目标都不能从 Tool Ledger 复制进 Workflow。
+                if (decision.action == DEVICE_TYPE_TEXT_ACTION) {
+                    append("隐私：输入内容未进入答案级证据。\n")
+                }
+                // long: 下游只能知道当前白名单动作已通过执行和验证；文本原文、原节点、ref、snapshot 身份及更高层业务目标都不能从 Tool Ledger 复制进 Workflow。
                 append("限制：仅确认当前设备动作和后置观察已验证，不确认用户最终业务目标；节点引用已经失效，后续动作必须重新观察和审批。")
             }
         }.joinToString("\n\n")
@@ -152,7 +156,12 @@ object WorkflowDeviceActionDecisionPolicy {
     ) = WorkflowDeviceActionResolution.InsufficientEvidence(reason, message)
 
     private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
-    private const val DEVICE_TAP_REF_ACTION = "tap_ref"
+    private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+    private const val DEVICE_TYPE_TEXT_ACTION = "type_text"
+    private val ACTION_BY_TOOL_NAME = mapOf(
+        DEVICE_TAP_REF_TOOL_NAME to "tap_ref",
+        DEVICE_TYPE_TEXT_TOOL_NAME to DEVICE_TYPE_TEXT_ACTION,
+    )
     private val RAW_RESULT_SIGNATURES = setOf(
         "action",
         "beforePackageName",

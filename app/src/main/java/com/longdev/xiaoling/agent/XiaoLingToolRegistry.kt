@@ -47,9 +47,9 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    // long: 该注入点只允许第 116 阶段验证 tap_ref 与 type_text；即使调用方误传其他已注册动作，也不能借测试 seam 扩大 Workflow 权限。
+    // long: Workflow 生产动作面只包含已完成独立审批、隐私证据和真机验收的 tap_ref/type_text；即使调用方误传其他已注册动作，也不能借注入 seam 扩大 Workflow 权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
-        val unsupported = toolNames - STAGED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
+        val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
         require(unsupported.isEmpty()) {
             "Workflow Registry 测试动作集合包含未开放工具：${unsupported.sorted().joinToString()}"
         }
@@ -496,7 +496,7 @@ class XiaoLingToolRegistry(
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
         if (!directDeviceActionsAllowed(context)) {
-            // long: 生产集合当前仍只有 tap_ref；测试态 type_text 必须显式注入，不能因注册了完整设备工具定义而连带开放其他动作。
+            // long: 生产 Workflow 只放行已闭环的 tap_ref/type_text；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
                 definition.name in DEVICE_ACTION_TOOL_NAMES &&
                     !workflowDeviceActionAllowed(context, definition.name)
@@ -1179,8 +1179,11 @@ private const val DEVICE_BACK_TOOL_NAME = "device.back"
 private const val DEVICE_HOME_TOOL_NAME = "device.home"
 internal const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
 private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
-private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(DEVICE_TAP_REF_TOOL_NAME)
-private val STAGED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
+private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
+    DEVICE_TAP_REF_TOOL_NAME,
+    DEVICE_TYPE_TEXT_TOOL_NAME,
+)
+private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
 )

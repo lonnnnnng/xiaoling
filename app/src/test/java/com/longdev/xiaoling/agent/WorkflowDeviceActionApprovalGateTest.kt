@@ -13,6 +13,38 @@ import org.junit.Test
 
 class WorkflowDeviceActionApprovalGateTest {
     @Test
+    fun typeTextUsesOverlayWithoutPersistingOrDisplayingInputText() = runTest {
+        val persistence = FakeApprovalPersistence()
+        var overlayRequest: DeviceActionApprovalOverlayRequest? = null
+        val gate = gate(
+            persistence = persistence,
+            requester = DeviceActionApprovalOverlayRequester { request ->
+                overlayRequest = request
+                DeviceActionApprovalOverlayDecision(
+                    DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                    "用户已在设备动作审批浮层批准",
+                )
+            },
+        )
+
+        val decision = gate.requestApproval(RUN_ID, typeTextCall(), typeTextDefinition())
+
+        assertTrue(decision.approved)
+        assertEquals(
+            mapOf(
+                "snapshot_id" to "snapshot-1",
+                "ref" to "r1",
+                "text_sha256" to "436fe0a3fa0af22183e6584a91e42c2921bf3e096a4dca139f866a8b8296d752",
+                "text_length" to "18",
+            ),
+            persistence.createdToolCall?.arguments,
+        )
+        assertFalse(persistence.createdToolCall.toString().contains(TYPE_TEXT))
+        assertEquals("输入 18 个字符，内容不展示", overlayRequest?.actionSummary)
+        assertFalse(overlayRequest.toString().contains(TYPE_TEXT))
+    }
+
+    @Test
     fun tapRefUsesOverlayAndPersistsExactApprovedDecision() = runTest {
         val persistence = FakeApprovalPersistence()
         var overlayRequest: DeviceActionApprovalOverlayRequest? = null
@@ -149,9 +181,27 @@ class WorkflowDeviceActionApprovalGateTest {
         risk = ToolRisk.REQUIRES_APPROVAL,
     )
 
+    private fun typeTextCall() = ToolCall(
+        id = TOOL_CALL_ID,
+        name = "device.type_text",
+        arguments = mapOf(
+            "snapshot_id" to "snapshot-1",
+            "ref" to "r1",
+            "text" to TYPE_TEXT,
+        ),
+        risk = ToolRisk.REQUIRES_APPROVAL,
+    )
+
+    private fun typeTextDefinition() = ToolDefinition(
+        name = "device.type_text",
+        description = "向当前快照中的可编辑节点输入普通文本",
+        risk = ToolRisk.REQUIRES_APPROVAL,
+    )
+
     private class FakeApprovalPersistence : WorkflowDeviceActionApprovalPersistence {
         var createCount = 0
         var driftDecidedToolCallId = false
+        var createdToolCall: ToolCall? = null
         val decisions = mutableListOf<Decision>()
         private lateinit var request: ApprovalRequestRecord
 
@@ -162,6 +212,7 @@ class WorkflowDeviceActionApprovalGateTest {
             definition: ToolDefinition,
         ): ApprovalRequestRecord {
             createCount += 1
+            createdToolCall = toolCall
             request = ApprovalRequestRecord(
                 id = "approval-1",
                 runId = runId,
@@ -200,5 +251,6 @@ class WorkflowDeviceActionApprovalGateTest {
     private companion object {
         const val RUN_ID = "run-1"
         const val TOOL_CALL_ID = "tool-call-1"
+        const val TYPE_TEXT = "Workflow safe text"
     }
 }

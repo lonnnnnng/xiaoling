@@ -31,6 +31,63 @@ import org.junit.Test
 
 class WorkflowManagementProjectionTest {
     @Test
+    fun projectShowsDeniedTypeTextWithoutInputTextOrApprovalArguments() {
+        val workflow = workflow(id = "workflow-type-text-denied", enabled = true)
+        val agentRunId = "agent-run-type-text-denied"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-type-text-denied",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-type-text-denied",
+                workflowRunId = "workflow-run-type-text-denied",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "输入安全文本",
+                detail = "在当前输入框输入安全文本",
+                agentRunId = agentRunId,
+                result = null,
+                errorMessage = "用户未批准工具执行",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                agentRunId to listOf(
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.DENIED,
+                        decisionReason = "用户已在设备动作审批浮层拒绝",
+                        toolName = "device.type_text",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.USER_DENIED, action.outcome)
+        assertEquals("type_text", action.action)
+        assertFalse(action.toString().contains("Workflow safe text"))
+        assertFalse(action.toString().contains("snapshot-secret"))
+        assertFalse(action.toString().contains("ref-secret"))
+    }
+
+    @Test
     fun projectDoesNotBindDeviceActionApprovalFromAnotherAgentRun() {
         val workflow = workflow(id = "workflow-device-action-isolated", enabled = true)
         val expectedAgentRunId = "agent-run-device-action-expected"
@@ -1081,19 +1138,22 @@ class WorkflowManagementProjectionTest {
         runId: String,
         status: ApprovalRequestStatus,
         decisionReason: String,
+        toolName: String = "device.tap_ref",
     ): WorkflowDeviceActionApprovalEvidence {
         val rawApproval = ApprovalRequestRecord(
             id = "approval-$runId-${status.name}",
             runId = runId,
             conversationId = "conversation-1",
-            toolCallId = "tool-call-tap-ref",
-            toolName = "device.tap_ref",
-            toolDescription = "点击节点引用",
+            toolCallId = "tool-call-${toolName.substringAfterLast('.')}",
+            toolName = toolName,
+            toolDescription = if (toolName == "device.type_text") "向节点输入普通文本" else "点击节点引用",
             risk = ToolRisk.REQUIRES_APPROVAL,
             arguments = mapOf(
                 "snapshot_id" to "snapshot-secret",
                 "ref" to "ref-secret",
                 "content" to "银行卡密码",
+                "text_sha256" to "fingerprint-secret",
+                "text_length" to "18",
             ),
             status = status,
             decisionReason = "$decisionReason；不得展示 snapshot-secret/ref-secret/银行卡密码",

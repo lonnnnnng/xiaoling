@@ -166,7 +166,7 @@ enum class WorkflowDeviceActionApprovalOutcome {
 
 internal object WorkflowDeviceActionApprovalEvidencePolicy {
     fun project(approval: ApprovalRequestRecord): WorkflowDeviceActionApprovalEvidence? {
-        if (approval.toolName != DEVICE_TAP_REF_TOOL_NAME) return null
+        if (approval.toolName !in DEVICE_ACTION_TOOL_NAMES) return null
         val outcome = when (approval.status) {
             ApprovalRequestStatus.PENDING -> WorkflowDeviceActionApprovalOutcome.PENDING
             ApprovalRequestStatus.APPROVED -> WorkflowDeviceActionApprovalOutcome.APPROVED
@@ -200,7 +200,7 @@ internal object WorkflowDeviceActionApprovalEvidencePolicy {
         return this != null && signatures.any(::contains)
     }
 
-    private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
+    private val DEVICE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text")
     private val BUSY_REASON_SIGNATURES = setOf("已有设备动作审批正在显示", "已有设备动作审批正在处理")
     private val WINDOW_CHANGED_REASON_SIGNATURES = setOf(
         "活动页面已经切换",
@@ -406,30 +406,35 @@ internal object WorkflowManagementProjection {
     private fun projectDeviceActionApprovalFailure(
         approval: WorkflowDeviceActionApprovalEvidence,
     ): WorkflowDeviceActionUiState? {
-        if (approval.toolName != DEVICE_TAP_REF_TOOL_NAME) return null
+        val action = DEVICE_ACTION_BY_TOOL_NAME[approval.toolName] ?: return null
         return when (approval.outcome) {
             WorkflowDeviceActionApprovalOutcome.USER_DENIED -> WorkflowDeviceActionUiState(
                 outcome = WorkflowDeviceActionUiOutcome.USER_DENIED,
-                action = "tap_ref",
+                action = action,
                 detail = "用户拒绝了本次设备动作",
             )
             WorkflowDeviceActionApprovalOutcome.CANCELLED -> cancelledDeviceAction(
+                action,
                 WorkflowDeviceActionUiOutcome.CANCELLED,
                 "本次设备动作审批已取消",
             )
             WorkflowDeviceActionApprovalOutcome.WINDOW_CHANGED -> cancelledDeviceAction(
+                action,
                 WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
                 "审批期间页面窗口发生变化，设备动作未执行",
             )
             WorkflowDeviceActionApprovalOutcome.OVERLAY_UNAVAILABLE -> cancelledDeviceAction(
+                action,
                 WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE,
                 "设备动作审批浮层不可用，设备动作未执行",
             )
             WorkflowDeviceActionApprovalOutcome.SERVICE_DISCONNECTED -> cancelledDeviceAction(
+                action,
                 WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED,
                 "无障碍服务已断开，设备动作未执行",
             )
             WorkflowDeviceActionApprovalOutcome.BUSY -> cancelledDeviceAction(
+                action,
                 WorkflowDeviceActionUiOutcome.BUSY,
                 "已有设备动作审批正在处理，本次动作未执行",
             )
@@ -441,12 +446,13 @@ internal object WorkflowManagementProjection {
     }
 
     private fun cancelledDeviceAction(
+        action: String,
         outcome: WorkflowDeviceActionUiOutcome,
         detail: String,
     ): WorkflowDeviceActionUiState {
         return WorkflowDeviceActionUiState(
             outcome = outcome,
-            action = "tap_ref",
+            action = action,
             detail = detail,
         )
     }
@@ -455,20 +461,20 @@ internal object WorkflowManagementProjection {
         approvals: List<WorkflowDeviceActionApprovalEvidence>,
         errorMessage: String?,
     ): WorkflowDeviceActionUiState? {
-        val approvedTapRef = approvals.any { approval ->
-            approval.toolName == DEVICE_TAP_REF_TOOL_NAME &&
-                approval.outcome == WorkflowDeviceActionApprovalOutcome.APPROVED
-        }
-        if (!approvedTapRef) return null
+        // long: 步骤错误没有 ToolCall ID，只能绑定最后一个已批准的白名单动作；不能把一次窗口变化同时归因到步骤中所有历史审批。
+        val approvedAction = approvals.asReversed().firstNotNullOfOrNull { approval ->
+            DEVICE_ACTION_BY_TOOL_NAME[approval.toolName]
+                ?.takeIf { approval.outcome == WorkflowDeviceActionApprovalOutcome.APPROVED }
+        } ?: return null
         return when (WorkflowDeviceActionApprovalEvidencePolicy.classifyExecutionFailure(errorMessage)) {
             WorkflowDeviceActionApprovalOutcome.WINDOW_CHANGED -> WorkflowDeviceActionUiState(
                 outcome = WorkflowDeviceActionUiOutcome.WINDOW_CHANGED,
-                action = "tap_ref",
+                action = approvedAction,
                 detail = "审批后页面窗口发生变化，设备动作未通过执行验证",
             )
             WorkflowDeviceActionApprovalOutcome.SERVICE_DISCONNECTED -> WorkflowDeviceActionUiState(
                 outcome = WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED,
-                action = "tap_ref",
+                action = approvedAction,
                 detail = "审批后无障碍服务已断开，设备动作未通过执行验证",
             )
             WorkflowDeviceActionApprovalOutcome.PENDING,
@@ -533,7 +539,10 @@ internal object WorkflowManagementProjection {
     private const val DEVICE_ACTION_PREVIOUS_OUTPUT_NOTICE = "设备动作原始输出已隐藏，请查看对应步骤证据"
     private const val DEVICE_ACTION_RUN_RESULT_NOTICE = "设备动作原始结果已隐藏，请查看步骤中的本地判定"
     private const val DEVICE_ACTION_RUN_ERROR_NOTICE = "设备动作错误详情已隐藏，请查看步骤中的本地判定"
-    private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
+    private val DEVICE_ACTION_BY_TOOL_NAME = mapOf(
+        "device.tap_ref" to "tap_ref",
+        "device.type_text" to "type_text",
+    )
 }
 
 internal object WorkflowDeviceObservationProjection {

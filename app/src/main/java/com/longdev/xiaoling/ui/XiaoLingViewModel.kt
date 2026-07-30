@@ -1915,7 +1915,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val preparedStep = withContext(Dispatchers.IO) {
                 workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
             }
-            // long: Workflow 每一步都冻结自己的用户意图；仅 tap_ref 改走系统浮层，其他需审批工具继续沿用会话卡，避免扩大本阶段设备动作能力面。
+            // long: Workflow 每一步都冻结自己的用户意图；已闭环的 tap_ref/type_text 改走系统浮层，其他需审批工具继续沿用会话卡，避免扩大本阶段设备动作能力面。
             val approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = conversationId,
                 userIntent = preparedStep.detail,
