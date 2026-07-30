@@ -10,12 +10,16 @@ import com.longdev.xiaoling.automation.WorkflowDeviceActionPostObservationEviden
 import com.longdev.xiaoling.automation.WorkflowDeviceActionResultCodec
 import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyDecision
 import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyPolicy
+import com.longdev.xiaoling.automation.WorkflowTypeTextCompletionEvidence
+import com.longdev.xiaoling.automation.WorkflowTypeTextExecutionEvidence
+import com.longdev.xiaoling.automation.WorkflowTypeTextTargetEvidence
 import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionCodec
 import com.longdev.xiaoling.device.DeviceActionFailure
 import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
+import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
@@ -36,14 +40,22 @@ class XiaoLingToolRegistry(
     private val memoryStore: AgentMemoryStore,
     private val knowledgeStore: KnowledgeDocumentStore,
     private val deviceController: DeviceController = DisabledDeviceController,
+    workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
     private var pendingWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
+    // long: 该注入点只允许第 116 阶段验证 tap_ref 与 type_text；即使调用方误传其他已注册动作，也不能借测试 seam 扩大 Workflow 权限。
+    private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
+        val unsupported = toolNames - STAGED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
+        require(unsupported.isEmpty()) {
+            "Workflow Registry 测试动作集合包含未开放工具：${unsupported.sorted().joinToString()}"
+        }
+    }
     private val workflowDeviceActionSafetyPolicy = WorkflowDeviceActionSafetyPolicy(
-        enabledToolNames = setOf(DEVICE_TAP_REF_TOOL_NAME),
+        enabledToolNames = this.workflowDeviceActionToolNames,
     )
 
     internal fun withKnowledgeStore(store: KnowledgeDocumentStore): XiaoLingToolRegistry = XiaoLingToolRegistry(
@@ -53,6 +65,7 @@ class XiaoLingToolRegistry(
         memoryStore = memoryStore,
         knowledgeStore = store,
         deviceController = deviceController,
+        workflowDeviceActionToolNames = workflowDeviceActionToolNames,
     )
 
     private val tools = listOf(
@@ -364,7 +377,10 @@ class XiaoLingToolRegistry(
 
     override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
         val context = runContext ?: return
-        if (context.invocationSource != AgentInvocationSource.WORKFLOW || call.name != DEVICE_TAP_REF_TOOL_NAME) {
+        if (
+            context.invocationSource != AgentInvocationSource.WORKFLOW ||
+            call.name !in workflowDeviceActionToolNames
+        ) {
             return
         }
         val workflowContext = context.workflowDeviceActionContext
@@ -416,12 +432,27 @@ class XiaoLingToolRegistry(
                 nowMillis = approval?.decidedAt ?: -1L,
                 currentWindowGeneration = inspection.currentWindowGeneration,
                 liveReferenceMatched = inspection.matched,
+                typeText = if (call.name == DEVICE_TYPE_TEXT_TOOL_NAME) {
+                    WorkflowTypeTextExecutionEvidence(
+                        target = inspection.target?.let { target ->
+                            WorkflowTypeTextTargetEvidence(
+                                enabled = target.enabled,
+                                editable = target.editable,
+                                redacted = target.redacted,
+                                supportsTypeText = DeviceNodeAction.TYPE_TEXT in target.actions,
+                            )
+                        },
+                    )
+                } else {
+                    null
+                },
             ),
         )
         val authorization = (decision as? WorkflowDeviceActionSafetyDecision.Allowed)?.authorization
             ?: throw IllegalStateException((decision as WorkflowDeviceActionSafetyDecision.Denied).message)
         pendingWorkflowAction = WorkflowActionAuthorizationState(
             call = call.copy(arguments = call.arguments.toMap()),
+            identity = identity,
             authorization = authorization,
             beforeSnapshot = snapshot.snapshot,
         )
@@ -446,7 +477,7 @@ class XiaoLingToolRegistry(
                 pendingWorkflowAction = null
                 executedWorkflowAction = null
             }
-            DEVICE_TAP_REF_TOOL_NAME -> verifyCompletedWorkflowTap(call, result, context)
+            in workflowDeviceActionToolNames -> verifyCompletedWorkflowAction(call, result, context)
         }
     }
 
@@ -465,10 +496,10 @@ class XiaoLingToolRegistry(
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
         if (!directDeviceActionsAllowed(context)) {
-            // long: 前台 Workflow 当前只增加逐动作审批的 tap_ref；其余动作仍限定直接 /agent，不能因共享设备工具集合而被连带开放。
+            // long: 生产集合当前仍只有 tap_ref；测试态 type_text 必须显式注入，不能因注册了完整设备工具定义而连带开放其他动作。
             available = available.filterNot { definition ->
                 definition.name in DEVICE_ACTION_TOOL_NAMES &&
-                    !(definition.name == DEVICE_TAP_REF_TOOL_NAME && workflowTapAllowed(context))
+                    !workflowDeviceActionAllowed(context, definition.name)
             }
         }
         return available
@@ -573,7 +604,7 @@ class XiaoLingToolRegistry(
         val workflowState = if (runContext?.invocationSource == AgentInvocationSource.WORKFLOW) {
             pendingWorkflowAction
                 ?.takeIf { it.call.id == call.id && it.call.name == call.name && it.call.arguments == call.arguments }
-                ?: return ToolExecutionResult(success = false, content = "Workflow tap_ref 缺少当前 ToolCall 的实时安全授权")
+                ?: return ToolExecutionResult(success = false, content = "Workflow 设备动作缺少当前 ToolCall 的实时安全授权")
         } else {
             null
         }
@@ -585,6 +616,7 @@ class XiaoLingToolRegistry(
                 if (workflowState != null) {
                     executedWorkflowAction = WorkflowExecutedActionState(
                         call = call.copy(arguments = call.arguments.toMap()),
+                        identity = workflowState.identity,
                         authorization = workflowState.authorization,
                         beforeSnapshot = workflowState.beforeSnapshot,
                         outcome = capture.outcome,
@@ -592,7 +624,7 @@ class XiaoLingToolRegistry(
                     ToolExecutionResult(
                         success = true,
                         content = WorkflowDeviceActionResultCodec.encode(
-                            action = "tap_ref",
+                            action = call.name.removePrefix("device."),
                             beforeSnapshot = workflowState.beforeSnapshot,
                             afterSnapshot = capture.outcome.afterSnapshot,
                             verified = capture.outcome.verified,
@@ -635,7 +667,7 @@ class XiaoLingToolRegistry(
         }
         if (
             context.invocationSource != AgentInvocationSource.DIRECT &&
-            !(context.invocationSource == AgentInvocationSource.WORKFLOW && toolName == DEVICE_TAP_REF_TOOL_NAME)
+            !(context.invocationSource == AgentInvocationSource.WORKFLOW && toolName in workflowDeviceActionToolNames)
         ) {
             return ToolExecutionResult(success = false, content = "该设备动作尚未开放给 Workflow，请使用前台直接 /agent 对话")
         }
@@ -655,27 +687,33 @@ class XiaoLingToolRegistry(
             deviceController.health() == DeviceAgentHealthState.READY
     }
 
-    private fun workflowTapAllowed(context: AgentToolExecutionContext?): Boolean {
-        return context?.invocationSource == AgentInvocationSource.WORKFLOW &&
+    private fun workflowDeviceActionAllowed(
+        context: AgentToolExecutionContext?,
+        toolName: String,
+    ): Boolean {
+        return toolName in workflowDeviceActionToolNames &&
+            context?.invocationSource == AgentInvocationSource.WORKFLOW &&
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             context.processSessionId.isNotBlank() &&
             context.workflowDeviceActionContext != null &&
             deviceController.health() == DeviceAgentHealthState.READY
     }
 
-    private fun verifyCompletedWorkflowTap(
+    private fun verifyCompletedWorkflowAction(
         call: ToolCall,
         result: ToolExecutionResult,
         context: AgentToolExecutionContext,
     ) {
         val executed = executedWorkflowAction
             ?.takeIf { it.call.id == call.id && it.call.name == call.name && it.call.arguments == call.arguments }
-            ?: throw IllegalStateException("Workflow tap_ref 缺少当前动作执行证据")
+            ?: throw IllegalStateException("Workflow 设备动作缺少当前动作执行证据")
         val decoded = WorkflowDeviceActionResultCodec.decode(result.content)
-            ?: throw IllegalStateException("Workflow tap_ref 结果不符合白名单动作规则")
+            ?.takeIf { it.action == call.name.removePrefix("device.") }
+            ?: throw IllegalStateException("Workflow 设备动作结果不符合白名单动作规则")
         val decision = workflowDeviceActionSafetyPolicy.assessCompletion(
             WorkflowDeviceActionCompletionEvidence(
-                identity = executed.authorization.identity,
+                // long: type_text 的通用授权会移除原文；完成校验必须使用执行前仅驻留内存的原始 identity 才能重新核对文本指纹与精确回读。
+                identity = executed.identity,
                 authorization = executed.authorization,
                 resultAgentRunId = context.runId,
                 resultToolCallId = call.id,
@@ -693,6 +731,21 @@ class XiaoLingToolRegistry(
                     verified = decoded.verified,
                 ),
                 cancelled = false,
+                typeText = if (call.name == DEVICE_TYPE_TEXT_TOOL_NAME) {
+                    WorkflowTypeTextCompletionEvidence(
+                        resultAgentRunId = context.runId,
+                        resultToolCallId = call.id,
+                        resultToolName = call.name,
+                        actionCompletedAt = executed.outcome.afterSnapshot.capturedAt,
+                        observedAt = decoded.afterObservedAt,
+                        executorVerified = result.verified == true && decoded.verified,
+                        verificationPassed = true,
+                        afterObservationVerified = decoded.verified,
+                        readBackText = executed.outcome.typeTextReadBack?.text,
+                    )
+                } else {
+                    null
+                },
             ),
         )
         clearWorkflowDeviceActionState()
@@ -716,12 +769,14 @@ class XiaoLingToolRegistry(
 
     private data class WorkflowActionAuthorizationState(
         val call: ToolCall,
+        val identity: WorkflowDeviceActionIdentity,
         val authorization: WorkflowDeviceActionAuthorization,
         val beforeSnapshot: DeviceSnapshot,
     )
 
     private data class WorkflowExecutedActionState(
         val call: ToolCall,
+        val identity: WorkflowDeviceActionIdentity,
         val authorization: WorkflowDeviceActionAuthorization,
         val beforeSnapshot: DeviceSnapshot,
         val outcome: com.longdev.xiaoling.device.DeviceActionOutcome,
@@ -1124,6 +1179,11 @@ private const val DEVICE_BACK_TOOL_NAME = "device.back"
 private const val DEVICE_HOME_TOOL_NAME = "device.home"
 internal const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
 private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(DEVICE_TAP_REF_TOOL_NAME)
+private val STAGED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
+    DEVICE_TAP_REF_TOOL_NAME,
+    DEVICE_TYPE_TEXT_TOOL_NAME,
+)
 private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
 
 private val DEVICE_TOOL_NAMES = setOf(

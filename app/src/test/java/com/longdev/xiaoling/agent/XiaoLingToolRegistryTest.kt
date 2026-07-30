@@ -8,10 +8,12 @@ import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceReferenceInspection
+import com.longdev.xiaoling.device.DeviceReferenceTargetInspection
 import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.device.DeviceSnapshotNode
+import com.longdev.xiaoling.device.DeviceTypeTextReadBack
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
@@ -25,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -262,6 +265,125 @@ class XiaoLingToolRegistryTest {
         assertTrue(backgroundActionResult.content.contains("前台"))
         assertEquals(2, provider.captureCount)
         assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
+    }
+
+    @Test
+    fun testOnlyWorkflowTypeTextCompletesWithEditableTargetAndExactReadBack() = runTest {
+        val text = "Workflow safe text"
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = true,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.TYPE_TEXT),
+            ),
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.tap_ref", "device.type_text"),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "在当前搜索框输入安全文本"))
+        assertEquals(
+            setOf("device.snapshot", "device.tap_ref", "device.type_text"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val snapshotCall = ToolCall(
+            id = "tool-call-type-text-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val typeTextCall = ToolCall(
+            id = "tool-call-type-text-action",
+            name = "device.type_text",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-direct",
+                "ref" to "r1",
+                "text" to text,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        registry.beforeToolExecution(
+            typeTextCall,
+            AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = 1_500L,
+                processSessionId = "process-workflow",
+            ),
+        )
+
+        val result = registry.execute(typeTextCall)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("\"action\":\"type_text\""))
+        assertFalse(result.content.contains(text))
+        assertFalse(result.content.contains("\"snapshot_id\""))
+        assertFalse(result.content.contains("\"ref\""))
+        registry.afterToolVerification(typeTextCall, result)
+        assertEquals(listOf("type_text:snapshot-direct:r1"), provider.actions)
+    }
+
+    @Test
+    fun testOnlyWorkflowTypeTextRejectsNonEditableTargetBeforeDeviceAction() = runTest {
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.TYPE_TEXT),
+            ),
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.tap_ref", "device.type_text"),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "在当前搜索框输入安全文本"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-type-text-denied-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val typeTextCall = ToolCall(
+            id = "tool-call-type-text-denied-action",
+            name = "device.type_text",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-direct",
+                "ref" to "r1",
+                "text" to "Workflow safe text",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val failure = runCatching {
+            registry.beforeToolExecution(
+                typeTextCall,
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 1_500L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("可编辑"))
+        assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun workflowTestActionSeamRejectsActionsOutsideTapAndTypeText() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            testRegistry(workflowDeviceActionToolNames = setOf("device.tap_ref", "device.swipe"))
+        }
+
+        assertTrue(error.message.orEmpty().contains("device.swipe"))
     }
 
     @Test
@@ -792,6 +914,7 @@ class XiaoLingToolRegistryTest {
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
         deviceController: DeviceController = FakeDeviceController(enabled = false),
+        workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
     ): XiaoLingToolRegistry {
         return XiaoLingToolRegistry(
             clock = FakeAgentClock(),
@@ -800,6 +923,24 @@ class XiaoLingToolRegistryTest {
             memoryStore = memoryStore,
             knowledgeStore = knowledgeStore,
             deviceController = deviceController,
+            workflowDeviceActionToolNames = workflowDeviceActionToolNames,
+        )
+    }
+
+    private fun workflowDeviceContext(userIntent: String): AgentToolExecutionContext {
+        return AgentToolExecutionContext(
+            conversationId = "conversation-workflow",
+            userMessageId = "message-workflow",
+            runId = "run-workflow",
+            goal = userIntent,
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            processSessionId = "process-workflow",
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-current",
+                workflowStepId = "workflow-step-current",
+                userIntent = userIntent,
+            ),
         )
     }
 }
@@ -811,6 +952,12 @@ private class FakeDeviceController(
     } else {
         DeviceAgentHealthState.AGENT_DISABLED
     },
+    private val referenceTarget: DeviceReferenceTargetInspection = DeviceReferenceTargetInspection(
+        enabled = true,
+        editable = false,
+        redacted = false,
+        actions = setOf(DeviceNodeAction.TAP),
+    ),
 ) : DeviceController {
     var captureCount: Int = 0
     val actions = mutableListOf<String>()
@@ -821,6 +968,7 @@ private class FakeDeviceController(
         return DeviceReferenceInspection(
             currentWindowGeneration = 2L,
             matched = snapshotId == "snapshot-direct" && ref == "r1",
+            target = referenceTarget.takeIf { snapshotId == "snapshot-direct" && ref == "r1" },
         )
     }
 
@@ -850,7 +998,7 @@ private class FakeDeviceController(
                         selected = false,
                         redacted = false,
                         ref = "r1",
-                        actions = setOf(DeviceNodeAction.TAP),
+                        actions = referenceTarget.actions,
                     ),
                 ),
                 redactedNodeCount = 0,
@@ -882,7 +1030,10 @@ private class FakeDeviceController(
 
     override suspend fun typeText(snapshotId: String, ref: String, text: String): DeviceActionCapture {
         actions += "type_text:$snapshotId:$ref"
-        return successfulAction("type_text")
+        return successfulAction(
+            action = "type_text",
+            typeTextReadBack = DeviceTypeTextReadBack(nodePath = listOf(0), text = text),
+        )
     }
 
     override suspend fun swipe(
@@ -894,7 +1045,11 @@ private class FakeDeviceController(
         return successfulAction("swipe")
     }
 
-    private fun successfulAction(action: String, packageName: String = "com.example.safe"): DeviceActionCapture.Success {
+    private fun successfulAction(
+        action: String,
+        packageName: String = "com.example.safe",
+        typeTextReadBack: DeviceTypeTextReadBack? = null,
+    ): DeviceActionCapture.Success {
         return DeviceActionCapture.Success(
             DeviceActionOutcome(
                 action = action,
@@ -902,6 +1057,7 @@ private class FakeDeviceController(
                 afterSnapshot = snapshot(packageName),
                 verified = true,
                 message = "verified",
+                typeTextReadBack = typeTextReadBack,
             ),
         )
     }

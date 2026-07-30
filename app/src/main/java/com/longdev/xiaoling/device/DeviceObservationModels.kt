@@ -76,6 +76,9 @@ data class DeviceNodeReference(
     val nodePath: List<Int>,
     val fingerprint: String,
     val actions: Set<DeviceNodeAction>,
+    val enabled: Boolean = true,
+    val editable: Boolean = DeviceNodeAction.TYPE_TEXT in actions,
+    val redacted: Boolean = false,
 )
 
 enum class DeviceSnapshotBlockReason {

@@ -87,7 +87,8 @@ object WorkflowDeviceActionDecisionPolicy {
                     )
                 }
                 val evidence = WorkflowDeviceActionResultCodec.decode(result.content)
-                    ?.takeIf { it.verified }
+                    // long: codec 为执行生命周期识别 type_text，但答案级判定本阶段仍只能消费 tap_ref，工具名与结果动作必须双重一致。
+                    ?.takeIf { it.verified && it.action == DEVICE_TAP_REF_ACTION }
                     ?: return insufficient(
                         WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
                         "device.tap_ref 结果不是完整的白名单动作证据",
@@ -151,6 +152,7 @@ object WorkflowDeviceActionDecisionPolicy {
     ) = WorkflowDeviceActionResolution.InsufficientEvidence(reason, message)
 
     private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
+    private const val DEVICE_TAP_REF_ACTION = "tap_ref"
     private val RAW_RESULT_SIGNATURES = setOf(
         "action",
         "beforePackageName",

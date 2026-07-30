@@ -25,6 +25,7 @@ object WorkflowDeviceActionResultCodec {
         afterSnapshot: DeviceSnapshot,
         verified: Boolean,
     ): String {
+        require(action in ALLOWED_ACTIONS) { "当前阶段不接受该 Workflow 设备动作结果：$action" }
         return JSONObject()
             .put("ruleVersion", RULE_VERSION)
             .put("safetyRuleVersion", WorkflowDeviceActionSafetyPolicy.RULE_VERSION)
@@ -58,7 +59,7 @@ object WorkflowDeviceActionResultCodec {
         require(safetyRuleVersion == WorkflowDeviceActionSafetyPolicy.RULE_VERSION) {
             "未知 Workflow 设备动作安全规则：$safetyRuleVersion"
         }
-        require(action == "tap_ref") { "当前阶段只接受 tap_ref 结果" }
+        require(action in ALLOWED_ACTIONS) { "当前阶段不接受该 Workflow 设备动作结果：$action" }
         require(beforePackageName.isNotEmpty() && afterPackageName.isNotEmpty()) { "设备动作包名不能为空" }
         require(afterNodeCount >= 0) { "设备动作后节点数无效" }
         require(afterRedactedNodeCount in 0..afterNodeCount) { "设备动作后脱敏节点数无效" }
@@ -89,4 +90,5 @@ object WorkflowDeviceActionResultCodec {
         "afterObservedAt",
         "verified",
     )
+    private val ALLOWED_ACTIONS = setOf("tap_ref", "type_text")
 }

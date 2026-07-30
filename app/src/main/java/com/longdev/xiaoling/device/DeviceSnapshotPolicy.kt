@@ -103,6 +103,9 @@ class DeviceSnapshotPolicy(
                             hintText = raw.hintText,
                         ),
                         actions = actions,
+                        enabled = raw.enabled,
+                        editable = raw.editable,
+                        redacted = redacted,
                     )
                 }
             }

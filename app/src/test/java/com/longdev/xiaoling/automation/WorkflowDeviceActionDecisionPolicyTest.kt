@@ -60,6 +60,19 @@ class WorkflowDeviceActionDecisionPolicyTest {
             WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
             (expanded as WorkflowDeviceActionResolution.InsufficientEvidence).reason,
         )
+
+        val wrongAction = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    content = validActionResult().replace("\"action\":\"tap_ref\"", "\"action\":\"type_text\""),
+                ),
+            ),
+        )
+        assertEquals(
+            WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
+            (wrongAction as WorkflowDeviceActionResolution.InsufficientEvidence).reason,
+        )
     }
 
     @Test

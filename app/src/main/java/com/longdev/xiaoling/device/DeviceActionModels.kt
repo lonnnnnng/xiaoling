@@ -36,6 +36,12 @@ data class DeviceActionOutcome(
     val afterSnapshot: DeviceSnapshot,
     val verified: Boolean,
     val message: String,
+    val typeTextReadBack: DeviceTypeTextReadBack? = null,
+)
+
+data class DeviceTypeTextReadBack(
+    val nodePath: List<Int>,
+    val text: String?,
 )
 
 sealed interface DeviceActionCapture {
@@ -56,9 +62,17 @@ sealed interface RawDeviceActionResult {
     data object Failed : RawDeviceActionResult
 }
 
+data class DeviceReferenceTargetInspection(
+    val enabled: Boolean,
+    val editable: Boolean,
+    val redacted: Boolean,
+    val actions: Set<DeviceNodeAction>,
+)
+
 data class DeviceReferenceInspection(
     val currentWindowGeneration: Long,
     val matched: Boolean,
+    val target: DeviceReferenceTargetInspection? = null,
 )
 
 interface DeviceController : DeviceSnapshotProvider {

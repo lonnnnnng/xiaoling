@@ -109,6 +109,58 @@ class DeviceObservationControllerTest {
     }
 
     @Test
+    fun inspectReferenceReturnsCurrentEditableTargetEvidence() = runTest {
+        val gateway = FakeGateway(
+            authorized = true,
+            connected = true,
+            window = RawDeviceWindow(
+                packageName = "com.example.safe",
+                windowTitle = "搜索",
+                windowId = 5,
+                generation = 11L,
+                root = RawDeviceNode(
+                    className = "android.widget.EditText",
+                    text = null,
+                    contentDescription = null,
+                    hintText = "请输入关键词",
+                    bounds = DeviceBounds(20, 100, 900, 220),
+                    visibleToUser = true,
+                    enabled = true,
+                    password = false,
+                    clickable = false,
+                    editable = true,
+                    scrollable = false,
+                    checkable = false,
+                    checked = false,
+                    selected = false,
+                    nodePath = emptyList(),
+                    children = emptyList(),
+                ),
+            ),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = gateway,
+            clock = { 2_000L },
+            snapshotIdFactory = { "snapshot-editable" },
+        )
+        controller.capture() as DeviceSnapshotCapture.Success
+
+        val inspection = controller.inspectReference("snapshot-editable", "r1")
+
+        assertTrue(inspection.matched)
+        assertEquals(
+            DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = true,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.TYPE_TEXT),
+            ),
+            inspection.target,
+        )
+    }
+
+    @Test
     fun failedCaptureRevokesReferencesFromPreviousSuccessfulObservation() = runTest {
         val referenceStore = DeviceNodeReferenceStore()
         val gateway = FakeGateway(

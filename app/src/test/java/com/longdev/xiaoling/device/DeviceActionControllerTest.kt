@@ -100,6 +100,32 @@ class DeviceActionControllerTest {
         assertTrue(typed.outcome.verified)
         assertEquals(1, gateway.nodeActionCount)
         assertTrue(typed.outcome.afterSnapshot.nodes.any { it.text == "hello stage3" })
+        assertEquals("hello stage3", typed.outcome.typeTextReadBack?.text)
+        assertEquals(listOf(0), typed.outcome.typeTextReadBack?.nodePath)
+    }
+
+    @Test
+    fun typeTextReadBackDoesNotAcceptExpectedTextFromAnotherNode() = runTest {
+        val gateway = ActionGateway(window = window(generation = 20L, node = node(editable = true)))
+        val controller = controller(gateway)
+        val snapshot = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
+        gateway.nodeActionResult = RawDeviceActionResult.Performed
+        gateway.onNodeAction = {
+            gateway.window = window(
+                generation = 21L,
+                nodes = listOf(
+                    node(text = "wrong target", editable = true),
+                    node(text = "expected text"),
+                ),
+            )
+        }
+
+        val result = controller.typeText(snapshot.snapshotId, "r1", "expected text") as DeviceActionCapture.Success
+
+        assertFalse(result.outcome.verified)
+        assertEquals("wrong target", result.outcome.typeTextReadBack?.text)
+        assertEquals(listOf(0), result.outcome.typeTextReadBack?.nodePath)
+        assertTrue(result.outcome.afterSnapshot.nodes.any { it.text == "expected text" })
     }
 
     @Test
@@ -129,6 +155,12 @@ class DeviceActionControllerTest {
         packageName: String = "com.longdev.xiaoling",
         generation: Long,
         node: RawDeviceNode = node(text = "页面"),
+    ): RawDeviceWindow = window(packageName, generation, listOf(node))
+
+    private fun window(
+        packageName: String = "com.longdev.xiaoling",
+        generation: Long,
+        nodes: List<RawDeviceNode>,
     ): RawDeviceWindow = RawDeviceWindow(
         packageName = packageName,
         windowTitle = "测试窗口",
@@ -150,7 +182,7 @@ class DeviceActionControllerTest {
             checked = false,
             selected = false,
             nodePath = emptyList(),
-            children = listOf(node.copy(nodePath = listOf(0))),
+            children = nodes.mapIndexed { index, child -> child.copy(nodePath = listOf(index)) },
         ),
     )
 

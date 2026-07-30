@@ -45,9 +45,19 @@ class DeviceObservationController(
 
     override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
         val generation = gateway.currentWindowGeneration()
+        val current = referenceStore.resolve(snapshotId, ref, generation, clock())
+            as? DeviceNodeReferenceResolution.Current
         return DeviceReferenceInspection(
             currentWindowGeneration = generation,
-            matched = referenceStore.resolve(snapshotId, ref, generation, clock()) is DeviceNodeReferenceResolution.Current,
+            matched = current != null,
+            target = current?.let {
+                DeviceReferenceTargetInspection(
+                    enabled = it.enabled,
+                    editable = it.editable,
+                    redacted = it.redacted,
+                    actions = it.actions,
+                )
+            },
         )
     }
 
@@ -115,7 +125,9 @@ class DeviceObservationController(
             action = "open_app",
             beforeSnapshotId = null,
             beforeGeneration = beforeGeneration,
-            verify = { snapshot -> snapshot.packageName == packageName },
+            verify = { capture ->
+                PostActionVerification(verified = capture.snapshot.packageName == packageName)
+            },
             successMessage = "已打开允许列表中的应用，并重新观察到目标前台窗口",
         )
     }
@@ -154,14 +166,17 @@ class DeviceObservationController(
             action = action.name.lowercase(),
             beforeSnapshotId = beforeSnapshot?.snapshotId,
             beforeGeneration = beforeGeneration,
-            verify = { after ->
-                when (action) {
-                    DeviceGlobalAction.HOME -> gateway.isHomePackage(after.packageName)
-                    DeviceGlobalAction.BACK -> beforeSnapshot == null ||
-                        after.packageName != beforeSnapshot.packageName ||
-                        after.windowId != beforeSnapshot.windowId ||
-                        after.windowGeneration != beforeSnapshot.windowGeneration
-                }
+            verify = { capture ->
+                val after = capture.snapshot
+                PostActionVerification(
+                    verified = when (action) {
+                        DeviceGlobalAction.HOME -> gateway.isHomePackage(after.packageName)
+                        DeviceGlobalAction.BACK -> beforeSnapshot == null ||
+                            after.packageName != beforeSnapshot.packageName ||
+                            after.windowId != beforeSnapshot.windowId ||
+                            after.windowGeneration != beforeSnapshot.windowGeneration
+                    },
+                )
             },
             successMessage = "系统导航动作已执行，并完成后置界面观察",
         )
@@ -216,17 +231,32 @@ class DeviceObservationController(
             action = action.name.lowercase(),
             beforeSnapshotId = snapshotId,
             beforeGeneration = beforeGeneration,
-            verify = { after ->
+            verify = { capture ->
+                val after = capture.snapshot
                 when (action) {
                     DeviceNodeAction.TYPE_TEXT -> {
                         val expected = text.orEmpty()
-                        after.nodes.any { node ->
-                            node.text == expected || node.description == expected || node.hint == expected
+                        val targetReference = capture.references.singleOrNull { reference ->
+                            reference.nodePath == current.nodePath
                         }
+                        val targetNode = targetReference?.let { reference ->
+                            after.nodes.singleOrNull { node -> node.ref == reference.ref }
+                        }
+                        val readBack = targetNode?.let { node ->
+                            DeviceTypeTextReadBack(
+                                nodePath = current.nodePath.toList(),
+                                text = node.text,
+                            )
+                        }
+                        // long: 文本输入只能由原节点路径的精确回读证明；页面其他位置出现相同文本不能替代目标输入框的结果。
+                        PostActionVerification(
+                            verified = readBack?.text == expected,
+                            typeTextReadBack = readBack,
+                        )
                     }
                     DeviceNodeAction.TAP,
                     DeviceNodeAction.SWIPE,
-                    -> after.windowGeneration != beforeGeneration
+                    -> PostActionVerification(verified = after.windowGeneration != beforeGeneration)
                 }
             },
             successMessage = "节点动作已执行，并完成后置界面观察",
@@ -237,12 +267,12 @@ class DeviceObservationController(
         action: String,
         beforeSnapshotId: String?,
         beforeGeneration: Long,
-        verify: (DeviceSnapshot) -> Boolean,
+        verify: (DeviceSnapshotCapture.Success) -> PostActionVerification,
         successMessage: String,
     ): DeviceActionCapture {
         waitForWindowSettled(beforeGeneration)
         val after = when (val capture = captureAfterWindowTransition()) {
-            is DeviceSnapshotCapture.Success -> capture.snapshot
+            is DeviceSnapshotCapture.Success -> capture
             is DeviceSnapshotCapture.Failed -> {
                 return actionFailed(
                     DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED,
@@ -250,14 +280,15 @@ class DeviceObservationController(
                 )
             }
         }
-        val verified = verify(after)
+        val verification = verify(after)
         return DeviceActionCapture.Success(
             DeviceActionOutcome(
                 action = action,
                 beforeSnapshotId = beforeSnapshotId,
-                afterSnapshot = after,
-                verified = verified,
-                message = if (verified) successMessage else "动作已发送，但后置观察不足以证明界面已按预期变化",
+                afterSnapshot = after.snapshot,
+                verified = verification.verified,
+                message = if (verification.verified) successMessage else "动作已发送，但后置观察不足以证明界面已按预期变化",
+                typeTextReadBack = verification.typeTextReadBack,
             ),
         )
     }
@@ -328,4 +359,9 @@ class DeviceObservationController(
         const val POST_ACTION_CAPTURE_ATTEMPTS = 6
         const val POST_ACTION_CAPTURE_RETRY_DELAY_MS = 100L
     }
+
+    private data class PostActionVerification(
+        val verified: Boolean,
+        val typeTextReadBack: DeviceTypeTextReadBack? = null,
+    )
 }
