@@ -802,6 +802,18 @@ class AgentMemoryIdempotencyConflictException : IllegalStateException(
     "长期记忆工具调用已绑定到其他内容",
 )
 
+data class WorkflowDeviceActionRunContext(
+    val workflowRunId: String,
+    val workflowStepId: String,
+    val userIntent: String,
+) {
+    init {
+        require(workflowRunId.isNotBlank()) { "Workflow Run ID 不能为空" }
+        require(workflowStepId.isNotBlank()) { "Workflow Step ID 不能为空" }
+        require(userIntent.isNotBlank()) { "Workflow 设备动作意图不能为空" }
+    }
+}
+
 data class AgentToolExecutionContext(
     val conversationId: String,
     val userMessageId: String,
@@ -810,10 +822,23 @@ data class AgentToolExecutionContext(
     val memoryRecallEnabled: Boolean = true,
     val executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
     val invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+    val processSessionId: String = "",
+    val workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
 )
 
 interface AgentRunContextAwareToolRegistry {
     fun bindRunContext(context: AgentToolExecutionContext)
+}
+
+data class AgentToolApprovalEvidence(
+    val approved: Boolean,
+    val decidedAt: Long,
+    val processSessionId: String,
+)
+
+interface AgentToolExecutionLifecycleAwareToolRegistry {
+    fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?)
+    fun afterToolVerification(call: ToolCall, result: ToolExecutionResult)
 }
 
 data class ApprovalDecision(

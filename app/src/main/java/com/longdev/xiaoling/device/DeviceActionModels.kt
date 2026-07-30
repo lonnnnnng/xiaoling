@@ -56,7 +56,15 @@ sealed interface RawDeviceActionResult {
     data object Failed : RawDeviceActionResult
 }
 
+data class DeviceReferenceInspection(
+    val currentWindowGeneration: Long,
+    val matched: Boolean,
+)
+
 interface DeviceController : DeviceSnapshotProvider {
+    fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection =
+        DeviceReferenceInspection(currentWindowGeneration = -1L, matched = false)
+
     suspend fun openApp(packageName: String): DeviceActionCapture
     suspend fun back(): DeviceActionCapture
     suspend fun home(): DeviceActionCapture

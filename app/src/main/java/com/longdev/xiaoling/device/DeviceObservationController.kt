@@ -43,6 +43,14 @@ class DeviceObservationController(
         )
     }
 
+    override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
+        val generation = gateway.currentWindowGeneration()
+        return DeviceReferenceInspection(
+            currentWindowGeneration = generation,
+            matched = referenceStore.resolve(snapshotId, ref, generation, clock()) is DeviceNodeReferenceResolution.Current,
+        )
+    }
+
     override suspend fun capture(): DeviceSnapshotCapture {
         when (health()) {
             DeviceAgentHealthState.AGENT_DISABLED -> return failedAndClearReferences(

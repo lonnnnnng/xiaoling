@@ -43,7 +43,15 @@ class DevicePrivacyProbeActivity : Activity() {
                     setText("private-password-value")
                 },
             )
-            layout.addView(Button(this).apply { text = "安全按钮" })
+            val actionStatus = TextView(this).apply { text = "等待安全动作" }
+            layout.addView(actionStatus)
+            layout.addView(
+                Button(this).apply {
+                    text = "安全按钮"
+                    // long: 真机 tracer bullet 需要可复核的页面变化；明确更新状态文本，避免仅凭 ACTION_CLICK 返回 true 就把无业务效果的点击判为成功。
+                    setOnClickListener { actionStatus.text = "动作已完成" }
+                },
+            )
         }
         setContentView(layout)
     }

@@ -19,6 +19,8 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceException
+import com.longdev.xiaoling.automation.WorkflowDeviceActionInsufficientReason
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionStatus
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceException
 import com.longdev.xiaoling.automation.WorkflowScheduleType
@@ -333,6 +335,84 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(
             previousOutput,
             WorkflowStepSnapshotCodec.decodeInput(retriedPrepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
+    fun workflowReplacesVerifiedTapRefWithLocalActionDecisionForNextStepAndRetry() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "设备动作本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察并点击当前页面继续按钮"),
+                WorkflowStepDefinitionInput("根据已验证动作生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-action-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-action-decision"
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().insertToolResult(deviceTapRefResult(agentRunId))
+
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "模型转述 snapshot_id=snapshot-secret、ref=ref-secret、nodes=银行卡密码\n${validDeviceActionResult()}",
+        )
+
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        assertEquals(1, persistedOutput.deviceObservationDecisions.size)
+        assertEquals(1, persistedOutput.deviceActionDecisions.size)
+        assertEquals("tap_ref", persistedOutput.deviceActionDecisions.single().action)
+        assertTrue(persistedOutput.text.contains("本地设备动作判定 1（workflow-device-action-decision-v1）"))
+        assertTrue(persistedOutput.text.contains("已执行并验证 tap_ref"))
+        assertFalse(persistedOutput.text.contains("snapshot-secret"))
+        assertFalse(persistedOutput.text.contains("ref-secret"))
+        assertFalse(persistedOutput.text.contains("银行卡密码"))
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        val previousOutput = WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single()
+        assertEquals(persistedOutput.text, previousOutput)
+
+        repository.markAgentRunStarted(source.run.id, source.steps[1].id, "agent-run-device-action-next")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "测试动作重试")
+        val retried = repository.retryRun(source.run.id, "conversation-device-action-retry")
+        val retriedPrepared = repository.prepareWorkflowStep(retried.run.id, retried.steps[1].id)
+        assertEquals(
+            previousOutput,
+            WorkflowStepSnapshotCodec.decodeInput(retriedPrepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
+    fun workflowRejectsTapRefDecisionWhenExecutorVerificationIsMissing() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "设备动作 Executor 验证门禁",
+            steps = listOf(WorkflowStepDefinitionInput("观察并点击当前页面继续按钮")),
+        )
+        val run = repository.createManualRun(workflow.id, "conversation-device-action-executor-gate")
+        val step = run.steps.single()
+        val agentRunId = "agent-run-device-action-executor-gate"
+        repository.markAgentRunStarted(run.run.id, step.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().insertToolResult(
+            deviceTapRefResult(agentRunId = agentRunId, executorVerified = false),
+        )
+
+        val failure = runCatching {
+            repository.completeWorkflowStep(
+                workflowRunId = run.run.id,
+                workflowStepId = step.id,
+                status = WorkflowStepStatus.COMPLETED,
+                result = validDeviceActionResult(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is WorkflowDeviceActionEvidenceException)
+        assertEquals(
+            WorkflowDeviceActionInsufficientReason.EXECUTOR_VERIFICATION_MISSING,
+            (failure as WorkflowDeviceActionEvidenceException).reason,
         )
     }
 
@@ -1259,6 +1339,47 @@ class RoomWorkflowRepositoryInstrumentedTest {
         createdAt = 4L,
         verifiedAt = 5L,
     )
+
+    private fun deviceTapRefResult(
+        agentRunId: String,
+        executorVerified: Boolean? = true,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-tap-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-tap-result-$agentRunId",
+        toolName = "device.tap_ref",
+        content = validDeviceActionResult(),
+        success = true,
+        errorMessage = null,
+        durationMs = 241L,
+        executorVerified = executorVerified,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-tap-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 6L,
+        verifiedAt = 7L,
+    )
+
+    private fun validDeviceActionResult(): String = """
+        {
+          "ruleVersion":"workflow-device-action-result-v1",
+          "safetyRuleVersion":"workflow-device-action-safety-v1",
+          "action":"tap_ref",
+          "beforePackageName":"com.example.notes",
+          "afterPackageName":"com.example.notes",
+          "afterNodeCount":3,
+          "afterRedactedNodeCount":1,
+          "afterTruncated":false,
+          "afterObservedAt":1700000000200,
+          "verified":true
+        }
+    """.trimIndent()
 
     private fun validDeviceSnapshot(): String = """
         {

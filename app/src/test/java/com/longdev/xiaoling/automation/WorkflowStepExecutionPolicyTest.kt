@@ -109,6 +109,30 @@ class WorkflowStepExecutionPolicyTest {
     }
 
     @Test
+    fun outputSnapshotKeepsVerifiedDeviceActionDecisionWithoutRawActionPayload() {
+        val decision = WorkflowDeviceActionDecision(
+            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+            action = "tap_ref",
+            beforePackageName = "com.example.before",
+            afterPackageName = "com.example.after",
+            afterNodeCount = 4,
+            afterRedactedNodeCount = 1,
+            afterTruncated = false,
+            afterObservedAt = 2_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "动作完成",
+            deviceActionDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceActionDecisions)
+        assertFalse(encoded.contains("snapshot_id"))
+        assertFalse(encoded.contains("\"ref\""))
+        assertFalse(encoded.contains("\"nodes\""))
+    }
+
+    @Test
     fun executionPromptAddsPreviousOutputsOnlyForLaterSteps() {
         assertEquals(
             "读取当前时间",

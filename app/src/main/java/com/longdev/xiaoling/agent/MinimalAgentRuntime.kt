@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.FailureKind
+import java.util.UUID
 import org.json.JSONObject
 
 internal fun interface MonotonicClock {
@@ -28,7 +29,13 @@ class MinimalAgentRuntime internal constructor(
     private val options: AgentRuntimeOptions = AgentRuntimeOptions(),
     private val faultInjector: AgentRuntimeFaultInjector = NoOpAgentRuntimeFaultInjector,
     private val monotonicClock: MonotonicClock = systemMonotonicClock,
+    private val processSessionId: String = "agent-process-${UUID.randomUUID()}",
+    private val wallClock: () -> Long = System::currentTimeMillis,
 ) {
+    init {
+        require(processSessionId.isNotBlank()) { "Agent 进程会话 ID 不能为空" }
+    }
+
     suspend fun runControlledReplay(
         conversationId: String,
         userMessageId: String,
@@ -65,6 +72,7 @@ class MinimalAgentRuntime internal constructor(
                 memoryRecallEnabled = memoryRecallEnabled,
                 executionOrigin = executionOrigin,
                 invocationSource = invocationSource,
+                processSessionId = processSessionId,
             ),
         )
         val state = AgentRuntimeExecutionState(options.runTimeoutMs, monotonicClock = monotonicClock)
@@ -156,6 +164,7 @@ class MinimalAgentRuntime internal constructor(
         memoryRecallEnabled: Boolean = true,
         selectedSkills: List<AgentSkillDefinition> = emptyList(),
         agentProfile: AgentProfileSnapshot? = null,
+        workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
     ): AgentRunSummary {
         val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
@@ -167,6 +176,8 @@ class MinimalAgentRuntime internal constructor(
                 memoryRecallEnabled = memoryRecallEnabled,
                 executionOrigin = executionOrigin,
                 invocationSource = invocationSource,
+                processSessionId = processSessionId,
+                workflowDeviceActionContext = workflowDeviceActionContext,
             ),
         )
         val state = AgentRuntimeExecutionState(options.runTimeoutMs, monotonicClock = monotonicClock)
@@ -278,6 +289,7 @@ class MinimalAgentRuntime internal constructor(
                 memoryRecallEnabled = memoryRecallEnabled,
                 executionOrigin = executionOrigin,
                 invocationSource = invocationSource,
+                processSessionId = processSessionId,
             ),
         )
         val restoredBudget = restoredExecutionBudget(detail)
@@ -374,6 +386,7 @@ class MinimalAgentRuntime internal constructor(
                 runId = run.id,
                 goal = run.goal,
                 memoryRecallEnabled = memoryRecallEnabled,
+                processSessionId = processSessionId,
             ),
         )
         val restoredBudget = restoredExecutionBudget(detail)
@@ -603,6 +616,7 @@ class MinimalAgentRuntime internal constructor(
         recordValidationStep: Boolean,
         approvalAlreadyGranted: Boolean,
     ) {
+        var approvalEvidence: AgentToolApprovalEvidence? = null
         val validation = if (recordValidationStep) {
             ledger.appendStep(
                 runId = runId,
@@ -663,9 +677,21 @@ class MinimalAgentRuntime internal constructor(
                     metadata = AgentEventMetadata.approval(toolCall, decision),
                 )
                 if (!decision.approved) error("工具未获批准：${decision.reason}")
+                approvalEvidence = AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = wallClock(),
+                    processSessionId = processSessionId,
+                )
                 ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
                 state.activeStepId = null
             }
+        } else if (definition.approvalPolicy != ToolApprovalPolicy.NONE) {
+            // long: 恢复入口的批准已经持久化，但真正执行仍发生在当前进程；生命周期证据必须使用当前进程会话，旧进程授权不能被伪装成实时决定。
+            approvalEvidence = AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = wallClock(),
+                processSessionId = processSessionId,
+            )
         }
 
         // long: 用户查看审批时可能切到系统设置撤销权限；批准只表达副作用意愿，不能替代执行瞬间的 Android 授权状态。
@@ -680,6 +706,10 @@ class MinimalAgentRuntime internal constructor(
         )
         state.activeStepId = execution.id
         currentCoroutineContext().ensureActive()
+        (toolRegistry as? AgentToolExecutionLifecycleAwareToolRegistry)?.beforeToolExecution(
+            call = toolCall,
+            approval = approvalEvidence,
+        )
         val toolStartedAtMs = monotonicClock.nowMs()
         val toolResult = runTimedStep(
             "工具执行 ${toolCall.name}",
@@ -725,6 +755,7 @@ class MinimalAgentRuntime internal constructor(
                 ToolVerificationPolicy.RESULT_READABLE -> require(toolResult.content.isNotBlank()) { "工具结果为空，无法验证" }
                 ToolVerificationPolicy.EXECUTOR_VERIFIED -> require(toolResult.verified == true) { "工具未通过 Executor 回读验证" }
             }
+            (toolRegistry as? AgentToolExecutionLifecycleAwareToolRegistry)?.afterToolVerification(toolCall, toolResult)
             null
         } catch (error: CancellationException) {
             throw error

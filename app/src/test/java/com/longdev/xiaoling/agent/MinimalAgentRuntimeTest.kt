@@ -29,6 +29,93 @@ import java.util.UUID
 
 class MinimalAgentRuntimeTest {
     @Test
+    fun runtimeBindsApprovalBeforeExecutionAndNotifiesRegistryAfterTypedVerification() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "device.tap_ref",
+            description = "点击当前快照中的节点",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("snapshot_id", "当前设备快照 ID", required = true),
+                ToolInputField("ref", "当前快照节点引用", required = true),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        val lifecycle = mutableListOf<String>()
+        var boundContext: AgentToolExecutionContext? = null
+        var authorization: AgentToolApprovalEvidence? = null
+        val registry = object : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
+            override fun bindRunContext(context: AgentToolExecutionContext) {
+                boundContext = context
+            }
+
+            override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+                lifecycle += "before:${call.id}"
+                authorization = approval
+            }
+
+            override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) {
+                lifecycle += "verified:${call.id}:${result.verified}"
+            }
+
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                lifecycle += "execute:${call.id}"
+                return ToolExecutionResult(success = true, content = "已点击并重新观察", verified = true)
+            }
+        }
+        val call = ToolCall(
+            id = "tool-call-workflow-tap",
+            name = definition.name,
+            arguments = mapOf("snapshot_id" to "snapshot-current", "ref" to "r1"),
+            risk = definition.risk,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = call
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = """{"style":"compact","tone":"neutral"}"""
+            },
+            processSessionId = "process-session-test",
+            wallClock = { 2_000L },
+        )
+
+        runtime.run(
+            conversationId = "conversation-workflow-tap",
+            userMessageId = "message-workflow-tap",
+            goal = "点击计算器数字 1",
+            invocationSource = AgentInvocationSource.WORKFLOW,
+        )
+
+        assertEquals(
+            listOf(
+                "before:tool-call-workflow-tap",
+                "execute:tool-call-workflow-tap",
+                "verified:tool-call-workflow-tap:true",
+            ),
+            lifecycle,
+        )
+        assertEquals("process-session-test", boundContext?.processSessionId)
+        assertEquals(
+            AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = 2_000L,
+                processSessionId = "process-session-test",
+            ),
+            authorization,
+        )
+    }
+
+    @Test
     fun controlledReplayCreatesLinkedRunWithFreshToolIdentityAndWaitsForNewApproval() = runTest {
         val definition = ToolDefinition(
             name = "notes.create",

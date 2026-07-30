@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
+import com.longdev.xiaoling.automation.WorkflowDeviceActionDecision
+import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
+import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceException
+import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceInput
+import com.longdev.xiaoling.automation.WorkflowDeviceActionInsufficientReason
+import com.longdev.xiaoling.automation.WorkflowDeviceActionResolution
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecision
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceException
@@ -868,6 +874,7 @@ class RoomWorkflowRepository(
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
         deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
+        deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
     ): WorkflowStepRecord {
         require(status in TERMINAL_STEP_STATUSES) { "工作流步骤只能收敛到终态" }
         return database.withTransaction {
@@ -880,10 +887,12 @@ class RoomWorkflowRepository(
             val persistedDeviceObservationDecisions = when {
                 status != WorkflowStepStatus.COMPLETED -> {
                     require(deviceObservationDecisions.isEmpty()) { "未完成步骤不能持久化设备观察判定" }
+                    require(deviceActionDecisions.isEmpty()) { "未完成步骤不能持久化设备动作判定" }
                     emptyList()
                 }
                 step.agentRunId == null -> {
                     require(deviceObservationDecisions.isEmpty()) { "设备观察判定缺少 Agent Run 来源" }
+                    require(deviceActionDecisions.isEmpty()) { "设备动作判定缺少 Agent Run 来源" }
                     emptyList()
                 }
                 else -> {
@@ -894,12 +903,26 @@ class RoomWorkflowRepository(
                     ledgerDecisions
                 }
             }
-            // long: Workflow 步骤和后台会话只持久化可复核的本地白名单判定；原始节点、ref 和模型转述仅留在独立 Tool Ledger 中审计，不进入 Workflow 输出。
-            val persistedResult = if (persistedDeviceObservationDecisions.isNotEmpty()) {
-                WorkflowDeviceObservationDecisionPolicy.renderForPrompt(persistedDeviceObservationDecisions)
-            } else {
-                result
+            val persistedDeviceActionDecisions = when {
+                status != WorkflowStepStatus.COMPLETED || step.agentRunId == null -> emptyList()
+                else -> {
+                    val ledgerDecisions = requireDeviceActionDecisions(step.agentRunId)
+                    require(deviceActionDecisions.isEmpty() || deviceActionDecisions == ledgerDecisions) {
+                        "设备动作判定与持久 Tool Ledger 不一致"
+                    }
+                    ledgerDecisions
+                }
             }
+            // long: Workflow 只持久化从同 Run Tool Ledger 重建的观察与动作判定；模型正文、原始节点、ref、snapshot 身份和动作 JSON 只留在独立账本审计。
+            val persistedDeviceEvidence = buildList {
+                if (persistedDeviceObservationDecisions.isNotEmpty()) {
+                    add(WorkflowDeviceObservationDecisionPolicy.renderForPrompt(persistedDeviceObservationDecisions))
+                }
+                if (persistedDeviceActionDecisions.isNotEmpty()) {
+                    add(WorkflowDeviceActionDecisionPolicy.renderForPrompt(persistedDeviceActionDecisions))
+                }
+            }
+            val persistedResult = persistedDeviceEvidence.joinToString("\n\n").takeIf { it.isNotEmpty() } ?: result
             val now = System.currentTimeMillis()
             val updated = step.copy(
                 status = status.name,
@@ -911,6 +934,7 @@ class RoomWorkflowRepository(
                         knowledgeReferences = knowledgeReferences,
                         requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
                         deviceObservationDecisions = persistedDeviceObservationDecisions,
+                        deviceActionDecisions = persistedDeviceActionDecisions,
                     )
                 },
                 completedAt = now,
@@ -1028,6 +1052,11 @@ class RoomWorkflowRepository(
         } else {
             emptyList()
         }
+        val deviceActionDecisions = if (status == WorkflowRunStatus.COMPLETED) {
+            requireDeviceActionDecisions(agentRunId)
+        } else {
+            emptyList()
+        }
         completeWorkflowStep(
             workflowRunId = workflowRun.id,
             workflowStepId = step.id,
@@ -1039,6 +1068,7 @@ class RoomWorkflowRepository(
                 .distinct(),
             requiresCurrentKnowledgeReferences = toolResults.any { it.toolName == KNOWLEDGE_SEARCH_TOOL },
             deviceObservationDecisions = deviceObservationDecisions,
+            deviceActionDecisions = deviceActionDecisions,
         )
         val refreshedSteps = dao.getSteps(workflowRun.id).map { it.toRecord() }
         val nextStep = WorkflowStepExecutionPolicy.nextExecutableStep(refreshedSteps)
@@ -1063,6 +1093,15 @@ class RoomWorkflowRepository(
         // long: 前台、恢复和重试都必须以同一 Run 的持久 Tool Ledger 为权威；RESULT_READABLE 工具没有 Executor 布尔值，但 PASSED 验证事件仍是完整证据链。
         return WorkflowDeviceObservationDecisionPolicy.requireDecisions(
             evaluateDeviceObservationEvidence(agentRunId),
+        )
+    }
+
+    internal suspend fun requireDeviceActionDecisions(
+        agentRunId: String,
+    ): List<WorkflowDeviceActionDecision> {
+        // long: 只有同 Run Tool Ledger 中 success、PASSED 且严格符合白名单 codec 的 tap_ref，才允许形成 Workflow 本地动作判定。
+        return WorkflowDeviceActionDecisionPolicy.requireDecisions(
+            evaluateDeviceActionEvidence(agentRunId),
         )
     }
 
@@ -1274,20 +1313,33 @@ class RoomWorkflowRepository(
             .mapNotNull { step ->
                 val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result)
                     ?: return@mapNotNull null
-                when (val deviceEvidence = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)) {
-                    WorkflowDeviceObservationResolution.NotApplicable -> Unit
-                    is WorkflowDeviceObservationResolution.Decided -> {
-                        return@mapNotNull WorkflowDeviceObservationDecisionPolicy.renderForPrompt(
-                            deviceEvidence.decisions,
+                val deviceEvidence = buildList {
+                    when (val observation = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)) {
+                        WorkflowDeviceObservationResolution.NotApplicable -> Unit
+                        is WorkflowDeviceObservationResolution.Decided -> add(
+                            WorkflowDeviceObservationDecisionPolicy.renderForPrompt(observation.decisions),
                         )
+                        is WorkflowDeviceObservationResolution.InsufficientEvidence -> {
+                            throw WorkflowDeviceObservationEvidenceException(
+                                observation.reason,
+                                "步骤 ${step.sequence}：${observation.message}",
+                            )
+                        }
                     }
-                    is WorkflowDeviceObservationResolution.InsufficientEvidence -> {
-                        throw WorkflowDeviceObservationEvidenceException(
-                            deviceEvidence.reason,
-                            "步骤 ${step.sequence}：${deviceEvidence.message}",
+                    when (val action = resolveDeviceActionEvidence(step, output.deviceActionDecisions)) {
+                        WorkflowDeviceActionResolution.NotApplicable -> Unit
+                        is WorkflowDeviceActionResolution.Decided -> add(
+                            WorkflowDeviceActionDecisionPolicy.renderForPrompt(action.decisions),
                         )
+                        is WorkflowDeviceActionResolution.InsufficientEvidence -> {
+                            throw WorkflowDeviceActionEvidenceException(
+                                action.reason,
+                                "步骤 ${step.sequence}：${action.message}",
+                            )
+                        }
                     }
                 }
+                if (deviceEvidence.isNotEmpty()) return@mapNotNull deviceEvidence.joinToString("\n\n")
                 val references = output.knowledgeReferences.distinct()
                 val knowledgeEvidenceExpected = output.requiresCurrentKnowledgeReferences ||
                     output.expectedKnowledgeReferenceCount > 0
@@ -1352,24 +1404,64 @@ class RoomWorkflowRepository(
         return resolution
     }
 
+    private suspend fun resolveDeviceActionEvidence(
+        step: WorkflowStepEntity,
+        storedDecisions: List<WorkflowDeviceActionDecision>,
+    ): WorkflowDeviceActionResolution {
+        val evidenceStep = when {
+            step.agentRunId != null -> step
+            step.reusedFromStepId != null -> database.workflowDao().getStep(step.reusedFromStepId)
+            else -> null
+        }
+        val agentRunId = evidenceStep?.agentRunId
+        if (agentRunId == null) {
+            return if (
+                storedDecisions.isNotEmpty() ||
+                WorkflowDeviceActionDecisionPolicy.containsPotentialRawActionResult(
+                    WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result).orEmpty(),
+                )
+            ) {
+                WorkflowDeviceActionResolution.InsufficientEvidence(
+                    WorkflowDeviceActionInsufficientReason.SOURCE_MISSING,
+                    "设备动作输出缺少可回查的 Agent Run 来源",
+                )
+            } else {
+                WorkflowDeviceActionResolution.NotApplicable
+            }
+        }
+        val resolution = evaluateDeviceActionEvidence(agentRunId)
+        if (storedDecisions.isNotEmpty()) {
+            val current = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions
+            if (current != storedDecisions) {
+                return WorkflowDeviceActionResolution.InsufficientEvidence(
+                    WorkflowDeviceActionInsufficientReason.STORED_DECISION_MISMATCH,
+                    "持久化设备动作判定与 Tool Ledger 当前证据不一致",
+                )
+            }
+        }
+        if (
+            resolution == WorkflowDeviceActionResolution.NotApplicable &&
+            WorkflowDeviceActionDecisionPolicy.containsPotentialRawActionResult(
+                WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result).orEmpty(),
+            )
+        ) {
+            return WorkflowDeviceActionResolution.InsufficientEvidence(
+                WorkflowDeviceActionInsufficientReason.VERIFICATION_MISSING,
+                "设备动作正文没有对应的已验证 Tool Ledger 结果",
+            )
+        }
+        return resolution
+    }
+
     private suspend fun sanitizeSuccessfulWorkflowStepForRun(
         step: WorkflowStepEntity,
     ): WorkflowStepEntity {
         val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result) ?: return step
-        return when (val resolution = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)) {
-            WorkflowDeviceObservationResolution.NotApplicable -> step
-            is WorkflowDeviceObservationResolution.Decided -> {
-                val persistedText = WorkflowDeviceObservationDecisionPolicy.renderForPrompt(resolution.decisions)
-                step.copy(
-                    result = persistedText,
-                    outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
-                        text = persistedText,
-                        knowledgeReferences = output.knowledgeReferences,
-                        requiresCurrentKnowledgeReferences = output.requiresCurrentKnowledgeReferences,
-                        deviceObservationDecisions = resolution.decisions,
-                    ),
-                )
-            }
+        val observationDecisions = when (
+            val resolution = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)
+        ) {
+            WorkflowDeviceObservationResolution.NotApplicable -> emptyList()
+            is WorkflowDeviceObservationResolution.Decided -> resolution.decisions
             is WorkflowDeviceObservationResolution.InsufficientEvidence -> {
                 throw WorkflowDeviceObservationEvidenceException(
                     resolution.reason,
@@ -1377,6 +1469,35 @@ class RoomWorkflowRepository(
                 )
             }
         }
+        val actionDecisions = when (val resolution = resolveDeviceActionEvidence(step, output.deviceActionDecisions)) {
+            WorkflowDeviceActionResolution.NotApplicable -> emptyList()
+            is WorkflowDeviceActionResolution.Decided -> resolution.decisions
+            is WorkflowDeviceActionResolution.InsufficientEvidence -> {
+                throw WorkflowDeviceActionEvidenceException(
+                    resolution.reason,
+                    "步骤 ${step.sequence}：${resolution.message}",
+                )
+            }
+        }
+        if (observationDecisions.isEmpty() && actionDecisions.isEmpty()) return step
+        val persistedText = buildList {
+            if (observationDecisions.isNotEmpty()) {
+                add(WorkflowDeviceObservationDecisionPolicy.renderForPrompt(observationDecisions))
+            }
+            if (actionDecisions.isNotEmpty()) {
+                add(WorkflowDeviceActionDecisionPolicy.renderForPrompt(actionDecisions))
+            }
+        }.joinToString("\n\n")
+        return step.copy(
+            result = persistedText,
+            outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
+                text = persistedText,
+                knowledgeReferences = output.knowledgeReferences,
+                requiresCurrentKnowledgeReferences = output.requiresCurrentKnowledgeReferences,
+                deviceObservationDecisions = observationDecisions,
+                deviceActionDecisions = actionDecisions,
+            ),
+        )
     }
 
     private suspend fun evaluateDeviceObservationEvidence(
@@ -1392,6 +1513,24 @@ class RoomWorkflowRepository(
                     success = result.success,
                     verified = result.verificationStatus == "PASSED",
                     durationMs = result.durationMs,
+                )
+            },
+        )
+    }
+
+    private suspend fun evaluateDeviceActionEvidence(
+        agentRunId: String,
+    ): WorkflowDeviceActionResolution {
+        return WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = agentRunId,
+            results = database.agentRunDao().getToolResults(agentRunId).map { result ->
+                WorkflowDeviceActionEvidenceInput(
+                    runId = result.runId,
+                    toolName = result.toolName,
+                    content = result.content,
+                    success = result.success,
+                    executorVerified = result.executorVerified,
+                    verified = result.verificationStatus == "PASSED",
                 )
             },
         )

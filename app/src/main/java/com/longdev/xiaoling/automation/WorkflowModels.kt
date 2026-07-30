@@ -124,6 +124,7 @@ data class WorkflowStepOutputSnapshot(
     val knowledgeReferences: List<KnowledgeReference>,
     val expectedKnowledgeReferenceCount: Int,
     val deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
+    val deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
 )
 
 object WorkflowStepSnapshotCodec {
@@ -150,11 +151,13 @@ object WorkflowStepSnapshotCodec {
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
         deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
+        deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
     ): String {
         if (
             !requiresCurrentKnowledgeReferences &&
             knowledgeReferences.isEmpty() &&
-            deviceObservationDecisions.isEmpty()
+            deviceObservationDecisions.isEmpty() &&
+            deviceActionDecisions.isEmpty()
         ) return text
         return JSONObject()
             .put("schema", OUTPUT_SCHEMA)
@@ -178,6 +181,27 @@ object WorkflowStepSnapshotCodec {
                     }
                 },
             )
+            .put(
+                "deviceActionDecisions",
+                JSONArray().apply {
+                    deviceActionDecisions.forEach { decision ->
+                        put(
+                            JSONObject()
+                                .put("ruleVersion", decision.ruleVersion)
+                                .put("resultRuleVersion", decision.resultRuleVersion)
+                                .put("safetyRuleVersion", decision.safetyRuleVersion)
+                                .put("status", decision.status.name)
+                                .put("action", decision.action)
+                                .put("beforePackageName", decision.beforePackageName)
+                                .put("afterPackageName", decision.afterPackageName)
+                                .put("afterNodeCount", decision.afterNodeCount)
+                                .put("afterRedactedNodeCount", decision.afterRedactedNodeCount)
+                                .put("afterTruncated", decision.afterTruncated)
+                                .put("afterObservedAt", decision.afterObservedAt),
+                        )
+                    }
+                },
+            )
             .toString()
     }
 
@@ -191,11 +215,13 @@ object WorkflowStepSnapshotCodec {
                 knowledgeReferences = emptyList(),
                 expectedKnowledgeReferenceCount = 0,
                 deviceObservationDecisions = emptyList(),
+                deviceActionDecisions = emptyList(),
             )
         }
         return runCatching {
             val referencesJson = json.optJSONArray("knowledgeReferences") ?: JSONArray()
             val deviceDecisionsJson = json.optJSONArray("deviceObservationDecisions") ?: JSONArray()
+            val deviceActionDecisionsJson = json.optJSONArray("deviceActionDecisions") ?: JSONArray()
             WorkflowStepOutputSnapshot(
                 text = json.getString("text"),
                 requiresCurrentKnowledgeReferences = json.optBoolean("requiresCurrentKnowledgeReferences"),
@@ -226,6 +252,53 @@ object WorkflowStepSnapshotCodec {
                                 redactedNodeCount = redactedNodeCount,
                                 truncated = encodedDecision.getBoolean("truncated"),
                                 capturedAt = capturedAt,
+                                ruleVersion = ruleVersion,
+                            ),
+                        )
+                    }
+                },
+                deviceActionDecisions = buildList {
+                    repeat(deviceActionDecisionsJson.length()) { index ->
+                        val encodedDecision = deviceActionDecisionsJson.getJSONObject(index)
+                        val ruleVersion = encodedDecision.getString("ruleVersion")
+                        val resultRuleVersion = encodedDecision.getString("resultRuleVersion")
+                        val safetyRuleVersion = encodedDecision.getString("safetyRuleVersion")
+                        require(ruleVersion == WorkflowDeviceActionDecisionPolicy.RULE_VERSION) {
+                            "未知设备动作判定规则：$ruleVersion"
+                        }
+                        require(resultRuleVersion == WorkflowDeviceActionResultCodec.RULE_VERSION) {
+                            "未知设备动作结果规则：$resultRuleVersion"
+                        }
+                        require(safetyRuleVersion == WorkflowDeviceActionSafetyPolicy.RULE_VERSION) {
+                            "未知设备动作安全规则：$safetyRuleVersion"
+                        }
+                        val action = encodedDecision.getString("action").trim()
+                        val beforePackageName = encodedDecision.getString("beforePackageName").trim()
+                        val afterPackageName = encodedDecision.getString("afterPackageName").trim()
+                        val afterNodeCount = encodedDecision.getInt("afterNodeCount")
+                        val afterRedactedNodeCount = encodedDecision.getInt("afterRedactedNodeCount")
+                        val afterObservedAt = encodedDecision.getLong("afterObservedAt")
+                        require(action == "tap_ref") { "当前阶段只接受 tap_ref 动作判定" }
+                        require(beforePackageName.isNotEmpty() && afterPackageName.isNotEmpty()) {
+                            "设备动作判定包名不能为空"
+                        }
+                        require(afterNodeCount >= 0) { "设备动作判定节点数无效" }
+                        require(afterRedactedNodeCount in 0..afterNodeCount) { "设备动作判定脱敏节点数无效" }
+                        require(afterObservedAt >= 0L) { "设备动作判定观察时间无效" }
+                        add(
+                            WorkflowDeviceActionDecision(
+                                status = WorkflowDeviceActionDecisionStatus.valueOf(
+                                    encodedDecision.getString("status"),
+                                ),
+                                action = action,
+                                beforePackageName = beforePackageName,
+                                afterPackageName = afterPackageName,
+                                afterNodeCount = afterNodeCount,
+                                afterRedactedNodeCount = afterRedactedNodeCount,
+                                afterTruncated = encodedDecision.getBoolean("afterTruncated"),
+                                afterObservedAt = afterObservedAt,
+                                resultRuleVersion = resultRuleVersion,
+                                safetyRuleVersion = safetyRuleVersion,
                                 ruleVersion = ruleVersion,
                             ),
                         )

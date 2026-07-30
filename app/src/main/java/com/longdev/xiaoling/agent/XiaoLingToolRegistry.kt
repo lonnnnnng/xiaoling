@@ -1,5 +1,15 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.automation.WorkflowDeviceActionApprovalEvidence
+import com.longdev.xiaoling.automation.WorkflowDeviceActionAuthorization
+import com.longdev.xiaoling.automation.WorkflowDeviceActionCompletionEvidence
+import com.longdev.xiaoling.automation.WorkflowDeviceActionExecutionEvidence
+import com.longdev.xiaoling.automation.WorkflowDeviceActionIdentity
+import com.longdev.xiaoling.automation.WorkflowDeviceActionObservationEvidence
+import com.longdev.xiaoling.automation.WorkflowDeviceActionPostObservationEvidence
+import com.longdev.xiaoling.automation.WorkflowDeviceActionResultCodec
+import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyDecision
+import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyPolicy
 import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionCodec
 import com.longdev.xiaoling.device.DeviceActionFailure
@@ -7,6 +17,7 @@ import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceScrollDirection
+import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.device.DeviceSnapshotCodec
 import com.longdev.xiaoling.device.DeviceSnapshotFailure
@@ -25,8 +36,15 @@ class XiaoLingToolRegistry(
     private val memoryStore: AgentMemoryStore,
     private val knowledgeStore: KnowledgeDocumentStore,
     private val deviceController: DeviceController = DisabledDeviceController,
-) : ToolRegistry, AgentRunContextAwareToolRegistry {
+) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
+    private var pendingWorkflowSnapshot: WorkflowSnapshotCandidate? = null
+    private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
+    private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
+    private var executedWorkflowAction: WorkflowExecutedActionState? = null
+    private val workflowDeviceActionSafetyPolicy = WorkflowDeviceActionSafetyPolicy(
+        enabledToolNames = setOf(DEVICE_TAP_REF_TOOL_NAME),
+    )
 
     internal fun withKnowledgeStore(store: KnowledgeDocumentStore): XiaoLingToolRegistry = XiaoLingToolRegistry(
         clock = clock,
@@ -337,7 +355,99 @@ class XiaoLingToolRegistry(
     }
 
     override fun bindRunContext(context: AgentToolExecutionContext) {
+        if (runContext?.runId != context.runId) {
+            // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
+            clearWorkflowDeviceActionState()
+        }
         runContext = context
+    }
+
+    override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+        val context = runContext ?: return
+        if (context.invocationSource != AgentInvocationSource.WORKFLOW || call.name != DEVICE_TAP_REF_TOOL_NAME) {
+            return
+        }
+        val workflowContext = context.workflowDeviceActionContext
+            ?: throw IllegalStateException("Workflow 设备动作缺少 Workflow Run 与 Step 上下文")
+        val snapshot = verifiedWorkflowSnapshot
+            ?.takeIf { it.agentRunId == context.runId }
+            ?: throw IllegalStateException("Workflow 设备动作缺少当前 Run 已验证的 device.snapshot")
+        val inspection = deviceController.inspectReference(
+            snapshotId = call.arguments["snapshot_id"].orEmpty(),
+            ref = call.arguments["ref"].orEmpty(),
+        )
+        val identity = WorkflowDeviceActionIdentity(
+            workflowRunId = workflowContext.workflowRunId,
+            workflowStepId = workflowContext.workflowStepId,
+            agentRunId = context.runId,
+            toolCallId = call.id,
+            toolName = call.name,
+            arguments = call.arguments.toMap(),
+        )
+        val decision = workflowDeviceActionSafetyPolicy.assessExecution(
+            WorkflowDeviceActionExecutionEvidence(
+                identity = identity,
+                userIntent = workflowContext.userIntent,
+                invocationSource = context.invocationSource,
+                executionOrigin = context.executionOrigin,
+                currentProcessSessionId = context.processSessionId,
+                observation = WorkflowDeviceActionObservationEvidence(
+                    agentRunId = snapshot.agentRunId,
+                    toolCallId = snapshot.toolCallId,
+                    toolName = DEVICE_SNAPSHOT_TOOL_NAME,
+                    snapshotId = snapshot.snapshot.snapshotId,
+                    capturedAt = snapshot.snapshot.capturedAt,
+                    expiresAt = snapshot.snapshot.expiresAt,
+                    windowGeneration = snapshot.snapshot.windowGeneration,
+                    verified = true,
+                ),
+                approval = approval?.let {
+                    WorkflowDeviceActionApprovalEvidence(
+                        agentRunId = context.runId,
+                        toolCallId = call.id,
+                        toolName = call.name,
+                        arguments = call.arguments.toMap(),
+                        approved = it.approved,
+                        decidedAt = it.decidedAt,
+                        decisionProcessSessionId = it.processSessionId,
+                    )
+                },
+                // long: 生命周期 hook 紧跟审批决定执行；审批时间是该边界唯一冻结的墙上时间，避免再读取一次时钟造成证据漂移。
+                nowMillis = approval?.decidedAt ?: -1L,
+                currentWindowGeneration = inspection.currentWindowGeneration,
+                liveReferenceMatched = inspection.matched,
+            ),
+        )
+        val authorization = (decision as? WorkflowDeviceActionSafetyDecision.Allowed)?.authorization
+            ?: throw IllegalStateException((decision as WorkflowDeviceActionSafetyDecision.Denied).message)
+        pendingWorkflowAction = WorkflowActionAuthorizationState(
+            call = call.copy(arguments = call.arguments.toMap()),
+            authorization = authorization,
+            beforeSnapshot = snapshot.snapshot,
+        )
+        executedWorkflowAction = null
+    }
+
+    override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) {
+        val context = runContext ?: return
+        if (context.invocationSource != AgentInvocationSource.WORKFLOW) return
+        when (call.name) {
+            DEVICE_SNAPSHOT_TOOL_NAME -> {
+                val candidate = pendingWorkflowSnapshot
+                    ?.takeIf {
+                        it.agentRunId == context.runId &&
+                            it.toolCallId == call.id &&
+                            result.success &&
+                            result.content == DeviceSnapshotCodec.encode(it.snapshot)
+                    }
+                    ?: throw IllegalStateException("Workflow device.snapshot 验证结果与当前候选观察不一致")
+                verifiedWorkflowSnapshot = candidate
+                pendingWorkflowSnapshot = null
+                pendingWorkflowAction = null
+                executedWorkflowAction = null
+            }
+            DEVICE_TAP_REF_TOOL_NAME -> verifyCompletedWorkflowTap(call, result, context)
+        }
     }
 
     override fun availableTools(): List<ToolDefinition> {
@@ -354,9 +464,12 @@ class XiaoLingToolRegistry(
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
-        if (!deviceActionsAllowed(context)) {
-            // long: 设备动作继续限定前台直接对话，避免 Workflow 从只读观察隐式升级为点击、输入或系统导航能力。
-            available = available.filterNot { it.name in DEVICE_ACTION_TOOL_NAMES }
+        if (!directDeviceActionsAllowed(context)) {
+            // long: 前台 Workflow 当前只增加逐动作审批的 tap_ref；其余动作仍限定直接 /agent，不能因共享设备工具集合而被连带开放。
+            available = available.filterNot { definition ->
+                definition.name in DEVICE_ACTION_TOOL_NAMES &&
+                    !(definition.name == DEVICE_TAP_REF_TOOL_NAME && workflowTapAllowed(context))
+            }
         }
         return available
     }
@@ -376,23 +489,23 @@ class XiaoLingToolRegistry(
             "memory.search" -> searchMemory(call)
             "memory.remember" -> remember(call)
             "knowledge.search" -> searchKnowledge(call)
-            DEVICE_SNAPSHOT_TOOL_NAME -> snapshotDevice()
-            DEVICE_OPEN_APP_TOOL_NAME -> executeDeviceAction {
+            DEVICE_SNAPSHOT_TOOL_NAME -> snapshotDevice(call)
+            DEVICE_OPEN_APP_TOOL_NAME -> executeDeviceAction(call) {
                 deviceController.openApp(call.arguments["package_name"].orEmpty())
             }
-            DEVICE_BACK_TOOL_NAME -> executeDeviceAction(deviceController::back)
-            DEVICE_HOME_TOOL_NAME -> executeDeviceAction(deviceController::home)
-            DEVICE_TAP_REF_TOOL_NAME -> executeDeviceAction {
+            DEVICE_BACK_TOOL_NAME -> executeDeviceAction(call, deviceController::back)
+            DEVICE_HOME_TOOL_NAME -> executeDeviceAction(call, deviceController::home)
+            DEVICE_TAP_REF_TOOL_NAME -> executeDeviceAction(call) {
                 deviceController.tap(call.arguments["snapshot_id"].orEmpty(), call.arguments["ref"].orEmpty())
             }
-            DEVICE_TYPE_TEXT_TOOL_NAME -> executeDeviceAction {
+            DEVICE_TYPE_TEXT_TOOL_NAME -> executeDeviceAction(call) {
                 deviceController.typeText(
                     snapshotId = call.arguments["snapshot_id"].orEmpty(),
                     ref = call.arguments["ref"].orEmpty(),
                     text = call.arguments["text"].orEmpty(),
                 )
             }
-            DEVICE_SWIPE_TOOL_NAME -> executeDeviceAction {
+            DEVICE_SWIPE_TOOL_NAME -> executeDeviceAction(call) {
                 deviceController.swipe(
                     snapshotId = call.arguments["snapshot_id"].orEmpty(),
                     ref = call.arguments["ref"].orEmpty(),
@@ -426,13 +539,25 @@ class XiaoLingToolRegistry(
         )
     }
 
-    private suspend fun snapshotDevice(): ToolExecutionResult {
+    private suspend fun snapshotDevice(call: ToolCall): ToolExecutionResult {
         deviceSnapshotContextError()?.let { return it }
         return when (val capture = deviceController.capture()) {
-            is DeviceSnapshotCapture.Success -> ToolExecutionResult(
-                success = true,
-                content = DeviceSnapshotCodec.encode(capture.snapshot),
-            )
+            is DeviceSnapshotCapture.Success -> {
+                if (runContext?.invocationSource == AgentInvocationSource.WORKFLOW) {
+                    pendingWorkflowSnapshot = WorkflowSnapshotCandidate(
+                        agentRunId = requireNotNull(runContext).runId,
+                        toolCallId = call.id,
+                        snapshot = capture.snapshot,
+                    )
+                    verifiedWorkflowSnapshot = null
+                    pendingWorkflowAction = null
+                    executedWorkflowAction = null
+                }
+                ToolExecutionResult(
+                    success = true,
+                    content = DeviceSnapshotCodec.encode(capture.snapshot),
+                )
+            }
             is DeviceSnapshotCapture.Failed -> ToolExecutionResult(
                 success = false,
                 content = capture.message,
@@ -440,15 +565,48 @@ class XiaoLingToolRegistry(
         }
     }
 
-    private suspend fun executeDeviceAction(block: suspend () -> DeviceActionCapture): ToolExecutionResult {
-        deviceActionContextError()?.let { return it }
+    private suspend fun executeDeviceAction(
+        call: ToolCall,
+        block: suspend () -> DeviceActionCapture,
+    ): ToolExecutionResult {
+        deviceActionContextError(call.name)?.let { return it }
+        val workflowState = if (runContext?.invocationSource == AgentInvocationSource.WORKFLOW) {
+            pendingWorkflowAction
+                ?.takeIf { it.call.id == call.id && it.call.name == call.name && it.call.arguments == call.arguments }
+                ?: return ToolExecutionResult(success = false, content = "Workflow tap_ref 缺少当前 ToolCall 的实时安全授权")
+        } else {
+            null
+        }
+        // long: 授权在越过 Executor 边界前即从待执行槽移除；失败、取消或重复调用都必须重新观察并重新审批。
+        pendingWorkflowAction = null
         val capture = block()
         return when (capture) {
-            is DeviceActionCapture.Success -> ToolExecutionResult(
-                success = true,
-                content = DeviceActionCodec.encode(capture.outcome),
-                verified = capture.outcome.verified,
-            )
+            is DeviceActionCapture.Success -> {
+                if (workflowState != null) {
+                    executedWorkflowAction = WorkflowExecutedActionState(
+                        call = call.copy(arguments = call.arguments.toMap()),
+                        authorization = workflowState.authorization,
+                        beforeSnapshot = workflowState.beforeSnapshot,
+                        outcome = capture.outcome,
+                    )
+                    ToolExecutionResult(
+                        success = true,
+                        content = WorkflowDeviceActionResultCodec.encode(
+                            action = "tap_ref",
+                            beforeSnapshot = workflowState.beforeSnapshot,
+                            afterSnapshot = capture.outcome.afterSnapshot,
+                            verified = capture.outcome.verified,
+                        ),
+                        verified = capture.outcome.verified,
+                    )
+                } else {
+                    ToolExecutionResult(
+                        success = true,
+                        content = DeviceActionCodec.encode(capture.outcome),
+                        verified = capture.outcome.verified,
+                    )
+                }
+            }
             is DeviceActionCapture.Failed -> ToolExecutionResult(
                 success = false,
                 content = "${capture.reason}: ${capture.message}",
@@ -469,14 +627,17 @@ class XiaoLingToolRegistry(
         return null
     }
 
-    private fun deviceActionContextError(): ToolExecutionResult? {
+    private fun deviceActionContextError(toolName: String): ToolExecutionResult? {
         val context = runContext
             ?: return ToolExecutionResult(success = false, content = "设备工具缺少当前 Agent Run 上下文")
-        if (context.invocationSource != AgentInvocationSource.DIRECT) {
-            return ToolExecutionResult(success = false, content = "设备动作尚未开放给 Workflow，请使用前台直接 /agent 对话")
-        }
         if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
-            return ToolExecutionResult(success = false, content = "设备工具仅允许前台直接执行")
+            return ToolExecutionResult(success = false, content = "设备工具仅允许用户在前台执行")
+        }
+        if (
+            context.invocationSource != AgentInvocationSource.DIRECT &&
+            !(context.invocationSource == AgentInvocationSource.WORKFLOW && toolName == DEVICE_TAP_REF_TOOL_NAME)
+        ) {
+            return ToolExecutionResult(success = false, content = "该设备动作尚未开放给 Workflow，请使用前台直接 /agent 对话")
         }
         deviceHealthContextError()?.let { return it }
         return null
@@ -488,11 +649,83 @@ class XiaoLingToolRegistry(
             deviceController.health() == DeviceAgentHealthState.READY
     }
 
-    private fun deviceActionsAllowed(context: AgentToolExecutionContext?): Boolean {
+    private fun directDeviceActionsAllowed(context: AgentToolExecutionContext?): Boolean {
         return context?.invocationSource == AgentInvocationSource.DIRECT &&
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             deviceController.health() == DeviceAgentHealthState.READY
     }
+
+    private fun workflowTapAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource == AgentInvocationSource.WORKFLOW &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            context.processSessionId.isNotBlank() &&
+            context.workflowDeviceActionContext != null &&
+            deviceController.health() == DeviceAgentHealthState.READY
+    }
+
+    private fun verifyCompletedWorkflowTap(
+        call: ToolCall,
+        result: ToolExecutionResult,
+        context: AgentToolExecutionContext,
+    ) {
+        val executed = executedWorkflowAction
+            ?.takeIf { it.call.id == call.id && it.call.name == call.name && it.call.arguments == call.arguments }
+            ?: throw IllegalStateException("Workflow tap_ref 缺少当前动作执行证据")
+        val decoded = WorkflowDeviceActionResultCodec.decode(result.content)
+            ?: throw IllegalStateException("Workflow tap_ref 结果不符合白名单动作规则")
+        val decision = workflowDeviceActionSafetyPolicy.assessCompletion(
+            WorkflowDeviceActionCompletionEvidence(
+                identity = executed.authorization.identity,
+                authorization = executed.authorization,
+                resultAgentRunId = context.runId,
+                resultToolCallId = call.id,
+                resultToolName = call.name,
+                success = result.success,
+                executorVerified = result.verified == true && decoded.verified,
+                verificationPassed = true,
+                actionCompletedAt = executed.outcome.afterSnapshot.capturedAt,
+                afterObservation = WorkflowDeviceActionPostObservationEvidence(
+                    agentRunId = context.runId,
+                    actionToolCallId = call.id,
+                    snapshotId = executed.outcome.afterSnapshot.snapshotId,
+                    observedAt = decoded.afterObservedAt,
+                    windowGeneration = executed.outcome.afterSnapshot.windowGeneration,
+                    verified = decoded.verified,
+                ),
+                cancelled = false,
+            ),
+        )
+        clearWorkflowDeviceActionState()
+        if (decision is WorkflowDeviceActionSafetyDecision.Denied) {
+            throw IllegalStateException(decision.message)
+        }
+    }
+
+    private fun clearWorkflowDeviceActionState() {
+        pendingWorkflowSnapshot = null
+        verifiedWorkflowSnapshot = null
+        pendingWorkflowAction = null
+        executedWorkflowAction = null
+    }
+
+    private data class WorkflowSnapshotCandidate(
+        val agentRunId: String,
+        val toolCallId: String,
+        val snapshot: DeviceSnapshot,
+    )
+
+    private data class WorkflowActionAuthorizationState(
+        val call: ToolCall,
+        val authorization: WorkflowDeviceActionAuthorization,
+        val beforeSnapshot: DeviceSnapshot,
+    )
+
+    private data class WorkflowExecutedActionState(
+        val call: ToolCall,
+        val authorization: WorkflowDeviceActionAuthorization,
+        val beforeSnapshot: DeviceSnapshot,
+        val outcome: com.longdev.xiaoling.device.DeviceActionOutcome,
+    )
 
     private fun deviceHealthContextError(): ToolExecutionResult? {
         // long: 规划清单和 Executor 必须消费同一健康状态，避免模型在无障碍未授权或服务断连时看到实际上不可执行的设备工具。
@@ -889,7 +1122,7 @@ private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
 private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
 private const val DEVICE_BACK_TOOL_NAME = "device.back"
 private const val DEVICE_HOME_TOOL_NAME = "device.home"
-private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
+internal const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
 private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
 private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
 

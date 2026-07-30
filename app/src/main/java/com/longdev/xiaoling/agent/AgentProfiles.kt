@@ -162,7 +162,7 @@ internal fun AgentRunDetailRecord.agentProfileSnapshotOrNull(): AgentProfileSnap
 class ProfileScopedToolRegistry(
     private val delegate: ToolRegistry,
     allowedToolNames: Collection<String>,
-) : ToolRegistry, AgentRunContextAwareToolRegistry {
+) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
     private val allowedToolNames = allowedToolNames.toSet()
 
     init {
@@ -173,6 +173,14 @@ class ProfileScopedToolRegistry(
 
     override fun bindRunContext(context: AgentToolExecutionContext) {
         (delegate as? AgentRunContextAwareToolRegistry)?.bindRunContext(context)
+    }
+
+    override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+        (delegate as? AgentToolExecutionLifecycleAwareToolRegistry)?.beforeToolExecution(call, approval)
+    }
+
+    override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) {
+        (delegate as? AgentToolExecutionLifecycleAwareToolRegistry)?.afterToolVerification(call, result)
     }
 
     override fun availableTools(): List<ToolDefinition> =

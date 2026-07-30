@@ -22,6 +22,8 @@ import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
+import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
+import com.longdev.xiaoling.agent.WorkflowDeviceActionRunContext
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
@@ -91,6 +93,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleSummary
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleTracker
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.OpenAiKnowledgeAnswerabilityJudge
+import com.longdev.xiaoling.device.DeviceAccessibilityRuntime
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.network.FailureKind
@@ -114,6 +117,7 @@ import com.longdev.xiaoling.storage.StoredMessageMeta
 import com.longdev.xiaoling.storage.StoredConversations
 import com.longdev.xiaoling.storage.StoredProfiles
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
+import com.longdev.xiaoling.storage.RoomWorkflowDeviceActionApprovalPersistence
 import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
@@ -541,6 +545,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentRunUseCase by lazy { AgentRunUseCase(application, client) }
     private val agentProfileStore by lazy { RoomAgentProfileStore(application) }
     private val agentRunRepository by lazy { RoomAgentRunRepository(application) }
+    private val workflowDeviceActionApprovalPersistence by lazy {
+        RoomWorkflowDeviceActionApprovalPersistence(agentRunRepository)
+    }
     private val agentMemoryStore by lazy { RoomAgentMemoryStore(application) }
     private val agentMemoryCandidateCoordinator = AgentMemoryCandidateCoordinator(
         candidateLimit = MEMORY_CANDIDATE_LIMIT,
@@ -1893,12 +1900,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversationId: String,
     ) {
         var detail = initialDetail
-        val approvalGate = interactiveAgentApprovalGate(conversationId)
         while (true) {
             val step = WorkflowStepExecutionPolicy.nextExecutableStep(detail.steps) ?: break
             val preparedStep = withContext(Dispatchers.IO) {
                 workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
             }
+            // long: Workflow 每一步都冻结自己的用户意图；仅 tap_ref 改走系统浮层，其他需审批工具继续沿用会话卡，避免扩大本阶段设备动作能力面。
+            val approvalGate = WorkflowDeviceActionApprovalGate(
+                conversationId = conversationId,
+                userIntent = preparedStep.detail,
+                fallback = interactiveAgentApprovalGate(conversationId),
+                persistence = workflowDeviceActionApprovalPersistence,
+                overlayRequester = DeviceAccessibilityRuntime,
+            )
             val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
             val executionGoal = WorkflowStepPromptPolicy.build(input.goal, input.previousOutputs)
             val userMessage = ChatMessage(
@@ -1918,6 +1932,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 agentProfile = runtimeSelection.profile,
                 memoryRecallEnabled = runtimeSelection.profile.memoryEnabled,
                 invocationSource = AgentInvocationSource.WORKFLOW,
+                workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                    workflowRunId = detail.run.id,
+                    workflowStepId = preparedStep.id,
+                    userIntent = preparedStep.detail,
+                ),
                 approvalGate = approvalGate,
                 onSnapshot = { snapshot ->
                     withContext(Dispatchers.IO) {
@@ -1929,6 +1948,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val deviceObservationDecisions = withContext(Dispatchers.IO) {
                 workflowRepository.requireDeviceObservationDecisions(summary.runId)
             }
+            val deviceActionDecisions = withContext(Dispatchers.IO) {
+                workflowRepository.requireDeviceActionDecisions(summary.runId)
+            }
             val completedStep = withContext(Dispatchers.IO) {
                 workflowRepository.completeWorkflowStep(
                     workflowRunId = detail.run.id,
@@ -1939,6 +1961,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
                         summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
                     deviceObservationDecisions = deviceObservationDecisions,
+                    deviceActionDecisions = deviceActionDecisions,
                 )
             }
             val workflowResponseText = WorkflowStepSnapshotCodec.outputText(

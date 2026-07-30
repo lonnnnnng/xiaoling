@@ -46,6 +46,7 @@ class AgentRunUseCase(
         memoryRecallEnabled: Boolean = true,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
+        workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
         userAttachments: MessageAttachmentSelection = MessageAttachmentSelection(),
         approvalGate: ApprovalGate = AutoApprovalGate(),
         onSnapshot: suspend (AgentRunSnapshot) -> Unit = {},
@@ -61,6 +62,7 @@ class AgentRunUseCase(
             memoryRecallEnabled = memoryRecallEnabled,
             executionOrigin = executionOrigin,
             invocationSource = invocationSource,
+            workflowDeviceActionContext = workflowDeviceActionContext,
         )
         val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
         val availableToolNames = runToolRegistry.availableToolsFor(invocationContext)
@@ -100,6 +102,7 @@ class AgentRunUseCase(
             memoryRecallEnabled = memoryRecallEnabled,
             selectedSkills = selectedSkills,
             agentProfile = agentProfile,
+            workflowDeviceActionContext = workflowDeviceActionContext,
         )
     }
 

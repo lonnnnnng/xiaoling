@@ -7,6 +7,7 @@ import com.longdev.xiaoling.device.DeviceActionOutcome
 import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceNodeAction
+import com.longdev.xiaoling.device.DeviceReferenceInspection
 import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
@@ -139,7 +140,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun foregroundWorkflowCanObserveButCannotUseDeviceActionsWhenOptedIn() = runTest {
+    fun foregroundWorkflowCanObserveAndUseOnlyApprovedTapRefWhenOptedIn() = runTest {
         val provider = FakeDeviceController(enabled = true)
         val registry = testRegistry(deviceController = provider)
         registry.bindRunContext(
@@ -168,18 +169,54 @@ class XiaoLingToolRegistryTest {
                 conversationId = "conversation-workflow",
                 userMessageId = "message-workflow",
                 runId = "run-workflow",
-                goal = "Workflow 读取界面",
+                goal = "Workflow 点击继续按钮",
                 executionOrigin = AgentExecutionOrigin.FOREGROUND,
                 invocationSource = AgentInvocationSource.WORKFLOW,
+                processSessionId = "process-workflow",
+                workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                    workflowRunId = "workflow-run-current",
+                    workflowStepId = "workflow-step-current",
+                    userIntent = "点击当前页面的继续按钮",
+                ),
             ),
         )
         assertEquals(
-            setOf("device.snapshot"),
+            setOf("device.snapshot", "device.tap_ref"),
             registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
         )
-        val workflowResult = registry.execute(ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE))
+        val snapshotCall = ToolCall(
+            id = "tool-call-workflow-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val workflowResult = registry.execute(snapshotCall)
         assertTrue(workflowResult.success)
         assertTrue(workflowResult.content.contains("snapshot-direct"))
+        registry.afterToolVerification(snapshotCall, workflowResult)
+        val tapCall = ToolCall(
+            id = "tool-call-workflow-tap",
+            name = "device.tap_ref",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        registry.beforeToolExecution(
+            tapCall,
+            AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = 1_500L,
+                processSessionId = "process-workflow",
+            ),
+        )
+        val tapResult = registry.execute(tapCall)
+        assertTrue(tapResult.success)
+        assertEquals(true, tapResult.verified)
+        assertTrue(tapResult.content.contains("workflow-device-action-result-v1"))
+        assertFalse(tapResult.content.contains("\"nodes\""))
+        assertFalse(tapResult.content.contains("\"ref\""))
+        assertFalse(tapResult.content.contains("\"snapshot_id\""))
+        registry.afterToolVerification(tapCall, tapResult)
+        assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
         val workflowActionResult = registry.execute(
             ToolCall(
                 name = "device.open_app",
@@ -190,7 +227,7 @@ class XiaoLingToolRegistryTest {
         assertFalse(workflowActionResult.success)
         assertTrue(workflowActionResult.content.contains("Workflow"))
         assertEquals(2, provider.captureCount)
-        assertTrue(provider.actions.isEmpty())
+        assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
 
         registry.bindRunContext(
             AgentToolExecutionContext(
@@ -210,6 +247,57 @@ class XiaoLingToolRegistryTest {
         assertFalse(backgroundActionResult.success)
         assertTrue(backgroundActionResult.content.contains("前台"))
         assertEquals(2, provider.captureCount)
+        assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
+    }
+
+    @Test
+    fun switchingWorkflowRunInvalidatesPreviouslyVerifiedSnapshotAndReference() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = testRegistry(deviceController = provider)
+        fun workflowContext(runId: String) = AgentToolExecutionContext(
+            conversationId = "conversation-workflow",
+            userMessageId = "message-$runId",
+            runId = runId,
+            goal = "Workflow 点击继续按钮",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            processSessionId = "process-workflow",
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-current",
+                workflowStepId = "workflow-step-current",
+                userIntent = "点击当前页面的继续按钮",
+            ),
+        )
+        registry.bindRunContext(workflowContext("run-old"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-old-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+
+        registry.bindRunContext(workflowContext("run-new"))
+        val oldReferenceCall = ToolCall(
+            id = "tool-call-new-tap",
+            name = "device.tap_ref",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val failure = runCatching {
+            registry.beforeToolExecution(
+                oldReferenceCall,
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 1_500L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("当前 Run 已验证"))
         assertTrue(provider.actions.isEmpty())
     }
 
@@ -714,6 +802,13 @@ private class FakeDeviceController(
     val actions = mutableListOf<String>()
 
     override fun health(): DeviceAgentHealthState = healthState
+
+    override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
+        return DeviceReferenceInspection(
+            currentWindowGeneration = 2L,
+            matched = snapshotId == "snapshot-direct" && ref == "r1",
+        )
+    }
 
     override suspend fun capture(): DeviceSnapshotCapture {
         captureCount += 1
