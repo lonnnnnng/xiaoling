@@ -10,6 +10,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，Redmi 项目文档语料单项为 `OK (1 test)`；测试包再次卸载，主应用恢复前台。
 - Release 只发布 APK 与同名 `.sha256`；Redmi 已用同一正式证书无损覆盖到 `0.1.13 (14)`，没有卸载主应用或清除 Provider、会话和 Keystore 数据。
 
+## 第 119 阶段：前台 Workflow `device.back` 生产闭环（完成）
+
+- `XiaoLingToolRegistry` 的生产前台 Workflow 默认动作集合改为 `{device.back, device.tap_ref, device.type_text}`。规划清单精确暴露 `device.snapshot / device.back / device.tap_ref / device.type_text`；`open_app / home / swipe`、后台/定时来源和恢复自动续跑仍在清单与 Executor 两层拒绝。`back` 的 ToolDefinition 保持空 Schema、`ToolRisk.SAFE` 与 Executor 验证，额外参数在通用 Schema 校验阶段拒绝。
+- `WorkflowDeviceActionSafetyPolicy` 为 `device.back` 使用 `SAFE_NO_APPROVAL`。执行仍绑定用户步骤意图、当前 Workflow/Step/AgentRun/ToolCall、同 Run 已验证 snapshot、30 秒 TTL 和当前 window generation；完成仍要求同一 ToolCall 的成功结果、Executor 验证、typed `PASSED` 和后置 snapshot。Registry 对 `back` 始终读取当前执行时钟，异常调用方传入旧审批对象也不能延长 snapshot TTL；`tap_ref / type_text` 才使用审批决定时间冻结边界。
+- `WorkflowDeviceActionDecisionPolicy` 与结果 codec 接受严格的 `device.back -> back` 白名单；`WorkflowStepSnapshotCodec`、下一步、关联重试、Room Repository 与 `WorkflowManagementProjection` 均可恢复和展示“返回”。Room Approval 查询/投影仍只覆盖 `tap_ref / type_text`，SAFE `back` 不创建审批卡或 Accessibility overlay。
+- Debug tracer 新增 `workflow_back`：先等待系统应用详情页连续三次保持同一 window generation，再由真实 `MinimalAgentRuntime + RoomAgentRunRepository` 执行一次返回并核对后置包名。独立 document task 保证一次 Back 回到小灵；显式前台 Receiver 避免当前 Redmi ROM 对隐式广播投递不稳定。真实日志为 `workflow-back-e2e success=true action=back verified=true approvals=0 beforePackage=com.android.settings afterPackage=com.longdev.xiaoling answerDecision=VERIFIED`。
+- 聚焦 JVM 覆盖 Registry、安全策略、答案判定、步骤执行和 Workflow 投影，全部通过；`compileDebugKotlin / compileDebugAndroidTestKotlin / assembleDebug / assembleDebugAndroidTest` 通过。仅 Redmi 的 Compose `pageDisplaysVerifiedBackAsSafeNavigationEvidence` 与 Room 纵向 `workflowPersistsVerifiedBackDecisionForNextStepAndUiWithoutApprovalEvidence` 均为 `OK (1 test)`，同步后的文档 corpus 首轮与最终复验均为 `OK (1 test)`（`2.733s / 2.725s`）。instrumentation 结束后主包被强制停止，Accessibility 一度列入 `Crashed services`；移除并原样恢复组件授权后重新进入 `Bound`，`Crashed services:{}`，未清主应用数据或凭据。
+- 本阶段按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。下一动作只从 `home / open_app / swipe` 中选择一个独立前台 Workflow 切片；后台设备自动化、精确定时、Foreground Service、MCP、日历/通知、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 118 阶段：统一直接 `/agent` 的 `type_text` 持久化隐私（完成）
 
 - 新增通用 `DeviceTypeTextAuditPolicy`，替代 Workflow 专属审计投影。`MinimalAgentRuntime` 在 proposed/validated 事件、独立 ToolCall ledger 和最终可信执行上下文中复用同一安全参数；`WorkflowDeviceActionApprovalGate` 与直接 `/agent` Room Approval 也使用相同投影，持久字段统一为 `snapshot_id / ref / text_sha256 / text_length`。
@@ -1062,9 +1071,9 @@
 - 密码/密码提示、验证码、API Key、Bearer/Access Token、带空格或连字符的手机号/银行卡、身份证和邮箱节点会清空正文、动作与 ref。支付/收银台/高敏身份验证窗口以及已知密码管理器、Authenticator、钱包/银行类包名整窗拒绝，不把包名或节点正文写入工具结果。
 - `device.snapshot` 是 SAFE、非后台工具；`device.open_app / tap_ref / type_text` 要求逐步审批，`device.back / home / swipe` 为 SAFE。`open_app` 只接受 manifest queries 与业务策略共同限定的小灵、系统计算器、时钟和系统设置；`type_text` 最多 500 字符，并在 Tool 参数审计前拒绝密码、验证码、API Key、Token、手机号、身份证、银行卡和邮箱。
 - 节点动作执行前再次核对 snapshot/ref/generation/path/fingerprint/action；动作后等待窗口短暂稳定并重新 capture。首次启动系统权限页可能短暂没有 `rootInActiveWindow`，只对 `NO_ACTIVE_WINDOW / WINDOW_CHANGED` 做最多 6 次、每次 100 ms 的有界重试；隐私拒绝、授权失效和服务断连不重试。`open_app` 核对前台包名，`home` 核对桌面包名；`type_text` 只按动作前原 `nodePath` 在新 references 中定位目标并读取该节点 `text`，其他节点的同文、description 或 hint 不能替代精确回读；其他动作要求可观察的窗口 generation 变化，未得到证据时返回 `verified=false`。
-- Registry 在前台直接 `/agent`、独立开关开启且 Profile/Skill 允许时暴露完整限定设备工具；前台手动 Workflow 当前精确暴露 `device.snapshot / device.tap_ref / device.type_text`。点击与文本输入都必须经过同 Run 已验证观察、Room 独立审批、Accessibility 安全浮层、实时 generation/ref 和动作后 Executor/typed 验证；文本输入还要求当前 ref 可编辑且未脱敏、敏感文本预审计、最小指纹授权和原 `nodePath` 精确回读。Workflow 的原文只驻留当前 ToolCall 内存，proposed/validated/ToolCall ledger、Room/overlay/答案级 UI 只使用脱敏摘要；该保证不改变前台直接 `/agent` 的会话审批与 ToolCall 审计。`open_app / back / home / swipe`、后台/定时 Workflow 和关闭状态仍在规划器工具面与 Executor 两层拒绝。`device-observation` 保持只读，`device-control` 才引用动作工具；既有 Profile/Skill 不自动扩权。
+- Registry 在前台直接 `/agent`、独立开关开启且 Profile/Skill 允许时暴露完整限定设备工具；前台手动 Workflow 当前精确暴露 `device.snapshot / device.back / device.tap_ref / device.type_text`。点击与文本输入必须经过同 Run 已验证观察、Room 独立审批、Accessibility 安全浮层、实时 generation/ref 和动作后 Executor/typed 验证；`back` 为空参数、零审批 SAFE 动作，但同样要求当前 snapshot、30 秒 TTL、generation 与完整后置验证。文本输入还要求当前 ref 可编辑且未脱敏、敏感文本预审计、最小指纹授权和原 `nodePath` 精确回读；原文只驻留当前 ToolCall，Workflow 与直接 `/agent` 的持久路径统一只使用指纹和长度。`open_app / home / swipe`、后台/定时 Workflow 和关闭状态仍在规划器工具面与 Executor 两层拒绝。`device-observation` 保持只读，`device-control` 才引用动作工具；既有 Profile/Skill 不自动扩权。
 - `app/src/debug` 提供仅 Debug 包可用的快照、动作和真实 Agent 诊断广播与隐私探针；Release manifest 不包含这些入口。该 Redmi ROM 在 instrumentation 生命周期后会清空无障碍授权，因此完整 instrumentation 结束后恢复系统服务，再用 Debug-only 入口完成真实服务与动作 E2E。
-- Redmi 首批验收覆盖计算器 `open_app + tap_ref`、设置 `swipe + tap_ref + type_text`、敏感输入拒绝、`back / home` 和时钟启动；真实 `gpt-5.5 + Responses` `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、执行、后置验证、Tool Ledger 和最终总结。第 113 阶段完成前台 Workflow `snapshot -> tap_ref` 的真实 Room/overlay/Tool Ledger 闭环，第 116 阶段复验设置搜索框普通文本精确回读与敏感文本拒绝，第 117 阶段又完成真实 Workflow `snapshot -> type_text` 的 `APPROVED / PASSED / VERIFIED / exactReadBack=true` 闭环。当前仍不支持坐标点击、截图、任意 App、Workflow 的 `open_app / back / home / swipe` 或后台设备自动化。
+- Redmi 首批验收覆盖计算器 `open_app + tap_ref`、设置 `swipe + tap_ref + type_text`、敏感输入拒绝、`back / home` 和时钟启动；真实 `gpt-5.5 + Responses` `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、执行、后置验证、Tool Ledger 和最终总结。第 113 阶段完成前台 Workflow `snapshot -> tap_ref` 的真实 Room/overlay/Tool Ledger 闭环，第 117 阶段完成 `snapshot -> type_text` 的 `APPROVED / PASSED / VERIFIED / exactReadBack=true` 闭环，第 119 阶段又完成 `snapshot -> back` 的 `SAFE / approvals=0 / PASSED / VERIFIED` 闭环。当前仍不支持坐标点击、截图、任意 App、Workflow 的 `open_app / home / swipe` 或后台设备自动化。
 
 ## 日志
 
@@ -1076,7 +1085,7 @@
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.tap_ref / device.type_text` 及答案级动作证据 UI。Workflow 文本输入已具备专属策略、当前 ref 节点证据、绑定原路径的精确回读、只持久化指纹/长度的 Room 审批、脱敏 Accessibility 浮层和 Redmi 真实 Workflow 闭环；该无原文保证尚未统一到前台直接 `/agent` 的既有会话审批卡。`open_app / back / home / swipe` 与全部后台自动化仍不进入 Workflow 生产。
+- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.back / device.tap_ref / device.type_text` 及答案级动作证据 UI。文本输入具备专属策略、当前 ref 节点证据、绑定原路径的精确回读和跨入口无原文持久化；`back` 为空参数、零审批 SAFE 动作，但仍要求当前观察和完整后置验证。`open_app / home / swipe` 与全部后台自动化仍不进入 Workflow 生产。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。

@@ -130,7 +130,22 @@ internal data class WorkflowDeviceActionUiState(
     val afterTruncated: Boolean? = null,
     val afterObservedAt: Long? = null,
     val decisionRuleVersion: String? = null,
-)
+) {
+    val actionLabel: String
+        get() = when (action) {
+            "back" -> "返回"
+            "type_text" -> "输入文本（内容不展示）"
+            else -> action
+        }
+
+    val followUpGuidance: String
+        get() = if (action == "back") {
+            // long: SAFE 返回没有节点目标也不创建独立审批，历史页只能要求重新观察并让下一动作按自己的风险规则重新判定。
+            "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
+        } else {
+            "节点引用已失效，后续动作必须重新观察和审批"
+        }
+}
 
 data class WorkflowDeviceObservationUiState(
     val packageName: String,
@@ -200,6 +215,7 @@ internal object WorkflowDeviceActionApprovalEvidencePolicy {
         return this != null && signatures.any(::contains)
     }
 
+    // long: 这里只投影会产生 Room Approval 的动作；SAFE back 以 approval.skipped 和 Tool Ledger 审计，不能伪造一条审批卡。
     private val DEVICE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text")
     private val BUSY_REASON_SIGNATURES = setOf("已有设备动作审批正在显示", "已有设备动作审批正在处理")
     private val WINDOW_CHANGED_REASON_SIGNATURES = setOf(

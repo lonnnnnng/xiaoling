@@ -519,7 +519,7 @@ private fun WorkflowItem(
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                     )
-                                    Text("动作：${action.action.toDeviceActionUiLabel()}", style = MaterialTheme.typography.labelSmall)
+                                    Text("动作：${action.actionLabel}", style = MaterialTheme.typography.labelSmall)
                                     if (verified) {
                                         if (action.action == "type_text") {
                                             // long: 答案级证据只说明文本输入动作已验证；原文不进入 Compose 状态，避免历史页、截图或辅助工具将其二次暴露。
@@ -570,7 +570,7 @@ private fun WorkflowItem(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                         Text(
-                                            "节点引用已失效，后续动作必须重新观察和审批",
+                                            action.followUpGuidance,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.error,
                                         )
@@ -624,11 +624,6 @@ private fun WorkflowDeviceActionUiOutcome.toUiLabel(): String = when (this) {
     WorkflowDeviceActionUiOutcome.OVERLAY_UNAVAILABLE -> "审批浮层不可用"
     WorkflowDeviceActionUiOutcome.SERVICE_DISCONNECTED -> "无障碍服务已断开"
     WorkflowDeviceActionUiOutcome.BUSY -> "审批正忙"
-}
-
-private fun String.toDeviceActionUiLabel(): String = when (this) {
-    "type_text" -> "输入文本（内容不展示）"
-    else -> this
 }
 
 @Composable

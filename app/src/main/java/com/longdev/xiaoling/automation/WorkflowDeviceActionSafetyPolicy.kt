@@ -33,6 +33,11 @@ data class WorkflowDeviceActionApprovalEvidence(
     val decisionProcessSessionId: String,
 )
 
+enum class WorkflowDeviceActionApprovalMode {
+    REQUIRE_APPROVAL,
+    SAFE_NO_APPROVAL,
+}
+
 data class WorkflowDeviceActionExecutionEvidence(
     val identity: WorkflowDeviceActionIdentity,
     val userIntent: String,
@@ -53,8 +58,9 @@ data class WorkflowDeviceActionAuthorization(
     val observationToolCallId: String,
     val beforeSnapshotId: String,
     val beforeWindowGeneration: Long,
-    val approvedAt: Long,
+    val authorizedAt: Long,
     val processSessionId: String,
+    val approvalMode: WorkflowDeviceActionApprovalMode,
     val typeTextAuthorization: WorkflowTypeTextAuthorization? = null,
 )
 
@@ -87,6 +93,7 @@ enum class WorkflowDeviceActionSafetyFailure {
     INVOCATION_SOURCE_DENIED,
     BACKGROUND_DENIED,
     IDENTITY_INVALID,
+    ACTION_ARGUMENTS_INVALID,
     USER_INTENT_MISSING,
     OBSERVATION_MISSING,
     OBSERVATION_RUN_MISMATCH,
@@ -170,6 +177,13 @@ class WorkflowDeviceActionSafetyPolicy(
                 "Workflow 设备动作缺少用户明确编写的步骤意图",
             )
         }
+        if (evidence.identity.toolName == DEVICE_BACK_TOOL_NAME && evidence.identity.arguments.isNotEmpty()) {
+            // long: 返回动作没有目标、次数或坐标参数；拒绝所有额外字段，避免模型把一次 SAFE 返回扩张成可配置导航序列。
+            return WorkflowDeviceActionSafetyDecision.Denied(
+                WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+                "device.back 只能使用空参数执行一次返回",
+            )
+        }
         val observation = evidence.observation
             ?: return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.OBSERVATION_MISSING,
@@ -249,36 +263,43 @@ class WorkflowDeviceActionSafetyPolicy(
         } else {
             null
         }
-        val approval = evidence.approval
-            ?: return WorkflowDeviceActionSafetyDecision.Denied(
-                WorkflowDeviceActionSafetyFailure.APPROVAL_MISSING,
-                "Workflow 设备动作缺少独立用户审批",
-            )
-        if (!approval.approved) {
-            return WorkflowDeviceActionSafetyDecision.Denied(
-                WorkflowDeviceActionSafetyFailure.APPROVAL_NOT_APPROVED,
-                "当前设备动作未获得用户批准",
-            )
-        }
-        if (
-            approval.agentRunId != evidence.identity.agentRunId ||
-            approval.toolCallId != evidence.identity.toolCallId ||
-            approval.toolName != evidence.identity.toolName ||
-            approval.arguments != evidence.identity.arguments ||
-            approval.decidedAt < observation.capturedAt ||
-            approval.decidedAt > evidence.nowMillis
-        ) {
-            return WorkflowDeviceActionSafetyDecision.Denied(
-                WorkflowDeviceActionSafetyFailure.APPROVAL_MISMATCH,
-                "审批与当前 Run、ToolCall、参数或观察时间不一致",
-            )
-        }
-        if (approval.decisionProcessSessionId != evidence.currentProcessSessionId) {
-            // long: 进程重建前已批准的动作不能自动续跑；恢复后必须重新观察并获得当前进程会话内的逐动作决定。
-            return WorkflowDeviceActionSafetyDecision.Denied(
-                WorkflowDeviceActionSafetyFailure.APPROVAL_SESSION_MISMATCH,
-                "审批来自旧进程会话，不得用于恢复或重试执行",
-            )
+        val approvalMode = approvalModeFor(evidence.identity.toolName)
+        val authorizedAt = when (approvalMode) {
+            WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL -> evidence.nowMillis
+            WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL -> {
+                val approval = evidence.approval
+                    ?: return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.APPROVAL_MISSING,
+                        "Workflow 设备动作缺少独立用户审批",
+                    )
+                if (!approval.approved) {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.APPROVAL_NOT_APPROVED,
+                        "当前设备动作未获得用户批准",
+                    )
+                }
+                if (
+                    approval.agentRunId != evidence.identity.agentRunId ||
+                    approval.toolCallId != evidence.identity.toolCallId ||
+                    approval.toolName != evidence.identity.toolName ||
+                    approval.arguments != evidence.identity.arguments ||
+                    approval.decidedAt < observation.capturedAt ||
+                    approval.decidedAt > evidence.nowMillis
+                ) {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.APPROVAL_MISMATCH,
+                        "审批与当前 Run、ToolCall、参数或观察时间不一致",
+                    )
+                }
+                if (approval.decisionProcessSessionId != evidence.currentProcessSessionId) {
+                    // long: 进程重建前已批准的动作不能自动续跑；恢复后必须重新观察并获得当前进程会话内的逐动作决定。
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.APPROVAL_SESSION_MISMATCH,
+                        "审批来自旧进程会话，不得用于恢复或重试执行",
+                    )
+                }
+                approval.decidedAt
+            }
         }
         return WorkflowDeviceActionSafetyDecision.Allowed(
             WorkflowDeviceActionAuthorization(
@@ -288,8 +309,10 @@ class WorkflowDeviceActionSafetyPolicy(
                 observationToolCallId = observation.toolCallId,
                 beforeSnapshotId = observation.snapshotId,
                 beforeWindowGeneration = observation.windowGeneration,
-                approvedAt = approval.decidedAt,
+                // long: back 的 SAFE 依据是用户步骤意图与同 Run 新鲜观察，不伪造审批时间；授权时间统一用于约束动作后证据必须晚于安全门禁。
+                authorizedAt = authorizedAt,
                 processSessionId = evidence.currentProcessSessionId,
+                approvalMode = approvalMode,
                 typeTextAuthorization = typeTextAuthorization,
             ),
         )
@@ -322,6 +345,7 @@ class WorkflowDeviceActionSafetyPolicy(
         if (
             authorization.ruleVersion != RULE_VERSION ||
             authorization.identity != expectedAuthorizationIdentity ||
+            authorization.approvalMode != approvalModeFor(evidence.identity.toolName) ||
             (evidence.identity.toolName != DEVICE_TYPE_TEXT_TOOL_NAME && authorization.typeTextAuthorization != null)
         ) {
             return WorkflowDeviceActionSafetyDecision.Denied(
@@ -356,7 +380,7 @@ class WorkflowDeviceActionSafetyPolicy(
         if (
             !evidence.executorVerified ||
             !evidence.verificationPassed ||
-            evidence.actionCompletedAt <= authorization.approvedAt ||
+            evidence.actionCompletedAt <= authorization.authorizedAt ||
             afterObservation == null ||
             afterObservation.agentRunId != evidence.identity.agentRunId ||
             afterObservation.actionToolCallId != evidence.identity.toolCallId ||
@@ -404,9 +428,18 @@ class WorkflowDeviceActionSafetyPolicy(
         return identity.copy(arguments = authorizedArguments.toMap())
     }
 
+    private fun approvalModeFor(toolName: String): WorkflowDeviceActionApprovalMode {
+        return if (toolName == DEVICE_BACK_TOOL_NAME) {
+            WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL
+        } else {
+            WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL
+        }
+    }
+
     companion object {
         const val RULE_VERSION = "workflow-device-action-safety-v1"
         private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+        private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val MAX_OBSERVATION_LIFETIME_MILLIS = 30_000L
         private val KNOWN_DEVICE_ACTION_TOOL_NAMES = setOf(

@@ -429,7 +429,7 @@
 - API Key 使用 Android Keystore + AES-GCM。
 - `/agent` 与普通聊天分流，具备 `AgentRun / AgentStep / ApprovalRequest / RunEvent`、运行预算、超时、取消和终态收敛。
 - 应用侧 `ToolRegistry`、风险分级、交互审批和执行后验证，以及当前时间、会话检索、本机笔记、长期记忆和只读本地知识库工具。
-- 设备 Agent 观察与有限动作层：默认关闭的独立开关、Accessibility 四态健康检查、`device.snapshot / open_app / back / home / tap_ref / type_text / swipe`、200 节点/4000 字符预算、30 秒 ref、页面 generation/路径/指纹失效、敏感节点脱敏、高敏窗口/隐私应用整窗拒绝、白名单与敏感输入策略；仅开放给前台直接 `/agent`，不支持设备 Workflow 或后台执行。
+- 设备 Agent 观察与有限动作层：默认关闭的独立开关、Accessibility 四态健康检查、`device.snapshot / open_app / back / home / tap_ref / type_text / swipe`、200 节点/4000 字符预算、30 秒 ref、页面 generation/路径/指纹失效、敏感节点脱敏、高敏窗口/隐私应用整窗拒绝、白名单与敏感输入策略；完整限定集合开放给前台直接 `/agent`，前台手动 Workflow 精确开放 `snapshot / back / tap_ref / type_text`，后台执行继续关闭。
 - Tool Registry 已统一完整 JSON Schema、可插拔业务校验器、风险/确认、Android 权限、前后台来源门禁、超时和回读验证策略；重复工具名启动失败，权限检查默认 fail-closed。
 - 执行回执已持久化 ToolCall、operation、提交状态和执行时重放声明；`notes.create` 与 `memory.remember` 均为生产 `IDEMPOTENT_BY_KEY` 工具。笔记使用 ToolCall ID 的 Room 唯一索引，记忆使用独立 operation ledger 和提交结果快照；载荷漂移会被拒绝。进程重建时这两个白名单工具可依据完整历史证据回读原 operation，补齐后置验证和本地总结；通用工具在所有成功结果与 `PASSED` 验证均已落库后，还可只恢复控制面收尾，不重放工具或调用模型。
 - 对话 Run 时间线、审批卡片和设置页 Agent 任务中心；任务中心支持状态筛选、完整 ToolResult、失败终态安全重新运行，以及 `memory.remember` 恢复失败的稳定错误码、原因和新 Run 建议。
@@ -476,7 +476,7 @@
 | 长期记忆治理已形成首版闭环，但召回质量仍需规模化验证 | 已有候选确认、敏感过滤、去重/冲突、跨进程删除撤销、过期策略、时间衰减、实际引用审计和单次召回关闭；更大数据量下仍需验证排序与中文召回质量 |
 | 后台账本与周期规则已完成，但通用执行栈不续跑 | 一次性与 Daily/Weekly 非精确定时可追溯；步骤结果落库后的进程终止可启动对账并保留成功前缀，运行中停止先持久化 `STOP_REQUESTED` 并可跨系统取消/fallback 异常重对账；Room v32 继续沿用独立账本观察平台退出，受控样本不算自然 LMK，仍不支持提前引入 Foreground Service |
 | PDF/UTF-8 与 DOCX/PPTX/XLSX 直传、RAG 基础、Embedding、Agent 接入和答案引用 UI 已完成 | 已具备文档身份、解析、分块、FTS/LIKE、有限规模 Embedding、管理 UI、结构化引用、历史/不可用标记和删除失效契约；尚缺 ANN/规模化检索质量验证 |
-| 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；仍不能进入 Workflow/后台自动化，也不承诺任意 App |
+| 设备 Agent 观察与有限动作已完成 | 已能安全观察并在首批白名单 App 执行返回/主页、点击、普通输入和节点滚动，所有动作后重新观察验证；前台手动 Workflow 已有限开放 `snapshot / back / tap_ref / type_text`，后台自动化和任意 App 仍关闭 |
 
 ## 6. 建议目标架构
 
@@ -557,9 +557,9 @@
 
 目标：先建立可解释的只读设备观察，再逐步开放可控系统动作；不请求 Overlay 或 Root。
 
-当前状态：第 1 至 6 步已完成并通过当前 431 条 JVM、151 条 Redmi instrumentation 和 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配；Runtime 现对 ToolResult 事件、预算快照和 tool.verify 事件三个持久化边界提供确定性故障注入并保持 fail-closed。Worker 重入已通过确定性隔离和 Redmi 受控冷启动；第 46 阶段又加入 Doze、trim-memory、无压力对照和终态竞态修复，第 47 阶段补齐同一进程前台启动恢复与新 Worker 的所有权隔离，第 50 阶段让停止请求在平台异常和进程重建后仍可持久重对账，包括 Agent Run 尚未关联的认领窗口；第 64 阶段又加入独立、有限且无 Task/Run 归因的系统退出观察，但这些证据仍不等同 Android 自主回收。能力继续限定首批 App、前台直接 `/agent` 和节点动作；设备工具进入 Workflow/后台前，仍需自然系统回收与更长成功任务证据。
+当前状态：第 1 至 6 步已完成，并通过分阶段 JVM、仅 Redmi instrumentation 及 instrumentation 外真实 AccessibilityService/动作验收；真实 `gpt-5.5 + Responses` Run 已完成 `device.open_app` 的审批与 `PASSED` 后置验证。前台手动 Workflow 又逐项完成 `snapshot / tap_ref / type_text / back`，其中 `tap_ref / type_text` 使用 Room/Accessibility 审批，`back` 为空参数、零审批 SAFE 动作，所有动作都要求当前观察和 Executor/typed 后置验证。所有 ToolResult 与 `PASSED` 验证均持久化后的原 Run 本地收尾恢复也已通过故障注入和磁盘 Room 重开测试。规划、工具与总结段共享单调累计 Run 预算，重试前统一呈现副作用证据分类，并在确认提交前同时校验证据码与 Ledger/Event 指纹不变；旧验证事件缺少 ToolCall ID 时固定标为关联未知，不再按工具名或顺序猜配。Worker 重入、Doze、trim-memory、无压力对照、终态竞态、当前进程所有权隔离、持久停止重对账和独立进程退出观察均已形成证据，但不等同 Android 自主回收。能力继续限定首批 App；`open_app / home / swipe` 尚未进入 Workflow，全部后台设备自动化继续关闭。
 
-长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛、进程内所有权隔离、持久化停止栅栏和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。前台初始化先冻结旧 Agent/Workflow/Task ID，并排除当前进程真正 `RUNNING` 的 Worker 链；`STOP_REQUESTED` 即使仍登记所有权也进入恢复，Workflow/Task 在同一事务读取栅栏并原子取消。停止发生在 Agent Run 关联前时，Workflow 恢复也优先读取关联 Task 的停止栅栏，取消未完成步骤而不生成失败终态或新 Run。停止 fallback 也改为一次事务结算 Workflow/Task，既有 Workflow 终态会直接修复半结算 Task，避免通用停止栅栏制造矛盾终态。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步成功样本约 62.2 秒。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑，设备工具仍不得进入 Workflow/后台权限。
+长任务可靠性现已补充确定性断点、启动证据快照、Worker 重入收敛、进程内所有权隔离、持久化停止栅栏和 Redmi 系统策略样本：Workflow 第一步结果事务提交、第二步尚未启动时模拟进程终止，启动对账保留完成前缀并关闭旧 Run；不可恢复的 Agent Run 会在收敛前冻结重试证据码，Worker 重入只按当前 ScheduledTask 关联链定向关闭旧执行栈。前台初始化先冻结旧 Agent/Workflow/Task ID，并排除当前进程真正 `RUNNING` 的 Worker 链；`STOP_REQUESTED` 即使仍登记所有权也进入恢复，Workflow/Task 在同一事务读取栅栏并原子取消。停止发生在 Agent Run 关联前时，Workflow 恢复也优先读取关联 Task 的停止栅栏，取消未完成步骤而不生成失败终态或新 Run。停止 fallback 也改为一次事务结算 Workflow/Task，既有 Workflow 终态会直接修复半结算 Task，避免通用停止栅栏制造矛盾终态。Redmi 受控强杀样本在 `3360ms` 内只收敛关联链；强制 Doze 在 20 秒内保持任务未启动，8 步成功样本约 62.2 秒。退出 Doze 和 trim-memory 的 `connection closed` 仅为观察，不能归因；无压力对照暴露的 Task/Workflow `CANCELLED` 与 AgentRun `COMPLETED` 竞态已通过原子终态写入修复。上述命令均不等同 Android 自主回收，也不等同通用执行栈原地续跑；前台 Workflow 设备工具仅限 `snapshot / back / tap_ref / type_text`，后台权限继续关闭。
 
 实施顺序：
 
@@ -635,4 +635,4 @@ P3 明确不做：Root、Shizuku、静默安装 APK、绕过未导出 Activity�
 
 > 用户显式启用 Accessibility 后，小灵能报告服务健康状态，生成有界且脱敏的结构化 snapshot，为可操作节点分配短生命周期 ref；页面变化、权限失效、隐私页面或 ref 过期时明确拒绝继续。首批白名单 App 已开放带风险审批、敏感输入过滤和动作后验证的标准节点操作，不使用坐标、截图或任意 App 扩权。
 
-下一版不应把系统分享 v1 扩成任意 Intent、任意文件、自动发送或后台处理，也不应跳到 MCP 或“任意控制手机”。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；未进入 Shadow 的预算或工具步数耗尽没有冒充 Judge 失败。八次 Judge 均成功，因此当前证据仍不足以描述自然 Judge 失败分布，也不足以支持 Room Store 或 enforcement。第 99 阶段和第 101 项首个窗口的有效样本来自词法兜底，不能外推为 Embedding 质量证据。下一步只在间隔开的真实使用窗口低频观察真实 Provider 成本以及网络、协议、认证等自然失败；出现新证据或明显成本异常后，再独立评审最小化持久化，在隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。设备工具仍不进入 Workflow 或后台自动化；精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。
+下一版不应把系统分享 v1 扩成任意 Intent、任意文件、自动发送或后台处理，也不应跳到 MCP 或“任意控制手机”。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；未进入 Shadow 的预算或工具步数耗尽没有冒充 Judge 失败。八次 Judge 均成功，因此当前证据仍不足以描述自然 Judge 失败分布，也不足以支持 Room Store 或 enforcement。第 99 阶段和第 101 项首个窗口的有效样本来自词法兜底，不能外推为 Embedding 质量证据。下一步只在间隔开的真实使用窗口低频观察真实 Provider 成本以及网络、协议、认证等自然失败；出现新证据或明显成本异常后，再独立评审最小化持久化，在隐私设计完成前不开启 enforcement。累计执行预算、Workflow 启动对账、需确认聚合、结构化安全处置、Worker 所有权、可见停止和 `STOP_REQUESTED` 栅栏均已完成；Redmi 已有约 229.416 秒复合只读成功样本，仍无自然 LMK，因此 Foreground Service 继续证据驱动。前台 Workflow 设备工具当前精确为 `snapshot / back / tap_ref / type_text`，下一动作只从 `home / open_app / swipe` 中选择；后台自动化继续关闭。精确定时继续依据真实需求决定，日历/通知、MCP、远程 Channel、多 Agent 和本地模型保持最后推进。

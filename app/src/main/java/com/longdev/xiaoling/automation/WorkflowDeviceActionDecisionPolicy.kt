@@ -127,7 +127,7 @@ object WorkflowDeviceActionDecisionPolicy {
         return decisions.mapIndexed { index, decision ->
             buildString {
                 append("本地设备动作判定 ${index + 1}（${decision.ruleVersion}）\n")
-                append("结论：已执行并验证 ${decision.action}\n")
+                append("结论：已执行并验证 ${decision.action.toAnswerLabel()}\n")
                 append("已确认：动作前应用包名 ${decision.beforePackageName}；")
                 append("动作后应用包名 ${decision.afterPackageName}；")
                 append("后置节点 ${decision.afterNodeCount}；")
@@ -138,7 +138,12 @@ object WorkflowDeviceActionDecisionPolicy {
                     append("隐私：输入内容未进入答案级证据。\n")
                 }
                 // long: 下游只能知道当前白名单动作已通过执行和验证；文本原文、原节点、ref、snapshot 身份及更高层业务目标都不能从 Tool Ledger 复制进 Workflow。
-                append("限制：仅确认当前设备动作和后置观察已验证，不确认用户最终业务目标；节点引用已经失效，后续动作必须重新观察和审批。")
+                append("限制：仅确认当前设备动作和后置观察已验证，不确认用户最终业务目标；")
+                if (decision.action == DEVICE_BACK_ACTION) {
+                    append("本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。")
+                } else {
+                    append("节点引用已经失效，后续动作必须重新观察和审批。")
+                }
             }
         }.joinToString("\n\n")
     }
@@ -155,10 +160,18 @@ object WorkflowDeviceActionDecisionPolicy {
         message: String,
     ) = WorkflowDeviceActionResolution.InsufficientEvidence(reason, message)
 
+    private fun String.toAnswerLabel(): String = when (this) {
+        DEVICE_BACK_ACTION -> "返回"
+        else -> this
+    }
+
+    private const val DEVICE_BACK_TOOL_NAME = "device.back"
+    private const val DEVICE_BACK_ACTION = "back"
     private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
     private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
     private const val DEVICE_TYPE_TEXT_ACTION = "type_text"
     private val ACTION_BY_TOOL_NAME = mapOf(
+        DEVICE_BACK_TOOL_NAME to DEVICE_BACK_ACTION,
         DEVICE_TAP_REF_TOOL_NAME to "tap_ref",
         DEVICE_TYPE_TEXT_TOOL_NAME to DEVICE_TYPE_TEXT_ACTION,
     )

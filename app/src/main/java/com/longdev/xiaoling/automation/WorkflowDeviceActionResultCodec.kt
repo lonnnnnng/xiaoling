@@ -90,5 +90,5 @@ object WorkflowDeviceActionResultCodec {
         "afterObservedAt",
         "verified",
     )
-    private val ALLOWED_ACTIONS = setOf("tap_ref", "type_text")
+    private val ALLOWED_ACTIONS = setOf("back", "tap_ref", "type_text")
 }

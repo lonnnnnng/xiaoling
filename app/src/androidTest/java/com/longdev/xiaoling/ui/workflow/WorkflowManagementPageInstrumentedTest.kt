@@ -17,6 +17,51 @@ import org.junit.Test
 
 class WorkflowManagementPageInstrumentedTest {
     @Test
+    fun pageDisplaysVerifiedBackAsSafeNavigationEvidence() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(
+                        deviceActions = listOf(
+                            WorkflowDeviceActionUiState(
+                                outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+                                action = "back",
+                                detail = "已执行并验证",
+                                beforePackageName = "com.android.settings",
+                                afterPackageName = "com.android.settings",
+                                afterNodeCount = 10,
+                                afterRedactedNodeCount = 0,
+                                afterTruncated = false,
+                                afterObservedAt = 1_700_000_000_000L,
+                                decisionRuleVersion = "workflow-device-action-decision-v1",
+                            ),
+                        ),
+                    ),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithText("动作：返回", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "仅确认当前设备动作和后置观察已验证，不确认最终业务目标",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "节点引用已失效，后续动作必须重新观察和审批",
+            useUnmergedTree = true,
+        ).assertDoesNotExist()
+    }
+
+    @Test
     fun pageDisplaysVerifiedTypeTextWithoutInputContent() {
         composeRule.setContent {
             MaterialTheme {

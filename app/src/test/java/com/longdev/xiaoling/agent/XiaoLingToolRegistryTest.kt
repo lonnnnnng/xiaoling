@@ -33,16 +33,90 @@ import org.junit.Test
 
 class XiaoLingToolRegistryTest {
     @Test
-    fun productionForegroundWorkflowExposesTypeTextAfterSafetyClosure() {
+    fun productionForegroundWorkflowExposesOnlyClosedDeviceActionSlices() {
         val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
 
         assertEquals(
-            setOf("device.snapshot", "device.tap_ref", "device.type_text"),
+            setOf("device.snapshot", "device.back", "device.tap_ref", "device.type_text"),
             registry.availableTools()
                 .filter { it.name.startsWith("device.") }
                 .mapTo(linkedSetOf(), ToolDefinition::name),
         )
+    }
+
+    @Test
+    fun productionWorkflowBackCompletesFromFreshSnapshotWithoutApproval() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = productionRegistry(
+            deviceController = provider,
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "返回上一个系统设置页面"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-back-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val backCall = ToolCall(
+            id = "tool-call-back-action",
+            name = "device.back",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+
+        registry.beforeToolExecution(backCall, approval = null)
+        val result = registry.execute(backCall)
+
+        assertEquals(ToolApprovalPolicy.NONE, registry.definition("device.back")?.approvalPolicy)
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("\"action\":\"back\""))
+        registry.afterToolVerification(backCall, result)
+        assertEquals(listOf("back"), provider.actions)
+    }
+
+    @Test
+    fun productionWorkflowBackDoesNotUseApprovalTimeToExtendSnapshotTtl() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = productionRegistry(
+            deviceController = provider,
+            clock = FakeAgentClock(nowMillis = 31_001L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "返回上一个页面"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-back-expired-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val backCall = ToolCall(
+            id = "tool-call-back-expired-action",
+            name = "device.back",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+
+        val failure = runCatching {
+            registry.beforeToolExecution(
+                backCall,
+                // long: 非法调用方即使传入旧审批时间，也不能把 SAFE back 的执行时钟拨回有效窗口。
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 1_500L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("已过期"))
+        assertTrue(provider.actions.isEmpty())
     }
 
     @Test
@@ -134,6 +208,11 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.home" }.risk)
         assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.swipe" }.risk)
         assertTrue(deviceActions.single { it.name == "device.type_text" }.validateBeforeAudit)
+        assertTrue(
+            deviceActions.single { it.name == "device.back" }
+                .validateArguments(mapOf("steps" to "2"))
+                .errors.any { it.contains("未在 Schema 中声明") },
+        )
         assertTrue(
             deviceActions.single { it.name == "device.type_text" }
                 .validateArguments(mapOf("snapshot_id" to "snapshot-1", "ref" to "r1", "text" to "sk-abcdefghijklmnop"))
@@ -391,7 +470,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun workflowTestActionSeamRejectsActionsOutsideTapAndTypeText() {
+    fun workflowTestActionSeamRejectsActionsOutsideBackTapAndTypeText() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             testRegistry(workflowDeviceActionToolNames = setOf("device.tap_ref", "device.swipe"))
         }
@@ -942,9 +1021,10 @@ class XiaoLingToolRegistryTest {
 
     private fun productionRegistry(
         deviceController: DeviceController,
+        clock: AgentClock = FakeAgentClock(),
     ): XiaoLingToolRegistry {
         return XiaoLingToolRegistry(
-            clock = FakeAgentClock(),
+            clock = clock,
             conversationStore = InMemoryAgentConversationStore(),
             noteStore = InMemoryAgentNoteStore(),
             memoryStore = InMemoryAgentMemoryStore(),
@@ -1167,8 +1247,10 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
     override suspend fun delete(documentId: String): Boolean = false
 }
 
-private class FakeAgentClock : AgentClock {
-    override fun nowMillis(): Long = 1_784_252_245_000
+private class FakeAgentClock(
+    private val nowMillis: Long = 1_784_252_245_000,
+) : AgentClock {
+    override fun nowMillis(): Long = nowMillis
     override fun formattedNow(): String = "2026-07-17 08:30:45"
     override fun zoneId(): String = "Asia/Shanghai"
 }

@@ -313,7 +313,7 @@ object WorkflowStepSnapshotCodec {
     fun outputText(raw: String?): String? = decodeOutput(raw)?.text
 
     private const val OUTPUT_SCHEMA = "workflow-step-output-v1"
-    private val DEVICE_ACTION_DECISION_ACTIONS = setOf("tap_ref", "type_text")
+    private val DEVICE_ACTION_DECISION_ACTIONS = setOf("back", "tap_ref", "type_text")
 }
 
 object WorkflowStepExecutionPolicy {

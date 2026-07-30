@@ -3,6 +3,8 @@ package com.longdev.xiaoling.agent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.util.Log
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceInput
@@ -38,14 +40,18 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_E2E) return
         val operation = intent.getStringExtra(EXTRA_OPERATION)
-        if (operation == OPERATION_WORKFLOW_TAP_REF || operation == OPERATION_WORKFLOW_TYPE_TEXT) {
+        if (
+            operation == OPERATION_WORKFLOW_TAP_REF ||
+            operation == OPERATION_WORKFLOW_TYPE_TEXT ||
+            operation == OPERATION_WORKFLOW_BACK
+        ) {
             // long: 人工审批可能超过 BroadcastReceiver 的十秒窗口；Debug 验收任务由进程级 scope 承载，Receiver 立即返回以避免系统 ANR。
             debugScope.launch {
                 runCatching {
-                    if (operation == OPERATION_WORKFLOW_TYPE_TEXT) {
-                        runWorkflowTypeText(context.applicationContext)
-                    } else {
-                        runWorkflowTapRef(context.applicationContext)
+                    when (operation) {
+                        OPERATION_WORKFLOW_TYPE_TEXT -> runWorkflowTypeText(context.applicationContext)
+                        OPERATION_WORKFLOW_BACK -> runWorkflowBack(context.applicationContext)
+                        else -> runWorkflowTapRef(context.applicationContext)
                     }
                 }
                     .onFailure { error ->
@@ -340,6 +346,127 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         )
     }
 
+    private suspend fun runWorkflowBack(context: Context) {
+        context.startActivity(
+            Intent(context, DevicePrivacyProbeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = AndroidDeviceAccessibilityGateway(context),
+        )
+        awaitDeviceReady(controller)
+        awaitProbeWindow(controller)
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            ).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_HISTORY,
+            ),
+        )
+        // long: 应用详情以独立 document task 打开，使一次 back 必然退出系统设置并暴露下方的小灵验收页。
+        awaitStablePackageWindow(controller, SYSTEM_SETTINGS_PACKAGE)
+
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context),
+            noteStore = RoomAgentNoteStore(context),
+            memoryStore = RoomAgentMemoryStore(context),
+            knowledgeStore = RoomKnowledgeDocumentStore(context),
+            deviceController = controller,
+        )
+        val runRepository = RoomAgentRunRepository(context)
+        val scriptedLlm = WorkflowBackE2eLlm()
+        val runtime = MinimalAgentRuntime(
+            ledger = runRepository,
+            toolRegistry = registry,
+            llm = scriptedLlm,
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    error("SAFE device.back 不应请求 Room 或浮层审批")
+                }
+            },
+            permissionChecker = AndroidToolPermissionChecker(context),
+            processSessionId = "process-redmi-workflow-back",
+        )
+        val summary = runtime.run(
+            conversationId = E2E_BACK_CONVERSATION_ID,
+            userMessageId = "message-redmi-workflow-back-${System.currentTimeMillis()}",
+            goal = "返回小灵的上一个页面并确认后置界面",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            memoryRecallEnabled = false,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-redmi-back",
+                workflowStepId = "workflow-step-redmi-back",
+                userIntent = "从系统设置返回小灵页面",
+            ),
+        )
+        val detail = checkNotNull(runRepository.runDetail(summary.runId)) { "真实 Workflow back Run 未写入 Room" }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "真实 Workflow back Run 未完成：${detail.snapshot.run.status}"
+        }
+        check(detail.approvals.none { it.toolName == DEVICE_BACK_TOOL_NAME }) {
+            "SAFE device.back 不得创建 Room Approval：${detail.approvals.map { it.toolName }}"
+        }
+        val backCall = detail.toolLedger.calls.single { it.toolName == DEVICE_BACK_TOOL_NAME }
+        check(backCall.arguments.isEmpty() && backCall.risk == ToolRisk.SAFE) {
+            "Workflow back ToolCall 必须保持空参数与 SAFE 风险：$backCall"
+        }
+        val backResult = detail.toolLedger.results.single { it.toolName == DEVICE_BACK_TOOL_NAME }
+        check(
+            backResult.success &&
+                backResult.executorVerified == true &&
+                backResult.verificationStatus == ToolVerificationStatus.PASSED,
+        ) { "Tool Ledger 未保存通过验证的 back：$backResult" }
+        val actionEvidence = checkNotNull(WorkflowDeviceActionResultCodec.decode(backResult.content)) {
+            "Workflow back 没有返回严格白名单结果"
+        }
+        check(
+            actionEvidence.action == "back" &&
+                actionEvidence.beforePackageName == SYSTEM_SETTINGS_PACKAGE &&
+                actionEvidence.afterPackageName == context.packageName &&
+                actionEvidence.verified
+        ) { "Workflow back 前后窗口或验证结果不符合预期：$actionEvidence" }
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = listOf(
+                WorkflowDeviceActionEvidenceInput(
+                    runId = backResult.runId,
+                    toolName = backResult.toolName,
+                    content = backResult.content,
+                    success = backResult.success,
+                    executorVerified = backResult.executorVerified,
+                    verified = backResult.verificationStatus == ToolVerificationStatus.PASSED,
+                ),
+            ),
+        )
+        val decision = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions?.singleOrNull()
+            ?: error("Workflow back 未形成答案级本地判定：$resolution")
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        check(prompt.contains("已执行并验证 返回") && prompt.contains("不确认用户最终业务目标")) {
+            "Workflow back 答案级边界不完整"
+        }
+        val postSnapshot = captureWhenReady(controller).snapshot
+        check(postSnapshot.packageName == context.packageName) {
+            "真实 Accessibility back 后没有回到小灵页面：${postSnapshot.packageName}"
+        }
+        Log.i(
+            TAG,
+            "workflow-back-e2e success=true action=${actionEvidence.action} verified=${actionEvidence.verified} " +
+                "approvals=${detail.approvals.size} beforePackage=${actionEvidence.beforePackageName} " +
+                "afterPackage=${actionEvidence.afterPackageName} answerDecision=${decision.status}",
+        )
+    }
+
     private suspend fun awaitDeviceReady(controller: DeviceObservationController) {
         repeat(50) {
             if (controller.health() == DeviceAgentHealthState.READY) return
@@ -378,6 +505,34 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         error("type_text Probe 前台窗口在限定时间内没有出现安全输入框")
     }
 
+    private suspend fun awaitStablePackageWindow(controller: DeviceObservationController, packageName: String) {
+        var stableGeneration: Long? = null
+        var stableSamples = 0
+        repeat(50) {
+            when (val capture = controller.capture()) {
+                is DeviceSnapshotCapture.Success -> {
+                    if (capture.snapshot.packageName == packageName) {
+                        val generation = capture.snapshot.windowGeneration
+                        stableSamples = if (generation == stableGeneration) stableSamples + 1 else 1
+                        stableGeneration = generation
+                        // long: 系统设置首帧仍可能处于转场和内容刷新期；连续稳定后再让 Runtime 取动作前快照，避免 Debug tracer 使用过渡窗口代际。
+                        if (stableSamples >= 3) return
+                    } else {
+                        stableGeneration = null
+                        stableSamples = 0
+                    }
+                }
+                is DeviceSnapshotCapture.Failed -> {
+                    if (capture.reason !in TRANSIENT_SNAPSHOT_FAILURES) error(capture.message)
+                    stableGeneration = null
+                    stableSamples = 0
+                }
+            }
+            delay(150)
+        }
+        error("限定时间内前台窗口未稳定：$packageName")
+    }
+
     private suspend fun captureWhenReady(controller: DeviceObservationController): DeviceSnapshotCapture.Success {
         repeat(30) {
             when (val capture = controller.capture()) {
@@ -388,7 +543,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             }
             delay(100)
         }
-        error("Workflow tap_ref 后无法再次获取真实 Accessibility snapshot")
+        error("Workflow 设备动作后无法再次获取真实 Accessibility snapshot")
     }
 
     private class WorkflowTapRefE2eLlm : AgentLlm {
@@ -494,6 +649,43 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         ): String = "Workflow 文本输入已完成真实执行与精确回读"
     }
 
+    private class WorkflowBackE2eLlm : AgentLlm {
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            if (completedTools.size == 1) {
+                val snapshotResult = completedTools.single().toolResult
+                check(snapshotResult.success) { snapshotResult.content }
+                check(JSONObject(snapshotResult.content).getString("package") == SYSTEM_SETTINGS_PACKAGE) {
+                    "Workflow back 动作前 snapshot 不属于系统设置"
+                }
+                val back = tools.single { it.name == DEVICE_BACK_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = back.name,
+                        arguments = emptyMap(),
+                        risk = back.risk,
+                    ),
+                )
+            }
+            return AgentPlanDecision.Complete
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "Workflow 返回动作已完成真实执行与后置观察"
+    }
+
     companion object {
         const val ACTION_E2E = "com.longdev.xiaoling.debug.AGENT_E2E"
         const val EXTRA_OPERATION = "operation"
@@ -505,13 +697,17 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_STATUS = "status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"
         const val OPERATION_WORKFLOW_TYPE_TEXT = "workflow_type_text"
+        const val OPERATION_WORKFLOW_BACK = "workflow_back"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val PROVIDER_ID = "stage3-device-e2e-provider"
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
         private const val E2E_CONVERSATION_ID = "conversation-redmi-workflow-device-action"
         private const val E2E_TYPE_TEXT_CONVERSATION_ID = "conversation-redmi-workflow-type-text"
+        private const val E2E_BACK_CONVERSATION_ID = "conversation-redmi-workflow-back"
         private const val DEVICE_SNAPSHOT_E2E_TOOL_NAME = "device.snapshot"
+        private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+        private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
         private const val WORKFLOW_TYPE_TEXT_HINT = "Workflow 安全文本输入框"
         private const val WORKFLOW_TYPE_TEXT_INPUT = "stage117_safe_text"
         private const val TAG = "XiaoLingAgentE2e"

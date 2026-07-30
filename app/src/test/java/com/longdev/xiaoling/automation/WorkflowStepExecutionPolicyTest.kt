@@ -133,6 +133,27 @@ class WorkflowStepExecutionPolicyTest {
     }
 
     @Test
+    fun outputSnapshotKeepsVerifiedBackDecisionForNextStepAndUi() {
+        val decision = WorkflowDeviceActionDecision(
+            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+            action = "back",
+            beforePackageName = "com.android.settings",
+            afterPackageName = "com.android.settings",
+            afterNodeCount = 10,
+            afterRedactedNodeCount = 0,
+            afterTruncated = false,
+            afterObservedAt = 2_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "已返回上一级设置页面",
+            deviceActionDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceActionDecisions)
+    }
+
+    @Test
     fun executionPromptAddsPreviousOutputsOnlyForLaterSteps() {
         assertEquals(
             "读取当前时间",

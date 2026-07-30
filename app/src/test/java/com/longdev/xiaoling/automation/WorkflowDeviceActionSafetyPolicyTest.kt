@@ -211,6 +211,124 @@ class WorkflowDeviceActionSafetyPolicyTest {
     }
 
     @Test
+    fun safeBackUsesFreshWorkflowObservationWithoutCreatingApproval() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.back"))
+        val valid = validExecutionEvidence().copy(
+            identity = validExecutionEvidence().identity.copy(
+                toolName = "device.back",
+                arguments = emptyMap(),
+            ),
+            userIntent = "返回上一个系统设置页面",
+            approval = null,
+            liveReferenceMatched = false,
+        )
+
+        val decision = policy.assessExecution(valid)
+
+        assertTrue(decision is WorkflowDeviceActionSafetyDecision.Allowed)
+        decision as WorkflowDeviceActionSafetyDecision.Allowed
+        assertEquals(WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL, decision.authorization.approvalMode)
+        assertEquals(valid.identity, decision.authorization.identity)
+    }
+
+    @Test
+    fun safeBackRejectsAnyArgumentsBeforeExecution() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.back"))
+        val valid = validExecutionEvidence().copy(
+            identity = validExecutionEvidence().identity.copy(
+                toolName = "device.back",
+                arguments = mapOf("steps" to "2"),
+            ),
+            userIntent = "返回上一个系统设置页面",
+            approval = null,
+            liveReferenceMatched = false,
+        )
+
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+            policy.assessExecution(valid),
+        )
+    }
+
+    @Test
+    fun safeBackCompletionRejectsAuthorizationApprovalModeDrift() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.back"))
+        val execution = validExecutionEvidence().copy(
+            identity = validExecutionEvidence().identity.copy(
+                toolName = "device.back",
+                arguments = emptyMap(),
+            ),
+            userIntent = "返回上一个系统设置页面",
+            approval = null,
+            liveReferenceMatched = false,
+        )
+        val authorization = (
+            policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        ).authorization
+        val completion = validCompletionEvidence(authorization).copy(
+            identity = execution.identity,
+            resultToolName = execution.identity.toolName,
+        )
+
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.EXECUTION_AUTHORIZATION_MISMATCH,
+            policy.assessCompletion(
+                completion.copy(
+                    authorization = authorization.copy(
+                        approvalMode = WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun safeBackOnlyBypassesApprovalAndKeepsAllOtherExecutionAndCompletionGuards() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.back"))
+        val execution = validExecutionEvidence().copy(
+            identity = validExecutionEvidence().identity.copy(
+                toolName = "device.back",
+                arguments = emptyMap(),
+            ),
+            userIntent = "返回上一个系统设置页面",
+            approval = null,
+            liveReferenceMatched = false,
+        )
+        val observation = requireNotNull(execution.observation)
+
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.BACKGROUND_DENIED,
+            policy.assessExecution(execution.copy(executionOrigin = AgentExecutionOrigin.BACKGROUND)),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.OBSERVATION_MISSING,
+            policy.assessExecution(execution.copy(observation = null)),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.WINDOW_CHANGED,
+            policy.assessExecution(execution.copy(currentWindowGeneration = observation.windowGeneration + 1L)),
+        )
+
+        val authorization = (
+            policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        ).authorization
+        val completion = validCompletionEvidence(authorization).copy(
+            identity = execution.identity,
+            resultToolName = execution.identity.toolName,
+        )
+        listOf(
+            completion.copy(executorVerified = false),
+            completion.copy(verificationPassed = false),
+            completion.copy(afterObservation = null),
+        ).forEach { incomplete ->
+            assertDenied(
+                WorkflowDeviceActionSafetyFailure.POST_ACTION_VERIFICATION_MISSING,
+                policy.assessCompletion(incomplete),
+            )
+        }
+    }
+
+    @Test
     fun completionRequiresSameCallSuccessfulResultAndPostActionVerification() {
         val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.tap_ref"))
         val authorization = (
@@ -284,7 +402,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         }
         assertDenied(
             WorkflowDeviceActionSafetyFailure.POST_ACTION_VERIFICATION_MISSING,
-            policy.assessCompletion(valid.copy(actionCompletedAt = authorization.approvedAt)),
+            policy.assessCompletion(valid.copy(actionCompletedAt = authorization.authorizedAt)),
         )
     }
 

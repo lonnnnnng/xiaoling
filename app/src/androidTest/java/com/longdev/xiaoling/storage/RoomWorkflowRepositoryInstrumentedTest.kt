@@ -411,6 +411,61 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun workflowPersistsVerifiedBackDecisionForNextStepAndUiWithoutApprovalEvidence() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "返回动作本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察系统设置并返回上一级页面"),
+                WorkflowStepDefinitionInput("根据已验证返回动作生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-back-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-back-decision"
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().insertToolResult(deviceBackResult(agentRunId))
+
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "模型转述不可信返回结果\n${validDeviceActionResult(action = "back")}",
+        )
+
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        val decision = persistedOutput.deviceActionDecisions.single()
+        assertEquals("back", decision.action)
+        assertTrue(persistedOutput.text.contains("已执行并验证 返回"))
+        assertTrue(persistedOutput.text.contains("本次返回不产生可复用节点引用"))
+        assertFalse(persistedOutput.text.contains("后续动作必须重新观察和审批"))
+
+        val projectedAction = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = repository.recentRunDetails(),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.first().deviceActions.single()
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
+        assertEquals("返回", projectedAction.actionLabel)
+        assertTrue(projectedAction.followUpGuidance.contains("按各自风险规则执行"))
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        assertEquals(
+            persistedOutput.text,
+            WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
     fun workflowReplacesVerifiedTypeTextWithPrivacySafeDecisionForNextStepRetryAndProjection() = runBlocking {
         val workflow = repository.createWorkflow(
             name = "设备文本输入本地判定",
@@ -1460,6 +1515,32 @@ class RoomWorkflowRepositoryInstrumentedTest {
         executorVerified = executorVerified,
         verificationStatus = "PASSED",
         verifiedEventId = "event-tap-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 6L,
+        verifiedAt = 7L,
+    )
+
+    private fun deviceBackResult(
+        agentRunId: String,
+        executorVerified: Boolean? = true,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-back-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-back-result-$agentRunId",
+        toolName = "device.back",
+        content = validDeviceActionResult(action = "back"),
+        success = true,
+        errorMessage = null,
+        durationMs = 211L,
+        executorVerified = executorVerified,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-back-verified-$agentRunId",
         memoryIdsJson = "[]",
         knowledgeReferencesJson = "[]",
         replaySafety = "RESTART_REQUIRED",
