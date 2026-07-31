@@ -20,6 +20,7 @@ import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceController
 import com.longdev.xiaoling.device.DeviceNodeAction
+import com.longdev.xiaoling.device.DeviceReferenceInspection
 import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
@@ -47,7 +48,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    // long: Workflow 生产动作面只包含逐项完成安全证据的 back/home/tap_ref/type_text；其他已注册动作不能借构造注入扩大权限。
+    // long: Workflow 生产动作面只包含逐项完成安全证据的 open_app/back/home/tap_ref/type_text；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
         require(unsupported.isEmpty()) {
@@ -388,10 +389,18 @@ class XiaoLingToolRegistry(
         val snapshot = verifiedWorkflowSnapshot
             ?.takeIf { it.agentRunId == context.runId }
             ?: throw IllegalStateException("Workflow 设备动作缺少当前 Run 已验证的 device.snapshot")
-        val inspection = deviceController.inspectReference(
-            snapshotId = call.arguments["snapshot_id"].orEmpty(),
-            ref = call.arguments["ref"].orEmpty(),
-        )
+        // long: 打开应用和系统导航只核对观察后的窗口代次；只有节点动作才解析短期 ref，避免把无节点参数的动作误绑定到空引用。
+        val inspection = if (call.name in WORKFLOW_REFERENCE_ACTION_TOOL_NAMES) {
+            deviceController.inspectReference(
+                snapshotId = call.arguments["snapshot_id"].orEmpty(),
+                ref = call.arguments["ref"].orEmpty(),
+            )
+        } else {
+            DeviceReferenceInspection(
+                currentWindowGeneration = deviceController.currentWindowGeneration(),
+                matched = false,
+            )
+        }
         val identity = WorkflowDeviceActionIdentity(
             workflowRunId = workflowContext.workflowRunId,
             workflowStepId = workflowContext.workflowStepId,
@@ -500,7 +509,7 @@ class XiaoLingToolRegistry(
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
         if (!directDeviceActionsAllowed(context)) {
-            // long: 生产 Workflow 只放行已闭环的 back/home/tap_ref/type_text；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
+            // long: 生产 Workflow 只放行已闭环的 open_app/back/home/tap_ref/type_text；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
                 definition.name in DEVICE_ACTION_TOOL_NAMES &&
                     !workflowDeviceActionAllowed(context, definition.name)
@@ -726,6 +735,7 @@ class XiaoLingToolRegistry(
                 executorVerified = result.verified == true && decoded.verified,
                 verificationPassed = true,
                 actionCompletedAt = executed.outcome.afterSnapshot.capturedAt,
+                afterPackageName = decoded.afterPackageName,
                 afterObservation = WorkflowDeviceActionPostObservationEvidence(
                     agentRunId = context.runId,
                     actionToolCallId = call.id,
@@ -1146,6 +1156,9 @@ class XiaoLingToolRegistry(
 private object DisabledDeviceController : DeviceController {
     override fun health(): DeviceAgentHealthState = DeviceAgentHealthState.AGENT_DISABLED
 
+    // long: 设备 Agent 关闭时不存在可授权的活动窗口，返回负代次让所有非 ref 动作在安全策略前保持不可执行。
+    override fun currentWindowGeneration(): Long = -1L
+
     override suspend fun capture(): DeviceSnapshotCapture {
         return DeviceSnapshotCapture.Failed(
             reason = DeviceSnapshotFailure.AGENT_DISABLED,
@@ -1178,24 +1191,31 @@ private object DisabledDeviceController : DeviceController {
 }
 
 private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
-private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
+internal const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
 private const val DEVICE_BACK_TOOL_NAME = "device.back"
 private const val DEVICE_HOME_TOOL_NAME = "device.home"
 internal const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
 private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
 private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
+    DEVICE_OPEN_APP_TOOL_NAME,
     DEVICE_BACK_TOOL_NAME,
     DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
 )
 private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
+    DEVICE_OPEN_APP_TOOL_NAME,
     DEVICE_BACK_TOOL_NAME,
     DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
 )
 private val SAFE_WORKFLOW_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
+private val WORKFLOW_REFERENCE_ACTION_TOOL_NAMES = setOf(
+    DEVICE_TAP_REF_TOOL_NAME,
+    DEVICE_TYPE_TEXT_TOOL_NAME,
+    DEVICE_SWIPE_TOOL_NAME,
+)
 private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
 
 private val DEVICE_TOOL_NAMES = setOf(

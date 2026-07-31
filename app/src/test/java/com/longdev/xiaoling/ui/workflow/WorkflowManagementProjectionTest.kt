@@ -31,6 +31,78 @@ import org.junit.Test
 
 class WorkflowManagementProjectionTest {
     @Test
+    fun openAppUiStateUsesActionLabelAndFollowUpBoundary() {
+        val action = WorkflowDeviceActionUiState(
+            outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+            action = "open_app",
+            detail = "已执行并验证",
+        )
+
+        assertEquals("打开应用", action.actionLabel)
+        assertEquals(
+            "本次打开应用不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            action.followUpGuidance,
+        )
+    }
+
+    @Test
+    fun projectShowsDeniedOpenAppWithoutApprovalArguments() {
+        val workflow = workflow(id = "workflow-open-app-denied", enabled = true)
+        val agentRunId = "agent-run-open-app-denied"
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-open-app-denied",
+            status = WorkflowRunStatus.FAILED,
+            step = WorkflowStepRecord(
+                id = "step-open-app-denied",
+                workflowRunId = "workflow-run-open-app-denied",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.FAILED,
+                title = "打开系统计算器",
+                detail = "打开允许列表中的系统计算器",
+                agentRunId = agentRunId,
+                result = null,
+                errorMessage = "用户未批准工具执行",
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+            deviceActionApprovalsByAgentRunId = mapOf(
+                agentRunId to listOf(
+                    approval(
+                        runId = agentRunId,
+                        status = ApprovalRequestStatus.DENIED,
+                        decisionReason = "用户已在设备动作审批浮层拒绝",
+                        toolName = "device.open_app",
+                    ),
+                ),
+            ),
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.USER_DENIED, action.outcome)
+        assertEquals("open_app", action.action)
+        assertEquals("打开应用", action.actionLabel)
+        assertFalse(action.toString().contains("com.android.calculator2"))
+        assertFalse(action.toString().contains("raw-package-secret"))
+    }
+
+    @Test
     fun homeActionUiStateUsesSafeNavigationLabelAndFollowUpBoundary() {
         val action = WorkflowDeviceActionUiState(
             outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
@@ -585,6 +657,68 @@ class WorkflowManagementProjectionTest {
         assertFalse(action.toString().contains("fingerprint-secret"))
         assertFalse(action.toString().contains("[0,0,100,100]"))
         assertFalse(action.toString().contains("raw-arguments-secret"))
+    }
+
+    @Test
+    fun projectIncludesVerifiedOpenAppTargetPackageWithoutRawApprovalIdentity() {
+        val workflow = workflow(id = "workflow-open-app-verified", enabled = true)
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-open-app-verified",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-open-app-verified",
+                workflowRunId = "workflow-run-open-app-verified",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "打开系统计算器",
+                detail = "打开允许列表中的系统计算器",
+                agentRunId = "agent-run-open-app-verified",
+                result = "已打开系统计算器",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
+                    text = "已打开系统计算器",
+                    deviceActionDecisions = listOf(
+                        WorkflowDeviceActionDecision(
+                            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+                            action = "open_app",
+                            beforePackageName = "com.longdev.xiaoling",
+                            afterPackageName = "com.android.calculator2",
+                            afterNodeCount = 15,
+                            afterRedactedNodeCount = 0,
+                            afterTruncated = false,
+                            afterObservedAt = 1_700_000_000_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, action.outcome)
+        assertEquals("打开应用", action.actionLabel)
+        assertEquals("com.longdev.xiaoling", action.beforePackageName)
+        assertEquals("com.android.calculator2", action.afterPackageName)
+        assertFalse(action.toString().contains("snapshot_id"))
+        assertFalse(action.toString().contains("package_name"))
     }
 
     @Test

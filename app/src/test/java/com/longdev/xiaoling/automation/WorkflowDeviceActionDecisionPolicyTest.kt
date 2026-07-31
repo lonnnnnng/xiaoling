@@ -7,6 +7,56 @@ import org.junit.Test
 
 class WorkflowDeviceActionDecisionPolicyTest {
     @Test
+    fun verifiedOpenAppProducesTargetPackageEvidenceWithoutReusableNodeReference() {
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.open_app",
+                    expectedOpenAppPackageName = "com.android.calculator2",
+                    content = validActionResult(
+                        action = "open_app",
+                        afterPackageName = "com.android.calculator2",
+                    ),
+                ),
+            ),
+        )
+
+        val decision = (resolution as WorkflowDeviceActionResolution.Decided).decisions.single()
+        assertEquals("open_app", decision.action)
+        assertEquals("com.android.calculator2", decision.afterPackageName)
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        assertTrue(prompt.contains("已执行并验证 打开应用"))
+        assertTrue(prompt.contains("本次打开应用不产生可复用节点引用"))
+        assertTrue(prompt.contains("后续设备动作必须重新观察并按各自风险规则执行"))
+        assertFalse(prompt.contains("节点引用已经失效，后续动作必须重新观察和审批"))
+    }
+
+    @Test
+    fun openAppFailsClosedWhenApprovedTargetIsMissingOrDiffersFromResult() {
+        listOf(null, "com.android.settings").forEach { expectedPackageName ->
+            val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+                expectedAgentRunId = "agent-run-current",
+                results = listOf(
+                    actionEvidence(
+                        toolName = "device.open_app",
+                        expectedOpenAppPackageName = expectedPackageName,
+                        content = validActionResult(
+                            action = "open_app",
+                            afterPackageName = "com.android.calculator2",
+                        ),
+                    ),
+                ),
+            )
+
+            assertEquals(
+                WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
+                (resolution as WorkflowDeviceActionResolution.InsufficientEvidence).reason,
+            )
+        }
+    }
+
+    @Test
     fun verifiedHomeProducesLauncherNavigationEvidenceWithoutReusableNodeReference() {
         val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
             expectedAgentRunId = "agent-run-current",
@@ -179,6 +229,7 @@ class WorkflowDeviceActionDecisionPolicyTest {
         executorVerified: Boolean? = true,
         verified: Boolean = true,
         toolName: String = "device.tap_ref",
+        expectedOpenAppPackageName: String? = null,
         content: String,
     ) = WorkflowDeviceActionEvidenceInput(
         runId = "agent-run-current",
@@ -187,15 +238,19 @@ class WorkflowDeviceActionDecisionPolicyTest {
         success = true,
         executorVerified = executorVerified,
         verified = verified,
+        expectedOpenAppPackageName = expectedOpenAppPackageName,
     )
 
-    private fun validActionResult(action: String = "tap_ref"): String = """
+    private fun validActionResult(
+        action: String = "tap_ref",
+        afterPackageName: String = "com.example.after",
+    ): String = """
         {
           "ruleVersion":"workflow-device-action-result-v1",
           "safetyRuleVersion":"workflow-device-action-safety-v1",
           "action":"$action",
           "beforePackageName":"com.example.before",
-          "afterPackageName":"com.example.after",
+          "afterPackageName":"$afterPackageName",
           "afterNodeCount":4,
           "afterRedactedNodeCount":1,
           "afterTruncated":false,

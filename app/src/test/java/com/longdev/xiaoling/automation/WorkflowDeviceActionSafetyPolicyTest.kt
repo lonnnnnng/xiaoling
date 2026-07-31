@@ -183,6 +183,72 @@ class WorkflowDeviceActionSafetyPolicyTest {
     }
 
     @Test
+    fun openAppRequiresPackageBoundApprovalAndVerifiedCompletionWithoutNodeReference() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.open_app"))
+        val base = validExecutionEvidence()
+        val identity = base.identity.copy(
+            toolName = "device.open_app",
+            arguments = mapOf("package_name" to "com.android.calculator2"),
+        )
+        val approval = requireNotNull(base.approval).copy(
+            toolName = identity.toolName,
+            arguments = identity.arguments,
+        )
+        val execution = base.copy(
+            identity = identity,
+            userIntent = "打开系统计算器",
+            approval = approval,
+            liveReferenceMatched = false,
+        )
+
+        listOf(
+            emptyMap(),
+            mapOf("package_name" to "com.example.unlisted"),
+            mapOf("package_name" to "com.android.calculator2", "extra" to "unexpected"),
+        ).forEach { invalidArguments ->
+            assertDenied(
+                WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+                policy.assessExecution(
+                    execution.copy(
+                        identity = identity.copy(arguments = invalidArguments),
+                        approval = approval.copy(arguments = invalidArguments),
+                    ),
+                ),
+            )
+        }
+
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.APPROVAL_MISSING,
+            policy.assessExecution(execution.copy(approval = null)),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.APPROVAL_MISMATCH,
+            policy.assessExecution(
+                execution.copy(
+                    approval = approval.copy(arguments = mapOf("package_name" to "com.android.settings")),
+                ),
+            ),
+        )
+        val allowed = policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        assertEquals(WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL, allowed.authorization.approvalMode)
+        assertEquals(identity, allowed.authorization.identity)
+
+        val completion = validCompletionEvidence(allowed.authorization).copy(
+            identity = identity,
+            resultToolName = identity.toolName,
+            afterPackageName = "com.android.calculator2",
+        )
+        assertEquals(
+            WorkflowDeviceActionSafetyDecision.Allowed(allowed.authorization),
+            policy.assessCompletion(completion),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.ACTION_RESULT_MISMATCH,
+            policy.assessCompletion(completion.copy(afterPackageName = "com.android.settings")),
+        )
+    }
+
+    @Test
     fun enabledActionRequiresCompleteStableIdentityBeforeItCanBeAllowed() {
         val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.tap_ref"))
         val valid = validExecutionEvidence()

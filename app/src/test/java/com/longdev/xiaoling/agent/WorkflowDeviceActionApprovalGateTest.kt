@@ -13,6 +13,66 @@ import org.junit.Test
 
 class WorkflowDeviceActionApprovalGateTest {
     @Test
+    fun openAppUsesOverlayAndPersistsPackageBoundApproval() = runTest {
+        val persistence = FakeApprovalPersistence()
+        var overlayRequest: DeviceActionApprovalOverlayRequest? = null
+        var fallbackCalled = false
+        val gate = gate(
+            persistence = persistence,
+            fallback = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    fallbackCalled = true
+                    return ApprovalDecision(approved = true, reason = "不应使用通用审批")
+                }
+            },
+            requester = DeviceActionApprovalOverlayRequester { request ->
+                overlayRequest = request
+                DeviceActionApprovalOverlayDecision(
+                    DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                    "用户已在设备动作审批浮层批准",
+                )
+            },
+        )
+
+        val decision = gate.requestApproval(RUN_ID, openAppCall(), openAppDefinition())
+
+        assertTrue(decision.approved)
+        assertFalse(fallbackCalled)
+        assertEquals(
+            mapOf("package_name" to "com.android.calculator2"),
+            persistence.createdToolCall?.arguments,
+        )
+        assertEquals("打开允许列表应用 com.android.calculator2", overlayRequest?.actionSummary)
+        assertEquals(ApprovalRequestStatus.APPROVED, persistence.decisions.single().status)
+    }
+
+    @Test
+    fun openAppRejectsMissingOrUnlistedPackageBeforePersistence() = runTest {
+        val persistence = FakeApprovalPersistence()
+        val gate = gate(
+            persistence = persistence,
+            requester = DeviceActionApprovalOverlayRequester {
+                error("无效包名不得进入设备审批浮层")
+            },
+        )
+
+        listOf("", "com.example.unlisted").forEach { packageName ->
+            val decision = gate.requestApproval(
+                RUN_ID,
+                openAppCall(packageName),
+                openAppDefinition(),
+            )
+            assertFalse(decision.approved)
+            assertTrue(decision.reason.contains("参数不完整"))
+        }
+        assertEquals(0, persistence.createCount)
+    }
+
+    @Test
     fun typeTextUsesOverlayWithoutPersistingOrDisplayingInputText() = runTest {
         val persistence = FakeApprovalPersistence()
         var overlayRequest: DeviceActionApprovalOverlayRequest? = null
@@ -178,6 +238,19 @@ class WorkflowDeviceActionApprovalGateTest {
     private fun tapDefinition() = ToolDefinition(
         name = "device.tap_ref",
         description = "点击当前快照中的节点",
+        risk = ToolRisk.REQUIRES_APPROVAL,
+    )
+
+    private fun openAppCall(packageName: String = "com.android.calculator2") = ToolCall(
+        id = TOOL_CALL_ID,
+        name = "device.open_app",
+        arguments = mapOf("package_name" to packageName),
+        risk = ToolRisk.REQUIRES_APPROVAL,
+    )
+
+    private fun openAppDefinition() = ToolDefinition(
+        name = "device.open_app",
+        description = "打开允许列表中的 Android 应用",
         risk = ToolRisk.REQUIRES_APPROVAL,
     )
 

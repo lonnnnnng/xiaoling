@@ -30,6 +30,7 @@ import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.data.AgentRunEntity
+import com.longdev.xiaoling.data.AgentToolCallEntity
 import com.longdev.xiaoling.data.AgentToolResultEntity
 import com.longdev.xiaoling.data.ConversationEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -511,6 +512,65 @@ class RoomWorkflowRepositoryInstrumentedTest {
         ).items.single().runs.single().steps.first().deviceActions.single()
         assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
         assertEquals("返回桌面", projectedAction.actionLabel)
+        assertTrue(projectedAction.followUpGuidance.contains("按各自风险规则执行"))
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        assertEquals(
+            persistedOutput.text,
+            WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
+    fun workflowPersistsVerifiedOpenAppDecisionForNextStepAndUi() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "打开应用本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察当前页面并打开系统计算器"),
+                WorkflowStepDefinitionInput("根据已验证打开应用动作生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-open-app-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-open-app-decision"
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().upsertToolCall(deviceOpenAppCall(agentRunId))
+        database.agentRunDao().insertToolResult(deviceOpenAppResult(agentRunId))
+
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "模型转述不可信打开应用结果\n${validDeviceActionResult(action = "open_app", afterPackageName = "com.android.calculator2")}",
+        )
+
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        val decision = persistedOutput.deviceActionDecisions.single()
+        assertEquals("open_app", decision.action)
+        assertEquals("com.android.calculator2", decision.afterPackageName)
+        assertTrue(persistedOutput.text.contains("已执行并验证 打开应用"))
+        assertTrue(persistedOutput.text.contains("本次打开应用不产生可复用节点引用"))
+        assertFalse(persistedOutput.text.contains("后续动作必须重新观察和审批"))
+
+        val projectedAction = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = repository.recentRunDetails(),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.first().deviceActions.single()
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
+        assertEquals("打开应用", projectedAction.actionLabel)
+        assertEquals("com.example.notes", projectedAction.beforePackageName)
+        assertEquals("com.android.calculator2", projectedAction.afterPackageName)
         assertTrue(projectedAction.followUpGuidance.contains("按各自风险规则执行"))
 
         val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
@@ -1631,6 +1691,44 @@ class RoomWorkflowRepositoryInstrumentedTest {
         receiptStatus = null,
         createdAt = 6L,
         verifiedAt = 7L,
+    )
+
+    private fun deviceOpenAppResult(
+        agentRunId: String,
+        executorVerified: Boolean? = true,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-open-app-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-open-app-result-$agentRunId",
+        toolName = "device.open_app",
+        content = validDeviceActionResult(action = "open_app", afterPackageName = "com.android.calculator2"),
+        success = true,
+        errorMessage = null,
+        durationMs = 237L,
+        executorVerified = executorVerified,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-open-app-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 6L,
+        verifiedAt = 7L,
+    )
+
+    private fun deviceOpenAppCall(agentRunId: String) = AgentToolCallEntity(
+        id = "tool-call-open-app-$agentRunId",
+        runId = agentRunId,
+        toolName = "device.open_app",
+        risk = "REQUIRES_APPROVAL",
+        argumentsJson = "{\"package_name\":\"com.android.calculator2\"}",
+        proposedEventId = "event-open-app-proposed-$agentRunId",
+        validatedEventId = "event-open-app-validated-$agentRunId",
+        createdAt = 4L,
+        validatedAt = 5L,
     )
 
     private fun deviceTypeTextResult(

@@ -2,6 +2,7 @@ package com.longdev.xiaoling.automation
 
 import com.longdev.xiaoling.agent.AgentExecutionOrigin
 import com.longdev.xiaoling.agent.AgentInvocationSource
+import com.longdev.xiaoling.device.DeviceActionPolicy
 
 data class WorkflowDeviceActionIdentity(
     val workflowRunId: String,
@@ -83,6 +84,7 @@ data class WorkflowDeviceActionCompletionEvidence(
     val executorVerified: Boolean,
     val verificationPassed: Boolean,
     val actionCompletedAt: Long,
+    val afterPackageName: String? = null,
     val afterObservation: WorkflowDeviceActionPostObservationEvidence?,
     val cancelled: Boolean,
     val typeText: WorkflowTypeTextCompletionEvidence? = null,
@@ -176,6 +178,20 @@ class WorkflowDeviceActionSafetyPolicy(
                 WorkflowDeviceActionSafetyFailure.USER_INTENT_MISSING,
                 "Workflow 设备动作缺少用户明确编写的步骤意图",
             )
+        }
+        if (evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME) {
+            val arguments = evidence.identity.arguments
+            val packageName = arguments["package_name"]
+            // long: 安全策略自身也冻结唯一白名单包名，不能依赖上游审批 Gate 或下游 Executor 替它补齐参数边界。
+            if (
+                arguments.keys != setOf("package_name") ||
+                packageName !in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES
+            ) {
+                return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+                    "device.open_app 只能打开当前阶段允许列表中的单一应用",
+                )
+            }
         }
         if (evidence.identity.toolName in SAFE_NAVIGATION_TOOL_NAMES && evidence.identity.arguments.isNotEmpty()) {
             // long: 返回与桌面导航都没有目标、次数或坐标参数；拒绝所有额外字段，避免模型把一次 SAFE 动作扩张成可配置导航序列。
@@ -376,6 +392,16 @@ class WorkflowDeviceActionSafetyPolicy(
                 "设备动作没有成功执行",
             )
         }
+        if (
+            evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
+            evidence.afterPackageName != evidence.identity.arguments["package_name"]
+        ) {
+            // long: 打开应用只能以本次逐包审批的目标收敛；即使 Executor 声称已验证，后置包名错配也必须按结果身份不一致拒绝。
+            return WorkflowDeviceActionSafetyDecision.Denied(
+                WorkflowDeviceActionSafetyFailure.ACTION_RESULT_MISMATCH,
+                "device.open_app 动作后包名与获批目标不一致",
+            )
+        }
         val afterObservation = evidence.afterObservation
         // long: Android 接收动作不等于用户目标完成；只有 Executor、typed 验证和后置 snapshot 同时成立才能进入 Workflow 完成投影。
         if (
@@ -440,12 +466,13 @@ class WorkflowDeviceActionSafetyPolicy(
     companion object {
         const val RULE_VERSION = "workflow-device-action-safety-v1"
         private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+        private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val MAX_OBSERVATION_LIFETIME_MILLIS = 30_000L
         private val KNOWN_DEVICE_ACTION_TOOL_NAMES = setOf(
-            "device.open_app",
+            DEVICE_OPEN_APP_TOOL_NAME,
             "device.back",
             "device.home",
             "device.tap_ref",

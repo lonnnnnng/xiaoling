@@ -76,6 +76,9 @@ data class DeviceReferenceInspection(
 )
 
 interface DeviceController : DeviceSnapshotProvider {
+    // long: open_app/back/home 不消费节点引用，但仍必须读取真实窗口代次参与动作前门禁；实现方需显式提供来源，禁止用空 snapshot/ref 形成隐式协议。
+    fun currentWindowGeneration(): Long
+
     fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection =
         DeviceReferenceInspection(currentWindowGeneration = -1L, matched = false)
 

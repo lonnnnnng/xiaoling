@@ -43,6 +43,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         if (
             operation == OPERATION_WORKFLOW_TAP_REF ||
             operation == OPERATION_WORKFLOW_TYPE_TEXT ||
+            operation == OPERATION_WORKFLOW_OPEN_APP ||
             operation == OPERATION_WORKFLOW_BACK ||
             operation == OPERATION_WORKFLOW_HOME
         ) {
@@ -51,6 +52,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 runCatching {
                     when (operation) {
                         OPERATION_WORKFLOW_TYPE_TEXT -> runWorkflowTypeText(context.applicationContext)
+                        OPERATION_WORKFLOW_OPEN_APP -> runWorkflowOpenApp(context.applicationContext)
                         OPERATION_WORKFLOW_BACK -> runWorkflowBack(context.applicationContext)
                         OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
@@ -345,6 +347,122 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             "workflow-type-text-e2e success=true action=${actionEvidence.action} " +
                 "verified=${actionEvidence.verified} approval=${approval.status} " +
                 "answerDecision=${decision.status} exactReadBack=true afterNodes=${actionEvidence.afterNodeCount}",
+        )
+    }
+
+    private suspend fun runWorkflowOpenApp(context: Context) {
+        context.startActivity(
+            Intent(context, DevicePrivacyProbeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = AndroidDeviceAccessibilityGateway(context),
+        )
+        awaitDeviceReady(controller)
+        awaitProbeWindow(controller)
+        // long: Probe 首帧可见时 Accessibility 活动根与窗口列表仍可能短暂不同步；连续稳定后再创建审批，避免把启动竞态误判为浮层不可用。
+        awaitStablePackageWindow(controller, context.packageName)
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context),
+            noteStore = RoomAgentNoteStore(context),
+            memoryStore = RoomAgentMemoryStore(context),
+            knowledgeStore = RoomKnowledgeDocumentStore(context),
+            deviceController = controller,
+        )
+        val runRepository = RoomAgentRunRepository(context)
+        val runtime = MinimalAgentRuntime(
+            ledger = runRepository,
+            toolRegistry = registry,
+            llm = WorkflowOpenAppE2eLlm(expectedBeforePackageName = context.packageName),
+            approvalGate = WorkflowDeviceActionApprovalGate(
+                conversationId = E2E_OPEN_APP_CONVERSATION_ID,
+                userIntent = "打开允许列表中的系统计算器",
+                fallback = AutoApprovalGate(),
+                persistence = RoomWorkflowDeviceActionApprovalPersistence(runRepository),
+                overlayRequester = DeviceAccessibilityRuntime,
+            ),
+            permissionChecker = AndroidToolPermissionChecker(context),
+            processSessionId = "process-redmi-workflow-open-app",
+        )
+        Log.i(TAG, "workflow-open-app-overlay waiting=true")
+        val summary = runtime.run(
+            conversationId = E2E_OPEN_APP_CONVERSATION_ID,
+            userMessageId = "message-redmi-workflow-open-app-${System.currentTimeMillis()}",
+            goal = "打开系统计算器并确认前台目标包名",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            memoryRecallEnabled = false,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-redmi-open-app",
+                workflowStepId = "workflow-step-redmi-open-app",
+                userIntent = "打开允许列表中的系统计算器",
+            ),
+        )
+        val detail = checkNotNull(runRepository.runDetail(summary.runId)) { "真实 Workflow open_app Run 未写入 Room" }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "真实 Workflow open_app Run 未完成：${detail.snapshot.run.status}"
+        }
+        val approval = detail.approvals.single { it.toolName == DEVICE_OPEN_APP_TOOL_NAME }
+        check(
+            approval.status == ApprovalRequestStatus.APPROVED &&
+                approval.arguments == mapOf("package_name" to SYSTEM_CALCULATOR_PACKAGE)
+        ) { "Room open_app 审批未绑定目标包名或未批准：$approval" }
+        val openAppCall = detail.toolLedger.calls.single { it.toolName == DEVICE_OPEN_APP_TOOL_NAME }
+        check(
+            openAppCall.arguments == approval.arguments &&
+                openAppCall.risk == ToolRisk.REQUIRES_APPROVAL
+        ) { "Workflow open_app ToolCall 没有保持逐包审批身份：$openAppCall" }
+        val openAppResult = detail.toolLedger.results.single { it.toolName == DEVICE_OPEN_APP_TOOL_NAME }
+        check(
+            openAppResult.success &&
+                openAppResult.executorVerified == true &&
+                openAppResult.verificationStatus == ToolVerificationStatus.PASSED
+        ) { "Tool Ledger 未保存通过验证的 open_app：$openAppResult" }
+        val actionEvidence = checkNotNull(WorkflowDeviceActionResultCodec.decode(openAppResult.content)) {
+            "Workflow open_app 没有返回严格白名单结果"
+        }
+        // long: 打开应用的完成事实必须同时证明动作前仍是本应用、动作后精确命中获批包名，不能只凭 launchApp 返回成功。
+        check(
+            actionEvidence.action == "open_app" &&
+                actionEvidence.beforePackageName == context.packageName &&
+                actionEvidence.afterPackageName == SYSTEM_CALCULATOR_PACKAGE &&
+                actionEvidence.verified
+        ) { "Workflow open_app 前后窗口或目标包验证不符合预期：$actionEvidence" }
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = listOf(
+                WorkflowDeviceActionEvidenceInput(
+                    runId = openAppResult.runId,
+                    toolName = openAppResult.toolName,
+                    content = openAppResult.content,
+                    success = openAppResult.success,
+                    executorVerified = openAppResult.executorVerified,
+                    verified = openAppResult.verificationStatus == ToolVerificationStatus.PASSED,
+                    expectedOpenAppPackageName = openAppCall.arguments["package_name"],
+                ),
+            ),
+        )
+        val decision = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions?.singleOrNull()
+            ?: error("Workflow open_app 未形成答案级本地判定：$resolution")
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        check(
+            prompt.contains("已执行并验证 打开应用") &&
+                prompt.contains("本次打开应用不产生可复用节点引用") &&
+                !prompt.contains("节点引用已经失效")
+        ) { "Workflow open_app 答案级边界不完整" }
+        val postSnapshot = captureWhenReady(controller).snapshot
+        check(postSnapshot.packageName == SYSTEM_CALCULATOR_PACKAGE) {
+            "真实 Accessibility open_app 后没有停留在系统计算器：${postSnapshot.packageName}"
+        }
+        Log.i(
+            TAG,
+            "workflow-open-app-e2e success=true action=${actionEvidence.action} " +
+                "verified=${actionEvidence.verified} approval=${approval.status} " +
+                "executorVerified=${openAppResult.executorVerified} verification=${openAppResult.verificationStatus} " +
+                "beforePackage=${actionEvidence.beforePackageName} afterPackage=${actionEvidence.afterPackageName} " +
+                "answerDecision=${decision.status}",
         )
     }
 
@@ -767,6 +885,45 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         ): String = "Workflow 文本输入已完成真实执行与精确回读"
     }
 
+    private class WorkflowOpenAppE2eLlm(
+        private val expectedBeforePackageName: String,
+    ) : AgentLlm {
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            if (completedTools.size == 1) {
+                val snapshotResult = completedTools.single().toolResult
+                check(snapshotResult.success) { snapshotResult.content }
+                check(JSONObject(snapshotResult.content).getString("package") == expectedBeforePackageName) {
+                    "Workflow open_app 动作前 snapshot 不属于小灵验收页"
+                }
+                val openApp = tools.single { it.name == DEVICE_OPEN_APP_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = openApp.name,
+                        arguments = mapOf("package_name" to SYSTEM_CALCULATOR_PACKAGE),
+                        risk = openApp.risk,
+                    ),
+                )
+            }
+            return AgentPlanDecision.Complete
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "Workflow 打开应用动作已完成真实执行与目标包验证"
+    }
+
     private class WorkflowBackE2eLlm : AgentLlm {
         override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
             val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
@@ -852,6 +1009,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_STATUS = "status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"
         const val OPERATION_WORKFLOW_TYPE_TEXT = "workflow_type_text"
+        const val OPERATION_WORKFLOW_OPEN_APP = "workflow_open_app"
         const val OPERATION_WORKFLOW_BACK = "workflow_back"
         const val OPERATION_WORKFLOW_HOME = "workflow_home"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
@@ -859,6 +1017,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
         private const val E2E_CONVERSATION_ID = "conversation-redmi-workflow-device-action"
         private const val E2E_TYPE_TEXT_CONVERSATION_ID = "conversation-redmi-workflow-type-text"
+        private const val E2E_OPEN_APP_CONVERSATION_ID = "conversation-redmi-workflow-open-app"
         private const val E2E_BACK_CONVERSATION_ID = "conversation-redmi-workflow-back"
         private const val E2E_HOME_CONVERSATION_ID = "conversation-redmi-workflow-home"
         private const val DEVICE_SNAPSHOT_E2E_TOOL_NAME = "device.snapshot"
@@ -866,6 +1025,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
+        private const val SYSTEM_CALCULATOR_PACKAGE = "com.android.calculator2"
         private const val WORKFLOW_TYPE_TEXT_HINT = "Workflow 安全文本输入框"
         private const val WORKFLOW_TYPE_TEXT_INPUT = "stage117_safe_text"
         private const val TAG = "XiaoLingAgentE2e"

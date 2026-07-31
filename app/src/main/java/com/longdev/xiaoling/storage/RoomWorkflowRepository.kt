@@ -52,6 +52,7 @@ import com.longdev.xiaoling.model.MessageOrigin
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import org.json.JSONObject
 
 class RoomWorkflowRepository(
     context: Context,
@@ -1521,9 +1522,11 @@ class RoomWorkflowRepository(
     private suspend fun evaluateDeviceActionEvidence(
         agentRunId: String,
     ): WorkflowDeviceActionResolution {
+        val dao = database.agentRunDao()
+        val callsById = dao.getToolCalls(agentRunId).associateBy { it.id }
         return WorkflowDeviceActionDecisionPolicy.evaluate(
             expectedAgentRunId = agentRunId,
-            results = database.agentRunDao().getToolResults(agentRunId).map { result ->
+            results = dao.getToolResults(agentRunId).map { result ->
                 WorkflowDeviceActionEvidenceInput(
                     runId = result.runId,
                     toolName = result.toolName,
@@ -1531,10 +1534,25 @@ class RoomWorkflowRepository(
                     success = result.success,
                     executorVerified = result.executorVerified,
                     verified = result.verificationStatus == "PASSED",
+                    expectedOpenAppPackageName = if (result.toolName == DEVICE_OPEN_APP_TOOL_NAME) {
+                        callsById[result.toolCallId]?.argumentsJson?.decodeOpenAppPackageName()
+                    } else {
+                        null
+                    },
                 )
             },
         )
     }
+
+    private fun String.decodeOpenAppPackageName(): String? = runCatching {
+        val json = JSONObject(this)
+        val keys = buildSet {
+            json.keys().forEach { key -> add(key) }
+        }
+        // long: 重建答案证据时只提取 open_app 的白名单包名；任何额外参数都视为账本身份不完整，且不把其他动作参数带进答案层。
+        require(keys == setOf("package_name")) { "device.open_app ToolCall 参数不唯一" }
+        json.getString("package_name").trim().takeIf(String::isNotEmpty)
+    }.getOrNull()
 
     private fun WorkflowEntity.toRecord(
         definitions: List<WorkflowStepDefinitionEntity> = emptyList(),
@@ -1667,6 +1685,7 @@ class RoomWorkflowRepository(
     companion object {
         const val AGENT_RUN_STEP_TYPE = "AGENT_RUN"
         private const val KNOWLEDGE_SEARCH_TOOL = "knowledge.search"
+        private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
         private val SUCCESSFUL_STEP_STATUSES = setOf(
             WorkflowStepStatus.COMPLETED.name,
             WorkflowStepStatus.SKIPPED.name,

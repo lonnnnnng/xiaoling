@@ -133,6 +133,7 @@ internal data class WorkflowDeviceActionUiState(
 ) {
     val actionLabel: String
         get() = when (action) {
+            "open_app" -> "打开应用"
             "back" -> "返回"
             "home" -> "返回桌面"
             "type_text" -> "输入文本（内容不展示）"
@@ -141,7 +142,8 @@ internal data class WorkflowDeviceActionUiState(
 
     val followUpGuidance: String
         get() = when (action) {
-            // long: SAFE 系统导航没有节点目标也不创建独立审批，历史页只能要求重新观察并让下一动作按自己的风险规则重新判定。
+            // long: 打开应用与 SAFE 系统导航都没有节点目标；历史页只能要求重新观察，但下一动作仍按自身风险决定是否审批。
+            "open_app" -> "本次打开应用不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
             "back" -> "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
             "home" -> "本次返回桌面不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
             else -> "节点引用已失效，后续动作必须重新观察和审批"
@@ -216,8 +218,8 @@ internal object WorkflowDeviceActionApprovalEvidencePolicy {
         return this != null && signatures.any(::contains)
     }
 
-    // long: 这里只投影会产生 Room Approval 的动作；SAFE back 以 approval.skipped 和 Tool Ledger 审计，不能伪造一条审批卡。
-    private val DEVICE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text")
+    // long: 这里只投影会产生 Room Approval 的动作；SAFE back/home 以 approval.skipped 和 Tool Ledger 审计，不能伪造一条审批卡。
+    private val DEVICE_ACTION_TOOL_NAMES = setOf("device.open_app", "device.tap_ref", "device.type_text")
     private val BUSY_REASON_SIGNATURES = setOf("已有设备动作审批正在显示", "已有设备动作审批正在处理")
     private val WINDOW_CHANGED_REASON_SIGNATURES = setOf(
         "活动页面已经切换",
@@ -557,6 +559,7 @@ internal object WorkflowManagementProjection {
     private const val DEVICE_ACTION_RUN_RESULT_NOTICE = "设备动作原始结果已隐藏，请查看步骤中的本地判定"
     private const val DEVICE_ACTION_RUN_ERROR_NOTICE = "设备动作错误详情已隐藏，请查看步骤中的本地判定"
     private val DEVICE_ACTION_BY_TOOL_NAME = mapOf(
+        "device.open_app" to "open_app",
         "device.tap_ref" to "tap_ref",
         "device.type_text" to "type_text",
     )

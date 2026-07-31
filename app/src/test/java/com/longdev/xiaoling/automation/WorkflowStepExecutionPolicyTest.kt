@@ -175,6 +175,27 @@ class WorkflowStepExecutionPolicyTest {
     }
 
     @Test
+    fun outputSnapshotKeepsVerifiedOpenAppDecisionForNextStepAndUi() {
+        val decision = WorkflowDeviceActionDecision(
+            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+            action = "open_app",
+            beforePackageName = "com.miui.home",
+            afterPackageName = "com.android.calculator2",
+            afterNodeCount = 15,
+            afterRedactedNodeCount = 0,
+            afterTruncated = false,
+            afterObservedAt = 2_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "已打开系统计算器",
+            deviceActionDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceActionDecisions)
+    }
+
+    @Test
     fun executionPromptAddsPreviousOutputsOnlyForLaterSteps() {
         assertEquals(
             "读取当前时间",

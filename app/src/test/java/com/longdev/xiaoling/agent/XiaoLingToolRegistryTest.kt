@@ -38,7 +38,14 @@ class XiaoLingToolRegistryTest {
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
 
         assertEquals(
-            setOf("device.snapshot", "device.back", "device.home", "device.tap_ref", "device.type_text"),
+            setOf(
+                "device.snapshot",
+                "device.open_app",
+                "device.back",
+                "device.home",
+                "device.tap_ref",
+                "device.type_text",
+            ),
             registry.availableTools()
                 .filter { it.name.startsWith("device.") }
                 .mapTo(linkedSetOf(), ToolDefinition::name),
@@ -112,6 +119,55 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("\"afterPackageName\":\"com.android.launcher3\""))
         registry.afterToolVerification(homeCall, result)
         assertEquals(listOf("home"), provider.actions)
+    }
+
+    @Test
+    fun productionWorkflowOpenAppRequiresApprovalAndVerifiesWhitelistedTarget() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = productionRegistry(
+            deviceController = provider,
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "打开系统计算器"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-open-app-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val openAppCall = ToolCall(
+            id = "tool-call-open-app-action",
+            name = "device.open_app",
+            arguments = mapOf("package_name" to "com.android.calculator2"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val missingApproval = runCatching {
+            registry.beforeToolExecution(openAppCall, approval = null)
+        }.exceptionOrNull()
+        assertTrue(missingApproval is IllegalStateException)
+        assertTrue(missingApproval?.message.orEmpty().contains("缺少独立用户审批"))
+
+        registry.beforeToolExecution(
+            openAppCall,
+            AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = 1_500L,
+                processSessionId = "process-workflow",
+            ),
+        )
+        val result = registry.execute(openAppCall)
+
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, registry.definition("device.open_app")?.approvalPolicy)
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("\"action\":\"open_app\""))
+        assertTrue(result.content.contains("\"afterPackageName\":\"com.android.calculator2\""))
+        registry.afterToolVerification(openAppCall, result)
+        assertEquals(listOf("open_app:com.android.calculator2"), provider.actions)
+        assertEquals(0, provider.referenceInspectionCount)
     }
 
     @Test
@@ -1146,11 +1202,15 @@ private class FakeDeviceController(
     ),
 ) : DeviceController {
     var captureCount: Int = 0
+    var referenceInspectionCount: Int = 0
     val actions = mutableListOf<String>()
 
     override fun health(): DeviceAgentHealthState = healthState
 
+    override fun currentWindowGeneration(): Long = 2L
+
     override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
+        referenceInspectionCount += 1
         return DeviceReferenceInspection(
             currentWindowGeneration = 2L,
             matched = snapshotId == "snapshot-direct" && ref == "r1",

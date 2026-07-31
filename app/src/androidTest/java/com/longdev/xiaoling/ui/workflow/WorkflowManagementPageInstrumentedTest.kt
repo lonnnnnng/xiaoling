@@ -17,6 +17,51 @@ import org.junit.Test
 
 class WorkflowManagementPageInstrumentedTest {
     @Test
+    fun pageDisplaysVerifiedOpenAppTargetAndFollowUpBoundary() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(
+                        deviceActions = listOf(
+                            WorkflowDeviceActionUiState(
+                                outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+                                action = "open_app",
+                                detail = "已执行并验证",
+                                beforePackageName = "com.longdev.xiaoling",
+                                afterPackageName = "com.android.calculator2",
+                                afterNodeCount = 15,
+                                afterRedactedNodeCount = 0,
+                                afterTruncated = false,
+                                afterObservedAt = 1_700_000_000_000L,
+                                decisionRuleVersion = "workflow-device-action-decision-v1",
+                            ),
+                        ),
+                    ),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithText("动作：打开应用", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "应用：com.longdev.xiaoling → com.android.calculator2",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "本次打开应用不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "节点引用已失效，后续动作必须重新观察和审批",
+            useUnmergedTree = true,
+        ).assertDoesNotExist()
+    }
+
+    @Test
     fun pageDisplaysVerifiedHomeAsSafeNavigationEvidence() {
         composeRule.setContent {
             MaterialTheme {

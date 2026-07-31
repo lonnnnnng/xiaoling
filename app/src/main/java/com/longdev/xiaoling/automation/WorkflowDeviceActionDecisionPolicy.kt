@@ -1,5 +1,7 @@
 package com.longdev.xiaoling.automation
 
+import com.longdev.xiaoling.device.DeviceActionPolicy
+
 enum class WorkflowDeviceActionDecisionStatus {
     VERIFIED,
 }
@@ -21,6 +23,7 @@ data class WorkflowDeviceActionEvidenceInput(
     val success: Boolean,
     val executorVerified: Boolean?,
     val verified: Boolean,
+    val expectedOpenAppPackageName: String? = null,
 )
 
 data class WorkflowDeviceActionDecision(
@@ -88,12 +91,25 @@ object WorkflowDeviceActionDecisionPolicy {
                     )
                 }
                 val evidence = WorkflowDeviceActionResultCodec.decode(result.content)
-                    // long: 答案级只消费严格 codec 的白名单摘要；工具名必须与结果 action 一一对应，type_text 也不能携带原文或节点引用混入答案。
+                    // long: 答案级只消费严格 codec 的白名单摘要；工具名必须与结果 action 一一对应，打开应用也只保留后置包名，不携带 intent 或节点引用。
                     ?.takeIf { it.verified && it.action == expectedAction }
                     ?: return insufficient(
                         WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
                         "${result.toolName} 结果不是完整的白名单动作证据",
                     )
+                if (
+                    result.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
+                    (
+                        result.expectedOpenAppPackageName !in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES ||
+                            evidence.afterPackageName != result.expectedOpenAppPackageName
+                    )
+                ) {
+                    // long: 答案级证据必须重新绑定同一 ToolCall 中获批的包名，不能仅信任结果正文里的 verified 标记。
+                    return insufficient(
+                        WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
+                        "device.open_app 结果与获批目标包名不一致",
+                    )
+                }
                 add(
                     WorkflowDeviceActionDecision(
                         status = WorkflowDeviceActionDecisionStatus.VERIFIED,
@@ -140,6 +156,9 @@ object WorkflowDeviceActionDecisionPolicy {
                 // long: 下游只能知道当前白名单动作已通过执行和验证；文本原文、原节点、ref、snapshot 身份及更高层业务目标都不能从 Tool Ledger 复制进 Workflow。
                 append("限制：仅确认当前设备动作和后置观察已验证，不确认用户最终业务目标；")
                 when (decision.action) {
+                    DEVICE_OPEN_APP_ACTION -> append(
+                        "本次打开应用不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
+                    )
                     DEVICE_BACK_ACTION -> append(
                         "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
                     )
@@ -165,11 +184,14 @@ object WorkflowDeviceActionDecisionPolicy {
     ) = WorkflowDeviceActionResolution.InsufficientEvidence(reason, message)
 
     private fun String.toAnswerLabel(): String = when (this) {
+        DEVICE_OPEN_APP_ACTION -> "打开应用"
         DEVICE_BACK_ACTION -> "返回"
         DEVICE_HOME_ACTION -> "返回桌面"
         else -> this
     }
 
+    private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
+    private const val DEVICE_OPEN_APP_ACTION = "open_app"
     private const val DEVICE_BACK_TOOL_NAME = "device.back"
     private const val DEVICE_BACK_ACTION = "back"
     private const val DEVICE_HOME_TOOL_NAME = "device.home"
@@ -178,6 +200,7 @@ object WorkflowDeviceActionDecisionPolicy {
     private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
     private const val DEVICE_TYPE_TEXT_ACTION = "type_text"
     private val ACTION_BY_TOOL_NAME = mapOf(
+        DEVICE_OPEN_APP_TOOL_NAME to DEVICE_OPEN_APP_ACTION,
         DEVICE_BACK_TOOL_NAME to DEVICE_BACK_ACTION,
         DEVICE_HOME_TOOL_NAME to DEVICE_HOME_ACTION,
         DEVICE_TAP_REF_TOOL_NAME to "tap_ref",

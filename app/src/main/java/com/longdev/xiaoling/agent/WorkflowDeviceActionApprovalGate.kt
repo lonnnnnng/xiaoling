@@ -3,6 +3,7 @@ package com.longdev.xiaoling.agent
 import com.longdev.xiaoling.device.DeviceActionApprovalOverlayDecisionKind
 import com.longdev.xiaoling.device.DeviceActionApprovalOverlayRequest
 import com.longdev.xiaoling.device.DeviceActionApprovalOverlayRequester
+import com.longdev.xiaoling.device.DeviceActionPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -153,6 +154,17 @@ class WorkflowDeviceActionApprovalGate(
     }
 
     private fun ToolCall.toApprovalInput(): WorkflowDeviceActionApprovalInput? {
+        if (name == DEVICE_OPEN_APP_TOOL_NAME) {
+            val packageName = arguments["package_name"]
+                ?.takeIf { arguments.keys == setOf("package_name") }
+                ?.takeIf { it in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES }
+                ?: return null
+            // long: 浮层与 Room 都绑定模型实际请求的白名单包名，用户批准计算器不能被复用于设置或任意第三方应用。
+            return WorkflowDeviceActionApprovalInput(
+                persistedToolCall = this,
+                actionSummary = "打开允许列表应用 $packageName",
+            )
+        }
         if (name == DEVICE_TAP_REF_TOOL_NAME) {
             return WorkflowDeviceActionApprovalInput(
                 persistedToolCall = this,
@@ -173,6 +185,7 @@ class WorkflowDeviceActionApprovalGate(
 
     private companion object {
         val WORKFLOW_OVERLAY_APPROVAL_TOOL_NAMES = setOf(
+            DEVICE_OPEN_APP_TOOL_NAME,
             DEVICE_TAP_REF_TOOL_NAME,
             DeviceTypeTextAuditPolicy.TOOL_NAME,
         )

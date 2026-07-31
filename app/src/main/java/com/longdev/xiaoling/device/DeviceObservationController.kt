@@ -61,6 +61,8 @@ class DeviceObservationController(
         )
     }
 
+    override fun currentWindowGeneration(): Long = gateway.currentWindowGeneration()
+
     override suspend fun capture(): DeviceSnapshotCapture {
         when (health()) {
             DeviceAgentHealthState.AGENT_DISABLED -> return failedAndClearReferences(
