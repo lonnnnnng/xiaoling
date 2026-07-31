@@ -251,6 +251,33 @@ class WorkflowDeviceActionSafetyPolicyTest {
     }
 
     @Test
+    fun safeHomeUsesFreshWorkflowObservationWithoutApprovalAndRejectsArguments() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.home"))
+        val valid = validExecutionEvidence().copy(
+            identity = validExecutionEvidence().identity.copy(
+                toolName = "device.home",
+                arguments = emptyMap(),
+            ),
+            userIntent = "返回 Android 桌面",
+            approval = null,
+            liveReferenceMatched = false,
+        )
+
+        val decision = policy.assessExecution(valid)
+
+        assertTrue(decision is WorkflowDeviceActionSafetyDecision.Allowed)
+        decision as WorkflowDeviceActionSafetyDecision.Allowed
+        assertEquals(WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL, decision.authorization.approvalMode)
+        assertEquals(valid.identity, decision.authorization.identity)
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
+            policy.assessExecution(
+                valid.copy(identity = valid.identity.copy(arguments = mapOf("package_name" to "launcher"))),
+            ),
+        )
+    }
+
+    @Test
     fun safeBackCompletionRejectsAuthorizationApprovalModeDrift() {
         val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.back"))
         val execution = validExecutionEvidence().copy(

@@ -43,6 +43,29 @@ class DeviceActionControllerTest {
     }
 
     @Test
+    fun homeIsVerifiedOnlyWhenPostActionWindowBelongsToResolvedLauncher() = runTest {
+        val gateway = ActionGateway(window = window(packageName = "com.android.settings", generation = 1L))
+        val controller = controller(gateway)
+        gateway.onGlobalAction = {
+            gateway.window = window(packageName = "com.android.launcher3", generation = 2L)
+        }
+
+        val verified = controller.home() as DeviceActionCapture.Success
+
+        assertTrue(verified.outcome.verified)
+        assertEquals("com.android.launcher3", verified.outcome.afterSnapshot.packageName)
+
+        gateway.window = window(packageName = "com.android.settings", generation = 3L)
+        gateway.onGlobalAction = {
+            gateway.window = window(packageName = "com.example.not.launcher", generation = 4L)
+        }
+        val rejected = controller.home() as DeviceActionCapture.Success
+
+        assertFalse(rejected.outcome.verified)
+        assertEquals("com.example.not.launcher", rejected.outcome.afterSnapshot.packageName)
+    }
+
+    @Test
     fun tapRequiresCurrentRefAndVerifiesWindowChange() = runTest {
         val gateway = ActionGateway(window = window(generation = 4L, node = node(text = "继续", clickable = true)))
         val controller = controller(gateway)
@@ -217,6 +240,7 @@ class DeviceActionControllerTest {
         var onLaunch: (String) -> Unit = {}
         var nodeActionResult: RawDeviceActionResult = RawDeviceActionResult.Failed
         var onNodeAction: () -> Unit = {}
+        var onGlobalAction: (DeviceGlobalAction) -> Unit = {}
         var nodeActionCount: Int = 0
         var transientEmptyCaptures: Int = 0
         var captureCount: Int = 0
@@ -244,7 +268,10 @@ class DeviceActionControllerTest {
 
         override fun isHomePackage(packageName: String): Boolean = packageName == "com.android.launcher3"
 
-        override suspend fun performGlobalAction(action: DeviceGlobalAction): Boolean = true
+        override suspend fun performGlobalAction(action: DeviceGlobalAction): Boolean {
+            onGlobalAction(action)
+            return true
+        }
 
         override suspend fun performNodeAction(
             expectedWindowGeneration: Long,

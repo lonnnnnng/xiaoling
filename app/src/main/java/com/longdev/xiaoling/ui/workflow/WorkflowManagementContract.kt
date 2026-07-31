@@ -134,16 +134,17 @@ internal data class WorkflowDeviceActionUiState(
     val actionLabel: String
         get() = when (action) {
             "back" -> "返回"
+            "home" -> "返回桌面"
             "type_text" -> "输入文本（内容不展示）"
             else -> action
         }
 
     val followUpGuidance: String
-        get() = if (action == "back") {
-            // long: SAFE 返回没有节点目标也不创建独立审批，历史页只能要求重新观察并让下一动作按自己的风险规则重新判定。
-            "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
-        } else {
-            "节点引用已失效，后续动作必须重新观察和审批"
+        get() = when (action) {
+            // long: SAFE 系统导航没有节点目标也不创建独立审批，历史页只能要求重新观察并让下一动作按自己的风险规则重新判定。
+            "back" -> "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
+            "home" -> "本次返回桌面不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行"
+            else -> "节点引用已失效，后续动作必须重新观察和审批"
         }
 }
 

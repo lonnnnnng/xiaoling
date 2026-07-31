@@ -177,11 +177,12 @@ class WorkflowDeviceActionSafetyPolicy(
                 "Workflow 设备动作缺少用户明确编写的步骤意图",
             )
         }
-        if (evidence.identity.toolName == DEVICE_BACK_TOOL_NAME && evidence.identity.arguments.isNotEmpty()) {
-            // long: 返回动作没有目标、次数或坐标参数；拒绝所有额外字段，避免模型把一次 SAFE 返回扩张成可配置导航序列。
+        if (evidence.identity.toolName in SAFE_NAVIGATION_TOOL_NAMES && evidence.identity.arguments.isNotEmpty()) {
+            // long: 返回与桌面导航都没有目标、次数或坐标参数；拒绝所有额外字段，避免模型把一次 SAFE 动作扩张成可配置导航序列。
+            val actionLabel = if (evidence.identity.toolName == DEVICE_HOME_TOOL_NAME) "返回桌面" else "返回"
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
-                "device.back 只能使用空参数执行一次返回",
+                "${evidence.identity.toolName} 只能使用空参数执行一次$actionLabel",
             )
         }
         val observation = evidence.observation
@@ -309,7 +310,7 @@ class WorkflowDeviceActionSafetyPolicy(
                 observationToolCallId = observation.toolCallId,
                 beforeSnapshotId = observation.snapshotId,
                 beforeWindowGeneration = observation.windowGeneration,
-                // long: back 的 SAFE 依据是用户步骤意图与同 Run 新鲜观察，不伪造审批时间；授权时间统一用于约束动作后证据必须晚于安全门禁。
+                // long: SAFE 系统导航的依据是用户步骤意图与同 Run 新鲜观察，不伪造审批时间；授权时间统一用于约束动作后证据必须晚于安全门禁。
                 authorizedAt = authorizedAt,
                 processSessionId = evidence.currentProcessSessionId,
                 approvalMode = approvalMode,
@@ -429,7 +430,7 @@ class WorkflowDeviceActionSafetyPolicy(
     }
 
     private fun approvalModeFor(toolName: String): WorkflowDeviceActionApprovalMode {
-        return if (toolName == DEVICE_BACK_TOOL_NAME) {
+        return if (toolName in SAFE_NAVIGATION_TOOL_NAMES) {
             WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL
         } else {
             WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL
@@ -440,6 +441,7 @@ class WorkflowDeviceActionSafetyPolicy(
         const val RULE_VERSION = "workflow-device-action-safety-v1"
         private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
+        private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val MAX_OBSERVATION_LIFETIME_MILLIS = 30_000L
         private val KNOWN_DEVICE_ACTION_TOOL_NAMES = setOf(
@@ -450,6 +452,7 @@ class WorkflowDeviceActionSafetyPolicy(
             "device.type_text",
             "device.swipe",
         )
+        private val SAFE_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
         private val REFERENCE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text", "device.swipe")
     }
 }

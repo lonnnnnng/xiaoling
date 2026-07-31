@@ -139,10 +139,14 @@ object WorkflowDeviceActionDecisionPolicy {
                 }
                 // long: 下游只能知道当前白名单动作已通过执行和验证；文本原文、原节点、ref、snapshot 身份及更高层业务目标都不能从 Tool Ledger 复制进 Workflow。
                 append("限制：仅确认当前设备动作和后置观察已验证，不确认用户最终业务目标；")
-                if (decision.action == DEVICE_BACK_ACTION) {
-                    append("本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。")
-                } else {
-                    append("节点引用已经失效，后续动作必须重新观察和审批。")
+                when (decision.action) {
+                    DEVICE_BACK_ACTION -> append(
+                        "本次返回不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
+                    )
+                    DEVICE_HOME_ACTION -> append(
+                        "本次返回桌面不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
+                    )
+                    else -> append("节点引用已经失效，后续动作必须重新观察和审批。")
                 }
             }
         }.joinToString("\n\n")
@@ -162,16 +166,20 @@ object WorkflowDeviceActionDecisionPolicy {
 
     private fun String.toAnswerLabel(): String = when (this) {
         DEVICE_BACK_ACTION -> "返回"
+        DEVICE_HOME_ACTION -> "返回桌面"
         else -> this
     }
 
     private const val DEVICE_BACK_TOOL_NAME = "device.back"
     private const val DEVICE_BACK_ACTION = "back"
+    private const val DEVICE_HOME_TOOL_NAME = "device.home"
+    private const val DEVICE_HOME_ACTION = "home"
     private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
     private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
     private const val DEVICE_TYPE_TEXT_ACTION = "type_text"
     private val ACTION_BY_TOOL_NAME = mapOf(
         DEVICE_BACK_TOOL_NAME to DEVICE_BACK_ACTION,
+        DEVICE_HOME_TOOL_NAME to DEVICE_HOME_ACTION,
         DEVICE_TAP_REF_TOOL_NAME to "tap_ref",
         DEVICE_TYPE_TEXT_TOOL_NAME to DEVICE_TYPE_TEXT_ACTION,
     )

@@ -31,6 +31,21 @@ import org.junit.Test
 
 class WorkflowManagementProjectionTest {
     @Test
+    fun homeActionUiStateUsesSafeNavigationLabelAndFollowUpBoundary() {
+        val action = WorkflowDeviceActionUiState(
+            outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+            action = "home",
+            detail = "已执行并验证",
+        )
+
+        assertEquals("返回桌面", action.actionLabel)
+        assertEquals(
+            "本次返回桌面不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            action.followUpGuidance,
+        )
+    }
+
+    @Test
     fun backActionUiStateUsesSafeNavigationLabelAndFollowUpBoundary() {
         val action = WorkflowDeviceActionUiState(
             outcome = WorkflowDeviceActionUiOutcome.VERIFIED,

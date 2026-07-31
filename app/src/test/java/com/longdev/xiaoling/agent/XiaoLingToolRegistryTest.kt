@@ -38,7 +38,7 @@ class XiaoLingToolRegistryTest {
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
 
         assertEquals(
-            setOf("device.snapshot", "device.back", "device.tap_ref", "device.type_text"),
+            setOf("device.snapshot", "device.back", "device.home", "device.tap_ref", "device.type_text"),
             registry.availableTools()
                 .filter { it.name.startsWith("device.") }
                 .mapTo(linkedSetOf(), ToolDefinition::name),
@@ -80,6 +80,41 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun productionWorkflowHomeCompletesFromFreshSnapshotWithoutApproval() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = productionRegistry(
+            deviceController = provider,
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "返回 Android 桌面"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-home-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val homeCall = ToolCall(
+            id = "tool-call-home-action",
+            name = "device.home",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+
+        registry.beforeToolExecution(homeCall, approval = null)
+        val result = registry.execute(homeCall)
+
+        assertEquals(ToolApprovalPolicy.NONE, registry.definition("device.home")?.approvalPolicy)
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("\"action\":\"home\""))
+        assertTrue(result.content.contains("\"afterPackageName\":\"com.android.launcher3\""))
+        registry.afterToolVerification(homeCall, result)
+        assertEquals(listOf("home"), provider.actions)
+    }
+
+    @Test
     fun productionWorkflowBackDoesNotUseApprovalTimeToExtendSnapshotTtl() = runTest {
         val provider = FakeDeviceController(enabled = true)
         val registry = productionRegistry(
@@ -106,6 +141,46 @@ class XiaoLingToolRegistryTest {
             registry.beforeToolExecution(
                 backCall,
                 // long: 非法调用方即使传入旧审批时间，也不能把 SAFE back 的执行时钟拨回有效窗口。
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 1_500L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("已过期"))
+        assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun productionWorkflowHomeDoesNotUseApprovalTimeToExtendSnapshotTtl() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = productionRegistry(
+            deviceController = provider,
+            clock = FakeAgentClock(nowMillis = 31_001L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "返回 Android 桌面"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-home-expired-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val homeCall = ToolCall(
+            id = "tool-call-home-expired-action",
+            name = "device.home",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+
+        val failure = runCatching {
+            registry.beforeToolExecution(
+                homeCall,
+                // long: 非法调用方传入的旧审批时间不能延长 SAFE home 的 snapshot 生命周期。
                 AgentToolApprovalEvidence(
                     approved = true,
                     decidedAt = 1_500L,
@@ -211,6 +286,11 @@ class XiaoLingToolRegistryTest {
         assertTrue(
             deviceActions.single { it.name == "device.back" }
                 .validateArguments(mapOf("steps" to "2"))
+                .errors.any { it.contains("未在 Schema 中声明") },
+        )
+        assertTrue(
+            deviceActions.single { it.name == "device.home" }
+                .validateArguments(mapOf("package_name" to "com.android.launcher3"))
                 .errors.any { it.contains("未在 Schema 中声明") },
         )
         assertTrue(
@@ -470,7 +550,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun workflowTestActionSeamRejectsActionsOutsideBackTapAndTypeText() {
+    fun workflowTestActionSeamRejectsActionsOutsideBackHomeTapAndTypeText() {
         val error = assertThrows(IllegalArgumentException::class.java) {
             testRegistry(workflowDeviceActionToolNames = setOf("device.tap_ref", "device.swipe"))
         }

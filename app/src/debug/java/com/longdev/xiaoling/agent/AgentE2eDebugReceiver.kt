@@ -43,7 +43,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         if (
             operation == OPERATION_WORKFLOW_TAP_REF ||
             operation == OPERATION_WORKFLOW_TYPE_TEXT ||
-            operation == OPERATION_WORKFLOW_BACK
+            operation == OPERATION_WORKFLOW_BACK ||
+            operation == OPERATION_WORKFLOW_HOME
         ) {
             // long: 人工审批可能超过 BroadcastReceiver 的十秒窗口；Debug 验收任务由进程级 scope 承载，Receiver 立即返回以避免系统 ANR。
             debugScope.launch {
@@ -51,6 +52,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     when (operation) {
                         OPERATION_WORKFLOW_TYPE_TEXT -> runWorkflowTypeText(context.applicationContext)
                         OPERATION_WORKFLOW_BACK -> runWorkflowBack(context.applicationContext)
+                        OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
                     }
                 }
@@ -467,6 +469,122 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         )
     }
 
+    private suspend fun runWorkflowHome(context: Context) {
+        context.startActivity(
+            Intent(context, DevicePrivacyProbeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        val gateway = AndroidDeviceAccessibilityGateway(context)
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = gateway,
+        )
+        awaitDeviceReady(controller)
+        awaitProbeWindow(controller)
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        awaitStablePackageWindow(controller, SYSTEM_SETTINGS_PACKAGE)
+
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context),
+            noteStore = RoomAgentNoteStore(context),
+            memoryStore = RoomAgentMemoryStore(context),
+            knowledgeStore = RoomKnowledgeDocumentStore(context),
+            deviceController = controller,
+        )
+        val runRepository = RoomAgentRunRepository(context)
+        val runtime = MinimalAgentRuntime(
+            ledger = runRepository,
+            toolRegistry = registry,
+            llm = WorkflowHomeE2eLlm(),
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    error("SAFE device.home 不应请求 Room 或浮层审批")
+                }
+            },
+            permissionChecker = AndroidToolPermissionChecker(context),
+            processSessionId = "process-redmi-workflow-home",
+        )
+        val summary = runtime.run(
+            conversationId = E2E_HOME_CONVERSATION_ID,
+            userMessageId = "message-redmi-workflow-home-${System.currentTimeMillis()}",
+            goal = "从系统设置返回 Android 桌面并确认 launcher 窗口",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            memoryRecallEnabled = false,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-redmi-home",
+                workflowStepId = "workflow-step-redmi-home",
+                userIntent = "从系统设置返回 Android 桌面",
+            ),
+        )
+        val detail = checkNotNull(runRepository.runDetail(summary.runId)) { "真实 Workflow home Run 未写入 Room" }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "真实 Workflow home Run 未完成：${detail.snapshot.run.status}"
+        }
+        check(detail.approvals.none { it.toolName == DEVICE_HOME_TOOL_NAME }) {
+            "SAFE device.home 不得创建 Room Approval：${detail.approvals.map { it.toolName }}"
+        }
+        val homeCall = detail.toolLedger.calls.single { it.toolName == DEVICE_HOME_TOOL_NAME }
+        check(homeCall.arguments.isEmpty() && homeCall.risk == ToolRisk.SAFE) {
+            "Workflow home ToolCall 必须保持空参数与 SAFE 风险：$homeCall"
+        }
+        val homeResult = detail.toolLedger.results.single { it.toolName == DEVICE_HOME_TOOL_NAME }
+        check(
+            homeResult.success &&
+                homeResult.executorVerified == true &&
+                homeResult.verificationStatus == ToolVerificationStatus.PASSED,
+        ) { "Tool Ledger 未保存通过验证的 home：$homeResult" }
+        val actionEvidence = checkNotNull(WorkflowDeviceActionResultCodec.decode(homeResult.content)) {
+            "Workflow home 没有返回严格白名单结果"
+        }
+        // long: Redmi 与其他设备的 launcher 包名可能不同，验收必须复用系统 CATEGORY_HOME 解析结果，不能把测试机桌面实现写死。
+        check(
+            actionEvidence.action == "home" &&
+                actionEvidence.beforePackageName == SYSTEM_SETTINGS_PACKAGE &&
+                gateway.isHomePackage(actionEvidence.afterPackageName) &&
+                actionEvidence.verified
+        ) { "Workflow home 前后窗口或 launcher 验证结果不符合预期：$actionEvidence" }
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = listOf(
+                WorkflowDeviceActionEvidenceInput(
+                    runId = homeResult.runId,
+                    toolName = homeResult.toolName,
+                    content = homeResult.content,
+                    success = homeResult.success,
+                    executorVerified = homeResult.executorVerified,
+                    verified = homeResult.verificationStatus == ToolVerificationStatus.PASSED,
+                ),
+            ),
+        )
+        val decision = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions?.singleOrNull()
+            ?: error("Workflow home 未形成答案级本地判定：$resolution")
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        check(prompt.contains("已执行并验证 返回桌面") && prompt.contains("不确认用户最终业务目标")) {
+            "Workflow home 答案级边界不完整"
+        }
+        val postSnapshot = captureWhenReady(controller).snapshot
+        check(gateway.isHomePackage(postSnapshot.packageName)) {
+            "真实 Accessibility home 后没有进入 launcher：${postSnapshot.packageName}"
+        }
+        Log.i(
+            TAG,
+            "workflow-home-e2e success=true action=${actionEvidence.action} verified=${actionEvidence.verified} " +
+                "approvals=${detail.approvals.size} beforePackage=${actionEvidence.beforePackageName} " +
+                "afterPackage=${actionEvidence.afterPackageName} answerDecision=${decision.status}",
+        )
+    }
+
     private suspend fun awaitDeviceReady(controller: DeviceObservationController) {
         repeat(50) {
             if (controller.health() == DeviceAgentHealthState.READY) return
@@ -686,6 +804,43 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         ): String = "Workflow 返回动作已完成真实执行与后置观察"
     }
 
+    private class WorkflowHomeE2eLlm : AgentLlm {
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            if (completedTools.size == 1) {
+                val snapshotResult = completedTools.single().toolResult
+                check(snapshotResult.success) { snapshotResult.content }
+                check(JSONObject(snapshotResult.content).getString("package") == SYSTEM_SETTINGS_PACKAGE) {
+                    "Workflow home 动作前 snapshot 不属于系统设置"
+                }
+                val home = tools.single { it.name == DEVICE_HOME_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = home.name,
+                        arguments = emptyMap(),
+                        risk = home.risk,
+                    ),
+                )
+            }
+            return AgentPlanDecision.Complete
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "Workflow 返回桌面动作已完成真实执行与 launcher 观察"
+    }
+
     companion object {
         const val ACTION_E2E = "com.longdev.xiaoling.debug.AGENT_E2E"
         const val EXTRA_OPERATION = "operation"
@@ -698,14 +853,17 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"
         const val OPERATION_WORKFLOW_TYPE_TEXT = "workflow_type_text"
         const val OPERATION_WORKFLOW_BACK = "workflow_back"
+        const val OPERATION_WORKFLOW_HOME = "workflow_home"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val PROVIDER_ID = "stage3-device-e2e-provider"
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
         private const val E2E_CONVERSATION_ID = "conversation-redmi-workflow-device-action"
         private const val E2E_TYPE_TEXT_CONVERSATION_ID = "conversation-redmi-workflow-type-text"
         private const val E2E_BACK_CONVERSATION_ID = "conversation-redmi-workflow-back"
+        private const val E2E_HOME_CONVERSATION_ID = "conversation-redmi-workflow-home"
         private const val DEVICE_SNAPSHOT_E2E_TOOL_NAME = "device.snapshot"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
+        private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
         private const val WORKFLOW_TYPE_TEXT_HINT = "Workflow 安全文本输入框"

@@ -1937,7 +1937,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val preparedStep = withContext(Dispatchers.IO) {
                 workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
             }
-            // long: Workflow 每一步都冻结自己的用户意图；tap_ref/type_text 走系统浮层，SAFE back 由 Runtime 记录跳过审批，其他工具继续沿用既有风险门禁。
+            // long: Workflow 每一步都冻结自己的用户意图；tap_ref/type_text 走系统浮层，SAFE back/home 由 Runtime 记录跳过审批，其他工具继续沿用既有风险门禁。
             val approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = conversationId,
                 userIntent = preparedStep.detail,

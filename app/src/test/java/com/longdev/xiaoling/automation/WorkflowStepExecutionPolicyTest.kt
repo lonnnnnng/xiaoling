@@ -154,6 +154,27 @@ class WorkflowStepExecutionPolicyTest {
     }
 
     @Test
+    fun outputSnapshotKeepsVerifiedHomeDecisionForNextStepAndUi() {
+        val decision = WorkflowDeviceActionDecision(
+            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+            action = "home",
+            beforePackageName = "com.android.settings",
+            afterPackageName = "com.miui.home",
+            afterNodeCount = 12,
+            afterRedactedNodeCount = 0,
+            afterTruncated = false,
+            afterObservedAt = 2_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "已返回 Android 桌面",
+            deviceActionDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceActionDecisions)
+    }
+
+    @Test
     fun executionPromptAddsPreviousOutputsOnlyForLaterSteps() {
         assertEquals(
             "读取当前时间",

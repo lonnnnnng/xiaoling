@@ -47,7 +47,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    // long: Workflow 生产动作面只包含逐项完成安全证据和真机验收的 tap_ref/type_text/back；其他已注册动作不能借构造注入扩大权限。
+    // long: Workflow 生产动作面只包含逐项完成安全证据的 back/home/tap_ref/type_text；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
         require(unsupported.isEmpty()) {
@@ -428,8 +428,8 @@ class XiaoLingToolRegistry(
                         decisionProcessSessionId = it.processSessionId,
                     )
                 },
-                // long: SAFE back 不接受审批时间作为授权凭据，始终以实际执行时钟核对 30 秒 snapshot 窗口；需要审批的动作才冻结到用户决定时刻。
-                nowMillis = if (call.name == DEVICE_BACK_TOOL_NAME) {
+                // long: SAFE 系统导航不接受审批时间作为授权凭据，始终以实际执行时钟核对 30 秒 snapshot 窗口；需要审批的动作才冻结到用户决定时刻。
+                nowMillis = if (call.name in SAFE_WORKFLOW_NAVIGATION_TOOL_NAMES) {
                     clock.nowMillis()
                 } else {
                     approval?.decidedAt ?: clock.nowMillis()
@@ -500,7 +500,7 @@ class XiaoLingToolRegistry(
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
         if (!directDeviceActionsAllowed(context)) {
-            // long: 生产 Workflow 只放行已闭环的 tap_ref/type_text/back；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
+            // long: 生产 Workflow 只放行已闭环的 back/home/tap_ref/type_text；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
                 definition.name in DEVICE_ACTION_TOOL_NAMES &&
                     !workflowDeviceActionAllowed(context, definition.name)
@@ -1185,14 +1185,17 @@ internal const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
 private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
 private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_BACK_TOOL_NAME,
+    DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
 )
 private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_BACK_TOOL_NAME,
+    DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
 )
+private val SAFE_WORKFLOW_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
 private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
 
 private val DEVICE_TOOL_NAMES = setOf(

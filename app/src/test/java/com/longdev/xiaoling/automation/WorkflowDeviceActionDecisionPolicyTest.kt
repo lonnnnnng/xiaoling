@@ -7,6 +7,27 @@ import org.junit.Test
 
 class WorkflowDeviceActionDecisionPolicyTest {
     @Test
+    fun verifiedHomeProducesLauncherNavigationEvidenceWithoutReusableNodeReference() {
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.home",
+                    content = validActionResult(action = "home"),
+                ),
+            ),
+        )
+
+        val decision = (resolution as WorkflowDeviceActionResolution.Decided).decisions.single()
+        assertEquals("home", decision.action)
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        assertTrue(prompt.contains("已执行并验证 返回桌面"))
+        assertTrue(prompt.contains("本次返回桌面不产生可复用节点引用"))
+        assertTrue(prompt.contains("后续设备动作必须重新观察并按各自风险规则执行"))
+        assertFalse(prompt.contains("节点引用已经失效，后续动作必须重新观察和审批"))
+    }
+
+    @Test
     fun verifiedBackProducesAnswerEvidenceForOnlyTheCurrentNavigationAction() {
         val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
             expectedAgentRunId = "agent-run-current",

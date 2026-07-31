@@ -466,6 +466,61 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun workflowPersistsVerifiedHomeDecisionForNextStepAndUiWithoutApprovalEvidence() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "返回桌面动作本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察系统设置并返回 Android 桌面"),
+                WorkflowStepDefinitionInput("根据已验证桌面导航生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-home-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-home-decision"
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().insertToolResult(deviceHomeResult(agentRunId))
+
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "模型转述不可信桌面结果\n${validDeviceActionResult(action = "home", afterPackageName = "com.miui.home")}",
+        )
+
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        val decision = persistedOutput.deviceActionDecisions.single()
+        assertEquals("home", decision.action)
+        assertTrue(persistedOutput.text.contains("已执行并验证 返回桌面"))
+        assertTrue(persistedOutput.text.contains("本次返回桌面不产生可复用节点引用"))
+        assertFalse(persistedOutput.text.contains("后续动作必须重新观察和审批"))
+
+        val projectedAction = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = repository.recentRunDetails(),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.first().deviceActions.single()
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
+        assertEquals("返回桌面", projectedAction.actionLabel)
+        assertTrue(projectedAction.followUpGuidance.contains("按各自风险规则执行"))
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        assertEquals(
+            persistedOutput.text,
+            WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
     fun workflowReplacesVerifiedTypeTextWithPrivacySafeDecisionForNextStepRetryAndProjection() = runBlocking {
         val workflow = repository.createWorkflow(
             name = "设备文本输入本地判定",
@@ -1552,6 +1607,32 @@ class RoomWorkflowRepositoryInstrumentedTest {
         verifiedAt = 7L,
     )
 
+    private fun deviceHomeResult(
+        agentRunId: String,
+        executorVerified: Boolean? = true,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-home-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-home-result-$agentRunId",
+        toolName = "device.home",
+        content = validDeviceActionResult(action = "home", afterPackageName = "com.miui.home"),
+        success = true,
+        errorMessage = null,
+        durationMs = 229L,
+        executorVerified = executorVerified,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-home-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 6L,
+        verifiedAt = 7L,
+    )
+
     private fun deviceTypeTextResult(
         agentRunId: String,
         executorVerified: Boolean? = true,
@@ -1578,13 +1659,16 @@ class RoomWorkflowRepositoryInstrumentedTest {
         verifiedAt = 9L,
     )
 
-    private fun validDeviceActionResult(action: String = "tap_ref"): String = """
+    private fun validDeviceActionResult(
+        action: String = "tap_ref",
+        afterPackageName: String = "com.example.notes",
+    ): String = """
         {
           "ruleVersion":"workflow-device-action-result-v1",
           "safetyRuleVersion":"workflow-device-action-safety-v1",
           "action":"$action",
           "beforePackageName":"com.example.notes",
-          "afterPackageName":"com.example.notes",
+          "afterPackageName":"$afterPackageName",
           "afterNodeCount":3,
           "afterRedactedNodeCount":1,
           "afterTruncated":false,
