@@ -3,6 +3,7 @@
 ## 小灵 v0.1.14 发布基线
 
 - `versionName=0.1.14 / versionCode=15`，保持 `minSdk=26 / targetSdk=36`、Room v33 和既有本地正式签名证书。
+- 发布提交为 `909ea4d52d857d2a913f2e550a5581bbdb37d3fe`；annotated tag `v0.1.14`（tag object `6107c92b39062f2527b753f4ed4cb13ec0ab7c6d`）解引用到该提交，[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.14) 已发布且非草稿、非预发布。远端两项资产均为 `uploaded`，APK digest 与本地 SHA-256 一致。
 - 发布范围为 `v0.1.13` 之后 31 个工程提交，并由本次版本与文档提交封版：通用执行恢复矩阵、提交状态未知分类、用户确认的受控安全重放、失败 ToolResult/typed 验证的原子终态结算、answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。
 - 恢复路径继续以 Room 持久化事实和幂等 marker 为准，不恢复旧 Executor、旧模型协程或 Workflow 后续步骤；旧 Run 保持不变。`swipe`、后台设备自动化、任意 App、JSON/SAF 和生产 answerability enforcement 继续关闭。
 - 强制发布门禁为 Gradle `141/141` tasks（`4m 40s`）、JVM `837/837`、`0 failure / 0 error / 0 skipped`；Lint `0 error / 56 warnings / 0 information`；Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 和 v2 正式单签名通过。Release APK `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。

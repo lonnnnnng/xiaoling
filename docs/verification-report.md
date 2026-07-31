@@ -6,13 +6,14 @@
 
 - 当前发布版本：小灵 `v0.1.14`，`versionCode=15`、`minSdk=26`、`targetSdk=36`、Room v33。
 - 发布范围：`v0.1.13` 之后 31 个工程提交，并由本次版本与文档提交封版；包含通用执行恢复矩阵、提交状态未知分类、用户确认的受控安全重放、两类原子失败终态结算、answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。
+- 发布提交：`909ea4d52d857d2a913f2e550a5581bbdb37d3fe`（`发布小灵 0.1.14`）；annotated tag `v0.1.14` 的 tag object 为 `6107c92b39062f2527b753f4ed4cb13ec0ab7c6d`，解引用到该提交。[小灵 v0.1.14](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.14) 已发布，状态为非草稿、非预发布。
 - 正式产物：`outputs/release/xiaoling-v0.1.14.apk`，大小 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`4m 40s`），JVM `837/837`，0 失败、0 错误、0 跳过；Lint `0 error / 56 warnings / 0 information`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，默认 `AndroidJUnitRunner` 为 `OK (271 tests)`、耗时 `121.242s`；显式 Provider/Embedding 参数缺失的联网探针按设计跳过，没有失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
 - 当前关闭边界：`swipe`、后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
 - 设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
-- 待发布收尾：回填发布提交、annotated tag 与 GitHub Release 状态，并核对远端资产 digest。
+- 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
 
 ## 2026-07-31 第 121 阶段：前台 Workflow `device.open_app` 生产闭环
 
