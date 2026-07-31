@@ -6,7 +6,7 @@
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
-最新版本：[小灵 v0.1.13](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.13)
+最新版本：[小灵 v0.1.14](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.14)
 
 ## 当前定位
 

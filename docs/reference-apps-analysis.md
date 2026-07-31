@@ -1,6 +1,6 @@
 # `reference-apps` 个人 Agent 实现分析
 
-`v0.1.13` 是当前对照基线：它在 `v0.1.12` 的个人 Agent MVP 之上完成验证报告归档、主要 UI 垂直模块、单一系统 Splash、固定设置标题、首帧后初始化、R8 和 Baseline/Startup Profile。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则；没有因为结构和启动优化而扩展设备 Workflow/后台、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP 或本地模型边界。发布门禁为 JVM `678/678`、Lint `0 error / 51 warnings`、三类 APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi `OK (222 tests)`。
+`v0.1.14` 是当前对照基线：它在 `v0.1.13` 的结构与启动基线上完成通用执行恢复矩阵、Room v33 answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则：提交状态未知不自动重放，尚未提交的白名单写工具只在用户确认后创建关联新 Run，持久化失败事实只原子结算，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`type_text` 原文不进入持久化审计。`swipe`、后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP 和本地模型继续关闭。发布门禁为 JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、三类 APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi `OK (271 tests)`。
 
 发布后的有界对话框簇收尾继续采用“功能拥有业务状态、应用根拥有平台协调”的边界。Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除进入对应 UI module 的 contract、projection 与 dialog host，但仍由 `XiaoLingContent` 全局挂载以跨 pane 保持待确认状态；备份恢复、Android 文件选择器、全局通知和跨页面导航没有被抽成参数型 wrapper。`XiaoLingApp.kt` 由 `1,103` 行降到 `817` 行后触发停止条件，后续不继续按行数拆分，而转向通用执行恢复。本地 JVM/Lint/三类 APK/Release lintVital 已通过；仅 Redmi `wsvwypiz7xwslvl7` 的新增对话框聚焦测试为 `OK (7 tests)`、测试耗时 `9.247s`，默认完整 instrumentation 为 `OK (229 tests)`、测试耗时 `89.151s`，最终文档重新打包后的项目语料单项为 `OK (1 test)`。在线模拟器未被使用。
 

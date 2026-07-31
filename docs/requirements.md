@@ -1,5 +1,13 @@
 # 产品需求
 
+## 小灵 v0.1.14 发布基线
+
+`v0.1.14` 使用 `versionCode=15`、Room v33，并保持 `minSdk=26 / targetSdk=36` 与既有正式签名。发布范围汇总 `v0.1.13` 后 31 个工程提交：通用执行恢复矩阵、提交状态未知分类、用户确认的受控安全重放、失败 ToolResult/typed 验证的原子终态结算、answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text` 生产闭环。
+
+发布不得扩大既有安全边界：旧 Run 和旧副作用事实保持不变，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`device.type_text` 原文不得进入持久化路径；`open_app` 仍只允许四个首批包并逐包审批。`swipe`、后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF 导出、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+
+正式门禁必须包含完整 JVM、Lint、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 单签名和仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 instrumentation。当前结果为 Gradle `141/141` tasks、JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、Redmi `OK (271 tests)`（`121.242s`）；Release APK 为 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。
+
 ## 前台 Workflow `device.open_app` 生产闭环（第 121 阶段）
 
 前台手动 Workflow 的生产设备工具面扩展为精确的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。`device.open_app` 必须标记为 `REQUIRES_APPROVAL`，参数只能包含唯一 `package_name`，且目标只能是小灵、系统计算器、时钟或系统设置。该白名单必须分别由 `WorkflowDeviceActionSafetyPolicy`、`WorkflowDeviceActionApprovalGate` 和最终 `DeviceActionPolicy` Executor 核验；任一层不得依赖其他层替自己补齐空参数、额外字段或非白名单包的拒绝。
