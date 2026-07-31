@@ -51,6 +51,7 @@ data class WorkflowDeviceActionExecutionEvidence(
     val currentWindowGeneration: Long,
     val liveReferenceMatched: Boolean,
     val typeText: WorkflowTypeTextExecutionEvidence? = null,
+    val swipe: WorkflowSwipeExecutionEvidence? = null,
 )
 
 data class WorkflowDeviceActionAuthorization(
@@ -63,6 +64,7 @@ data class WorkflowDeviceActionAuthorization(
     val processSessionId: String,
     val approvalMode: WorkflowDeviceActionApprovalMode,
     val typeTextAuthorization: WorkflowTypeTextAuthorization? = null,
+    val swipeAuthorization: WorkflowSwipeAuthorization? = null,
 )
 
 data class WorkflowDeviceActionPostObservationEvidence(
@@ -88,6 +90,7 @@ data class WorkflowDeviceActionCompletionEvidence(
     val afterObservation: WorkflowDeviceActionPostObservationEvidence?,
     val cancelled: Boolean,
     val typeText: WorkflowTypeTextCompletionEvidence? = null,
+    val swipe: WorkflowSwipeCompletionEvidence? = null,
 )
 
 enum class WorkflowDeviceActionSafetyFailure {
@@ -105,6 +108,7 @@ enum class WorkflowDeviceActionSafetyFailure {
     WINDOW_CHANGED,
     REFERENCE_MISMATCH,
     TYPE_TEXT_POLICY_DENIED,
+    SWIPE_POLICY_DENIED,
     APPROVAL_MISSING,
     APPROVAL_NOT_APPROVED,
     APPROVAL_MISMATCH,
@@ -131,6 +135,7 @@ sealed interface WorkflowDeviceActionSafetyDecision {
 class WorkflowDeviceActionSafetyPolicy(
     enabledToolNames: Set<String> = emptySet(),
     private val typeTextSafetyPolicy: WorkflowTypeTextSafetyPolicy = WorkflowTypeTextSafetyPolicy(),
+    private val swipeSafetyPolicy: WorkflowSwipeSafetyPolicy = WorkflowSwipeSafetyPolicy(),
 ) {
     private val enabledToolNames = enabledToolNames.toSet()
 
@@ -280,6 +285,24 @@ class WorkflowDeviceActionSafetyPolicy(
         } else {
             null
         }
+        val swipeAuthorization = if (evidence.identity.toolName == DEVICE_SWIPE_TOOL_NAME) {
+            val swipeEvidence = evidence.swipe
+                ?: return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.SWIPE_POLICY_DENIED,
+                    "device.swipe 缺少专属目标与动作前 viewport 证据",
+                )
+            when (val decision = swipeSafetyPolicy.assessExecution(evidence.identity, swipeEvidence)) {
+                is WorkflowSwipeSafetyDecision.Allowed -> decision.authorization
+                is WorkflowSwipeSafetyDecision.Denied -> {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.SWIPE_POLICY_DENIED,
+                        decision.message,
+                    )
+                }
+            }
+        } else {
+            null
+        }
         val approvalMode = approvalModeFor(evidence.identity.toolName)
         val authorizedAt = when (approvalMode) {
             WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL -> evidence.nowMillis
@@ -326,11 +349,12 @@ class WorkflowDeviceActionSafetyPolicy(
                 observationToolCallId = observation.toolCallId,
                 beforeSnapshotId = observation.snapshotId,
                 beforeWindowGeneration = observation.windowGeneration,
-                // long: SAFE 系统导航的依据是用户步骤意图与同 Run 新鲜观察，不伪造审批时间；授权时间统一用于约束动作后证据必须晚于安全门禁。
+                // long: SAFE 系统导航与标准节点滚动都依赖用户步骤意图和同 Run 新鲜观察，不伪造审批时间；授权时间继续约束动作后证据晚于安全门禁。
                 authorizedAt = authorizedAt,
                 processSessionId = evidence.currentProcessSessionId,
                 approvalMode = approvalMode,
                 typeTextAuthorization = typeTextAuthorization,
+                swipeAuthorization = swipeAuthorization,
             ),
         )
     }
@@ -363,7 +387,8 @@ class WorkflowDeviceActionSafetyPolicy(
             authorization.ruleVersion != RULE_VERSION ||
             authorization.identity != expectedAuthorizationIdentity ||
             authorization.approvalMode != approvalModeFor(evidence.identity.toolName) ||
-            (evidence.identity.toolName != DEVICE_TYPE_TEXT_TOOL_NAME && authorization.typeTextAuthorization != null)
+            (evidence.identity.toolName != DEVICE_TYPE_TEXT_TOOL_NAME && authorization.typeTextAuthorization != null) ||
+            (evidence.identity.toolName != DEVICE_SWIPE_TOOL_NAME && authorization.swipeAuthorization != null)
         ) {
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.EXECUTION_AUTHORIZATION_MISMATCH,
@@ -443,6 +468,28 @@ class WorkflowDeviceActionSafetyPolicy(
                 }
             }
         }
+        if (evidence.identity.toolName == DEVICE_SWIPE_TOOL_NAME) {
+            val swipeEvidence = evidence.swipe
+                ?: return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.SWIPE_POLICY_DENIED,
+                    "device.swipe 缺少专属同窗滚动后置证据",
+                )
+            when (
+                val decision = swipeSafetyPolicy.assessCompletion(
+                    identity = evidence.identity,
+                    authorization = authorization.swipeAuthorization,
+                    evidence = swipeEvidence,
+                )
+            ) {
+                is WorkflowSwipeSafetyDecision.Allowed -> Unit
+                is WorkflowSwipeSafetyDecision.Denied -> {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.SWIPE_POLICY_DENIED,
+                        decision.message,
+                    )
+                }
+            }
+        }
         return WorkflowDeviceActionSafetyDecision.Allowed(authorization)
     }
 
@@ -456,7 +503,7 @@ class WorkflowDeviceActionSafetyPolicy(
     }
 
     private fun approvalModeFor(toolName: String): WorkflowDeviceActionApprovalMode {
-        return if (toolName in SAFE_NAVIGATION_TOOL_NAMES) {
+        return if (toolName in SAFE_NO_APPROVAL_TOOL_NAMES) {
             WorkflowDeviceActionApprovalMode.SAFE_NO_APPROVAL
         } else {
             WorkflowDeviceActionApprovalMode.REQUIRE_APPROVAL
@@ -470,6 +517,7 @@ class WorkflowDeviceActionSafetyPolicy(
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+        private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
         private const val MAX_OBSERVATION_LIFETIME_MILLIS = 30_000L
         private val KNOWN_DEVICE_ACTION_TOOL_NAMES = setOf(
             DEVICE_OPEN_APP_TOOL_NAME,
@@ -478,6 +526,11 @@ class WorkflowDeviceActionSafetyPolicy(
             "device.tap_ref",
             "device.type_text",
             "device.swipe",
+        )
+        private val SAFE_NO_APPROVAL_TOOL_NAMES = setOf(
+            DEVICE_BACK_TOOL_NAME,
+            DEVICE_HOME_TOOL_NAME,
+            DEVICE_SWIPE_TOOL_NAME,
         )
         private val SAFE_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
         private val REFERENCE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text", "device.swipe")

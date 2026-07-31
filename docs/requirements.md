@@ -8,6 +8,16 @@
 
 正式门禁必须包含完整 JVM、Lint、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 单签名和仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 instrumentation。当前结果为 Gradle `141/141` tasks、JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、Redmi `OK (271 tests)`（`121.242s`）；Release APK 为 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。
 
+## 前台 Workflow `device.swipe` 专属安全契约（第 122 阶段，生产未开放）
+
+`device.swipe` 的纯策略契约只能接受精确的 `snapshot_id / ref / direction`，其中方向固定为 `up / down / left / right`。动作目标必须来自当前有效 ref，处于启用、未脱敏状态并声明 `SWIPE` 能力；动作前 viewport 必须绑定非空应用包名、有效 window ID、非负 generation、同一匿名目标指纹，以及至少两个互不重复的 64 位匿名可见锚点。缺少专属证据时，即使调用方把 `device.swipe` 注入通用动作白名单，也必须以 `SWIPE_POLICY_DENIED` fail-closed。
+
+`swipe` 沿用现有 ToolDefinition 的 `SAFE` 语义，在 Workflow 专属策略中固定为 `SAFE_NO_APPROVAL`，但零审批不得绕过同 Run/ToolCall、同 Run 已验证 snapshot、30 秒 TTL、当前 generation、实时 ref、Executor 验证、typed `PASSED` 和动作后观察。专属授权只能保存 Run/ToolCall 身份、方向与动作前 viewport 的 SHA-256 摘要；不得复制包名、snapshot/ref、目标指纹、完整锚点或节点正文。该摘要只用于当前授权身份绑定，不能作为可逆内容标识或长期检索键。
+
+完成判定必须要求动作前后属于同一应用、同一 window 和同一目标，动作后 generation 严格前进，可见匿名内容集合发生变化，并至少有一个前后共同锚点产生不小于 `8px` 的位移。该位移必须与请求方向一致且主方向绝对值大于横向分量；任一达到阈值的共同锚点若反向或横向占优，必须整体拒绝，不能由另一个方向正确的锚点掩盖。内容未变、目标漂移或只有 Android API 接收动作同样不得判定为成功。四个方向必须分别覆盖正向回归，并覆盖正确与矛盾锚点同时出现的拒绝反例。
+
+第 122 阶段只冻结上述纯策略并强制 `WorkflowDeviceActionSafetyPolicy` 委托，不修改生产 Registry、`DeviceObservationController`、Result codec、DecisionPolicy、Room、审批、答案级 UI 或 Workflow UI，不执行真实设备滚动。生产前台 Workflow 工具面仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。下一阶段必须先建立 Controller/Registry evidence seam，从动作前后 snapshot 生成仅当前执行期可用的 opaque/HMAC 锚点身份；完整锚点不得进入 Room、日志、Workflow output 或答案级输出，之后才可评估生产接线与 Redmi 真实动作验收。
+
 ## 前台 Workflow `device.open_app` 生产闭环（第 121 阶段）
 
 前台手动 Workflow 的生产设备工具面扩展为精确的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。`device.open_app` 必须标记为 `REQUIRES_APPROVAL`，参数只能包含唯一 `package_name`，且目标只能是小灵、系统计算器、时钟或系统设置。该白名单必须分别由 `WorkflowDeviceActionSafetyPolicy`、`WorkflowDeviceActionApprovalGate` 和最终 `DeviceActionPolicy` Executor 核验；任一层不得依赖其他层替自己补齐空参数、额外字段或非白名单包的拒绝。

@@ -11,6 +11,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，只在 Redmi 运行项目文档语料单项为 `OK (1 test)`；黄金查询已同步到当前 `271 tests` 基线且没有放宽 6/6 召回要求。
 - Redmi 原 Debug 包与正式证书不同，无损覆盖按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
 
+## 第 122 阶段：前台 Workflow `device.swipe` 专属安全契约（完成，生产未开放）
+
+- 新增纯 Kotlin `WorkflowSwipeSafetyPolicy`，只接受精确 `snapshot_id / ref / direction`，方向限于 `up / down / left / right`。当前目标必须启用、未脱敏且声明 `SWIPE`；动作前 viewport 必须绑定包名、window ID、generation、目标指纹和至少两个去重的 64 位匿名锚点。
+- `WorkflowDeviceActionSafetyPolicy` 为 execution/completion evidence 增加 swipe 专属分支。缺少目标、viewport、专属授权或后置滚动证据时统一返回 `SWIPE_POLICY_DENIED`；`device.swipe` 依据既有 `ToolRisk.SAFE` 归入 `SAFE_NO_APPROVAL`，但通用 snapshot/ref、30 秒 TTL、generation、同 Run/ToolCall、Executor/typed 验证和动作后观察门禁保持不变。
+- 完成验证要求动作前后同应用、同 window、同一目标，generation 严格前进且可见匿名内容集合变化；至少一个共同锚点必须产生不小于 `8px`、与请求方向一致且主方向占优的位移。反向或横向占优、内容不变、目标/window 漂移、只有 generation 变化或只有 Android API 接收动作均不能收敛为成功，四个方向均有回归。
+- `WorkflowSwipeAuthorization` 只保存规则版本、Run/ToolCall 身份、方向和动作前 viewport SHA-256 摘要，不保存包名、snapshot/ref、目标指纹、完整锚点或节点正文。完整 evidence 只允许在当前执行链中使用；下一阶段生成锚点时必须采用当前执行期 opaque/HMAC 身份，避免把节点正文的普通 SHA-256 变成可字典反查的长期标识。
+- 生产 `XiaoLingToolRegistry` 默认与 supported Workflow 集合没有变化，工具面仍为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。本阶段没有修改 Controller 的 generation-only swipe 验证、Result codec、DecisionPolicy、Room、Approval、Compose 或 Workflow UI，也没有执行真实滚动。
+- TDD 最终为 `WorkflowSwipeSafetyPolicyTest 4/4`、`WorkflowDeviceActionSafetyPolicyTest 17/17`、`WorkflowTypeTextSafetyPolicyTest 4/4`、`XiaoLingToolRegistryTest 30/30`，合计 `55/55`，0 failure/error/skipped。按快速迭代分级没有运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实动作；Redmi 上的正式 `v0.1.14` 保持不变。
+
 ## 第 121 阶段：前台 Workflow `device.open_app` 生产闭环（完成）
 
 - `XiaoLingToolRegistry` 的生产前台 Workflow 默认动作集合改为 `{device.open_app, device.back, device.home, device.tap_ref, device.type_text}`，规划清单精确暴露 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。`open_app` 继续使用既有 `REQUIRES_APPROVAL` ToolDefinition，只允许唯一 `package_name`；`swipe`、后台/定时来源和恢复自动续跑仍在清单与 Executor 两层拒绝。

@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-07-31（北京时间）
+验证日期：2026-08-01（北京时间）
 
 ## 当前验证基线
 
@@ -14,6 +14,15 @@
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
 - 设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
+
+## 2026-08-01 第 122 阶段：前台 Workflow `device.swipe` 专属安全契约
+
+- 范围：只冻结纯 Kotlin swipe 专属执行与完成策略，不接生产 Registry、Controller、Result codec、DecisionPolicy、Room、审批或 UI。生产前台 Workflow 工具面仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`；`swipe`、后台/定时 Workflow、恢复自动续跑、截图、坐标、视觉定位、任意 App、精确定时和 Foreground Service 继续关闭。
+- 执行门禁：参数必须精确为 `snapshot_id / ref / direction`，方向只接受 `up / down / left / right`。当前目标必须启用、未脱敏且支持 `SWIPE`；动作前 viewport 必须包含同应用、有效 window ID、非负 generation、同一匿名目标指纹和至少两个去重的 64 位匿名可见锚点。通用策略缺少专属证据时以 `SWIPE_POLICY_DENIED` 拒绝。
+- SAFE 与最小授权：现有 `device.swipe` ToolDefinition 标记 `SAFE`，因此专属 Workflow 策略使用 `SAFE_NO_APPROVAL`；同 Run/ToolCall、已验证 snapshot、30 秒 TTL、当前 generation、实时 ref、Executor/typed 验证和动作后观察仍全部强制。专属授权只保存方向与动作前 viewport SHA-256 摘要，不保存包名、snapshot/ref、目标指纹、完整锚点或节点正文。
+- 后置证明：动作前后必须属于同一应用、同一 window 和同一目标，generation 严格前进，可见匿名内容集合发生变化；至少一个共同锚点必须按请求方向产生不小于 `8px` 且主方向占优的位移。任一显著共同锚点反向或横向占优时整体拒绝，不能由另一个正确锚点掩盖；内容不变、目标或窗口漂移、只有 generation 变化及只有 Android API 接收动作也不能判定成功。四个方向均有正向回归，并覆盖正确/矛盾锚点混合出现的拒绝反例。
+- 聚焦验证：`WorkflowSwipeSafetyPolicyTest 4/4`、`WorkflowDeviceActionSafetyPolicyTest 17/17`、`WorkflowTypeTextSafetyPolicyTest 4/4`、`XiaoLingToolRegistryTest 30/30`，合计 `55/55`，0 failure/error/skipped；变更后编译测试为 `BUILD SUCCESSFUL in 17s`，无改动复跑仍为 `BUILD SUCCESSFUL`。
+- 验证边界：按快速迭代分级没有运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实设备滚动，Redmi 正式 `v0.1.14` 保持安装状态。下一阶段先建立 Controller/Registry evidence seam，使用仅当前执行期可用的 opaque/HMAC 锚点从前后 snapshot 生成证据；完整锚点不得进入 Room、日志、Workflow output 或答案级输出。
 
 ## 2026-07-31 第 121 阶段：前台 Workflow `device.open_app` 生产闭环
 
