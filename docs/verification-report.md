@@ -15,6 +15,15 @@
 - 设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
 
+## 2026-08-01 第 123 阶段：`device.swipe` Controller/Registry HMAC evidence seam
+
+- 范围：完成 Controller 前后 snapshot 的执行期匿名 evidence、`inspectReference()` 动作前 viewport 和 Registry 显式测试态交接；生产 Workflow 默认集合仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。没有修改 Result codec、DecisionPolicy、Room、审批、Compose、答案级 UI 或后台自动化。
+- 隐私与生命周期：每个 Controller 实例默认生成随机 32-byte HMAC key，测试只在随机系统边界注入固定 key。目标与锚点使用长度前缀结构化 `HmacSHA256`，锚点额外绑定当前滚动目标，不含 bounds、generation、snapshot/ref 或节点明文；只选择目标下未脱敏的语义后代，重复语义身份全部移除。相同页面在不同 key 下产生不同指纹，同一窗口不同滚动目标中的相同语义也产生不同锚点指纹。当前成功 snapshot、ref 和 viewport 在 capture/动作失败、显式清理或 Agent Run 切换时一起撤销；inspection 在同一生命周期锁内核对 snapshot/ref 并生成 viewport，锁外复读 generation，证据构造期间页面变化时不返回 target/viewport。
+- 后置验证：`DeviceObservationController.swipe()` 已替换 generation-only 判定。动作前后必须同应用、同 window、同匿名目标，generation 前进、两侧至少两个唯一锚点且可见内容集合变化；至少一个共同锚点按请求方向发生不小于 `8px` 的主位移，任一显著反向或横向占优锚点会整体拒绝。设备层与 Workflow 层共享 viewport/anchor 类型和方向验证器。
+- Registry 与泄漏边界：`SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 允许测试显式注入 swipe，但生产 `DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 不变。Registry 将当前 inspection viewport 交给既有 `WorkflowSwipeSafetyPolicy`，并对 SAFE swipe 使用真实执行时钟而非异常 approval 时间核对 TTL。完整 evidence 不进入 `DeviceActionCodec`、`WorkflowDeviceActionResultCodec`、Room、日志、Workflow output 或 UI。
+- TDD：红灯先确认缺少 Controller evidence API、Registry 构造期拒绝 swipe 和 Run 切换未撤销 refs；随后逐片转绿，并补充不同滚动目标的相同语义锚点不可关联、inspection 期间 generation 漂移时 fail-closed。最终八组聚焦 JVM：`DeviceObservationControllerTest 12/12`、`DeviceActionControllerTest 8/8`、`DeviceActionCodecTest 1/1`、`DeviceSnapshotPolicyTest 9/9`、`WorkflowSwipeSafetyPolicyTest 4/4`、`WorkflowDeviceActionSafetyPolicyTest 17/17`、`WorkflowTypeTextSafetyPolicyTest 4/4`、`XiaoLingToolRegistryTest 34/34`，合计 `89/89`，0 failure/error/skipped。
+- 审查与验证边界：早期 Standards/Spec 子代理在给出部分结果后被本地 `http://localhost:8080/responses` 的 404 终止；最终独立文档核验确认并清理了旧阶段措辞，Standards 复核无 findings，Spec 复核确认 HMAC/方向契约并指出 generation 读取竞态。另一项“直接 `/agent` swipe 扩权”经固定点 `062bb7f` 反查确认是基线既有行为，本阶段只把 swipe 加入显式测试 Workflow supported 集合，生产默认 Workflow 集合仍关闭。当前实现已补 generation 双读 fail-closed、同锁 snapshot/ref/viewport 一致性和锚点目标域隔离，新增反例随八组聚焦 JVM `89/89` 通过。主线程此前还合并了重复 viewport/anchor 类型和方向算法，避免设备层与 Workflow 阈值漂移。按快速迭代分级未运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实滚动；下一阶段先完成 Registry 完成态纯内存 evidence 交接和 Redmi 真实滚动验收，再评估生产开放。
+
 ## 2026-08-01 第 122 阶段：前台 Workflow `device.swipe` 专属安全契约
 
 - 范围：只冻结纯 Kotlin swipe 专属执行与完成策略，不接生产 Registry、Controller、Result codec、DecisionPolicy、Room、审批或 UI。生产前台 Workflow 工具面仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`；`swipe`、后台/定时 Workflow、恢复自动续跑、截图、坐标、视觉定位、任意 App、精确定时和 Foreground Service 继续关闭。
@@ -22,7 +31,7 @@
 - SAFE 与最小授权：现有 `device.swipe` ToolDefinition 标记 `SAFE`，因此专属 Workflow 策略使用 `SAFE_NO_APPROVAL`；同 Run/ToolCall、已验证 snapshot、30 秒 TTL、当前 generation、实时 ref、Executor/typed 验证和动作后观察仍全部强制。专属授权只保存方向与动作前 viewport SHA-256 摘要，不保存包名、snapshot/ref、目标指纹、完整锚点或节点正文。
 - 后置证明：动作前后必须属于同一应用、同一 window 和同一目标，generation 严格前进，可见匿名内容集合发生变化；至少一个共同锚点必须按请求方向产生不小于 `8px` 且主方向占优的位移。任一显著共同锚点反向或横向占优时整体拒绝，不能由另一个正确锚点掩盖；内容不变、目标或窗口漂移、只有 generation 变化及只有 Android API 接收动作也不能判定成功。四个方向均有正向回归，并覆盖正确/矛盾锚点混合出现的拒绝反例。
 - 聚焦验证：`WorkflowSwipeSafetyPolicyTest 4/4`、`WorkflowDeviceActionSafetyPolicyTest 17/17`、`WorkflowTypeTextSafetyPolicyTest 4/4`、`XiaoLingToolRegistryTest 30/30`，合计 `55/55`，0 failure/error/skipped；变更后编译测试为 `BUILD SUCCESSFUL in 17s`，无改动复跑仍为 `BUILD SUCCESSFUL`。
-- 验证边界：按快速迭代分级没有运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实设备滚动，Redmi 正式 `v0.1.14` 保持安装状态。下一阶段先建立 Controller/Registry evidence seam，使用仅当前执行期可用的 opaque/HMAC 锚点从前后 snapshot 生成证据；完整锚点不得进入 Room、日志、Workflow output 或答案级输出。
+- 验证边界：按快速迭代分级没有运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实设备滚动，Redmi 正式 `v0.1.14` 保持安装状态。第 123 阶段随后完成 Controller/Registry 执行期 opaque/HMAC evidence seam；完整锚点继续不得进入 Room、日志、Workflow output 或答案级输出。
 
 ## 2026-07-31 第 121 阶段：前台 Workflow `device.open_app` 生产闭环
 

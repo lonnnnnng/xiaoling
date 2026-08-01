@@ -13,6 +13,8 @@ import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyPolicy
 import com.longdev.xiaoling.automation.WorkflowTypeTextCompletionEvidence
 import com.longdev.xiaoling.automation.WorkflowTypeTextExecutionEvidence
 import com.longdev.xiaoling.automation.WorkflowTypeTextTargetEvidence
+import com.longdev.xiaoling.automation.WorkflowSwipeExecutionEvidence
+import com.longdev.xiaoling.automation.WorkflowSwipeTargetEvidence
 import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionCodec
 import com.longdev.xiaoling.device.DeviceActionFailure
@@ -372,6 +374,10 @@ class XiaoLingToolRegistry(
         if (runContext?.runId != context.runId) {
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
+            if (runContext != null) {
+                // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
+                deviceController.clearReferences()
+            }
         }
         runContext = context
     }
@@ -437,8 +443,8 @@ class XiaoLingToolRegistry(
                         decisionProcessSessionId = it.processSessionId,
                     )
                 },
-                // long: SAFE 系统导航不接受审批时间作为授权凭据，始终以实际执行时钟核对 30 秒 snapshot 窗口；需要审批的动作才冻结到用户决定时刻。
-                nowMillis = if (call.name in SAFE_WORKFLOW_NAVIGATION_TOOL_NAMES) {
+                // long: SAFE 导航与滚动都不接受审批时间延长授权，始终以实际执行时钟核对 30 秒 snapshot 窗口；需要审批的动作才冻结到用户决定时刻。
+                nowMillis = if (call.name in SAFE_WORKFLOW_NO_APPROVAL_TOOL_NAMES) {
                     clock.nowMillis()
                 } else {
                     approval?.decidedAt ?: clock.nowMillis()
@@ -456,6 +462,23 @@ class XiaoLingToolRegistry(
                             )
                         },
                     )
+                } else {
+                    null
+                },
+                swipe = if (call.name == DEVICE_SWIPE_TOOL_NAME) {
+                    inspection.swipeViewport?.let { viewport ->
+                        WorkflowSwipeExecutionEvidence(
+                            target = inspection.target?.let { target ->
+                                WorkflowSwipeTargetEvidence(
+                                    enabled = target.enabled,
+                                    redacted = target.redacted,
+                                    supportsSwipe = DeviceNodeAction.SWIPE in target.actions,
+                                    targetFingerprint = viewport.targetFingerprint,
+                                )
+                            },
+                            beforeViewport = viewport,
+                        )
+                    }
                 } else {
                     null
                 },
@@ -1209,8 +1232,13 @@ private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
+    DEVICE_SWIPE_TOOL_NAME,
 )
-private val SAFE_WORKFLOW_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
+private val SAFE_WORKFLOW_NO_APPROVAL_TOOL_NAMES = setOf(
+    DEVICE_BACK_TOOL_NAME,
+    DEVICE_HOME_TOOL_NAME,
+    DEVICE_SWIPE_TOOL_NAME,
+)
 private val WORKFLOW_REFERENCE_ACTION_TOOL_NAMES = setOf(
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,

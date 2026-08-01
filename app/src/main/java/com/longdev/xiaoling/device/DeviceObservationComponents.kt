@@ -21,6 +21,6 @@ object DeviceObservationComponents {
     }
 
     fun clearReferences() {
-        referenceStore.clear()
+        controller?.clearReferences() ?: referenceStore.clear()
     }
 }

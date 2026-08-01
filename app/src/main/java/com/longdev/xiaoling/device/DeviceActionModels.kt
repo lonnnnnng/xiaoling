@@ -37,11 +37,31 @@ data class DeviceActionOutcome(
     val verified: Boolean,
     val message: String,
     val typeTextReadBack: DeviceTypeTextReadBack? = null,
+    val swipeEvidence: DeviceSwipeVerificationEvidence? = null,
 )
 
 data class DeviceTypeTextReadBack(
     val nodePath: List<Int>,
     val text: String?,
+)
+
+data class DeviceSwipeVisibleAnchor(
+    val fingerprint: String,
+    val centerX: Int,
+    val centerY: Int,
+)
+
+data class DeviceSwipeViewportEvidence(
+    val packageName: String,
+    val windowId: Int,
+    val windowGeneration: Long,
+    val targetFingerprint: String,
+    val anchors: List<DeviceSwipeVisibleAnchor>,
+)
+
+data class DeviceSwipeVerificationEvidence(
+    val beforeViewport: DeviceSwipeViewportEvidence,
+    val afterViewport: DeviceSwipeViewportEvidence,
 )
 
 sealed interface DeviceActionCapture {
@@ -73,6 +93,7 @@ data class DeviceReferenceInspection(
     val currentWindowGeneration: Long,
     val matched: Boolean,
     val target: DeviceReferenceTargetInspection? = null,
+    val swipeViewport: DeviceSwipeViewportEvidence? = null,
 )
 
 interface DeviceController : DeviceSnapshotProvider {
@@ -81,6 +102,8 @@ interface DeviceController : DeviceSnapshotProvider {
 
     fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection =
         DeviceReferenceInspection(currentWindowGeneration = -1L, matched = false)
+
+    fun clearReferences() = Unit
 
     suspend fun openApp(packageName: String): DeviceActionCapture
     suspend fun back(): DeviceActionCapture

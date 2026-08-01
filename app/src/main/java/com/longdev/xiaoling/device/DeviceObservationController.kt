@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.device
 
+import java.security.SecureRandom
 import java.util.UUID
 import kotlinx.coroutines.delay
 
@@ -34,7 +35,12 @@ class DeviceObservationController(
     private val actionPolicy: DeviceActionPolicy = DeviceActionPolicy(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val snapshotIdFactory: () -> String = { "device-snapshot-${UUID.randomUUID()}" },
+    swipeEvidenceKey: ByteArray = ByteArray(32).also(SecureRandom()::nextBytes),
 ) : DeviceController {
+    private val observationStateLock = Any()
+    private val swipeEvidencePolicy = DeviceSwipeEvidencePolicy(swipeEvidenceKey)
+    private var currentSnapshotCapture: DeviceSnapshotCapture.Success? = null
+
     override fun health(): DeviceAgentHealthState {
         return DeviceAgentHealthPolicy.evaluate(
             agentEnabled = agentEnabled(),
@@ -44,11 +50,32 @@ class DeviceObservationController(
     }
 
     override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
-        val generation = gateway.currentWindowGeneration()
-        val current = referenceStore.resolve(snapshotId, ref, generation, clock())
-            as? DeviceNodeReferenceResolution.Current
+        val observedGeneration = gateway.currentWindowGeneration()
+        val (current, swipeViewport) = synchronized(observationStateLock) {
+            val resolution = referenceStore.resolve(snapshotId, ref, observedGeneration, clock())
+                as? DeviceNodeReferenceResolution.Current
+            val snapshotCapture = currentSnapshotCapture
+                ?.takeIf { it.snapshot.snapshotId == snapshotId }
+            val viewport = if (
+                resolution != null &&
+                snapshotCapture != null &&
+                DeviceNodeAction.SWIPE in resolution.actions
+            ) {
+                swipeEvidencePolicy.viewport(snapshotCapture, resolution.nodePath)
+            } else {
+                null
+            }
+            resolution to viewport
+        }
+        val currentGeneration = gateway.currentWindowGeneration()
+        if (currentGeneration != observedGeneration) {
+            return DeviceReferenceInspection(
+                currentWindowGeneration = currentGeneration,
+                matched = false,
+            )
+        }
         return DeviceReferenceInspection(
-            currentWindowGeneration = generation,
+            currentWindowGeneration = currentGeneration,
             matched = current != null,
             target = current?.let {
                 DeviceReferenceTargetInspection(
@@ -58,6 +85,7 @@ class DeviceObservationController(
                     actions = it.actions,
                 )
             },
+            swipeViewport = swipeViewport,
         )
     }
 
@@ -99,19 +127,26 @@ class DeviceObservationController(
                 failedAndClearReferences(failure, assessment.message)
             }
             is DeviceSnapshotAssessment.Available -> {
-                referenceStore.replace(
-                    snapshotId = assessment.snapshot.snapshotId,
-                    windowGeneration = assessment.snapshot.windowGeneration,
-                    expiresAt = assessment.snapshot.expiresAt,
-                    references = assessment.references,
-                )
-                DeviceSnapshotCapture.Success(assessment.snapshot, assessment.references)
+                val capture = DeviceSnapshotCapture.Success(assessment.snapshot, assessment.references)
+                synchronized(observationStateLock) {
+                    referenceStore.replace(
+                        snapshotId = assessment.snapshot.snapshotId,
+                        windowGeneration = assessment.snapshot.windowGeneration,
+                        expiresAt = assessment.snapshot.expiresAt,
+                        references = assessment.references,
+                    )
+                    currentSnapshotCapture = capture
+                }
+                capture
             }
         }
     }
 
-    fun clearReferences() {
-        referenceStore.clear()
+    override fun clearReferences() {
+        synchronized(observationStateLock) {
+            currentSnapshotCapture = null
+            referenceStore.clear()
+        }
     }
 
     override suspend fun openApp(packageName: String): DeviceActionCapture {
@@ -193,7 +228,9 @@ class DeviceObservationController(
     ): DeviceActionCapture {
         healthFailureOrNull()?.let { return it }
         val beforeGeneration = gateway.currentWindowGeneration()
-        val resolution = referenceStore.resolve(snapshotId, ref, beforeGeneration, clock())
+        val (resolution, beforeSnapshotCapture) = synchronized(observationStateLock) {
+            referenceStore.resolve(snapshotId, ref, beforeGeneration, clock()) to currentSnapshotCapture
+        }
         val current = when (resolution) {
             is DeviceNodeReferenceResolution.Current -> resolution
             DeviceNodeReferenceResolution.SnapshotNotFound ->
@@ -207,6 +244,13 @@ class DeviceObservationController(
         }
         if (action !in current.actions) {
             return actionFailed(DeviceActionFailure.ACTION_NOT_SUPPORTED, "该节点不支持 ${action.name.lowercase()} 动作")
+        }
+        val beforeSwipeViewport = if (action == DeviceNodeAction.SWIPE) {
+            beforeSnapshotCapture
+                ?.takeIf { it.snapshot.snapshotId == snapshotId }
+                ?.let { swipeEvidencePolicy.viewport(it, current.nodePath) }
+        } else {
+            null
         }
         val rawResult = gateway.performNodeAction(
             expectedWindowGeneration = beforeGeneration,
@@ -257,8 +301,24 @@ class DeviceObservationController(
                         )
                     }
                     DeviceNodeAction.TAP,
-                    DeviceNodeAction.SWIPE,
                     -> PostActionVerification(verified = after.windowGeneration != beforeGeneration)
+                    DeviceNodeAction.SWIPE -> {
+                        val afterViewport = swipeEvidencePolicy.viewport(capture, current.nodePath)
+                        val evidence = if (beforeSwipeViewport != null && afterViewport != null) {
+                            DeviceSwipeVerificationEvidence(
+                                beforeViewport = beforeSwipeViewport,
+                                afterViewport = afterViewport,
+                            )
+                        } else {
+                            null
+                        }
+                        // long: generation 前进只说明 Accessibility 树刷新；必须同时证明可见内容变化与共同匿名锚点按请求方向移动。
+                        PostActionVerification(
+                            verified = direction != null && evidence != null &&
+                                swipeEvidencePolicy.isVerified(direction, evidence),
+                            swipeEvidence = evidence,
+                        )
+                    }
                 }
             },
             successMessage = "节点动作已执行，并完成后置界面观察",
@@ -291,6 +351,7 @@ class DeviceObservationController(
                 verified = verification.verified,
                 message = if (verification.verified) successMessage else "动作已发送，但后置观察不足以证明界面已按预期变化",
                 typeTextReadBack = verification.typeTextReadBack,
+                swipeEvidence = verification.swipeEvidence,
             ),
         )
     }
@@ -347,13 +408,13 @@ class DeviceObservationController(
 
     private fun actionFailed(reason: DeviceActionFailure, message: String): DeviceActionCapture.Failed {
         // long: 动作失败后旧 ref 不再可信；即使 Android 没有上报窗口事件，也要求下一次操作从新的观察开始。
-        referenceStore.clear()
+        clearReferences()
         return DeviceActionCapture.Failed(reason, message)
     }
 
     private fun failedAndClearReferences(reason: DeviceSnapshotFailure, message: String): DeviceSnapshotCapture.Failed {
         // long: 任一失败都代表当前页面证据不可继续信任；立即撤销旧 ref，避免后续动作阶段误用上一次成功观察留下的节点路径。
-        referenceStore.clear()
+        clearReferences()
         return DeviceSnapshotCapture.Failed(reason, message)
     }
 
@@ -365,5 +426,6 @@ class DeviceObservationController(
     private data class PostActionVerification(
         val verified: Boolean,
         val typeTextReadBack: DeviceTypeTextReadBack? = null,
+        val swipeEvidence: DeviceSwipeVerificationEvidence? = null,
     )
 }

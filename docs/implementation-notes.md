@@ -11,13 +11,22 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，只在 Redmi 运行项目文档语料单项为 `OK (1 test)`；黄金查询已同步到当前 `271 tests` 基线且没有放宽 6/6 召回要求。
 - Redmi 原 Debug 包与正式证书不同，无损覆盖按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
 
+## 第 123 阶段：`device.swipe` Controller/Registry HMAC evidence seam（完成，生产未开放）
+
+- 新增 `DeviceSwipeEvidencePolicy`。Controller 每实例默认使用 `SecureRandom` 生成 32-byte 密钥，测试可以注入固定 key；目标和语义锚点通过 `DataOutputStream` 长度前缀编码后执行 `HmacSHA256`。目标身份绑定应用、window、角色和节点路径，不包含 bounds/generation/snapshot/ref；锚点再绑定当前目标身份、应用、window、角色及已脱敏后的 text/description/hint/状态，不含位置，因而相同语义不能跨滚动目标关联。重复语义 HMAC 全部丢弃，只保留唯一锚点与 bounds 中心坐标。
+- `DeviceObservationController` 在与 `DeviceNodeReferenceStore` 相同的锁内保留当前成功 `DeviceSnapshotCapture.Success`。capture 失败、动作失败、显式 `clearReferences()` 或 Registry 切换 Agent Run 时同时清理 ref 与 snapshot，避免下一 Run 读取旧 viewport。`inspectReference()` 在该锁内核对当前 snapshot/ref 并只为支持 `SWIPE` 的目标构造 `DeviceSwipeViewportEvidence`，锁外再读一次 window generation；证据构造期间页面变化时返回不匹配且不暴露 target/viewport。
+- `swipe()` 在发送动作前冻结匿名 before viewport，动作后沿原节点路径重新定位滚动目标并生成 after viewport。`DeviceSwipeDirectionVerifier` 同时供设备层和 `WorkflowSwipeSafetyPolicy` 使用；完成必须满足同应用/window/目标、generation 前进、两侧至少两个唯一锚点、内容集合变化和共同锚点至少 `8px` 的方向占优位移，任一显著反向或横向占优锚点都会整体拒绝。`tap_ref` 仍保留原 generation 语义，不被本阶段连带修改。
+- Registry 的 supported 测试集合允许显式注入 `device.swipe`，并把 `DeviceReferenceInspection.swipeViewport` 原样交给 `WorkflowSwipeSafetyPolicy`；生产默认集合未加入该工具。SAFE `back / home / swipe` 统一使用实际执行时钟核对 TTL，异常 approval 时间不能续期。当前只接执行前 evidence seam，不调用仍拒绝 swipe 的 `WorkflowDeviceActionResultCodec`。
+- `DeviceActionOutcome.swipeEvidence` 与前后 viewport 只驻留当前执行链；`DeviceActionCodecTest` 固定通用结果不序列化锚点或目标指纹。Result codec、DecisionPolicy、Room、审批、Compose、答案级 UI 和后台自动化均未修改。
+- TDD 覆盖正向 HMAC 锚点、内容不变、反向位移、重复语义、不同实例密钥、跨滚动目标隔离、inspection 期间 generation 漂移、当前 inspection/clear、codec 隔离、Registry 缺 viewport、SAFE TTL 和 Run 切换。八组聚焦 JVM 为 `89/89`，0 failure/error/skipped。按快速迭代分级未运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实滚动。
+
 ## 第 122 阶段：前台 Workflow `device.swipe` 专属安全契约（完成，生产未开放）
 
 - 新增纯 Kotlin `WorkflowSwipeSafetyPolicy`，只接受精确 `snapshot_id / ref / direction`，方向限于 `up / down / left / right`。当前目标必须启用、未脱敏且声明 `SWIPE`；动作前 viewport 必须绑定包名、window ID、generation、目标指纹和至少两个去重的 64 位匿名锚点。
 - `WorkflowDeviceActionSafetyPolicy` 为 execution/completion evidence 增加 swipe 专属分支。缺少目标、viewport、专属授权或后置滚动证据时统一返回 `SWIPE_POLICY_DENIED`；`device.swipe` 依据既有 `ToolRisk.SAFE` 归入 `SAFE_NO_APPROVAL`，但通用 snapshot/ref、30 秒 TTL、generation、同 Run/ToolCall、Executor/typed 验证和动作后观察门禁保持不变。
 - 完成验证要求动作前后同应用、同 window、同一目标，generation 严格前进且可见匿名内容集合变化；至少一个共同锚点必须产生不小于 `8px`、与请求方向一致且主方向占优的位移。反向或横向占优、内容不变、目标/window 漂移、只有 generation 变化或只有 Android API 接收动作均不能收敛为成功，四个方向均有回归。
 - `WorkflowSwipeAuthorization` 只保存规则版本、Run/ToolCall 身份、方向和动作前 viewport SHA-256 摘要，不保存包名、snapshot/ref、目标指纹、完整锚点或节点正文。完整 evidence 只允许在当前执行链中使用；下一阶段生成锚点时必须采用当前执行期 opaque/HMAC 身份，避免把节点正文的普通 SHA-256 变成可字典反查的长期标识。
-- 生产 `XiaoLingToolRegistry` 默认与 supported Workflow 集合没有变化，工具面仍为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。本阶段没有修改 Controller 的 generation-only swipe 验证、Result codec、DecisionPolicy、Room、Approval、Compose 或 Workflow UI，也没有执行真实滚动。
+- 第 122 阶段当时没有修改生产 `XiaoLingToolRegistry` 或 supported Workflow 集合，工具面保持 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`，Controller 也仍是 generation-only。第 123 阶段随后替换 Controller 验证并增加仅测试态 Registry evidence seam；生产默认集合、Result codec、DecisionPolicy、Room、Approval、Compose 和 Workflow UI 仍未改变，也尚未执行真实滚动。
 - TDD 最终为 `WorkflowSwipeSafetyPolicyTest 4/4`、`WorkflowDeviceActionSafetyPolicyTest 17/17`、`WorkflowTypeTextSafetyPolicyTest 4/4`、`XiaoLingToolRegistryTest 30/30`，合计 `55/55`，0 failure/error/skipped。按快速迭代分级没有运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实动作；Redmi 上的正式 `v0.1.14` 保持不变。
 
 ## 第 121 阶段：前台 Workflow `device.open_app` 生产闭环（完成）

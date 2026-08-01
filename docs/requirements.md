@@ -8,6 +8,16 @@
 
 正式门禁必须包含完整 JVM、Lint、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 单签名和仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 instrumentation。当前结果为 Gradle `141/141` tasks、JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、Redmi `OK (271 tests)`（`121.242s`）；Release APK 为 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。
 
+## 前台 `device.swipe` 执行期 HMAC evidence seam（第 123 阶段，生产未开放）
+
+Controller 必须为每个实例生成至少 256-bit 的随机 HMAC 密钥，测试只允许在随机系统边界注入固定密钥。目标与锚点身份必须使用长度前缀结构化输入和 `HmacSHA256`，且锚点身份必须绑定当前滚动目标，不能在同一窗口的不同滚动容器间复用；身份不得包含 bounds、generation、snapshot ID 或 ref，也不得使用裸节点指纹或无密钥文本摘要。可见锚点只允许来自当前滚动目标下未脱敏、具有稳定语义的后代；同一 viewport 中重复语义身份必须全部丢弃，不能任意选择一个位置。
+
+当前成功 snapshot 必须与节点 ref 同生命周期只驻留内存。capture 失败、显式清理或 Agent Run 切换时必须同步撤销 snapshot、ref 和 viewport。`inspectReference()` 必须在同一生命周期锁内确认 snapshot/ref/TTL 并生成 viewport，随后再次读取 window generation；证据构造期间 generation 变化时必须返回不匹配，且只允许支持 `SWIPE` 的目标返回该证据。Registry 只允许显式测试 Workflow 集合消费，生产默认 Workflow 动作集合不得增加 `device.swipe`；直接 `/agent` 的既有工具面不属于本阶段扩权。SAFE 滚动不得使用异常审批时间延长 snapshot TTL。
+
+Controller 的滚动结果不得继续用 generation-only 判定。动作后必须重新 capture，并以同应用、同 window、同匿名目标、generation 前进、可见匿名内容集合变化及共同锚点至少 `8px` 的请求方向主位移共同证明成功；内容未变、锚点不足、方向相反、横向占优或显著锚点互相矛盾时必须返回 `verified=false`。设备层和 Workflow 层必须共享同一 viewport/anchor 类型和方向验证器，避免阈值或方向语义漂移。
+
+完整前后 viewport 只允许留在当前 Controller/Registry 执行链，不得进入 `DeviceActionCodec`、`WorkflowDeviceActionResultCodec`、Room、日志、Workflow output、答案级 UI 或后台自动化。第 123 阶段不修改 Result codec、DecisionPolicy、Room、审批、Compose 或生产 Workflow 默认工具集合；下一阶段先完成 Registry 完成态的纯内存证据交接并仅用 Redmi 验收真实滚动，之后才评估生产开放。
+
 ## 前台 Workflow `device.swipe` 专属安全契约（第 122 阶段，生产未开放）
 
 `device.swipe` 的纯策略契约只能接受精确的 `snapshot_id / ref / direction`，其中方向固定为 `up / down / left / right`。动作目标必须来自当前有效 ref，处于启用、未脱敏状态并声明 `SWIPE` 能力；动作前 viewport 必须绑定非空应用包名、有效 window ID、非负 generation、同一匿名目标指纹，以及至少两个互不重复的 64 位匿名可见锚点。缺少专属证据时，即使调用方把 `device.swipe` 注入通用动作白名单，也必须以 `SWIPE_POLICY_DENIED` fail-closed。
@@ -16,7 +26,7 @@
 
 完成判定必须要求动作前后属于同一应用、同一 window 和同一目标，动作后 generation 严格前进，可见匿名内容集合发生变化，并至少有一个前后共同锚点产生不小于 `8px` 的位移。该位移必须与请求方向一致且主方向绝对值大于横向分量；任一达到阈值的共同锚点若反向或横向占优，必须整体拒绝，不能由另一个方向正确的锚点掩盖。内容未变、目标漂移或只有 Android API 接收动作同样不得判定为成功。四个方向必须分别覆盖正向回归，并覆盖正确与矛盾锚点同时出现的拒绝反例。
 
-第 122 阶段只冻结上述纯策略并强制 `WorkflowDeviceActionSafetyPolicy` 委托，不修改生产 Registry、`DeviceObservationController`、Result codec、DecisionPolicy、Room、审批、答案级 UI 或 Workflow UI，不执行真实设备滚动。生产前台 Workflow 工具面仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`。下一阶段必须先建立 Controller/Registry evidence seam，从动作前后 snapshot 生成仅当前执行期可用的 opaque/HMAC 锚点身份；完整锚点不得进入 Room、日志、Workflow output 或答案级输出，之后才可评估生产接线与 Redmi 真实动作验收。
+第 122 阶段只冻结上述纯策略并强制 `WorkflowDeviceActionSafetyPolicy` 委托，当时没有修改生产 Registry、`DeviceObservationController`、Result codec、DecisionPolicy、Room、审批、答案级 UI 或 Workflow UI，也没有执行真实设备滚动。第 123 阶段随后完成 Controller/Registry 执行期 opaque/HMAC evidence seam，但生产前台 Workflow 工具面仍精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`；完整锚点继续不得进入 Room、日志、Workflow output 或答案级输出。
 
 ## 前台 Workflow `device.open_app` 生产闭环（第 121 阶段）
 

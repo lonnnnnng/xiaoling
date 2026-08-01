@@ -1,8 +1,10 @@
 package com.longdev.xiaoling.automation
 
 import com.longdev.xiaoling.device.DeviceScrollDirection
+import com.longdev.xiaoling.device.DeviceSwipeDirectionVerifier
+import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
+import com.longdev.xiaoling.device.DeviceSwipeVisibleAnchor
 import java.security.MessageDigest
-import kotlin.math.abs
 
 data class WorkflowSwipeTargetEvidence(
     val enabled: Boolean,
@@ -11,19 +13,9 @@ data class WorkflowSwipeTargetEvidence(
     val targetFingerprint: String,
 )
 
-data class WorkflowSwipeVisibleAnchor(
-    val fingerprint: String,
-    val centerX: Int,
-    val centerY: Int,
-)
+typealias WorkflowSwipeVisibleAnchor = DeviceSwipeVisibleAnchor
 
-data class WorkflowSwipeViewportEvidence(
-    val packageName: String,
-    val windowId: Int,
-    val windowGeneration: Long,
-    val targetFingerprint: String,
-    val anchors: List<WorkflowSwipeVisibleAnchor>,
-)
+typealias WorkflowSwipeViewportEvidence = DeviceSwipeViewportEvidence
 
 data class WorkflowSwipeExecutionEvidence(
     val target: WorkflowSwipeTargetEvidence?,
@@ -197,7 +189,7 @@ class WorkflowSwipeSafetyPolicy {
                 "动作前后可见匿名内容集合没有变化，不能证明发生滚动",
             )
         }
-        if (!isDirectionVerified(authorization.direction, before.anchors, after.anchors)) {
+        if (!DeviceSwipeDirectionVerifier.isVerified(authorization.direction, before.anchors, after.anchors)) {
             return denied(
                 WorkflowSwipeSafetyFailure.DIRECTION_NOT_VERIFIED,
                 "共同可见锚点没有按请求方向产生稳定主位移",
@@ -262,37 +254,6 @@ class WorkflowSwipeSafetyPolicy {
             authorization.beforeViewportFingerprint == fingerprintViewport(beforeViewport)
     }
 
-    private fun isDirectionVerified(
-        direction: DeviceScrollDirection,
-        beforeAnchors: List<WorkflowSwipeVisibleAnchor>,
-        afterAnchors: List<WorkflowSwipeVisibleAnchor>,
-    ): Boolean {
-        val beforeByFingerprint = beforeAnchors.associateBy { it.fingerprint }
-        val commonMovements = afterAnchors.mapNotNull { after ->
-            val before = beforeByFingerprint[after.fingerprint] ?: return@mapNotNull null
-            (after.centerX - before.centerX) to (after.centerY - before.centerY)
-        }
-        if (commonMovements.isEmpty()) return false
-
-        var directionObserved = false
-        for ((deltaX, deltaY) in commonMovements) {
-            if (abs(deltaX) < MIN_DIRECTIONAL_DISPLACEMENT_PX && abs(deltaY) < MIN_DIRECTIONAL_DISPLACEMENT_PX) {
-                continue
-            }
-            val (primary, cross) = when (direction) {
-                DeviceScrollDirection.UP -> -deltaY to deltaX
-                DeviceScrollDirection.DOWN -> deltaY to deltaX
-                DeviceScrollDirection.LEFT -> -deltaX to deltaY
-                DeviceScrollDirection.RIGHT -> deltaX to deltaY
-            }
-            if (primary < MIN_DIRECTIONAL_DISPLACEMENT_PX || primary <= abs(cross)) {
-                return false
-            }
-            directionObserved = true
-        }
-        return directionObserved
-    }
-
     private fun fingerprintViewport(viewport: WorkflowSwipeViewportEvidence): String {
         val canonical = buildString {
             append(viewport.packageName)
@@ -334,7 +295,6 @@ class WorkflowSwipeSafetyPolicy {
         private const val REFERENCE_ARGUMENT_NAME = "ref"
         private const val DIRECTION_ARGUMENT_NAME = "direction"
         private const val MIN_VISIBLE_ANCHORS = 2
-        private const val MIN_DIRECTIONAL_DISPLACEMENT_PX = 8
         private val REQUIRED_ARGUMENT_NAMES = setOf(
             SNAPSHOT_ARGUMENT_NAME,
             REFERENCE_ARGUMENT_NAME,

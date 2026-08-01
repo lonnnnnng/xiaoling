@@ -13,6 +13,8 @@ import com.longdev.xiaoling.device.DeviceScrollDirection
 import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.device.DeviceSnapshotNode
+import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
+import com.longdev.xiaoling.device.DeviceSwipeVisibleAnchor
 import com.longdev.xiaoling.device.DeviceTypeTextReadBack
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
@@ -606,12 +608,162 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun workflowTestActionSeamRejectsActionsOutsideBackHomeTapAndTypeText() {
+    fun testOnlyWorkflowSwipeAcceptsOpaqueCurrentViewportWithoutApproval() = runTest {
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.SWIPE),
+            ),
+            swipeViewport = DeviceSwipeViewportEvidence(
+                packageName = "com.example.safe",
+                windowId = 1,
+                windowGeneration = 2L,
+                targetFingerprint = "a".repeat(64),
+                anchors = listOf(
+                    DeviceSwipeVisibleAnchor("b".repeat(64), centerX = 50, centerY = 100),
+                    DeviceSwipeVisibleAnchor("c".repeat(64), centerX = 50, centerY = 200),
+                ),
+            ),
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.swipe"),
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
+        assertEquals(
+            setOf("device.snapshot", "device.swipe"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val snapshotCall = ToolCall(
+            id = "tool-call-swipe-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val swipeCall = ToolCall(
+            id = "tool-call-swipe-action",
+            name = "device.swipe",
+            arguments = mapOf(
+                "snapshot_id" to "snapshot-direct",
+                "ref" to "r1",
+                "direction" to "up",
+            ),
+            risk = ToolRisk.SAFE,
+        )
+
+        registry.beforeToolExecution(swipeCall, approval = null)
+
+        assertEquals(1, provider.referenceInspectionCount)
+        assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun testOnlyWorkflowSwipeRejectsMissingCurrentViewportBeforeDeviceAction() = runTest {
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.SWIPE),
+            ),
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.swipe"),
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-swipe-missing-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val swipeCall = ToolCall(
+            id = "tool-call-swipe-missing-action",
+            name = "device.swipe",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "direction" to "up"),
+            risk = ToolRisk.SAFE,
+        )
+
+        val failure = runCatching { registry.beforeToolExecution(swipeCall, approval = null) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("viewport"))
+        assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun safeWorkflowSwipeUsesExecutionClockInsteadOfInjectedApprovalTime() = runTest {
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.SWIPE),
+            ),
+            swipeViewport = DeviceSwipeViewportEvidence(
+                packageName = "com.example.safe",
+                windowId = 1,
+                windowGeneration = 2L,
+                targetFingerprint = "a".repeat(64),
+                anchors = listOf(
+                    DeviceSwipeVisibleAnchor("b".repeat(64), centerX = 50, centerY = 100),
+                    DeviceSwipeVisibleAnchor("c".repeat(64), centerX = 50, centerY = 200),
+                ),
+            ),
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.swipe"),
+            clock = FakeAgentClock(nowMillis = 31_000L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-swipe-expired-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val swipeCall = ToolCall(
+            id = "tool-call-swipe-expired-action",
+            name = "device.swipe",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "direction" to "up"),
+            risk = ToolRisk.SAFE,
+        )
+
+        val failure = runCatching {
+            registry.beforeToolExecution(
+                swipeCall,
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 1_500L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("过期"))
+        assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun workflowTestActionSeamRejectsNonActionTools() {
         val error = assertThrows(IllegalArgumentException::class.java) {
-            testRegistry(workflowDeviceActionToolNames = setOf("device.tap_ref", "device.swipe"))
+            testRegistry(workflowDeviceActionToolNames = setOf("device.tap_ref", "device.snapshot"))
         }
 
-        assertTrue(error.message.orEmpty().contains("device.swipe"))
+        assertTrue(error.message.orEmpty().contains("device.snapshot"))
     }
 
     @Test
@@ -663,6 +815,22 @@ class XiaoLingToolRegistryTest {
         assertTrue(failure is IllegalStateException)
         assertTrue(failure?.message.orEmpty().contains("当前 Run 已验证"))
         assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun switchingAgentRunRevokesControllerReferencesAndTransientSwipeViewport() {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = testRegistry(deviceController = provider)
+        val first = workflowDeviceContext(userIntent = "观察并滚动当前列表")
+
+        registry.bindRunContext(first)
+        registry.bindRunContext(first)
+
+        assertEquals(0, provider.clearReferencesCount)
+
+        registry.bindRunContext(first.copy(runId = "run-workflow-next"))
+
+        assertEquals(1, provider.clearReferencesCount)
     }
 
     @Test
@@ -1143,9 +1311,10 @@ class XiaoLingToolRegistryTest {
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
+        clock: AgentClock = FakeAgentClock(),
     ): XiaoLingToolRegistry {
         return XiaoLingToolRegistry(
-            clock = FakeAgentClock(),
+            clock = clock,
             conversationStore = conversationStore,
             noteStore = noteStore,
             memoryStore = memoryStore,
@@ -1200,9 +1369,11 @@ private class FakeDeviceController(
         redacted = false,
         actions = setOf(DeviceNodeAction.TAP),
     ),
+    private val swipeViewport: DeviceSwipeViewportEvidence? = null,
 ) : DeviceController {
     var captureCount: Int = 0
     var referenceInspectionCount: Int = 0
+    var clearReferencesCount: Int = 0
     val actions = mutableListOf<String>()
 
     override fun health(): DeviceAgentHealthState = healthState
@@ -1215,7 +1386,12 @@ private class FakeDeviceController(
             currentWindowGeneration = 2L,
             matched = snapshotId == "snapshot-direct" && ref == "r1",
             target = referenceTarget.takeIf { snapshotId == "snapshot-direct" && ref == "r1" },
+            swipeViewport = swipeViewport.takeIf { snapshotId == "snapshot-direct" && ref == "r1" },
         )
+    }
+
+    override fun clearReferences() {
+        clearReferencesCount += 1
     }
 
     override suspend fun capture(): DeviceSnapshotCapture {
