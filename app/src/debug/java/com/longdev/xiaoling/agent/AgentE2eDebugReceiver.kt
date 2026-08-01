@@ -12,6 +12,7 @@ import com.longdev.xiaoling.automation.WorkflowDeviceActionResolution
 import com.longdev.xiaoling.automation.WorkflowDeviceActionResultCodec
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
+import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceObservationController
 import com.longdev.xiaoling.device.DevicePrivacyProbeActivity
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
@@ -45,7 +46,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             operation == OPERATION_WORKFLOW_TYPE_TEXT ||
             operation == OPERATION_WORKFLOW_OPEN_APP ||
             operation == OPERATION_WORKFLOW_BACK ||
-            operation == OPERATION_WORKFLOW_HOME
+            operation == OPERATION_WORKFLOW_HOME ||
+            operation == OPERATION_WORKFLOW_SWIPE
         ) {
             // long: 人工审批可能超过 BroadcastReceiver 的十秒窗口；Debug 验收任务由进程级 scope 承载，Receiver 立即返回以避免系统 ANR。
             debugScope.launch {
@@ -55,6 +57,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                         OPERATION_WORKFLOW_OPEN_APP -> runWorkflowOpenApp(context.applicationContext)
                         OPERATION_WORKFLOW_BACK -> runWorkflowBack(context.applicationContext)
                         OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
+                        OPERATION_WORKFLOW_SWIPE -> runWorkflowSwipe(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
                     }
                 }
@@ -347,6 +350,119 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             "workflow-type-text-e2e success=true action=${actionEvidence.action} " +
                 "verified=${actionEvidence.verified} approval=${approval.status} " +
                 "answerDecision=${decision.status} exactReadBack=true afterNodes=${actionEvidence.afterNodeCount}",
+        )
+    }
+
+    private suspend fun runWorkflowSwipe(context: Context) {
+        context.startActivity(
+            Intent(context, DevicePrivacyProbeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = AndroidDeviceAccessibilityGateway(context),
+        )
+        awaitDeviceReady(controller)
+        awaitProbeWindow(controller)
+        context.startActivity(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", context.packageName, null),
+            ).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_NO_HISTORY,
+            ),
+        )
+        awaitStableScrollablePackageWindow(controller, SYSTEM_SETTINGS_PACKAGE)
+
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context),
+            noteStore = RoomAgentNoteStore(context),
+            memoryStore = RoomAgentMemoryStore(context),
+            knowledgeStore = RoomKnowledgeDocumentStore(context),
+            deviceController = controller,
+            // long: Redmi tracer 只为当前 Debug Run 显式注入 swipe；生产 Registry 默认集合继续保持关闭。
+            workflowDeviceActionToolNames = setOf(DEVICE_SWIPE_TOOL_NAME),
+        )
+        val runRepository = RoomAgentRunRepository(context)
+        val scriptedLlm = WorkflowSwipeE2eLlm()
+        val runtime = MinimalAgentRuntime(
+            ledger = runRepository,
+            toolRegistry = registry,
+            llm = scriptedLlm,
+            approvalGate = object : ApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: ToolCall,
+                    definition: ToolDefinition,
+                ): ApprovalDecision {
+                    error("SAFE device.swipe 不应请求 Room 或浮层审批")
+                }
+            },
+            permissionChecker = AndroidToolPermissionChecker(context),
+            processSessionId = "process-redmi-workflow-swipe",
+        )
+        val summary = runtime.run(
+            conversationId = E2E_SWIPE_CONVERSATION_ID,
+            userMessageId = "message-redmi-workflow-swipe-${System.currentTimeMillis()}",
+            goal = "在系统设置应用详情页向上滚动并确认同窗内容变化",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            memoryRecallEnabled = false,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-redmi-swipe",
+                workflowStepId = "workflow-step-redmi-swipe",
+                userIntent = "在系统设置应用详情页向上滚动",
+            ),
+        )
+        val detail = checkNotNull(runRepository.runDetail(summary.runId)) { "真实 Workflow swipe Run 未写入 Room" }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "真实 Workflow swipe Run 未完成：${detail.snapshot.run.status}"
+        }
+        check(detail.approvals.none { it.toolName == DEVICE_SWIPE_TOOL_NAME }) {
+            "SAFE device.swipe 不得创建 Room Approval：${detail.approvals.map { it.toolName }}"
+        }
+        val swipeCall = detail.toolLedger.calls.single { it.toolName == DEVICE_SWIPE_TOOL_NAME }
+        check(
+            swipeCall.arguments == mapOf(
+                "snapshot_id" to scriptedLlm.snapshotId,
+                "ref" to scriptedLlm.ref,
+                "direction" to WORKFLOW_SWIPE_DIRECTION,
+            ) && swipeCall.risk == ToolRisk.SAFE
+        ) { "Workflow swipe ToolCall 必须保持精确引用参数与 SAFE 风险：$swipeCall" }
+        val swipeResult = detail.toolLedger.results.single { it.toolName == DEVICE_SWIPE_TOOL_NAME }
+        check(
+            swipeResult.success &&
+                swipeResult.executorVerified == true &&
+                swipeResult.verificationStatus == ToolVerificationStatus.PASSED,
+        ) { "Tool Ledger 未保存通过专属滚动验证的 swipe：$swipeResult" }
+        val actionEvidence = checkNotNull(WorkflowDeviceActionResultCodec.decode(swipeResult.content)) {
+            "Workflow swipe 没有返回严格白名单结果"
+        }
+        check(
+            actionEvidence.action == "swipe" &&
+                actionEvidence.beforePackageName == SYSTEM_SETTINGS_PACKAGE &&
+                actionEvidence.afterPackageName == SYSTEM_SETTINGS_PACKAGE &&
+                actionEvidence.verified
+        ) { "Workflow swipe 前后窗口或验证结果不符合预期：$actionEvidence" }
+        check(
+            !swipeResult.content.contains(scriptedLlm.snapshotId) &&
+                !swipeResult.content.contains(scriptedLlm.ref) &&
+                !HMAC_HEX_PATTERN.containsMatchIn(swipeResult.content)
+        ) { "Workflow swipe Result 泄露 snapshot/ref 或滚动 HMAC" }
+        val postSnapshot = captureWhenReady(controller).snapshot
+        check(postSnapshot.packageName == SYSTEM_SETTINGS_PACKAGE) {
+            "真实 Accessibility swipe 后离开系统设置：${postSnapshot.packageName}"
+        }
+        Log.i(
+            TAG,
+            "workflow-swipe-e2e success=true action=${actionEvidence.action} verified=${actionEvidence.verified} " +
+                "approvals=${detail.approvals.size} registryCompletion=PASSED " +
+                "beforePackage=${actionEvidence.beforePackageName} afterPackage=${actionEvidence.afterPackageName} " +
+                "privacySafe=true afterNodes=${actionEvidence.afterNodeCount}",
         )
     }
 
@@ -769,6 +885,39 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         error("限定时间内前台窗口未稳定：$packageName")
     }
 
+    private suspend fun awaitStableScrollablePackageWindow(
+        controller: DeviceObservationController,
+        packageName: String,
+    ) {
+        var stableGeneration: Long? = null
+        var stableSamples = 0
+        repeat(50) {
+            when (val capture = controller.capture()) {
+                is DeviceSnapshotCapture.Success -> {
+                    val snapshot = capture.snapshot
+                    val hasScrollableReference = snapshot.nodes.any { node ->
+                        node.ref != null && DeviceNodeAction.SWIPE in node.actions
+                    }
+                    if (snapshot.packageName == packageName && hasScrollableReference) {
+                        stableSamples = if (snapshot.windowGeneration == stableGeneration) stableSamples + 1 else 1
+                        stableGeneration = snapshot.windowGeneration
+                        if (stableSamples >= 3) return
+                    } else {
+                        stableGeneration = null
+                        stableSamples = 0
+                    }
+                }
+                is DeviceSnapshotCapture.Failed -> {
+                    if (capture.reason !in TRANSIENT_SNAPSHOT_FAILURES) error(capture.message)
+                    stableGeneration = null
+                    stableSamples = 0
+                }
+            }
+            delay(150)
+        }
+        error("限定时间内没有稳定的可滚动窗口：$packageName")
+    }
+
     private suspend fun captureWhenReady(controller: DeviceObservationController): DeviceSnapshotCapture.Success {
         repeat(30) {
             when (val capture = controller.capture()) {
@@ -883,6 +1032,72 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             toolCall: ToolCall,
             toolResult: ToolExecutionResult,
         ): String = "Workflow 文本输入已完成真实执行与精确回读"
+    }
+
+    private class WorkflowSwipeE2eLlm : AgentLlm {
+        lateinit var snapshotId: String
+            private set
+        lateinit var ref: String
+            private set
+
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            if (completedTools.size == 1) {
+                val snapshotResult = completedTools.single().toolResult
+                check(snapshotResult.success) { snapshotResult.content }
+                val snapshotJson = JSONObject(snapshotResult.content)
+                check(snapshotJson.getString("package") == SYSTEM_SETTINGS_PACKAGE) {
+                    "Workflow swipe 动作前 snapshot 不属于系统设置"
+                }
+                val nodes = snapshotJson.getJSONArray("nodes")
+                val target = (0 until nodes.length())
+                    .map(nodes::getJSONObject)
+                    .filter { node ->
+                        node.optString("ref").isNotBlank() &&
+                            node.optJSONArray("actions")?.let { actions ->
+                                (0 until actions.length()).any { actions.getString(it) == "swipe" }
+                            } == true
+                    }
+                    // long: 系统页面可能同时暴露嵌套滚动容器；优先最大可见区域，避免把短横向区域误当主列表。
+                    .maxByOrNull { node ->
+                        val bounds = node.getJSONArray("bounds")
+                        val width = (bounds.getInt(2) - bounds.getInt(0)).coerceAtLeast(0)
+                        val height = (bounds.getInt(3) - bounds.getInt(1)).coerceAtLeast(0)
+                        width.toLong() * height
+                    }
+                    ?: error("系统设置 snapshot 没有可执行 swipe 的节点引用")
+                snapshotId = snapshotJson.getString("snapshot_id")
+                ref = target.getString("ref")
+                val swipe = tools.single { it.name == DEVICE_SWIPE_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = swipe.name,
+                        arguments = mapOf(
+                            "snapshot_id" to snapshotId,
+                            "ref" to ref,
+                            "direction" to WORKFLOW_SWIPE_DIRECTION,
+                        ),
+                        risk = swipe.risk,
+                    ),
+                )
+            }
+            return AgentPlanDecision.Complete
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "Workflow 滚动已完成真实同窗内容与方向验证"
     }
 
     private class WorkflowOpenAppE2eLlm(
@@ -1012,6 +1227,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_OPEN_APP = "workflow_open_app"
         const val OPERATION_WORKFLOW_BACK = "workflow_back"
         const val OPERATION_WORKFLOW_HOME = "workflow_home"
+        const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val PROVIDER_ID = "stage3-device-e2e-provider"
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
@@ -1020,15 +1236,19 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val E2E_OPEN_APP_CONVERSATION_ID = "conversation-redmi-workflow-open-app"
         private const val E2E_BACK_CONVERSATION_ID = "conversation-redmi-workflow-back"
         private const val E2E_HOME_CONVERSATION_ID = "conversation-redmi-workflow-home"
+        private const val E2E_SWIPE_CONVERSATION_ID = "conversation-redmi-workflow-swipe"
         private const val DEVICE_SNAPSHOT_E2E_TOOL_NAME = "device.snapshot"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
+        private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
         private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
         private const val SYSTEM_CALCULATOR_PACKAGE = "com.android.calculator2"
         private const val WORKFLOW_TYPE_TEXT_HINT = "Workflow 安全文本输入框"
         private const val WORKFLOW_TYPE_TEXT_INPUT = "stage117_safe_text"
+        private const val WORKFLOW_SWIPE_DIRECTION = "up"
         private const val TAG = "XiaoLingAgentE2e"
+        private val HMAC_HEX_PATTERN = Regex("(?i)\\b[0-9a-f]{64}\\b")
         private val debugScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val TRANSIENT_SNAPSHOT_FAILURES = setOf(
             DeviceSnapshotFailure.NO_ACTIVE_WINDOW,

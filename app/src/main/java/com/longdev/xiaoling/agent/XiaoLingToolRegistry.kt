@@ -13,6 +13,7 @@ import com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyPolicy
 import com.longdev.xiaoling.automation.WorkflowTypeTextCompletionEvidence
 import com.longdev.xiaoling.automation.WorkflowTypeTextExecutionEvidence
 import com.longdev.xiaoling.automation.WorkflowTypeTextTargetEvidence
+import com.longdev.xiaoling.automation.WorkflowSwipeCompletionEvidence
 import com.longdev.xiaoling.automation.WorkflowSwipeExecutionEvidence
 import com.longdev.xiaoling.automation.WorkflowSwipeTargetEvidence
 import com.longdev.xiaoling.device.DeviceActionCapture
@@ -28,6 +29,8 @@ import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.device.DeviceSnapshotCodec
 import com.longdev.xiaoling.device.DeviceSnapshotFailure
+import com.longdev.xiaoling.device.DeviceSwipeVerificationEvidence
+import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.time.Instant
@@ -783,12 +786,56 @@ class XiaoLingToolRegistry(
                 } else {
                     null
                 },
+                swipe = if (call.name == DEVICE_SWIPE_TOOL_NAME) {
+                    executed.outcome.swipeEvidence
+                        ?.takeIf { evidence ->
+                            evidence.matchesActionSnapshots(
+                                beforeSnapshot = executed.beforeSnapshot,
+                                beforeSnapshotId = executed.outcome.beforeSnapshotId,
+                                afterSnapshot = executed.outcome.afterSnapshot,
+                            )
+                        }
+                        ?.let { evidence ->
+                            // long: 完整滚动锚点只从 Controller 的当前执行结果交给完成门禁，不写入通用 Result JSON 或任何持久化投影。
+                            WorkflowSwipeCompletionEvidence(
+                                resultAgentRunId = context.runId,
+                                resultToolCallId = call.id,
+                                resultToolName = call.name,
+                                actionCompletedAt = executed.outcome.afterSnapshot.capturedAt,
+                                observedAt = decoded.afterObservedAt,
+                                executorVerified = result.verified == true && decoded.verified,
+                                verificationPassed = true,
+                                afterObservationVerified = decoded.verified,
+                                beforeViewport = evidence.beforeViewport,
+                                afterViewport = evidence.afterViewport,
+                            )
+                        }
+                } else {
+                    null
+                },
             ),
         )
         clearWorkflowDeviceActionState()
         if (decision is WorkflowDeviceActionSafetyDecision.Denied) {
             throw IllegalStateException(decision.message)
         }
+    }
+
+    private fun DeviceSwipeVerificationEvidence.matchesActionSnapshots(
+        beforeSnapshot: DeviceSnapshot,
+        beforeSnapshotId: String?,
+        afterSnapshot: DeviceSnapshot,
+    ): Boolean {
+        // long: 完成门禁只信任与本次授权前后快照逐窗绑定的滚动证据，避免 Controller 错串窗口或旧动作证据。
+        return beforeSnapshotId == beforeSnapshot.snapshotId &&
+            beforeViewport.matchesSnapshot(beforeSnapshot) &&
+            afterViewport.matchesSnapshot(afterSnapshot)
+    }
+
+    private fun DeviceSwipeViewportEvidence.matchesSnapshot(snapshot: DeviceSnapshot): Boolean {
+        return packageName == snapshot.packageName &&
+            windowId == snapshot.windowId &&
+            windowGeneration == snapshot.windowGeneration
     }
 
     private fun clearWorkflowDeviceActionState() {

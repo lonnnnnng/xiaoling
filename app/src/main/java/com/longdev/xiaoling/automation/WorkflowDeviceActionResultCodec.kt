@@ -90,5 +90,6 @@ object WorkflowDeviceActionResultCodec {
         "afterObservedAt",
         "verified",
     )
-    private val ALLOWED_ACTIONS = setOf("open_app", "back", "home", "tap_ref", "type_text")
+    // long: swipe 只复用无节点正文的通用结果摘要；完整 viewport/HMAC 证据继续只在 Registry 当前执行链内传递。
+    private val ALLOWED_ACTIONS = setOf("open_app", "back", "home", "tap_ref", "type_text", "swipe")
 }

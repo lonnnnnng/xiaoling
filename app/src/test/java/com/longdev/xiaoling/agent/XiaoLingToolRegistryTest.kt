@@ -14,6 +14,7 @@ import com.longdev.xiaoling.device.DeviceSnapshot
 import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.device.DeviceSnapshotNode
 import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
+import com.longdev.xiaoling.device.DeviceSwipeVerificationEvidence
 import com.longdev.xiaoling.device.DeviceSwipeVisibleAnchor
 import com.longdev.xiaoling.device.DeviceTypeTextReadBack
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
@@ -660,6 +661,94 @@ class XiaoLingToolRegistryTest {
 
         assertEquals(1, provider.referenceInspectionCount)
         assertTrue(provider.actions.isEmpty())
+    }
+
+    @Test
+    fun testOnlyWorkflowSwipeCompletesWithTransientControllerEvidence() = runTest {
+        val swipeEvidence = successfulSwipeEvidence()
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.SWIPE),
+            ),
+            swipeViewport = swipeEvidence.beforeViewport,
+            swipeOutcomeEvidence = swipeEvidence,
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.swipe"),
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-swipe-completion-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val swipeCall = ToolCall(
+            id = "tool-call-swipe-completion-action",
+            name = "device.swipe",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "direction" to "up"),
+            risk = ToolRisk.SAFE,
+        )
+
+        registry.beforeToolExecution(swipeCall, approval = null)
+        val result = registry.execute(swipeCall)
+        registry.afterToolVerification(swipeCall, result)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals(listOf("swipe:snapshot-direct:r1:UP"), provider.actions)
+        listOf("a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64), "e".repeat(64))
+            .forEach { fingerprint -> assertFalse(result.content.contains(fingerprint)) }
+    }
+
+    @Test
+    fun testOnlyWorkflowSwipeRejectsEvidenceThatDoesNotMatchActionSnapshots() = runTest {
+        val swipeEvidence = successfulSwipeEvidence()
+        val provider = FakeDeviceController(
+            enabled = true,
+            referenceTarget = DeviceReferenceTargetInspection(
+                enabled = true,
+                editable = false,
+                redacted = false,
+                actions = setOf(DeviceNodeAction.SWIPE),
+            ),
+            swipeViewport = swipeEvidence.beforeViewport,
+            swipeOutcomeEvidence = swipeEvidence,
+            swipeAfterSnapshotWindowId = 99,
+        )
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.swipe"),
+            clock = FakeAgentClock(nowMillis = 1_500L),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-swipe-mismatch-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        val swipeCall = ToolCall(
+            id = "tool-call-swipe-mismatch-action",
+            name = "device.swipe",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1", "direction" to "up"),
+            risk = ToolRisk.SAFE,
+        )
+        registry.beforeToolExecution(swipeCall, approval = null)
+        val result = registry.execute(swipeCall)
+
+        val failure = runCatching { registry.afterToolVerification(swipeCall, result) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("滚动后置证据"))
     }
 
     @Test
@@ -1338,6 +1427,31 @@ class XiaoLingToolRegistryTest {
         )
     }
 
+    private fun successfulSwipeEvidence(): DeviceSwipeVerificationEvidence {
+        val beforeViewport = DeviceSwipeViewportEvidence(
+            packageName = "com.example.safe",
+            windowId = 1,
+            windowGeneration = 2L,
+            targetFingerprint = "a".repeat(64),
+            anchors = listOf(
+                DeviceSwipeVisibleAnchor("b".repeat(64), centerX = 50, centerY = 100),
+                DeviceSwipeVisibleAnchor("c".repeat(64), centerX = 50, centerY = 200),
+                DeviceSwipeVisibleAnchor("d".repeat(64), centerX = 50, centerY = 300),
+            ),
+        )
+        return DeviceSwipeVerificationEvidence(
+            beforeViewport = beforeViewport,
+            afterViewport = beforeViewport.copy(
+                windowGeneration = 3L,
+                anchors = listOf(
+                    DeviceSwipeVisibleAnchor("b".repeat(64), centerX = 50, centerY = 0),
+                    DeviceSwipeVisibleAnchor("c".repeat(64), centerX = 50, centerY = 100),
+                    DeviceSwipeVisibleAnchor("e".repeat(64), centerX = 50, centerY = 200),
+                ),
+            ),
+        )
+    }
+
     private fun workflowDeviceContext(userIntent: String): AgentToolExecutionContext {
         return AgentToolExecutionContext(
             conversationId = "conversation-workflow",
@@ -1370,6 +1484,8 @@ private class FakeDeviceController(
         actions = setOf(DeviceNodeAction.TAP),
     ),
     private val swipeViewport: DeviceSwipeViewportEvidence? = null,
+    private val swipeOutcomeEvidence: DeviceSwipeVerificationEvidence? = null,
+    private val swipeAfterSnapshotWindowId: Int? = null,
 ) : DeviceController {
     var captureCount: Int = 0
     var referenceInspectionCount: Int = 0
@@ -1464,32 +1580,48 @@ private class FakeDeviceController(
         direction: DeviceScrollDirection,
     ): DeviceActionCapture {
         actions += "swipe:$snapshotId:$ref:${direction.name}"
-        return successfulAction("swipe")
+        val afterViewport = swipeOutcomeEvidence?.afterViewport
+        return successfulAction(
+            action = "swipe",
+            afterSnapshot = snapshot(
+                packageName = afterViewport?.packageName ?: "com.example.safe",
+                windowId = swipeAfterSnapshotWindowId ?: afterViewport?.windowId ?: 2,
+                windowGeneration = afterViewport?.windowGeneration ?: 3L,
+            ),
+            swipeEvidence = swipeOutcomeEvidence,
+        )
     }
 
     private fun successfulAction(
         action: String,
         packageName: String = "com.example.safe",
         typeTextReadBack: DeviceTypeTextReadBack? = null,
+        afterSnapshot: DeviceSnapshot = snapshot(packageName),
+        swipeEvidence: DeviceSwipeVerificationEvidence? = null,
     ): DeviceActionCapture.Success {
         return DeviceActionCapture.Success(
             DeviceActionOutcome(
                 action = action,
                 beforeSnapshotId = "snapshot-direct",
-                afterSnapshot = snapshot(packageName),
+                afterSnapshot = afterSnapshot,
                 verified = true,
                 message = "verified",
                 typeTextReadBack = typeTextReadBack,
+                swipeEvidence = swipeEvidence,
             ),
         )
     }
 
-    private fun snapshot(packageName: String): DeviceSnapshot = DeviceSnapshot(
+    private fun snapshot(
+        packageName: String,
+        windowId: Int = 2,
+        windowGeneration: Long = 3L,
+    ): DeviceSnapshot = DeviceSnapshot(
         snapshotId = "snapshot-after",
         packageName = packageName,
         windowTitle = "结果页",
-        windowId = 2,
-        windowGeneration = 3L,
+        windowId = windowId,
+        windowGeneration = windowGeneration,
         capturedAt = 2_000L,
         expiresAt = 32_000L,
         nodes = emptyList(),
