@@ -101,6 +101,30 @@ class WorkflowDeviceActionDecisionPolicyTest {
     }
 
     @Test
+    fun verifiedSwipeProducesRedactedAnswerEvidenceWithoutReusableViewport() {
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.swipe",
+                    content = validActionResult(action = "swipe"),
+                ),
+            ),
+        )
+
+        val decision = (resolution as WorkflowDeviceActionResolution.Decided).decisions.single()
+        assertEquals("swipe", decision.action)
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        assertTrue(prompt.contains("已执行并验证 滚动"))
+        assertTrue(prompt.contains("本次滚动不产生可复用节点引用"))
+        assertTrue(prompt.contains("后续设备动作必须重新观察并按各自风险规则执行"))
+        assertFalse(prompt.contains("后续动作必须重新观察和审批"))
+        assertFalse(prompt.contains("snapshot-secret"))
+        assertFalse(prompt.contains("ref-secret"))
+        assertFalse(prompt.contains("fingerprint"))
+    }
+
+    @Test
     fun verifiedTypeTextProducesAnswerEvidenceWithoutInputTextOrReferenceData() {
         val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
             expectedAgentRunId = "agent-run-current",
@@ -202,6 +226,20 @@ class WorkflowDeviceActionDecisionPolicyTest {
         assertEquals(
             WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
             (backDisguisedAsTap as WorkflowDeviceActionResolution.InsufficientEvidence).reason,
+        )
+
+        val tapDisguisedAsSwipe = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.swipe",
+                    content = validActionResult(action = "tap_ref"),
+                ),
+            ),
+        )
+        assertEquals(
+            WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
+            (tapDisguisedAsSwipe as WorkflowDeviceActionResolution.InsufficientEvidence).reason,
         )
     }
 

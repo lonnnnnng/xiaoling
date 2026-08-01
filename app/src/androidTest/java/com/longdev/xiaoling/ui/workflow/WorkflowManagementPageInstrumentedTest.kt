@@ -148,6 +148,45 @@ class WorkflowManagementPageInstrumentedTest {
     }
 
     @Test
+    fun pageDisplaysVerifiedSwipeAsRedactedActionEvidence() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(
+                        deviceActions = listOf(
+                            WorkflowDeviceActionUiState(
+                                outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+                                action = "swipe",
+                                detail = "已执行并验证",
+                                beforePackageName = "com.android.settings",
+                                afterPackageName = "com.android.settings",
+                                afterNodeCount = 24,
+                                afterRedactedNodeCount = 0,
+                                afterTruncated = false,
+                                afterObservedAt = 1_700_000_000_000L,
+                                decisionRuleVersion = "workflow-device-action-decision-v1",
+                            ),
+                        ),
+                    ),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+
+        composeRule.onNodeWithText("动作：滚动", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithText(
+            "本次滚动不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            useUnmergedTree = true,
+        ).assertExists()
+        composeRule.onNodeWithText("snapshot-secret", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        composeRule.onNodeWithText("ref-secret", substring = true, useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
     fun pageDisplaysVerifiedTypeTextWithoutInputContent() {
         composeRule.setContent {
             MaterialTheme {

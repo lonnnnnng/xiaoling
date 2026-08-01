@@ -133,6 +133,22 @@ class WorkflowManagementProjectionTest {
     }
 
     @Test
+    fun swipeActionUiStateUsesRedactedLabelAndRiskAwareFollowUpBoundary() {
+        val action = WorkflowDeviceActionUiState(
+            outcome = WorkflowDeviceActionUiOutcome.VERIFIED,
+            action = "swipe",
+            detail = "已执行并验证",
+        )
+
+        assertEquals("滚动", action.actionLabel)
+        assertEquals(
+            "本次滚动不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行",
+            action.followUpGuidance,
+        )
+        assertFalse(action.followUpGuidance.contains("审批"))
+    }
+
+    @Test
     fun projectShowsDeniedTypeTextWithoutInputTextOrApprovalArguments() {
         val workflow = workflow(id = "workflow-type-text-denied", enabled = true)
         val agentRunId = "agent-run-type-text-denied"
@@ -657,6 +673,71 @@ class WorkflowManagementProjectionTest {
         assertFalse(action.toString().contains("fingerprint-secret"))
         assertFalse(action.toString().contains("[0,0,100,100]"))
         assertFalse(action.toString().contains("raw-arguments-secret"))
+    }
+
+    @Test
+    fun projectIncludesVerifiedSwipeWithoutViewportOrReferenceIdentity() {
+        val fingerprint = "a".repeat(64)
+        val workflow = workflow(id = "workflow-swipe-verified", enabled = true)
+        val workflowRun = run(
+            workflowId = workflow.id,
+            runId = "workflow-run-swipe-verified",
+            status = WorkflowRunStatus.COMPLETED,
+            step = WorkflowStepRecord(
+                id = "step-swipe-verified",
+                workflowRunId = "workflow-run-swipe-verified",
+                sequence = 1,
+                type = "AGENT",
+                status = WorkflowStepStatus.COMPLETED,
+                title = "向上滚动当前设置页",
+                detail = "向上滚动当前可滚动区域",
+                agentRunId = "agent-run-swipe-verified",
+                result = "已完成滚动",
+                errorMessage = null,
+                createdAt = 1L,
+                startedAt = 2L,
+                completedAt = 3L,
+                outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
+                    text = "已完成滚动",
+                    deviceActionDecisions = listOf(
+                        WorkflowDeviceActionDecision(
+                            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+                            action = "swipe",
+                            beforePackageName = "com.android.settings",
+                            afterPackageName = "com.android.settings",
+                            afterNodeCount = 24,
+                            afterRedactedNodeCount = 0,
+                            afterTruncated = false,
+                            afterObservedAt = 1_700_000_000_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val action = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = listOf(workflowRun),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.single().deviceActions.single()
+
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, action.outcome)
+        assertEquals("滚动", action.actionLabel)
+        assertEquals("com.android.settings", action.beforePackageName)
+        assertEquals("com.android.settings", action.afterPackageName)
+        assertFalse(action.followUpGuidance.contains("审批"))
+        assertFalse(action.toString().contains("snapshot-secret"))
+        assertFalse(action.toString().contains("ref-secret"))
+        assertFalse(action.toString().contains(fingerprint))
     }
 
     @Test

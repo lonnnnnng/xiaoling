@@ -175,6 +175,31 @@ class WorkflowStepExecutionPolicyTest {
     }
 
     @Test
+    fun outputSnapshotKeepsVerifiedSwipeDecisionWithoutTransientEvidence() {
+        val decision = WorkflowDeviceActionDecision(
+            status = WorkflowDeviceActionDecisionStatus.VERIFIED,
+            action = "swipe",
+            beforePackageName = "com.android.settings",
+            afterPackageName = "com.android.settings",
+            afterNodeCount = 24,
+            afterRedactedNodeCount = 0,
+            afterTruncated = false,
+            afterObservedAt = 2_000L,
+        )
+
+        val encoded = WorkflowStepSnapshotCodec.encodeOutput(
+            text = "已完成滚动",
+            deviceActionDecisions = listOf(decision),
+        )
+
+        assertEquals(listOf(decision), WorkflowStepSnapshotCodec.decodeOutput(encoded)?.deviceActionDecisions)
+        assertFalse(encoded.contains("snapshot_id"))
+        assertFalse(encoded.contains("\"ref\""))
+        assertFalse(encoded.contains("viewport"))
+        assertFalse(encoded.contains("fingerprint"))
+    }
+
+    @Test
     fun outputSnapshotKeepsVerifiedOpenAppDecisionForNextStepAndUi() {
         val decision = WorkflowDeviceActionDecision(
             status = WorkflowDeviceActionDecisionStatus.VERIFIED,

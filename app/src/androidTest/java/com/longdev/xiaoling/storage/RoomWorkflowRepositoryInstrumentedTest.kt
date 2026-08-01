@@ -467,6 +467,66 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun workflowPersistsVerifiedSwipeDecisionWithoutViewportIdentityOrApprovalEvidence() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "滚动动作本地判定",
+            steps = listOf(
+                WorkflowStepDefinitionInput("观察系统设置并向上滚动"),
+                WorkflowStepDefinitionInput("根据已验证滚动动作生成说明"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-device-swipe-decision")
+        val first = source.steps.first()
+        val agentRunId = "agent-run-device-swipe-decision"
+        val fingerprint = "a".repeat(64)
+        repository.markAgentRunStarted(source.run.id, first.id, agentRunId)
+        database.agentRunDao().insertToolResult(deviceSnapshotResult(agentRunId = agentRunId, executorVerified = null))
+        database.agentRunDao().insertToolResult(deviceSwipeResult(agentRunId))
+
+        val completedFirst = repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = first.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "模型转述 snapshot_id=snapshot-secret、ref=ref-secret、viewport=$fingerprint\n" +
+                validDeviceActionResult(action = "swipe"),
+        )
+
+        val persistedOutput = WorkflowStepSnapshotCodec.decodeOutput(completedFirst.outputSnapshot)!!
+        val decision = persistedOutput.deviceActionDecisions.single()
+        assertEquals("swipe", decision.action)
+        assertTrue(persistedOutput.text.contains("已执行并验证 滚动"))
+        assertTrue(persistedOutput.text.contains("本次滚动不产生可复用节点引用"))
+        assertFalse(persistedOutput.text.contains("snapshot-secret"))
+        assertFalse(persistedOutput.text.contains("ref-secret"))
+        assertFalse(persistedOutput.text.contains(fingerprint))
+
+        val projectedAction = WorkflowManagementProjection.project(
+            loading = false,
+            error = null,
+            workflows = listOf(workflow),
+            runs = repository.recentRunDetails(),
+            scheduledTasks = emptyList(),
+            schedules = emptyList(),
+            mutatingWorkflowIds = emptySet(),
+            mutatingScheduledTaskIds = emptySet(),
+            mutatingWorkflowScheduleIds = emptySet(),
+            schedulingWorkflowId = null,
+            runningWorkflowId = null,
+            sendingMessage = false,
+        ).items.single().runs.single().steps.first().deviceActions.single()
+        assertEquals(WorkflowDeviceActionUiOutcome.VERIFIED, projectedAction.outcome)
+        assertEquals("滚动", projectedAction.actionLabel)
+        assertFalse(projectedAction.followUpGuidance.contains("审批"))
+        assertFalse(projectedAction.toString().contains(fingerprint))
+
+        val prepared = repository.prepareWorkflowStep(source.run.id, source.steps[1].id)
+        assertEquals(
+            persistedOutput.text,
+            WorkflowStepSnapshotCodec.decodeInput(prepared.inputSnapshot).previousOutputs.single(),
+        )
+    }
+
+    @Test
     fun workflowPersistsVerifiedHomeDecisionForNextStepAndUiWithoutApprovalEvidence() = runBlocking {
         val workflow = repository.createWorkflow(
             name = "返回桌面动作本地判定",
@@ -1682,6 +1742,32 @@ class RoomWorkflowRepositoryInstrumentedTest {
         executorVerified = executorVerified,
         verificationStatus = "PASSED",
         verifiedEventId = "event-home-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 6L,
+        verifiedAt = 7L,
+    )
+
+    private fun deviceSwipeResult(
+        agentRunId: String,
+        executorVerified: Boolean? = true,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-swipe-$agentRunId",
+        runId = agentRunId,
+        eventId = "event-swipe-result-$agentRunId",
+        toolName = "device.swipe",
+        content = validDeviceActionResult(action = "swipe"),
+        success = true,
+        errorMessage = null,
+        durationMs = 251L,
+        executorVerified = executorVerified,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-swipe-verified-$agentRunId",
         memoryIdsJson = "[]",
         knowledgeReferencesJson = "[]",
         replaySafety = "RESTART_REQUIRED",

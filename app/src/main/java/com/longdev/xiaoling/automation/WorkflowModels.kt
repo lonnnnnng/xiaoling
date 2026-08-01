@@ -313,7 +313,8 @@ object WorkflowStepSnapshotCodec {
     fun outputText(raw: String?): String? = decodeOutput(raw)?.text
 
     private const val OUTPUT_SCHEMA = "workflow-step-output-v1"
-    private val DEVICE_ACTION_DECISION_ACTIONS = setOf("open_app", "back", "home", "tap_ref", "type_text")
+    // long: 这里只决定版本化答案摘要能否跨 Room 重建，不代表生产 Registry 已开放该动作；swipe 的瞬态 viewport/HMAC 不在该模型中。
+    private val DEVICE_ACTION_DECISION_ACTIONS = setOf("open_app", "back", "home", "swipe", "tap_ref", "type_text")
 }
 
 object WorkflowStepExecutionPolicy {

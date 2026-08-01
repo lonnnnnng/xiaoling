@@ -11,6 +11,15 @@
 - 最终 README/docs 重新打入 AndroidTest APK 后，只在 Redmi 运行项目文档语料单项为 `OK (1 test)`；黄金查询已同步到当前 `271 tests` 基线且没有放宽 6/6 召回要求。
 - Redmi 原 Debug 包与正式证书不同，无损覆盖按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。最终冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。
 
+## 第 125 阶段：`device.swipe` 答案级脱敏 Decision 与 Room/UI 投影（完成，生产未开放）
+
+- `WorkflowDeviceActionDecisionPolicy` 的工具/动作映射新增 `device.swipe -> swipe`。只有同 Run `success=true`、`executorVerified=true`、typed `PASSED`、严格 Result codec 且 action 一致时才生成本地判定；伪装为 `tap_ref` 或额外字段继续 fail-closed。Registry 已在 typed `PASSED` 之前完成瞬态同窗方向 evidence 门禁，答案层不复制或持久该 evidence。
+- `WorkflowStepSnapshotCodec` 的严格动作集合允许 `swipe`，继续复用既有 `workflow-step-output-v1` 与 `WorkflowDeviceActionDecision`；没有 Room schema 升级。持久字段只包含动作、前后包名、后置计数/截断/时间和规则版本，不包含方向、viewport、HMAC、snapshot/ref、节点正文或坐标。Repository 完成步骤、Run 收敛、下一步 previous output 与关联重试继续从 Tool Ledger 重建相同净化判定。
+- Workflow UI 将动作显示为“滚动”，证据卡只投影前后包名、后置节点/脱敏/截断/时间和规则版本，并要求下一动作重新观察、按自身风险规则执行。`swipe` 继续是 SAFE 零审批，`WorkflowDeviceActionApprovalEvidencePolicy` 不新增该工具，因此 Room/Compose 不会伪造审批卡。
+- TDD 首轮暴露 DecisionPolicy 对 swipe 返回 `NotApplicable`、UI 显示英文动作；第二轮又暴露 `WorkflowStepSnapshotCodec` 丢弃 swipe Decision。三个 JVM 测试类合计 `44/44`、`compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 均通过。仅 Redmi `wsvwypiz7xwslvl7` 的 Room 纵向与 Compose 展示两个单项为 `OK (2 tests)`，耗时 `3.615s`。
+- Debug 主包与测试包都无损覆盖成功。覆盖安装后 Accessibility 一度为 Enabled 但未 Bound，定向清除小灵服务的旧 crash 状态并重新开启后恢复 `Enabled / Bound / Crashed services:{}`；`MainActivity` 为 top resumed，版本 `0.1.14 (15)`，crash buffer 无小灵异常。按分级验证未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 生产 `DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 继续精确为 `{device.snapshot, device.open_app, device.back, device.home, device.tap_ref, device.type_text}`。下一阶段才单独评审并实施生产默认集合扩展，再用 Redmi 运行真实生产 Workflow `snapshot -> swipe`；后台/定时设备自动化继续关闭。
+
 ## 第 124 阶段：`device.swipe` Registry 完成态交接与 Redmi 限定验收（完成，生产未开放）
 
 - `WorkflowDeviceActionResultCodec` 的动作白名单新增 `swipe`，但仍只编码既有通用摘要字段；snapshot/ref、目标/锚点 HMAC、节点正文、坐标和完整 viewport 没有进入 schema。答案级 `WorkflowDeviceActionDecisionPolicy`、Workflow output、Room 投影和 Compose 均未增加 swipe 分支。

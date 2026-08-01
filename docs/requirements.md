@@ -8,6 +8,14 @@
 
 正式门禁必须包含完整 JVM、Lint、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 单签名和仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 instrumentation。当前结果为 Gradle `141/141` tasks、JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、Redmi `OK (271 tests)`（`121.242s`）；Release APK 为 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。
 
+## 前台 Workflow `device.swipe` 答案级脱敏判定与持久投影（第 125 阶段，生产未开放）
+
+答案级判定只能从同一 Agent Run 的持久 Tool Ledger 重建。`device.swipe` 结果必须同时满足 `success=true`、`executorVerified=true`、typed verification `PASSED`、严格 `workflow-device-action-result-v1` 解码，且工具名与 `action=swipe` 精确匹配；任一条件缺失或 action 伪装都必须 fail-closed。typed `PASSED` 只能由当前执行链已通过 Registry 专属同窗方向完成门禁后写入；答案层不重放或伪造瞬态 evidence。
+
+`WorkflowDeviceActionDecision` 和 `workflow-step-output-v1` 继续复用既有通用白名单字段：动作、前后包名、后置节点/脱敏计数、截断状态、观察时间和规则版本。不新增 Room 表或列，不持久滚动方向、viewport、目标/锚点 HMAC、snapshot/ref、节点正文或坐标。因此持久判定只声明一次“滚动”已通过执行与后置验证，不单独声明方向、历史节点可继续执行或用户最终业务目标已完成。
+
+Workflow 页面必须把该动作标记为“滚动”，只显示通用后置摘要，并明确“本次滚动不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行”。`swipe` 是 SAFE 零审批动作，Room 和 UI 不得伪造 Approval 记录或“重新审批”结论。本阶段只完成 Decision/Room/Workflow output/UI 安全投影；生产默认集合继续精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`，后台或定时设备自动化继续关闭。
+
 ## 前台 `device.swipe` 完成态内存交接与 Redmi 限定验收（第 124 阶段，生产未开放）
 
 Registry 只有在当前动作的 `DeviceActionOutcome.swipeEvidence` 与授权前后 snapshot 精确绑定时，才允许构造 `WorkflowSwipeCompletionEvidence`。`outcome.beforeSnapshotId` 必须等于已授权 snapshot ID；动作前 viewport 的包名、window ID 与 generation 必须等于该 snapshot；动作后 viewport 的同三项必须等于 outcome 的真实后置 snapshot。任一错配都必须按缺少专属滚动后置证据 fail-closed，不能把另一窗口、旧动作或伪造 viewport 交给完成策略。
@@ -16,7 +24,7 @@ Registry 只有在当前动作的 `DeviceActionOutcome.swipeEvidence` 与授权�
 
 Redmi 限定验收必须运行真实 `MinimalAgentRuntime + RoomAgentRunRepository` 链路，在固定的系统设置应用详情页执行 fresh `device.snapshot -> device.swipe(up)`，并证明 Run 完成、ToolCall 为 SAFE 精确参数、审批数为 `0`、Executor 验证和 typed 验证均通过、Registry 完成门禁通过、动作前后均为 `com.android.settings`，且 Result 不包含 snapshot/ref 或 64 位 HMAC。该验收只证明首个限定 App/页面，不承诺任意 App，也不等同于生产 Workflow 开放。
 
-第 124 阶段完成后，生产接线仍需单独评审答案级脱敏判定、Room/Workflow output 与 UI 投影；在这些独立评审完成、生产边界定稿并再次通过 Redmi 前台闭环前，默认工具面继续精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`，后台或定时设备自动化继续关闭。
+第 124 阶段完成后，第 125 阶段已单独完成答案级脱敏判定、Room/Workflow output 与 UI 投影。当前只剩生产默认集合接线和新的 Redmi 生产 Workflow 前台闭环；完成前默认工具面继续精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text`，后台或定时设备自动化继续关闭。
 
 ## 前台 `device.swipe` 执行期 HMAC evidence seam（第 123 阶段，生产未开放）
 
@@ -669,6 +677,8 @@ Redmi `wsvwypiz7xwslvl7` 的正式 WorkManager 已完成 `229.416s` 的 8 步复
 - 应用重启后可恢复的链尾审批批准后，会从持久化审批步骤继续同一 Run；前序已验证工具不会重放，`completedTools`、已消耗工具调用数和重复调用指纹会从持久化证据重建，再执行当前 ToolCall、后续规划和最终总结。第一步已经执行后在第二次或后续审批处中断现已支持原 Run 恢复；若当前工具已经进入执行/验证阶段，则按两个受限恢复例外或安全新 Run 边界处理，提交状态未知时不得猜测执行结果。
 
 当前仍未交付相关性生产拒绝、规模化 ANN 和自动后台批量 Embedding 重建，以及提交状态未知、成功结果尚无 typed 验证结论或其他验证事实不完整形状的通用执行栈原地恢复、并行工具调用、后台 Workflow 执行栈断点续跑、精确定时和 Foreground Service。成功结果缺 typed 验证结论的持久化窗口已完成审计，结论是除既有严格白名单只读回查外没有唯一安全动作，因此“不交付原地恢复”是明确安全边界，不是待补实现。多步骤审批等待恢复、“全部验证通过后的控制面收尾恢复”、失败 ToolResult 与 typed 失败验证的两类原子失败终态结算、跨模型/工具段累计预算、当前进程 Worker 启动恢复隔离、后台运行中可见停止、`STOP_REQUESTED` 持久化异常重对账、旧验证事件缺少 ToolCall ID 时的 fail-closed 证据降级、Ledger/Event 指纹漂移拒绝，以及 Result/预算/验证三段持久化边界故障注入、模型异常预算审计和总结本地兜底已经交付，但都不等同于恢复旧模型协程或任意执行栈。设备 Agent 的 Accessibility 授权、健康检查、`device.snapshot`、短生命周期节点引用、隐私过滤、有限动作、风险审批、操作后重新观察和结果验证已交付，并已在 Redmi 上限定小灵、系统计算器、时钟、设置与桌面完成首批验收；不承诺任意 App。前台手动 Workflow 已完成 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text` 生产闭环：所有动作都要求当前步骤意图、同 Run 新鲜观察、当前 generation、`executorVerified=true + typed PASSED` 和白名单后置判定；`open_app / tap_ref / type_text` 额外走 Room/Accessibility overlay 审批，`open_app` 还要求三层包白名单以及完成/答案级目标包绑定，`back / home` 为空参数、零审批 SAFE 导航，`home` 还要求动态 launcher 验证。文本输入另具备敏感参数预审计、当前 ref 的可编辑/未脱敏目标证据、最小指纹授权、绑定原 `nodePath` 的精确回读，以及跨 Workflow/直接 `/agent` 的无原文持久化投影；Redmi 真实 Workflow 已分别取得打开应用 `APPROVED / PASSED / VERIFIED / afterPackage=com.android.calculator2`、文本输入 `APPROVED / PASSED / VERIFIED / exactReadBack=true`、返回动作 `approvals=0 / verified=true / VERIFIED` 和返回桌面动作 `approvals=0 / verified=true / VERIFIED`。`swipe` 与全部后台/定时设备工具继续关闭，截图、坐标、视觉定位和任意 App 也未开放。多步骤 Workflow 与非精确调度已完成真机验收；当前约 229.416 秒八步复合只读成功和 32.6 秒停止样本尚无引入 Foreground Service 的依据。Room v33 沿用 v29 引入的独立账本有界观察 Android 进程退出事实，并新增匿名 answerability Shadow 账本；Redmi 支持 LMK 原因报告，现有受控 `force-stop` 只产生 `CONTROLLED_OR_MAINTENANCE / USER_REQUESTED`，仍没有 Android 自主 LMK。数据库恢复已交付，但跨设备 Provider 密文恢复仍受 Android Keystore 限制。
+
+这里的 `swipe` “继续关闭”仅指生产 Workflow 默认集合：第 125 阶段已经完成其答案级脱敏 Decision、Room/Workflow output 与 UI 投影，且不会持久化方向、viewport/HMAC、snapshot/ref、节点正文或坐标。生产接线和 Redmi 真实生产 Workflow 验收仍作为下一独立阶段。
 
 补充：`WAITING_APPROVAL` 的审批恢复已经可以在原 Run 上保留任意长度的已验证前缀，并继续链尾工具、验证、后续规划和总结；恢复同时继承持久化累计执行预算，不因进程重建获得新的总时长。`notes.create` 与 `memory.remember` 开放已提交但尚未验证结果的受限只读验证；所有工具都可在成功结果和 `PASSED` 验证已经完整持久化后恢复本地收尾；严格持久化失败结果或 typed 失败验证只允许原子结算为 `FAILED`。成功结果缺 typed 验证结论的处置优先级已经审计并固定，但不扩大恢复资格；上述未交付项指这些证据不完整形状的通用执行栈、Workflow 后续步骤断点续跑以及尚未完成的自动化能力。
 

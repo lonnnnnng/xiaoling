@@ -165,6 +165,9 @@ object WorkflowDeviceActionDecisionPolicy {
                     DEVICE_HOME_ACTION -> append(
                         "本次返回桌面不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
                     )
+                    DEVICE_SWIPE_ACTION -> append(
+                        "本次滚动不产生可复用节点引用，后续设备动作必须重新观察并按各自风险规则执行。",
+                    )
                     else -> append("节点引用已经失效，后续动作必须重新观察和审批。")
                 }
             }
@@ -187,6 +190,7 @@ object WorkflowDeviceActionDecisionPolicy {
         DEVICE_OPEN_APP_ACTION -> "打开应用"
         DEVICE_BACK_ACTION -> "返回"
         DEVICE_HOME_ACTION -> "返回桌面"
+        DEVICE_SWIPE_ACTION -> "滚动"
         else -> this
     }
 
@@ -196,6 +200,8 @@ object WorkflowDeviceActionDecisionPolicy {
     private const val DEVICE_BACK_ACTION = "back"
     private const val DEVICE_HOME_TOOL_NAME = "device.home"
     private const val DEVICE_HOME_ACTION = "home"
+    private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
+    private const val DEVICE_SWIPE_ACTION = "swipe"
     private const val DEVICE_TAP_REF_TOOL_NAME = "device.tap_ref"
     private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
     private const val DEVICE_TYPE_TEXT_ACTION = "type_text"
@@ -203,6 +209,8 @@ object WorkflowDeviceActionDecisionPolicy {
         DEVICE_OPEN_APP_TOOL_NAME to DEVICE_OPEN_APP_ACTION,
         DEVICE_BACK_TOOL_NAME to DEVICE_BACK_ACTION,
         DEVICE_HOME_TOOL_NAME to DEVICE_HOME_ACTION,
+        // long: 只有已经通过 Registry 专属同窗方向验证和 typed PASSED 的通用摘要才能进入答案级；viewport/HMAC 仍不离开当前执行链。
+        DEVICE_SWIPE_TOOL_NAME to DEVICE_SWIPE_ACTION,
         DEVICE_TAP_REF_TOOL_NAME to "tap_ref",
         DEVICE_TYPE_TEXT_TOOL_NAME to DEVICE_TYPE_TEXT_ACTION,
     )

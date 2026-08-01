@@ -10,10 +10,19 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.14.apk`，大小 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`4m 40s`），JVM `837/837`，0 失败、0 错误、0 跳过；Lint `0 error / 56 warnings / 0 information`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，默认 `AndroidJUnitRunner` 为 `OK (271 tests)`、耗时 `121.242s`；显式 Provider/Embedding 参数缺失的联网探针按设计跳过，没有失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
-- 当前关闭边界：`swipe`、后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前关闭边界：`swipe` 已完成生产前安全、完成 evidence 和答案级投影，但仍未进入生产 Workflow 默认集合；后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
-- 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段为 Debug 真机 tracer 又安装同版本 Debug 包，当前设备状态见下节。
+- 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段安装同版本 Debug 包完成真实滚动，第 125 阶段再覆盖 Debug/AndroidTest 包完成答案级 Room/Compose 单项，当前设备状态见下节。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
+
+## 2026-08-01 第 125 阶段：`device.swipe` 答案级脱敏 Decision 与 Room/UI 投影
+
+- 范围：在不改变生产 `DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 六项集合的前提下，接通 `device.swipe -> swipe` 的 `WorkflowDeviceActionDecisionPolicy`、`workflow-step-output-v1`、Room Tool Ledger 重建、下一步 previous output、关联重试和 Workflow Compose 证据卡。没有增加 Room schema、审批类型、生产 Registry 工具或后台设备自动化。
+- 证据与隐私：Decision 必须来自同 Run `success=true / executorVerified=true / verificationStatus=PASSED`，通过严格 `WorkflowDeviceActionResultCodec` 并与 `action=swipe` 一致。Registry 专属完成门禁仍在 typed `PASSED` 前消费瞬态 viewport/HMAC；持久 Decision 只保留通用动作、前后包名、后置计数/截断/时间和规则版本。方向、viewport、HMAC、snapshot/ref、节点正文和坐标不进入 Room/Workflow output/UI。
+- TDD：第一轮因 DecisionPolicy 返回 `NotApplicable` 和 UI label 显示 `swipe` 失败；第二轮纵向投影因 `WorkflowStepSnapshotCodec` 严格动作集合丢弃 swipe Decision 失败。补齐映射、脱敏文案和 snapshot 白名单后，`WorkflowDeviceActionDecisionPolicyTest`、`WorkflowStepExecutionPolicyTest` 和 `WorkflowManagementProjectionTest` 聚焦 JVM `44/44` 通过；`compileDebugAndroidTestKotlin`、`assembleDebug` 与 `assembleDebugAndroidTest` 通过。
+- Redmi 单项：`adb devices -l` 确认唯一目标为 `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro`。Debug 主包与 AndroidTest 包均 `install -r -t` 成功；Room 纵向和 Compose 展示两个新增单项合并为 `OK (2 tests)`，耗时 `3.615s`。这只验收 Room/Workflow output/UI 投影，不是生产 Registry 真实滚动验收。
+- 设备收尾：覆盖安装后 Accessibility 设置一度显示服务已 Enabled，但 `accessibility_enabled=0`、未 Bound 且有 crashed 标记。保留唯一小灵服务身份，定向关闭/重开后已恢复 `Enabled / Bound / Crashed services:{}`。`MainActivity` 为 top resumed，版本 `0.1.14 (15)`，crash buffer 对 `com.longdev.xiaoling / FATAL EXCEPTION` 零命中。
+- 验证边界：未运行完整 JVM、Lint、Release、默认完整 instrumentation 或文档 corpus instrumentation，没有启动或操作模拟器。下一阶段再单独扩展生产默认集合，并仅用 Redmi 执行真实生产 Workflow `snapshot -> swipe`。
 
 ## 2026-08-01 第 124 阶段：`device.swipe` Registry 完成态交接与 Redmi 限定验收
 
