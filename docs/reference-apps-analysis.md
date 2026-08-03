@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+`v0.1.15` 是当前发布对照基线：在 `v0.1.14` 的恢复、Shadow 和六项前台 Workflow 设备工具基线上，新增 `swipe` 完整证据/生产链与自然语言个人任务的严格计划和确认边界。发布没有借机复制参考项目的任意 App、后台设备控制、多 Agent 或远程 Channel；本轮按用户要求只构建 Release APK，没有执行额外发布验证。
+
 第 127 至 132 阶段不再按单个原语横向扩权，而采用参考项目中更接近真实产品价值的“目标级垂直切片”。第 127 阶段已经完成自然语言目标、可确认有界计划和既有执行链复用；第 128 至 132 阶段继续完成限定 App 多动作、目标级验证、记忆/知识/应用内提醒、关联恢复和 Redmi 里程碑。这样既保留 `meow-agent` 的风险元数据与后置验证、`X-OmniClaw` 的观察后执行和按需路由、`openclaw` 的任务/Channel 分层，也避免在主链跑通前复制任意 App、后台设备控制或多 Agent 的攻击面。第 132 阶段完成后，才集中评估体验、性能和高级生态。
 
 第 127 阶段采用“计划与执行分离、确认后复用既有 Ledger”的参考原则：模型只生成严格 JSON Schema 的任务名和 1 至 8 步目标，客户端再次进行不信任解析；确认弹层明确显示风险和能力边界，确认前不写任何执行事实。确认后不是把计划交给新的自由执行器，而是在 Room 单事务创建普通 Workflow、Run 和步骤快照，再进入既有 Agent Runtime、逐动作审批和后置验证。Redmi 真实链中首个 Runtime 模型规划超时保留失败 Run，同一 Workflow 的第二个手动 Run 独立完成 `app.current_time`，验证了 `meow-agent` 式不可变 Ledger 与 `openclaw` 式任务层/执行层分离，而没有扩大工具面。
@@ -8,7 +10,7 @@
 
 第 126 阶段继续采用参考实现中“能力进入生产白名单前必须有完整可验证证据链”的原则。`device.swipe` 只有在第 122 至 125 阶段已经完成纯安全策略、执行期 HMAC evidence、完成态内存交接、Redmi 限定动作和答案级脱敏投影后，才加入前台手动 Workflow 的生产默认 Registry。它继续是 SAFE 零审批动作，仍要求同 Run snapshot/ref、30 秒 TTL、当前 generation、同窗内容变化、共同匿名锚点方向主位移、Executor/typed 验证和动作后观察；Room/UI 不保存方向、viewport/HMAC、snapshot/ref、节点正文或坐标。聚焦 Registry `36/36`、六个相邻测试类 `101/101`、Debug/AndroidTest APK 和仅 Redmi `wsvwypiz7xwslvl7` 的真实生产 `snapshot -> swipe` 均通过，日志为 `approvals=0 / registryCompletion=PASSED / answerDecision=VERIFIED / privacySafe=true`；更新后的项目文档语料首轮/最终单项均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。前台 Workflow 现精确开放七项，后台/定时设备自动化、任意 App、坐标与截图继续关闭。
 
-`v0.1.14` 是当前对照基线：它在 `v0.1.13` 的结构与启动基线上完成通用执行恢复矩阵、Room v33 answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则：提交状态未知不自动重放，尚未提交的白名单写工具只在用户确认后创建关联新 Run，持久化失败事实只原子结算，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`type_text` 原文不进入持久化审计。`swipe`、后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP 和本地模型继续关闭。发布门禁为 JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、三类 APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi `OK (271 tests)`。
+`v0.1.14` 是上一发布对照基线：它在 `v0.1.13` 的结构与启动基线上完成通用执行恢复矩阵、Room v33 answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则：提交状态未知不自动重放，尚未提交的白名单写工具只在用户确认后创建关联新 Run，持久化失败事实只原子结算，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`type_text` 原文不进入持久化审计。当时发布门禁为 JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、三类 APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi `OK (271 tests)`。
 
 第 125 阶段继续采用参考实现中“执行期强证据与持久审计摘要分层”的原则。`swipe` 的同窗、同目标、内容变化与方向位移仍在 Controller/Registry 当前执行链以 viewport/HMAC 证明；只在 Executor 验证和 typed `PASSED` 后，通用 `action=swipe` 摘要才能从 Tool Ledger 重建为答案级 Decision。Room 不升级 schema，Workflow output 不保存方向、viewport、HMAC 或 snapshot/ref；UI 只显示“滚动”与通用后置摘要，并把历史引用标为不可复用。该分层避免了把高权限临时证据变成可长期关联的数据，也没有为 SAFE swipe 伪造审批卡。聚焦 JVM、Debug/AndroidTest APK 和仅 Redmi 的 Room + Compose `OK (2 tests)` 通过；生产默认工具面仍保持六项，待下一独立切片再开放并验收真实生产 Workflow。
 

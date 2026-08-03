@@ -8,6 +8,10 @@
 
 这六个阶段必须各自产生用户可直接体验的新能力，不再把纯重构、单层 evidence、Shadow 扩样或文档整理单独作为主线阶段。截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型继续后置；它们不作为完整前台个人 Agent MVP 的前置条件。
 
+## v0.1.15 发布基线
+
+`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后下一主线仍是第 128 阶段限定 App 多动作连续执行。
+
 ## 第 127 阶段：自然语言个人任务与可确认计划（完成）
 
 对话页现有“对话 / 任务”模式。任务模式不要求 `/agent` 前缀，先使用当前 Agent Profile 冻结的 Provider、模型、API 模式和工具白名单生成任务名与 1 至 8 个顺序步骤；Chat Completions 使用 `response_format.json_schema`，Responses 使用 `text.format`，客户端仍严格拒绝额外字段、JSON 外文本、错误类型、空步骤与数量越界。计划弹层显示原目标、步骤、Agent/模型、工具边界及可能审批项，API Key 只留在 ViewModel 私有执行快照。确认前不创建消息、Workflow、Run、审批或 Tool Ledger；取消恢复原目标，切换/删除会话会撤销在途请求或丢弃待确认计划。

@@ -9,6 +9,14 @@
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
 
+## 小灵 v0.1.15 发布基线
+
+- `versionName=0.1.15 / versionCode=16`，保持 `minSdk=26 / targetSdk=36`、Room v33 和既有 `releaseLocal` 签名配置。
+- 发布范围为 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 的安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，以及自然语言个人任务、严格结构化计划、确认前零执行和确认后原子创建普通 Workflow/Run。
+- 按用户“不要验证，直接发版”的明确要求，本轮只执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease --console=plain`，结果为 `BUILD SUCCESSFUL in 1m 52s`。没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；既有第 126/127 阶段聚焦证据不记作本次发布门禁。
+- 发布 APK 为 `outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；同名 `.sha256` 使用标准双空格格式。
+- 发布提交、annotated tag、GitHub Release 和远端资产 digest 在完成远端发布后回填。
+
 ## 第 127 阶段：自然语言个人任务与可确认计划（完成）
 
 - `ConversationPage` 新增“对话 / 任务”分段模式。任务模式接受普通自然语言或兼容去除 `/agent` 前缀后的目标，禁止附件，并复用 `AgentLaunchPreflightCoordinator` 冻结当前会话、Profile、Provider、模型、API 模式和工具白名单。旧 `/agent` 直接执行行为保持不变。
@@ -772,7 +780,7 @@
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.14`（`versionCode 15`，Room v33）
+当前发布版本：`v0.1.15`（`versionCode 16`，Room v33）
 
 ## 第 75 阶段实现与验证边界
 

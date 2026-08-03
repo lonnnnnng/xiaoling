@@ -26,13 +26,13 @@
 
 验收只允许使用 Redmi `wsvwypiz7xwslvl7`，并运行真实生产 `MinimalAgentRuntime + RoomAgentRunRepository` 的 `snapshot -> swipe` 链路。当前证据为 `success=true action=swipe verified=true approvals=0 registryCompletion=PASSED answerDecision=VERIFIED privacySafe=true`，前后包均为 `com.android.settings`；更新后的项目文档语料首轮/最终单项还必须保持通过，当前均为 `OK (1 test)`、耗时 `2.307s / 2.3s`。这只证明首个限定 App/页面，不承诺任意 App。后台或定时设备自动化、恢复自动续跑、坐标、截图和任意 App 继续关闭。
 
-## 小灵 v0.1.14 发布基线
+## 小灵 v0.1.15 发布基线
 
-`v0.1.14` 使用 `versionCode=15`、Room v33，并保持 `minSdk=26 / targetSdk=36` 与既有正式签名。发布范围汇总 `v0.1.13` 后 31 个工程提交：通用执行恢复矩阵、提交状态未知分类、用户确认的受控安全重放、失败 ToolResult/typed 验证的原子终态结算、answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text` 生产闭环。
+`v0.1.15` 使用 `versionCode=16`、Room v33，并保持 `minSdk=26 / targetSdk=36` 与既有 `releaseLocal` 签名配置。发布范围汇总 `v0.1.14` 后第 122 至 127 阶段：前台 Workflow `device.swipe` 的安全/evidence/答案级投影/生产默认接线，以及自然语言个人任务、严格 1 至 8 步计划、确认前零执行和确认后原子创建普通 Workflow/Run。
 
-发布不得扩大既有安全边界：旧 Run 和旧副作用事实保持不变，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`device.type_text` 原文不得进入持久化路径；`open_app` 仍只允许四个首批包并逐包审批。`swipe`、后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF 导出、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+发布不得扩大既有安全边界：旧 Run 和旧副作用事实保持不变，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`device.type_text` 原文不得进入持久化路径；`open_app` 仍只允许四个首批包并逐包审批；`swipe` 只进入前台手动 Workflow。后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF 导出、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 
-正式门禁必须包含完整 JVM、Lint、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign、v2 单签名和仅 Redmi `wsvwypiz7xwslvl7` 的默认完整 instrumentation。当前结果为 Gradle `141/141` tasks、JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、Redmi `OK (271 tests)`（`121.242s`）；Release APK 为 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`。
+用户本轮明确要求“不要验证，直接发版”，因此本次发布例外只执行必要的 `assembleRelease`，不运行完整 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation。该例外必须在 Release Notes 和验证报告中明确披露，不能把第 126/127 阶段既有聚焦结果表述成本次发布门禁。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`。
 
 ## 前台 Workflow `device.swipe` 答案级脱敏判定与持久投影（第 125 阶段，生产未开放）
 

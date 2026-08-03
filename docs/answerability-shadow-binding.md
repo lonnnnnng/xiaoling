@@ -4,7 +4,7 @@
 
 answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答案。每次显式开启最多授权一轮观测：候选存在、答案成功保存且调用前仍开启时，Publisher 先关闭并持久化开关，再进入观测协调器；候选缺失、答案保存失败或用户提前撤销不消费本次窗口。候选必须来自同一 Run 中最近一次成功、验证未失败且带稳定引用的 `knowledge.search`；冻结 Judge 身份必须与当前 Provider 配置完全一致。普通聊天、Workflow、后台 Worker、候选缺失、身份漂移或答案保存失败都不得请求 Judge 或写入匿名账本。
 
-`v0.1.14` 源码、正式产物和 Redmi 开发数据统一使用 Room v33。生产请求通过 `KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL` 写入 `knowledge_answerability_shadow_observations`；旧阶段的 `store=null / persistenceMode=NONE` 只属于第 96 至 101 阶段的历史事实，不再代表当前实现。Shadow 默认关闭，notice 仍只存在于当前进程，`enforcementApplied=false`，production enforcement 继续关闭。
+`v0.1.15` 源码与正式产物继续使用 Room v33；本次发布未安装到 Redmi，因此设备上仍是发布前开发数据状态，不能写成已经升级验收。生产请求通过 `KnowledgeAnswerabilityShadowPersistenceMode.OPTIONAL` 写入 `knowledge_answerability_shadow_observations`；旧阶段的 `store=null / persistenceMode=NONE` 只属于第 96 至 101 阶段的历史事实，不再代表当前实现。Shadow 默认关闭，notice 仍只存在于当前进程，`enforcementApplied=false`，production enforcement 继续关闭。
 
 第 102 阶段只冻结版本化离线评测导出类型，没有接入 JSON codec、UI 或 SAF 出口。第 103 阶段在 Redmi 形成 Room v33 的第一条间隔真实记录；第 104 阶段在完整清理和进程重启后形成第二条短间隔记录，并修复冷启动摘要被默认零值覆盖的问题。第 105 阶段把持续开关收紧为单次显式采样窗口；第 106 阶段只把匿名账本的最早/最新时间与跨度投影到设置页；第 107 阶段形成第三条独立同日记录。当前三条记录仍不足以作为 calibration/validation 数据，也不能据此启用生产拒绝。
 
