@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-08-01（北京时间）
+验证日期：2026-08-03（北京时间）
 
 ## 当前验证基线
 
@@ -10,10 +10,20 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.14.apk`，大小 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`4m 40s`），JVM `837/837`，0 失败、0 错误、0 跳过；Lint `0 error / 56 warnings / 0 information`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，默认 `AndroidJUnitRunner` 为 `OK (271 tests)`、耗时 `121.242s`；显式 Provider/Embedding 参数缺失的联网探针按设计跳过，没有失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
-- 当前关闭边界：`swipe` 已完成生产前安全、完成 evidence 和答案级投影，但仍未进入生产 Workflow 默认集合；后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 126 阶段已在 `v0.1.14` 发布包之后把 `swipe` 加入前台手动 Workflow 生产默认集合；当前七项为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
-- 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段安装同版本 Debug 包完成真实滚动，第 125 阶段再覆盖 Debug/AndroidTest 包完成答案级 Room/Compose 单项，当前设备状态见下节。
+- 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段安装同版本 Debug 包完成测试态真实滚动，第 125 阶段覆盖 Debug/AndroidTest 包完成答案级 Room/Compose 单项，第 126 阶段再覆盖当前 Debug/AndroidTest 包完成生产默认 Registry 真实链；当前设备状态见下节。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
+
+## 2026-08-03 第 126 阶段：`device.swipe` 生产默认 Registry 与 Redmi 真实链
+
+- 范围：只把已经完成安全契约、执行期/完成态 evidence、答案级 Decision/Room/UI 投影和 Redmi 限定验收的 `device.swipe` 加入生产 `DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES`。前台手动 Workflow 生产工具面现精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`；后台/定时设备工具、恢复自动续跑、任意 App、坐标和截图没有扩权，也没有新增 Room schema。
+- 安全与隐私：`swipe` 继续固定为 `SAFE_NO_APPROVAL`，不创建 Room Approval 或 Accessibility 审批浮层。执行仍要求同 Run 新鲜 snapshot/ref、30 秒 TTL、当前 window generation、启用且未脱敏的 `SWIPE` 目标、动作前匿名 viewport、同窗内容变化和共同匿名锚点的请求方向主位移；完成后还要取得 Executor 验证、typed `PASSED`、动作后观察和严格 `device.swipe -> action=swipe` 答案级判定。方向、viewport/HMAC、snapshot/ref、节点正文、坐标和可复用节点身份不进入 Result、Room、Workflow output、日志或 UI。
+- TDD/JVM：生产工具面断言首轮按预期失败，加入默认集合后 `XiaoLingToolRegistryTest` 为 `36/36`。六个相邻测试类合计 `101/101`，0 failure/error/skipped；`assembleDebug / assembleDebugAndroidTest` 成功。增强 Debug tracer 的答案级判定后再次 `assembleDebug` 成功。
+- Redmi 真实生产链：只使用 `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro`，Debug 主包与 AndroidTest APK 覆盖安装成功。tracer 改用默认生产 Registry，在系统设置应用详情页运行真实 `MinimalAgentRuntime + RoomAgentRunRepository` 的 `snapshot -> swipe`；最终日志为 `workflow-swipe-e2e success=true action=swipe verified=true approvals=0 registryCompletion=PASSED answerDecision=VERIFIED beforePackage=com.android.settings afterPackage=com.android.settings privacySafe=true afterNodes=36`。这同时证明 SAFE 零审批、Registry 完成门禁、typed 验证、答案级本地判定和脱敏结果，但只覆盖首个限定 App/页面。
+- 文档语料：七份长期文档重新打入 AndroidTest assets 后，只在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`；首轮/写回后的最终复验均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。这项 focused instrumentation 只验证更新后的文档语料，不扩大为默认完整套件。
+- 设备收尾：测试包已卸载，主应用仍为 `0.1.14 (15)`，`MainActivity` top resumed；单项结束后 Accessibility 一度为 Enabled 但未 Bound 并列入 crashed，保留其他状态、只移除并恢复小灵唯一服务组件后重新进入 `Enabled / Bound / Crashed services:{}`。crash buffer 无小灵异常，没有清主应用数据、执行 `force-stop`，也没有启动、使用或向模拟器发送 ADB 命令。
+- 验证边界：按快速迭代分级未运行完整 JVM、Lint、Release、默认完整 instrumentation 或正式发版；本阶段只运行与生产 Registry、相邻安全链、Debug/AndroidTest APK 和 Redmi 真实 tracer 直接相关的验证。
 
 ## 2026-08-01 第 125 阶段：`device.swipe` 答案级脱敏 Decision 与 Room/UI 投影
 

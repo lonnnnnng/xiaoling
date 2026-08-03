@@ -384,8 +384,6 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             memoryStore = RoomAgentMemoryStore(context),
             knowledgeStore = RoomKnowledgeDocumentStore(context),
             deviceController = controller,
-            // long: Redmi tracer 只为当前 Debug Run 显式注入 swipe；生产 Registry 默认集合继续保持关闭。
-            workflowDeviceActionToolNames = setOf(DEVICE_SWIPE_TOOL_NAME),
         )
         val runRepository = RoomAgentRunRepository(context)
         val scriptedLlm = WorkflowSwipeE2eLlm()
@@ -453,6 +451,30 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 !swipeResult.content.contains(scriptedLlm.ref) &&
                 !HMAC_HEX_PATTERN.containsMatchIn(swipeResult.content)
         ) { "Workflow swipe Result 泄露 snapshot/ref 或滚动 HMAC" }
+        // long: 生产开放验收必须继续穿过答案级本地判定，避免只证明 Executor 成功却没有证明 Room 可消费的脱敏摘要。
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = listOf(
+                WorkflowDeviceActionEvidenceInput(
+                    runId = swipeResult.runId,
+                    toolName = swipeResult.toolName,
+                    content = swipeResult.content,
+                    success = swipeResult.success,
+                    executorVerified = swipeResult.executorVerified,
+                    verified = swipeResult.verificationStatus == ToolVerificationStatus.PASSED,
+                ),
+            ),
+        )
+        val decision = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions?.singleOrNull()
+            ?: error("Workflow swipe 未形成答案级本地判定：$resolution")
+        val prompt = WorkflowDeviceActionDecisionPolicy.renderForPrompt(listOf(decision))
+        check(
+            decision.action == "swipe" &&
+                prompt.contains("已执行并验证 滚动") &&
+                !prompt.contains(scriptedLlm.snapshotId) &&
+                !prompt.contains(scriptedLlm.ref) &&
+                !HMAC_HEX_PATTERN.containsMatchIn(prompt)
+        ) { "Workflow swipe 答案级判定没有保持脱敏滚动摘要：$prompt" }
         val postSnapshot = captureWhenReady(controller).snapshot
         check(postSnapshot.packageName == SYSTEM_SETTINGS_PACKAGE) {
             "真实 Accessibility swipe 后离开系统设置：${postSnapshot.packageName}"
@@ -461,6 +483,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             TAG,
             "workflow-swipe-e2e success=true action=${actionEvidence.action} verified=${actionEvidence.verified} " +
                 "approvals=${detail.approvals.size} registryCompletion=PASSED " +
+                "answerDecision=${decision.status} " +
                 "beforePackage=${actionEvidence.beforePackageName} afterPackage=${actionEvidence.afterPackageName} " +
                 "privacySafe=true afterNodes=${actionEvidence.afterNodeCount}",
         )

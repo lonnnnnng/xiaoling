@@ -36,7 +36,7 @@ import org.junit.Test
 
 class XiaoLingToolRegistryTest {
     @Test
-    fun productionForegroundWorkflowExposesOnlyClosedDeviceActionSlices() {
+    fun productionForegroundWorkflowExposesOnlyVerifiedDeviceActionSlices() {
         val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
 
@@ -48,6 +48,7 @@ class XiaoLingToolRegistryTest {
                 "device.home",
                 "device.tap_ref",
                 "device.type_text",
+                "device.swipe",
             ),
             registry.availableTools()
                 .filter { it.name.startsWith("device.") }
@@ -664,7 +665,7 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
-    fun testOnlyWorkflowSwipeCompletesWithTransientControllerEvidence() = runTest {
+    fun productionWorkflowSwipeCompletesWithTransientControllerEvidenceWithoutApproval() = runTest {
         val swipeEvidence = successfulSwipeEvidence()
         val provider = FakeDeviceController(
             enabled = true,
@@ -677,9 +678,8 @@ class XiaoLingToolRegistryTest {
             swipeViewport = swipeEvidence.beforeViewport,
             swipeOutcomeEvidence = swipeEvidence,
         )
-        val registry = testRegistry(
+        val registry = productionRegistry(
             deviceController = provider,
-            workflowDeviceActionToolNames = setOf("device.swipe"),
             clock = FakeAgentClock(nowMillis = 1_500L),
         )
         registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))

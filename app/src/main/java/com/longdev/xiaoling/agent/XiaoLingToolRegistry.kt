@@ -53,7 +53,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
-    // long: Workflow 生产动作面只包含逐项完成安全证据的 open_app/back/home/tap_ref/type_text；其他已注册动作不能借构造注入扩大权限。
+    // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
         require(unsupported.isEmpty()) {
@@ -535,7 +535,7 @@ class XiaoLingToolRegistry(
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
         if (!directDeviceActionsAllowed(context)) {
-            // long: 生产 Workflow 只放行已闭环的 open_app/back/home/tap_ref/type_text；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
+            // long: 生产 Workflow 只放行已闭环的 open_app/back/home/tap_ref/type_text/swipe；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
                 definition.name in DEVICE_ACTION_TOOL_NAMES &&
                     !workflowDeviceActionAllowed(context, definition.name)
@@ -1272,6 +1272,7 @@ private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_HOME_TOOL_NAME,
     DEVICE_TAP_REF_TOOL_NAME,
     DEVICE_TYPE_TEXT_TOOL_NAME,
+    DEVICE_SWIPE_TOOL_NAME,
 )
 private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_OPEN_APP_TOOL_NAME,
