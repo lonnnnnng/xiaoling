@@ -1,5 +1,13 @@
 # 产品需求
 
+## 完整个人 Agent 主线（第 127 至 132 阶段，已确认）
+
+完整前台个人 Agent MVP 必须跑通统一主链：用户以自然语言提出目标，系统读取当前 Profile 允许的长期记忆与本地知识，生成 1 至 8 步临时计划并展示风险/能力边界，用户确认后复用既有 Workflow、Agent Runtime、Tool Registry、Room Ledger、审批和验证执行；完成时只允许使用已验证步骤与最终观察形成目标级结论，并把任务事实持久化。不得建立绕过现有安全和审计边界的第二套 Runtime。
+
+实现顺序固定为：第 127 阶段交付自然语言个人任务入口与可确认计划；第 128 阶段交付限定 App 多动作连续执行；第 129 阶段交付目标级验证和最终回答约束；第 130 阶段接入长期记忆、本地知识和复用 WorkManager 非精确定时的应用内提醒；第 131 阶段从已验证前缀创建关联新执行完成任务级恢复/重试，旧 Run 与旧副作用事实保持不变；第 132 阶段仅用 Redmi 验收三条完整用户任务，并统一运行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。正式 Release 只在用户明确要求时执行。
+
+第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
+
 ## 前台 Workflow `device.swipe` 生产默认接线（第 126 阶段，完成）
 
 前台手动 Workflow 的生产设备工具面扩展为精确的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`。`device.swipe` 必须继续使用既有 `SAFE_NO_APPROVAL` 风险语义，不创建 Room Approval 或 Accessibility 审批浮层；零审批不得绕过用户步骤意图、同 Run 新鲜 snapshot/ref、30 秒 TTL、当前 window generation、当前进程授权、Executor 验证、typed `PASSED` 和动作后重新观察。

@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 127 至 132 阶段实现顺序（已确认）
+
+- 第 127 阶段在现有 Agent/Workflow seam 上增加自然语言个人任务与可确认临时计划，不创建第二套 Runtime 或新的宽权限工具面。
+- 第 128/129 阶段先把七项前台设备工具组合为限定 App 多动作任务，再新增目标级本地验证；单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
+- 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
+- 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
+- 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
+- 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
+
 ## 第 126 阶段：`device.swipe` 生产默认 Registry 与 Redmi 真实链（完成）
 
 - `DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 已加入 `device.swipe`，前台手动 Workflow 生产工具面精确为 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`。构造参数仍只能取 `SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES` 子集，其他已注册设备工具不能借注入扩大权限。

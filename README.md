@@ -4,6 +4,8 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
+当前开发主线已经切换为“先跑通完整个人 Agent，再集中打磨细节”：第 127 至 132 阶段依次完成自然语言个人任务与可确认临时计划、限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试，以及 Redmi 完整里程碑验收。每个阶段都必须产生用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再抢占主线。
+
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
 最新版本：[小灵 v0.1.14](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.14)
@@ -13,6 +15,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 - 移动端个人 Agent 入口。
 - OpenAI-compatible Provider 优先，不绑定单一服务商。
 - 先保证模型接入、上下文、会话保存和输出渲染稳定，再扩展工具与自动化。
+- 现阶段优先让“目标 -> 计划 -> 确认 -> 执行 -> 验证 -> 持久化 -> 恢复/提醒”整条个人 Agent 主链可用；截图/视觉、后台设备控制、任意 App、MCP、多 Agent 和本地模型后置。
 - 更换了新的 `applicationId`：`com.longdev.xiaoling`。Android 会把它视为新应用，旧版本本地数据不会自动迁移。
 
 ## 已有能力

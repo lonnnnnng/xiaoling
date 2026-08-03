@@ -10,10 +10,17 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.14.apk`，大小 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`4m 40s`），JVM `837/837`，0 失败、0 错误、0 跳过；Lint `0 error / 56 warnings / 0 information`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，默认 `AndroidJUnitRunner` 为 `OK (271 tests)`、耗时 `121.242s`；显式 Provider/Embedding 参数缺失的联网探针按设计跳过，没有失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
-- 当前开发主线：第 126 阶段已在 `v0.1.14` 发布包之后把 `swipe` 加入前台手动 Workflow 生产默认集合；当前七项为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。后台或定时设备自动化、恢复自动续跑、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 126 阶段已在 `v0.1.14` 发布包之后把 `swipe` 加入前台手动 Workflow 生产默认集合；当前七项为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。后续第 127 至 132 阶段按自然语言个人任务与可确认计划、限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收推进；纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
 - 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段安装同版本 Debug 包完成测试态真实滚动，第 125 阶段覆盖 Debug/AndroidTest 包完成答案级 Room/Compose 单项，第 126 阶段再覆盖当前 Debug/AndroidTest 包完成生产默认 Registry 真实链；当前设备状态见下节。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
+
+## 2026-08-03 第 127 至 132 阶段主线规划调整
+
+- 目标：先跑通“自然语言目标 -> 记忆/知识 -> 可确认计划 -> 限定 App 多动作 -> 目标级验证 -> 持久化 -> 恢复/提醒”的完整前台个人 Agent，再集中处理体验、性能和高级生态。
+- 顺序：第 127 阶段自然语言个人任务入口；第 128 阶段限定 App 多动作连续执行；第 129 阶段目标级验证；第 130 阶段记忆/知识/应用内提醒；第 131 阶段任务级关联恢复；第 132 阶段 Redmi 三条真实任务和统一完整门禁。
+- 验证策略：第 127 至 131 阶段按快速迭代约束只运行聚焦测试、必要编译和功能闭环对应的 Redmi 单项；第 132 阶段再统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。Release 只在用户明确要求时执行。
+- 后置边界：截图/视觉、后台设备控制、任意 App、精确定时、Foreground Service、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型不作为当前 MVP 的前置条件。
 
 ## 2026-08-03 第 126 阶段：`device.swipe` 生产默认 Registry 与 Redmi 真实链
 

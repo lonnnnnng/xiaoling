@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 127 至 132 阶段不再按单个原语横向扩权，而采用参考项目中更接近真实产品价值的“目标级垂直切片”：自然语言目标先生成可确认的有界计划，执行继续复用当前 Registry/审批/验证/Ledger，最终结论只消费已验证步骤和最终观察；随后再接入记忆、知识、应用内提醒和关联恢复。这样既保留 `meow-agent` 的风险元数据与后置验证、`X-OmniClaw` 的观察后执行和按需路由、`openclaw` 的任务/Channel 分层，也避免在主链跑通前复制任意 App、后台设备控制或多 Agent 的攻击面。第 132 阶段完成 Redmi 里程碑后，才集中评估体验、性能和高级生态。
+
 第 126 阶段继续采用参考实现中“能力进入生产白名单前必须有完整可验证证据链”的原则。`device.swipe` 只有在第 122 至 125 阶段已经完成纯安全策略、执行期 HMAC evidence、完成态内存交接、Redmi 限定动作和答案级脱敏投影后，才加入前台手动 Workflow 的生产默认 Registry。它继续是 SAFE 零审批动作，仍要求同 Run snapshot/ref、30 秒 TTL、当前 generation、同窗内容变化、共同匿名锚点方向主位移、Executor/typed 验证和动作后观察；Room/UI 不保存方向、viewport/HMAC、snapshot/ref、节点正文或坐标。聚焦 Registry `36/36`、六个相邻测试类 `101/101`、Debug/AndroidTest APK 和仅 Redmi `wsvwypiz7xwslvl7` 的真实生产 `snapshot -> swipe` 均通过，日志为 `approvals=0 / registryCompletion=PASSED / answerDecision=VERIFIED / privacySafe=true`；更新后的项目文档语料首轮/最终单项均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。前台 Workflow 现精确开放七项，后台/定时设备自动化、任意 App、坐标与截图继续关闭。
 
 `v0.1.14` 是当前对照基线：它在 `v0.1.13` 的结构与启动基线上完成通用执行恢复矩阵、Room v33 answerability Shadow 跨进程匿名账本与单次采样窗口，以及前台 Workflow `snapshot / open_app / back / home / tap_ref / type_text` 生产闭环。这个版本继续采用“纯决策前置、宿主副作用后置、持久化事实优先、敏感配置类型级脱敏”的工程原则：提交状态未知不自动重放，尚未提交的白名单写工具只在用户确认后创建关联新 Run，持久化失败事实只原子结算，不恢复旧 Executor、模型协程或 Workflow 后续步骤；`type_text` 原文不进入持久化审计。`swipe`、后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP 和本地模型继续关闭。发布门禁为 JVM `837/837`、Lint `0 error / 56 warnings / 0 information`、三类 APK、Release lintVital、zipalign、v2 正式单签名和仅 Redmi `OK (271 tests)`。
