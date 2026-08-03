@@ -31,6 +31,32 @@ class ConversationProjectionTest {
     }
 
     @Test
+    fun personalTaskModeUsesAgentProfileAndWaitsForPlanConfirmation() {
+        val ready = project(
+            prompt = "查看当前时间并记到笔记",
+            enabledModels = emptyList(),
+            agentProfiles = listOf(agentProfile(memoryEnabled = true)),
+            selectedAgentProfileId = "agent",
+            personalTaskMode = true,
+        )
+        val awaitingConfirmation = project(
+            prompt = "另一个任务",
+            enabledModels = emptyList(),
+            agentProfiles = listOf(agentProfile(memoryEnabled = true)),
+            selectedAgentProfileId = "agent",
+            personalTaskMode = true,
+            awaitingPersonalTaskPlanConfirmation = true,
+        )
+
+        assertTrue(ready.composer.personalTaskMode)
+        assertTrue(ready.composer.agentCommand)
+        assertTrue(ready.composer.canSend)
+        assertFalse(ready.composer.attachmentEnabled)
+        assertFalse(awaitingConfirmation.composer.canSend)
+        assertFalse(awaitingConfirmation.composer.controlsEnabled)
+    }
+
+    @Test
     fun waitingIndicatorOnlyAppearsBeforeModelContentAndWithoutApproval() {
         val waiting = project(
             sendingMessage = true,
@@ -94,6 +120,8 @@ class ConversationProjectionTest {
         pendingAgentApproval: AgentApprovalUiState? = null,
         attachingImage: Boolean = false,
         loadingConversationMessages: Boolean = false,
+        personalTaskMode: Boolean = false,
+        awaitingPersonalTaskPlanConfirmation: Boolean = false,
     ) = ConversationProjection.project(
         prompt = prompt,
         sendingMessage = sendingMessage,
@@ -104,6 +132,8 @@ class ConversationProjectionTest {
         pendingAgentApproval = pendingAgentApproval,
         attachingImage = attachingImage,
         loadingConversationMessages = loadingConversationMessages,
+        personalTaskMode = personalTaskMode,
+        awaitingPersonalTaskPlanConfirmation = awaitingPersonalTaskPlanConfirmation,
     )
 
     private fun toolMessage(id: String, reference: KnowledgeReference) = ChatMessage(

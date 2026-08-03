@@ -46,10 +46,28 @@ class OpenAiCompatibleClient(
         config: ProviderRequestConfig,
         messages: List<RequestMessage>,
         onStreamDelta: (suspend (StreamDeltaUpdate) -> Unit)? = null,
+    ): ModelResponseResult = sendMessageInternal(config, messages, onStreamDelta, outputFormat = null)
+
+    suspend fun sendStructuredMessage(
+        config: ProviderRequestConfig,
+        messages: List<RequestMessage>,
+        outputFormat: LlmStructuredOutputFormat,
+    ): ModelResponseResult = sendMessageInternal(
+        config = config.copy(streamingEnabled = false, reasoningSummaryEnabled = false),
+        messages = messages,
+        onStreamDelta = null,
+        outputFormat = outputFormat,
+    )
+
+    private suspend fun sendMessageInternal(
+        config: ProviderRequestConfig,
+        messages: List<RequestMessage>,
+        onStreamDelta: (suspend (StreamDeltaUpdate) -> Unit)?,
+        outputFormat: LlmStructuredOutputFormat?,
     ): ModelResponseResult = withContext(Dispatchers.IO) {
         require(config.model.isNotBlank()) { "请输入或选择模型名称" }
         require(messages.isNotEmpty()) { "请输入消息" }
-        val generationRequest = adapter.prepareGenerationRequest(config, messages)
+        val generationRequest = adapter.prepareGenerationRequest(config, messages, outputFormat)
         val requestUrl = generationRequest.requestUrl
         val body = generationRequest.body
 

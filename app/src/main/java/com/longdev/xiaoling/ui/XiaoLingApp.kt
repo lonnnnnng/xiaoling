@@ -73,6 +73,7 @@ import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementProjection
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementUiState
 import com.longdev.xiaoling.ui.conversation.ConversationActions
 import com.longdev.xiaoling.ui.conversation.ConversationPage
+import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
 import com.longdev.xiaoling.ui.conversation.ConversationProjection
 import com.longdev.xiaoling.ui.conversation.ConversationUiState
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
@@ -182,6 +183,8 @@ private fun XiaoLingContent(
 
             override fun updatePrompt(value: String) = viewModel.updatePrompt(value)
 
+            override fun updatePersonalTaskMode(enabled: Boolean) = viewModel.updatePersonalTaskMode(enabled)
+
             override fun removePendingImage() = viewModel.removePendingImage()
 
             override fun removePendingDocument() = viewModel.removePendingDocument()
@@ -193,6 +196,10 @@ private fun XiaoLingContent(
             override fun sendMessage() = viewModel.sendMessage()
 
             override fun stopGenerating() = viewModel.stopGenerating()
+
+            override fun confirmPendingPersonalTaskPlan() = viewModel.confirmPendingPersonalTaskPlan()
+
+            override fun cancelPendingPersonalTaskPlan() = viewModel.cancelPendingPersonalTaskPlan()
 
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
 
@@ -374,6 +381,13 @@ private fun XiaoLingContent(
         state = state.toAgentTaskCenterUiState(),
         actions = viewModel,
     )
+    state.pendingPersonalTaskPlan?.let { plan ->
+        PersonalTaskPlanDialog(
+            state = plan,
+            onConfirm = conversationActions::confirmPendingPersonalTaskPlan,
+            onDismiss = conversationActions::cancelPendingPersonalTaskPlan,
+        )
+    }
     WorkflowManagementDialogs(
         state = state.toWorkflowManagementUiState(),
         actions = viewModel,
@@ -535,6 +549,8 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         conversationTitle = conversationTitle,
         activeAgentRun = activeAgentRun,
         pendingAgentApproval = pendingAgentApproval,
+        personalTaskMode = personalTaskMode,
+        awaitingPersonalTaskPlanConfirmation = pendingPersonalTaskPlan != null,
     )
 }
 

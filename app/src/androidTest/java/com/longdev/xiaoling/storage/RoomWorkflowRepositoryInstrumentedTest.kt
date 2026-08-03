@@ -89,6 +89,25 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun confirmedPersonalTaskCreatesDefinitionAndManualRunTogether() = runBlocking {
+        val (workflow, run) = repository.createWorkflowAndManualRun(
+            name = "记录当前时间",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("把时间写入笔记"),
+            ),
+            conversationId = "conversation-personal-task",
+        )
+
+        assertEquals(workflow.id, run.run.workflowId)
+        assertEquals(WorkflowRunStatus.QUEUED, run.run.status)
+        assertEquals("conversation-personal-task", run.run.conversationId)
+        assertEquals(listOf("读取当前时间", "把时间写入笔记"), run.steps.map { it.detail })
+        assertEquals(listOf(workflow.id), repository.listWorkflows().map { it.id })
+        assertEquals(listOf(run.run.id), repository.recentRunDetails().map { it.run.id })
+    }
+
+    @Test
     fun scheduledAgentResultPersistsTextAndToolPartsTogether() = runBlocking {
         database.conversationDao().insertConversations(
             listOf(

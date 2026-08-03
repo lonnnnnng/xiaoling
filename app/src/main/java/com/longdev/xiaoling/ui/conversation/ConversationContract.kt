@@ -42,6 +42,8 @@ internal interface ConversationActions {
 
     fun updatePrompt(value: String)
 
+    fun updatePersonalTaskMode(enabled: Boolean)
+
     fun removePendingImage()
 
     fun removePendingDocument()
@@ -53,6 +55,10 @@ internal interface ConversationActions {
     fun sendMessage()
 
     fun stopGenerating()
+
+    fun confirmPendingPersonalTaskPlan()
+
+    fun cancelPendingPersonalTaskPlan()
 
     fun approvePendingAgentTool()
 
@@ -117,6 +123,8 @@ internal data class ConversationComposerUiState(
     val attachingDocument: Boolean = false,
     val loadingConversationMessages: Boolean = false,
     val agentCommand: Boolean = false,
+    val personalTaskMode: Boolean = false,
+    val awaitingPersonalTaskPlanConfirmation: Boolean = false,
     val canSend: Boolean = false,
     val controlsEnabled: Boolean = false,
     val attachmentEnabled: Boolean = false,
@@ -155,8 +163,10 @@ internal object ConversationProjection {
         conversationTitle: String = "",
         activeAgentRun: AgentRunSnapshot? = null,
         pendingAgentApproval: AgentApprovalUiState? = null,
+        personalTaskMode: Boolean = false,
+        awaitingPersonalTaskPlanConfirmation: Boolean = false,
     ): ConversationUiState {
-        val agentCommand = AgentCommand.matches(prompt)
+        val agentCommand = AgentCommand.matches(prompt) || personalTaskMode
         val attaching = attachingImage || attachingDocument
         val ordinaryChatEnabled = enabledModels.isNotEmpty()
         val selectedAgent = agentProfiles.firstOrNull { profile -> profile.id == selectedAgentProfileId }
@@ -166,7 +176,7 @@ internal object ConversationProjection {
         // long: Agent Profile 可以独立提供运行模型，因此 `/agent` 在普通聊天模型列表为空时仍可发送；附件入口继续依赖普通 Provider 模型，避免改变既有选择器边界。
         val canUseComposer = ordinaryChatEnabled || agentCommand
         val canSend = !sendingMessage && !attaching && !loadingConversationMessages &&
-            prompt.isNotBlank() && canUseComposer
+            !awaitingPersonalTaskPlanConfirmation && prompt.isNotBlank() && canUseComposer
         val waitingForModelStart = sendingMessage && chatMessages.lastOrNull()
             ?.takeIf { message -> message.role == "assistant" }
             ?.text
@@ -213,10 +223,12 @@ internal object ConversationProjection {
                 attachingDocument = attachingDocument,
                 loadingConversationMessages = loadingConversationMessages,
                 agentCommand = agentCommand,
+                personalTaskMode = personalTaskMode,
+                awaitingPersonalTaskPlanConfirmation = awaitingPersonalTaskPlanConfirmation,
                 canSend = canSend,
-                controlsEnabled = !sendingMessage && canUseComposer,
+                controlsEnabled = !sendingMessage && !awaitingPersonalTaskPlanConfirmation && canUseComposer,
                 attachmentEnabled = !sendingMessage && !attaching && !loadingConversationMessages &&
-                    ordinaryChatEnabled,
+                    ordinaryChatEnabled && !personalTaskMode && !awaitingPersonalTaskPlanConfirmation,
                 memoryOptionEnabled = !sendingMessage && selectedAgent?.memoryEnabled == true,
             ),
         )

@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
-## 第 127 至 132 阶段：完整个人 Agent 主线（已确认）
+## 第 127 至 132 阶段：完整个人 Agent 主线（第 127 阶段已完成）
 
 后续开发改为“先跑通完整个人 Agent，再集中打磨细节”。这里的完整主线固定为：用户以自然语言提出目标，Agent 读取允许使用的记忆与本地知识，生成 1 至 8 步临时计划并等待确认，在前台限定 App 中调用既有应用/设备工具，逐动作执行既有审批和验证，形成目标级本地结论，持久化任务事实，并在中断后从已验证前缀创建关联新执行继续或重试。旧 Run、旧动作和已提交副作用保持不变。
 
-第 127 阶段先交付自然语言个人任务入口与可确认的临时计划；第 128 阶段完成限定 App 多动作连续执行；第 129 阶段增加目标级验证和不能越过证据的最终回答；第 130 阶段把长期记忆、本地知识和基于现有 WorkManager 的应用内提醒接入任务，创建或取消提醒仍需确认；第 131 阶段完成任务级恢复与关联重试；第 132 阶段用 Redmi 跑通知识、记忆、设备动作、提醒和恢复组成的三条真实用户任务，再统一执行完整 JVM、Lint、APK 与默认 instrumentation。Release 仍只在用户明确要求时进行。
+第 127 阶段已经交付自然语言个人任务入口与可确认的临时计划；第 128 阶段完成限定 App 多动作连续执行；第 129 阶段增加目标级验证和不能越过证据的最终回答；第 130 阶段把长期记忆、本地知识和基于现有 WorkManager 的应用内提醒接入任务，创建或取消提醒仍需确认；第 131 阶段完成任务级恢复与关联重试；第 132 阶段用 Redmi 跑通知识、记忆、设备动作、提醒和恢复组成的三条真实用户任务，再统一执行完整 JVM、Lint、APK 与默认 instrumentation。Release 仍只在用户明确要求时进行。
 
 这六个阶段必须各自产生用户可直接体验的新能力，不再把纯重构、单层 evidence、Shadow 扩样或文档整理单独作为主线阶段。截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型继续后置；它们不作为完整前台个人 Agent MVP 的前置条件。
+
+## 第 127 阶段：自然语言个人任务与可确认计划（完成）
+
+对话页现有“对话 / 任务”模式。任务模式不要求 `/agent` 前缀，先使用当前 Agent Profile 冻结的 Provider、模型、API 模式和工具白名单生成任务名与 1 至 8 个顺序步骤；Chat Completions 使用 `response_format.json_schema`，Responses 使用 `text.format`，客户端仍严格拒绝额外字段、JSON 外文本、错误类型、空步骤与数量越界。计划弹层显示原目标、步骤、Agent/模型、工具边界及可能审批项，API Key 只留在 ViewModel 私有执行快照。确认前不创建消息、Workflow、Run、审批或 Tool Ledger；取消恢复原目标，切换/删除会话会撤销在途请求或丢弃待确认计划。
+
+本阶段只冻结 Profile 的模型与工具白名单，不把长期记忆或本地知识正文注入计划请求；完整主链中的记忆/知识计划上下文仍按既定顺序由第 130 阶段交付。第 127 阶段“完成”只表示自然语言入口、严格计划、确认边界和既有执行链接通，不代表第 130 阶段能力提前完成。
+
+确认后 `RoomWorkflowRepository` 在单事务创建普通 Workflow、步骤定义、手动 Run 和全部步骤快照，再复用既有 Workflow/Agent Runtime、审批、验证与 Room Ledger；确认计划会保留在工作流管理中。聚焦 JVM `34/34`、Debug/AndroidTest APK 和仅 Redmi 的 Compose + Room `OK (2 tests)`（`2.03s`）通过。真实模型生成单步 `Read Current Time` 计划；首个 Runtime Run 因 `60000ms` 模型规划超时保持失败，第二个手动 Run 在同一 Workflow 下独立完成 `app.current_time`、参数校验、工具执行、后置验证和总结，旧 Run 没有被覆盖。更新后的文档语料首轮为 `OK (1 test)`（`2.453s`），写回后的最终资产已复验通过。下一主线进入第 128 阶段限定 App 多动作连续执行。
 
 ## 第 126 阶段：`device.swipe` 生产默认接线与 Redmi 真实链（完成）
 
@@ -610,7 +618,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 
 第 61 阶段在 Redmi 熄屏状态继续验证：Probe 退出后原 PID 消失，JobScheduler 延迟 `159.479s` 冷启动 PID `26797`，屏幕持续 `Asleep` 期间同一 WorkRequest/ScheduledTask/WorkflowRun 完成 `244.236s` 的 8 步、32 次只读工具调用。8 个 Run 的预算快照无回退，最大约 `44.856s`，32/32 工具回执和验证通过，`lowMemory=0`。这是当前最接近真实用户离开应用场景的成功样本，仍不等同自然 LMK 或 Foreground Service 需求。
 
-当前主线已具备可执行应用内任务的最小个人 Agent：普通聊天与 `/agent` 分流，Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v33 已让结构化消息、知识引用、Embedding/Shadow、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。完整限定设备工具集开放给前台直接 `/agent`；前台手动 Workflow 当前精确开放同一 Agent Run 内的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，其中打开应用、点击与输入逐动作审批，`open_app` 的唯一包名经过三层白名单并与动作后包名绑定，`back / home / swipe` 为零审批 SAFE 动作。所有动作都要求当前观察和动作后 Executor/typed 验证，`home` 还必须匹配系统动态解析的 launcher，`swipe` 必须证明同窗内容变化和共同匿名锚点方向主位移。文本输入的跨入口持久路径只保存指纹与长度；Workflow 对七项工具投影白名单成功证据和稳定失败状态，其中 swipe 只消费通过专属完成门禁后的通用脱敏摘要。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App；全部后台设备自动化、坐标与截图继续关闭。通用执行恢复矩阵已交付提交状态未知分类、用户确认的受控关联新 Run、已验证控制面收尾、两类原子失败结算、持久停止栅栏、Worker 所有权隔离和单调执行预算；旧 Run 与旧副作用事实保持不变，不恢复旧 Executor、模型协程或 Workflow 后续步骤。第 59 阶段约 229.416 秒复合 SAFE 后台成功样本仍未形成自然 LMK 或 Foreground Service 引入依据。第 108 至 126 阶段依次完成 Workflow 只读观察、答案级证据、本地判定、真实双 Run、动作安全契约、`tap_ref`、`type_text`、SAFE `back / home`、逐包审批 `open_app`，以及 `swipe` 的生产前安全/evidence/Redmi 限定验收、答案级脱敏投影和生产默认接线；相关性生产拒绝与 answerability enforcement 继续关闭，Shadow 只在真正分隔窗口低频并行观察。
+当前主线已具备可执行应用内任务的最小个人 Agent：普通聊天、直接 `/agent` 与可确认“任务”模式分流，任务模式能把自然语言目标严格转换为 1 至 8 步计划，并在用户确认后原子创建普通 Workflow/Run、复用既有 Runtime；确认前不写执行事实。Runtime 可取消、可限步、可确认、可验证并记录 Run、Step、Approval、Event 和 Memory；Agent Profile v1 已分离身份与能力，Room v33 已让结构化消息、知识引用、Embedding/Shadow、后台停止原因和独立进程退出观察持久化。长期记忆、声明式 Skill、1 至 8 步 Workflow、WorkManager 非精确定时、本地知识库、答案级引用 UI，以及设备 Agent 观察与有限动作层均已交付。完整限定设备工具集开放给前台直接 `/agent`；前台手动 Workflow 当前精确开放同一 Agent Run 内的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，其中打开应用、点击与输入逐动作审批，`open_app` 的唯一包名经过三层白名单并与动作后包名绑定，`back / home / swipe` 为零审批 SAFE 动作。所有动作都要求当前观察和动作后 Executor/typed 验证，`home` 还必须匹配系统动态解析的 launcher，`swipe` 必须证明同窗内容变化和共同匿名锚点方向主位移。文本输入的跨入口持久路径只保存指纹与长度；Workflow 对七项工具投影白名单成功证据和稳定失败状态，其中 swipe 只消费通过专属完成门禁后的通用脱敏摘要。首批只对小灵、系统计算器、时钟、设置和桌面完成 Redmi 验收，不承诺任意 App；全部后台设备自动化、坐标与截图继续关闭。通用执行恢复矩阵已交付提交状态未知分类、用户确认的受控关联新 Run、已验证控制面收尾、两类原子失败结算、持久停止栅栏、Worker 所有权隔离和单调执行预算；旧 Run 与旧副作用事实保持不变，不恢复旧 Executor、模型协程或 Workflow 后续步骤。第 59 阶段约 229.416 秒复合 SAFE 后台成功样本仍未形成自然 LMK 或 Foreground Service 引入依据。第 108 至 127 阶段依次完成 Workflow 只读观察、答案级证据、本地判定、真实双 Run、动作安全契约、`tap_ref`、`type_text`、SAFE `back / home`、逐包审批 `open_app`、`swipe` 全链，以及自然语言个人任务与可确认计划；相关性生产拒绝与 answerability enforcement 继续关闭，Shadow 只在真正分隔窗口低频并行观察。
 
 第 43 阶段的同一 WorkRequest Redmi 冷启动重入已完成真实验收：旧 PID 在首步 Agent `THINKING` 时被受控强杀，新 PID 自动重入并按 Agent→Workflow→Task 收敛，没有创建第二个 Agent Run 或继续后续步骤。该样本使用 `run-as kill -9` fallback，不代表 Android 自主回收；该阶段当时的重点是更长/自然回收样本。第 46 阶段已进一步补充 Doze、受控内存和无压力对照，第 47 阶段解决了同一进程前台启动恢复与新 Worker 并发时的所有权隔离；当前仍缺自然 LMK。
 
@@ -653,7 +661,7 @@ Redmi v31→v32 迁移、Room 写入回读与 UI 聚焦 `3/3` 通过，真实 Pr
 - 已有 Room v31 知识文档、chunks、FTS4/LIKE/Embedding、带相关性 shadow 字段的检索审计、管理 UI、只读 Agent 工具、模型引用注入和答案引用呈现；第 82 阶段已完成扩样校准，生产拒绝、规模化 ANN 与更大语料泛化仍需验证。
 - 已有内置与本地声明式 Skill 按需选取、严格导入校验、工具白名单和管理 UI；多步骤 Workflow 定义/编辑、前台与后台顺序执行、步骤快照、新 Run 重试、一次性和 Daily/Weekly 调度、通知和审批 blocked 状态已完成。
 - AccessibilityService 观察与有限动作层已经交付；前台手动 Workflow 已精确开放 `snapshot / open_app / back / home / tap_ref / type_text / swipe`，后台设备执行、坐标/截图兜底和任意 App 通用能力仍未开放。
-- ViewModel 仍偏重，但 Compose 结构工程已到停止点：第 66 至 73 阶段及后续横向工程迁出了普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排；应用导航、十一个业务页面和四组功能对话框均已拥有窄状态、局部呈现状态与 actions/callback 边界。`XiaoLingApp.kt` 从 `7,018` 行降到当前 `817` 行，`SettingsPage` 继续保留平台协调职责。后续不继续按行数拆宿主或 ViewModel；通用执行恢复矩阵与前台 Workflow 七项设备工具闭环已经完成，下一轮直接进入第 127 阶段自然语言个人任务入口，不再单独立项结构瘦身或设备原语证据打磨。
+- ViewModel 仍偏重，但 Compose 结构工程已到停止点：第 66 至 73 阶段及后续横向工程迁出了普通聊天、会话、Agent Run/审批、候选记忆和 Provider 模型同步编排；应用导航、十一个业务页面和四组功能对话框均已拥有窄状态、局部呈现状态与 actions/callback 边界。`XiaoLingApp.kt` 从 `7,018` 行降到当前 `817` 行，`SettingsPage` 继续保留平台协调职责。后续不继续按行数拆宿主或 ViewModel；通用执行恢复矩阵、前台 Workflow 七项设备工具和第 127 阶段可确认任务入口已经完成，下一轮直接进入第 128 阶段限定 App 多动作连续执行，不再单独立项结构瘦身或设备原语证据打磨。
 
 ## 目标架构
 
@@ -998,7 +1006,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 15. 已完成：接入前台 Workflow `device.home`。它复用空参数、零审批 SAFE 边界，并以系统动态解析的 launcher 完成后置验证；Redmi 已完成 `approvals=0 / verified=true / VERIFIED` 真实闭环。
 16. 已完成：接入前台 Workflow `device.open_app`。它只接受逐包审批的唯一白名单包名，并在动作完成与答案级 Room 重建时再次绑定后置包名；Redmi 已完成 `APPROVED / PASSED / afterPackage=com.android.calculator2 / VERIFIED` 真实闭环。
 17. 已完成：第 122 至 126 阶段依次冻结 `device.swipe` 安全契约、执行期 HMAC evidence、完成态内存交接、Redmi 限定验收、答案级脱敏投影和生产默认接线；前台 Workflow 七项设备工具闭环完成，后台设备工具继续关闭。
-18. 第 127 阶段：新增自然语言个人任务入口，把用户目标转换为 1 至 8 步临时计划，展示计划、风险和能力边界，并要求用户确认后才进入既有 Workflow/Agent 执行链；不建立第二套 Runtime。
+18. 已完成：第 127 阶段新增自然语言个人任务入口，把用户目标转换为 1 至 8 步严格临时计划，展示计划、风险和能力边界，并要求用户确认后才原子创建普通 Workflow/Run、进入既有 Workflow/Agent 执行链；没有建立第二套 Runtime。Redmi 真实模型计划和同一 Workflow 下失败旧 Run + 独立成功新 Run 已验证。
 19. 第 128 阶段：在限定 App 范围完成多动作连续执行。每次页面变化都重新 snapshot/ref，逐动作复用既有审批、TTL、generation、Executor/typed 验证和动作后观察；Redmi 跑通首条设置页连续任务。
 20. 第 129 阶段：新增目标级本地验证和最终回答约束。只能用已验证步骤与最终观察判断任务完成；证据不足时必须报告未完成或部分完成，不能由模型自由文本扩大结论。
 21. 第 130 阶段：把长期记忆、本地知识和应用内提醒接入个人任务。提醒复用现有 WorkManager 非精确定时与通知能力，创建、修改或取消仍需确认，不提前引入系统日历或精确闹钟。
@@ -1180,6 +1188,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 126. 已完成：把 `device.swipe` 加入生产默认 Registry。前台手动 Workflow 现精确开放七项，SAFE swipe 不创建 Approval，但继续受同 Run snapshot/ref、30 秒 TTL、generation、专属同窗方向 evidence、Executor/typed 验证和答案级脱敏门禁约束。聚焦 Registry `36/36`、六个相邻测试类 `101/101`、Debug/AndroidTest APK 和仅 Redmi 的真实生产 `snapshot -> swipe` 均通过，日志为 `approvals=0 / registryCompletion=PASSED / answerDecision=VERIFIED / privacySafe=true`；后台自动化保持关闭。
 
-横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约、第 103/104/107 阶段三条 v33 同日样本、第 105 阶段单次显式采样窗口和第 106 阶段时间证据投影；第 108 至 126 阶段已切回个人 Agent，并依次完成 Workflow 只读 snapshot、答案级观察证据 UI、版本化本地判定、真实双 Run 消费与输出净化、有限设备动作安全契约冻结、`tap_ref` 首个生产切片、答案级动作证据 UI、`type_text` 专属安全/evidence seam/生产闭环、跨直接 `/agent` 的持久化隐私统一、SAFE `back / home`、逐包审批 `open_app`、`swipe` 专属方向验证契约、Controller/Registry 执行期 HMAC evidence、完成态纯内存交接、Redmi 限定验收、答案级 Decision/Room/UI 脱敏投影和生产默认接线。Shadow 后续只做低频并行观察，不机械搬运 `SettingsPage` composition root，也不阻塞个人 Agent 功能。
+127. 已完成：新增“对话 / 任务”模式、严格 JSON Schema 的 1 至 8 步计划、风险/能力边界弹层和确认前零执行。确认后 Room 单事务创建普通 Workflow、手动 Run 与全部步骤快照，并复用既有 Runtime/审批/验证/Ledger；聚焦 JVM `34/34`、Debug/AndroidTest APK、仅 Redmi `OK (2 tests)` 和真实模型 `app.current_time` 独立重试闭环均通过，旧失败 Run 保持不变。
 
-后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、没有成功答案且未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103/104/107 阶段的新账本当前有 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍属于同日窗口，不足以作为长期分隔或 calibration/validation 证据。第 105 阶段已把每次显式开启收紧为最多一轮观测，第 106 阶段只把时间证据展示到设置页，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；后续继续在真正跨日或长期分隔的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。前台 Workflow 当前精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`；第 126 阶段已完成 swipe 的生产默认接线和仅 Redmi 真实生产 Workflow 验收，全部后台设备自动化继续关闭。下一主线固定为第 127 至 132 阶段：先让自然语言个人任务完成计划、确认、限定 App 多动作执行、目标级验证、记忆/知识/提醒和任务级恢复，再集中打磨细节；精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型继续后置。
+横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约、第 103/104/107 阶段三条 v33 同日样本、第 105 阶段单次显式采样窗口和第 106 阶段时间证据投影；第 108 至 127 阶段已切回个人 Agent，并依次完成 Workflow 只读 snapshot、答案级观察证据 UI、版本化本地判定、真实双 Run 消费与输出净化、有限设备动作安全契约冻结、`tap_ref` 首个生产切片、答案级动作证据 UI、`type_text` 专属安全/evidence seam/生产闭环、跨直接 `/agent` 的持久化隐私统一、SAFE `back / home`、逐包审批 `open_app`、`swipe` 完整生产链，以及自然语言个人任务与可确认计划。Shadow 后续只做低频并行观察，不机械搬运 `SettingsPage` composition root，也不阻塞个人 Agent 功能。
+
+后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、没有成功答案且未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103/104/107 阶段的新账本当前有 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍属于同日窗口，不足以作为长期分隔或 calibration/validation 证据。第 105 阶段已把每次显式开启收紧为最多一轮观测，第 106 阶段只把时间证据展示到设置页，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；后续继续在真正跨日或长期分隔的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。前台 Workflow 当前精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`；第 126 阶段已完成 swipe 的生产默认接线和仅 Redmi 真实生产 Workflow 验收，全部后台设备自动化继续关闭。第 127 阶段的自然语言计划与确认链已经完成，下一主线从第 128 阶段限定 App 多动作连续执行开始，再推进目标级验证、记忆/知识/提醒和任务级恢复；精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型继续后置。

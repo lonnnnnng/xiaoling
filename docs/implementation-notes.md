@@ -2,12 +2,24 @@
 
 ## 第 127 至 132 阶段实现顺序（已确认）
 
-- 第 127 阶段在现有 Agent/Workflow seam 上增加自然语言个人任务与可确认临时计划，不创建第二套 Runtime 或新的宽权限工具面。
+- 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128/129 阶段先把七项前台设备工具组合为限定 App 多动作任务，再新增目标级本地验证；单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
 - 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
+
+## 第 127 阶段：自然语言个人任务与可确认计划（完成）
+
+- `ConversationPage` 新增“对话 / 任务”分段模式。任务模式接受普通自然语言或兼容去除 `/agent` 前缀后的目标，禁止附件，并复用 `AgentLaunchPreflightCoordinator` 冻结当前会话、Profile、Provider、模型、API 模式和工具白名单。旧 `/agent` 直接执行行为保持不变。
+- 本阶段计划请求只携带用户目标和 Profile 工具白名单，不注入长期记忆或本地知识正文；这两类上下文仍按路线图由第 130 阶段接入，避免把完整第 127 至 132 阶段的最终主链要求误记为第 127 阶段单独完成。
+- `PersonalTaskPlanPolicy` 为任务名和 1 至 8 个步骤定义严格 JSON Schema；`OpenAiCompatibleAdapter` 分别把它映射到 Chat Completions `response_format.json_schema` 和 Responses `text.format`。结构化请求强制关闭流式与 reasoning summary；客户端解析继续校验根/步骤字段集合、JSON 尾随文本、类型、空值及既有 `WorkflowDefinitionPolicy`，避免兼容 Provider 忽略 Schema 后放大输入边界。
+- `PendingPersonalTaskPlanUiState` 只保存可展示的目标、步骤、Agent/模型和工具边界；带 API Key 的 `AgentRuntimeSelection` 只留在 ViewModel 私有 `PendingPersonalTaskExecution`。弹层确认前不写消息、Workflow、Run 或工具账本；取消恢复原始目标，切换/删除会话会撤销在途请求或清理待确认快照。
+- `RoomWorkflowRepository.createWorkflowAndManualRun()` 在单一 Room 事务中创建 Workflow、步骤定义、手动 Run 和全部步骤快照。确认后先写入原始任务消息，再调用既有 `executeForegroundWorkflow()`；确认计划作为普通 Workflow 保留，继续使用当前 Runtime、逐动作审批、验证、重试和 Room Ledger。
+- 聚焦 JVM 四类合计 `34/34`，`assembleDebug / assembleDebugAndroidTest` 成功。Compose 与 Room 新增单项只在 Redmi `wsvwypiz7xwslvl7` 合并运行为 `OK (2 tests)`、耗时 `2.03s`。旧传递依赖 Espresso `3.5.0` 在当前 Android 上反射隐藏 `InputManager.getInstance()` 失败，显式升级 `espresso-core` 到 AndroidX 稳定版 `3.7.0` 后通过。
+- 真实模型生成 `Read Current Time -> Determine the current system time` 单步计划并展示审批/工具边界。确认后原子创建 Workflow `workflow-baa42c6e-6723-4739-aa27-ec6ceb0b67ee`；首个 Run 在 Runtime 模型规划 `60000ms` 超时后保持 `FAILED / BUDGET_EXHAUSTED`，同一 Workflow 的第二个手动 Run 独立 `COMPLETED`，依次完成模型选择 `app.current_time`、参数校验、工具执行、后置验证、完成规划和安全总结，结果为 `2026-08-04 00:47:10 · Asia/Shanghai`。这证明旧 Run 不被重试覆盖。
+- 七份长期文档重新打入 AndroidTest assets 后，仅在 Redmi 运行项目文档语料单项，首轮为 `OK (1 test)`、耗时 `2.453s`；写回首轮证据后的最终资产已以相同步骤复验通过。
+- 本阶段按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation；没有开放后台设备控制、任意 App、新工具权限、精确定时或 Foreground Service。
 
 ## 第 126 阶段：`device.swipe` 生产默认 Registry 与 Redmi 真实链（完成）
 

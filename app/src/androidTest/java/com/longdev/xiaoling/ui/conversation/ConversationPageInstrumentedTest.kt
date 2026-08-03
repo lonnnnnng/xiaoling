@@ -135,6 +135,8 @@ class ConversationPageInstrumentedTest {
 
         override fun updatePrompt(value: String) = Unit
 
+        override fun updatePersonalTaskMode(enabled: Boolean) = Unit
+
         override fun removePendingImage() = Unit
 
         override fun removePendingDocument() = Unit
@@ -154,6 +156,10 @@ class ConversationPageInstrumentedTest {
         override fun stopGenerating() {
             stopCount += 1
         }
+
+        override fun confirmPendingPersonalTaskPlan() = Unit
+
+        override fun cancelPendingPersonalTaskPlan() = Unit
 
         override fun approvePendingAgentTool() = Unit
 

@@ -17,6 +17,7 @@ interface LlmProviderAdapter {
     fun prepareGenerationRequest(
         config: ProviderRequestConfig,
         messages: List<RequestInputItem>,
+        outputFormat: LlmStructuredOutputFormat? = null,
     ): LlmGenerationRequest
 
     fun parseGenerationResponse(apiMode: ApiMode, body: String): String
@@ -32,6 +33,16 @@ data class LlmGenerationRequest(
     val requestUrl: String,
     val body: String,
 )
+
+data class LlmStructuredOutputFormat(
+    val name: String,
+    val schema: JSONObject,
+) {
+    init {
+        require(name.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "结构化输出名称无效" }
+        require(schema.optString("type") == "object") { "结构化输出根节点必须是 object" }
+    }
+}
 
 data class LlmStreamEvent(
     val deltaText: String? = null,
@@ -86,14 +97,15 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
     override fun prepareGenerationRequest(
         config: ProviderRequestConfig,
         messages: List<RequestInputItem>,
+        outputFormat: LlmStructuredOutputFormat?,
     ): LlmGenerationRequest {
         val requestUrl = when (config.apiMode) {
             ApiMode.CHAT_COMPLETIONS -> ProviderApiUrlBuilder.chatCompletionsUrl(config.baseUrl)
             ApiMode.RESPONSES -> ProviderApiUrlBuilder.responsesUrl(config.baseUrl)
         }
         val payload = when (config.apiMode) {
-            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, messages)
-            ApiMode.RESPONSES -> responsesPayload(config, messages)
+            ApiMode.CHAT_COMPLETIONS -> chatPayload(config, messages, outputFormat)
+            ApiMode.RESPONSES -> responsesPayload(config, messages, outputFormat)
         }
         return LlmGenerationRequest(requestUrl = requestUrl, body = payload.toString())
     }
@@ -114,15 +126,40 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
     override fun parseStreamEvent(apiMode: ApiMode, data: String): LlmStreamEvent? =
         OpenAiResponseParser.parseStreamEvent(apiMode, data)
 
-    private fun chatPayload(config: ProviderRequestConfig, messages: List<RequestInputItem>): JSONObject = JSONObject()
+    private fun chatPayload(
+        config: ProviderRequestConfig,
+        messages: List<RequestInputItem>,
+        outputFormat: LlmStructuredOutputFormat?,
+    ): JSONObject = JSONObject()
         .put("model", config.model.trim())
         .put("messages", messages.toChatMessages())
         .put("temperature", config.temperature)
         .put("max_tokens", config.maxTokens)
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
+        .apply {
+            outputFormat?.let { format ->
+                // long: Chat Completions 的 strict/schema 位于 json_schema 内层；保持官方层级才能让兼容提供方在生成阶段拒绝越界字段。
+                put(
+                    "response_format",
+                    JSONObject()
+                        .put("type", "json_schema")
+                        .put(
+                            "json_schema",
+                            JSONObject()
+                                .put("name", format.name)
+                                .put("strict", true)
+                                .put("schema", JSONObject(format.schema.toString())),
+                        ),
+                )
+            }
+        }
 
-    private fun responsesPayload(config: ProviderRequestConfig, messages: List<RequestInputItem>): JSONObject = JSONObject()
+    private fun responsesPayload(
+        config: ProviderRequestConfig,
+        messages: List<RequestInputItem>,
+        outputFormat: LlmStructuredOutputFormat?,
+    ): JSONObject = JSONObject()
         .put("model", config.model.trim())
         // long: Responses 的消息数组必须保留每轮角色边界；拼成单一字符串会让 system、assistant 和 user 退化成不可审计的普通文本。
         .put("input", messages.toResponsesItems())
@@ -131,6 +168,20 @@ class OpenAiCompatibleAdapter : LlmProviderAdapter {
         .put("top_p", config.topP)
         .put("stream", config.streamingEnabled)
         .apply {
+            outputFormat?.let { format ->
+                // long: Responses 使用 text.format 而不是 Chat 的 response_format；两种模式共享 schema，但不能共享错误的 JSON 包装层级。
+                put(
+                    "text",
+                    JSONObject().put(
+                        "format",
+                        JSONObject()
+                            .put("type", "json_schema")
+                            .put("name", format.name)
+                            .put("strict", true)
+                            .put("schema", JSONObject(format.schema.toString())),
+                    ),
+                )
+            }
             if (config.reasoningSummaryEnabled) {
                 // long: Reasoning 摘要需要用户显式开启；只请求供应商可展示的 summary，不请求或暴露原始 reasoning_text。
                 put("reasoning", JSONObject().put("summary", "auto"))

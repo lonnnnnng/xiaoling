@@ -12,6 +12,39 @@ import org.junit.Test
 
 class OpenAiCompatibleAdapterTest {
     @Test
+    fun `chat completions structured output uses strict json schema`() {
+        val request = OpenAiCompatibleAdapter().prepareGenerationRequest(
+            config = requestConfig(ApiMode.CHAT_COMPLETIONS),
+            messages = listOf(RequestMessage(role = "user", content = "生成计划")),
+            outputFormat = structuredOutputFormat(),
+        )
+
+        val format = JSONObject(request.body)
+            .getJSONObject("response_format")
+            .getJSONObject("json_schema")
+        assertEquals("personal_task_plan", format.getString("name"))
+        assertTrue(format.getBoolean("strict"))
+        assertFalse(format.getJSONObject("schema").getBoolean("additionalProperties"))
+    }
+
+    @Test
+    fun `responses structured output uses text format contract`() {
+        val request = OpenAiCompatibleAdapter().prepareGenerationRequest(
+            config = requestConfig(ApiMode.RESPONSES),
+            messages = listOf(RequestMessage(role = "user", content = "生成计划")),
+            outputFormat = structuredOutputFormat(),
+        )
+
+        val format = JSONObject(request.body)
+            .getJSONObject("text")
+            .getJSONObject("format")
+        assertEquals("json_schema", format.getString("type"))
+        assertEquals("personal_task_plan", format.getString("name"))
+        assertTrue(format.getBoolean("strict"))
+        assertFalse(format.getJSONObject("schema").getBoolean("additionalProperties"))
+    }
+
+    @Test
     fun `responses request maps user document to input file data url after text`() {
         val attachment = DocumentAttachmentPolicy.create(
             fileName = "notes.md",
@@ -342,5 +375,14 @@ class OpenAiCompatibleAdapterTest {
         apiKey = "test-key",
         model = "test-model",
         apiMode = apiMode,
+    )
+
+    private fun structuredOutputFormat() = LlmStructuredOutputFormat(
+        name = "personal_task_plan",
+        schema = JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject().put("name", JSONObject().put("type", "string")))
+            .put("required", org.json.JSONArray().put("name"))
+            .put("additionalProperties", false),
     )
 }

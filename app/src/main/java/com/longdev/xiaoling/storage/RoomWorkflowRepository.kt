@@ -80,31 +80,33 @@ class RoomWorkflowRepository(
         return database.withTransaction {
             val dao = database.workflowDao()
             val now = System.currentTimeMillis()
-            val workflowId = "workflow-${UUID.randomUUID()}"
-            val workflow = WorkflowEntity(
-                id = workflowId,
-                name = normalizedName,
-                // long: legacy goal 继续保存首步目标，兼容旧备份与仍读取该列的版本；多步骤真实定义以 workflow_step_definitions 为准。
-                goal = normalizedSteps.first().goal,
-                enabled = true,
-                createdAt = now,
-                updatedAt = now,
-            )
-            val definitions = normalizedSteps.mapIndexed { index, step ->
-                val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
-                WorkflowStepDefinitionEntity(
-                    id = definitionId,
-                    workflowId = workflowId,
-                    sequence = index + 1,
-                    goal = step.goal,
-                    idempotencyKey = definitionId,
-                    createdAt = now,
-                    updatedAt = now,
-                )
-            }
+            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now)
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
             workflow.toRecord(definitions)
+        }
+    }
+
+    suspend fun createWorkflowAndManualRun(
+        name: String,
+        steps: List<WorkflowStepDefinitionInput>,
+        conversationId: String,
+    ): Pair<WorkflowRecord, WorkflowRunDetail> {
+        val normalizedName = name.trim()
+        val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
+        WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        require(conversationId.isNotBlank()) { "工作流会话不能为空" }
+        // long: 用户确认个人任务后，Workflow 定义、Run 与全部步骤快照必须一次提交；进程在任一点退出都不能留下只有计划、没有审计 Run 的半成品。
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val now = System.currentTimeMillis()
+            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now)
+            val (run, runSteps) = newManualRunRecords(workflow.id, definitions, conversationId, now)
+            dao.upsertWorkflow(workflow)
+            dao.upsertWorkflowStepDefinitions(definitions)
+            dao.upsertRun(run)
+            runSteps.forEach { step -> dao.upsertStep(step) }
+            workflow.toRecord(definitions) to WorkflowRunDetail(run.toRecord(), runSteps.map { it.toRecord() })
         }
     }
 
@@ -169,27 +171,66 @@ class RoomWorkflowRepository(
             val definitions = dao.getWorkflowStepDefinitions(workflowId)
             require(definitions.isNotEmpty()) { "工作流没有可执行步骤" }
             val now = System.currentTimeMillis()
-            val run = WorkflowRunEntity(
-                id = "workflow-run-${UUID.randomUUID()}",
-                workflowId = workflowId,
-                trigger = WorkflowTrigger.MANUAL.name,
-                scheduledTaskId = null,
-                plannedAt = null,
-                conversationId = conversationId,
-                agentRunId = null,
-                status = WorkflowRunStatus.QUEUED.name,
-                result = null,
-                errorMessage = null,
-                createdAt = now,
-                startedAt = null,
-                completedAt = null,
-                retryOfWorkflowRunId = null,
-            )
-            val runSteps = definitions.map { definition -> definition.toRunStep(run.id, now, background = false) }
+            val (run, runSteps) = newManualRunRecords(workflowId, definitions, conversationId, now)
             dao.upsertRun(run)
             runSteps.forEach { dao.upsertStep(it) }
             WorkflowRunDetail(run.toRecord(), runSteps.map { it.toRecord() })
         }
+    }
+
+    private fun newWorkflowRecords(
+        normalizedName: String,
+        normalizedSteps: List<WorkflowStepDefinitionInput>,
+        now: Long,
+    ): Pair<WorkflowEntity, List<WorkflowStepDefinitionEntity>> {
+        val workflowId = "workflow-${UUID.randomUUID()}"
+        val workflow = WorkflowEntity(
+            id = workflowId,
+            name = normalizedName,
+            // long: legacy goal 继续保存首步目标，兼容旧备份与仍读取该列的版本；多步骤真实定义以 workflow_step_definitions 为准。
+            goal = normalizedSteps.first().goal,
+            enabled = true,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val definitions = normalizedSteps.mapIndexed { index, step ->
+            val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
+            WorkflowStepDefinitionEntity(
+                id = definitionId,
+                workflowId = workflowId,
+                sequence = index + 1,
+                goal = step.goal,
+                idempotencyKey = definitionId,
+                createdAt = now,
+                updatedAt = now,
+            )
+        }
+        return workflow to definitions
+    }
+
+    private fun newManualRunRecords(
+        workflowId: String,
+        definitions: List<WorkflowStepDefinitionEntity>,
+        conversationId: String,
+        now: Long,
+    ): Pair<WorkflowRunEntity, List<WorkflowStepEntity>> {
+        val run = WorkflowRunEntity(
+            id = "workflow-run-${UUID.randomUUID()}",
+            workflowId = workflowId,
+            trigger = WorkflowTrigger.MANUAL.name,
+            scheduledTaskId = null,
+            plannedAt = null,
+            conversationId = conversationId,
+            agentRunId = null,
+            status = WorkflowRunStatus.QUEUED.name,
+            result = null,
+            errorMessage = null,
+            createdAt = now,
+            startedAt = null,
+            completedAt = null,
+            retryOfWorkflowRunId = null,
+        )
+        return run to definitions.map { definition -> definition.toRunStep(run.id, now, background = false) }
     }
 
     suspend fun listScheduledTasks(): List<ScheduledTaskRecord> {

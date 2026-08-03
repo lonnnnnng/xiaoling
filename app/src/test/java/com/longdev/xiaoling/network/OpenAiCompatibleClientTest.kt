@@ -13,6 +13,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.json.JSONObject
 import java.net.InetAddress
 import java.net.ServerSocket
 import kotlin.concurrent.thread
@@ -150,6 +151,33 @@ class OpenAiCompatibleClientTest {
         assertEquals(12L, result.usage?.inputTokens)
         assertEquals(3L, result.usage?.outputTokens)
         assertEquals(15L, result.usage?.totalTokens)
+    }
+
+    @Test
+    fun structuredMessageForcesNonStreamingRequestAndReturnsSchemaJsonText() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"choices":[{"message":{"content":"{\"name\":\"计划\"}"}}]}""",
+            ),
+        )
+
+        val result = OpenAiCompatibleClient().sendStructuredMessage(
+            config = config(userAgent = "Planner/1.0", model = "gpt-test").copy(streamingEnabled = true),
+            messages = listOf(RequestMessage(role = "user", content = "生成计划")),
+            outputFormat = LlmStructuredOutputFormat(
+                name = "personal_task_plan",
+                schema = JSONObject()
+                    .put("type", "object")
+                    .put("properties", JSONObject().put("name", JSONObject().put("type", "string")))
+                    .put("required", org.json.JSONArray().put("name"))
+                    .put("additionalProperties", false),
+            ),
+        )
+        val body = JSONObject(server.takeRequest().body.readUtf8())
+
+        assertEquals("{\"name\":\"计划\"}", result.responseText)
+        assertTrue(body.has("response_format"))
+        assertEquals(false, body.getBoolean("stream"))
     }
 
     @Test

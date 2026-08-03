@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-08-03（北京时间）
+验证日期：2026-08-04（北京时间）
 
 ## 当前验证基线
 
@@ -10,10 +10,22 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.14.apk`，大小 `3,301,938` 字节，SHA-256 `927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`；v2 签名、zipalign 和单一签名者校验通过，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
 - 本地完整门禁：Gradle `141/141` tasks（`4m 40s`），JVM `837/837`，0 失败、0 错误、0 跳过；Lint `0 error / 56 warnings / 0 information`；Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。
 - Redmi 完整门禁：只使用真机 `wsvwypiz7xwslvl7`，默认 `AndroidJUnitRunner` 为 `OK (271 tests)`、耗时 `121.242s`；显式 Provider/Embedding 参数缺失的联网探针按设计跳过，没有失败，也没有向 Pixel_9 或其他模拟器发送 ADB 命令。
-- 当前开发主线：第 126 阶段已在 `v0.1.14` 发布包之后把 `swipe` 加入前台手动 Workflow 生产默认集合；当前七项为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。后续第 127 至 132 阶段按自然语言个人任务与可确认计划、限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收推进；纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 阶段已经完成自然语言个人任务、严格结构化计划、确认前零执行和确认后原子创建/既有 Runtime 执行。后续第 128 至 132 阶段按限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收推进；纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。前台 Workflow 当前七项仍为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：最终 README/docs 重新打入 AndroidTest assets 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；黄金查询已从旧发布基线的 `222 tests` 同步为当前 `271 tests`，6/6 召回门槛没有放宽。
 - 发布阶段设备收尾：Redmi 原 Debug 包与正式证书不同，`install -r` 按预期返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；按项目授权卸载测试包与 Debug 主包后安装正式 Release，因此原应用数据已清除。发布验收当时冷启动 `610ms`，设备报告 `0.1.14 (15)`，`MainActivity` 为 top resumed、主进程存活，测试包不存在，Accessibility 为 `Enabled / Bound / Crashed services:{}`，`stay_on_while_plugged_in=15` 保持不变，清空后 crash buffer 为空。第 124 阶段安装同版本 Debug 包完成测试态真实滚动，第 125 阶段覆盖 Debug/AndroidTest 包完成答案级 Room/Compose 单项，第 126 阶段再覆盖当前 Debug/AndroidTest 包完成生产默认 Registry 真实链；当前设备状态见下节。
 - 远端资产：`xiaoling-v0.1.14.apk` 与 `xiaoling-v0.1.14.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,301,938` 字节、digest `sha256:927579c852ab272a08bd82412821ea7779fb57363f67598660e50a1017e2fc6a`，与本地产物完全一致。
+
+## 2026-08-04 第 127 阶段：自然语言个人任务与可确认计划
+
+- 范围：新增“对话 / 任务”模式、严格 1 至 8 步计划和确认弹层；旧 `/agent` 直接执行保持不变。计划使用当前 Agent Profile 冻结的模型与工具白名单，显示任务名、原目标、步骤、可能审批项及 Agent/模型/工具边界；不支持附件。API Key 只存在 ViewModel 私有执行快照，不进入 Compose UI state。
+- 阶段边界：本阶段计划请求只使用用户目标与 Profile 工具白名单，没有注入长期记忆或本地知识正文；该上下文接线仍属于第 130 阶段。第 127 阶段完成不等于完整第 127 至 132 阶段主链已经完成。
+- 零执行边界：用户确认前不创建消息、Workflow、Workflow Run、Agent Run、审批或工具调用。取消会把原目标恢复到输入框；切换或删除会话会取消在途生成或丢弃待确认计划，迟到结果不能跨会话出现。确认后 `createWorkflowAndManualRun()` 在 Room 单事务创建普通 Workflow、手动 Run、定义步骤和全部运行步骤，再复用既有 Workflow/Agent Runtime、审批、验证与 Ledger。
+- 结构化输出：Chat Completions 使用 `response_format={type:json_schema,json_schema:{strict:true,...}}`，Responses 使用 `text.format={type:json_schema,strict:true,...}`。客户端继续严格拒绝额外字段、Markdown fence、JSON 外文本、类型错误、空名称/步骤和 0 或 9 步等越界结果。
+- 聚焦验证：`PersonalTaskPlanPolicyTest 3/3`、`OpenAiCompatibleAdapterTest 15/15`、`OpenAiCompatibleClientTest 11/11`、`ConversationProjectionTest 5/5`，合计 `34/34`；`assembleDebug / assembleDebugAndroidTest` 成功。Compose 计划弹层和 Room 原子创建单项只在 Redmi `wsvwypiz7xwslvl7` 合并运行为 `OK (2 tests)`、耗时 `2.03s`。
+- Instrumentation 兼容修复：首次运行因传递依赖仍为 Espresso `3.5.0`，在当前 Android 上反射 `android.hardware.input.InputManager.getInstance()` 抛出 `NoSuchMethodException`。依据 AndroidX 稳定版本显式升级 `androidx.test.espresso:espresso-core` 至 `3.7.0` 后同两项通过；没有通过降低 Android 版本或改用模拟器规避。
+- 真实模型闭环：默认 Agent `grok-4.20-0309` 生成 `Read Current Time` 单步计划，步骤为 `Determine the current system time`。确认后创建 Workflow `workflow-baa42c6e-6723-4739-aa27-ec6ceb0b67ee` 和首个 Run `workflow-run-b84d6b20-a7e9-4ad6-bc89-2a7ffc406b22`；该 Run 的 Runtime 模型规划在 `60000ms` 超时，保持 `FAILED`，关联 Agent Run 保持 `BUDGET_EXHAUSTED`。随后从同一 Workflow 手动运行新 Run `workflow-run-96d20f03-f5f2-4598-8d14-a18fbb7e2908`，独立完成 `app.current_time`、参数校验、工具执行、后置验证、完成规划和总结，结果为 `2026-08-04 00:47:10 · Asia/Shanghai`。Room 快照确认两个 Run 分别保留失败和完成终态，重试未覆盖旧事实。
+- 文档语料：七份长期文档重新打入 AndroidTest APK 后，仅向 Redmi 覆盖安装测试包并运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`；首轮为 `OK (1 test)`、耗时 `2.453s`。写回首轮证据后的最终资产已以相同 `am instrument` 单项复验通过，随后只卸载测试包，主应用和私有数据保留。
+- 验证边界：本阶段没有运行完整 JVM、Lint、Release 或默认完整 instrumentation，没有启动或向 Pixel/模拟器发送 ADB 命令；未新增 Room schema、第二套 Runtime、后台设备控制、任意 App 或新工具权限。
 
 ## 2026-08-03 第 127 至 132 阶段主线规划调整
 

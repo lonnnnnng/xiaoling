@@ -47,6 +47,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -335,6 +338,7 @@ internal fun ConversationPage(
                 onReasoningSummaryChanged = actions::updateReasoningSummaryEnabled,
                 onAgentMemoryRecallChanged = actions::updateAgentMemoryRecallEnabled,
                 onAgentProfileSelected = actions::selectAgentProfile,
+                onPersonalTaskModeChanged = actions::updatePersonalTaskMode,
                 onPromptChange = actions::updatePrompt,
                 onAttachImage = actions::requestImageAttachment,
                 onAttachDocument = actions::requestDocumentAttachment,
@@ -507,6 +511,7 @@ private fun MessageInputBar(
     onReasoningSummaryChanged: (Boolean) -> Unit,
     onAgentMemoryRecallChanged: (Boolean) -> Unit,
     onAgentProfileSelected: (String) -> Unit,
+    onPersonalTaskModeChanged: (Boolean) -> Unit,
     onPromptChange: (String) -> Unit,
     onAttachImage: () -> Unit,
     onAttachDocument: () -> Unit,
@@ -527,6 +532,12 @@ private fun MessageInputBar(
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            PersonalTaskModeSelector(
+                selected = state.personalTaskMode,
+                enabled = !state.sendingMessage && !state.awaitingPersonalTaskPlanConfirmation,
+                onSelected = onPersonalTaskModeChanged,
+                modifier = Modifier.padding(start = 10.dp, top = 8.dp, end = 10.dp),
+            )
             state.pendingSharedDraft?.let { payload ->
                 SharedDraftPendingNotice(
                     payload = payload,
@@ -573,7 +584,7 @@ private fun MessageInputBar(
                         Box(modifier = Modifier.fillMaxWidth()) {
                             if (state.prompt.isBlank()) {
                                 Text(
-                                    text = "输入消息",
+                                    text = if (state.personalTaskMode) "描述要完成的任务" else "输入消息",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -655,6 +666,32 @@ private fun MessageInputBar(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PersonalTaskModeSelector(
+    selected: Boolean,
+    enabled: Boolean,
+    onSelected: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options = listOf(false to "对话", true to "任务")
+    SingleChoiceSegmentedButtonRow(modifier = modifier.widthIn(max = 176.dp)) {
+        options.forEachIndexed { index, option ->
+            SegmentedButton(
+                selected = selected == option.first,
+                onClick = { onSelected(option.first) },
+                enabled = enabled,
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                label = {
+                    Text(
+                        text = option.second,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                },
+            )
         }
     }
 }

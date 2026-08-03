@@ -20,6 +20,7 @@ import com.longdev.xiaoling.agent.AgentMessagePartPolicy
 import com.longdev.xiaoling.agent.AgentProfilePolicy
 import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
+import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
@@ -172,6 +173,24 @@ private fun ToolRisk.toUiLabel(): String {
     }
 }
 
+data class PendingPersonalTaskPlanUiState(
+    val id: String,
+    val conversationId: String,
+    val sourceGoal: String,
+    val name: String,
+    val steps: List<String>,
+    val agentName: String,
+    val model: String,
+    val allowedToolNames: List<String>,
+    val approvalToolNames: List<String>,
+    val createdAt: Long,
+)
+
+private data class PendingPersonalTaskExecution(
+    val preview: PendingPersonalTaskPlanUiState,
+    val runtimeSelection: AgentRuntimeSelection,
+)
+
 internal fun List<ChatMessage>.withRecoveredAgentUserMessage(run: AgentRunRecord): List<ChatMessage> {
     if (any { it.id == run.userMessageId }) return this
     return (this + ChatMessage(
@@ -197,6 +216,8 @@ data class XiaoLingUiState(
     val enabledModels: List<String> = emptyList(),
     val loadingModels: Boolean = false,
     val sendingMessage: Boolean = false,
+    val personalTaskMode: Boolean = false,
+    val pendingPersonalTaskPlan: PendingPersonalTaskPlanUiState? = null,
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
     val reasoningSummaryEnabled: Boolean = false,
@@ -664,6 +685,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentConversationRuntimeStateStore = AgentConversationRuntimeStateStore()
     private val agentLaunchPreflightCoordinator = AgentLaunchPreflightCoordinator()
     private var sendMessageJob: Job? = null
+    private var personalTaskPlanningRequestId: String? = null
+    private var pendingPersonalTaskExecution: PendingPersonalTaskExecution? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
@@ -829,6 +852,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun updatePrompt(value: String) {
         uiState = uiState.copy(prompt = value, sharedDraftImported = false, result = null)
+    }
+
+    fun updatePersonalTaskMode(enabled: Boolean) {
+        if (uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null) return
+        uiState = uiState.copy(personalTaskMode = enabled, result = null)
     }
 
     internal fun acceptSharedDraft(result: SharedDraftImport) {
@@ -3093,6 +3121,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
+        if (personalTaskPlanningRequestId != null) {
+            // long: 计划响应只属于发起它的会话；切换或删除会话时立即撤销网络请求，迟到结果不得在新会话弹出确认框。
+            personalTaskPlanningRequestId = null
+            sendMessageJob?.cancel()
+            sendMessageJob = null
+            uiState = uiState.copy(sendingMessage = false)
+        }
+        if (uiState.pendingPersonalTaskPlan != null) {
+            pendingPersonalTaskExecution = null
+            uiState = uiState.copy(pendingPersonalTaskPlan = null)
+        }
         when (event) {
             is ConversationSelectionEvent.DeletionStarted -> {
                 agentConversationRuntimeStateStore.clearConversation(event.conversationId)
@@ -3360,6 +3399,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             image = uiState.pendingImage,
             document = uiState.pendingDocument,
         )
+        if (uiState.personalTaskMode) {
+            preparePersonalTaskPlan(userMessage, attachments)
+            return
+        }
         if (AgentCommand.matches(userMessage)) {
             val runtimeSelection = selectedAgentLaunchPreflight()?.runtimeSelection ?: return
             attachments.agentRejectionReason(runtimeSelection.config.apiMode)?.let { reason ->
@@ -3439,6 +3482,203 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
             } finally {
                 sendMessageJob = null
+            }
+        }
+    }
+
+    private fun preparePersonalTaskPlan(
+        userMessage: String,
+        attachments: MessageAttachmentSelection,
+    ) {
+        if (attachments.image != null || attachments.document != null) {
+            showValidation("个人任务计划暂不支持附件，请先移除附件")
+            return
+        }
+        val preflight = selectedAgentLaunchPreflight(
+            AgentLaunchConversationRequirement.Existing(
+                conversationId = uiState.selectedConversationId,
+                missingMessage = "请先打开一个会话",
+            ),
+        ) ?: return
+        val conversationId = checkNotNull(preflight.conversationId)
+        val runtimeSelection = preflight.runtimeSelection
+        val goal = if (AgentCommand.matches(userMessage)) AgentCommand.goal(userMessage) else userMessage.trim()
+        val requestId = "personal-task-plan-${UUID.randomUUID()}"
+        val allowedToolNames = runtimeSelection.profile.allowedToolNames.distinct().sorted()
+        val approvalToolNames = uiState.registeredAgentTools
+            .filter { tool -> tool.name in allowedToolNames && tool.risk != ToolRisk.SAFE }
+            .map(ToolDefinition::name)
+            .distinct()
+            .sorted()
+        personalTaskPlanningRequestId = requestId
+        pendingPersonalTaskExecution = null
+        uiState = uiState.copy(
+            sendingMessage = true,
+            pendingPersonalTaskPlan = null,
+            result = null,
+        )
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val response = client.sendStructuredMessage(
+                    config = runtimeSelection.config.copy(maxTokens = minOf(runtimeSelection.config.maxTokens, 2_000)),
+                    messages = PersonalTaskPlanPolicy.requestMessages(goal, allowedToolNames),
+                    outputFormat = PersonalTaskPlanPolicy.outputFormat,
+                )
+                val plan = PersonalTaskPlanPolicy.parse(response.responseText)
+                if (
+                    personalTaskPlanningRequestId != requestId ||
+                    uiState.selectedConversationId != conversationId
+                ) {
+                    return@launch
+                }
+                val preview = PendingPersonalTaskPlanUiState(
+                    id = requestId,
+                    conversationId = conversationId,
+                    sourceGoal = goal,
+                    name = plan.name,
+                    steps = plan.steps.map { step -> step.goal },
+                    agentName = runtimeSelection.profile.name,
+                    model = runtimeSelection.config.model,
+                    allowedToolNames = allowedToolNames,
+                    approvalToolNames = approvalToolNames,
+                    createdAt = System.currentTimeMillis(),
+                )
+                // long: API Key 只留在私有执行快照；Compose 状态只接收可展示字段，确认弹层和状态保存都不能意外打印凭据。
+                pendingPersonalTaskExecution = PendingPersonalTaskExecution(
+                    preview = preview,
+                    runtimeSelection = runtimeSelection,
+                )
+                uiState = uiState.copy(
+                    sendingMessage = false,
+                    prompt = "",
+                    pendingPersonalTaskPlan = preview,
+                    result = null,
+                )
+            } catch (_: CancellationException) {
+                if (personalTaskPlanningRequestId == requestId) {
+                    uiState = uiState.copy(sendingMessage = false)
+                }
+            } catch (error: Throwable) {
+                if (personalTaskPlanningRequestId == requestId) {
+                    showFailure(error, sendingMessage = false)
+                }
+            } finally {
+                if (personalTaskPlanningRequestId == requestId) {
+                    personalTaskPlanningRequestId = null
+                    sendMessageJob = null
+                }
+            }
+        }
+    }
+
+    fun confirmPendingPersonalTaskPlan() {
+        if (uiState.sendingMessage) return
+        val pending = pendingPersonalTaskExecution
+        val visible = uiState.pendingPersonalTaskPlan
+        if (pending == null || visible == null || pending.preview.id != visible.id) {
+            pendingPersonalTaskExecution = null
+            uiState = uiState.copy(pendingPersonalTaskPlan = null)
+            showValidation("任务计划已失效，请重新生成")
+            return
+        }
+        if (uiState.selectedConversationId != visible.conversationId) {
+            cancelPendingPersonalTaskPlan()
+            showValidation("会话已切换，请在当前会话重新生成任务计划")
+            return
+        }
+        pendingPersonalTaskExecution = null
+        uiState = uiState.copy(pendingPersonalTaskPlan = null)
+        runConfirmedPersonalTask(pending)
+    }
+
+    fun cancelPendingPersonalTaskPlan() {
+        val goal = uiState.pendingPersonalTaskPlan?.sourceGoal
+        pendingPersonalTaskExecution = null
+        uiState = uiState.copy(
+            pendingPersonalTaskPlan = null,
+            prompt = goal ?: uiState.prompt,
+            result = null,
+        )
+    }
+
+    private fun runConfirmedPersonalTask(pending: PendingPersonalTaskExecution) {
+        val preview = pending.preview
+        val conversationId = preview.conversationId
+        uiState = uiState.copy(
+            runningWorkflowId = preview.id,
+            workflowError = null,
+            workflowNavigationConversationId = conversationId,
+            sendingMessage = true,
+        )
+        clearAgentStateForConversation(conversationId)
+        sendMessageJob = viewModelScope.launch {
+            var detail: WorkflowRunDetail? = null
+            try {
+                val created = withContext(Dispatchers.IO) {
+                    workflowRepository.createWorkflowAndManualRun(
+                        name = preview.name,
+                        steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                        conversationId = conversationId,
+                    )
+                }
+                val workflow = created.first
+                detail = created.second
+                uiState = uiState.copy(
+                    runningWorkflowId = workflow.id,
+                    workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
+                    workflowRuns = listOf(detail) + uiState.workflowRuns,
+                )
+                // long: 确认前不写入会话或执行账本；用户确认后才把原始自然语言目标作为任务入口事实保存，后续每一步继续沿用既有 Workflow 消息和 Agent Run。
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(role = "user", text = preview.sourceGoal, createdAt = System.currentTimeMillis()),
+                )
+                saveConversationSelection()
+                executeForegroundWorkflow(detail, pending.runtimeSelection, conversationId)
+            } catch (error: CancellationException) {
+                detail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.CANCELLED,
+                            errorMessage = "用户停止个人任务",
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(role = "error", text = "已停止个人任务", createdAt = System.currentTimeMillis()),
+                )
+            } catch (error: Throwable) {
+                detail?.let { current ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        workflowRepository.completeRun(
+                            current.run.id,
+                            WorkflowRunStatus.FAILED,
+                            errorMessage = error.message ?: "个人任务执行失败",
+                        )
+                    }
+                }
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(
+                        role = "error",
+                        text = "个人任务失败\n${error.message ?: "未知错误"}",
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+                uiState = uiState.copy(
+                    workflowError = error.message ?: "个人任务执行失败",
+                    prompt = if (detail == null) preview.sourceGoal else uiState.prompt,
+                )
+            } finally {
+                uiState = uiState.copy(
+                    runningWorkflowId = null,
+                    sendingMessage = false,
+                )
+                sendMessageJob = null
+                refreshWorkflows()
+                saveConversationSelection()
             }
         }
     }
