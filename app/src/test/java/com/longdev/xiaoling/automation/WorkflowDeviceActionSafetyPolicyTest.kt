@@ -188,7 +188,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         val base = validExecutionEvidence()
         val identity = base.identity.copy(
             toolName = "device.open_app",
-            arguments = mapOf("package_name" to "com.android.calculator2"),
+            arguments = mapOf("package_name" to "com.google.android.apps.weather"),
         )
         val approval = requireNotNull(base.approval).copy(
             toolName = identity.toolName,
@@ -196,8 +196,8 @@ class WorkflowDeviceActionSafetyPolicyTest {
         )
         val execution = base.copy(
             identity = identity,
-            targetAppPackage = "com.android.calculator2",
-            userIntent = "打开系统计算器",
+            targetAppPackage = "com.google.android.apps.weather",
+            userIntent = "打开 Google 天气",
             approval = approval,
             liveReferenceMatched = false,
         )
@@ -205,7 +205,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         listOf(
             emptyMap(),
             mapOf("package_name" to "com.example.unlisted"),
-            mapOf("package_name" to "com.android.calculator2", "extra" to "unexpected"),
+            mapOf("package_name" to "com.google.android.apps.weather", "extra" to "unexpected"),
         ).forEach { invalidArguments ->
             assertDenied(
                 WorkflowDeviceActionSafetyFailure.ACTION_ARGUMENTS_INVALID,
@@ -236,9 +236,9 @@ class WorkflowDeviceActionSafetyPolicyTest {
 
         val completion = validCompletionEvidence(allowed.authorization).copy(
             identity = identity,
-            targetAppPackage = "com.android.calculator2",
+            targetAppPackage = "com.google.android.apps.weather",
             resultToolName = identity.toolName,
-            afterPackageName = "com.android.calculator2",
+            afterPackageName = "com.google.android.apps.weather",
         )
         assertEquals(
             WorkflowDeviceActionSafetyDecision.Allowed(allowed.authorization),

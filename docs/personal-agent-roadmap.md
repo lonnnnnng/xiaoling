@@ -28,6 +28,14 @@
 - 模板不携带包名授权，不扩大工具白名单、审批或目标级验证；最终计划继续由 Profile 边界、严格 Schema 和本地策略共同校验。
 - 聚焦验证通过：相关 JVM、Debug/AndroidTest APK，以及仅 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.751s`）；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。按快速迭代分级不运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
+## 第 136 阶段：首个 App 兼容扩展（完成）
+
+- 候选评审后只新增 Google 天气 `com.google.android.apps.weather`。Chrome 会把节点观察与动作面扩到任意网页，联系人、短信和文件直接涉及高敏个人数据，日历容易与后置系统日历集成混淆，因此本阶段全部拒绝，不开放任意 App。
+- 天气包进入精确 Manifest queries、`DeviceActionPolicy` 和 `device.open_app.package_name` enum；不申请 `QUERY_ALL_PACKAGES`。任务模式新增“查看天气”，仍只回填目标，不自动发送、创建 Workflow/Run 或绕过计划确认。
+- 天气复用原生产 `snapshot -> open_app` 的 Room Approval、Accessibility overlay、Tool Ledger、Executor/typed 验证、答案级本地 Decision 和动作后包名核对；独立场景不能复用计算器审批。Redmi 最终为 `APPROVED / executorVerified=true / PASSED / afterPackage=com.google.android.apps.weather / answerDecision=VERIFIED`，且不产生可复用节点引用。
+- 天气页面可能展示用户当前选择的粗粒度位置文本，只允许在用户主动发起查看天气时作为前台观察内容处理；不扩到后台采集、新的持久化旁路或跨任务节点引用。
+- 聚焦 JVM `64/64`、Debug/AndroidTest APK、Redmi 包可见性与模板两个定向单项通过；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.409s / 2.606s`），当前不再改写的文本用于最终冻结复验。按快速迭代分级不运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
 ## 第 130 阶段：记忆、知识与应用内提醒（完成）
 
 - 已完成计划上下文纵向切片：当前 Profile 只有在允许 `memory.search` 且记忆总开关、单次召回开关均开启时读取长期记忆；只有允许 `knowledge.search` 时读取本地知识。每类最多 3 条、每条最多 800 字符，检索异常阻止生成，无命中继续普通计划。
@@ -36,11 +44,11 @@
 - 定时计划在模型输出和本地解析两层禁止目标 App、`device.*` 完成标准和设备最终应用；需要审批的其他动作不能在后台自动获批，只能进入既有待处理通知。系统日历、精确闹钟、Foreground Service 和第二套 Runtime 未引入。
 - 最终验证为 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK、Redmi Room/Compose 两个定向单项和真实模型 `ONCE / delay=30`。没有运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
-这六个阶段必须各自产生用户可直接体验的新能力，不再把纯重构、单层 evidence、Shadow 扩样或文档整理单独作为主线阶段。截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型继续后置；它们不作为完整前台个人 Agent MVP 的前置条件。
+这些阶段必须各自产生用户可直接体验的新能力，不再把纯重构、单层 evidence、Shadow 扩样或文档整理单独作为主线阶段。截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型继续后置；它们不作为完整前台个人 Agent MVP 的前置条件。
 
 ## v0.1.15 发布基线
 
-`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 132 阶段完整里程碑和第 133 阶段计划交互首轮打磨，开发数据库保持 Room v35，尚未形成新的 Release。
+`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 132 阶段完整里程碑和第 133 至 136 阶段真实使用打磨，开发数据库保持 Room v35，尚未形成新的 Release。
 
 ## 第 131 阶段：任务级恢复与关联重试（完成）
 

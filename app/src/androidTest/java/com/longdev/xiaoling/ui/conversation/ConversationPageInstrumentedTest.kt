@@ -94,10 +94,10 @@ class ConversationPageInstrumentedTest {
         }
 
         composeRule.onNodeWithTag("personal-task-template-menu").performClick()
-        composeRule.onNodeWithTag("personal-task-template-settings").performClick()
+        composeRule.onNodeWithTag("personal-task-template-weather").performClick()
 
         composeRule.runOnIdle {
-            assertEquals("打开系统设置并搜索 Wi-Fi", actions.lastPrompt)
+            assertEquals("打开天气并查看当前天气", actions.lastPrompt)
             assertEquals(0, actions.sendCount)
         }
     }

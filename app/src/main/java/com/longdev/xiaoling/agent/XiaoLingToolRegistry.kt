@@ -302,7 +302,7 @@ class XiaoLingToolRegistry(
             inputSchema = listOf(
                 ToolInputField(
                     name = "package_name",
-                    description = "目标应用包名，仅允许小灵、系统计算器、时钟和系统设置。",
+                    description = "目标应用包名，仅允许小灵、系统计算器、时钟、系统设置和 Google 天气。",
                     required = true,
                     enumValues = DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES,
                 ),

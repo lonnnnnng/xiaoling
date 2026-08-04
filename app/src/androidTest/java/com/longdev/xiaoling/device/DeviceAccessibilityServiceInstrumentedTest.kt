@@ -41,7 +41,7 @@ class DeviceAccessibilityServiceInstrumentedTest {
     }
 
     @Test
-    fun manifestQueriesExposeOnlyInitialActionAllowlistLaunchers() {
+    fun manifestQueriesExposeOnlyApprovedActionAllowlistLaunchers() {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         assertTrue(context.packageManager.getLaunchIntentForPackage("com.longdev.xiaoling") != null)
@@ -55,6 +55,7 @@ class DeviceAccessibilityServiceInstrumentedTest {
                 .any { context.packageManager.getLaunchIntentForPackage(it) != null },
         )
         assertTrue(context.packageManager.getLaunchIntentForPackage("com.android.settings") != null)
+        assertTrue(context.packageManager.getLaunchIntentForPackage("com.google.android.apps.weather") != null)
     }
 
 }

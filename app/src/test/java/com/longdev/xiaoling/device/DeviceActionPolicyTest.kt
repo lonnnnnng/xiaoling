@@ -9,13 +9,14 @@ class DeviceActionPolicyTest {
     private val policy = DeviceActionPolicy()
 
     @Test
-    fun allowlistContainsOnlyInitialValidatedApps() {
+    fun allowlistContainsOnlyExplicitlyValidatedApps() {
         assertTrue(policy.isAppAllowed("com.longdev.xiaoling"))
         assertTrue(policy.isAppAllowed("com.android.calculator2"))
         assertTrue(policy.isAppAllowed("com.google.android.calculator"))
         assertTrue(policy.isAppAllowed("com.android.deskclock"))
         assertTrue(policy.isAppAllowed("com.google.android.deskclock"))
         assertTrue(policy.isAppAllowed("com.android.settings"))
+        assertTrue(policy.isAppAllowed("com.google.android.apps.weather"))
         assertFalse(policy.isAppAllowed("com.example.untrusted"))
     }
 

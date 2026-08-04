@@ -23,4 +23,9 @@ internal val personalTaskTemplates = listOf(
         title = "打开时钟",
         goal = "打开时钟并查看当前界面",
     ),
+    PersonalTaskTemplate(
+        id = "weather",
+        title = "查看天气",
+        goal = "打开天气并查看当前天气",
+    ),
 )

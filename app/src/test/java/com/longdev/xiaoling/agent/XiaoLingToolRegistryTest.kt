@@ -341,7 +341,13 @@ class XiaoLingToolRegistryTest {
         )
         assertTrue(deviceActions.all { !it.permissionPolicy.supportsBackground })
         assertTrue(deviceActions.all { it.verificationPolicy == ToolVerificationPolicy.EXECUTOR_VERIFIED })
-        assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.open_app" }.risk)
+        val openApp = deviceActions.single { it.name == "device.open_app" }
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, openApp.risk)
+        val packageNameField = openApp.inputSchema.single { it.name == "package_name" }
+        assertTrue(packageNameField.description.contains("Google 天气"))
+        assertTrue(
+            packageNameField.enumValues.contains("com.google.android.apps.weather"),
+        )
         assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.tap_ref" }.risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, deviceActions.single { it.name == "device.type_text" }.risk)
         assertEquals(ToolRisk.SAFE, deviceActions.single { it.name == "device.back" }.risk)

@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-08-04（北京时间）
+验证日期：2026-08-05（北京时间）
 
 ## 当前验证基线
 
@@ -10,10 +10,21 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 134 阶段继续真实使用打磨，已完成计划/任务/提醒交互和计划生成遥测可见性。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 136 阶段继续真实使用打磨，已完成计划交互、计划生成遥测、常用模板和首个 Google 天气兼容扩展。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：第 133 阶段更新后的长期文档已重新打包，仅在 Redmi 运行 corpus 单项；首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
+
+## 2026-08-05 第 136 阶段：首个 Google 天气 App 兼容扩展
+
+- 候选与边界：本阶段只新增 Google 天气 `com.google.android.apps.weather`。Chrome 会把观察和动作面扩大到任意网页，联系人、短信、文件涉及高敏个人数据，日历容易与后置系统日历集成混淆，因此全部继续关闭；没有申请 `QUERY_ALL_PACKAGES`，不承诺任意 App。
+- 实现：天气包加入 Manifest queries、`DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES` 和 `device.open_app.package_name` enum；任务模式增加“查看天气”，但仍只回填“打开天气并查看当前天气”，不自动发送、不请求模型、不创建 Workflow/Run。Debug 真实链保留原计算器入口，并把 open_app tracer 参数化为独立场景和目标包，天气不走旁路。
+- 隐私：天气页真实 snapshot 可能包含用户当前选择的粗粒度位置文本；该内容只允许在用户主动发起查看天气时作为前台观察处理，不新增后台采集、跨任务节点引用或额外持久化。`open_app` 的答案级文案明确不产生可复用节点引用。
+- 聚焦 JVM：`DeviceActionPolicyTest / PersonalTaskPlanPolicyTest / WorkflowDeviceActionSafetyPolicyTest / XiaoLingToolRegistryTest` 合计 `64/64` 通过。首次编译因 Kotlin 字符串插值与中文相邻造成 unresolved reference，修正为显式 `${targetLabel}`；首轮 Registry 断言检查层级错误，改为检查 `package_name` 字段描述后全部通过。
+- APK 与 Redmi 单项：`:app:assembleDebug / :app:assembleDebugAndroidTest` 成功。仅 Redmi `wsvwypiz7xwslvl7` 运行包可见性和天气模板单项，分别 `OK (1 test)`（`0.039s`）与 `OK (1 test)`（`2.734s`）；模板验证目标已回填且发送次数为 `0`。
+- 文档语料：六份长期文档同步第 136 阶段后重新打包 AndroidTest assets，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮/证据写回后复验均为 `OK (1 test)`（`2.409s / 2.606s`）；当前不再改写的文本用于最终冻结复验。
+- Redmi 真实链：Accessibility 恢复并稳定绑定后，从小灵 Probe snapshot 出发显示独立天气审批。前两次观察浮层时调用 `uiautomator dump`，其 `UiAutomation` 中断 Accessibility，按设计得到 `SERVICE_DISCONNECTED`；第三次人工等待超过 30 秒 snapshot TTL，按设计拒绝“device.snapshot 已过期”。最终改用 `dumpsys window` 检测自有 overlay 并立即点击批准，日志为 `workflow-weather-open-app-e2e success=true action=open_app verified=true approval=APPROVED executorVerified=true verification=PASSED beforePackage=com.longdev.xiaoling afterPackage=com.google.android.apps.weather answerDecision=VERIFIED`。
+- 收尾与验证边界：真实链结束后小灵 `MainActivity` 恢复前台，crash buffer 无本应用异常，测试包已卸载。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；在线模拟器未接收安装、instrumentation、UI 或功能验收命令。
 
 ## 2026-08-04 第 134 阶段：计划生成成本可见性
 

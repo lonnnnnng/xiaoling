@@ -34,6 +34,23 @@ class PersonalTaskPlanPolicyTest {
     }
 
     @Test
+    fun `weather task freezes the explicitly allowed app boundary`() {
+        val plan = PersonalTaskPlanPolicy.parse(
+            """{"name":"查看天气","target_app_package":"com.google.android.apps.weather","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app","device.snapshot"],"expected_final_package":"com.google.android.apps.weather"},"steps":[{"goal":"打开天气"},{"goal":"读取当前天气"}]}""",
+            allowedToolNames = setOf("device.open_app", "device.snapshot"),
+        )
+
+        assertEquals("com.google.android.apps.weather", plan.targetAppPackage)
+        assertEquals("com.google.android.apps.weather", plan.verification.expectedFinalPackageName)
+        assertTrue(
+            PersonalTaskPlanPolicy.requestMessages(
+                goal = "查看当前天气",
+                allowedToolNames = listOf("device.open_app", "device.snapshot"),
+            ).last().content.contains("com.google.android.apps.weather"),
+        )
+    }
+
+    @Test
     fun `strict plan parses one time daily and weekly reminder schedules`() {
         val schedules = listOf(
             """{"type":"ONCE","delay_minutes":30,"hour":0,"minute":0,"day_of_week":0}""" to

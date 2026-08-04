@@ -37,6 +37,7 @@ class DeviceActionPolicy(
             "com.android.deskclock",
             "com.google.android.deskclock",
             "com.android.settings",
+            "com.google.android.apps.weather",
         )
 
         private val SENSITIVE_MARKERS = setOf(
