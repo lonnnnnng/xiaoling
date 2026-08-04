@@ -35,7 +35,10 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         approvalToolNames = listOf("notes.create"),
                         createdAt = 1L,
                         memoryContextCount = 2,
+                        memoryContextOmittedCount = 1,
                         knowledgeContextCount = 3,
+                        knowledgeContextOmittedCount = 2,
+                        contextBytes = 6_144,
                         generationMetrics = PersonalTaskPlanGenerationMetricsUiState(
                             modelCallCount = 1,
                             latencyMs = 4_000L,
@@ -64,7 +67,15 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("完成标准：app.current_time -> notes.create", substring = true).assertExists()
         composeRule.onNodeWithText("完成时应用：com.android.settings", substring = true).assertExists()
         composeRule.onNodeWithText("可能触发审批：notes.create", substring = true).assertExists()
-        composeRule.onNodeWithText("计划上下文：长期记忆 2 条 · 本地知识 3 个片段").assertExists()
+        composeRule.onNodeWithTag("personal-task-plan-context-usage").assertExists()
+        composeRule.onNodeWithText(
+            "计划上下文：长期记忆 2 条 · 本地知识 3 个片段 · 占用 6.0KB",
+            substring = true,
+        ).assertExists()
+        composeRule.onNodeWithText(
+            "上下文精简：省略长期记忆 1 条 · 本地知识 2 个片段",
+            substring = true,
+        ).assertExists()
         composeRule.onNodeWithText("计划生成：模型 1 次 · 耗时 4.00s · TTFB 320ms · Prompt 6.0KB", substring = true).assertExists()
         composeRule.onNodeWithText("工具边界：app.current_time、notes.create", substring = true).assertExists()
         composeRule.onNodeWithTag("personal-task-plan-confirm").performClick()

@@ -1,11 +1,11 @@
 # 当前实现说明
 
-## 第 127 至 135 阶段实现顺序（主线完成，体验打磨已开始）
+## 第 127 至 137 阶段实现顺序（主线完成，体验打磨继续）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
 - 第 130 阶段首个切片已在 `preparePersonalTaskPlan()` 调用结构化计划模型前接入 `PersonalTaskPlanContextPreparer`。它只为已获准来源并行调用现有 `RoomAgentMemoryStore.search()` 和 `RoomKnowledgeDocumentStore.search()`，随后由 `PersonalTaskPlanContextPolicy` 统一去空、去重并裁剪为每类 3 条、单条 800 字符。
-- `PersonalTaskPlanPolicy.requestMessages()` 继续保持 system/user 两条消息形状，在 system 边界中把记忆和知识冻结为不可信只读事实，在 user 内容中按来源分区。确认 UI 只接收 `memoryContextCount / knowledgeContextCount`，不接收上下文正文、retrieval ID 或 API Key。
+- `PersonalTaskPlanPolicy.prepareRequest()` 继续保持 system/user 两条消息形状，在 system 边界中把记忆和知识冻结为不可信只读事实，在 user 内容中按来源分区。第 137 阶段让消息和 `PersonalTaskPlanContextUsage` 同源返回，确认 UI 只接收使用/省略计数与上下文字节，不接收上下文正文、retrieval ID 或 API Key。
 - 上下文读取与模型调用仍属于同一个可取消的计划 Job；检索异常沿原失败路径停止计划，切换会话后的迟到结果继续被 request ID 和 conversation ID 拒绝。无命中时使用空上下文继续生成。
 - `PersonalTaskPlan` 的严格 Schema 现要求 `schedule`，未明确要求提醒时固定为 `IMMEDIATE`；`ONCE` 只保存 1 至 10080 分钟延迟，`DAILY / WEEKLY` 保存时分、周几并使用系统时区。解析器只接受真正的 JSON 整数，数字字符串、小数、未归零字段和互相矛盾的模型输出直接拒绝。
 - `createWorkflowAndOneTimeScheduledTask()` 与 `createWorkflowAndRecurringSchedule()` 在单事务内写入定义和首个调度实例，但不创建 Manual Run；Worker 到点 claim 时才建立 Scheduled Run。ViewModel 只有在用户确认后才调用这两个入口、WorkManager enqueue 和 attachWorkRequest，入队失败继续复用 `failScheduling()`。
@@ -24,6 +24,9 @@
 - `AgentE2eDebugReceiver` 保留原计算器入口，并把 `runWorkflowOpenApp()` / `WorkflowOpenAppE2eLlm` 参数化为场景 ID、目标文案和目标包。天气使用独立 `workflow_weather_open_app`，但复用同一 snapshot、Room Approval、Accessibility overlay、Tool Ledger、Executor/typed verification、答案级 Decision 和后置包名验证链，不建立宽松旁路。
 - Redmi 真实天气链最终为 `APPROVED / executorVerified=true / PASSED / afterPackage=com.google.android.apps.weather / answerDecision=VERIFIED`，并由本地答案策略确认 `open_app` 不产生可复用节点引用。天气页面可能出现用户当前选择的粗粒度位置文本；这只属于用户主动发起的前台观察内容，不扩展为后台采集或新的持久化字段。
 - 第 136 阶段聚焦 JVM `64/64`、Debug/AndroidTest APK 和 Redmi 包可见性/模板两个定向单项通过；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.409s / 2.606s`）。审批验收期间不能使用 `uiautomator dump`：它会启动 `UiAutomation` 并中断被测 Accessibility 服务；本轮改用 `dumpsys window` 检测自有 overlay 后立即点击，避免 30 秒 snapshot TTL 过期。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+- 第 137 阶段在既有每来源 3 条、单条 800 字符限制后增加 `MAX_CONTEXT_BYTES=8192`。选择器按记忆/知识交替顺序尝试，每次重绘真实标题、编号、文档名和正文后计算 UTF-8 字节；只有完整候选块仍在预算内才接受，后续较短条目仍可进入。知识正文与记忆完全相同时作为省略计数，不重复发送。
+- `PendingPersonalTaskPlanUiState` 的使用数量、省略数量和 `contextBytes` 全部来自真正传给 `sendStructuredMessage()` 的 `PersonalTaskPlanRequest`，避免用检索原始数量冒充发送数量。确认弹层只在省略数大于 0 时显示“上下文精简”，并继续显示第 134 阶段真实 Prompt 遥测。
+- 第 137 阶段聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi `PersonalTaskPlanDialogInstrumentedTest` `OK (5 tests)` 和显式 Provider 探针 `OK (1 test)`。真实模型样本使用上下文 `7,264B`、Prompt `11,190B`，记忆使用/省略 `2/1`、知识使用/省略 `1/2`，返回 1 步计划；最终手动 instrumentation 在成功后恢复并回读 Provider，测试包卸载后主应用保持前台。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。
 - 确认后操作使用独立 `personalTaskOperationRequestId` 绑定计划和会话。会话切换先使旧代次失效再取消 Job；已经创建的 Run 由取消分支在不可取消 IO 区收敛，尚未创建时不追加伪执行消息。成功、失败与最终清理只有在请求 ID 和会话仍匹配时才更新可见 UI。
 - 通知权限 launcher 以计划 ID 保存等待身份。权限返回前确认/返回按钮禁用；回调清理等待身份后只在当前待确认计划仍是同一 ID 时提交。权限结果本身不改变已确认调度语义，拒绝只意味着系统通知可能不可见。

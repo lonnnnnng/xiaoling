@@ -38,6 +38,14 @@
 - Redmi 真机必须验证包可见性、模板不自动发送，以及生产 `snapshot -> open_app` 的审批身份、Tool Ledger、后置天气包名和答案级 Decision；不以模拟器结果代替。
 - 当前聚焦验收为 JVM `64/64`、Debug/AndroidTest APK、Redmi 包可见性与模板两个定向单项，以及更新后文档 corpus 首轮/证据写回后复验 `OK (1 test)`（`2.409s / 2.606s`）；完整 JVM、Lint、默认完整 instrumentation 和 Release 留到里程碑或用户明确要求。
 
+## 计划上下文请求精简（第 137 阶段，完成）
+
+- 长期记忆与本地知识仍分别遵守每来源最多 3 条、单条正文最多 800 个 UTF-16 字符和代理对安全边界；进入计划 Prompt 的两类正文合计不得超过 8 KiB UTF-8，预算必须包含来源标题、编号和知识文档名。
+- 选择必须按稳定的记忆/知识交替顺序进行，不能让单一来源先占满预算；超限时只能省略完整条目，不能为填满预算二次切断正文。知识正文与已经候选的记忆完全相同时不得重复发送，并计入知识省略数。
+- system 安全规则、用户目标、规划时间、工具边界、允许 App、计划 Schema、检索授权和检索失败阻止生成语义不得因精简而删除或放宽。
+- 计划确认页必须展示真正发送给模型的记忆/知识数量和上下文字节；发生去重或预算裁剪时必须分别显示两类省略数。展示数据必须与模型请求来自同一不可分割结果，不能使用检索原始数量推断。
+- 本阶段不修改 Room Schema、Workflow/Run、审批、工具白名单、Runtime 或后台权限，不估算货币成本。聚焦验收覆盖 JVM、Debug/AndroidTest APK、Redmi Compose 和一条显式真实 Provider 计划请求；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

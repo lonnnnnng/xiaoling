@@ -191,7 +191,10 @@ data class PendingPersonalTaskPlanUiState(
     val approvalToolNames: List<String>,
     val createdAt: Long,
     val memoryContextCount: Int = 0,
+    val memoryContextOmittedCount: Int = 0,
     val knowledgeContextCount: Int = 0,
+    val knowledgeContextOmittedCount: Int = 0,
+    val contextBytes: Int = 0,
     val generationMetrics: PersonalTaskPlanGenerationMetricsUiState? = null,
     val reminderScheduleLabel: String? = null,
     val targetAppPackage: String? = null,
@@ -3649,14 +3652,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     memoryAllowed = memoryContextAllowed,
                     knowledgeAllowed = knowledgeContextAllowed,
                 )
+                val planRequest = PersonalTaskPlanPolicy.prepareRequest(
+                    goal = goal,
+                    allowedToolNames = allowedToolNames,
+                    context = planContext,
+                    planningTime = planningTime,
+                )
                 val response = client.sendStructuredMessage(
                     config = runtimeSelection.config.copy(maxTokens = minOf(runtimeSelection.config.maxTokens, 2_000)),
-                    messages = PersonalTaskPlanPolicy.requestMessages(
-                        goal = goal,
-                        allowedToolNames = allowedToolNames,
-                        context = planContext,
-                        planningTime = planningTime,
-                    ),
+                    messages = planRequest.messages,
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
                 val plan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
@@ -3677,8 +3681,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     allowedToolNames = allowedToolNames,
                     approvalToolNames = approvalToolNames,
                     createdAt = System.currentTimeMillis(),
-                    memoryContextCount = planContext.memoryFacts.size,
-                    knowledgeContextCount = planContext.knowledgeSnippets.size,
+                    memoryContextCount = planRequest.contextUsage.memoryUsedCount,
+                    memoryContextOmittedCount = planRequest.contextUsage.memoryOmittedCount,
+                    knowledgeContextCount = planRequest.contextUsage.knowledgeUsedCount,
+                    knowledgeContextOmittedCount = planRequest.contextUsage.knowledgeOmittedCount,
+                    contextBytes = planRequest.contextUsage.contextBytes,
                     generationMetrics = response.toPersonalTaskPlanGenerationMetricsUiState(),
                     reminderScheduleLabel = plan.schedule.toReminderScheduleLabel(planningTime.zone.id),
                     targetAppPackage = plan.targetAppPackage,

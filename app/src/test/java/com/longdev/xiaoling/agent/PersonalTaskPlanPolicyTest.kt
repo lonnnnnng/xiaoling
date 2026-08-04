@@ -165,6 +165,63 @@ class PersonalTaskPlanPolicyTest {
     }
 
     @Test
+    fun `planning request caps utf8 context bytes and omits only complete entries`() {
+        val memoryFacts = List(3) { index ->
+            "记忆-$index-" + "中".repeat(PersonalTaskPlanContextPolicy.MAX_ITEM_CHARACTERS - 5)
+        }
+        val knowledgeSnippets = List(3) { index ->
+            PersonalTaskKnowledgeContext(
+                documentName = "知识-$index.md",
+                text = "知识-$index-" + "文".repeat(PersonalTaskPlanContextPolicy.MAX_ITEM_CHARACTERS - 5),
+            )
+        }
+
+        val request = PersonalTaskPlanPolicy.prepareRequest(
+            goal = "整理已有资料",
+            allowedToolNames = listOf("memory.search", "knowledge.search"),
+            context = PersonalTaskPlanContext(
+                memoryFacts = memoryFacts,
+                knowledgeSnippets = knowledgeSnippets,
+            ),
+            planningTime = ZonedDateTime.of(2026, 8, 5, 10, 0, 0, 0, ZoneId.of("Asia/Shanghai")),
+        )
+
+        assertTrue(request.contextUsage.contextBytes <= PersonalTaskPlanContextPolicy.MAX_CONTEXT_BYTES)
+        assertTrue(request.contextUsage.memoryOmittedCount + request.contextUsage.knowledgeOmittedCount > 0)
+        assertTrue(request.contextUsage.memoryUsedCount > 0)
+        assertTrue(request.contextUsage.knowledgeUsedCount > 0)
+        val userPrompt = request.messages.last().content
+        (memoryFacts + knowledgeSnippets.map(PersonalTaskKnowledgeContext::text)).forEach { item ->
+            // long: 前缀出现而完整正文未出现，代表预算逻辑把一个检索条目截断后发送给了模型。
+            assertFalse(userPrompt.contains(item.take(64)) && !userPrompt.contains(item))
+        }
+    }
+
+    @Test
+    fun `planning request removes duplicate knowledge already present in memory`() {
+        val request = PersonalTaskPlanPolicy.prepareRequest(
+            goal = "整理已有资料",
+            allowedToolNames = listOf("memory.search", "knowledge.search"),
+            context = PersonalTaskPlanContext(
+                memoryFacts = listOf("用户每天九点开始工作"),
+                knowledgeSnippets = listOf(
+                    PersonalTaskKnowledgeContext(
+                        documentName = "作息.md",
+                        text = "用户每天九点开始工作",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(1, request.contextUsage.memoryUsedCount)
+        assertEquals(0, request.contextUsage.memoryOmittedCount)
+        assertEquals(0, request.contextUsage.knowledgeUsedCount)
+        assertEquals(1, request.contextUsage.knowledgeOmittedCount)
+        assertEquals(1, request.messages.last().content.windowed("用户每天九点开始工作".length)
+            .count { part -> part == "用户每天九点开始工作" })
+    }
+
+    @Test
     fun `plan context reads only profile authorized sources`() = runTest {
         var memorySearchCount = 0
         var knowledgeSearchCount = 0

@@ -53,9 +53,28 @@ data class PersonalTaskPlanContext(
     val knowledgeSnippets: List<PersonalTaskKnowledgeContext> = emptyList(),
 )
 
+data class PersonalTaskPlanContextUsage(
+    val memoryUsedCount: Int,
+    val memoryOmittedCount: Int,
+    val knowledgeUsedCount: Int,
+    val knowledgeOmittedCount: Int,
+    val contextBytes: Int,
+)
+
+data class PersonalTaskPlanRequest(
+    val messages: List<RequestMessage>,
+    val contextUsage: PersonalTaskPlanContextUsage,
+)
+
+internal data class PersonalTaskPlanContextSelection(
+    val promptBlock: String,
+    val usage: PersonalTaskPlanContextUsage,
+)
+
 object PersonalTaskPlanContextPolicy {
     const val MAX_ITEMS_PER_SOURCE = 3
     const val MAX_ITEM_CHARACTERS = 800
+    const val MAX_CONTEXT_BYTES = 8 * 1_024
     private const val MAX_DOCUMENT_NAME_CHARACTERS = 120
 
     fun normalize(
@@ -63,27 +82,104 @@ object PersonalTaskPlanContextPolicy {
         knowledgeHits: List<KnowledgeSearchHit>,
     ): PersonalTaskPlanContext {
         return PersonalTaskPlanContext(
-            memoryFacts = memoryFacts
-                .map(String::trim)
-                .filter(String::isNotEmpty)
-                .distinct()
-                .take(MAX_ITEMS_PER_SOURCE)
-                .map { content -> content.takeWithoutSplittingSurrogate(MAX_ITEM_CHARACTERS) },
-            knowledgeSnippets = knowledgeHits
+            memoryFacts = normalizeMemoryFacts(memoryFacts),
+            knowledgeSnippets = normalizeKnowledgeSnippets(
+                knowledgeHits
                 .mapNotNull { hit ->
                     val text = hit.text.trim()
                     if (text.isEmpty()) return@mapNotNull null
                     PersonalTaskKnowledgeContext(
-                        documentName = hit.documentName.trim()
-                            .takeWithoutSplittingSurrogate(MAX_DOCUMENT_NAME_CHARACTERS)
-                            .ifBlank { "未命名知识文档" },
-                        text = text.takeWithoutSplittingSurrogate(MAX_ITEM_CHARACTERS),
+                        documentName = hit.documentName,
+                        text = text,
                     )
-                }
-                .distinctBy { context -> context.documentName to context.text }
-                .take(MAX_ITEMS_PER_SOURCE),
+                },
+            ),
         )
     }
+
+    internal fun compactForPrompt(context: PersonalTaskPlanContext): PersonalTaskPlanContextSelection {
+        val memoryCandidates = normalizeMemoryFacts(context.memoryFacts)
+        val knowledgeCandidates = normalizeKnowledgeSnippets(context.knowledgeSnippets)
+        val memoryText = memoryCandidates.toSet()
+        val uniqueKnowledgeCandidates = knowledgeCandidates.filterNot { snippet -> snippet.text in memoryText }
+        val selectedMemories = mutableListOf<String>()
+        val selectedKnowledge = mutableListOf<PersonalTaskKnowledgeContext>()
+
+        // long: 两类来源交替尝试，避免较长的记忆先占满预算后把知识全部挤掉；每次只接受完整条目。
+        repeat(maxOf(memoryCandidates.size, uniqueKnowledgeCandidates.size)) { index ->
+            memoryCandidates.getOrNull(index)?.let { fact ->
+                val candidateMemories = selectedMemories + fact
+                val candidateBlock = renderPromptBlock(candidateMemories, selectedKnowledge)
+                if (candidateBlock.utf8Size() <= MAX_CONTEXT_BYTES) {
+                    selectedMemories += fact
+                }
+            }
+            uniqueKnowledgeCandidates.getOrNull(index)?.let { snippet ->
+                val candidateKnowledge = selectedKnowledge + snippet
+                val candidateBlock = renderPromptBlock(selectedMemories, candidateKnowledge)
+                if (candidateBlock.utf8Size() <= MAX_CONTEXT_BYTES) {
+                    selectedKnowledge += snippet
+                }
+            }
+        }
+
+        val promptBlock = renderPromptBlock(selectedMemories, selectedKnowledge)
+        return PersonalTaskPlanContextSelection(
+            promptBlock = promptBlock,
+            usage = PersonalTaskPlanContextUsage(
+                memoryUsedCount = selectedMemories.size,
+                memoryOmittedCount = memoryCandidates.size - selectedMemories.size,
+                knowledgeUsedCount = selectedKnowledge.size,
+                knowledgeOmittedCount = knowledgeCandidates.size - selectedKnowledge.size,
+                contextBytes = promptBlock.utf8Size(),
+            ),
+        )
+    }
+
+    private fun normalizeMemoryFacts(memoryFacts: List<String>): List<String> {
+        return memoryFacts
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .map { content -> content.takeWithoutSplittingSurrogate(MAX_ITEM_CHARACTERS) }
+            .distinct()
+            .take(MAX_ITEMS_PER_SOURCE)
+    }
+
+    private fun normalizeKnowledgeSnippets(
+        knowledgeSnippets: List<PersonalTaskKnowledgeContext>,
+    ): List<PersonalTaskKnowledgeContext> {
+        return knowledgeSnippets
+            .mapNotNull { snippet ->
+                val text = snippet.text.trim()
+                if (text.isEmpty()) return@mapNotNull null
+                PersonalTaskKnowledgeContext(
+                    documentName = snippet.documentName.trim()
+                        .takeWithoutSplittingSurrogate(MAX_DOCUMENT_NAME_CHARACTERS)
+                        .ifBlank { "未命名知识文档" },
+                    text = text.takeWithoutSplittingSurrogate(MAX_ITEM_CHARACTERS),
+                )
+            }
+            .distinctBy { snippet -> snippet.documentName to snippet.text }
+            .take(MAX_ITEMS_PER_SOURCE)
+    }
+
+    private fun renderPromptBlock(
+        memoryFacts: List<String>,
+        knowledgeSnippets: List<PersonalTaskKnowledgeContext>,
+    ): String = buildString {
+        if (memoryFacts.isNotEmpty()) {
+            appendLine("长期记忆只读参考：")
+            memoryFacts.forEachIndexed { index, fact -> appendLine("${index + 1}. $fact") }
+        }
+        if (knowledgeSnippets.isNotEmpty()) {
+            appendLine("本地知识只读参考：")
+            knowledgeSnippets.forEachIndexed { index, snippet ->
+                appendLine("${index + 1}. [${snippet.documentName}] ${snippet.text}")
+            }
+        }
+    }
+
+    private fun String.utf8Size(): Int = toByteArray(Charsets.UTF_8).size
 
     private fun String.takeWithoutSplittingSurrogate(limit: Int): String {
         if (length <= limit) return this
@@ -263,13 +359,13 @@ object PersonalTaskPlanPolicy {
         )
     }
 
-    fun requestMessages(
+    fun prepareRequest(
         goal: String,
         allowedToolNames: List<String>,
         allowedAppPackages: List<String> = DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted(),
         context: PersonalTaskPlanContext = PersonalTaskPlanContext(),
         planningTime: ZonedDateTime = ZonedDateTime.now(),
-    ): List<RequestMessage> {
+    ): PersonalTaskPlanRequest {
         val normalizedGoal = goal.trim()
         require(normalizedGoal.isNotEmpty()) { "个人任务目标不能为空" }
         val toolBoundary = allowedToolNames
@@ -286,7 +382,8 @@ object PersonalTaskPlanPolicy {
             .sorted()
             .joinToString()
             .ifBlank { "无" }
-        return listOf(
+        val contextSelection = PersonalTaskPlanContextPolicy.compactForPrompt(context)
+        val messages = listOf(
             RequestMessage(
                 role = "system",
                 content = """
@@ -306,21 +403,27 @@ object PersonalTaskPlanPolicy {
                     appendLine("计划生成时间：${planningTime.format(PLANNING_TIME_FORMATTER)} · ${planningTime.zone.id}")
                     appendLine("当前 Agent 允许的工具：$toolBoundary")
                     appendLine("当前任务可选择的目标应用：$appBoundary")
-                    if (context.memoryFacts.isNotEmpty()) {
-                        appendLine("长期记忆只读参考：")
-                        context.memoryFacts.forEachIndexed { index, fact ->
-                            appendLine("${index + 1}. $fact")
-                        }
-                    }
-                    if (context.knowledgeSnippets.isNotEmpty()) {
-                        appendLine("本地知识只读参考：")
-                        context.knowledgeSnippets.forEachIndexed { index, snippet ->
-                            appendLine("${index + 1}. [${snippet.documentName}] ${snippet.text}")
-                        }
-                    }
+                    append(contextSelection.promptBlock)
                 },
             ),
         )
+        return PersonalTaskPlanRequest(messages = messages, contextUsage = contextSelection.usage)
+    }
+
+    fun requestMessages(
+        goal: String,
+        allowedToolNames: List<String>,
+        allowedAppPackages: List<String> = DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted(),
+        context: PersonalTaskPlanContext = PersonalTaskPlanContext(),
+        planningTime: ZonedDateTime = ZonedDateTime.now(),
+    ): List<RequestMessage> {
+        return prepareRequest(
+            goal = goal,
+            allowedToolNames = allowedToolNames,
+            allowedAppPackages = allowedAppPackages,
+            context = context,
+            planningTime = planningTime,
+        ).messages
     }
 
     fun parse(

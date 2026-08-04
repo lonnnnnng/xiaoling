@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.ui.PendingPersonalTaskPlanUiState
+import com.longdev.xiaoling.ui.presentPersonalTaskPlanContextUsage
 import com.longdev.xiaoling.ui.presentPersonalTaskPlanGenerationMetrics
 
 @Composable
@@ -58,10 +59,16 @@ internal fun PersonalTaskPlanDialog(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "计划上下文：长期记忆 ${state.memoryContextCount} 条 · " +
-                        "本地知识 ${state.knowledgeContextCount} 个片段",
+                    text = presentPersonalTaskPlanContextUsage(
+                        memoryUsedCount = state.memoryContextCount,
+                        memoryOmittedCount = state.memoryContextOmittedCount,
+                        knowledgeUsedCount = state.knowledgeContextCount,
+                        knowledgeOmittedCount = state.knowledgeContextOmittedCount,
+                        contextBytes = state.contextBytes,
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("personal-task-plan-context-usage"),
                 )
                 state.generationMetrics?.let { metrics ->
                     Text(
