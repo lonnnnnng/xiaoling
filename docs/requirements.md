@@ -17,6 +17,13 @@
 - 应用内提醒不能携带目标 App、`device.*` 完成标准或设备最终应用。其他需要审批的工具不得在后台自动获批，到点后只能沿既有 `BLOCKED` 与通知路径等待用户处理。通知权限继续由 Activity 宿主请求。
 - 本阶段不新增 Room Schema，不创建第二套 Runtime，也不接入系统日历、精确闹钟、Foreground Service 或后台设备控制。修改/取消继续通过既有工作流调度管理入口，由用户明确操作；自然语言不能静默改写或删除已有规则。
 
+## 任务级恢复与关联重试（第 131 阶段，完成）
+
+- `BLOCKED / FAILED / CANCELLED` Workflow Run 只能从同一 Run 已验证的连续成功前缀创建关联新 Run；前缀步骤标记为 `SKIPPED` 并保存 `reusedFromStepId`，首个未完成步骤及其后步骤重新执行。
+- 已启动过的失败步骤必须二次确认；确认时重新校验会话、Profile、Provider、工具白名单和当前 Run 状态。旧 Run、旧步骤、已提交副作用和审计事件不得修改或重放。
+- 新 Run 必须写入 `retryOfWorkflowRunId`，不恢复旧模型协程、Executor、审批会话或未知提交状态；来源证据不足时保持 fail-closed。
+- 本阶段只运行重试策略聚焦 JVM、Debug/AndroidTest APK 和 Redmi 关联重试单项；完整 JVM、Lint、Release 和默认完整 instrumentation 延后到第 132 阶段里程碑。
+
 第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
 
 ## 目标级本地验证与最终回答约束（第 129 阶段，完成）

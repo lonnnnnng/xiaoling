@@ -12,6 +12,7 @@
 - `PersonalTaskPlanDialog` 只显示规则与非精确语义；应用宿主复用通知权限 launcher。定时计划在解析期拒绝目标包、`device.*` 完成标准和设备最终应用，其余非 SAFE 工具继续由后台拒绝审批门收敛为待处理通知，不增加第二套 Runtime。WorkManager 入队或 Room 关联失败时会按任务 ID 撤销唯一工作，再把调度记录收敛为失败，避免孤立后台任务。
 - 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
+- 第 131 阶段已由现有 `WorkflowRunRetryPolicy`、`RoomWorkflowRepository.retryRun()` 和 Workflow 管理确认入口完成闭环：连续成功前缀映射为 `SKIPPED / reusedFromStepId`，首个未完成步骤及后续步骤重新执行；已启动失败步骤必须二次确认，来源 Run 通过 `retryOfWorkflowRunId` 保持只读关联。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
 

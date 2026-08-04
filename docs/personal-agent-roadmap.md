@@ -18,7 +18,14 @@
 
 ## v0.1.15 发布基线
 
-`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 130 阶段并升级到 Room v35，尚未形成新的 Release；下一主线是第 131 阶段任务级恢复与关联重试。
+`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 131 阶段并升级到 Room v35，尚未形成新的 Release；下一阶段是第 132 阶段 Redmi 三条完整真实任务与统一里程碑门禁。
+
+## 第 131 阶段：任务级恢复与关联重试（完成）
+
+- 复用现有 `WorkflowRunRetryPolicy`、`RoomWorkflowRepository.retryRun()` 和 Workflow 管理确认入口；不创建第二套 Runtime，不恢复旧模型协程、旧 Executor 或未知提交执行栈。
+- 只有 `BLOCKED / FAILED / CANCELLED` 且存在不完整步骤的旧 Run 才能进入重试。连续成功前缀在新 Run 中标记为 `SKIPPED` 并通过 `reusedFromStepId` 回指来源步骤；首个未完成步骤及后续步骤保持 `PENDING`，由新 Run 重新执行。
+- 已启动过的失败步骤仍要求用户二次确认；确认时沿用当前会话、Profile、Provider 和工具边界预检。旧 Run、旧步骤、已提交副作用和审计事件保持不变，新 Run 通过 `retryOfWorkflowRunId` 关联来源。
+- 聚焦验证为 `WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK；仅 Redmi `wsvwypiz7xwslvl7` 的 `retryReusesCompletedStepsAndKeepsSourceRunUnchanged` 为 `OK (1 test)`、`0.444s`。测试包已卸载，设备已恢复 `MainActivity`。没有运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
 ## 第 129 阶段：目标级本地验证与最终回答约束（完成）
 
