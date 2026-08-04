@@ -17,6 +17,7 @@
 - 每个完成步骤的工具名只从同 Run `AgentToolResult` 中 `success=true / verificationStatus=PASSED` 的记录按顺序重建。步骤 output 只增加工具名列表，参数、原始结果、snapshot/ref、节点正文、坐标和 HMAC 继续留在既有 Ledger/Decision 边界；存储值与 Ledger 漂移时事务 fail-closed。
 - `WorkflowGoalVerificationPolicy` 以子序列匹配必需工具，允许辅助 snapshot；最终应用取时间最新的观察或动作后 Decision。带冻结工具证据的 `COMPLETED/SKIPPED` 才计入已验证步骤，并输出 `VERIFIED / PARTIAL / INCOMPLETE`。`WorkflowGoalVerificationDecisionCodec` 会拒绝状态、原因、工具前缀、步骤计数或最终应用互相矛盾的记录；用户文案由本地 `renderForUser()` 生成。
 - 聚焦 JVM `22/22`、Debug/AndroidTest APK 通过。仅 Redmi 的迁移、Repository Contract/Decision/损坏数据和确认弹层为 `OK (5 tests)`（`3.33s`）；真实 production Registry 多动作日志为 `goalDecision=VERIFIED / finalPackage=com.longdev.xiaoling / privacySafe=true`。文档语料测试会在失败时输出六条黄金查询的实际文档排名；验证报告查询不再绑定历史 `271 tests`，改用稳定职责词后 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- Debug 设备动作 Probe 不再构造支付密码提示、登录密码输入框或硬编码假凭据，只保留中性测试按钮和独立普通文本输入夹具。`AgentE2eDebugReceiver` 在每个前台设备 tracer 结束后统一启动 `MainActivity`；Redmi 首轮观察失败和后续成功多动作复验都自动返回主页面。密码节点过滤继续由纯策略反例覆盖，不再依赖把真机停在密码页面。
 
 ## 第 128 阶段：限定 App 多动作连续执行（完成）
 

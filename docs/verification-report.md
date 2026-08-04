@@ -24,6 +24,7 @@
 - 聚焦验证：`WorkflowGoalVerificationPolicyTest 6/6`、`WorkflowStepExecutionPolicyTest 13/13`、`PersonalTaskPlanPolicyTest 3/3`，合计 `22/22`；`assembleDebug / assembleDebugAndroidTest` 成功。只在 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 v34→v35 迁移、Contract/Decision 持久化、损坏 Contract 拒绝和确认弹层，共 `OK (5 tests)`、耗时 `3.33s`。
 - Redmi 真实动作：Accessibility 恢复为 `Enabled / Bound / Crashed services:{}` 后，同一 production Registry tracer 执行 `snapshot -> swipe(up) -> snapshot -> back`，日志为 `workflow-settings-multi-e2e success=true actions=swipe, back verified=2/2 approvals=0 freshSnapshots=true targetPackage=com.android.settings finalPackage=com.longdev.xiaoling goalDecision=VERIFIED privacySafe=true`。
 - 文档语料：原黄金查询仍绑定历史 `Redmi 271 tests`，在当前报告中返回空结果并使 Recall 降为 `5/6`。门禁现改用验证报告顶部稳定存在的 `当前验证基线 / 正式产物 / 发布提交` 职责词，阈值、Top 5 和检索算法均未放宽；失败断言同时输出六条查询的实际文档排名。更新查询后的 Redmi 首轮/写回后复验均为 `OK (1 test)`，耗时 `2.461s / 2.444s`。
+- Debug 探针收尾：移除支付密码提示、登录密码输入框和硬编码假凭据，默认页改为“设备动作验收 / 测试按钮”。所有前台设备 tracer 都在成功或失败后统一恢复 `MainActivity`；一次 Accessibility 陈旧连接导致的观察失败已证明清理路径生效，干净重绑后多动作 tracer 再次 `success=true / goalDecision=VERIFIED`，且 top resumed 为小灵主页面。
 - 审查与边界：Standards 复审要求补齐长期文档和关键策略中文业务注释，均已修复；Spec 复审指出无证据 `SKIPPED` 可能被计为完成，现已收紧为必须携带冻结工具事实并增加反例。Repository 继续作为持久 Ledger 重建边界，不新增第二套 Runtime。按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation，也没有向模拟器发送 ADB 命令。
 
 ## 2026-08-04 第 128 阶段：限定 App 多动作连续执行

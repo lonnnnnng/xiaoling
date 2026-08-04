@@ -34,9 +34,7 @@ class DevicePrivacyProbeActivity : Activity() {
             )
             setPadding(48, 96, 48, 48)
         }
-        if (intent.getStringExtra(EXTRA_MODE) == MODE_PAYMENT) {
-            layout.addView(TextView(this).apply { text = "请输入支付密码" })
-        } else if (intent.getStringExtra(EXTRA_MODE) == MODE_TYPE_TEXT) {
+        if (intent.getStringExtra(EXTRA_MODE) == MODE_TYPE_TEXT) {
             layout.isFocusableInTouchMode = true
             layout.requestFocus()
             layout.addView(TextView(this).apply { text = "Workflow 文本输入验收" })
@@ -52,19 +50,12 @@ class DevicePrivacyProbeActivity : Activity() {
                 },
             )
         } else {
-            layout.addView(TextView(this).apply { text = "sk-stage2-private-abcdefghijklmnop" })
-            layout.addView(
-                EditText(this).apply {
-                    hint = "登录密码"
-                    inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                    setText("private-password-value")
-                },
-            )
-            val actionStatus = TextView(this).apply { text = "等待安全动作" }
+            layout.addView(TextView(this).apply { text = "设备动作验收" })
+            val actionStatus = TextView(this).apply { text = "等待测试动作" }
             layout.addView(actionStatus)
             layout.addView(
                 Button(this).apply {
-                    text = "安全按钮"
+                    text = "测试按钮"
                     // long: 真机 tracer bullet 需要可复核的页面变化；明确更新状态文本，避免仅凭 ACTION_CLICK 返回 true 就把无业务效果的点击判为成功。
                     setOnClickListener { actionStatus.text = "动作已完成" }
                 },
@@ -75,7 +66,6 @@ class DevicePrivacyProbeActivity : Activity() {
 
     companion object {
         const val EXTRA_MODE = "mode"
-        const val MODE_PAYMENT = "payment"
         const val MODE_TYPE_TEXT = "type_text"
     }
 }

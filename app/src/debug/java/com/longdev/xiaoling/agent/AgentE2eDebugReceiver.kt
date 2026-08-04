@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import com.longdev.xiaoling.MainActivity
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceInput
 import com.longdev.xiaoling.automation.WorkflowDeviceActionResolution
@@ -74,6 +75,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     .onFailure { error ->
                         Log.e(TAG, "agent-e2e success=false reason=${error::class.java.simpleName} message=${error.message}")
                     }
+                // long: Debug tracer 可能在任一观察或动作门禁中失败；统一回到主页面，避免验收探针或系统设置残留在用户前台。
+                restoreMainActivity(context.applicationContext)
             }
             return
         }
@@ -93,6 +96,17 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 pendingResult.finish()
                 scope.cancel()
             }
+        }
+    }
+
+    private fun restoreMainActivity(context: Context) {
+        runCatching {
+            context.startActivity(
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "agent-e2e cleanup=false reason=${error::class.java.simpleName} message=${error.message}")
         }
     }
 
@@ -188,7 +202,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             llm = scriptedLlm,
             approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = E2E_CONVERSATION_ID,
-                userIntent = "点击当前页面的安全按钮",
+                userIntent = "点击当前页面的测试按钮",
                 targetAppPackage = context.packageName,
                 fallback = AutoApprovalGate(),
                 persistence = RoomWorkflowDeviceActionApprovalPersistence(runRepository),
@@ -201,14 +215,14 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val summary = runtime.run(
             conversationId = E2E_CONVERSATION_ID,
             userMessageId = "message-redmi-workflow-device-action-${System.currentTimeMillis()}",
-            goal = "点击安全按钮并确认页面变化",
+            goal = "点击测试按钮并确认页面变化",
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
             invocationSource = AgentInvocationSource.WORKFLOW,
             memoryRecallEnabled = false,
             workflowDeviceActionContext = WorkflowDeviceActionRunContext(
                 workflowRunId = "workflow-run-redmi-device-action",
                 workflowStepId = "workflow-step-redmi-device-action",
-                userIntent = "点击当前页面的安全按钮",
+                userIntent = "点击当前页面的测试按钮",
                 targetAppPackage = context.packageName,
             ),
         )
@@ -1071,7 +1085,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         repeat(50) {
             when (val capture = controller.capture()) {
                 is DeviceSnapshotCapture.Success -> {
-                    if (capture.snapshot.nodes.any { node -> node.text == "安全按钮" }) return
+                    if (capture.snapshot.nodes.any { node -> node.text == "测试按钮" }) return
                 }
                 is DeviceSnapshotCapture.Failed -> {
                     if (capture.reason !in TRANSIENT_SNAPSHOT_FAILURES) error(capture.message)
@@ -1079,7 +1093,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             }
             delay(100)
         }
-        error("Probe 前台窗口在限定时间内没有出现安全按钮")
+        error("Probe 前台窗口在限定时间内没有出现测试按钮")
     }
 
     private suspend fun awaitTypeTextProbeWindow(controller: DeviceObservationController) {
@@ -1197,7 +1211,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 val nodes = snapshotJson.getJSONArray("nodes")
                 val button = (0 until nodes.length())
                     .map(nodes::getJSONObject)
-                    .single { node -> node.optString("text") == "安全按钮" }
+                    .single { node -> node.optString("text") == "测试按钮" }
                 snapshotId = snapshotJson.getString("snapshot_id")
                 ref = button.getString("ref")
                 val tap = tools.single { it.name == DEVICE_TAP_REF_TOOL_NAME }
