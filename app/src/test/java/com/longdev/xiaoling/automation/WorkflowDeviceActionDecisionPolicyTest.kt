@@ -285,7 +285,7 @@ class WorkflowDeviceActionDecisionPolicyTest {
     ): String = """
         {
           "ruleVersion":"workflow-device-action-result-v1",
-          "safetyRuleVersion":"workflow-device-action-safety-v1",
+          "safetyRuleVersion":"workflow-device-action-safety-v2",
           "action":"$action",
           "beforePackageName":"com.example.before",
           "afterPackageName":"$afterPackageName",

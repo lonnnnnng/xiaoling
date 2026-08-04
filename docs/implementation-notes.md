@@ -14,6 +14,7 @@
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 131 阶段已由现有 `WorkflowRunRetryPolicy`、`RoomWorkflowRepository.retryRun()` 和 Workflow 管理确认入口完成闭环：连续成功前缀映射为 `SKIPPED / reusedFromStepId`，首个未完成步骤及后续步骤重新执行；已启动失败步骤必须二次确认，来源 Run 通过 `retryOfWorkflowRunId` 保持只读关联。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
+- 第 132 阶段当前已完成完整 JVM、Lint、Debug/AndroidTest APK 门禁；`WorkflowDeviceActionDecisionPolicyTest` 的通过夹具已同步生产 `workflow-device-action-safety-v2`，历史/拒绝夹具保持 fail-closed。Redmi 未连接前不执行 instrumentation，不操作 Pixel 模拟器。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
 
 ## 第 129 阶段：目标级本地验证与最终回答约束（完成）

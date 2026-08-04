@@ -25,6 +25,7 @@
 - 本阶段只运行重试策略聚焦 JVM、Debug/AndroidTest APK 和 Redmi 关联重试单项；完整 JVM、Lint、Release 和默认完整 instrumentation 延后到第 132 阶段里程碑。
 
 第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
+第 132 阶段门禁状态：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 已通过；Redmi 真机未连接，三条完整任务和默认 instrumentation 保持待执行。
 
 ## 目标级本地验证与最终回答约束（第 129 阶段，完成）
 
