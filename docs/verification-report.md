@@ -23,6 +23,13 @@
 - 聚焦验证：定向 JVM 与 `compileDebugAndroidTestKotlin` 通过；`assembleDebug / assembleDebugAndroidTest` 成功。仅 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `ConversationPageInstrumentedTest + PersonalTaskPlanDialogInstrumentedTest`，结果 `OK (10 tests)`、`13.583s`。
 - 验证边界：本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release；ADB 安装与 instrumentation 明确使用 Redmi，未向在线模拟器发送命令。
 
+## 2026-08-04 第 135 阶段：常用任务模板快捷入口
+
+- 实现边界：任务模式增加三个纯 UI 模板“打开计算器”“搜索系统设置”“打开时钟”。模板使用现有 `updatePrompt` 回填目标文本，不自动发送、不请求计划模型、不创建 Workflow/Run，也不直接调用设备工具。
+- 权限边界：模板只提供已验收 App 范围内的意图起点，不改变 Profile 工具白名单、首批包名白名单、审批、目标级验证或 Room 语义；选择后仍由用户手动发送并确认严格计划。
+- 聚焦验证：`ConversationProjectionTest` 与 `compileDebugAndroidTestKotlin` 通过；`assembleDebug / assembleDebugAndroidTest` 成功。仅 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `ConversationPageInstrumentedTest`，结果 `OK (6 tests)`、`9.751s`，新增模板测试确认目标已回填且发送次数为 `0`。更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。
+- 验证边界：本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；ADB 明确只使用 Redmi，在线模拟器未执行命令。
+
 ## 2026-08-04 第 133 阶段：个人任务计划交互首轮打磨
 
 - 交互状态：新增 `GENERATING_PLAN / CREATING_TASK / CREATING_REMINDER`。对话页优先显示对应进度，停止按钮按生成计划、创建任务或创建提醒给出明确语义，不再复用普通模型等待动画。

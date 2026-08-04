@@ -21,6 +21,13 @@
 - 遥测只保存在待确认 UI 状态，确认前后都不写 Room、RunEvent、Workflow 或 Agent Run；计划生成请求仍不属于执行链上的 LLM 事件。
 - 聚焦验证通过：相关 JVM、Debug/AndroidTest APK，以及仅 Redmi `wsvwypiz7xwslvl7` 的两个 Compose 类 `OK (10 tests)`（`13.583s`）。按快速迭代分级不运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release。
 
+## 第 135 阶段：常用任务模板快捷入口（完成）
+
+- 任务模式新增三个受控模板：打开计算器、搜索系统设置、打开时钟，均来自已经在 Redmi 上验收过的限定 App 目标。
+- 模板选择只回填现有任务输入框，不自动发送、不提前请求模型、不创建 Workflow/Run、不直接执行设备动作；用户仍沿用 `目标 -> 计划 -> 确认 -> 执行` 主链。
+- 模板不携带包名授权，不扩大工具白名单、审批或目标级验证；最终计划继续由 Profile 边界、严格 Schema 和本地策略共同校验。
+- 聚焦验证通过：相关 JVM、Debug/AndroidTest APK，以及仅 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.751s`）；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。按快速迭代分级不运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 第 130 阶段：记忆、知识与应用内提醒（完成）
 
 - 已完成计划上下文纵向切片：当前 Profile 只有在允许 `memory.search` 且记忆总开关、单次召回开关均开启时读取长期记忆；只有允许 `knowledge.search` 时读取本地知识。每类最多 3 条、每条最多 800 字符，检索异常阻止生成，无命中继续普通计划。

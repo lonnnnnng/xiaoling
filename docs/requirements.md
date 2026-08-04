@@ -22,6 +22,14 @@
 - 计划生成遥测只属于确认前的 `PendingPersonalTaskPlanUiState`，不得写入 Room、RunEvent、Workflow、Agent Run 或跨计划历史账本；计划请求不伪装成 Agent Run 请求。
 - 本阶段只增加展示 DTO、格式化和 UI/聚焦测试，不修改计划 Schema、Room Schema、执行工具、审批或后台权限。验证按快速迭代分级完成，Release 与全量门禁留到里程碑。
 
+## 常用任务模板（第 135 阶段，完成）
+
+- 任务模式必须提供一组受控的常用目标模板，首批仅覆盖已完成 Redmi 验收的计算器、系统设置和时钟目标。
+- 选择模板只能回填现有任务输入框，不能自动发送、请求计划模型、创建 Workflow/Run、写入 Room 或直接执行设备动作；用户仍必须手动发送并确认计划。
+- 模板内容只是用户意图起点，不得扩大当前 Agent Profile 工具白名单、首批 App 包名白名单、审批或目标级验证边界；最终计划仍由现有严格 Schema 和本地策略校验。
+- 模板入口只在任务模式下展示，等待计划确认、生成中或创建中必须禁用；切换回普通对话不应保留模板专属状态。
+- 本阶段不新增 Room Schema、Runtime 或后台权限。验证只覆盖模板 Compose 交互、相关 JVM、Debug/AndroidTest APK 和更新后的文档 corpus；不重复完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

@@ -549,6 +549,13 @@ private fun MessageInputBar(
                 onSelected = onPersonalTaskModeChanged,
                 modifier = Modifier.padding(start = 10.dp, top = 8.dp, end = 10.dp),
             )
+            if (state.personalTaskMode) {
+                PersonalTaskTemplateMenu(
+                    enabled = state.controlsEnabled,
+                    onSelected = onPromptChange,
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                )
+            }
             state.personalTaskFailure?.let { failure ->
                 PersonalTaskFailureNotice(
                     failure = failure,
@@ -719,6 +726,44 @@ private fun PersonalTaskModeSelector(
                     )
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun PersonalTaskTemplateMenu(
+    enabled: Boolean,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            shape = RoundedCornerShape(7.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+            modifier = Modifier
+                .height(32.dp)
+                .testTag("personal-task-template-menu"),
+        ) {
+            Text("常用任务", style = MaterialTheme.typography.labelSmall)
+            Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(15.dp))
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            personalTaskTemplates.forEach { template ->
+                DropdownMenuItem(
+                    text = { Text(template.title, style = MaterialTheme.typography.bodySmall) },
+                    onClick = {
+                        onSelected(template.goal)
+                        expanded = false
+                    },
+                    modifier = Modifier.testTag("personal-task-template-${template.id}"),
+                )
+            }
         }
     }
 }

@@ -78,6 +78,31 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun fillsPersonalTaskGoalFromTemplateWithoutSending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        personalTaskMode = true,
+                        enabledModels = listOf("model"),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("personal-task-template-menu").performClick()
+        composeRule.onNodeWithTag("personal-task-template-settings").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("打开系统设置并搜索 Wi-Fi", actions.lastPrompt)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
     fun routesStopWhileGenerationIsActive() {
         val actions = FakeConversationActions()
         composeRule.setContent {

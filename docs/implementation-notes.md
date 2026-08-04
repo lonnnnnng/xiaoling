@@ -1,6 +1,6 @@
 # 当前实现说明
 
-## 第 127 至 134 阶段实现顺序（主线完成，体验打磨已开始）
+## 第 127 至 135 阶段实现顺序（主线完成，体验打磨已开始）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
@@ -18,6 +18,8 @@
 - 第 133 阶段在既有 `XiaoLingViewModel -> ConversationProjection -> ConversationPage` seam 上增加 `GENERATING_PLAN / CREATING_TASK / CREATING_REMINDER`，不建立第二套计划状态机。专属进度覆盖普通模型等待提示，停止按钮按当前阶段给出明确语义。
 - 第 134 阶段在 `PendingPersonalTaskPlanUiState` 增加轻量 `PersonalTaskPlanGenerationMetricsUiState`。`preparePersonalTaskPlan()` 只把当前单次 `ModelResponseResult` 的调用次数、耗时、TTFB、Prompt 字节数和可空 Token usage 映射到确认前 UI；不进入 Room、RunEvent、Workflow 或 Runtime metrics。格式化沿用已有紧凑时长/字节规则，缺失 usage 明确显示未知，不估算货币成本。
 - 第 134 阶段的验证只覆盖计划遥测展示的 JVM、Debug/AndroidTest APK 和 Redmi 两个 Compose 类；本轮 `OK (10 tests)`（`13.583s`）。不重复完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release。
+- 第 135 阶段新增 `PersonalTaskTemplate` 纯 UI 数据和三个受控目标。`ConversationPage` 仅在任务模式显示模板菜单，点击后调用既有 `onPromptChange/updatePrompt`，不会触发 `sendMessage()`；模板没有 Room、ViewModel 持久状态或 Runtime 接线，计划与确认链完全复用现有入口。
+- 第 135 阶段聚焦 `ConversationProjectionTest`、AndroidTest 编译和 Debug/AndroidTest APK；Redmi `ConversationPageInstrumentedTest` 最终为 `OK (6 tests)`（`9.751s`），更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。不重复完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。
 - 确认后操作使用独立 `personalTaskOperationRequestId` 绑定计划和会话。会话切换先使旧代次失效再取消 Job；已经创建的 Run 由取消分支在不可取消 IO 区收敛，尚未创建时不追加伪执行消息。成功、失败与最终清理只有在请求 ID 和会话仍匹配时才更新可见 UI。
 - 通知权限 launcher 以计划 ID 保存等待身份。权限返回前确认/返回按钮禁用；回调清理等待身份后只在当前待确认计划仍是同一 ID 时提交。权限结果本身不改变已确认调度语义，拒绝只意味着系统通知可能不可见。
