@@ -52,7 +52,7 @@
 
 第 104 阶段 README/docs 已重新打入 AndroidTest APK，并仅在 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`；前两轮结果均为 `OK (1 test)`、耗时 `2.431s / 2.602s`，写回设备收尾并重新打包后的最终复验同样通过。该结果验证的是第 104 阶段提交文档，不是改写前的旧 assets。
 
-当前发布基线为 `v0.1.15`（`versionCode 16`、Room v33）。本版在 `v0.1.14` 的恢复、Shadow 和六项 Workflow 设备工具基线上，完成 `swipe` 全链和自然语言个人任务计划。发布构建仅执行 `assembleRelease`，APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；按用户要求没有执行额外验证，上一阶段的聚焦 JVM、Redmi 功能与文档语料结果不等同本次发布门禁。发布提交、annotated tag 和 GitHub Release 远端状态在发布完成后回填。后台/定时设备自动化、任意 App、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+当前发布基线为 `v0.1.15`（`versionCode 16`、Room v33）。本版在 `v0.1.14` 的恢复、Shadow 和六项 Workflow 设备工具基线上，完成 `swipe` 全链和自然语言个人任务计划。发布构建仅执行 `assembleRelease`，APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；按用户要求没有执行额外验证，上一阶段的聚焦 JVM、Redmi 功能与文档语料结果不等同本次发布门禁。发布提交为 `b42defa06f02000b841ad7688e76edcf8bc8ce55`，annotated tag object 为 `7ecfd5269a2822feffbbda88cad0f53964f89aac`，解引用到同一提交；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest，非草稿、非预发布。后台/定时设备自动化、任意 App、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 
 第 104 阶段在完整清理和进程重启后取得 Room v33 第二条真实 Shadow 记录。临时文档形成 `5` 个 chunks，Embedding 不可用时由词法兜底命中 `1` 个 chunk；新增记录为 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7645/7632ms`，Prompt `3967B`，Tokens `905/372/1277`，失败计数为 `0`。与第 103 阶段累计后账本为观测 `2`、Judge 身份桶 `1`、完成/接受 `2/2`、attempt `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`。两次只相隔约 `46` 分钟，因此本次只记为独立短间隔复验，继续等待真正分隔开的后续样本。
 

@@ -15,7 +15,7 @@
 - 发布范围为 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 的安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，以及自然语言个人任务、严格结构化计划、确认前零执行和确认后原子创建普通 Workflow/Run。
 - 按用户“不要验证，直接发版”的明确要求，本轮只执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease --console=plain`，结果为 `BUILD SUCCESSFUL in 1m 52s`。没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；既有第 126/127 阶段聚焦证据不记作本次发布门禁。
 - 发布 APK 为 `outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；同名 `.sha256` 使用标准双空格格式。
-- 发布提交、annotated tag、GitHub Release 和远端资产 digest 在完成远端发布后回填。
+- 发布提交为 `b42defa06f02000b841ad7688e76edcf8bc8ce55`；annotated tag `v0.1.15` 的 tag object 为 `7ecfd5269a2822feffbbda88cad0f53964f89aac`，解引用到该提交。[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest，非草稿、非预发布；APK 资产状态为 `uploaded`，远端大小和 digest 与本地产物一致。
 
 ## 第 127 阶段：自然语言个人任务与可确认计划（完成）
 

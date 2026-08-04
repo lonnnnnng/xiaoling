@@ -6,14 +6,14 @@
 
 - 当前发布版本：小灵 `v0.1.15`，`versionCode=16`、`minSdk=26`、`targetSdk=36`、Room v33。
 - 发布范围：`v0.1.14` 后第 122 至 127 阶段；包含 `device.swipe` 的专属安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，以及自然语言个人任务、严格 1 至 8 步计划、确认前零执行和确认后原子创建普通 Workflow/Run。
-- 发布提交、annotated tag 与 GitHub Release 状态：待本次远端发布完成后回填。
+- 发布提交：`b42defa06f02000b841ad7688e76edcf8bc8ce55`（`发布小灵 0.1.15`）；annotated tag `v0.1.15` 的 tag object 为 `7ecfd5269a2822feffbbda88cad0f53964f89aac`，解引用到该提交。[小灵 v0.1.15](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest，状态为非草稿、非预发布。
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
 - 当前开发主线：第 127 阶段已经完成自然语言个人任务、严格结构化计划、确认前零执行和确认后原子创建/既有 Runtime 执行。后续第 128 至 132 阶段按限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收推进；纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。前台 Workflow 当前七项仍为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：本轮未执行；最近一次仍是第 127 阶段最终资产在 Redmi 的 `OK (1 test)`，不能表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
-- 远端资产：待 GitHub Release 创建和上传后回填。
+- 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
 
 ## 2026-08-04 第 127 阶段：自然语言个人任务与可确认计划
 
