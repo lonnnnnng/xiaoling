@@ -41,7 +41,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 34,
+    version = 35,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -877,6 +877,14 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 旧 Workflow 没有用户确认的完成标准，旧 Run 也没有目标级判定；迁移保持 null，禁止仅凭历史成功状态补造“目标已验证”。
+                db.execSQL("ALTER TABLE `workflows` ADD COLUMN `goalVerificationContract` TEXT")
+                db.execSQL("ALTER TABLE `workflow_runs` ADD COLUMN `goalVerificationDecision` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -911,6 +919,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_31_32,
             MIGRATION_32_33,
             MIGRATION_33_34,
+            MIGRATION_34_35,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.ui.PendingPersonalTaskPlanUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -32,6 +33,10 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         approvalToolNames = listOf("notes.create"),
                         createdAt = 1L,
                         targetAppPackage = "com.android.settings",
+                        goalVerificationSpec = WorkflowGoalVerificationSpec(
+                            requiredToolNames = listOf("app.current_time", "notes.create"),
+                            expectedFinalPackageName = "com.android.settings",
+                        ),
                     ),
                     onConfirm = { confirmCount += 1 },
                     onDismiss = {},
@@ -43,6 +48,8 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("1.").assertExists()
         composeRule.onNodeWithText("读取当前时间").assertExists()
         composeRule.onNodeWithText("限定应用：com.android.settings").assertExists()
+        composeRule.onNodeWithText("完成标准：app.current_time -> notes.create", substring = true).assertExists()
+        composeRule.onNodeWithText("完成时应用：com.android.settings", substring = true).assertExists()
         composeRule.onNodeWithText("可能触发审批：notes.create", substring = true).assertExists()
         composeRule.onNodeWithText("工具边界：app.current_time、notes.create", substring = true).assertExists()
         composeRule.onNodeWithTag("personal-task-plan-confirm").performClick()

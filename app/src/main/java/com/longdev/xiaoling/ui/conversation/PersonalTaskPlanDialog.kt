@@ -62,6 +62,20 @@ internal fun PersonalTaskPlanDialog(
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
+                state.goalVerificationSpec?.let { verification ->
+                    Text(
+                        text = buildString {
+                            append("完成标准：")
+                            append(verification.requiredToolNames.joinToString(" -> "))
+                            verification.expectedFinalPackageName?.let { packageName ->
+                                append("\n完成时应用：$packageName")
+                            }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     state.steps.forEachIndexed { index, goal ->
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {

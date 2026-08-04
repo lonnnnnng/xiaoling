@@ -9,16 +9,20 @@ class PersonalTaskPlanPolicyTest {
     @Test
     fun `strict plan accepts one to eight ordered workflow goals`() {
         val plan = PersonalTaskPlanPolicy.parse(
-            """{"name":"整理今天安排","target_app_package":"com.android.settings","steps":[{"goal":"打开系统设置"},{"goal":"查看当前页面"}]}""",
+            """{"name":"整理今天安排","target_app_package":"com.android.settings","verification":{"required_tool_names":["device.open_app","device.snapshot"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"打开系统设置"},{"goal":"查看当前页面"}]}""",
+            allowedToolNames = setOf("device.open_app", "device.snapshot"),
         )
 
         assertEquals("整理今天安排", plan.name)
         assertEquals("com.android.settings", plan.targetAppPackage)
+        assertEquals(listOf("device.open_app", "device.snapshot"), plan.verification.requiredToolNames)
+        assertEquals("com.android.settings", plan.verification.expectedFinalPackageName)
         assertEquals(listOf("打开系统设置", "查看当前页面"), plan.steps.map(PersonalTaskPlanStep::goal))
         assertEquals(
             null,
             PersonalTaskPlanPolicy.parse(
-                """{"name":"读取当前时间","target_app_package":"","steps":[{"goal":"读取当前时间"}]}""",
+                """{"name":"读取当前时间","target_app_package":"","verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"读取当前时间"}]}""",
+                allowedToolNames = setOf("app.current_time"),
             ).targetAppPackage,
         )
     }

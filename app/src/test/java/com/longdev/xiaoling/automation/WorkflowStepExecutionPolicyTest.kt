@@ -42,10 +42,18 @@ class WorkflowStepExecutionPolicyTest {
 
     @Test
     fun inputSnapshotKeepsGoalAndOrderedPreviousOutputs() {
+        val verificationContract = WorkflowGoalVerificationContract(
+            sourceGoal = "在系统设置中滚动后返回小灵",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("device.swipe", "device.back"),
+                expectedFinalPackageName = "com.longdev.xiaoling",
+            ),
+        )
         val encoded = WorkflowStepSnapshotCodec.encodeInput(
             goal = "生成最终回顾",
             previousOutputs = listOf("当前时间 12:00", "最近会话 A、B"),
             targetAppPackage = "com.android.settings",
+            goalVerificationContract = verificationContract,
         )
 
         assertEquals(
@@ -53,6 +61,7 @@ class WorkflowStepExecutionPolicyTest {
                 goal = "生成最终回顾",
                 previousOutputs = listOf("当前时间 12:00", "最近会话 A、B"),
                 targetAppPackage = "com.android.settings",
+                goalVerificationContract = verificationContract,
             ),
             WorkflowStepSnapshotCodec.decodeInput(encoded),
         )
@@ -74,6 +83,7 @@ class WorkflowStepExecutionPolicyTest {
             text = "只允许 Redmi 真机",
             knowledgeReferences = listOf(reference),
             requiresCurrentKnowledgeReferences = true,
+            verifiedToolNames = listOf("knowledge.search"),
         )
 
         assertEquals(
@@ -82,6 +92,7 @@ class WorkflowStepExecutionPolicyTest {
                 requiresCurrentKnowledgeReferences = true,
                 knowledgeReferences = listOf(reference),
                 expectedKnowledgeReferenceCount = 1,
+                verifiedToolNames = listOf("knowledge.search"),
             ),
             WorkflowStepSnapshotCodec.decodeOutput(encoded),
         )

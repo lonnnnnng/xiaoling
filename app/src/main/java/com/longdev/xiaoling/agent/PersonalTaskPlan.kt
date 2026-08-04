@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.network.LlmStructuredOutputFormat
@@ -16,6 +17,7 @@ data class PersonalTaskPlanStep(
 data class PersonalTaskPlan(
     val name: String,
     val targetAppPackage: String?,
+    val verification: WorkflowGoalVerificationSpec,
     val steps: List<PersonalTaskPlanStep>,
 )
 
@@ -57,9 +59,45 @@ object PersonalTaskPlanPolicy {
                                         .put("required", JSONArray().put("goal"))
                                         .put("additionalProperties", false),
                                 ),
+                        )
+                        .put(
+                            "verification",
+                            JSONObject()
+                                .put("type", "object")
+                                .put(
+                                    "properties",
+                                    JSONObject()
+                                        .put(
+                                            "required_tool_names",
+                                            JSONObject()
+                                                .put("type", "array")
+                                                .put("minItems", 1)
+                                                .put("maxItems", MAX_REQUIRED_TOOL_NAMES)
+                                                .put("items", JSONObject().put("type", "string")),
+                                        )
+                                        .put(
+                                            "expected_final_package",
+                                            JSONObject()
+                                                .put("type", "string")
+                                                .put(
+                                                    "enum",
+                                                    JSONArray(
+                                                        listOf("") + DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted(),
+                                                    ),
+                                                ),
+                                        ),
+                                )
+                                .put(
+                                    "required",
+                                    JSONArray().put("required_tool_names").put("expected_final_package"),
+                                )
+                                .put("additionalProperties", false),
                         ),
                 )
-                .put("required", JSONArray().put("name").put("target_app_package").put("steps"))
+                .put(
+                    "required",
+                    JSONArray().put("name").put("target_app_package").put("verification").put("steps"),
+                )
                 .put("additionalProperties", false),
         )
     }
@@ -91,6 +129,7 @@ object PersonalTaskPlanPolicy {
                 content = """
                     你负责把用户目标拆成可确认的临时计划。你不能执行工具、不能声称任务已完成，也不能扩大给定工具边界。
                     只返回符合 JSON Schema 的对象。name 是简短任务名；target_app_package 是整份任务唯一允许操作的应用包名，不需要设备操作时必须返回空字符串；steps 是按执行顺序排列的 1 至 ${WorkflowDefinitionPolicy.MAX_STEPS} 个独立 Agent 目标。
+                    verification.required_tool_names 是确认任务完成不可缺少的工具名，按预期先后顺序填写且只能来自给定工具边界；普通观察或辅助工具可以不列入。verification.expected_final_package 是完成时必须位于的应用，不要求最终应用时返回空字符串。
                     每一步只描述可验证的业务目标，不写工具调用 JSON，不包含审批已通过或结果已产生等虚假事实。
                 """.trimIndent(),
             ),
@@ -105,15 +144,18 @@ object PersonalTaskPlanPolicy {
         )
     }
 
-    fun parse(raw: String): PersonalTaskPlan = try {
-        parseStrict(raw)
+    fun parse(
+        raw: String,
+        allowedToolNames: Set<String> = emptySet(),
+    ): PersonalTaskPlan = try {
+        parseStrict(raw, allowedToolNames)
     } catch (error: IllegalArgumentException) {
         throw error
     } catch (error: Throwable) {
         throw IllegalArgumentException("任务计划 JSON 不符合约定", error)
     }
 
-    private fun parseStrict(raw: String): PersonalTaskPlan {
+    private fun parseStrict(raw: String, allowedToolNames: Set<String>): PersonalTaskPlan {
         val tokener = JSONTokener(raw.trim())
         val root = runCatching { tokener.nextValue() as? JSONObject }
             .getOrNull()
@@ -126,6 +168,32 @@ object PersonalTaskPlanPolicy {
         require(targetAppPackage == null || targetAppPackage in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
             "任务计划目标应用不在允许列表"
         }
+        val verificationJson = root.getJSONObject("verification")
+        require(verificationJson.keys().asSequence().toSet() == VERIFICATION_KEYS) {
+            "任务计划完成标准字段不符合约定"
+        }
+        val requiredToolNamesJson = verificationJson.getJSONArray("required_tool_names")
+        require(requiredToolNamesJson.length() in 1..MAX_REQUIRED_TOOL_NAMES) {
+            "任务计划完成标准工具数量无效"
+        }
+        val requiredToolNames = buildList {
+            repeat(requiredToolNamesJson.length()) { index ->
+                add(requiredToolNamesJson.getString(index).trim())
+            }
+        }
+        require(requiredToolNames.none(String::isBlank)) { "任务计划完成标准包含空工具名" }
+        if (allowedToolNames.isNotEmpty()) {
+            require(requiredToolNames.all { toolName -> toolName in allowedToolNames }) {
+                "任务计划完成标准超出当前 Agent 工具边界"
+            }
+        }
+        val expectedFinalPackageName = verificationJson
+            .getString("expected_final_package")
+            .trim()
+            .ifBlank { null }
+        require(
+            expectedFinalPackageName == null || expectedFinalPackageName in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES,
+        ) { "任务计划完成标准的最终应用不在允许列表" }
         val stepArray = root.getJSONArray("steps")
         val steps = buildList {
             repeat(stepArray.length()) { index ->
@@ -141,9 +209,19 @@ object PersonalTaskPlanPolicy {
             name = name,
             steps = steps.map { step -> WorkflowStepDefinitionInput(step.goal) },
         )
-        return PersonalTaskPlan(name = name, targetAppPackage = targetAppPackage, steps = steps)
+        return PersonalTaskPlan(
+            name = name,
+            targetAppPackage = targetAppPackage,
+            verification = WorkflowGoalVerificationSpec(
+                requiredToolNames = requiredToolNames,
+                expectedFinalPackageName = expectedFinalPackageName,
+            ),
+            steps = steps,
+        )
     }
 
-    private val ROOT_KEYS = setOf("name", "target_app_package", "steps")
+    private const val MAX_REQUIRED_TOOL_NAMES = WorkflowDefinitionPolicy.MAX_STEPS * 4
+    private val ROOT_KEYS = setOf("name", "target_app_package", "verification", "steps")
     private val STEP_KEYS = setOf("goal")
+    private val VERIFICATION_KEYS = setOf("required_tool_names", "expected_final_package")
 }

@@ -1,13 +1,22 @@
 # 当前实现说明
 
-## 第 127 至 132 阶段实现顺序（第 127/128 阶段已完成）
+## 第 127 至 132 阶段实现顺序（第 127/128/129 阶段已完成）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
-- 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段继续新增目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
+- 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
 - 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
+
+## 第 129 阶段：目标级本地验证与最终回答约束（完成）
+
+- `PersonalTaskPlanPolicy` 的严格 Schema 新增 `verification.required_tool_names / expected_final_package`。解析器按当前 Profile 工具白名单校验必需工具，并继续把最终包限制在首批允许包；`PersonalTaskPlanDialog` 在执行前展示工具顺序和完成时应用。
+- `WorkflowGoalVerificationContract` 保存用户原始目标和确认标准。`RoomWorkflowRepository.createWorkflowAndManualRun()` 在同一事务写入 Workflow Contract 和全部步骤输入快照；后续手动/定时 Run、步骤准备/启动与关联重试只复制冻结快照。非空持久 Contract 解码失败时阻止新 Run，不能静默退化为旧 Workflow。
+- Room 升级至 v35，增加 nullable `workflows.goalVerificationContract` 与 `workflow_runs.goalVerificationDecision`；`MIGRATION_34_35` 保持旧记录为 `null`。旧 Workflow 完成后仍没有目标级 Decision，不能从历史 Run 成功状态补造 `VERIFIED`。
+- 每个完成步骤的工具名只从同 Run `AgentToolResult` 中 `success=true / verificationStatus=PASSED` 的记录按顺序重建。步骤 output 只增加工具名列表，参数、原始结果、snapshot/ref、节点正文、坐标和 HMAC 继续留在既有 Ledger/Decision 边界；存储值与 Ledger 漂移时事务 fail-closed。
+- `WorkflowGoalVerificationPolicy` 以子序列匹配必需工具，允许辅助 snapshot；最终应用取时间最新的观察或动作后 Decision。带冻结工具证据的 `COMPLETED/SKIPPED` 才计入已验证步骤，并输出 `VERIFIED / PARTIAL / INCOMPLETE`。`WorkflowGoalVerificationDecisionCodec` 会拒绝状态、原因、工具前缀、步骤计数或最终应用互相矛盾的记录；用户文案由本地 `renderForUser()` 生成。
+- 聚焦 JVM `22/22`、Debug/AndroidTest APK 通过。仅 Redmi 的迁移、Repository Contract/Decision/损坏数据和确认弹层为 `OK (5 tests)`（`3.33s`）；真实 production Registry 多动作日志为 `goalDecision=VERIFIED / finalPackage=com.longdev.xiaoling / privacySafe=true`。文档语料测试会在失败时输出六条黄金查询的实际文档排名；验证报告查询不再绑定历史 `271 tests`，改用稳定职责词后 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
 ## 第 128 阶段：限定 App 多动作连续执行（完成）
 
@@ -17,7 +26,7 @@
 - `MinimalAgentRuntime` 保留全局重复 ToolCall 指纹，只为紧跟在已完成且已验证设备动作后的 `device.snapshot` 开窄例外；连续 snapshot、重复动作和未验证动作后的刷新仍拒绝。该边界让页面变化后必须取得新 snapshot/ref，而不会放宽重复副作用防护。
 - Debug 真实 tracer 在同一 `MinimalAgentRuntime + RoomAgentRunRepository` Run 中执行 `snapshot -> swipe(up) -> snapshot -> back -> Complete`。两次动作均复用生产 Registry、安全策略、Executor/typed 验证和动作后观察；snapshot ID 必须更新，SAFE 动作不创建审批，持久结果不含节点正文或可复用 ref。
 - TDD 首轮以 `AgentBudgetExceededException: 检测到重复工具调用：device.snapshot` 暴露刷新缺口；修复后八组聚焦 JVM `92/92`。Debug APK 构建成功；仅 Redmi 的 v33→v34 迁移、目标包持久化、计划确认弹层分别为 `OK (1 test)`，真实多动作日志为 `success=true / actions=swipe, back / verified=2/2 / approvals=0 / freshSnapshots=true / targetPackage=com.android.settings / finalPackage=com.longdev.xiaoling / privacySafe=true`。提交前 Standards/Spec 双轴复审在文档同步后无遗留实现 finding。
-- 本阶段没有实现第 129 阶段的目标级判定，也没有开放任意 App、后台/定时设备控制、截图/视觉、坐标、精确定时或 Foreground Service。按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
+- 第 128 阶段本身没有实现目标级判定；该缺口已经由上面的第 129 阶段完成。任意 App、后台/定时设备控制、截图/视觉、坐标、精确定时或 Foreground Service 仍未开放。
 
 ## 小灵 v0.1.15 发布基线
 

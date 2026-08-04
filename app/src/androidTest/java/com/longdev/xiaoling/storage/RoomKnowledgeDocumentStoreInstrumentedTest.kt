@@ -417,7 +417,7 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         val goldenQueries = listOf(
             "当前启用 工具 模型 权限" to "requirements.md",
             "附件 BLOB 轻量 快照 回写" to "implementation-notes.md",
-            "当前验证基线 Redmi 271 tests" to "verification-report.md",
+            "当前验证基线 正式产物 发布提交" to "verification-report.md",
             "历史引用 保留 临时文档 删除" to
                 "verification-history/verification-baseline-through-stage-101.md",
             "并行调用 通用原地断点恢复" to "personal-agent-roadmap.md",
@@ -442,8 +442,20 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
             limit = 5,
         )
         val quality = KnowledgeSearchQualityPolicy.evaluate(qualityCases)
+        val documentNamesById = documentsByName.entries.associate { (name, document) -> document.id to name }
+        // long: 语料门禁失败时直接报告每条黄金查询的真实排名，避免只看到聚合召回率后盲目调整检索阈值。
+        val recallDiagnostics = qualityCases
+            .filter { it.relevantDocumentIds.isNotEmpty() }
+            .joinToString(separator = "\n") { case ->
+                val queryIndex = case.caseId.removePrefix("positive-").toInt()
+                val (query, expectedDocument) = goldenQueries[queryIndex]
+                val namedRankings = case.rankedDocumentIdsByRun.map { ranking ->
+                    ranking.map { documentNamesById[it] ?: it }
+                }
+                "query=$query expected=$expectedDocument rankings=$namedRankings"
+            }
 
-        assertEquals(1.0, quality.meanRecallAtK, 0.000001)
+        assertEquals(recallDiagnostics, 1.0, quality.meanRecallAtK, 0.000001)
         assertTrue("MRR=${quality.meanReciprocalRank}", quality.meanReciprocalRank >= 0.8)
         assertEquals(1.0, quality.negativeAccuracy, 0.000001)
         assertEquals(1.0, quality.stableRankingRate, 0.000001)

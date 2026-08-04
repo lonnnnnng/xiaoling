@@ -10,6 +10,14 @@ import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceInput
 import com.longdev.xiaoling.automation.WorkflowDeviceActionResolution
 import com.longdev.xiaoling.automation.WorkflowDeviceActionResultCodec
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceInput
+import com.longdev.xiaoling.automation.WorkflowDeviceObservationResolution
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicy
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
+import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
 import com.longdev.xiaoling.device.DeviceNodeAction
@@ -629,12 +637,57 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val decisions = (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions
             ?.takeIf { it.map { decision -> decision.action } == listOf("swipe", "back") }
             ?: error("连续动作未形成有序答案级本地判定：$resolution")
+        val verifiedResults = detail.toolLedger.results.filter { result ->
+            result.success && result.verificationStatus == ToolVerificationStatus.PASSED
+        }
+        val observationResolution = WorkflowDeviceObservationDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = verifiedResults.map { result ->
+                WorkflowDeviceObservationEvidenceInput(
+                    runId = result.runId,
+                    toolName = result.toolName,
+                    content = result.content,
+                    success = result.success,
+                    verified = true,
+                    durationMs = result.durationMs,
+                )
+            },
+        )
+        val observationDecisions = (observationResolution as? WorkflowDeviceObservationResolution.Decided)
+            ?.decisions
+            ?.takeIf { it.size == 2 }
+            ?: error("连续动作没有形成两次独立设备观察判定：$observationResolution")
+        val goalDecision = WorkflowGoalVerificationPolicy.evaluate(
+            sourceGoal = "在系统设置应用详情页滚动后重新观察，再返回小灵",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf(DEVICE_SWIPE_TOOL_NAME, DEVICE_BACK_TOOL_NAME),
+                expectedFinalPackageName = context.packageName,
+            ),
+            steps = listOf(
+                WorkflowGoalVerificationStepEvidence(
+                    status = WorkflowStepStatus.COMPLETED,
+                    verifiedToolNames = verifiedResults.map { result -> result.toolName },
+                    deviceObservationDecisions = observationDecisions,
+                    deviceActionDecisions = decisions,
+                ),
+            ),
+        )
+        check(
+            goalDecision.status == WorkflowGoalVerificationStatus.VERIFIED &&
+                goalDecision.matchedRequiredToolNames == listOf(DEVICE_SWIPE_TOOL_NAME, DEVICE_BACK_TOOL_NAME) &&
+                goalDecision.actualFinalPackageName == context.packageName
+        ) { "连续动作没有形成 VERIFIED 目标级结论：$goalDecision" }
         val persistedPayload = actionResults.joinToString { it.content }
+        val renderedGoalDecision = goalDecision.renderForUser()
         check(
             !persistedPayload.contains(scriptedLlm.firstSnapshotId) &&
                 !persistedPayload.contains(scriptedLlm.secondSnapshotId) &&
                 !persistedPayload.contains(scriptedLlm.firstRef) &&
-                !HMAC_HEX_PATTERN.containsMatchIn(persistedPayload)
+                !HMAC_HEX_PATTERN.containsMatchIn(persistedPayload) &&
+                !renderedGoalDecision.contains(scriptedLlm.firstSnapshotId) &&
+                !renderedGoalDecision.contains(scriptedLlm.secondSnapshotId) &&
+                !renderedGoalDecision.contains(scriptedLlm.firstRef) &&
+                !HMAC_HEX_PATTERN.containsMatchIn(renderedGoalDecision)
         ) { "连续动作持久结果泄露 snapshot/ref 或滚动 HMAC" }
         val postSnapshot = captureWhenReady(controller).snapshot
         check(postSnapshot.packageName == context.packageName) {
@@ -644,7 +697,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             TAG,
             "workflow-settings-multi-e2e success=true actions=${decisions.joinToString { it.action }} " +
                 "verified=${actionResults.size}/2 approvals=0 freshSnapshots=true " +
-                "targetPackage=$SYSTEM_SETTINGS_PACKAGE finalPackage=${postSnapshot.packageName} privacySafe=true",
+                "targetPackage=$SYSTEM_SETTINGS_PACKAGE finalPackage=${postSnapshot.packageName} " +
+                "goalDecision=${goalDecision.status} privacySafe=true",
         )
     }
 

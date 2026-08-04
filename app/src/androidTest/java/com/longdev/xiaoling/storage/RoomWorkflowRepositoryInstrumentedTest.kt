@@ -19,6 +19,9 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceException
 import com.longdev.xiaoling.automation.WorkflowDeviceActionInsufficientReason
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionStatus
@@ -86,10 +89,18 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(1, completed.steps.size)
         assertEquals(WorkflowStepStatus.COMPLETED, completed.steps.single().status)
         assertEquals("回顾完成", completed.steps.single().result)
+        assertNull(completed.run.goalVerificationDecision)
     }
 
     @Test
     fun confirmedPersonalTaskCreatesDefinitionAndManualRunTogether() = runBlocking {
+        val verificationContract = WorkflowGoalVerificationContract(
+            sourceGoal = "打开系统设置并查看当前页面",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("device.open_app", "device.snapshot"),
+                expectedFinalPackageName = "com.android.settings",
+            ),
+        )
         val (workflow, run) = repository.createWorkflowAndManualRun(
             name = "记录当前时间",
             steps = listOf(
@@ -98,19 +109,82 @@ class RoomWorkflowRepositoryInstrumentedTest {
             ),
             conversationId = "conversation-personal-task",
             targetAppPackage = "com.android.settings",
+            goalVerificationContract = verificationContract,
         )
 
         assertEquals(workflow.id, run.run.workflowId)
         assertEquals(WorkflowRunStatus.QUEUED, run.run.status)
         assertEquals("conversation-personal-task", run.run.conversationId)
         assertEquals("com.android.settings", workflow.targetAppPackage)
+        assertEquals(verificationContract, workflow.goalVerificationContract)
         assertEquals(listOf("打开系统设置", "查看当前页面"), run.steps.map { it.detail })
         assertEquals(
             listOf("com.android.settings", "com.android.settings"),
             run.steps.map { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).targetAppPackage },
         )
+        assertEquals(
+            listOf(verificationContract, verificationContract),
+            run.steps.map { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).goalVerificationContract },
+        )
+        assertNull(run.run.goalVerificationDecision)
         assertEquals(listOf(workflow.id), repository.listWorkflows().map { it.id })
         assertEquals(listOf(run.run.id), repository.recentRunDetails().map { it.run.id })
+    }
+
+    @Test
+    fun completedPersonalTaskPersistsVerifiedGoalDecisionFromToolLedger() = runBlocking {
+        val contract = WorkflowGoalVerificationContract(
+            sourceGoal = "读取当前时间",
+            spec = WorkflowGoalVerificationSpec(requiredToolNames = listOf("app.current_time")),
+        )
+        val (_, created) = repository.createWorkflowAndManualRun(
+            name = "读取当前时间",
+            steps = listOf(WorkflowStepDefinitionInput("读取当前时间")),
+            conversationId = "conversation-goal-verification",
+            goalVerificationContract = contract,
+        )
+        val step = created.steps.single()
+        val agentRunId = "agent-run-goal-verification"
+        repository.markAgentRunStarted(created.run.id, step.id, agentRunId)
+        database.agentRunDao().insertToolResult(
+            verifiedToolResult(agentRunId, "app.current_time"),
+        )
+
+        repository.completeWorkflowStep(
+            workflowRunId = created.run.id,
+            workflowStepId = step.id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "当前时间：12:04",
+        )
+        val completed = repository.completeRun(created.run.id, WorkflowRunStatus.COMPLETED)
+
+        assertEquals(WorkflowGoalVerificationStatus.VERIFIED, completed.goalVerificationDecision?.status)
+        assertEquals(listOf("app.current_time"), completed.goalVerificationDecision?.matchedRequiredToolNames)
+        assertTrue(completed.result.orEmpty().contains("任务目标已验证完成"))
+        assertTrue(completed.result.orEmpty().contains("当前时间：12:04"))
+    }
+
+    @Test
+    fun damagedStoredGoalContractBlocksNewRunInsteadOfBecomingLegacy() = runBlocking {
+        val (workflow, initialRun) = repository.createWorkflowAndManualRun(
+            name = "损坏完成标准",
+            steps = listOf(WorkflowStepDefinitionInput("读取当前时间")),
+            conversationId = "conversation-damaged-contract",
+            goalVerificationContract = WorkflowGoalVerificationContract(
+                sourceGoal = "读取当前时间",
+                spec = WorkflowGoalVerificationSpec(requiredToolNames = listOf("app.current_time")),
+            ),
+        )
+        repository.completeRun(initialRun.run.id, WorkflowRunStatus.CANCELLED, errorMessage = "准备损坏夹具")
+        val stored = requireNotNull(database.workflowDao().getWorkflow(workflow.id))
+        database.workflowDao().upsertWorkflow(stored.copy(goalVerificationContract = "{损坏"))
+
+        val error = runCatching {
+            repository.createManualRun(workflow.id, "conversation-damaged-contract")
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("目标完成标准损坏"))
     }
 
     @Test
@@ -1689,6 +1763,32 @@ class RoomWorkflowRepositoryInstrumentedTest {
         executorVerified = executorVerified,
         verificationStatus = verificationStatus,
         verifiedEventId = "event-verified-$agentRunId",
+        memoryIdsJson = "[]",
+        knowledgeReferencesJson = "[]",
+        replaySafety = "RESTART_REQUIRED",
+        receiptToolCallId = null,
+        receiptOperationId = null,
+        receiptIdempotencyKey = null,
+        receiptStatus = null,
+        createdAt = 4L,
+        verifiedAt = 5L,
+    )
+
+    private fun verifiedToolResult(
+        agentRunId: String,
+        toolName: String,
+    ) = AgentToolResultEntity(
+        toolCallId = "tool-call-$agentRunId-$toolName",
+        runId = agentRunId,
+        eventId = "event-result-$agentRunId-$toolName",
+        toolName = toolName,
+        content = "已验证结果",
+        success = true,
+        errorMessage = null,
+        durationMs = 10L,
+        executorVerified = true,
+        verificationStatus = "PASSED",
+        verifiedEventId = "event-verified-$agentRunId-$toolName",
         memoryIdsJson = "[]",
         knowledgeReferencesJson = "[]",
         replaySafety = "RESTART_REQUIRED",

@@ -20,6 +20,7 @@ data class WorkflowRecord(
     val updatedAt: Long,
     val steps: List<WorkflowStepDefinitionRecord> = emptyList(),
     val targetAppPackage: String? = null,
+    val goalVerificationContract: WorkflowGoalVerificationContract? = null,
 )
 
 data class WorkflowStepDefinitionInput(
@@ -53,6 +54,7 @@ data class WorkflowRunRecord(
     val retryOfWorkflowRunId: String? = null,
     val workerStopReasonCode: Int? = null,
     val workerStopReasonName: String? = null,
+    val goalVerificationDecision: WorkflowGoalVerificationDecision? = null,
 )
 
 data class WorkflowStepRecord(
@@ -119,6 +121,7 @@ data class WorkflowStepInputSnapshot(
     val goal: String,
     val previousOutputs: List<String>,
     val targetAppPackage: String? = null,
+    val goalVerificationContract: WorkflowGoalVerificationContract? = null,
 )
 
 data class WorkflowStepOutputSnapshot(
@@ -126,6 +129,7 @@ data class WorkflowStepOutputSnapshot(
     val requiresCurrentKnowledgeReferences: Boolean,
     val knowledgeReferences: List<KnowledgeReference>,
     val expectedKnowledgeReferenceCount: Int,
+    val verifiedToolNames: List<String> = emptyList(),
     val deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
     val deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
 )
@@ -135,6 +139,7 @@ object WorkflowStepSnapshotCodec {
         goal: String,
         previousOutputs: List<String>,
         targetAppPackage: String? = null,
+        goalVerificationContract: WorkflowGoalVerificationContract? = null,
     ): String {
         val normalizedTarget = targetAppPackage?.trim()?.ifBlank { null }
         require(normalizedTarget == null || normalizedTarget in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
@@ -146,6 +151,13 @@ object WorkflowStepSnapshotCodec {
             .apply {
                 // long: 目标包名随 Run 输入快照冻结；旧快照没有该字段时按无设备目标读取，不能从步骤文本猜测或回填权限。
                 normalizedTarget?.let { put("targetAppPackage", it) }
+                // long: 用户确认的目标级完成标准随每个 Run 步骤冻结；后续编辑、手动运行或恢复只能读取这份版本化快照，不能重新询问模型改写验收口径。
+                goalVerificationContract?.let { contract ->
+                    put(
+                        "goalVerificationContract",
+                        JSONObject(WorkflowGoalVerificationContractCodec.encode(contract)),
+                    )
+                }
             }
             .toString()
     }
@@ -159,6 +171,11 @@ object WorkflowStepSnapshotCodec {
                 repeat(outputs.length()) { index -> add(outputs.getString(index)) }
             },
             targetAppPackage = json.optString("targetAppPackage").trim().ifBlank { null },
+            goalVerificationContract = json.optJSONObject("goalVerificationContract")?.let { contractJson ->
+                requireNotNull(WorkflowGoalVerificationContractCodec.decode(contractJson.toString())) {
+                    "Workflow 目标完成标准快照无效"
+                }
+            },
         )
     }
 
@@ -166,12 +183,15 @@ object WorkflowStepSnapshotCodec {
         text: String,
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
+        verifiedToolNames: List<String> = emptyList(),
         deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
         deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
     ): String {
+        require(verifiedToolNames.none(String::isBlank)) { "Workflow 已验证工具名不能为空" }
         if (
             !requiresCurrentKnowledgeReferences &&
             knowledgeReferences.isEmpty() &&
+            verifiedToolNames.isEmpty() &&
             deviceObservationDecisions.isEmpty() &&
             deviceActionDecisions.isEmpty()
         ) return text
@@ -180,6 +200,8 @@ object WorkflowStepSnapshotCodec {
             .put("text", text)
             .put("requiresCurrentKnowledgeReferences", requiresCurrentKnowledgeReferences)
             .put("knowledgeReferences", KnowledgeReferenceCodec.encode(knowledgeReferences.distinct()))
+            // long: 目标级判定只需要工具名和顺序；参数、原始结果、snapshot/ref 与节点正文继续留在既有专属 Ledger/Decision 边界内。
+            .put("verifiedToolNames", JSONArray(verifiedToolNames))
             .put(
                 "deviceObservationDecisions",
                 JSONArray().apply {
@@ -230,12 +252,14 @@ object WorkflowStepSnapshotCodec {
                 requiresCurrentKnowledgeReferences = false,
                 knowledgeReferences = emptyList(),
                 expectedKnowledgeReferenceCount = 0,
+                verifiedToolNames = emptyList(),
                 deviceObservationDecisions = emptyList(),
                 deviceActionDecisions = emptyList(),
             )
         }
         return runCatching {
             val referencesJson = json.optJSONArray("knowledgeReferences") ?: JSONArray()
+            val verifiedToolNamesJson = json.optJSONArray("verifiedToolNames") ?: JSONArray()
             val deviceDecisionsJson = json.optJSONArray("deviceObservationDecisions") ?: JSONArray()
             val deviceActionDecisionsJson = json.optJSONArray("deviceActionDecisions") ?: JSONArray()
             WorkflowStepOutputSnapshot(
@@ -243,6 +267,11 @@ object WorkflowStepSnapshotCodec {
                 requiresCurrentKnowledgeReferences = json.optBoolean("requiresCurrentKnowledgeReferences"),
                 knowledgeReferences = KnowledgeReferenceCodec.decode(referencesJson),
                 expectedKnowledgeReferenceCount = referencesJson.length(),
+                verifiedToolNames = buildList {
+                    repeat(verifiedToolNamesJson.length()) { index ->
+                        add(verifiedToolNamesJson.getString(index).trim().also { require(it.isNotEmpty()) })
+                    }
+                },
                 deviceObservationDecisions = buildList {
                     repeat(deviceDecisionsJson.length()) { index ->
                         val encodedDecision = deviceDecisionsJson.getJSONObject(index)

@@ -4,6 +4,11 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContractCodec
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationDecisionCodec
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicy
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecision
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceException
@@ -81,7 +86,13 @@ class RoomWorkflowRepository(
         return database.withTransaction {
             val dao = database.workflowDao()
             val now = System.currentTimeMillis()
-            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now, targetAppPackage = null)
+            val (workflow, definitions) = newWorkflowRecords(
+                normalizedName,
+                normalizedSteps,
+                now,
+                targetAppPackage = null,
+                goalVerificationContract = null,
+            )
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
             workflow.toRecord(definitions)
@@ -93,6 +104,7 @@ class RoomWorkflowRepository(
         steps: List<WorkflowStepDefinitionInput>,
         conversationId: String,
         targetAppPackage: String? = null,
+        goalVerificationContract: WorkflowGoalVerificationContract? = null,
     ): Pair<WorkflowRecord, WorkflowRunDetail> {
         val normalizedName = name.trim()
         val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
@@ -108,6 +120,7 @@ class RoomWorkflowRepository(
                 normalizedSteps,
                 now,
                 normalizedTargetAppPackage,
+                goalVerificationContract,
             )
             val (run, runSteps) = newManualRunRecords(
                 workflow.id,
@@ -115,6 +128,7 @@ class RoomWorkflowRepository(
                 conversationId,
                 now,
                 normalizedTargetAppPackage,
+                goalVerificationContract,
             )
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
@@ -153,6 +167,8 @@ class RoomWorkflowRepository(
                 name = normalizedName,
                 // long: 编辑只替换后续 Run 使用的定义；历史 Run 已持有自己的步骤快照，因此不会被定义变化改写。
                 goal = normalizedSteps.first().goal,
+                // long: 普通 Workflow 编辑器没有重新确认目标级完成标准；步骤变化后必须撤销新 Run 的验证资格，不能继续套用旧计划标准。
+                goalVerificationContract = null,
                 updatedAt = now,
             )
             dao.upsertWorkflow(updated)
@@ -191,6 +207,7 @@ class RoomWorkflowRepository(
                 conversationId,
                 now,
                 workflow.targetAppPackage,
+                decodeStoredGoalVerificationContract(workflow.goalVerificationContract),
             )
             dao.upsertRun(run)
             runSteps.forEach { dao.upsertStep(it) }
@@ -203,6 +220,7 @@ class RoomWorkflowRepository(
         normalizedSteps: List<WorkflowStepDefinitionInput>,
         now: Long,
         targetAppPackage: String?,
+        goalVerificationContract: WorkflowGoalVerificationContract?,
     ): Pair<WorkflowEntity, List<WorkflowStepDefinitionEntity>> {
         val workflowId = "workflow-${UUID.randomUUID()}"
         val workflow = WorkflowEntity(
@@ -214,6 +232,7 @@ class RoomWorkflowRepository(
             createdAt = now,
             updatedAt = now,
             targetAppPackage = targetAppPackage,
+            goalVerificationContract = goalVerificationContract?.let(WorkflowGoalVerificationContractCodec::encode),
         )
         val definitions = normalizedSteps.mapIndexed { index, step ->
             val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
@@ -236,6 +255,7 @@ class RoomWorkflowRepository(
         conversationId: String,
         now: Long,
         targetAppPackage: String?,
+        goalVerificationContract: WorkflowGoalVerificationContract?,
     ): Pair<WorkflowRunEntity, List<WorkflowStepEntity>> {
         val run = WorkflowRunEntity(
             id = "workflow-run-${UUID.randomUUID()}",
@@ -254,7 +274,13 @@ class RoomWorkflowRepository(
             retryOfWorkflowRunId = null,
         )
         return run to definitions.map { definition ->
-            definition.toRunStep(run.id, now, background = false, targetAppPackage = targetAppPackage)
+            definition.toRunStep(
+                run.id,
+                now,
+                background = false,
+                targetAppPackage = targetAppPackage,
+                goalVerificationContract = goalVerificationContract,
+            )
         }
     }
 
@@ -644,6 +670,7 @@ class RoomWorkflowRepository(
                     now = now,
                     background = true,
                     targetAppPackage = workflow.targetAppPackage,
+                    goalVerificationContract = decodeStoredGoalVerificationContract(workflow.goalVerificationContract),
                 )
             }
             val updatedTask = task.copy(
@@ -829,6 +856,7 @@ class RoomWorkflowRepository(
         result: String,
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
+        verifiedToolNames: List<String> = emptyList(),
         deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
         verifiedAgentContext: String? = null,
     ): WorkflowStepRecord {
@@ -849,6 +877,7 @@ class RoomWorkflowRepository(
                 result = result,
                 knowledgeReferences = knowledgeReferences,
                 requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
+                verifiedToolNames = verifiedToolNames,
                 deviceObservationDecisions = deviceObservationDecisions,
             )
             val publishedResult = WorkflowStepSnapshotCodec.outputText(completed.outputSnapshot ?: completed.result)
@@ -896,12 +925,13 @@ class RoomWorkflowRepository(
             val expected = WorkflowStepExecutionPolicy.nextExecutableStep(steps.map { it.toRecord() })
             require(expected?.id == step.id) { "工作流步骤必须按顺序准备" }
             val previousOutputs = currentPreviousOutputs(steps, step.sequence)
-            val targetAppPackage = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot).targetAppPackage
+            val frozenInput = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot)
             val updated = step.copy(
                 inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
                     step.detail,
                     previousOutputs,
-                    targetAppPackage,
+                    frozenInput.targetAppPackage,
+                    frozenInput.goalVerificationContract,
                 ),
             )
             dao.upsertStep(updated)
@@ -925,7 +955,7 @@ class RoomWorkflowRepository(
             require(step.agentRunId == null || step.agentRunId == agentRunId) { "工作流步骤已关联其他 Agent Run" }
             val now = System.currentTimeMillis()
             val previousOutputs = currentPreviousOutputs(steps, step.sequence)
-            val targetAppPackage = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot).targetAppPackage
+            val frozenInput = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot)
             val updated = current.copy(
                 agentRunId = agentRunId,
                 status = WorkflowRunStatus.RUNNING.name,
@@ -941,7 +971,8 @@ class RoomWorkflowRepository(
                     inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
                         step.detail,
                         previousOutputs,
-                        targetAppPackage,
+                        frozenInput.targetAppPackage,
+                        frozenInput.goalVerificationContract,
                     ),
                 ),
             )
@@ -957,6 +988,7 @@ class RoomWorkflowRepository(
         errorMessage: String? = null,
         knowledgeReferences: List<KnowledgeReference> = emptyList(),
         requiresCurrentKnowledgeReferences: Boolean = false,
+        verifiedToolNames: List<String> = emptyList(),
         deviceObservationDecisions: List<WorkflowDeviceObservationDecision> = emptyList(),
         deviceActionDecisions: List<WorkflowDeviceActionDecision> = emptyList(),
     ): WorkflowStepRecord {
@@ -997,6 +1029,17 @@ class RoomWorkflowRepository(
                     ledgerDecisions
                 }
             }
+            val persistedVerifiedToolNames = when {
+                status != WorkflowStepStatus.COMPLETED -> {
+                    require(verifiedToolNames.isEmpty()) { "未完成步骤不能持久化已验证工具" }
+                    emptyList()
+                }
+                step.agentRunId == null -> {
+                    require(verifiedToolNames.isEmpty()) { "已验证工具缺少 Agent Run 来源" }
+                    emptyList()
+                }
+                else -> requireVerifiedToolNames(step, verifiedToolNames)
+            }
             // long: Workflow 只持久化从同 Run Tool Ledger 重建的观察与动作判定；模型正文、原始节点、ref、snapshot 身份和动作 JSON 只留在独立账本审计。
             val persistedDeviceEvidence = buildList {
                 if (persistedDeviceObservationDecisions.isNotEmpty()) {
@@ -1012,14 +1055,27 @@ class RoomWorkflowRepository(
                 status = status.name,
                 result = persistedResult,
                 errorMessage = errorMessage,
-                outputSnapshot = persistedResult?.let { output ->
+                outputSnapshot = if (
+                    status == WorkflowStepStatus.COMPLETED &&
+                    (
+                        persistedResult != null ||
+                            knowledgeReferences.isNotEmpty() ||
+                            requiresCurrentKnowledgeReferences ||
+                            persistedVerifiedToolNames.isNotEmpty() ||
+                            persistedDeviceObservationDecisions.isNotEmpty() ||
+                            persistedDeviceActionDecisions.isNotEmpty()
+                        )
+                ) {
                     WorkflowStepSnapshotCodec.encodeOutput(
-                        text = output,
+                        text = persistedResult.orEmpty(),
                         knowledgeReferences = knowledgeReferences,
                         requiresCurrentKnowledgeReferences = requiresCurrentKnowledgeReferences,
+                        verifiedToolNames = persistedVerifiedToolNames,
                         deviceObservationDecisions = persistedDeviceObservationDecisions,
                         deviceActionDecisions = persistedDeviceActionDecisions,
                     )
+                } else {
+                    null
                 },
                 completedAt = now,
             )
@@ -1075,11 +1131,19 @@ class RoomWorkflowRepository(
                     dao.upsertStep(step)
                 }
             }
-            // long: Run 汇总只能从已持久化步骤重新聚合；调用方传入的最终模型正文不能绕过步骤级 Tool Ledger 净化，把原始 snapshot 复制到 Workflow Run。
+            val goalVerificationDecision = if (status == WorkflowRunStatus.COMPLETED) {
+                evaluateGoalVerification(persistedSteps)
+            } else {
+                null
+            }
+            // long: Run 汇总与目标级结论都从已持久化步骤重建；调用方最终模型正文不能绕过 Tool Ledger 净化，也不能自行把任务升级为 VERIFIED。
             val persistedResult = if (status == WorkflowRunStatus.COMPLETED) {
-                persistedSteps.mapNotNull { step ->
+                val stepResult = persistedSteps.mapNotNull { step ->
                     WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
                 }.joinToString(separator = "\n\n").takeIf { it.isNotEmpty() }
+                listOfNotNull(stepResult, goalVerificationDecision?.renderForUser())
+                    .joinToString(separator = "\n\n")
+                    .takeIf { it.isNotEmpty() }
             } else {
                 result
             }
@@ -1089,6 +1153,9 @@ class RoomWorkflowRepository(
                 errorMessage = errorMessage,
                 workerStopReasonCode = workerStopReasonCode,
                 workerStopReasonName = workerStopReasonName,
+                goalVerificationDecision = goalVerificationDecision?.let(
+                    WorkflowGoalVerificationDecisionCodec::encode,
+                ),
                 completedAt = now,
             )
             dao.upsertRun(updated)
@@ -1151,6 +1218,9 @@ class RoomWorkflowRepository(
                 .flatMap { KnowledgeReferenceCodec.decode(it.knowledgeReferencesJson) }
                 .distinct(),
             requiresCurrentKnowledgeReferences = toolResults.any { it.toolName == KNOWLEDGE_SEARCH_TOOL },
+            verifiedToolNames = toolResults
+                .filter { toolResult -> toolResult.success && toolResult.verificationStatus == "PASSED" }
+                .map { toolResult -> toolResult.toolName },
             deviceObservationDecisions = deviceObservationDecisions,
             deviceActionDecisions = deviceActionDecisions,
         )
@@ -1266,6 +1336,9 @@ class RoomWorkflowRepository(
                             emptyList(),
                             runCatching {
                                 WorkflowStepSnapshotCodec.decodeInput(sourceStep.inputSnapshot).targetAppPackage
+                            }.getOrNull(),
+                            runCatching {
+                                WorkflowStepSnapshotCodec.decodeInput(sourceStep.inputSnapshot).goalVerificationContract
                             }.getOrNull(),
                         ),
                     outputSnapshot = sourceStep.outputSnapshot.takeIf { reusable },
@@ -1543,10 +1616,39 @@ class RoomWorkflowRepository(
         return resolution
     }
 
+    private suspend fun evaluateGoalVerification(
+        steps: List<WorkflowStepEntity>,
+    ) = run {
+        val orderedSteps = steps.sortedBy { step -> step.sequence }
+        val contracts = orderedSteps.map { step ->
+            WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot).goalVerificationContract
+        }
+        if (contracts.all { contract -> contract == null }) return@run null
+        require(contracts.none { contract -> contract == null } && contracts.distinct().size == 1) {
+            "Workflow Run 的目标完成标准不一致"
+        }
+        val contract = requireNotNull(contracts.first())
+        WorkflowGoalVerificationPolicy.evaluate(
+            sourceGoal = contract.sourceGoal,
+            spec = contract.spec,
+            steps = orderedSteps.map { step ->
+                val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result)
+                WorkflowGoalVerificationStepEvidence(
+                    status = runCatching { WorkflowStepStatus.valueOf(step.status) }
+                        .getOrDefault(WorkflowStepStatus.FAILED),
+                    verifiedToolNames = output?.verifiedToolNames.orEmpty(),
+                    deviceObservationDecisions = output?.deviceObservationDecisions.orEmpty(),
+                    deviceActionDecisions = output?.deviceActionDecisions.orEmpty(),
+                )
+            },
+        )
+    }
+
     private suspend fun sanitizeSuccessfulWorkflowStepForRun(
         step: WorkflowStepEntity,
     ): WorkflowStepEntity {
         val output = WorkflowStepSnapshotCodec.decodeOutput(step.outputSnapshot ?: step.result) ?: return step
+        val verifiedToolNames = requireVerifiedToolNames(step, output.verifiedToolNames)
         val observationDecisions = when (
             val resolution = resolveDeviceObservationEvidence(step, output.deviceObservationDecisions)
         ) {
@@ -1569,7 +1671,11 @@ class RoomWorkflowRepository(
                 )
             }
         }
-        if (observationDecisions.isEmpty() && actionDecisions.isEmpty()) return step
+        if (
+            observationDecisions.isEmpty() &&
+            actionDecisions.isEmpty() &&
+            verifiedToolNames == output.verifiedToolNames
+        ) return step
         val persistedText = buildList {
             if (observationDecisions.isNotEmpty()) {
                 add(WorkflowDeviceObservationDecisionPolicy.renderForPrompt(observationDecisions))
@@ -1577,17 +1683,45 @@ class RoomWorkflowRepository(
             if (actionDecisions.isNotEmpty()) {
                 add(WorkflowDeviceActionDecisionPolicy.renderForPrompt(actionDecisions))
             }
-        }.joinToString("\n\n")
+        }.joinToString("\n\n").takeIf(String::isNotEmpty) ?: output.text
         return step.copy(
             result = persistedText,
             outputSnapshot = WorkflowStepSnapshotCodec.encodeOutput(
                 text = persistedText,
                 knowledgeReferences = output.knowledgeReferences,
                 requiresCurrentKnowledgeReferences = output.requiresCurrentKnowledgeReferences,
+                verifiedToolNames = verifiedToolNames,
                 deviceObservationDecisions = observationDecisions,
                 deviceActionDecisions = actionDecisions,
             ),
         )
+    }
+
+    private suspend fun requireVerifiedToolNames(
+        step: WorkflowStepEntity,
+        storedToolNames: List<String>,
+    ): List<String> {
+        val agentRunId = step.agentRunId
+        if (agentRunId == null) {
+            require(storedToolNames.isEmpty()) { "Workflow 已验证工具缺少 Agent Run 来源" }
+            return emptyList()
+        }
+        val ledgerToolNames = database.agentRunDao()
+            .getToolResults(agentRunId)
+            .filter { result -> result.success && result.verificationStatus == "PASSED" }
+            .map { result -> result.toolName }
+        require(storedToolNames.isEmpty() || storedToolNames == ledgerToolNames) {
+            "Workflow 已验证工具序列与持久 Tool Ledger 不一致"
+        }
+        return ledgerToolNames
+    }
+
+    private fun decodeStoredGoalVerificationContract(raw: String?): WorkflowGoalVerificationContract? {
+        if (raw == null) return null
+        // long: 非空持久化值代表这个 Workflow 原本受目标级完成标准约束；损坏或版本漂移时必须阻止新 Run，不能降级成无验收标准的 legacy Workflow。
+        return requireNotNull(WorkflowGoalVerificationContractCodec.decode(raw)) {
+            "Workflow 目标完成标准损坏或版本不受支持"
+        }
     }
 
     private suspend fun evaluateDeviceObservationEvidence(
@@ -1654,6 +1788,7 @@ class RoomWorkflowRepository(
         updatedAt = updatedAt,
         steps = definitions.sortedBy { it.sequence }.map { it.toRecord() },
         targetAppPackage = targetAppPackage,
+        goalVerificationContract = WorkflowGoalVerificationContractCodec.decode(goalVerificationContract),
     )
 
     private fun WorkflowStepDefinitionEntity.toRecord() = WorkflowStepDefinitionRecord(
@@ -1671,6 +1806,7 @@ class RoomWorkflowRepository(
         now: Long,
         background: Boolean,
         targetAppPackage: String?,
+        goalVerificationContract: WorkflowGoalVerificationContract?,
     ) = WorkflowStepEntity(
         id = "workflow-step-${UUID.randomUUID()}",
         workflowRunId = workflowRunId,
@@ -1687,7 +1823,12 @@ class RoomWorkflowRepository(
         completedAt = null,
         definitionStepId = id,
         idempotencyKey = idempotencyKey,
-        inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(goal, emptyList(), targetAppPackage),
+        inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+            goal,
+            emptyList(),
+            targetAppPackage,
+            goalVerificationContract,
+        ),
         outputSnapshot = null,
         reusedFromStepId = null,
     )
@@ -1709,6 +1850,7 @@ class RoomWorkflowRepository(
         retryOfWorkflowRunId = retryOfWorkflowRunId,
         workerStopReasonCode = workerStopReasonCode,
         workerStopReasonName = workerStopReasonName,
+        goalVerificationDecision = WorkflowGoalVerificationDecisionCodec.decode(goalVerificationDecision),
     )
 
     private fun WorkflowStepEntity.toRecord() = WorkflowStepRecord(

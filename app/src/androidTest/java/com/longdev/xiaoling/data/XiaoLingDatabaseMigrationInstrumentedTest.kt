@@ -1129,6 +1129,47 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate34To35KeepsLegacyGoalVerificationFieldsNull() {
+        migrationHelper.createDatabase(GOAL_VERIFICATION_MIGRATION_DATABASE_NAME, 34).apply {
+            execSQL(
+                "INSERT INTO workflows (id, name, goal, enabled, createdAt, updatedAt, targetAppPackage) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("workflow-v34", "旧工作流", "读取当前时间", 1, 100L, 100L, null),
+            )
+            execSQL(
+                """
+                    INSERT INTO workflow_runs (
+                        id, workflowId, trigger, scheduledTaskId, plannedAt, conversationId,
+                        agentRunId, status, result, errorMessage, createdAt, startedAt, completedAt,
+                        retryOfWorkflowRunId, workerStopReasonCode, workerStopReasonName
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "workflow-run-v34", "workflow-v34", "MANUAL", null, null, "conversation-v34",
+                    null, "COMPLETED", "旧结果", null, 100L, 100L, 200L, null, null, null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            GOAL_VERIFICATION_MIGRATION_DATABASE_NAME,
+            35,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT goalVerificationContract FROM workflows WHERE id = 'workflow-v34'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        migrated.query("SELECT goalVerificationDecision FROM workflow_runs WHERE id = 'workflow-run-v34'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate29To30CreatesEmbeddingIndexAndKeepsLegacyRetrievalLexicalOnly() {
         migrationHelper.createDatabase(EMBEDDING_MIGRATION_DATABASE_NAME, 29).apply {
             execSQL(
@@ -1345,5 +1386,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME = "xiaoling-relative-diagnostics-migration-test"
         private const val ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME = "xiaoling-answerability-shadow-migration-test"
         private const val WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME = "xiaoling-workflow-target-app-migration-test"
+        private const val GOAL_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-goal-verification-migration-test"
     }
 }

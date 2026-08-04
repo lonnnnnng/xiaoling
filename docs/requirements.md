@@ -4,9 +4,19 @@
 
 完整前台个人 Agent MVP 必须跑通统一主链：用户以自然语言提出目标，系统读取当前 Profile 允许的长期记忆与本地知识，生成 1 至 8 步临时计划并展示风险/能力边界，用户确认后复用既有 Workflow、Agent Runtime、Tool Registry、Room Ledger、审批和验证执行；完成时只允许使用已验证步骤与最终观察形成目标级结论，并把任务事实持久化。不得建立绕过现有安全和审计边界的第二套 Runtime。
 
-实现顺序固定为：第 127 阶段已交付自然语言个人任务入口与可确认计划；第 128 阶段已交付限定 App 多动作连续执行；第 129 阶段交付目标级验证和最终回答约束；第 130 阶段接入长期记忆、本地知识和复用 WorkManager 非精确定时的应用内提醒；第 131 阶段从已验证前缀创建关联新执行完成任务级恢复/重试，旧 Run 与旧副作用事实保持不变；第 132 阶段仅用 Redmi 验收三条完整用户任务，并统一运行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。正式 Release 只在用户明确要求时执行。
+实现顺序固定为：第 127 阶段已交付自然语言个人任务入口与可确认计划；第 128 阶段已交付限定 App 多动作连续执行；第 129 阶段已交付目标级验证和最终回答约束；第 130 阶段接入长期记忆、本地知识和复用 WorkManager 非精确定时的应用内提醒；第 131 阶段从已验证前缀创建关联新执行完成任务级恢复/重试，旧 Run 与旧副作用事实保持不变；第 132 阶段仅用 Redmi 验收三条完整用户任务，并统一运行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。正式 Release 只在用户明确要求时执行。
 
 第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
+
+## 目标级本地验证与最终回答约束（第 129 阶段，完成）
+
+计划 Schema 必须要求 `verification.required_tool_names` 和 `verification.expected_final_package`。必需工具至少一项、按预期先后顺序排列且只能来自当前 Agent Profile 的工具白名单；最终应用只能为空或首批允许包。确认 UI 必须在任何执行前展示完成标准；确认后用户原始目标与完成标准必须随 Workflow 及每个步骤输入快照冻结，手动/定时运行、准备/启动步骤和关联重试不得重新调用模型改写标准。
+
+目标判定只能消费已持久化步骤、同 Run Tool Ledger 中 `success=true + typed PASSED` 的工具名顺序、脱敏设备观察/动作 Decision 和时间最新的最终包名。辅助工具可以出现在必需工具之间，但不能改变必需工具顺序；关联重试的 `SKIPPED` 成功前缀只有携带冻结工具事实时才计入已验证步骤。不得读取模型总结正文、原始动作 JSON、snapshot/ref、节点正文、坐标或 HMAC 形成完成结论。
+
+全部步骤、必需工具和最终应用满足时输出 `VERIFIED`；存在可信进度但任一标准不足时输出 `PARTIAL`；没有已验证进度时输出 `INCOMPLETE`。最终用户文案必须由本地策略从该 Decision 生成。Room v35 只增加 nullable `workflows.goalVerificationContract / workflow_runs.goalVerificationDecision`；v34 历史记录保持 `null`，不能按旧成功状态补造 `VERIFIED`，非空但损坏或版本不支持的 Contract 必须阻止新 Run。
+
+当前验收为聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi 定向 `OK (5 tests)`（`3.33s`）和真实多动作 `goalDecision=VERIFIED` tracer。文档语料黄金查询不得依赖会随阶段变化的历史测试总数；当前改用验证报告的稳定职责词，并在 Recall 不满时输出逐查询实际排名。更新后的 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。
 
 ## 限定 App 多动作连续执行（第 128 阶段，完成）
 
@@ -14,7 +24,7 @@
 
 设备动作必须由本地策略绑定冻结目标包：`open_app` 只能打开该包，`tap_ref / type_text / swipe` 动作前后都必须位于该包，`back / home` 只能从该包开始。每次页面变化后必须重新取得通过验证的 snapshot/ref；Runtime 只允许紧跟已验证设备动作刷新同参数 snapshot，不得放宽连续 snapshot、重复副作用、TTL、generation、审批、Executor/typed 验证或动作后观察。
 
-Redmi 验收必须在同一真实 Agent Run 中完成至少两个设备动作并证明中间观察为新 snapshot。当前限定设置页链路为 `snapshot -> swipe(up) -> snapshot -> back`，两项动作均通过 production Registry 验证、审批数为零、最终返回小灵且持久结果隐私安全。本阶段只证明动作级连续执行，不得把单步成功、模型自由文本或历史 ref 表述为最终业务目标已经完成；目标级结论由第 129 阶段实现。
+Redmi 验收必须在同一真实 Agent Run 中完成至少两个设备动作并证明中间观察为新 snapshot。当前限定设置页链路为 `snapshot -> swipe(up) -> snapshot -> back`，两项动作均通过 production Registry 验证、审批数为零、最终返回小灵且持久结果隐私安全。第 128 阶段本身只证明动作级连续执行，不把单步成功、模型自由文本或历史 ref 表述为最终业务目标；第 129 阶段已经在同一真实链上补充 `goalDecision=VERIFIED` 的本地目标结论。
 
 ## 自然语言个人任务与可确认计划（第 127 阶段，完成）
 

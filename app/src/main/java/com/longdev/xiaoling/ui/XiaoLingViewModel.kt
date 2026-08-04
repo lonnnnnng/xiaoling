@@ -45,6 +45,8 @@ import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.latestKnowledgeAnswerabilityCandidate
 import com.longdev.xiaoling.automation.WorkflowRecord
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRetryEligibility
@@ -185,6 +187,7 @@ data class PendingPersonalTaskPlanUiState(
     val approvalToolNames: List<String>,
     val createdAt: Long,
     val targetAppPackage: String? = null,
+    val goalVerificationSpec: WorkflowGoalVerificationSpec? = null,
 )
 
 private data class PendingPersonalTaskExecution(
@@ -2027,6 +2030,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     knowledgeReferences = summary.verifiedContext.knowledgeReferences,
                     requiresCurrentKnowledgeReferences = summary.verifiedContext.toolName == "knowledge.search" ||
                         summary.verifiedContext.toolExecutions.any { it.toolName == "knowledge.search" },
+                    verifiedToolNames = summary.verifiedContext.toolExecutions
+                        .filter { execution -> execution.success }
+                        .map { execution -> execution.toolName }
+                        .ifEmpty { listOf(summary.verifiedContext.toolName) },
                     deviceObservationDecisions = deviceObservationDecisions,
                     deviceActionDecisions = deviceActionDecisions,
                 )
@@ -2060,8 +2067,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val result = detail.steps.mapNotNull { step ->
             WorkflowStepSnapshotCodec.outputText(step.outputSnapshot ?: step.result)
         }.joinToString(separator = "\n\n")
-        withContext(Dispatchers.IO) {
+        val completedRun = withContext(Dispatchers.IO) {
             workflowRepository.completeRun(detail.run.id, WorkflowRunStatus.COMPLETED, result = result)
+        }
+        completedRun.goalVerificationDecision?.let { decision ->
+            // long: 最终回答只展示 Repository 从持久化步骤重建的目标级判定；单步模型总结不能把任务升级为完成。
+            appendWorkflowMessage(
+                conversationId,
+                ChatMessage(
+                    role = "assistant",
+                    text = decision.renderForUser(),
+                    createdAt = System.currentTimeMillis(),
+                    origin = MessageOrigin.AGENT_RESULT,
+                ),
+            )
+            saveConversationSelection()
         }
     }
 
@@ -3531,7 +3551,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     messages = PersonalTaskPlanPolicy.requestMessages(goal, allowedToolNames),
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
-                val plan = PersonalTaskPlanPolicy.parse(response.responseText)
+                val plan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
                 if (
                     personalTaskPlanningRequestId != requestId ||
                     uiState.selectedConversationId != conversationId
@@ -3550,6 +3570,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     approvalToolNames = approvalToolNames,
                     createdAt = System.currentTimeMillis(),
                     targetAppPackage = plan.targetAppPackage,
+                    goalVerificationSpec = plan.verification,
                 )
                 // long: API Key 只留在私有执行快照；Compose 状态只接收可展示字段，确认弹层和状态保存都不能意外打印凭据。
                 pendingPersonalTaskExecution = PendingPersonalTaskExecution(
@@ -3628,6 +3649,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         steps = preview.steps.map(::WorkflowStepDefinitionInput),
                         conversationId = conversationId,
                         targetAppPackage = preview.targetAppPackage,
+                        goalVerificationContract = preview.goalVerificationSpec?.let { spec ->
+                            WorkflowGoalVerificationContract(preview.sourceGoal, spec)
+                        },
                     )
                 }
                 val workflow = created.first

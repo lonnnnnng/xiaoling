@@ -488,6 +488,7 @@ data class WorkflowEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val targetAppPackage: String? = null,
+    val goalVerificationContract: String? = null,
 )
 
 @Entity(
@@ -534,6 +535,7 @@ data class WorkflowRunEntity(
     val retryOfWorkflowRunId: String?,
     val workerStopReasonCode: Int? = null,
     val workerStopReasonName: String? = null,
+    val goalVerificationDecision: String? = null,
 )
 
 @Entity(

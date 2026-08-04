@@ -4,7 +4,7 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
-当前开发主线已经切换为“先跑通完整个人 Agent，再集中打磨细节”。第 127 阶段的自然语言个人任务与可确认计划已经完成；接下来第 128 至 132 阶段依次完成限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试，以及 Redmi 完整里程碑验收。每个阶段都必须产生用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再抢占主线。
+当前开发主线已经切换为“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 129 阶段的自然语言计划、限定 App 多动作执行和目标级本地验证已经完成；下一步从第 130 阶段接入记忆/知识/应用内提醒，再推进任务级恢复与关联重试和 Redmi 完整里程碑验收。每个阶段都必须产生用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再抢占主线。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
@@ -30,7 +30,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 或 XLSX 文档；文件最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，OpenXML 富文档会校验 ZIP/OPC 结构与展开预算，原始文件随消息恢复。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
-  - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划，先展示任务名、步骤、可能审批项和能力边界；用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
+  - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划及工具顺序/最终应用完成标准，确认前展示任务名、步骤、可能审批项和能力边界；用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。完成时只由本地策略从持久 Tool Ledger 和最终设备观察产出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能扩大结论。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
   - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。
@@ -136,6 +136,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 129 阶段完成目标级本地验证与最终回答约束。计划完成标准冻结到 Workflow 和步骤快照，Room v35 保持旧任务无目标判定，Repository 只从同 Run 已验证 Tool Ledger 和脱敏最终观察生成 `VERIFIED / PARTIAL / INCOMPLETE`；模型总结不能扩大结论。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi 定向 `OK (5 tests)`（`3.33s`）和真实多动作 `goalDecision=VERIFIED` tracer 均通过。文档语料黄金查询已移除易过期的历史测试数量，并在失败时输出逐查询排名；更新查询后的 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；下一主线进入第 130 阶段。
 - 第 127 阶段完成自然语言个人任务与可确认计划。任务模式使用严格 JSON Schema 生成 1 至 8 步计划，确认前不写消息、Workflow、Run 或工具账本；确认后 Room 单事务创建普通 Workflow、手动 Run 和步骤快照，再复用既有 Runtime、审批和验证。聚焦 JVM `34/34`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的计划弹层与 Room 原子创建为 `OK (2 tests)`（`2.03s`）。真实模型生成 `Read Current Time` 单步计划，首个 Runtime 模型规划超时保持失败 Run，随后同一 Workflow 的独立手动 Run 完成 `app.current_time` 六段审计链，旧 Run 未被覆盖。更新后的文档语料首轮为 `OK (1 test)`（`2.453s`），写回本条证据后的最终资产已复验通过。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；记忆/知识计划上下文仍属于第 130 阶段。
 - 第 126 阶段已把 `device.swipe` 加入前台手动 Workflow 的生产默认 Registry，生产工具面现精确为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。该动作继续固定为 `SAFE_NO_APPROVAL`，并要求同 Run 新鲜 snapshot/ref、30 秒 TTL、当前 window generation、专属同窗方向 evidence、Executor 验证、typed `PASSED`、动作后重新观察和答案级本地判定；方向、viewport/HMAC、snapshot/ref、节点正文和坐标不进入持久层。TDD 先确认生产 Registry 缺少 swipe，转绿后 `XiaoLingToolRegistryTest` 为 `36/36`，六个相邻测试类合计 `101/101`，Debug/AndroidTest APK 构建成功。仅 Redmi `wsvwypiz7xwslvl7` 的真实生产 `snapshot -> swipe` tracer 为 `success=true action=swipe verified=true approvals=0 registryCompletion=PASSED answerDecision=VERIFIED privacySafe=true`，前后包均为 `com.android.settings`；更新后的项目文档语料首轮/最终单项均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。测试包已卸载，主应用最终为 `0.1.14 (15)` 前台，Accessibility `Enabled / Bound / Crashed services:{}`，crash buffer 无小灵异常；本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation，后台/定时设备自动化与任意 App 继续关闭。
 - 第 125 阶段完成 `device.swipe` 的答案级脱敏 Decision、Workflow step output、Room 重建和 Compose 证据卡投影，但生产 Workflow 仍未开放该工具。Decision 只接受同 Run `success=true / executorVerified=true / typed PASSED`、严格 codec 且 `device.swipe -> action=swipe` 一致的通用摘要；方向、viewport、HMAC、snapshot/ref、节点正文和坐标不进入答案层。UI 只显示“滚动”、前后包名与后置计数/时间，并明确历史节点引用不可复用；SAFE swipe 不伪造 Room Approval。聚焦 JVM 与 Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的 Room 纵向和 Compose 单项合并为 `OK (2 tests)`（`3.615s`）。覆盖安装后 Accessibility 一度只 Enabled 未 Bound，定向重绑后已恢复 `Enabled / Bound / Crashed services:{}`，crash buffer 无小灵异常。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；生产默认集合继续精确为 `snapshot / open_app / back / home / tap_ref / type_text`。
