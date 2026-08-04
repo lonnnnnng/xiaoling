@@ -184,6 +184,7 @@ data class PendingPersonalTaskPlanUiState(
     val allowedToolNames: List<String>,
     val approvalToolNames: List<String>,
     val createdAt: Long,
+    val targetAppPackage: String? = null,
 )
 
 private data class PendingPersonalTaskExecution(
@@ -1965,16 +1966,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val preparedStep = withContext(Dispatchers.IO) {
                 workflowRepository.prepareWorkflowStep(detail.run.id, step.id)
             }
+            val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
             // long: Workflow 每一步都冻结自己的用户意图；tap_ref/type_text 走系统浮层，SAFE back/home 由 Runtime 记录跳过审批，其他工具继续沿用既有风险门禁。
             val approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = conversationId,
                 userIntent = preparedStep.detail,
+                targetAppPackage = input.targetAppPackage,
                 fallback = interactiveAgentApprovalGate(conversationId),
                 persistence = workflowDeviceActionApprovalPersistence,
                 overlayRequester = DeviceAccessibilityRuntime,
             )
-            val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
-            val executionGoal = WorkflowStepPromptPolicy.build(input.goal, input.previousOutputs)
+            val executionGoal = WorkflowStepPromptPolicy.build(
+                input.goal,
+                input.previousOutputs,
+                input.targetAppPackage,
+            )
             val userMessage = ChatMessage(
                 role = "user",
                 text = "/agent ${preparedStep.detail}",
@@ -1996,6 +2002,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowRunId = detail.run.id,
                     workflowStepId = preparedStep.id,
                     userIntent = preparedStep.detail,
+                    targetAppPackage = input.targetAppPackage,
                 ),
                 approvalGate = approvalGate,
                 onSnapshot = { snapshot ->
@@ -3542,6 +3549,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     allowedToolNames = allowedToolNames,
                     approvalToolNames = approvalToolNames,
                     createdAt = System.currentTimeMillis(),
+                    targetAppPackage = plan.targetAppPackage,
                 )
                 // long: API Key 只留在私有执行快照；Compose 状态只接收可展示字段，确认弹层和状态保存都不能意外打印凭据。
                 pendingPersonalTaskExecution = PendingPersonalTaskExecution(
@@ -3619,6 +3627,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         name = preview.name,
                         steps = preview.steps.map(::WorkflowStepDefinitionInput),
                         conversationId = conversationId,
+                        targetAppPackage = preview.targetAppPackage,
                     )
                 }
                 val workflow = created.first

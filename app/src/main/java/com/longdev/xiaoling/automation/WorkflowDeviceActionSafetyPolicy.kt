@@ -42,6 +42,8 @@ enum class WorkflowDeviceActionApprovalMode {
 data class WorkflowDeviceActionExecutionEvidence(
     val identity: WorkflowDeviceActionIdentity,
     val userIntent: String,
+    val targetAppPackage: String?,
+    val beforePackageName: String?,
     val invocationSource: AgentInvocationSource,
     val executionOrigin: AgentExecutionOrigin,
     val currentProcessSessionId: String,
@@ -57,6 +59,7 @@ data class WorkflowDeviceActionExecutionEvidence(
 data class WorkflowDeviceActionAuthorization(
     val ruleVersion: String,
     val identity: WorkflowDeviceActionIdentity,
+    val targetAppPackage: String,
     val observationToolCallId: String,
     val beforeSnapshotId: String,
     val beforeWindowGeneration: Long,
@@ -79,6 +82,7 @@ data class WorkflowDeviceActionPostObservationEvidence(
 data class WorkflowDeviceActionCompletionEvidence(
     val identity: WorkflowDeviceActionIdentity,
     val authorization: WorkflowDeviceActionAuthorization?,
+    val targetAppPackage: String?,
     val resultAgentRunId: String,
     val resultToolCallId: String,
     val resultToolName: String,
@@ -100,6 +104,8 @@ enum class WorkflowDeviceActionSafetyFailure {
     IDENTITY_INVALID,
     ACTION_ARGUMENTS_INVALID,
     USER_INTENT_MISSING,
+    TARGET_APP_INVALID,
+    TARGET_APP_MISMATCH,
     OBSERVATION_MISSING,
     OBSERVATION_RUN_MISMATCH,
     OBSERVATION_INVALID,
@@ -184,6 +190,13 @@ class WorkflowDeviceActionSafetyPolicy(
                 "Workflow 设备动作缺少用户明确编写的步骤意图",
             )
         }
+        val targetAppPackage = evidence.targetAppPackage?.trim()?.ifBlank { null }
+        if (targetAppPackage == null || targetAppPackage !in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
+            return WorkflowDeviceActionSafetyDecision.Denied(
+                WorkflowDeviceActionSafetyFailure.TARGET_APP_INVALID,
+                "Workflow 设备动作缺少已确认的限定应用",
+            )
+        }
         if (evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME) {
             val arguments = evidence.identity.arguments
             val packageName = arguments["package_name"]
@@ -197,6 +210,18 @@ class WorkflowDeviceActionSafetyPolicy(
                     "device.open_app 只能打开当前阶段允许列表中的单一应用",
                 )
             }
+            if (packageName != targetAppPackage) {
+                return WorkflowDeviceActionSafetyDecision.Denied(
+                    WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+                    "device.open_app 请求应用与本任务限定应用不一致",
+                )
+            }
+        } else if (evidence.beforePackageName != targetAppPackage) {
+            // long: 除首次打开目标应用外，每个设备动作都必须从已确认应用内部开始；跨步骤旧页面或其他 App 的新快照不能扩大本任务权限。
+            return WorkflowDeviceActionSafetyDecision.Denied(
+                WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+                "设备动作前页面不属于本任务限定应用",
+            )
         }
         if (evidence.identity.toolName in SAFE_NAVIGATION_TOOL_NAMES && evidence.identity.arguments.isNotEmpty()) {
             // long: 返回与桌面导航都没有目标、次数或坐标参数；拒绝所有额外字段，避免模型把一次 SAFE 动作扩张成可配置导航序列。
@@ -346,6 +371,7 @@ class WorkflowDeviceActionSafetyPolicy(
                 ruleVersion = RULE_VERSION,
                 // long: type_text 的通用授权只绑定 snapshot 与 ref；文本原文改由专属不可逆指纹授权绑定，防止通用授权对象复制输入内容。
                 identity = minimizedAuthorizationIdentity(evidence.identity),
+                targetAppPackage = targetAppPackage,
                 observationToolCallId = observation.toolCallId,
                 beforeSnapshotId = observation.snapshotId,
                 beforeWindowGeneration = observation.windowGeneration,
@@ -383,9 +409,13 @@ class WorkflowDeviceActionSafetyPolicy(
                 "设备动作结果缺少执行前安全门禁授权",
             )
         val expectedAuthorizationIdentity = minimizedAuthorizationIdentity(evidence.identity)
+        val targetAppPackage = evidence.targetAppPackage?.trim()?.ifBlank { null }
         if (
             authorization.ruleVersion != RULE_VERSION ||
             authorization.identity != expectedAuthorizationIdentity ||
+            targetAppPackage == null ||
+            targetAppPackage !in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES ||
+            authorization.targetAppPackage != targetAppPackage ||
             authorization.approvalMode != approvalModeFor(evidence.identity.toolName) ||
             (evidence.identity.toolName != DEVICE_TYPE_TEXT_TOOL_NAME && authorization.typeTextAuthorization != null) ||
             (evidence.identity.toolName != DEVICE_SWIPE_TOOL_NAME && authorization.swipeAuthorization != null)
@@ -415,6 +445,16 @@ class WorkflowDeviceActionSafetyPolicy(
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.ACTION_EXECUTION_FAILED,
                 "设备动作没有成功执行",
+            )
+        }
+        if (
+            evidence.identity.toolName in TARGET_BOUND_COMPLETION_TOOL_NAMES &&
+            evidence.afterPackageName != targetAppPackage
+        ) {
+            // long: Executor/typed 验证只证明动作自身完成；限定 App 任务还必须证明动作后仍停留在同一目标包，离开应用不能继续下一步。
+            return WorkflowDeviceActionSafetyDecision.Denied(
+                WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+                "设备动作后页面已离开本任务限定应用",
             )
         }
         if (
@@ -511,7 +551,7 @@ class WorkflowDeviceActionSafetyPolicy(
     }
 
     companion object {
-        const val RULE_VERSION = "workflow-device-action-safety-v1"
+        const val RULE_VERSION = "workflow-device-action-safety-v2"
         private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
         private const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
@@ -534,5 +574,11 @@ class WorkflowDeviceActionSafetyPolicy(
         )
         private val SAFE_NAVIGATION_TOOL_NAMES = setOf(DEVICE_BACK_TOOL_NAME, DEVICE_HOME_TOOL_NAME)
         private val REFERENCE_ACTION_TOOL_NAMES = setOf("device.tap_ref", "device.type_text", "device.swipe")
+        private val TARGET_BOUND_COMPLETION_TOOL_NAMES = setOf(
+            DEVICE_OPEN_APP_TOOL_NAME,
+            "device.tap_ref",
+            DEVICE_TYPE_TEXT_TOOL_NAME,
+            DEVICE_SWIPE_TOOL_NAME,
+        )
     }
 }

@@ -641,7 +641,7 @@ class MinimalAgentRuntime internal constructor(
         }
         validateToolExecutionPolicy(definition, executionOrigin)
         checkToolBudget(state.executedToolCalls)
-        checkLoopRisk(toolCall, state.toolCallFingerprints)
+        checkLoopRisk(toolCall, state.toolCallFingerprints, state.completedTools)
         if (validation != null) {
             ledger.appendEvent(
                 runId = runId,
@@ -1214,15 +1214,36 @@ class MinimalAgentRuntime internal constructor(
         }
     }
 
-    private fun checkLoopRisk(toolCall: ToolCall, fingerprints: MutableSet<String>) {
+    private fun checkLoopRisk(
+        toolCall: ToolCall,
+        fingerprints: MutableSet<String>,
+        completedTools: List<AgentToolExecution>,
+    ) {
         val fingerprint = toolCallFingerprint(toolCall)
         if (!fingerprints.add(fingerprint)) {
+            // long: 页面动作通过应用侧验证后，Agent 必须重新观察才能使用新节点引用继续任务；这里只放行紧跟动作的 snapshot，连续观察和重复副作用仍由原指纹门禁拒绝。
+            val previousVerifiedToolName = completedTools.lastOrNull()?.toolCall?.name
+            if (toolCall.name == DEVICE_SNAPSHOT_TOOL_NAME && previousVerifiedToolName in DEVICE_ACTION_TOOL_NAMES) {
+                return
+            }
             throw AgentBudgetExceededException("检测到重复工具调用：${toolCall.name}")
         }
     }
 
     private fun toolCallFingerprint(toolCall: ToolCall): String =
         "${toolCall.name}:${toolCall.arguments.toSortedMap()}"
+
+    private companion object {
+        private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+        private val DEVICE_ACTION_TOOL_NAMES = setOf(
+            "device.open_app",
+            "device.back",
+            "device.home",
+            "device.tap_ref",
+            "device.type_text",
+            "device.swipe",
+        )
+    }
 
     private data class RestoredExecutionBudget(
         val snapshot: AgentExecutionBudgetSnapshot,

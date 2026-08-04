@@ -165,6 +165,33 @@ class MultiStepAgentRuntimeTest {
     }
 
     @Test
+    fun snapshotCanRefreshOnlyAfterVerifiedDeviceAction() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RefreshableSnapshotToolRegistry()
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = scriptedLlm { completedTools ->
+                when (completedTools.size) {
+                    0 -> AgentPlanDecision.CallTool(
+                        ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
+                    )
+                    1 -> AgentPlanDecision.CallTool(
+                        ToolCall(name = "device.back", arguments = emptyMap(), risk = ToolRisk.SAFE),
+                    )
+                    2 -> AgentPlanDecision.CallTool(
+                        ToolCall(name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
+                    )
+                    else -> AgentPlanDecision.Complete
+                }
+            },
+        ).run("conversation-refresh", "message-refresh", "返回后重新观察")
+
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertEquals(listOf("device.snapshot", "device.back", "device.snapshot"), registry.executedToolNames)
+    }
+
+    @Test
     fun eachNonSafeToolStepRequiresIndependentApproval() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val registry = RecordingMultiStepToolRegistry(risk = ToolRisk.REQUIRES_APPROVAL)
@@ -259,6 +286,22 @@ private class RecordingMultiStepToolRegistry(
             ),
         ),
     )
+}
+
+private class RefreshableSnapshotToolRegistry : ToolRegistry {
+    private val tools = listOf("device.snapshot", "device.back").map { name ->
+        ToolDefinition(name = name, description = name, risk = ToolRisk.SAFE)
+    }
+    val executedToolNames = mutableListOf<String>()
+
+    override fun availableTools(): List<ToolDefinition> = tools
+
+    override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
+
+    override suspend fun execute(call: ToolCall): ToolExecutionResult {
+        executedToolNames += call.name
+        return ToolExecutionResult(success = true, content = "${call.name} 已验证")
+    }
 }
 
 private class MutableMonotonicClock : MonotonicClock {

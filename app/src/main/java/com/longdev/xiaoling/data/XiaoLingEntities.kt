@@ -487,6 +487,7 @@ data class WorkflowEntity(
     val enabled: Boolean,
     val createdAt: Long,
     val updatedAt: Long,
+    val targetAppPackage: String? = null,
 )
 
 @Entity(

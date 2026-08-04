@@ -422,6 +422,8 @@ class XiaoLingToolRegistry(
             WorkflowDeviceActionExecutionEvidence(
                 identity = identity,
                 userIntent = workflowContext.userIntent,
+                targetAppPackage = workflowContext.targetAppPackage,
+                beforePackageName = snapshot.snapshot.packageName,
                 invocationSource = context.invocationSource,
                 executionOrigin = context.executionOrigin,
                 currentProcessSessionId = context.processSessionId,
@@ -754,6 +756,7 @@ class XiaoLingToolRegistry(
                 // long: type_text 的通用授权会移除原文；完成校验必须使用执行前仅驻留内存的原始 identity 才能重新核对文本指纹与精确回读。
                 identity = executed.identity,
                 authorization = executed.authorization,
+                targetAppPackage = context.workflowDeviceActionContext?.targetAppPackage,
                 resultAgentRunId = context.runId,
                 resultToolCallId = call.id,
                 resultToolName = call.name,

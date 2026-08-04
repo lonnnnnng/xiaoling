@@ -200,6 +200,8 @@ class WorkflowTypeTextSafetyPolicyTest {
         return WorkflowDeviceActionExecutionEvidence(
             identity = identity,
             userIntent = "在当前普通文本框输入一段非敏感测试文本",
+            targetAppPackage = "com.android.settings",
+            beforePackageName = "com.android.settings",
             invocationSource = AgentInvocationSource.WORKFLOW,
             executionOrigin = AgentExecutionOrigin.FOREGROUND,
             currentProcessSessionId = "process-session-current",
@@ -237,6 +239,7 @@ class WorkflowTypeTextSafetyPolicyTest {
         return WorkflowDeviceActionCompletionEvidence(
             identity = identity,
             authorization = authorization,
+            targetAppPackage = "com.android.settings",
             resultAgentRunId = identity.agentRunId,
             resultToolCallId = identity.toolCallId,
             resultToolName = identity.toolName,
@@ -244,6 +247,7 @@ class WorkflowTypeTextSafetyPolicyTest {
             executorVerified = true,
             verificationPassed = true,
             actionCompletedAt = 2_400L,
+            afterPackageName = "com.android.settings",
             afterObservation = WorkflowDeviceActionPostObservationEvidence(
                 agentRunId = identity.agentRunId,
                 actionToolCallId = identity.toolCallId,

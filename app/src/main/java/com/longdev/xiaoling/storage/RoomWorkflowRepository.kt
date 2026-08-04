@@ -38,6 +38,7 @@ import com.longdev.xiaoling.automation.WorkflowStepRecord
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.WorkflowTrigger
+import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.data.WorkflowEntity
 import com.longdev.xiaoling.data.WorkflowRunEntity
 import com.longdev.xiaoling.data.WorkflowStepDefinitionEntity
@@ -80,7 +81,7 @@ class RoomWorkflowRepository(
         return database.withTransaction {
             val dao = database.workflowDao()
             val now = System.currentTimeMillis()
-            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now)
+            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now, targetAppPackage = null)
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
             workflow.toRecord(definitions)
@@ -91,17 +92,30 @@ class RoomWorkflowRepository(
         name: String,
         steps: List<WorkflowStepDefinitionInput>,
         conversationId: String,
+        targetAppPackage: String? = null,
     ): Pair<WorkflowRecord, WorkflowRunDetail> {
         val normalizedName = name.trim()
         val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
         WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
         require(conversationId.isNotBlank()) { "工作流会话不能为空" }
+        val normalizedTargetAppPackage = normalizeTargetAppPackage(targetAppPackage)
         // long: 用户确认个人任务后，Workflow 定义、Run 与全部步骤快照必须一次提交；进程在任一点退出都不能留下只有计划、没有审计 Run 的半成品。
         return database.withTransaction {
             val dao = database.workflowDao()
             val now = System.currentTimeMillis()
-            val (workflow, definitions) = newWorkflowRecords(normalizedName, normalizedSteps, now)
-            val (run, runSteps) = newManualRunRecords(workflow.id, definitions, conversationId, now)
+            val (workflow, definitions) = newWorkflowRecords(
+                normalizedName,
+                normalizedSteps,
+                now,
+                normalizedTargetAppPackage,
+            )
+            val (run, runSteps) = newManualRunRecords(
+                workflow.id,
+                definitions,
+                conversationId,
+                now,
+                normalizedTargetAppPackage,
+            )
             dao.upsertWorkflow(workflow)
             dao.upsertWorkflowStepDefinitions(definitions)
             dao.upsertRun(run)
@@ -171,7 +185,13 @@ class RoomWorkflowRepository(
             val definitions = dao.getWorkflowStepDefinitions(workflowId)
             require(definitions.isNotEmpty()) { "工作流没有可执行步骤" }
             val now = System.currentTimeMillis()
-            val (run, runSteps) = newManualRunRecords(workflowId, definitions, conversationId, now)
+            val (run, runSteps) = newManualRunRecords(
+                workflowId,
+                definitions,
+                conversationId,
+                now,
+                workflow.targetAppPackage,
+            )
             dao.upsertRun(run)
             runSteps.forEach { dao.upsertStep(it) }
             WorkflowRunDetail(run.toRecord(), runSteps.map { it.toRecord() })
@@ -182,6 +202,7 @@ class RoomWorkflowRepository(
         normalizedName: String,
         normalizedSteps: List<WorkflowStepDefinitionInput>,
         now: Long,
+        targetAppPackage: String?,
     ): Pair<WorkflowEntity, List<WorkflowStepDefinitionEntity>> {
         val workflowId = "workflow-${UUID.randomUUID()}"
         val workflow = WorkflowEntity(
@@ -192,6 +213,7 @@ class RoomWorkflowRepository(
             enabled = true,
             createdAt = now,
             updatedAt = now,
+            targetAppPackage = targetAppPackage,
         )
         val definitions = normalizedSteps.mapIndexed { index, step ->
             val definitionId = "workflow-definition-step-${UUID.randomUUID()}"
@@ -213,6 +235,7 @@ class RoomWorkflowRepository(
         definitions: List<WorkflowStepDefinitionEntity>,
         conversationId: String,
         now: Long,
+        targetAppPackage: String?,
     ): Pair<WorkflowRunEntity, List<WorkflowStepEntity>> {
         val run = WorkflowRunEntity(
             id = "workflow-run-${UUID.randomUUID()}",
@@ -230,7 +253,9 @@ class RoomWorkflowRepository(
             completedAt = null,
             retryOfWorkflowRunId = null,
         )
-        return run to definitions.map { definition -> definition.toRunStep(run.id, now, background = false) }
+        return run to definitions.map { definition ->
+            definition.toRunStep(run.id, now, background = false, targetAppPackage = targetAppPackage)
+        }
     }
 
     suspend fun listScheduledTasks(): List<ScheduledTaskRecord> {
@@ -613,7 +638,14 @@ class RoomWorkflowRepository(
                 completedAt = null,
                 retryOfWorkflowRunId = null,
             )
-            val runSteps = definitions.map { definition -> definition.toRunStep(run.id, now, background = true) }
+            val runSteps = definitions.map { definition ->
+                definition.toRunStep(
+                    workflowRunId = run.id,
+                    now = now,
+                    background = true,
+                    targetAppPackage = workflow.targetAppPackage,
+                )
+            }
             val updatedTask = task.copy(
                 status = ScheduledTaskStatus.RUNNING.name,
                 workflowRunId = run.id,
@@ -864,8 +896,13 @@ class RoomWorkflowRepository(
             val expected = WorkflowStepExecutionPolicy.nextExecutableStep(steps.map { it.toRecord() })
             require(expected?.id == step.id) { "工作流步骤必须按顺序准备" }
             val previousOutputs = currentPreviousOutputs(steps, step.sequence)
+            val targetAppPackage = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot).targetAppPackage
             val updated = step.copy(
-                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(step.detail, previousOutputs),
+                inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+                    step.detail,
+                    previousOutputs,
+                    targetAppPackage,
+                ),
             )
             dao.upsertStep(updated)
             updated.toRecord()
@@ -888,6 +925,7 @@ class RoomWorkflowRepository(
             require(step.agentRunId == null || step.agentRunId == agentRunId) { "工作流步骤已关联其他 Agent Run" }
             val now = System.currentTimeMillis()
             val previousOutputs = currentPreviousOutputs(steps, step.sequence)
+            val targetAppPackage = WorkflowStepSnapshotCodec.decodeInput(step.inputSnapshot).targetAppPackage
             val updated = current.copy(
                 agentRunId = agentRunId,
                 status = WorkflowRunStatus.RUNNING.name,
@@ -900,7 +938,11 @@ class RoomWorkflowRepository(
                     status = WorkflowStepStatus.RUNNING.name,
                     agentRunId = agentRunId,
                     startedAt = step.startedAt ?: now,
-                    inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(step.detail, previousOutputs),
+                    inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(
+                        step.detail,
+                        previousOutputs,
+                        targetAppPackage,
+                    ),
                 ),
             )
             updated.toRecord()
@@ -1219,7 +1261,13 @@ class RoomWorkflowRepository(
                     definitionStepId = sourceStep.definitionStepId,
                     idempotencyKey = sourceStep.idempotencyKey,
                     inputSnapshot = sourceStep.inputSnapshot.takeIf { reusable }
-                        ?: WorkflowStepSnapshotCodec.encodeInput(sourceStep.detail, emptyList()),
+                        ?: WorkflowStepSnapshotCodec.encodeInput(
+                            sourceStep.detail,
+                            emptyList(),
+                            runCatching {
+                                WorkflowStepSnapshotCodec.decodeInput(sourceStep.inputSnapshot).targetAppPackage
+                            }.getOrNull(),
+                        ),
                     outputSnapshot = sourceStep.outputSnapshot.takeIf { reusable },
                     reusedFromStepId = sourceStep.id.takeIf { reusable },
                 )
@@ -1605,6 +1653,7 @@ class RoomWorkflowRepository(
         createdAt = createdAt,
         updatedAt = updatedAt,
         steps = definitions.sortedBy { it.sequence }.map { it.toRecord() },
+        targetAppPackage = targetAppPackage,
     )
 
     private fun WorkflowStepDefinitionEntity.toRecord() = WorkflowStepDefinitionRecord(
@@ -1621,6 +1670,7 @@ class RoomWorkflowRepository(
         workflowRunId: String,
         now: Long,
         background: Boolean,
+        targetAppPackage: String?,
     ) = WorkflowStepEntity(
         id = "workflow-step-${UUID.randomUUID()}",
         workflowRunId = workflowRunId,
@@ -1637,7 +1687,7 @@ class RoomWorkflowRepository(
         completedAt = null,
         definitionStepId = id,
         idempotencyKey = idempotencyKey,
-        inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(goal, emptyList()),
+        inputSnapshot = WorkflowStepSnapshotCodec.encodeInput(goal, emptyList(), targetAppPackage),
         outputSnapshot = null,
         reusedFromStepId = null,
     )
@@ -1681,6 +1731,14 @@ class RoomWorkflowRepository(
         outputSnapshot = outputSnapshot,
         reusedFromStepId = reusedFromStepId,
     )
+
+    private fun normalizeTargetAppPackage(packageName: String?): String? {
+        val normalized = packageName?.trim()?.ifBlank { null }
+        require(normalized == null || normalized in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
+            "Workflow 目标应用不在允许列表"
+        }
+        return normalized
+    }
 
     private fun ScheduledTaskEntity.toRecord() = ScheduledTaskRecord(
         id = id,

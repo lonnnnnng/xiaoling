@@ -1105,6 +1105,30 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate33To34KeepsLegacyWorkflowsWithoutInventingTargetApp() {
+        migrationHelper.createDatabase(WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME, 33).apply {
+            execSQL(
+                "INSERT INTO workflows (id, name, goal, enabled, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)",
+                arrayOf<Any?>("workflow-v33", "旧工作流", "读取当前时间", 1, 100L, 100L),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME,
+            34,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("SELECT targetAppPackage FROM workflows WHERE id = 'workflow-v33'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate29To30CreatesEmbeddingIndexAndKeepsLegacyRetrievalLexicalOnly() {
         migrationHelper.createDatabase(EMBEDDING_MIGRATION_DATABASE_NAME, 29).apply {
             execSQL(
@@ -1320,5 +1344,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val EMBEDDING_CALIBRATION_MIGRATION_DATABASE_NAME = "xiaoling-embedding-calibration-migration-test"
         private const val RELATIVE_DIAGNOSTICS_MIGRATION_DATABASE_NAME = "xiaoling-relative-diagnostics-migration-test"
         private const val ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME = "xiaoling-answerability-shadow-migration-test"
+        private const val WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME = "xiaoling-workflow-target-app-migration-test"
     }
 }

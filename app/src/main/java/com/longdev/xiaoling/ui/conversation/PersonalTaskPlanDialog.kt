@@ -54,6 +54,14 @@ internal fun PersonalTaskPlanDialog(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
+                state.targetAppPackage?.let { packageName ->
+                    Text(
+                        text = "限定应用：$packageName",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     state.steps.forEachIndexed { index, goal ->
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {

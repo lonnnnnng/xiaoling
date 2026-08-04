@@ -27,6 +27,7 @@ interface WorkflowDeviceActionApprovalPersistence {
 class WorkflowDeviceActionApprovalGate(
     private val conversationId: String,
     private val userIntent: String,
+    private val targetAppPackage: String? = null,
     private val fallback: ApprovalGate,
     private val persistence: WorkflowDeviceActionApprovalPersistence,
     private val overlayRequester: DeviceActionApprovalOverlayRequester,
@@ -158,6 +159,7 @@ class WorkflowDeviceActionApprovalGate(
             val packageName = arguments["package_name"]
                 ?.takeIf { arguments.keys == setOf("package_name") }
                 ?.takeIf { it in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES }
+                ?.takeIf { it == targetAppPackage }
                 ?: return null
             // long: 浮层与 Room 都绑定模型实际请求的白名单包名，用户批准计算器不能被复用于设置或任意第三方应用。
             return WorkflowDeviceActionApprovalInput(

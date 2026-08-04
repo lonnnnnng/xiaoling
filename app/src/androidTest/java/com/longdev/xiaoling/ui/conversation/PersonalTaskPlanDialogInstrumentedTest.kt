@@ -31,6 +31,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         allowedToolNames = listOf("app.current_time", "notes.create"),
                         approvalToolNames = listOf("notes.create"),
                         createdAt = 1L,
+                        targetAppPackage = "com.android.settings",
                     ),
                     onConfirm = { confirmCount += 1 },
                     onDismiss = {},
@@ -41,6 +42,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("记录当前时间").assertExists()
         composeRule.onNodeWithText("1.").assertExists()
         composeRule.onNodeWithText("读取当前时间").assertExists()
+        composeRule.onNodeWithText("限定应用：com.android.settings").assertExists()
         composeRule.onNodeWithText("可能触发审批：notes.create", substring = true).assertExists()
         composeRule.onNodeWithText("工具边界：app.current_time、notes.create", substring = true).assertExists()
         composeRule.onNodeWithTag("personal-task-plan-confirm").performClick()

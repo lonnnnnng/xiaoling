@@ -93,16 +93,22 @@ class RoomWorkflowRepositoryInstrumentedTest {
         val (workflow, run) = repository.createWorkflowAndManualRun(
             name = "记录当前时间",
             steps = listOf(
-                WorkflowStepDefinitionInput("读取当前时间"),
-                WorkflowStepDefinitionInput("把时间写入笔记"),
+                WorkflowStepDefinitionInput("打开系统设置"),
+                WorkflowStepDefinitionInput("查看当前页面"),
             ),
             conversationId = "conversation-personal-task",
+            targetAppPackage = "com.android.settings",
         )
 
         assertEquals(workflow.id, run.run.workflowId)
         assertEquals(WorkflowRunStatus.QUEUED, run.run.status)
         assertEquals("conversation-personal-task", run.run.conversationId)
-        assertEquals(listOf("读取当前时间", "把时间写入笔记"), run.steps.map { it.detail })
+        assertEquals("com.android.settings", workflow.targetAppPackage)
+        assertEquals(listOf("打开系统设置", "查看当前页面"), run.steps.map { it.detail })
+        assertEquals(
+            listOf("com.android.settings", "com.android.settings"),
+            run.steps.map { WorkflowStepSnapshotCodec.decodeInput(it.inputSnapshot).targetAppPackage },
+        )
         assertEquals(listOf(workflow.id), repository.listWorkflows().map { it.id })
         assertEquals(listOf(run.run.id), repository.recentRunDetails().map { it.run.id })
     }

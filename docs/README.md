@@ -1,6 +1,8 @@
 # 文档索引
 
-后续主线已确认采用“先跑通完整个人 Agent，再集中打磨细节”。第 127 阶段的自然语言个人任务与可确认临时计划已经完成；第 128 至 132 阶段继续按限定 App 多动作执行、目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收的顺序推进。每个阶段必须交付用户可直接体验的能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再作为当前主线。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+后续主线已确认采用“先跑通完整个人 Agent，再集中打磨细节”。第 127 阶段的自然语言个人任务与可确认临时计划、第 128 阶段的限定 App 多动作连续执行均已完成；第 129 至 132 阶段继续按目标级验证、记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收的顺序推进。每个阶段必须交付用户可直接体验的能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再作为当前主线。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 128 阶段把任务计划中的 `target_app_package` 冻结到 Workflow、Run 与每个步骤快照，主干数据库升级为 Room v34；v33 旧 Workflow 保持目标包为空，不猜造历史权限。生产安全策略升级为 `workflow-device-action-safety-v2`：`open_app` 必须打开冻结目标包，`tap_ref / type_text / swipe` 动作前后都必须留在目标包，`back / home` 只允许从目标包起步，后续动作若未重新打开目标包会继续 fail-closed。Runtime 只在上一项设备动作已经验证后允许刷新同参数 `device.snapshot`，连续 snapshot 和重复副作用仍由循环指纹门禁拒绝。八组聚焦 JVM `92/92`、Debug APK、Room v33→v34 迁移/目标包持久化/确认弹层三个 Redmi 单项和真实 `snapshot -> swipe(up) -> snapshot -> back` 生产 Registry tracer 均通过；最终日志为 `success=true / verified=2/2 / approvals=0 / freshSnapshots=true / targetPackage=com.android.settings / finalPackage=com.longdev.xiaoling / privacySafe=true`。本阶段只证明首批限定 App 的动作级连续执行，目标级结论仍属于第 129 阶段；未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
 当前发布版本提升为 `v0.1.15`（`versionCode 16`、Room v33）。本版汇总 `v0.1.14` 后第 122 至 127 阶段：完成 `device.swipe` 的安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，并新增自然语言个人任务、严格 1 至 8 步计划、确认前零执行和确认后原子创建普通 Workflow/Run。按用户“不要验证，直接发版”的明确要求，本轮只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`。
 

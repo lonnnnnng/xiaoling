@@ -196,6 +196,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         )
         val execution = base.copy(
             identity = identity,
+            targetAppPackage = "com.android.calculator2",
             userIntent = "打开系统计算器",
             approval = approval,
             liveReferenceMatched = false,
@@ -235,6 +236,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
 
         val completion = validCompletionEvidence(allowed.authorization).copy(
             identity = identity,
+            targetAppPackage = "com.android.calculator2",
             resultToolName = identity.toolName,
             afterPackageName = "com.android.calculator2",
         )
@@ -243,8 +245,45 @@ class WorkflowDeviceActionSafetyPolicyTest {
             policy.assessCompletion(completion),
         )
         assertDenied(
-            WorkflowDeviceActionSafetyFailure.ACTION_RESULT_MISMATCH,
+            WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
             policy.assessCompletion(completion.copy(afterPackageName = "com.android.settings")),
+        )
+    }
+
+    @Test
+    fun limitedAppTaskRejectsCrossAppExecutionAndCompletion() {
+        val tapPolicy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.tap_ref"))
+        val tap = validExecutionEvidence()
+
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+            tapPolicy.assessExecution(tap.copy(beforePackageName = "com.android.settings")),
+        )
+        val authorization = (tapPolicy.assessExecution(tap) as WorkflowDeviceActionSafetyDecision.Allowed).authorization
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+            tapPolicy.assessCompletion(
+                validCompletionEvidence(authorization).copy(afterPackageName = "com.android.settings"),
+            ),
+        )
+
+        val openPolicy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.open_app"))
+        val openIdentity = tap.identity.copy(
+            toolName = "device.open_app",
+            arguments = mapOf("package_name" to "com.android.settings"),
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
+            openPolicy.assessExecution(
+                tap.copy(
+                    identity = openIdentity,
+                    approval = requireNotNull(tap.approval).copy(
+                        toolName = openIdentity.toolName,
+                        arguments = openIdentity.arguments,
+                    ),
+                    liveReferenceMatched = false,
+                ),
+            ),
         )
     }
 
@@ -273,7 +312,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         assertTrue(allowed is WorkflowDeviceActionSafetyDecision.Allowed)
         allowed as WorkflowDeviceActionSafetyDecision.Allowed
         assertEquals(valid.identity, allowed.authorization.identity)
-        assertEquals("workflow-device-action-safety-v1", allowed.authorization.ruleVersion)
+        assertEquals("workflow-device-action-safety-v2", allowed.authorization.ruleVersion)
     }
 
     @Test
@@ -517,6 +556,8 @@ class WorkflowDeviceActionSafetyPolicyTest {
             arguments = mapOf("snapshot_id" to "snapshot-current", "ref" to "r1"),
         ),
         userIntent = "点击计算器数字 1 按钮",
+        targetAppPackage = "com.android.calculator2",
+        beforePackageName = "com.android.calculator2",
         invocationSource = AgentInvocationSource.WORKFLOW,
         executionOrigin = AgentExecutionOrigin.FOREGROUND,
         currentProcessSessionId = "process-session-current",
@@ -551,6 +592,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         return WorkflowDeviceActionCompletionEvidence(
             identity = identity,
             authorization = authorization,
+            targetAppPackage = "com.android.calculator2",
             resultAgentRunId = identity.agentRunId,
             resultToolCallId = identity.toolCallId,
             resultToolName = identity.toolName,
@@ -558,6 +600,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
             executorVerified = true,
             verificationPassed = true,
             actionCompletedAt = 2_400L,
+            afterPackageName = "com.android.calculator2",
             afterObservation = WorkflowDeviceActionPostObservationEvidence(
                 agentRunId = identity.agentRunId,
                 actionToolCallId = identity.toolCallId,

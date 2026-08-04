@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
+import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.network.LlmStructuredOutputFormat
 import com.longdev.xiaoling.network.RequestMessage
 import org.json.JSONArray
@@ -14,6 +15,7 @@ data class PersonalTaskPlanStep(
 
 data class PersonalTaskPlan(
     val name: String,
+    val targetAppPackage: String?,
     val steps: List<PersonalTaskPlanStep>,
 )
 
@@ -27,6 +29,17 @@ object PersonalTaskPlanPolicy {
                     "properties",
                     JSONObject()
                         .put("name", JSONObject().put("type", "string"))
+                        .put(
+                            "target_app_package",
+                            JSONObject()
+                                .put("type", "string")
+                                .put(
+                                    "enum",
+                                    JSONArray(
+                                        listOf("") + DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted(),
+                                    ),
+                                ),
+                        )
                         .put(
                             "steps",
                             JSONObject()
@@ -46,12 +59,16 @@ object PersonalTaskPlanPolicy {
                                 ),
                         ),
                 )
-                .put("required", JSONArray().put("name").put("steps"))
+                .put("required", JSONArray().put("name").put("target_app_package").put("steps"))
                 .put("additionalProperties", false),
         )
     }
 
-    fun requestMessages(goal: String, allowedToolNames: List<String>): List<RequestMessage> {
+    fun requestMessages(
+        goal: String,
+        allowedToolNames: List<String>,
+        allowedAppPackages: List<String> = DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted(),
+    ): List<RequestMessage> {
         val normalizedGoal = goal.trim()
         require(normalizedGoal.isNotEmpty()) { "个人任务目标不能为空" }
         val toolBoundary = allowedToolNames
@@ -61,12 +78,19 @@ object PersonalTaskPlanPolicy {
             .sorted()
             .joinToString()
             .ifBlank { "无" }
+        val appBoundary = allowedAppPackages
+            .map(String::trim)
+            .filter { packageName -> packageName in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES }
+            .distinct()
+            .sorted()
+            .joinToString()
+            .ifBlank { "无" }
         return listOf(
             RequestMessage(
                 role = "system",
                 content = """
                     你负责把用户目标拆成可确认的临时计划。你不能执行工具、不能声称任务已完成，也不能扩大给定工具边界。
-                    只返回符合 JSON Schema 的对象。name 是简短任务名；steps 是按执行顺序排列的 1 至 ${WorkflowDefinitionPolicy.MAX_STEPS} 个独立 Agent 目标。
+                    只返回符合 JSON Schema 的对象。name 是简短任务名；target_app_package 是整份任务唯一允许操作的应用包名，不需要设备操作时必须返回空字符串；steps 是按执行顺序排列的 1 至 ${WorkflowDefinitionPolicy.MAX_STEPS} 个独立 Agent 目标。
                     每一步只描述可验证的业务目标，不写工具调用 JSON，不包含审批已通过或结果已产生等虚假事实。
                 """.trimIndent(),
             ),
@@ -74,7 +98,8 @@ object PersonalTaskPlanPolicy {
                 role = "user",
                 content = buildString {
                     appendLine("用户目标：$normalizedGoal")
-                    append("当前 Agent 允许的工具：$toolBoundary")
+                    appendLine("当前 Agent 允许的工具：$toolBoundary")
+                    append("当前任务可选择的目标应用：$appBoundary")
                 },
             ),
         )
@@ -97,6 +122,10 @@ object PersonalTaskPlanPolicy {
         require(root.keys().asSequence().toSet() == ROOT_KEYS) { "任务计划字段不符合约定" }
 
         val name = root.getString("name").trim()
+        val targetAppPackage = root.getString("target_app_package").trim().ifBlank { null }
+        require(targetAppPackage == null || targetAppPackage in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES) {
+            "任务计划目标应用不在允许列表"
+        }
         val stepArray = root.getJSONArray("steps")
         val steps = buildList {
             repeat(stepArray.length()) { index ->
@@ -112,9 +141,9 @@ object PersonalTaskPlanPolicy {
             name = name,
             steps = steps.map { step -> WorkflowStepDefinitionInput(step.goal) },
         )
-        return PersonalTaskPlan(name = name, steps = steps)
+        return PersonalTaskPlan(name = name, targetAppPackage = targetAppPackage, steps = steps)
     }
 
-    private val ROOT_KEYS = setOf("name", "steps")
+    private val ROOT_KEYS = setOf("name", "target_app_package", "steps")
     private val STEP_KEYS = setOf("goal")
 }

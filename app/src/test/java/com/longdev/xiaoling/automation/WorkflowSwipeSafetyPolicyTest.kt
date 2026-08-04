@@ -295,6 +295,8 @@ class WorkflowSwipeSafetyPolicyTest {
     ) = WorkflowDeviceActionExecutionEvidence(
         identity = validIdentity(),
         userIntent = "向上滚动当前系统设置列表",
+        targetAppPackage = "com.android.settings",
+        beforePackageName = "com.android.settings",
         invocationSource = AgentInvocationSource.WORKFLOW,
         executionOrigin = AgentExecutionOrigin.FOREGROUND,
         currentProcessSessionId = "process-session-current",
@@ -321,6 +323,7 @@ class WorkflowSwipeSafetyPolicyTest {
     ) = WorkflowDeviceActionCompletionEvidence(
         identity = validIdentity(),
         authorization = authorization,
+        targetAppPackage = "com.android.settings",
         resultAgentRunId = "agent-run-current",
         resultToolCallId = "tool-call-current",
         resultToolName = "device.swipe",
@@ -328,6 +331,7 @@ class WorkflowSwipeSafetyPolicyTest {
         executorVerified = true,
         verificationPassed = true,
         actionCompletedAt = 2_400L,
+        afterPackageName = "com.android.settings",
         afterObservation = WorkflowDeviceActionPostObservationEvidence(
             agentRunId = "agent-run-current",
             actionToolCallId = "tool-call-current",

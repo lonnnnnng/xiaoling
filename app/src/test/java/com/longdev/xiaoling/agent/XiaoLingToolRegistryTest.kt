@@ -132,7 +132,12 @@ class XiaoLingToolRegistryTest {
             deviceController = provider,
             clock = FakeAgentClock(nowMillis = 1_500L),
         )
-        registry.bindRunContext(workflowDeviceContext(userIntent = "打开系统计算器"))
+        registry.bindRunContext(
+            workflowDeviceContext(
+                userIntent = "打开系统计算器",
+                targetAppPackage = "com.android.calculator2",
+            ),
+        )
         val snapshotCall = ToolCall(
             id = "tool-call-open-app-snapshot",
             name = "device.snapshot",
@@ -412,6 +417,7 @@ class XiaoLingToolRegistryTest {
                     workflowRunId = "workflow-run-current",
                     workflowStepId = "workflow-step-current",
                     userIntent = "点击当前页面的继续按钮",
+                    targetAppPackage = "com.android.settings",
                 ),
             ),
         )
@@ -620,7 +626,7 @@ class XiaoLingToolRegistryTest {
                 actions = setOf(DeviceNodeAction.SWIPE),
             ),
             swipeViewport = DeviceSwipeViewportEvidence(
-                packageName = "com.example.safe",
+                packageName = "com.android.settings",
                 windowId = 1,
                 windowGeneration = 2L,
                 targetFingerprint = "a".repeat(64),
@@ -800,7 +806,7 @@ class XiaoLingToolRegistryTest {
                 actions = setOf(DeviceNodeAction.SWIPE),
             ),
             swipeViewport = DeviceSwipeViewportEvidence(
-                packageName = "com.example.safe",
+                packageName = "com.android.settings",
                 windowId = 1,
                 windowGeneration = 2L,
                 targetFingerprint = "a".repeat(64),
@@ -871,6 +877,7 @@ class XiaoLingToolRegistryTest {
                 workflowRunId = "workflow-run-current",
                 workflowStepId = "workflow-step-current",
                 userIntent = "点击当前页面的继续按钮",
+                targetAppPackage = "com.android.settings",
             ),
         )
         registry.bindRunContext(workflowContext("run-old"))
@@ -1429,7 +1436,7 @@ class XiaoLingToolRegistryTest {
 
     private fun successfulSwipeEvidence(): DeviceSwipeVerificationEvidence {
         val beforeViewport = DeviceSwipeViewportEvidence(
-            packageName = "com.example.safe",
+            packageName = "com.android.settings",
             windowId = 1,
             windowGeneration = 2L,
             targetFingerprint = "a".repeat(64),
@@ -1452,7 +1459,10 @@ class XiaoLingToolRegistryTest {
         )
     }
 
-    private fun workflowDeviceContext(userIntent: String): AgentToolExecutionContext {
+    private fun workflowDeviceContext(
+        userIntent: String,
+        targetAppPackage: String = "com.android.settings",
+    ): AgentToolExecutionContext {
         return AgentToolExecutionContext(
             conversationId = "conversation-workflow",
             userMessageId = "message-workflow",
@@ -1465,6 +1475,7 @@ class XiaoLingToolRegistryTest {
                 workflowRunId = "workflow-run-current",
                 workflowStepId = "workflow-step-current",
                 userIntent = userIntent,
+                targetAppPackage = targetAppPackage,
             ),
         )
     }
@@ -1515,7 +1526,7 @@ private class FakeDeviceController(
         return DeviceSnapshotCapture.Success(
             snapshot = DeviceSnapshot(
                 snapshotId = "snapshot-direct",
-                packageName = "com.example.safe",
+                packageName = "com.android.settings",
                 windowTitle = "首页",
                 windowId = 1,
                 windowGeneration = 2L,
@@ -1584,7 +1595,7 @@ private class FakeDeviceController(
         return successfulAction(
             action = "swipe",
             afterSnapshot = snapshot(
-                packageName = afterViewport?.packageName ?: "com.example.safe",
+                packageName = afterViewport?.packageName ?: "com.android.settings",
                 windowId = swipeAfterSnapshotWindowId ?: afterViewport?.windowId ?: 2,
                 windowGeneration = afterViewport?.windowGeneration ?: 3L,
             ),
@@ -1594,7 +1605,7 @@ private class FakeDeviceController(
 
     private fun successfulAction(
         action: String,
-        packageName: String = "com.example.safe",
+        packageName: String = "com.android.settings",
         typeTextReadBack: DeviceTypeTextReadBack? = null,
         afterSnapshot: DeviceSnapshot = snapshot(packageName),
         swipeEvidence: DeviceSwipeVerificationEvidence? = null,

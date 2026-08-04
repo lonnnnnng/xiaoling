@@ -1,13 +1,23 @@
 # 当前实现说明
 
-## 第 127 至 132 阶段实现顺序（已确认）
+## 第 127 至 132 阶段实现顺序（第 127/128 阶段已完成）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
-- 第 128/129 阶段先把七项前台设备工具组合为限定 App 多动作任务，再新增目标级本地验证；单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
+- 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段继续新增目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
 - 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
+
+## 第 128 阶段：限定 App 多动作连续执行（完成）
+
+- `PersonalTaskPlan` 新增可空 `target_app_package`，非空时只能选择首批允许包；确认弹层展示限定应用。该包随 Workflow 定义、手动/定时 Run 和每个 `WorkflowStepInputSnapshot` 冻结，关联重试继续沿用原目标包，不能被后续配置漂移改写。
+- Room 升级到 v34，在 `workflows` 增加 nullable `targetAppPackage`。`MIGRATION_33_34` 只增加列，旧 Workflow 保持 `null`；`34.json` 与迁移一致。这样旧数据不会被猜造成已经获准控制某个 App。
+- `WorkflowDeviceActionSafetyPolicy` 升级为 `workflow-device-action-safety-v2`。`open_app` 只能打开冻结目标包；`tap_ref / type_text / swipe` 的动作前后包名必须等于目标包；`back / home` 可以作为从目标包起步的受控离开动作，但下一次非 `open_app` 动作仍会因包名不匹配拒绝。`WorkflowDeviceActionApprovalGate` 的 `open_app` 审批同样绑定目标包。
+- `MinimalAgentRuntime` 保留全局重复 ToolCall 指纹，只为紧跟在已完成且已验证设备动作后的 `device.snapshot` 开窄例外；连续 snapshot、重复动作和未验证动作后的刷新仍拒绝。该边界让页面变化后必须取得新 snapshot/ref，而不会放宽重复副作用防护。
+- Debug 真实 tracer 在同一 `MinimalAgentRuntime + RoomAgentRunRepository` Run 中执行 `snapshot -> swipe(up) -> snapshot -> back -> Complete`。两次动作均复用生产 Registry、安全策略、Executor/typed 验证和动作后观察；snapshot ID 必须更新，SAFE 动作不创建审批，持久结果不含节点正文或可复用 ref。
+- TDD 首轮以 `AgentBudgetExceededException: 检测到重复工具调用：device.snapshot` 暴露刷新缺口；修复后八组聚焦 JVM `92/92`。Debug APK 构建成功；仅 Redmi 的 v33→v34 迁移、目标包持久化、计划确认弹层分别为 `OK (1 test)`，真实多动作日志为 `success=true / actions=swipe, back / verified=2/2 / approvals=0 / freshSnapshots=true / targetPackage=com.android.settings / finalPackage=com.longdev.xiaoling / privacySafe=true`。提交前 Standards/Spec 双轴复审在文档同步后无遗留实现 finding。
+- 本阶段没有实现第 129 阶段的目标级判定，也没有开放任意 App、后台/定时设备控制、截图/视觉、坐标、精确定时或 Foreground Service。按快速迭代分级未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 
 ## 小灵 v0.1.15 发布基线
 

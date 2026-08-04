@@ -41,7 +41,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -58,7 +58,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 33
+        const val CURRENT_VERSION = 34
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -870,6 +870,13 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 旧 Workflow 没有经过“限定 App”确认，迁移只能保留 null；后续新 Run 不得从步骤文本猜造目标包或继承权限。
+                db.execSQL("ALTER TABLE `workflows` ADD COLUMN `targetAppPackage` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -903,6 +910,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_30_31,
             MIGRATION_31_32,
             MIGRATION_32_33,
+            MIGRATION_33_34,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

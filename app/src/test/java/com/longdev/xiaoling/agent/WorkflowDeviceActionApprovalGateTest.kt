@@ -223,6 +223,7 @@ class WorkflowDeviceActionApprovalGateTest {
     ) = WorkflowDeviceActionApprovalGate(
         conversationId = "conversation-1",
         userIntent = "点击当前页面的安全按钮",
+        targetAppPackage = "com.android.calculator2",
         fallback = fallback,
         persistence = persistence,
         overlayRequester = requester,
