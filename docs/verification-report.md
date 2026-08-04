@@ -10,10 +10,18 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 阶段已开始真实使用打磨，先完成计划生成、任务/提醒创建、失败重试和通知权限等待体验。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 134 阶段继续真实使用打磨，已完成计划/任务/提醒交互和计划生成遥测可见性。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：第 133 阶段更新后的长期文档已重新打包，仅在 Redmi 运行 corpus 单项；首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
+
+## 2026-08-04 第 134 阶段：计划生成成本可见性
+
+- 实现边界：`ModelResponseResult` 的单次真实遥测映射到 `PendingPersonalTaskPlanUiState.generationMetrics`，确认弹层显示模型调用次数、总耗时、TTFB、Prompt 字节数和 input/output/total tokens。当前计划流程只调用模型一次，因此调用次数固定为 1。
+- 未知语义：Provider 没有返回 TTFB 或 Token usage 时显示 `未采集` / `未返回`，不把缺失当作 0，不估算货币成本，也不写 Provider 价格表。
+- 持久化边界：遥测只在确认前 UI 状态中存在；不写 Room、RunEvent、Workflow、Agent Run 或历史成本汇总，计划生成请求不伪装成 Runtime LLM 事件。确认、取消、失败和重试的既有语义保持不变。
+- 聚焦验证：定向 JVM 与 `compileDebugAndroidTestKotlin` 通过；`assembleDebug / assembleDebugAndroidTest` 成功。仅 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `ConversationPageInstrumentedTest + PersonalTaskPlanDialogInstrumentedTest`，结果 `OK (10 tests)`、`13.583s`。
+- 验证边界：本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release；ADB 安装与 instrumentation 明确使用 Redmi，未向在线模拟器发送命令。
 
 ## 2026-08-04 第 133 阶段：个人任务计划交互首轮打磨
 

@@ -14,6 +14,14 @@
 - Android 13+ 缺少通知权限时，提醒确认必须等待系统权限结果返回，等待期间禁用重复确认和返回。权限回调只有在原计划 ID 仍有效时才提交；拒绝权限不撤销用户已经确认的应用内调度语义，但界面必须保持“通知可能不可见”的既有边界。
 - 本阶段不修改 Room Schema、计划 Schema、工具白名单、审批、目标级验证或后台执行权限。验证遵守快速迭代分级，只覆盖相关 JVM、Debug/AndroidTest APK 和 Redmi 定向用例；不重复完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
+## 计划生成成本可见性（第 134 阶段，完成）
+
+- 计划确认弹层必须展示本次计划生成请求的真实模型调用次数、总耗时、TTFB、Prompt 字节数，以及 Provider 实际返回的 input/output/total Token usage。
+- 当前计划流程严格只发起一次模型请求，因此调用次数显示为 1；展示层只能使用 `ModelResponseResult` 的真实字段，不根据模型、Prompt 或耗时推算货币成本，不新增价格表或成本估算。
+- TTFB 或任一 Token usage 缺失时必须明确显示“未采集/未返回”或对应未知字段，不能用 0、平均值或估算值冒充真实使用量。
+- 计划生成遥测只属于确认前的 `PendingPersonalTaskPlanUiState`，不得写入 Room、RunEvent、Workflow、Agent Run 或跨计划历史账本；计划请求不伪装成 Agent Run 请求。
+- 本阶段只增加展示 DTO、格式化和 UI/聚焦测试，不修改计划 Schema、Room Schema、执行工具、审批或后台权限。验证按快速迭代分级完成，Release 与全量门禁留到里程碑。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

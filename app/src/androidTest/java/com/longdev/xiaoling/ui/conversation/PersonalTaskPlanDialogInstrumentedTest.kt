@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
+import com.longdev.xiaoling.ui.PersonalTaskPlanGenerationMetricsUiState
 import com.longdev.xiaoling.ui.PendingPersonalTaskPlanUiState
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -35,6 +36,15 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         createdAt = 1L,
                         memoryContextCount = 2,
                         knowledgeContextCount = 3,
+                        generationMetrics = PersonalTaskPlanGenerationMetricsUiState(
+                            modelCallCount = 1,
+                            latencyMs = 4_000L,
+                            firstByteLatencyMs = 320L,
+                            promptBytes = 6_144,
+                            inputTokens = 120L,
+                            outputTokens = 30L,
+                            totalTokens = 150L,
+                        ),
                         targetAppPackage = "com.android.settings",
                         goalVerificationSpec = WorkflowGoalVerificationSpec(
                             requiredToolNames = listOf("app.current_time", "notes.create"),
@@ -55,6 +65,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("完成时应用：com.android.settings", substring = true).assertExists()
         composeRule.onNodeWithText("可能触发审批：notes.create", substring = true).assertExists()
         composeRule.onNodeWithText("计划上下文：长期记忆 2 条 · 本地知识 3 个片段").assertExists()
+        composeRule.onNodeWithText("计划生成：模型 1 次 · 耗时 4.00s · TTFB 320ms · Prompt 6.0KB", substring = true).assertExists()
         composeRule.onNodeWithText("工具边界：app.current_time、notes.create", substring = true).assertExists()
         composeRule.onNodeWithTag("personal-task-plan-confirm").performClick()
 
@@ -91,6 +102,42 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("确认并创建提醒").performClick()
 
         composeRule.runOnIdle { assertEquals(1, confirmCount) }
+    }
+
+    @Test
+    fun showsUnknownPlanGenerationUsageWithoutInventingCost() {
+        composeRule.setContent {
+            MaterialTheme {
+                PersonalTaskPlanDialog(
+                    state = PendingPersonalTaskPlanUiState(
+                        id = "plan-unknown-telemetry",
+                        conversationId = "conversation-1",
+                        sourceGoal = "打开时钟",
+                        name = "打开时钟",
+                        steps = listOf("打开时钟应用"),
+                        agentName = "默认 Agent",
+                        model = "model-a",
+                        allowedToolNames = listOf("device.open_app"),
+                        approvalToolNames = listOf("device.open_app"),
+                        createdAt = 1L,
+                        generationMetrics = PersonalTaskPlanGenerationMetricsUiState(
+                            modelCallCount = 1,
+                            latencyMs = 850L,
+                            firstByteLatencyMs = null,
+                            promptBytes = 512,
+                            inputTokens = null,
+                            outputTokens = null,
+                            totalTokens = null,
+                        ),
+                    ),
+                    onConfirm = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("personal-task-plan-metrics").assertExists()
+        composeRule.onNodeWithText("Tokens 未返回", substring = true).assertExists()
     }
 
     @Test

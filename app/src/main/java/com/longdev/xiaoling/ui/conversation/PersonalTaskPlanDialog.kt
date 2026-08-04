@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.ui.PendingPersonalTaskPlanUiState
+import com.longdev.xiaoling.ui.presentPersonalTaskPlanGenerationMetrics
 
 @Composable
 internal fun PersonalTaskPlanDialog(
@@ -62,6 +63,14 @@ internal fun PersonalTaskPlanDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                state.generationMetrics?.let { metrics ->
+                    Text(
+                        text = presentPersonalTaskPlanGenerationMetrics(metrics),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("personal-task-plan-metrics"),
+                    )
+                }
                 state.reminderScheduleLabel?.let { label ->
                     Text(
                         text = "应用内提醒：$label\n这是非精确定时，系统可能在计划时间后延迟执行。",

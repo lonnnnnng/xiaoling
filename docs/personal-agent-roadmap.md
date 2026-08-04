@@ -14,6 +14,13 @@
 - 提醒确认在 Android 13+ 通知权限返回前保持等待，确认与返回都不可重复触发；权限回调只有在同一计划仍有效时才提交。拒绝通知权限后仍创建用户已经确认的应用内提醒，沿用“系统通知可能不可见”的产品语义。
 - 本阶段不扩展工具、Room Schema、后台设备控制或定时精度。相关 JVM、Debug/AndroidTest APK 通过；Redmi 解锁后的两个 Compose 类最终为 `OK (9 tests)`（`12.418s`）。文档 corpus 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。不重复第 132 阶段完整门禁，不构建 Release。
 
+## 第 134 阶段：计划生成成本可见性（完成）
+
+- 确认前计划弹层展示当前单次模型请求的真实调用次数、总耗时、TTFB、Prompt 字节数和 Provider 返回的 input/output/total tokens，帮助用户判断计划生成的实际延迟与用量。
+- TTFB 或 Token usage 缺失时明确显示未知，不用 0 或估算值补齐；本阶段不做货币成本估算、不建价格表、不累计跨计划历史。
+- 遥测只保存在待确认 UI 状态，确认前后都不写 Room、RunEvent、Workflow 或 Agent Run；计划生成请求仍不属于执行链上的 LLM 事件。
+- 聚焦验证通过：相关 JVM、Debug/AndroidTest APK，以及仅 Redmi `wsvwypiz7xwslvl7` 的两个 Compose 类 `OK (10 tests)`（`13.583s`）。按快速迭代分级不运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release。
+
 ## 第 130 阶段：记忆、知识与应用内提醒（完成）
 
 - 已完成计划上下文纵向切片：当前 Profile 只有在允许 `memory.search` 且记忆总开关、单次召回开关均开启时读取长期记忆；只有允许 `knowledge.search` 时读取本地知识。每类最多 3 条、每条最多 800 字符，检索异常阻止生成，无命中继续普通计划。

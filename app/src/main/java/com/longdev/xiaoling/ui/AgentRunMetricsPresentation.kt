@@ -84,7 +84,7 @@ private fun Map<AgentRunStatus, Int>.toFailureDistributionText(): String {
     return "失败分布 " + labels.ifEmpty { listOf("无") }.joinToString(" · ")
 }
 
-private fun Long.toCompactDurationText(): String {
+internal fun Long.toCompactDurationText(): String {
     return when {
         this < 1_000L -> "${this}ms"
         this < 60_000L -> String.format(Locale.US, "%.2fs", this / 1_000.0)
@@ -92,7 +92,7 @@ private fun Long.toCompactDurationText(): String {
     }
 }
 
-private fun Long.toCompactByteText(): String {
+internal fun Long.toCompactByteText(): String {
     return when {
         this < 1_024L -> "${this}B"
         this < 1_048_576L -> String.format(Locale.US, "%.1fKB", this / 1_024.0)
