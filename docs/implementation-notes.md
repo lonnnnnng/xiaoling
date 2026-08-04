@@ -1,6 +1,6 @@
 # 当前实现说明
 
-## 第 127 至 138 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 140 阶段实现顺序（主线完成，体验打磨继续）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
@@ -28,6 +28,10 @@
 - `PendingPersonalTaskPlanUiState` 的使用数量、省略数量和 `contextBytes` 全部来自真正传给 `sendStructuredMessage()` 的 `PersonalTaskPlanRequest`，避免用检索原始数量冒充发送数量。确认弹层只在省略数大于 0 时显示“上下文精简”，并继续显示第 134 阶段真实 Prompt 遥测。
 - 第 137 阶段聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi `PersonalTaskPlanDialogInstrumentedTest` `OK (5 tests)` 和显式 Provider 探针 `OK (1 test)`。真实模型样本使用上下文 `7,264B`、Prompt `11,190B`，记忆使用/省略 `2/1`、知识使用/省略 `1/2`，返回 1 步计划；最终手动 instrumentation 在成功后恢复并回读 Provider，测试包卸载后主应用保持前台。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 138 阶段在 `preparePersonalTaskPlan()` 的取消分支复用 `personalTaskPlanCancellationFailure(goal)`：只要 request ID 仍属于当前会话，就恢复目标、清理计划进度并写入可重试失败卡；会话切换/删除会先清空 request ID，因此旧取消不会污染新会话。该状态映射独立于执行中 Workflow/提醒取消，不改变已创建 Room 事实的收敛策略。
+- 第 139 阶段新增 `capturePersonalTaskCommit` 作为确认后创建的统一提交边界。立即任务和提醒创建在 `NonCancellable` 区域内完成 Room 写入并先捕获 Workflow/Run 或调度身份，再回到可取消上下文检查 `ensureActive()`；取消发生在提交交接处时，已有事实进入既有 `CANCELLED`/调度撤销路径，不会误显示为“未创建”或生成重复任务。
+- 第 139 阶段聚焦 JVM 为 `PersonalTaskCreationCommitTest 1/1 + PersonalTaskPlanCancellationTest 1/1`，Debug/AndroidTest APK 构建成功；没有运行完整 JVM、全量 Lint、Redmi instrumentation 或 Release。
+- 第 140 阶段让 `PersonalTaskFailureUiState` 显式区分 `RETRY_PLAN / VIEW_WORKFLOW`。只有没有持久化任务事实的失败恢复目标并重新生成；立即任务或提醒已经提交后，停止/失败只生成指向工作流管理页的终态提示，不把目标重新放回可发送输入框，也不创建新的 Workflow。
+- `ConversationActions.openWorkflowManagement()` 由应用宿主刷新当前 Workflow 列表并打开既有设置子页；Conversation UI 不持有导航控制器或 Room Repository。聚焦 JVM `9/9`、Debug/AndroidTest APK、仅 Redmi Compose `7/7`（`11.939s`）和文档 corpus `1/1`（`3.568s`）通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 138 阶段聚焦 JVM `1/1`、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.791s`）；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。
 - 确认后操作使用独立 `personalTaskOperationRequestId` 绑定计划和会话。会话切换先使旧代次失效再取消 Job；已经创建的 Run 由取消分支在不可取消 IO 区收敛，尚未创建时不追加伪执行消息。成功、失败与最终清理只有在请求 ID 和会话仍匹配时才更新可见 UI。

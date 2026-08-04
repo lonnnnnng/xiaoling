@@ -53,6 +53,20 @@
 - 本阶段仅覆盖计划模型请求尚未创建 Workflow/Run 的取消；确认后的立即任务、应用内提醒和已经落定的 Room 事实继续沿既有取消、失败、WorkManager 撤销和关联重试契约执行。
 - 本阶段不新增 Room Schema、Runtime、工具白名单、设备权限或后台能力。聚焦验证为 JVM、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest`；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
 
+## 确认后任务创建提交边界（第 139 阶段，完成）
+
+- 立即任务创建和应用内提醒创建必须在同一个不可取消的短边界内完成 Room 原子写入，并在该边界内捕获 Workflow/Run、ScheduledTask 或周期调度的持久化身份。
+- 外层协程在捕获身份后才检查取消状态。用户停止发生在 Room 提交与返回值交接之间时，已创建 Run 必须沿既有 `CANCELLED`/清理路径收敛；不能误判为“尚未创建”、展示可重复创建的失败卡或产生第二个任务。
+- 会话切换仍先使操作 request ID 失效；迟到的旧操作不能回写新会话。该边界不恢复旧 Executor、模型协程或后台权限，也不改变旧 Run 保持不变的重试语义。
+- 本阶段新增纯协程提交边界测试，聚焦验证为 `PersonalTaskCreationCommitTest 1/1 + PersonalTaskPlanCancellationTest 1/1`、Debug/AndroidTest APK；完整 JVM、全量 Lint、Redmi instrumentation 和 Release 延后到里程碑或用户明确要求。
+
+## 已提交任务失败后的唯一后续动作（第 140 阶段，完成）
+
+- Workflow/Run、ScheduledTask 或周期调度尚未提交时，生成/创建失败仍必须恢复原目标并提供“重新生成”。一旦任一任务记录已经提交，停止或失败提示不得继续复用该动作。
+- 已提交任务的失败状态必须明确说明记录已经保留，并只提供“查看任务”；该动作刷新并打开现有工作流管理页。不得从失败条自动创建新 Workflow、Run 或提醒，也不得自动重试 Executor。
+- 已提交提醒停止后不能把原目标重新放回可发送输入框；会话切换后的旧请求继续拒绝迟到 UI 回写。旧 Run、调度记录、取消和关联重试语义保持不变。
+- 本阶段不修改 Room Schema、Runtime、工具白名单、审批或后台权限。聚焦验证为 JVM `9/9`、Debug/AndroidTest APK、仅 Redmi `ConversationPageInstrumentedTest 7/7` 和文档 corpus `1/1`；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

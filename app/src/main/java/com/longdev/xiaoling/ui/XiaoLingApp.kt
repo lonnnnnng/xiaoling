@@ -209,6 +209,11 @@ private fun XiaoLingContent(
 
             override fun cancelPendingPersonalTaskPlan() = viewModel.cancelPendingPersonalTaskPlan()
 
+            override fun openWorkflowManagement() {
+                viewModel.refreshWorkflows()
+                navigation.openSettingsPane(SettingsPane.WORKFLOW_MANAGEMENT)
+            }
+
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
 
             override fun rejectPendingAgentTool() = viewModel.rejectPendingAgentTool()

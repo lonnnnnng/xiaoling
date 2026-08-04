@@ -1,6 +1,6 @@
 # 文档索引
 
-“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 138 阶段继续真实使用打磨，并已完成计划取消重试闭环。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 140 阶段继续真实使用打磨，并已完成取消提交竞态和已提交任务失败后的查看入口。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
 
 第 133 阶段完成个人任务计划交互首轮收敛：计划生成、立即任务创建和提醒创建使用独立进度状态与停止文案；生成失败、创建失败或创建前停止都会恢复原始目标并提供重新生成。重试显式使用失败快照目标。确认后的前台操作绑定原会话，切换时取消当前 Job 并隔离迟到状态；已创建 Run 按既有 Ledger 收敛为取消，未创建事实不伪造执行记录。Android 13+ 通知权限请求返回前禁用确认与返回，只有权限结果返回且计划 ID 仍一致时才提交提醒；拒绝权限仍按已确认语义创建应用内提醒，但系统通知可能不可见。相关 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (9 tests)`（`12.418s`）。文档 corpus 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。按快速迭代分级不重复第 132 阶段完整门禁，也不构建 Release。
 
@@ -13,6 +13,10 @@
 第 137 阶段完成计划上下文请求精简：长期记忆与本地知识仍各最多 3 条、单条最多 800 字符，但进入计划 Prompt 前增加 8 KiB UTF-8 总预算，并以记忆/知识交替顺序选择完整条目；知识正文与已选记忆完全相同时不重复发送。system 安全规则、目标、时间、工具/App 边界、计划 Schema、检索失败和确认/执行语义保持不变。确认页展示实际使用条数、上下文字节和省略数量。聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi Compose `OK (5 tests)` 及真实模型 `OK (1 test)` 通过；真实样本为上下文 `7,264B`、Prompt `11,190B`、记忆 `2/3`、知识 `1/3`、1 步可解析计划。主应用和 Provider 已恢复，测试包已卸载；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 
 第 138 阶段补齐计划生成取消重试闭环：用户主动停止计划请求时，ViewModel 通过原请求 ID 确认仍属于当前会话，恢复原目标并展示“计划生成已停止”的失败卡和“重新生成”入口；会话切换/删除先使旧请求 ID 失效，因此旧协程取消不会把失败卡写入新会话。执行中任务和应用内提醒的既有取消、Room 收敛与重试语义不变。聚焦 JVM `1/1`、Debug/AndroidTest APK、Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.791s`）；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
+第 139 阶段收敛确认后创建的提交竞态：立即任务和应用内提醒的 Workflow/Run、ScheduledTask/周期记录先在不可取消边界内完成 Room 原子写入并捕获身份，外层再检查取消状态；如果停止发生在提交返回交接处，已创建 Run 会进入既有 `CANCELLED`/清理路径，不会被当作“尚未创建”而允许重复重试。新增 `capturePersonalTaskCommit` 及取消返回边界 JVM 测试 `1/1`，既有计划取消测试 `1/1`；Debug/AndroidTest APK 成功。按快速迭代分级未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
+
+第 140 阶段补齐已提交任务的失败后续动作：立即任务或提醒已经产生 Workflow/Run/ScheduledTask 后再停止或失败，`PersonalTaskFailureUiState` 固定投影为 `VIEW_WORKFLOW`，输入区显示“查看任务”并刷新、打开现有工作流页面；不恢复可发送目标，不提供“重新生成”。提交前失败继续保持原重试语义。聚焦 JVM `9/9`、Debug/AndroidTest APK 通过；仅 Redmi 的 `ConversationPageInstrumentedTest` 为 `OK (7 tests)`（`11.939s`），更新后文档 corpus 为 `OK (1 test)`（`3.568s`）。测试后当前 Debug `0.1.15` 已重装并恢复前台；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 
 第 130 阶段让任务计划在请求模型前按当前 Profile 权限读取长期记忆和本地知识：长期记忆还要求 Profile 记忆开关和当前会话单次召回开关同时开启；每类最多 3 条、单条最多 800 个 UTF-16 字符。上下文在 Prompt 中明确为不可信只读事实，不能授权工具、伪造审批或覆盖系统边界；任一获准检索失败都会终止本次计划。确认弹层展示实际使用数量，不展示正文。首切片聚焦策略测试实际为 `5/5`。
 

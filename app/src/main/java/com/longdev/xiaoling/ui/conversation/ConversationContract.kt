@@ -62,6 +62,8 @@ internal interface ConversationActions {
 
     fun cancelPendingPersonalTaskPlan()
 
+    fun openWorkflowManagement()
+
     fun approvePendingAgentTool()
 
     fun rejectPendingAgentTool()

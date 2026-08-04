@@ -158,6 +158,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -211,6 +213,7 @@ data class PersonalTaskFailureUiState(
     val goal: String,
     val title: String,
     val message: String,
+    val action: PersonalTaskFailureAction = PersonalTaskFailureAction.RETRY_PLAN,
 )
 
 private data class PendingPersonalTaskExecution(
@@ -3788,27 +3791,37 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         clearAgentStateForConversation(conversationId)
         sendMessageJob = viewModelScope.launch {
             var detail: WorkflowRunDetail? = null
+            var workflow: WorkflowRecord? = null
             try {
-                val created = withContext(Dispatchers.IO) {
-                    workflowRepository.createWorkflowAndManualRun(
-                        name = preview.name,
-                        steps = preview.steps.map(::WorkflowStepDefinitionInput),
-                        conversationId = conversationId,
-                        targetAppPackage = preview.targetAppPackage,
-                        goalVerificationContract = preview.goalVerificationSpec?.let { spec ->
-                            WorkflowGoalVerificationContract(preview.sourceGoal, spec)
-                        },
-                    )
-                }
-                val workflow = created.first
-                detail = created.second
+                // long: Room 原子创建一旦提交就不能被取消边界截断；在不可取消区保存持久化身份，再把用户停止收敛为已创建 Run 的 CANCELLED，避免重试重复建任务。
+                currentCoroutineContext().ensureActive()
+                capturePersonalTaskCommit(
+                    create = {
+                        workflowRepository.createWorkflowAndManualRun(
+                            name = preview.name,
+                            steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                            conversationId = conversationId,
+                            targetAppPackage = preview.targetAppPackage,
+                            goalVerificationContract = preview.goalVerificationSpec?.let { spec ->
+                                WorkflowGoalVerificationContract(preview.sourceGoal, spec)
+                            },
+                        )
+                    },
+                    onCommitted = { created ->
+                        workflow = created.first
+                        detail = created.second
+                    },
+                )
+                currentCoroutineContext().ensureActive()
+                val createdWorkflow = requireNotNull(workflow)
+                val createdDetail = requireNotNull(detail)
                 if (!isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
                     throw CancellationException("个人任务所属会话已切换")
                 }
                 uiState = uiState.copy(
-                    runningWorkflowId = workflow.id,
-                    workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
-                    workflowRuns = listOf(detail) + uiState.workflowRuns,
+                    runningWorkflowId = createdWorkflow.id,
+                    workflows = listOf(createdWorkflow) + uiState.workflows.filterNot { item -> item.id == createdWorkflow.id },
+                    workflowRuns = listOf(createdDetail) + uiState.workflowRuns,
                     personalTaskOperationPhase = null,
                 )
                 // long: 确认前不写入会话或执行账本；用户确认后才把原始自然语言目标作为任务入口事实保存，后续每一步继续沿用既有 Workflow 消息和 Agent Run。
@@ -3817,7 +3830,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     ChatMessage(role = "user", text = preview.sourceGoal, createdAt = System.currentTimeMillis()),
                 )
                 saveConversationSelection()
-                executeForegroundWorkflow(detail, pending.runtimeSelection, conversationId)
+                executeForegroundWorkflow(createdDetail, pending.runtimeSelection, conversationId)
             } catch (error: CancellationException) {
                 detail?.let { current ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -3843,6 +3856,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         conversationId,
                         ChatMessage(role = "error", text = "已停止个人任务", createdAt = System.currentTimeMillis()),
                     )
+                    if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                        uiState = uiState.copy(
+                            personalTaskFailure = personalTaskCommittedFailure(
+                                goal = preview.sourceGoal,
+                                title = "个人任务已停止",
+                                message = "任务记录已保留，可在工作流中查看或关联重试",
+                            ),
+                        )
+                    }
                 }
             } catch (error: Throwable) {
                 detail?.let { current ->
@@ -3875,7 +3897,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                                 message = error.message ?: "无法创建个人任务",
                             )
                         } else {
-                            uiState.personalTaskFailure
+                            personalTaskCommittedFailure(
+                                goal = preview.sourceGoal,
+                                title = "个人任务执行失败",
+                                message = "任务记录已保留：${error.message ?: "未知错误"}",
+                            )
                         },
                     )
                 }
@@ -3912,51 +3938,61 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         sendMessageJob = viewModelScope.launch {
             var task: ScheduledTaskRecord? = null
             var scheduleId: String? = null
+            var createdReminder: CreatedPersonalReminder? = null
             try {
                 val contract = preview.goalVerificationSpec?.let { spec ->
                     WorkflowGoalVerificationContract(preview.sourceGoal, spec)
                 }
-                val created = withContext(Dispatchers.IO) {
-                    when (schedule.type) {
-                        PersonalTaskScheduleType.ONCE -> {
-                            val result = workflowRepository.createWorkflowAndOneTimeScheduledTask(
-                                name = preview.name,
-                                steps = preview.steps.map(::WorkflowStepDefinitionInput),
-                                delayMinutes = schedule.delayMinutes,
-                                targetAppPackage = preview.targetAppPackage,
-                                goalVerificationContract = contract,
-                            )
-                            CreatedPersonalReminder(result.first, result.second, null)
+                // long: Workflow/调度记录必须先完整提交并拿到身份；取消只能在提交后撤销同一调度，不能把已提交事实误判为空。
+                currentCoroutineContext().ensureActive()
+                capturePersonalTaskCommit(
+                    create = {
+                        when (schedule.type) {
+                            PersonalTaskScheduleType.ONCE -> {
+                                val result = workflowRepository.createWorkflowAndOneTimeScheduledTask(
+                                    name = preview.name,
+                                    steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                                    delayMinutes = schedule.delayMinutes,
+                                    targetAppPackage = preview.targetAppPackage,
+                                    goalVerificationContract = contract,
+                                )
+                                CreatedPersonalReminder(result.first, result.second, null)
+                            }
+                            PersonalTaskScheduleType.DAILY,
+                            PersonalTaskScheduleType.WEEKLY -> {
+                                val result = workflowRepository.createWorkflowAndRecurringSchedule(
+                                    name = preview.name,
+                                    steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                                    type = if (schedule.type == PersonalTaskScheduleType.DAILY) {
+                                        WorkflowScheduleType.DAILY
+                                    } else {
+                                        WorkflowScheduleType.WEEKLY
+                                    },
+                                    hour = schedule.hour,
+                                    minute = schedule.minute,
+                                    dayOfWeek = schedule.dayOfWeek.takeIf { schedule.type == PersonalTaskScheduleType.WEEKLY },
+                                    targetAppPackage = preview.targetAppPackage,
+                                    goalVerificationContract = contract,
+                                )
+                                CreatedPersonalReminder(result.first, result.second.task, result.second.schedule.id)
+                            }
+                            PersonalTaskScheduleType.IMMEDIATE -> error("立即任务不能进入提醒创建流程")
                         }
-                        PersonalTaskScheduleType.DAILY,
-                        PersonalTaskScheduleType.WEEKLY -> {
-                            val result = workflowRepository.createWorkflowAndRecurringSchedule(
-                                name = preview.name,
-                                steps = preview.steps.map(::WorkflowStepDefinitionInput),
-                                type = if (schedule.type == PersonalTaskScheduleType.DAILY) {
-                                    WorkflowScheduleType.DAILY
-                                } else {
-                                    WorkflowScheduleType.WEEKLY
-                                },
-                                hour = schedule.hour,
-                                minute = schedule.minute,
-                                dayOfWeek = schedule.dayOfWeek.takeIf { schedule.type == PersonalTaskScheduleType.WEEKLY },
-                                targetAppPackage = preview.targetAppPackage,
-                                goalVerificationContract = contract,
-                            )
-                            CreatedPersonalReminder(result.first, result.second.task, result.second.schedule.id)
-                        }
-                        PersonalTaskScheduleType.IMMEDIATE -> error("立即任务不能进入提醒创建流程")
-                    }
-                }
-                val workflow = created.workflow
-                task = created.task
-                scheduleId = created.scheduleId
+                    },
+                    onCommitted = { committed ->
+                        createdReminder = committed
+                        task = committed.task
+                        scheduleId = committed.scheduleId
+                    },
+                )
+                currentCoroutineContext().ensureActive()
+                val reminder = requireNotNull(createdReminder)
+                val workflow = reminder.workflow
                 val workRequestId = withContext(Dispatchers.IO) {
-                    scheduledTaskScheduler.enqueue(created.task)
+                    scheduledTaskScheduler.enqueue(reminder.task)
                 }
                 withContext(Dispatchers.IO) {
-                    workflowRepository.attachWorkRequest(created.task.id, workRequestId)
+                    workflowRepository.attachWorkRequest(reminder.task.id, workRequestId)
                 }
                 if (!isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
                     throw CancellationException("提醒所属会话已切换")
@@ -3982,12 +4018,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 }
                 if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
                     uiState = uiState.copy(
-                        prompt = preview.sourceGoal,
-                        personalTaskFailure = PersonalTaskFailureUiState(
-                            goal = preview.sourceGoal,
-                            title = "提醒创建已停止",
-                            message = "原始目标已保留，可重新生成任务计划",
-                        ),
+                        prompt = if (task == null) preview.sourceGoal else uiState.prompt,
+                        personalTaskFailure = if (task == null) {
+                            PersonalTaskFailureUiState(
+                                goal = preview.sourceGoal,
+                                title = "提醒创建已停止",
+                                message = "原始目标已保留，可重新生成任务计划",
+                            )
+                        } else {
+                            personalTaskCommittedFailure(
+                                goal = preview.sourceGoal,
+                                title = "提醒创建已停止",
+                                message = "已提交的提醒记录已取消，可在工作流中查看",
+                            )
+                        },
                     )
                 }
             } catch (error: Throwable) {
@@ -4009,7 +4053,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                                 message = error.message ?: "无法创建应用内提醒",
                             )
                         } else {
-                            uiState.personalTaskFailure
+                            personalTaskCommittedFailure(
+                                goal = preview.sourceGoal,
+                                title = "提醒创建失败",
+                                message = "提醒记录已保留：${error.message ?: "未知错误"}",
+                            )
                         },
                     )
                 }

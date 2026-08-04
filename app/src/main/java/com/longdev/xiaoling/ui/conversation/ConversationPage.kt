@@ -83,6 +83,7 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.AgentStatusChip
 import com.longdev.xiaoling.ui.AgentStepRow
 import com.longdev.xiaoling.ui.PageTitle
+import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import com.longdev.xiaoling.ui.ThemeModeSelector
@@ -353,6 +354,7 @@ internal fun ConversationPage(
                 onDiscardPendingSharedDraft = actions::discardPendingSharedDraft,
                 onSend = actions::sendMessage,
                 onStop = actions::stopGenerating,
+                onOpenWorkflowManagement = actions::openWorkflowManagement,
             )
         }
 
@@ -532,6 +534,7 @@ private fun MessageInputBar(
     onDiscardPendingSharedDraft: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    onOpenWorkflowManagement: () -> Unit,
 ) {
     var attachmentMenuExpanded by remember { mutableStateOf(false) }
     val attaching = state.attachingImage || state.attachingDocument
@@ -559,11 +562,16 @@ private fun MessageInputBar(
             state.personalTaskFailure?.let { failure ->
                 PersonalTaskFailureNotice(
                     failure = failure,
-                    retryEnabled = state.canSend,
-                    onRetry = {
-                        // long: 重试以失败快照中的原目标为准，避免输入框被其他状态回写后悄悄改变任务意图。
-                        onPromptChange(failure.goal)
-                        onSend()
+                    actionEnabled = failure.action == PersonalTaskFailureAction.VIEW_WORKFLOW || state.canSend,
+                    onAction = {
+                        when (failure.action) {
+                            PersonalTaskFailureAction.RETRY_PLAN -> {
+                                // long: 重试以失败快照中的原目标为准，避免输入框被其他状态回写后悄悄改变任务意图。
+                                onPromptChange(failure.goal)
+                                onSend()
+                            }
+                            PersonalTaskFailureAction.VIEW_WORKFLOW -> onOpenWorkflowManagement()
+                        }
                     },
                 )
             }
@@ -1364,8 +1372,8 @@ private fun PersonalTaskProgressIndicator(
 @Composable
 private fun PersonalTaskFailureNotice(
     failure: PersonalTaskFailureUiState,
-    retryEnabled: Boolean,
-    onRetry: () -> Unit,
+    actionEnabled: Boolean,
+    onAction: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -1391,13 +1399,27 @@ private fun PersonalTaskFailureNotice(
             )
         }
         TextButton(
-            onClick = onRetry,
-            enabled = retryEnabled,
-            modifier = Modifier.testTag("personal-task-retry"),
+            onClick = onAction,
+            enabled = actionEnabled,
+            modifier = Modifier.testTag(
+                if (failure.action == PersonalTaskFailureAction.RETRY_PLAN) {
+                    "personal-task-retry"
+                } else {
+                    "personal-task-view-workflow"
+                },
+            ),
         ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(
+                imageVector = if (failure.action == PersonalTaskFailureAction.RETRY_PLAN) {
+                    Icons.Default.Refresh
+                } else {
+                    Icons.Default.Description
+                },
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
             Spacer(Modifier.width(4.dp))
-            Text("重新生成")
+            Text(if (failure.action == PersonalTaskFailureAction.RETRY_PLAN) "重新生成" else "查看任务")
         }
     }
 }

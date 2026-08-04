@@ -10,6 +10,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
+import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -180,6 +181,35 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensWorkflowForCommittedPersonalTaskFailureWithoutRegenerating() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        personalTaskMode = true,
+                        personalTaskFailure = PersonalTaskFailureUiState(
+                            goal = "整理今天的任务",
+                            title = "个人任务执行失败",
+                            message = "任务记录已保留，可在工作流中查看",
+                            action = PersonalTaskFailureAction.VIEW_WORKFLOW,
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看任务").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.openWorkflowCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -189,6 +219,7 @@ class ConversationPageInstrumentedTest {
         var discardSharedDraftCount = 0
         var sendCount = 0
         var stopCount = 0
+        var openWorkflowCount = 0
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -246,6 +277,10 @@ class ConversationPageInstrumentedTest {
         override fun confirmPendingPersonalTaskPlan() = Unit
 
         override fun cancelPendingPersonalTaskPlan() = Unit
+
+        override fun openWorkflowManagement() {
+            openWorkflowCount += 1
+        }
 
         override fun approvePendingAgentTool() = Unit
 
