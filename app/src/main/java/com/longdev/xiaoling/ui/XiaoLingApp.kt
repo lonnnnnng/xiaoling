@@ -141,9 +141,17 @@ private fun XiaoLingContent(
     val attachDocumentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::attachDocument) }
+    var notificationPermissionPlanId by remember { mutableStateOf<String?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { }
+    ) {
+        val expectedPlanId = notificationPermissionPlanId
+        notificationPermissionPlanId = null
+        // long: 通知权限只影响提醒结果能否弹出，不改变用户已确认的调度语义；等待系统返回后再提交，避免权限浮层期间任务已经悄悄创建。
+        if (viewModel.uiState.pendingPersonalTaskPlan?.id == expectedPlanId) {
+            viewModel.confirmPendingPersonalTaskPlan()
+        }
+    }
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = navigation.tab == XiaoLingAppTab.SETTINGS && state.manageDraft != null
     val hideBottomBar = navigation.hidesBottomBar(providerEditorOpen = isProviderEditor)
@@ -382,18 +390,28 @@ private fun XiaoLingContent(
         actions = viewModel,
     )
     state.pendingPersonalTaskPlan?.let { plan ->
+        val waitingForNotificationPermission = notificationPermissionPlanId == plan.id
         PersonalTaskPlanDialog(
             state = plan,
+            confirmationInProgress = waitingForNotificationPermission,
             onConfirm = {
                 if (plan.reminderScheduleLabel != null &&
                     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    if (notificationPermissionPlanId == null) {
+                        notificationPermissionPlanId = plan.id
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                } else {
+                    conversationActions.confirmPendingPersonalTaskPlan()
                 }
-                conversationActions.confirmPendingPersonalTaskPlan()
             },
-            onDismiss = conversationActions::cancelPendingPersonalTaskPlan,
+            onDismiss = {
+                if (!waitingForNotificationPermission) {
+                    conversationActions.cancelPendingPersonalTaskPlan()
+                }
+            },
         )
     }
     WorkflowManagementDialogs(
@@ -559,6 +577,8 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         pendingAgentApproval = pendingAgentApproval,
         personalTaskMode = personalTaskMode,
         awaitingPersonalTaskPlanConfirmation = pendingPersonalTaskPlan != null,
+        personalTaskOperationPhase = personalTaskOperationPhase,
+        personalTaskFailure = personalTaskFailure,
     )
 }
 

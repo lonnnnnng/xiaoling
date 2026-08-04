@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,6 +83,8 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.AgentStatusChip
 import com.longdev.xiaoling.ui.AgentStepRow
 import com.longdev.xiaoling.ui.PageTitle
+import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
+import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import com.longdev.xiaoling.ui.ThemeModeSelector
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -351,7 +356,13 @@ internal fun ConversationPage(
             )
         }
 
-        if (messages.waitingForModelStart) {
+        val personalTaskOperationPhase = state.composer.personalTaskOperationPhase
+        if (personalTaskOperationPhase != null) {
+            PersonalTaskProgressIndicator(
+                phase = personalTaskOperationPhase,
+                modifier = Modifier.align(Alignment.Center),
+            )
+        } else if (messages.waitingForModelStart) {
             ModelWaitingIndicator(modifier = Modifier.align(Alignment.Center))
         }
     }
@@ -538,6 +549,17 @@ private fun MessageInputBar(
                 onSelected = onPersonalTaskModeChanged,
                 modifier = Modifier.padding(start = 10.dp, top = 8.dp, end = 10.dp),
             )
+            state.personalTaskFailure?.let { failure ->
+                PersonalTaskFailureNotice(
+                    failure = failure,
+                    retryEnabled = state.canSend,
+                    onRetry = {
+                        // long: 重试以失败快照中的原目标为准，避免输入框被其他状态回写后悄悄改变任务意图。
+                        onPromptChange(failure.goal)
+                        onSend()
+                    },
+                )
+            }
             state.pendingSharedDraft?.let { payload ->
                 SharedDraftPendingNotice(
                     payload = payload,
@@ -661,7 +683,12 @@ private fun MessageInputBar(
                 ) {
                     Icon(
                         imageVector = if (state.sendingMessage) Icons.Default.Close else Icons.Default.ArrowUpward,
-                        contentDescription = if (state.sendingMessage) "停止生成" else "发送",
+                        contentDescription = when (state.personalTaskOperationPhase) {
+                            PersonalTaskOperationUiPhase.GENERATING_PLAN -> "停止生成任务计划"
+                            PersonalTaskOperationUiPhase.CREATING_TASK -> "停止创建个人任务"
+                            PersonalTaskOperationUiPhase.CREATING_REMINDER -> "停止创建应用内提醒"
+                            null -> if (state.sendingMessage) "停止生成" else "发送"
+                        },
                         modifier = Modifier.size(if (state.sendingMessage) 18.dp else 20.dp),
                     )
                 }
@@ -1260,6 +1287,73 @@ private fun ModelWaitingIndicator(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(12.dp).size(24.dp),
             strokeWidth = 2.2.dp,
         )
+    }
+}
+
+@Composable
+private fun PersonalTaskProgressIndicator(
+    phase: PersonalTaskOperationUiPhase,
+    modifier: Modifier = Modifier,
+) {
+    val label = when (phase) {
+        PersonalTaskOperationUiPhase.GENERATING_PLAN -> "正在生成任务计划"
+        PersonalTaskOperationUiPhase.CREATING_TASK -> "正在创建个人任务"
+        PersonalTaskOperationUiPhase.CREATING_REMINDER -> "正在创建应用内提醒"
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        shadowElevation = 3.dp,
+        modifier = modifier.testTag("personal-task-progress"),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            Text(text = label, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun PersonalTaskFailureNotice(
+    failure: PersonalTaskFailureUiState,
+    retryEnabled: Boolean,
+    onRetry: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.62f))
+            .padding(start = 12.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = failure.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = failure.message,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        TextButton(
+            onClick = onRetry,
+            enabled = retryEnabled,
+            modifier = Modifier.testTag("personal-task-retry"),
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("重新生成")
+        }
     }
 }
 

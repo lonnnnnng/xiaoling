@@ -9,6 +9,8 @@ import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
+import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
+import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -83,6 +85,30 @@ class ConversationProjectionTest {
     }
 
     @Test
+    fun personalTaskProgressOwnsWaitingStateAndFailureKeepsRetryableGoal() {
+        val planning = project(
+            prompt = "整理今天的任务",
+            sendingMessage = true,
+            personalTaskMode = true,
+            personalTaskOperationPhase = PersonalTaskOperationUiPhase.GENERATING_PLAN,
+        )
+        val failed = project(
+            prompt = "整理今天的任务",
+            personalTaskMode = true,
+            personalTaskFailure = PersonalTaskFailureUiState(
+                goal = "整理今天的任务",
+                title = "响应格式错误",
+                message = "模型没有返回有效计划",
+            ),
+        )
+
+        assertEquals(PersonalTaskOperationUiPhase.GENERATING_PLAN, planning.composer.personalTaskOperationPhase)
+        assertFalse(planning.messages.waitingForModelStart)
+        assertEquals("整理今天的任务", failed.composer.personalTaskFailure?.goal)
+        assertTrue(failed.composer.canSend)
+    }
+
+    @Test
     fun ordinaryChatRequiresEnabledModelAndIdleComposer() {
         val withoutModel = project(enabledModels = emptyList())
         val attaching = project(attachingImage = true)
@@ -122,6 +148,8 @@ class ConversationProjectionTest {
         loadingConversationMessages: Boolean = false,
         personalTaskMode: Boolean = false,
         awaitingPersonalTaskPlanConfirmation: Boolean = false,
+        personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
+        personalTaskFailure: PersonalTaskFailureUiState? = null,
     ) = ConversationProjection.project(
         prompt = prompt,
         sendingMessage = sendingMessage,
@@ -134,6 +162,8 @@ class ConversationProjectionTest {
         loadingConversationMessages = loadingConversationMessages,
         personalTaskMode = personalTaskMode,
         awaitingPersonalTaskPlanConfirmation = awaitingPersonalTaskPlanConfirmation,
+        personalTaskOperationPhase = personalTaskOperationPhase,
+        personalTaskFailure = personalTaskFailure,
     )
 
     private fun toolMessage(id: String, reference: KnowledgeReference) = ChatMessage(

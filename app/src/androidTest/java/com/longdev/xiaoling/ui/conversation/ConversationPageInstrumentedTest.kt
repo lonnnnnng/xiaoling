@@ -3,11 +3,14 @@ package com.longdev.xiaoling.ui.conversation
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.share.SharedDraftPayload
+import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
+import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -97,6 +100,61 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun showsDedicatedPersonalTaskProgressAndRoutesStop() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        prompt = "整理今天的任务",
+                        sendingMessage = true,
+                        personalTaskMode = true,
+                        personalTaskOperationPhase = PersonalTaskOperationUiPhase.GENERATING_PLAN,
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("personal-task-progress").assertExists()
+        composeRule.onNodeWithText("正在生成任务计划").assertExists()
+        composeRule.onNodeWithContentDescription("停止生成任务计划").performClick()
+
+        composeRule.runOnIdle { assertEquals(1, actions.stopCount) }
+    }
+
+    @Test
+    fun retriesFailedPersonalTaskFromPreservedGoal() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        prompt = "已被其他状态覆盖的输入",
+                        personalTaskMode = true,
+                        personalTaskFailure = PersonalTaskFailureUiState(
+                            goal = "整理今天的任务",
+                            title = "响应格式错误",
+                            message = "模型没有返回有效计划",
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("模型没有返回有效计划").assertExists()
+        composeRule.onNodeWithTag("personal-task-retry").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("整理今天的任务", actions.lastPrompt)
+            assertEquals(1, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -106,6 +164,7 @@ class ConversationPageInstrumentedTest {
         var discardSharedDraftCount = 0
         var sendCount = 0
         var stopCount = 0
+        var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
 
@@ -133,7 +192,9 @@ class ConversationPageInstrumentedTest {
 
         override fun selectAgentProfile(profileId: String) = Unit
 
-        override fun updatePrompt(value: String) = Unit
+        override fun updatePrompt(value: String) {
+            lastPrompt = value
+        }
 
         override fun updatePersonalTaskMode(enabled: Boolean) = Unit
 

@@ -6,6 +6,14 @@
 
 实现顺序固定为：第 127 阶段已交付自然语言个人任务入口与可确认计划；第 128 阶段已交付限定 App 多动作连续执行；第 129 阶段已交付目标级验证和最终回答约束；第 130 阶段接入长期记忆、本地知识和复用 WorkManager 非精确定时的应用内提醒；第 131 阶段从已验证前缀创建关联新执行完成任务级恢复/重试，旧 Run 与旧副作用事实保持不变；第 132 阶段仅用 Redmi 验收三条完整用户任务，并统一运行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。正式 Release 只在用户明确要求时执行。
 
+## 个人任务计划交互打磨（第 133 阶段，完成）
+
+- 计划生成、立即任务创建和提醒创建必须使用独立 UI 状态，页面显示与实际业务阶段一致的进度和停止语义，不得复用普通聊天的模型等待提示冒充创建进度。
+- 计划生成失败、Workflow/ScheduledTask 原子创建前失败或用户在创建前停止时，必须恢复原始目标并提供重新生成。重试必须以失败快照中的目标为准，不能依赖可能被其他状态覆盖的输入框文本。
+- 确认后的前台操作必须绑定计划 ID 与原会话。切换或删除会话时需要取消当前 Job；已创建 Run 按既有 Ledger 收敛为取消，尚未创建时不得伪造执行消息。所有成功、失败和 `finally` 回写必须拒绝旧请求污染新会话。
+- Android 13+ 缺少通知权限时，提醒确认必须等待系统权限结果返回，等待期间禁用重复确认和返回。权限回调只有在原计划 ID 仍有效时才提交；拒绝权限不撤销用户已经确认的应用内调度语义，但界面必须保持“通知可能不可见”的既有边界。
+- 本阶段不修改 Room Schema、计划 Schema、工具白名单、审批、目标级验证或后台执行权限。验证遵守快速迭代分级，只覆盖相关 JVM、Debug/AndroidTest APK 和 Redmi 定向用例；不重复完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。
@@ -26,6 +34,7 @@
 
 第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
 第 132 阶段已完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认完整 instrumentation `282/282` 通过。正式 Release 未执行。
+第 133 阶段已完成首轮计划交互打磨；相关 JVM、Debug/AndroidTest APK 和仅 Redmi 的两个 Compose 类 `OK (9 tests)`（`12.418s`）通过。下一阶段继续按真实使用优先级处理模型调用次数、Prompt 成本、常用模板和首批 App 兼容，不回到纯结构或 Shadow 扩样主线。
 Redmi 当前 ROM 使用 `com.google.android.calculator / com.google.android.deskclock`，与既有 AOSP 包名不同。首批限定应用白名单同时接受两套明确实现，仍只覆盖小灵、计算器、时钟和设置四类应用，不开放任意 App 或 `QUERY_ALL_PACKAGES`。
 
 ## 目标级本地验证与最终回答约束（第 129 阶段，完成）

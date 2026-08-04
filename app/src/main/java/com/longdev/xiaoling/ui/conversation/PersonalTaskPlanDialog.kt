@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import com.longdev.xiaoling.ui.PendingPersonalTaskPlanUiState
 @Composable
 internal fun PersonalTaskPlanDialog(
     state: PendingPersonalTaskPlanUiState,
+    confirmationInProgress: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -130,16 +132,28 @@ internal fun PersonalTaskPlanDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
+                enabled = !confirmationInProgress,
                 modifier = Modifier.testTag("personal-task-plan-confirm"),
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                if (confirmationInProgress) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
                 Spacer(Modifier.width(6.dp))
-                Text(if (state.reminderScheduleLabel == null) "确认并执行" else "确认并创建提醒")
+                Text(
+                    when {
+                        confirmationInProgress -> "等待通知权限"
+                        state.reminderScheduleLabel == null -> "确认并执行"
+                        else -> "确认并创建提醒"
+                    },
+                )
             }
         },
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
+                enabled = !confirmationInProgress,
                 modifier = Modifier.testTag("personal-task-plan-cancel"),
             ) {
                 Text("返回修改")

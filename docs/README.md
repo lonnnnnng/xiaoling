@@ -1,12 +1,14 @@
 # 文档索引
 
-“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；下一轮转入真实使用打磨。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 阶段开始真实使用打磨。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 133 阶段完成个人任务计划交互首轮收敛：计划生成、立即任务创建和提醒创建使用独立进度状态与停止文案；生成失败、创建失败或创建前停止都会恢复原始目标并提供重新生成。重试显式使用失败快照目标。确认后的前台操作绑定原会话，切换时取消当前 Job 并隔离迟到状态；已创建 Run 按既有 Ledger 收敛为取消，未创建事实不伪造执行记录。Android 13+ 通知权限请求返回前禁用确认与返回，只有权限结果返回且计划 ID 仍一致时才提交提醒；拒绝权限仍按已确认语义创建应用内提醒，但系统通知可能不可见。相关 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (9 tests)`（`12.418s`）。文档 corpus 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。按快速迭代分级不重复第 132 阶段完整门禁，也不构建 Release。
 
 第 130 阶段让任务计划在请求模型前按当前 Profile 权限读取长期记忆和本地知识：长期记忆还要求 Profile 记忆开关和当前会话单次召回开关同时开启；每类最多 3 条、单条最多 800 个 UTF-16 字符。上下文在 Prompt 中明确为不可信只读事实，不能授权工具、伪造审批或覆盖系统边界；任一获准检索失败都会终止本次计划。确认弹层展示实际使用数量，不展示正文。首切片聚焦策略测试实际为 `5/5`。
 
 同阶段第二切片在严格计划 Schema 中加入 `IMMEDIATE / ONCE / DAILY / WEEKLY`，并在本地拒绝数字字符串、小数和互相矛盾的时间字段。一次性规则限制为 1 至 10080 分钟，每日/每周使用当前系统时区；提醒不能携带目标 App、`device.*` 完成标准或设备最终应用。确认页显示规则、非精确定时和后台审批边界；确认后 Room 原子创建 Workflow 与 ScheduledTask/周期规则，不产生 Manual Run，再调用现有 WorkManager 入队与通知权限入口；入队或关联失败会撤销同一 WorkManager 唯一任务并收敛 Room 状态。最终 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 成功；Redmi Room 原子测试与 Compose 提醒确认单项最终为 `OK (1 test)`（`0.318s / 2.12s`），兜底真实模型返回 `ONCE / 30`。临时真实模型探针已删除。本阶段没有运行完整 JVM、Lint、Release 或默认 instrumentation；下一主线为第 131 阶段。
 
-第 131 阶段复用既有任务级恢复与关联重试闭环：旧 `BLOCKED / FAILED / CANCELLED` Run 只从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；二次确认、旧 Run 不变和已提交副作用不重放边界保持不变。`WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 成功；Redmi `retryReusesCompletedStepsAndKeepsSourceRunUnchanged` 最终为 `OK (1 test)`（`0.444s`），测试包已卸载。下一主线为第 132 阶段三条 Redmi 完整任务与统一里程碑门禁。
+第 131 阶段复用既有任务级恢复与关联重试闭环：旧 `BLOCKED / FAILED / CANCELLED` Run 只从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；二次确认、旧 Run 不变和已提交副作用不重放边界保持不变。`WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 成功；Redmi `retryReusesCompletedStepsAndKeepsSourceRunUnchanged` 最终为 `OK (1 test)`（`0.444s`），测试包已卸载；随后第 132 阶段已经完成三条 Redmi 完整任务与统一里程碑门禁。
 第 132 阶段最终门禁：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和 Redmi 默认完整 `OK (282 tests)`（`139.622s`）通过。三条里程碑任务覆盖记忆/知识提醒、真实限定 App 多动作和旧 Run 不变的关联重试；测试提醒 WorkManager 工作项已撤销，Accessibility 已恢复为原关闭状态，未构建 Release。
 Redmi 重连后确认当前 ROM 使用 Google 计算器/时钟包名；首批限定应用白名单与 Manifest queries 已补 AOSP/Google 双实现兼容，仍保持明确包名、逐动作审批和动作后包名验证。
 

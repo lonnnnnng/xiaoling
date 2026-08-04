@@ -4,7 +4,7 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
-“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。下一轮转入真实使用打磨，优先处理计划 UI、错误提示、模型调用与 Prompt 成本、常用模板和首批 App 兼容；纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
+“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 阶段已进入真实使用打磨，先收敛计划生成、任务/提醒创建、失败重试和通知权限等待体验；后续再处理模型调用与 Prompt 成本、常用模板和首批 App 兼容。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
@@ -31,7 +31,9 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
   - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划及工具顺序/最终应用完成标准。生成前只在 Profile 允许时检索最多 3 条有效长期记忆和 3 个当前知识片段；单次记忆开关继续生效，计划提示词把上下文固定为不能扩权的只读事实，检索失败会阻止本次计划。确认前展示任务名、步骤、实际上下文数量、可能审批项和能力边界；用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。完成时只由本地策略从持久 Tool Ledger 和最终设备观察产出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能扩大结论。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
+  - 任务计划交互会区分“正在生成任务计划 / 正在创建个人任务 / 正在创建应用内提醒”，停止按钮按当前阶段给出明确语义。计划生成或创建前失败、以及创建前主动停止都会保留原始目标并提供“重新生成”；重试显式使用失败快照中的目标。确认后的创建请求绑定原会话，切换会话会撤销尚未落定的创建并拒绝迟到 UI 回写。
   - 任务模式可把明确的未来或周期表达映射为应用内提醒：支持一次性 1 至 10080 分钟、每日和每周规则，确认页显示系统时区和“非精确定时”边界。用户确认前不创建任何 Workflow 或调度记录；确认后 Room 原子写入 Workflow 与首个 ScheduledTask/周期规则，再复用现有 WorkManager 和结果通知。定时提醒不允许目标 App、`device.*` 完成标准或设备最终应用，需要审批的其他动作到时只会进入既有待处理通知，不会在后台自动获批。立即任务保持原前台执行路径。
+  - Android 13+ 提醒确认需要通知权限时，确认弹层会等待系统权限结果并禁用重复确认/返回；无论授权或拒绝，只有权限回调返回且原计划仍有效时才提交已确认提醒。通知权限只决定结果通知能否显示，不改变用户已确认的应用内调度语义。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
   - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。
@@ -138,8 +140,9 @@ local-signing/xiaoling-release.jks
 ## 当前验证
 
 - 第 130 阶段完成记忆/知识计划上下文与应用内提醒。提醒 Schema 严格区分 `IMMEDIATE / ONCE / DAILY / WEEKLY`，拒绝数字字符串、小数、目标 App、`device.*` 完成标准和设备最终应用；确认后 Room 原子创建 Workflow 与首个调度实例，不产生 Manual Run。聚焦 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 通过；仅 Redmi 的 Room 与 Compose 单项最终为 `OK (1 test)`（`0.318s / 2.12s`），真实模型返回 `ONCE / delay=30`。未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 131 阶段完成任务级恢复与关联重试。旧 `BLOCKED / FAILED / CANCELLED` Run 从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，成功前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；已启动失败步骤需要二次确认，旧 Run 和副作用保持不变。聚焦 `WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 和仅 Redmi 的 `OK (1 test)`（`0.444s`）通过。下一步是第 132 阶段三条 Redmi 完整任务与统一里程碑门禁。
+- 第 131 阶段完成任务级恢复与关联重试。旧 `BLOCKED / FAILED / CANCELLED` Run 从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，成功前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；已启动失败步骤需要二次确认，旧 Run 和副作用保持不变。聚焦 `WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 和仅 Redmi 的 `OK (1 test)`（`0.444s`）通过；随后第 132 阶段已完成三条 Redmi 完整任务与统一里程碑门禁。
 - 第 132 阶段完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和仅 Redmi 的最终完整 instrumentation `OK (282 tests)`（`139.622s`）通过。三条完整任务分别覆盖“长期记忆+本地知识→ONCE 提醒+WorkManager 入队”、“设置页 `snapshot -> swipe -> snapshot -> back` 且目标级 `VERIFIED`”和“失败任务关联重试且旧 Run 不变”。本阶段还修正 Room v35 常量、动作测试规则版本、知识引用测试选择器，以及 Redmi 当前 Google/AOSP 计算器与时钟包名兼容；未构建 Release。
+- 第 133 阶段完成个人任务计划交互首轮打磨：新增生成/创建专属状态和停止文案，失败或创建前停止会保留原始目标并支持重新生成；提醒确认等待通知权限返回后才提交，并防止重复确认。确认后前台操作增加会话代际保护，旧会话迟到结果不能覆盖当前页面。相关 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (9 tests)`（`12.418s`）。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - Redmi 重新连接后的默认套件发现当前 ROM 使用 Google 计算器/时钟包名。首批限定应用白名单现同时兼容 AOSP 与 Google 两套精确包名；仍只覆盖小灵、计算器、时钟、设置和桌面，不开放任意 App。
 - 第 129 阶段完成目标级本地验证与最终回答约束。计划完成标准冻结到 Workflow 和步骤快照，Room v35 保持旧任务无目标判定，Repository 只从同 Run 已验证 Tool Ledger 和脱敏最终观察生成 `VERIFIED / PARTIAL / INCOMPLETE`；模型总结不能扩大结论。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi 定向 `OK (5 tests)`（`3.33s`）和真实多动作 `goalDecision=VERIFIED` tracer 均通过。文档语料黄金查询已移除易过期的历史测试数量，并在失败时输出逐查询排名；更新查询后的 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；下一主线进入第 130 阶段。
 - 第 127 阶段完成自然语言个人任务与可确认计划。任务模式使用严格 JSON Schema 生成 1 至 8 步计划，确认前不写消息、Workflow、Run 或工具账本；确认后 Room 单事务创建普通 Workflow、手动 Run 和步骤快照，再复用既有 Runtime、审批和验证。聚焦 JVM `34/34`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的计划弹层与 Room 原子创建为 `OK (2 tests)`（`2.03s`）。真实模型生成 `Read Current Time` 单步计划，首个 Runtime 模型规划超时保持失败 Run，随后同一 Workflow 的独立手动 Run 完成 `app.current_time` 六段审计链，旧 Run 未被覆盖。更新后的文档语料首轮为 `OK (1 test)`（`2.453s`），写回本条证据后的最终资产已复验通过。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；记忆/知识计划上下文仍属于第 130 阶段。

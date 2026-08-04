@@ -6,6 +6,14 @@
 
 第 127 阶段交付自然语言个人任务入口与可确认计划；第 128 阶段完成限定 App 多动作；第 129 阶段完成目标级本地验证；第 130 阶段接入长期记忆、本地知识和 WorkManager 非精确定时提醒；第 131 阶段完成任务级关联恢复；第 132 阶段以三条 Redmi 完整任务和统一门禁完成主线验收。最终完整 JVM `879/879`、Lint、Debug/AndroidTest APK 和 Redmi `282/282` 通过；Release 仍只在用户明确要求时进行。
 
+## 第 133 阶段：个人任务计划交互首轮打磨（完成）
+
+- 计划生成、立即任务创建和提醒创建改用独立进度状态；页面显示对应文案，停止按钮不再把计划生成笼统写成普通“停止生成”。
+- 生成失败、创建失败或持久化落定前主动停止都会保留原始目标与具体原因，并提供重新生成。重试使用失败快照目标，确认弹层“返回修改”继续恢复原目标。
+- 确认后的前台操作绑定原会话和计划 ID。会话切换会使旧代次失效并取消当前 Job；已创建 Run 按既有 Ledger 收敛为取消，未创建事实不伪造执行消息，迟到成功、失败或 finally 不能覆盖新会话状态。
+- 提醒确认在 Android 13+ 通知权限返回前保持等待，确认与返回都不可重复触发；权限回调只有在同一计划仍有效时才提交。拒绝通知权限后仍创建用户已经确认的应用内提醒，沿用“系统通知可能不可见”的产品语义。
+- 本阶段不扩展工具、Room Schema、后台设备控制或定时精度。相关 JVM、Debug/AndroidTest APK 通过；Redmi 解锁后的两个 Compose 类最终为 `OK (9 tests)`（`12.418s`）。文档 corpus 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。不重复第 132 阶段完整门禁，不构建 Release。
+
 ## 第 130 阶段：记忆、知识与应用内提醒（完成）
 
 - 已完成计划上下文纵向切片：当前 Profile 只有在允许 `memory.search` 且记忆总开关、单次召回开关均开启时读取长期记忆；只有允许 `knowledge.search` 时读取本地知识。每类最多 3 条、每条最多 800 字符，检索异常阻止生成，无命中继续普通计划。
@@ -18,7 +26,7 @@
 
 ## v0.1.15 发布基线
 
-`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 131 阶段并升级到 Room v35，尚未形成新的 Release；下一阶段是第 132 阶段 Redmi 三条完整真实任务与统一里程碑门禁。
+`v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 132 阶段完整里程碑和第 133 阶段计划交互首轮打磨，开发数据库保持 Room v35，尚未形成新的 Release。
 
 ## 第 131 阶段：任务级恢复与关联重试（完成）
 
@@ -1047,9 +1055,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 21. 已完成：第 130 阶段把长期记忆、本地知识和应用内提醒接入个人任务。计划上下文受 Profile/单次开关和有界只读 Prompt 约束；提醒复用现有 WorkManager 非精确定时与通知能力，创建确认与既有修改/取消用户操作保持显式，不引入系统日历或精确闹钟。
 22. 第 131 阶段：完成任务级恢复与关联重试。中断后从已验证前缀创建关联新执行，旧 Run、旧步骤和已提交副作用保持不变；不恢复无法证明的旧模型协程或 Executor。
 23. 已完成第 132 阶段：三条 Redmi 完整任务、完整 JVM `879/879`、Lint、Debug/AndroidTest APK 与默认 instrumentation `282/282` 通过；修正 Room v35 常量、规则夹具、知识引用测试选择器及 AOSP/Google 计算器和时钟包名兼容。正式 Release 未执行。
-24. 并行低频观察：answerability Shadow 等待真正跨日或长期分隔的真实窗口；样本足够后再评估 JSON/SAF、显式授权离线评测集、独立阈值校准和生产拒绝。该等待不阻塞个人 Agent 功能开发。
-25. 主线跑通后再集中处理计划 UI、错误提示、性能、模型调用次数、Prompt 长度、常用模板、App 白名单扩展和测试债务；不再让这些细节抢占第 127 至 132 阶段。
-26. 截图/视觉、后台设备控制、任意 App、精确定时、Foreground Service、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型保持后置，并分别依据真实需求与证据立项。
+24. 已完成第 133 阶段：计划生成/任务创建/提醒创建专属状态、失败保留目标与重新生成、通知权限等待防重复，以及确认后创建请求的会话代际隔离。
+25. 并行低频观察：answerability Shadow 等待真正跨日或长期分隔的真实窗口；样本足够后再评估 JSON/SAF、显式授权离线评测集、独立阈值校准和生产拒绝。该等待不阻塞个人 Agent 功能开发。
+26. 下一步按真实使用优先级处理模型调用次数、Prompt 长度、常用模板、App 白名单扩展和测试债务；不回到持续按行数拆分或单纯 Shadow 扩样。
+27. 截图/视觉、后台设备控制、任意 App、精确定时、Foreground Service、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型保持后置，并分别依据真实需求与证据立项。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

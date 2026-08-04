@@ -10,17 +10,27 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35。最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 均通过。下一轮转入真实使用打磨；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
-- 文档语料门禁：本轮未执行；最近一次仍是第 127 阶段最终资产在 Redmi 的 `OK (1 test)`，不能表述为 `v0.1.15` 发布复验。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 阶段已开始真实使用打磨，先完成计划生成、任务/提醒创建、失败重试和通知权限等待体验。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 文档语料门禁：第 133 阶段更新后的长期文档已重新打包，仅在 Redmi 运行 corpus 单项；首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
+
+## 2026-08-04 第 133 阶段：个人任务计划交互首轮打磨
+
+- 交互状态：新增 `GENERATING_PLAN / CREATING_TASK / CREATING_REMINDER`。对话页优先显示对应进度，停止按钮按生成计划、创建任务或创建提醒给出明确语义，不再复用普通模型等待动画。
+- 失败与取消：计划生成、Workflow/ScheduledTask 创建前失败会保留原始目标和具体错误；创建落定前主动停止同样恢复目标并提供重新生成。重试先使用 `PersonalTaskFailureUiState.goal` 回填输入，再复用原发送入口。
+- 会话一致性：确认后的前台操作以计划 ID 作为操作代次并绑定原会话。会话切换先使旧代次失效再取消 Job；已创建 Run 继续按既有 Ledger 收敛为取消，尚未创建时不写伪执行消息。成功、异常和最终清理只在 ID 与会话仍匹配时更新可见 UI，避免旧任务状态覆盖新会话。
+- 提醒权限：Android 13+ 缺少通知权限时，确认弹层进入等待状态并禁用确认/返回。权限回调只有在原计划仍是当前计划时才提交；权限拒绝不改变已确认的应用内调度语义，只影响系统通知可见性。
+- 聚焦验证：`ConversationProjectionTest` 与 `compileDebugAndroidTestKotlin` 通过；`assembleDebug / assembleDebugAndroidTest` 成功。Redmi 首轮重跑时设备为 `Dozing + keyguard showing`，测试 Activity 被系统标记 `isSleeping=true`，9 项统一以 `No compose hierarchies found in the app` 失败；该运行是锁屏基础设施失败，不计作产品断言结果。设备解锁后，同一最终二进制的 `ConversationPageInstrumentedTest + PersonalTaskPlanDialogInstrumentedTest` 为 `OK (9 tests)`，耗时 `12.418s`。
+- 文档语料：README 与五份长期文档重新打包后，Redmi `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。
+- 验证边界：按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；所有 ADB 安装与测试命令只显式发送到 Redmi `wsvwypiz7xwslvl7`，在线模拟器未收到命令。
 
 ## 2026-08-04 第 131 阶段：任务级恢复与关联重试
 
 - 实现边界：复用 `WorkflowRunRetryPolicy`、`RoomWorkflowRepository.retryRun()` 和现有 Workflow 管理二次确认。旧 `BLOCKED / FAILED / CANCELLED` Run 只从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run；成功前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤及后续步骤重新执行。
 - 安全边界：不恢复旧模型协程、旧 Executor、审批会话或未知提交状态；旧 Run、旧步骤、已提交副作用和审计事件保持不变，已启动失败步骤仍需二次确认。
 - 聚焦验证：`WorkflowStepExecutionPolicyTest 13/13`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 成功。只在 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `RoomWorkflowRepositoryInstrumentedTest#retryReusesCompletedStepsAndKeepsSourceRunUnchanged`，结果 `OK (1 test)`、`0.444s`。测试包已卸载，冷启动后 `topResumedActivity=com.longdev.xiaoling/.MainActivity`。没有运行完整 JVM、Lint、Release 或默认完整 instrumentation，也没有向模拟器发送 ADB 命令。
-- 下一步：第 132 阶段用 Redmi 验收知识、记忆、设备动作、提醒和恢复组成的三条完整用户任务，再统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。
+- 后续：第 132 阶段已经用 Redmi 完成知识、记忆、设备动作、提醒和恢复组成的三条完整用户任务，并统一通过完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。
 
 ## 2026-08-04 第 132 阶段：完整个人 Agent 里程碑验收完成
 

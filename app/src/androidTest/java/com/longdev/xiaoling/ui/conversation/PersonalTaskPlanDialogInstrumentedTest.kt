@@ -2,6 +2,7 @@ package com.longdev.xiaoling.ui.conversation
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -62,6 +63,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
 
     @Test
     fun showsNonExactReminderRuleBeforeCreatingSchedule() {
+        var confirmCount = 0
         composeRule.setContent {
             MaterialTheme {
                 PersonalTaskPlanDialog(
@@ -78,7 +80,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         createdAt = 1L,
                         reminderScheduleLabel = "每日 09:00 · Asia/Shanghai",
                     ),
-                    onConfirm = {},
+                    onConfirm = { confirmCount += 1 },
                     onDismiss = {},
                 )
             }
@@ -86,6 +88,67 @@ class PersonalTaskPlanDialogInstrumentedTest {
 
         composeRule.onNodeWithText("应用内提醒：每日 09:00 · Asia/Shanghai", substring = true).assertExists()
         composeRule.onNodeWithText("非精确定时", substring = true).assertExists()
-        composeRule.onNodeWithText("确认并创建提醒").assertExists()
+        composeRule.onNodeWithText("确认并创建提醒").performClick()
+
+        composeRule.runOnIdle { assertEquals(1, confirmCount) }
+    }
+
+    @Test
+    fun cancelReturnsPlanForEditing() {
+        var dismissCount = 0
+        composeRule.setContent {
+            MaterialTheme {
+                PersonalTaskPlanDialog(
+                    state = PendingPersonalTaskPlanUiState(
+                        id = "plan-cancel",
+                        conversationId = "conversation-1",
+                        sourceGoal = "整理今天的任务",
+                        name = "整理任务",
+                        steps = listOf("读取任务", "整理顺序"),
+                        agentName = "默认 Agent",
+                        model = "model-a",
+                        allowedToolNames = listOf("notes.list"),
+                        approvalToolNames = emptyList(),
+                        createdAt = 1L,
+                    ),
+                    onConfirm = {},
+                    onDismiss = { dismissCount += 1 },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("personal-task-plan-cancel").performClick()
+
+        composeRule.runOnIdle { assertEquals(1, dismissCount) }
+    }
+
+    @Test
+    fun disablesPlanActionsWhileWaitingForNotificationPermission() {
+        composeRule.setContent {
+            MaterialTheme {
+                PersonalTaskPlanDialog(
+                    state = PendingPersonalTaskPlanUiState(
+                        id = "plan-permission",
+                        conversationId = "conversation-1",
+                        sourceGoal = "每天九点提醒我喝水",
+                        name = "喝水提醒",
+                        steps = listOf("提醒用户喝水"),
+                        agentName = "默认 Agent",
+                        model = "model-a",
+                        allowedToolNames = listOf("app.current_time"),
+                        approvalToolNames = emptyList(),
+                        createdAt = 1L,
+                        reminderScheduleLabel = "每日 09:00 · Asia/Shanghai",
+                    ),
+                    confirmationInProgress = true,
+                    onConfirm = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("等待通知权限").assertExists()
+        composeRule.onNodeWithTag("personal-task-plan-confirm").assertIsNotEnabled()
+        composeRule.onNodeWithTag("personal-task-plan-cancel").assertIsNotEnabled()
     }
 }

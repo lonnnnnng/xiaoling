@@ -197,6 +197,18 @@ data class PendingPersonalTaskPlanUiState(
     val goalVerificationSpec: WorkflowGoalVerificationSpec? = null,
 )
 
+enum class PersonalTaskOperationUiPhase {
+    GENERATING_PLAN,
+    CREATING_TASK,
+    CREATING_REMINDER,
+}
+
+data class PersonalTaskFailureUiState(
+    val goal: String,
+    val title: String,
+    val message: String,
+)
+
 private data class PendingPersonalTaskExecution(
     val preview: PendingPersonalTaskPlanUiState,
     val runtimeSelection: AgentRuntimeSelection,
@@ -257,6 +269,8 @@ data class XiaoLingUiState(
     val sendingMessage: Boolean = false,
     val personalTaskMode: Boolean = false,
     val pendingPersonalTaskPlan: PendingPersonalTaskPlanUiState? = null,
+    val personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
+    val personalTaskFailure: PersonalTaskFailureUiState? = null,
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
     val reasoningSummaryEnabled: Boolean = false,
@@ -744,6 +758,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private val agentLaunchPreflightCoordinator = AgentLaunchPreflightCoordinator()
     private var sendMessageJob: Job? = null
     private var personalTaskPlanningRequestId: String? = null
+    private var personalTaskOperationRequestId: String? = null
     private var pendingPersonalTaskExecution: PendingPersonalTaskExecution? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
@@ -909,12 +924,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updatePrompt(value: String) {
-        uiState = uiState.copy(prompt = value, sharedDraftImported = false, result = null)
+        uiState = uiState.copy(
+            prompt = value,
+            sharedDraftImported = false,
+            personalTaskFailure = null,
+            result = null,
+        )
     }
 
     fun updatePersonalTaskMode(enabled: Boolean) {
         if (uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null) return
-        uiState = uiState.copy(personalTaskMode = enabled, result = null)
+        uiState = uiState.copy(
+            personalTaskMode = enabled,
+            personalTaskFailure = null,
+            result = null,
+        )
     }
 
     internal fun acceptSharedDraft(result: SharedDraftImport) {
@@ -3213,6 +3237,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             pendingPersonalTaskExecution = null
             uiState = uiState.copy(pendingPersonalTaskPlan = null)
         }
+        if (personalTaskOperationRequestId != null) {
+            // long: 确认后的个人任务仍是原会话的前台操作；切换会话必须停止该 Job，避免任务在失去停止入口后继续执行或把迟到状态覆盖到新会话。
+            personalTaskOperationRequestId = null
+            sendMessageJob?.cancel()
+            sendMessageJob = null
+            uiState = uiState.copy(
+                runningWorkflowId = null,
+                sendingMessage = false,
+                personalTaskOperationPhase = null,
+            )
+        }
         when (event) {
             is ConversationSelectionEvent.DeletionStarted -> {
                 agentConversationRuntimeStateStore.clearConversation(event.conversationId)
@@ -3601,6 +3636,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(
             sendingMessage = true,
             pendingPersonalTaskPlan = null,
+            personalTaskOperationPhase = PersonalTaskOperationUiPhase.GENERATING_PLAN,
+            personalTaskFailure = null,
             result = null,
         )
         sendMessageJob = viewModelScope.launch {
@@ -3655,15 +3692,31 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     sendingMessage = false,
                     prompt = "",
                     pendingPersonalTaskPlan = preview,
+                    personalTaskOperationPhase = null,
                     result = null,
                 )
             } catch (_: CancellationException) {
                 if (personalTaskPlanningRequestId == requestId) {
-                    uiState = uiState.copy(sendingMessage = false)
+                    uiState = uiState.copy(
+                        sendingMessage = false,
+                        personalTaskOperationPhase = null,
+                    )
                 }
             } catch (error: Throwable) {
                 if (personalTaskPlanningRequestId == requestId) {
-                    showFailure(error, sendingMessage = false)
+                    val failure = error as? ApiFailure
+                    // long: 计划生成尚未写入任何执行事实，失败时保留原目标和明确重试入口，避免用户重新回忆并录入同一任务。
+                    uiState = uiState.copy(
+                        sendingMessage = false,
+                        prompt = goal,
+                        personalTaskOperationPhase = null,
+                        personalTaskFailure = PersonalTaskFailureUiState(
+                            goal = goal,
+                            title = failure?.kind?.title ?: FailureKind.UNKNOWN.title,
+                            message = error.message ?: "未知错误",
+                        ),
+                        result = null,
+                    )
                 }
             } finally {
                 if (personalTaskPlanningRequestId == requestId) {
@@ -3711,11 +3764,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         val preview = pending.preview
         val conversationId = preview.conversationId
+        val operationRequestId = preview.id
+        personalTaskOperationRequestId = operationRequestId
         uiState = uiState.copy(
             runningWorkflowId = preview.id,
             workflowError = null,
             workflowNavigationConversationId = conversationId,
             sendingMessage = true,
+            personalTaskOperationPhase = PersonalTaskOperationUiPhase.CREATING_TASK,
+            personalTaskFailure = null,
         )
         clearAgentStateForConversation(conversationId)
         sendMessageJob = viewModelScope.launch {
@@ -3734,10 +3791,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 }
                 val workflow = created.first
                 detail = created.second
+                if (!isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    throw CancellationException("个人任务所属会话已切换")
+                }
                 uiState = uiState.copy(
                     runningWorkflowId = workflow.id,
                     workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
                     workflowRuns = listOf(detail) + uiState.workflowRuns,
+                    personalTaskOperationPhase = null,
                 )
                 // long: 确认前不写入会话或执行账本；用户确认后才把原始自然语言目标作为任务入口事实保存，后续每一步继续沿用既有 Workflow 消息和 Agent Run。
                 appendWorkflowMessage(
@@ -3756,10 +3817,22 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                 }
-                appendWorkflowMessage(
-                    conversationId,
-                    ChatMessage(role = "error", text = "已停止个人任务", createdAt = System.currentTimeMillis()),
-                )
+                if (detail == null && isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    // long: Workflow 和 Run 尚未原子写入时，停止只代表放弃本次创建；恢复目标和重试入口，不能伪造一条已经执行过的任务事实。
+                    uiState = uiState.copy(
+                        prompt = preview.sourceGoal,
+                        personalTaskFailure = PersonalTaskFailureUiState(
+                            goal = preview.sourceGoal,
+                            title = "任务创建已停止",
+                            message = "原始目标已保留，可重新生成任务计划",
+                        ),
+                    )
+                } else if (detail != null) {
+                    appendWorkflowMessage(
+                        conversationId,
+                        ChatMessage(role = "error", text = "已停止个人任务", createdAt = System.currentTimeMillis()),
+                    )
+                }
             } catch (error: Throwable) {
                 detail?.let { current ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -3770,24 +3843,41 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         )
                     }
                 }
-                appendWorkflowMessage(
-                    conversationId,
-                    ChatMessage(
-                        role = "error",
-                        text = "个人任务失败\n${error.message ?: "未知错误"}",
-                        createdAt = System.currentTimeMillis(),
-                    ),
-                )
-                uiState = uiState.copy(
-                    workflowError = error.message ?: "个人任务执行失败",
-                    prompt = if (detail == null) preview.sourceGoal else uiState.prompt,
-                )
+                if (detail != null || isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    appendWorkflowMessage(
+                        conversationId,
+                        ChatMessage(
+                            role = "error",
+                            text = "个人任务失败\n${error.message ?: "未知错误"}",
+                            createdAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    uiState = uiState.copy(
+                        workflowError = error.message ?: "个人任务执行失败",
+                        prompt = if (detail == null) preview.sourceGoal else uiState.prompt,
+                        personalTaskFailure = if (detail == null) {
+                            PersonalTaskFailureUiState(
+                                goal = preview.sourceGoal,
+                                title = "任务创建失败",
+                                message = error.message ?: "无法创建个人任务",
+                            )
+                        } else {
+                            uiState.personalTaskFailure
+                        },
+                    )
+                }
             } finally {
-                uiState = uiState.copy(
-                    runningWorkflowId = null,
-                    sendingMessage = false,
-                )
-                sendMessageJob = null
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    uiState = uiState.copy(
+                        runningWorkflowId = null,
+                        sendingMessage = false,
+                        personalTaskOperationPhase = null,
+                    )
+                    personalTaskOperationRequestId = null
+                    sendMessageJob = null
+                }
                 refreshWorkflows()
                 saveConversationSelection()
             }
@@ -3798,11 +3888,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val preview = pending.preview
         val schedule = pending.schedule
         val conversationId = preview.conversationId
+        val operationRequestId = preview.id
+        personalTaskOperationRequestId = operationRequestId
         uiState = uiState.copy(
             runningWorkflowId = preview.id,
             workflowError = null,
             workflowNavigationConversationId = conversationId,
             sendingMessage = true,
+            personalTaskOperationPhase = PersonalTaskOperationUiPhase.CREATING_REMINDER,
+            personalTaskFailure = null,
         )
         sendMessageJob = viewModelScope.launch {
             var task: ScheduledTaskRecord? = null
@@ -3853,6 +3947,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.IO) {
                     workflowRepository.attachWorkRequest(created.task.id, workRequestId)
                 }
+                if (!isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    throw CancellationException("提醒所属会话已切换")
+                }
                 // long: 只有 Room 定义、调度实例和 WorkManager 身份全部落定后，才把原目标写回当前会话并向用户报告提醒创建成功。
                 appendWorkflowMessage(
                     conversationId,
@@ -3872,7 +3969,16 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         ?: task?.let { workflowRepository.cancelScheduledTask(it.id) }
                     task?.let { runCatching { scheduledTaskScheduler.cancel(it.id) } }
                 }
-                uiState = uiState.copy(prompt = preview.sourceGoal)
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    uiState = uiState.copy(
+                        prompt = preview.sourceGoal,
+                        personalTaskFailure = PersonalTaskFailureUiState(
+                            goal = preview.sourceGoal,
+                            title = "提醒创建已停止",
+                            message = "原始目标已保留，可重新生成任务计划",
+                        ),
+                    )
+                }
             } catch (error: Throwable) {
                 task?.let { created ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -3881,17 +3987,39 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         runCatching { workflowRepository.failScheduling(created.id, error.message ?: "WorkManager 入队失败") }
                     }
                 }
-                uiState = uiState.copy(
-                    workflowError = error.message ?: "创建应用内提醒失败",
-                    prompt = if (task == null) preview.sourceGoal else uiState.prompt,
-                )
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    uiState = uiState.copy(
+                        workflowError = error.message ?: "创建应用内提醒失败",
+                        prompt = if (task == null) preview.sourceGoal else uiState.prompt,
+                        personalTaskFailure = if (task == null) {
+                            PersonalTaskFailureUiState(
+                                goal = preview.sourceGoal,
+                                title = "提醒创建失败",
+                                message = error.message ?: "无法创建应用内提醒",
+                            )
+                        } else {
+                            uiState.personalTaskFailure
+                        },
+                    )
+                }
             } finally {
-                uiState = uiState.copy(runningWorkflowId = null, sendingMessage = false)
-                sendMessageJob = null
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    uiState = uiState.copy(
+                        runningWorkflowId = null,
+                        sendingMessage = false,
+                        personalTaskOperationPhase = null,
+                    )
+                    personalTaskOperationRequestId = null
+                    sendMessageJob = null
+                }
                 refreshWorkflows()
                 saveConversationSelection()
             }
         }
+    }
+
+    private fun isCurrentPersonalTaskOperation(requestId: String, conversationId: String): Boolean {
+        return personalTaskOperationRequestId == requestId && uiState.selectedConversationId == conversationId
     }
 
     private suspend fun handleConversationSendEvent(
