@@ -138,6 +138,104 @@ class RoomWorkflowRepository(
         }
     }
 
+    suspend fun createWorkflowAndOneTimeScheduledTask(
+        name: String,
+        steps: List<WorkflowStepDefinitionInput>,
+        delayMinutes: Int,
+        targetAppPackage: String? = null,
+        goalVerificationContract: WorkflowGoalVerificationContract? = null,
+    ): Pair<WorkflowRecord, ScheduledTaskRecord> {
+        val normalizedName = name.trim()
+        val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
+        WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        val normalizedTargetAppPackage = normalizeTargetAppPackage(targetAppPackage)
+        val now = System.currentTimeMillis()
+        val plannedAt = ScheduledTaskPolicy.plannedAt(now, delayMinutes)
+        // long: 用户确认提醒后，定义和首个调度实例必须原子出现；Worker 到点领取前不创建 Run，避免把未来提醒误当成立即任务执行。
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val (workflow, definitions) = newWorkflowRecords(
+                normalizedName,
+                normalizedSteps,
+                now,
+                normalizedTargetAppPackage,
+                goalVerificationContract,
+            )
+            val task = ScheduledTaskEntity(
+                id = "scheduled-task-${UUID.randomUUID()}",
+                workflowId = workflow.id,
+                type = ScheduledTaskType.ONE_TIME.name,
+                scheduleId = null,
+                status = ScheduledTaskStatus.SCHEDULED.name,
+                plannedAt = plannedAt,
+                workRequestId = null,
+                workflowRunId = null,
+                actualStartedAt = null,
+                completedAt = null,
+                errorMessage = null,
+                createdAt = now,
+                updatedAt = now,
+            )
+            dao.upsertWorkflow(workflow)
+            dao.upsertWorkflowStepDefinitions(definitions)
+            dao.upsertScheduledTask(task)
+            workflow.toRecord(definitions) to task.toRecord()
+        }
+    }
+
+    suspend fun createWorkflowAndRecurringSchedule(
+        name: String,
+        steps: List<WorkflowStepDefinitionInput>,
+        type: WorkflowScheduleType,
+        hour: Int,
+        minute: Int,
+        dayOfWeek: Int?,
+        zoneId: String = ZoneId.systemDefault().id,
+        targetAppPackage: String? = null,
+        goalVerificationContract: WorkflowGoalVerificationContract? = null,
+    ): Pair<WorkflowRecord, WorkflowSchedulePlan> {
+        val normalizedName = name.trim()
+        val normalizedSteps = steps.map { WorkflowStepDefinitionInput(it.goal.trim()) }
+        WorkflowDefinitionPolicy.validate(normalizedName, normalizedSteps)
+        require(hour in 0..23) { "周期小时必须在 0 到 23 之间" }
+        require(minute in 0..59) { "周期分钟必须在 0 到 59 之间" }
+        val timeOfDayMinutes = Math.addExact(Math.multiplyExact(hour, 60), minute)
+        WorkflowSchedulePolicy.validate(type, timeOfDayMinutes, dayOfWeek, zoneId)
+        val normalizedTargetAppPackage = normalizeTargetAppPackage(targetAppPackage)
+        val now = System.currentTimeMillis()
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val (workflow, definitions) = newWorkflowRecords(
+                normalizedName,
+                normalizedSteps,
+                now,
+                normalizedTargetAppPackage,
+                goalVerificationContract,
+            )
+            val scheduleId = "workflow-schedule-${UUID.randomUUID()}"
+            val plannedAt = WorkflowSchedulePolicy.nextPlannedAt(now, type, timeOfDayMinutes, dayOfWeek, zoneId)
+            val task = recurringTask(workflow.id, scheduleId, plannedAt, now)
+            val schedule = WorkflowScheduleEntity(
+                id = scheduleId,
+                workflowId = workflow.id,
+                type = type.name,
+                timeOfDayMinutes = timeOfDayMinutes,
+                dayOfWeek = dayOfWeek,
+                zoneId = zoneId,
+                enabled = true,
+                nextTaskId = task.id,
+                nextPlannedAt = task.plannedAt,
+                createdAt = now,
+                updatedAt = now,
+            )
+            dao.upsertWorkflow(workflow)
+            dao.upsertWorkflowStepDefinitions(definitions)
+            dao.upsertScheduledTask(task)
+            dao.upsertWorkflowSchedule(schedule)
+            workflow.toRecord(definitions) to WorkflowSchedulePlan(schedule.toRecord(), task.toRecord(), null)
+        }
+    }
+
     suspend fun updateWorkflow(
         workflowId: String,
         name: String,

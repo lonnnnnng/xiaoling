@@ -22,6 +22,8 @@ import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
 import com.longdev.xiaoling.agent.PersonalTaskPlanContextPreparer
+import com.longdev.xiaoling.agent.PersonalTaskSchedule
+import com.longdev.xiaoling.agent.PersonalTaskScheduleType
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
@@ -165,6 +167,7 @@ import java.nio.charset.CodingErrorAction
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.time.ZonedDateTime
 
 private fun newChatMessageId(): String = "message-${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
@@ -189,6 +192,7 @@ data class PendingPersonalTaskPlanUiState(
     val createdAt: Long,
     val memoryContextCount: Int = 0,
     val knowledgeContextCount: Int = 0,
+    val reminderScheduleLabel: String? = null,
     val targetAppPackage: String? = null,
     val goalVerificationSpec: WorkflowGoalVerificationSpec? = null,
 )
@@ -196,7 +200,35 @@ data class PendingPersonalTaskPlanUiState(
 private data class PendingPersonalTaskExecution(
     val preview: PendingPersonalTaskPlanUiState,
     val runtimeSelection: AgentRuntimeSelection,
+    val schedule: PersonalTaskSchedule,
 )
+
+private data class CreatedPersonalReminder(
+    val workflow: WorkflowRecord,
+    val task: ScheduledTaskRecord,
+    val scheduleId: String?,
+)
+
+private fun PersonalTaskSchedule.toReminderScheduleLabel(zoneId: String): String? {
+    val time = "${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}"
+    return when (type) {
+        PersonalTaskScheduleType.IMMEDIATE -> null
+        PersonalTaskScheduleType.ONCE -> "一次 · 确认后约 $delayMinutes 分钟"
+        PersonalTaskScheduleType.DAILY -> "每日 $time · $zoneId"
+        PersonalTaskScheduleType.WEEKLY -> "每周${dayOfWeek.toReminderWeekdayLabel()} $time · $zoneId"
+    }
+}
+
+private fun Int.toReminderWeekdayLabel(): String = when (this) {
+    1 -> "一"
+    2 -> "二"
+    3 -> "三"
+    4 -> "四"
+    5 -> "五"
+    6 -> "六"
+    7 -> "日"
+    else -> toString()
+}
 
 internal fun List<ChatMessage>.withRecoveredAgentUserMessage(run: AgentRunRecord): List<ChatMessage> {
     if (any { it.id == run.userMessageId }) return this
@@ -3552,6 +3584,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val conversationId = checkNotNull(preflight.conversationId)
         val runtimeSelection = preflight.runtimeSelection
         val goal = if (AgentCommand.matches(userMessage)) AgentCommand.goal(userMessage) else userMessage.trim()
+        val planningTime = ZonedDateTime.now()
         val requestId = "personal-task-plan-${UUID.randomUUID()}"
         val allowedToolNames = runtimeSelection.profile.allowedToolNames.distinct().sorted()
         val memoryContextAllowed = runtimeSelection.profile.memoryEnabled &&
@@ -3584,6 +3617,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         goal = goal,
                         allowedToolNames = allowedToolNames,
                         context = planContext,
+                        planningTime = planningTime,
                     ),
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
@@ -3607,6 +3641,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     createdAt = System.currentTimeMillis(),
                     memoryContextCount = planContext.memoryFacts.size,
                     knowledgeContextCount = planContext.knowledgeSnippets.size,
+                    reminderScheduleLabel = plan.schedule.toReminderScheduleLabel(planningTime.zone.id),
                     targetAppPackage = plan.targetAppPackage,
                     goalVerificationSpec = plan.verification,
                 )
@@ -3614,6 +3649,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 pendingPersonalTaskExecution = PendingPersonalTaskExecution(
                     preview = preview,
                     runtimeSelection = runtimeSelection,
+                    schedule = plan.schedule,
                 )
                 uiState = uiState.copy(
                     sendingMessage = false,
@@ -3669,6 +3705,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun runConfirmedPersonalTask(pending: PendingPersonalTaskExecution) {
+        if (pending.schedule.type != PersonalTaskScheduleType.IMMEDIATE) {
+            createConfirmedPersonalReminder(pending)
+            return
+        }
         val preview = pending.preview
         val conversationId = preview.conversationId
         uiState = uiState.copy(
@@ -3747,6 +3787,106 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     runningWorkflowId = null,
                     sendingMessage = false,
                 )
+                sendMessageJob = null
+                refreshWorkflows()
+                saveConversationSelection()
+            }
+        }
+    }
+
+    private fun createConfirmedPersonalReminder(pending: PendingPersonalTaskExecution) {
+        val preview = pending.preview
+        val schedule = pending.schedule
+        val conversationId = preview.conversationId
+        uiState = uiState.copy(
+            runningWorkflowId = preview.id,
+            workflowError = null,
+            workflowNavigationConversationId = conversationId,
+            sendingMessage = true,
+        )
+        sendMessageJob = viewModelScope.launch {
+            var task: ScheduledTaskRecord? = null
+            var scheduleId: String? = null
+            try {
+                val contract = preview.goalVerificationSpec?.let { spec ->
+                    WorkflowGoalVerificationContract(preview.sourceGoal, spec)
+                }
+                val created = withContext(Dispatchers.IO) {
+                    when (schedule.type) {
+                        PersonalTaskScheduleType.ONCE -> {
+                            val result = workflowRepository.createWorkflowAndOneTimeScheduledTask(
+                                name = preview.name,
+                                steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                                delayMinutes = schedule.delayMinutes,
+                                targetAppPackage = preview.targetAppPackage,
+                                goalVerificationContract = contract,
+                            )
+                            CreatedPersonalReminder(result.first, result.second, null)
+                        }
+                        PersonalTaskScheduleType.DAILY,
+                        PersonalTaskScheduleType.WEEKLY -> {
+                            val result = workflowRepository.createWorkflowAndRecurringSchedule(
+                                name = preview.name,
+                                steps = preview.steps.map(::WorkflowStepDefinitionInput),
+                                type = if (schedule.type == PersonalTaskScheduleType.DAILY) {
+                                    WorkflowScheduleType.DAILY
+                                } else {
+                                    WorkflowScheduleType.WEEKLY
+                                },
+                                hour = schedule.hour,
+                                minute = schedule.minute,
+                                dayOfWeek = schedule.dayOfWeek.takeIf { schedule.type == PersonalTaskScheduleType.WEEKLY },
+                                targetAppPackage = preview.targetAppPackage,
+                                goalVerificationContract = contract,
+                            )
+                            CreatedPersonalReminder(result.first, result.second.task, result.second.schedule.id)
+                        }
+                        PersonalTaskScheduleType.IMMEDIATE -> error("立即任务不能进入提醒创建流程")
+                    }
+                }
+                val workflow = created.workflow
+                task = created.task
+                scheduleId = created.scheduleId
+                val workRequestId = withContext(Dispatchers.IO) {
+                    scheduledTaskScheduler.enqueue(created.task)
+                }
+                withContext(Dispatchers.IO) {
+                    workflowRepository.attachWorkRequest(created.task.id, workRequestId)
+                }
+                // long: 只有 Room 定义、调度实例和 WorkManager 身份全部落定后，才把原目标写回当前会话并向用户报告提醒创建成功。
+                appendWorkflowMessage(
+                    conversationId,
+                    ChatMessage(role = "user", text = preview.sourceGoal, createdAt = System.currentTimeMillis()),
+                )
+                uiState = uiState.copy(
+                    workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
+                    result = OperationResult(
+                        success = true,
+                        title = "应用内提醒已创建",
+                        message = "${preview.name} · ${preview.reminderScheduleLabel} · 系统可能延迟执行",
+                    ),
+                )
+            } catch (error: CancellationException) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    scheduleId?.let { workflowRepository.cancelWorkflowSchedule(it) }
+                        ?: task?.let { workflowRepository.cancelScheduledTask(it.id) }
+                    task?.let { runCatching { scheduledTaskScheduler.cancel(it.id) } }
+                }
+                uiState = uiState.copy(prompt = preview.sourceGoal)
+            } catch (error: Throwable) {
+                task?.let { created ->
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        // long: 入队成功但 Room 关联失败时必须先撤销同一 WorkManager 任务，避免失败记录仍被后台执行。
+                        runCatching { scheduledTaskScheduler.cancel(created.id) }
+                        runCatching { workflowRepository.failScheduling(created.id, error.message ?: "WorkManager 入队失败") }
+                    }
+                }
+                uiState = uiState.copy(
+                    workflowError = error.message ?: "创建应用内提醒失败",
+                    prompt = if (task == null) preview.sourceGoal else uiState.prompt,
+                )
+            } finally {
+                uiState = uiState.copy(runningWorkflowId = null, sendingMessage = false)
                 sendMessageJob = null
                 refreshWorkflows()
                 saveConversationSelection()

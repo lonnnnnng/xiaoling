@@ -384,7 +384,15 @@ private fun XiaoLingContent(
     state.pendingPersonalTaskPlan?.let { plan ->
         PersonalTaskPlanDialog(
             state = plan,
-            onConfirm = conversationActions::confirmPendingPersonalTaskPlan,
+            onConfirm = {
+                if (plan.reminderScheduleLabel != null &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                conversationActions.confirmPendingPersonalTaskPlan()
+            },
             onDismiss = conversationActions::cancelPendingPersonalTaskPlan,
         )
     }

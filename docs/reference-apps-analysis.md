@@ -8,7 +8,7 @@
 
 第 127 阶段采用“计划与执行分离、确认后复用既有 Ledger”的参考原则：模型只生成严格 JSON Schema 的任务名和 1 至 8 步目标，客户端再次进行不信任解析；确认弹层明确显示风险和能力边界，确认前不写任何执行事实。确认后不是把计划交给新的自由执行器，而是在 Room 单事务创建普通 Workflow、Run 和步骤快照，再进入既有 Agent Runtime、逐动作审批和后置验证。Redmi 真实链中首个 Runtime 模型规划超时保留失败 Run，同一 Workflow 的第二个手动 Run 独立完成 `app.current_time`，验证了 `meow-agent` 式不可变 Ledger 与 `openclaw` 式任务层/执行层分离，而没有扩大工具面。
 
-当前计划上下文只包含用户目标和 Profile 工具白名单，长期记忆与本地知识正文仍按路线图留给第 130 阶段。这里借鉴的是任务/执行分层与审计边界，不把参考项目的上下文路由能力误记为已经交付。
+当前计划上下文已按 Profile 权限接入长期记忆与本地知识，并限制为有界、不可信的只读事实；应用内提醒也复用现有 WorkManager 非精确定时。这里借鉴的是任务/执行分层与审计边界，不把参考项目的任意 App、后台设备控制或远程 Channel 能力误记为已经交付。
 
 第 126 阶段继续采用参考实现中“能力进入生产白名单前必须有完整可验证证据链”的原则。`device.swipe` 只有在第 122 至 125 阶段已经完成纯安全策略、执行期 HMAC evidence、完成态内存交接、Redmi 限定动作和答案级脱敏投影后，才加入前台手动 Workflow 的生产默认 Registry。它继续是 SAFE 零审批动作，仍要求同 Run snapshot/ref、30 秒 TTL、当前 generation、同窗内容变化、共同匿名锚点方向主位移、Executor/typed 验证和动作后观察；Room/UI 不保存方向、viewport/HMAC、snapshot/ref、节点正文或坐标。聚焦 Registry `36/36`、六个相邻测试类 `101/101`、Debug/AndroidTest APK 和仅 Redmi `wsvwypiz7xwslvl7` 的真实生产 `snapshot -> swipe` 均通过，日志为 `approvals=0 / registryCompletion=PASSED / answerDecision=VERIFIED / privacySafe=true`；更新后的项目文档语料首轮/最终单项均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。前台 Workflow 现精确开放七项，后台/定时设备自动化、任意 App、坐标与截图继续关闭。
 

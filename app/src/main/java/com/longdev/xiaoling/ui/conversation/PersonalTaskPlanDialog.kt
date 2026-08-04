@@ -60,6 +60,14 @@ internal fun PersonalTaskPlanDialog(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                state.reminderScheduleLabel?.let { label ->
+                    Text(
+                        text = "应用内提醒：$label\n这是非精确定时，系统可能在计划时间后延迟执行。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 state.targetAppPackage?.let { packageName ->
                     Text(
                         text = "限定应用：$packageName",
@@ -96,7 +104,11 @@ internal fun PersonalTaskPlanDialog(
                     }
                 }
                 Text(
-                    text = "确认只会开始执行这份计划；需要确认的具体动作仍会逐项审批。" +
+                    text = if (state.reminderScheduleLabel == null) {
+                        "确认只会开始执行这份计划；需要确认的具体动作仍会逐项审批。"
+                    } else {
+                        "确认只会创建这条应用内提醒；需要审批的动作到时不会在后台自动获批，而会通知你处理。"
+                    } +
                         state.approvalToolNames.takeIf(List<String>::isNotEmpty)
                             ?.joinToString(prefix = " 可能触发审批：", separator = "、")
                             .orEmpty(),
@@ -122,7 +134,7 @@ internal fun PersonalTaskPlanDialog(
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("确认并执行")
+                Text(if (state.reminderScheduleLabel == null) "确认并执行" else "确认并创建提醒")
             }
         },
         dismissButton = {

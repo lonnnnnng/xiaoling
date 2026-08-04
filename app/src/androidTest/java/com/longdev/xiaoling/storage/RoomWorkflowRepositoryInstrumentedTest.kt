@@ -132,6 +132,44 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun confirmedPersonalRemindersCreateWorkflowAndScheduleWithoutManualRun() = runBlocking {
+        val contract = WorkflowGoalVerificationContract(
+            sourceGoal = "30 分钟后提醒我喝水",
+            spec = WorkflowGoalVerificationSpec(requiredToolNames = listOf("app.current_time")),
+        )
+        val once = repository.createWorkflowAndOneTimeScheduledTask(
+            name = "喝水提醒",
+            steps = listOf(WorkflowStepDefinitionInput("提醒用户喝水")),
+            delayMinutes = 30,
+            goalVerificationContract = contract,
+        )
+        val weekly = repository.createWorkflowAndRecurringSchedule(
+            name = "每周复盘提醒",
+            steps = listOf(WorkflowStepDefinitionInput("提醒用户进行每周复盘")),
+            type = WorkflowScheduleType.WEEKLY,
+            hour = 20,
+            minute = 5,
+            dayOfWeek = 7,
+            zoneId = "Asia/Shanghai",
+            goalVerificationContract = WorkflowGoalVerificationContract(
+                sourceGoal = "每周日 20:05 提醒我复盘",
+                spec = WorkflowGoalVerificationSpec(requiredToolNames = listOf("app.current_time")),
+            ),
+        )
+
+        assertEquals(once.first.id, once.second.workflowId)
+        assertEquals(ScheduledTaskStatus.SCHEDULED, once.second.status)
+        assertEquals(contract, once.first.goalVerificationContract)
+        assertEquals(weekly.first.id, weekly.second.task.workflowId)
+        assertEquals(WorkflowScheduleType.WEEKLY, weekly.second.schedule.type)
+        assertEquals(7, weekly.second.schedule.dayOfWeek)
+        assertEquals("Asia/Shanghai", weekly.second.schedule.zoneId)
+        assertEquals(2, repository.listWorkflows().size)
+        assertEquals(2, repository.listScheduledTasks().size)
+        assertTrue(repository.recentRunDetails().isEmpty())
+    }
+
+    @Test
     fun completedPersonalTaskPersistsVerifiedGoalDecisionFromToolLedger() = runBlocking {
         val contract = WorkflowGoalVerificationContract(
             sourceGoal = "读取当前时间",

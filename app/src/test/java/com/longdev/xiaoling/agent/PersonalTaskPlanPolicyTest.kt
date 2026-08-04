@@ -7,12 +7,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class PersonalTaskPlanPolicyTest {
     @Test
     fun `strict plan accepts one to eight ordered workflow goals`() {
         val plan = PersonalTaskPlanPolicy.parse(
-            """{"name":"整理今天安排","target_app_package":"com.android.settings","verification":{"required_tool_names":["device.open_app","device.snapshot"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"打开系统设置"},{"goal":"查看当前页面"}]}""",
+            """{"name":"整理今天安排","target_app_package":"com.android.settings","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app","device.snapshot"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"打开系统设置"},{"goal":"查看当前页面"}]}""",
             allowedToolNames = setOf("device.open_app", "device.snapshot"),
         )
 
@@ -21,13 +23,71 @@ class PersonalTaskPlanPolicyTest {
         assertEquals(listOf("device.open_app", "device.snapshot"), plan.verification.requiredToolNames)
         assertEquals("com.android.settings", plan.verification.expectedFinalPackageName)
         assertEquals(listOf("打开系统设置", "查看当前页面"), plan.steps.map(PersonalTaskPlanStep::goal))
+        assertEquals(PersonalTaskScheduleType.IMMEDIATE, plan.schedule.type)
         assertEquals(
             null,
             PersonalTaskPlanPolicy.parse(
-                """{"name":"读取当前时间","target_app_package":"","verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"读取当前时间"}]}""",
+                """{"name":"读取当前时间","target_app_package":"","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"读取当前时间"}]}""",
                 allowedToolNames = setOf("app.current_time"),
             ).targetAppPackage,
         )
+    }
+
+    @Test
+    fun `strict plan parses one time daily and weekly reminder schedules`() {
+        val schedules = listOf(
+            """{"type":"ONCE","delay_minutes":30,"hour":0,"minute":0,"day_of_week":0}""" to
+                PersonalTaskSchedule(PersonalTaskScheduleType.ONCE, delayMinutes = 30),
+            """{"type":"DAILY","delay_minutes":0,"hour":9,"minute":15,"day_of_week":0}""" to
+                PersonalTaskSchedule(PersonalTaskScheduleType.DAILY, hour = 9, minute = 15),
+            """{"type":"WEEKLY","delay_minutes":0,"hour":20,"minute":5,"day_of_week":7}""" to
+                PersonalTaskSchedule(PersonalTaskScheduleType.WEEKLY, hour = 20, minute = 5, dayOfWeek = 7),
+        )
+
+        schedules.forEach { (scheduleJson, expected) ->
+            val plan = PersonalTaskPlanPolicy.parse(
+                """{"name":"喝水提醒","target_app_package":"","schedule":$scheduleJson,"verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"提醒用户喝水"}]}""",
+                allowedToolNames = setOf("app.current_time"),
+            )
+
+            assertEquals(expected, plan.schedule)
+        }
+    }
+
+    @Test
+    fun `strict plan rejects contradictory or out of range reminder schedules`() {
+        val invalidSchedules = listOf(
+            """{"type":"IMMEDIATE","delay_minutes":1,"hour":0,"minute":0,"day_of_week":0}""",
+            """{"type":"ONCE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0}""",
+            """{"type":"ONCE","delay_minutes":10081,"hour":0,"minute":0,"day_of_week":0}""",
+            """{"type":"DAILY","delay_minutes":0,"hour":24,"minute":0,"day_of_week":0}""",
+            """{"type":"DAILY","delay_minutes":0,"hour":9,"minute":0,"day_of_week":1}""",
+            """{"type":"WEEKLY","delay_minutes":0,"hour":9,"minute":0,"day_of_week":0}""",
+            """{"type":"ONCE","delay_minutes":"30","hour":0,"minute":0,"day_of_week":0}""",
+            """{"type":"ONCE","delay_minutes":30.0,"hour":0,"minute":0,"day_of_week":0}""",
+        )
+
+        invalidSchedules.forEach { scheduleJson ->
+            assertThrows(IllegalArgumentException::class.java) {
+                PersonalTaskPlanPolicy.parse(
+                    """{"name":"提醒","target_app_package":"","schedule":$scheduleJson,"verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},"steps":[{"goal":"提醒用户"}]}""",
+                    allowedToolNames = setOf("app.current_time"),
+                )
+            }
+        }
+
+        listOf(
+            """{"name":"打开设置提醒","target_app_package":"com.android.settings","schedule":{"type":"ONCE","delay_minutes":30,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"打开系统设置"}]}""",
+            """{"name":"点击提醒","target_app_package":"","schedule":{"type":"DAILY","delay_minutes":0,"hour":9,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.tap_ref"],"expected_final_package":""},"steps":[{"goal":"点击当前页面按钮"}]}""",
+            """{"name":"设置提醒","target_app_package":"","schedule":{"type":"WEEKLY","delay_minutes":0,"hour":9,"minute":0,"day_of_week":1},"verification":{"required_tool_names":["app.current_time"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"提醒用户处理设置"}]}""",
+        ).forEach { raw ->
+            assertThrows(IllegalArgumentException::class.java) {
+                PersonalTaskPlanPolicy.parse(
+                    raw,
+                    allowedToolNames = setOf("device.open_app", "device.tap_ref"),
+                )
+            }
+        }
     }
 
     @Test
@@ -60,6 +120,7 @@ class PersonalTaskPlanPolicyTest {
             goal = "查看当前时间并记到笔记",
             allowedToolNames = listOf("notes.create", "app.current_time"),
             allowedAppPackages = listOf("com.android.settings", "com.android.calculator2"),
+            planningTime = ZonedDateTime.of(2026, 8, 4, 15, 20, 0, 0, ZoneId.of("Asia/Shanghai")),
             context = PersonalTaskPlanContext(
                 memoryFacts = listOf("用户偏好把当天安排写入工作笔记"),
                 knowledgeSnippets = listOf(
@@ -81,6 +142,9 @@ class PersonalTaskPlanPolicyTest {
         assertTrue(messages.last().content.contains("用户偏好把当天安排写入工作笔记"))
         assertTrue(messages.last().content.contains("[工作流程.md]"))
         assertTrue(messages.last().content.contains("不要调用未授权工具"))
+        assertTrue(messages.last().content.contains("2026-08-04 15:20"))
+        assertTrue(messages.last().content.contains("Asia/Shanghai"))
+        assertTrue(messages.first().content.contains("非精确定时"))
     }
 
     @Test

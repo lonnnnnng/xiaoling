@@ -59,4 +59,33 @@ class PersonalTaskPlanDialogInstrumentedTest {
 
         composeRule.runOnIdle { assertEquals(1, confirmCount) }
     }
+
+    @Test
+    fun showsNonExactReminderRuleBeforeCreatingSchedule() {
+        composeRule.setContent {
+            MaterialTheme {
+                PersonalTaskPlanDialog(
+                    state = PendingPersonalTaskPlanUiState(
+                        id = "plan-reminder",
+                        conversationId = "conversation-1",
+                        sourceGoal = "每天九点提醒我喝水",
+                        name = "喝水提醒",
+                        steps = listOf("提醒用户喝水"),
+                        agentName = "默认 Agent",
+                        model = "model-a",
+                        allowedToolNames = listOf("app.current_time"),
+                        approvalToolNames = emptyList(),
+                        createdAt = 1L,
+                        reminderScheduleLabel = "每日 09:00 · Asia/Shanghai",
+                    ),
+                    onConfirm = {},
+                    onDismiss = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("应用内提醒：每日 09:00 · Asia/Shanghai", substring = true).assertExists()
+        composeRule.onNodeWithText("非精确定时", substring = true).assertExists()
+        composeRule.onNodeWithText("确认并创建提醒").assertExists()
+    }
 }
