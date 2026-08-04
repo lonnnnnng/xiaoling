@@ -4,7 +4,7 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
-“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 137 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、计划生成遥测、常用任务模板、首个 Google 天气 App 兼容扩展，并完成计划上下文请求精简。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
+“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 138 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、计划生成遥测、常用任务模板、首个 Google 天气 App 兼容扩展、计划上下文请求精简和计划取消重试闭环。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
@@ -147,6 +147,7 @@ local-signing/xiaoling-release.jks
 - 第 135 阶段完成常用任务模板快捷入口：任务模式提供“打开计算器”“搜索系统设置”“打开时钟”三个已验收范围内的目标模板。选择模板只回填目标输入，不自动发送、不提前请求模型、不创建 Workflow/Run，也不绕过计划确认；仍统一进入原有 `目标 -> 计划 -> 确认 -> 执行` 链路。聚焦 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的 `ConversationPageInstrumentedTest` 为 `OK (6 tests)`（`9.751s`），更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 第 136 阶段完成首个 App 兼容扩展：只新增 Google 天气 `com.google.android.apps.weather` 的 Manifest 可见性、三层包名白名单、工具 Schema 和“查看天气”任务模板。天气模板仍只回填目标；真实 Redmi Workflow 已取得 `APPROVED / executorVerified=true / PASSED / afterPackage=com.google.android.apps.weather / answerDecision=VERIFIED`，且 `open_app` 不产生可复用节点引用。天气页可能包含用户当前选择的粗粒度位置，只允许在用户主动发起的前台观察中处理，不进入后台采集或新的持久化旁路。聚焦 JVM `64/64`、Debug/AndroidTest APK、Redmi 两个定向单项通过；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.409s / 2.606s`）。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 137 阶段完成计划上下文请求精简：保持 system 安全规则、用户目标、规划时间、工具/App 边界和计划 Schema 不变，只对检索正文执行 8 KiB UTF-8 预算、跨来源同正文去重和完整条目裁剪；记忆与知识交替尝试，避免单一来源独占预算。确认页显示实际使用条数、上下文字节和省略数量，数据与真正发送的同一请求对象绑定。聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi Compose `OK (5 tests)` 和真实模型 `OK (1 test)` 通过；真实请求使用记忆 `2/3`、知识 `1/3`，上下文 `7,264B`、Prompt `11,190B`，返回 1 步可解析计划。主应用已恢复前台、Provider 已回读确认、测试包已卸载；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+- 第 138 阶段补齐计划生成取消闭环：用户主动停止计划请求时，保留原始目标并生成“计划生成已停止”的可重试失败卡；会话切换或删除导致的旧请求取消仍因 request ID 失效而静默丢弃，不污染新会话。聚焦 JVM `1/1`、Debug/AndroidTest APK 和仅 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)` 通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - Redmi 重新连接后的默认套件发现当前 ROM 使用 Google 计算器/时钟包名。首批限定应用白名单现同时兼容 AOSP 与 Google 两套精确包名，并单独增加 Google 天气；仍只覆盖明确列出的 App 和桌面，不开放 Chrome、联系人、短信、文件、日历或任意 App。
 - 第 129 阶段完成目标级本地验证与最终回答约束。计划完成标准冻结到 Workflow 和步骤快照，Room v35 保持旧任务无目标判定，Repository 只从同 Run 已验证 Tool Ledger 和脱敏最终观察生成 `VERIFIED / PARTIAL / INCOMPLETE`；模型总结不能扩大结论。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi 定向 `OK (5 tests)`（`3.33s`）和真实多动作 `goalDecision=VERIFIED` tracer 均通过。文档语料黄金查询已移除易过期的历史测试数量，并在失败时输出逐查询排名；更新查询后的 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；下一主线进入第 130 阶段。
 - 第 127 阶段完成自然语言个人任务与可确认计划。任务模式使用严格 JSON Schema 生成 1 至 8 步计划，确认前不写消息、Workflow、Run 或工具账本；确认后 Room 单事务创建普通 Workflow、手动 Run 和步骤快照，再复用既有 Runtime、审批和验证。聚焦 JVM `34/34`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的计划弹层与 Room 原子创建为 `OK (2 tests)`（`2.03s`）。真实模型生成 `Read Current Time` 单步计划，首个 Runtime 模型规划超时保持失败 Run，随后同一 Workflow 的独立手动 Run 完成 `app.current_time` 六段审计链，旧 Run 未被覆盖。更新后的文档语料首轮为 `OK (1 test)`（`2.453s`），写回本条证据后的最终资产已复验通过。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；记忆/知识计划上下文仍属于第 130 阶段。

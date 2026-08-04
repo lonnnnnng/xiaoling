@@ -1,6 +1,6 @@
 # 当前实现说明
 
-## 第 127 至 137 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 138 阶段实现顺序（主线完成，体验打磨继续）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
@@ -27,6 +27,8 @@
 - 第 137 阶段在既有每来源 3 条、单条 800 字符限制后增加 `MAX_CONTEXT_BYTES=8192`。选择器按记忆/知识交替顺序尝试，每次重绘真实标题、编号、文档名和正文后计算 UTF-8 字节；只有完整候选块仍在预算内才接受，后续较短条目仍可进入。知识正文与记忆完全相同时作为省略计数，不重复发送。
 - `PendingPersonalTaskPlanUiState` 的使用数量、省略数量和 `contextBytes` 全部来自真正传给 `sendStructuredMessage()` 的 `PersonalTaskPlanRequest`，避免用检索原始数量冒充发送数量。确认弹层只在省略数大于 0 时显示“上下文精简”，并继续显示第 134 阶段真实 Prompt 遥测。
 - 第 137 阶段聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi `PersonalTaskPlanDialogInstrumentedTest` `OK (5 tests)` 和显式 Provider 探针 `OK (1 test)`。真实模型样本使用上下文 `7,264B`、Prompt `11,190B`，记忆使用/省略 `2/1`、知识使用/省略 `1/2`，返回 1 步计划；最终手动 instrumentation 在成功后恢复并回读 Provider，测试包卸载后主应用保持前台。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+- 第 138 阶段在 `preparePersonalTaskPlan()` 的取消分支复用 `personalTaskPlanCancellationFailure(goal)`：只要 request ID 仍属于当前会话，就恢复目标、清理计划进度并写入可重试失败卡；会话切换/删除会先清空 request ID，因此旧取消不会污染新会话。该状态映射独立于执行中 Workflow/提醒取消，不改变已创建 Room 事实的收敛策略。
+- 第 138 阶段聚焦 JVM `1/1`、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.791s`）；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。
 - 确认后操作使用独立 `personalTaskOperationRequestId` 绑定计划和会话。会话切换先使旧代次失效再取消 Job；已经创建的 Run 由取消分支在不可取消 IO 区收敛，尚未创建时不追加伪执行消息。成功、失败与最终清理只有在请求 ID 和会话仍匹配时才更新可见 UI。
 - 通知权限 launcher 以计划 ID 保存等待身份。权限返回前确认/返回按钮禁用；回调清理等待身份后只在当前待确认计划仍是同一 ID 时提交。权限结果本身不改变已确认调度语义，拒绝只意味着系统通知可能不可见。

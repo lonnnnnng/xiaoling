@@ -10,7 +10,7 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 137 阶段继续真实使用打磨，已完成计划交互、计划生成遥测、常用模板、首个 Google 天气兼容扩展和计划上下文请求精简。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 138 阶段继续真实使用打磨，已完成计划交互、计划生成遥测、常用任务模板、首个 Google 天气兼容扩展、计划上下文请求精简和计划取消重试闭环。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：第 133 阶段更新后的长期文档已重新打包，仅在 Redmi 运行 corpus 单项；首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
@@ -22,6 +22,13 @@
 - TDD 与构建：策略与展示测试先分别以缺少 `prepareRequest/MAX_CONTEXT_BYTES`、缺少 presentation 函数失败；实现后 `PersonalTaskPlanPolicyTest 10/10 + PersonalTaskPlanContextUsagePresentationTest 2/2`，合计 `12/12`。`assembleDebug / assembleDebugAndroidTest` 成功，未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - Redmi UI：仅 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `PersonalTaskPlanDialogInstrumentedTest`，结果 `OK (5 tests)`；确认页可见上下文占用和分来源省略数。在线模拟器只出现在 `adb devices` 列表，没有接收安装、instrumentation、UI 或功能命令。
 - 真实模型：显式 Provider 探针只发起一次结构化计划请求。最终手动运行 `OK (1 test)`，上下文 `7,264B`、记忆使用/省略 `2/1`、知识使用/省略 `1/2`，完整请求 Prompt `11,190B`，模型耗时 `5,851ms`，返回 1 步可解析 `IMMEDIATE` 计划。探针成功后按显式参数恢复并回读 Provider；只卸载测试包，主应用重新启动并保持 `MainActivity` 前台。
+
+## 2026-08-05 第 138 阶段：计划生成取消重试闭环
+
+- 实现：`preparePersonalTaskPlan()` 的 `CancellationException` 分支在 request ID 仍属于当前会话时，恢复 `prompt=goal`、清理 `GENERATING_PLAN`，并写入 `personalTaskPlanCancellationFailure(goal)`；UI 因此显示“计划生成已停止”和既有“重新生成”入口。会话切换/删除先使 request ID 失效，旧取消不会写入新会话。
+- 边界：本阶段只处理计划模型请求尚未创建 Workflow/Run 的主动停止；已确认立即任务、应用内提醒、Room/WorkManager 和关联重试保持第 133 阶段既有语义。未新增 Room Schema、Runtime、工具白名单或设备权限。
+- TDD 与构建：取消状态映射测试先因缺少 `personalTaskPlanCancellationFailure` 失败，实现后 `PersonalTaskPlanCancellationTest 1/1` 通过；`assembleDebug / assembleDebugAndroidTest` 成功。
+- Redmi：仅 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 手动运行 `ConversationPageInstrumentedTest`，结果 `OK (6 tests)`，耗时 `9.791s`；测试包随后卸载，主应用重新启动。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 
 ## 2026-08-05 第 136 阶段：首个 Google 天气 App 兼容扩展
 

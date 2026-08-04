@@ -46,6 +46,13 @@
 - 计划确认页必须展示真正发送给模型的记忆/知识数量和上下文字节；发生去重或预算裁剪时必须分别显示两类省略数。展示数据必须与模型请求来自同一不可分割结果，不能使用检索原始数量推断。
 - 本阶段不修改 Room Schema、Workflow/Run、审批、工具白名单、Runtime 或后台权限，不估算货币成本。聚焦验收覆盖 JVM、Debug/AndroidTest APK、Redmi Compose 和一条显式真实 Provider 计划请求；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
 
+## 计划生成取消重试（第 138 阶段，完成）
+
+- 用户主动停止计划生成时，必须恢复发送前的原始目标，清除生成中状态，并生成包含该目标的可重试失败状态；不能只结束 loading 或把目标留在不可操作的隐式状态。
+- 失败状态必须由原计划 request ID 和会话身份守护。会话切换/删除先使 request ID 失效，旧协程的取消回调不得修改当前会话的 Prompt、失败卡或进度。
+- 本阶段仅覆盖计划模型请求尚未创建 Workflow/Run 的取消；确认后的立即任务、应用内提醒和已经落定的 Room 事实继续沿既有取消、失败、WorkManager 撤销和关联重试契约执行。
+- 本阶段不新增 Room Schema、Runtime、工具白名单、设备权限或后台能力。聚焦验证为 JVM、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest`；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

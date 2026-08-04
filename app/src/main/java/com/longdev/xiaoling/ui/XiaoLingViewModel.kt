@@ -3709,6 +3709,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     uiState = uiState.copy(
                         sendingMessage = false,
                         personalTaskOperationPhase = null,
+                        prompt = goal,
+                        personalTaskFailure = personalTaskPlanCancellationFailure(goal),
                     )
                 }
             } catch (error: Throwable) {
