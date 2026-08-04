@@ -33,7 +33,9 @@ class DeviceActionPolicy(
         val DEFAULT_ALLOWED_PACKAGES = setOf(
             "com.longdev.xiaoling",
             "com.android.calculator2",
+            "com.google.android.calculator",
             "com.android.deskclock",
+            "com.google.android.deskclock",
             "com.android.settings",
         )
 

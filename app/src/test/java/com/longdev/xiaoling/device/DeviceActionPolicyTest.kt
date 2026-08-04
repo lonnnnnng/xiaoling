@@ -12,7 +12,9 @@ class DeviceActionPolicyTest {
     fun allowlistContainsOnlyInitialValidatedApps() {
         assertTrue(policy.isAppAllowed("com.longdev.xiaoling"))
         assertTrue(policy.isAppAllowed("com.android.calculator2"))
+        assertTrue(policy.isAppAllowed("com.google.android.calculator"))
         assertTrue(policy.isAppAllowed("com.android.deskclock"))
+        assertTrue(policy.isAppAllowed("com.google.android.deskclock"))
         assertTrue(policy.isAppAllowed("com.android.settings"))
         assertFalse(policy.isAppAllowed("com.example.untrusted"))
     }

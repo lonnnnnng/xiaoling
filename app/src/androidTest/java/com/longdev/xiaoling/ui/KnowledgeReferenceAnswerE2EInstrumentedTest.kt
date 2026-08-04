@@ -1,10 +1,9 @@
 package com.longdev.xiaoling.ui
 
-import androidx.compose.ui.test.hasClickAction
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -92,7 +91,7 @@ class KnowledgeReferenceAnswerE2EInstrumentedTest {
 
     private fun returnToConversation() {
         composeRule.onNodeWithContentDescription("返回设置").performClick()
-        composeRule.onNode(hasText("对话") and hasClickAction()).performClick()
+        composeRule.onNodeWithTag("bottom_tab_conversation").performClick()
     }
 
     private fun seedAnswer() = runBlocking {

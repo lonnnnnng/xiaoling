@@ -1,6 +1,6 @@
 # 产品需求
 
-## 完整个人 Agent 主线（第 127 至 132 阶段，已确认）
+## 完整个人 Agent 主线（第 127 至 132 阶段，已完成）
 
 完整前台个人 Agent MVP 必须跑通统一主链：用户以自然语言提出目标，系统读取当前 Profile 允许的长期记忆与本地知识，生成 1 至 8 步临时计划并展示风险/能力边界，用户确认后复用既有 Workflow、Agent Runtime、Tool Registry、Room Ledger、审批和验证执行；完成时只允许使用已验证步骤与最终观察形成目标级结论，并把任务事实持久化。不得建立绕过现有安全和审计边界的第二套 Runtime。
 
@@ -25,7 +25,8 @@
 - 本阶段只运行重试策略聚焦 JVM、Debug/AndroidTest APK 和 Redmi 关联重试单项；完整 JVM、Lint、Release 和默认完整 instrumentation 延后到第 132 阶段里程碑。
 
 第 127 至 132 阶段不以截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步或本地模型为前置条件。每个阶段必须形成用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和文档整理只能作为功能切片的必要组成，不能替代主线交付。
-第 132 阶段门禁状态：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 已通过；Redmi 真机未连接，三条完整任务和默认 instrumentation 保持待执行。
+第 132 阶段已完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认完整 instrumentation `282/282` 通过。正式 Release 未执行。
+Redmi 当前 ROM 使用 `com.google.android.calculator / com.google.android.deskclock`，与既有 AOSP 包名不同。首批限定应用白名单同时接受两套明确实现，仍只覆盖小灵、计算器、时钟和设置四类应用，不开放任意 App 或 `QUERY_ALL_PACKAGES`。
 
 ## 目标级本地验证与最终回答约束（第 129 阶段，完成）
 

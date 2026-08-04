@@ -1,13 +1,14 @@
 # 文档索引
 
-后续主线已确认采用“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 131 阶段的自然语言计划、限定 App 多动作连续执行、目标级本地验证、记忆/知识计划上下文、应用内提醒和任务级恢复/关联重试均已完成；第 132 阶段完整 JVM、Lint、Debug/AndroidTest APK 已通过，待 Redmi 真机重新连接后完成三条完整任务与默认 instrumentation。每个阶段必须交付用户可直接体验的能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再作为当前主线。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；下一轮转入真实使用打磨。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
 
 第 130 阶段让任务计划在请求模型前按当前 Profile 权限读取长期记忆和本地知识：长期记忆还要求 Profile 记忆开关和当前会话单次召回开关同时开启；每类最多 3 条、单条最多 800 个 UTF-16 字符。上下文在 Prompt 中明确为不可信只读事实，不能授权工具、伪造审批或覆盖系统边界；任一获准检索失败都会终止本次计划。确认弹层展示实际使用数量，不展示正文。首切片聚焦策略测试实际为 `5/5`。
 
 同阶段第二切片在严格计划 Schema 中加入 `IMMEDIATE / ONCE / DAILY / WEEKLY`，并在本地拒绝数字字符串、小数和互相矛盾的时间字段。一次性规则限制为 1 至 10080 分钟，每日/每周使用当前系统时区；提醒不能携带目标 App、`device.*` 完成标准或设备最终应用。确认页显示规则、非精确定时和后台审批边界；确认后 Room 原子创建 Workflow 与 ScheduledTask/周期规则，不产生 Manual Run，再调用现有 WorkManager 入队与通知权限入口；入队或关联失败会撤销同一 WorkManager 唯一任务并收敛 Room 状态。最终 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 成功；Redmi Room 原子测试与 Compose 提醒确认单项最终为 `OK (1 test)`（`0.318s / 2.12s`），兜底真实模型返回 `ONCE / 30`。临时真实模型探针已删除。本阶段没有运行完整 JVM、Lint、Release 或默认 instrumentation；下一主线为第 131 阶段。
 
 第 131 阶段复用既有任务级恢复与关联重试闭环：旧 `BLOCKED / FAILED / CANCELLED` Run 只从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；二次确认、旧 Run 不变和已提交副作用不重放边界保持不变。`WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 成功；Redmi `retryReusesCompletedStepsAndKeepsSourceRunUnchanged` 最终为 `OK (1 test)`（`0.444s`），测试包已卸载。下一主线为第 132 阶段三条 Redmi 完整任务与统一里程碑门禁。
-第 132 阶段当前门禁：已修正有效测试夹具与 `workflow-device-action-safety-v2` 生产规则版本漂移；完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 均成功。Redmi `wsvwypiz7xwslvl7` 当前未连接，ADB 只显示受禁止操作的模拟器，故未执行任何真机/模拟器 instrumentation。
+第 132 阶段最终门禁：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和 Redmi 默认完整 `OK (282 tests)`（`139.622s`）通过。三条里程碑任务覆盖记忆/知识提醒、真实限定 App 多动作和旧 Run 不变的关联重试；测试提醒 WorkManager 工作项已撤销，Accessibility 已恢复为原关闭状态，未构建 Release。
+Redmi 重连后确认当前 ROM 使用 Google 计算器/时钟包名；首批限定应用白名单与 Manifest queries 已补 AOSP/Google 双实现兼容，仍保持明确包名、逐动作审批和动作后包名验证。
 
 第 129 阶段为任务计划增加严格 `verification.required_tool_names / expected_final_package`，确认后把版本化完成标准冻结到 Workflow 和全部步骤输入快照。Room 升级为 v35，旧 Workflow/Run 的 `goalVerificationContract / goalVerificationDecision` 保持 `null`，损坏 Contract 阻止新 Run。Repository 只从同 Run 持久 Tool Ledger、脱敏设备 Decision 和最新观察时间重建 `VERIFIED / PARTIAL / INCOMPLETE`，最终文案由本地策略生成。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi v34→v35/Repository/确认弹层 `OK (5 tests)`（`3.33s`）通过；真实生产 Registry 多动作日志新增 `goalDecision=VERIFIED`。文档语料查询已改为稳定职责词并增加逐查询失败排名，Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation，下一主线为第 130 阶段。
 

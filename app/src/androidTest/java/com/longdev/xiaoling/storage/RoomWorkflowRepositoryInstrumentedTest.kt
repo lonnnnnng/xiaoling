@@ -5,9 +5,13 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentMemorySource
 import com.longdev.xiaoling.agent.AgentStepStatus
 import com.longdev.xiaoling.agent.AgentStepTypes
 import com.longdev.xiaoling.agent.AgentVerificationStatus
+import com.longdev.xiaoling.agent.PersonalTaskPlanContextPreparer
+import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
+import com.longdev.xiaoling.agent.PersonalTaskScheduleType
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedAgentContextCodec
 import com.longdev.xiaoling.agent.VerifiedToolExecution
@@ -31,6 +35,7 @@ import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.data.AgentRunEntity
 import com.longdev.xiaoling.data.AgentToolCallEntity
@@ -167,6 +172,85 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(2, repository.listWorkflows().size)
         assertEquals(2, repository.listScheduledTasks().size)
         assertTrue(repository.recentRunDetails().isEmpty())
+    }
+
+    @Test
+    fun memoryAndKnowledgeContextCreatesAndEnqueuesOneTimePersonalReminder() = runBlocking {
+        val conversationId = "conversation-stage132-reminder"
+        val memoryStore = RoomAgentMemoryStore(context, database)
+        val knowledgeStore = RoomKnowledgeDocumentStore(context, database)
+        memoryStore.remember(
+            content = "用户希望 30 分钟后提醒我喝温水",
+            tags = "喝水 健康",
+            type = "Preference",
+            source = AgentMemorySource(conversationId, null, "用户确认的喝水偏好"),
+            confidence = 0.95,
+            idempotencyKey = "stage132-reminder-memory",
+        )
+        knowledgeStore.importUtf8Document(
+            displayName = "工作日健康提醒.md",
+            mimeType = "text/markdown",
+            bytes = "30 分钟后提醒我喝温水可以使用非精确定时提醒，系统可能延迟触发。".toByteArray(),
+        )
+        val contextPreparer = PersonalTaskPlanContextPreparer(
+            searchMemories = { query, limit ->
+                memoryStore.search(query, limit, enabledOnly = true).map { it.content }
+            },
+            searchKnowledge = { query, limit, sourceConversationId ->
+                knowledgeStore.search(query, limit, sourceConversationId).hits
+            },
+        )
+        val goal = "30 分钟后提醒我喝温水"
+        val planContext = contextPreparer.prepare(
+            goal = goal,
+            conversationId = conversationId,
+            memoryAllowed = true,
+            knowledgeAllowed = true,
+        )
+        assertEquals(1, planContext.memoryFacts.size)
+        assertEquals(1, planContext.knowledgeSnippets.size)
+        val planningPrompt = PersonalTaskPlanPolicy.requestMessages(
+            goal = goal,
+            allowedToolNames = listOf("app.current_time", "memory.search", "knowledge.search"),
+            context = planContext,
+        ).last().content
+        assertTrue(planningPrompt.contains("用户希望 30 分钟后提醒我喝温水"))
+        assertTrue(planningPrompt.contains("工作日健康提醒.md"))
+
+        val plan = PersonalTaskPlanPolicy.parse(
+            raw = """
+                {
+                  "name":"喝水提醒",
+                  "target_app_package":"",
+                  "schedule":{"type":"ONCE","delay_minutes":30,"hour":0,"minute":0,"day_of_week":0},
+                  "verification":{"required_tool_names":["app.current_time"],"expected_final_package":""},
+                  "steps":[{"goal":"在提醒触发时告知用户喝温水"}]
+                }
+            """.trimIndent(),
+            allowedToolNames = setOf("app.current_time", "memory.search", "knowledge.search"),
+        )
+        assertEquals(PersonalTaskScheduleType.ONCE, plan.schedule.type)
+        val contract = WorkflowGoalVerificationContract(sourceGoal = goal, spec = plan.verification)
+        val (workflow, task) = repository.createWorkflowAndOneTimeScheduledTask(
+            name = plan.name,
+            steps = plan.steps.map { WorkflowStepDefinitionInput(it.goal) },
+            delayMinutes = plan.schedule.delayMinutes,
+            targetAppPackage = plan.targetAppPackage,
+            goalVerificationContract = contract,
+        )
+        val scheduler = WorkManagerScheduledTaskScheduler(context)
+        try {
+            val workRequestId = scheduler.enqueue(task)
+            repository.attachWorkRequest(task.id, workRequestId)
+            val storedTask = repository.getScheduledTask(task.id)
+            assertEquals(ScheduledTaskStatus.SCHEDULED, storedTask?.status)
+            assertEquals(workRequestId, storedTask?.workRequestId)
+            assertEquals(contract, workflow.goalVerificationContract)
+            assertTrue(repository.recentRunDetails().isEmpty())
+        } finally {
+            // long: 里程碑验收只证明真实 WorkManager 入队，不让 30 分钟后的测试提醒污染用户设备。
+            scheduler.cancel(task.id)
+        }
     }
 
     @Test
@@ -2012,7 +2096,7 @@ class RoomWorkflowRepositoryInstrumentedTest {
     ): String = """
         {
           "ruleVersion":"workflow-device-action-result-v1",
-          "safetyRuleVersion":"workflow-device-action-safety-v1",
+          "safetyRuleVersion":"workflow-device-action-safety-v2",
           "action":"$action",
           "beforePackageName":"com.example.notes",
           "afterPackageName":"$afterPackageName",

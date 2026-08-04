@@ -544,7 +544,7 @@ class WorkflowManagementProjectionTest {
     fun projectRedactsRawDeviceActionResultFromStepPreviousOutputsAndRunResult() {
         val workflow = workflow(id = "workflow-redact-device-action", enabled = true)
         val rawActionResult = """
-            {"ruleVersion":"workflow-device-action-result-v1","safetyRuleVersion":"workflow-device-action-safety-v1","action":"tap_ref","beforePackageName":"com.example.before","afterPackageName":"com.example.after","afterNodeCount":12,"afterRedactedNodeCount":2,"afterTruncated":false,"afterObservedAt":1700000000000,"verified":true}
+            {"ruleVersion":"workflow-device-action-result-v1","safetyRuleVersion":"workflow-device-action-safety-v2","action":"tap_ref","beforePackageName":"com.example.before","afterPackageName":"com.example.after","afterNodeCount":12,"afterRedactedNodeCount":2,"afterTruncated":false,"afterObservedAt":1700000000000,"verified":true}
         """.trimIndent()
         val workflowRun = run(
             workflowId = workflow.id,

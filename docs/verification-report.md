@@ -10,7 +10,7 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 131 阶段的自然语言计划、限定 App 多动作连续执行、目标级本地验证、记忆/知识计划上下文、应用内提醒和任务级恢复/关联重试已经完成，开发数据库保持 Room v35。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 已通过，待 Redmi 真机完成三条完整任务和默认 instrumentation。纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。前台 Workflow 当前七项仍为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35。最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 均通过。下一轮转入真实使用打磨；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：本轮未执行；最近一次仍是第 127 阶段最终资产在 Redmi 的 `OK (1 test)`，不能表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
@@ -22,11 +22,21 @@
 - 聚焦验证：`WorkflowStepExecutionPolicyTest 13/13`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 成功。只在 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 运行 `RoomWorkflowRepositoryInstrumentedTest#retryReusesCompletedStepsAndKeepsSourceRunUnchanged`，结果 `OK (1 test)`、`0.444s`。测试包已卸载，冷启动后 `topResumedActivity=com.longdev.xiaoling/.MainActivity`。没有运行完整 JVM、Lint、Release 或默认完整 instrumentation，也没有向模拟器发送 ADB 命令。
 - 下一步：第 132 阶段用 Redmi 验收知识、记忆、设备动作、提醒和恢复组成的三条完整用户任务，再统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation。
 
-## 2026-08-04 第 132 阶段：统一门禁已通过，待 Redmi 真机
+## 2026-08-04 第 132 阶段：完整个人 Agent 里程碑验收完成
 
 - 修复：`WorkflowDeviceActionDecisionPolicyTest` 中 6 个通过路径夹具仍使用 `workflow-device-action-safety-v1`，与当前生产 `workflow-device-action-safety-v2` 不一致；仅将有效夹具更新到 v2，历史版本和拒绝路径继续由 codec fail-closed。
 - 已验证：聚焦策略测试通过；完整 JVM `879/879`；Lint `0 error`；`assembleDebug` 与 `assembleDebugAndroidTest` 成功。未执行 Release。
-- 未完成：当前 `adb devices -l` 只有 `emulator-5554`，严格未向模拟器发送命令；Redmi `wsvwypiz7xwslvl7` 未连接，三条完整用户任务和默认完整 instrumentation 需真机连接后继续。
+- 最终门禁：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和 Redmi 默认完整 instrumentation `OK (282 tests)`（`139.622s`）通过；12 个显式联网探针按设计 skipped，0 个真实失败。未构建 Release。
+- 三条任务：记忆/知识检索形成严格 ONCE 提醒并完成 Room 原子创建、WorkManager 入队与测试工作项撤销；真实设置页 `snapshot -> swipe -> snapshot -> back` 得到 `verified=2/2 / approvals=0 / freshSnapshots=true / goalDecision=VERIFIED / privacySafe=true`；关联重试复用已验证前缀并保持来源 Run 不变。
+- 设备收尾：测试包已卸载，测试提醒工作项已撤销；Accessibility 与保持唤醒恢复原关闭状态，小灵主 Activity 恢复前台。第一次误用 Gradle `connectedDebugAndroidTest` 时序列号属性未过滤在线模拟器，模拟器收到一次无效 initialization test；该结果已废弃，后续安装、三条任务和最终完整套件全部显式使用 Redmi 序列号，有效证据只来自 Redmi。
+- 文档语料：README 与五份长期文档重新打包后的 Redmi corpus gate 首轮为 `OK (1 test)`（`2.699s`）；写回证据后的最终复验同样通过。
+- 真机复核：Redmi 已重新连接后，首轮显式 `am instrument` 运行 `281` 项，发现 AndroidTest 中两处 `safety-v1` 有效夹具仍未同步，另有旧测试 APK 导致当前 Room 版本断言不一致；失败集中在测试夹具/安装产物漂移，未据此判定生产回归。已同步剩余夹具到 `workflow-device-action-safety-v2`，将清理重建并重跑 Redmi。
+- 代码修正：Room `@Database` 已为 v35，但 `XiaoLingDatabase.CURRENT_VERSION` 仍为 34；已同步常量到 35，使“新库版本等于当前版本”测试与实际 schema 一致。
+- Redmi 包名兼容：当前 ROM 安装的是 `com.google.android.calculator / com.google.android.deskclock`，不是原 AOSP 包。白名单与 Manifest queries 增加这两个精确包名并保留 AOSP 兼容；不申请 `QUERY_ALL_PACKAGES`，不放宽任意 App。
+- Compose 稳定性：知识引用 E2E 返回对话原用“文本 + 可点击”选择器，会同时命中合并语义节点；改用已有唯一 `bottom_tab_conversation` tag，不改变生产页面行为。
+- 三条里程碑任务：新增 Redmi 持久化验收，把真实 Room 长期记忆、本地知识检索、严格 ONCE 计划、Workflow/ScheduledTask 原子创建和 WorkManager 入队串成第一条完整任务，并在验收后撤销测试工作项；第二条复用真实设置多动作 tracer，第三条复用关联重试磁盘验收。
+- 第一条任务首轮按真实 FTS 查询发现泛化记忆“每隔一段时间”不能命中“30 分钟后提醒我”；验收夹具改为用户明确确认过的同一提醒意图，不绕过真实检索或直接注入上下文。
+- 第二轮记忆已命中，知识文档因只写“非精确定时”仍未匹配完整目标；知识验收语料同步加入同一“30 分钟后喝温水”主题，继续通过生产 FTS 召回。
 
 ## 2026-08-04 第 130 阶段：个人任务上下文与应用内提醒
 

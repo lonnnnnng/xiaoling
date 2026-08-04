@@ -6,7 +6,9 @@
     <queries>
         <!-- long: open_app 只允许首批真机验收应用；显式声明包可见性，避免申请 QUERY_ALL_PACKAGES 扩大隐私面。 -->
         <package android:name="com.android.calculator2" />
+        <package android:name="com.google.android.calculator" />
         <package android:name="com.android.deskclock" />
+        <package android:name="com.google.android.deskclock" />
         <package android:name="com.android.settings" />
     </queries>
 

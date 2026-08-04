@@ -45,8 +45,15 @@ class DeviceAccessibilityServiceInstrumentedTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
 
         assertTrue(context.packageManager.getLaunchIntentForPackage("com.longdev.xiaoling") != null)
-        assertTrue(context.packageManager.getLaunchIntentForPackage("com.android.calculator2") != null)
-        assertTrue(context.packageManager.getLaunchIntentForPackage("com.android.deskclock") != null)
+        // long: 不同 Redmi ROM 会在 AOSP 与 Google 实现间切换；每类至少命中一个显式白名单包，仍然不申请任意应用可见性。
+        assertTrue(
+            listOf("com.android.calculator2", "com.google.android.calculator")
+                .any { context.packageManager.getLaunchIntentForPackage(it) != null },
+        )
+        assertTrue(
+            listOf("com.android.deskclock", "com.google.android.deskclock")
+                .any { context.packageManager.getLaunchIntentForPackage(it) != null },
+        )
         assertTrue(context.packageManager.getLaunchIntentForPackage("com.android.settings") != null)
     }
 

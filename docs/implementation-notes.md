@@ -1,6 +1,6 @@
 # 当前实现说明
 
-## 第 127 至 132 阶段实现顺序（第 127/128/129/130 阶段已完成）
+## 第 127 至 132 阶段实现顺序（全部完成）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
@@ -14,7 +14,9 @@
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 131 阶段已由现有 `WorkflowRunRetryPolicy`、`RoomWorkflowRepository.retryRun()` 和 Workflow 管理确认入口完成闭环：连续成功前缀映射为 `SKIPPED / reusedFromStepId`，首个未完成步骤及后续步骤重新执行；已启动失败步骤必须二次确认，来源 Run 通过 `retryOfWorkflowRunId` 保持只读关联。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。
-- 第 132 阶段当前已完成完整 JVM、Lint、Debug/AndroidTest APK 门禁；`WorkflowDeviceActionDecisionPolicyTest` 的通过夹具已同步生产 `workflow-device-action-safety-v2`，历史/拒绝夹具保持 fail-closed。Redmi 未连接前不执行 instrumentation，不操作 Pixel 模拟器。
+- 第 132 阶段最终完成完整 JVM `879/879`、Lint、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282`。`WorkflowDeviceActionDecisionPolicyTest` 与 AndroidTest 的有效夹具已同步生产 `workflow-device-action-safety-v2`，历史/拒绝夹具继续 fail-closed；Room 当前版本常量同步为 35。
+- 三条用户任务分别采用生产边界：真实 Room 记忆/知识检索后生成 ONCE 计划并原子创建任务、实际入队 WorkManager；真实 Accessibility 连续执行设置页滚动/重观察/返回并得到目标级 `VERIFIED`；失败 Run 创建关联新 Run 并只复用已验证前缀。测试 WorkManager 项已撤销，Accessibility 恢复原关闭状态。
+- Redmi 当前 ROM 的计算器/时钟由 Google 包名提供；`DeviceActionPolicy` 与 Manifest queries 同时列出 AOSP/Google 两套精确包名。策略仍按包名逐项审批和后置验证，没有使用类别匹配或任意 App 可见性。
 - 纯结构拆分、Shadow 扩样、截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型不抢占当前主线。
 
 ## 第 129 阶段：目标级本地验证与最终回答约束（完成）

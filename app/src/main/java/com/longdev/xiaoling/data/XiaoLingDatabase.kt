@@ -58,7 +58,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 34
+        const val CURRENT_VERSION = 35
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
