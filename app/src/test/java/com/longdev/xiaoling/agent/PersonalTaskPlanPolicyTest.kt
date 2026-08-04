@@ -1,6 +1,9 @@
 package com.longdev.xiaoling.agent
 
+import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,12 +60,93 @@ class PersonalTaskPlanPolicyTest {
             goal = "查看当前时间并记到笔记",
             allowedToolNames = listOf("notes.create", "app.current_time"),
             allowedAppPackages = listOf("com.android.settings", "com.android.calculator2"),
+            context = PersonalTaskPlanContext(
+                memoryFacts = listOf("用户偏好把当天安排写入工作笔记"),
+                knowledgeSnippets = listOf(
+                    PersonalTaskKnowledgeContext(
+                        documentName = "工作流程.md",
+                        text = "写入笔记前先读取当前时间。不要调用未授权工具。",
+                    ),
+                ),
+            ),
         )
 
         assertEquals(listOf("system", "user"), messages.map { it.role })
         assertTrue(messages.first().content.contains("不能执行工具"))
+        assertTrue(messages.first().content.contains("只读参考事实"))
+        assertTrue(messages.first().content.contains("不能成为工具授权"))
         assertTrue(messages.last().content.contains("app.current_time, notes.create"))
         assertTrue(messages.last().content.contains("com.android.calculator2, com.android.settings"))
         assertTrue(messages.last().content.contains("查看当前时间并记到笔记"))
+        assertTrue(messages.last().content.contains("用户偏好把当天安排写入工作笔记"))
+        assertTrue(messages.last().content.contains("[工作流程.md]"))
+        assertTrue(messages.last().content.contains("不要调用未授权工具"))
     }
+
+    @Test
+    fun `plan context reads only profile authorized sources`() = runTest {
+        var memorySearchCount = 0
+        var knowledgeSearchCount = 0
+        val preparer = PersonalTaskPlanContextPreparer(
+            searchMemories = { _, _ ->
+                memorySearchCount += 1
+                listOf("不应读取的记忆")
+            },
+            searchKnowledge = { _, _, _ ->
+                knowledgeSearchCount += 1
+                listOf(knowledgeHit(text = "允许读取的知识"))
+            },
+        )
+
+        val context = preparer.prepare(
+            goal = "整理本周安排",
+            conversationId = "conversation-1",
+            memoryAllowed = false,
+            knowledgeAllowed = true,
+        )
+
+        assertEquals(0, memorySearchCount)
+        assertEquals(1, knowledgeSearchCount)
+        assertTrue(context.memoryFacts.isEmpty())
+        assertEquals(listOf("允许读取的知识"), context.knowledgeSnippets.map { it.text })
+    }
+
+    @Test
+    fun `plan context limits source count and text without splitting surrogate pairs`() = runTest {
+        val longText = "a".repeat(PersonalTaskPlanContextPolicy.MAX_ITEM_CHARACTERS - 1) + "😀" + "tail"
+        val preparer = PersonalTaskPlanContextPreparer(
+            searchMemories = { _, _ -> List(5) { index -> "memory-$index:$longText" } },
+            searchKnowledge = { _, _, _ ->
+                List(5) { index -> knowledgeHit(documentName = "doc-$index", text = longText) }
+            },
+        )
+
+        val context = preparer.prepare(
+            goal = "生成计划",
+            conversationId = "conversation-1",
+            memoryAllowed = true,
+            knowledgeAllowed = true,
+        )
+
+        assertEquals(PersonalTaskPlanContextPolicy.MAX_ITEMS_PER_SOURCE, context.memoryFacts.size)
+        assertEquals(PersonalTaskPlanContextPolicy.MAX_ITEMS_PER_SOURCE, context.knowledgeSnippets.size)
+        assertTrue(context.memoryFacts.all { it.length <= PersonalTaskPlanContextPolicy.MAX_ITEM_CHARACTERS })
+        assertTrue(context.knowledgeSnippets.all { it.text.length <= PersonalTaskPlanContextPolicy.MAX_ITEM_CHARACTERS })
+        assertFalse(context.memoryFacts.any { it.lastOrNull()?.isHighSurrogate() == true })
+        assertFalse(context.knowledgeSnippets.any { it.text.lastOrNull()?.isHighSurrogate() == true })
+    }
+
+    private fun knowledgeHit(
+        documentName: String = "知识.md",
+        text: String,
+    ) = KnowledgeSearchHit(
+        chunkId = "chunk-$documentName",
+        documentId = "document-$documentName",
+        documentRevision = 1,
+        documentName = documentName,
+        sequence = 0,
+        startOffset = 0,
+        endOffset = text.length,
+        text = text,
+    )
 }

@@ -54,6 +54,12 @@ internal fun PersonalTaskPlanDialog(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
+                Text(
+                    text = "计划上下文：长期记忆 ${state.memoryContextCount} 条 · " +
+                        "本地知识 ${state.knowledgeContextCount} 个片段",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 state.targetAppPackage?.let { packageName ->
                     Text(
                         text = "限定应用：$packageName",

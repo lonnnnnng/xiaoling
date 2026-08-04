@@ -4,7 +4,7 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
-当前开发主线已经切换为“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 129 阶段的自然语言计划、限定 App 多动作执行和目标级本地验证已经完成；下一步从第 130 阶段接入记忆/知识/应用内提醒，再推进任务级恢复与关联重试和 Redmi 完整里程碑验收。每个阶段都必须产生用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再抢占主线。
+当前开发主线已经切换为“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 129 阶段的自然语言计划、限定 App 多动作执行和目标级本地验证已经完成；第 130 阶段正在推进，个人任务计划已经能按 Profile 权限读取长期记忆和本地知识，下一切片接入应用内提醒。之后再推进任务级恢复与关联重试和 Redmi 完整里程碑验收。每个阶段都必须产生用户可直接体验的新能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再抢占主线。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
@@ -30,7 +30,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 或 XLSX 文档；文件最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，OpenXML 富文档会校验 ZIP/OPC 结构与展开预算，原始文件随消息恢复。
   - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
   - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
-  - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划及工具顺序/最终应用完成标准，确认前展示任务名、步骤、可能审批项和能力边界；用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。完成时只由本地策略从持久 Tool Ledger 和最终设备观察产出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能扩大结论。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
+  - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划及工具顺序/最终应用完成标准。生成前只在 Profile 允许时检索最多 3 条有效长期记忆和 3 个当前知识片段；单次记忆开关继续生效，计划提示词把上下文固定为不能扩权的只读事实，检索失败会阻止本次计划。确认前展示任务名、步骤、实际上下文数量、可能审批项和能力边界；用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。完成时只由本地策略从持久 Tool Ledger 和最终设备观察产出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能扩大结论。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
   - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
   - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。

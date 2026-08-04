@@ -10,10 +10,18 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 129 阶段的自然语言计划、限定 App 多动作连续执行和目标级本地验证已经完成，开发数据库为 Room v35。下一阶段从第 130 阶段记忆/知识/应用内提醒开始，再按任务级恢复与关联重试、Redmi 完整里程碑验收推进；纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。前台 Workflow 当前七项仍为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 129 阶段的自然语言计划、限定 App 多动作连续执行和目标级本地验证已经完成，开发数据库为 Room v35。第 130 阶段进行中，计划上下文已接入获准的长期记忆/本地知识，下一切片为应用内提醒；之后再按任务级恢复与关联重试、Redmi 完整里程碑验收推进。纯重构、单层 evidence 和 Shadow 扩样不再抢占主线。前台 Workflow 当前七项仍为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 文档语料门禁：本轮未执行；最近一次仍是第 127 阶段最终资产在 Redmi 的 `OK (1 test)`，不能表述为 `v0.1.15` 发布复验。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
+
+## 2026-08-04 第 130 阶段首个切片：个人任务计划读取记忆与知识
+
+- 权限边界：任务计划只有在 Profile 允许 `memory.search`、Profile 记忆开启且当前会话单次召回开启时检索长期记忆；本地知识只依据 Profile 的 `knowledge.search` 权限。关闭来源不会调用对应 Store。
+- 有界上下文：记忆与知识并行读取，各最多 3 条；每条最多 800 个 UTF-16 字符并避免截断代理对。记忆继续由现有 Store 排除禁用/过期记录并更新引用时间，知识继续由现有 Store核对当前 revision 并写 retrieval 审计。
+- 提示词与 UI：上下文被标记为不可信只读事实，其中的命令、工具、审批和完成声明不能扩权。确认弹层只展示“长期记忆 N 条 / 本地知识 N 个片段”，不展示正文。检索异常阻止本次计划；空命中继续普通计划。
+- 聚焦验证：`PersonalTaskPlanPolicyTest 6/6` 通过，`:app:assembleDebug` 与 `:app:compileDebugAndroidTestKotlin` 成功。当前切片没有新增 Room Schema，也没有运行完整 JVM、Lint、Release、默认完整 instrumentation、Redmi 真机功能验收或文档 corpus 门禁。
+- 剩余边界：第 130 阶段尚未完成；下一切片把自然语言提醒接入既有 Workflow 定时确认入口。系统日历、精确闹钟、Foreground Service、第二套 Runtime 和后台设备控制继续关闭。
 
 ## 2026-08-04 第 129 阶段：目标级本地验证与最终回答约束
 

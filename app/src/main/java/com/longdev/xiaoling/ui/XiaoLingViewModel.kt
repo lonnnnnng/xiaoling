@@ -21,6 +21,7 @@ import com.longdev.xiaoling.agent.AgentProfilePolicy
 import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
+import com.longdev.xiaoling.agent.PersonalTaskPlanContextPreparer
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
@@ -186,6 +187,8 @@ data class PendingPersonalTaskPlanUiState(
     val allowedToolNames: List<String>,
     val approvalToolNames: List<String>,
     val createdAt: Long,
+    val memoryContextCount: Int = 0,
+    val knowledgeContextCount: Int = 0,
     val targetAppPackage: String? = null,
     val goalVerificationSpec: WorkflowGoalVerificationSpec? = null,
 )
@@ -600,6 +603,25 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         RoomWorkflowDeviceActionApprovalPersistence(agentRunRepository)
     }
     private val agentMemoryStore by lazy { RoomAgentMemoryStore(application) }
+    private val personalTaskPlanContextPreparer by lazy {
+        PersonalTaskPlanContextPreparer(
+            searchMemories = { query, limit ->
+                withContext(Dispatchers.IO) {
+                    agentMemoryStore.search(query = query, limit = limit, enabledOnly = true)
+                        .map { memory -> memory.content }
+                }
+            },
+            searchKnowledge = { query, limit, sourceConversationId ->
+                withContext(Dispatchers.IO) {
+                    knowledgeDocumentStore.search(
+                        query = query,
+                        limit = limit,
+                        sourceConversationId = sourceConversationId,
+                    ).hits
+                }
+            },
+        )
+    }
     private val agentMemoryCandidateCoordinator = AgentMemoryCandidateCoordinator(
         candidateLimit = MEMORY_CANDIDATE_LIMIT,
         listCandidates = { limit ->
@@ -3532,6 +3554,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val goal = if (AgentCommand.matches(userMessage)) AgentCommand.goal(userMessage) else userMessage.trim()
         val requestId = "personal-task-plan-${UUID.randomUUID()}"
         val allowedToolNames = runtimeSelection.profile.allowedToolNames.distinct().sorted()
+        val memoryContextAllowed = runtimeSelection.profile.memoryEnabled &&
+            uiState.agentMemoryRecallEnabled &&
+            "memory.search" in allowedToolNames
+        val knowledgeContextAllowed = "knowledge.search" in allowedToolNames
         val approvalToolNames = uiState.registeredAgentTools
             .filter { tool -> tool.name in allowedToolNames && tool.risk != ToolRisk.SAFE }
             .map(ToolDefinition::name)
@@ -3546,9 +3572,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
         sendMessageJob = viewModelScope.launch {
             try {
+                val planContext = personalTaskPlanContextPreparer.prepare(
+                    goal = goal,
+                    conversationId = conversationId,
+                    memoryAllowed = memoryContextAllowed,
+                    knowledgeAllowed = knowledgeContextAllowed,
+                )
                 val response = client.sendStructuredMessage(
                     config = runtimeSelection.config.copy(maxTokens = minOf(runtimeSelection.config.maxTokens, 2_000)),
-                    messages = PersonalTaskPlanPolicy.requestMessages(goal, allowedToolNames),
+                    messages = PersonalTaskPlanPolicy.requestMessages(
+                        goal = goal,
+                        allowedToolNames = allowedToolNames,
+                        context = planContext,
+                    ),
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
                 val plan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
@@ -3569,6 +3605,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     allowedToolNames = allowedToolNames,
                     approvalToolNames = approvalToolNames,
                     createdAt = System.currentTimeMillis(),
+                    memoryContextCount = planContext.memoryFacts.size,
+                    knowledgeContextCount = planContext.knowledgeSnippets.size,
                     targetAppPackage = plan.targetAppPackage,
                     goalVerificationSpec = plan.verification,
                 )

@@ -1,9 +1,12 @@
 # 当前实现说明
 
-## 第 127 至 132 阶段实现顺序（第 127/128/129 阶段已完成）
+## 第 127 至 132 阶段实现顺序（第 127/128/129 阶段已完成，第 130 阶段进行中）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
+- 第 130 阶段首个切片已在 `preparePersonalTaskPlan()` 调用结构化计划模型前接入 `PersonalTaskPlanContextPreparer`。它只为已获准来源并行调用现有 `RoomAgentMemoryStore.search()` 和 `RoomKnowledgeDocumentStore.search()`，随后由 `PersonalTaskPlanContextPolicy` 统一去空、去重并裁剪为每类 3 条、单条 800 字符。
+- `PersonalTaskPlanPolicy.requestMessages()` 继续保持 system/user 两条消息形状，在 system 边界中把记忆和知识冻结为不可信只读事实，在 user 内容中按来源分区。确认 UI 只接收 `memoryContextCount / knowledgeContextCount`，不接收上下文正文、retrieval ID 或 API Key。
+- 上下文读取与模型调用仍属于同一个可取消的计划 Job；检索异常沿原失败路径停止计划，切换会话后的迟到结果继续被 request ID 和 conversation ID 拒绝。无命中时使用空上下文继续生成。下一切片只做自然语言提醒到现有非精确 WorkManager/通知/确认入口的映射，不新建调度 Runtime。
 - 第 130 阶段复用现有长期记忆、本地知识、WorkManager 非精确定时和通知能力形成个人上下文与应用内提醒；创建、修改或取消提醒继续需要确定性参数校验和用户确认。
 - 第 131 阶段只允许从已验证前缀创建关联新执行，不恢复无法证明的旧模型协程或 Executor，不改写旧 Run 和已提交副作用。
 - 第 132 阶段只用 Redmi 验收三条完整用户任务，并在里程碑末尾统一执行完整 JVM、Lint、Debug/AndroidTest APK 和默认 instrumentation；此前阶段只运行与改动直接相关的聚焦验证。Release 不作为默认阶段动作。

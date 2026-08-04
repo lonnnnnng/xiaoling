@@ -1,6 +1,8 @@
 # 文档索引
 
-后续主线已确认采用“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 129 阶段的自然语言计划、限定 App 多动作连续执行和目标级本地验证均已完成；第 130 至 132 阶段继续按记忆/知识/应用内提醒、任务级恢复与关联重试、Redmi 完整里程碑验收的顺序推进。每个阶段必须交付用户可直接体验的能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再作为当前主线。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+后续主线已确认采用“先跑通完整个人 Agent，再集中打磨细节”。第 127 至 129 阶段的自然语言计划、限定 App 多动作连续执行和目标级本地验证均已完成；第 130 阶段正在推进，记忆/知识计划上下文切片已完成，下一步接入应用内提醒。第 131、132 阶段继续按任务级恢复与关联重试、Redmi 完整里程碑验收的顺序推进。每个阶段必须交付用户可直接体验的能力；纯重构、单层 evidence、Shadow 扩样和高级生态不再作为当前主线。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 130 阶段首个切片让任务计划在请求模型前按当前 Profile 权限读取长期记忆和本地知识：长期记忆还要求 Profile 记忆开关和当前会话单次召回开关同时开启；每类最多 3 条、单条最多 800 个 UTF-16 字符。上下文在 Prompt 中明确为不可信只读事实，不能授权工具、伪造审批或覆盖系统边界；任一获准检索失败都会终止本次计划。确认弹层展示实际使用数量，不展示正文。聚焦 `PersonalTaskPlanPolicyTest 6/6`、Debug APK 和 AndroidTest Kotlin 编译通过；本切片没有运行完整 JVM、Lint、Release 或默认 instrumentation。应用内提醒仍是第 130 阶段下一切片。
 
 第 129 阶段为任务计划增加严格 `verification.required_tool_names / expected_final_package`，确认后把版本化完成标准冻结到 Workflow 和全部步骤输入快照。Room 升级为 v35，旧 Workflow/Run 的 `goalVerificationContract / goalVerificationDecision` 保持 `null`，损坏 Contract 阻止新 Run。Repository 只从同 Run 持久 Tool Ledger、脱敏设备 Decision 和最新观察时间重建 `VERIFIED / PARTIAL / INCOMPLETE`，最终文案由本地策略生成。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi v34→v35/Repository/确认弹层 `OK (5 tests)`（`3.33s`）通过；真实生产 Registry 多动作日志新增 `goalDecision=VERIFIED`。文档语料查询已改为稳定职责词并增加逐查询失败排名，Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation，下一主线为第 130 阶段。
 

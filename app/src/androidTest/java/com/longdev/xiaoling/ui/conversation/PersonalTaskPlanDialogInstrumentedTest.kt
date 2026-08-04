@@ -32,6 +32,8 @@ class PersonalTaskPlanDialogInstrumentedTest {
                         allowedToolNames = listOf("app.current_time", "notes.create"),
                         approvalToolNames = listOf("notes.create"),
                         createdAt = 1L,
+                        memoryContextCount = 2,
+                        knowledgeContextCount = 3,
                         targetAppPackage = "com.android.settings",
                         goalVerificationSpec = WorkflowGoalVerificationSpec(
                             requiredToolNames = listOf("app.current_time", "notes.create"),
@@ -51,6 +53,7 @@ class PersonalTaskPlanDialogInstrumentedTest {
         composeRule.onNodeWithText("完成标准：app.current_time -> notes.create", substring = true).assertExists()
         composeRule.onNodeWithText("完成时应用：com.android.settings", substring = true).assertExists()
         composeRule.onNodeWithText("可能触发审批：notes.create", substring = true).assertExists()
+        composeRule.onNodeWithText("计划上下文：长期记忆 2 条 · 本地知识 3 个片段").assertExists()
         composeRule.onNodeWithText("工具边界：app.current_time、notes.create", substring = true).assertExists()
         composeRule.onNodeWithTag("personal-task-plan-confirm").performClick()
 
