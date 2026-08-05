@@ -546,6 +546,7 @@ class MinimalAgentRuntime internal constructor(
         executionOrigin: AgentExecutionOrigin,
         state: AgentRuntimeExecutionState,
     ) {
+        var retriedPrematureCompletion = false
         while (true) {
             ledger.updateRunStatus(run.id, AgentRunStatus.THINKING)
             val thinking = ledger.appendStep(
@@ -557,9 +558,18 @@ class MinimalAgentRuntime internal constructor(
             )
             state.activeStepId = thinking.id
             currentCoroutineContext().ensureActive()
+            val planningGoal = if (state.completedTools.isEmpty() && retriedPrematureCompletion) {
+                buildPrematureCompletionRetryGoal(goal)
+            } else {
+                goal
+            }
             val planCall = try {
                 runTimedStep("模型规划", options.modelStepTimeoutMs, state.executionBudget) {
-                    llm.proposeNextActionWithTelemetry(goal, toolRegistry.availableTools(), state.completedTools.toList())
+                    llm.proposeNextActionWithTelemetry(
+                        planningGoal,
+                        toolRegistry.availableTools(),
+                        state.completedTools.toList(),
+                    )
                 }
             } catch (error: AgentLlmResponseException) {
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
@@ -579,6 +589,22 @@ class MinimalAgentRuntime internal constructor(
             persistExecutionBudget(run.id, "模型规划执行预算", state.executionBudget)
             val planDecision = planCall.value
             if (planDecision == AgentPlanDecision.Complete) {
+                if (state.completedTools.isEmpty()) {
+                    if (retriedPrematureCompletion) {
+                        error("模型在应用侧纠错后仍未执行任何工具就结束了 Agent Run")
+                    }
+                    retriedPrematureCompletion = true
+                    val reason = "模型在零工具状态提前结束，已要求重新规划一次"
+                    ledger.appendEvent(
+                        runId = run.id,
+                        type = AgentEventTypes.LLM_PREMATURE_COMPLETE_RETRIED,
+                        message = reason,
+                        metadata = RunEventMetadata.Reason(reason),
+                    )
+                    ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, reason)
+                    state.activeStepId = null
+                    continue
+                }
                 ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, "模型确认任务工具步骤已完成")
                 state.activeStepId = null
                 return
@@ -588,6 +614,19 @@ class MinimalAgentRuntime internal constructor(
             val definition = toolRegistry.definition(proposedCall.name)
                 ?: error("模型选择了未注册工具：${proposedCall.name}")
             val toolCall = proposedCall.copy(risk = definition.risk)
+            if (canCompleteFromImmediateRepeatedVerifiedRead(toolCall, definition, state.completedTools)) {
+                // long: 纯只读工具已经成功并通过验证后，模型偶发再次请求完全相同的调用不应把整条个人任务判成失败；复用已有事实直接收尾，且绝不再次越过 Executor。
+                val reason = "模型重复请求已验证只读工具 ${toolCall.name}，已复用现有结果完成"
+                ledger.appendEvent(
+                    runId = run.id,
+                    type = AgentEventTypes.LLM_REPEAT_COMPLETED,
+                    message = reason,
+                    metadata = RunEventMetadata.Reason(reason),
+                )
+                ledger.updateStep(thinking.id, AgentStepStatus.COMPLETED, reason)
+                state.activeStepId = null
+                return
+            }
             if (definition.validateBeforeAudit) {
                 // long: 设备输入等参数可能包含不应落盘的敏感值；这类工具必须先完成确定性校验，再写 proposed/ledger 审计。
                 validateToolArguments(definition, toolCall)
@@ -1229,6 +1268,28 @@ class MinimalAgentRuntime internal constructor(
             }
             throw AgentBudgetExceededException("检测到重复工具调用：${toolCall.name}")
         }
+    }
+
+    private fun canCompleteFromImmediateRepeatedVerifiedRead(
+        toolCall: ToolCall,
+        definition: ToolDefinition,
+        completedTools: List<AgentToolExecution>,
+    ): Boolean {
+        val previous = completedTools.lastOrNull() ?: return false
+        // long: 只有无需审批、以可读结果完成验证的 SAFE 工具才属于这里的只读收尾范围；设备动作使用 EXECUTOR_VERIFIED，写工具要求审批，二者继续由重复指纹门禁拒绝。
+        return definition.risk == ToolRisk.SAFE &&
+            definition.approvalPolicy == ToolApprovalPolicy.NONE &&
+            definition.verificationPolicy == ToolVerificationPolicy.RESULT_READABLE &&
+            previous.toolResult.success &&
+            previous.toolResult.content.isNotBlank() &&
+            toolCallFingerprint(previous.toolCall) == toolCallFingerprint(toolCall)
+    }
+
+    private fun buildPrematureCompletionRetryGoal(goal: String): String = buildString {
+        appendLine(goal)
+        appendLine()
+        appendLine("应用侧校验反馈：当前 Run 尚未执行任何工具，前序步骤、历史消息或目标正文中的结果都不能替代本 Run 的工具事实。")
+        append("本轮必须选择并执行一个可用工具；禁止返回 complete。")
     }
 
     private fun toolCallFingerprint(toolCall: ToolCall): String =

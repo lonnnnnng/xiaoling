@@ -226,6 +226,8 @@ internal object RunEventMetadataCodec {
                     reason = json.stringOrNull("reason"),
                 )
                 "llm.summarize.fallback",
+                AgentEventTypes.LLM_PREMATURE_COMPLETE_RETRIED,
+                AgentEventTypes.LLM_REPEAT_COMPLETED,
                 AgentEventTypes.RECOVERY_SUMMARY,
                 "skill.selected",
                 "run.failed",

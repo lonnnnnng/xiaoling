@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 147 阶段：真实多步 Runtime 可靠性与后台时长评估首轮（完成）
+
+- 修复真实 8 步 SAFE Workflow 暴露的两个阻断：模型紧邻重复请求相同且已通过 `RESULT_READABLE` 验证的 SAFE 只读工具时，Runtime 复用已有结果完成，不执行第二次；设备动作、写工具、需要审批或一般重复调用继续由指纹门禁拒绝。
+- 当前 Agent Run 尚无工具事实却返回 `complete` 时，应用侧只允许一次带明确边界的纠错重试；再次提前结束仍失败。Workflow 后续步骤同时声明前序结果只作为数据，不能替代当前 Run 的工具执行。
+- Redmi 前台 Run `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`，8 个步骤均恰好 1 次工具调用、1 次结果和 1 次验证，目标级结论为 `VERIFIED / ALL_CRITERIA_VERIFIED`。
+- Redmi 熄屏 Run `workflow-run-2153667c-f664-4034-a566-79a114899c27` 启动约 3 秒后熄屏，耗时 `94155ms`，8/8 完成且目标级 `VERIFIED / ALL_CRITERIA_VERIFIED`。系统持续 `Wakefulness=Dozing`，同一 PID 在熄屏后继续完成模型请求；`dumpsys activity exit-info` 前后没有新增退出记录。
+- 聚焦 JVM `MultiStepAgentRuntimeTest 8/8 + WorkflowStepExecutionPolicyTest 14/14`，合计 `22/22`；AndroidTest APK 构建成功，仅在 Redmi 运行更新后文档 corpus，结果 `OK (1 test)`、耗时 `2.468s`。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+- 当前生产计划最多 8 步，真实耗时约 94 至 104 秒，尚不足以形成 5 至 10 分钟样本，也没有自然 LMK/系统回收证据。本阶段不引入 Foreground Service、不开放后台设备动作、不声称已经验证长时恢复；下一步先寻找真实超过数分钟的生产任务场景，再依据证据决定长任务恢复策略。
+
 ## 第 145 阶段：OEM 时钟兼容与三步个人 Agent 闭环（完成）
 
 - `DeviceActionPolicy` 集中声明计算器、时钟的 AOSP/Google 等价应用族。`device.open_app` 仍优先请求冻结包名，仅在该包没有启动入口时尝试同族白名单实现；Controller、Workflow Safety 和答案级 Decision 使用同一等价判断，其他应用仍严格拒绝。

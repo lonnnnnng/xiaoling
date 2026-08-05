@@ -59,6 +59,8 @@ object AgentEventTypes {
     const val STEP_STATUS = "step.status"
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
     const val LLM_REQUEST_FAILED = "llm.request.failed"
+    const val LLM_PREMATURE_COMPLETE_RETRIED = "llm.premature_complete_retried"
+    const val LLM_REPEAT_COMPLETED = "llm.repeat_completed"
     const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
     const val PROFILE_SELECTED = "agent.profile.selected"
     const val CONTROLLED_REPLAY_LINKED = "run.controlled_replay.linked"

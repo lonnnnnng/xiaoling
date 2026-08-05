@@ -248,6 +248,9 @@ class WorkflowStepExecutionPolicyTest {
             1. 当前时间 12:00
             2. 最近会话 A、B
 
+            前序步骤结果不属于当前 Agent Run，不能替代当前步骤的实际工具执行。
+            当前步骤必须在本 Agent Run 中至少执行并验证一个可用工具；尚未执行工具时禁止返回 complete。
+
             当前步骤目标：
             生成最终回顾
             """.trimIndent(),

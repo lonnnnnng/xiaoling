@@ -1,10 +1,12 @@
 # 产品需求
 
-## 主链稳定后的后台长任务评估（第 147 阶段候选）
+## 真实多步 Runtime 可靠性与后台时长评估首轮（第 147 阶段，完成）
 
-- 本阶段先评估，不默认实现 Foreground Service、精确定时或后台设备动作。样本只使用现有无需审批的 SAFE Workflow，并分别覆盖 Redmi 前台、切后台和熄屏 5 至 10 分钟运行。
-- 每个样本必须保存 WorkManager 计划/实际时间、Workflow/Agent Run 与步骤终态、Tool Ledger、进程退出原因和系统配额证据。人工 `force-stop`、安装、instrumentation、测试框架终止或 `kill -9` 不得冒充自然 LMK/系统回收。
-- 只有真实任务时长、用户可见进度需求、系统回收或配额数据证明现有 WorkManager/Room 收敛不足时，才能立项 Foreground Service 或新的恢复能力；不能仅凭“可能更稳定”预先增加常驻服务。
+- 已成功验证的 SAFE 只读工具被模型紧邻重复请求时，只有无需审批、使用 `RESULT_READABLE` 验证、前次结果成功且非空、调用指纹完全相同，才允许复用已有结果完成；不得再次执行工具。设备动作、写工具和普通重复继续拒绝。
+- 当前 Agent Run 没有任何工具事实却返回 `complete` 时，只允许一次应用侧纠错重试；再次提前结束必须失败。Workflow 前序输出只能作为数据，不能替代当前步骤实际工具执行。
+- Redmi 必须形成前台和熄屏真实 SAFE Workflow 样本，并保存 Run/Step/Tool Ledger、目标级结论、进程状态和退出原因。人工 `force-stop`、安装、instrumentation、测试框架终止或 `kill -9` 不得冒充自然 LMK/系统回收。
+- 本阶段两条 8 步 Run 已完成：前台 `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`，熄屏 `workflow-run-2153667c-f664-4034-a566-79a114899c27` 耗时 `94155ms`，均为 `VERIFIED / ALL_CRITERIA_VERIFIED`。熄屏样本证明 Dozing 期间同一进程可继续执行，但没有自然回收证据。
+- 只有真实任务时长、用户可见进度需求、系统回收或配额数据证明现有执行与 Room 收敛不足时，才能立项 Foreground Service 或新的恢复能力。当前样本不足 5 分钟，不以人为等待凑样本，不预先增加常驻服务。
 - 后台设备动作、截图/视觉、任意 App、坐标、MCP、系统日历写入、远程 Channel、多 Agent、跨设备同步和本地模型继续关闭，分别在长任务评估之后依据明确用户场景立项。
 
 ## 真实任务总览与关联重试收口（第 146 阶段，完成）

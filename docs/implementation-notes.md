@@ -1,6 +1,15 @@
 # 当前实现说明
 
-## 第 127 至 146 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 147 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 147 阶段：真实多步 Runtime 可靠性与后台时长评估首轮（完成）
+
+- `MinimalAgentRuntime` 在规划循环中识别紧邻重复的已验证只读调用。只有 ToolDefinition 同时满足 `SAFE / NONE / RESULT_READABLE`，前一次 ToolResult 成功且非空、调用指纹完全一致时，才写入 `llm.repeat_completed` 并直接复用已有结果收尾；不创建第二次 ToolCall、ToolResult 或 Executor 调用。设备动作使用 `EXECUTOR_VERIFIED`，写工具需要审批，均不进入该分支。
+- 模型在 `completedTools` 为空时返回 `Complete`，Runtime 现在写入 `llm.premature_complete_retried` 并把“当前 Run 尚无工具事实、禁止 complete”追加到本轮目标，最多重新规划一次；第二次仍提前结束时失败。`RunEventMetadataCodec` 把两个事件按 `Reason` 元数据恢复。
+- `WorkflowStepPromptPolicy` 明确前序步骤结果只作为数据，不属于当前 Agent Run，也不能替代当前步骤的工具执行。该约束与 Runtime 纠错形成双层边界，但不会扩大工具、Profile、审批或后台权限。
+- Redmi 前台 Run `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`，8/8 完成；熄屏 Run `workflow-run-2153667c-f664-4034-a566-79a114899c27` 启动约 3 秒后进入 Dozing，耗时 `94155ms`，同样 8/8 完成。两条目标级结论均为 `VERIFIED / ALL_CRITERIA_VERIFIED`。
+- 聚焦 JVM `MultiStepAgentRuntimeTest 8/8 + WorkflowStepExecutionPolicyTest 14/14`，合计 `22/22`；AndroidTest APK 构建成功。更新后的文档 corpus 仅在 Redmi 运行，结果 `OK (1 test)`、耗时 `2.468s`，随后卸载测试包并保留主应用数据。
+- `exit-info` 前后没有新增退出记录，前台 Workflow 也没有对应 WorkManager/JobScheduler Job；本轮不使用 `force-stop`、instrumentation、`kill -9` 或人为等待制造长任务。当前生产计划最长约 104 秒，不具备 5 至 10 分钟或自然进程回收恢复证据，因此 Foreground Service 和后台设备动作继续关闭。
 
 ## 第 146 阶段：真实任务总览与关联重试收口（完成）
 

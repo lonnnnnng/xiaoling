@@ -146,7 +146,7 @@ class MultiStepAgentRuntimeTest {
     @Test
     fun repeatedToolFingerprintAcrossPlanningRoundsIsRejected() = runTest {
         val ledger = InMemoryAgentRunLedger()
-        val registry = RecordingMultiStepToolRegistry()
+        val registry = RecordingMultiStepToolRegistry(risk = ToolRisk.REQUIRES_APPROVAL)
         val repeated = call("test.first", "same")
         val runtime = MinimalAgentRuntime(
             ledger = ledger,
@@ -162,6 +162,71 @@ class MultiStepAgentRuntimeTest {
         assertTrue(failure is AgentBudgetExceededException)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("重复工具调用"))
         assertEquals(listOf("test.first"), registry.executedToolNames)
+    }
+
+    @Test
+    fun immediateRepeatedVerifiedReadOnlyToolUsesExistingResultAndCompletes() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RecordingMultiStepToolRegistry()
+        val repeated = call("test.first", "same")
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = scriptedLlm { AgentPlanDecision.CallTool(repeated) },
+        ).run("conversation-read-repeat", "message-read-repeat", "读取一次测试结果")
+
+        val snapshot = ledger.snapshot(summary.runId)
+
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertEquals(listOf("test.first"), registry.executedToolNames)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(1, snapshot.events.count { it.type == "tool.verify" })
+        assertTrue(snapshot.events.any { it.type == AgentEventTypes.LLM_REPEAT_COMPLETED })
+    }
+
+    @Test
+    fun prematureCompleteBeforeAnyToolGetsOneCorrectedPlanningRetry() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val registry = RecordingMultiStepToolRegistry()
+        val planningGoals = mutableListOf<String>()
+        val llm = object : AgentLlm {
+            override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                error("多步 Runtime 应调用带执行历史的规划入口")
+            }
+
+            override suspend fun proposeNextAction(
+                goal: String,
+                tools: List<ToolDefinition>,
+                completedTools: List<AgentToolExecution>,
+            ): AgentPlanDecision {
+                planningGoals += goal
+                return when {
+                    completedTools.isNotEmpty() -> AgentPlanDecision.Complete
+                    "当前 Run 尚未执行任何工具" in goal -> AgentPlanDecision.CallTool(call("test.first", "corrected"))
+                    else -> AgentPlanDecision.Complete
+                }
+            }
+
+            override suspend fun summarize(
+                goal: String,
+                toolCall: ToolCall,
+                toolResult: ToolExecutionResult,
+            ): String = """{"style":"compact","tone":"neutral"}"""
+        }
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = llm,
+        ).run("conversation-premature-complete", "message-premature-complete", "读取一次测试结果")
+
+        val snapshot = ledger.snapshot(summary.runId)
+
+        assertEquals(AgentRunStatus.COMPLETED, summary.status)
+        assertEquals(listOf("test.first"), registry.executedToolNames)
+        assertEquals(3, planningGoals.size)
+        assertTrue("当前 Run 尚未执行任何工具" in planningGoals[1])
+        assertTrue(snapshot.events.any { it.type == AgentEventTypes.LLM_PREMATURE_COMPLETE_RETRIED })
     }
 
     @Test
