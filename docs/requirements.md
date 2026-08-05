@@ -7,6 +7,12 @@
 - 一次性 Workflow 导航目标只在当前设置子页链路内有效；返回设置根页时清理，不能污染下一次手动进入。
 - 本阶段只修改 UI 导航与列表展示，不扩展 Room Schema、Agent Runtime、工具白名单、审批、设备权限、后台执行或恢复语义。验证按快速迭代分级执行聚焦 JVM、Debug/AndroidTest APK 和 Redmi 定向 Compose 用例。
 
+## 定向 Workflow 导航重建保存（第 143 阶段，完成）
+
+- Activity 重建或旋转后，完成卡传入的 `requestedWorkflowId` 必须保留，Workflow 管理页仍能定位并展开原目标；知识文档目标保持相同保存语义。
+- 只保存一次性内容目标，不保存 Tab、设置子页或根页返回时间等暂态导航字段；返回设置根页必须清理目标。
+- 本阶段不改变 Room Schema、Workflow/Run、Agent Runtime、工具白名单、审批、设备权限或后台执行。
+
 ## 完整个人 Agent 主线（第 127 至 132 阶段，已完成）
 
 完整前台个人 Agent MVP 必须跑通统一主链：用户以自然语言提出目标，系统读取当前 Profile 允许的长期记忆与本地知识，生成 1 至 8 步临时计划并展示风险/能力边界，用户确认后复用既有 Workflow、Agent Runtime、Tool Registry、Room Ledger、审批和验证执行；完成时只允许使用已验证步骤与最终观察形成目标级结论，并把任务事实持久化。不得建立绕过现有安全和审计边界的第二套 Runtime。

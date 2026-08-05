@@ -69,12 +69,18 @@ internal class XiaoLingNavigationController(
     }
 }
 
-private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, String>(
-    // long: 旧宿主只跨 Activity 重建保存知识文档目标；Tab、设置子页和返回时间仍按原行为回到初始值。
-    save = { state -> state.requestedKnowledgeDocumentId.orEmpty() },
-    restore = { savedDocumentId ->
+private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<String>>(
+    // long: Activity 重建只保留仍可能指向内容的两个一次性目标；Tab、设置子页和返回时间继续回到初始值。
+    save = { state ->
+        listOf(
+            state.requestedKnowledgeDocumentId.orEmpty(),
+            state.requestedWorkflowId.orEmpty(),
+        )
+    },
+    restore = { savedTargets ->
         XiaoLingNavigationState(
-            requestedKnowledgeDocumentId = savedDocumentId.ifBlank { null },
+            requestedKnowledgeDocumentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null },
+            requestedWorkflowId = savedTargets.getOrNull(1).orEmpty().ifBlank { null },
         )
     },
 )

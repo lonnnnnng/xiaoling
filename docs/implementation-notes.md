@@ -40,6 +40,12 @@
 - 应用壳把目标 ID 写入 `XiaoLingNavigationState.requestedWorkflowId`，进入 Workflow 设置页时传给 `WorkflowManagementPage.preferredWorkflowId`；返回设置根页或离开子页时清理一次性目标，避免旧任务影响后续导航。
 - Workflow 管理列表使用稳定的 `LazyListState`。工作流数据加载后按 ID 定位并滚动到目标项，目标项以 `initiallyExpanded` 自动展开；未找到目标时保持原列表行为。该逻辑只改变导航与展示，不修改 Room、Runtime、权限或执行契约。
 - 聚焦 JVM `17/17`、Debug/AndroidTest APK、Redmi `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest` `OK (18 tests)` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+## 第 143 阶段：定向 Workflow 导航重建保存（完成）
+
+- `XiaoLingNavigationStateSaver` 同时保存 `requestedKnowledgeDocumentId` 与 `requestedWorkflowId`。Activity 重建后仍能恢复一次性目标，Workflow 列表可以继续执行定向滚动/展开；没有目标时按空值恢复。
+- Saver 仍不保存当前 Tab、设置子页或根页面返回时间，避免把暂态页面和退出手势带入重建后的新宿主；既有返回根页清理逻辑保持不变。
+- 本阶段只修改导航状态保存边界，不改变 Room、Workflow/Run、Agent Runtime、审批、设备权限或后台执行。
 - `ConversationProjection -> ConversationPage` 仍只把完成卡投影为“查看任务”入口；第 142 阶段由 `ConversationActions.openWorkflowManagement(workflowId)` 把目标交给应用壳，页面本身不持有导航控制器或 Repository。`updatePrompt()`、任务模式切换和下一次 `preparePersonalTaskPlan()` 会清除旧完成卡，已提交失败仍保持第 140 阶段的失败卡语义。第 141 阶段聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi Compose `8/8` 和最终文档 corpus `1/1` 通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 138 阶段聚焦 JVM `1/1`、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.791s`）；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。

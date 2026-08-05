@@ -4,6 +4,8 @@
 
 第 142 阶段把完成卡的“查看任务”升级为定向 Workflow 入口：完成结果携带 `workflowId`，应用壳将其传入导航状态，Workflow 管理页在数据加载后自动滚动并展开对应项；失败态仍使用无目标 ID 的通用入口，返回设置根页会清理目标。聚焦 JVM `17/17`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
+第 143 阶段补齐定向 Workflow 导航的 Activity 重建边界：导航 Saver 同时保留知识文档和 Workflow 两个一次性目标，旋转或 Activity 重建后仍能恢复目标定位；Tab、子页和返回时间不持久化，返回设置根页仍会清理目标。本阶段只修改导航状态保存，不改变 Room、Runtime 或执行权限。
+
 第 133 阶段完成个人任务计划交互首轮收敛：计划生成、立即任务创建和提醒创建使用独立进度状态与停止文案；生成失败、创建失败或创建前停止都会恢复原始目标并提供重新生成。重试显式使用失败快照目标。确认后的前台操作绑定原会话，切换时取消当前 Job 并隔离迟到状态；已创建 Run 按既有 Ledger 收敛为取消，未创建事实不伪造执行记录。Android 13+ 通知权限请求返回前禁用确认与返回，只有权限结果返回且计划 ID 仍一致时才提交提醒；拒绝权限仍按已确认语义创建应用内提醒，但系统通知可能不可见。相关 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (9 tests)`（`12.418s`）。文档 corpus 首轮、两次证据写回及冻结文本复验均为 `OK (1 test)`（`2.522s / 2.512s / 2.529s / 2.327s`）。按快速迭代分级不重复第 132 阶段完整门禁，也不构建 Release。
 
 第 134 阶段完成计划生成成本可见性：确认前弹层显示该次计划请求的模型调用次数（当前流程固定 1 次）、真实耗时、TTFB、Prompt 字节数和 Provider 返回的 input/output/total tokens。任何缺失字段显示“未采集/未返回”，不臆造货币成本、不建立价格表；遥测只存在待确认计划 UI 状态，不写 Room、RunEvent、Workflow 或跨计划历史。定向 JVM、Debug/AndroidTest APK 通过；Redmi `ConversationPageInstrumentedTest + PersonalTaskPlanDialogInstrumentedTest` 为 `OK (10 tests)`（`13.583s`）。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release。
