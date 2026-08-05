@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -83,6 +84,7 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.AgentStatusChip
 import com.longdev.xiaoling.ui.AgentStepRow
 import com.longdev.xiaoling.ui.PageTitle
+import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
@@ -573,6 +575,12 @@ private fun MessageInputBar(
                             PersonalTaskFailureAction.VIEW_WORKFLOW -> onOpenWorkflowManagement()
                         }
                     },
+                )
+            }
+            state.personalTaskCompletion?.let { completion ->
+                PersonalTaskCompletionNotice(
+                    completion = completion,
+                    onOpenWorkflow = onOpenWorkflowManagement,
                 )
             }
             state.pendingSharedDraft?.let { payload ->
@@ -1420,6 +1428,51 @@ private fun PersonalTaskFailureNotice(
             )
             Spacer(Modifier.width(4.dp))
             Text(if (failure.action == PersonalTaskFailureAction.RETRY_PLAN) "重新生成" else "查看任务")
+        }
+    }
+}
+
+@Composable
+private fun PersonalTaskCompletionNotice(
+    completion: PersonalTaskCompletionUiState,
+    onOpenWorkflow: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.62f))
+            .padding(start = 12.dp, top = 8.dp, end = 6.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.size(18.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = completion.title,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = completion.message,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        TextButton(
+            onClick = onOpenWorkflow,
+            modifier = Modifier.testTag("personal-task-view-completed-workflow"),
+        ) {
+            Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("查看任务")
         }
     }
 }

@@ -67,6 +67,13 @@
 - 已提交提醒停止后不能把原目标重新放回可发送输入框；会话切换后的旧请求继续拒绝迟到 UI 回写。旧 Run、调度记录、取消和关联重试语义保持不变。
 - 本阶段不修改 Room Schema、Runtime、工具白名单、审批或后台权限。聚焦验证为 JVM `9/9`、Debug/AndroidTest APK、仅 Redmi `ConversationPageInstrumentedTest 7/7` 和文档 corpus `1/1`；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
 
+## 已完成个人任务的结果入口（第 141 阶段，完成）
+
+- 立即任务正常结束后，输入区必须保留一个可见的“查看任务”入口。带完成标准的任务标题只能使用 Repository 持久化的 `VERIFIED / PARTIAL / INCOMPLETE` 目标级 Decision；模型步骤总结、聊天文本或 UI 推断都不得把目标升级为已完成。没有完成标准的任务只能显示“个人任务已完成”。
+- 应用内提醒在 Workflow、调度实例和 WorkManager 关联成功后，必须保留带已确认调度标签的“查看任务”入口；该入口不表示提醒已经执行或目标已经完成。
+- 完成入口只能刷新并打开既有工作流管理页，不能再次发送、重新规划、创建新的 Workflow/Run/提醒或自动重试 Executor。用户编辑输入、切换任务模式或发起下一次计划时必须清除旧入口，避免旧结果冒充当前目标。
+- 本阶段不修改 Room Schema、Runtime、工具白名单、审批、后台权限或导航数据模型。聚焦验证为相关 JVM、Debug/AndroidTest APK、仅 Redmi 的 Compose 类和文档 corpus 单项；完整 JVM、Lint、默认完整 instrumentation 与 Release 留到里程碑。
+
 ## 个人任务计划上下文与应用内提醒（第 130 阶段，完成）
 
 - 任务计划生成前只能读取当前 Agent Profile 已允许的个人上下文。长期记忆要求 `memory.search`、Profile `memoryEnabled` 和当前会话单次记忆召回开关全部有效；本地知识要求 Profile 允许 `knowledge.search`。

@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.share.SharedDraftPayload
+import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
@@ -203,6 +204,35 @@ class ConversationPageInstrumentedTest {
         }
 
         composeRule.onNodeWithText("查看任务").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.openWorkflowCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
+    fun opensWorkflowForCompletedPersonalTaskWithoutSendingAgain() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        personalTaskMode = true,
+                        personalTaskCompletion = PersonalTaskCompletionUiState(
+                            title = "任务目标已验证完成",
+                            message = "已验证步骤 2/2，可查看任务证据",
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("任务目标已验证完成").assertExists()
+        composeRule.onNodeWithText("已验证步骤 2/2，可查看任务证据").assertExists()
+        composeRule.onNodeWithTag("personal-task-view-completed-workflow").performClick()
 
         composeRule.runOnIdle {
             assertEquals(1, actions.openWorkflowCount)

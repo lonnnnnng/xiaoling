@@ -15,6 +15,7 @@ import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.ConversationSession
+import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
@@ -131,6 +132,7 @@ internal data class ConversationComposerUiState(
     val awaitingPersonalTaskPlanConfirmation: Boolean = false,
     val personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
     val personalTaskFailure: PersonalTaskFailureUiState? = null,
+    val personalTaskCompletion: PersonalTaskCompletionUiState? = null,
     val canSend: Boolean = false,
     val controlsEnabled: Boolean = false,
     val attachmentEnabled: Boolean = false,
@@ -173,6 +175,7 @@ internal object ConversationProjection {
         awaitingPersonalTaskPlanConfirmation: Boolean = false,
         personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
         personalTaskFailure: PersonalTaskFailureUiState? = null,
+        personalTaskCompletion: PersonalTaskCompletionUiState? = null,
     ): ConversationUiState {
         val agentCommand = AgentCommand.matches(prompt) || personalTaskMode
         val attaching = attachingImage || attachingDocument
@@ -235,6 +238,7 @@ internal object ConversationProjection {
                 awaitingPersonalTaskPlanConfirmation = awaitingPersonalTaskPlanConfirmation,
                 personalTaskOperationPhase = personalTaskOperationPhase,
                 personalTaskFailure = personalTaskFailure,
+                personalTaskCompletion = personalTaskCompletion,
                 canSend = canSend,
                 controlsEnabled = !sendingMessage && !awaitingPersonalTaskPlanConfirmation && canUseComposer,
                 attachmentEnabled = !sendingMessage && !attaching && !loadingConversationMessages &&

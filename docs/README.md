@@ -18,6 +18,8 @@
 
 第 140 阶段补齐已提交任务的失败后续动作：立即任务或提醒已经产生 Workflow/Run/ScheduledTask 后再停止或失败，`PersonalTaskFailureUiState` 固定投影为 `VIEW_WORKFLOW`，输入区显示“查看任务”并刷新、打开现有工作流页面；不恢复可发送目标，不提供“重新生成”。提交前失败继续保持原重试语义。聚焦 JVM `9/9`、Debug/AndroidTest APK 通过；仅 Redmi 的 `ConversationPageInstrumentedTest` 为 `OK (7 tests)`（`11.939s`），更新后文档 corpus 为 `OK (1 test)`（`3.568s`）。测试后当前 Debug `0.1.15` 已重装并恢复前台；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 
+第 141 阶段补齐成功后的结果入口：`PersonalTaskCompletionUiState` 只接收 Repository 已持久化的目标级 Decision，立即任务显示“已验证完成 / 仅部分完成 / 尚未完成”，没有完成标准时只显示“个人任务已完成”；提醒成功显示已确认的调度标签。完成卡的“查看任务”只打开现有工作流管理页，不重新发送或创建任务；输入编辑、模式切换和下一次计划会清除旧卡。聚焦 JVM `13/13`、Debug APK、仅 Redmi `ConversationPageInstrumentedTest` `OK (8 tests)`和更新后文档 corpus `OK (1 test)`通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
 第 130 阶段让任务计划在请求模型前按当前 Profile 权限读取长期记忆和本地知识：长期记忆还要求 Profile 记忆开关和当前会话单次召回开关同时开启；每类最多 3 条、单条最多 800 个 UTF-16 字符。上下文在 Prompt 中明确为不可信只读事实，不能授权工具、伪造审批或覆盖系统边界；任一获准检索失败都会终止本次计划。确认弹层展示实际使用数量，不展示正文。首切片聚焦策略测试实际为 `5/5`。
 
 同阶段第二切片在严格计划 Schema 中加入 `IMMEDIATE / ONCE / DAILY / WEEKLY`，并在本地拒绝数字字符串、小数和互相矛盾的时间字段。一次性规则限制为 1 至 10080 分钟，每日/每周使用当前系统时区；提醒不能携带目标 App、`device.*` 完成标准或设备最终应用。确认页显示规则、非精确定时和后台审批边界；确认后 Room 原子创建 Workflow 与 ScheduledTask/周期规则，不产生 Manual Run，再调用现有 WorkManager 入队与通知权限入口；入队或关联失败会撤销同一 WorkManager 唯一任务并收敛 Room 状态。最终 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 成功；Redmi Room 原子测试与 Compose 提醒确认单项最终为 `OK (1 test)`（`0.318s / 2.12s`），兜底真实模型返回 `ONCE / 30`。临时真实模型探针已删除。本阶段没有运行完整 JVM、Lint、Release 或默认 instrumentation；下一主线为第 131 阶段。

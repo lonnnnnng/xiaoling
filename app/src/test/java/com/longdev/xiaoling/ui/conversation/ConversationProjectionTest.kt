@@ -9,6 +9,7 @@ import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
+import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import org.junit.Assert.assertEquals
@@ -109,6 +110,22 @@ class ConversationProjectionTest {
     }
 
     @Test
+    fun completedPersonalTaskKeepsResultEntryVisibleWithoutBlockingNextTask() {
+        val completed = PersonalTaskCompletionUiState(
+            title = "任务目标已验证完成",
+            message = "已验证步骤 2/2，可查看任务证据",
+        )
+
+        val state = project(
+            personalTaskMode = true,
+            personalTaskCompletion = completed,
+        )
+
+        assertEquals(completed, state.composer.personalTaskCompletion)
+        assertTrue(state.composer.canSend)
+    }
+
+    @Test
     fun ordinaryChatRequiresEnabledModelAndIdleComposer() {
         val withoutModel = project(enabledModels = emptyList())
         val attaching = project(attachingImage = true)
@@ -150,6 +167,7 @@ class ConversationProjectionTest {
         awaitingPersonalTaskPlanConfirmation: Boolean = false,
         personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
         personalTaskFailure: PersonalTaskFailureUiState? = null,
+        personalTaskCompletion: PersonalTaskCompletionUiState? = null,
     ) = ConversationProjection.project(
         prompt = prompt,
         sendingMessage = sendingMessage,
@@ -164,6 +182,7 @@ class ConversationProjectionTest {
         awaitingPersonalTaskPlanConfirmation = awaitingPersonalTaskPlanConfirmation,
         personalTaskOperationPhase = personalTaskOperationPhase,
         personalTaskFailure = personalTaskFailure,
+        personalTaskCompletion = personalTaskCompletion,
     )
 
     private fun toolMessage(id: String, reference: KnowledgeReference) = ChatMessage(

@@ -584,6 +584,7 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         awaitingPersonalTaskPlanConfirmation = pendingPersonalTaskPlan != null,
         personalTaskOperationPhase = personalTaskOperationPhase,
         personalTaskFailure = personalTaskFailure,
+        personalTaskCompletion = personalTaskCompletion,
     )
 }
 

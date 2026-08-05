@@ -52,6 +52,7 @@ import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowRunDetail
+import com.longdev.xiaoling.automation.WorkflowRunRecord
 import com.longdev.xiaoling.automation.WorkflowRunRetryEligibility
 import com.longdev.xiaoling.automation.WorkflowRunRetryPolicy
 import com.longdev.xiaoling.automation.WorkflowRunStatus
@@ -216,6 +217,11 @@ data class PersonalTaskFailureUiState(
     val action: PersonalTaskFailureAction = PersonalTaskFailureAction.RETRY_PLAN,
 )
 
+data class PersonalTaskCompletionUiState(
+    val title: String,
+    val message: String,
+)
+
 private data class PendingPersonalTaskExecution(
     val preview: PendingPersonalTaskPlanUiState,
     val runtimeSelection: AgentRuntimeSelection,
@@ -278,6 +284,7 @@ data class XiaoLingUiState(
     val pendingPersonalTaskPlan: PendingPersonalTaskPlanUiState? = null,
     val personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
     val personalTaskFailure: PersonalTaskFailureUiState? = null,
+    val personalTaskCompletion: PersonalTaskCompletionUiState? = null,
     val apiMode: ApiMode = ApiMode.CHAT_COMPLETIONS,
     val streamingEnabled: Boolean = false,
     val reasoningSummaryEnabled: Boolean = false,
@@ -935,6 +942,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             prompt = value,
             sharedDraftImported = false,
             personalTaskFailure = null,
+            personalTaskCompletion = null,
             result = null,
         )
     }
@@ -944,6 +952,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(
             personalTaskMode = enabled,
             personalTaskFailure = null,
+            personalTaskCompletion = null,
             result = null,
         )
     }
@@ -2047,7 +2056,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         initialDetail: WorkflowRunDetail,
         runtimeSelection: AgentRuntimeSelection,
         conversationId: String,
-    ) {
+    ): WorkflowRunRecord {
         var detail = initialDetail
         while (true) {
             val step = WorkflowStepExecutionPolicy.nextExecutableStep(detail.steps) ?: break
@@ -2168,6 +2177,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             )
             saveConversationSelection()
         }
+        return completedRun
     }
 
     private fun appendWorkflowMessage(conversationId: String, message: ChatMessage) {
@@ -3645,6 +3655,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             pendingPersonalTaskPlan = null,
             personalTaskOperationPhase = PersonalTaskOperationUiPhase.GENERATING_PLAN,
             personalTaskFailure = null,
+            personalTaskCompletion = null,
             result = null,
         )
         sendMessageJob = viewModelScope.launch {
@@ -3787,6 +3798,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             personalTaskOperationPhase = PersonalTaskOperationUiPhase.CREATING_TASK,
             personalTaskFailure = null,
+            personalTaskCompletion = null,
         )
         clearAgentStateForConversation(conversationId)
         sendMessageJob = viewModelScope.launch {
@@ -3830,7 +3842,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     ChatMessage(role = "user", text = preview.sourceGoal, createdAt = System.currentTimeMillis()),
                 )
                 saveConversationSelection()
-                executeForegroundWorkflow(createdDetail, pending.runtimeSelection, conversationId)
+                val completedRun = executeForegroundWorkflow(createdDetail, pending.runtimeSelection, conversationId)
+                if (isCurrentPersonalTaskOperation(operationRequestId, conversationId)) {
+                    // long: 完成卡只能由刚提交的 Workflow 身份和 Repository 本地目标判定生成，确保“查看任务”对应这次真实执行事实。
+                    uiState = uiState.copy(
+                        personalTaskCompletion = PersonalTaskCompletionPresentation.immediate(
+                            decision = completedRun.goalVerificationDecision,
+                        ),
+                    )
+                }
             } catch (error: CancellationException) {
                 detail?.let { current ->
                     withContext(NonCancellable + Dispatchers.IO) {
@@ -3934,6 +3954,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sendingMessage = true,
             personalTaskOperationPhase = PersonalTaskOperationUiPhase.CREATING_REMINDER,
             personalTaskFailure = null,
+            personalTaskCompletion = null,
         )
         sendMessageJob = viewModelScope.launch {
             var task: ScheduledTaskRecord? = null
@@ -4004,6 +4025,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 )
                 uiState = uiState.copy(
                     workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
+                    personalTaskCompletion = PersonalTaskCompletionPresentation.reminder(
+                        scheduleLabel = preview.reminderScheduleLabel ?: "应用内提醒",
+                    ),
                     result = OperationResult(
                         success = true,
                         title = "应用内提醒已创建",
