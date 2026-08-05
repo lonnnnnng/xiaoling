@@ -1,5 +1,20 @@
 # 产品需求
 
+## 主链稳定后的后台长任务评估（第 147 阶段候选）
+
+- 本阶段先评估，不默认实现 Foreground Service、精确定时或后台设备动作。样本只使用现有无需审批的 SAFE Workflow，并分别覆盖 Redmi 前台、切后台和熄屏 5 至 10 分钟运行。
+- 每个样本必须保存 WorkManager 计划/实际时间、Workflow/Agent Run 与步骤终态、Tool Ledger、进程退出原因和系统配额证据。人工 `force-stop`、安装、instrumentation、测试框架终止或 `kill -9` 不得冒充自然 LMK/系统回收。
+- 只有真实任务时长、用户可见进度需求、系统回收或配额数据证明现有 WorkManager/Room 收敛不足时，才能立项 Foreground Service 或新的恢复能力；不能仅凭“可能更稳定”预先增加常驻服务。
+- 后台设备动作、截图/视觉、任意 App、坐标、MCP、系统日历写入、远程 Channel、多 Agent、跨设备同步和本地模型继续关闭，分别在长任务评估之后依据明确用户场景立项。
+
+## 真实任务总览与关联重试收口（第 146 阶段，完成）
+
+- `tasks.list` 除 Room/Registry 测试外，必须在 Profile 显式启用工具与 `task-overview` Skill 后完成一次真实模型 Agent Run；只允许读取当前任务事实，不得扩大为任务修改、执行或后台调用。
+- 关联重试的 `SKIPPED` 步骤必须沿 `reusedFromStepId` 多级链回查最初执行步骤的 Agent Run 和 Tool Ledger。已验证工具、设备观察与设备动作必须使用同一来源规则；来源缺失、链损坏或循环时继续 fail-closed。
+- 当 Workflow Run 为 `FAILED`、但全部步骤已经 `COMPLETED / SKIPPED` 时，允许创建只重新执行目标收敛的关联新 Run。新 Run 必须复用全部步骤、写入 `retryOfWorkflowRunId`，不得重放模型、Executor、设备动作或审批；来源失败 Run 和全部旧事实保持不变。
+- Accessibility `onInterrupt()` 不得被解释为服务断连，不得据此取消正在等待的审批或 detach Runtime；真正 `onDestroy()` 仍必须取消审批并断开 Runtime。审批浮层显示期间不得使用会销毁/重建 Accessibility Service 的 UIAutomator 做观察。
+- Redmi 真机验收必须同时证明：真实 `tasks.list` ToolResult 为 `PASSED`；三步设备动作来源 Run 保持失败历史；新的仅收敛 Run 三步全部复用，工具顺序和最终包满足本地完成标准，目标级结论为 `VERIFIED`。
+
 ## 任务/提醒只读总览（第 144 阶段，完成）
 
 - Agent 必须能在 Profile 明确允许时回答“我有哪些任务、提醒或工作流”，结果应包含名称、目标、启停、步骤数、最近执行状态、提醒类型和可用的下次时间。

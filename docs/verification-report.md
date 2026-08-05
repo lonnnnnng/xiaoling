@@ -1,6 +1,6 @@
 # 验证报告
 
-验证日期：2026-08-05（北京时间）
+验证日期：2026-08-06（北京时间）
 
 ## 当前验证基线
 
@@ -10,13 +10,23 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 145 阶段继续真实使用打磨，已完成计划/任务/提醒交互、任务结果定向查看、任务/提醒只读总览，以及 OEM 时钟兼容与真实三步个人 Agent 复验。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 146 阶段继续真实使用打磨，已完成计划/任务/提醒交互、任务结果定向查看、任务/提醒只读总览、OEM 时钟兼容、真实三步个人 Agent 复验，以及多级关联重试证据回查和仅目标收敛重试。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 第 142 阶段验证：聚焦 JVM `17/17`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。只使用 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`；没有向 Pixel_9 或其他模拟器发送命令。该入口只改变导航与列表展示，不改变 Room、Runtime、审批、权限或执行逻辑。
 - 第 143 阶段验证：导航 Saver 同时保存知识文档和 Workflow 两个一次性目标，Activity 重建后可恢复目标定位；本阶段只做聚焦 JVM 编译/测试与 Debug 编译，不重复 Redmi instrumentation、完整 JVM、Lint、AndroidTest APK 或 Release。
 - 第 144 阶段验证：`XiaoLingToolRegistryTest 37/37 + AgentSkillsTest 11/11`，聚焦 JVM 合计 `48/48`；Debug 与 AndroidTest APK 构建成功。只向 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (3 tests)`、耗时 `1.828s`；在设备列表中看到的 `emulator-5554` 未接收安装、instrumentation 或功能命令。
 - 文档语料门禁：第 144 阶段六份长期文档重新打包后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`、耗时 `2.648s`。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验；第 141/142 阶段及第 133 阶段多轮历史证据保持不变。
 - 第 145 阶段验证：聚焦 JVM 六组 `95/95`；完整 `testDebugUnitTest` 的 136 份 XML 合计 `904/904`，`0 failure / 0 error / 0 skipped`；`:app:assembleDebug` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装，Accessibility 最终为 `Enabled / Bound / Crashed services:{}`。真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三个步骤均为 `COMPLETED`；Tool Ledger 顺序为 `app.current_time`、`device.snapshot / device.open_app / device.snapshot`、`device.snapshot / device.back`，六条结果全部 `verificationStatus=PASSED`，两个动作均 `executorVerified=1`。实际打开 `com.google.android.deskclock`，最终前台 `com.longdev.xiaoling`，持久化目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。历史失败 Run `workflow-run-c6e2c804-2f47-4085-919b-3c300406b1d8` 及其来源链未修改。本阶段未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
+- 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
+
+## 2026-08-06 第 146 阶段：真实任务总览与关联重试收口
+
+- `tasks.list` 真实模型证据：默认 Agent Profile 已显式启用工具与 `task-overview` Skill。请求“Use tasks.list to list my current tasks and reminders. Do not answer from memory.” 后，Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 完成；唯一 ToolResult 为 `tasks.list / success=true / verificationStatus=PASSED / executorVerified=null`，返回任务“读取时间并返回小灵”、已启用、3 步、最近已完成。
+- 首轮真实关联重试：Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 来源为 `workflow-run-9f188e89-f950-430b-bc3c-69eba6f79971`。步骤状态为“已复用 / 已完成 / 已完成”；第二步实际完成 `com.longdev.xiaoling -> com.google.android.deskclock`，第三步完成 `com.google.android.deskclock -> com.longdev.xiaoling`，两个动作都已通过后置观察。旧实现最终以“Workflow 已验证工具缺少 Agent Run 来源”收敛为失败，暴露连续重试的多级复用来源缺口。
+- 修复：`RoomWorkflowRepository` 对已验证工具、设备观察和设备动作统一沿 `reusedFromStepId` 链回查最初带 `agentRunId` 的步骤，并用 visited 集合拒绝循环。`WorkflowRunRetryPolicy / retryRun()` 允许 `FAILED` 且全部步骤成功的 Run 创建仅目标收敛的新 Run；全部步骤复用，不重新调用模型、审批或 Executor。Accessibility 生命周期策略同时确认 `onInterrupt()` 只失效活动窗口，只有 `onDestroy()` 才取消审批和 detach Runtime。
+- 验收工具边界：Redmi 上 UIAutomator 会在审批期间临时触发 Accessibility Service `onDestroy()` 并约 1.6 秒后重建，因此 Run 启动后到审批完成期间不调用 UIAutomator；审批后待 Run 收敛再读取 Workflow UI。`FLAG_SECURE` 让浮层截图区域变黑属于预期。
+- 最终真实结果：新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 的来源为 `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d`，三步全部“已复用”。目标页显示已验证步骤 `3/3`、工具顺序 `app.current_time -> device.open_app -> device.back` 全部匹配、期望/实际最终应用均为 `com.longdev.xiaoling`，结论为“任务目标已验证完成 / ALL_CRITERIA_VERIFIED”。来源 Run 仍显示 `2026-08-06 00:50:07 · 失败`，没有被回写。
+- 验证：聚焦 JVM `DeviceAccessibilityServiceLifecyclePolicyTest` 与 `WorkflowStepExecutionPolicyTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均通过；Redmi `RoomWorkflowRepositoryInstrumentedTest#repeatedRetryKeepsVerifiedToolProvenanceForGoalDecision` 与 `#retryRevalidatesAllSuccessfulStepsWithoutReplayingThem` 最终 `OK (2 tests)`、耗时 `1.02s`，更新后的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。首轮测试曾因第二步夹具没有任何已验证工具而按规则得到 `PARTIAL`，补充合法 `conversation.list` Tool Ledger 后通过；该失败证明目标策略仍要求每个步骤具备可核验事实。本阶段不替代第 132 阶段完整门禁。
 
 ## 2026-08-05 第 142 阶段：完成结果定向查看 Workflow
 

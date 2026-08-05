@@ -416,7 +416,18 @@ object WorkflowRunRetryPolicy {
         val firstIncompleteIndex = ordered.indexOfFirst {
             it.status !in setOf(WorkflowStepStatus.COMPLETED, WorkflowStepStatus.SKIPPED)
         }
-        if (firstIncompleteIndex < 0) return WorkflowRunRetryEligibility.NotRetryable("来源 Workflow Run 没有可重试步骤")
+        if (firstIncompleteIndex < 0) {
+            return if (detail.run.status == WorkflowRunStatus.FAILED) {
+                // long: 所有步骤成功但 Run 收敛失败时，只复用既有步骤重新执行目标级校验；不得为了修复持久化或判定缺陷而重放已经完成的设备动作。
+                WorkflowRunRetryEligibility.Retryable(
+                    retryFromSequence = ordered.last().sequence + 1,
+                    reusedStepCount = ordered.size,
+                    requiresConfirmation = false,
+                )
+            } else {
+                WorkflowRunRetryEligibility.NotRetryable("来源 Workflow Run 没有可重试步骤")
+            }
+        }
         val retryStep = ordered[firstIncompleteIndex]
         return WorkflowRunRetryEligibility.Retryable(
             retryFromSequence = retryStep.sequence,

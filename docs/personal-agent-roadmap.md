@@ -1117,7 +1117,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 19. 已完成：第 128 阶段在限定 App 范围完成多动作连续执行。每次页面变化都重新 snapshot/ref，逐动作复用既有审批、TTL、generation、Executor/typed 验证和动作后观察；Redmi 跑通首条设置页连续任务。
 20. 已完成：第 129 阶段新增目标级本地验证和最终回答约束。只用同 Run 已验证 Tool Ledger、步骤快照和最终观察形成 `VERIFIED / PARTIAL / INCOMPLETE`；Room v35 保持旧任务无判定，模型自由文本不能扩大结论。
 21. 已完成：第 130 阶段把长期记忆、本地知识和应用内提醒接入个人任务。计划上下文受 Profile/单次开关和有界只读 Prompt 约束；提醒复用现有 WorkManager 非精确定时与通知能力，创建确认与既有修改/取消用户操作保持显式，不引入系统日历或精确闹钟。
-22. 第 131 阶段：完成任务级恢复与关联重试。中断后从已验证前缀创建关联新执行，旧 Run、旧步骤和已提交副作用保持不变；不恢复无法证明的旧模型协程或 Executor。
+22. 已完成第 131 阶段：任务级恢复与关联重试。中断后从已验证前缀创建关联新执行，旧 Run、旧步骤和已提交副作用保持不变；不恢复无法证明的旧模型协程或 Executor。
 23. 已完成第 132 阶段：三条 Redmi 完整任务、完整 JVM `879/879`、Lint、Debug/AndroidTest APK 与默认 instrumentation `282/282` 通过；修正 Room v35 常量、规则夹具、知识引用测试选择器及 AOSP/Google 计算器和时钟包名兼容。正式 Release 未执行。
 24. 已完成第 133 阶段：计划生成/任务创建/提醒创建专属状态、失败保留目标与重新生成、通知权限等待防重复，以及确认后创建请求的会话代际隔离。
 25. 并行低频观察：answerability Shadow 等待真正跨日或长期分隔的真实窗口；样本足够后再评估 JSON/SAF、显式授权离线评测集、独立阈值校准和生产拒绝。该等待不阻塞个人 Agent 功能开发。
@@ -1126,8 +1126,12 @@ idle -> deciding -> waiting_model -> waiting_approval
 28. 已完成第 139 阶段：确认后立即任务和提醒创建在不可取消提交边界内捕获持久化身份，提交交接处取消会收敛同一 Run/调度而不是误判为空，避免重复重试创建。
 29. 已完成第 140 阶段：已提交任务停止/失败只显示“查看任务”并打开现有工作流页；未提交失败才允许重新生成，避免从失败入口重复创建 Workflow。
 30. 已完成第 141 阶段：立即任务结束后把 Repository 持久化的 `VERIFIED / PARTIAL / INCOMPLETE` 目标级结论或普通完成状态投影为可见入口；提醒创建成功也可进入既有工作流页。入口不会重发、重建或自动重试，编辑输入、切换模式和下一次计划会清除旧结果。
-31. 下一步继续按真实使用证据处理计划等待/失败、常用任务闭环或单个限定 App 兼容；没有明确场景时不连续堆模板/App，不回到持续按行数拆分或单纯 Shadow 扩样。
-32. 截图/视觉、后台设备控制、任意 App、精确定时、Foreground Service、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型保持后置，并分别依据真实需求与证据立项。
+31. 已完成第 142 至 143 阶段：完成卡携带 Workflow ID 定向打开并展开任务详情，Activity 重建继续保存一次性 Workflow/知识文档目标，返回设置根页后清理。
+32. 已完成第 144 阶段：新增 SAFE `tasks.list` 与 `task-overview` Skill，只读返回任务/提醒摘要；第 146 阶段补充真实 `gpt-5.6-luna` Agent Run，ToolResult 为 `PASSED`，既有 Profile 不静默扩权。
+33. 已完成第 145 阶段：显式 AOSP/Google 计算器与时钟应用族兼容，“返回小灵”步骤只开放 `device.snapshot -> device.back`，Redmi 三步任务完成真实目标级验证。
+34. 已完成第 146 阶段：多级关联重试沿 `reusedFromStepId` 回查原始 Tool Ledger；全部步骤成功但 Run 目标收敛失败时，允许创建只复用步骤并重新判定的关联新 Run，不重放模型、审批或设备动作。Redmi 新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部复用并得到 `VERIFIED`，来源失败 Run 保持不变。
+35. 下一候选第 147 阶段只做后台长任务可靠性证据评估，不预先引入 Foreground Service：使用现有无需审批的 SAFE Workflow 在 Redmi 形成至少 5 至 10 分钟的前台、切后台和熄屏样本，记录 WorkManager 计划/实际时间、Run/Step/Tool Ledger、进程退出原因和系统配额。后台设备动作继续关闭；人工 `force-stop`、安装、instrumentation 或 `kill -9` 不计作自然系统回收证据。只有真实任务时长、用户可见进度或系统回收数据证明现有机制不足，才立项 Foreground Service 或更细恢复能力。
+36. MCP、系统日历/通知写入、远程 Channel、多 Agent、跨设备同步和本地模型保持在后台长任务评估之后；截图/视觉、任意 App、坐标与后台设备控制继续单独立项。没有明确用户场景时不连续堆模板/App，不回到持续按行数拆分或单纯 Shadow 扩样。
 
 本顺序替代此前“持续按行数拆分 ViewModel/Compose 宿主”的开放式结构路线。结构工程只处理已经识别且能形成深边界的模块；进入通用恢复后，除非结构改动直接支撑恢复契约或消除明确风险，否则不再单独立项瘦身。
 

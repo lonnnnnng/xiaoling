@@ -1,6 +1,10 @@
 # 文档索引
 
-“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 145 阶段继续真实使用打磨，并已完成取消提交竞态、任务结果定向查看、任务/提醒只读总览，以及 OEM 时钟兼容与真实三步个人 Agent 复验。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 146 阶段继续真实使用打磨，并已完成取消提交竞态、任务结果定向查看、任务/提醒只读总览、OEM 时钟兼容，以及多级关联重试证据回查和仅目标收敛重试。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 146 阶段完成真实只读任务总览与关联重试收口：Redmi 真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，结果 `success=true / verification=PASSED`。三步 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 的设备动作均已完成，但旧实现因多级复用步骤没有直接 `agentRunId` 而在目标收敛时报错；修复后新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 关联该来源、三步全部“已复用”，没有重放模型或设备动作，最终得到 `VERIFIED / ALL_CRITERIA_VERIFIED`。旧失败 Run 继续保留。审批等待期间禁止使用 UIAutomator，因为 Redmi 会临时销毁并重建 Accessibility Service；`onInterrupt()` 只失效当前窗口，不再撤销审批或 detach Runtime。新增 Room 单项 `OK (2 tests)`，更新后的文档 corpus 为 `OK (1 test)`。
+
+主链稳定后的下一候选为第 147 阶段后台长任务证据评估：先使用现有 SAFE Workflow 在 Redmi 形成 5 至 10 分钟前台、切后台和熄屏样本，核对 WorkManager 时间、Run Ledger、进程退出原因和系统配额；不预先加入 Foreground Service，也不开放后台设备动作。MCP、系统日历写入、远程 Channel、多 Agent、跨设备同步和本地模型继续排在该评估之后。
 
 第 145 阶段集中修复 Redmi 时钟 OEM 差异和“返回小灵”动作选择：计算器/时钟仅在显式 AOSP/Google 应用族内等价，`open_app` 请求包不可启动时才回退同族包；Workflow 的执行前后与答案级证据共用同一判断。“返回小灵 / 回到小灵”步骤在新鲜 snapshot 后只开放 `device.back`。聚焦 JVM 六组 `95/95`、完整 JVM `904/904`、Debug APK 通过；Redmi 真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三步全部完成，实际打开 `com.google.android.deskclock`，最终返回 `com.longdev.xiaoling`，六条工具结果均 `PASSED`，目标级结论为 `VERIFIED / ALL_CRITERIA_VERIFIED`。未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 

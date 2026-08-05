@@ -1396,7 +1396,9 @@ class RoomWorkflowRepository(
             require(dao.getActiveRun(source.workflowId) == null) { "这个工作流已有未完成的 Run" }
             val sourceSteps = dao.getSteps(sourceWorkflowRunId)
             require(sourceSteps.isNotEmpty()) { "来源工作流没有步骤快照" }
-            require(sourceSteps.any { it.status !in SUCCESSFUL_STEP_STATUSES }) { "来源工作流没有可重试步骤" }
+            val hasIncompleteStep = sourceSteps.any { it.status !in SUCCESSFUL_STEP_STATUSES }
+            val canRetryFinalizationOnly = source.status == WorkflowRunStatus.FAILED.name && !hasIncompleteStep
+            require(hasIncompleteStep || canRetryFinalizationOnly) { "来源工作流没有可重试步骤" }
             val now = System.currentTimeMillis()
             val run = WorkflowRunEntity(
                 id = "workflow-run-${UUID.randomUUID()}",
@@ -1626,11 +1628,7 @@ class RoomWorkflowRepository(
         step: WorkflowStepEntity,
         storedDecisions: List<WorkflowDeviceObservationDecision>,
     ): WorkflowDeviceObservationResolution {
-        val evidenceStep = when {
-            step.agentRunId != null -> step
-            step.reusedFromStepId != null -> database.workflowDao().getStep(step.reusedFromStepId)
-            else -> null
-        }
+        val evidenceStep = resolveOriginalEvidenceStep(step)
         val agentRunId = evidenceStep?.agentRunId
         if (agentRunId == null) {
             return if (
@@ -1675,11 +1673,7 @@ class RoomWorkflowRepository(
         step: WorkflowStepEntity,
         storedDecisions: List<WorkflowDeviceActionDecision>,
     ): WorkflowDeviceActionResolution {
-        val evidenceStep = when {
-            step.agentRunId != null -> step
-            step.reusedFromStepId != null -> database.workflowDao().getStep(step.reusedFromStepId)
-            else -> null
-        }
+        val evidenceStep = resolveOriginalEvidenceStep(step)
         val agentRunId = evidenceStep?.agentRunId
         if (agentRunId == null) {
             return if (
@@ -1805,7 +1799,7 @@ class RoomWorkflowRepository(
         step: WorkflowStepEntity,
         storedToolNames: List<String>,
     ): List<String> {
-        val agentRunId = step.agentRunId
+        val agentRunId = resolveOriginalEvidenceStep(step)?.agentRunId
         if (agentRunId == null) {
             require(storedToolNames.isEmpty()) { "Workflow 已验证工具缺少 Agent Run 来源" }
             return emptyList()
@@ -1818,6 +1812,19 @@ class RoomWorkflowRepository(
             "Workflow 已验证工具序列与持久 Tool Ledger 不一致"
         }
         return ledgerToolNames
+    }
+
+    private suspend fun resolveOriginalEvidenceStep(step: WorkflowStepEntity): WorkflowStepEntity? {
+        val dao = database.workflowDao()
+        val visitedStepIds = mutableSetOf<String>()
+        var current: WorkflowStepEntity? = step
+        while (current != null && visitedStepIds.add(current.id)) {
+            if (current.agentRunId != null) return current
+            val sourceStepId = current.reusedFromStepId ?: return null
+            // long: 连续关联重试会形成多级复用链；目标级工具、设备观察和设备动作都必须回查到最初执行步骤的 Tool Ledger，不能把中间 SKIPPED 步骤误判为无证据来源。
+            current = dao.getStep(sourceStepId)
+        }
+        return null
     }
 
     private fun decodeStoredGoalVerificationContract(raw: String?): WorkflowGoalVerificationContract? {

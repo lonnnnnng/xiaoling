@@ -59,14 +59,26 @@ class XiaoLingAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        disconnectApprovalOverlay()
-        DeviceAccessibilityRuntime.onWindowChanged()
+        applyLifecycleDecision(
+            DeviceAccessibilityServiceLifecyclePolicy.decide(
+                DeviceAccessibilityServiceLifecycleEvent.FEEDBACK_INTERRUPTED,
+            ),
+        )
     }
 
     override fun onDestroy() {
-        disconnectApprovalOverlay()
-        DeviceAccessibilityRuntime.detach(this)
+        applyLifecycleDecision(
+            DeviceAccessibilityServiceLifecyclePolicy.decide(
+                DeviceAccessibilityServiceLifecycleEvent.SERVICE_DESTROYED,
+            ),
+        )
         super.onDestroy()
+    }
+
+    private fun applyLifecycleDecision(decision: DeviceAccessibilityServiceLifecycleDecision) {
+        if (decision.disconnectApproval) disconnectApprovalOverlay()
+        if (decision.detachRuntime) DeviceAccessibilityRuntime.detach(this)
+        if (decision.invalidateActiveWindow) DeviceAccessibilityRuntime.onWindowChanged()
     }
 
     internal fun captureRawWindow(): RawDeviceWindow? {

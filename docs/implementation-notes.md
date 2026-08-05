@@ -1,6 +1,15 @@
 # 当前实现说明
 
-## 第 127 至 145 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 146 阶段实现顺序（主线完成，体验打磨继续）
+
+## 第 146 阶段：真实任务总览与关联重试收口（完成）
+
+- Redmi 真实 `/agent` 使用 `gpt-5.6-luna` 调用 SAFE `tasks.list`。Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回当前唯一任务“读取时间并返回小灵”；Profile 已显式启用 `tasks.list` 与 `task-overview` Skill。
+- 连续关联重试会让新步骤指向上一层 `SKIPPED` 步骤，而原始 Agent Run 可能位于更深的 `reusedFromStepId` 链。`RoomWorkflowRepository.resolveOriginalEvidenceStep()` 现在带循环保护地回查到最初执行步骤，工具序列、设备观察和设备动作共用该来源；旧 Run、旧步骤、Tool Ledger 和副作用事实不回写。
+- `WorkflowRunRetryPolicy` 与 `retryRun()` 允许 `FAILED` 且全部步骤成功的 Run 创建“仅目标收敛”关联新 Run。新 Run 把全部步骤标为 `SKIPPED` 并复用旧输出，`executeForegroundWorkflow()` 不调用模型、不重放设备动作，只重新执行 Repository 的 Tool Ledger 净化和目标级判定；`CANCELLED` 或 `COMPLETED` Run 不获得该入口。
+- Accessibility 生命周期按 Android 语义拆分：`onInterrupt()` 只表示反馈被打断，因此仅失效活动窗口引用；只有 `onDestroy()` 才取消审批并 detach Runtime。Redmi 验收确认 UIAutomator 会在审批期间临时销毁、约 1.6 秒后重建服务，因此审批浮层出现后不得调用 UIAutomator，改用固定批准坐标和非 Accessibility 前台观察，Run 收敛后再读取 UI。
+- 真实设备动作链 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保留 `FAILED`，三步为“已复用 / 已完成 / 已完成”，实际包链为 `com.longdev.xiaoling -> com.google.android.deskclock -> com.longdev.xiaoling`。修复后的关联 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 以该 Run 为来源，三步全部“已复用”，最终 `3/3`、工具顺序 `app.current_time -> device.open_app -> device.back`、最终包 `com.longdev.xiaoling`，目标结论为 `VERIFIED / ALL_CRITERIA_VERIFIED`。
+- 聚焦 JVM 生命周期/重试策略、Debug/AndroidTest APK 和 Redmi Room 单项通过；新增 Room 用例覆盖多级复用来源与全部成功步骤的仅收敛重试，最终 `OK (2 tests)`，更新后的文档 corpus 为 `OK (1 test)`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 ## 第 145 阶段：OEM 时钟兼容与三步个人 Agent 闭环（完成）
 

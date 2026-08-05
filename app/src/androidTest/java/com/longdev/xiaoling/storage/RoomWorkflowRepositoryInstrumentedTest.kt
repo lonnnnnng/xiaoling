@@ -459,6 +459,119 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun repeatedRetryKeepsVerifiedToolProvenanceForGoalDecision() = runBlocking {
+        val contract = WorkflowGoalVerificationContract(
+            sourceGoal = "读取时间后生成说明",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("app.current_time", "conversation.list"),
+            ),
+        )
+        val (_, source) = repository.createWorkflowAndManualRun(
+            name = "连续重试工具来源",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("生成时间说明"),
+            ),
+            conversationId = "conversation-repeated-retry",
+            goalVerificationContract = contract,
+        )
+        val firstAgentRunId = "agent-run-repeated-retry-time"
+        repository.markAgentRunStarted(source.run.id, source.steps[0].id, firstAgentRunId)
+        database.agentRunDao().insertToolResult(verifiedToolResult(firstAgentRunId, "app.current_time"))
+        repository.completeWorkflowStep(
+            workflowRunId = source.run.id,
+            workflowStepId = source.steps[0].id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "当前时间：12:04",
+        )
+        repository.markAgentRunStarted(source.run.id, source.steps[1].id, "agent-run-repeated-retry-failed")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "第一次失败")
+
+        val firstRetry = repository.retryRun(source.run.id, "conversation-repeated-retry")
+        repository.markAgentRunStarted(
+            firstRetry.run.id,
+            firstRetry.steps[1].id,
+            "agent-run-repeated-retry-failed-again",
+        )
+        repository.completeRun(firstRetry.run.id, WorkflowRunStatus.FAILED, errorMessage = "第二次失败")
+
+        val secondRetry = repository.retryRun(firstRetry.run.id, "conversation-repeated-retry")
+        repository.markAgentRunStarted(
+            secondRetry.run.id,
+            secondRetry.steps[1].id,
+            "agent-run-repeated-retry-completed",
+        )
+        database.agentRunDao().insertToolResult(
+            verifiedToolResult("agent-run-repeated-retry-completed", "conversation.list"),
+        )
+        repository.completeWorkflowStep(
+            workflowRunId = secondRetry.run.id,
+            workflowStepId = secondRetry.steps[1].id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "时间说明已生成",
+        )
+        val completed = repository.completeRun(secondRetry.run.id, WorkflowRunStatus.COMPLETED)
+
+        assertEquals(WorkflowGoalVerificationStatus.VERIFIED, completed.goalVerificationDecision?.status)
+        assertEquals(
+            listOf("app.current_time", "conversation.list"),
+            completed.goalVerificationDecision?.matchedRequiredToolNames,
+        )
+        assertEquals(firstRetry.run.id, completed.retryOfWorkflowRunId)
+        assertEquals(WorkflowRunStatus.FAILED, repository.runDetail(source.run.id)!!.run.status)
+        assertEquals(WorkflowRunStatus.FAILED, repository.runDetail(firstRetry.run.id)!!.run.status)
+    }
+
+    @Test
+    fun retryRevalidatesAllSuccessfulStepsWithoutReplayingThem() = runBlocking {
+        val contract = WorkflowGoalVerificationContract(
+            sourceGoal = "读取时间并列出会话",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("app.current_time", "conversation.list"),
+            ),
+        )
+        val (_, source) = repository.createWorkflowAndManualRun(
+            name = "仅重试最终收敛",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("列出最近会话"),
+            ),
+            conversationId = "conversation-finalization-retry",
+            goalVerificationContract = contract,
+        )
+        listOf(
+            Triple(source.steps[0], "agent-run-finalization-time", "app.current_time"),
+            Triple(source.steps[1], "agent-run-finalization-conversations", "conversation.list"),
+        ).forEach { (step, agentRunId, toolName) ->
+            repository.markAgentRunStarted(source.run.id, step.id, agentRunId)
+            database.agentRunDao().insertToolResult(verifiedToolResult(agentRunId, toolName))
+            repository.completeWorkflowStep(
+                workflowRunId = source.run.id,
+                workflowStepId = step.id,
+                status = WorkflowStepStatus.COMPLETED,
+                result = "完成 ${step.sequence}",
+            )
+        }
+        val storedSource = requireNotNull(database.workflowDao().getRun(source.run.id))
+        database.workflowDao().upsertRun(
+            storedSource.copy(
+                status = WorkflowRunStatus.FAILED.name,
+                errorMessage = "模拟旧版本目标级收敛失败",
+                completedAt = 10L,
+            ),
+        )
+
+        val retry = repository.retryRun(source.run.id, "conversation-finalization-retry")
+        assertEquals(listOf(WorkflowStepStatus.SKIPPED, WorkflowStepStatus.SKIPPED), retry.steps.map { it.status })
+
+        val completed = repository.completeRun(retry.run.id, WorkflowRunStatus.COMPLETED)
+
+        assertEquals(WorkflowGoalVerificationStatus.VERIFIED, completed.goalVerificationDecision?.status)
+        assertEquals(source.run.id, completed.retryOfWorkflowRunId)
+        assertEquals(WorkflowRunStatus.FAILED, repository.runDetail(source.run.id)!!.run.status)
+    }
+
+    @Test
     fun workflowOnlyPassesCurrentKnowledgeOutputToNextStepAndRetry() = runBlocking {
         val knowledgeStore = RoomKnowledgeDocumentStore(context, database)
         val document = knowledgeStore.importUtf8Document(

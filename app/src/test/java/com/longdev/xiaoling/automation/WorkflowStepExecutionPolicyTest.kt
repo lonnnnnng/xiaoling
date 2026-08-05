@@ -293,6 +293,24 @@ class WorkflowStepExecutionPolicyTest {
         assertTrue(WorkflowRunRetryPolicy.evaluate(failed, hasActiveRun = true) is WorkflowRunRetryEligibility.NotRetryable)
     }
 
+    @Test
+    fun retryPolicyAllowsFailedRunToRevalidateCompletedStepsWithoutReplay() {
+        val failed = WorkflowRunDetail(
+            run = run(WorkflowRunStatus.FAILED),
+            steps = listOf(
+                step(1, WorkflowStepStatus.SKIPPED, output = "复用时间"),
+                step(2, WorkflowStepStatus.COMPLETED, output = "已返回小灵"),
+            ),
+        )
+
+        val eligibility = WorkflowRunRetryPolicy.evaluate(failed, hasActiveRun = false)
+            as WorkflowRunRetryEligibility.Retryable
+
+        assertEquals(3, eligibility.retryFromSequence)
+        assertEquals(2, eligibility.reusedStepCount)
+        assertFalse(eligibility.requiresConfirmation)
+    }
+
     private fun step(
         sequence: Int,
         status: WorkflowStepStatus,
