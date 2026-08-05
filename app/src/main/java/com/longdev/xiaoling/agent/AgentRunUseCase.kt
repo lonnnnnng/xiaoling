@@ -11,6 +11,7 @@ import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentSkillStore
+import com.longdev.xiaoling.storage.RoomAgentTaskStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 
 class AgentRunUseCase(
@@ -25,6 +26,7 @@ class AgentRunUseCase(
     private val toolRegistry = XiaoLingToolRegistry(
         clock = SystemAgentClock(),
         conversationStore = RoomAgentConversationStore(context.applicationContext),
+        taskStore = RoomAgentTaskStore(context.applicationContext),
         noteStore = RoomAgentNoteStore(context.applicationContext),
         memoryStore = RoomAgentMemoryStore(context.applicationContext),
         knowledgeStore = RoomKnowledgeDocumentStore(context.applicationContext),

@@ -586,6 +586,23 @@ interface WorkflowDao {
     @Query("SELECT * FROM workflow_runs ORDER BY createdAt DESC LIMIT :limit")
     suspend fun recentRuns(limit: Int): List<WorkflowRunEntity>
 
+    @Query(
+        """
+        SELECT candidate.* FROM workflow_runs AS candidate
+        WHERE candidate.workflowId IN (:workflowIds)
+          AND NOT EXISTS (
+              SELECT 1 FROM workflow_runs AS newer
+              WHERE newer.workflowId = candidate.workflowId
+                AND (
+                    newer.createdAt > candidate.createdAt
+                    OR (newer.createdAt = candidate.createdAt AND newer.id > candidate.id)
+                )
+          )
+        ORDER BY candidate.createdAt DESC, candidate.id DESC
+        """,
+    )
+    suspend fun latestRunsForWorkflows(workflowIds: List<String>): List<WorkflowRunEntity>
+
     @Query("SELECT * FROM workflow_runs ORDER BY createdAt DESC")
     suspend fun listRuns(): List<WorkflowRunEntity>
 

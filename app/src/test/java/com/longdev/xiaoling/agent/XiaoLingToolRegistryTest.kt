@@ -270,6 +270,7 @@ class XiaoLingToolRegistryTest {
                 "app.current_time",
                 "app.list_conversations",
                 "app.search_conversations",
+                "tasks.list",
                 "notes.list",
                 "notes.search",
                 "notes.create",
@@ -281,6 +282,7 @@ class XiaoLingToolRegistryTest {
         )
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
@@ -298,6 +300,7 @@ class XiaoLingToolRegistryTest {
             "notes.list",
             "notes.search",
             "memory.search",
+            "tasks.list",
         ).map { name -> tools.getValue(name).inputSchema.single { it.name == "limit" } }
 
         assertTrue(tools.values.all { it.timeoutMs == 5_000L })
@@ -1406,8 +1409,46 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("回读验证失败"))
     }
 
+    @Test
+    fun taskListReturnsCurrentWorkflowSummariesWithoutInternalIds() = runTest {
+        val registry = testRegistry(
+            taskStore = object : AgentTaskStore {
+                override suspend fun list(limit: Int): List<AgentTaskRecord> {
+                    assertEquals(2, limit)
+                    return listOf(
+                        AgentTaskRecord(
+                            name = "每日回顾",
+                            goal = "总结今天完成的工作",
+                            enabled = true,
+                            stepCount = 2,
+                            updatedAt = 1L,
+                            latestRunStatus = "COMPLETED",
+                            scheduleType = "DAILY",
+                            nextPlannedAt = 1_784_252_245_000L,
+                        ),
+                    )
+                }
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "tasks.list",
+                arguments = mapOf("limit" to "2"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("每日回顾 · 已启用 · 2 步 · 最近：已完成 · 每日提醒"))
+        assertTrue(result.content.contains("下次：2026-07-17 09:37"))
+        assertTrue(result.content.contains("目标：总结今天完成的工作"))
+        assertFalse(result.content.contains("workflow-private-id"))
+    }
+
     private fun testRegistry(
         conversationStore: AgentConversationStore = InMemoryAgentConversationStore(),
+        taskStore: AgentTaskStore = EmptyTestAgentTaskStore,
         noteStore: InMemoryAgentNoteStore = InMemoryAgentNoteStore(),
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
@@ -1418,6 +1459,7 @@ class XiaoLingToolRegistryTest {
         return XiaoLingToolRegistry(
             clock = clock,
             conversationStore = conversationStore,
+            taskStore = taskStore,
             noteStore = noteStore,
             memoryStore = memoryStore,
             knowledgeStore = knowledgeStore,
@@ -1710,6 +1752,10 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
     override suspend fun recentRetrievals(limit: Int): List<KnowledgeRetrievalRecord> = emptyList()
     override suspend fun setEnabled(documentId: String, enabled: Boolean): KnowledgeDocumentRecord? = null
     override suspend fun delete(documentId: String): Boolean = false
+}
+
+private object EmptyTestAgentTaskStore : AgentTaskStore {
+    override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
 }
 
 private class FakeAgentClock(

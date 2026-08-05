@@ -107,6 +107,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "读取结果可读，或创建后完成回读验证。",
         ),
         AgentSkillDefinition(
+            id = "task-overview",
+            name = "任务清单",
+            description = "查看小灵中已有的任务和应用内提醒。",
+            instructions = "用户询问已有任务、提醒或工作流时读取任务清单；只根据工具返回的状态回答，不声称已经修改、取消或重新运行任务。",
+            toolNames = setOf("tasks.list"),
+            keywords = setOf("任务", "提醒", "工作流", "计划", "task", "reminder", "workflow"),
+            triggerExamples = listOf("我有哪些任务", "列出最近的提醒", "查看工作流状态"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "读取失败时停止并报告；不根据旧会话猜测任务状态。",
+            completionCriteria = "返回当前任务清单，或明确说明没有任务。",
+        ),
+        AgentSkillDefinition(
             id = "personal-memory",
             name = "长期记忆",
             description = "检索或保存用户明确授权的长期记忆。",

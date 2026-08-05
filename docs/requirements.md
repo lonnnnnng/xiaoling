@@ -1,5 +1,13 @@
 # 产品需求
 
+## 任务/提醒只读总览（第 144 阶段，完成）
+
+- Agent 必须能在 Profile 明确允许时回答“我有哪些任务、提醒或工作流”，结果应包含名称、目标、启停、步骤数、最近执行状态、提醒类型和可用的下次时间。
+- 任务总览必须以 Room 中当前 Workflow、Run、ScheduledTask 和 Schedule 为权威事实；最近 Run 按 Workflow 独立查询，一次性与周期计划并存时展示最早的下次触发。
+- 工具结果不得包含 Workflow/Run/Task/Schedule 内部 ID、错误详情、步骤输出或其他执行证据；未知状态必须收敛为稳定展示，不根据历史对话猜测。
+- `tasks.list` 必须为 SAFE 只读工具、限制 `limit=1..10` 且禁止后台 Workflow 调用。既有 Profile 和历史 Run 不得静默扩权；用户需显式开启 `tasks.list` 及 `task-overview` Skill。
+- 本阶段不增加任务修改、取消、重试或执行工具，不新增 Android 权限、Room Schema、系统日历、后台设备自动化或第二套 Runtime。
+
 ## 完成结果定向查看 Workflow（第 142 阶段，完成）
 
 - 个人任务完成结果卡必须保留对应 Workflow 身份；点击“查看任务”应打开现有 Workflow 管理页并定位到该 Workflow，而不是重新发送目标、重新规划或创建新事实。

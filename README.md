@@ -4,7 +4,7 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
-“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 142 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、计划生成遥测、常用任务模板、首个 Google 天气 App 兼容扩展、计划上下文请求精简、取消提交竞态、已提交任务失败后的查看入口、完成结果入口和定向 Workflow 查看。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
+“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 144 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、计划生成遥测、常用任务模板、首个 Google 天气 App 兼容扩展、计划上下文请求精简、取消提交竞态、任务结果定向查看和任务/提醒只读总览。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占体验问题。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
@@ -40,7 +40,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 任务模式可把明确的未来或周期表达映射为应用内提醒：支持一次性 1 至 10080 分钟、每日和每周规则，确认页显示系统时区和“非精确定时”边界。用户确认前不创建任何 Workflow 或调度记录；确认后 Room 原子写入 Workflow 与首个 ScheduledTask/周期规则，再复用现有 WorkManager 和结果通知。定时提醒不允许目标 App、`device.*` 完成标准或设备最终应用，需要审批的其他动作到时只会进入既有待处理通知，不会在后台自动获批。立即任务保持原前台执行路径。
   - Android 13+ 提醒确认需要通知权限时，确认弹层会等待系统权限结果并禁用重复确认/返回；无论授权或拒绝，只有权限回调返回且原计划仍有效时才提交已确认提醒。通知权限只决定结果通知能否显示，不改变用户已确认的应用内调度语义。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
-  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。
+  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`tasks.list`、`notes.list`、`notes.search`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。`tasks.list` 只读返回现有 Workflow/提醒的名称、目标、启停、步骤数、最近状态和下次时间；不返回内部 ID、错误详情或步骤输出，不允许后台 Workflow 调用。既有 Profile 不会自动扩权，需由用户显式启用 `tasks.list` 和 `task-overview` Skill。
   - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。
   - `NOT_COMMITTED_REPLAY_ELIGIBLE` 已接入用户控制的受控关联重试：请求与确认都重新读取 Room，使用来源 Profile 和当前 Registry 重核恢复资格；确认后创建带 `retryOfRunId` 的新 Run，冻结来源工具名称、风险、参数与恢复契约，同时生成新的 ToolCall ID。新 Run 不调用模型重新规划，仍重新发起独立工具审批，批准后只执行该调用一次并直接总结；旧 Run、旧 ToolCall、旧审批和旧 Executor 均保持不变，Workflow 与后台入口不开放该路径。
   - 进程恢复后的链尾审批已由独立 `RecoveredAgentApprovalCoordinator` 编排：每次决定都重新读取 Room detail 并复用 `AgentRunResumePolicy` 核验唯一链尾证据，批准前先恢复原 USER 附件，重复批准/拒绝由一次性互斥门禁拒绝。另一会话的恢复审批占用门禁时返回 `Busy`，当前 `PENDING` 卡片保持可重试；附件或前置能力失败且审批仍为 `PENDING` 时也会恢复卡片。拒绝在一个 Room 事务中原子收敛 Approval、审批 Step 与原 Run，避免半状态。普通前台审批仍由独立 `AgentApprovalDecisionCoordinator` 管理 waiter，两条边界不合并。
@@ -144,6 +144,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 144 阶段完成任务/提醒只读总览：新增 SAFE `tasks.list` 和内置 `task-overview` Skill，复用 Room Workflow、Run、ScheduledTask 和 Schedule 事实，按 Workflow 独立取最新 Run，并在一次性/周期计划并存时展示最早下次触发。聚焦 JVM `48/48`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentTaskStoreInstrumentedTest` 为 `OK (3 tests)`（`1.828s`），更新后文档 corpus 单项为 `OK (1 test)`（`2.648s`）。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 第 130 阶段完成记忆/知识计划上下文与应用内提醒。提醒 Schema 严格区分 `IMMEDIATE / ONCE / DAILY / WEEKLY`，拒绝数字字符串、小数、目标 App、`device.*` 完成标准和设备最终应用；确认后 Room 原子创建 Workflow 与首个调度实例，不产生 Manual Run。聚焦 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 通过；仅 Redmi 的 Room 与 Compose 单项最终为 `OK (1 test)`（`0.318s / 2.12s`），真实模型返回 `ONCE / delay=30`。未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
 - 第 131 阶段完成任务级恢复与关联重试。旧 `BLOCKED / FAILED / CANCELLED` Run 从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，成功前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；已启动失败步骤需要二次确认，旧 Run 和副作用保持不变。聚焦 `WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 和仅 Redmi 的 `OK (1 test)`（`0.444s`）通过；随后第 132 阶段已完成三条 Redmi 完整任务与统一里程碑门禁。
 - 第 132 阶段完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和仅 Redmi 的最终完整 instrumentation `OK (282 tests)`（`139.622s`）通过。三条完整任务分别覆盖“长期记忆+本地知识→ONCE 提醒+WorkManager 入队”、“设置页 `snapshot -> swipe -> snapshot -> back` 且目标级 `VERIFIED`”和“失败任务关联重试且旧 Run 不变”。本阶段还修正 Room v35 常量、动作测试规则版本、知识引用测试选择器，以及 Redmi 当前 Google/AOSP 计算器与时钟包名兼容；未构建 Release。

@@ -42,6 +42,7 @@ import kotlin.math.min
 class XiaoLingToolRegistry(
     private val clock: AgentClock,
     private val conversationStore: AgentConversationStore,
+    private val taskStore: AgentTaskStore = EmptyAgentTaskStore,
     private val noteStore: AgentNoteStore,
     private val memoryStore: AgentMemoryStore,
     private val knowledgeStore: KnowledgeDocumentStore,
@@ -67,6 +68,7 @@ class XiaoLingToolRegistry(
     internal fun withKnowledgeStore(store: KnowledgeDocumentStore): XiaoLingToolRegistry = XiaoLingToolRegistry(
         clock = clock,
         conversationStore = conversationStore,
+        taskStore = taskStore,
         noteStore = noteStore,
         memoryStore = memoryStore,
         knowledgeStore = store,
@@ -113,6 +115,23 @@ class XiaoLingToolRegistry(
                     minLength = 1,
                     maxLength = 200,
                 ),
+                ToolInputField(
+                    name = "limit",
+                    description = "返回条数，默认 5，最大 10。",
+                    required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
+                ),
+            ),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = "tasks.list",
+            description = "列出小灵中最近更新的任务和提醒，包括启停状态、步骤数、最近执行状态与下次计划时间。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
                 ToolInputField(
                     name = "limit",
                     description = "返回条数，默认 5，最大 10。",
@@ -555,6 +574,7 @@ class XiaoLingToolRegistry(
             "app.current_time" -> currentTime()
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
+            "tasks.list" -> listTasks(call)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.create" -> createNote(call)
@@ -898,6 +918,29 @@ class XiaoLingToolRegistry(
         if (query.isBlank()) return ToolExecutionResult(success = false, content = "会话搜索关键词不能为空")
         val conversations = conversationStore.search(query = query, limit = call.limit())
         return ToolExecutionResult(success = true, content = conversations.toConversationText("匹配会话"))
+    }
+
+    private suspend fun listTasks(call: ToolCall): ToolExecutionResult {
+        val tasks = taskStore.list(call.limit())
+        if (tasks.isEmpty()) return ToolExecutionResult(success = true, content = "任务清单为空")
+        val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
+        val content = buildString {
+            appendLine("任务清单（${tasks.size}）")
+            tasks.forEachIndexed { index, task ->
+                append("${index + 1}. ${task.name}")
+                append(if (task.enabled) " · 已启用" else " · 已停用")
+                append(" · ${task.stepCount} 步")
+                task.latestRunStatus?.let { status -> append(" · 最近：${taskRunStatusLabel(status)}") }
+                task.scheduleType?.let { type -> append(" · ${taskScheduleTypeLabel(type)}") }
+                task.nextPlannedAt?.let { plannedAt ->
+                    append(" · 下次：${formatter.format(Instant.ofEpochMilli(plannedAt))}")
+                }
+                appendLine()
+                appendLine("   目标：${task.goal}")
+            }
+        }.trimEnd()
+        return ToolExecutionResult(success = true, content = content)
     }
 
     private suspend fun listNotes(call: ToolCall): ToolExecutionResult {
@@ -1330,6 +1373,27 @@ private fun referenceInputSchema(): List<ToolInputField> = listOf(
         maxLength = 20,
     ),
 )
+
+private object EmptyAgentTaskStore : AgentTaskStore {
+    override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+}
+
+private fun taskRunStatusLabel(status: String): String = when (status) {
+    "QUEUED" -> "排队中"
+    "RUNNING" -> "执行中"
+    "BLOCKED" -> "等待处理"
+    "COMPLETED" -> "已完成"
+    "FAILED" -> "失败"
+    "CANCELLED" -> "已取消"
+    else -> "未知"
+}
+
+private fun taskScheduleTypeLabel(type: String): String = when (type) {
+    "ONE_TIME" -> "一次提醒"
+    "DAILY" -> "每日提醒"
+    "WEEKLY" -> "每周提醒"
+    else -> "提醒"
+}
 
 class SystemAgentClock(
     private val zone: ZoneId = ZoneId.systemDefault(),

@@ -1,6 +1,13 @@
 # 当前实现说明
 
-## 第 127 至 142 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 144 阶段实现顺序（主线完成，体验打磨继续）
+
+## 第 144 阶段：任务/提醒只读总览（完成）
+
+- `RoomAgentTaskStore` 把现有 `WorkflowRecord / WorkflowRunRecord / ScheduledTaskRecord / WorkflowScheduleRecord` 收敛为 `AgentTaskRecord`。DAO 按选中 Workflow 独立查询最新 Run，不使用全局最近 N 条窗口；一次性任务与周期 Schedule 并存时按 `plannedAt` 选最早下次发生项。
+- `XiaoLingToolRegistry` 注册 SAFE `tasks.list`，参数只有 `limit=1..10`，输出名称、目标、启停、步骤数、最近 Run 状态、提醒类型与下次时间。`AgentTaskRecord` 本身不携带 Workflow ID，错误详情、步骤输出、Run/Task/Schedule ID 也不进入工具结果。
+- 内置 `task-overview` Skill 只声明 `tasks.list`。生产 Registry 明确 `supportsBackground=false`；Profile 仍经 `allowedToolNames + allowedSkillIds` 双重筛选，既有 Profile 与历史 Run 不会因新增定义而静默扩权。用户需在 Profile 中显式启用该工具和 Skill。
+- 本阶段只读应用内任务事实，不修改、取消或执行任务，不新增 Android 权限、Room Schema、系统日历、后台 Workflow 或新 Runtime。聚焦 JVM `48/48`、Debug/AndroidTest APK、Redmi `RoomAgentTaskStoreInstrumentedTest 3/3` 和更新后文档 corpus `1/1` 通过。
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。

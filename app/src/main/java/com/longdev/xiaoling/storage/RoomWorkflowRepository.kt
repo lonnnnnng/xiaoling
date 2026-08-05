@@ -1367,6 +1367,12 @@ class RoomWorkflowRepository(
         return loadRunDetails(dao.recentRuns(limit))
     }
 
+    suspend fun latestRunsForWorkflows(workflowIds: List<String>): List<WorkflowRunRecord> {
+        if (workflowIds.isEmpty()) return emptyList()
+        // long: 任务总览必须按 Workflow 独立取最新 Run，不能让其他任务的大量历史记录挤掉当前任务的状态。
+        return database.workflowDao().latestRunsForWorkflows(workflowIds.distinct()).map { run -> run.toRecord() }
+    }
+
     suspend fun allRunDetails(): List<WorkflowRunDetail> {
         return loadRunDetails(database.workflowDao().listRuns())
     }

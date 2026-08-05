@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 144 阶段：任务/提醒只读总览（完成）
+
+- 新增 SAFE `tasks.list` 和内置 `task-overview` Skill，Agent 可以读取最近更新的 Workflow、启停状态、步骤数、最近 Run 状态与下次应用内提醒时间。
+- 投影只复用已有 Room 事实，不返回内部 ID、错误详情或步骤输出；不修改、取消或执行任务，不接入系统日历。
+- `tasks.list` 不支持后台执行。既有 Profile 不自动获得新工具/Skill，需要用户显式开启；历史 Run 的冻结工具面保持不变。
+- 聚焦 JVM `48/48`、Debug/AndroidTest APK、仅 Redmi `wsvwypiz7xwslvl7` 的 Room 单项 `OK (3 tests)` 和文档 corpus `OK (1 test)` 通过。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 第 142 阶段：完成结果定向查看 Workflow（完成）
 
 - 完成卡携带对应 `workflowId`，点击“查看任务”后由应用壳进入 Workflow 管理页；提交后失败但没有目标 ID 的通用入口保持不变。

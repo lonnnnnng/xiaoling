@@ -780,6 +780,21 @@ interface AgentConversationStore {
     suspend fun search(query: String, limit: Int): List<AgentConversationRecord>
 }
 
+data class AgentTaskRecord(
+    val name: String,
+    val goal: String,
+    val enabled: Boolean,
+    val stepCount: Int,
+    val updatedAt: Long,
+    val latestRunStatus: String?,
+    val scheduleType: String?,
+    val nextPlannedAt: Long?,
+)
+
+interface AgentTaskStore {
+    suspend fun list(limit: Int): List<AgentTaskRecord>
+}
+
 data class AgentNoteRecord(
     val id: String,
     val title: String,
