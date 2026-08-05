@@ -163,7 +163,12 @@ class DeviceObservationController(
             beforeSnapshotId = null,
             beforeGeneration = beforeGeneration,
             verify = { capture ->
-                PostActionVerification(verified = capture.snapshot.packageName == packageName)
+                PostActionVerification(
+                    verified = DeviceActionPolicy.areEquivalentAppPackages(
+                        expectedPackageName = packageName,
+                        actualPackageName = capture.snapshot.packageName,
+                    ),
+                )
             },
             successMessage = "已打开允许列表中的应用，并重新观察到目标前台窗口",
         )

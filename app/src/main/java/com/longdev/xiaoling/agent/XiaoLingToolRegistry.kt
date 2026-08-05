@@ -412,6 +412,9 @@ class XiaoLingToolRegistry(
         ) {
             return
         }
+        if (!workflowDeviceActionAllowedByIntent(context, call.name)) {
+            throw IllegalStateException("当前 Workflow 步骤意图不允许该设备动作")
+        }
         val workflowContext = context.workflowDeviceActionContext
             ?: throw IllegalStateException("Workflow 设备动作缺少 Workflow Run 与 Step 上下文")
         val snapshot = verifiedWorkflowSnapshot
@@ -465,6 +468,7 @@ class XiaoLingToolRegistry(
                         approved = it.approved,
                         decidedAt = it.decidedAt,
                         decisionProcessSessionId = it.processSessionId,
+                        windowGuarded = it.windowGuarded,
                     )
                 },
                 // long: SAFE 导航与滚动都不接受审批时间延长授权，始终以实际执行时钟核对 30 秒 snapshot 窗口；需要审批的动作才冻结到用户决定时刻。
@@ -545,7 +549,10 @@ class XiaoLingToolRegistry(
         return availableToolsFor(runContext)
     }
 
-    fun availableToolsFor(context: AgentToolExecutionContext?): List<ToolDefinition> {
+    fun availableToolsFor(
+        context: AgentToolExecutionContext?,
+        enforceWorkflowSnapshotPrerequisite: Boolean = true,
+    ): List<ToolDefinition> {
         var available = tools
         if (context?.memoryRecallEnabled == false) {
             // long: 关闭单次记忆召回时从规划器工具清单移除 memory.search，避免模型先提出调用再由执行器拒绝造成误导性审计。
@@ -562,12 +569,27 @@ class XiaoLingToolRegistry(
                     !workflowDeviceActionAllowed(context, definition.name)
             }
         }
+        if (
+            enforceWorkflowSnapshotPrerequisite &&
+            context?.invocationSource == AgentInvocationSource.WORKFLOW &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            context.workflowDeviceActionContext != null &&
+            verifiedWorkflowSnapshot?.agentRunId != context.runId
+        ) {
+            // long: Workflow 动作的本地安全契约要求同 Run 新鲜 snapshot；在证据产生前从模型工具面隐藏动作，避免先审批再因缺观察而整步失败。
+            available = available.filterNot { it.name in workflowDeviceActionToolNames }
+        }
         return available
     }
 
     fun registeredTools(): List<ToolDefinition> = tools
 
-    override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
+    override fun definition(name: String): ToolDefinition? = tools.firstOrNull { definition ->
+        definition.name == name && (
+            definition.name !in workflowDeviceActionToolNames ||
+                workflowDeviceActionAllowedByIntent(runContext, definition.name)
+            )
+    }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
         return when (call.name) {
@@ -757,6 +779,7 @@ class XiaoLingToolRegistry(
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             context.processSessionId.isNotBlank() &&
             context.workflowDeviceActionContext != null &&
+            workflowDeviceActionAllowedByIntent(context, toolName) &&
             deviceController.health() == DeviceAgentHealthState.READY
     }
 
@@ -1351,6 +1374,24 @@ private val DEVICE_TOOL_NAMES = setOf(
 )
 
 private val DEVICE_ACTION_TOOL_NAMES = DEVICE_TOOL_NAMES - DEVICE_SNAPSHOT_TOOL_NAME
+
+private val RETURN_TO_XIAOLING_INTENT_MARKERS = setOf(
+    "返回小灵",
+    "回到小灵",
+    "return to xiaoling",
+    "back to xiaoling",
+)
+
+private fun workflowDeviceActionAllowedByIntent(
+    context: AgentToolExecutionContext?,
+    toolName: String,
+): Boolean {
+    val workflowContext = context?.workflowDeviceActionContext ?: return true
+    val normalizedIntent = workflowContext.userIntent.trim().lowercase()
+    val returnsToXiaoLing = RETURN_TO_XIAOLING_INTENT_MARKERS.any(normalizedIntent::contains)
+    // long: “返回小灵”描述的是从当前限定应用退回来源页，不是重新授权另一个包；因此只保留 Android back，避免模型把导航改写成 open_app。
+    return !returnsToXiaoLing || toolName == DEVICE_BACK_TOOL_NAME
+}
 
 private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
     AgentInvocationSource.DIRECT,

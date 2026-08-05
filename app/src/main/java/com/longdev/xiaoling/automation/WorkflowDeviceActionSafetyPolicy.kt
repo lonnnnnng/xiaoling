@@ -32,6 +32,7 @@ data class WorkflowDeviceActionApprovalEvidence(
     val approved: Boolean,
     val decidedAt: Long,
     val decisionProcessSessionId: String,
+    val windowGuarded: Boolean = false,
 )
 
 enum class WorkflowDeviceActionApprovalMode {
@@ -210,13 +211,13 @@ class WorkflowDeviceActionSafetyPolicy(
                     "device.open_app 只能打开当前阶段允许列表中的单一应用",
                 )
             }
-            if (packageName != targetAppPackage) {
+            if (!DeviceActionPolicy.areEquivalentAppPackages(targetAppPackage, packageName)) {
                 return WorkflowDeviceActionSafetyDecision.Denied(
                     WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
                     "device.open_app 请求应用与本任务限定应用不一致",
                 )
             }
-        } else if (evidence.beforePackageName != targetAppPackage) {
+        } else if (!DeviceActionPolicy.areEquivalentAppPackages(targetAppPackage, evidence.beforePackageName)) {
             // long: 除首次打开目标应用外，每个设备动作都必须从已确认应用内部开始；跨步骤旧页面或其他 App 的新快照不能扩大本任务权限。
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
@@ -260,19 +261,25 @@ class WorkflowDeviceActionSafetyPolicy(
                 "device.snapshot 缺少已通过的验证事实",
             )
         }
+        val approvalGuardedOpenApp = evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
+            evidence.approval?.windowGuarded == true
         if (
             observation.capturedAt < 0L ||
             observation.expiresAt <= observation.capturedAt ||
             observation.expiresAt - observation.capturedAt > MAX_OBSERVATION_LIFETIME_MILLIS ||
             evidence.nowMillis < observation.capturedAt ||
-            evidence.nowMillis >= observation.expiresAt
+            evidence.nowMillis >= observation.expiresAt && !approvalGuardedOpenApp
         ) {
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.OBSERVATION_EXPIRED,
                 "device.snapshot 已过期或时间证据不完整",
             )
         }
-        if (evidence.currentWindowGeneration != observation.windowGeneration) {
+        // long: 打开应用不使用节点 ref；模型规划与审批落库会刷新小灵自身的 Run 卡。只有浮层已从稳定基线持续守护到批准时，才允许忽略这类 generation 漂移；节点动作仍必须绑定原 snapshot generation。
+        if (
+            evidence.currentWindowGeneration != observation.windowGeneration &&
+            !approvalGuardedOpenApp
+        ) {
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.WINDOW_CHANGED,
                 "页面 window generation 已变化，必须重新观察",
@@ -363,6 +370,12 @@ class WorkflowDeviceActionSafetyPolicy(
                         "审批来自旧进程会话，不得用于恢复或重试执行",
                     )
                 }
+                if (evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME && !approval.windowGuarded) {
+                    return WorkflowDeviceActionSafetyDecision.Denied(
+                        WorkflowDeviceActionSafetyFailure.APPROVAL_MISMATCH,
+                        "打开应用审批缺少持续窗口保护证据",
+                    )
+                }
                 approval.decidedAt
             }
         }
@@ -449,9 +462,9 @@ class WorkflowDeviceActionSafetyPolicy(
         }
         if (
             evidence.identity.toolName in TARGET_BOUND_COMPLETION_TOOL_NAMES &&
-            evidence.afterPackageName != targetAppPackage
+            !DeviceActionPolicy.areEquivalentAppPackages(targetAppPackage, evidence.afterPackageName)
         ) {
-            // long: Executor/typed 验证只证明动作自身完成；限定 App 任务还必须证明动作后仍停留在同一目标包，离开应用不能继续下一步。
+            // long: Executor/typed 验证只证明动作自身完成；后置窗口必须仍属于冻结的应用族，不能借 OEM 包名兼容跨到其他应用。
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
                 "设备动作后页面已离开本任务限定应用",
@@ -459,9 +472,12 @@ class WorkflowDeviceActionSafetyPolicy(
         }
         if (
             evidence.identity.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
-            evidence.afterPackageName != evidence.identity.arguments["package_name"]
+            !DeviceActionPolicy.areEquivalentAppPackages(
+                evidence.identity.arguments["package_name"],
+                evidence.afterPackageName,
+            )
         ) {
-            // long: 打开应用只能以本次逐包审批的目标收敛；即使 Executor 声称已验证，后置包名错配也必须按结果身份不一致拒绝。
+            // long: 打开应用只能收敛到本次获批应用族；允许 AOSP/Google 等价实现，但其他包即使声称已验证也必须拒绝。
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.ACTION_RESULT_MISMATCH,
                 "device.open_app 动作后包名与获批目标不一致",

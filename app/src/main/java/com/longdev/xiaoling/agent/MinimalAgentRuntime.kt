@@ -687,6 +687,7 @@ class MinimalAgentRuntime internal constructor(
                     approved = true,
                     decidedAt = wallClock(),
                     processSessionId = processSessionId,
+                    windowGuarded = decision.windowGuarded,
                 )
                 ledger.updateStep(approval.id, AgentStepStatus.COMPLETED, "已批准：${toolCall.name} · ${decision.reason}")
                 state.activeStepId = null

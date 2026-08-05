@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
@@ -95,14 +96,15 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         request: DeviceActionApprovalOverlayRequest,
     ): DeviceActionApprovalOverlayDecision {
         return withContext(Dispatchers.Main.immediate) {
-            val targetWindowId = rootInActiveWindow?.windowId
+            // long: Room 写入 PENDING 审批后，Compose 会刷新运行卡；先等窗口与 generation 连续稳定，避免把应用自身的一次性刷新误判成审批期间的外来页面漂移。
+            val baseline = awaitStableApprovalTarget()
                 ?: return@withContext overlayDecision(
-                    DeviceActionApprovalOverlayDecisionKind.OVERLAY_UNAVAILABLE,
-                    "当前没有可确认的活动页面，无法显示设备动作审批",
+                    DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED,
+                    "审批前目标页面持续变化，无法建立安全基线",
                 )
             val started = approvalCoordinator.begin(
-                targetWindowId = targetWindowId,
-                windows = captureAccessibilityWindows(),
+                targetWindowId = baseline.targetWindowId,
+                windows = baseline.windows,
             )
             if (started is DeviceActionApprovalOverlayStart.Rejected) {
                 return@withContext started.decision
@@ -149,6 +151,23 @@ class XiaoLingAccessibilityService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    private suspend fun awaitStableApprovalTarget(): DeviceActionApprovalTargetSnapshot? {
+        val stabilizer = DeviceActionApprovalBaselineStabilizer()
+        repeat(APPROVAL_BASELINE_MAX_SAMPLES) { sampleIndex ->
+            val rootWindowId = rootInActiveWindow?.windowId ?: return null
+            val snapshot = DeviceActionApprovalTargetSnapshot(
+                targetWindowId = rootWindowId,
+                generation = DeviceAccessibilityRuntime.generationForWindow(rootWindowId),
+                windows = captureAccessibilityWindows(),
+            )
+            stabilizer.sample(snapshot)?.let { return it }
+            if (sampleIndex < APPROVAL_BASELINE_MAX_SAMPLES - 1) {
+                delay(APPROVAL_BASELINE_SAMPLE_DELAY_MS)
+            }
+        }
+        return null
     }
 
     private fun createApprovalOverlayView(
@@ -470,6 +489,8 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         private const val UNKNOWN_WINDOW_ID = -1
         private const val OVERLAY_DETACH_TIMEOUT_MS = 1_500L
         private const val OVERLAY_SETTLE_DELAY_MS = 100L
+        private const val APPROVAL_BASELINE_SAMPLE_DELAY_MS = 100L
+        private const val APPROVAL_BASELINE_MAX_SAMPLES = 4
     }
 
     private data class ActiveApprovalOverlay(

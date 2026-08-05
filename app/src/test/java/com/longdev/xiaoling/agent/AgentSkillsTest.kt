@@ -68,6 +68,24 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInDeviceControlSkillMatchesAllowedAppStepWording() {
+        val goals = listOf(
+            "打开系统时钟应用。",
+            "打开系统计算器应用。",
+            "打开系统设置。",
+            "打开天气应用。",
+            "返回小灵应用。",
+        )
+
+        goals.forEach { goal ->
+            assertTrue(
+                "$goal 应选择有限设备操作 Skill",
+                BuiltInAgentSkillRegistry.select(goal).any { it.id == "device-control" },
+            )
+        }
+    }
+
+    @Test
     fun triggerExampleCanSelectSkillWithoutExactKeyword() = runTest {
         val catalog = AgentSkillCatalog(
             store = TestAgentSkillStore(),

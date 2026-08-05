@@ -8,6 +8,29 @@ import org.junit.Test
 
 class DeviceObservationControllerTest {
     @Test
+    fun openAppAcceptsObservedPackageFromSameOemAppFamily() = runTest {
+        val gateway = FakeGateway(
+            authorized = true,
+            connected = true,
+            window = simpleWindow(packageName = "com.longdev.xiaoling", generation = 10L),
+            launchResult = true,
+            windowAfterLaunch = simpleWindow(packageName = "com.google.android.deskclock", generation = 11L),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = gateway,
+            clock = { 2_000L },
+            snapshotIdFactory = { "snapshot-after-open" },
+        )
+
+        val result = controller.openApp("com.android.deskclock") as DeviceActionCapture.Success
+
+        assertTrue(result.outcome.verified)
+        assertEquals("com.google.android.deskclock", result.outcome.afterSnapshot.packageName)
+        assertEquals(listOf("com.android.deskclock"), gateway.launchedPackages)
+    }
+
+    @Test
     fun captureFailsClosedUntilAgentAuthorizationAndServiceAreReady() = runTest {
         val gateway = FakeGateway()
         var enabled = false
@@ -490,6 +513,9 @@ class DeviceObservationControllerTest {
         ),
     )
 
+    private fun simpleWindow(packageName: String, generation: Long): RawDeviceWindow =
+        actionableWindow(generation).copy(packageName = packageName)
+
     private fun scrollableWindow(
         generation: Long,
         labels: List<Pair<String, Int>>,
@@ -635,9 +661,12 @@ class DeviceObservationControllerTest {
         var window: RawDeviceWindow? = null,
         var nodeActionResult: RawDeviceActionResult = RawDeviceActionResult.Failed,
         var windowAfterNodeAction: RawDeviceWindow? = null,
+        var launchResult: Boolean = false,
+        var windowAfterLaunch: RawDeviceWindow? = null,
     ) : DeviceAccessibilityGateway {
         var captureCalled: Boolean = false
         val reportedWindowGenerations = mutableListOf<Long>()
+        val launchedPackages = mutableListOf<String>()
 
         override fun isServiceAuthorized(): Boolean = authorized
 
@@ -654,7 +683,11 @@ class DeviceObservationControllerTest {
             return window
         }
 
-        override suspend fun launchApp(packageName: String): Boolean = false
+        override suspend fun launchApp(packageName: String): Boolean {
+            launchedPackages += packageName
+            if (launchResult) window = windowAfterLaunch ?: window
+            return launchResult
+        }
 
         override fun isHomePackage(packageName: String): Boolean = false
 

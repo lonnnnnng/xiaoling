@@ -41,6 +41,7 @@ class AgentRunUseCase(
         conversationId: String,
         userMessageId: String,
         goal: String,
+        skillSelectionGoal: String = goal,
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
         agentProfile: AgentProfileSnapshot,
@@ -67,13 +68,26 @@ class AgentRunUseCase(
             workflowDeviceActionContext = workflowDeviceActionContext,
         )
         val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
-        val availableToolNames = runToolRegistry.availableToolsFor(invocationContext)
+        val availableToolNames = runToolRegistry.availableToolsFor(
+            context = invocationContext,
+            enforceWorkflowSnapshotPrerequisite = false,
+        )
             .mapTo(linkedSetOf(), ToolDefinition::name)
         val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, agentProfile.allowedToolNames)
+        val skillSelectionToolNames = if (
+            invocationSource == AgentInvocationSource.WORKFLOW &&
+            executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            workflowDeviceActionContext != null
+        ) {
+            // long: 前台 Workflow 的 Skill 先按用户冻结的 Profile 能力分类；瞬时 Accessibility 健康只影响实际可见工具，不能让 device-control 消失后退化成全工具面。
+            agentProfile.allowedToolNames.toSet()
+        } else {
+            agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains)
+        }
         val selectedSkills = skillCatalog.select(
-            goal = goal,
+            goal = skillSelectionGoal,
             allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
-            allowedToolNames = agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains),
+            allowedToolNames = skillSelectionToolNames,
         )
         val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(

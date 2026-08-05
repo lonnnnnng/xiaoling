@@ -193,6 +193,7 @@ class WorkflowDeviceActionSafetyPolicyTest {
         val approval = requireNotNull(base.approval).copy(
             toolName = identity.toolName,
             arguments = identity.arguments,
+            windowGuarded = true,
         )
         val execution = base.copy(
             identity = identity,
@@ -247,6 +248,43 @@ class WorkflowDeviceActionSafetyPolicyTest {
         assertDenied(
             WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
             policy.assessCompletion(completion.copy(afterPackageName = "com.android.settings")),
+        )
+    }
+
+    @Test
+    fun openAppKeepsGuardedApprovalValidAfterSnapshotTtlAndOwnUiGenerationChanges() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.open_app"))
+        val base = validExecutionEvidence()
+        val observation = requireNotNull(base.observation)
+        val identity = base.identity.copy(
+            toolName = "device.open_app",
+            arguments = mapOf("package_name" to "com.android.deskclock"),
+        )
+        val approvedAfterTtl = requireNotNull(base.approval).copy(
+            toolName = identity.toolName,
+            arguments = identity.arguments,
+            decidedAt = observation.expiresAt + 7_000L,
+            windowGuarded = true,
+        )
+        val execution = base.copy(
+            identity = identity,
+            targetAppPackage = "com.android.deskclock",
+            userIntent = "打开系统时钟应用",
+            approval = approvedAfterTtl,
+            nowMillis = approvedAfterTtl.decidedAt,
+            liveReferenceMatched = false,
+        )
+
+        val allowed = policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        assertEquals(approvedAfterTtl.decidedAt, allowed.authorization.authorizedAt)
+        assertTrue(
+            policy.assessExecution(
+                execution.copy(currentWindowGeneration = observation.windowGeneration + 1),
+            ) is WorkflowDeviceActionSafetyDecision.Allowed,
+        )
+        assertDenied(
+            WorkflowDeviceActionSafetyFailure.OBSERVATION_EXPIRED,
+            policy.assessExecution(execution.copy(approval = approvedAfterTtl.copy(windowGuarded = false))),
         )
     }
 

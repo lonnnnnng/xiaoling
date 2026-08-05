@@ -32,9 +32,13 @@ class AndroidDeviceAccessibilityGateway(context: Context) : DeviceAccessibilityG
 
     override suspend fun launchApp(packageName: String): Boolean {
         return withContext(Dispatchers.Main.immediate) {
-            val intent = appContext.packageManager.getLaunchIntentForPackage(packageName) ?: return@withContext false
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            runCatching { appContext.startActivity(intent) }.isSuccess
+            DeviceActionPolicy.launchPackageCandidates(packageName).any { candidatePackageName ->
+                val intent = appContext.packageManager.getLaunchIntentForPackage(candidatePackageName)
+                    ?: return@any false
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                // long: 某些 Redmi ROM 只安装 Google 实现；请求的 AOSP 包不可启动时，同族候选仍受显式白名单约束。
+                runCatching { appContext.startActivity(intent) }.isSuccess
+            }
         }
     }
 

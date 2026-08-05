@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 145 阶段：OEM 时钟兼容与三步个人 Agent 闭环（完成）
+
+- `DeviceActionPolicy` 集中声明计算器、时钟的 AOSP/Google 等价应用族。`device.open_app` 仍优先请求冻结包名，仅在该包没有启动入口时尝试同族白名单实现；Controller、Workflow Safety 和答案级 Decision 使用同一等价判断，其他应用仍严格拒绝。
+- 对“返回小灵 / 回到小灵”步骤，本地工具面在新鲜 `device.snapshot` 后只开放 `device.back`，并让不可见的 `device.open_app` 定义也不可解析；不修改整份任务冻结包名，不扩大审批或白名单。
+- 聚焦 JVM 六组 `95/95`、完整 JVM `904/904`、Debug APK 通过。仅使用 Redmi `wsvwypiz7xwslvl7` 覆盖安装并真实运行三步 Workflow `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f`：`app.current_time`、`device.snapshot -> device.open_app -> device.snapshot`、`device.snapshot -> device.back` 全部 `PASSED`，两项动作均 `executorVerified=true`，实际时钟包为 `com.google.android.deskclock`，最终前台为 `com.longdev.xiaoling`，目标级结论为 `VERIFIED / ALL_CRITERIA_VERIFIED`。
+- 本阶段没有运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release；既有失败 Run 与关联来源链保持不变。
+
 ## 第 144 阶段：任务/提醒只读总览（完成）
 
 - 新增 SAFE `tasks.list` 和内置 `task-overview` Skill，Agent 可以读取最近更新的 Workflow、启停状态、步骤数、最近 Run 状态与下次应用内提醒时间。

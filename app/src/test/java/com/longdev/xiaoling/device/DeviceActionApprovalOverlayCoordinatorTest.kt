@@ -11,6 +11,26 @@ import org.junit.Test
 
 class DeviceActionApprovalOverlayCoordinatorTest {
     @Test
+    fun approvalBaselineWaitsForTwoConsecutiveStableSamples() {
+        val stabilizer = DeviceActionApprovalBaselineStabilizer()
+        val initial = targetSnapshot(generation = 1)
+        val composeUpdated = targetSnapshot(generation = 2)
+
+        assertNull(stabilizer.sample(initial))
+        assertNull(stabilizer.sample(composeUpdated))
+        assertEquals(composeUpdated, stabilizer.sample(composeUpdated))
+    }
+
+    @Test
+    fun approvalBaselineDoesNotAcceptContinuouslyChangingPage() {
+        val stabilizer = DeviceActionApprovalBaselineStabilizer()
+
+        (1L..4L).forEach { generation ->
+            assertNull(stabilizer.sample(targetSnapshot(generation)))
+        }
+    }
+
+    @Test
     fun repeatedDetachEventsStaySuppressedUntilBaselineSettlement() {
         val coordinator = DeviceActionApprovalOverlayCoordinator()
         val baseline = baselineWindows()
@@ -349,6 +369,12 @@ class DeviceActionApprovalOverlayCoordinatorTest {
     private fun baselineWindows() = setOf(
         DeviceAccessibilityWindowSnapshot(TARGET_WINDOW_ID, ownedApprovalOverlay = false),
         DeviceAccessibilityWindowSnapshot(SYSTEM_WINDOW_ID, ownedApprovalOverlay = false),
+    )
+
+    private fun targetSnapshot(generation: Long) = DeviceActionApprovalTargetSnapshot(
+        targetWindowId = TARGET_WINDOW_ID,
+        generation = generation,
+        windows = baselineWindows(),
     )
 
     private companion object {

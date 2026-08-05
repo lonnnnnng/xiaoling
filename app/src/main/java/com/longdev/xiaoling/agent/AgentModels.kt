@@ -854,6 +854,7 @@ data class AgentToolApprovalEvidence(
     val approved: Boolean,
     val decidedAt: Long,
     val processSessionId: String,
+    val windowGuarded: Boolean = false,
 )
 
 interface AgentToolExecutionLifecycleAwareToolRegistry {
@@ -864,6 +865,7 @@ interface AgentToolExecutionLifecycleAwareToolRegistry {
 data class ApprovalDecision(
     val approved: Boolean,
     val reason: String,
+    val windowGuarded: Boolean = false,
 )
 
 data class AgentRunSummary(

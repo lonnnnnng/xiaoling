@@ -94,6 +94,8 @@ class WorkflowDeviceActionApprovalGate(
             ApprovalDecision(
                 approved = status == ApprovalRequestStatus.APPROVED && overlayDecision.approved,
                 reason = overlayDecision.reason,
+                // long: 只有浮层从稳定基线开始、持续监控窗口并安全移除后，Runtime 才能把本次决定作为非节点打开应用动作的窗口守护证据。
+                windowGuarded = status == ApprovalRequestStatus.APPROVED && overlayDecision.approved,
             )
         } catch (cancelled: CancellationException) {
             request?.let {

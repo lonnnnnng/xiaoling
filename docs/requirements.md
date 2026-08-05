@@ -117,6 +117,7 @@
 第 132 阶段已完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认完整 instrumentation `282/282` 通过。正式 Release 未执行。
 第 133 阶段已完成首轮计划交互打磨；第 134 至 136 阶段继续交付计划成本可见性、常用模板和首个 Google 天气兼容扩展，不回到纯结构或 Shadow 扩样主线。
 Redmi 当前 ROM 使用 `com.google.android.calculator / com.google.android.deskclock`，与既有 AOSP 包名不同。首批限定应用白名单同时接受两套明确实现，并单独增加 Google 天气，仍只覆盖明确列出的应用，不开放任意 App 或 `QUERY_ALL_PACKAGES`。
+第 145 阶段把计算器、时钟的 AOSP/Google 实现收敛为显式等价应用族：启动仍优先冻结包名，只能回退到同族白名单实现；动作前后与答案级证据允许同族包名匹配，跨族仍 fail-closed。“返回小灵 / 回到小灵”步骤在 Workflow 中只允许 `device.snapshot -> device.back`，不得改写为重新打开小灵或扩大任务目标应用。Redmi 已真实完成读取时间、打开 Google 时钟和返回小灵的三步目标级 `VERIFIED` 闭环。
 
 ## 目标级本地验证与最终回答约束（第 129 阶段，完成）
 

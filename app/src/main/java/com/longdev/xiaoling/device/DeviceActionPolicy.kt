@@ -30,6 +30,17 @@ class DeviceActionPolicy(
     companion object {
         const val MAX_TEXT_LENGTH = 500
 
+        private val EQUIVALENT_APP_FAMILIES = listOf(
+            linkedSetOf(
+                "com.android.calculator2",
+                "com.google.android.calculator",
+            ),
+            linkedSetOf(
+                "com.android.deskclock",
+                "com.google.android.deskclock",
+            ),
+        )
+
         val DEFAULT_ALLOWED_PACKAGES = setOf(
             "com.longdev.xiaoling",
             "com.android.calculator2",
@@ -39,6 +50,18 @@ class DeviceActionPolicy(
             "com.android.settings",
             "com.google.android.apps.weather",
         )
+
+        fun launchPackageCandidates(requestedPackageName: String): List<String> {
+            val family = EQUIVALENT_APP_FAMILIES.firstOrNull { requestedPackageName in it }
+                ?: return listOf(requestedPackageName)
+            // long: Workflow 冻结的是应用能力而非 ROM 的具体实现；仍优先请求包，只在它没有启动入口时尝试同族白名单包。
+            return listOf(requestedPackageName) + family.filterNot { it == requestedPackageName }
+        }
+
+        fun areEquivalentAppPackages(expectedPackageName: String?, actualPackageName: String?): Boolean {
+            if (expectedPackageName == null || actualPackageName == null) return false
+            return actualPackageName in launchPackageCandidates(expectedPackageName)
+        }
 
         private val SENSITIVE_MARKERS = setOf(
             "密码",

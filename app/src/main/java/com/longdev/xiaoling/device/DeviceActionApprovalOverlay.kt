@@ -55,6 +55,33 @@ data class DeviceAccessibilityWindowSnapshot(
     val ownedApprovalOverlay: Boolean,
 )
 
+internal data class DeviceActionApprovalTargetSnapshot(
+    val targetWindowId: Int,
+    val generation: Long,
+    val windows: Set<DeviceAccessibilityWindowSnapshot>,
+)
+
+internal class DeviceActionApprovalBaselineStabilizer(
+    private val requiredStableSamples: Int = 2,
+) {
+    private var previous: DeviceActionApprovalTargetSnapshot? = null
+    private var stableSampleCount = 0
+
+    init {
+        require(requiredStableSamples >= 2) { "设备审批基线至少需要两个连续样本" }
+    }
+
+    fun sample(snapshot: DeviceActionApprovalTargetSnapshot): DeviceActionApprovalTargetSnapshot? {
+        if (snapshot == previous) {
+            stableSampleCount += 1
+        } else {
+            previous = snapshot
+            stableSampleCount = 1
+        }
+        return snapshot.takeIf { stableSampleCount >= requiredStableSamples }
+    }
+}
+
 sealed interface DeviceActionApprovalOverlayStart {
     data class Started(val token: Long) : DeviceActionApprovalOverlayStart
     data class Rejected(val decision: DeviceActionApprovalOverlayDecision) : DeviceActionApprovalOverlayStart

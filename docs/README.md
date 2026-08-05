@@ -1,6 +1,8 @@
 # 文档索引
 
-“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 144 阶段继续真实使用打磨，并已完成取消提交竞态、任务结果定向查看和任务/提醒只读总览。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 145 阶段继续真实使用打磨，并已完成取消提交竞态、任务结果定向查看、任务/提醒只读总览，以及 OEM 时钟兼容与真实三步个人 Agent 复验。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 145 阶段集中修复 Redmi 时钟 OEM 差异和“返回小灵”动作选择：计算器/时钟仅在显式 AOSP/Google 应用族内等价，`open_app` 请求包不可启动时才回退同族包；Workflow 的执行前后与答案级证据共用同一判断。“返回小灵 / 回到小灵”步骤在新鲜 snapshot 后只开放 `device.back`。聚焦 JVM 六组 `95/95`、完整 JVM `904/904`、Debug APK 通过；Redmi 真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三步全部完成，实际打开 `com.google.android.deskclock`，最终返回 `com.longdev.xiaoling`，六条工具结果均 `PASSED`，目标级结论为 `VERIFIED / ALL_CRITERIA_VERIFIED`。未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 
 第 142 阶段把完成卡的“查看任务”升级为定向 Workflow 入口：完成结果携带 `workflowId`，应用壳将其传入导航状态，Workflow 管理页在数据加载后自动滚动并展开对应项；失败态仍使用无目标 ID 的通用入口，返回设置根页会清理目标。聚焦 JVM `17/17`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 

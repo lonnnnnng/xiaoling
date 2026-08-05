@@ -2091,6 +2091,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 conversationId = conversationId,
                 userMessageId = userMessage.id,
                 goal = executionGoal,
+                // long: Skill 路由只看本步骤目标；限定应用和前序输出仍进入模型上下文，但不能误命中“任务清单”或“设备时间”并缩掉本步骤需要的设备工具。
+                skillSelectionGoal = input.goal,
                 config = runtimeSelection.config,
                 summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiState.promptSettings),
                 agentProfile = runtimeSelection.profile,

@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.device
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +19,26 @@ class DeviceActionPolicyTest {
         assertTrue(policy.isAppAllowed("com.android.settings"))
         assertTrue(policy.isAppAllowed("com.google.android.apps.weather"))
         assertFalse(policy.isAppAllowed("com.example.untrusted"))
+    }
+
+    @Test
+    fun equivalentAppFamiliesKeepRequestedPackageFirstAndRejectOtherApps() {
+        assertEquals(
+            listOf("com.android.deskclock", "com.google.android.deskclock"),
+            DeviceActionPolicy.launchPackageCandidates("com.android.deskclock"),
+        )
+        assertTrue(
+            DeviceActionPolicy.areEquivalentAppPackages(
+                "com.android.calculator2",
+                "com.google.android.calculator",
+            ),
+        )
+        assertFalse(
+            DeviceActionPolicy.areEquivalentAppPackages(
+                "com.android.deskclock",
+                "com.android.settings",
+            ),
+        )
     }
 
     @Test

@@ -1,6 +1,12 @@
 # 当前实现说明
 
-## 第 127 至 144 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 145 阶段实现顺序（主线完成，体验打磨继续）
+
+## 第 145 阶段：OEM 时钟兼容与三步个人 Agent 闭环（完成）
+
+- `DeviceActionPolicy.launchPackageCandidates()` 只为计算器和时钟生成“请求包优先、同族实现兜底”的候选；`areEquivalentAppPackages()` 由 Accessibility Gateway、Controller、Workflow Safety 和答案级 Decision 共用。该 seam 不推导任意 OEM 包，不改变白名单集合。
+- `XiaoLingToolRegistry` 根据冻结步骤意图识别“返回小灵 / 回到小灵”，动作前只保留 `device.back`，首次规划仍只开放 `device.snapshot`。上下文相关 `definition()` 同步拒绝不可见设备动作，防止模型幻觉出的 `open_app` 绕过工具面进入审批。
+- 聚焦 JVM 六组 `95/95`、完整 JVM `904/904` 与 Debug APK 通过。Redmi 真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三步全部完成，实际时钟为 `com.google.android.deskclock`，最终返回 `com.longdev.xiaoling`，Tool Ledger 六条结果均 `PASSED`，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 
 ## 第 144 阶段：任务/提醒只读总览（完成）
 
@@ -1238,10 +1244,10 @@
 - ref 由 `DeviceNodeReferenceStore` 绑定 snapshot ID、窗口 generation、节点路径、指纹和 30 秒到期时间。新快照替换旧快照；页面变化、过期、引用不存在、开关关闭、捕获失败或隐私拦截都明确失效，不存在坐标回退。
 - 密码/密码提示、验证码、API Key、Bearer/Access Token、带空格或连字符的手机号/银行卡、身份证和邮箱节点会清空正文、动作与 ref。支付/收银台/高敏身份验证窗口以及已知密码管理器、Authenticator、钱包/银行类包名整窗拒绝，不把包名或节点正文写入工具结果。
 - 前台直接 `/agent` 中，`device.snapshot` 是 SAFE、非后台工具；`device.open_app / tap_ref / type_text` 要求逐步审批，`device.back / home / swipe` 为 SAFE。`open_app` 只接受 manifest queries 与业务策略共同限定的小灵、系统计算器、时钟、系统设置和 Google 天气；`type_text` 最多 500 字符，并在 Tool 参数审计前拒绝密码、验证码、API Key、Token、手机号、身份证、银行卡和邮箱。Workflow 另按下条精确白名单逐项开放，不能从直接 `/agent` 风险标记推导权限。
-- 节点动作执行前再次核对 snapshot/ref/generation/path/fingerprint/action；动作后等待窗口短暂稳定并重新 capture。首次启动系统权限页可能短暂没有 `rootInActiveWindow`，只对 `NO_ACTIVE_WINDOW / WINDOW_CHANGED` 做最多 6 次、每次 100 ms 的有界重试；隐私拒绝、授权失效和服务断连不重试。`open_app` 核对前台包名，`home` 核对桌面包名；`type_text` 只按动作前原 `nodePath` 在新 references 中定位目标并读取该节点 `text`，其他节点的同文、description 或 hint 不能替代精确回读；其他动作要求可观察的窗口 generation 变化，未得到证据时返回 `verified=false`。
-- Registry 在前台直接 `/agent`、独立开关开启且 Profile/Skill 允许时暴露完整限定设备工具；前台手动 Workflow 当前精确暴露 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`。打开应用、点击与文本输入必须经过同 Run 已验证观察、Room 独立审批、Accessibility 安全浮层和动作后 Executor/typed 验证；`open_app` 不使用节点 ref，但必须保持动作前 generation，且唯一包名经过三层白名单、完成门禁和答案级重建绑定。`back / home / swipe` 为零审批 SAFE 动作，但同样要求当前 snapshot、30 秒 TTL、generation 与完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求实时 ref、匿名 viewport 和同窗方向证据。文本输入还要求当前 ref 可编辑且未脱敏、敏感文本预审计、最小指纹授权和原 `nodePath` 精确回读；原文只驻留当前 ToolCall，Workflow 与直接 `/agent` 的持久路径统一只使用指纹和长度。后台/定时 Workflow 和关闭状态仍在规划器工具面与 Executor 两层拒绝。`device-observation` 保持只读，`device-control` 才引用动作工具；既有 Profile/Skill 不自动扩权。
+- 节点动作执行前再次核对 snapshot/ref/generation/path/fingerprint/action；动作后等待窗口短暂稳定并重新 capture。首次启动系统权限页可能短暂没有 `rootInActiveWindow`，只对 `NO_ACTIVE_WINDOW / WINDOW_CHANGED` 做最多 6 次、每次 100 ms 的有界重试；隐私拒绝、授权失效和服务断连不重试。`open_app` 核对前台包名或显式 AOSP/Google 等价应用族，启动时仍优先请求包，只在无入口时尝试同族白名单包；`home` 核对桌面包名；`type_text` 只按动作前原 `nodePath` 在新 references 中定位目标并读取该节点 `text`，其他节点的同文、description 或 hint 不能替代精确回读；其他动作要求可观察的窗口 generation 变化，未得到证据时返回 `verified=false`。
+- Registry 在前台直接 `/agent`、独立开关开启且 Profile/Skill 允许时暴露完整限定设备工具；前台手动 Workflow 当前精确暴露 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，并会按步骤意图进一步收窄：“返回小灵 / 回到小灵”在新鲜 snapshot 后只开放 `device.back`。打开应用、点击与文本输入必须经过同 Run 已验证观察、Room 独立审批、Accessibility 安全浮层和动作后 Executor/typed 验证；`open_app` 不使用节点 ref，但必须保持动作前 generation，且请求包或显式同族包经过三层白名单、完成门禁和答案级重建绑定。`back / home / swipe` 为零审批 SAFE 动作，但同样要求当前 snapshot、30 秒 TTL、generation 与完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求实时 ref、匿名 viewport 和同窗方向证据。文本输入还要求当前 ref 可编辑且未脱敏、敏感文本预审计、最小指纹授权和原 `nodePath` 精确回读；原文只驻留当前 ToolCall，Workflow 与直接 `/agent` 的持久路径统一只使用指纹和长度。后台/定时 Workflow 和关闭状态仍在规划器工具面与 Executor 两层拒绝。`device-observation` 保持只读，`device-control` 才引用动作工具；既有 Profile/Skill 不自动扩权。
 - `app/src/debug` 提供仅 Debug 包可用的快照、动作和真实 Agent 诊断广播与隐私探针；Release manifest 不包含这些入口。该 Redmi ROM 在 instrumentation 生命周期后会清空无障碍授权，因此完整 instrumentation 结束后恢复系统服务，再用 Debug-only 入口完成真实服务与动作 E2E。
-- Redmi 首批验收覆盖计算器 `open_app + tap_ref`、设置 `swipe + tap_ref + type_text`、敏感输入拒绝、`back / home`、时钟启动和 Google 天气打开/观察；真实 `gpt-5.5 + Responses` 前台直接 `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、执行、后置验证、Tool Ledger 和最终总结。第 113 阶段完成前台 Workflow `snapshot -> tap_ref` 的真实 Room/overlay/Tool Ledger 闭环，第 117 阶段完成 `snapshot -> type_text` 的 `APPROVED / PASSED / VERIFIED / exactReadBack=true` 闭环，第 119/120 阶段依次完成 `snapshot -> back / home` 的 `SAFE / approvals=0 / PASSED / VERIFIED` 闭环，第 121 阶段完成 `snapshot -> open_app(com.android.calculator2)` 的逐包 `APPROVED / PASSED / VERIFIED` 闭环，第 136 阶段用同一生产链验证 `open_app(com.google.android.apps.weather)`。当前仍不支持坐标点击、截图、任意 App 或后台设备自动化。
+- Redmi 首批验收覆盖计算器 `open_app + tap_ref`、设置 `swipe + tap_ref + type_text`、敏感输入拒绝、`back / home`、时钟启动和 Google 天气打开/观察；真实 `gpt-5.5 + Responses` 前台直接 `/agent` Run 完成 `device.open_app` 的模型规划、应用侧审批、执行、后置验证、Tool Ledger 和最终总结。第 113 阶段完成前台 Workflow `snapshot -> tap_ref` 的真实 Room/overlay/Tool Ledger 闭环，第 117 阶段完成 `snapshot -> type_text` 的 `APPROVED / PASSED / VERIFIED / exactReadBack=true` 闭环，第 119/120 阶段依次完成 `snapshot -> back / home` 的 `SAFE / approvals=0 / PASSED / VERIFIED` 闭环，第 121 阶段完成 `snapshot -> open_app(com.android.calculator2)` 的逐包 `APPROVED / PASSED / VERIFIED` 闭环，第 136 阶段用同一生产链验证 `open_app(com.google.android.apps.weather)`；第 145 阶段真实三步 Run 使用 `gpt-5.6-luna` 依次完成 `app.current_time`、`open_app(com.android.deskclock -> com.google.android.deskclock)` 和 `device.back`，最终 `goalVerificationDecision=VERIFIED` 并返回小灵。当前仍不支持坐标点击、截图、任意 App 或后台设备自动化。
 
 ## 日志
 

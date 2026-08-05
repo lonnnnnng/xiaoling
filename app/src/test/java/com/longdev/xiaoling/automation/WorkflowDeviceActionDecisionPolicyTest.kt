@@ -33,6 +33,26 @@ class WorkflowDeviceActionDecisionPolicyTest {
     }
 
     @Test
+    fun verifiedOpenAppAcceptsObservedPackageFromApprovedOemAppFamily() {
+        val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(
+            expectedAgentRunId = "agent-run-current",
+            results = listOf(
+                actionEvidence(
+                    toolName = "device.open_app",
+                    expectedOpenAppPackageName = "com.android.deskclock",
+                    content = validActionResult(
+                        action = "open_app",
+                        afterPackageName = "com.google.android.deskclock",
+                    ),
+                ),
+            ),
+        )
+
+        val decision = (resolution as WorkflowDeviceActionResolution.Decided).decisions.single()
+        assertEquals("com.google.android.deskclock", decision.afterPackageName)
+    }
+
+    @Test
     fun openAppFailsClosedWhenApprovedTargetIsMissingOrDiffersFromResult() {
         listOf(null, "com.android.settings").forEach { expectedPackageName ->
             val resolution = WorkflowDeviceActionDecisionPolicy.evaluate(

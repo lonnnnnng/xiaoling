@@ -101,10 +101,13 @@ object WorkflowDeviceActionDecisionPolicy {
                     result.toolName == DEVICE_OPEN_APP_TOOL_NAME &&
                     (
                         result.expectedOpenAppPackageName !in DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES ||
-                            evidence.afterPackageName != result.expectedOpenAppPackageName
+                            !DeviceActionPolicy.areEquivalentAppPackages(
+                                result.expectedOpenAppPackageName,
+                                evidence.afterPackageName,
+                            )
                     )
                 ) {
-                    // long: 答案级证据必须重新绑定同一 ToolCall 中获批的包名，不能仅信任结果正文里的 verified 标记。
+                    // long: 答案级证据重新绑定同一 ToolCall 获批的应用族；只接受显式 OEM 等价包，不能仅信任结果正文的 verified 标记。
                     return insufficient(
                         WorkflowDeviceActionInsufficientReason.MALFORMED_RESULT,
                         "device.open_app 结果与获批目标包名不一致",

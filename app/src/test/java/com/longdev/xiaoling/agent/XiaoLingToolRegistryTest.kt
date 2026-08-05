@@ -36,9 +36,23 @@ import org.junit.Test
 
 class XiaoLingToolRegistryTest {
     @Test
-    fun productionForegroundWorkflowExposesOnlyVerifiedDeviceActionSlices() {
+    fun productionForegroundWorkflowExposesActionsOnlyAfterVerifiedSnapshot() = runTest {
         val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
+
+        assertEquals(
+            setOf("device.snapshot"),
+            registry.availableTools()
+                .filter { it.name.startsWith("device.") }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val snapshotCall = ToolCall(
+            id = "tool-call-production-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
 
         assertEquals(
             setOf(
@@ -88,6 +102,52 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("\"action\":\"back\""))
         registry.afterToolVerification(backCall, result)
         assertEquals(listOf("back"), provider.actions)
+    }
+
+    @Test
+    fun productionWorkflowReturnToXiaolingExposesOnlyBackAfterVerifiedSnapshot() = runTest {
+        val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
+        registry.bindRunContext(
+            workflowDeviceContext(
+                userIntent = "返回小灵应用",
+                targetAppPackage = "com.android.deskclock",
+            ),
+        )
+
+        assertEquals(
+            setOf("device.snapshot"),
+            registry.availableTools()
+                .filter { it.name.startsWith("device.") }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val snapshotCall = ToolCall(
+            id = "tool-call-return-xiaoling-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+
+        assertEquals(
+            setOf("device.snapshot", "device.back"),
+            registry.availableTools()
+                .filter { it.name.startsWith("device.") }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        assertEquals(null, registry.definition("device.open_app"))
+        val rejected = runCatching {
+            registry.beforeToolExecution(
+                ToolCall(
+                    id = "tool-call-return-xiaoling-open-app",
+                    name = "device.open_app",
+                    arguments = mapOf("package_name" to "com.longdev.xiaoling"),
+                    risk = ToolRisk.REQUIRES_APPROVAL,
+                ),
+                approval = null,
+            )
+        }.exceptionOrNull()
+        assertTrue(rejected is IllegalStateException)
+        assertTrue(rejected?.message.orEmpty().contains("步骤意图不允许"))
     }
 
     @Test
@@ -165,6 +225,7 @@ class XiaoLingToolRegistryTest {
                 approved = true,
                 decidedAt = 1_500L,
                 processSessionId = "process-workflow",
+                windowGuarded = true,
             ),
         )
         val result = registry.execute(openAppCall)
@@ -431,7 +492,7 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertEquals(
-            setOf("device.snapshot", "device.tap_ref"),
+            setOf("device.snapshot"),
             registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
         )
         val snapshotCall = ToolCall(
@@ -444,6 +505,10 @@ class XiaoLingToolRegistryTest {
         assertTrue(workflowResult.success)
         assertTrue(workflowResult.content.contains("snapshot-direct"))
         registry.afterToolVerification(snapshotCall, workflowResult)
+        assertEquals(
+            setOf("device.snapshot", "device.tap_ref"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
         val tapCall = ToolCall(
             id = "tool-call-workflow-tap",
             name = "device.tap_ref",
@@ -532,7 +597,7 @@ class XiaoLingToolRegistryTest {
         )
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前搜索框输入安全文本"))
         assertEquals(
-            setOf("device.snapshot", "device.tap_ref", "device.type_text"),
+            setOf("device.snapshot"),
             registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
         )
         val snapshotCall = ToolCall(
@@ -543,6 +608,10 @@ class XiaoLingToolRegistryTest {
         )
         val snapshotResult = registry.execute(snapshotCall)
         registry.afterToolVerification(snapshotCall, snapshotResult)
+        assertEquals(
+            setOf("device.snapshot", "device.tap_ref", "device.type_text"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
         val typeTextCall = ToolCall(
             id = "tool-call-type-text-action",
             name = "device.type_text",
@@ -652,7 +721,7 @@ class XiaoLingToolRegistryTest {
         )
         registry.bindRunContext(workflowDeviceContext(userIntent = "向上滚动当前设置列表"))
         assertEquals(
-            setOf("device.snapshot", "device.swipe"),
+            setOf("device.snapshot"),
             registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
         )
         val snapshotCall = ToolCall(
@@ -662,6 +731,10 @@ class XiaoLingToolRegistryTest {
             risk = ToolRisk.SAFE,
         )
         registry.afterToolVerification(snapshotCall, registry.execute(snapshotCall))
+        assertEquals(
+            setOf("device.snapshot", "device.swipe"),
+            registry.availableTools().filter { it.name.startsWith("device.") }.mapTo(linkedSetOf(), ToolDefinition::name),
+        )
         val swipeCall = ToolCall(
             id = "tool-call-swipe-action",
             name = "device.swipe",

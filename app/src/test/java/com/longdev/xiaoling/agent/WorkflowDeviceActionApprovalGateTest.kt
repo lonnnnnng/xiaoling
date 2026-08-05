@@ -41,6 +41,7 @@ class WorkflowDeviceActionApprovalGateTest {
         val decision = gate.requestApproval(RUN_ID, openAppCall(), openAppDefinition())
 
         assertTrue(decision.approved)
+        assertTrue(decision.windowGuarded)
         assertFalse(fallbackCalled)
         assertEquals(
             mapOf("package_name" to "com.android.calculator2"),
@@ -90,6 +91,7 @@ class WorkflowDeviceActionApprovalGateTest {
         val decision = gate.requestApproval(RUN_ID, typeTextCall(), typeTextDefinition())
 
         assertTrue(decision.approved)
+        assertTrue(decision.windowGuarded)
         assertEquals(
             mapOf(
                 "snapshot_id" to "snapshot-1",
@@ -122,6 +124,7 @@ class WorkflowDeviceActionApprovalGateTest {
         val decision = gate.requestApproval(RUN_ID, tapCall(), tapDefinition())
 
         assertTrue(decision.approved)
+        assertTrue(decision.windowGuarded)
         assertEquals(ApprovalRequestStatus.APPROVED, persistence.decisions.single().status)
         assertEquals("approval-1", overlayRequest?.approvalRequestId)
         assertEquals(RUN_ID, overlayRequest?.runId)

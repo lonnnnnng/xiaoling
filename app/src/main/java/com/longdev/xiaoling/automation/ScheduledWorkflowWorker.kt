@@ -162,6 +162,8 @@ class ScheduledWorkflowExecutor(
                 workflowRepository.appendScheduledStepPrompt(claim.run.run.conversationId, preparedStep.detail)
             },
             goal = executionGoal,
+            // long: 后台步骤同样只用冻结的本步骤目标选择 Skill，前序结果只能作为证据上下文，不能改变工具路由。
+            skillSelectionGoal = input.goal,
             config = runtimeSelection.config,
             summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(uiPreferenceStore.loadPromptSettings()),
             agentProfile = runtimeSelection.profile,
