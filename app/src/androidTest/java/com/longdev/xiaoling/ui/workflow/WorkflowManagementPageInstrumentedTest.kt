@@ -17,6 +17,24 @@ import org.junit.Test
 
 class WorkflowManagementPageInstrumentedTest {
     @Test
+    fun preferredWorkflowIsScrolledToAndExpanded() {
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = workflowState(),
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                    preferredWorkflowId = "workflow-1",
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").assertExists()
+        composeRule.onNodeWithText("步骤定义").assertExists()
+    }
+
+    @Test
     fun pageDisplaysVerifiedOpenAppTargetAndFollowUpBoundary() {
         composeRule.setContent {
             MaterialTheme {

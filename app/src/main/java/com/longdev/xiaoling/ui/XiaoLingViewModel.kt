@@ -218,6 +218,7 @@ data class PersonalTaskFailureUiState(
 )
 
 data class PersonalTaskCompletionUiState(
+    val workflowId: String,
     val title: String,
     val message: String,
 )
@@ -3847,6 +3848,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     // long: 完成卡只能由刚提交的 Workflow 身份和 Repository 本地目标判定生成，确保“查看任务”对应这次真实执行事实。
                     uiState = uiState.copy(
                         personalTaskCompletion = PersonalTaskCompletionPresentation.immediate(
+                            workflowId = createdWorkflow.id,
                             decision = completedRun.goalVerificationDecision,
                         ),
                     )
@@ -4026,6 +4028,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 uiState = uiState.copy(
                     workflows = listOf(workflow) + uiState.workflows.filterNot { item -> item.id == workflow.id },
                     personalTaskCompletion = PersonalTaskCompletionPresentation.reminder(
+                        workflowId = workflow.id,
                         scheduleLabel = preview.reminderScheduleLabel ?: "应用内提醒",
                     ),
                     result = OperationResult(

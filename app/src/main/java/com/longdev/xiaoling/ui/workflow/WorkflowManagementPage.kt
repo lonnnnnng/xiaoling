@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -78,13 +79,23 @@ internal fun WorkflowManagementPage(
     actions: WorkflowManagementActions,
     onRequestNotificationPermission: () -> Unit,
     onBack: () -> Unit,
+    preferredWorkflowId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingWorkflow by remember { mutableStateOf<WorkflowItemUiState?>(null) }
     var schedulingWorkflowId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     LaunchedEffect(Unit) {
         if (state.items.isEmpty() && !state.loading) actions.refreshWorkflows()
+    }
+    LaunchedEffect(preferredWorkflowId, state.items) {
+        val index = preferredWorkflowId
+            ?.let { workflowId -> state.items.indexOfFirst { item -> item.id == workflowId } }
+            ?: -1
+        if (index >= 0) {
+            listState.animateScrollToItem(index)
+        }
     }
 
     Column(
@@ -124,6 +135,7 @@ internal fun WorkflowManagementPage(
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(7.dp),
             contentPadding = PaddingValues(bottom = 12.dp),
@@ -156,6 +168,7 @@ internal fun WorkflowManagementPage(
                         onSchedule = { schedulingWorkflowId = workflow.id },
                         onCancelScheduledTask = actions::cancelScheduledTask,
                         onCancelWorkflowSchedule = actions::cancelWorkflowSchedule,
+                        initiallyExpanded = workflow.id == preferredWorkflowId,
                     )
                 }
             }
@@ -216,8 +229,9 @@ private fun WorkflowItem(
     onSchedule: () -> Unit,
     onCancelScheduledTask: (String) -> Unit,
     onCancelWorkflowSchedule: (String) -> Unit,
+    initiallyExpanded: Boolean = false,
 ) {
-    var expanded by remember(state.id) { mutableStateOf(false) }
+    var expanded by remember(state.id, initiallyExpanded) { mutableStateOf(initiallyExpanded) }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),

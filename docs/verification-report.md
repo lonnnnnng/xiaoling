@@ -10,9 +10,17 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 141 阶段继续真实使用打磨，已完成计划交互、计划生成遥测、常用任务模板、首个 Google 天气兼容扩展、计划上下文请求精简、取消提交竞态、已提交任务失败后的查看入口和完成结果入口。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
-- 文档语料门禁：第 141 阶段最终长期文档已重新打包，仅在 Redmi 运行 corpus 单项，结果为 `OK (1 test)`；该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。第 133 阶段首轮、两次证据写回及冻结文本复验 `1/1` 的历史证据保持不变。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 142 阶段继续真实使用打磨，已完成计划交互、计划生成遥测、常用任务模板、首个 Google 天气兼容扩展、计划上下文请求精简、取消提交竞态、已提交任务失败后的查看入口、完成结果入口和定向 Workflow 查看。第 132 阶段最终完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；后台或定时设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 第 142 阶段验证：聚焦 JVM `17/17`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。只使用 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`；没有向 Pixel_9 或其他模拟器发送命令。该入口只改变导航与列表展示，不改变 Room、Runtime、审批、权限或执行逻辑。
+- 文档语料门禁：第 141 阶段最终长期文档已重新打包，仅在 Redmi 运行 corpus 单项，结果为 `OK (1 test)`；第 142 阶段仅更新导航相关长期文档，未重复 corpus instrumentation。该结果属于当前开发主线，不表述为 `v0.1.15` 发布复验。第 133 阶段首轮、两次证据写回及冻结文本复验 `1/1` 的历史证据保持不变。
 - 发布阶段设备收尾：本轮未执行；Redmi 保留发布前的 `0.1.14 (15)` Debug 开发状态和私有数据，没有因本次发布被卸载、覆盖或清理。
+
+## 2026-08-05 第 142 阶段：完成结果定向查看 Workflow
+
+- 实现：完成结果卡保留对应 `workflowId`，Conversation 通过应用壳导航到 Workflow 设置页；设置页把一次性目标传给 Workflow 管理列表。提交后失败但没有目标 ID 的入口继续打开通用 Workflow 列表。
+- 展示行为：Workflow 列表在目标数据可用后按 ID 自动滚动，目标项以 `initiallyExpanded` 展开；返回设置根页清理 `requestedWorkflowId`，防止旧任务目标复用。未找到目标时保持原有列表和折叠行为。
+- 边界：本阶段不改 Room Schema、Workflow/Run、Agent Runtime、工具白名单、审批、设备权限或后台执行；只修复完成卡到既有任务详情的定向导航。
+- 验证：聚焦 JVM `17/17`；Debug 与 AndroidTest APK 构建成功；Redmi `wsvwypiz7xwslvl7` 定向 instrumentation 为 `OK (18 tests)`。未运行完整 JVM、全量 Lint、默认完整 instrumentation、文档 corpus 或 Release。
 - 远端资产：`xiaoling-v0.1.15.apk` 与 `xiaoling-v0.1.15.apk.sha256` 均为 `uploaded`；APK 远端大小 `3,318,322` 字节、digest `sha256:a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`，与本地产物一致。校验文件大小为 `87` 字节，远端 digest 为 `sha256:86bef3194ddda319bba39649b7f17cf30a49c928752ad254cc9faed575fd1aeb`。
 
 ## 2026-08-05 第 139 阶段：确认后任务创建提交竞态收敛

@@ -10,6 +10,7 @@ class PersonalTaskCompletionPresentationTest {
     @Test
     fun immediateTaskUsesPersistedGoalDecisionInsteadOfModelSummary() {
         val completion = PersonalTaskCompletionPresentation.immediate(
+            workflowId = "workflow-1",
             decision = decision(WorkflowGoalVerificationStatus.PARTIAL),
         )
 
@@ -20,6 +21,7 @@ class PersonalTaskCompletionPresentationTest {
     @Test
     fun immediateTaskWithoutGoalContractStillExposesCommittedWorkflow() {
         val completion = PersonalTaskCompletionPresentation.immediate(
+            workflowId = "workflow-2",
             decision = null,
         )
 
@@ -30,6 +32,7 @@ class PersonalTaskCompletionPresentationTest {
     @Test
     fun reminderKeepsConfirmedScheduleLabelVisible() {
         val completion = PersonalTaskCompletionPresentation.reminder(
+            workflowId = "workflow-3",
             scheduleLabel = "每天 08:30",
         )
 

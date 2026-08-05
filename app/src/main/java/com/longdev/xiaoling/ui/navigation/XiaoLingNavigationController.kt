@@ -25,6 +25,9 @@ internal class XiaoLingNavigationController(
     val requestedKnowledgeDocumentId: String?
         get() = state.requestedKnowledgeDocumentId
 
+    val requestedWorkflowId: String?
+        get() = state.requestedWorkflowId
+
     fun hidesBottomBar(providerEditorOpen: Boolean): Boolean = state.hidesBottomBar(providerEditorOpen)
 
     fun selectTab(tab: XiaoLingAppTab) {
@@ -34,11 +37,13 @@ internal class XiaoLingNavigationController(
     fun openSettingsPane(
         pane: XiaoLingSettingsPane,
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
+        requestedWorkflowId: String? = null,
     ) {
         mutableState.value = coordinator.openSettingsPane(
             state = state,
             pane = pane,
             requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+            requestedWorkflowId = requestedWorkflowId,
         )
     }
 

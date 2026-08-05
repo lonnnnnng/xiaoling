@@ -1,6 +1,6 @@
 # 当前实现说明
 
-## 第 127 至 140 阶段实现顺序（主线完成，体验打磨继续）
+## 第 127 至 142 阶段实现顺序（主线完成，体验打磨继续）
 
 - 第 127 阶段已在现有 Agent/Workflow seam 上完成自然语言个人任务与可确认临时计划，没有创建第二套 Runtime 或新的宽权限工具面。
 - 第 128 阶段已把七项前台设备工具组合为限定 App 多动作任务；第 129 阶段已增加目标级本地验证。单个工具的 `success`、模型自由文本或历史 ref 都不能替代最终目标证据。
@@ -33,7 +33,14 @@
 - 第 140 阶段让 `PersonalTaskFailureUiState` 显式区分 `RETRY_PLAN / VIEW_WORKFLOW`。只有没有持久化任务事实的失败恢复目标并重新生成；立即任务或提醒已经提交后，停止/失败只生成指向工作流管理页的终态提示，不把目标重新放回可发送输入框，也不创建新的 Workflow。
 - `ConversationActions.openWorkflowManagement()` 由应用宿主刷新当前 Workflow 列表并打开既有设置子页；Conversation UI 不持有导航控制器或 Room Repository。聚焦 JVM `9/9`、Debug/AndroidTest APK、仅 Redmi Compose `7/7`（`11.939s`）和文档 corpus `1/1`（`3.568s`）通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 141 阶段新增 `PersonalTaskCompletionUiState` 和 `PersonalTaskCompletionPresentation`。`executeForegroundWorkflow()` 结束后返回 Repository 已完成的 Run；只有当前个人任务操作仍属于原会话时，立即任务才把其中持久化 `goalVerificationDecision` 映射为完成卡。`VERIFIED / PARTIAL / INCOMPLETE` 标题来自本地 Decision；没有 Contract 时只能显示普通完成。提醒只有 Room 与 WorkManager 关联都成功后才显示调度创建卡。
-- `ConversationProjection -> ConversationPage` 只把完成卡投影为“查看任务”入口，调用既有 `ConversationActions.openWorkflowManagement()`；它不持有 Workflow ID、导航控制器或 Repository，因此不会伪造按 ID 定位能力。`updatePrompt()`、任务模式切换和下一次 `preparePersonalTaskPlan()` 会清除旧完成卡，已提交失败仍保持第 140 阶段的失败卡语义。聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi Compose `8/8` 和最终文档 corpus `1/1` 通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
+## 第 142 阶段：完成结果定向查看 Workflow（完成）
+
+- `PersonalTaskCompletionUiState` 保留对应 `workflowId`。Conversation 完成卡点击“查看任务”时把该 ID 传给 `ConversationActions.openWorkflowManagement(workflowId)`；提交失败但已有任务事实的失败卡仍使用无目标 ID 的通用入口。
+- 应用壳把目标 ID 写入 `XiaoLingNavigationState.requestedWorkflowId`，进入 Workflow 设置页时传给 `WorkflowManagementPage.preferredWorkflowId`；返回设置根页或离开子页时清理一次性目标，避免旧任务影响后续导航。
+- Workflow 管理列表使用稳定的 `LazyListState`。工作流数据加载后按 ID 定位并滚动到目标项，目标项以 `initiallyExpanded` 自动展开；未找到目标时保持原列表行为。该逻辑只改变导航与展示，不修改 Room、Runtime、权限或执行契约。
+- 聚焦 JVM `17/17`、Debug/AndroidTest APK、Redmi `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest` `OK (18 tests)` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+- `ConversationProjection -> ConversationPage` 仍只把完成卡投影为“查看任务”入口；第 142 阶段由 `ConversationActions.openWorkflowManagement(workflowId)` 把目标交给应用壳，页面本身不持有导航控制器或 Repository。`updatePrompt()`、任务模式切换和下一次 `preparePersonalTaskPlan()` 会清除旧完成卡，已提交失败仍保持第 140 阶段的失败卡语义。第 141 阶段聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi Compose `8/8` 和最终文档 corpus `1/1` 通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - 第 138 阶段聚焦 JVM `1/1`、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)`（`9.791s`）；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
 - `PersonalTaskFailureUiState` 保存原目标、标题和具体错误；生成失败、创建失败或持久化完成前取消都会恢复目标。重试回调先用 `failure.goal` 同步输入，再走原 `sendMessage()`，避免输入框漂移改变任务意图。
 - 确认后操作使用独立 `personalTaskOperationRequestId` 绑定计划和会话。会话切换先使旧代次失效再取消 Job；已经创建的 Run 由取消分支在不可取消 IO 区收敛，尚未创建时不追加伪执行消息。成功、失败与最终清理只有在请求 ID 和会话仍匹配时才更新可见 UI。

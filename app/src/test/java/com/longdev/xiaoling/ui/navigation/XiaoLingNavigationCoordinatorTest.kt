@@ -20,6 +20,18 @@ class XiaoLingNavigationCoordinatorTest {
     }
 
     @Test
+    fun openWorkflowManagementCarriesRequestedWorkflowId() {
+        val result = coordinator.openSettingsPane(
+            state = XiaoLingNavigationState(),
+            pane = XiaoLingSettingsPane.WORKFLOW_MANAGEMENT,
+            requestedWorkflowId = "workflow-1",
+        )
+
+        assertEquals(XiaoLingSettingsPane.WORKFLOW_MANAGEMENT, result.settingsPane)
+        assertEquals("workflow-1", result.requestedWorkflowId)
+    }
+
+    @Test
     fun externalConversationTargetsReturnToConversationRoot() {
         val initial = XiaoLingNavigationState(
             tab = XiaoLingAppTab.SETTINGS,
@@ -75,6 +87,7 @@ class XiaoLingNavigationCoordinatorTest {
             tab = XiaoLingAppTab.SETTINGS,
             settingsPane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
             requestedKnowledgeDocumentId = "document-1",
+            requestedWorkflowId = "workflow-1",
         )
 
         val result = coordinator.back(
@@ -86,6 +99,7 @@ class XiaoLingNavigationCoordinatorTest {
         assertEquals(XiaoLingAppTab.SETTINGS, result.state.tab)
         assertEquals(XiaoLingSettingsPane.ROOT, result.state.settingsPane)
         assertNull(result.state.requestedKnowledgeDocumentId)
+        assertNull(result.state.requestedWorkflowId)
         assertNull(result.effect)
     }
 

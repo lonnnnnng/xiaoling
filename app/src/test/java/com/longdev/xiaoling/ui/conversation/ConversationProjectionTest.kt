@@ -112,6 +112,7 @@ class ConversationProjectionTest {
     @Test
     fun completedPersonalTaskKeepsResultEntryVisibleWithoutBlockingNextTask() {
         val completed = PersonalTaskCompletionUiState(
+            workflowId = "workflow-1",
             title = "任务目标已验证完成",
             message = "已验证步骤 2/2，可查看任务证据",
         )

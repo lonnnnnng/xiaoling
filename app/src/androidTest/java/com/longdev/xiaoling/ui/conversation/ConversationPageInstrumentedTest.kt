@@ -220,6 +220,7 @@ class ConversationPageInstrumentedTest {
                     state = ConversationProjection.project(
                         personalTaskMode = true,
                         personalTaskCompletion = PersonalTaskCompletionUiState(
+                            workflowId = "workflow-1",
                             title = "任务目标已验证完成",
                             message = "已验证步骤 2/2，可查看任务证据",
                         ),
@@ -236,6 +237,7 @@ class ConversationPageInstrumentedTest {
 
         composeRule.runOnIdle {
             assertEquals(1, actions.openWorkflowCount)
+            assertEquals("workflow-1", actions.lastOpenedWorkflowId)
             assertEquals(0, actions.sendCount)
         }
     }
@@ -250,6 +252,7 @@ class ConversationPageInstrumentedTest {
         var sendCount = 0
         var stopCount = 0
         var openWorkflowCount = 0
+        var lastOpenedWorkflowId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -308,8 +311,9 @@ class ConversationPageInstrumentedTest {
 
         override fun cancelPendingPersonalTaskPlan() = Unit
 
-        override fun openWorkflowManagement() {
+        override fun openWorkflowManagement(workflowId: String?) {
             openWorkflowCount += 1
+            lastOpenedWorkflowId = workflowId
         }
 
         override fun approvePendingAgentTool() = Unit

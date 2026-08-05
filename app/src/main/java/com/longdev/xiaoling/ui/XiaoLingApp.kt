@@ -209,9 +209,12 @@ private fun XiaoLingContent(
 
             override fun cancelPendingPersonalTaskPlan() = viewModel.cancelPendingPersonalTaskPlan()
 
-            override fun openWorkflowManagement() {
+            override fun openWorkflowManagement(workflowId: String?) {
                 viewModel.refreshWorkflows()
-                navigation.openSettingsPane(SettingsPane.WORKFLOW_MANAGEMENT)
+                navigation.openSettingsPane(
+                    pane = SettingsPane.WORKFLOW_MANAGEMENT,
+                    requestedWorkflowId = workflowId,
+                )
             }
 
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
@@ -348,9 +351,12 @@ private fun XiaoLingContent(
                         onOpenSkillManagement = {
                             navigation.openSettingsPane(SettingsPane.SKILL_MANAGEMENT)
                         },
-                        onOpenWorkflowManagement = {
+                        onOpenWorkflowManagement = { workflowId ->
                             viewModel.refreshWorkflows()
-                            navigation.openSettingsPane(SettingsPane.WORKFLOW_MANAGEMENT)
+                            navigation.openSettingsPane(
+                                pane = SettingsPane.WORKFLOW_MANAGEMENT,
+                                requestedWorkflowId = workflowId,
+                            )
                         },
                         onOpenAgentRunHistory = {
                             navigation.openSettingsPane(SettingsPane.AGENT_RUN_HISTORY)
@@ -370,10 +376,12 @@ private fun XiaoLingContent(
                             }
                         },
                         requestedKnowledgeDocumentId = navigation.requestedKnowledgeDocumentId,
+                        requestedWorkflowId = navigation.requestedWorkflowId,
                         onBackToSettings = {
                             navigation.openSettingsPane(
                                 pane = SettingsPane.ROOT,
                                 requestedKnowledgeDocumentId = null,
+                                requestedWorkflowId = null,
                             )
                         },
                         modifier = Modifier.matchParentSize(),
@@ -727,7 +735,7 @@ private fun SettingsPage(
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
-    onOpenWorkflowManagement: () -> Unit,
+    onOpenWorkflowManagement: (String?) -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onOpenProcessExitObservations: () -> Unit,
     onExportBackup: () -> Unit,
@@ -735,6 +743,7 @@ private fun SettingsPage(
     onImportSkill: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     requestedKnowledgeDocumentId: String?,
+    requestedWorkflowId: String?,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -826,6 +835,7 @@ private fun SettingsPage(
                 actions = viewModel,
                 onRequestNotificationPermission = onRequestNotificationPermission,
                 onBack = onBackToSettings,
+                preferredWorkflowId = requestedWorkflowId,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentTaskCenterPage(
@@ -855,7 +865,7 @@ private fun SettingsPage(
                     override fun openKnowledgeManagement() = onOpenKnowledgeManagement()
                     override fun openKnowledgeRelevanceRollout() = onOpenKnowledgeRelevanceRollout()
                     override fun openSkillManagement() = onOpenSkillManagement()
-                    override fun openWorkflowManagement() = onOpenWorkflowManagement()
+                    override fun openWorkflowManagement() = onOpenWorkflowManagement(null)
                     override fun openAgentRunHistory() = onOpenAgentRunHistory()
                     override fun openProcessExitObservations() = onOpenProcessExitObservations()
                     override fun exportBackup() = onExportBackup()

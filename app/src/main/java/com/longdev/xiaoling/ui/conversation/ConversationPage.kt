@@ -536,7 +536,7 @@ private fun MessageInputBar(
     onDiscardPendingSharedDraft: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onOpenWorkflowManagement: () -> Unit,
+    onOpenWorkflowManagement: (String?) -> Unit,
 ) {
     var attachmentMenuExpanded by remember { mutableStateOf(false) }
     val attaching = state.attachingImage || state.attachingDocument
@@ -572,7 +572,7 @@ private fun MessageInputBar(
                                 onPromptChange(failure.goal)
                                 onSend()
                             }
-                            PersonalTaskFailureAction.VIEW_WORKFLOW -> onOpenWorkflowManagement()
+                            PersonalTaskFailureAction.VIEW_WORKFLOW -> onOpenWorkflowManagement(null)
                         }
                     },
                 )
@@ -580,7 +580,7 @@ private fun MessageInputBar(
             state.personalTaskCompletion?.let { completion ->
                 PersonalTaskCompletionNotice(
                     completion = completion,
-                    onOpenWorkflow = onOpenWorkflowManagement,
+                    onOpenWorkflow = { onOpenWorkflowManagement(completion.workflowId) },
                 )
             }
             state.pendingSharedDraft?.let { payload ->

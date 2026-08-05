@@ -40,6 +40,7 @@ internal data class XiaoLingNavigationState(
     val tab: XiaoLingAppTab = XiaoLingAppTab.CONVERSATION,
     val settingsPane: XiaoLingSettingsPane = XiaoLingSettingsPane.ROOT,
     val requestedKnowledgeDocumentId: String? = null,
+    val requestedWorkflowId: String? = null,
     val lastRootBackAtMillis: Long = 0L,
 ) {
     val isSettingsSubPage: Boolean
@@ -65,10 +66,12 @@ internal class XiaoLingNavigationCoordinator(
         state: XiaoLingNavigationState,
         pane: XiaoLingSettingsPane,
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
+        requestedWorkflowId: String? = null,
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
         requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+        requestedWorkflowId = requestedWorkflowId,
     )
 
     fun openKnowledgeDocument(
@@ -116,6 +119,7 @@ internal class XiaoLingNavigationCoordinator(
                 state = state.copy(
                     settingsPane = XiaoLingSettingsPane.ROOT,
                     requestedKnowledgeDocumentId = null,
+                    requestedWorkflowId = null,
                 ),
             )
         }
