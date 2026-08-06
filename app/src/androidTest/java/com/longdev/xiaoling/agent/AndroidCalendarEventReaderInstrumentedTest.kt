@@ -32,4 +32,25 @@ class AndroidCalendarEventReaderInstrumentedTest {
         assertTrue(events.size <= 10)
         assertTrue(events.zipWithNext().all { (left, right) -> left.startAtMillis <= right.startAtMillis })
     }
+
+    @Test
+    fun grantedCalendarProviderSearchReturnsOnlyMatchingMinimalEvents() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权只读日历",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val startAtMillis = System.currentTimeMillis()
+        val result = AndroidCalendarEventReader(context.contentResolver).searchEvents(
+            startAtMillis = startAtMillis,
+            endAtMillis = startAtMillis + TimeUnit.DAYS.toMillis(7),
+            query = "__xiaoling_stage149_no_such_title__",
+            limit = 10,
+        )
+
+        // long: 真机不写入用户日历；用不存在的标题验证真实 Provider 搜索链只返回最小事件集合和稳定空结果。
+        assertTrue(result is CalendarEventReadResult.Success)
+        assertTrue((result as CalendarEventReadResult.Success).events.isEmpty())
+    }
 }

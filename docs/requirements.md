@@ -1,5 +1,19 @@
 # 产品需求
 
+## 今日安排与提醒总览 Skill（第 150 阶段，完成）
+
+- 新增内置只读 `day-overview` Skill，允许用户询问“今天有哪些安排和提醒”时分别调用 `calendar.list_events` 与 `tasks.list`，最终回复必须标明日程和小灵任务的来源边界。
+- Skill 所需工具仍由 Agent Profile 显式授权；日历继续要求用户主动授予 `READ_CALENDAR`，任务继续只读当前 Room 事实。既有 Profile 不自动扩权。
+- 本阶段不新增 Android 权限、Room Schema、工具 Executor 或第二套 Runtime，不允许修改、取消、执行任务，不允许创建/修改/删除日程，也不开放后台 Workflow、定时任务或静默权限。
+- 聚焦 JVM `AgentSkillsTest 15/15 + XiaoLingToolRegistryTest 40/40`、Debug APK 构建和 Redmi 真实闭环均已完成；同一 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 的两项 ToolResult 均为 `PASSED`，最终回答分别标明日程与任务来源。
+
+## 系统日历标题关键词查找（第 149 阶段，完成）
+
+- 新增 SAFE `calendar.search_events` 与独立 `calendar-search` Skill；用户必须先在日历访问设置页主动授权 `READ_CALENDAR`，并在 Agent Profile 中显式启用工具和 Skill。
+- 输入限制为 `query` 1..100 个字符、`days_ahead` 1..30、`limit` 1..20。查询只匹配 Provider 最小投影中的标题，结果只返回标题、起止时间和全天标记；不读取地点、描述、参与人、组织者或账户，也不提供 `WRITE_CALENDAR`。
+- `supportsBackground=false`，不允许后台 Workflow、定时任务或静默权限请求。关键词匹配失败、权限撤销竞态和 Provider 异常继续 fail-closed；旧 Profile 不自动扩权。
+- 本阶段不改变 `calendar.list_events`、Room Schema、日历设置页或 Runtime；聚焦 JVM、Debug/AndroidTest APK 和 Redmi `AndroidCalendarEventReaderInstrumentedTest 2/2` 通过。设备没有可安全创建的日程，仅验证真实 Provider 的有界读取与不存在标题空结果，不伪造匹配样本。
+
 ## 系统日历只读能力（第 148 阶段，完成）
 
 - 新增 SAFE `calendar.list_events` 与内置 `calendar-overview` Skill；只有用户在独立设置页主动授权 `READ_CALENDAR` 后，前台 Agent 才能使用。既有 Profile 不自动扩权，必须显式启用工具和 Skill。

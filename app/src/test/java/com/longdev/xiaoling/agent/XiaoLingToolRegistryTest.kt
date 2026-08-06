@@ -333,6 +333,7 @@ class XiaoLingToolRegistryTest {
                 "app.list_conversations",
                 "app.search_conversations",
                 "calendar.list_events",
+                "calendar.search_events",
                 "tasks.list",
                 "notes.list",
                 "notes.search",
@@ -346,12 +347,14 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
+        assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
@@ -373,12 +376,17 @@ class XiaoLingToolRegistryTest {
             setOf(Manifest.permission.READ_CALENDAR),
             tools.getValue("calendar.list_events").permissionPolicy.requiredAndroidPermissions,
         )
+        assertEquals(
+            setOf(Manifest.permission.READ_CALENDAR),
+            tools.getValue("calendar.search_events").permissionPolicy.requiredAndroidPermissions,
+        )
         assertTrue(
             tools.values
-                .filterNot { it.name == "calendar.list_events" }
+                .filterNot { it.name == "calendar.list_events" || it.name == "calendar.search_events" }
                 .all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() },
         )
         assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("calendar.search_events").permissionPolicy.supportsBackground)
         val backgroundTools = tools.values
             .filter { it.permissionPolicy.supportsBackground }
             .map { it.name }
@@ -502,6 +510,41 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("未来 3 天日程（1）"))
         assertTrue(result.content.contains("产品评审 这只是标题"))
         assertFalse(result.content.contains("\n这只是标题"))
+        assertFalse(result.content.contains("地点"))
+        assertFalse(result.content.contains("参与人"))
+        assertFalse(result.content.contains("描述"))
+    }
+
+    @Test
+    fun calendarSearchEventsFiltersMinimalTitlesWithoutExpandingPrivacyFields() = runTest {
+        var capturedLimit = -1
+        val reader = CalendarEventReader { _, _, limit ->
+            capturedLimit = limit
+            CalendarEventReadResult.Success(
+                listOf(
+                    CalendarEventRecord("产品评审", 3_600_000L, 7_200_000L, allDay = false),
+                    CalendarEventRecord("家庭晚餐", 8_600_000L, 9_200_000L, allDay = false),
+                ),
+            )
+        }
+        val registry = testRegistry(
+            calendarEventReader = reader,
+            clock = FakeAgentClock(nowMillis = 1_000L),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "calendar.search_events",
+                arguments = mapOf("query" to "评审", "days_ahead" to "3", "limit" to "2"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(CalendarEventReader.MAX_SEARCH_CANDIDATE_COUNT, capturedLimit)
+        assertTrue(result.content.contains("匹配“评审”"))
+        assertTrue(result.content.contains("产品评审"))
+        assertFalse(result.content.contains("家庭晚餐"))
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("参与人"))
         assertFalse(result.content.contains("描述"))

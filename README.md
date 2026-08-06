@@ -1,5 +1,9 @@
 # 小灵
 
+第 150 阶段完成 `day-overview` 只读 Skill，可将 `calendar.list_events` 与 `tasks.list` 在同一 Agent Run 内组合回答“今天有哪些安排和提醒”；结果已验证区分系统日程与小灵任务事实。该能力沿用日历主动授权、Profile/Skill 显式白名单和前台限制，不新增权限、Room、后台执行或写入能力。Redmi 真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 两项工具均为 `success=true / PASSED`。
+
+第 149 阶段新增系统日历标题关键词查找：SAFE `calendar.search_events` 可在用户主动授权 `READ_CALENDAR` 后，按标题查找未来 1 至 30 天内最多 20 条日程；仍只返回标题、起止时间和全天标记，不读取地点、描述、参与人或账户。新增独立 `calendar-search` Skill，旧 Profile 不自动扩权，后台 Workflow、日历写入和静默权限请求继续关闭。聚焦 JVM、Debug/AndroidTest APK 和 Redmi 真实 Provider `OK (2 tests)` 已通过；设备没有可安全创建的日程，仅验证了有界读取与不存在标题空结果。
+
 「小灵」是一款 Android 端个人 Agent 应用。当前阶段先把个人 Agent 的基础底座做稳：多模型提供方配置、多会话上下文、Chat Completions / Responses API、Room 本地存储、可审计 Agent Run，以及基于 WorkManager 的一次性非精确定时工作流。
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。

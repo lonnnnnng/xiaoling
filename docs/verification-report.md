@@ -19,6 +19,21 @@
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
 
+## 2026-08-06 第 150 阶段：今日安排与提醒总览 Skill
+
+- 实现：新增内置只读 `day-overview` Skill，组合 `calendar.list_events` 与 `tasks.list`，要求最终回复区分系统日程和小灵任务事实；不新增工具、权限、Room Schema 或后台能力。
+- 白名单：Skill 仍需 Agent Profile 显式允许两个工具和该 Skill；日历主动授权、前台限制、任务只读和旧 Profile 不自动扩权语义保持不变。
+- 聚焦验证：`AgentSkillsTest 15/15`、`XiaoLingToolRegistryTest 40/40` 通过；`:app:assembleDebug` 成功。按分级验证未运行完整 JVM、全量 Lint、AndroidTest APK 全量构建、全量 instrumentation 或 Release。
+- Redmi 真实闭环：仅使用物理设备 `wsvwypiz7xwslvl7`，`READ_CALENDAR` 已授权。真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 状态为 `COMPLETED`，同一 Run 的工具顺序为 `calendar.list_events -> tasks.list`，两项 ToolResult 均 `success=true / verificationStatus=PASSED`；最终回答通过 `answerSeparated=true` 校验，分别展示日程与小灵任务事实。
+- 异常边界：原 Provider 的 `gpt-5.4-mini` 首次尝试在第二轮返回空工具名，Run 按 Runtime 规则失败且未被覆盖；依据 `AGENTS.md` 兜底配置恢复后完成本次验收。真实 Provider、任务数据和日历结果未伪造，未向 Pixel_9 或其他模拟器发送命令。
+
+## 2026-08-06 第 149 阶段：系统日历标题关键词查找
+
+- 实现：新增 SAFE `calendar.search_events`，输入 `query`（1..100）、`days_ahead`（1..30）和 `limit`（1..20）；复用 `READ_CALENDAR`、前台限制和最小字段投影，仅对标题做内存关键词匹配。新增独立 `calendar-search` Skill，旧 `calendar-overview` 和既有 Profile 不自动扩权。
+- 隐私与边界：Provider 仍只返回标题、开始时间、结束时间和全天标记；地点、描述、参与人、组织者、账户和日历写入继续关闭。后台 Workflow、定时任务和静默权限请求继续拒绝。
+- 聚焦验证：`XiaoLingToolRegistryTest` 与 `AgentSkillsTest` 通过，`:app:compileDebugKotlin` 为 `BUILD SUCCESSFUL`。按分级验证未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+- Redmi 真实验收：仅使用 `wsvwypiz7xwslvl7` 运行 `AndroidCalendarEventReaderInstrumentedTest`，结果 `OK (2 tests)`，覆盖真实 Provider 有界读取与不存在标题的空结果；设备没有可安全创建的用户日程，因此没有伪造标题匹配样本。测试包已卸载，主应用 PID `18766` 存活，crash buffer 未发现小灵异常。
+
 ## 2026-08-06 第 148 阶段：系统日历只读能力与真实 Agent 闭环
 
 - 实现：新增 `CalendarEventReader`/`AndroidCalendarEventReader`，通过 `CalendarContract.Instances` 在 IO 调度器查询未来 1 至 30 天、最多 20 条；只投影标题、开始时间、结束时间和全天标记。`XiaoLingToolRegistry` 注册 SAFE `calendar.list_events`，声明 `READ_CALENDAR`、`supportsBackground=false`，权限撤销和 Provider 异常均 fail-closed；无 `WRITE_CALENDAR`。

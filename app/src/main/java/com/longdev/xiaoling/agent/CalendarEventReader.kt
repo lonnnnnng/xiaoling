@@ -25,6 +25,29 @@ fun interface CalendarEventReader {
         endAtMillis: Long,
         limit: Int,
     ): CalendarEventReadResult
+
+    suspend fun searchEvents(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        query: String,
+        limit: Int,
+    ): CalendarEventReadResult {
+        // long: Provider 只返回最小日程字段；关键词匹配在内存中完成，避免把描述、地点或账户字段带入 Agent。
+        return when (val result = listEvents(startAtMillis, endAtMillis, MAX_SEARCH_CANDIDATE_COUNT)) {
+            is CalendarEventReadResult.Success -> CalendarEventReadResult.Success(
+                result.events
+                    .asSequence()
+                    .filter { it.title.contains(query, ignoreCase = true) }
+                    .take(limit)
+                    .toList(),
+            )
+            else -> result
+        }
+    }
+
+    companion object {
+        const val MAX_SEARCH_CANDIDATE_COUNT: Int = 200
+    }
 }
 
 object UnavailableCalendarEventReader : CalendarEventReader {
@@ -33,11 +56,25 @@ object UnavailableCalendarEventReader : CalendarEventReader {
         endAtMillis: Long,
         limit: Int,
     ): CalendarEventReadResult = CalendarEventReadResult.ProviderUnavailable
+
+    override suspend fun searchEvents(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        query: String,
+        limit: Int,
+    ): CalendarEventReadResult = super<CalendarEventReader>.searchEvents(startAtMillis, endAtMillis, query, limit)
 }
 
 class AndroidCalendarEventReader(
     private val contentResolver: ContentResolver,
 ) : CalendarEventReader {
+    override suspend fun searchEvents(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        query: String,
+        limit: Int,
+    ): CalendarEventReadResult = super<CalendarEventReader>.searchEvents(startAtMillis, endAtMillis, query, limit)
+
     override suspend fun listEvents(
         startAtMillis: Long,
         endAtMillis: Long,

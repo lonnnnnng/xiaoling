@@ -1,5 +1,21 @@
 # 小灵个人 Agent 路线图
 
+## 第 150 阶段：今日安排与提醒总览 Skill（完成）
+
+- 新增只读 `day-overview` Skill，将已有 `calendar.list_events` 与 `tasks.list` 组合为一个可直接体验的“今天有哪些安排和提醒”入口；最终回复必须区分日程与小灵任务事实。
+- Skill 只复用既有前台工具、日历主动授权和 Profile/Skill 双重白名单，不创建新权限、Room Schema 或 Runtime；日历写入、任务修改/取消/执行、后台 Workflow 和静默权限继续关闭。
+- 聚焦 JVM `AgentSkillsTest 15/15 + XiaoLingToolRegistryTest 40/40` 通过，Debug APK 构建成功；Redmi `wsvwypiz7xwslvl7` 真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 在同一 Run 内依次完成 `calendar.list_events` 与 `tasks.list`，两项均 `success=true / PASSED`，最终回答通过“日程/任务”来源分区检查。
+- 首次使用原 Provider 的 `gpt-5.4-mini` 时，第二轮规划返回空工具名并按规则失败；未覆盖该失败 Run。按 `AGENTS.md` 兜底配置恢复后完成闭环。
+- 本阶段不新增系统日历字段、任务写入、后台执行、Room Schema 或新权限；下一步回到个人 Agent 主线的真实使用问题，不重复扩展总览字段。
+
+## 第 149 阶段：系统日历标题关键词查找（完成）
+
+- 在第 148 阶段日历只读能力上新增 SAFE `calendar.search_events`，允许用户在未来 1 至 30 天内按日程标题关键词查找，最多返回 20 条；仍只返回标题、起止时间和全天标记。
+- 查询复用 `READ_CALENDAR` 主动授权和前台边界，Provider 只投影最小字段，关键词匹配在内存中完成；地点、描述、参与人、账户和日历写入继续不进入 Agent。
+- 新增独立 `calendar-search` Skill，不改写旧 `calendar-overview`，既有 Profile 不因新工具或 Skill 自动扩权；后台 Workflow、定时任务和静默权限请求继续关闭。
+- 聚焦 JVM `XiaoLingToolRegistryTest + AgentSkillsTest`、Debug/AndroidTest APK 构建通过；仅使用 Redmi `wsvwypiz7xwslvl7` 运行真实 Provider 单项 `AndroidCalendarEventReaderInstrumentedTest`，结果 `OK (2 tests)`，覆盖有界读取与不存在标题的空结果。设备没有可安全创建的日程，因此不伪造标题匹配样本。
+- 本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation；若无新的用户场景，不继续扩展系统日历字段或写入能力。
+
 ## 第 148 阶段：系统日历只读能力（完成）
 
 - 在完整个人 Agent 主链上新增一个明确的系统能力切片：用户主动授权后，前台 Agent 可通过 SAFE `calendar.list_events` 读取未来 1 至 30 天的近期日程；最多 20 条，只返回标题、起止时间和全天标记。

@@ -4,6 +4,10 @@
 
 第 148 阶段完成系统日历只读能力：新增 SAFE `calendar.list_events` 和 `calendar-overview` Skill，用户必须在独立设置页主动授权 `READ_CALENDAR`，既有 Profile 不自动扩权。查询仅限前台未来 1 至 30 天、最多 20 条，只返回标题、开始时间、结束时间和全天标记；地点、描述、参与人、账户以及写入能力全部关闭。Redmi Provider 读取 `1/1`，设置页/根页 instrumentation `7/7`，聚焦 `PersonalTaskPlanPolicyTest 12/12`；真实 Agent 计划 `1/1` 且只执行 `calendar.list_events`，结果为“未来 7 天没有日程”。同时收紧计划提示词，禁止纯整理/展示步骤诱发无关工具调用。
 
+第 149 阶段在同一边界内新增 SAFE `calendar.search_events` 与独立 `calendar-search` Skill，按标题关键词查找未来 1 至 30 天内最多 20 条日程；仍只读取标题、起止时间和全天标记，既有 Profile 不自动扩权，后台 Workflow、日历写入和静默权限请求继续关闭。聚焦 JVM、Debug/AndroidTest APK 通过；Redmi 真实 Provider 单项 `OK (2 tests)`，覆盖有界读取与不存在标题空结果，未伪造匹配日程。
+
+第 150 阶段完成 `day-overview` 只读 Skill，在同一 Agent Run 内组合 `calendar.list_events` 与 `tasks.list` 回答“今天有哪些安排和提醒”，并通过最终回答来源分区校验；不新增权限、Room、后台执行或写入能力。Redmi 真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 两项工具均为 `success=true / PASSED`。
+
 第 146 阶段完成真实只读任务总览与关联重试收口：Redmi 真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，结果 `success=true / verification=PASSED`。三步 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 的设备动作均已完成，但旧实现因多级复用步骤没有直接 `agentRunId` 而在目标收敛时报错；修复后新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 关联该来源、三步全部“已复用”，没有重放模型或设备动作，最终得到 `VERIFIED / ALL_CRITERIA_VERIFIED`。旧失败 Run 继续保留。审批等待期间禁止使用 UIAutomator，因为 Redmi 会临时销毁并重建 Accessibility Service；`onInterrupt()` 只失效当前窗口，不再撤销审批或 detach Runtime。新增 Room 单项 `OK (2 tests)`，更新后的文档 corpus 为 `OK (1 test)`。
 
 第 147 阶段已完成首轮后台长任务证据评估和两个 Runtime 阻断修复。前台 8 步 Run `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`；启动约 3 秒后熄屏的 Run `workflow-run-2153667c-f664-4034-a566-79a114899c27` 耗时 `94155ms`，熄屏期间系统保持 `Wakefulness=Dozing`，同一进程继续完成模型请求。两条 Run 均 `8/8 COMPLETED`、目标级 `VERIFIED / ALL_CRITERIA_VERIFIED`。聚焦 JVM `22/22`、AndroidTest APK 和仅 Redmi 的文档 corpus `OK (1 test)`（`2.468s`）通过。当前最大生产计划仍不足 5 分钟，且没有自然进程回收记录，因此不引入 Foreground Service、不开放后台设备动作；下一步应先找到真实超过数分钟的生产任务，再评估长任务恢复。MCP、系统日历写入、远程 Channel、多 Agent、跨设备同步和本地模型继续后置。

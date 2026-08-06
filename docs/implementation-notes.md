@@ -1,6 +1,20 @@
 # 当前实现说明
 
-## 第 127 至 148 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 149 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 150 阶段：今日安排与提醒总览 Skill（完成）
+
+- `BuiltInAgentSkillRegistry` 新增 `day-overview`，只声明 `calendar.list_events` 与 `tasks.list` 两个 SAFE 只读工具，并要求 `READ_CALENDAR`；Skill 文案要求最终回复分别标明日程和小灵任务事实。
+- 该切片不增加工具执行实现、权限、Room 或后台能力；既有 Profile/Skill 白名单仍在 `AgentRunUseCase` 和 `SkillScopedToolRegistry` 两层生效，旧 Profile 不会自动得到新组合能力。
+- 聚焦 JVM `AgentSkillsTest 15/15 + XiaoLingToolRegistryTest 40/40` 通过，Debug APK 构建成功。仅使用 Redmi `wsvwypiz7xwslvl7` 的 Debug 验收入口读取已配置 Provider，在同一 Agent Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 依次执行 `calendar.list_events`、`tasks.list`；两项 ToolResult 均 `success=true / PASSED`，最终回复通过“日程/任务”来源分区检查。
+- 首次 `gpt-5.4-mini` 真实尝试因第二轮返回空工具名失败，Run 保持失败历史；按 `AGENTS.md` 兜底配置恢复后完成闭环。该调试入口只存在于 `debug` source set，不进入生产 APK。
+
+## 第 149 阶段：系统日历标题关键词查找（完成）
+
+- `CalendarEventReader.searchEvents()` 复用最小日历记录接口，在内存中按标题做不区分大小写匹配；搜索最多读取 200 条最小候选，再按用户 `limit` 截断，不引入地点、描述、参与人或账户字段。
+- `XiaoLingToolRegistry` 新增 SAFE `calendar.search_events`，参数为 `query / days_ahead / limit`，声明 `READ_CALENDAR` 与 `supportsBackground=false`；结果格式与 `calendar.list_events` 共用，空结果明确说明没有匹配标题。
+- 新增独立内置 `calendar-search` Skill，保持 `calendar-overview` 原样，避免既有 Profile 因新工具集合变化被静默扩权；日历写入、后台 Workflow 和静默权限请求继续关闭。
+- 聚焦 `XiaoLingToolRegistryTest`、`AgentSkillsTest`、Debug/AndroidTest APK 已通过；Redmi `wsvwypiz7xwslvl7` 的 `AndroidCalendarEventReaderInstrumentedTest` 为 `OK (2 tests)`，覆盖真实 Provider 有界读取与不存在标题空结果。设备没有可安全创建的日程，因此不伪造标题匹配样本。本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
 
 ## 第 148 阶段：系统日历只读能力（完成）
 

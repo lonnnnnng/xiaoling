@@ -29,6 +29,10 @@ import com.longdev.xiaoling.device.DeviceSnapshotFailure
 import com.longdev.xiaoling.device.DeviceAccessibilityRuntime
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderProfile
+import com.longdev.xiaoling.model.ProviderRequestConfig
+import com.longdev.xiaoling.model.preferredEmbeddingModel
+import com.longdev.xiaoling.network.OpenAiCompatibleClient
+import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.storage.RoomAgentConversationStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
@@ -101,10 +105,11 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 when (intent.getStringExtra(EXTRA_OPERATION)) {
                     OPERATION_SETUP -> setup(appContext, intent)
                     OPERATION_STATUS -> reportStatus(appContext)
+                    OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
                     else -> Log.w(TAG, "agent-e2e success=false reason=unknown-operation")
                 }
             } catch (error: Throwable) {
-                Log.e(TAG, "agent-e2e success=false reason=${error::class.java.simpleName} message=${error.message}")
+                Log.e(TAG, "agent-e2e success=false reason=${error::class.java.simpleName} message=${error.message}", error)
             } finally {
                 pendingResult.finish()
                 scope.cancel()
@@ -184,6 +189,83 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             "agent-e2e run=${detail.snapshot.run.id} status=${detail.snapshot.run.status} " +
                 "approval=${approval?.status} tool=${result?.toolName} success=${result?.success} " +
                 "executorVerified=${result?.executorVerified} verification=${result?.verificationStatus}",
+        )
+    }
+
+    private suspend fun runDayOverviewReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        // long: 真实验收只冻结本次 Run 的双工具白名单和 day-overview Skill，不修改生产 Profile，避免测试过程静默扩权。
+        val profile = AgentProfileRecord(
+            id = "stage150-day-overview-profile",
+            name = "第 150 阶段真实总览验收",
+            avatar = "150",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只根据已授权的只读工具事实回答，不执行写入或修改操作。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("calendar.list_events", "tasks.list"),
+            allowedSkillIds = listOf("day-overview"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        Log.i(
+            TAG,
+            "day-overview-real start=true provider=${provider.id} model=${provider.model} apiMode=${config.apiMode}",
+        )
+        val conversationId = "conversation-redmi-day-overview-${now}"
+        val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+            conversationId = conversationId,
+            userMessageId = "message-redmi-day-overview-$now",
+            goal = "今天有哪些安排和提醒？请分别列出系统日程和小灵任务。",
+            skillSelectionGoal = "今天有哪些安排和提醒？请分别列出系统日程和小灵任务。",
+            config = config,
+            summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+            agentProfile = profile.snapshot(),
+            memoryRecallEnabled = false,
+            invocationSource = AgentInvocationSource.DIRECT,
+        )
+        val detail = checkNotNull(RoomAgentRunRepository(context).runDetail(summary.runId)) {
+            "day-overview 真实 Agent Run 未写入 Room"
+        }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "day-overview 真实 Agent Run 未完成：${detail.snapshot.run.status}"
+        }
+        val results = detail.toolLedger.results
+        val toolNames = results.map { it.toolName }
+        // long: 只有同一 Run 的两项 Tool Ledger 都通过 typed 验证，且最终文本明确分区，才算总览闭环；模型自由文本不能替代任一来源事实。
+        check(toolNames.toSet() == setOf("calendar.list_events", "tasks.list")) {
+            "day-overview 没有在同一 Run 内完成两项只读工具：$toolNames"
+        }
+        check(results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+            "day-overview 工具结果未全部通过验证：$results"
+        }
+        check(summary.responseText.contains("日程") && summary.responseText.contains("任务")) {
+            "day-overview 最终回答没有区分日程与任务来源：${summary.responseText}"
+        }
+        Log.i(
+            TAG,
+            "day-overview-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                "tools=${toolNames.joinToString(",")} " +
+                "results=${results.joinToString(",") { "${it.toolName}:${it.success}/${it.verificationStatus}" }} " +
+                "answerSeparated=true responseLength=${summary.responseText.length}",
         )
     }
 
@@ -1585,6 +1667,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val EXTRA_ALLOWED_TOOL = "allowed_tool"
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
+        const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"
         const val OPERATION_WORKFLOW_TYPE_TEXT = "workflow_type_text"
         const val OPERATION_WORKFLOW_OPEN_APP = "workflow_open_app"
