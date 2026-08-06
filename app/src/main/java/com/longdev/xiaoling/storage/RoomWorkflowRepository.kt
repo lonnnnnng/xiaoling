@@ -1316,9 +1316,14 @@ class RoomWorkflowRepository(
                 .flatMap { KnowledgeReferenceCodec.decode(it.knowledgeReferencesJson) }
                 .distinct(),
             requiresCurrentKnowledgeReferences = toolResults.any { it.toolName == KNOWLEDGE_SEARCH_TOOL },
-            verifiedToolNames = toolResults
-                .filter { toolResult -> toolResult.success && toolResult.verificationStatus == "PASSED" }
-                .map { toolResult -> toolResult.toolName },
+            verifiedToolNames = if (status == WorkflowRunStatus.COMPLETED) {
+                toolResults
+                    .filter { toolResult -> toolResult.success && toolResult.verificationStatus == "PASSED" }
+                    .map { toolResult -> toolResult.toolName }
+            } else {
+                // long: 工具结果已落库但 Agent 尚未完成总结时，进程中断只能收敛当前步骤；这些事实留在 Tool Ledger 审计，不能把 CANCELLED/FAILED 步骤升级为已验证完成。
+                emptyList()
+            },
             deviceObservationDecisions = deviceObservationDecisions,
             deviceActionDecisions = deviceActionDecisions,
         )

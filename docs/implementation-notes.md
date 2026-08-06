@@ -1,6 +1,16 @@
 # 当前实现说明
 
-## 第 127 至 149 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 151 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 151 阶段：真实 WorkManager 长任务、熄屏与受控中断恢复（完成）
+
+- `AgentE2eDebugReceiver` 新增 `workflow_long_scheduled / workflow_long_status`。创建入口先恢复上次遗留的探针状态，再以当前有效 Provider 生成只授权 `app.current_time` 的临时 Profile，通过 `createWorkflowAndOneTimeScheduledTask()` 和 `WorkManagerScheduledTaskScheduler.enqueue()` 调度 8 步任务；状态入口只读正式 Room 事实，确认终态时停用 Workflow 并恢复原 Profile。清理明确依赖 Debug 状态查询，创建入口的预清理负责兜住上次未查询终态的残留；Debug 入口不进入 Release，也不持有第二套 Runtime。
+- 普通后台样本为 Task `scheduled-task-1684ca82-dfb0-45e7-94a7-7a5908094a92` / Run `workflow-run-f20ecc64-e375-47ba-813d-8516297eb920`，Worker 耗时 `95816ms`；熄屏样本为 Task `scheduled-task-0d5a2c12-b952-40cf-b236-ab121ac06263` / Run `workflow-run-e9aa7e03-8557-451e-972c-af56de8051e0`，耗时 `91915ms`。两者均 `8/8 COMPLETED`；熄屏后半程持续 Dozing，PID 始终为 `8228`，`exit-info` 无新增记录。
+- 首次探针 Task `scheduled-task-0e688878-5227-4fc9-8d6e-b986af0d0d18` / Run `workflow-run-07877d2d-4da1-484a-90db-28feba8d5c4c` 因原 Profile 没有注册 `app.current_time` 在 `10212ms` 后失败；失败历史和停用 Workflow 保留。临时最小 Profile 修正的是探针前置条件，不改变生产 Profile 白名单。
+- 人工 `force-stop` 样本 Task `scheduled-task-0b0b35d7-e705-46f8-b235-71e786ba1bf1` / Run `workflow-run-b2f58179-839a-4687-ac68-2b2d02687089` 在旧 PID `8228` 至少进入执行后被终止，系统记录 `USER REQUESTED / FORCE STOP`；新进程 PID 为 `9134`。恢复后 Run/Task 均为 `CANCELLED`，步骤为 `4 COMPLETED + 4 CANCELLED`，不调用旧 Executor、模型协程或 Workflow 后续步骤。
+- 该中断窗口中已存在 `app.current_time / success=true / PASSED` ToolResult，但 Agent 总结尚未完成。`RoomWorkflowRepository.completeByAgentRunId()` 旧逻辑会把它作为 `verifiedToolNames` 传给 `CANCELLED` 步骤，违反步骤快照约束并使 Worker 重入失败。现在只有 `WorkflowRunStatus.COMPLETED` 才传递已验证工具；其他终态传空列表，独立 Tool Ledger 保持不变。
+- `workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun` 增加成功 ToolResult 夹具，并断言关联 Agent、Workflow Run、当前 Step 与 ScheduledTask 均取消，不创建新 Run，且取消步骤 `outputSnapshot == null`。该单项只在 Redmi 运行，结果 `OK (1 test)`、耗时 `0.851s`。
+- 本阶段 `testDebugUnitTest / assembleDebug / assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`；六份长期文档重新打包后，Redmi 文档 corpus 首轮为 `OK (1 test)`、耗时 `2.471s`。未运行 Lint、Release 或默认完整 instrumentation。约 92 至 96 秒和人工 `force-stop` 仍不能替代自然 LMK、主动断网或 5 至 10 分钟真实任务，因此 Foreground Service 继续后置。
 
 ## 第 150 阶段：今日安排与提醒总览 Skill（完成）
 

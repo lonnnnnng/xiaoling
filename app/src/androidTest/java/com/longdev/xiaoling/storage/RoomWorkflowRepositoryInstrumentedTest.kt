@@ -1440,6 +1440,8 @@ class RoomWorkflowRepositoryInstrumentedTest {
             detail = "系统回收前仍在执行",
             status = AgentStepStatus.RUNNING,
         )
+        // long: 真机中断可能发生在工具已经验证、但 Agent 尚未总结的窄窗口；恢复必须保留独立 Ledger，同时把当前 Workflow 步骤安全收敛为取消。
+        database.agentRunDao().insertToolResult(verifiedToolResult(linkedAgent.id, "app.current_time"))
         repository.markAgentRunStarted(claim.run.run.id, claim.run.steps.single().id, linkedAgent.id)
 
         val unrelatedAgent = agentRepository.createRun(
@@ -1483,6 +1485,8 @@ class RoomWorkflowRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.CANCELLED, agentRepository.runDetail(linkedAgent.id)!!.snapshot.run.status)
         assertEquals(AgentRunStatus.THINKING, agentRepository.runDetail(unrelatedAgent.id)!!.snapshot.run.status)
         assertEquals(WorkflowRunStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.run.status)
+        assertEquals(WorkflowStepStatus.CANCELLED, repository.runDetail(claim.run.run.id)!!.steps.single().status)
+        assertNull(repository.runDetail(claim.run.run.id)!!.steps.single().outputSnapshot)
         assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(task.id)!!.status)
         assertEquals(runCountBefore, agentRepository.recentRunDetails(limit = 20).size)
     }

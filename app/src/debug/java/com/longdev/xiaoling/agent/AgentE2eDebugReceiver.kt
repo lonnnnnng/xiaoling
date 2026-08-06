@@ -18,6 +18,9 @@ import com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicy
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
+import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
@@ -40,6 +43,8 @@ import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomWorkflowDeviceActionApprovalPersistence
+import com.longdev.xiaoling.storage.RoomWorkflowRepository
+import com.longdev.xiaoling.storage.RoomStateStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import kotlinx.coroutines.CoroutineScope
@@ -106,6 +111,11 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_SETUP -> setup(appContext, intent)
                     OPERATION_STATUS -> reportStatus(appContext)
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
+                    OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
+                    OPERATION_LONG_STATUS -> reportLongScheduledStatus(
+                        appContext,
+                        intent.getStringExtra(EXTRA_TASK_ID).orEmpty(),
+                    )
                     else -> Log.w(TAG, "agent-e2e success=false reason=unknown-operation")
                 }
             } catch (error: Throwable) {
@@ -267,6 +277,103 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "results=${results.joinToString(",") { "${it.toolName}:${it.success}/${it.verificationStatus}" }} " +
                 "answerSeparated=true responseLength=${summary.responseText.length}",
         )
+    }
+
+    private suspend fun runLongScheduledWorkflow(context: Context) {
+        val now = System.currentTimeMillis()
+        restoreLongDebugProfile(context)
+        val storedProviders = ProviderRepository(context).load()
+        val provider = storedProviders.profiles.firstOrNull { profile ->
+            profile.id == storedProviders.selectedProfileId
+        } ?: error("没有可用于长任务探针的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "长任务探针 Provider 配置不完整"
+        }
+        val profileStore = RoomAgentProfileStore(context)
+        val originalProfileId = RoomStateStore(context).selectedAgentProfileId()
+        context.getSharedPreferences(LONG_DEBUG_STATE, Context.MODE_PRIVATE).edit()
+            .putString(LONG_DEBUG_ORIGINAL_PROFILE_ID, originalProfileId)
+            .apply()
+        // long: 后台运行必须拥有明确且最小的工具面；临时 Profile 只用于本轮真实样本，结束后由状态查询恢复用户原配置。
+        val probeProfile = AgentProfileRecord(
+            id = LONG_DEBUG_PROFILE_ID,
+            name = "第151阶段长任务探针",
+            avatar = "151",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只读取当前时间并返回事实，不执行其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("app.current_time"),
+            allowedSkillIds = emptyList(),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        profileStore.upsert(probeProfile)
+        check(profileStore.select(probeProfile.id)) { "无法选择长任务探针 Profile" }
+        val repository = RoomWorkflowRepository(context)
+        val steps = (1..8).map {
+            WorkflowStepDefinitionInput(
+                goal = "读取当前手机本地时间，并在本步骤返回时间事实；只能调用 app.current_time。",
+            )
+        }
+        // long: 第 151 阶段只通过正式的 Room + WorkManager 入口制造真实多步骤样本，不能在 Debug 旁路中另起一套后台 Runtime。
+        val (workflow, task) = repository.createWorkflowAndOneTimeScheduledTask(
+            name = "第151阶段长任务观测-$now",
+            steps = steps,
+            delayMinutes = 1,
+        )
+        val workRequestId = WorkManagerScheduledTaskScheduler(context).enqueue(task)
+        repository.attachWorkRequest(task.id, workRequestId)
+        Log.i(
+            TAG,
+            "workflow-long-scheduled created=true workflowId=${workflow.id} taskId=${task.id} " +
+                "workRequestId=$workRequestId plannedAt=${task.plannedAt} steps=${steps.size}",
+        )
+    }
+
+    private suspend fun reportLongScheduledStatus(context: Context, taskId: String) {
+        require(taskId.isNotBlank()) { "长任务状态查询缺少 taskId" }
+        val repository = RoomWorkflowRepository(context)
+        val task = repository.getScheduledTask(taskId)
+        if (task == null) {
+            Log.i(TAG, "workflow-long-status taskId=$taskId status=NOT_FOUND")
+            return
+        }
+        val detail = task.workflowRunId?.let { repository.runDetail(it) }
+        val steps = detail?.steps.orEmpty()
+        val counts = steps.groupingBy { it.status }.eachCount()
+        val startedAt = detail?.run?.startedAt ?: task.actualStartedAt
+        val completedAt = detail?.run?.completedAt ?: task.completedAt
+        val durationMs = if (startedAt != null && completedAt != null) {
+            (completedAt - startedAt).coerceAtLeast(0L)
+        } else {
+            null
+        }
+        Log.i(
+            TAG,
+            "workflow-long-status taskId=$taskId status=${task.status} workflowRunId=${task.workflowRunId} " +
+                "runStatus=${detail?.run?.status} steps=${steps.size} counts=$counts " +
+                "startedAt=$startedAt completedAt=$completedAt durationMs=$durationMs " +
+                "stopReason=${detail?.run?.workerStopReasonName} taskError=${task.errorMessage} " +
+                "runError=${detail?.run?.errorMessage} stepErrors=${steps.mapNotNull { it.errorMessage }}",
+        )
+        if (task.status in setOf(ScheduledTaskStatus.COMPLETED, ScheduledTaskStatus.FAILED, ScheduledTaskStatus.BLOCKED, ScheduledTaskStatus.CANCELLED)) {
+            // long: 探针 Workflow 只保留历史证据，不应继续出现在可再次执行的生产任务集合中。
+            repository.setEnabled(task.workflowId, false)
+            restoreLongDebugProfile(context)
+        }
+    }
+
+    private suspend fun restoreLongDebugProfile(context: Context) {
+        val state = context.getSharedPreferences(LONG_DEBUG_STATE, Context.MODE_PRIVATE)
+        if (!state.contains(LONG_DEBUG_ORIGINAL_PROFILE_ID)) return
+        val profileStore = RoomAgentProfileStore(context)
+        val originalId = state.getString(LONG_DEBUG_ORIGINAL_PROFILE_ID, null)
+        if (originalId != null) profileStore.select(originalId)
+        profileStore.delete(LONG_DEBUG_PROFILE_ID)
+        state.edit().clear().apply()
     }
 
     private suspend fun runWorkflowTapRef(context: Context) {
@@ -1668,6 +1775,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
+        const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
+        const val OPERATION_LONG_STATUS = "workflow_long_status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"
         const val OPERATION_WORKFLOW_TYPE_TEXT = "workflow_type_text"
         const val OPERATION_WORKFLOW_OPEN_APP = "workflow_open_app"
@@ -1677,6 +1786,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
         const val OPERATION_WORKFLOW_SETTINGS_MULTI = "workflow_settings_multi"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
+        const val EXTRA_TASK_ID = "task_id"
+        private const val LONG_DEBUG_PROFILE_ID = "stage151-long-workflow-profile"
+        private const val LONG_DEBUG_STATE = "stage151-long-workflow-state"
+        private const val LONG_DEBUG_ORIGINAL_PROFILE_ID = "original_profile_id"
         private const val PROVIDER_ID = "stage3-device-e2e-provider"
         private const val AGENT_PROFILE_ID = "stage3-device-e2e-profile"
         private const val E2E_CONVERSATION_ID = "conversation-redmi-workflow-device-action"

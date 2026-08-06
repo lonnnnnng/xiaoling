@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 151 阶段：真实 WorkManager 长任务、熄屏与受控中断恢复（完成）
+
+- Debug 探针只负责通过正式 `RoomWorkflowRepository + WorkManagerScheduledTaskScheduler + ScheduledWorkflowWorker` 创建和观察 8 步 `app.current_time` 任务；临时 Profile 只授权该工具，状态查询确认任务终态时恢复用户原 Profile、删除临时 Profile 并停用探针 Workflow，下一次创建前也会清理上次残留，没有创建第二套 Runtime。
+- Redmi 普通后台 Task `scheduled-task-1684ca82-dfb0-45e7-94a7-7a5908094a92` / Run `workflow-run-f20ecc64-e375-47ba-813d-8516297eb920` 为 `8/8 COMPLETED`、Worker 耗时 `95816ms`。熄屏 Task `scheduled-task-0d5a2c12-b952-40cf-b236-ab121ac06263` / Run `workflow-run-e9aa7e03-8557-451e-972c-af56de8051e0` 为 `8/8 COMPLETED`、耗时 `91915ms`；后半程持续 `Wakefulness=Dozing`，PID 全程为 `8228`，两次 `exit-info` 均无新增退出记录。
+- 人工 `force-stop` Task `scheduled-task-0b0b35d7-e705-46f8-b235-71e786ba1bf1` / Run `workflow-run-b2f58179-839a-4687-ac68-2b2d02687089` 在旧 PID `8228` 被明确记录为 `USER REQUESTED / FORCE STOP`，新 PID 为 `9134`。恢复不续跑旧执行栈，而是保留已经完成的 4 步，将剩余 4 步和 Task/Run 安全收敛为 `CANCELLED`，不重放工具或后续步骤。
+- 真机中断暴露“ToolResult 已 `PASSED`、但 Agent 尚未总结”窗口：恢复曾把 Tool Ledger 的已验证工具传给 `CANCELLED` 步骤，触发“未完成步骤不能持久化已验证工具”并遗留 `RUNNING`。Repository 现在只有在 Workflow Run 真正 `COMPLETED` 时才把 verified tool names 写入步骤输出；取消/失败仍保留独立 Tool Ledger 审计，但不能升级为已验证完成。
+- `testDebugUnitTest / assembleDebug / assembleDebugAndroidTest` 成功；新增 Redmi Room 回归 `workerReentryClosesOnlyLinkedAgentAndScheduledTaskWithoutCreatingNewRun` 与更新后文档 corpus 均为 `OK (1 test)`。未运行 Lint、Release 或默认完整 instrumentation。
+- 本阶段只证明约 92 至 96 秒 WorkManager 任务在普通后台和 Dozing 下可以完成，以及人工 `force-stop` 后可以安全取消旧执行链；自然 LMK、主动网络失败和 5 至 10 分钟真实任务仍未验证。当前不引入 Foreground Service，下一阶段应回到可直接体验的个人 Agent 能力或等待真实长任务证据，不用人为延时制造结论。
+
 ## 第 150 阶段：今日安排与提醒总览 Skill（完成）
 
 - 新增只读 `day-overview` Skill，将已有 `calendar.list_events` 与 `tasks.list` 组合为一个可直接体验的“今天有哪些安排和提醒”入口；最终回复必须区分日程与小灵任务事实。

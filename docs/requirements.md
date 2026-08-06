@@ -1,5 +1,14 @@
 # 产品需求
 
+## WorkManager 长任务、熄屏与中断恢复边界（第 151 阶段，完成）
+
+- 长任务验证必须复用生产 `RoomWorkflowRepository`、WorkManager 调度和 `ScheduledWorkflowWorker`，不得通过 Debug 代码建立第二套 Runtime。探针 Profile 只能授权 `app.current_time`；状态查询确认终态时必须恢复原 Profile、删除临时 Profile 并停用探针 Workflow，创建新探针前也必须清理上次遗留状态。
+- 至少分别形成普通后台与熄屏的 8 步 SAFE 任务样本，保存 Task/Run 身份、步骤终态、Worker 耗时、PID、Wakefulness 和 `exit-info`。当前 Redmi 样本分别为 `95816ms / 91915ms`，均 `8/8 COMPLETED`；熄屏样本后半程保持 Dozing 且进程未变化。
+- 人工 `force-stop` 必须明确标记为 `USER REQUESTED / FORCE STOP`，不得表述为自然 LMK。应用重启后不能恢复旧协程或续跑旧执行栈，只能从 Room 事实保留已完成前缀并取消剩余步骤、关联 Run 和 ScheduledTask；当前真实结果为 `4 COMPLETED + 4 CANCELLED`，没有重放工具。
+- ToolResult 已成功验证但 Agent 尚未总结时，中断后的取消/失败步骤不得持久化 `verifiedToolNames` 或生成完成输出；独立 Tool Ledger 必须保留审计。只有真正 `COMPLETED` 的 Workflow 步骤可以把已验证工具升级为步骤完成证据。
+- 本阶段实现必须通过针对上述中断窗口的 Redmi Room 单项，并把六份长期文档重新打入 AndroidTest APK 后通过项目文档 corpus 单项；当前两项结果均为 `OK (1 test)`。
+- 自然 LMK、主动断网与 5 至 10 分钟真实生产任务尚未验证。只有这些真实证据或明确的用户可见常驻进度需求证明普通 WorkManager 不足时，才评审 Foreground Service；本阶段不引入常驻服务，也不开放后台设备动作。
+
 ## 今日安排与提醒总览 Skill（第 150 阶段，完成）
 
 - 新增内置只读 `day-overview` Skill，允许用户询问“今天有哪些安排和提醒”时分别调用 `calendar.list_events` 与 `tasks.list`，最终回复必须标明日程和小灵任务的来源边界。

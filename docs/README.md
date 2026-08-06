@@ -1,6 +1,8 @@
 # 文档索引
 
-“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 147 阶段继续真实使用打磨，并已完成取消提交竞态、任务结果定向查看、任务/提醒只读总览、OEM 时钟兼容、多级关联重试，以及真实多步任务的 Runtime 可靠性与后台时长评估首轮。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+“先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 151 阶段继续真实使用打磨，并已完成只读日历与今日总览、任务结果定向查看、多级关联重试、真实 WorkManager 长任务、熄屏执行和受控进程中断收敛。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+第 151 阶段通过正式 Room、WorkManager 和 `ScheduledWorkflowWorker` 创建 8 步 SAFE 后台任务。Redmi 普通后台 Run `workflow-run-f20ecc64-e375-47ba-813d-8516297eb920` 用时 `95816ms`，熄屏 Run `workflow-run-e9aa7e03-8557-451e-972c-af56de8051e0` 用时 `91915ms`，均为 `8/8 COMPLETED`；熄屏后半程保持 `Wakefulness=Dozing`，PID 全程为 `8228`，`exit-info` 没有新增记录。人工 `force-stop` 的 Run `workflow-run-b2f58179-839a-4687-ac68-2b2d02687089` 在 PID `8228 -> 9134` 后恢复为 `4 COMPLETED + 4 CANCELLED`，已完成前缀保持不变且没有重放工具。Debug 状态查询确认终态时负责恢复原 Profile、删除临时 Profile，并停用 Workflow；下一次创建前也会清理上次残留。Redmi Room 回归和更新后文档 corpus 均为 `OK (1 test)`。该受控样本不能冒充自然 LMK；主动断网和 5 至 10 分钟任务仍未验证，Foreground Service 继续后置。
 
 第 148 阶段完成系统日历只读能力：新增 SAFE `calendar.list_events` 和 `calendar-overview` Skill，用户必须在独立设置页主动授权 `READ_CALENDAR`，既有 Profile 不自动扩权。查询仅限前台未来 1 至 30 天、最多 20 条，只返回标题、开始时间、结束时间和全天标记；地点、描述、参与人、账户以及写入能力全部关闭。Redmi Provider 读取 `1/1`，设置页/根页 instrumentation `7/7`，聚焦 `PersonalTaskPlanPolicyTest 12/12`；真实 Agent 计划 `1/1` 且只执行 `calendar.list_events`，结果为“未来 7 天没有日程”。同时收紧计划提示词，禁止纯整理/展示步骤诱发无关工具调用。
 
