@@ -1,5 +1,13 @@
 # 产品需求
 
+## 任务诊断答案级导航（第 156 阶段，完成）
+
+- 成功的 `tasks.inspect` Tool part 必须在结果卡提供“查看任务”入口，使用户无需离开答案上下文重新寻找任务；点击只负责导航，不重新发送消息、重试工具、执行或修改任务。
+- 入口只能由可信 Agent 工具事实生成：工具名必须为 `tasks.inspect`，执行必须成功且验证状态不能为 `FAILED`，参数键必须严格只有非空且不超过工具 Schema 上限 100 字符的 `name`，结果首行必须严格为“任务最近运行”。普通模型文本、失败结果、额外参数、超长参数或伪造结果头都不得生成入口。
+- 历史 Tool part 只携带用户可见任务名称，不持有或推断 Workflow ID。点击时必须用当前 Workflow 列表做区分大小写的唯一精确名称匹配；删除、重命名、缺失、尾部空格或同名均不得猜测，统一降级打开通用 Workflow 管理列表。
+- 唯一命中时必须打开 Workflow 管理页并请求定位目标；降级时仍进入同一管理页，用户可自行选择。该切片不新增 Room Schema、Agent 工具、Profile/Skill 权限、任务写操作、后台能力或 Android 权限。
+- 聚焦 `TaskInspectionNavigationTest`、Debug/AndroidTest APK 构建与仅 Redmi 的 `ConversationPageInstrumentedTest 9/9` 通过。真机现有生产会话没有 `tasks.inspect` 消息，因此未以篡改数据库或临时扩权方式伪造视觉样本。
+
 ## 任务最近运行只读诊断（第 155 阶段，完成）
 
 - Agent 必须先通过 `tasks.list` 获得用户可见任务名称，再用 `tasks.inspect` 按去除首尾空白后的精确名称读取最近一次运行；名称不存在时明确说明，同名任务必须拒绝选择任意一项。

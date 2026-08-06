@@ -299,6 +299,7 @@ internal fun ConversationPage(
                                 failedKnowledgeReferenceStatuses = messages.failedKnowledgeReferenceStatuses,
                                 answerabilityNotice = messages.answerabilityNotices[message.id],
                                 onOpenKnowledgeDocument = actions::openKnowledgeDocument,
+                                onOpenInspectedTask = actions::openInspectedTask,
                                 onReuseUserMessage = actions::updatePrompt,
                             )
                             if (messages.activeAgentRun?.run?.userMessageId == message.id) {

@@ -1,6 +1,14 @@
 # 当前实现说明
 
-## 第 127 至 155 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 156 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 156 阶段：任务诊断答案级导航（完成）
+
+- 新增 `TaskInspectionNavigation.kt`，集中实现可信入口判定与当前 Workflow 唯一名称解析。Tool part 必须为成功且未验证失败的 `tasks.inspect`，参数键严格等于 `{name}`，结果首行为“任务最近运行”；任务名 trim 后需非空且最多 100 字符。
+- `ConversationMessageContent` 只在上述条件满足时展示带图标的“查看任务”按钮；`ConversationActions.openInspectedTask(name)` 只传递名称。普通模型文本无法绕过 `AgentMessagePartPolicy` 生成 Tool part，点击路径不调用 `sendMessage()` 或任何任务写工具。
+- `XiaoLingApp` 调用 `refreshWorkflowsAndResolveInspectedTask()`，等待 ViewModel 从 Room 重新加载完整 Workflow UI 数据后，再对该最新列表做精确名称 `singleOrNull` 解析。唯一命中时将 ID 作为一次性定位目标打开 `WORKFLOW_MANAGEMENT`；删除、重命名、读取失败或同名时传入 `null` 并展示通用列表，不猜测历史内部 ID。
+- `TaskInspectionNavigationTest` 覆盖可信成功、失败/验证失败、伪造结果头、额外参数、错误工具、精确命中、尾部空格、缺失和同名。`ConversationPageInstrumentedTest` 使用真实 `AGENT_RESULT + VerifiedAgentContext` 验证入口回调任务名称且 `sendCount=0`。
+- 聚焦 JVM、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均通过；只在 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest`，结果 `OK (9 tests)`、`13.33s`。六份长期文档重打包后，文档 corpus 单项为 `OK (1 test)`、`2.777s`；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 ## 第 155 阶段：任务最近运行只读诊断（完成）
 

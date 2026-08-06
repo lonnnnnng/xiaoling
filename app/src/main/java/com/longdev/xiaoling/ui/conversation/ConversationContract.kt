@@ -65,6 +65,8 @@ internal interface ConversationActions {
 
     fun openWorkflowManagement(workflowId: String? = null)
 
+    fun openInspectedTask(taskName: String)
+
     fun approvePendingAgentTool()
 
     fun rejectPendingAgentTool()

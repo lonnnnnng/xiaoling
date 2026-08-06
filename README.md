@@ -1,5 +1,7 @@
 # 小灵
 
+第 156 阶段把任务只读诊断接到答案级可操作入口。可信 `tasks.inspect` 工具卡现在显示“查看任务”；点击后只用工具参数中的任务名称与当前 Workflow 做唯一精确匹配，命中则打开并定位 Workflow 管理项，删除、重命名、缺失或同名时降级到通用列表，不猜测内部 ID。入口只接受成功且未验证失败、参数只有非空 `name`、结果首行为“任务最近运行”的真实 Tool part；普通模型文本不能生成入口，点击不会重发消息或修改任务。聚焦 JVM、Debug/AndroidTest APK 与仅 Redmi 的 `ConversationPageInstrumentedTest 9/9` 通过；未新增 Room Schema、工具权限、后台能力或任务写操作。
+
 第 155 阶段补齐任务最近运行的只读诊断闭环。新增前台 SAFE `tasks.inspect`：Agent 先用 `tasks.list` 获取任务名称，再按精确名称读取最近 Run 的状态、触发方式、起止时间、步骤序号/状态和稳定失败分类；不存在时明确返回空结果，同名任务拒绝猜测。工具不返回 Workflow/Run/Step ID、原始错误、步骤输入输出、工具参数或 ToolResult 正文，不修改、取消或重试任务，也不新增 Room Schema。聚焦 JVM `57/57`、Debug/AndroidTest APK、Redmi Room `5/5` 通过；真实 Provider Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 严格执行 `tasks.list -> tasks.inspect`，两项均 `success=true / PASSED`。
 
 第 154 阶段补齐本地笔记的用户受控删除。用户只能从笔记详情发起并二次确认；生产删除会清空标题和正文，但保留 note ID 与 ToolCall 幂等键作为不可见 tombstone，确保历史 `notes.create` 重放不能恢复已撤回内容。列表、搜索和详情统一过滤 tombstone，不新增 Room Schema、Agent 工具、Profile/Skill 权限或后台能力。聚焦 `XiaoLingToolRegistryTest 40/40`、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel `2/2`、页面 `2/2` 和真实 Room tombstone `1/1` 均通过。
@@ -20,7 +22,7 @@
 
 第 148 阶段已接入系统日历只读能力：新增 `calendar.list_events` 与 `calendar-overview` Skill，限制为前台、未来 1 至 30 天、最多 20 条，只返回标题、起止时间和全天标记；用户必须在独立“日历访问”页主动授权，且仍需在 Agent Profile 中显式启用工具与 Skill。Redmi 真实验证完成 Provider 读取 `1/1`，真实 Agent 计划 `1/1` 且只执行 `calendar.list_events`，结果为“未来 7 天没有日程”。计划提示词同时收紧为不把整理/展示拆成独立工具步骤，避免额外调用无关工具。系统日历写入、后台 Workflow、地点/描述/参与人/账户字段继续关闭。
 
-“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 151 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、只读日历与今日总览、多级关联重试，以及前台和 WorkManager 多步任务的 Runtime 可靠性。第 151 阶段又证明约 92 至 96 秒的后台任务在亮屏与 Dozing 下可完成，并修复“工具已验证但 Agent 尚未总结时中断”导致 Workflow 步骤无法取消的恢复缺陷。当前仍没有自然 LMK、主动网络失败或 5 至 10 分钟真实任务证据，因此不引入 Foreground Service，也不开放后台设备动作。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占真实任务问题。
+“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 156 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、只读日历与今日总览、多级关联重试、前台和 WorkManager 多步任务的 Runtime 可靠性，并形成“任务清单 -> 最近运行诊断 -> 答案级定位任务”的只读闭环。当前仍没有自然 LMK、主动网络失败或 5 至 10 分钟真实任务证据，因此不引入 Foreground Service，也不开放后台设备动作。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占真实任务问题。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 

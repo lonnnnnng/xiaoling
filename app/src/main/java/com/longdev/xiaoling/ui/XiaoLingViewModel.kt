@@ -1508,7 +1508,19 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    override fun refreshWorkflows() {
+    override fun refreshWorkflows() = refreshWorkflowUiData()
+
+    internal fun refreshWorkflowsAndResolveInspectedTask(
+        taskName: String,
+        onResolved: (String?) -> Unit,
+    ) {
+        // long: 历史答案中的任务名称不能与 Compose 缓存列表直接绑定；必须等待当前 Room 快照加载完成，避免已删除或重命名任务仍定位到旧 ID。
+        refreshWorkflowUiData { workflows ->
+            onResolved(resolveInspectedWorkflowId(workflows, taskName))
+        }
+    }
+
+    private fun refreshWorkflowUiData(onLoaded: ((List<WorkflowRecord>) -> Unit)? = null) {
         workflowLoadJob?.cancel()
         uiState = uiState.copy(loadingWorkflows = true, workflowError = null)
         workflowLoadJob = viewModelScope.launch {
@@ -1525,11 +1537,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowSchedules = data.schedules,
                     workflowError = null,
                 )
+                onLoaded?.invoke(data.workflows)
             }.onFailure { error ->
                 uiState = uiState.copy(
                     loadingWorkflows = false,
                     workflowError = error.message ?: "无法读取工作流",
                 )
+                onLoaded?.invoke(emptyList())
             }
         }
     }

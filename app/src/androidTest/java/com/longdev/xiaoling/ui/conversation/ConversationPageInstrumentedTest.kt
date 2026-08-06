@@ -7,12 +7,16 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.agent.AgentVerificationStatus
+import com.longdev.xiaoling.agent.VerifiedAgentContext
+import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
+import com.longdev.xiaoling.ui.ChatMessage
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -242,6 +246,44 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensInspectedTaskOnlyFromTrustedToolPart() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-task-inspection",
+                                role = "assistant",
+                                text = "最近运行有一个失败步骤。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-task-inspection",
+                                    toolName = "tasks.inspect",
+                                    arguments = mapOf("name" to "每日回顾"),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                                    rawResult = "任务最近运行\n任务：每日回顾 · 已启用",
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看任务").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("每日回顾", actions.lastInspectedTaskName)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -253,6 +295,7 @@ class ConversationPageInstrumentedTest {
         var stopCount = 0
         var openWorkflowCount = 0
         var lastOpenedWorkflowId: String? = null
+        var lastInspectedTaskName: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -314,6 +357,10 @@ class ConversationPageInstrumentedTest {
         override fun openWorkflowManagement(workflowId: String?) {
             openWorkflowCount += 1
             lastOpenedWorkflowId = workflowId
+        }
+
+        override fun openInspectedTask(taskName: String) {
+            lastInspectedTaskName = taskName
         }
 
         override fun approvePendingAgentTool() = Unit

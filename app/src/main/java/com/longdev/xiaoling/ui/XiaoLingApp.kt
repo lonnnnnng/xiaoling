@@ -218,6 +218,15 @@ private fun XiaoLingContent(
                 )
             }
 
+            override fun openInspectedTask(taskName: String) {
+                viewModel.refreshWorkflowsAndResolveInspectedTask(taskName) { workflowId ->
+                    navigation.openSettingsPane(
+                        pane = SettingsPane.WORKFLOW_MANAGEMENT,
+                        requestedWorkflowId = workflowId,
+                    )
+                }
+            }
+
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
 
             override fun rejectPendingAgentTool() = viewModel.rejectPendingAgentTool()

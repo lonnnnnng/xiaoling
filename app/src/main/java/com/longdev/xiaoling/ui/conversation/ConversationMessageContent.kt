@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Description
@@ -35,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +69,7 @@ import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
+import com.longdev.xiaoling.ui.inspectedTaskNameForNavigation
 import com.longdev.xiaoling.ui.normalizeModelMarkdown
 import com.longdev.xiaoling.ui.parseMarkdownTableBlock
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
@@ -90,6 +93,7 @@ internal fun ChatBubble(
     failedKnowledgeReferenceStatuses: Set<KnowledgeReference>,
     answerabilityNotice: KnowledgeAnswerabilityUserNotice?,
     onOpenKnowledgeDocument: (String) -> Unit,
+    onOpenInspectedTask: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
 ) {
     val isUser = message.role == "user"
@@ -137,6 +141,7 @@ internal fun ChatBubble(
                 MessageBodyParts(
                     message = message,
                     contentColor = contentColor,
+                    onOpenInspectedTask = onOpenInspectedTask,
                 )
                 KnowledgeReferencesContent(
                     messageId = message.id,
@@ -184,6 +189,7 @@ internal fun ChatBubble(
 private fun MessageBodyParts(
     message: ChatMessage,
     contentColor: Color,
+    onOpenInspectedTask: (String) -> Unit,
 ) {
     message.effectiveParts().forEachIndexed { index, part ->
         if (index > 0) Spacer(Modifier.height(7.dp))
@@ -192,7 +198,7 @@ private fun MessageBodyParts(
             is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
             is MessagePart.Image -> ImageMessagePartContent(part)
             is MessagePart.Document -> DocumentMessagePartContent(part, contentColor)
-            is MessagePart.Tool -> ToolMessagePartContent(part, contentColor)
+            is MessagePart.Tool -> ToolMessagePartContent(part, contentColor, onOpenInspectedTask)
         }
     }
 }
@@ -371,6 +377,7 @@ private fun MessageTextPart(
 private fun ToolMessagePartContent(
     part: MessagePart.Tool,
     contentColor: Color,
+    onOpenInspectedTask: (String) -> Unit,
 ) {
     val presentation = part.toPresentation()
     HorizontalDivider(color = contentColor.copy(alpha = 0.16f))
@@ -420,6 +427,19 @@ private fun ToolMessagePartContent(
             color = contentColor.copy(alpha = 0.76f),
             modifier = Modifier.padding(top = 3.dp),
         )
+    }
+    part.inspectedTaskNameForNavigation()?.let { taskName ->
+        TextButton(
+            onClick = { onOpenInspectedTask(taskName) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ListAlt,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+            Text("查看任务")
+        }
     }
 }
 

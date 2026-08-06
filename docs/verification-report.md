@@ -10,7 +10,7 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 154 阶段继续真实使用打磨。第 152 阶段完成本地笔记真实写入，第 153 阶段补齐列表、搜索和只读详情入口，第 154 阶段加入保留幂等 tombstone 的用户受控删除。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、笔记编辑/分页/批量/后台写入、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 156 阶段继续真实使用打磨。第 152 至 154 阶段完成本地笔记写入、只读管理和受控删除，第 155 至 156 阶段形成“任务清单 -> 最近运行受限诊断 -> 答案级查看任务”的只读闭环。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、笔记编辑/分页/批量/后台写入、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 第 142 阶段验证：聚焦 JVM `17/17`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。只使用 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`；没有向 Pixel_9 或其他模拟器发送命令。该入口只改变导航与列表展示，不改变 Room、Runtime、审批、权限或执行逻辑。
 - 第 143 阶段验证：导航 Saver 同时保存知识文档和 Workflow 两个一次性目标，Activity 重建后可恢复目标定位；本阶段只做聚焦 JVM 编译/测试与 Debug 编译，不重复 Redmi instrumentation、完整 JVM、Lint、AndroidTest APK 或 Release。
 - 第 144 阶段验证：`XiaoLingToolRegistryTest 37/37 + AgentSkillsTest 11/11`，聚焦 JVM 合计 `48/48`；Debug 与 AndroidTest APK 构建成功。只向 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (3 tests)`、耗时 `1.828s`；在设备列表中看到的 `emulator-5554` 未接收安装、instrumentation 或功能命令。
@@ -18,6 +18,16 @@
 - 第 145 阶段验证：聚焦 JVM 六组 `95/95`；完整 `testDebugUnitTest` 的 136 份 XML 合计 `904/904`，`0 failure / 0 error / 0 skipped`；`:app:assembleDebug` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装，Accessibility 最终为 `Enabled / Bound / Crashed services:{}`。真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三个步骤均为 `COMPLETED`；Tool Ledger 顺序为 `app.current_time`、`device.snapshot / device.open_app / device.snapshot`、`device.snapshot / device.back`，六条结果全部 `verificationStatus=PASSED`，两个动作均 `executorVerified=1`。实际打开 `com.google.android.deskclock`，最终前台 `com.longdev.xiaoling`，持久化目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。历史失败 Run `workflow-run-c6e2c804-2f47-4085-919b-3c300406b1d8` 及其来源链未修改。本阶段未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
+
+## 2026-08-07 第 156 阶段：任务诊断答案级导航
+
+- 实现：可信 `tasks.inspect` Tool part 增加“查看任务”按钮；点击经 `ConversationActions.openInspectedTask(name)` 请求 ViewModel 重新加载 Room Workflow UI 数据，完成后才解析定位。最新快照唯一精确名称匹配时传入 ID，删除、重命名、读取失败、缺失或同名时传 `null` 并降级到通用列表。
+- 信任边界：入口要求 `toolName=tasks.inspect`、`success=true`、验证状态非 `FAILED`、参数键严格为 `{name}`、名称非空且最多符合工具 Schema 的 100 字符、结果首行为“任务最近运行”。普通模型文本不能投影为 Tool part；点击不调用发送、任务执行、修改或重试路径。
+- JVM 与构建：`TaskInspectionNavigationTest` 通过；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL in 16s`。新增 AutoMirrored 图标后没有新的弃用警告，项目既有 `LocalClipboardManager` 警告仍在。
+- Redmi 定向验收：设备确认为 `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro`；两个 Debug APK 定向覆盖安装成功，`ConversationPageInstrumentedTest` 为 `OK (9 tests)`、`13.33s`。新增用例使用真实 `AGENT_RESULT + VerifiedAgentContext`，点击“查看任务”后只回调“每日回顾”且 `sendCount=0`。
+- 视觉证据边界：Redmi 主应用当前生产会话中只有既有 `tasks.list` 消息，没有可直接点击的 `tasks.inspect` 消息；本阶段没有通过篡改 Room、伪造生产消息或临时扩权 Profile 制造视觉样本。第 155 阶段真实 Provider `tasks.list -> tasks.inspect` 与 Room 受限投影证据继续作为上游工具事实。
+- 文档 corpus：六份长期文档进入 AndroidTest 资产后，Redmi `com.longdev.xiaoling.storage.RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、`2.777s`。首次沿用旧包名 `com.longdev.xiaoling.knowledge...` 时仅产生 `ClassNotFoundException`，测试未执行；确认源码当前包名后重跑通过。
+- 验证边界：未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；设备列表中的 `emulator-5554` 仅被 `adb devices -l` 枚举，未接收安装、instrumentation、日志或功能命令。
 
 ## 2026-08-07 第 155 阶段：任务最近运行只读诊断
 
