@@ -4,6 +4,12 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 164 阶段：启动中断 Run 用户提示
+
+- 已实现 `settleStartupInterruptedRuns()` 与 `projectStartupRunRecoveryNotice()`；启动恢复继续先保留三类可恢复 Run，再关闭其余旧进程候选。只有 `closeInterruptedRuns()` 实际收敛后回读为 `FAILED / CANCELLED` 的记录进入提示。
+- 提示通过现有 `OperationResult -> CenterNotice -> clearResult()` 一次性消费，只显示失败/取消数量、不重放工具和任务中心指引，不暴露目标、Run ID、原始错误或工具正文。
+- 聚焦 JVM `StartupRunRecoveryNoticePolicyTest 5/5`，`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。六份长期文档更新后，仅在 Redmi `wsvwypiz7xwslvl7` 运行 corpus gate，结果 `OK (1 test)`、耗时约 `2.8s`；Pixel_9 未接收命令。按分级验证未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+
 ## 2026-08-07 第 163 阶段：取消结果后的任务快照刷新
 
 - 已实现 `shouldRefreshWorkflowsAfterTaskCancel()`：复用可信取消终态投影，只有唯一 `tasks.cancel`、成功、typed `VERIFIED` 且命中应用生成稳定文案时才允许刷新 Workflow 快照。

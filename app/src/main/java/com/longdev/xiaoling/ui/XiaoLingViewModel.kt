@@ -394,6 +394,13 @@ private data class WorkflowUiData(
     val schedules: List<WorkflowScheduleRecord>,
 )
 
+private data class StartupAgentRecoveryState(
+    val approvalRuns: List<AgentRunDetailRecord>,
+    val committedToolRuns: List<AgentRunDetailRecord>,
+    val verifiedToolRuns: List<AgentRunDetailRecord>,
+    val notice: OperationResult?,
+)
+
 data class ChatMessage(
     val role: String,
     val text: String,
@@ -826,18 +833,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 // long: 启动恢复先冻结旧进程候选，并与当前进程已注册 Worker 隔离；后续每个恢复步骤只消费这份快照，不能重新全库扫描误伤新执行。
                 startupRecoveryCoordinator.capture()
             }
-            val (resumableApprovalRuns, resumableCommittedToolRuns, resumableVerifiedToolRuns) = withContext(Dispatchers.IO) {
+            val agentRecoveryState = withContext(Dispatchers.IO) {
                 val approvals = agentRunRepository.recoverPendingApprovalRuns(recoveryCandidates.agentRunIds)
                 val committedTools = agentRunUseCase.recoverCommittedToolRuns(recoveryCandidates.agentRunIds)
                 val verifiedTools = agentRunUseCase.recoverVerifiedToolRuns(recoveryCandidates.agentRunIds)
                 // long: 生产 Registry 已参与未验证结果的证据判定；只保留待审批、完整幂等证据或已落库 PASSED 验证的候选，其余中间态继续 fail-closed 收敛。
-                agentRunUseCase.closeInterruptedRuns(recoveryCandidates.agentRunIds)
-                Triple(approvals, committedTools, verifiedTools)
+                val notice = settleStartupInterruptedRuns(
+                    candidateRunIds = recoveryCandidates.agentRunIds,
+                    closeInterruptedRuns = agentRunUseCase::closeInterruptedRuns,
+                    loadRun = { runId -> agentRunRepository.runDetail(runId)?.snapshot?.run },
+                )
+                StartupAgentRecoveryState(
+                    approvalRuns = approvals,
+                    committedToolRuns = committedTools,
+                    verifiedToolRuns = verifiedTools,
+                    notice = notice,
+                )
             }
             val workflowState = withContext(Dispatchers.IO) {
                 // long: Agent Run 先完成恢复收敛，Workflow Ledger 再依据真实 Agent 终态对账，避免把已经取消的执行继续显示为运行中。
                 workflowRepository.reconcileInterruptedRuns(
-                    resumableAgentRunIds = (resumableCommittedToolRuns + resumableVerifiedToolRuns)
+                    resumableAgentRunIds = (agentRecoveryState.committedToolRuns + agentRecoveryState.verifiedToolRuns)
                         .map { it.snapshot.run.id }
                         .toSet(),
                     workflowRunIds = recoveryCandidates.workflowRunIds,
@@ -910,13 +926,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         workflowDeviceActionApprovalsByAgentRunId = workflowState.deviceActionApprovalsByAgentRunId,
                         scheduledTasks = workflowState.tasks,
                         workflowSchedules = workflowState.schedules,
-                        result = uiState.result,
+                        result = agentRecoveryState.notice ?: uiState.result,
                     ),
                 runtimeState = uiState,
             )
-            restoreRecoveredAgentRuns(resumableApprovalRuns)
-            resumeRecoveredCommittedToolRuns(resumableCommittedToolRuns)
-            resumeRecoveredVerifiedToolRuns(resumableVerifiedToolRuns)
+            restoreRecoveredAgentRuns(agentRecoveryState.approvalRuns)
+            resumeRecoveredCommittedToolRuns(agentRecoveryState.committedToolRuns)
+            resumeRecoveredVerifiedToolRuns(agentRecoveryState.verifiedToolRuns)
             initializationComplete = true
             while (queuedSharedDraftImports.isNotEmpty()) {
                 handleSharedDraftImport(queuedSharedDraftImports.removeFirst())

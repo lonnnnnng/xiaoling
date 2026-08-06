@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 164 阶段：启动中断 Run 用户提示（完成）
+
+- 新增 `settleStartupInterruptedRuns()`，保持 `closeInterruptedRuns()` 为唯一结算入口；只有返回正数后才按冻结候选 ID 逐一回读 `AgentRunRecord`，避免根据启动前 `EXECUTING / VERIFYING` 中间态猜测结果。
+- `projectStartupRunRecoveryNotice()` 只统计 `FAILED / CANCELLED`，合并为一个 `OperationResult`；标题和正文不接收目标、Run ID、原始错误或工具正文，并明确旧工具不会重放。
+- `XiaoLingViewModel.initialize()` 使用结构化 `StartupAgentRecoveryState` 同时保留三类可恢复 Run 与一次性提示；提示随初始化 UI 状态发布，仍由现有 `CenterNotice + clearResult()` 消费。
+- `StartupRunRecoveryNoticePolicyTest 5/5` 通过红绿循环覆盖失败隐私、取消分类、“先关闭、后回读”、无实际收敛和非终态回读五类边界；Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过，未修改 Room、Runtime、Workflow 或设备工具语义。
+
 ## 第 163 阶段：取消结果后的任务快照刷新（完成）
 
 - 新增 `shouldRefreshWorkflowsAfterTaskCancel()` 纯策略，复用 `TaskCancelCompletionPresentation` 的可信门禁；只有唯一成功且 typed `VERIFIED` 的应用生成取消结果才返回 `true`。

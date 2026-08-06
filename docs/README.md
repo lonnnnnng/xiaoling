@@ -1,5 +1,7 @@
 # 文档索引
 
+第 164 阶段完成启动中断 Run 用户提示：应用仍先按现有策略恢复待审批、已提交待验证和已验证 Run，其余候选通过 `closeInterruptedRuns()` 原子收敛后按 ID 回读 Room；只有实际进入 `FAILED / CANCELLED` 的记录才汇总为一个一次性提示。提示只显示分类数量、明确不重放工具并引导任务中心，不包含目标、Run ID 或原始错误，也不改变恢复与执行权限。聚焦 JVM `5/5`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过。
+
 第 163 阶段完成取消结果后的任务快照刷新：普通 Agent 只有在 `tasks.cancel` 成功且 typed `VERIFIED`、结果命中应用生成的稳定取消文案后，才主动刷新 Workflow/ScheduledTask/Run 的 Room 投影；未验证、模型伪造、重复取消和其他工具不会触发刷新。该切片不新增工具、权限、Room Schema 或后台能力；聚焦 JVM `8/8`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过。
 
 第 162 阶段完成取消结果到任务中心的答案级导航。可信 `tasks.cancel` Tool part 现在复用现有“查看任务”入口，但必须同时满足成功、typed `VERIFIED`、只有 `name` 参数、首行精确绑定任务名和四类应用生成的取消状态前缀；点击前仍重新读取当前 Workflow，删除、重命名或同名均降级不定位。模型文本、失败/可读但未验证结果、换行注入和其他工具不能制造导航入口。聚焦 JVM 导航测试 `5/5`、Debug APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。

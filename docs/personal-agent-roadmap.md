@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 164 阶段：启动中断 Run 用户提示（完成）
+
+- 应用启动先沿用现有恢复策略保留待审批、已提交待验证和已验证可继续的 Run；其余旧进程中间态由 `closeInterruptedRuns()` 原子收敛后，再按同一候选 ID 回读 Room 真实终态。
+- 只有本次实际收敛且回读为 `FAILED / CANCELLED` 的 Run 才汇总为一个一次性提示，明确不会重放工具并引导前往 Agent 任务中心；提示只显示分类数量，不包含目标、会话、Run ID、内部错误或工具正文。
+- 该切片不修改 Repository、恢复策略、Workflow 对账、Room Schema、工具权限或后台能力；可恢复 Run 继续走原审批/验证恢复链，不因新增提示被关闭。聚焦 JVM `5/5`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过。
+- 下一阶段继续选择真实用户场景，不重复实现已有失败 ToolResult/typed verification 原子收敛矩阵，也不提前扩展任意 App、后台设备动作或高级生态。
+
 ## 第 163 阶段：取消结果后的任务快照刷新（完成）
 
 - 普通 `/agent` 收到可信 `tasks.cancel` 终态后，前台宿主主动重新读取 Workflow、ScheduledTask 和关联 Run 的 Room 快照；用户从会话结果进入任务中心时，不再依赖页面首次打开或手动刷新才能看到取消后的状态。
