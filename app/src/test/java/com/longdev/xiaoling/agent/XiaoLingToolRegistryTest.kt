@@ -335,6 +335,7 @@ class XiaoLingToolRegistryTest {
                 "calendar.list_events",
                 "calendar.search_events",
                 "tasks.list",
+                "tasks.inspect",
                 "notes.list",
                 "notes.search",
                 "notes.create",
@@ -349,12 +350,14 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
+        assertNotNull(tools.getValue("tasks.inspect").inputSchema.singleOrNull { it.name == "name" && it.required })
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
@@ -1602,6 +1605,10 @@ class XiaoLingToolRegistryTest {
                         ),
                     )
                 }
+
+                override suspend fun inspect(name: String): AgentTaskInspectionResult {
+                    return AgentTaskInspectionResult.NotFound
+                }
             },
         )
 
@@ -1618,6 +1625,53 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("下次：2026-07-17 09:37"))
         assertTrue(result.content.contains("目标：总结今天完成的工作"))
         assertFalse(result.content.contains("workflow-private-id"))
+    }
+
+    @Test
+    fun taskInspectReturnsOnlyBoundedRunDiagnosisWithoutInternalEvidence() = runTest {
+        val registry = testRegistry(
+            taskStore = object : AgentTaskStore {
+                override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+
+                override suspend fun inspect(name: String): AgentTaskInspectionResult {
+                    assertEquals("每日回顾", name)
+                    return AgentTaskInspectionResult.Found(
+                        AgentTaskInspectionRecord(
+                            name = "每日回顾",
+                            goal = "总结今天完成的工作",
+                            enabled = true,
+                            latestRunStatus = "FAILED",
+                            latestRunTrigger = "SCHEDULED",
+                            latestRunStartedAt = 1_784_252_245_000L,
+                            latestRunCompletedAt = 1_784_252_305_000L,
+                            diagnosis = AgentTaskRunDiagnosis.STEP_FAILED,
+                            steps = listOf(
+                                AgentTaskRunStepRecord(sequence = 1, status = "COMPLETED"),
+                                AgentTaskRunStepRecord(sequence = 2, status = "FAILED"),
+                            ),
+                        ),
+                    )
+                }
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "tasks.inspect",
+                arguments = mapOf("name" to " 每日回顾 "),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("任务：每日回顾 · 已启用"))
+        assertTrue(result.content.contains("最近运行：失败 · 计划运行"))
+        assertTrue(result.content.contains("诊断：存在失败步骤"))
+        assertTrue(result.content.contains("1. 已完成"))
+        assertTrue(result.content.contains("2. 失败"))
+        assertFalse(result.content.contains("workflow-private-id"))
+        assertFalse(result.content.contains("raw-error"))
+        assertFalse(result.content.contains("tool-arguments"))
     }
 
     private fun testRegistry(
@@ -1932,6 +1986,7 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
 
 private object EmptyTestAgentTaskStore : AgentTaskStore {
     override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+    override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
 }
 
 private class FakeAgentClock(

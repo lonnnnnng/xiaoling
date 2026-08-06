@@ -793,8 +793,41 @@ data class AgentTaskRecord(
     val nextPlannedAt: Long?,
 )
 
+data class AgentTaskRunStepRecord(
+    val sequence: Int,
+    val status: String,
+)
+
+enum class AgentTaskRunDiagnosis {
+    AWAITING_ACTION,
+    STEP_FAILED,
+    SYSTEM_INTERRUPTED,
+    EXECUTION_FAILED,
+    CANCELLED,
+    EVIDENCE_INCOMPLETE,
+}
+
+data class AgentTaskInspectionRecord(
+    val name: String,
+    val goal: String,
+    val enabled: Boolean,
+    val latestRunStatus: String?,
+    val latestRunTrigger: String?,
+    val latestRunStartedAt: Long?,
+    val latestRunCompletedAt: Long?,
+    val diagnosis: AgentTaskRunDiagnosis?,
+    val steps: List<AgentTaskRunStepRecord>,
+)
+
+sealed interface AgentTaskInspectionResult {
+    data class Found(val task: AgentTaskInspectionRecord) : AgentTaskInspectionResult
+    data class Ambiguous(val matchCount: Int) : AgentTaskInspectionResult
+    data object NotFound : AgentTaskInspectionResult
+}
+
 interface AgentTaskStore {
     suspend fun list(limit: Int): List<AgentTaskRecord>
+    suspend fun inspect(name: String): AgentTaskInspectionResult
 }
 
 data class AgentNoteRecord(

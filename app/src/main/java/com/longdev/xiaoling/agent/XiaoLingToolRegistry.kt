@@ -212,6 +212,23 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = "tasks.inspect",
+            description = "按精确名称查看小灵任务最近一次运行的受限步骤状态和失败分类，不返回内部 ID、原始错误或步骤正文。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "name",
+                    description = "要查看的精确任务名称，可先通过 tasks.list 获取。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
             risk = ToolRisk.SAFE,
@@ -667,6 +684,7 @@ class XiaoLingToolRegistry(
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             "tasks.list" -> listTasks(call)
+            "tasks.inspect" -> inspectTask(call)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.create" -> createNote(call)
@@ -1034,6 +1052,54 @@ class XiaoLingToolRegistry(
             }
         }.trimEnd()
         return ToolExecutionResult(success = true, content = content)
+    }
+
+    private suspend fun inspectTask(call: ToolCall): ToolExecutionResult {
+        val name = call.arguments["name"].orEmpty().trim()
+        if (name.isBlank()) return ToolExecutionResult(success = false, content = "任务名称不能为空")
+        return when (val result = taskStore.inspect(name)) {
+            AgentTaskInspectionResult.NotFound -> ToolExecutionResult(
+                success = true,
+                content = "没有找到名称为“$name”的任务。",
+            )
+            is AgentTaskInspectionResult.Ambiguous -> ToolExecutionResult(
+                success = false,
+                content = "找到 ${result.matchCount} 个名称为“$name”的任务，请先在任务中心重命名后再查看。",
+            )
+            is AgentTaskInspectionResult.Found -> {
+                val task = result.task
+                val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
+                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
+                val content = buildString {
+                    appendLine("任务最近运行")
+                    appendLine("任务：${task.name} · ${if (task.enabled) "已启用" else "已停用"}")
+                    appendLine("目标：${task.goal}")
+                    if (task.latestRunStatus == null) {
+                        append("最近运行：暂无")
+                    } else {
+                        append("最近运行：${taskRunStatusLabel(task.latestRunStatus)}")
+                        task.latestRunTrigger?.let { trigger -> append(" · ${taskRunTriggerLabel(trigger)}") }
+                        appendLine()
+                        task.latestRunStartedAt?.let { startedAt ->
+                            appendLine("开始：${formatter.format(Instant.ofEpochMilli(startedAt))}")
+                        }
+                        task.latestRunCompletedAt?.let { completedAt ->
+                            appendLine("结束：${formatter.format(Instant.ofEpochMilli(completedAt))}")
+                        }
+                        task.diagnosis?.let { diagnosis -> appendLine("诊断：${taskRunDiagnosisLabel(diagnosis)}") }
+                        if (task.steps.isEmpty()) {
+                            append("步骤证据：暂无")
+                        } else {
+                            appendLine("步骤状态（${task.steps.size}）")
+                            task.steps.forEach { step ->
+                                appendLine("${step.sequence}. ${taskStepStatusLabel(step.status)}")
+                            }
+                        }
+                    }
+                }.trimEnd()
+                ToolExecutionResult(success = true, content = content)
+            }
+        }
     }
 
     private suspend fun listCalendarEvents(call: ToolCall): ToolExecutionResult {
@@ -1599,6 +1665,7 @@ private fun referenceInputSchema(): List<ToolInputField> = listOf(
 
 private object EmptyAgentTaskStore : AgentTaskStore {
     override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+    override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
 }
 
 private fun taskRunStatusLabel(status: String): String = when (status) {
@@ -1616,6 +1683,32 @@ private fun taskScheduleTypeLabel(type: String): String = when (type) {
     "DAILY" -> "每日提醒"
     "WEEKLY" -> "每周提醒"
     else -> "提醒"
+}
+
+private fun taskRunTriggerLabel(trigger: String): String = when (trigger) {
+    "MANUAL" -> "手动运行"
+    "SCHEDULED" -> "计划运行"
+    else -> "未知触发"
+}
+
+private fun taskStepStatusLabel(status: String): String = when (status) {
+    "PENDING" -> "未开始"
+    "RUNNING" -> "执行中"
+    "BLOCKED" -> "等待处理"
+    "COMPLETED" -> "已完成"
+    "SKIPPED" -> "已复用"
+    "FAILED" -> "失败"
+    "CANCELLED" -> "已取消"
+    else -> "未知"
+}
+
+private fun taskRunDiagnosisLabel(diagnosis: AgentTaskRunDiagnosis): String = when (diagnosis) {
+    AgentTaskRunDiagnosis.AWAITING_ACTION -> "等待用户处理"
+    AgentTaskRunDiagnosis.STEP_FAILED -> "存在失败步骤"
+    AgentTaskRunDiagnosis.SYSTEM_INTERRUPTED -> "执行被系统中断"
+    AgentTaskRunDiagnosis.EXECUTION_FAILED -> "运行失败，当前只读证据无法进一步分类"
+    AgentTaskRunDiagnosis.CANCELLED -> "运行已取消"
+    AgentTaskRunDiagnosis.EVIDENCE_INCOMPLETE -> "运行详情证据不完整"
 }
 
 class SystemAgentClock(

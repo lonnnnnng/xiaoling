@@ -1,6 +1,15 @@
 # 当前实现说明
 
-## 第 127 至 154 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 155 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 155 阶段：任务最近运行只读诊断（完成）
+
+- `AgentTaskStore` 新增 `inspect(name)`，用 `Found / NotFound / Ambiguous` 显式处理精确名称命中。`AgentTaskInspectionRecord` 只保存任务公开摘要、最近 Run 的状态/触发/时间、稳定诊断枚举和步骤序号/状态，不携带任何内部 ID 或正文证据。
+- `RoomAgentTaskStore` 复用 `listWorkflows / latestRunsForWorkflows / runDetail`。同名任务不选最新项；Run 存在但详情缺失时投影 `EVIDENCE_INCOMPLETE`，失败 Run 只按 BLOCKED、失败步骤、Worker stop 或无法分类收敛，不读取 `errorMessage / result / detail / inputSnapshot / outputSnapshot`。
+- Registry 注册 SAFE、仅前台的 `tasks.inspect(name)`，格式化任务启停、最近状态、手动/计划触发、起止时间、诊断和步骤状态。`task-overview` Skill 扩为 `tasks.list + tasks.inspect`，提示模型先取清单中的精确名称，不猜测原始错误。
+- Debug Receiver 新增 `task_inspection_real`，复用当前 Provider、正式 `AgentRunUseCase` 和只含两项工具的临时 Profile；入口只在 Debug 构建存在，不新增第二套 Runtime，也不修改生产 Profile。
+- `XiaoLingToolRegistryTest 41/41 + AgentSkillsTest 16/16 = 57/57`；Debug/AndroidTest APK 成功。Redmi `RoomAgentTaskStoreInstrumentedTest 5/5`（`2.03s`）；真实 Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 为 `COMPLETED`，`tasks.list -> tasks.inspect` 两项均 `success=true / PASSED`，内部证据字段检查通过。
+- 本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；任务修改、取消、重试、后台诊断和原始错误开放继续关闭。
 
 ## 第 154 阶段：本地笔记受控删除（完成）
 

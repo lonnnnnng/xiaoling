@@ -19,6 +19,16 @@
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
 
+## 2026-08-07 第 155 阶段：任务最近运行只读诊断
+
+- 实现：新增 SAFE、仅前台的 `tasks.inspect(name)` 和 `AgentTaskStore.inspect()`；`task-overview` Skill 先列任务，再按精确名称读取最近 Run。名称不存在返回明确空结果，同名任务失败关闭，不新增任务修改、取消、重试或后台能力。
+- 隐私边界：Room 只投影任务名称/目标/启停、Run 状态/触发/时间、步骤序号/状态和稳定诊断枚举。Workflow/Run/Step ID、原始错误、步骤详情、输入输出快照、模型文本、工具参数和 ToolResult 正文不进入工具结果；Run 详情缺失收敛为证据不完整。
+- JVM 与构建：`XiaoLingToolRegistryTest 41/41 + AgentSkillsTest 16/16 = 57/57`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Redmi Room：只向 `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装 APK 并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (5 tests)`、`2.03s`；覆盖既有列表、200 条干扰 Run、计划时间、失败步骤分类、同名拒绝和不存在任务。
+- 真实 Provider：Debug 入口使用当前 `gpt-5.6-luna + Responses`、正式 `AgentRunUseCase` 和只含 `tasks.list / tasks.inspect` 的临时 Profile。Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 为 `COMPLETED`，工具顺序严格为 `tasks.list -> tasks.inspect`，两项均 `success=true / PASSED`，受限投影字段检查通过，最终回答长度 749。
+- 文档 corpus：六份长期文档进入 AndroidTest 资产后，只在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮为 `OK (1 test)`、`2.607s`；记录本条后重新构建并复验最终资产。
+- 验证边界：未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；设备列表中的 `emulator-5554` 未接收安装、instrumentation、日志或功能命令。
+
 ## 2026-08-07 第 154 阶段：本地笔记受控删除
 
 - 实现：`AgentNoteManagementStore` 只为用户管理页扩展 `delete(id)`；生产 Agent Registry 继续依赖不含删除的 `AgentNoteStore`。详情页提供删除入口，二次确认后才提交；删除中禁用重复确认和取消。

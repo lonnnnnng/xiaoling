@@ -72,6 +72,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInTaskOverviewSkillCanInspectOnlyReadOnlyRecentRunFacts() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "每日回顾任务为什么失败了",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "task-overview" }
+        assertEquals(setOf("tasks.list", "tasks.inspect"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不猜测原始错误"))
+    }
+
+    @Test
     fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "观察当前手机界面并告诉我有哪些可访问节点",

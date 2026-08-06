@@ -112,6 +112,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_SETUP -> setup(appContext, intent)
                     OPERATION_STATUS -> reportStatus(appContext)
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
+                    OPERATION_TASK_INSPECTION_REAL -> runTaskInspectionReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
@@ -278,6 +279,92 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "tools=${toolNames.joinToString(",")} " +
                 "results=${results.joinToString(",") { "${it.toolName}:${it.success}/${it.verificationStatus}" }} " +
                 "answerSeparated=true responseLength=${summary.responseText.length}",
+        )
+    }
+
+    private suspend fun runTaskInspectionReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val profile = AgentProfileRecord(
+            id = "stage155-task-inspection-profile",
+            name = "第 155 阶段任务诊断验收",
+            avatar = "155",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "必须先读取任务清单，再按清单中的精确名称查看第一项最近运行；只陈述工具返回的受限事实。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("tasks.list", "tasks.inspect"),
+            allowedSkillIds = listOf("task-overview"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        Log.i(
+            TAG,
+            "task-inspection-real start=true provider=${provider.id} model=${provider.model} apiMode=${config.apiMode}",
+        )
+        val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+            conversationId = "conversation-redmi-task-inspection-$now",
+            userMessageId = "message-redmi-task-inspection-$now",
+            goal = "先列出最近任务，再选择清单第一项，使用清单中的完全相同名称查看它最近一次运行到哪一步、是否失败。",
+            skillSelectionGoal = "查看最近任务第一项的最近运行状态和步骤诊断。",
+            config = config,
+            summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+            agentProfile = profile.snapshot(),
+            memoryRecallEnabled = false,
+            invocationSource = AgentInvocationSource.DIRECT,
+        )
+        val detail = checkNotNull(RoomAgentRunRepository(context).runDetail(summary.runId)) {
+            "tasks.inspect 真实 Agent Run 未写入 Room"
+        }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "tasks.inspect 真实 Agent Run 未完成：${detail.snapshot.run.status}"
+        }
+        val results = detail.toolLedger.results
+        val toolNames = results.map { result -> result.toolName }
+        check(toolNames == listOf("tasks.list", "tasks.inspect")) {
+            "tasks.inspect 没有按清单到详情顺序完成两项只读工具：$toolNames"
+        }
+        check(results.all { result -> result.success && result.verificationStatus == ToolVerificationStatus.PASSED }) {
+            "tasks.inspect 工具结果未全部通过验证：$results"
+        }
+        val inspectionContent = results.last().content
+        check(inspectionContent.contains("任务最近运行")) {
+            "tasks.inspect 没有返回受限最近运行投影"
+        }
+        val forbiddenEvidence = listOf(
+            "workflowRunId",
+            "workflow-run-",
+            "agentRunId",
+            "errorMessage",
+            "inputSnapshot",
+            "outputSnapshot",
+        )
+        check(forbiddenEvidence.none(inspectionContent::contains)) {
+            "tasks.inspect 泄露内部执行证据字段"
+        }
+        Log.i(
+            TAG,
+            "task-inspection-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                "tools=${toolNames.joinToString(",")} " +
+                "results=${results.joinToString(",") { result -> "${result.toolName}:${result.success}/${result.verificationStatus}" }} " +
+                "boundedProjection=true responseLength=${summary.responseText.length}",
         )
     }
 
@@ -1903,6 +1990,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
+        const val OPERATION_TASK_INSPECTION_REAL = "task_inspection_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 155 阶段新增 SAFE、仅前台的 `tasks.inspect`，让 Agent 能在 `tasks.list` 之后按精确任务名称回答最近一次运行到哪一步、处于什么状态以及受限失败分类。Room 投影只包含任务名称/目标、启停、Run 状态/触发/时间和步骤序号/状态；内部 ID、原始错误、步骤输入输出和工具正文继续留在任务中心审计页。同名任务拒绝猜测，不存在任务和暂无 Run 都明确返回；不新增任务修改/重试、后台调用、Room Schema 或 UI 页面。聚焦 JVM、APK、Redmi Room 与真实 Provider 双工具闭环均通过。
+
 第 154 阶段为“本地笔记”加入受控删除：详情页发起、二次确认、删除中禁用重复操作。生产路径不硬删整行，而是清空用户标题/正文并保留 note ID 与幂等键；list/search/get 都过滤 tombstone，同一历史 ToolCall 重放会明确失败而不能恢复内容。该切片不新增 Room Schema、Agent 删除工具、后台能力或编辑入口。聚焦 JVM、Debug/AndroidTest APK 和 Redmi ViewModel/Page/Room 合计 `5/5` 通过。
 
 第 153 阶段新增“本地笔记”只读管理入口，把第 152 阶段 Agent 已保存的 Room 笔记直接呈现给用户：最近列表与关键词搜索均沿用最多 10 条边界，点击后按稳定 ID 回读并显示完整正文和时间。页面标题/返回固定，数据状态由独立 ViewModel 管理；没有新增 Room Schema、编辑、删除、后台写入或 Agent 扩权。定向 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel、页面、设置根和真实 Room 单项合计 `9/9`。

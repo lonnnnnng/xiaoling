@@ -1,5 +1,13 @@
 # 产品需求
 
+## 任务最近运行只读诊断（第 155 阶段，完成）
+
+- Agent 必须先通过 `tasks.list` 获得用户可见任务名称，再用 `tasks.inspect` 按去除首尾空白后的精确名称读取最近一次运行；名称不存在时明确说明，同名任务必须拒绝选择任意一项。
+- 详情只允许返回任务名称/目标/启停、最近 Run 状态、手动或计划触发、可用的起止时间，以及步骤序号/状态。失败原因只能收敛为“等待用户处理、存在失败步骤、系统中断、无法进一步分类、已取消、证据不完整”等稳定分类。
+- Workflow/Run/Step/ScheduledTask 内部 ID、原始错误、步骤目标/详情、输入输出快照、模型文本、工具参数、ToolResult 正文和审批内容不得进入 `tasks.inspect` 结果或最终回答依据。
+- `tasks.inspect` 为 SAFE、`supportsBackground=false`，只读当前 Room 事实；不修改、取消、执行或重试任务，不新增 Profile 静默扩权、Room Schema、UI 页面、Android 权限或后台能力。
+- `task-overview` Skill 必须在用户追问任务失败或执行进度时先列清单再查看精确名称，只能依据受限投影回答，不根据旧会话或原始错误猜测。聚焦 JVM `57/57`、Debug/AndroidTest APK、Redmi Room `5/5` 和真实 Provider 双工具 Run 均通过。
+
 ## 本地笔记受控删除（第 154 阶段，完成）
 
 - 用户只能从已回读的本地笔记详情发起删除，必须经过独立二次确认；删除进行中禁止重复确认、取消或其他列表操作。该操作是用户直接管理本机数据，不新增 `notes.delete` Agent 工具。

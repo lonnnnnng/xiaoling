@@ -4,12 +4,16 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.agent.AgentTaskInspectionResult
+import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
+import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.WorkflowTrigger
 import com.longdev.xiaoling.data.WorkflowRunEntity
+import com.longdev.xiaoling.data.WorkflowStepEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import java.time.ZonedDateTime
 import kotlinx.coroutines.runBlocking
@@ -105,11 +109,46 @@ class RoomAgentTaskStoreInstrumentedTest {
         assertEquals(oneTimeTask.plannedAt, task.nextPlannedAt)
     }
 
+    @Test
+    fun inspectProjectsLatestFailedRunWithoutRawErrorOrInternalIds() = runBlocking {
+        val workflow = repository.createWorkflow("每日回顾", "总结今天完成的工作")
+        val now = System.currentTimeMillis()
+        database.workflowDao().upsertRun(
+            workflowRun(
+                id = "private-workflow-run-id",
+                workflowId = workflow.id,
+                status = WorkflowRunStatus.FAILED,
+                createdAt = now,
+                errorMessage = "raw provider error with secret arguments",
+            ),
+        )
+        database.workflowDao().upsertStep(workflowStep("private-step-1", now, 1, WorkflowStepStatus.COMPLETED))
+        database.workflowDao().upsertStep(workflowStep("private-step-2", now, 2, WorkflowStepStatus.FAILED))
+
+        val result = store.inspect("每日回顾") as AgentTaskInspectionResult.Found
+
+        assertEquals("每日回顾", result.task.name)
+        assertEquals(WorkflowRunStatus.FAILED.name, result.task.latestRunStatus)
+        assertEquals(AgentTaskRunDiagnosis.STEP_FAILED, result.task.diagnosis)
+        assertEquals(listOf("COMPLETED", "FAILED"), result.task.steps.map { step -> step.status })
+        assertEquals(listOf(1, 2), result.task.steps.map { step -> step.sequence })
+    }
+
+    @Test
+    fun inspectRejectsAmbiguousNamesAndDoesNotGuessMissingTask() = runBlocking {
+        repository.createWorkflow("同名任务", "第一个任务")
+        repository.createWorkflow("同名任务", "第二个任务")
+
+        assertEquals(2, (store.inspect("同名任务") as AgentTaskInspectionResult.Ambiguous).matchCount)
+        assertEquals(AgentTaskInspectionResult.NotFound, store.inspect("不存在的任务"))
+    }
+
     private fun workflowRun(
         id: String,
         workflowId: String,
         status: WorkflowRunStatus,
         createdAt: Long,
+        errorMessage: String? = null,
     ) = WorkflowRunEntity(
         id = id,
         workflowId = workflowId,
@@ -120,10 +159,36 @@ class RoomAgentTaskStoreInstrumentedTest {
         agentRunId = null,
         status = status.name,
         result = null,
-        errorMessage = null,
+        errorMessage = errorMessage,
         createdAt = createdAt,
         startedAt = createdAt,
         completedAt = createdAt,
         retryOfWorkflowRunId = null,
+    )
+
+    private fun workflowStep(
+        id: String,
+        createdAt: Long,
+        sequence: Int,
+        status: WorkflowStepStatus,
+    ) = WorkflowStepEntity(
+        id = id,
+        workflowRunId = "private-workflow-run-id",
+        sequence = sequence,
+        type = "AGENT_RUN",
+        status = status.name,
+        title = "步骤 $sequence",
+        detail = "sensitive step input $sequence",
+        agentRunId = null,
+        result = "sensitive result $sequence",
+        errorMessage = "sensitive raw error $sequence",
+        createdAt = createdAt,
+        startedAt = createdAt,
+        completedAt = createdAt,
+        definitionStepId = null,
+        idempotencyKey = "private-idempotency-$sequence",
+        inputSnapshot = "sensitive input snapshot $sequence",
+        outputSnapshot = "sensitive output snapshot $sequence",
+        reusedFromStepId = null,
     )
 }

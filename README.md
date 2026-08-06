@@ -1,5 +1,7 @@
 # 小灵
 
+第 155 阶段补齐任务最近运行的只读诊断闭环。新增前台 SAFE `tasks.inspect`：Agent 先用 `tasks.list` 获取任务名称，再按精确名称读取最近 Run 的状态、触发方式、起止时间、步骤序号/状态和稳定失败分类；不存在时明确返回空结果，同名任务拒绝猜测。工具不返回 Workflow/Run/Step ID、原始错误、步骤输入输出、工具参数或 ToolResult 正文，不修改、取消或重试任务，也不新增 Room Schema。聚焦 JVM `57/57`、Debug/AndroidTest APK、Redmi Room `5/5` 通过；真实 Provider Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 严格执行 `tasks.list -> tasks.inspect`，两项均 `success=true / PASSED`。
+
 第 154 阶段补齐本地笔记的用户受控删除。用户只能从笔记详情发起并二次确认；生产删除会清空标题和正文，但保留 note ID 与 ToolCall 幂等键作为不可见 tombstone，确保历史 `notes.create` 重放不能恢复已撤回内容。列表、搜索和详情统一过滤 tombstone，不新增 Room Schema、Agent 工具、Profile/Skill 权限或后台能力。聚焦 `XiaoLingToolRegistryTest 40/40`、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel `2/2`、页面 `2/2` 和真实 Room tombstone `1/1` 均通过。
 
 第 153 阶段补齐本地笔记的用户可见只读入口。设置页新增“本地笔记”，复用生产 `RoomAgentNoteStore` 展示最近最多 10 条笔记、按标题或正文搜索最多 10 条，并可按稳定 ID 查看完整正文和创建/更新时间；标题与返回入口固定在滚动区之外。页面使用独立 `LocalNoteManagementViewModel`，没有继续扩大主 `XiaoLingViewModel`，也没有新增 Room Schema、编辑、删除、后台写入或新的 Agent 权限。定向 JVM、Debug/AndroidTest APK 通过；仅在 Redmi `wsvwypiz7xwslvl7` 运行 ViewModel `1/1`、页面 `2/2`、设置根 `5/5` 和真实 Room list/search/get `1/1`。
