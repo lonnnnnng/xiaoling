@@ -1,6 +1,16 @@
 # 当前实现说明
 
-## 第 127 至 153 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 154 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 154 阶段：本地笔记受控删除（完成）
+
+- 新增窄接口 `AgentNoteManagementStore : AgentNoteStore`，只为用户管理页增加 `delete(id)`；`XiaoLingToolRegistry` 仍只依赖原 `AgentNoteStore`，因此生产 Agent 工具面没有新增删除能力。
+- `AgentNoteDao.tombstoneNote()` 在原行上把 title/content 清空并推进 `updatedAt`；`getNote/list/search` 统一排除 title/content 同时为空的行，`getNoteByIdempotencyKey` 仍能读取 tombstone。该方案不修改表结构或 Room v35。
+- `RoomAgentNoteStore.delete()` 在单一 Room 事务中核对活动笔记、写入 tombstone 并通过活动查询回读不可见状态。`create()` 命中 tombstone 时抛出 `AgentNoteDeletedException`，从而保留历史 ToolCall 幂等边界且不恢复正文。原 DAO `deleteNote(id)` 仅保留给 Debug 临时测试数据清理。
+- `LocalNoteManagementViewModel` 新增请求/取消/确认三段删除状态。确认前不调用 Store；提交后先从当前快照移除目标并刷新当前列表/搜索。刷新失败时成功 notice 保持，错误明确为“笔记已删除，但列表刷新失败”。
+- 详情弹层新增删除图标入口，确认弹层展示目标标题和不可恢复边界；删除中禁用重复确认与取消。页面测试复用现有两条用例覆盖加载、详情、删除请求、二次确认和关闭。
+- 独立复核修正了删除成功后刷新失败会清空其余笔记的回归：失败分支现在保留已移除目标后的快照，测试明确锁定剩余条目可见，并验证删除中确认/取消按钮禁用。
+- `XiaoLingToolRegistryTest 40/40`、`compileDebugKotlin / compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 通过；修正后 Redmi ViewModel `2/2`（`0.247s`）、页面 `2/2`（`5.111s`），真实 Room tombstone `1/1`（`0.369s`）。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 ## 第 153 阶段：本地笔记只读管理入口（完成）
 

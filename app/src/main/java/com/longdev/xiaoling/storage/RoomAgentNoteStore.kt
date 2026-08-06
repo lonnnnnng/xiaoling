@@ -2,9 +2,10 @@ package com.longdev.xiaoling.storage
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.longdev.xiaoling.agent.AgentNoteDeletedException
 import com.longdev.xiaoling.agent.AgentNoteIdempotencyConflictException
+import com.longdev.xiaoling.agent.AgentNoteManagementStore
 import com.longdev.xiaoling.agent.AgentNoteRecord
-import com.longdev.xiaoling.agent.AgentNoteStore
 import com.longdev.xiaoling.data.AgentNoteEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import java.util.UUID
@@ -12,7 +13,7 @@ import java.util.UUID
 class RoomAgentNoteStore(
     context: Context,
     private val database: XiaoLingDatabase = XiaoLingDatabase.getInstance(context),
-) : AgentNoteStore {
+) : AgentNoteManagementStore {
     override suspend fun list(limit: Int): List<AgentNoteRecord> {
         return database.agentNoteDao()
             .list(limit.coerceIn(1, 10))
@@ -33,6 +34,7 @@ class RoomAgentNoteStore(
             val dao = database.agentNoteDao()
             val existing = dao.getNoteByIdempotencyKey(idempotencyKey)
             if (existing != null) {
+                if (existing.isDeletedTombstone()) throw AgentNoteDeletedException()
                 return@withTransaction existing.requireSamePayload(title, content).toRecord()
             }
             val now = System.currentTimeMillis()
@@ -53,6 +55,18 @@ class RoomAgentNoteStore(
         return database.agentNoteDao().getNote(id)?.toRecord()
     }
 
+    override suspend fun delete(id: String): Boolean {
+        require(id.isNotBlank()) { "笔记 ID 不能为空" }
+        return database.withTransaction {
+            val dao = database.agentNoteDao()
+            if (dao.getNote(id) == null) return@withTransaction false
+            // long: 用户删除只清空正文并保留原 ID/幂等键；历史 ToolCall 即使重放也只能命中 tombstone 并失败，不能恢复已撤回内容。
+            val changed = dao.tombstoneNote(id = id, updatedAt = System.currentTimeMillis())
+            check(changed == 1 && dao.getNote(id) == null) { "笔记删除后回读验证失败" }
+            true
+        }
+    }
+
     private fun AgentNoteRecord.toEntity(idempotencyKey: String) = AgentNoteEntity(
         id = id,
         title = title,
@@ -69,6 +83,8 @@ class RoomAgentNoteStore(
         createdAt = createdAt,
         updatedAt = updatedAt,
     )
+
+    private fun AgentNoteEntity.isDeletedTombstone(): Boolean = title.isEmpty() && content.isEmpty()
 
     private fun AgentNoteEntity.requireSamePayload(
         title: String,

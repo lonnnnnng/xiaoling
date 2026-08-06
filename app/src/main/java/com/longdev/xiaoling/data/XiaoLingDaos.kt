@@ -488,7 +488,7 @@ interface AgentNoteDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertNote(note: AgentNoteEntity)
 
-    @Query("SELECT * FROM agent_notes WHERE id = :id")
+    @Query("SELECT * FROM agent_notes WHERE id = :id AND NOT (title = '' AND content = '')")
     suspend fun getNote(id: String): AgentNoteEntity?
 
     @Query("SELECT * FROM agent_notes WHERE idempotencyKey = :idempotencyKey")
@@ -497,13 +497,23 @@ interface AgentNoteDao {
     @Query("DELETE FROM agent_notes WHERE id = :id")
     suspend fun deleteNote(id: String): Int
 
-    @Query("SELECT * FROM agent_notes ORDER BY updatedAt DESC LIMIT :limit")
+    @Query(
+        """
+        UPDATE agent_notes
+        SET title = '', content = '', updatedAt = :updatedAt
+        WHERE id = :id AND NOT (title = '' AND content = '')
+        """,
+    )
+    suspend fun tombstoneNote(id: String, updatedAt: Long): Int
+
+    @Query("SELECT * FROM agent_notes WHERE NOT (title = '' AND content = '') ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun list(limit: Int): List<AgentNoteEntity>
 
     @Query(
         """
         SELECT * FROM agent_notes
-        WHERE title LIKE :pattern OR content LIKE :pattern
+        WHERE NOT (title = '' AND content = '')
+          AND (title LIKE :pattern OR content LIKE :pattern)
         ORDER BY updatedAt DESC
         LIMIT :limit
         """,

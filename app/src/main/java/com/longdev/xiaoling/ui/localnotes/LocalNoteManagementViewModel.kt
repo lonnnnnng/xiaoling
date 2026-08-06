@@ -6,8 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.longdev.xiaoling.agent.AgentNoteManagementStore
 import com.longdev.xiaoling.agent.AgentNoteRecord
-import com.longdev.xiaoling.agent.AgentNoteStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +23,9 @@ internal data class LocalNoteManagementUiState(
     val selectedNoteId: String? = null,
     val selectedNote: AgentNoteRecord? = null,
     val loadingDetail: Boolean = false,
+    val pendingDeleteNote: AgentNoteRecord? = null,
+    val deleting: Boolean = false,
+    val notice: String? = null,
     val error: String? = null,
 )
 
@@ -33,11 +36,14 @@ internal interface LocalNoteManagementActions {
     fun clearSearch()
     fun selectNote(noteId: String)
     fun closeDetail()
+    fun requestDelete(noteId: String)
+    fun cancelDelete()
+    fun confirmDelete()
 }
 
 internal class LocalNoteManagementViewModel internal constructor(
     application: Application,
-    private val store: AgentNoteStore,
+    private val store: AgentNoteManagementStore,
 ) : AndroidViewModel(application), LocalNoteManagementActions {
     constructor(application: Application) : this(
         application = application,
@@ -49,21 +55,25 @@ internal class LocalNoteManagementViewModel internal constructor(
 
     private var listJob: Job? = null
     private var detailJob: Job? = null
+    private var mutationJob: Job? = null
 
     init {
         loadNotes(query = null)
     }
 
     override fun refresh() {
+        if (uiState.deleting) return
         val activeQuery = uiState.searchQuery.trim().takeIf { uiState.showingSearchResults && it.isNotBlank() }
         loadNotes(activeQuery)
     }
 
     override fun updateSearchQuery(value: String) {
+        if (uiState.deleting) return
         uiState = uiState.copy(searchQuery = value, error = null)
     }
 
     override fun search() {
+        if (uiState.deleting) return
         val query = uiState.searchQuery.trim()
         if (query.isBlank()) {
             clearSearch()
@@ -73,11 +83,13 @@ internal class LocalNoteManagementViewModel internal constructor(
     }
 
     override fun clearSearch() {
+        if (uiState.deleting) return
         uiState = uiState.copy(searchQuery = "", error = null)
         loadNotes(query = null)
     }
 
     override fun selectNote(noteId: String) {
+        if (uiState.deleting) return
         if (uiState.selectedNoteId == noteId && uiState.selectedNote != null) return
         detailJob?.cancel()
         uiState = uiState.copy(
@@ -108,15 +120,78 @@ internal class LocalNoteManagementViewModel internal constructor(
     }
 
     override fun closeDetail() {
+        if (uiState.deleting) return
         detailJob?.cancel()
         uiState = uiState.copy(
             selectedNoteId = null,
             selectedNote = null,
             loadingDetail = false,
+            pendingDeleteNote = null,
+            error = null,
         )
     }
 
-    private fun loadNotes(query: String?) {
+    override fun requestDelete(noteId: String) {
+        if (uiState.deleting) return
+        val note = uiState.selectedNote?.takeIf { it.id == noteId } ?: return
+        uiState = uiState.copy(pendingDeleteNote = note, error = null)
+    }
+
+    override fun cancelDelete() {
+        if (uiState.deleting) return
+        uiState = uiState.copy(pendingDeleteNote = null, error = null)
+    }
+
+    override fun confirmDelete() {
+        if (mutationJob?.isActive == true) return
+        val note = uiState.pendingDeleteNote ?: return
+        listJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(deleting = true, error = null, notice = null)
+        mutationJob = viewModelScope.launch {
+            try {
+                val deleted = withContext(Dispatchers.IO) { store.delete(note.id) }
+                val remainingNotes = uiState.notes.filterNot { it.id == note.id }
+                if (!deleted) {
+                    uiState = uiState.copy(
+                        notes = remainingNotes,
+                        selectedNoteId = null,
+                        selectedNote = null,
+                        loadingDetail = false,
+                        pendingDeleteNote = null,
+                        deleting = false,
+                        error = "笔记已不存在",
+                    )
+                    return@launch
+                }
+                val activeQuery = uiState.searchQuery.trim()
+                    .takeIf { uiState.showingSearchResults && it.isNotBlank() }
+                uiState = uiState.copy(
+                    notes = remainingNotes,
+                    selectedNoteId = null,
+                    selectedNote = null,
+                    loadingDetail = false,
+                    pendingDeleteNote = null,
+                    deleting = false,
+                    notice = "已删除笔记：${note.title}",
+                    error = null,
+                )
+                loadNotes(query = activeQuery, refreshFailurePrefix = "笔记已删除")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    deleting = false,
+                    error = error.message ?: "删除本地笔记失败",
+                )
+            }
+        }
+    }
+
+    private fun loadNotes(
+        query: String?,
+        refreshFailurePrefix: String? = null,
+    ) {
         listJob?.cancel()
         uiState = uiState.copy(loading = true, error = null)
         listJob = viewModelScope.launch {
@@ -134,11 +209,14 @@ internal class LocalNoteManagementViewModel internal constructor(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                val message = error.message ?: "无法读取本地笔记"
+                // long: 删除已提交后只能移除目标笔记；刷新失败不应让其余本地笔记也从当前页面消失。
+                val visibleNotes = if (refreshFailurePrefix == null) emptyList() else uiState.notes
                 uiState = uiState.copy(
                     loading = false,
-                    notes = emptyList(),
+                    notes = visibleNotes,
                     showingSearchResults = query != null,
-                    error = error.message ?: "无法读取本地笔记",
+                    error = refreshFailurePrefix?.let { "$it，但列表刷新失败：$message" } ?: message,
                 )
             }
         }

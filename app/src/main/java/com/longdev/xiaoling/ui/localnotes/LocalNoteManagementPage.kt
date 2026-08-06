@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -127,7 +128,18 @@ internal fun LocalNoteManagementContent(
             }
         }
 
-        state.error?.let { error ->
+        state.notice?.let { notice ->
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(notice, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(9.dp))
+            }
+        }
+
+        state.error?.takeIf { state.pendingDeleteNote == null }?.let { error ->
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -181,8 +193,21 @@ internal fun LocalNoteManagementContent(
     }
 
     when {
+        state.pendingDeleteNote != null -> {
+            LocalNoteDeleteConfirmationDialog(
+                note = state.pendingDeleteNote,
+                deleting = state.deleting,
+                error = state.error,
+                onConfirm = actions::confirmDelete,
+                onCancel = actions::cancelDelete,
+            )
+        }
         state.selectedNote != null -> {
-            LocalNoteDetailDialog(note = state.selectedNote, onClose = actions::closeDetail)
+            LocalNoteDetailDialog(
+                note = state.selectedNote,
+                onDelete = { actions.requestDelete(state.selectedNote.id) },
+                onClose = actions::closeDetail,
+            )
         }
         state.loadingDetail && state.selectedNoteId != null -> {
             LocalNoteLoadingDialog(onClose = actions::closeDetail)
@@ -229,6 +254,7 @@ private fun LocalNoteItemCard(
 @Composable
 private fun LocalNoteDetailDialog(
     note: AgentNoteRecord,
+    onDelete: () -> Unit,
     onClose: () -> Unit,
 ) {
     AlertDialog(
@@ -249,6 +275,61 @@ private fun LocalNoteDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = onClose) { Text("关闭") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "删除笔记",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(17.dp),
+                )
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        },
+    )
+}
+
+@Composable
+private fun LocalNoteDeleteConfirmationDialog(
+    note: AgentNoteRecord,
+    deleting: Boolean,
+    error: String?,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!deleting) onCancel() },
+        title = { Text("删除本地笔记") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("将永久删除“${note.title}”的标题和正文。历史 Agent 工具调用不会恢复已删除内容。")
+                error?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = !deleting) {
+                if (deleting) {
+                    CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Text(if (deleting) "删除中" else "确认删除", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !deleting) { Text("取消") }
         },
     )
 }

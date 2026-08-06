@@ -4,8 +4,8 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.longdev.xiaoling.agent.AgentNoteManagementStore
 import com.longdev.xiaoling.agent.AgentNoteRecord
-import com.longdev.xiaoling.agent.AgentNoteStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,7 +25,9 @@ class LocalNoteManagementViewModelInstrumentedTest {
             LocalNoteManagementViewModel(application = application, store = store)
         }
 
-        val initial = awaitState(viewModel) { !it.loading && it.notes.map(AgentNoteRecord::id) == listOf(NOTE_A) }
+        val initial = awaitState(viewModel) {
+            !it.loading && it.notes.map(AgentNoteRecord::id) == listOf(NOTE_A, NOTE_C)
+        }
         assertFalse(initial.showingSearchResults)
         assertEquals(listOf(10), store.listLimits)
 
@@ -49,8 +51,35 @@ class LocalNoteManagementViewModelInstrumentedTest {
 
         onMain { viewModel.clearSearch() }
         val cleared = awaitState(viewModel) { !it.loading && !it.showingSearchResults && it.searchQuery.isEmpty() }
-        assertEquals(listOf(NOTE_A), cleared.notes.map(AgentNoteRecord::id))
+        assertEquals(listOf(NOTE_A, NOTE_C), cleared.notes.map(AgentNoteRecord::id))
         assertEquals(listOf(10, 10), store.listLimits)
+    }
+
+    @Test
+    fun deleteRequiresConfirmationAndKeepsCommittedResultWhenReloadFails() {
+        val store = FakeAgentNoteStore()
+        val viewModel = onMain {
+            LocalNoteManagementViewModel(application = application, store = store)
+        }
+        awaitState(viewModel) { !it.loading && it.notes.any { note -> note.id == NOTE_A } }
+
+        onMain { viewModel.selectNote(NOTE_A) }
+        awaitState(viewModel) { it.selectedNote?.id == NOTE_A }
+        onMain { viewModel.requestDelete(NOTE_A) }
+        val pending = onMain { viewModel.uiState }
+        assertEquals(NOTE_A, pending.pendingDeleteNote?.id)
+        assertTrue(store.deleteCalls.isEmpty())
+
+        store.failNextList = true
+        onMain { viewModel.confirmDelete() }
+        val deleted = awaitState(viewModel) {
+            !it.deleting && it.notice == "已删除笔记：第一条" && it.error?.contains("列表刷新失败") == true
+        }
+
+        assertEquals(listOf(NOTE_A), store.deleteCalls)
+        assertEquals(listOf(NOTE_C), deleted.notes.map(AgentNoteRecord::id))
+        assertEquals(null, deleted.selectedNoteId)
+        assertEquals(null, deleted.pendingDeleteNote)
     }
 
     private fun awaitState(
@@ -73,19 +102,29 @@ class LocalNoteManagementViewModelInstrumentedTest {
         return result.get().getOrThrow()
     }
 
-    private class FakeAgentNoteStore : AgentNoteStore {
+    private class FakeAgentNoteStore : AgentNoteManagementStore {
         val listLimits = mutableListOf<Int>()
         val searchCalls = mutableListOf<Pair<String, Int>>()
         val getCalls = mutableListOf<String>()
+        val deleteCalls = mutableListOf<String>()
+        val deletedIds = mutableSetOf<String>()
+        var failNextList = false
 
         override suspend fun list(limit: Int): List<AgentNoteRecord> {
             listLimits += limit
-            return listOf(note(NOTE_A, "第一条", "完整正文 A"))
+            if (failNextList) {
+                failNextList = false
+                error("模拟删除提交后的列表刷新失败")
+            }
+            return listOf(
+                note(NOTE_A, "第一条", "完整正文 A"),
+                note(NOTE_C, "保留条目", "刷新失败后仍应展示"),
+            ).filterNot { it.id in deletedIds }
         }
 
         override suspend fun search(query: String, limit: Int): List<AgentNoteRecord> {
             searchCalls += query to limit
-            return listOf(note(NOTE_B, "第二条", "完整正文 B"))
+            return listOf(note(NOTE_B, "第二条", "完整正文 B")).filterNot { it.id in deletedIds }
         }
 
         override suspend fun create(title: String, content: String, idempotencyKey: String): AgentNoteRecord {
@@ -94,13 +133,25 @@ class LocalNoteManagementViewModelInstrumentedTest {
 
         override suspend fun get(id: String): AgentNoteRecord? {
             getCalls += id
-            return note(NOTE_B, "第二条", "完整正文 B").takeIf { id == NOTE_B }
+            return when (id) {
+                NOTE_A -> note(NOTE_A, "第一条", "完整正文 A")
+                NOTE_B -> note(NOTE_B, "第二条", "完整正文 B")
+                else -> null
+            }?.takeUnless { it.id in deletedIds }
+        }
+
+        override suspend fun delete(id: String): Boolean {
+            deleteCalls += id
+            val exists = get(id) != null
+            if (exists) deletedIds += id
+            return exists
         }
     }
 
     private companion object {
         const val NOTE_A = "note-a"
         const val NOTE_B = "note-b"
+        const val NOTE_C = "note-c"
 
         fun note(id: String, title: String, content: String) = AgentNoteRecord(
             id = id,

@@ -4,11 +4,14 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.longdev.xiaoling.agent.AgentNoteDeletedException
 import com.longdev.xiaoling.agent.AgentNoteIdempotencyConflictException
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -79,6 +82,42 @@ class RoomAgentNoteStoreInstrumentedTest {
         assertEquals(setOf(first.id, second.id), store.list(10).map { it.id }.toSet())
         assertEquals(listOf(second.id), store.search("海棠", 10).map { it.id })
         assertEquals(second, store.get(second.id))
+    }
+
+    @Test
+    fun userDeleteClearsContentAndPreventsHistoricalToolReplay() = runBlocking {
+        val store = openStore()
+        val target = store.create(
+            title = "需要撤回的笔记",
+            content = "这段用户内容必须被清除。",
+            idempotencyKey = "tool-call-note-user-delete",
+        )
+        val retained = store.create(
+            title = "保留的笔记",
+            content = "删除不能影响其他内容。",
+            idempotencyKey = "tool-call-note-retained",
+        )
+
+        assertTrue(store.delete(target.id))
+        assertNull(store.get(target.id))
+        assertEquals(listOf(retained.id), store.list(10).map { it.id })
+        assertTrue(store.search("用户内容", 10).isEmpty())
+        assertFalse(store.delete(target.id))
+
+        val tombstone = checkNotNull(
+            checkNotNull(database).agentNoteDao()
+                .getNoteByIdempotencyKey("tool-call-note-user-delete"),
+        )
+        assertEquals("", tombstone.title)
+        assertEquals("", tombstone.content)
+        val replayError = runCatching {
+            store.create(
+                title = "需要撤回的笔记",
+                content = "这段用户内容必须被清除。",
+                idempotencyKey = "tool-call-note-user-delete",
+            )
+        }.exceptionOrNull()
+        assertTrue(replayError is AgentNoteDeletedException)
     }
 
     @Test

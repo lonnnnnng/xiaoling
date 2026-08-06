@@ -812,8 +812,16 @@ interface AgentNoteStore {
     suspend fun get(id: String): AgentNoteRecord?
 }
 
+interface AgentNoteManagementStore : AgentNoteStore {
+    suspend fun delete(id: String): Boolean
+}
+
 class AgentNoteIdempotencyConflictException : IllegalStateException(
     "笔记工具调用已绑定到其他内容",
+)
+
+class AgentNoteDeletedException : IllegalStateException(
+    "笔记已被用户删除，不能通过历史工具调用恢复",
 )
 
 class AgentMemoryIdempotencyConflictException : IllegalStateException(

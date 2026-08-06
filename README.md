@@ -1,5 +1,7 @@
 # 小灵
 
+第 154 阶段补齐本地笔记的用户受控删除。用户只能从笔记详情发起并二次确认；生产删除会清空标题和正文，但保留 note ID 与 ToolCall 幂等键作为不可见 tombstone，确保历史 `notes.create` 重放不能恢复已撤回内容。列表、搜索和详情统一过滤 tombstone，不新增 Room Schema、Agent 工具、Profile/Skill 权限或后台能力。聚焦 `XiaoLingToolRegistryTest 40/40`、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel `2/2`、页面 `2/2` 和真实 Room tombstone `1/1` 均通过。
+
 第 153 阶段补齐本地笔记的用户可见只读入口。设置页新增“本地笔记”，复用生产 `RoomAgentNoteStore` 展示最近最多 10 条笔记、按标题或正文搜索最多 10 条，并可按稳定 ID 查看完整正文和创建/更新时间；标题与返回入口固定在滚动区之外。页面使用独立 `LocalNoteManagementViewModel`，没有继续扩大主 `XiaoLingViewModel`，也没有新增 Room Schema、编辑、删除、后台写入或新的 Agent 权限。定向 JVM、Debug/AndroidTest APK 通过；仅在 Redmi `wsvwypiz7xwslvl7` 运行 ViewModel `1/1`、页面 `2/2`、设置根 `5/5` 和真实 Room list/search/get `1/1`。
 
 第 152 阶段完成首个可直接体验的本地笔记写入闭环。Redmi `wsvwypiz7xwslvl7` 使用当前 Provider 的真实 Agent Run `run-66b689fb-6ff3-410f-a851-e0f91765047a`，由临时 `local-notes` Profile 规划并执行 `notes.create`；Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。Debug 探针随后删除测试笔记、删除临时 Profile 并恢复用户原 Profile，Run/审批审计保留。聚焦 Redmi 清理回归为 `OK (1 test)`，Debug/AndroidTest APK 构建成功；本阶段未运行完整 JVM、全量 Lint 或 Release。

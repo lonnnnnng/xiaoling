@@ -1,5 +1,13 @@
 # 产品需求
 
+## 本地笔记受控删除（第 154 阶段，完成）
+
+- 用户只能从已回读的本地笔记详情发起删除，必须经过独立二次确认；删除进行中禁止重复确认、取消或其他列表操作。该操作是用户直接管理本机数据，不新增 `notes.delete` Agent 工具。
+- 生产删除必须清空标题和正文，使 list/search/get 都不再暴露该笔记；同时必须保留原 note ID 和 ToolCall 幂等键。历史 `notes.create` 使用同一幂等键重放时必须明确失败，不能恢复用户已撤回的内容。
+- “标题和正文同时为空”只作为不可见 tombstone。正常 `notes.create` 继续拒绝空标题或空正文；Debug 测试数据清理可继续使用精确 ID 硬删除，但不能作为生产用户删除实现。
+- 删除成功后立即从当前 UI 快照移除目标并刷新当前列表或搜索结果。若删除已提交但刷新失败，必须同时保留成功提示并明确报告“删除成功、列表刷新失败”，不能把已提交副作用误报为删除失败。
+- 本阶段不新增 Room Schema、编辑、分页、批量删除、后台写入、Agent Profile/Skill 权限或 Runtime。聚焦 `XiaoLingToolRegistryTest 40/40`、Debug/AndroidTest APK 通过；Redmi ViewModel `OK (2 tests)`、页面 `OK (2 tests)`、Room tombstone `OK (1 test)`。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 本地笔记只读管理入口（第 153 阶段，完成）
 
 - 设置根页必须提供“本地笔记”独立入口，用户可以查看 Agent 已写入 `agent_notes` 的最近记录、按标题或正文关键词搜索，并点击条目查看完整正文；长期记忆和知识库仍是不同数据域，不能在 UI 中混为同一能力。
