@@ -22,6 +22,7 @@ import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
+import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
@@ -398,15 +399,13 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             ),
             conversationId = conversationId,
         )
-        // long: 夹具故意把两个步骤先收敛为成功、再把 Run 标记为失败，用来验证“只做目标级收敛”的重试语义，不调用生产工具制造额外副作用。
-        fixture.second.steps.forEachIndexed { index, step ->
-            workflowRepository.completeWorkflowStep(
-                workflowRunId = fixture.second.run.id,
-                workflowStepId = step.id,
-                status = WorkflowStepStatus.COMPLETED,
-                result = "第158阶段夹具步骤 ${index + 1} 已完成",
-            )
-        }
+        // long: 夹具只完成连续前缀并故意留下第二步失败，让真实重试同时证明前缀不重放、待执行步骤仍由前台 Workflow 完成。
+        workflowRepository.completeWorkflowStep(
+            workflowRunId = fixture.second.run.id,
+            workflowStepId = fixture.second.steps.first().id,
+            status = WorkflowStepStatus.COMPLETED,
+            result = "第158阶段夹具步骤 1 已完成",
+        )
         workflowRepository.completeRun(
             workflowRunId = fixture.second.run.id,
             status = WorkflowRunStatus.FAILED,
@@ -424,8 +423,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             apiMode = ApiMode.RESPONSES,
             systemPrompt = "只处理用户明确指定的任务名称。必须严格按 tasks.list、tasks.inspect、tasks.retry 顺序调用工具；不要调用其他工具，不要猜测任务名称。",
             contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
-            allowedToolNames = listOf("tasks.list", "tasks.inspect", "tasks.retry"),
-            allowedSkillIds = listOf("task-retry"),
+            allowedToolNames = listOf("tasks.list", "tasks.inspect", "tasks.retry", "app.current_time"),
+            allowedSkillIds = listOf("task-retry", "device-time"),
             memoryEnabled = false,
             createdAt = now,
             updatedAt = now,
@@ -492,7 +491,56 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 workflowRunId = launchRequest.workflowRunId,
             )) { "任务重试提交回执无法重新验证" }
             check(verifiedReceipt.detail.run.id == queuedDetail.run.id)
-            // long: 来源 Run 的所有步骤均已成功并被新 Run 标成 SKIPPED；前台宿主此时只完成目标级收敛，不重放任何模型或 Executor。
+            val pendingStep = checkNotNull(queuedDetail.steps.singleOrNull { step -> step.status == WorkflowStepStatus.PENDING }) {
+                "任务重试没有保留首个未完成步骤"
+            }
+            check(queuedDetail.steps.count { step -> step.status == WorkflowStepStatus.SKIPPED } == 1) {
+                "任务重试没有只复用连续成功前缀"
+            }
+            val preparedStep = workflowRepository.prepareWorkflowStep(queuedDetail.run.id, pendingStep.id)
+            val input = WorkflowStepSnapshotCodec.decodeInput(preparedStep.inputSnapshot)
+            val workflowSummary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-task-retry-workflow-$now",
+                goal = input.goal,
+                skillSelectionGoal = input.goal,
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.WORKFLOW,
+                workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                    workflowRunId = queuedDetail.run.id,
+                    workflowStepId = preparedStep.id,
+                    userIntent = preparedStep.detail,
+                    targetAppPackage = input.targetAppPackage,
+                ),
+                onSnapshot = { snapshot ->
+                    workflowRepository.markAgentRunStarted(
+                        workflowRunId = queuedDetail.run.id,
+                        workflowStepId = preparedStep.id,
+                        agentRunId = snapshot.run.id,
+                    )
+                },
+            )
+            val workflowDetail = checkNotNull(RoomAgentRunRepository(context).runDetail(workflowSummary.runId)) {
+                "重试 Workflow 步骤 Agent Run 未写入 Room"
+            }
+            check(
+                workflowDetail.snapshot.run.status == AgentRunStatus.COMPLETED &&
+                    workflowDetail.toolLedger.results.map { result -> result.toolName } == listOf("app.current_time") &&
+                    workflowDetail.toolLedger.results.all { result ->
+                        result.success && result.verificationStatus == ToolVerificationStatus.PASSED
+                    },
+            ) { "重试 Workflow 步骤没有完成 app.current_time 验证：$workflowDetail" }
+            val completedStep = workflowRepository.completeWorkflowStep(
+                workflowRunId = queuedDetail.run.id,
+                workflowStepId = preparedStep.id,
+                status = WorkflowStepStatus.COMPLETED,
+                result = workflowSummary.responseText,
+                verifiedToolNames = listOf("app.current_time"),
+            )
+            check(completedStep.status == WorkflowStepStatus.COMPLETED)
             val completedRetry = workflowRepository.completeRun(
                 workflowRunId = queuedDetail.run.id,
                 status = WorkflowRunStatus.COMPLETED,
@@ -505,8 +553,11 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             }
             check(sourceAfter == sourceBefore) { "任务重试修改了来源 Run 或步骤事实" }
             check(completedDetail.run.retryOfWorkflowRunId == sourceBefore.run.id)
-            check(completedDetail.steps.all { step -> step.status == WorkflowStepStatus.SKIPPED }) {
-                "全步骤成功前缀重试不应重新执行步骤：${completedDetail.steps.map { it.status }}"
+            check(completedDetail.steps.map { step -> step.status } == listOf(
+                WorkflowStepStatus.SKIPPED,
+                WorkflowStepStatus.COMPLETED,
+            )) {
+                "任务重试步骤没有保持成功前缀并完成待执行步骤：${completedDetail.steps.map { it.status }}"
             }
             check(completedDetail.run.status == WorkflowRunStatus.COMPLETED) {
                 "任务重试目标级收敛未完成：${completedDetail.run.status}"
@@ -516,7 +567,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "task-retry-real success=true agentRun=${summary.runId} tools=${toolNames.joinToString(",")} " +
                     "sourceRunStatus=${sourceAfter.run.status} retryRunStatus=${completedDetail.run.status} " +
                     "retryRunLinked=true reusedSteps=${completedDetail.steps.count { it.status == WorkflowStepStatus.SKIPPED }} " +
-                    "oldRunUnchanged=true foregroundWorkflow=true finalizationOnly=true",
+                    "oldRunUnchanged=true foregroundWorkflow=true finalizationOnly=false",
             )
         } finally {
             workflowRepository.setEnabled(fixture.first.id, false)
