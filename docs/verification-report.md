@@ -4,6 +4,8 @@
 
 ## 当前验证基线
 
+- 第 159 阶段受控任务重试用户可见终态已完成：新增纯终态投影和 ViewModel 完成/失败/取消接线，排队 ToolResult 不再被当成 Workflow 完成。聚焦 JVM `TaskRetryCompletionPresentationTest 4/4 + TaskRetryLaunchPolicyTest 2/2 + XiaoLingToolRegistryTest 44/44 = 50/50`，`:app:assembleDebug` 成功。Debug APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7`；真实 Provider `task_retry_real` 日志为 `sourceRunStatus=FAILED / retryRunStatus=COMPLETED / retryRunLinked=true / reusedSteps=1 / oldRunUnchanged=true / foregroundWorkflow=true / completionVisible=true`，并确认 `cleanup=true workflowDisabled=true temporaryProfileRemoved=true`。AndroidTest APK 仅为文档 corpus gate 构建并运行单项；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；模拟器未接收安装、启动或测试命令。
+
 - 第 158 阶段真实 Provider 受控重试已完成：Redmi `wsvwypiz7xwslvl7` 上 Debug-only `task_retry_real` 最终运行成功，真实工具顺序为 `tasks.list -> tasks.inspect -> tasks.retry`，三项 Tool Ledger 均 `success=true / verificationStatus=PASSED`。生产 `TaskRetryLaunchPolicy` 通过后，新 Run 与来源 Run 正确关联；来源保持 `FAILED`，首个步骤复用为 `SKIPPED`，第二个 `app.current_time` 步骤由关联前台 Workflow 真实执行并完成目标级收敛。清理日志确认临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `OK (1 test)` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，Pixel_9 未接收命令。
 
 - 第 157 阶段开发验证已完成：`tasks.retry` 受控重试、前台接管和 stale Registry context 修复均已落地。聚焦 JVM 四个类共 `130/130` 通过，Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (8 tests)`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；Pixel_9 仅在设备列表枚举，未接收命令。
@@ -14,7 +16,7 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 156 阶段继续真实使用打磨。第 152 至 154 阶段完成本地笔记写入、只读管理和受控删除，第 155 至 156 阶段形成“任务清单 -> 最近运行受限诊断 -> 答案级查看任务”的只读闭环。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、笔记编辑/分页/批量/后台写入、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 159 阶段继续真实使用打磨。第 152 至 154 阶段完成本地笔记写入、只读管理和受控删除，第 155 至 159 阶段形成“任务清单 -> 最近运行受限诊断 -> 答案级查看任务 -> 受控重试 -> 真实执行 -> 用户可见终态”闭环。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。任务取消/停止仍需分别设计审批与副作用语义；后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、笔记编辑/分页/批量/后台写入、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 第 142 阶段验证：聚焦 JVM `17/17`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。只使用 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`；没有向 Pixel_9 或其他模拟器发送命令。该入口只改变导航与列表展示，不改变 Room、Runtime、审批、权限或执行逻辑。
 - 第 143 阶段验证：导航 Saver 同时保存知识文档和 Workflow 两个一次性目标，Activity 重建后可恢复目标定位；本阶段只做聚焦 JVM 编译/测试与 Debug 编译，不重复 Redmi instrumentation、完整 JVM、Lint、AndroidTest APK 或 Release。
 - 第 144 阶段验证：`XiaoLingToolRegistryTest 37/37 + AgentSkillsTest 11/11`，聚焦 JVM 合计 `48/48`；Debug 与 AndroidTest APK 构建成功。只向 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (3 tests)`、耗时 `1.828s`；在设备列表中看到的 `emulator-5554` 未接收安装、instrumentation 或功能命令。
@@ -22,6 +24,14 @@
 - 第 145 阶段验证：聚焦 JVM 六组 `95/95`；完整 `testDebugUnitTest` 的 136 份 XML 合计 `904/904`，`0 failure / 0 error / 0 skipped`；`:app:assembleDebug` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装，Accessibility 最终为 `Enabled / Bound / Crashed services:{}`。真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三个步骤均为 `COMPLETED`；Tool Ledger 顺序为 `app.current_time`、`device.snapshot / device.open_app / device.snapshot`、`device.snapshot / device.back`，六条结果全部 `verificationStatus=PASSED`，两个动作均 `executorVerified=1`。实际打开 `com.google.android.deskclock`，最终前台 `com.longdev.xiaoling`，持久化目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。历史失败 Run `workflow-run-c6e2c804-2f47-4085-919b-3c300406b1d8` 及其来源链未修改。本阶段未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
+
+## 2026-08-07 第 159 阶段：受控任务重试用户可见终态
+
+- 新增 `TaskRetryCompletionPresentation`。生产投影只接收任务名、Workflow 终态和复用步骤数；任务名换行归一化并限制 100 字符，`QUEUED / RUNNING` 不生成终态结果，内部 Run/Step ID、原始错误和步骤正文不能进入输出。
+- `XiaoLingViewModel` 在关联重试成功完成、取消或失败并由 Repository 收敛后，才向原会话追加一次结果；成功明确任务已完成和旧 Run 不变，失败/取消明确不恢复或重放旧执行栈并引导任务中心。`tasks.retry` 原 ToolResult 继续只表示提交排队。
+- 聚焦 JVM 三类合计 `50/50`，`:app:assembleDebug` 为 `BUILD SUCCESSFUL`。Debug APK 只安装到 Redmi；没有对 `emulator-5554` 发送安装、启动、instrumentation 或功能命令。
+- Redmi 真实 Provider 复用 `task_retry_real`：工具顺序仍为 `tasks.list,tasks.inspect,tasks.retry`，最终日志为 `success=true`、来源 `FAILED`、关联新 Run `COMPLETED`、复用 1 步、旧 Run 不变、`completionVisible=true`；生产投影同时断言新旧 Run ID 均未进入文案。清理日志确认夹具停用、临时 Profile 删除。
+- 本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；AndroidTest APK 仅为六份长期文档同步后的文档 corpus gate 构建，随后 Redmi 单项复验 `OK (1 test)`、耗时 `2.797s`。
 
 ## 2026-08-07 第 158 阶段：真实 Provider 受控任务重试闭环
 

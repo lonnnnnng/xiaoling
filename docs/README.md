@@ -1,5 +1,7 @@
 # 文档索引
 
+第 159 阶段完成受控任务重试的用户可见终态闭环。`tasks.retry` 的可信工具结果继续只表示“关联重试已提交并排队”，前台宿主必须等 Room 中的新关联 Run 收敛为 `COMPLETED / BLOCKED / FAILED / CANCELLED` 后，才向原会话追加一次受限终态摘要。摘要只包含任务名、复用步骤数、旧 Run 不变和稳定恢复指引，不接收内部 ID、原始错误或步骤正文；失败与取消明确不会恢复或重放旧执行栈。聚焦 JVM 三类 `50/50`、Debug APK 和 Redmi 真实 Provider 闭环通过；真机日志为 `sourceRunStatus=FAILED / retryRunStatus=COMPLETED / reusedSteps=1 / oldRunUnchanged=true / completionVisible=true`，临时 Profile 与夹具均已清理。AndroidTest APK 仅为文档 corpus gate 构建并运行单项，不代表完整 instrumentation；未运行完整 JVM、全量 Lint 或 Release。
+
 第 158 阶段完成真实 Provider 的受控任务重试闭环。Debug-only 探针创建可清理的失败 Workflow 夹具，Redmi 真实 Run 严格执行 `tasks.list -> tasks.inspect -> tasks.retry`；三项结果均为 `success=true / PASSED`，生产 `TaskRetryLaunchPolicy` 通过后创建关联新 Run。来源 Run 保持 `FAILED` 与步骤事实不变，新 Run 只复用首个成功前缀为 `SKIPPED`，再由真实 Provider 执行第二个 `app.current_time` 步骤并完成目标级收敛；临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 第 157 阶段完成受控任务重试：前台直接 Agent 才能在审批后调用 `tasks.retry(name)`，按精确名称取当前最新可重试 Run，使用 ToolCall ID 的确定性新 Run 保证幂等；重复调用只回读仍为 `QUEUED` 的同一提交，已启动、步骤状态变化、最新 Run 漂移或身份不一致均拒绝。成功步骤只在新 Run 中标记 `SKIPPED` 并保留来源引用，旧 Run 与副作用不变。前台宿主必须从 Room Tool Ledger、typed `PASSED` 验证及提交回执重读后再启动 Workflow。JVM 四个聚焦类共 `130/130` 通过，Debug/AndroidTest APK 成功；仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。

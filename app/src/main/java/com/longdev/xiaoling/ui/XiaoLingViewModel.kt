@@ -4463,6 +4463,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         if (!startedTaskRetryWorkflowRunIds.add(retryDetail.run.id)) return
+        val reusedStepCount = retryDetail.steps.count { step ->
+            step.status == WorkflowStepStatus.SKIPPED && step.reusedFromStepId != null
+        }
         uiState = uiState.copy(
             sendingMessage = true,
             runningWorkflowId = retryDetail.run.workflowId,
@@ -4472,34 +4475,40 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
         try {
             // long: tasks.retry 只负责原子创建关联 Run；直接 Agent 的可信回执落库后，前台宿主才成为唯一 Workflow 执行 owner。
-            executeForegroundWorkflow(retryDetail, runtimeSelection, conversationId)
+            val completedRun = executeForegroundWorkflow(retryDetail, runtimeSelection, conversationId)
+            appendTaskRetryCompletionMessage(
+                conversationId = conversationId,
+                taskName = request.taskName,
+                status = completedRun.status,
+                reusedStepCount = reusedStepCount,
+            )
         } catch (error: CancellationException) {
-            withContext(NonCancellable + Dispatchers.IO) {
+            val cancelledRun = withContext(NonCancellable + Dispatchers.IO) {
                 workflowRepository.completeRun(
                     retryDetail.run.id,
                     WorkflowRunStatus.CANCELLED,
                     errorMessage = "用户停止任务关联重试",
                 )
             }
-            appendWorkflowMessage(
-                conversationId,
-                ChatMessage(role = "error", text = "已停止任务关联重试", createdAt = System.currentTimeMillis()),
+            appendTaskRetryCompletionMessage(
+                conversationId = conversationId,
+                taskName = request.taskName,
+                status = cancelledRun.status,
+                reusedStepCount = reusedStepCount,
             )
         } catch (error: Throwable) {
-            withContext(NonCancellable + Dispatchers.IO) {
+            val failedRun = withContext(NonCancellable + Dispatchers.IO) {
                 workflowRepository.completeRun(
                     retryDetail.run.id,
                     WorkflowRunStatus.FAILED,
                     errorMessage = error.message ?: "任务关联重试执行失败",
                 )
             }
-            appendWorkflowMessage(
-                conversationId,
-                ChatMessage(
-                    role = "error",
-                    text = "任务关联重试执行失败，请前往任务中心查看。",
-                    createdAt = System.currentTimeMillis(),
-                ),
+            appendTaskRetryCompletionMessage(
+                conversationId = conversationId,
+                taskName = request.taskName,
+                status = failedRun.status,
+                reusedStepCount = reusedStepCount,
             )
             uiState = uiState.copy(workflowError = error.message ?: "任务关联重试执行失败")
         } finally {
@@ -4507,6 +4516,25 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             refreshWorkflows()
             saveConversationSelection()
         }
+    }
+
+    private fun appendTaskRetryCompletionMessage(
+        conversationId: String,
+        taskName: String,
+        status: WorkflowRunStatus,
+        reusedStepCount: Int,
+    ) {
+        val presentation = presentTaskRetryCompletion(taskName, status, reusedStepCount) ?: return
+        // long: 终态结果只来自 Repository 已收敛的关联 Run；工具的“已排队”回执不能被误报为任务已完成。
+        appendWorkflowMessage(
+            conversationId,
+            ChatMessage(
+                role = presentation.role,
+                text = presentation.text,
+                createdAt = System.currentTimeMillis(),
+                origin = MessageOrigin.AGENT_RESULT,
+            ),
+        )
     }
 
     private suspend fun settleWorkflowLedger(

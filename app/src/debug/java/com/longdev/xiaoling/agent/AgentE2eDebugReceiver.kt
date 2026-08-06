@@ -50,6 +50,7 @@ import com.longdev.xiaoling.storage.RoomStateStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.ui.presentTaskRetryCompletion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -562,12 +563,28 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             check(completedDetail.run.status == WorkflowRunStatus.COMPLETED) {
                 "任务重试目标级收敛未完成：${completedDetail.run.status}"
             }
+            val reusedStepCount = completedDetail.steps.count { step ->
+                step.status == WorkflowStepStatus.SKIPPED && step.reusedFromStepId != null
+            }
+            val completionPresentation = checkNotNull(
+                presentTaskRetryCompletion(
+                    taskName = fixtureName,
+                    status = completedDetail.run.status,
+                    reusedStepCount = reusedStepCount,
+                ),
+            ) { "任务重试完成后没有生成用户可见终态" }
+            // long: 真机探针使用与 ViewModel 相同的受限投影，确保最终回呈只包含用户任务名和稳定终态，不夹带新旧 Run 身份。
+            check(completionPresentation.role == "assistant")
+            check(completionPresentation.text.contains("任务关联重试已完成"))
+            check(completionPresentation.text.contains("旧运行记录保持不变"))
+            check(!completionPresentation.text.contains(sourceAfter.run.id))
+            check(!completionPresentation.text.contains(completedDetail.run.id))
             Log.i(
                 TAG,
                 "task-retry-real success=true agentRun=${summary.runId} tools=${toolNames.joinToString(",")} " +
                     "sourceRunStatus=${sourceAfter.run.status} retryRunStatus=${completedDetail.run.status} " +
-                    "retryRunLinked=true reusedSteps=${completedDetail.steps.count { it.status == WorkflowStepStatus.SKIPPED }} " +
-                    "oldRunUnchanged=true foregroundWorkflow=true finalizationOnly=false",
+                    "retryRunLinked=true reusedSteps=$reusedStepCount oldRunUnchanged=true " +
+                    "foregroundWorkflow=true finalizationOnly=false completionVisible=true",
             )
         } finally {
             workflowRepository.setEnabled(fixture.first.id, false)

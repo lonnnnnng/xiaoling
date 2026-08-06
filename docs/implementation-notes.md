@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 159 阶段：受控任务重试用户可见终态（完成）
+
+- 新增纯函数 `presentTaskRetryCompletion()`，只接受用户任务名、`WorkflowRunStatus` 和复用步骤数。它为 `COMPLETED / BLOCKED / FAILED / CANCELLED` 生成稳定文案，对 `QUEUED / RUNNING` 返回空，不接收内部 ID 或原始错误。
+- `XiaoLingViewModel.startCommittedTaskRetryIfPresent()` 继续在可信 Room Tool Ledger、typed `PASSED`、提交回执和 `TaskRetryLaunchPolicy` 全部通过后接管关联 Run；完成、取消和失败分支都使用 Repository 已收敛状态调用同一投影，并在原会话追加 `AGENT_RESULT` 消息。
+- 复用步骤数只统计带 `reusedFromStepId` 的 `SKIPPED` 步骤。成功摘要明确旧运行不变；阻塞、失败和取消说明不会恢复或重放旧执行栈并引导任务中心。原始异常只留在本地 Workflow 审计和 `workflowError`，不进入最终摘要。
+- Debug-only `task_retry_real` 复用第 158 阶段真实 Provider 夹具，在新 Run 完成后调用同一生产投影，断言完成文案、旧 Run 不变以及新旧 Run ID 均未泄漏；最终日志新增 `completionVisible=true`。
+- `TaskRetryCompletionPresentationTest 4/4 + TaskRetryLaunchPolicyTest 2/2 + XiaoLingToolRegistryTest 44/44 = 50/50`，Debug APK 构建成功。Redmi 真实链再次通过并清理临时 Profile/夹具；AndroidTest APK 仅为文档 corpus gate 构建，未运行默认完整 instrumentation、完整 JVM、全量 Lint 或 Release。
+
 ## 第 158 阶段：真实 Provider 受控任务重试闭环（完成）
 
 - `AgentE2eDebugReceiver` 新增 `task_retry_real`，读取当前 Provider 后创建带两个已完成步骤、最终故意失败的 Debug-only Workflow 夹具；夹具不调用生产工具制造副作用，完成后仅停用并保留审计。
@@ -18,7 +26,7 @@
 - `TaskRetryLaunchPolicy` 只接受 `COMPLETED` Agent Run、单一可信重试调用、成功 typed 验证和一致提交回执；启动条件还要求同会话、`QUEUED`、无 Agent 关联、存在步骤且只含 `SKIPPED / PENDING`。重复启动由进程内 Run ID 集合抑制。
 - JVM 四个聚焦类共 `130/130`，Debug/AndroidTest APK 构建成功；Redmi `RoomAgentTaskStoreInstrumentedTest` 全类 `8/8` 通过。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
-## 第 127 至 156 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 159 阶段实现顺序（主线完成，真实任务打磨继续）
 
 ## 第 156 阶段：任务诊断答案级导航（完成）
 

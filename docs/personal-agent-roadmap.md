@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 159 阶段：受控任务重试用户可见终态（完成）
+
+- `tasks.retry` 的 ToolResult 仍只确认关联新 Run 已原子提交并排队；模型总结和排队文案不能升级为任务完成事实。
+- 前台宿主在关联 Run 真正收敛后，按 Room 终态向原会话追加一次结果。成功明确已完成、复用步骤数与旧 Run 不变；阻塞、失败和取消说明稳定恢复边界，并引导用户前往任务中心查看受限诊断。
+- 终态投影不接收 Workflow/Run/Step ID、原始错误或步骤正文，任务名会清理换行并限制为 100 字符；失败与取消不会恢复或重放旧执行栈。进程内仍按关联 Run ID 去重启动，不新增任务权限、Room Schema、后台执行或第二套 Runtime。
+- 聚焦 JVM 三类 `50/50` 与 Debug APK 通过。仅向 Redmi 安装；真实 Provider 再次完成 `tasks.list -> tasks.inspect -> tasks.retry -> 前台 Workflow`，日志确认来源 `FAILED`、新 Run `COMPLETED`、复用 1 步、旧 Run 不变且 `completionVisible=true`，临时 Profile 与夹具均已清理。
+- 下一阶段可单独设计受控任务取消或停止，但必须分别冻结审批、幂等、迟到结果和已提交副作用语义；不从重试闭环顺带扩权。自然 LMK、主动断网、5 至 10 分钟任务、任意 App、后台设备动作、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 与本地模型继续后置。
+
 ## 第 158 阶段：真实 Provider 受控任务重试闭环（完成）
 
 - 在第 157 阶段的受控重试生产能力之上，使用 Redmi 当前 Provider 完成 `tasks.list -> tasks.inspect -> tasks.retry -> 前台 Workflow` 完整闭环。
