@@ -63,6 +63,25 @@ class RoomAgentNoteStoreInstrumentedTest {
     }
 
     @Test
+    fun listSearchAndGetServeTheReadOnlyManagementPage() = runBlocking {
+        val store = openStore()
+        val first = store.create(
+            title = "第一条本地笔记",
+            content = "用于验证最近列表。",
+            idempotencyKey = "tool-call-note-management-first",
+        )
+        val second = store.create(
+            title = "第二条本地笔记",
+            content = "正文包含唯一检索词：海棠。",
+            idempotencyKey = "tool-call-note-management-second",
+        )
+
+        assertEquals(setOf(first.id, second.id), store.list(10).map { it.id }.toSet())
+        assertEquals(listOf(second.id), store.search("海棠", 10).map { it.id })
+        assertEquals(second, store.get(second.id))
+    }
+
+    @Test
     fun debugProbeCleanupDeletesOnlyTheRequestedNote() = runBlocking {
         val store = openStore()
         val target = store.create(

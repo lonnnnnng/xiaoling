@@ -80,6 +80,7 @@ import com.longdev.xiaoling.ui.memory.MemoryManagementPage
 import com.longdev.xiaoling.ui.memory.MemoryManagementDialogs
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
 import com.longdev.xiaoling.ui.memory.MemoryManagementUiState
+import com.longdev.xiaoling.ui.localnotes.LocalNoteManagementPage
 import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsPage
 import com.longdev.xiaoling.ui.networksettings.NetworkRequestSettingsUiState
 import com.longdev.xiaoling.ui.provider.ProviderManagementPage
@@ -339,6 +340,9 @@ private fun XiaoLingContent(
                         onOpenAnswerabilityShadow = { navigation.openSettingsPane(SettingsPane.ANSWERABILITY_SHADOW) },
                         onOpenMemoryManagement = {
                             navigation.openSettingsPane(SettingsPane.MEMORY_MANAGEMENT)
+                        },
+                        onOpenLocalNoteManagement = {
+                            navigation.openSettingsPane(SettingsPane.LOCAL_NOTE_MANAGEMENT)
                         },
                         onOpenKnowledgeManagement = {
                             navigation.openSettingsPane(
@@ -734,6 +738,7 @@ private fun SettingsPage(
     onOpenCalendarAccess: () -> Unit,
     onOpenAnswerabilityShadow: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
+    onOpenLocalNoteManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
@@ -804,6 +809,10 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.LOCAL_NOTE_MANAGEMENT -> LocalNoteManagementPage(
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.KNOWLEDGE_MANAGEMENT -> KnowledgeManagementPage(
                 onBack = onBackToSettings,
                 preferredDocumentId = requestedKnowledgeDocumentId,
@@ -869,6 +878,7 @@ private fun SettingsPage(
                     override fun openCalendarAccess() = onOpenCalendarAccess()
                     override fun openAnswerabilityShadow() = onOpenAnswerabilityShadow()
                     override fun openMemoryManagement() = onOpenMemoryManagement()
+                    override fun openLocalNoteManagement() = onOpenLocalNoteManagement()
                     override fun openKnowledgeManagement() = onOpenKnowledgeManagement()
                     override fun openKnowledgeRelevanceRollout() = onOpenKnowledgeRelevanceRollout()
                     override fun openSkillManagement() = onOpenSkillManagement()

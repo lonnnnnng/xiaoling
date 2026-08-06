@@ -144,6 +144,13 @@ internal fun SettingsRootPage(
             )
 
             SettingsEntryCard(
+                title = "本地笔记",
+                subtitle = "浏览并搜索 Agent 已保存到本机的笔记",
+                icon = Icons.Default.Description,
+                onClick = actions::openLocalNoteManagement,
+            )
+
+            SettingsEntryCard(
                 title = "知识库",
                 subtitle = "导入文档，管理启停、替换与本地检索预览",
                 icon = Icons.Default.Description,

@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 153 阶段：本地笔记只读管理入口（完成）
+
+- 第 152 阶段已证明 Agent 能经审批、幂等写入并回读本地笔记；本阶段补上用户可直接查看结果的设置入口，形成“自然语言写入 -> Room 持久化 -> 用户列表/搜索/详情核对”的可见闭环。
+- 设置根新增“本地笔记”，最近列表和标题/正文搜索各最多 10 条，点击后按稳定 ID 显示完整正文及创建/更新时间；标题和返回入口固定在滚动区之外。
+- 页面状态由独立 `LocalNoteManagementViewModel + RoomAgentNoteStore` 承担，不继续扩张主 ViewModel，不新增 Room Schema、Agent Runtime、Profile/Skill 权限或后台能力。
+- 本阶段保持严格只读，不提供创建、编辑、删除或批量操作；Agent 写入仍只能走第 152 阶段已有的 `notes.create` 审批、ToolCall ID 幂等和写后回读链。
+- 定向 JVM、Debug/AndroidTest APK 和 Redmi ViewModel `1/1`、页面 `2/2`、设置根 `5/5`、真实 Room `1/1` 均通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+- 下一阶段继续选择一个能直接增强个人 Agent 使用闭环的单一场景；笔记分页/编辑/删除、后台写入、自然 LMK、主动断网、5 至 10 分钟任务和 Foreground Service 不与本阶段捆绑。
+
 ## 第 152 阶段：本地笔记写入闭环（完成）
 
 - 选择回到可直接体验的个人 Agent 主线：用户自然语言提出“记录一条本地笔记”的目标，真实 Provider Agent 在冻结的 `local-notes` Skill 和 `notes.search / notes.create / notes.list` Profile 白名单内规划并执行；没有新增 Runtime、后台能力或 Room Schema。

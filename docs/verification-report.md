@@ -10,7 +10,7 @@
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。
 - 本地发布构建：只执行 `:app:assembleRelease`，结果为 `BUILD SUCCESSFUL in 1m 52s`。构建内部正常经过 R8 与 release lintVital task，但没有单独运行完整 JVM、完整 Lint、Debug/AndroidTest APK 或其他测试任务。
 - Redmi 发布验收：按用户“不要验证，直接发版”的明确要求，本轮没有安装 `v0.1.15`，没有运行 instrumentation、冷启动、版本回读、Accessibility 或 crash 收尾，也没有向 Pixel/模拟器发送 ADB 命令。第 126/127 阶段既有 Redmi 聚焦证据保留为功能阶段事实，不记作本次发布门禁。
-- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 151 阶段继续真实使用打磨。第 151 阶段新增两条约 92 至 96 秒的真实 WorkManager 成功样本和一条人工 `force-stop` 安全收敛样本，并修复 ToolResult 已验证但 Agent 尚未总结时的取消持久化缺陷。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
+- 当前开发主线：第 127 至 132 阶段完整个人 Agent 主线已经完成，开发数据库保持 Room v35；第 133 至 153 阶段继续真实使用打磨。第 152 阶段完成本地笔记真实写入，第 153 阶段补齐列表、搜索和只读详情入口。第 132 阶段完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK、三条 Redmi 完整任务和默认 instrumentation `282/282` 继续作为最近完整门禁；自然 LMK、主动断网与 5 至 10 分钟任务仍无证据。后台设备自动化、恢复旧执行栈、坐标、截图、任意 App、笔记编辑/删除/后台写入、JSON/SAF、生产 answerability enforcement、精确定时和 Foreground Service 继续关闭。
 - 第 142 阶段验证：聚焦 JVM `17/17`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。只使用 Redmi `wsvwypiz7xwslvl7` 运行 `ConversationPageInstrumentedTest + WorkflowManagementPageInstrumentedTest`，结果为 `OK (18 tests)`；没有向 Pixel_9 或其他模拟器发送命令。该入口只改变导航与列表展示，不改变 Room、Runtime、审批、权限或执行逻辑。
 - 第 143 阶段验证：导航 Saver 同时保存知识文档和 Workflow 两个一次性目标，Activity 重建后可恢复目标定位；本阶段只做聚焦 JVM 编译/测试与 Debug 编译，不重复 Redmi instrumentation、完整 JVM、Lint、AndroidTest APK 或 Release。
 - 第 144 阶段验证：`XiaoLingToolRegistryTest 37/37 + AgentSkillsTest 11/11`，聚焦 JVM 合计 `48/48`；Debug 与 AndroidTest APK 构建成功。只向 Redmi `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (3 tests)`、耗时 `1.828s`；在设备列表中看到的 `emulator-5554` 未接收安装、instrumentation 或功能命令。
@@ -18,6 +18,16 @@
 - 第 145 阶段验证：聚焦 JVM 六组 `95/95`；完整 `testDebugUnitTest` 的 136 份 XML 合计 `904/904`，`0 failure / 0 error / 0 skipped`；`:app:assembleDebug` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装，Accessibility 最终为 `Enabled / Bound / Crashed services:{}`。真实 Run `workflow-run-e1b22a9e-28f9-468a-9046-a5830c0c4f7f` 三个步骤均为 `COMPLETED`；Tool Ledger 顺序为 `app.current_time`、`device.snapshot / device.open_app / device.snapshot`、`device.snapshot / device.back`，六条结果全部 `verificationStatus=PASSED`，两个动作均 `executorVerified=1`。实际打开 `com.google.android.deskclock`，最终前台 `com.longdev.xiaoling`，持久化目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。历史失败 Run `workflow-run-c6e2c804-2f47-4085-919b-3c300406b1d8` 及其来源链未修改。本阶段未运行全量 Lint、AndroidTest APK、默认 instrumentation 或 Release。
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
+
+## 2026-08-06 第 153 阶段：本地笔记只读管理入口
+
+- 实现：设置根新增“本地笔记”，经 `XiaoLingSettingsPane.LOCAL_NOTE_MANAGEMENT` 进入独立页面。`LocalNoteManagementViewModel` 默认注入生产 `RoomAgentNoteStore`，读取最近最多 10 条，按标题/正文搜索最多 10 条，并按稳定 ID 回读详情；标题与返回固定在滚动列表之外。
+- 只读边界：页面只展示标题、正文摘要、完整正文和创建/更新时间，不提供创建、编辑、删除、批量或后台操作。没有新增 Room Schema、Android 权限、Agent 工具、Profile/Skill 白名单或 Runtime；第 152 阶段写入审批、幂等与回读契约保持不变。
+- 构建与 JVM：`:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、定向 `XiaoLingNavigationCoordinatorTest + SettingsRootProjectionTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Redmi 定向验收：仅向物理设备 `wsvwypiz7xwslvl7 / Redmi_Note_8_Pro` 安装 APK并运行 `LocalNoteManagementViewModelInstrumentedTest`，结果 `OK (1 test)`、`0.163s`；补齐详情加载反馈后的 `LocalNoteManagementPageInstrumentedTest` 最终为 `OK (2 tests)`、`4.469s`；`SettingsRootPageInstrumentedTest` 为 `OK (5 tests)`、`11.72s`；真实 Room `listSearchAndGetServeTheReadOnlyManagementPage` 为 `OK (1 test)`、`0.338s`。
+- 首次页面测试失败属于夹具问题：静态 fake state 不会因输入重组，且正文同时命中列表摘要和弹窗；修正测试状态与选择器后生产代码边界未改变，最终单项全部通过。
+- 文档门禁：六份长期文档重新打入 AndroidTest APK 后，Redmi `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 首轮为 `OK (1 test)`、`2.565s`；写回该证据并重建后的最终文档资产使用同一单项复验通过。
+- 验证边界：本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；设备列表中的 `emulator-5556` 未接收安装、instrumentation 或功能命令。
 
 ## 2026-08-06 第 152 阶段：本地笔记写入闭环
 

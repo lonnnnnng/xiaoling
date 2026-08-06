@@ -1,5 +1,13 @@
 # 产品需求
 
+## 本地笔记只读管理入口（第 153 阶段，完成）
+
+- 设置根页必须提供“本地笔记”独立入口，用户可以查看 Agent 已写入 `agent_notes` 的最近记录、按标题或正文关键词搜索，并点击条目查看完整正文；长期记忆和知识库仍是不同数据域，不能在 UI 中混为同一能力。
+- 最近列表与搜索结果继续复用 `AgentNoteStore` 的最多 10 条边界；详情必须按稳定 note ID 回读。页面标题和返回入口位于滚动列表之外，笔记较多时不能随内容滚出视口。
+- 该入口严格只读：不提供创建、编辑、删除、批量操作或后台入口，不新增 Room Schema、权限、Agent 工具、Profile/Skill 白名单或 Runtime。第 152 阶段的 `notes.create` 审批、幂等与回读语义保持不变。
+- UI 使用独立 `LocalNoteManagementViewModel` 注入 `RoomAgentNoteStore`，不把列表、搜索和详情状态继续塞入主 `XiaoLingViewModel`；加载、空结果、错误和详情关闭必须形成稳定状态。
+- 定向导航/设置 JVM、Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 的 ViewModel `OK (1 test)`、页面 `OK (2 tests)`、设置根 `OK (5 tests)`、真实 Room list/search/get `OK (1 test)`。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 本地笔记写入闭环（第 152 阶段，完成）
 
 - 用户以自然语言要求记录一条本机笔记时，Agent 必须在当前 Profile/Skill 白名单内规划 `notes.create`；写入前仍需要审批，不能由模型文本直接宣称已保存。

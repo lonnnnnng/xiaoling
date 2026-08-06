@@ -1,5 +1,7 @@
 # 文档索引
 
+第 153 阶段新增“本地笔记”只读管理入口，把第 152 阶段 Agent 已保存的 Room 笔记直接呈现给用户：最近列表与关键词搜索均沿用最多 10 条边界，点击后按稳定 ID 回读并显示完整正文和时间。页面标题/返回固定，数据状态由独立 ViewModel 管理；没有新增 Room Schema、编辑、删除、后台写入或 Agent 扩权。定向 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel、页面、设置根和真实 Room 单项合计 `9/9`。
+
 第 152 阶段完成首个本地笔记写入闭环：Redmi 真实 Agent Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 通过临时 `local-notes` Profile 执行 `notes.create`，Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。Debug 探针清理测试笔记、临时 Profile 并恢复原 Profile，Run/审批事实保留；聚焦 Redmi 清理回归 `OK (1 test)`，Debug/AndroidTest APK 构建成功。本阶段未运行完整 JVM、全量 Lint 或 Release。
 
 “先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 151 阶段继续真实使用打磨，并已完成只读日历与今日总览、任务结果定向查看、多级关联重试、真实 WorkManager 长任务、熄屏执行和受控进程中断收敛。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。

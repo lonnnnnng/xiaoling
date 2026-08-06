@@ -1,6 +1,15 @@
 # 当前实现说明
 
-## 第 127 至 151 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 153 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 153 阶段：本地笔记只读管理入口（完成）
+
+- `XiaoLingSettingsPane` 新增 `LOCAL_NOTE_MANAGEMENT`，设置根通过窄 `SettingsRootActions.openLocalNoteManagement()` 打开独立页面；通用返回逻辑继续把任意设置子页收敛到根页，不增加专用导航状态。
+- 新增独立 `LocalNoteManagementViewModel`，生产默认注入 `RoomAgentNoteStore`。初始化读取最近 10 条；非空查询去除首尾空白后执行标题/正文搜索，清空查询恢复最近列表；点击条目再按稳定 ID 调用 `get()`，迟到详情只允许写回仍被选中的 ID。
+- `LocalNoteManagementContent` 将标题、返回和刷新固定在列表滚动区外；正文列表只显示两行摘要，详情弹层显示完整正文、创建时间和更新时间。加载、空列表、空搜索结果和读取错误分别投影，不提供编辑、删除或创建控件。
+- 读取数量继续沿用 `AgentNoteStore` 的 `1..10` 限制。这是已有 Agent 工具数据暴露边界，不因新增 UI 静默扩大；后续若需要分页，应作为独立设计处理。
+- `LocalNoteManagementViewModelInstrumentedTest` 覆盖最近列表、去空格搜索、详情回读和清空恢复；页面测试覆盖搜索/刷新/返回 action 与只读详情；设置根测试覆盖新入口；`RoomAgentNoteStoreInstrumentedTest#listSearchAndGetServeTheReadOnlyManagementPage` 使用真实 Room 覆盖 list/search/get。
+- 定向 JVM、`compileDebugKotlin / compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 均通过；Redmi 上上述四组为 `1 + 2 + 5 + 1 = 9` 条全部通过。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 ## 第 152 阶段：本地笔记写入闭环（完成）
 

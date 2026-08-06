@@ -20,6 +20,7 @@ internal interface SettingsRootActions {
     fun openCalendarAccess()
     fun openAnswerabilityShadow()
     fun openMemoryManagement()
+    fun openLocalNoteManagement()
     fun openKnowledgeManagement()
     fun openKnowledgeRelevanceRollout()
     fun openSkillManagement()

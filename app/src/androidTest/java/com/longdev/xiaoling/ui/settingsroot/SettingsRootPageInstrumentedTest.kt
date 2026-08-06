@@ -50,6 +50,7 @@ class SettingsRootPageInstrumentedTest {
             "日历访问",
             "答案可回答性 Shadow",
             "长期记忆",
+            "本地笔记",
             "知识库",
             "相关性灰度控制面",
             "Agent Skills",
@@ -73,6 +74,7 @@ class SettingsRootPageInstrumentedTest {
                     "calendar-access",
                     "answerability-shadow",
                     "memories",
+                    "local-notes",
                     "knowledge",
                     "knowledge-relevance",
                     "skills",
@@ -218,6 +220,7 @@ class SettingsRootPageInstrumentedTest {
         override fun openCalendarAccess() = events.add("calendar-access").let { Unit }
         override fun openAnswerabilityShadow() = events.add("answerability-shadow").let { Unit }
         override fun openMemoryManagement() = events.add("memories").let { Unit }
+        override fun openLocalNoteManagement() = events.add("local-notes").let { Unit }
         override fun openKnowledgeManagement() = events.add("knowledge").let { Unit }
         override fun openKnowledgeRelevanceRollout() = events.add("knowledge-relevance").let { Unit }
         override fun openSkillManagement() = events.add("skills").let { Unit }
