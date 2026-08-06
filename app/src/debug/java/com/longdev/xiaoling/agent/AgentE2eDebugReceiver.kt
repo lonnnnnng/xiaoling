@@ -18,6 +18,7 @@ import com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicy
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
+import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -113,6 +114,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_STATUS -> reportStatus(appContext)
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
                     OPERATION_TASK_INSPECTION_REAL -> runTaskInspectionReal(appContext)
+                    OPERATION_TASK_RETRY_REAL -> runTaskRetryReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
@@ -368,6 +370,165 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         )
     }
 
+    private suspend fun runTaskRetryReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val conversationId = "conversation-redmi-task-retry-$now"
+        val fixtureName = "第158阶段任务重试夹具-$now"
+        val workflowRepository = RoomWorkflowRepository(context)
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage158-task-retry-profile"
+        // long: 上一次探针若在清理前被强停，先恢复可用的原 Profile 并删除同 ID 残留，避免本轮覆盖用户配置或让旧临时身份继续参与工具选择。
+        val existingProfiles = profileStore.list()
+        val originalProfileId = RoomStateStore(context).selectedAgentProfileId()
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        originalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+        val fixture = workflowRepository.createWorkflowAndManualRun(
+            name = fixtureName,
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取设备当前时间并保留时间事实"),
+                WorkflowStepDefinitionInput("再次读取设备当前时间并完成任务目标"),
+            ),
+            conversationId = conversationId,
+        )
+        // long: 夹具故意把两个步骤先收敛为成功、再把 Run 标记为失败，用来验证“只做目标级收敛”的重试语义，不调用生产工具制造额外副作用。
+        fixture.second.steps.forEachIndexed { index, step ->
+            workflowRepository.completeWorkflowStep(
+                workflowRunId = fixture.second.run.id,
+                workflowStepId = step.id,
+                status = WorkflowStepStatus.COMPLETED,
+                result = "第158阶段夹具步骤 ${index + 1} 已完成",
+            )
+        }
+        workflowRepository.completeRun(
+            workflowRunId = fixture.second.run.id,
+            status = WorkflowRunStatus.FAILED,
+            errorMessage = "第158阶段 Debug 夹具故意失败",
+        )
+        val sourceBefore = checkNotNull(workflowRepository.runDetail(fixture.second.run.id)) {
+            "第158阶段失败夹具未写入 Room"
+        }
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第158阶段真实任务重试验收",
+            avatar = "158",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只处理用户明确指定的任务名称。必须严格按 tasks.list、tasks.inspect、tasks.retry 顺序调用工具；不要调用其他工具，不要猜测任务名称。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("tasks.list", "tasks.inspect", "tasks.retry"),
+            allowedSkillIds = listOf("task-retry"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        profileStore.upsert(profile)
+        check(profileStore.select(profile.id)) { "无法选择第158阶段任务重试 Profile" }
+        try {
+            Log.i(
+                TAG,
+                "task-retry-real start=true provider=${provider.id} model=${provider.model} taskName=$fixtureName",
+            )
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-task-retry-$now",
+                goal = "请重试任务“$fixtureName”。必须先调用 tasks.list，再使用清单中的完全相同名称调用 tasks.inspect，最后调用 tasks.retry。",
+                skillSelectionGoal = "重试任务“$fixtureName”",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = RoomAgentRunRepository(context),
+                    reason = "第158阶段 Redmi 真实任务重试验收批准",
+                ),
+            )
+            val detail = checkNotNull(RoomAgentRunRepository(context).runDetail(summary.runId)) {
+                "tasks.retry 真实 Agent Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "tasks.retry 真实 Agent Run 未完成：${detail.snapshot.run.status}"
+            }
+            val toolNames = detail.toolLedger.results.map { result -> result.toolName }
+            check(toolNames == listOf("tasks.list", "tasks.inspect", "tasks.retry")) {
+                "tasks.retry 没有按清单、诊断、重试顺序完成：$toolNames"
+            }
+            check(detail.toolLedger.results.all { result -> result.success && result.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "任务重试 Tool Ledger 未全部通过 typed 验证：${detail.toolLedger.results}"
+            }
+            val launchRequest = checkNotNull(TaskRetryLaunchPolicy.resolve(detail)) {
+                "任务重试没有通过生产 TaskRetryLaunchPolicy"
+            }
+            val queuedDetail = checkNotNull(workflowRepository.runDetail(launchRequest.workflowRunId)) {
+                "任务重试关联 Run 未写入 Room"
+            }
+            check(TaskRetryLaunchPolicy.canStart(launchRequest, queuedDetail, conversationId)) {
+                "任务重试关联 Run 未满足前台 Workflow 启动契约"
+            }
+            val verifiedReceipt = checkNotNull(workflowRepository.verifyTaskRetry(
+                name = fixtureName,
+                conversationId = conversationId,
+                idempotencyKey = detail.toolLedger.calls.single { it.toolName == "tasks.retry" }.id,
+                workflowRunId = launchRequest.workflowRunId,
+            )) { "任务重试提交回执无法重新验证" }
+            check(verifiedReceipt.detail.run.id == queuedDetail.run.id)
+            // long: 来源 Run 的所有步骤均已成功并被新 Run 标成 SKIPPED；前台宿主此时只完成目标级收敛，不重放任何模型或 Executor。
+            val completedRetry = workflowRepository.completeRun(
+                workflowRunId = queuedDetail.run.id,
+                status = WorkflowRunStatus.COMPLETED,
+            )
+            val sourceAfter = checkNotNull(workflowRepository.runDetail(sourceBefore.run.id)) {
+                "任务重试后来源 Run 丢失"
+            }
+            val completedDetail = checkNotNull(workflowRepository.runDetail(completedRetry.id)) {
+                "任务重试新 Run 完成后无法回读"
+            }
+            check(sourceAfter == sourceBefore) { "任务重试修改了来源 Run 或步骤事实" }
+            check(completedDetail.run.retryOfWorkflowRunId == sourceBefore.run.id)
+            check(completedDetail.steps.all { step -> step.status == WorkflowStepStatus.SKIPPED }) {
+                "全步骤成功前缀重试不应重新执行步骤：${completedDetail.steps.map { it.status }}"
+            }
+            check(completedDetail.run.status == WorkflowRunStatus.COMPLETED) {
+                "任务重试目标级收敛未完成：${completedDetail.run.status}"
+            }
+            Log.i(
+                TAG,
+                "task-retry-real success=true agentRun=${summary.runId} tools=${toolNames.joinToString(",")} " +
+                    "sourceRunStatus=${sourceAfter.run.status} retryRunStatus=${completedDetail.run.status} " +
+                    "retryRunLinked=true reusedSteps=${completedDetail.steps.count { it.status == WorkflowStepStatus.SKIPPED }} " +
+                    "oldRunUnchanged=true foregroundWorkflow=true finalizationOnly=true",
+            )
+        } finally {
+            workflowRepository.setEnabled(fixture.first.id, false)
+            originalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(profile.id)
+            check(profileStore.list().none { it.id == profile.id }) {
+                "第158阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "task-retry-real cleanup=true workflowDisabled=true temporaryProfileRemoved=true")
+        }
+    }
+
     private suspend fun runNotesCreateReal(context: Context) {
         val storedProvider = ProviderRepository(context).load()
         val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
@@ -477,6 +638,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
     private class DebugRoomApprovalGate(
         private val conversationId: String,
         private val repository: RoomAgentRunRepository,
+        private val reason: String = "第152阶段 Redmi 真实闭环验收批准",
     ) : ApprovalGate {
         override suspend fun requestApproval(
             runId: String,
@@ -487,7 +649,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             val decided = repository.decideApprovalRequest(
                 requestId = request.id,
                 status = ApprovalRequestStatus.APPROVED,
-                reason = "第152阶段 Redmi 真实闭环验收批准",
+                reason = reason,
             )
             check(decided?.status == ApprovalRequestStatus.APPROVED) { "Debug notes.create 审批无法持久化批准" }
             return ApprovalDecision(approved = true, reason = decided.decisionReason.orEmpty())
@@ -1991,6 +2153,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
         const val OPERATION_TASK_INSPECTION_REAL = "task_inspection_real"
+        const val OPERATION_TASK_RETRY_REAL = "task_retry_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"

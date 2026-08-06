@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 158 阶段：真实 Provider 受控任务重试闭环（完成）
+
+- 在第 157 阶段的受控重试生产能力之上，使用 Redmi 当前 Provider 完成 `tasks.list -> tasks.inspect -> tasks.retry -> 前台 Workflow` 完整闭环。
+- Debug-only 失败夹具只用于提供稳定的 `FAILED` 来源 Run；真实模型、审批、Tool Ledger、typed verification、幂等回执和 `TaskRetryLaunchPolicy` 均走正式入口。
+- 来源 Run 保持不变，新 Run 通过 `retryOfWorkflowRunId` 关联；全部步骤已成功时只进行目标级收敛，所有步骤保持 `SKIPPED`，不重放模型或 Executor。临时 Profile 已删除，夹具 Workflow 已停用。
+- Redmi 真实闭环、聚焦 JVM、Debug/AndroidTest APK 和文档 corpus gate 均通过；Pixel_9 未接收命令。
+- 下一阶段继续选择单一真实个人 Agent 场景，优先补齐任务操作的用户可见结果与错误恢复边界；不从本阶段扩展任意 App、后台设备动作、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 157 阶段：受控任务重试（完成）
 
 - 在第 155/156 阶段只读任务清单、诊断和答案级定位之后，补齐一个受控写操作：用户明确要求重试时，Agent 通过审批调用 `tasks.retry(name)`，只处理当前最新可重试 Run，不回退历史失败 Run。

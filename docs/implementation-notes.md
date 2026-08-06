@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 158 阶段：真实 Provider 受控任务重试闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增 `task_retry_real`，读取当前 Provider 后创建带两个已完成步骤、最终故意失败的 Debug-only Workflow 夹具；夹具不调用生产工具制造副作用，完成后仅停用并保留审计。
+- 探针使用正式 `AgentRunUseCase`、`XiaoLingToolRegistry`、`RoomAgentRunRepository` 和临时 `task-retry` Profile，让真实模型严格完成 `tasks.list -> tasks.inspect -> tasks.retry`。`DebugRoomApprovalGate` 将 `tasks.retry` 审批写入 Room 并返回批准。
+- 真实 Agent Run 完成后，探针调用生产 `TaskRetryLaunchPolicy.resolve/canStart`，再从 `RoomWorkflowRepository` 回读关联新 Run；由于来源步骤全为成功前缀，新 Run 全部 `SKIPPED`，探针按生产目标级收敛语义调用 `completeRun(COMPLETED)`，不重放模型或 Executor。
+- 结束时断言来源 Run 与步骤快照完全不变、`retryOfWorkflowRunId` 正确关联、关联 Run 最终完成，并恢复原 Profile、删除临时 Profile、停用夹具 Workflow。两次 Redmi 真实运行均成功。
+- 定向 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；没有运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 第 157 阶段：受控任务重试（完成）
 
 - `AgentSkillCatalog` 新增独立 `task-retry` Skill，工具集合为 `tasks.list / tasks.inspect / tasks.retry`；`tasks.retry` 在 `XiaoLingToolRegistry` 中声明为 `REQUIRES_APPROVAL`、`EXECUTOR_VERIFIED`、`IDEMPOTENT_BY_KEY`，只允许前台直接 Agent。

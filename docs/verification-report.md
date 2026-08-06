@@ -4,6 +4,8 @@
 
 ## 当前验证基线
 
+- 第 158 阶段真实 Provider 受控重试已完成：Redmi `wsvwypiz7xwslvl7` 上 Debug-only `task_retry_real` 两次运行均成功，真实工具顺序为 `tasks.list -> tasks.inspect -> tasks.retry`，三项 Tool Ledger 均 `success=true / verificationStatus=PASSED`。生产 `TaskRetryLaunchPolicy` 通过后，新 Run 与来源 Run 正确关联；来源保持 `FAILED`，两个成功步骤保持不变，新 Run 两步均为 `SKIPPED` 并完成目标级收敛。清理日志确认临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `OK (1 test)` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，Pixel_9 未接收命令。
+
 - 第 157 阶段开发验证已完成：`tasks.retry` 受控重试、前台接管和 stale Registry context 修复均已落地。聚焦 JVM 四个类共 `130/130` 通过，Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (8 tests)`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；Pixel_9 仅在设备列表枚举，未接收命令。
 
 - 当前发布版本：小灵 `v0.1.15`，`versionCode=16`、`minSdk=26`、`targetSdk=36`、Room v33。
@@ -21,13 +23,21 @@
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
 
+## 2026-08-07 第 158 阶段：真实 Provider 受控任务重试闭环
+
+- Debug-only 广播 `com.longdev.xiaoling.debug.AGENT_E2E / task_retry_real` 创建可清理的失败 Workflow 夹具，夹具包含两个已完成步骤，随后故意将来源 Run 收敛为 `FAILED`；没有用生产工具制造额外副作用。
+- Redmi 真实 Provider 两次运行均打印 `success=true`：工具顺序严格为 `tasks.list,tasks.inspect,tasks.retry`；`sourceRunStatus=FAILED`、`retryRunStatus=COMPLETED`、`retryRunLinked=true`、`reusedSteps=2`、`oldRunUnchanged=true`、`foregroundWorkflow=true`、`finalizationOnly=true`。两次均输出 `cleanup=true workflowDisabled=true temporaryProfileRemoved=true`。
+- 真实 Run 使用正式 `AgentRunUseCase`、`XiaoLingToolRegistry`、Room Tool Ledger、审批门禁和当前 Provider；`TaskRetryLaunchPolicy.resolve/canStart` 与 `RoomWorkflowRepository.verifyTaskRetry` 均通过。全成功前缀只进行目标级收敛，不重新调用模型或 Executor。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests com.longdev.xiaoling.agent.TaskRetryLaunchPolicyTest --tests com.longdev.xiaoling.agent.XiaoLingToolRegistryTest --tests com.longdev.xiaoling.automation.WorkflowStepExecutionPolicyTest --stacktrace --console=plain`：`BUILD SUCCESSFUL`。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain`：`BUILD SUCCESSFUL`；两个 APK 只安装到 Redmi。`RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`：`OK (1 test)`。本阶段没有运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 2026-08-07 第 157 阶段：受控任务重试
 
 - 实现：新增 `tasks.retry(name)` 和独立 `task-retry` Skill。工具只允许前台直接 Agent，风险为 `REQUIRES_APPROVAL`，执行器验证为 `EXECUTOR_VERIFIED`，重放安全为 `IDEMPOTENT_BY_KEY`；Workflow 内递归与后台调用从工具面隐藏并拒绝。
 - 持久化：Room 事务按精确任务名称匹配唯一 Workflow，读取该任务当前最新 Run；仅 `BLOCKED / FAILED / CANCELLED` 且通过 `WorkflowRunRetryPolicy` 的 Run 可以创建关联新 Run。ToolCall ID 派生确定性 Run ID，重复调用只回读仍为最新 `QUEUED` 且步骤只含 `SKIPPED / PENDING` 的提交。已启动、被其他运行取代、步骤状态变化、身份漂移、停用、完成态、缺失证据和同名任务均拒绝；时间戳极值也 fail-closed。
 - 旧事实保护：成功前缀在新 Run 标记 `SKIPPED` 并记录 `reusedFromStepId`，来源 Run、步骤、结果、错误与已有副作用不修改。Agent 可见结果不含 Workflow/Run/Step ID、原始错误或步骤正文。
 - 前台接管：`TaskRetryLaunchPolicy` 只接受完成的 Agent Run，重新核对 Room Tool Ledger、typed `PASSED`、提交回执、同会话和新 Run 可启动条件；`XiaoLingViewModel` 进程内按 Run ID 去重后执行一次关联 Workflow，模型总结不参与启动判断。`AgentRunUseCase` 在规划前显式绑定当前 context，避免跨 Run Registry 状态残留。
-- 验证：`XiaoLingToolRegistryTest 44/44`、`AgentSkillsTest 17/17`、`TaskRetryLaunchPolicyTest 2/2`、`MinimalAgentRuntimeTest 67/67`，合计 `130/130`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Redmi `RoomAgentTaskStoreInstrumentedTest` `OK (8 tests)`。真实 Provider 的 `tasks.list -> tasks.inspect -> tasks.retry -> Workflow 执行` 尚未在本阶段完成，下一阶段单独验收。
+- 验证：`XiaoLingToolRegistryTest 44/44`、`AgentSkillsTest 17/17`、`TaskRetryLaunchPolicyTest 2/2`、`MinimalAgentRuntimeTest 67/67`，合计 `130/130`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Redmi `RoomAgentTaskStoreInstrumentedTest` `OK (8 tests)`。真实 Provider 的完整闭环在第 158 阶段通过 Debug-only `task_retry_real` 另行验收。
 
 ## 2026-08-07 第 156 阶段：任务诊断答案级导航
 

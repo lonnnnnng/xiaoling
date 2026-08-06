@@ -1,5 +1,7 @@
 # 文档索引
 
+第 158 阶段完成真实 Provider 的受控任务重试闭环。Debug-only 探针创建可清理的失败 Workflow 夹具，Redmi 真实 Run 严格执行 `tasks.list -> tasks.inspect -> tasks.retry`；三项结果均为 `success=true / PASSED`，生产 `TaskRetryLaunchPolicy` 通过后创建关联新 Run。来源 Run 保持 `FAILED` 与步骤事实不变，新 Run 的两个步骤均为 `SKIPPED`，只完成目标级收敛；临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 第 157 阶段完成受控任务重试：前台直接 Agent 才能在审批后调用 `tasks.retry(name)`，按精确名称取当前最新可重试 Run，使用 ToolCall ID 的确定性新 Run 保证幂等；重复调用只回读仍为 `QUEUED` 的同一提交，已启动、步骤状态变化、最新 Run 漂移或身份不一致均拒绝。成功步骤只在新 Run 中标记 `SKIPPED` 并保留来源引用，旧 Run 与副作用不变。前台宿主必须从 Room Tool Ledger、typed `PASSED` 验证及提交回执重读后再启动 Workflow。JVM 四个聚焦类共 `130/130` 通过，Debug/AndroidTest APK 成功；仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 第 156 阶段为可信 `tasks.inspect` 工具卡增加“查看任务”入口。入口只从已验证 Agent 上下文投影的成功 Tool part 生成，并严格核对工具名、唯一 `name` 参数和“任务最近运行”结果头；点击只传递任务名称，不重新发送或执行工具。应用以当前 Workflow 唯一精确名称匹配决定定位 ID，删除、重命名、缺失或同名时只打开通用 Workflow 列表。聚焦 JVM、Debug/AndroidTest APK 与 Redmi `ConversationPageInstrumentedTest 9/9` 通过；没有新增任务写操作、Room Schema、权限或后台能力。

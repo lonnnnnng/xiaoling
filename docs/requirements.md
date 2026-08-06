@@ -1,5 +1,12 @@
 # 产品需求
 
+## 真实 Provider 受控任务重试闭环（第 158 阶段，完成）
+
+- Debug-only 验收入口必须创建可清理、可停用的失败 Workflow 夹具，不修改生产工具边界，不把测试任务留在可再次执行状态。
+- 使用当前已配置 Provider，让真实 Agent 严格按 `tasks.list -> tasks.inspect -> tasks.retry` 顺序调用；三项 Tool Ledger 必须成功且 typed verification 为 `PASSED`，审批和幂等提交回执必须可回读。
+- 真实 Provider 回执只有在 `TaskRetryLaunchPolicy` 通过后才能接管关联前台 Workflow。来源 Run 保持 `FAILED`，来源步骤、结果和副作用保持不变；全部成功步骤的重试只做目标级收敛，不重放模型或 Executor。
+- 验收结束必须恢复原 Agent Profile、删除临时 Profile，并停用夹具 Workflow；日志只记录稳定结果，不输出 API Key 或工具正文隐私字段。该阶段只运行聚焦 JVM、Debug/AndroidTest APK、Redmi 真实闭环和文档 corpus gate。
+
 ## 受控任务重试（第 157 阶段，完成）
 
 - 用户明确要求重试任务时，前台直接 Agent 才能在 `REQUIRES_APPROVAL` 审批后调用 `tasks.retry(name)`；Workflow 内部递归调用、后台调用和旧 Profile 默认扩权均禁止。
