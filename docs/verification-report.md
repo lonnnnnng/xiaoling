@@ -4,6 +4,9 @@
 
 ## 当前验证基线
 
+- 第 162 阶段取消结果任务中心导航已完成：`tasks.cancel` Tool part 复用现有“查看任务”入口；导航要求成功、typed `VERIFIED`、唯一 `name` 参数、首行精确任务名和应用生成的取消状态前缀，点击时由 Room 当前快照重新解析唯一 Workflow。模型伪造、失败/未验证、换行注入和同名均 fail-closed。
+- 聚焦 JVM `TaskInspectionNavigationTest 5/5`，Debug APK 构建成功；本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。文档更新后仅在 Redmi `wsvwypiz7xwslvl7` 运行 corpus gate，结果 `OK (1 test)`，未向 Pixel_9 发送命令。
+
 - 第 161 阶段受控任务取消会话终态已完成：新增纯 Kotlin `TaskCancelCompletionPresentation`，只接受唯一 `tasks.cancel`、`success=true`、typed `AgentVerificationStatus.VERIFIED` 和应用生成的稳定结果前缀；普通 `/agent` 将摘要与 assistant 结果写入同一会话快照，Workflow 内、重复调用、未验证结果和未知文案均不生成摘要。
 - 聚焦 JVM `TaskCancelCompletionPresentationTest 4/4 + TaskRetryCompletionPresentationTest 4/4`，均为 `0 failure / 0 error / 0 skipped`；`:app:assembleDebug` `BUILD SUCCESSFUL`。本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
 - 六份长期文档更新后重新构建 AndroidTest APK，并仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；未向 Pixel_9 或其他模拟器发送命令。

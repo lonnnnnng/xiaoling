@@ -1,5 +1,7 @@
 # 文档索引
 
+第 162 阶段完成取消结果到任务中心的答案级导航。可信 `tasks.cancel` Tool part 现在复用现有“查看任务”入口，但必须同时满足成功、typed `VERIFIED`、只有 `name` 参数、首行精确绑定任务名和四类应用生成的取消状态前缀；点击前仍重新读取当前 Workflow，删除、重命名或同名均降级不定位。模型文本、失败/可读但未验证结果、换行注入和其他工具不能制造导航入口。聚焦 JVM 导航测试 `5/5`、Debug APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+
 第 161 阶段完成受控任务取消的会话终态投影。普通 `/agent` 成功后，只有唯一的 `tasks.cancel` Tool execution 同时满足 `success=true` 与 typed `VERIFIED`，且结果来自应用生成的稳定取消文案时，才在同一会话快照中追加一次受限终态摘要；摘要只包含清理后的任务名、取消/停止状态和旧运行不变，不携带内部 ID 或原始回执。Workflow 内调用、重复取消、未验证结果和未知文案均 fail-closed，不改变取消副作用。聚焦 JVM `TaskCancelCompletionPresentationTest 4/4`、既有重试投影 `4/4`，Debug APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
 
 第 160 阶段完成受控任务取消：新增独立的 `tasks.cancel(name)` 前台 Agent 工具，与 `tasks.retry` 分开建模和审批。工具只按精确任务名称解析当前唯一活动的 ScheduledTask；同名 Workflow、多活动实例、缺失任务或状态竞争均 fail-closed，不接受内部 ID，也不取消前台手动 Workflow Run。取消复用 `ScheduledWorkflowStopCoordinator`，以 Room `STOP_REQUESTED` 持久化栅栏、WorkManager cancel 和 fallback reconcile 收敛为 `CANCELLED`；重复取消读取持久化事实返回幂等结果，迟到 Worker 不能覆盖用户取消。聚焦 JVM、Debug/AndroidTest APK 和 Redmi `RoomAgentTaskStoreInstrumentedTest 9/9` 通过；Redmi 真实 Provider 严格执行 `tasks.list -> tasks.inspect -> tasks.cancel`，日志为 `taskStatus=CANCELLED / taskCancel=true / oldRunUnchanged=true`，并完成夹具、Profile 清理。测试 APK 未安装；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。

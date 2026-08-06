@@ -29,6 +29,46 @@ class TaskInspectionNavigationTest {
     }
 
     @Test
+    fun verifiedCancellationPartReturnsExactTaskNameForNavigation() {
+        val part = inspectionPart(
+            toolName = "tasks.cancel",
+            arguments = mapOf("name" to "每日回顾"),
+            result = "任务“每日回顾”：计划已取消，不会再执行。当前状态：已取消。",
+            verificationStatus = MessageToolVerificationStatus.VERIFIED,
+        )
+
+        assertEquals("每日回顾", part.inspectedTaskNameForNavigation())
+    }
+
+    @Test
+    fun cancellationNavigationRejectsModelLikeOrInjectedResult() {
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.cancel",
+                arguments = mapOf("name" to "每日回顾"),
+                result = "模型声称：任务“每日回顾”已经取消",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).inspectedTaskNameForNavigation(),
+        )
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.cancel",
+                arguments = mapOf("name" to "每日\n回顾"),
+                result = "任务“每日\n回顾”：计划已取消，不会再执行。",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).inspectedTaskNameForNavigation(),
+        )
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.cancel",
+                arguments = mapOf("name" to "每日回顾"),
+                result = "任务“每日回顾”：计划已取消，不会再执行。",
+                verificationStatus = MessageToolVerificationStatus.READABLE_ONLY,
+            ).inspectedTaskNameForNavigation(),
+        )
+    }
+
+    @Test
     fun currentWorkflowResolutionRequiresOneExactNameMatch() {
         val target = workflow(id = "workflow-target", name = "每日回顾")
 

@@ -1,5 +1,12 @@
 # 产品需求
 
+## 取消结果任务中心导航（第 162 阶段，完成）
+
+- 成功且 typed `VERIFIED` 的 `tasks.cancel` Tool part 可显示“查看任务”入口；入口只消费唯一 `name` 参数和应用生成的取消状态首行，不扫描普通 assistant 文本。
+- 点击入口不得携带内部 Task/Workflow ID；应用壳必须重新读取当前 Workflow 列表，只有一个精确名称匹配时才定位，否则进入通用任务中心。
+- 失败验证、`READABLE_ONLY`、多个参数、名称含换行、模型伪造结果、删除/重命名/同名任务均 fail-closed，不重发 Agent、不取消/重试任务、不修改 Room。
+- 本阶段只增加会话到任务中心的导航投影，不改变任务取消副作用、审批、旧 Run、Workflow 或后台能力。
+
 ## 受控任务取消会话终态（第 161 阶段，完成）
 
 - 普通 `/agent` 在成功 Run 收尾时，只有唯一的 `tasks.cancel` Tool execution 同时满足 `success=true`、typed `VERIFIED`，并且结果包含应用定义的稳定取消状态，才追加会话终态摘要。

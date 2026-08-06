@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 162 阶段：取消结果任务中心导航（完成）
+
+- 扩展 `TaskInspectionNavigation.inspectedTaskNameForNavigation()`：保留 `tasks.inspect` 的“任务最近运行”首行门禁，并新增 `tasks.cancel` 的 typed `VERIFIED`、精确任务名前缀和四类稳定取消文案门禁。
+- `ConversationMessageContent` 无需新增按钮或导航协议，可信取消 Tool part 自动复用已有“查看任务”按钮；`XiaoLingViewModel.refreshWorkflowsAndResolveInspectedTask()` 继续在当前 Room 快照上按唯一名称解析，内部 ID 不进入历史消息。
+- 新增 JVM 正反例：可信计划取消导航、模型样式结果、换行参数注入和未验证状态均覆盖；`TaskInspectionNavigationTest` 共 `5/5` 通过。
+
 ## 第 161 阶段：受控任务取消会话终态（完成）
 
 - 新增纯 Kotlin `TaskCancelCompletionPresentation`。它从 `VerifiedAgentContext` 兼容读取多工具/旧单工具投影，要求唯一 `tasks.cancel`、成功、`AgentVerificationStatus.VERIFIED`，再按应用生成的四类稳定结果前缀生成受限文案。

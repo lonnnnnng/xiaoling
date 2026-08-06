@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 162 阶段：取消结果任务中心导航（完成）
+
+- 已验证的 `tasks.cancel` Tool part 复用现有“查看任务”入口，用户可以从取消结果直接进入任务中心查看最新任务与关联运行，而不需要重新搜索。
+- 导航门禁要求成功、typed `VERIFIED`、参数集合严格为 `{name}`、首行包含与参数完全一致的任务名，并命中应用生成的计划取消/后台停止/停止请求/已取消收敛前缀。
+- 点击后仍只把任务名带入应用壳；宿主等待当前 Room Workflow 快照，再按唯一精确名称解析 Workflow ID。任务删除、重命名、同名、模型伪造、换行注入和未验证结果都不会定位旧内部 ID。
+- 该切片不新增工具、权限、Room Schema 或后台能力，不改变 `tasks.cancel` 副作用和第161阶段会话终态。聚焦 JVM `TaskInspectionNavigationTest 5/5`，Debug APK 和 Redmi 文档 corpus gate 通过。
+- 下一阶段再从真实用户场景选择通用执行恢复或任务结果交互，不扩展任意 App、后台设备动作、精确定时、Foreground Service 或高级生态。
+
 ## 第 161 阶段：受控任务取消会话终态（完成）
 
 - `tasks.cancel` 的 ToolResult 只代表取消副作用已经通过正式执行器和 typed verification；普通 `/agent` 现在从同一可信 `VerifiedAgentContext` 生成一次会话终态摘要，避免用户停留在模型自由撰写的“已取消”描述。
