@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 161 阶段：受控任务取消会话终态（完成）
+
+- 新增纯 Kotlin `TaskCancelCompletionPresentation`。它从 `VerifiedAgentContext` 兼容读取多工具/旧单工具投影，要求唯一 `tasks.cancel`、成功、`AgentVerificationStatus.VERIFIED`，再按应用生成的四类稳定结果前缀生成受限文案。
+- 任务名在显示前归一化空白并限制 100 字符；投影不回显原始取消结果、内部 ID 或模型文本。未知结果、重复取消 execution、`READABLE_ONLY / FAILED` 直接返回 null。
+- `XiaoLingViewModel.sendAgentRun()` 仅在非 Workflow 的普通 Agent Run 中调用该投影，并将结果消息与 assistant 消息一起写入同一会话快照；Workflow 内不会追加任务取消终态。
+- 测试覆盖计划取消、后台停止、停止请求、未验证/未知文案、重复调用和单行任务名：`TaskCancelCompletionPresentationTest 4/4`；既有 `TaskRetryCompletionPresentationTest 4/4` 保持通过，`:app:assembleDebug` 成功。
+
 ## 第 160 阶段：受控任务取消（完成）
 
 - `AgentModels.kt` 新增 `AgentTaskCancelRecord`、`AgentTaskCancelOutcome`、`AgentTaskCancelResult`，并扩展 `AgentTaskStore.cancel(name, ...)`；取消结果只投影任务名、状态和稳定结果，不携带内部 ID。

@@ -4,6 +4,10 @@
 
 ## 当前验证基线
 
+- 第 161 阶段受控任务取消会话终态已完成：新增纯 Kotlin `TaskCancelCompletionPresentation`，只接受唯一 `tasks.cancel`、`success=true`、typed `AgentVerificationStatus.VERIFIED` 和应用生成的稳定结果前缀；普通 `/agent` 将摘要与 assistant 结果写入同一会话快照，Workflow 内、重复调用、未验证结果和未知文案均不生成摘要。
+- 聚焦 JVM `TaskCancelCompletionPresentationTest 4/4 + TaskRetryCompletionPresentationTest 4/4`，均为 `0 failure / 0 error / 0 skipped`；`:app:assembleDebug` `BUILD SUCCESSFUL`。本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+- 六份长期文档更新后重新构建 AndroidTest APK，并仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；未向 Pixel_9 或其他模拟器发送命令。
+
 - 第 160 阶段受控任务取消已完成：新增独立 `tasks.cancel` 前台工具和 `task-cancel` Skill。工具必须独立审批，只按精确任务名称解析唯一活动 ScheduledTask；同名、多实例、缺失或状态漂移 fail-closed，不中断前台手动 Run。Room `STOP_REQUESTED` 栅栏、WorkManager cancel 和 fallback reconcile 共同收敛取消事实，重复取消读取持久化状态保持幂等，迟到结果不能覆盖 `CANCELLED`。
 - 聚焦 JVM `XiaoLingToolRegistryTest + AgentSkillsTest` 修复后通过（合计 `64 tests completed`），`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentTaskStoreInstrumentedTest` 为 `OK (9 tests)`。
 - Redmi 真实 Provider `task_cancel_real` 严格执行 `tasks.list -> tasks.inspect -> tasks.cancel`，最终日志为 `task-cancel-real success=true ... taskStatus=CANCELLED taskCancel=true oldRunUnchanged=true`，并确认 `cleanup=true workflowDisabled=true temporaryProfileRemoved=true`。测试包检查时本来未安装，卸载命令因此返回 `DELETE_FAILED_INTERNAL_ERROR`；正式包保留安装，未使用 Pixel_9。

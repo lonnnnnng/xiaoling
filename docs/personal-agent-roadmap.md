@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 161 阶段：受控任务取消会话终态（完成）
+
+- `tasks.cancel` 的 ToolResult 只代表取消副作用已经通过正式执行器和 typed verification；普通 `/agent` 现在从同一可信 `VerifiedAgentContext` 生成一次会话终态摘要，避免用户停留在模型自由撰写的“已取消”描述。
+- 终态投影只接受唯一的 `tasks.cancel` execution、`success=true`、`AgentVerificationStatus.VERIFIED` 和应用生成的稳定结果前缀。任务名统一空白、限制 100 字符；内部 Run/Task ID、参数以外的原始回执和模型文本不进入摘要。
+- 计划取消、后台停止、停止请求和重复取消分别显示稳定状态；Workflow 内调用、多个取消 execution、`READABLE_ONLY / FAILED` 或未知结果文案均不生成摘要，避免跨入口或不完整证据升级为完成事实。
+- 摘要与 Agent assistant 结果在同一个会话快照中保存，旧 Run、任务取消副作用、答案级 shadow 和任务中心投影边界不变。
+- 聚焦 JVM `TaskCancelCompletionPresentationTest 4/4 + TaskRetryCompletionPresentationTest 4/4`，Debug APK 构建通过；更新后的文档 corpus gate 仅在 Redmi 复验。下一阶段再评估通用执行恢复矩阵，不把取消结果投影扩展为后台设备自动化或任意 App 能力。
+
 ## 第 160 阶段：受控任务取消（完成）
 
 - 前台直接 Agent 新增独立 `tasks.cancel(name)`，与 `tasks.retry` 使用独立 Skill、风险元数据和审批；工具仅允许在当前 Agent context 中暴露，必须经过用户确认。

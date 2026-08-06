@@ -1,5 +1,12 @@
 # 产品需求
 
+## 受控任务取消会话终态（第 161 阶段，完成）
+
+- 普通 `/agent` 在成功 Run 收尾时，只有唯一的 `tasks.cancel` Tool execution 同时满足 `success=true`、typed `VERIFIED`，并且结果包含应用定义的稳定取消状态，才追加会话终态摘要。
+- 摘要必须与 Agent assistant 结果在同一个会话快照中持久化；它只展示清理后的任务名、取消/停止状态和旧运行记录不变，不展示内部 ID、原始 ToolResult、审批参数或模型自由文本。
+- `SCHEDULE_CANCELLED / STOPPED / STOP_REQUESTED / AlreadyCancelled` 使用稳定的用户文案；`WORKFLOW` 来源、重复取消、`READABLE_ONLY`、验证失败、多个取消调用和无法识别的结果必须不生成摘要。
+- 该投影只改变用户可见会话结果，不改变 `ScheduledTask`、Workflow、Agent Run 或 StopCoordinator 的副作用语义，也不为后台任务增加新权限。
+
 ## 受控任务取消（第 160 阶段，完成）
 
 - `tasks.cancel(name)` 是独立的前台直接 Agent 工具，必须独立请求用户确认；它不属于 `tasks.retry` 的隐式扩权，也不允许后台 Agent 或前台手动 Workflow Run 调用。

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 161 阶段完成受控任务取消的会话终态投影。普通 `/agent` 成功后，只有唯一的 `tasks.cancel` Tool execution 同时满足 `success=true` 与 typed `VERIFIED`，且结果来自应用生成的稳定取消文案时，才在同一会话快照中追加一次受限终态摘要；摘要只包含清理后的任务名、取消/停止状态和旧运行不变，不携带内部 ID 或原始回执。Workflow 内调用、重复取消、未验证结果和未知文案均 fail-closed，不改变取消副作用。聚焦 JVM `TaskCancelCompletionPresentationTest 4/4`、既有重试投影 `4/4`，Debug APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+
 第 160 阶段完成受控任务取消：新增独立的 `tasks.cancel(name)` 前台 Agent 工具，与 `tasks.retry` 分开建模和审批。工具只按精确任务名称解析当前唯一活动的 ScheduledTask；同名 Workflow、多活动实例、缺失任务或状态竞争均 fail-closed，不接受内部 ID，也不取消前台手动 Workflow Run。取消复用 `ScheduledWorkflowStopCoordinator`，以 Room `STOP_REQUESTED` 持久化栅栏、WorkManager cancel 和 fallback reconcile 收敛为 `CANCELLED`；重复取消读取持久化事实返回幂等结果，迟到 Worker 不能覆盖用户取消。聚焦 JVM、Debug/AndroidTest APK 和 Redmi `RoomAgentTaskStoreInstrumentedTest 9/9` 通过；Redmi 真实 Provider 严格执行 `tasks.list -> tasks.inspect -> tasks.cancel`，日志为 `taskStatus=CANCELLED / taskCancel=true / oldRunUnchanged=true`，并完成夹具、Profile 清理。测试 APK 未安装；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
 第 159 阶段完成受控任务重试的用户可见终态闭环。`tasks.retry` 的可信工具结果继续只表示“关联重试已提交并排队”，前台宿主必须等 Room 中的新关联 Run 收敛为 `COMPLETED / BLOCKED / FAILED / CANCELLED` 后，才向原会话追加一次受限终态摘要。摘要只包含任务名、复用步骤数、旧 Run 不变和稳定恢复指引，不接收内部 ID、原始错误或步骤正文；失败与取消明确不会恢复或重放旧执行栈。聚焦 JVM 三类 `50/50`、Debug APK 和 Redmi 真实 Provider 闭环通过；真机日志为 `sourceRunStatus=FAILED / retryRunStatus=COMPLETED / reusedSteps=1 / oldRunUnchanged=true / completionVisible=true`，临时 Profile 与夹具均已清理。AndroidTest APK 仅为文档 corpus gate 构建并运行单项，不代表完整 instrumentation；未运行完整 JVM、全量 Lint 或 Release。

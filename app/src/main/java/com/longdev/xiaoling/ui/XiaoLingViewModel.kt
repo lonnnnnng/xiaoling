@@ -4348,7 +4348,20 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     origin = MessageOrigin.AGENT_RESULT,
                     verifiedAgentContext = summary.verifiedContext,
                 )
-                val finalMessages = messagesWithUser + assistantMessage
+                val cancelPresentation = if (workflowRunId == null) {
+                    presentTaskCancelCompletion(summary.verifiedContext)
+                } else {
+                    null
+                }
+                val finalMessages = messagesWithUser + assistantMessage + listOfNotNull(cancelPresentation).map { result ->
+                        // long: 取消终态必须在同一会话快照中紧跟 Agent 摘要，避免“已提交”与最终状态被异步保存拆开。
+                        ChatMessage(
+                            role = result.role,
+                            text = result.text,
+                            createdAt = System.currentTimeMillis(),
+                            origin = MessageOrigin.AGENT_RESULT,
+                        )
+                }
                 uiState = uiState
                     .withUpdatedConversation(
                         conversationId = conversationId,
