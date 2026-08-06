@@ -5,10 +5,14 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentTaskInspectionResult
+import com.longdev.xiaoling.agent.AgentTaskCancelOutcome
+import com.longdev.xiaoling.agent.AgentTaskCancelResult
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRetryResult
 import com.longdev.xiaoling.agent.AgentTaskRetryVerificationResult
 import com.longdev.xiaoling.automation.ScheduledTaskType
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
@@ -32,7 +36,7 @@ class RoomAgentTaskStoreInstrumentedTest {
         .allowMainThreadQueries()
         .build()
     private val repository = RoomWorkflowRepository(context, database)
-    private val store = RoomAgentTaskStore(context, repository)
+    private val store = RoomAgentTaskStore(context, repository, testStopCoordinator())
 
     @After
     fun tearDown() {
@@ -109,6 +113,22 @@ class RoomAgentTaskStoreInstrumentedTest {
 
         assertEquals(ScheduledTaskType.ONE_TIME.name, task.scheduleType)
         assertEquals(oneTimeTask.plannedAt, task.nextPlannedAt)
+    }
+
+    @Test
+    fun cancelUsesExactNameAndSecondCallReadsAlreadyCancelledState() = runBlocking {
+        val (_, scheduledTask) = repository.createWorkflowAndOneTimeScheduledTask(
+            name = "取消明日计划",
+            steps = listOf(WorkflowStepDefinitionInput("执行明日计划")),
+            delayMinutes = 30,
+        )
+
+        val first = store.cancel(" 取消明日计划 ", "conversation-direct", "tool-call-cancel")
+        assertEquals(AgentTaskCancelOutcome.SCHEDULE_CANCELLED, (first as AgentTaskCancelResult.Cancelled).cancellation.outcome)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(scheduledTask.id)?.status)
+
+        val repeated = store.cancel("取消明日计划", "conversation-direct", "tool-call-cancel")
+        assertEquals(AgentTaskCancelResult.AlreadyCancelled("取消明日计划"), repeated)
     }
 
     @Test
@@ -332,4 +352,16 @@ class RoomAgentTaskStoreInstrumentedTest {
         outputSnapshot = "sensitive output snapshot $sequence",
         reusedFromStepId = null,
     )
+
+    private fun testStopCoordinator(): ScheduledWorkflowStopCoordinator {
+        return ScheduledWorkflowStopCoordinator(
+            loadTask = repository::getScheduledTask,
+            cancelPendingTask = repository::cancelScheduledTask,
+            requestScheduledTaskStop = { taskId -> repository.requestScheduledTaskStop(taskId, "测试停止") },
+            cancelSystemWork = {},
+            waitForWorkerSettlement = {},
+            reconcileUnsettledTask = { false },
+            settlementChecks = 1,
+        )
+    }
 }

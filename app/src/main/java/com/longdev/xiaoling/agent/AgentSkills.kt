@@ -132,6 +132,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "关联新 Run 已持久化并回读验证，随后由前台执行链接管；否则明确说明未重试。",
         ),
         AgentSkillDefinition(
+            id = "task-cancel",
+            name = "受控任务取消",
+            description = "核对并取消小灵任务当前活动的计划执行实例。",
+            instructions = "先读取任务清单并按精确名称检查最近运行；只有用户明确要求取消或停止计划任务时才调用 tasks.cancel。只取消当前唯一活动的 ScheduledTask，不中断前台手动 Run；审批通过后以持久化停止栅栏收敛，不能把迟到结果报告为成功。",
+            toolNames = setOf("tasks.list", "tasks.inspect", "tasks.cancel"),
+            keywords = setOf("取消任务", "停止任务", "取消提醒", "停止提醒", "cancel task", "stop task"),
+            triggerExamples = listOf("取消每日回顾提醒", "停止正在执行的后台任务"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "任务不存在、同名、没有活动计划实例或存在多个活动实例时停止；不修改前台手动 Run，不猜测内部 ID。",
+            completionCriteria = "返回已取消、已请求停止或已收敛的稳定结果；系统取消失败时说明停止意图已持久化。",
+        ),
+        AgentSkillDefinition(
             id = "personal-memory",
             name = "长期记忆",
             description = "检索或保存用户明确授权的长期记忆。",

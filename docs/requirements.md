@@ -1,5 +1,13 @@
 # 产品需求
 
+## 受控任务取消（第 160 阶段，完成）
+
+- `tasks.cancel(name)` 是独立的前台直接 Agent 工具，必须独立请求用户确认；它不属于 `tasks.retry` 的隐式扩权，也不允许后台 Agent 或前台手动 Workflow Run 调用。
+- 工具只接受 1 个精确任务名称，由 Room 解析当前唯一活动 ScheduledTask。任务缺失、同名 Workflow、多活动实例、停用、状态已变化或名称不一致时必须拒绝并保持原事实不变；不向模型暴露内部任务/Run ID。
+- `SCHEDULED` 取消必须原子写入 `CANCELLED`；`RUNNING / STOP_REQUESTED` 先写入 `STOP_REQUESTED` 并经正式停止编排、WorkManager cancel 与 fallback 收敛。迟到 Worker、模型响应或重复请求不能把取消后的任务改回成功；重复取消从持久化状态返回幂等结果。
+- 取消只影响目标 ScheduledTask 及其关联后台 Workflow 链，前台手动 Run 保持不变。结果必须来自已提交的 Room 状态，不使用模型文本推断。
+- 本阶段验证聚焦 JVM、Debug/AndroidTest APK、Redmi Room instrumentation 与 Redmi 真实 Provider；不要求完整 JVM、全量 Lint、Release 或全量 instrumentation。
+
 ## 受控任务重试用户可见终态（第 159 阶段，完成）
 
 - `tasks.retry` 的成功 ToolResult 只证明关联重试提交与 typed verification 已通过，不得把“已排队”解释为 Workflow 已完成。

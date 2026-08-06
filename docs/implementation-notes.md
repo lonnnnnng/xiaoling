@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 160 阶段：受控任务取消（完成）
+
+- `AgentModels.kt` 新增 `AgentTaskCancelRecord`、`AgentTaskCancelOutcome`、`AgentTaskCancelResult`，并扩展 `AgentTaskStore.cancel(name, ...)`；取消结果只投影任务名、状态和稳定结果，不携带内部 ID。
+- `RoomAgentTaskStore` 按精确名称查询 Workflow 与 ScheduledTask，只有唯一活动实例才继续；同名或多实例 fail-closed。`SCHEDULED / RUNNING / STOP_REQUESTED` 分别复用 `ScheduledWorkflowStopCoordinator` 的取消路径，重复请求读取持久化状态返回 `AlreadyCancelled`。
+- `XiaoLingToolRegistry` 注册 `tasks.cancel`：`REQUIRES_APPROVAL`、`EXECUTOR_VERIFIED`、`IDEMPOTENT_BY_KEY`、`supportsBackground=false`，仅前台直接 Agent 可见；`AgentSkills` 保持 `task-cancel` 与 `task-retry` 独立。
+- Debug-only `AgentE2eDebugReceiver` 新增 `task_cancel_real` 夹具和严格 Provider 序列，使用正式审批、Room、Tool Ledger 与 StopCoordinator，最终断言 `ScheduledTaskStatus.CANCELLED`、旧 Run 不变并停用夹具/删除临时 Profile。
+- 验证：`XiaoLingToolRegistryTest`、`AgentSkillsTest` 聚焦 JVM 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 成功；Redmi `RoomAgentTaskStoreInstrumentedTest` `OK (9 tests)`；真实 Provider 日志 `task-cancel-real success=true ... taskStatus=CANCELLED taskCancel=true oldRunUnchanged=true`。未执行完整 JVM、全量 Lint、Release 或默认完整 instrumentation；测试 APK 未安装。
+
 ## 第 159 阶段：受控任务重试用户可见终态（完成）
 
 - 新增纯函数 `presentTaskRetryCompletion()`，只接受用户任务名、`WorkflowRunStatus` 和复用步骤数。它为 `COMPLETED / BLOCKED / FAILED / CANCELLED` 生成稳定文案，对 `QUEUED / RUNNING` 返回空，不接收内部 ID 或原始错误。

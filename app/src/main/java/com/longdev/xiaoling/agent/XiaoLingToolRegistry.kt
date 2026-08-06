@@ -248,6 +248,25 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = TASK_CANCEL_TOOL_NAME,
+            description = "按精确名称取消小灵任务当前唯一活动的计划执行实例；需要用户确认，不中断前台手动 Run。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "name",
+                    description = "要取消的精确任务名称，可先通过 tasks.list 和 tasks.inspect 核对。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
             risk = ToolRisk.SAFE,
@@ -666,6 +685,9 @@ class XiaoLingToolRegistry(
             // long: 任务重试会创建并立即接管一个新 Workflow Run；Workflow 内递归调用或后台调用都不能扩大为第二条执行链。
             available = available.filterNot { it.name == TASK_RETRY_TOOL_NAME }
         }
+        if (!taskCancelAllowed(context)) {
+            available = available.filterNot { it.name == TASK_CANCEL_TOOL_NAME }
+        }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
@@ -696,7 +718,8 @@ class XiaoLingToolRegistry(
         definition.name == name && (
             definition.name !in workflowDeviceActionToolNames ||
                 workflowDeviceActionAllowedByIntent(runContext, definition.name)
-            ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext))
+            ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext)) &&
+            (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -709,6 +732,7 @@ class XiaoLingToolRegistry(
             "tasks.list" -> listTasks(call)
             "tasks.inspect" -> inspectTask(call)
             TASK_RETRY_TOOL_NAME -> retryTask(call)
+            TASK_CANCEL_TOOL_NAME -> cancelTask(call)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.create" -> createNote(call)
@@ -1160,6 +1184,42 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun cancelTask(call: ToolCall): ToolExecutionResult {
+        val context = runContext
+            ?.takeIf(::taskCancelAllowed)
+            ?: return ToolExecutionResult(success = false, verified = false, content = "任务取消只允许前台直接 Agent 执行")
+        val name = call.arguments["name"].orEmpty().trim()
+        if (name.isBlank()) return ToolExecutionResult(success = false, verified = false, content = "任务名称不能为空")
+        return when (val result = taskStore.cancel(name, context.conversationId, call.id)) {
+            AgentTaskCancelResult.NotFound -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "没有找到名称为“$name”的任务。",
+            )
+            is AgentTaskCancelResult.Ambiguous -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "找到 ${result.matchCount} 个名称为“$name”的任务或活动实例，请先在任务中心消除歧义。",
+            )
+            AgentTaskCancelResult.NoActiveSchedule -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "任务“$name”当前没有可取消的计划执行实例；前台手动 Run 不由此工具中断。",
+            )
+            is AgentTaskCancelResult.AlreadyCancelled -> ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "任务“${result.name}”已经取消并收敛，无需重复操作。",
+            )
+            is AgentTaskCancelResult.Rejected -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = result.reason,
+            )
+            is AgentTaskCancelResult.Cancelled -> result.cancellation.toToolExecutionResult()
+        }
+    }
+
     private suspend fun verifyCommittedTaskRetry(
         call: ToolCall,
         receipt: ToolExecutionReceipt,
@@ -1201,6 +1261,24 @@ class XiaoLingToolRegistry(
                 idempotencyKey = call.id,
                 status = ToolExecutionReceiptStatus.COMMITTED,
             ),
+        )
+    }
+
+    private fun AgentTaskCancelRecord.toToolExecutionResult(): ToolExecutionResult {
+        val action = when (outcome) {
+            AgentTaskCancelOutcome.SCHEDULE_CANCELLED -> "计划已取消，不会再执行"
+            AgentTaskCancelOutcome.STOPPED -> "后台任务已停止，关联 Agent、工作流和调度实例已收敛"
+            AgentTaskCancelOutcome.STOP_REQUESTED -> "已请求停止后台任务，停止意图已持久化，稍后可在任务中心查看终态"
+        }
+        val systemSuffix = if (systemCancellationFailed) {
+            "系统取消调用未成功，但持久化停止栅栏仍然有效。"
+        } else {
+            ""
+        }
+        return ToolExecutionResult(
+            success = true,
+            verified = true,
+            content = "任务“$name”：$action。当前状态：${taskRunStatusLabel(status)}。$systemSuffix".trimEnd(),
         )
     }
 
@@ -1755,12 +1833,21 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
+private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
 
 private fun taskRetryAllowed(context: AgentToolExecutionContext?): Boolean {
     // long: 未绑定当前 Run 时无法证明这是前台直接 Agent；先隐藏受控写工具，避免模型看到随后必然被执行器拒绝的能力。
+    return context?.let {
+        it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            it.invocationSource == AgentInvocationSource.DIRECT
+    } == true
+}
+
+private fun taskCancelAllowed(context: AgentToolExecutionContext?): Boolean {
+    // long: 任务取消会写入 STOP_REQUESTED 或 CANCELLED 栅栏；没有当前前台直接 Run 时隐藏能力，避免后台和 Workflow 递归取消。
     return context?.let {
         it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             it.invocationSource == AgentInvocationSource.DIRECT

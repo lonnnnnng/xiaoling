@@ -101,6 +101,22 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInTaskCancelSkillKeepsCancellationSeparateFromRetry() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "取消每日回顾提醒",
+            limit = 5,
+        )
+
+        val cancelSkill = selected.single { skill -> skill.id == "task-cancel" }
+        assertEquals(setOf("tasks.list", "tasks.inspect", "tasks.cancel"), cancelSkill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, cancelSkill.declaredRisk)
+        assertTrue(cancelSkill.instructions.contains("只有用户明确要求"))
+        assertTrue(cancelSkill.instructions.contains("不中断前台手动 Run"))
+        val retrySkill = BuiltInAgentSkillRegistry.all().single { skill -> skill.id == "task-retry" }
+        assertEquals(setOf("tasks.list", "tasks.inspect", "tasks.retry"), retrySkill.toolNames)
+    }
+
+    @Test
     fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "观察当前手机界面并告诉我有哪些可访问节点",

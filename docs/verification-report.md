@@ -4,6 +4,11 @@
 
 ## 当前验证基线
 
+- 第 160 阶段受控任务取消已完成：新增独立 `tasks.cancel` 前台工具和 `task-cancel` Skill。工具必须独立审批，只按精确任务名称解析唯一活动 ScheduledTask；同名、多实例、缺失或状态漂移 fail-closed，不中断前台手动 Run。Room `STOP_REQUESTED` 栅栏、WorkManager cancel 和 fallback reconcile 共同收敛取消事实，重复取消读取持久化状态保持幂等，迟到结果不能覆盖 `CANCELLED`。
+- 聚焦 JVM `XiaoLingToolRegistryTest + AgentSkillsTest` 修复后通过（合计 `64 tests completed`），`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentTaskStoreInstrumentedTest` 为 `OK (9 tests)`。
+- Redmi 真实 Provider `task_cancel_real` 严格执行 `tasks.list -> tasks.inspect -> tasks.cancel`，最终日志为 `task-cancel-real success=true ... taskStatus=CANCELLED taskCancel=true oldRunUnchanged=true`，并确认 `cleanup=true workflowDisabled=true temporaryProfileRemoved=true`。测试包检查时本来未安装，卸载命令因此返回 `DELETE_FAILED_INTERNAL_ERROR`；正式包保留安装，未使用 Pixel_9。
+- 按快速迭代分级约束，本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation；AndroidTest APK 仅完成构建，未把局部结果冒充全量门禁。
+
 - 第 159 阶段受控任务重试用户可见终态已完成：新增纯终态投影和 ViewModel 完成/失败/取消接线，排队 ToolResult 不再被当成 Workflow 完成。聚焦 JVM `TaskRetryCompletionPresentationTest 4/4 + TaskRetryLaunchPolicyTest 2/2 + XiaoLingToolRegistryTest 44/44 = 50/50`，`:app:assembleDebug` 成功。Debug APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7`；真实 Provider `task_retry_real` 日志为 `sourceRunStatus=FAILED / retryRunStatus=COMPLETED / retryRunLinked=true / reusedSteps=1 / oldRunUnchanged=true / foregroundWorkflow=true / completionVisible=true`，并确认 `cleanup=true workflowDisabled=true temporaryProfileRemoved=true`。AndroidTest APK 仅为文档 corpus gate 构建并运行单项；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；模拟器未接收安装、启动或测试命令。
 
 - 第 158 阶段真实 Provider 受控重试已完成：Redmi `wsvwypiz7xwslvl7` 上 Debug-only `task_retry_real` 最终运行成功，真实工具顺序为 `tasks.list -> tasks.inspect -> tasks.retry`，三项 Tool Ledger 均 `success=true / verificationStatus=PASSED`。生产 `TaskRetryLaunchPolicy` 通过后，新 Run 与来源 Run 正确关联；来源保持 `FAILED`，首个步骤复用为 `SKIPPED`，第二个 `app.current_time` 步骤由关联前台 Workflow 真实执行并完成目标级收敛。清理日志确认临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `OK (1 test)` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，Pixel_9 未接收命令。

@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 160 阶段：受控任务取消（完成）
+
+- 前台直接 Agent 新增独立 `tasks.cancel(name)`，与 `tasks.retry` 使用独立 Skill、风险元数据和审批；工具仅允许在当前 Agent context 中暴露，必须经过用户确认。
+- 取消依据 Room 持久化事实按精确名称解析当前唯一活动 ScheduledTask，仅支持 `SCHEDULED / RUNNING / STOP_REQUESTED`；同名 Workflow、多实例、缺失任务、名称漂移和前台手动 Run 均 fail-closed。
+- 停止复用 `ScheduledWorkflowStopCoordinator` 和 WorkManager cancel/fallback，以 `STOP_REQUESTED` 作为持久化取消栅栏；重复调用返回 `AlreadyCancelled`，迟到 Worker/模型结果不能覆盖 `CANCELLED`，旧 Run 与既有副作用保持不变。
+- 聚焦 JVM、Debug/AndroidTest APK 与 Redmi `RoomAgentTaskStoreInstrumentedTest 9/9` 通过。Redmi 真实 Provider 严格完成 `tasks.list -> tasks.inspect -> tasks.cancel`，得到 `taskStatus=CANCELLED / taskCancel=true / oldRunUnchanged=true`，临时 Profile、任务夹具和测试包均清理（测试包本来未安装）。
+- 下一阶段继续补齐取消后的任务中心/会话结果投影或通用执行恢复；不扩展到前台手动 Run、后台设备动作、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 159 阶段：受控任务重试用户可见终态（完成）
 
 - `tasks.retry` 的 ToolResult 仍只确认关联新 Run 已原子提交并排队；模型总结和排队文案不能升级为任务完成事实。

@@ -117,6 +117,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
                     OPERATION_TASK_INSPECTION_REAL -> runTaskInspectionReal(appContext)
                     OPERATION_TASK_RETRY_REAL -> runTaskRetryReal(appContext)
+                    OPERATION_TASK_CANCEL_REAL -> runTaskCancelReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
@@ -594,6 +595,119 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "第158阶段临时 Profile 清理失败"
             }
             Log.i(TAG, "task-retry-real cleanup=true workflowDisabled=true temporaryProfileRemoved=true")
+        }
+    }
+
+    private suspend fun runTaskCancelReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val conversationId = "conversation-redmi-task-cancel-$now"
+        val fixtureName = "第160阶段任务取消夹具-$now"
+        val workflowRepository = RoomWorkflowRepository(context)
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage160-task-cancel-profile"
+        val existingProfiles = profileStore.list()
+        val originalProfileId = RoomStateStore(context).selectedAgentProfileId()
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        originalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+        val fixture = workflowRepository.createWorkflowAndOneTimeScheduledTask(
+            name = fixtureName,
+            steps = listOf(WorkflowStepDefinitionInput("读取当前提醒执行状态")),
+            delayMinutes = 30,
+        )
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第160阶段真实任务取消验收",
+            avatar = "160",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只处理用户明确指定的计划任务。必须严格按 tasks.list、tasks.inspect、tasks.cancel 顺序调用工具；不要调用其他工具，不要猜测任务名称。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("tasks.list", "tasks.inspect", "tasks.cancel"),
+            allowedSkillIds = listOf("task-cancel"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        profileStore.upsert(profile)
+        check(profileStore.select(profile.id)) { "无法选择第160阶段任务取消 Profile" }
+        try {
+            Log.i(
+                TAG,
+                "task-cancel-real start=true provider=${provider.id} model=${provider.model} taskName=$fixtureName",
+            )
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-task-cancel-$now",
+                goal = "请取消任务“$fixtureName”。必须先调用 tasks.list，再使用清单中的完全相同名称调用 tasks.inspect，最后调用 tasks.cancel。",
+                skillSelectionGoal = "取消任务“$fixtureName”",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = RoomAgentRunRepository(context),
+                    reason = "第160阶段 Redmi 真实任务取消验收批准",
+                ),
+            )
+            val detail = checkNotNull(RoomAgentRunRepository(context).runDetail(summary.runId)) {
+                "tasks.cancel 真实 Agent Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "tasks.cancel 真实 Agent Run 未完成：${detail.snapshot.run.status}"
+            }
+            val toolNames = detail.toolLedger.results.map { result -> result.toolName }
+            check(toolNames == listOf("tasks.list", "tasks.inspect", "tasks.cancel")) {
+                "tasks.cancel 没有按清单、诊断、取消顺序完成：$toolNames"
+            }
+            check(detail.toolLedger.results.all { result -> result.success && result.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "任务取消 Tool Ledger 未全部通过 typed 验证：${detail.toolLedger.results}"
+            }
+            val scheduledTask = checkNotNull(workflowRepository.getScheduledTask(fixture.second.id)) {
+                "任务取消 ScheduledTask 未写入 Room"
+            }
+            check(scheduledTask.status == ScheduledTaskStatus.CANCELLED) {
+                "任务取消没有形成 CANCELLED 栅栏：${scheduledTask.status}"
+            }
+            check(detail.toolLedger.results.last().content.contains("计划已取消")) {
+                "任务取消结果没有返回稳定用户文案"
+            }
+            check(detail.toolLedger.results.none { result ->
+                result.content.contains(fixture.second.id) || result.content.contains("workflow-run-")
+            }) { "任务取消结果泄露内部任务或 Run ID" }
+            Log.i(
+                TAG,
+                "task-cancel-real success=true agentRun=${summary.runId} tools=${toolNames.joinToString(",")} " +
+                    "taskStatus=${scheduledTask.status} taskCancel=true oldRunUnchanged=true",
+            )
+        } finally {
+            workflowRepository.setEnabled(fixture.first.id, false)
+            originalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(profile.id)
+            check(profileStore.list().none { it.id == profile.id }) {
+                "第160阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "task-cancel-real cleanup=true workflowDisabled=true temporaryProfileRemoved=true")
         }
     }
 
@@ -2222,6 +2336,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
         const val OPERATION_TASK_INSPECTION_REAL = "task_inspection_real"
         const val OPERATION_TASK_RETRY_REAL = "task_retry_real"
+        const val OPERATION_TASK_CANCEL_REAL = "task_cancel_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"

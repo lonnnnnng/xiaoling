@@ -845,6 +845,28 @@ sealed interface AgentTaskRetryVerificationResult {
     data object Failed : AgentTaskRetryVerificationResult
 }
 
+data class AgentTaskCancelRecord(
+    val name: String,
+    val status: String,
+    val outcome: AgentTaskCancelOutcome,
+    val systemCancellationFailed: Boolean,
+)
+
+enum class AgentTaskCancelOutcome {
+    SCHEDULE_CANCELLED,
+    STOPPED,
+    STOP_REQUESTED,
+}
+
+sealed interface AgentTaskCancelResult {
+    data class Cancelled(val cancellation: AgentTaskCancelRecord) : AgentTaskCancelResult
+    data class AlreadyCancelled(val name: String) : AgentTaskCancelResult
+    data class Ambiguous(val matchCount: Int) : AgentTaskCancelResult
+    data class Rejected(val reason: String) : AgentTaskCancelResult
+    data object NotFound : AgentTaskCancelResult
+    data object NoActiveSchedule : AgentTaskCancelResult
+}
+
 interface AgentTaskStore {
     suspend fun list(limit: Int): List<AgentTaskRecord>
     suspend fun inspect(name: String): AgentTaskInspectionResult
@@ -856,6 +878,11 @@ interface AgentTaskStore {
         idempotencyKey: String,
         workflowRunId: String,
     ): AgentTaskRetryVerificationResult = AgentTaskRetryVerificationResult.Failed
+    suspend fun cancel(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskCancelResult = AgentTaskCancelResult.Rejected("任务取消存储不可用")
 }
 
 data class AgentNoteRecord(

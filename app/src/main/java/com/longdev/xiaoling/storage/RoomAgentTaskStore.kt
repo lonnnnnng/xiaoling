@@ -3,6 +3,9 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import com.longdev.xiaoling.agent.AgentTaskInspectionRecord
 import com.longdev.xiaoling.agent.AgentTaskInspectionResult
+import com.longdev.xiaoling.agent.AgentTaskCancelOutcome
+import com.longdev.xiaoling.agent.AgentTaskCancelRecord
+import com.longdev.xiaoling.agent.AgentTaskCancelResult
 import com.longdev.xiaoling.agent.AgentTaskRecord
 import com.longdev.xiaoling.agent.AgentTaskRetryRecord
 import com.longdev.xiaoling.agent.AgentTaskRetryResult
@@ -11,14 +14,24 @@ import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRunStepRecord
 import com.longdev.xiaoling.agent.AgentTaskStore
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
+import com.longdev.xiaoling.automation.ScheduledTaskStatus
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
+import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
+import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.WorkflowRunRecord
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowStepRecord
 import com.longdev.xiaoling.automation.WorkflowStepStatus
+import kotlinx.coroutines.delay
 
-class RoomAgentTaskStore(
+internal class RoomAgentTaskStore(
     context: Context,
     private val repository: RoomWorkflowRepository = RoomWorkflowRepository(context.applicationContext),
+    private val stopCoordinator: ScheduledWorkflowStopCoordinator = defaultStopCoordinator(
+        context.applicationContext,
+        repository,
+    ),
 ) : AgentTaskStore {
     override suspend fun list(limit: Int): List<AgentTaskRecord> {
         require(limit in 1..10) { "任务清单条数必须在 1 到 10 之间" }
@@ -157,6 +170,105 @@ class RoomAgentTaskStore(
                 alreadyQueued = true,
             ),
         )
+    }
+
+    override suspend fun cancel(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskCancelResult {
+        val normalizedName = name.trim()
+        require(normalizedName.isNotEmpty()) { "任务名称不能为空" }
+        require(normalizedName.length <= 100) { "任务名称不能超过 100 个字符" }
+        // long: 取消依据 Room 的 ScheduledTask 状态而不是模型文本；会话和 ToolCall 只保留在 Runtime 审计，不能改变精确任务解析。
+        val workflows = repository.listWorkflows().filter { workflow -> workflow.name == normalizedName }
+        if (workflows.isEmpty()) return AgentTaskCancelResult.NotFound
+        if (workflows.size > 1) return AgentTaskCancelResult.Ambiguous(workflows.size)
+        val workflowId = workflows.single().id
+        val tasks = repository.listScheduledTasks()
+            .filter { task -> task.workflowId == workflowId }
+        val activeTasks = tasks.filter { task -> ScheduledTaskPolicy.isUnsettled(task.status) }
+        if (activeTasks.size > 1) return AgentTaskCancelResult.Ambiguous(activeTasks.size)
+        val task = activeTasks.singleOrNull()
+        if (task == null) {
+            val latest = tasks.maxByOrNull { scheduledTask -> scheduledTask.updatedAt }
+            return if (latest?.status == ScheduledTaskStatus.CANCELLED) {
+                AgentTaskCancelResult.AlreadyCancelled(normalizedName)
+            } else {
+                AgentTaskCancelResult.NoActiveSchedule
+            }
+        }
+        val stopped = stopCoordinator.stop(task.id)
+        // long: 先按 Coordinator 的稳定 outcome 分支，再读取同一返回中的任务状态，避免把停止竞态误判为普通失败。
+        return when (stopped.outcome) {
+            ScheduledWorkflowStopOutcome.NOT_FOUND -> AgentTaskCancelResult.NotFound
+            ScheduledWorkflowStopOutcome.NOT_RUNNING -> {
+                if (stopped.task?.status == ScheduledTaskStatus.CANCELLED) {
+                    AgentTaskCancelResult.AlreadyCancelled(normalizedName)
+                } else {
+                    AgentTaskCancelResult.NoActiveSchedule
+                }
+            }
+            ScheduledWorkflowStopOutcome.SCHEDULE_CANCELLED,
+            ScheduledWorkflowStopOutcome.STOPPED,
+            ScheduledWorkflowStopOutcome.STOP_REQUESTED,
+            -> AgentTaskCancelResult.Cancelled(
+                AgentTaskCancelRecord(
+                    name = normalizedName,
+                    status = stopped.task?.status?.name ?: ScheduledTaskStatus.STOP_REQUESTED.name,
+                    outcome = stopped.outcome.toAgentTaskCancelOutcome(),
+                    systemCancellationFailed = stopped.systemCancellationFailed,
+                ),
+            )
+        }
+    }
+
+    private fun ScheduledWorkflowStopOutcome.toAgentTaskCancelOutcome(): AgentTaskCancelOutcome {
+        return when (this) {
+            ScheduledWorkflowStopOutcome.SCHEDULE_CANCELLED -> AgentTaskCancelOutcome.SCHEDULE_CANCELLED
+            ScheduledWorkflowStopOutcome.STOPPED -> AgentTaskCancelOutcome.STOPPED
+            ScheduledWorkflowStopOutcome.STOP_REQUESTED -> AgentTaskCancelOutcome.STOP_REQUESTED
+            else -> error("不可见的任务取消终态：$this")
+        }
+    }
+
+    companion object {
+        private fun defaultStopCoordinator(
+            context: Context,
+            repository: RoomWorkflowRepository,
+        ): ScheduledWorkflowStopCoordinator {
+            val agentRunRepository = RoomAgentRunRepository(context)
+            val fallback = ScheduledWorkflowStopFallbackCoordinator(
+                loadTask = repository::getScheduledTask,
+                loadWorkflowRun = repository::runDetail,
+                cancelAgentRun = { runId ->
+                    agentRunRepository.cancelActiveRun(runId, "用户取消任务")
+                },
+                settleWorkflowAndTask = { taskId, workflowRunId, reason ->
+                    repository.settleScheduledWorkflowRun(
+                        taskId = taskId,
+                        workflowRunId = workflowRunId,
+                        workflowStatus = WorkflowRunStatus.CANCELLED,
+                        taskStatus = ScheduledTaskStatus.CANCELLED,
+                        errorMessage = reason,
+                    )
+                },
+                settleTaskWithoutWorkflow = { taskId, reason ->
+                    repository.finishScheduledTask(taskId, ScheduledTaskStatus.CANCELLED, reason)
+                },
+            )
+            val scheduler = WorkManagerScheduledTaskScheduler(context)
+            return ScheduledWorkflowStopCoordinator(
+                loadTask = repository::getScheduledTask,
+                cancelPendingTask = repository::cancelScheduledTask,
+                requestScheduledTaskStop = { taskId ->
+                    repository.requestScheduledTaskStop(taskId, "用户请求取消任务")
+                },
+                cancelSystemWork = scheduler::cancel,
+                waitForWorkerSettlement = { delay(100L) },
+                reconcileUnsettledTask = fallback::reconcile,
+            )
+        }
     }
 
     private fun WorkflowRunRecord.toDiagnosis(steps: List<WorkflowStepRecord>?): AgentTaskRunDiagnosis? {

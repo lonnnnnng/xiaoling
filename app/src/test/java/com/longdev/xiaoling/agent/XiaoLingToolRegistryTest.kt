@@ -1781,6 +1781,80 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun taskCancelReturnsStableVerifiedResultWithoutInternalIds() = runTest {
+        val registry = testRegistry(
+            taskStore = object : AgentTaskStore {
+                override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+
+                override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
+
+                override suspend fun cancel(
+                    name: String,
+                    conversationId: String,
+                    idempotencyKey: String,
+                ): AgentTaskCancelResult {
+                    assertEquals("每日回顾", name)
+                    assertEquals("conversation-direct", conversationId)
+                    assertEquals("tool-call-task-cancel", idempotencyKey)
+                    return AgentTaskCancelResult.Cancelled(
+                        AgentTaskCancelRecord(
+                            name = name,
+                            status = "CANCELLED",
+                            outcome = AgentTaskCancelOutcome.SCHEDULE_CANCELLED,
+                            systemCancellationFailed = false,
+                        ),
+                    )
+                }
+            },
+        )
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "取消每日回顾提醒",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                id = "tool-call-task-cancel",
+                name = "tasks.cancel",
+                arguments = mapOf("name" to " 每日回顾 "),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("计划已取消"))
+        assertTrue(result.content.contains("已取消"))
+        assertFalse(result.content.contains("workflow-run-private-id"))
+        assertFalse(result.content.contains("scheduled-task-private-id"))
+    }
+
+    @Test
+    fun taskCancelIsHiddenOutsideForegroundDirectAgent() = runTest {
+        val registry = testRegistry()
+        assertTrue(registry.availableToolsFor(null).none { definition -> definition.name == "tasks.cancel" })
+        registry.bindRunContext(workflowDeviceContext(userIntent = "取消后台任务"))
+        assertTrue(registry.availableTools().none { definition -> definition.name == "tasks.cancel" })
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "取消后台任务",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNotNull(registry.definition("tasks.cancel"))
+    }
+
+    @Test
     fun directPlanningContextRebindsBeforeProfileToolLookup() = runTest {
         val registry = testRegistry()
         registry.bindRunContext(workflowDeviceContext(userIntent = "重试失败的每日回顾任务"))
