@@ -335,6 +335,7 @@ private fun XiaoLingContent(
                         onOpenPromptSettings = { navigation.openSettingsPane(SettingsPane.PROMPT_SETTINGS) },
                         onOpenAgentProfileManagement = { navigation.openSettingsPane(SettingsPane.AGENT_PROFILE_MANAGEMENT) },
                         onOpenDeviceAgent = { navigation.openSettingsPane(SettingsPane.DEVICE_AGENT) },
+                        onOpenCalendarAccess = { navigation.openSettingsPane(SettingsPane.CALENDAR_ACCESS) },
                         onOpenAnswerabilityShadow = { navigation.openSettingsPane(SettingsPane.ANSWERABILITY_SHADOW) },
                         onOpenMemoryManagement = {
                             navigation.openSettingsPane(SettingsPane.MEMORY_MANAGEMENT)
@@ -730,6 +731,7 @@ private fun SettingsPage(
     onOpenPromptSettings: () -> Unit,
     onOpenAgentProfileManagement: () -> Unit,
     onOpenDeviceAgent: () -> Unit,
+    onOpenCalendarAccess: () -> Unit,
     onOpenAnswerabilityShadow: () -> Unit,
     onOpenMemoryManagement: () -> Unit,
     onOpenKnowledgeManagement: () -> Unit,
@@ -781,6 +783,10 @@ private fun SettingsPage(
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.DEVICE_AGENT -> DeviceAgentSettingsPage(
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
+            pane == SettingsPane.CALENDAR_ACCESS -> CalendarAccessSettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
@@ -860,6 +866,7 @@ private fun SettingsPage(
                     override fun openPromptSettings() = onOpenPromptSettings()
                     override fun openAgentProfileManagement() = onOpenAgentProfileManagement()
                     override fun openDeviceAgent() = onOpenDeviceAgent()
+                    override fun openCalendarAccess() = onOpenCalendarAccess()
                     override fun openAnswerabilityShadow() = onOpenAnswerabilityShadow()
                     override fun openMemoryManagement() = onOpenMemoryManagement()
                     override fun openKnowledgeManagement() = onOpenKnowledgeManagement()

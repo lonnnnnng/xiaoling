@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 148 阶段：系统日历只读能力（完成）
+
+- 在完整个人 Agent 主链上新增一个明确的系统能力切片：用户主动授权后，前台 Agent 可通过 SAFE `calendar.list_events` 读取未来 1 至 30 天的近期日程；最多 20 条，只返回标题、起止时间和全天标记。
+- 日历权限独立于设备 Agent/Accessibility，设置页明确只读范围、隐私边界和 Profile/Skill 显式授权要求。既有 Profile 不自动扩权；不读取地点、描述、参与人、账户，不创建、修改或删除系统日历，不支持后台 Workflow。
+- Redmi 真实 Provider 查询 `1/1`，设置页/根入口 instrumentation `7/7`；默认 Agent 真实计划 `1/1`，唯一工具为 `calendar.list_events`，结果为未来 7 天无日程。
+- 真实使用同时暴露并修复计划拆步问题：计划提示现在禁止把整理、展示、总结或回复用户拆成独立工具步骤，避免为了满足每个 Run 的工具事实门槛而额外调用无关工具；`PersonalTaskPlanPolicyTest 12/12` 通过。
+- 下一阶段继续围绕可直接体验的个人 Agent 主线推进；系统日历写入、后台设备自动化、MCP、远程 Channel、多 Agent、跨设备同步和本地模型仍后置。
+
 ## 第 147 阶段：真实多步 Runtime 可靠性与后台时长评估首轮（完成）
 
 - 修复真实 8 步 SAFE Workflow 暴露的两个阻断：模型紧邻重复请求相同且已通过 `RESULT_READABLE` 验证的 SAFE 只读工具时，Runtime 复用已有结果完成，不执行第二次；设备动作、写工具、需要审批或一般重复调用继续由指纹门禁拒绝。

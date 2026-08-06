@@ -393,7 +393,7 @@ object PersonalTaskPlanPolicy {
                     schedule.type 只允许 IMMEDIATE、ONCE、DAILY、WEEKLY。用户没有明确要求未来或周期提醒时使用 IMMEDIATE；一次性提醒使用 ONCE 和从当前时间计算的 delay_minutes（${ScheduledTaskPolicy.MIN_DELAY_MINUTES} 至 ${ScheduledTaskPolicy.MAX_DELAY_MINUTES}），其余字段为 0；每日提醒使用 DAILY 和 hour/minute，其他字段为 0；每周提醒使用 WEEKLY、hour/minute/day_of_week，周一至周日为 1 至 7，delay_minutes 为 0。
                     提醒使用 WorkManager 非精确定时，系统可能延迟执行。ONCE、DAILY、WEEKLY 的 target_app_package 必须为空，完成标准不能包含 device.*；你不能承诺精确触发，也不能把需要审批的动作写成已获批或可在后台自动完成。
                     verification.required_tool_names 是确认任务完成不可缺少的工具名，按预期先后顺序填写且只能来自给定工具边界；普通观察或辅助工具可以不列入。verification.expected_final_package 是完成时必须位于的应用，不要求最终应用时返回空字符串。
-                    每一步只描述可验证的业务目标，不写工具调用 JSON，不包含审批已通过或结果已产生等虚假事实。
+                    每一步只描述可验证的业务目标，不写工具调用 JSON，不包含审批已通过或结果已产生等虚假事实。整理、展示、总结或回复用户属于最终回复工作，不能作为独立步骤；请把它们合并到最后一个需要工具验证的业务步骤之后，由 Agent 根据已验证结果统一输出。
                 """.trimIndent(),
             ),
             RequestMessage(

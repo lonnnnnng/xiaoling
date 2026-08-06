@@ -17,6 +17,7 @@ internal interface SettingsRootActions {
     fun openPromptSettings()
     fun openAgentProfileManagement()
     fun openDeviceAgent()
+    fun openCalendarAccess()
     fun openAnswerabilityShadow()
     fun openMemoryManagement()
     fun openKnowledgeManagement()

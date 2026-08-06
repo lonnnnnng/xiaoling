@@ -33,6 +33,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInCalendarOverviewSkillUsesOnlyReadOnlyCalendarTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "查看我未来一周的日程安排",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "calendar-overview" }
+        assertEquals(setOf("calendar.list_events"), skill.toolNames)
+        assertEquals(setOf("android.permission.READ_CALENDAR"), skill.requiredAndroidPermissions)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+    }
+
+    @Test
     fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "观察当前手机界面并告诉我有哪些可访问节点",

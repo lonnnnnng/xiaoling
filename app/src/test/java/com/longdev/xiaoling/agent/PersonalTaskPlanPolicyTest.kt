@@ -12,6 +12,27 @@ import java.time.ZonedDateTime
 
 class PersonalTaskPlanPolicyTest {
     @Test
+    fun `planning prompt keeps presentation in the final response instead of a tool step`() {
+        val systemPrompt = PersonalTaskPlanPolicy.requestMessages(
+            goal = "查询未来7天日历事件并展示",
+            allowedToolNames = listOf("calendar.list_events"),
+        ).first().content
+
+        assertTrue(systemPrompt.contains("整理、展示、总结或回复用户"))
+        assertTrue(systemPrompt.contains("不能作为独立步骤"))
+    }
+
+    @Test
+    fun `strict plan still preserves ordered executable goals`() {
+        val plan = PersonalTaskPlanPolicy.parse(
+            """{"name":"查询未来7天日历事件","target_app_package":"","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["calendar.list_events"],"expected_final_package":""},"steps":[{"goal":"使用 calendar.list_events 查询未来 7 天范围内的所有日历事件"}]}""",
+            allowedToolNames = setOf("calendar.list_events"),
+        )
+
+        assertEquals(listOf("使用 calendar.list_events 查询未来 7 天范围内的所有日历事件"), plan.steps.map(PersonalTaskPlanStep::goal))
+    }
+
+    @Test
     fun `strict plan accepts one to eight ordered workflow goals`() {
         val plan = PersonalTaskPlanPolicy.parse(
             """{"name":"整理今天安排","target_app_package":"com.android.settings","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app","device.snapshot"],"expected_final_package":"com.android.settings"},"steps":[{"goal":"打开系统设置"},{"goal":"查看当前页面"}]}""",

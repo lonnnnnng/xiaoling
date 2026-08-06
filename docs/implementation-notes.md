@@ -1,6 +1,15 @@
 # 当前实现说明
 
-## 第 127 至 147 阶段实现顺序（主线完成，真实任务打磨继续）
+## 第 127 至 148 阶段实现顺序（主线完成，真实任务打磨继续）
+
+## 第 148 阶段：系统日历只读能力（完成）
+
+- `CalendarEventReader` 将系统 Calendar Provider 收敛为最小只读接口；生产实现通过 `CalendarContract.Instances` 在 `Dispatchers.IO` 查询有界时间窗，投影只包含标题、起止时间和全天标记，捕获权限撤销竞态并 fail-closed。
+- `XiaoLingToolRegistry` 注册 SAFE `calendar.list_events`，严格校验 `days_ahead` 与 `limit`，声明 `READ_CALENDAR` 和 `supportsBackground=false`；`AgentRunUseCase` 注入 Android reader，测试使用 fake reader。`calendar-overview` Skill 只缩小工具面，不绕过 Profile 白名单。
+- 设置根页新增“日历访问”独立入口和 `CalendarAccessSettingsPage`。用户主动点击后才调用 `RequestPermission(READ_CALENDAR)`；页面在 `ON_RESUME` 重新读取授权状态，并明确只读字段、前台边界和 Profile/Skill 显式启用要求。
+- 真实 Redmi 证据：`AndroidCalendarEventReaderInstrumentedTest 1/1`、设置页与根入口 `7/7`；默认 Agent 显式启用工具/Skill 后，真实计划只有 `1/1` 步，唯一工具 `calendar.list_events`，返回未来 7 天无日程。
+- 真实复现发现计划模型会把“整理并展示”拆成第二个步骤，运行时因此可能调用无关只读工具；`PersonalTaskPlan` 规划提示新增“纯整理/展示属于最终回复，不得独立成步骤”，`PersonalTaskPlanPolicyTest 12/12` 锁定该契约。运行时每个 Run 必须拥有真实工具事实的安全门槛保持不变。
+- 系统日历写入、地点/描述/参与人/账户字段、后台 Workflow 和旧 Profile 自动扩权继续关闭；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
 
 ## 第 147 阶段：真实多步 Runtime 可靠性与后台时长评估首轮（完成）
 

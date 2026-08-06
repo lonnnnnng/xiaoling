@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
@@ -115,6 +116,13 @@ internal fun SettingsRootPage(
                 subtitle = "独立开关、无障碍观察和有限前台动作",
                 icon = Icons.Default.Visibility,
                 onClick = actions::openDeviceAgent,
+            )
+
+            SettingsEntryCard(
+                title = "日历访问",
+                subtitle = "授权前台 Agent 只读近期日程",
+                icon = Icons.Default.DateRange,
+                onClick = actions::openCalendarAccess,
             )
 
             SettingsEntryCard(

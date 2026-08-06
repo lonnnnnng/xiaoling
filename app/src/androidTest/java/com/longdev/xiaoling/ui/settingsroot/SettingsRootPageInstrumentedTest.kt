@@ -47,6 +47,7 @@ class SettingsRootPageInstrumentedTest {
             "提示词设置",
             "Agent Profiles",
             "设备 Agent",
+            "日历访问",
             "答案可回答性 Shadow",
             "长期记忆",
             "知识库",
@@ -69,6 +70,7 @@ class SettingsRootPageInstrumentedTest {
                     "prompts",
                     "agent-profiles",
                     "device-agent",
+                    "calendar-access",
                     "answerability-shadow",
                     "memories",
                     "knowledge",
@@ -213,6 +215,7 @@ class SettingsRootPageInstrumentedTest {
         override fun openPromptSettings() = events.add("prompts").let { Unit }
         override fun openAgentProfileManagement() = events.add("agent-profiles").let { Unit }
         override fun openDeviceAgent() = events.add("device-agent").let { Unit }
+        override fun openCalendarAccess() = events.add("calendar-access").let { Unit }
         override fun openAnswerabilityShadow() = events.add("answerability-shadow").let { Unit }
         override fun openMemoryManagement() = events.add("memories").let { Unit }
         override fun openKnowledgeManagement() = events.add("knowledge").let { Unit }

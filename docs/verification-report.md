@@ -19,6 +19,14 @@
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
 
+## 2026-08-06 第 148 阶段：系统日历只读能力与真实 Agent 闭环
+
+- 实现：新增 `CalendarEventReader`/`AndroidCalendarEventReader`，通过 `CalendarContract.Instances` 在 IO 调度器查询未来 1 至 30 天、最多 20 条；只投影标题、开始时间、结束时间和全天标记。`XiaoLingToolRegistry` 注册 SAFE `calendar.list_events`，声明 `READ_CALENDAR`、`supportsBackground=false`，权限撤销和 Provider 异常均 fail-closed；无 `WRITE_CALENDAR`。
+- 隐私与授权：设置根页新增“日历访问”入口，独立页面只在用户主动点击时申请 `READ_CALENDAR`，返回应用或系统设置后重新读取授权状态。页面明确不读取地点、描述、参与人或账户，不创建/修改/删除日程，并要求 Agent Profile 显式启用工具和 `calendar-overview` Skill；旧 Profile 不自动扩权。
+- 聚焦验证：`PersonalTaskPlanPolicyTest 12/12` 通过；Debug APK 与 AndroidTest APK 构建成功；Redmi `CalendarAccessSettingsPageInstrumentedTest + SettingsRootPageInstrumentedTest` 为 `OK (7 tests)`；已授权 Redmi 的 `AndroidCalendarEventReaderInstrumentedTest` 为 `OK (1 test)`。
+- 真实 Agent：默认 Agent 显式启用 `calendar.list_events` 与 `calendar-overview` 后，模型计划初版曾把“整理并展示”拆成第二步，导致 Runtime 为满足当前 Run 工具事实而额外选择 `app.current_time`。新增规划提示后复跑，计划为 `1/1`，唯一工具 `calendar.list_events`，参数 `days_ahead=7 / limit=20`，ToolResult `success=true / verificationStatus=PASSED`，结果“未来 7 天没有日程”，目标结论 `VERIFIED / ALL_CRITERIA_VERIFIED`。
+- 边界：本阶段只开放前台日历只读查询；日历写入、后台 Workflow、地点/描述/参与人/账户、MCP、远程 Channel、多 Agent 和本地模型继续关闭。按快速迭代分级未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation；只使用 Redmi `wsvwypiz7xwslvl7`，未向模拟器发送命令。
+
 ## 2026-08-06 第 147 阶段：真实多步 Runtime 可靠性与后台时长评估首轮
 
 - 首轮真实阻断：8 步 SAFE Workflow 中，模型可能在工具已成功验证后紧邻请求完全相同的只读调用，旧 Runtime 会以重复指纹让整条任务失败；重复目标步骤还可能把前序输出误当成本 Agent Run 的工具事实，在零工具状态直接返回 `complete`。

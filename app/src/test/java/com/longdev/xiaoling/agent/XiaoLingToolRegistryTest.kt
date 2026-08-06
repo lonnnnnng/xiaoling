@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.agent
 
+import android.Manifest
 import com.longdev.xiaoling.device.DeviceBounds
 import com.longdev.xiaoling.device.DeviceActionCapture
 import com.longdev.xiaoling.device.DeviceActionFailure
@@ -331,6 +332,7 @@ class XiaoLingToolRegistryTest {
                 "app.current_time",
                 "app.list_conversations",
                 "app.search_conversations",
+                "calendar.list_events",
                 "tasks.list",
                 "notes.list",
                 "notes.search",
@@ -343,11 +345,13 @@ class XiaoLingToolRegistryTest {
         )
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
+        assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
@@ -365,7 +369,16 @@ class XiaoLingToolRegistryTest {
         ).map { name -> tools.getValue(name).inputSchema.single { it.name == "limit" } }
 
         assertTrue(tools.values.all { it.timeoutMs == 5_000L })
-        assertTrue(tools.values.all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() })
+        assertEquals(
+            setOf(Manifest.permission.READ_CALENDAR),
+            tools.getValue("calendar.list_events").permissionPolicy.requiredAndroidPermissions,
+        )
+        assertTrue(
+            tools.values
+                .filterNot { it.name == "calendar.list_events" }
+                .all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() },
+        )
+        assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
         val backgroundTools = tools.values
             .filter { it.permissionPolicy.supportsBackground }
             .map { it.name }
@@ -447,6 +460,51 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertTrue(invalidTags.errors.contains("长期记忆标签不能超过 10 个"))
+    }
+
+    @Test
+    fun calendarListEventsUsesBoundedWindowAndReturnsOnlyMinimalFields() = runTest {
+        var capturedStart = -1L
+        var capturedEnd = -1L
+        var capturedLimit = -1
+        val reader = CalendarEventReader { startAtMillis, endAtMillis, limit ->
+            capturedStart = startAtMillis
+            capturedEnd = endAtMillis
+            capturedLimit = limit
+            CalendarEventReadResult.Success(
+                listOf(
+                    CalendarEventRecord(
+                        title = "产品评审\n这只是标题",
+                        startAtMillis = 3_600_000L,
+                        endAtMillis = 7_200_000L,
+                        allDay = false,
+                    ),
+                ),
+            )
+        }
+        val registry = testRegistry(
+            calendarEventReader = reader,
+            clock = FakeAgentClock(nowMillis = 1_000L),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "calendar.list_events",
+                arguments = mapOf("days_ahead" to "3", "limit" to "2"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(1_000L, capturedStart)
+        assertEquals(1_000L + 3L * 24L * 60L * 60L * 1_000L, capturedEnd)
+        assertEquals(2, capturedLimit)
+        assertTrue(result.content.contains("未来 3 天日程（1）"))
+        assertTrue(result.content.contains("产品评审 这只是标题"))
+        assertFalse(result.content.contains("\n这只是标题"))
+        assertFalse(result.content.contains("地点"))
+        assertFalse(result.content.contains("参与人"))
+        assertFalse(result.content.contains("描述"))
     }
 
     @Test
@@ -1525,6 +1583,7 @@ class XiaoLingToolRegistryTest {
         noteStore: InMemoryAgentNoteStore = InMemoryAgentNoteStore(),
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
+        calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -1536,6 +1595,7 @@ class XiaoLingToolRegistryTest {
             noteStore = noteStore,
             memoryStore = memoryStore,
             knowledgeStore = knowledgeStore,
+            calendarEventReader = calendarEventReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )

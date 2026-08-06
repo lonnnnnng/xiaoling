@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统日历只读能力（第 148 阶段，完成）
+
+- 新增 SAFE `calendar.list_events` 与内置 `calendar-overview` Skill；只有用户在独立设置页主动授权 `READ_CALENDAR` 后，前台 Agent 才能使用。既有 Profile 不自动扩权，必须显式启用工具和 Skill。
+- 输入限制为 `days_ahead=1..30`、`limit=1..20`；Provider 查询只投影标题、开始时间、结束时间和全天标记，标题压成单行并限制长度。地点、描述、参与人、组织者、账户等字段不进入 Agent，也没有 `WRITE_CALENDAR`。
+- `supportsBackground=false`，日历读取不允许后台 Workflow、定时任务或静默权限请求；权限撤销竞态和 Provider 异常均 fail-closed。工具执行使用 `Dispatchers.IO`，不阻塞 UI 线程。
+- Redmi 真实证据：日历 Provider 读取 `AndroidCalendarEventReaderInstrumentedTest 1/1`；设置页和设置根入口 `7/7`；真实 Agent 计划 `1/1`，唯一工具为 `calendar.list_events`，返回未来 7 天无日程。
+- 计划提示词明确整理、展示、总结或回复用户属于最终回复，不得拆成独立步骤；回归 `PersonalTaskPlanPolicyTest 12/12`，避免运行时为纯展示步骤额外调用无关工具。
+- 本阶段不创建/修改/删除系统日历，不开放后台设备动作、MCP、远程 Channel、多 Agent 或本地模型；后续继续按 Redmi-only 和分级验证约束推进。
+
 ## 真实多步 Runtime 可靠性与后台时长评估首轮（第 147 阶段，完成）
 
 - 已成功验证的 SAFE 只读工具被模型紧邻重复请求时，只有无需审批、使用 `RESULT_READABLE` 验证、前次结果成功且非空、调用指纹完全相同，才允许复用已有结果完成；不得再次执行工具。设备动作、写工具和普通重复继续拒绝。

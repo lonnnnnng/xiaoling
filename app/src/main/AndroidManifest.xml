@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- long: 相机只服务于可选的 Provider 二维码导入；无相机设备仍应能使用手动配置和完整对话能力。 -->
     <uses-feature

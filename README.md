@@ -4,6 +4,8 @@
 
 后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
 
+第 148 阶段已接入系统日历只读能力：新增 `calendar.list_events` 与 `calendar-overview` Skill，限制为前台、未来 1 至 30 天、最多 20 条，只返回标题、起止时间和全天标记；用户必须在独立“日历访问”页主动授权，且仍需在 Agent Profile 中显式启用工具与 Skill。Redmi 真实验证完成 Provider 读取 `1/1`，真实 Agent 计划 `1/1` 且只执行 `calendar.list_events`，结果为“未来 7 天没有日程”。计划提示词同时收紧为不把整理/展示拆成独立工具步骤，避免额外调用无关工具。系统日历写入、后台 Workflow、地点/描述/参与人/账户字段继续关闭。
+
 “先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 147 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、计划生成遥测、常用任务模板、首个 Google 天气 App 兼容扩展、计划上下文请求精简、取消提交竞态、任务结果定向查看、任务/提醒只读总览、AOSP/Google 时钟等价应用族、“返回小灵”动作级工具收窄、多级关联重试，以及真实多步任务的 Runtime 可靠性。Redmi 已真实完成两条 8 步 SAFE Workflow；前台样本耗时 `104156ms`，启动后约 3 秒熄屏的样本耗时 `94155ms`，均为 `8/8 COMPLETED` 与目标级 `VERIFIED / ALL_CRITERIA_VERIFIED`。当前生产样本仍不足 5 分钟，因此不引入 Foreground Service，也不开放后台设备动作。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占真实任务问题。
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
@@ -144,6 +146,7 @@ local-signing/xiaoling-release.jks
 
 ## 当前验证
 
+- 第 148 阶段完成系统日历只读能力：`calendar.list_events` 为 SAFE、需要 `READ_CALENDAR`、仅前台执行，参数限制为未来 1 至 30 天和最多 20 条；只读标题、开始时间、结束时间、全天标记，不读取地点、描述、参与人或账户，也不创建/修改/删除日程。用户在独立“日历访问”页主动授权后，默认 Agent 显式启用 `calendar.list_events` 与 `calendar-overview`。Redmi Provider 读取 `1/1`、设置页与根页 instrumentation `7/7`、Debug/AndroidTest APK 和聚焦 `PersonalTaskPlanPolicyTest 12/12` 通过；真实 Agent 计划 `1/1`，唯一工具为 `calendar.list_events`，返回“未来 7 天没有日程”。修复计划提示词禁止把整理/展示拆成独立步骤；系统日历写入、后台 Workflow 和旧 Profile 自动扩权继续关闭。
 - 第 147 阶段完成真实多步 Runtime 可靠性与后台时长评估首轮：相同且已验证的 SAFE 只读工具紧邻重复时复用已有结果完成，设备动作、写工具和普通重复仍拒绝；零工具提前 `complete` 只纠错重试一次，Workflow 前序输出不能替代当前 Agent Run 的工具事实。Redmi 前台 Run `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`，熄屏 Run `workflow-run-2153667c-f664-4034-a566-79a114899c27` 耗时 `94155ms`，均 8 步完成且目标级 `VERIFIED / ALL_CRITERIA_VERIFIED`。熄屏后系统保持 `Wakefulness=Dozing`，同一进程继续完成模型请求；`exit-info` 前后无新增退出记录。聚焦 JVM `22/22`、AndroidTest APK 和仅 Redmi 的文档 corpus `OK (1 test)`（`2.468s`）通过。当前没有 5 至 10 分钟生产任务或自然进程回收证据，不引入 Foreground Service，不开放后台设备动作，也不声称已验证长时恢复。
 - 第 144 阶段完成任务/提醒只读总览：新增 SAFE `tasks.list` 和内置 `task-overview` Skill，复用 Room Workflow、Run、ScheduledTask 和 Schedule 事实，按 Workflow 独立取最新 Run，并在一次性/周期计划并存时展示最早下次触发。聚焦 JVM `48/48`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentTaskStoreInstrumentedTest` 为 `OK (3 tests)`（`1.828s`），更新后文档 corpus 单项为 `OK (1 test)`（`2.648s`）。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 第 130 阶段完成记忆/知识计划上下文与应用内提醒。提醒 Schema 严格区分 `IMMEDIATE / ONCE / DAILY / WEEKLY`，拒绝数字字符串、小数、目标 App、`device.*` 完成标准和设备最终应用；确认后 Room 原子创建 Workflow 与首个调度实例，不产生 Manual Run。聚焦 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 通过；仅 Redmi 的 Room 与 Compose 单项最终为 `OK (1 test)`（`0.318s / 2.12s`），真实模型返回 `ONCE / delay=30`。未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
