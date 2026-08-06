@@ -4387,6 +4387,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowRunId = workflowRunId,
                 )
                 if (workflowRunId == null) {
+                    if (shouldRefreshWorkflowsAfterTaskCancel(summary.verifiedContext)) {
+                        // long: 会话中的取消摘要与任务中心必须在同一轮完成 Room 快照刷新，用户随后打开任务中心才能看到最新取消状态。
+                        refreshWorkflows()
+                    }
                     startCommittedTaskRetryIfPresent(
                         agentRunId = summary.runId,
                         runtimeSelection = runtimeSelection,

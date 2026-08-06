@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 163 阶段：取消结果后的任务快照刷新（完成）
+
+- 新增 `shouldRefreshWorkflowsAfterTaskCancel()` 纯策略，复用 `TaskCancelCompletionPresentation` 的可信门禁；只有唯一成功且 typed `VERIFIED` 的应用生成取消结果才返回 `true`。
+- `XiaoLingViewModel.sendAgentRun()` 在普通 Agent 会话状态更新并发起保存后调用该策略并触发 `refreshWorkflows()`，刷新内容包含 Workflow、ScheduledTask、周期规则、Run 详情和设备证据投影。Workflow 来源不重复刷新，任务重试路径保持独立。
+- 新增 `TaskCancelWorkflowRefreshPolicyTest 4/4`，固定可信取消刷新、未验证、模型伪造和重复 execution 四类反例；连同既有取消终态投影合计 JVM `8/8`。Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过，不新增 Room Schema、工具权限或后台执行。
+
 ## 第 162 阶段：取消结果任务中心导航（完成）
 
 - 扩展 `TaskInspectionNavigation.inspectedTaskNameForNavigation()`：保留 `tasks.inspect` 的“任务最近运行”首行门禁，并新增 `tasks.cancel` 的 typed `VERIFIED`、精确任务名前缀和四类稳定取消文案门禁。

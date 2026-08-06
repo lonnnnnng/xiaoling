@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 163 阶段：取消结果后的任务快照刷新（完成）
+
+- 普通 `/agent` 收到可信 `tasks.cancel` 终态后，前台宿主主动重新读取 Workflow、ScheduledTask 和关联 Run 的 Room 快照；用户从会话结果进入任务中心时，不再依赖页面首次打开或手动刷新才能看到取消后的状态。
+- 刷新只由唯一 `tasks.cancel`、成功、typed `VERIFIED` 且命中应用生成取消文案的 `VerifiedAgentContext` 触发；模型自由文本、`READABLE_ONLY / FAILED`、重复取消和其他工具均不触发，避免不可信结果制造状态刷新假象。
+- 该切片不新增工具、权限、Room Schema 或后台能力，不改变取消副作用、旧 Run 不变和第162阶段名称解析门禁。聚焦 JVM `8/8`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过，Pixel_9 未使用。
+- 下一阶段再评估启动恢复后的失败/取消用户可见提示，不重复实现已有失败 ToolResult/typed 验证原子收敛矩阵。
+
 ## 第 162 阶段：取消结果任务中心导航（完成）
 
 - 已验证的 `tasks.cancel` Tool part 复用现有“查看任务”入口，用户可以从取消结果直接进入任务中心查看最新任务与关联运行，而不需要重新搜索。

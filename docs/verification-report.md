@@ -4,6 +4,12 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 163 阶段：取消结果后的任务快照刷新
+
+- 已实现 `shouldRefreshWorkflowsAfterTaskCancel()`：复用可信取消终态投影，只有唯一 `tasks.cancel`、成功、typed `VERIFIED` 且命中应用生成稳定文案时才允许刷新 Workflow 快照。
+- `XiaoLingViewModel.sendAgentRun()` 在普通 Agent 会话状态更新并发起保存后触发 `refreshWorkflows()`；该刷新重新读取 Workflow、ScheduledTask、周期规则、Run 与设备证据，避免任务中心继续显示取消前的旧状态。Workflow 来源和重试路径不受影响。
+- 聚焦 JVM `TaskCancelWorkflowRefreshPolicyTest 4/4 + TaskCancelCompletionPresentationTest 4/4 = 8/8`，`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。六份长期文档更新后，仅在 Redmi `wsvwypiz7xwslvl7` 运行 corpus gate，结果 `OK (1 test)`、耗时 `2.64s`；Pixel_9 未接收命令。按分级验证未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+
 - 第 162 阶段取消结果任务中心导航已完成：`tasks.cancel` Tool part 复用现有“查看任务”入口；导航要求成功、typed `VERIFIED`、唯一 `name` 参数、首行精确任务名和应用生成的取消状态前缀，点击时由 Room 当前快照重新解析唯一 Workflow。模型伪造、失败/未验证、换行注入和同名均 fail-closed。
 - 聚焦 JVM `TaskInspectionNavigationTest 5/5`，Debug APK 构建成功；本阶段未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。文档更新后仅在 Redmi `wsvwypiz7xwslvl7` 运行 corpus gate，结果 `OK (1 test)`，未向 Pixel_9 发送命令。
 

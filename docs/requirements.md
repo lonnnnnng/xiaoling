@@ -1,5 +1,11 @@
 # 产品需求
 
+## 取消结果后的任务快照刷新（第 163 阶段，完成）
+
+- 普通 Agent 会话收到可信 `tasks.cancel` 终态后，应用应主动刷新 Workflow、ScheduledTask、周期规则和 Run 投影，保证随后打开任务中心看到当前取消状态。
+- 刷新门禁必须复用唯一 `tasks.cancel`、成功、typed `VERIFIED` 和应用生成稳定取消文案；模型文本、失败/未验证结果、重复 execution 与其他工具不得触发刷新。
+- 本阶段不新增工具、权限、Room Schema、后台执行或前台手动 Run 取消能力；旧 Run 与取消副作用保持不变。
+
 ## 取消结果任务中心导航（第 162 阶段，完成）
 
 - 成功且 typed `VERIFIED` 的 `tasks.cancel` Tool part 可显示“查看任务”入口；入口只消费唯一 `name` 参数和应用生成的取消状态首行，不扫描普通 assistant 文本。
