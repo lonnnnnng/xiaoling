@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 152 阶段：本地笔记写入闭环（完成）
+
+- 选择回到可直接体验的个人 Agent 主线：用户自然语言提出“记录一条本地笔记”的目标，真实 Provider Agent 在冻结的 `local-notes` Skill 和 `notes.search / notes.create / notes.list` Profile 白名单内规划并执行；没有新增 Runtime、后台能力或 Room Schema。
+- `notes.create` 沿用 `REQUIRES_APPROVAL`、ToolCall ID 幂等键、Room 事务写入和 operation 回读验证；回读不一致仍不能宣称完成。Redmi 真实 Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 的审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，按唯一标题搜索回读成功。
+- Debug 探针只在 `src/debug` 提供 `notes_create_real`，持久化审批 gate 仅用于真机验收，不进入 Release；验证完成后删除本阶段测试笔记、删除临时 Profile、恢复用户原 Profile，Run/审批审计保持不变。为防清理误删，新增精确 note ID 删除回归，Redmi `OK (1 test)`。
+- 本阶段相关 Debug 编译、AndroidTest APK、定向 JVM 和 Redmi 单项均通过；不运行完整 JVM、全量 Lint 或 Release。该闭环不扩展笔记删除用户入口、后台笔记操作或任意文件写入。
+- 这条闭环补上了“本地写入副作用也能完成审批、幂等、回读和可检索核对”的直接体验缺口。下一阶段优先继续个人 Agent 的真实可用闭环，再根据具体用户场景选择下一个单一能力；自然 LMK、主动断网和 5 至 10 分钟长任务证据仍不足以引入 Foreground Service。
+
 ## 第 151 阶段：真实 WorkManager 长任务、熄屏与受控中断恢复（完成）
 
 - Debug 探针只负责通过正式 `RoomWorkflowRepository + WorkManagerScheduledTaskScheduler + ScheduledWorkflowWorker` 创建和观察 8 步 `app.current_time` 任务；临时 Profile 只授权该工具，状态查询确认任务终态时恢复用户原 Profile、删除临时 Profile 并停用探针 Workflow，下一次创建前也会清理上次残留，没有创建第二套 Runtime。

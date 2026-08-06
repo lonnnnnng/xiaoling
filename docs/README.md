@@ -1,5 +1,7 @@
 # 文档索引
 
+第 152 阶段完成首个本地笔记写入闭环：Redmi 真实 Agent Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 通过临时 `local-notes` Profile 执行 `notes.create`，Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。Debug 探针清理测试笔记、临时 Profile 并恢复原 Profile，Run/审批事实保留；聚焦 Redmi 清理回归 `OK (1 test)`，Debug/AndroidTest APK 构建成功。本阶段未运行完整 JVM、全量 Lint 或 Release。
+
 “先跑通完整个人 Agent，再集中打磨细节”的第 127 至 132 阶段已经全部完成。自然语言计划、限定 App 多动作、目标级验证、记忆/知识上下文、应用内提醒、关联恢复和 Redmi 完整里程碑验收均已贯通；第 133 至 151 阶段继续真实使用打磨，并已完成只读日历与今日总览、任务结果定向查看、多级关联重试、真实 WorkManager 长任务、熄屏执行和受控进程中断收敛。详细验收边界见 [个人 Agent 路线图](personal-agent-roadmap.md)。
 
 第 151 阶段通过正式 Room、WorkManager 和 `ScheduledWorkflowWorker` 创建 8 步 SAFE 后台任务。Redmi 普通后台 Run `workflow-run-f20ecc64-e375-47ba-813d-8516297eb920` 用时 `95816ms`，熄屏 Run `workflow-run-e9aa7e03-8557-451e-972c-af56de8051e0` 用时 `91915ms`，均为 `8/8 COMPLETED`；熄屏后半程保持 `Wakefulness=Dozing`，PID 全程为 `8228`，`exit-info` 没有新增记录。人工 `force-stop` 的 Run `workflow-run-b2f58179-839a-4687-ac68-2b2d02687089` 在 PID `8228 -> 9134` 后恢复为 `4 COMPLETED + 4 CANCELLED`，已完成前缀保持不变且没有重放工具。Debug 状态查询确认终态时负责恢复原 Profile、删除临时 Profile，并停用 Workflow；下一次创建前也会清理上次残留。Redmi Room 回归和更新后文档 corpus 均为 `OK (1 test)`。该受控样本不能冒充自然 LMK；主动断网和 5 至 10 分钟任务仍未验证，Foreground Service 继续后置。

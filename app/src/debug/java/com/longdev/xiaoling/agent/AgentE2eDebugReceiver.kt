@@ -47,6 +47,7 @@ import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.RoomStateStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -111,6 +112,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_SETUP -> setup(appContext, intent)
                     OPERATION_STATUS -> reportStatus(appContext)
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
+                    OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
                         appContext,
@@ -277,6 +279,132 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "results=${results.joinToString(",") { "${it.toolName}:${it.success}/${it.verificationStatus}" }} " +
                 "answerSeparated=true responseLength=${summary.responseText.length}",
         )
+    }
+
+    private suspend fun runNotesCreateReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val conversationId = "conversation-redmi-notes-create-$now"
+        val title = "第152阶段真实笔记-$now"
+        val content = "Redmi 真实 Agent notes.create 闭环验证-$now"
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage152-notes-create-profile"
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第152阶段本地笔记验收",
+            avatar = "152",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只根据用户目标操作本机笔记；创建后必须以工具事实确认写入结果，不执行其他写入。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("notes.search", "notes.create", "notes.list"),
+            allowedSkillIds = listOf("local-notes"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val noteStore = RoomAgentNoteStore(context)
+        val repository = RoomAgentRunRepository(context)
+        // long: 上一次 Debug 探针若在清理前被强停，下一次开始先回收仅由本阶段生成的前缀数据，避免残留影响唯一性断言。
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+        val database = XiaoLingDatabase.getInstance(context)
+        noteStore.list(10)
+            .filter { it.title.startsWith("第152阶段真实笔记-") }
+            .forEach { database.agentNoteDao().deleteNote(it.id) }
+        profileStore.upsert(profile)
+        check(profileStore.select(profile.id)) { "无法选择第152阶段笔记 Profile" }
+        try {
+            Log.i(TAG, "notes-create-real start=true provider=${provider.id} model=${provider.model}")
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-notes-create-$now",
+                goal = "请创建一条本地笔记，标题为“$title”，正文为“$content”；写入后回读验证，并确认这条笔记可以按标题关键词搜索到。",
+                skillSelectionGoal = "请把这件事记录成一条本机笔记，并在写入后核对。",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(conversationId, repository),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第152阶段 notes.create Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第152阶段 notes.create Run 未完成：${detail.snapshot.run.status}"
+            }
+            val createResult = detail.toolLedger.results.single { it.toolName == "notes.create" }
+            check(
+                createResult.success &&
+                    createResult.executorVerified == true &&
+                    createResult.verificationStatus == ToolVerificationStatus.PASSED,
+            ) { "notes.create 未形成通过的执行与验证事实：$createResult" }
+            val createdNote = noteStore.search(title, 10).singleOrNull { it.title == title && it.content == content }
+            check(createdNote != null) { "notes.search 未回读到刚创建的唯一测试笔记" }
+            check(detail.approvals.single { it.toolName == "notes.create" }.status == ApprovalRequestStatus.APPROVED) {
+                "notes.create Room 审批没有收敛为 APPROVED"
+            }
+            Log.i(
+                TAG,
+                "notes-create-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "approval=APPROVED tool=notes.create success=true executorVerified=true " +
+                    "verification=PASSED searchVerified=true noteId=${createdNote.id}",
+            )
+            // long: Debug 探针只验证闭环，不把测试数据留在用户笔记库；Room Run/审批证据仍保留用于验收追溯。
+            val deletedCount = database.agentNoteDao().deleteNote(createdNote.id)
+            check(deletedCount == 1 && noteStore.search(title, 10).none { it.id == createdNote.id }) {
+                "第152阶段测试笔记清理失败：deletedCount=$deletedCount"
+            }
+        } finally {
+            recoveredOriginalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(temporaryProfileId)
+            check(profileStore.list().none { it.id == temporaryProfileId }) {
+                "第152阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "notes-create-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
+    }
+
+    private class DebugRoomApprovalGate(
+        private val conversationId: String,
+        private val repository: RoomAgentRunRepository,
+    ) : ApprovalGate {
+        override suspend fun requestApproval(
+            runId: String,
+            toolCall: ToolCall,
+            definition: ToolDefinition,
+        ): ApprovalDecision {
+            val request = repository.createApprovalRequest(conversationId, runId, toolCall, definition)
+            val decided = repository.decideApprovalRequest(
+                requestId = request.id,
+                status = ApprovalRequestStatus.APPROVED,
+                reason = "第152阶段 Redmi 真实闭环验收批准",
+            )
+            check(decided?.status == ApprovalRequestStatus.APPROVED) { "Debug notes.create 审批无法持久化批准" }
+            return ApprovalDecision(approved = true, reason = decided.decisionReason.orEmpty())
+        }
     }
 
     private suspend fun runLongScheduledWorkflow(context: Context) {
@@ -1775,6 +1903,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
+        const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"

@@ -1,5 +1,13 @@
 # 产品需求
 
+## 本地笔记写入闭环（第 152 阶段，完成）
+
+- 用户以自然语言要求记录一条本机笔记时，Agent 必须在当前 Profile/Skill 白名单内规划 `notes.create`；写入前仍需要审批，不能由模型文本直接宣称已保存。
+- `notes.create` 继续使用 ToolCall ID 幂等键，并在写入后按 operation ID 回读标题和正文；回读不一致时 Run 必须保持失败/未验证，不能升级为完成。
+- 本阶段 Redmi 真实 Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 的 Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。
+- Debug 验收探针使用临时 `local-notes` Profile 和持久化审批 gate，只在 Debug source set 存在；测试笔记和临时 Profile 在验收结束后删除，Run/审批审计保留。未新增 Room Schema、后台笔记操作或笔记删除用户能力。
+- 聚焦 `RoomAgentNoteStoreInstrumentedTest#debugProbeCleanupDeletesOnlyTheRequestedNote` 在 Redmi 为 `OK (1 test)`；Debug/AndroidTest APK 构建成功。本阶段不执行完整 JVM、全量 Lint 或 Release。
+
 ## WorkManager 长任务、熄屏与中断恢复边界（第 151 阶段，完成）
 
 - 长任务验证必须复用生产 `RoomWorkflowRepository`、WorkManager 调度和 `ScheduledWorkflowWorker`，不得通过 Debug 代码建立第二套 Runtime。探针 Profile 只能授权 `app.current_time`；状态查询确认终态时必须恢复原 Profile、删除临时 Profile 并停用探针 Workflow，创建新探针前也必须清理上次遗留状态。

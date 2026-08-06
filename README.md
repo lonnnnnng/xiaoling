@@ -1,5 +1,7 @@
 # 小灵
 
+第 152 阶段完成首个可直接体验的本地笔记写入闭环。Redmi `wsvwypiz7xwslvl7` 使用当前 Provider 的真实 Agent Run `run-66b689fb-6ff3-410f-a851-e0f91765047a`，由临时 `local-notes` Profile 规划并执行 `notes.create`；Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。Debug 探针随后删除测试笔记、删除临时 Profile 并恢复用户原 Profile，Run/审批审计保留。聚焦 Redmi 清理回归为 `OK (1 test)`，Debug/AndroidTest APK 构建成功；本阶段未运行完整 JVM、全量 Lint 或 Release。
+
 第 151 阶段完成真实 WorkManager 长任务、熄屏和受控进程中断边界验证。Redmi 上两条 8 步 `app.current_time` 后台任务分别以 `95816ms / 91915ms` 完成，熄屏样本后半程保持 `Wakefulness=Dozing` 且 PID 未变化；人工 `force-stop` 样本从旧 PID `8228` 切换到新 PID `9134`，恢复后保留 `4 COMPLETED` 前缀并将剩余 `4` 步安全收敛为 `CANCELLED`，没有重放工具或后续步骤。该样本不是自然 LMK；主动断网和 5 至 10 分钟任务仍未验证，因此暂不引入 Foreground Service。
 
 第 150 阶段完成 `day-overview` 只读 Skill，可将 `calendar.list_events` 与 `tasks.list` 在同一 Agent Run 内组合回答“今天有哪些安排和提醒”；结果已验证区分系统日程与小灵任务事实。该能力沿用日历主动授权、Profile/Skill 显式白名单和前台限制，不新增权限、Room、后台执行或写入能力。Redmi 真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 两项工具均为 `success=true / PASSED`。

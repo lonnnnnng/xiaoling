@@ -2,6 +2,15 @@
 
 ## 第 127 至 151 阶段实现顺序（主线完成，真实任务打磨继续）
 
+## 第 152 阶段：本地笔记写入闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增 `notes_create_real` Debug 入口，读取用户当前 Provider，创建只允许 `notes.search / notes.create / notes.list` 与 `local-notes` Skill 的临时 Profile，并通过正式 `AgentRunUseCase` 执行真实 Provider Agent Run；不创建第二套 Runtime。
+- `DebugRoomApprovalGate` 复用 `RoomAgentRunRepository.createApprovalRequest / decideApprovalRequest`，把 `notes.create` 的审批请求和 `APPROVED` 决定写入同一 Run；生产 UI 审批链路不变，Debug gate 不进入 Release。
+- 写入由生产 `XiaoLingToolRegistry.createNote()` 完成，继续使用 ToolCall ID 幂等键、Room 事务和 operation 回读。探针再通过 `RoomAgentNoteStore.search()` 按唯一标题核对正文，随后只删除本阶段测试笔记；临时 Profile 在 `finally` 中删除并恢复原 Profile，Run/审批保留审计。
+- Redmi Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 为 `COMPLETED`；`notes.create` 为 `APPROVED / success=true / executorVerified=true / verification=PASSED`，`notes.search` 回读核对成功，清理日志为 `temporaryProfileRemoved=true / testNoteRemoved=true`。
+- 为保证 Debug 清理不误删其他笔记，`AgentNoteDao.deleteNote(id)` 只按精确 ID 删除，并新增 Redmi 单项 `debugProbeCleanupDeletesOnlyTheRequestedNote`，结果 `OK (1 test)`。Room 版本仍为 v35，无新增迁移。
+- 本阶段完成 `compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`testDebugUnitTest` 定向类、`assembleDebug` 和 `assembleDebugAndroidTest`；未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+
 ## 第 151 阶段：真实 WorkManager 长任务、熄屏与受控中断恢复（完成）
 
 - `AgentE2eDebugReceiver` 新增 `workflow_long_scheduled / workflow_long_status`。创建入口先恢复上次遗留的探针状态，再以当前有效 Provider 生成只授权 `app.current_time` 的临时 Profile，通过 `createWorkflowAndOneTimeScheduledTask()` 和 `WorkManagerScheduledTaskScheduler.enqueue()` 调度 8 步任务；状态入口只读正式 Room 事实，确认终态时停用 Workflow 并恢复原 Profile。清理明确依赖 Debug 状态查询，创建入口的预清理负责兜住上次未查询终态的残留；Debug 入口不进入 Release，也不持有第二套 Runtime。

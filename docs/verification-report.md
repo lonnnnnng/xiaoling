@@ -19,6 +19,14 @@
 - 第 146 阶段验证：真实 Agent Run `run-9736a67f-0662-487c-ac77-489f6132f82f` 使用 `gpt-5.6-luna` 调用 `tasks.list`，Run 为 `COMPLETED`，ToolResult 为 `success=true / verificationStatus=PASSED`，返回 1 条任务。聚焦 JVM 生命周期与重试策略、Debug/AndroidTest APK 通过；仅 Redmi 运行新增 Room 单项，最终 `OK (2 tests)`，更新后文档 corpus 为 `OK (1 test)`。真实来源 Run `workflow-run-cdaaf42d-aa85-44ef-95a9-9ab972ed8f2d` 保持 `FAILED` 且三步动作事实不变；关联新 Run `workflow-run-3e4b422e-d48e-4244-b21a-2668a980fe10` 三步全部 `SKIPPED/已复用`，没有重放模型或设备动作，目标级 Decision 为 `VERIFIED / ALL_CRITERIA_VERIFIED`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 - 发布阶段设备收尾：`v0.1.15` 发布当时未执行安装验收；后续开发阶段已在 Redmi 覆盖安装 `0.1.15 (16)` Debug 并完成第 147 阶段真实 Workflow。该开发验证不追溯记作发布门禁。
 
+## 2026-08-06 第 152 阶段：本地笔记写入闭环
+
+- 真实入口：仅在 Debug source set 增加 `notes_create_real`，读取当前 Provider，临时冻结 `local-notes` Profile 的 `notes.search / notes.create / notes.list` 工具面，并复用正式 `AgentRunUseCase + XiaoLingToolRegistry + RoomAgentRunRepository`。没有第二套 Runtime、没有新增 Room Schema、没有进入 Release。
+- Redmi `wsvwypiz7xwslvl7` 真实 Run `run-66b689fb-6ff3-410f-a851-e0f91765047a` 完成自然语言目标“创建并核对一条本地笔记”。`notes.create` Room 审批为 `APPROVED`；Tool Ledger 为 `success=true / executorVerified=true / verificationStatus=PASSED`；生产工具内部写入后回读成功，探针随后以唯一标题搜索回读正文。
+- 真实收尾日志确认 `temporaryProfileRemoved=true / testNoteRemoved=true`；用户原 Profile 恢复，Run/Approval/Tool Ledger 事实保留供审计。DAO 精确 ID 清理回归 `RoomAgentNoteStoreInstrumentedTest#debugProbeCleanupDeletesOnlyTheRequestedNote` 在 Redmi 为 `OK (1 test)`（`0.344s`）。
+- 验证：`:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、定向 JVM `XiaoLingToolRegistryTest + AgentSkillsTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；仅 Redmi 执行一条清理 instrumentation。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+- 边界：本阶段证明的是前台真实 Provider 的本地笔记创建、审批持久化、写入后回读和测试数据清理；笔记删除用户能力、后台笔记写入、自然 LMK/主动网络失败、长任务、MCP、远程 Channel、多 Agent 和本地模型均未扩展。
+
 ## 2026-08-06 第 151 阶段：真实 WorkManager 长任务、熄屏与受控中断恢复
 
 - 探针边界：Debug Receiver 新增 `workflow_long_scheduled / workflow_long_status`，但执行严格复用正式 `RoomWorkflowRepository + WorkManagerScheduledTaskScheduler + ScheduledWorkflowWorker`。临时 Profile 只允许 `app.current_time`；状态查询确认终态时恢复原 `stage3-device-e2e-profile`、删除临时 Profile、清空探针状态并停用 Workflow，创建新探针前也会清理上次残留。该清理是 Debug 观测协议的一部分，不是生产 Worker 的额外 Runtime。

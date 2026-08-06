@@ -494,6 +494,9 @@ interface AgentNoteDao {
     @Query("SELECT * FROM agent_notes WHERE idempotencyKey = :idempotencyKey")
     suspend fun getNoteByIdempotencyKey(idempotencyKey: String): AgentNoteEntity?
 
+    @Query("DELETE FROM agent_notes WHERE id = :id")
+    suspend fun deleteNote(id: String): Int
+
     @Query("SELECT * FROM agent_notes ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun list(limit: Int): List<AgentNoteEntity>
 

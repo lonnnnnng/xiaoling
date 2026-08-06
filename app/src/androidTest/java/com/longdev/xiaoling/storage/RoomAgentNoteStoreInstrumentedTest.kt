@@ -62,6 +62,26 @@ class RoomAgentNoteStoreInstrumentedTest {
         assertTrue(conflict is AgentNoteIdempotencyConflictException)
     }
 
+    @Test
+    fun debugProbeCleanupDeletesOnlyTheRequestedNote() = runBlocking {
+        val store = openStore()
+        val target = store.create(
+            title = "第152阶段测试笔记",
+            content = "验收完成后应删除。",
+            idempotencyKey = "tool-call-stage152-cleanup",
+        )
+        val retained = store.create(
+            title = "用户笔记",
+            content = "Debug 清理不能影响其他笔记。",
+            idempotencyKey = "tool-call-user-note",
+        )
+
+        val deletedCount = checkNotNull(database).agentNoteDao().deleteNote(target.id)
+
+        assertEquals(1, deletedCount)
+        assertEquals(listOf(retained.id), store.list(10).map { it.id })
+    }
+
     private fun openStore(): RoomAgentNoteStore {
         val opened = Room.databaseBuilder(context, XiaoLingDatabase::class.java, DATABASE_NAME)
             .addMigrations(*XiaoLingDatabase.migrations())
