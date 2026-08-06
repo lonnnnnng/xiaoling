@@ -85,6 +85,22 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInTaskRetrySkillAddsMutatingToolWithoutExpandingReadOnlyOverview() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "请重试失败的每日回顾任务",
+            limit = 3,
+        )
+
+        val retrySkill = selected.single { skill -> skill.id == "task-retry" }
+        assertEquals(setOf("tasks.list", "tasks.inspect", "tasks.retry"), retrySkill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, retrySkill.declaredRisk)
+        assertTrue(retrySkill.instructions.contains("当前最新"))
+        val overviewSkill = BuiltInAgentSkillRegistry.all().single { skill -> skill.id == "task-overview" }
+        assertEquals(setOf("tasks.list", "tasks.inspect"), overviewSkill.toolNames)
+        assertEquals(ToolRisk.SAFE, overviewSkill.declaredRisk)
+    }
+
+    @Test
     fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "观察当前手机界面并告诉我有哪些可访问节点",

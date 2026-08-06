@@ -6,6 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentTaskInspectionResult
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
+import com.longdev.xiaoling.agent.AgentTaskRetryResult
+import com.longdev.xiaoling.agent.AgentTaskRetryVerificationResult
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowScheduleType
@@ -141,6 +143,145 @@ class RoomAgentTaskStoreInstrumentedTest {
 
         assertEquals(2, (store.inspect("同名任务") as AgentTaskInspectionResult.Ambiguous).matchCount)
         assertEquals(AgentTaskInspectionResult.NotFound, store.inspect("不存在的任务"))
+    }
+
+    @Test
+    fun retryCreatesOneLinkedRunByToolCallAndNeverFallsBackToOlderFailure() = runBlocking {
+        val workflow = repository.createWorkflow(
+            name = "每日回顾",
+            steps = listOf(
+                WorkflowStepDefinitionInput("读取当前时间"),
+                WorkflowStepDefinitionInput("生成每日回顾"),
+            ),
+        )
+        val source = repository.createManualRun(workflow.id, "conversation-source")
+        repository.markAgentRunStarted(source.run.id, source.steps[0].id, "agent-run-completed")
+        repository.completeWorkflowStep(
+            source.run.id,
+            source.steps[0].id,
+            WorkflowStepStatus.COMPLETED,
+            result = "时间读取完成",
+        )
+        repository.markAgentRunStarted(source.run.id, source.steps[1].id, "agent-run-failed")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "private provider error")
+
+        val first = store.retry(
+            name = " 每日回顾 ",
+            conversationId = "conversation-retry",
+            idempotencyKey = "tool-call-task-retry",
+        ) as AgentTaskRetryResult.Queued
+        val repeated = store.retry(
+            name = "每日回顾",
+            conversationId = "conversation-retry",
+            idempotencyKey = "tool-call-task-retry",
+        ) as AgentTaskRetryResult.Queued
+        val differentCall = store.retry(
+            name = "每日回顾",
+            conversationId = "conversation-retry",
+            idempotencyKey = "tool-call-task-retry-second",
+        )
+        val driftedConversation = store.retry(
+            name = "每日回顾",
+            conversationId = "conversation-drifted",
+            idempotencyKey = "tool-call-task-retry",
+        )
+
+        val retried = repository.runDetail(first.retry.workflowRunId)!!
+        val unchangedSource = repository.runDetail(source.run.id)!!
+        assertEquals(source.run.id, retried.run.retryOfWorkflowRunId)
+        assertEquals(first.retry.workflowRunId, repeated.retry.workflowRunId)
+        assertEquals(false, first.retry.alreadyQueued)
+        assertEquals(true, repeated.retry.alreadyQueued)
+        assertEquals(1, first.retry.reusedStepCount)
+        assertEquals(
+            listOf(WorkflowStepStatus.SKIPPED, WorkflowStepStatus.PENDING),
+            retried.steps.map { step -> step.status },
+        )
+        assertEquals(WorkflowRunStatus.FAILED, unchangedSource.run.status)
+        assertEquals(WorkflowStepStatus.COMPLETED, unchangedSource.steps[0].status)
+        assertEquals(WorkflowStepStatus.FAILED, unchangedSource.steps[1].status)
+        assertEquals(true, differentCall is AgentTaskRetryResult.Rejected)
+        assertEquals(AgentTaskRetryResult.IdempotencyConflict, driftedConversation)
+        assertEquals(
+            true,
+            store.verifyRetry(
+                name = "每日回顾",
+                conversationId = "conversation-retry",
+                idempotencyKey = "tool-call-task-retry",
+                workflowRunId = first.retry.workflowRunId,
+            ) is AgentTaskRetryVerificationResult.Verified,
+        )
+        assertEquals(
+            AgentTaskRetryVerificationResult.Failed,
+            store.verifyRetry(
+                name = "每日回顾",
+                conversationId = "conversation-drifted",
+                idempotencyKey = "tool-call-task-retry",
+                workflowRunId = first.retry.workflowRunId,
+            ),
+        )
+
+        repository.markAgentRunStarted(
+            first.retry.workflowRunId,
+            retried.steps.first { step -> step.status == WorkflowStepStatus.PENDING }.id,
+            "agent-run-retry-started",
+        )
+        assertEquals(
+            true,
+            store.retry(
+                name = "每日回顾",
+                conversationId = "conversation-retry",
+                idempotencyKey = "tool-call-task-retry",
+            ) is AgentTaskRetryResult.Rejected,
+        )
+    }
+
+    @Test
+    fun retryRejectsCompletedLatestRunInsteadOfFallingBackToOlderFailure() = runBlocking {
+        val workflow = repository.createWorkflow("完成态任务", "读取当前时间")
+        val failed = repository.createManualRun(workflow.id, "conversation-failed")
+        repository.markAgentRunStarted(failed.run.id, failed.steps.single().id, "agent-run-failed-old")
+        repository.completeRun(failed.run.id, WorkflowRunStatus.FAILED, errorMessage = "old private error")
+        val completed = repository.createManualRun(workflow.id, "conversation-completed")
+        repository.markAgentRunStarted(completed.run.id, completed.steps.single().id, "agent-run-completed-latest")
+        repository.completeWorkflowStep(
+            completed.run.id,
+            completed.steps.single().id,
+            WorkflowStepStatus.COMPLETED,
+            result = "时间读取完成",
+        )
+        repository.completeRun(completed.run.id, WorkflowRunStatus.COMPLETED, result = "已完成")
+
+        val result = store.retry("完成态任务", "conversation-retry", "tool-call-completed-latest")
+
+        assertEquals(true, result is AgentTaskRetryResult.Rejected)
+        assertEquals(completed.run.id, repository.latestRunsForWorkflows(listOf(workflow.id)).single().id)
+    }
+
+    @Test
+    fun retryRejectsDisabledTaskAndMissingStepEvidence() = runBlocking {
+        val disabled = repository.createWorkflow("停用任务", "读取当前时间")
+        val disabledRun = repository.createManualRun(disabled.id, "conversation-disabled")
+        repository.completeRun(disabledRun.run.id, WorkflowRunStatus.FAILED, errorMessage = "private error")
+        repository.setEnabled(disabled.id, false)
+        assertEquals(
+            true,
+            store.retry("停用任务", "conversation-retry", "tool-call-disabled") is AgentTaskRetryResult.Rejected,
+        )
+
+        val missingSteps = repository.createWorkflow("缺少步骤证据", "读取当前时间")
+        database.workflowDao().upsertRun(
+            workflowRun(
+                id = "run-without-steps",
+                workflowId = missingSteps.id,
+                status = WorkflowRunStatus.FAILED,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+        assertEquals(
+            true,
+            store.retry("缺少步骤证据", "conversation-retry", "tool-call-missing-steps") is AgentTaskRetryResult.Rejected,
+        )
     }
 
     private fun workflowRun(

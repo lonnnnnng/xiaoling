@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 157 阶段：受控任务重试（完成）
+
+- `AgentSkillCatalog` 新增独立 `task-retry` Skill，工具集合为 `tasks.list / tasks.inspect / tasks.retry`；`tasks.retry` 在 `XiaoLingToolRegistry` 中声明为 `REQUIRES_APPROVAL`、`EXECUTOR_VERIFIED`、`IDEMPOTENT_BY_KEY`，只允许前台直接 Agent。
+- `RoomAgentTaskStore.retry()` 委托 `RoomWorkflowRepository.retryLatestRunByTaskName()`，事务内精确匹配任务并读取当前最新 Run。确定性 Run ID 由 `tasks.retry:<ToolCall ID>` 派生；重复 ToolCall 只接受仍为最新 `QUEUED` 且步骤全为 `SKIPPED / PENDING` 的提交，否则稳定拒绝。
+- 重试策略复用 `WorkflowRunRetryPolicy`。新 Run 继承成功前缀为 `SKIPPED`，记录 `reusedFromStepId`；其余步骤为 `PENDING`，并保留来源 Run 关联。来源 Run、步骤、结果和副作用不修改；失败正文仅在本地审计保留。
+- `AgentRunUseCase` 在计算可用工具和创建 Profile/Skill scoped registry 前显式绑定当前 planning context，避免跨 Run 复用的 Registry 残留 Workflow 状态；`XiaoLingViewModel` 从 Room 回读完整 Tool Ledger 与 Workflow detail 后才执行一次前台接管。
+- `TaskRetryLaunchPolicy` 只接受 `COMPLETED` Agent Run、单一可信重试调用、成功 typed 验证和一致提交回执；启动条件还要求同会话、`QUEUED`、无 Agent 关联、存在步骤且只含 `SKIPPED / PENDING`。重复启动由进程内 Run ID 集合抑制。
+- JVM 四个聚焦类共 `130/130`，Debug/AndroidTest APK 构建成功；Redmi `RoomAgentTaskStoreInstrumentedTest` 全类 `8/8` 通过。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 第 127 至 156 阶段实现顺序（主线完成，真实任务打磨继续）
 
 ## 第 156 阶段：任务诊断答案级导航（完成）

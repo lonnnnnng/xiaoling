@@ -4,6 +4,9 @@ import android.content.Context
 import com.longdev.xiaoling.agent.AgentTaskInspectionRecord
 import com.longdev.xiaoling.agent.AgentTaskInspectionResult
 import com.longdev.xiaoling.agent.AgentTaskRecord
+import com.longdev.xiaoling.agent.AgentTaskRetryRecord
+import com.longdev.xiaoling.agent.AgentTaskRetryResult
+import com.longdev.xiaoling.agent.AgentTaskRetryVerificationResult
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRunStepRecord
 import com.longdev.xiaoling.agent.AgentTaskStore
@@ -103,6 +106,55 @@ class RoomAgentTaskStore(
                 steps = detail?.steps.orEmpty()
                     .sortedBy { step -> step.sequence }
                     .map { step -> AgentTaskRunStepRecord(sequence = step.sequence, status = step.status.name) },
+            ),
+        )
+    }
+
+    override suspend fun retry(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskRetryResult {
+        return when (
+            val result = repository.retryLatestRunByTaskName(
+                name = name,
+                conversationId = conversationId,
+                idempotencyKey = idempotencyKey,
+            )
+        ) {
+            WorkflowTaskRetryCommitResult.NotFound -> AgentTaskRetryResult.NotFound
+            is WorkflowTaskRetryCommitResult.Ambiguous -> AgentTaskRetryResult.Ambiguous(result.matchCount)
+            is WorkflowTaskRetryCommitResult.Rejected -> AgentTaskRetryResult.Rejected(result.reason)
+            WorkflowTaskRetryCommitResult.IdempotencyConflict -> AgentTaskRetryResult.IdempotencyConflict
+            is WorkflowTaskRetryCommitResult.Queued -> AgentTaskRetryResult.Queued(
+                AgentTaskRetryRecord(
+                    name = name.trim(),
+                    workflowRunId = result.detail.run.id,
+                    reusedStepCount = result.reusedStepCount,
+                    alreadyQueued = result.alreadyQueued,
+                ),
+            )
+        }
+    }
+
+    override suspend fun verifyRetry(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+        workflowRunId: String,
+    ): AgentTaskRetryVerificationResult {
+        val verified = repository.verifyTaskRetry(
+            name = name,
+            conversationId = conversationId,
+            idempotencyKey = idempotencyKey,
+            workflowRunId = workflowRunId,
+        ) ?: return AgentTaskRetryVerificationResult.Failed
+        return AgentTaskRetryVerificationResult.Verified(
+            AgentTaskRetryRecord(
+                name = name.trim(),
+                workflowRunId = verified.detail.run.id,
+                reusedStepCount = verified.reusedStepCount,
+                alreadyQueued = true,
             ),
         )
     }

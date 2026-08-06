@@ -1,5 +1,7 @@
 # 文档索引
 
+第 157 阶段完成受控任务重试：前台直接 Agent 才能在审批后调用 `tasks.retry(name)`，按精确名称取当前最新可重试 Run，使用 ToolCall ID 的确定性新 Run 保证幂等；重复调用只回读仍为 `QUEUED` 的同一提交，已启动、步骤状态变化、最新 Run 漂移或身份不一致均拒绝。成功步骤只在新 Run 中标记 `SKIPPED` 并保留来源引用，旧 Run 与副作用不变。前台宿主必须从 Room Tool Ledger、typed `PASSED` 验证及提交回执重读后再启动 Workflow。JVM 四个聚焦类共 `130/130` 通过，Debug/AndroidTest APK 成功；仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 第 156 阶段为可信 `tasks.inspect` 工具卡增加“查看任务”入口。入口只从已验证 Agent 上下文投影的成功 Tool part 生成，并严格核对工具名、唯一 `name` 参数和“任务最近运行”结果头；点击只传递任务名称，不重新发送或执行工具。应用以当前 Workflow 唯一精确名称匹配决定定位 ID，删除、重命名、缺失或同名时只打开通用 Workflow 列表。聚焦 JVM、Debug/AndroidTest APK 与 Redmi `ConversationPageInstrumentedTest 9/9` 通过；没有新增任务写操作、Room Schema、权限或后台能力。
 
 第 155 阶段新增 SAFE、仅前台的 `tasks.inspect`，让 Agent 能在 `tasks.list` 之后按精确任务名称回答最近一次运行到哪一步、处于什么状态以及受限失败分类。Room 投影只包含任务名称/目标、启停、Run 状态/触发/时间和步骤序号/状态；内部 ID、原始错误、步骤输入输出和工具正文继续留在任务中心审计页。同名任务拒绝猜测，不存在任务和暂无 Run 都明确返回；不新增任务修改/重试、后台调用、Room Schema 或 UI 页面。聚焦 JVM、APK、Redmi Room 与真实 Provider 双工具闭环均通过。

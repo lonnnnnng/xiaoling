@@ -1,11 +1,19 @@
 # 小灵个人 Agent 路线图
 
+## 第 157 阶段：受控任务重试（完成）
+
+- 在第 155/156 阶段只读任务清单、诊断和答案级定位之后，补齐一个受控写操作：用户明确要求重试时，Agent 通过审批调用 `tasks.retry(name)`，只处理当前最新可重试 Run，不回退历史失败 Run。
+- 新 Run 使用 ToolCall ID 的确定性幂等身份，成功前缀只在新 Run 中复用为 `SKIPPED`，来源 Run、旧步骤和已有副作用保持不变；同一 ToolCall 已启动或状态漂移后不再回读为“已排队”。
+- 前台宿主在 Room Tool Ledger、typed `PASSED` 和提交回执全部一致后才启动关联 Workflow，并用 `TaskRetryLaunchPolicy` 二次检查 `QUEUED`、同会话和步骤状态；Workflow 内递归、后台和旧 Profile 扩权继续关闭。
+- 聚焦 JVM `130/130`、Debug/AndroidTest APK 和 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+- 下一阶段：在 Redmi 上用真实 Provider 形成一次 `tasks.list -> tasks.inspect -> tasks.retry -> 前台 Workflow 执行` 的完整闭环；若现有任务数据不足，使用 Debug-only、可清理的失败任务夹具，不修改生产工具边界。随后再进入通用执行恢复/长任务可靠性，不提前引入精确定时或 Foreground Service。
+
 ## 第 156 阶段：任务诊断答案级导航（完成）
 
 - 在第 155 阶段 `tasks.list -> tasks.inspect` 真实只读诊断之后，补齐答案到任务中心的用户闭环：可信工具卡直接提供“查看任务”，唯一名称命中时定位对应 Workflow，用户无需重新搜索。
 - 入口只信任已验证 Agent Tool part，并严格限制成功状态、工具名、唯一 `name` 参数与结果头。点击不重发消息、不重试 Run、不修改任务；历史消息不保存内部 ID，删除、重命名、缺失和同名都失败关闭到通用列表。
 - 该切片复用现有 Workflow 管理页、导航一次性目标和 ViewModel 的 Room Workflow 刷新，不新增 Room Schema、任务工具、Profile/Skill 权限、后台能力或 Android 权限。定位只在最新快照加载完成后解析，读取失败同样降级通用列表。聚焦 JVM、Debug/AndroidTest APK 和 Redmi `ConversationPageInstrumentedTest 9/9` 通过。
-- 至此“任务清单 -> 最近运行受限诊断 -> 答案级查看任务”形成直接可用的只读闭环。下一阶段应继续选择一个能让个人 Agent 完整路径更可用的单一真实场景；任务取消、停止和重试仍需分别设计审批与副作用语义，不能合并为宽写工具。
+- 至此“任务清单 -> 最近运行受限诊断 -> 答案级查看任务”形成直接可用的只读闭环；第 157 阶段已补齐受控重试，任务取消和停止仍需分别设计审批与副作用语义，不能从重试工具顺带扩权。
 
 ## 第 155 阶段：任务最近运行只读诊断（完成）
 

@@ -1065,10 +1065,11 @@ class MinimalAgentRuntime internal constructor(
             if (presentation.style == AgentSummaryStyle.COMPACT) {
                 return "$heading\n\n- 工具：${finalExecution.toolCall.name}\n- 结果：${finalExecution.toolResult.content}"
             }
+            val runIdentityLine = if (finalExecution.toolCall.name == "tasks.retry") "" else "- Run ID：$runId\n"
             return """
                 $heading
 
-                - Run ID：$runId
+                $runIdentityLine
                 - 目标：${goal.ifBlank { "未填写目标" }}
                 - 工具：${finalExecution.toolCall.name}
                 - 审批：${if (definition.approvalPolicy == ToolApprovalPolicy.NONE) "SAFE 工具无需审批" else "已通过应用侧审批"}
@@ -1087,10 +1088,11 @@ class MinimalAgentRuntime internal constructor(
         if (presentation.style == AgentSummaryStyle.COMPACT) {
             return "$heading\n\n$resultLines"
         }
+        val runIdentityLine = if (completedTools.any { it.toolCall.name == "tasks.retry" }) "" else "- Run ID：$runId\n"
         return """
             $heading
 
-            - Run ID：$runId
+            $runIdentityLine
             - 目标：${goal.ifBlank { "未填写目标" }}
             - 工具步骤：${completedTools.joinToString(" -> ") { it.toolCall.name }}
             $resultLines

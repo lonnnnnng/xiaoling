@@ -69,6 +69,8 @@ class AgentRunUseCase(
             workflowDeviceActionContext = workflowDeviceActionContext,
         )
         val runToolRegistry = toolRegistryFor(agentProfile.providerId, config)
+        // long: 同一个 UseCase 会跨多个 Agent/Workflow Run 复用生产 Registry；先绑定当前 planning context，避免 Profile 初始化读取上一条 Workflow 的短期限制。
+        (runToolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(invocationContext)
         val availableToolNames = runToolRegistry.availableToolsFor(
             context = invocationContext,
             enforceWorkflowSnapshotPrerequisite = false,

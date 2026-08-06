@@ -229,6 +229,25 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = "tasks.retry",
+            description = "按精确名称重试小灵任务当前最新且可重试的运行；创建关联新 Run，旧 Run 和已有结果保持不变。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "name",
+                    description = "要重试的精确任务名称，可先通过 tasks.list 和 tasks.inspect 核对。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
             risk = ToolRisk.SAFE,
@@ -643,6 +662,10 @@ class XiaoLingToolRegistry(
             // long: 关闭单次记忆召回时从规划器工具清单移除 memory.search，避免模型先提出调用再由执行器拒绝造成误导性审计。
             available = available.filterNot { it.name == "memory.search" }
         }
+        if (!taskRetryAllowed(context)) {
+            // long: 任务重试会创建并立即接管一个新 Workflow Run；Workflow 内递归调用或后台调用都不能扩大为第二条执行链。
+            available = available.filterNot { it.name == TASK_RETRY_TOOL_NAME }
+        }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
@@ -673,7 +696,7 @@ class XiaoLingToolRegistry(
         definition.name == name && (
             definition.name !in workflowDeviceActionToolNames ||
                 workflowDeviceActionAllowedByIntent(runContext, definition.name)
-            )
+            ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -685,6 +708,7 @@ class XiaoLingToolRegistry(
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             "tasks.list" -> listTasks(call)
             "tasks.inspect" -> inspectTask(call)
+            TASK_RETRY_TOOL_NAME -> retryTask(call)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.create" -> createNote(call)
@@ -725,13 +749,16 @@ class XiaoLingToolRegistry(
         return when (call.name) {
             "notes.create" -> verifyCommittedNote(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
+            TASK_RETRY_TOOL_NAME -> verifyCommittedTaskRetry(call, receipt)
             else -> null
         }
     }
 
     override fun supportsCommittedEffectVerification(toolName: String): Boolean {
         // long: 只有具备 operation 账本和结果快照的写工具才进入验证阶段恢复；能力白名单与幂等声明分离，避免未来仅修改 replaySafety 就扩大恢复范围。
-        return toolName == "notes.create" || toolName == "memory.remember"
+        return toolName == "notes.create" ||
+            toolName == "memory.remember" ||
+            toolName == TASK_RETRY_TOOL_NAME
     }
 
     private fun currentTime(): ToolExecutionResult {
@@ -1100,6 +1127,91 @@ class XiaoLingToolRegistry(
                 ToolExecutionResult(success = true, content = content)
             }
         }
+    }
+
+    private suspend fun retryTask(call: ToolCall): ToolExecutionResult {
+        val context = runContext
+            ?.takeIf(::taskRetryAllowed)
+            ?: return ToolExecutionResult(success = false, verified = false, content = "任务重试只允许前台直接 Agent 执行")
+        val name = call.arguments["name"].orEmpty().trim()
+        if (name.isBlank()) return ToolExecutionResult(success = false, verified = false, content = "任务名称不能为空")
+        return when (val result = taskStore.retry(name, context.conversationId, call.id)) {
+            AgentTaskRetryResult.NotFound -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "没有找到名称为“$name”的任务。",
+            )
+            is AgentTaskRetryResult.Ambiguous -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "找到 ${result.matchCount} 个名称为“$name”的任务，请先在任务中心重命名后再重试。",
+            )
+            is AgentTaskRetryResult.Rejected -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = result.reason,
+            )
+            AgentTaskRetryResult.IdempotencyConflict -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "任务重试调用与已提交记录不一致，已停止执行。",
+            )
+            is AgentTaskRetryResult.Queued -> result.retry.toToolExecutionResult(call)
+        }
+    }
+
+    private suspend fun verifyCommittedTaskRetry(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val context = runContext
+            ?.takeIf(::taskRetryAllowed)
+            ?: return failedTaskRetryVerification(receipt)
+        val name = call.arguments["name"].orEmpty().trim()
+        val receiptMatchesCall = name.isNotBlank() &&
+            receipt.toolCallId == call.id &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatchesCall) return failedTaskRetryVerification(receipt)
+        return when (
+            val verification = taskStore.verifyRetry(
+                name = name,
+                conversationId = context.conversationId,
+                idempotencyKey = call.id,
+                workflowRunId = receipt.operationId,
+            )
+        ) {
+            AgentTaskRetryVerificationResult.Failed -> failedTaskRetryVerification(receipt)
+            is AgentTaskRetryVerificationResult.Verified -> {
+                val result = verification.retry.toToolExecutionResult(call)
+                result.copy(executionReceipt = receipt)
+            }
+        }
+    }
+
+    private fun AgentTaskRetryRecord.toToolExecutionResult(call: ToolCall): ToolExecutionResult {
+        val state = if (alreadyQueued) "关联重试已存在并保持排队" else "已创建关联重试并排队"
+        return ToolExecutionResult(
+            success = true,
+            verified = true,
+            content = "$state：$name · 复用 $reusedStepCount 个已完成步骤；旧运行记录保持不变。",
+            executionReceipt = ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = workflowRunId,
+                idempotencyKey = call.id,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+        )
+    }
+
+    private fun failedTaskRetryVerification(receipt: ToolExecutionReceipt): ToolExecutionResult {
+        // long: 恢复验证只报告稳定失败结论；内部 Run 身份和持久化差异留在任务中心审计，不能进入模型上下文。
+        return ToolExecutionResult(
+            success = false,
+            verified = false,
+            content = "已提交的任务重试与当前持久化证据不一致，不能恢复验证。",
+            executionReceipt = receipt,
+        )
     }
 
     private suspend fun listCalendarEvents(call: ToolCall): ToolExecutionResult {
@@ -1642,9 +1754,18 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
+private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
+
+private fun taskRetryAllowed(context: AgentToolExecutionContext?): Boolean {
+    // long: 未绑定当前 Run 时无法证明这是前台直接 Agent；先隐藏受控写工具，避免模型看到随后必然被执行器拒绝的能力。
+    return context?.let {
+        it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            it.invocationSource == AgentInvocationSource.DIRECT
+    } == true
+}
 
 private fun referenceInputSchema(): List<ToolInputField> = listOf(
     ToolInputField(

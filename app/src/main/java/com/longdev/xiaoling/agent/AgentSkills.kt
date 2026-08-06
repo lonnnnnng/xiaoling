@@ -120,6 +120,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回当前任务清单，或基于最近运行的受限步骤状态解释任务进度；没有任务或运行证据时明确说明。",
         ),
         AgentSkillDefinition(
+            id = "task-retry",
+            name = "受控任务重试",
+            description = "核对并重试小灵任务当前最新且可重试的运行。",
+            instructions = "先读取任务清单并按精确名称检查最近运行；只有用户明确要求重试时才调用 tasks.retry。只处理当前最新 Run，不回退历史失败 Run；审批通过后创建关联新 Run，旧 Run 和已有副作用保持不变。",
+            toolNames = setOf("tasks.list", "tasks.inspect", "tasks.retry"),
+            keywords = setOf("任务重试", "重试任务", "重新运行", "再试一次", "retry task", "retry workflow"),
+            triggerExamples = listOf("请重试失败的每日回顾任务", "重新运行刚才失败的工作流"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "任务不存在、同名、停用、最新 Run 活动或不可重试时停止；不退回更旧 Run，也不根据模型文本猜测状态。",
+            completionCriteria = "关联新 Run 已持久化并回读验证，随后由前台执行链接管；否则明确说明未重试。",
+        ),
+        AgentSkillDefinition(
             id = "personal-memory",
             name = "长期记忆",
             description = "检索或保存用户明确授权的长期记忆。",

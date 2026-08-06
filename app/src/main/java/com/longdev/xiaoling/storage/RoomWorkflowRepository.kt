@@ -35,6 +35,8 @@ import com.longdev.xiaoling.automation.WorkflowStartupRecoveryCandidates
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.automation.WorkflowRunDetail
 import com.longdev.xiaoling.automation.WorkflowRunRecord
+import com.longdev.xiaoling.automation.WorkflowRunRetryEligibility
+import com.longdev.xiaoling.automation.WorkflowRunRetryPolicy
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionRecord
@@ -59,6 +61,29 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
+
+internal sealed interface WorkflowTaskRetryCommitResult {
+    data class Queued(
+        val detail: WorkflowRunDetail,
+        val reusedStepCount: Int,
+        val alreadyQueued: Boolean,
+    ) : WorkflowTaskRetryCommitResult
+
+    data class Ambiguous(val matchCount: Int) : WorkflowTaskRetryCommitResult
+    data class Rejected(val reason: String) : WorkflowTaskRetryCommitResult
+    data object NotFound : WorkflowTaskRetryCommitResult
+    data object IdempotencyConflict : WorkflowTaskRetryCommitResult
+}
+
+internal data class WorkflowTaskRetryVerification(
+    val detail: WorkflowRunDetail,
+    val reusedStepCount: Int,
+)
+
+private fun workflowTaskRetryRunId(idempotencyKey: String): String {
+    val stableId = UUID.nameUUIDFromBytes("tasks.retry:$idempotencyKey".toByteArray(Charsets.UTF_8))
+    return "workflow-run-task-retry-$stableId"
+}
 
 class RoomWorkflowRepository(
     context: Context,
@@ -1460,6 +1485,168 @@ class RoomWorkflowRepository(
             dao.upsertRun(run)
             retrySteps.forEach { dao.upsertStep(it) }
             WorkflowRunDetail(run.toRecord(), retrySteps.map { it.toRecord() })
+        }
+    }
+
+    internal suspend fun retryLatestRunByTaskName(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): WorkflowTaskRetryCommitResult {
+        val normalizedName = name.trim()
+        require(normalizedName.isNotEmpty()) { "任务名称不能为空" }
+        require(normalizedName.length <= 100) { "任务名称不能超过 100 个字符" }
+        require(conversationId.isNotBlank()) { "任务重试会话不能为空" }
+        require(idempotencyKey.isNotBlank()) { "任务重试幂等键不能为空" }
+        require(idempotencyKey.length <= 200) { "任务重试幂等键不能超过 200 个字符" }
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val matches = dao.listWorkflows().filter { workflow -> workflow.name == normalizedName }
+            if (matches.isEmpty()) return@withTransaction WorkflowTaskRetryCommitResult.NotFound
+            if (matches.size > 1) return@withTransaction WorkflowTaskRetryCommitResult.Ambiguous(matches.size)
+            val workflow = matches.single()
+            val retryRunId = workflowTaskRetryRunId(idempotencyKey)
+            val existing = dao.getRun(retryRunId)
+            if (existing != null) {
+                val sourceRunId = existing.retryOfWorkflowRunId
+                val identityMatches = existing.workflowId == workflow.id &&
+                    existing.conversationId == conversationId &&
+                    existing.trigger == WorkflowTrigger.MANUAL.name &&
+                    existing.scheduledTaskId == null &&
+                    sourceRunId != null &&
+                    dao.getRun(sourceRunId)?.workflowId == workflow.id
+                if (!identityMatches) return@withTransaction WorkflowTaskRetryCommitResult.IdempotencyConflict
+                val existingSteps = dao.getSteps(existing.id)
+                if (
+                    existing.status != WorkflowRunStatus.QUEUED.name ||
+                    dao.latestRunsForWorkflows(listOf(workflow.id)).singleOrNull()?.id != existing.id
+                ) {
+                    return@withTransaction WorkflowTaskRetryCommitResult.Rejected("这次任务重试已经离开排队状态，不能重复启动。")
+                }
+                if (
+                    existingSteps.isEmpty() ||
+                    existingSteps.any { step -> step.status !in setOf(WorkflowStepStatus.SKIPPED.name, WorkflowStepStatus.PENDING.name) }
+                ) {
+                    return@withTransaction WorkflowTaskRetryCommitResult.Rejected("这次任务重试的步骤状态已变化，不能重复启动。")
+                }
+                return@withTransaction WorkflowTaskRetryCommitResult.Queued(
+                    detail = WorkflowRunDetail(existing.toRecord(), existingSteps.map { step -> step.toRecord() }),
+                    reusedStepCount = existingSteps.count { step -> step.status == WorkflowStepStatus.SKIPPED.name },
+                    alreadyQueued = true,
+                )
+            }
+            if (!workflow.enabled) {
+                return@withTransaction WorkflowTaskRetryCommitResult.Rejected("任务已停用，不能重试。")
+            }
+            val latest = dao.latestRunsForWorkflows(listOf(workflow.id)).singleOrNull()
+                ?: return@withTransaction WorkflowTaskRetryCommitResult.Rejected("任务还没有可重试的运行记录。")
+            val sourceSteps = dao.getSteps(latest.id)
+            val sourceDetail = WorkflowRunDetail(latest.toRecord(), sourceSteps.map { step -> step.toRecord() })
+            val eligibility = WorkflowRunRetryPolicy.evaluate(
+                detail = sourceDetail,
+                hasActiveRun = dao.getActiveRun(workflow.id) != null,
+            )
+            if (eligibility is WorkflowRunRetryEligibility.NotRetryable) {
+                return@withTransaction WorkflowTaskRetryCommitResult.Rejected(eligibility.reason)
+            }
+            eligibility as WorkflowRunRetryEligibility.Retryable
+            if (latest.createdAt == Long.MAX_VALUE) {
+                return@withTransaction WorkflowTaskRetryCommitResult.Rejected("运行时间无效，不能重试。")
+            }
+            val now = maxOf(System.currentTimeMillis(), latest.createdAt + 1L)
+            val run = WorkflowRunEntity(
+                id = retryRunId,
+                workflowId = latest.workflowId,
+                trigger = WorkflowTrigger.MANUAL.name,
+                scheduledTaskId = null,
+                plannedAt = null,
+                conversationId = conversationId,
+                agentRunId = null,
+                status = WorkflowRunStatus.QUEUED.name,
+                result = null,
+                errorMessage = null,
+                createdAt = now,
+                startedAt = null,
+                completedAt = null,
+                retryOfWorkflowRunId = latest.id,
+            )
+            val retrySteps = sourceSteps.sortedBy { step -> step.sequence }.map { sourceStep ->
+                val reusable = sourceStep.sequence < eligibility.retryFromSequence &&
+                    sourceStep.status in SUCCESSFUL_STEP_STATUSES
+                WorkflowStepEntity(
+                    id = "workflow-step-${UUID.randomUUID()}",
+                    workflowRunId = run.id,
+                    sequence = sourceStep.sequence,
+                    type = sourceStep.type,
+                    status = if (reusable) WorkflowStepStatus.SKIPPED.name else WorkflowStepStatus.PENDING.name,
+                    title = sourceStep.title,
+                    detail = sourceStep.detail,
+                    agentRunId = null,
+                    result = sourceStep.result.takeIf { reusable },
+                    errorMessage = null,
+                    createdAt = now,
+                    startedAt = null,
+                    completedAt = now.takeIf { reusable },
+                    definitionStepId = sourceStep.definitionStepId,
+                    idempotencyKey = sourceStep.idempotencyKey,
+                    inputSnapshot = sourceStep.inputSnapshot.takeIf { reusable }
+                        ?: WorkflowStepSnapshotCodec.encodeInput(
+                            sourceStep.detail,
+                            emptyList(),
+                            runCatching {
+                                WorkflowStepSnapshotCodec.decodeInput(sourceStep.inputSnapshot).targetAppPackage
+                            }.getOrNull(),
+                            runCatching {
+                                WorkflowStepSnapshotCodec.decodeInput(sourceStep.inputSnapshot).goalVerificationContract
+                            }.getOrNull(),
+                        ),
+                    outputSnapshot = sourceStep.outputSnapshot.takeIf { reusable },
+                    reusedFromStepId = sourceStep.id.takeIf { reusable },
+                )
+            }
+            // long: ToolCall 幂等身份、关联新 Run 和全部步骤快照一次提交；失败或进程中断不能留下半个可执行任务。
+            dao.upsertRun(run)
+            retrySteps.forEach { step -> dao.upsertStep(step) }
+            WorkflowTaskRetryCommitResult.Queued(
+                detail = WorkflowRunDetail(run.toRecord(), retrySteps.map { step -> step.toRecord() }),
+                reusedStepCount = eligibility.reusedStepCount,
+                alreadyQueued = false,
+            )
+        }
+    }
+
+    internal suspend fun verifyTaskRetry(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+        workflowRunId: String,
+    ): WorkflowTaskRetryVerification? {
+        val normalizedName = name.trim()
+        if (normalizedName.isEmpty() || normalizedName.length > 100) return null
+        if (conversationId.isBlank() || idempotencyKey.isBlank() || idempotencyKey.length > 200) return null
+        if (workflowRunId != workflowTaskRetryRunId(idempotencyKey)) return null
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val matches = dao.listWorkflows().filter { workflow -> workflow.name == normalizedName }
+            if (matches.size != 1) return@withTransaction null
+            val workflow = matches.single()
+            val run = dao.getRun(workflowRunId) ?: return@withTransaction null
+            val sourceRunId = run.retryOfWorkflowRunId ?: return@withTransaction null
+            val steps = dao.getSteps(workflowRunId)
+            val identityMatches = run.workflowId == workflow.id &&
+                run.conversationId == conversationId &&
+                run.trigger == WorkflowTrigger.MANUAL.name &&
+                run.scheduledTaskId == null &&
+                run.status == WorkflowRunStatus.QUEUED.name &&
+                dao.getRun(sourceRunId)?.workflowId == workflow.id &&
+                dao.latestRunsForWorkflows(listOf(workflow.id)).singleOrNull()?.id == workflowRunId &&
+                steps.isNotEmpty() &&
+                steps.all { step -> step.status in setOf(WorkflowStepStatus.SKIPPED.name, WorkflowStepStatus.PENDING.name) }
+            if (!identityMatches) return@withTransaction null
+            WorkflowTaskRetryVerification(
+                detail = WorkflowRunDetail(run.toRecord(), steps.map { step -> step.toRecord() }),
+                reusedStepCount = steps.count { step -> step.status == WorkflowStepStatus.SKIPPED.name },
+            )
         }
     }
 

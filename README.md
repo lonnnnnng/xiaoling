@@ -1,5 +1,7 @@
 # 小灵
 
+第 157 阶段完成受控任务重试闭环。新增仅前台直接 Agent 可见、`REQUIRES_APPROVAL` 的 `tasks.retry(name)`，严格按精确任务名只处理当前最新的 `BLOCKED / FAILED / CANCELLED` Run；ToolCall ID 派生确定性新 Workflow Run，重复调用只回读仍处于 `QUEUED` 的同一提交，任务已启动、被其他运行取代、步骤证据变化或身份漂移时 fail-closed。成功前缀仅标记为 `SKIPPED` 并保留 `reusedFromStepId`，来源 Run、步骤、结果和副作用不变。前台宿主从 Room Tool Ledger、typed `PASSED` 验证和提交回执重新读取新 Run 后才接管执行，模型文本不参与启动判断。聚焦 JVM `XiaoLingToolRegistryTest 44/44 + AgentSkillsTest 17/17 + TaskRetryLaunchPolicyTest 2/2 + MinimalAgentRuntimeTest 67/67`、Debug/AndroidTest APK 和仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 第 156 阶段把任务只读诊断接到答案级可操作入口。可信 `tasks.inspect` 工具卡现在显示“查看任务”；点击后只用工具参数中的任务名称与当前 Workflow 做唯一精确匹配，命中则打开并定位 Workflow 管理项，删除、重命名、缺失或同名时降级到通用列表，不猜测内部 ID。入口只接受成功且未验证失败、参数只有非空 `name`、结果首行为“任务最近运行”的真实 Tool part；普通模型文本不能生成入口，点击不会重发消息或修改任务。聚焦 JVM、Debug/AndroidTest APK 与仅 Redmi 的 `ConversationPageInstrumentedTest 9/9` 通过；未新增 Room Schema、工具权限、后台能力或任务写操作。
 
 第 155 阶段补齐任务最近运行的只读诊断闭环。新增前台 SAFE `tasks.inspect`：Agent 先用 `tasks.list` 获取任务名称，再按精确名称读取最近 Run 的状态、触发方式、起止时间、步骤序号/状态和稳定失败分类；不存在时明确返回空结果，同名任务拒绝猜测。工具不返回 Workflow/Run/Step ID、原始错误、步骤输入输出、工具参数或 ToolResult 正文，不修改、取消或重试任务，也不新增 Room Schema。聚焦 JVM `57/57`、Debug/AndroidTest APK、Redmi Room `5/5` 通过；真实 Provider Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 严格执行 `tasks.list -> tasks.inspect`，两项均 `success=true / PASSED`。

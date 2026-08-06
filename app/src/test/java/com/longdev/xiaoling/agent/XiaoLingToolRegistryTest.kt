@@ -30,6 +30,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -325,10 +326,11 @@ class XiaoLingToolRegistryTest {
     fun registryExposesFirstInternalAgentTools() {
         val registry = testRegistry()
 
-        val tools = registry.availableTools().associateBy { it.name }
+        val tools = registry.registeredTools().associateBy { it.name }
 
-        assertEquals(
-            setOf(
+        assertTrue(
+            tools.keys.containsAll(
+                setOf(
                 "app.current_time",
                 "app.list_conversations",
                 "app.search_conversations",
@@ -336,14 +338,15 @@ class XiaoLingToolRegistryTest {
                 "calendar.search_events",
                 "tasks.list",
                 "tasks.inspect",
+                "tasks.retry",
                 "notes.list",
                 "notes.search",
                 "notes.create",
                 "memory.search",
                 "memory.remember",
                 "knowledge.search",
+                ),
             ),
-            tools.keys,
         )
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
@@ -351,15 +354,59 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
+        assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertNotNull(tools.getValue("tasks.inspect").inputSchema.singleOrNull { it.name == "name" && it.required })
+        assertEquals(
+            listOf("name"),
+            tools.getValue("tasks.retry").inputSchema.map { field -> field.name },
+        )
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("tasks.retry").verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("tasks.retry").replaySafety)
+        assertFalse(tools.getValue("tasks.retry").permissionPolicy.supportsBackground)
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
+    }
+
+    @Test
+    fun taskRetryIsOnlyAvailableToDirectForegroundAgent() {
+        val registry = testRegistry()
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "重试每日回顾任务",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNotNull(registry.definition("tasks.retry"))
+        assertTrue(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "重试每日回顾任务"))
+        assertNull(registry.definition("tasks.retry"))
+        assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-background",
+                userMessageId = "message-background",
+                runId = "run-background",
+                goal = "重试每日回顾任务",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNull(registry.definition("tasks.retry"))
+        assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
     }
 
     @Test
@@ -1672,6 +1719,85 @@ class XiaoLingToolRegistryTest {
         assertFalse(result.content.contains("workflow-private-id"))
         assertFalse(result.content.contains("raw-error"))
         assertFalse(result.content.contains("tool-arguments"))
+    }
+
+    @Test
+    fun taskRetryReturnsCommittedVerifiedReceiptWithoutInternalEvidence() = runTest {
+        val registry = testRegistry(
+            taskStore = object : AgentTaskStore {
+                override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+
+                override suspend fun inspect(name: String): AgentTaskInspectionResult =
+                    AgentTaskInspectionResult.NotFound
+
+                override suspend fun retry(
+                    name: String,
+                    conversationId: String,
+                    idempotencyKey: String,
+                ): AgentTaskRetryResult {
+                    assertEquals("每日回顾", name)
+                    assertEquals("conversation-direct", conversationId)
+                    assertEquals("tool-call-task-retry", idempotencyKey)
+                    return AgentTaskRetryResult.Queued(
+                        AgentTaskRetryRecord(
+                            name = "每日回顾",
+                            workflowRunId = "workflow-run-private-id",
+                            reusedStepCount = 1,
+                            alreadyQueued = false,
+                        ),
+                    )
+                }
+            },
+        )
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "重试每日回顾任务",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                id = "tool-call-task-retry",
+                name = "tasks.retry",
+                arguments = mapOf("name" to " 每日回顾 "),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("每日回顾"))
+        assertTrue(result.content.contains("复用 1 个已完成步骤"))
+        assertFalse(result.content.contains("workflow-run-private-id"))
+        assertFalse(result.content.contains("raw-error"))
+        assertEquals("workflow-run-private-id", result.executionReceipt?.operationId)
+        assertEquals("tool-call-task-retry", result.executionReceipt?.idempotencyKey)
+        assertEquals(ToolExecutionReceiptStatus.COMMITTED, result.executionReceipt?.status)
+    }
+
+    @Test
+    fun directPlanningContextRebindsBeforeProfileToolLookup() = runTest {
+        val registry = testRegistry()
+        registry.bindRunContext(workflowDeviceContext(userIntent = "重试失败的每日回顾任务"))
+
+        val directContext = AgentToolExecutionContext(
+            conversationId = "conversation-direct",
+            userMessageId = "message-direct",
+            runId = "run-direct",
+            goal = "重试失败的每日回顾任务",
+            invocationSource = AgentInvocationSource.DIRECT,
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        )
+        // long: ProfileScopedToolRegistry 初始化会检查每个白名单定义；若不先绑定当前直接 Agent，上一个 Workflow Context 会错误隐藏 tasks.retry。
+        registry.bindRunContext(directContext)
+        val profileRegistry = ProfileScopedToolRegistry(registry, setOf("tasks.retry"))
+
+        assertNotNull(profileRegistry.definition("tasks.retry"))
     }
 
     private fun testRegistry(

@@ -825,9 +825,37 @@ sealed interface AgentTaskInspectionResult {
     data object NotFound : AgentTaskInspectionResult
 }
 
+data class AgentTaskRetryRecord(
+    val name: String,
+    val workflowRunId: String,
+    val reusedStepCount: Int,
+    val alreadyQueued: Boolean,
+)
+
+sealed interface AgentTaskRetryResult {
+    data class Queued(val retry: AgentTaskRetryRecord) : AgentTaskRetryResult
+    data class Ambiguous(val matchCount: Int) : AgentTaskRetryResult
+    data class Rejected(val reason: String) : AgentTaskRetryResult
+    data object NotFound : AgentTaskRetryResult
+    data object IdempotencyConflict : AgentTaskRetryResult
+}
+
+sealed interface AgentTaskRetryVerificationResult {
+    data class Verified(val retry: AgentTaskRetryRecord) : AgentTaskRetryVerificationResult
+    data object Failed : AgentTaskRetryVerificationResult
+}
+
 interface AgentTaskStore {
     suspend fun list(limit: Int): List<AgentTaskRecord>
     suspend fun inspect(name: String): AgentTaskInspectionResult
+    suspend fun retry(name: String, conversationId: String, idempotencyKey: String): AgentTaskRetryResult =
+        AgentTaskRetryResult.Rejected("任务重试存储不可用")
+    suspend fun verifyRetry(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+        workflowRunId: String,
+    ): AgentTaskRetryVerificationResult = AgentTaskRetryVerificationResult.Failed
 }
 
 data class AgentNoteRecord(

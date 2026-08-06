@@ -1,5 +1,13 @@
 # 产品需求
 
+## 受控任务重试（第 157 阶段，完成）
+
+- 用户明确要求重试任务时，前台直接 Agent 才能在 `REQUIRES_APPROVAL` 审批后调用 `tasks.retry(name)`；Workflow 内部递归调用、后台调用和旧 Profile 默认扩权均禁止。
+- 工具按去除首尾空白后的精确名称匹配唯一 Workflow，只读取该任务当前最新 Run；仅 `BLOCKED / FAILED / CANCELLED` 且通过 `WorkflowRunRetryPolicy` 的 Run 可进入重试，不能回退历史失败 Run。停用任务、完成态、活动态、缺失步骤证据、同名或身份漂移必须拒绝。
+- ToolCall ID 派生确定性新 Workflow Run。相同 ToolCall 只在新 Run 仍为 `QUEUED`、为当前最新 Run 且步骤仍为 `SKIPPED / PENDING` 时回读同一提交；已启动或状态漂移不得再次启动。
+- 新 Run 只复用来源 Run 的成功前缀，使用 `SKIPPED / reusedFromStepId` 保存关联；来源 Run、来源步骤、结果和已有副作用保持不变。工具正文不返回 Workflow/Run/Step ID、原始错误或步骤正文。
+- 前台宿主从 Room Tool Ledger 重读调用与结果，要求 `executorVerified=true`、typed verification `PASSED`、幂等回执一致且新 Run 可启动后，才接管 Workflow；模型总结不参与启动判断。聚焦 JVM `130/130`、Debug/AndroidTest APK 与 Redmi Room `8/8` 通过。
+
 ## 任务诊断答案级导航（第 156 阶段，完成）
 
 - 成功的 `tasks.inspect` Tool part 必须在结果卡提供“查看任务”入口，使用户无需离开答案上下文重新寻找任务；点击只负责导航，不重新发送消息、重试工具、执行或修改任务。

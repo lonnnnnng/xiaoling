@@ -2983,6 +2983,60 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun taskRetryFallbackSummaryDoesNotExposeAgentOrWorkflowRunIds() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "tasks.retry",
+            description = "重试任务当前最新运行",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(ToolInputField("name", "任务名称", required = true)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+        )
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = object : ToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+                override suspend fun execute(call: ToolCall): ToolExecutionResult = ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = "已创建关联重试并排队：每日回顾",
+                    executionReceipt = ToolExecutionReceipt(
+                        toolCallId = call.id,
+                        operationId = "workflow-run-private",
+                        idempotencyKey = call.id,
+                        status = ToolExecutionReceiptStatus.COMMITTED,
+                    ),
+                )
+            },
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+                    return ToolCall(
+                        id = "tool-call-task-retry",
+                        name = definition.name,
+                        arguments = mapOf("name" to "每日回顾"),
+                        risk = definition.risk,
+                    )
+                }
+
+                override suspend fun summarize(
+                    goal: String,
+                    toolCall: ToolCall,
+                    toolResult: ToolExecutionResult,
+                ): String = ""
+            },
+        )
+
+        val summary = runtime.run("conversation-task-retry", "message-task-retry", "重试每日回顾任务")
+
+        assertFalse(summary.responseText.contains(summary.runId))
+        assertFalse(summary.responseText.contains("workflow-run-private"))
+        assertFalse(summary.responseText.contains("Run ID"))
+        assertTrue(summary.responseText.contains("每日回顾"))
+    }
+
+    @Test
     fun wholeRunTimeoutKeepsRunTimeoutReasonWhenItInterruptsModelStep() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(
