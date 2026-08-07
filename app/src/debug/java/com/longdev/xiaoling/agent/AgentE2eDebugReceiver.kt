@@ -135,6 +135,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
                     OPERATION_MEMORY_SEARCH_GET_REAL -> runMemorySearchGetReal(appContext)
                     OPERATION_CALENDAR_SEARCH_GET_REAL -> runCalendarSearchGetReal(appContext)
+                    OPERATION_CALENDAR_DELETE_REAL -> runCalendarDeleteReal(appContext)
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
                     OPERATION_NOTES_UPDATE_REAL -> runNotesUpdateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
@@ -1522,7 +1523,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         profileStore.delete(temporaryProfileId)
 
         // long: 上次进程若在 finally 前退出，只按应用包名与 stage182 专属 marker 精确回收 Debug 事件，不按标题或时间扫描用户日历。
-        deleteStaleStage182CalendarEvents(context)
+        deleteStaleCalendarEvents(context, STAGE182_CALENDAR_MARKER_PREFIX)
         val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
         val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
         val profile = AgentProfileRecord(
@@ -1664,12 +1665,224 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun deleteStaleStage182CalendarEvents(context: Context): Int {
+    private suspend fun runCalendarDeleteReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage184-$now"
+        val title = "第184阶段待删除日程-$keyword"
+        val startAtMillis = now + TimeUnit.DAYS.toMillis(2)
+        val request = CalendarEventWriteRequest(
+            idempotencyKey = "$STAGE184_CALENDAR_IDEMPOTENCY_PREFIX$now",
+            title = title,
+            startAtMillis = startAtMillis,
+            endAtMillis = startAtMillis + TimeUnit.HOURS.toMillis(1),
+            timeZoneId = ZoneId.systemDefault().id,
+        )
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage184-calendar-delete-profile"
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        // long: 只回收带第184阶段专属 marker 的应用夹具，避免用标题或时间范围误删用户日程。
+        deleteStaleCalendarEvents(context, STAGE184_CALENDAR_MARKER_PREFIX)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第184阶段系统日程删除验收",
+            avatar = "184",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只有用户明确要求删除时才操作。必须先按唯一关键词调用 calendar.search_events，再把唯一结果的稳定 event_id 原样传给 calendar.get；读取当前事件指纹后，只用同一 event_id、指纹和 scope=event 调用 calendar.delete_event。删除前必须请求确认，不得猜测参数、跳过详情读取或调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("calendar.search_events", "calendar.get", "calendar.delete_event"),
+            allowedSkillIds = listOf("calendar-delete"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        var fixtureEventId: String? = null
+        var createdAppOwnedCalendarId: Long? = null
+        try {
+            val fixtureResult = writer.createOrReadBack(request)
+            if (fixtureResult is CalendarEventWriteResult.Committed) {
+                // long: 夹具一旦写入就保存 Provider 身份，后续模型、审批或断言失败也能在 finally 精确清理。
+                fixtureEventId = fixtureResult.event.eventId
+                if (!hadAppOwnedCalendar) {
+                    val appCalendarId = appOwnedCalendarId(context)
+                    if (appCalendarId != null && eventCalendarId(context, fixtureResult.event.eventId) == appCalendarId) {
+                        createdAppOwnedCalendarId = appCalendarId
+                    }
+                }
+            }
+            check(fixtureResult is CalendarEventWriteResult.Committed && fixtureResult.verified) {
+                "第184阶段临时日程创建或回读失败：$fixtureResult"
+            }
+            val fixture = fixtureResult.event
+            val numericEventId = fixture.eventId.toLongOrNull()
+                ?: error("第184阶段临时日程没有有效 Provider ID")
+            val detailBeforeRun = reader.getEvent(numericEventId)
+            check(detailBeforeRun is CalendarEventDetailReadResult.Success) {
+                "第184阶段临时日程详情不可读：$detailBeforeRun"
+            }
+            val expectedFingerprint = CalendarEventFingerprint.create(detailBeforeRun.event)
+
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第184阶段系统日程删除 Profile" }
+            Log.i(TAG, "calendar-delete-real start=true provider=${provider.id} model=${provider.model}")
+            val conversationId = "conversation-redmi-calendar-delete-$now"
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-calendar-delete-$now",
+                goal = "请用唯一关键词“$keyword”搜索未来 7 天的系统日程，读取唯一结果的当前权威详情和事件指纹，然后删除这个一次性事件。必须严格执行 calendar.search_events -> calendar.get -> calendar.delete_event，删除时原样使用同一稳定 event_id、当前指纹和 scope=event，并在删除前请求确认。禁止猜测参数或调用其他工具。",
+                skillSelectionGoal = "删除日程：找到唯一匹配的一次性系统日程并受控删除",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = repository,
+                    reason = "第184阶段 Redmi 真实系统日程删除验收批准",
+                ),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第184阶段 calendar.delete_event Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第184阶段系统日程删除 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val selectedSkillIds = detail.snapshot.events
+                .singleOrNull { it.type == "skill.selected" }
+                ?.metadata
+                .let { it as? RunEventMetadata.Reason }
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("calendar-delete")) {
+                "第184阶段没有选择系统日程删除 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            check(calls.map { it.toolName } == listOf("calendar.search_events", "calendar.get", "calendar.delete_event")) {
+                "系统日程删除没有严格按 search -> get -> delete 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            val deleteCall = calls[2]
+            val stableEventId = "calendar-${fixture.eventId}"
+            check(searchCall.arguments["query"]?.trim() == keyword) {
+                "calendar.search_events 没有原样使用唯一关键词"
+            }
+            check(getCall.arguments["event_id"]?.trim() == stableEventId) {
+                "calendar.get 没有读取搜索结果对应的稳定事件 ID"
+            }
+            check(
+                deleteCall.arguments["event_id"]?.trim() == stableEventId &&
+                    deleteCall.arguments["expected_fingerprint"]?.trim() == expectedFingerprint &&
+                    deleteCall.arguments["scope"]?.trim() == CalendarEventDeleteScope.EVENT.wireName,
+            ) { "calendar.delete_event 没有原样使用详情对应的稳定 ID、当前指纹和 event scope" }
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            val orderedResults = calls.map { call ->
+                checkNotNull(resultsByCallId[call.id]) { "${call.toolName} 缺少 Tool Result" }
+            }
+            check(orderedResults.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "系统日程删除链存在未通过 typed 验证的工具结果"
+            }
+            val getResult = orderedResults[1]
+            check(
+                getResult.content.contains("ID：$stableEventId") &&
+                    getResult.content.contains("标题：$title") &&
+                    getResult.content.contains("事件指纹：$expectedFingerprint"),
+            ) { "calendar.get 没有返回当前 Provider 的稳定 ID、标题和事件指纹" }
+            val deleteResult = orderedResults[2]
+            check(
+                deleteResult.executorVerified == true &&
+                    deleteResult.executionReceipt?.let { receipt ->
+                        receipt.operationId == stableEventId &&
+                            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+                    } == true,
+            ) { "calendar.delete_event 缺少 Executor 验证或 COMMITTED 稳定回执" }
+            check(
+                detail.approvals.singleOrNull { it.toolName == "calendar.delete_event" }?.status ==
+                    ApprovalRequestStatus.APPROVED,
+            ) { "calendar.delete_event Room 审批没有收敛为 APPROVED" }
+            check(reader.getEvent(numericEventId) is CalendarEventDetailReadResult.NotFound) {
+                "calendar.delete_event 后当前 Provider 仍能读取测试事件"
+            }
+            Log.i(
+                TAG,
+                "calendar-delete-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=calendar-delete tools=calendar.search_events,calendar.get,calendar.delete_event " +
+                    "approval=APPROVED resultsVerified=true stableIdBound=true fingerprintBound=true " +
+                    "receipt=COMMITTED providerInvisible=true responseLength=${summary.responseText.length}",
+            )
+        } finally {
+            // long: 成功路径中目标已经不可见，失败路径才补做精确删除；两种情况都不把“零影响行”误判为清理失败。
+            val eventRemoved = fixtureEventId?.toLongOrNull()?.let { eventId ->
+                runCatching {
+                    when (reader.getEvent(eventId)) {
+                        CalendarEventDetailReadResult.NotFound -> true
+                        is CalendarEventDetailReadResult.Success -> {
+                            context.contentResolver.delete(
+                                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                                null,
+                                null,
+                            ) == 1 && reader.getEvent(eventId) is CalendarEventDetailReadResult.NotFound
+                        }
+                        else -> false
+                    }
+                }.getOrDefault(false)
+            } ?: true
+            val calendarRemoved = createdAppOwnedCalendarId?.let { calendarId ->
+                runCatching { deleteAppOwnedCalendar(context, calendarId) }.getOrDefault(false)
+            } ?: true
+            val restored = recoveredOriginalProfileId?.let { profileId ->
+                runCatching { profileStore.select(profileId) }.getOrDefault(false)
+            } ?: true
+            val profileRemoved = runCatching { profileStore.delete(temporaryProfileId) }.getOrDefault(false)
+            check(eventRemoved && calendarRemoved) { "第184阶段临时日程或本地日历清理失败" }
+            check(restored && (profileRemoved || profileStore.list().none { it.id == temporaryProfileId })) {
+                "第184阶段临时 Profile 清理失败"
+            }
+            Log.i(
+                TAG,
+                "calendar-delete-real cleanup=true temporaryProfileRemoved=true testEventRemoved=true " +
+                    "temporaryCalendarRemoved=$calendarRemoved",
+            )
+        }
+    }
+
+    private fun deleteStaleCalendarEvents(context: Context, markerPrefix: String): Int {
         val cursor = context.contentResolver.query(
             CalendarContract.Events.CONTENT_URI,
             arrayOf(CalendarContract.Events._ID),
             "${CalendarContract.Events.CUSTOM_APP_PACKAGE}=? AND ${CalendarContract.Events.CUSTOM_APP_URI} LIKE ?",
-            arrayOf(context.packageName, "$STAGE182_CALENDAR_MARKER_PREFIX%"),
+            arrayOf(context.packageName, "$markerPrefix%"),
             null,
         ) ?: return 0
         val eventIds = cursor.use {
@@ -3567,6 +3780,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
         const val OPERATION_MEMORY_SEARCH_GET_REAL = "memory_search_get_real"
         const val OPERATION_CALENDAR_SEARCH_GET_REAL = "calendar_search_get_real"
+        const val OPERATION_CALENDAR_DELETE_REAL = "calendar_delete_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
         const val OPERATION_NOTES_UPDATE_REAL = "notes_update_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
@@ -3583,6 +3797,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val STAGE179_MEMORY_FIXTURE_SOURCE = "第179阶段 Redmi Debug 夹具"
         private const val STAGE182_CALENDAR_IDEMPOTENCY_PREFIX = "stage182-calendar-search-get-"
         private const val STAGE182_CALENDAR_MARKER_PREFIX = "xiaoling://calendar-event/$STAGE182_CALENDAR_IDEMPOTENCY_PREFIX"
+        private const val STAGE184_CALENDAR_IDEMPOTENCY_PREFIX = "stage184-calendar-delete-"
+        private const val STAGE184_CALENDAR_MARKER_PREFIX = "xiaoling://calendar-event/$STAGE184_CALENDAR_IDEMPOTENCY_PREFIX"
         private const val STAGE182_LOCAL_ACCOUNT_NAME = "com.longdev.xiaoling.local"
         private const val STAGE182_LOCAL_CALENDAR_NAME = "xiaoling-local-calendar"
         const val EXTRA_TASK_ID = "task_id"

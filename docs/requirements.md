@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实 Provider 受控系统日程删除闭环（第 184 阶段，完成）
+
+- 必须仅在 Redmi 使用设备当前已选择的真实模型 Provider，通过唯一 `calendar-delete` Skill 严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`；临时 Profile 只能开放这三个工具，不得包含创建、列表、设备动作或其他 Skill。
+- 搜索必须原样使用 Debug 夹具唯一关键词；`calendar.get.event_id` 必须等于搜索结果稳定 ID，删除调用必须原样复用同一 `event_id`、详情返回的当前 `expected_fingerprint` 和 `scope=event`，不得由模型猜测、重算或改写。
+- Room Tool Ledger 三项结果必须 `success=true` 且 typed `PASSED`；删除结果必须 `executorVerified=true` 并携带同一稳定事件 ID 的 `COMMITTED` 回执。Room 中只能出现一条 `calendar.delete_event` 审批且必须收敛为 `APPROVED`，最终 Provider 回读必须为 NotFound。
+- 夹具只能在 Agent Run 外使用正式 Calendar writer 创建，并使用 stage184 专属 marker。成功、模型失败、审批失败、断言失败或进程中断时都按 Provider 事件 ID 精确清理；只有本轮新建的应用本地日历才允许删除，原 Profile 必须恢复，临时 Profile 必须移除。
+- Debug 日志不得包含 API Key、事件标题、工具参数、事件指纹或工具正文，只记录 Run ID、状态、Skill、工具名和布尔结论。本阶段不得修改生产 Registry、Skill、Writer、Reader、Room Schema、旧 Profile/Run、权限或后台边界。
+- 验证只要求 Debug APK、Redmi 真实模型核心路径和文档 corpus 单项；JVM、Lint、Release APK 和全量 instrumentation 按分级策略后置。
+
 ## 受控系统日程删除（第 183 阶段，完成）
 
 - `calendar.get` 必须返回 `calendar-event-v1-<sha256>` 事件指纹；指纹绑定 `_ID / TITLE / DTSTART / DTEND / ALL_DAY / EVENT_TIMEZONE / RRULE / RDATE` 与派生重复状态的规范值，条件删除再额外要求 `DELETED=0`。删除只能接受同一详情读取返回的稳定 `calendar-<Events._ID>` 和当前指纹，不得按标题、时间、列表序号或模型文本猜测目标。

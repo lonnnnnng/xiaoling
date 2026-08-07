@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 184 阶段：真实 Provider 受控系统日程删除闭环（完成）
+
+- Debug-only `calendar_delete_real` 使用设备当前 Provider、唯一一次性日程夹具和显式临时 Profile；Profile 只允许 `calendar.search_events / calendar.get / calendar.delete_event` 与 `calendar-delete`，不把创建或其他工具带入 Run。
+- 最终 Redmi Run `run-3981834b-8d4c-4ade-b3ec-23aa138250cd` 严格执行三步链。关键词原样传递，get 使用搜索结果稳定 ID，delete 再原样复用同一 ID、当前指纹和 `scope=event`；三项 Tool Result 均 `success=true / PASSED`。
+- `calendar.delete_event` 的 Room 审批为 `APPROVED`，结果具备 Executor 验证和同一事件 ID 的 `COMMITTED` 回执，删除后当前 Provider 回读 NotFound。最终回答文本不参与成功判断。
+- 首轮 Run `run-85260e99-5a2c-40a6-b26a-712643ea1c2e` 已完成工具和删除，但因 Skill 选择目标缺少连续关键词“删除日程”而没有 `skill.selected` 证据，探针按严格门禁判失败并清理；修正确定性选择输入后复验通过，没有放宽 Skill 断言。
+- 夹具、必要时创建的本地日历及临时 Profile 在成功与失败路径均精确清理。最终 Debug/AndroidTest APK 与文档 corpus `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation，生产能力面与 Room v36 不变。
+- 下一阶段先冻结受控系统日程修改：只允许明确字段白名单，继续要求稳定 ID、expected fingerprint、显式 scope、逐次审批、Provider 条件更新、写后回读、COMMITTED 回执和只读恢复。occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 183 阶段：受控系统日程删除（完成）
 
 - `calendar.get` 已把当前 Provider 事件快照固化为 `calendar-event-v1-<sha256>`；新增 `calendar.delete_event(event_id, expected_fingerprint, scope)` 与独立 `calendar-delete` Skill，模型必须先搜索、唯一命中并读取详情，再原样传递同一稳定 ID 与指纹。
@@ -8,7 +17,7 @@
 - 已提交恢复只接受匹配的 `COMMITTED` 回执，并且只读确认目标不可见；`RESTART_REQUIRED + DENY` 禁止未提交、未知或无回执路径重新 DELETE。无回执重复调用按 NotFound 处理，不猜测此前是否由本工具删除。
 - 聚焦 JVM `97/97` 通过；仅在 Redmi 运行真实 Calendar Provider 删除单项，覆盖成功删除、COMMITTED 只读恢复、无回执不重放和外部改名后旧指纹拒绝，结果 `OK (1 test)`、耗时 `0.392s`。
 - Debug/AndroidTest APK 与更新后的文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，测试包已卸载且主应用数据保留。
-- 下一阶段仅补真实模型 `calendar.search_events -> calendar.get -> calendar.delete_event`、逐次审批、typed verification、回执与清理的完整证据。日程修改、occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+- 第 184 阶段已补齐真实模型 `calendar.search_events -> calendar.get -> calendar.delete_event`、逐次审批、typed verification、回执与清理证据。日程修改按第 184 阶段列出的受控契约继续推进；occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 ## 第 182 阶段：真实 Provider 系统日程详情闭环（完成）
 

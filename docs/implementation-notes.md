@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 184 阶段：真实 Provider 受控系统日程删除闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增 `calendar_delete_real`。探针读取设备当前 Provider 与 User-Agent，创建 stage184 专属临时 Profile；白名单精确为 `calendar.search_events / calendar.get / calendar.delete_event` 和 `calendar-delete`，正式执行复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。
+- Agent Run 外复用 `AndroidCalendarEventWriter.createOrReadBack` 创建两天后的唯一一次性事件；当前详情由 `AndroidCalendarEventReader` 回读并生成预期指纹。Run 注入 `DebugRoomApprovalGate`，审批请求先写入 Room 再自动决定为 `APPROVED`，不绕过生产审批持久化路径。
+- 验收从 `skill.selected` 解码唯一 Skill，并从 Tool Ledger 核对严格三步顺序、原样关键词、稳定事件 ID、详情指纹、`scope=event`、三项 `PASSED`、删除 Executor 验证、`COMMITTED` 回执、单条批准记录和 Provider 不可见。成功日志不记录标题、指纹、参数或正文。
+- 首轮 Run `run-85260e99-5a2c-40a6-b26a-712643ea1c2e` 的三项工具、审批、删除与 typed 验证实际成功，但 `skillSelectionGoal` 未包含内置 Skill 的连续关键词“删除日程”，导致 `skill.selected` 为空并被最终断言拒绝；夹具仍完整清理。修正选择目标而不放宽断言后，最终 Run `run-3981834b-8d4c-4ade-b3ec-23aa138250cd` 全链通过。
+- 第 182 与 184 阶段的中断清理共用参数化 marker 查询，只按 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 精确回收各自夹具。`finally` 同时接受“Agent 已删到不可见”和“失败后补删成功”，再删除本轮新建的本地日历、恢复原 Profile并移除临时 Profile。
+- 最终 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功，Redmi 文档 corpus `1/1` 通过，测试包随后卸载且主应用数据保留。未修改生产代码或 Room v36，未运行 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 183 阶段：受控系统日程删除（完成）
 
 - 新增 `CalendarEventFingerprint`，按固定字段顺序规范化 Provider 详情并输出 `calendar-event-v1-<sha256>`；`CalendarEventReader.getEvent` 的成功详情携带该指纹，使审批绑定当前事件版本，而不是只绑定可复用的 `Events._ID`。

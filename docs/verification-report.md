@@ -1,8 +1,18 @@
 # 验证报告
 
-验证日期：2026-08-07（北京时间）
+验证日期：2026-08-08（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-08 第 184 阶段：真实 Provider 受控系统日程删除闭环
+
+- `:app:assembleDebug` 构建成功并仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装。通过显式 Debug Receiver 触发 `calendar_delete_real`，并授予主应用日历读写权限；没有向模拟器发送安装、启动、授权、日志或测试命令。
+- 首轮 Run `run-85260e99-5a2c-40a6-b26a-712643ea1c2e` 已为 `COMPLETED`，状态探针确认最后一项 `calendar.delete_event success=true / executorVerified=true / PASSED` 且审批 `APPROVED`。但 `skillSelectionGoal` 的“删除”和“日程”不连续，确定性 Skill 匹配返回空，严格断言拒绝把该轮记为完整成功；`finally` 仍清理事件、本地日历和临时 Profile。
+- 将选择目标改为显式“删除日程”后重新构建、覆盖安装并等待稳定启动。最终 Run `run-3981834b-8d4c-4ade-b3ec-23aa138250cd` 为 `COMPLETED`，选择唯一 `calendar-delete`，严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`。
+- 最终 Run 中搜索关键词原样使用，get 参数等于搜索结果稳定 ID，delete 参数等于同一 ID、当前 Provider 指纹和 `scope=event`；三项结果均 `success=true / PASSED`。删除审批为 `APPROVED`，结果 `executorVerified=true` 且回执为同一事件的 `COMMITTED`，最终 Provider 回读 NotFound。
+- 成功日志为 `stableIdBound=true / fingerprintBound=true / receipt=COMMITTED / providerInvisible=true`，清理日志为 `temporaryProfileRemoved=true / testEventRemoved=true / temporaryCalendarRemoved=true`。日志未输出 API Key、事件标题、参数、指纹或正文。
+- 更新长期文档后构建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；测试包随后卸载，主应用数据保留。
+- 本阶段未修改生产 Registry、Skill、Writer、Reader、Room Schema、权限模型、旧 Profile/Run 或后台边界；未运行 JVM、Lint、Release APK 或默认全量 instrumentation。下一阶段冻结受控日程修改契约。
 
 ## 2026-08-07 第 183 阶段：受控系统日程删除
 
