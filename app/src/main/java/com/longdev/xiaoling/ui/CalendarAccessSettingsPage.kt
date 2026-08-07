@@ -51,21 +51,35 @@ internal fun CalendarAccessSettingsPage(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var permissionGranted by remember {
+    var readPermissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
                 PackageManager.PERMISSION_GRANTED,
         )
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        permissionGranted = granted
+    var writePermissionGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val readPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        readPermissionGranted = granted
+    }
+    val writePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        readPermissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
+        writePermissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+            PackageManager.PERMISSION_GRANTED
     }
 
     DisposableEffect(context, lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 // long: 用户可能在系统权限页撤销或恢复授权，返回应用时必须重新读取真实状态，不能沿用旧 Compose 快照。
-                permissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                readPermissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                    PackageManager.PERMISSION_GRANTED
+                writePermissionGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
                     PackageManager.PERMISSION_GRANTED
             }
         }
@@ -74,10 +88,17 @@ internal fun CalendarAccessSettingsPage(
     }
 
     CalendarAccessSettingsContent(
-        permissionGranted = permissionGranted,
-        onRequestPermission = {
+        readPermissionGranted = readPermissionGranted,
+        writePermissionGranted = writePermissionGranted,
+        onRequestReadPermission = {
             // long: 日历属于敏感个人数据，只有用户在独立设置页主动点击后才触发系统授权，不从工具执行或后台任务中弹窗。
-            permissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+            readPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+        },
+        onRequestWritePermission = {
+            // long: 创建权限与只读能力分开申请；用户仅查看日程时不必授予写权限，写工具也不能在执行中自行拉起权限弹窗。
+            writePermissionLauncher.launch(
+                arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
+            )
         },
         onOpenSystemSettings = {
             context.startActivity(
@@ -94,8 +115,10 @@ internal fun CalendarAccessSettingsPage(
 
 @Composable
 internal fun CalendarAccessSettingsContent(
-    permissionGranted: Boolean,
-    onRequestPermission: () -> Unit,
+    readPermissionGranted: Boolean,
+    writePermissionGranted: Boolean,
+    onRequestReadPermission: () -> Unit,
+    onRequestWritePermission: () -> Unit,
     onOpenSystemSettings: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -144,7 +167,7 @@ internal fun CalendarAccessSettingsContent(
                         Icon(
                             Icons.Default.DateRange,
                             contentDescription = null,
-                            tint = if (permissionGranted) {
+                            tint = if (readPermissionGranted) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.error
@@ -152,12 +175,12 @@ internal fun CalendarAccessSettingsContent(
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = if (permissionGranted) "日历权限已授权" else "日历权限未授权",
+                                text = if (readPermissionGranted) "日历权限已授权" else "日历权限未授权",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = if (permissionGranted) {
+                                text = if (readPermissionGranted) {
                                     "前台 Agent 可以按 Profile 与 Skill 白名单读取近期日程。"
                                 } else {
                                     "未授权时 calendar.list_events 会保持不可执行。"
@@ -167,12 +190,26 @@ internal fun CalendarAccessSettingsContent(
                             )
                         }
                     }
-                    if (!permissionGranted) {
+                    if (!readPermissionGranted) {
                         Button(
-                            onClick = onRequestPermission,
+                            onClick = onRequestReadPermission,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("授权只读日历")
+                        }
+                    }
+                    Text(
+                        text = if (writePermissionGranted) "日程创建权限已授权" else "日程创建权限未授权",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (writePermissionGranted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                    if (!writePermissionGranted || !readPermissionGranted) {
+                        Button(
+                            onClick = onRequestWritePermission,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("授权创建日程")
                         }
                     }
                     OutlinedButton(
@@ -206,7 +243,7 @@ private fun CalendarAccessBoundaryCard() {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text("只读范围", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Text("访问范围", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
             Text(
                 "仅在前台 Agent 中读取未来 1–30 天内的近期日程，每次最多 20 条。",
                 style = MaterialTheme.typography.bodySmall,
@@ -216,11 +253,23 @@ private fun CalendarAccessBoundaryCard() {
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "不会读取地点、描述、参与人或账户，也不会创建、修改或删除日程。",
+                "只读工具不会读取地点、描述、参与人或账户。",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "授权后仍需在 Agent Profile 中显式启用 calendar.list_events，并启用 calendar-overview Skill。",
+                "创建日程仅支持一次性非全天事件，每次都需前台审批，写入后回读验证。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "系统没有可写日历时，会创建仅属于小灵的本地日历，不接入或暴露账户信息。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "不会修改或删除已有日程；创建工具不会在后台自动执行。",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "授权后仍需在 Agent Profile 中显式启用对应工具，并启用 calendar-overview 或 calendar-create Skill。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 174 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 175 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 175 阶段完成受控系统日程创建。新增仅前台、逐次审批的 `calendar.create_event(title, start_at, end_at, time_zone)` 与独立 `calendar-create` Skill，只接受一次性非全天事件；起止时间必须携带 UTC 偏移并与 IANA 时区一致。执行器用 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 绑定 ToolCall 稳定标记，写入后按事件 ID 回读标题、时间和时区，重复调用只复用同一事件；系统没有可写日历时创建不接入账户的本地“小灵”日历。设置页把只读授权与创建授权分开，旧 Profile 和历史 Run 不自动扩权，Room 与后台能力不变。聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi 真实 Provider `3/3` 与文档 corpus `1/1` 通过，测试事件及本轮临时日历均已精确清理。
 
 第 174 阶段完成只读“个人事项简报”闭环。新增独立 `personal-briefing` Skill，在用户明确给出笔记关键词时，于同一前台 Agent Run 内严格组合 `calendar.list_events -> tasks.list -> notes.search -> notes.get`，最终按日程、任务和笔记分区回答；笔记搜索预览不能替代稳定 ID 全文读取，正文继续按本地数据而非工具指令处理。原 `day-overview` 双工具边界保持不变，旧 Profile 不自动扩权，也没有新增工具、权限、审批、Room Schema 或后台能力。聚焦 JVM `AgentSkillsTest 22/22` 与 Debug/AndroidTest APK 通过；Redmi 真实 Provider Run `run-c411e92c-c81c-469d-a10f-2fac5497cd4f` 完成四项 typed 验证、稳定 ID 传递、来源分区和零审批，夹具与临时 Profile 已清理。
 

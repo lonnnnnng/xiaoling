@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 175 阶段：受控系统日程创建（完成）
+
+- 新增 `CalendarEventWriter` seam 与 `AndroidCalendarEventWriter`。写入前查询可贡献且保存事件的日历；无目标时以 `ACCOUNT_TYPE_LOCAL` 创建固定身份的本地“小灵”日历，不把账户字段送入 ToolResult。
+- `calendar.create_event` 只接收标题、带 UTC 偏移的 ISO-8601 起止时间和 IANA 时区，业务校验同时拒绝时间倒置与时区偏移漂移。工具为 `REQUIRES_APPROVAL + EXECUTOR_VERIFIED + IDEMPOTENT_BY_KEY + CONTROLLED_SAME_CALL`，只支持前台。
+- ToolCall ID 通过 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 落入事件，解决 Provider 写入后进程中断的精确恢复；同一键载荷不一致返回冲突。首次写入和已提交恢复都按事件 ID 回读标题、起止时间、时区及标记，不能按标题/时间猜测已提交。
+- 日历设置页保留独立只读按钮，并增加创建授权按钮；创建按钮申请读写权限，因为选择目标日历和回读验证都需要读权限。旧 Profile、历史 Run 和原只读 Skill 不自动扩权；Manifest 仅新增 `WRITE_CALENDAR`，Room Schema 不变。
+- TDD 聚焦 JVM 为 `XiaoLingToolRegistryTest 56/56 + AgentSkillsTest 23/23 + LegacyRunToolBoundaryTest 2/2 + ToolExecutionRecoveryEvidencePolicyTest 3/3 = 84/84`；Debug/AndroidTest APK 构建成功。Redmi 空日历表首先稳定返回 `NoWritableCalendar`，加入官方 LOCAL 日历兜底后，真实创建、同调用重放、提交回执验证、精确事件/临时日历清理和权限页共 `3/3` 通过；最终文档 corpus gate `1/1` 通过。
+
 ## 第 174 阶段：个人事项简报（完成）
 
 - `BuiltInAgentSkillRegistry` 新增 `personal-briefing`，声明工具集固定为 `calendar.list_events / tasks.list / notes.search / notes.get`，required permission 继续是 `READ_CALENDAR`，risk 为 SAFE。组合关键词只针对“个人简报 + 相关笔记”目标增强评分，普通 `day-overview` 仍只有日历和任务两项工具。

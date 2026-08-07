@@ -1,5 +1,13 @@
 # 产品需求
 
+## 受控系统日程创建（第 175 阶段，完成）
+
+- 新增 `calendar.create_event(title, start_at, end_at, time_zone)` 与独立 `calendar-create` Skill。工具为 `REQUIRES_APPROVAL`、`supportsBackground=false`，需要 `READ_CALENDAR + WRITE_CALENDAR`；用户必须在前台逐次确认，旧 Profile、历史 Run 和既有只读日历 Skill 不自动获得写能力。
+- 首版只允许一次性非全天事件。`start_at / end_at` 必须是带 UTC 偏移的 ISO-8601 时间，`time_zone` 必须是有效 IANA 时区；两端偏移必须与该时区在对应时刻的规则一致，结束时间必须晚于开始时间。地点、描述、参与人、组织者、提醒、重复规则和全天事件不在输入面。
+- Provider 写入必须包含 `CALENDAR_ID / TITLE / DTSTART / DTEND / EVENT_TIMEZONE / ALL_DAY=0`，并用 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 保存 ToolCall 稳定标记。重放先按标记精确回读，载荷漂移时拒绝；写入后按事件 ID 回读标题、起止时间和时区，只有完全一致才可声明成功并签发 `COMMITTED` 回执。
+- 目标日历只选择 `CALENDAR_ACCESS_LEVEL >= CONTRIBUTOR` 且 `SYNC_EVENTS=1` 的日历，优先 primary、visible 和稳定 ID。系统日历表为空或没有可写日历时，按 Android 官方 LOCAL sync-adapter 契约创建唯一的本地“小灵”日历；该日历不接入、不读取也不向 Agent 暴露账户信息。
+- 日历访问页必须把只读授权和创建授权分开呈现，权限只能由用户主动点击触发。创建工具不会在后台自动执行，不修改或删除已有日程；Room v36、Workflow 与 Foreground Service 边界不因本阶段改变。
+
 ## 个人事项简报（第 174 阶段，完成）
 
 - 应新增独立 SAFE `personal-briefing` Skill，在用户明确要求个人简报并提供笔记检索关键词时，组合现有 `calendar.list_events`、`tasks.list`、`notes.search` 与 `notes.get`；不得修改原 `day-overview` 或让旧 Profile 自动获得新组合能力。

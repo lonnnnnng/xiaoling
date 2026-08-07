@@ -31,6 +31,10 @@ class AgentRunUseCase(
         memoryStore = RoomAgentMemoryStore(context.applicationContext),
         knowledgeStore = RoomKnowledgeDocumentStore(context.applicationContext),
         calendarEventReader = AndroidCalendarEventReader(context.applicationContext.contentResolver),
+        calendarEventWriter = AndroidCalendarEventWriter(
+            contentResolver = context.applicationContext.contentResolver,
+            packageName = context.applicationContext.packageName,
+        ),
         deviceController = DeviceObservationComponents.controller(context.applicationContext),
     )
     private val skillCatalog = AgentSkillCatalog(

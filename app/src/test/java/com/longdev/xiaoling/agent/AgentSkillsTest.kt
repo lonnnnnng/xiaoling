@@ -71,6 +71,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInCalendarCreateSkillKeepsMutationSeparateAndRequiresCalendarReadWrite() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "calendar-create" }
+
+        assertEquals(setOf("calendar.create_event"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertEquals(
+            setOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+            skill.requiredAndroidPermissions,
+        )
+        assertTrue(skill.instructions.contains("一次性非全天"))
+        assertTrue("calendar.create_event" !in BuiltInAgentSkillRegistry.all().single { it.id == "calendar-overview" }.toolNames)
+    }
+
+    @Test
     fun builtInCalendarOverviewSkillUsesOnlyReadOnlyCalendarTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "查看我未来一周的日程安排",

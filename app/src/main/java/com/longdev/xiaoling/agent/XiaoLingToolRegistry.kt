@@ -35,6 +35,7 @@ import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.time.Instant
+import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -49,6 +50,7 @@ class XiaoLingToolRegistry(
     private val memoryStore: AgentMemoryStore,
     private val knowledgeStore: KnowledgeDocumentStore,
     private val calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
+    private val calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
     private val deviceController: DeviceController = DisabledDeviceController,
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
@@ -76,6 +78,7 @@ class XiaoLingToolRegistry(
         memoryStore = memoryStore,
         knowledgeStore = store,
         calendarEventReader = calendarEventReader,
+        calendarEventWriter = calendarEventWriter,
         deviceController = deviceController,
         workflowDeviceActionToolNames = workflowDeviceActionToolNames,
     )
@@ -192,6 +195,26 @@ class XiaoLingToolRegistry(
                     maximum = 20.0,
                 ),
             ),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = CALENDAR_CREATE_EVENT_TOOL_NAME,
+            description = "在系统可写日历中创建一次性非全天事件；必须逐次确认，写入后按稳定调用标记回读验证。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField("title", "日程标题。", true, ToolInputType.STRING, minLength = 1, maxLength = 200),
+                ToolInputField("start_at", "带 UTC 偏移的 ISO-8601 开始时间，例如 2026-08-08T09:00:00+08:00。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
+                ToolInputField("end_at", "带 UTC 偏移的 ISO-8601 结束时间。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
+                ToolInputField("time_zone", "IANA 时区，例如 Asia/Shanghai。", true, ToolInputType.STRING, minLength = 1, maxLength = 100),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateCalendarCreateArguments)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -830,6 +853,7 @@ class XiaoLingToolRegistry(
             "app.search_conversations" -> searchConversations(call)
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
+            CALENDAR_CREATE_EVENT_TOOL_NAME -> createCalendarEvent(call)
             "tasks.list" -> listTasks(call)
             "tasks.inspect" -> inspectTask(call)
             TASK_RETRY_TOOL_NAME -> retryTask(call)
@@ -879,6 +903,7 @@ class XiaoLingToolRegistry(
             NOTES_UPDATE_TOOL_NAME -> verifyCommittedNoteUpdate(call, receipt)
             NOTES_DELETE_TOOL_NAME -> verifyCommittedNoteDeletion(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
+            CALENDAR_CREATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEvent(call, receipt)
             TASK_RETRY_TOOL_NAME -> verifyCommittedTaskRetry(call, receipt)
             else -> null
         }
@@ -890,6 +915,7 @@ class XiaoLingToolRegistry(
             toolName == NOTES_UPDATE_TOOL_NAME ||
             toolName == NOTES_DELETE_TOOL_NAME ||
             toolName == "memory.remember" ||
+            toolName == CALENDAR_CREATE_EVENT_TOOL_NAME ||
             toolName == TASK_RETRY_TOOL_NAME
     }
 
@@ -1485,6 +1511,63 @@ class XiaoLingToolRegistry(
             }
         }.trimEnd()
     }
+
+    private suspend fun createCalendarEvent(call: ToolCall): ToolExecutionResult {
+        val request = call.toCalendarEventWriteRequest()
+            ?: return ToolExecutionResult(success = false, content = "日程时间或时区参数无效。")
+        return calendarEventWriter.createOrReadBack(request).toToolExecutionResult(call)
+    }
+
+    private suspend fun verifyCommittedCalendarEvent(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val request = call.toCalendarEventWriteRequest()
+            ?: return failedCalendarEventVerification(receipt)
+        val receiptMatches = receipt.toolCallId == call.id &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatches) return failedCalendarEventVerification(receipt)
+        return calendarEventWriter.verifyCommitted(receipt.operationId, request).toToolExecutionResult(call)
+    }
+
+    private fun CalendarEventWriteResult.toToolExecutionResult(call: ToolCall): ToolExecutionResult = when (this) {
+        is CalendarEventWriteResult.Committed -> {
+            val receipt = ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = event.eventId,
+                idempotencyKey = call.id,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            )
+            if (verified) {
+                ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = "已创建并验证日程：${event.title.toCalendarTitle()}",
+                    executionReceipt = receipt,
+                )
+            } else {
+                ToolExecutionResult(
+                    success = false,
+                    verified = false,
+                    content = "日程已写入，但回读结果与本次请求不一致，不能确认创建成功。",
+                    executionReceipt = receipt,
+                )
+            }
+        }
+        CalendarEventWriteResult.PermissionDenied -> ToolExecutionResult(false, "没有日历读写权限，请在设置的“日历访问”页面授权。")
+        CalendarEventWriteResult.NoWritableCalendar -> ToolExecutionResult(false, "无法取得或创建可写日历。")
+        CalendarEventWriteResult.ProviderUnavailable -> ToolExecutionResult(false, "系统日历服务不可用。")
+        CalendarEventWriteResult.Conflict -> ToolExecutionResult(false, "同一日程创建调用已存在，但内容与当前请求不一致，已拒绝重复写入。")
+        CalendarEventWriteResult.Failed -> ToolExecutionResult(false, "创建或验证系统日程失败。")
+    }
+
+    private fun failedCalendarEventVerification(receipt: ToolExecutionReceipt): ToolExecutionResult = ToolExecutionResult(
+        success = false,
+        verified = false,
+        content = "已提交的日程创建与当前持久化证据不一致，不能恢复验证。",
+        executionReceipt = receipt,
+    )
 
     private suspend fun listNotes(call: ToolCall): ToolExecutionResult {
         val notes = noteStore.list(call.limit())
@@ -2145,6 +2228,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
+private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
 private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
 private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
 private const val NOTES_UPDATE_TOOL_NAME = "notes.update"
@@ -2152,6 +2236,36 @@ private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
+
+private fun validateCalendarCreateArguments(arguments: Map<String, String>): List<String> {
+    val start = runCatching { OffsetDateTime.parse(arguments["start_at"].orEmpty()) }.getOrNull()
+    val end = runCatching { OffsetDateTime.parse(arguments["end_at"].orEmpty()) }.getOrNull()
+    val zoneId = arguments["time_zone"].orEmpty()
+    val zone = runCatching { ZoneId.of(zoneId) }
+        .getOrNull()
+        ?.takeIf { zoneId in ZoneId.getAvailableZoneIds() }
+    return buildList {
+        if (start == null) add("日程开始时间必须是带 UTC 偏移的 ISO-8601 时间")
+        if (end == null) add("日程结束时间必须是带 UTC 偏移的 ISO-8601 时间")
+        if (zone == null) add("日程时区必须是有效的 IANA 时区")
+        if (start != null && end != null && !end.toInstant().isAfter(start.toInstant())) add("日程结束时间必须晚于开始时间")
+        if (start != null && zone != null && zone.rules.getOffset(start.toInstant()) != start.offset) add("日程开始时间偏移与指定时区不一致")
+        if (end != null && zone != null && zone.rules.getOffset(end.toInstant()) != end.offset) add("日程结束时间偏移与指定时区不一致")
+    }
+}
+
+private fun ToolCall.toCalendarEventWriteRequest(): CalendarEventWriteRequest? {
+    if (validateCalendarCreateArguments(arguments).isNotEmpty()) return null
+    val start = OffsetDateTime.parse(arguments.getValue("start_at"))
+    val end = OffsetDateTime.parse(arguments.getValue("end_at"))
+    return CalendarEventWriteRequest(
+        idempotencyKey = id,
+        title = arguments.getValue("title").trim(),
+        startAtMillis = start.toInstant().toEpochMilli(),
+        endAtMillis = end.toInstant().toEpochMilli(),
+        timeZoneId = arguments.getValue("time_zone"),
+    )
+}
 
 private fun taskRetryAllowed(context: AgentToolExecutionContext?): Boolean {
     // long: 未绑定当前 Run 时无法证明这是前台直接 Agent；先隐藏受控写工具，避免模型看到随后必然被执行器拒绝的能力。

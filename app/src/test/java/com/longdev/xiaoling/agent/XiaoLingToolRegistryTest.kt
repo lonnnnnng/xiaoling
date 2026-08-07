@@ -450,11 +450,12 @@ class XiaoLingToolRegistryTest {
         )
         assertTrue(
             tools.values
-                .filterNot { it.name == "calendar.list_events" || it.name == "calendar.search_events" }
+                .filterNot { it.name.startsWith("calendar.") }
                 .all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() },
         )
         assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.search_events").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("calendar.create_event").permissionPolicy.supportsBackground)
         val backgroundTools = tools.values
             .filter { it.permissionPolicy.supportsBackground }
             .map { it.name }
@@ -623,6 +624,93 @@ class XiaoLingToolRegistryTest {
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("参与人"))
         assertFalse(result.content.contains("描述"))
+    }
+
+    @Test
+    fun calendarCreateEventRequiresForegroundApprovalAndStableRecoveryContract() {
+        val definition = testRegistry().registeredTools().single { it.name == "calendar.create_event" }
+
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, definition.risk)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, definition.approvalPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, definition.verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, definition.replaySafety)
+        assertEquals(ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL, definition.notCommittedReplayPolicy)
+        assertEquals(
+            setOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
+            definition.permissionPolicy.requiredAndroidPermissions,
+        )
+        assertFalse(definition.permissionPolicy.supportsBackground)
+        assertEquals(
+            listOf("title", "start_at", "end_at", "time_zone"),
+            definition.inputSchema.map { it.name },
+        )
+        assertTrue(testRegistry().supportsCommittedEffectVerification("calendar.create_event"))
+    }
+
+    @Test
+    fun calendarCreateEventWritesOnceAndReturnsVerifiedCommittedReceipt() = runTest {
+        val writer = InMemoryCalendarEventWriter()
+        val registry = testRegistry(calendarEventWriter = writer)
+        val call = ToolCall(
+            id = "tool-call-calendar-create-1",
+            name = "calendar.create_event",
+            arguments = mapOf(
+                "title" to "项目评审",
+                "start_at" to "2026-08-08T09:00:00+08:00",
+                "end_at" to "2026-08-08T10:00:00+08:00",
+                "time_zone" to "Asia/Shanghai",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+        val replay = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("已创建并验证日程：项目评审"))
+        assertEquals(1, writer.records.size)
+        assertEquals(result.executionReceipt, replay.executionReceipt)
+        assertEquals(call.id, receipt.idempotencyKey)
+        assertEquals(ToolExecutionReceiptStatus.COMMITTED, receipt.status)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+    }
+
+    @Test
+    fun calendarCreateEventRejectsAmbiguousOrMismatchedTimeZoneBeforeExecution() {
+        val definition = testRegistry().definition("calendar.create_event")!!
+
+        val missingOffset = definition.validateArguments(
+            mapOf(
+                "title" to "项目评审",
+                "start_at" to "2026-08-08T09:00:00",
+                "end_at" to "2026-08-08T10:00:00",
+                "time_zone" to "Asia/Shanghai",
+            ),
+        )
+        val mismatchedZone = definition.validateArguments(
+            mapOf(
+                "title" to "项目评审",
+                "start_at" to "2026-08-08T09:00:00Z",
+                "end_at" to "2026-08-08T10:00:00Z",
+                "time_zone" to "Asia/Shanghai",
+            ),
+        )
+        val offsetOnlyZone = definition.validateArguments(
+            mapOf(
+                "title" to "项目评审",
+                "start_at" to "2026-08-08T09:00:00+08:00",
+                "end_at" to "2026-08-08T10:00:00+08:00",
+                "time_zone" to "+08:00",
+            ),
+        )
+
+        assertFalse(missingOffset.isValid)
+        assertTrue(mismatchedZone.errors.any { it.contains("偏移与指定时区不一致") })
+        assertTrue(offsetOnlyZone.errors.any { it.contains("IANA 时区") })
     }
 
     @Test
@@ -2137,6 +2225,7 @@ class XiaoLingToolRegistryTest {
         memoryStore: InMemoryAgentMemoryStore = InMemoryAgentMemoryStore(),
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
         calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
+        calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -2149,6 +2238,7 @@ class XiaoLingToolRegistryTest {
             memoryStore = memoryStore,
             knowledgeStore = knowledgeStore,
             calendarEventReader = calendarEventReader,
+            calendarEventWriter = calendarEventWriter,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )
@@ -2443,6 +2533,39 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
 private object EmptyTestAgentTaskStore : AgentTaskStore {
     override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
     override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
+}
+
+private class InMemoryCalendarEventWriter : CalendarEventWriter {
+    val records = mutableListOf<Pair<CalendarEventWriteRequest, CalendarEventWriteRecord>>()
+
+    override suspend fun createOrReadBack(request: CalendarEventWriteRequest): CalendarEventWriteResult {
+        records.firstOrNull { it.first.idempotencyKey == request.idempotencyKey }?.let { (existingRequest, record) ->
+            return if (existingRequest == request) {
+                CalendarEventWriteResult.Committed(record.copy(reused = true), verified = true)
+            } else {
+                CalendarEventWriteResult.Conflict
+            }
+        }
+        val record = CalendarEventWriteRecord(
+            eventId = "calendar-event-${records.size + 1}",
+            title = request.title,
+            startAtMillis = request.startAtMillis,
+            endAtMillis = request.endAtMillis,
+            timeZoneId = request.timeZoneId,
+            reused = false,
+        )
+        records += request to record
+        return CalendarEventWriteResult.Committed(record, verified = true)
+    }
+
+    override suspend fun verifyCommitted(
+        eventId: String,
+        request: CalendarEventWriteRequest,
+    ): CalendarEventWriteResult {
+        val record = records.firstOrNull { it.first == request && it.second.eventId == eventId }?.second
+            ?: return CalendarEventWriteResult.Failed
+        return CalendarEventWriteResult.Committed(record.copy(reused = true), verified = true)
+    }
 }
 
 private class FakeAgentClock(

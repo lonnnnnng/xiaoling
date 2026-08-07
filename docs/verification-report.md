@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 175 阶段：受控系统日程创建
+
+- 新增前台 `REQUIRES_APPROVAL` 的 `calendar.create_event`、独立 `calendar-create` Skill、`WRITE_CALENDAR` 主动授权和 `CalendarEventWriter` Provider seam。首版只接受一次性非全天事件；带偏移 ISO-8601 起止时间、IANA 时区、时间顺序和时区实际偏移均在执行前验证。
+- 写入用 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 保存 ToolCall 稳定标记，事件 ID 作为 operation identity。重复调用先按标记回读并拒绝载荷漂移，首次结果和提交后恢复均按事件 ID 核对标题、起止时间、时区及标记；旧 Profile/Run 不自动扩权，Room v36 和后台边界不变。
+- Android 官方 `CalendarContract.Calendars` 与 `CalendarContract.Events` 文档核验确认：普通事件插入需要 `DTSTART / DTEND / EVENT_TIMEZONE / CALENDAR_ID`，事件应用字段可写；无现有日历时可用 `ACCOUNT_TYPE_LOCAL` 创建本地日历。来源：<https://developer.android.com/reference/android/provider/CalendarContract.Calendars>、<https://developer.android.com/reference/android/provider/CalendarContract.Events>。
+- TDD 红灯首先因 `CalendarEventWriter` 与 Registry 注入点不存在而编译失败；最小实现后聚焦 JVM 为 `XiaoLingToolRegistryTest 56/56 + AgentSkillsTest 23/23 + LegacyRunToolBoundaryTest 2/2 + ToolExecutionRecoveryEvidencePolicyTest 3/3 = 84/84`。`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。
+- 仅向 Redmi `wsvwypiz7xwslvl7` 安装和执行。首轮权限页 `2/2` 通过，但 Provider 安全字段确认日历表为空 `[]`，Writer 正确返回 `NoWritableCalendar`；加入 LOCAL“小灵”日历兜底后，真实事件创建、同 ToolCall 重放命中同一事件 ID、提交回执再验证、按事件 ID 清理和本轮临时日历精确清理全部通过，与权限页合计 `OK (3 tests)`。测试 APK 已卸载，主应用数据和 Provider 配置保留。
+- 双轴审查发现并修复真机探针在“已有其他可写日历但没有小灵日历”时可能误判清理目标的问题：现在只有本轮事件实际落在新出现的小灵日历时才记录其 ID，并按精确 calendar ID 清理。最终长期文档重新打入 AndroidTest APK 后，仅在 Redmi 运行 corpus gate 并通过 `1/1`。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，也未向模拟器发送命令。
+
 ## 2026-08-07 第 174 阶段：个人事项简报
 
 - 新增独立 SAFE `personal-briefing` Skill，只在显式个人简报与笔记关键词目标下组合现有 `calendar.list_events / tasks.list / notes.search / notes.get`；`READ_CALENDAR` 主动授权、原 `day-overview`、旧 Profile、Room v36、审批和后台边界均不改变。
