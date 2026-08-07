@@ -1,8 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 170 阶段：按稳定 ID 读取本地笔记（完成，未验证）
+
+- 新增 SAFE `notes.get(note_id)`，Agent 可以先用 `notes.list / notes.search` 定位稳定 `note-UUID`，再从当前 Store 读取正文，补齐“搜索摘要 -> 完整内容”的只读闭环。
+- ID 必须是标准 `note-UUID`；不存在和已删除 tombstone 使用同一失败结果，正文最多返回 20,000 字符并标记为本地数据，不能通过任意 ID 探测或恢复已删除内容。
+- 新能力由独立 SAFE `local-note-detail` Skill 承载；既有 `local-notes` 与历史 Profile 不自动扩权，用户显式启用后才可用。Room、写入审批、后台副作用和任意 App 边界不变。
+- 本阶段按用户要求未运行测试或编译验证。下一阶段优先把这一新只读能力接入真实 Profile/Provider 的完整 Agent 使用闭环，再选择新的主线能力，不回到纯横向打磨。
+
 ## v0.1.16 发布基线
 
-`v0.1.16` 以 `versionCode 17` 汇总 `v0.1.15` 后第 128 至 169 阶段。完整个人 Agent 主线已经贯通自然语言目标、限定 App 多动作、目标级本地验证、记忆/知识上下文、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。下一阶段继续围绕个人 Agent 的直接可用闭环推进，不把高级生态或纯横向打磨放回主线。
+`v0.1.16` 以 `versionCode 17` 汇总 `v0.1.15` 后第 128 至 169 阶段。完整个人 Agent 主线已经贯通自然语言目标、限定 App 多动作、目标级本地验证、记忆/知识上下文、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。下一阶段继续围绕个人 Agent 的直接可用闭环推进，不把高级生态或纯横向打磨放回主线。
 
 ## 第 169 阶段：创建笔记后的答案级导航（完成）
 

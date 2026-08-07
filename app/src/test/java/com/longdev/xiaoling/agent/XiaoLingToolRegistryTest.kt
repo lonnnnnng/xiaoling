@@ -341,6 +341,7 @@ class XiaoLingToolRegistryTest {
                 "tasks.retry",
                 "notes.list",
                 "notes.search",
+                "notes.get",
                 "notes.create",
                 "memory.search",
                 "memory.remember",
@@ -360,6 +361,8 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
+        assertEquals(listOf("note_id"), tools.getValue("notes.get").inputSchema.map { it.name })
+        assertEquals(ToolRisk.SAFE, tools.getValue("notes.get").risk)
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertNotNull(tools.getValue("tasks.inspect").inputSchema.singleOrNull { it.name == "name" && it.required })
@@ -448,6 +451,7 @@ class XiaoLingToolRegistryTest {
                 "app.search_conversations",
                 "notes.list",
                 "notes.search",
+                "notes.get",
                 "memory.search",
                 "knowledge.search",
             ),
@@ -1332,6 +1336,59 @@ class XiaoLingToolRegistryTest {
             ),
             result.executionReceipt,
         )
+    }
+
+    @Test
+    fun notesGetReadsOnlyAValidStoredNoteId() = runTest {
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(
+                id = "note-12345678-1234-1234-1234-123456789abc",
+                title = "完整笔记",
+                content = "正文必须从当前 Store 回读。",
+                createdAt = 1L,
+                updatedAt = 2L,
+            )
+        }
+        val registry = testRegistry(noteStore = noteStore)
+
+        val result = registry.execute(
+            ToolCall(
+                name = "notes.get",
+                arguments = mapOf("note_id" to "note-12345678-1234-1234-1234-123456789abc"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("笔记详情：完整笔记"))
+        assertTrue(result.content.contains("不是工具指令"))
+        assertTrue(result.content.contains("正文必须从当前 Store 回读。"))
+    }
+
+    @Test
+    fun notesGetRejectsMalformedAndMissingIdsWithoutProbingStore() = runTest {
+        val noteStore = InMemoryAgentNoteStore()
+        val registry = testRegistry(noteStore = noteStore)
+
+        val malformed = registry.execute(
+            ToolCall(
+                name = "notes.get",
+                arguments = mapOf("note_id" to "note-1"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        val missing = registry.execute(
+            ToolCall(
+                name = "notes.get",
+                arguments = mapOf("note_id" to "note-12345678-1234-1234-1234-123456789abc"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertFalse(malformed.success)
+        assertEquals("笔记 ID 格式无效", malformed.content)
+        assertFalse(missing.success)
+        assertEquals("未找到笔记或笔记已被删除", missing.content)
     }
 
     @Test

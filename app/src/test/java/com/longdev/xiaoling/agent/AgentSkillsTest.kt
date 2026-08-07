@@ -21,6 +21,14 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInLocalNoteDetailSkillRequiresTheNewSafeReadTool() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }
+
+        assertEquals(setOf("notes.list", "notes.search", "notes.get"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+    }
+
+    @Test
     fun builtInKnowledgeSkillSelectsOnlyReadOnlyKnowledgeTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "请从知识库检索发布文档中的真机验收要求",

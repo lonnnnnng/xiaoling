@@ -1,6 +1,8 @@
 # 文档索引
 
-当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`。
+当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
+
+第 170 阶段完成按稳定 ID 读取本地笔记正文：新增 SAFE、支持后台的 `notes.get(note_id)`，只接受标准 `note-UUID`，从当前 Store 回读正文，并把不存在与 tombstone 统一为不泄露历史内容的失败结果。正文输出最多 20,000 字符并明确标记为本地数据而非工具指令；没有新增 Room Schema、写权限或后台副作用。为避免历史 Profile 的 `local-notes` Skill 因工具集合变化而失效，旧 Skill 保持不变，新增独立 SAFE `local-note-detail` Skill；既有 Profile 需显式启用新工具和 Skill。本阶段按用户要求未运行测试或编译验证。
 
 第 169 阶段完成创建笔记后的答案级导航：`notes.create` 只有成功、typed `VERIFIED`、标题/正文参数完整、结果标题精确绑定请求标题且全文只有一个合法 note ID 时显示“查看笔记”；回读验证失败、标题漂移、非法/重复 ID 和普通模型文本均不显示入口。成功结果新增稳定 ID，不改变审批、幂等回执、旧 Run 或 Room Schema。聚焦 JVM `LocalNoteNavigationTest 4/4 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5 + XiaoLingToolRegistryTest 46/46 + AgentRunResumePolicyTest 57/57`、Redmi `ConversationPageInstrumentedTest 10/10` 和文档 corpus gate `1/1` 通过；只构建 Debug/AndroidTest APK，未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 
@@ -314,7 +316,7 @@ Workflow module 聚焦 JVM `2/2` 和 Redmi Compose `OK (1 test)` 通过；强制
 
 第 61 阶段完成熄屏真实后台验收：Probe 在 `0.275s` 后退出、原 PID 消失，设备保持 `mWakefulness=Asleep / mScreenOn=false / mState=ACTIVE`；JobScheduler 延迟 `159.479s` 后冷启动 PID `26797`，同一 WorkRequest/ScheduledTask/WorkflowRun 在熄屏状态下完成 `244.236s` 的 8 步、32 次只读工具链。8 个 AgentRun、32/32 ToolResult 和 `tool.verify` 全部成功；每个 Run 11 条预算快照，`consumedMs` 最大值 `18.283s–44.856s`，回退次数均为 0，`llmFailures=0`。LMK 为 `supported=true / exits=16 / lowMemory=0`，仍无自然回收或 Foreground Service 依据。
 
-当前发布基线：`v0.1.16`（`versionCode 17`、Room v35）；工作区文档已同步到第 169 阶段，完整个人 Agent 主链、通用执行恢复、Workflow 七项设备工具、自然语言任务、目标级验证、应用内提醒、任务控制面、只读日历、本地笔记和答案级导航均保持有效。本次发布只构建 Release APK，没有额外验证。
+当前发布基线：`v0.1.16`（`versionCode 17`、Room v35）；工作区文档已同步到第 170 阶段，完整个人 Agent 主链、通用执行恢复、Workflow 七项设备工具、自然语言任务、目标级验证、应用内提醒、任务控制面、只读日历、本地笔记全文读取和答案级导航均保持有效。本次发布只构建 Release APK，没有额外验证；第 170 阶段属于发布后的未验开发主线。
 
 前台 Workflow 当前精确开放同一 Agent Run 的 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`；打开应用、点击与文本输入要求当前步骤意图、逐动作 Room/Accessibility overlay 审批、`executorVerified=true + typed PASSED` 和白名单后置判定，`back / home / swipe` 为零审批 SAFE 动作。`device.swipe` 还必须证明同窗内容变化和共同匿名锚点的请求方向主位移，答案级只保留脱敏通用摘要。第 126 阶段已完成生产接线和 Redmi 真实生产 Workflow 验收；全部后台/定时设备工具、answerability 生产拒绝、JSON/SAF、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 

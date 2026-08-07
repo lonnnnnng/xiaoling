@@ -390,6 +390,7 @@ internal val LEGACY_RUN_TOOL_NAMES = setOf(
     "app.search_conversations",
     "notes.list",
     "notes.search",
+    "notes.get",
     "notes.create",
     "memory.search",
     "memory.remember",

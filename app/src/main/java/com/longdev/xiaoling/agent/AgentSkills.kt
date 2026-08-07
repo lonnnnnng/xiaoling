@@ -108,6 +108,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "读取结果可读，或创建后完成回读验证。",
         ),
         AgentSkillDefinition(
+            id = "local-note-detail",
+            name = "笔记全文读取",
+            description = "检索本机笔记并按稳定 ID 读取完整正文。",
+            instructions = "先使用 notes.list 或 notes.search 获取 note-UUID；只有命中唯一目标后才调用 notes.get，未找到或已删除时停止并报告。",
+            toolNames = setOf("notes.list", "notes.search", "notes.get"),
+            keywords = setOf("笔记", "全文", "详情", "正文", "note", "notes"),
+            triggerExamples = listOf("读取这条笔记的完整正文", "查看匹配笔记的详情"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "搜索无结果、结果不唯一或详情读取失败时停止，不猜测正文。",
+            completionCriteria = "从当前 Store 返回目标笔记正文，或明确说明未找到或已删除。",
+        ),
+        AgentSkillDefinition(
             id = "task-overview",
             name = "任务清单",
             description = "查看小灵中已有的任务、应用内提醒和最近运行状态。",

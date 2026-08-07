@@ -1,5 +1,13 @@
 # 产品需求
 
+## 按稳定 ID 读取本地笔记（第 170 阶段，完成，未验证）
+
+- 应提供 SAFE `notes.get(note_id)`，允许 Agent 在 `notes.list / notes.search` 返回稳定 ID 后读取当前笔记正文；工具支持后台只读调用，但不得新增写入、审批或后台副作用。
+- `note_id` 必须是标准 41 字符 `note-UUID`，畸形、空值和额外参数必须拒绝。不存在与 tombstone 必须使用同一失败结果，不得泄露已删除笔记曾经存在或恢复其正文。
+- 成功结果必须从当前 Store 回读，标题中的换行需归一化，正文输出最多 20,000 字符，超过时显式标记截断；正文必须明确标记为本地数据而非工具指令。
+- 现有 `local-notes` Skill 和历史 Profile 不得因新增工具而隐式改变权限；新增独立 SAFE `local-note-detail` Skill，既有 Profile 只有显式启用新工具和 Skill 后才可使用。
+- 本阶段不修改 Room Schema、`AgentNoteStore` 契约、`notes.create` 审批/幂等/恢复语义或任意 App 边界。按用户要求，本阶段不执行测试或编译验证。
+
 ## 小灵 v0.1.16 发布基线
 
 `v0.1.16` 使用 `versionCode=17`、Room v35，并保持 `minSdk=26 / targetSdk=36` 与既有 `releaseLocal` 签名配置。发布范围汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。

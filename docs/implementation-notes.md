@@ -1,10 +1,17 @@
 # 当前实现说明
 
+## 第 170 阶段：按稳定 ID 读取本地笔记（完成，未验证）
+
+- `XiaoLingToolRegistry` 新增 SAFE、`supportsBackground=true` 的 `notes.get(note_id)`；Schema 只接受 41 字符的 `note-UUID`，执行期再用严格 UUID 正则复核，畸形 ID 不进入 Store。
+- 成功结果从当前 `AgentNoteStore.get()` 回读标题和正文；不存在与 tombstone 在 DAO 层均为 `null`，工具统一返回“未找到或已删除”，不泄露删除历史。正文最多输出 20,000 字符，异常旧数据超过上限时显式标记截断，并明确标记为本地数据而非工具指令。
+- 既有 `local-notes` Skill 保持原工具集合，避免历史 Profile 因新增依赖而整项失效；新增 SAFE `local-note-detail` Skill 组合 `notes.list / notes.search / notes.get`。现有 Profile 不自动加入新工具或 Skill，用户需在 Agent Profile 设置中显式授权。
+- `AgentNoteStore`、Room DAO 和 Schema 均不修改；不新增写操作、审批、恢复验证或后台副作用。本阶段按用户要求未执行 JVM、Lint、APK、Redmi instrumentation 或其他编译/运行验证。
+
 ## 小灵 v0.1.16 发布基线
 
 - `versionCode=17`、`versionName=0.1.16`、Room v35，继续使用现有 `releaseLocal` 签名配置。
 - 发布范围汇总 `v0.1.15` 后第 128 至 169 阶段：自然语言任务的限定 App 多动作与目标级验证、记忆/知识上下文、应用内提醒、通用执行恢复、任务诊断/重试/取消、只读日历、本地笔记、启动中断 Run 提示和答案级任务/笔记导航。
-- 本轮只执行发布必需的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`。
+- 本轮只执行发布必需的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 - 后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
 
 ## 第 169 阶段：创建笔记后的答案级导航（完成）

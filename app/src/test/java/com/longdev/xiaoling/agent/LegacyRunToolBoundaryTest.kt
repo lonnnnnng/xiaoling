@@ -8,6 +8,7 @@ class LegacyRunToolBoundaryTest {
     @Test
     fun legacyRunToolSnapshotDoesNotIncludeNewKnowledgeTool() {
         assertTrue("memory.search" in LEGACY_RUN_TOOL_NAMES)
+        assertTrue("notes.get" in LEGACY_RUN_TOOL_NAMES)
         assertTrue("notes.create" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("knowledge.search" in LEGACY_RUN_TOOL_NAMES)
     }

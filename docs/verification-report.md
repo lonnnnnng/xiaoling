@@ -4,12 +4,19 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 170 阶段：按稳定 ID 读取本地笔记
+
+- 新增 SAFE、支持后台的 `notes.get(note_id)`，严格验证标准 `note-UUID`，从当前 Store 回读标题/正文；不存在与 tombstone 统一失败，正文输出上限为 20,000 字符，并明确标记为本地数据而非工具指令。
+- 新增独立 SAFE `local-note-detail` Skill，保留既有 `local-notes` 工具集合，避免历史 Profile 因新增工具依赖而失效或自动扩权；`AgentNoteStore`、Room DAO、Schema、写入审批和恢复边界不变。
+- 已同步 Registry/Skill/legacy 工具集合及对应 JVM 测试源码断言，但按用户“不测试”的当前要求，本阶段未执行 JVM、Lint、APK 构建、Redmi instrumentation 或运行验收。当前结论仅为代码与文档已落地，不表述为已验证可用。
+
 ## 2026-08-07 小灵 v0.1.16 发布构建
 
 - 当前发布版本：小灵 `v0.1.16`，`versionCode=17`、`minSdk=26`、`targetSdk=36`、Room v35。
 - 发布范围：`v0.1.15` 后第 128 至 169 阶段；覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记、启动中断 Run 提示和答案级任务/笔记导航。
 - 本地发布构建只执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`。构建内部正常经过 R8 与 `lintVitalRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装、instrumentation 或其他验收。
 - 正式 APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`。本轮没有额外执行签名、zipalign、版本回读或真机安装复核；既有阶段证据不冒充本次发布门禁。
+- 发布提交为 `4fed1d712247c82d61de43cfc949dacd0e5fc8a9`（`发布小灵 0.1.16`）；annotated tag `v0.1.16` 的 tag object 为 `fa04c9ce163309dd63a7d9bde1694e1845173c92`，解引用到该提交。[小灵 v0.1.16](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest，状态为非草稿、非预发布；两个远端资产均为 `uploaded`，APK digest 与本地产物一致。
 - 后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
 
 ## 2026-08-07 第 169 阶段：创建笔记后的答案级导航
