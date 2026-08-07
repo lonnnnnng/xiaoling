@@ -73,6 +73,7 @@ class MinimalAgentRuntime internal constructor(
                 executionOrigin = executionOrigin,
                 invocationSource = invocationSource,
                 processSessionId = processSessionId,
+                agentProfileInfo = agentProfile.toExecutionProfileInfo(memoryRecallEnabled),
             ),
         )
         val state = AgentRuntimeExecutionState(
@@ -181,6 +182,7 @@ class MinimalAgentRuntime internal constructor(
                 invocationSource = invocationSource,
                 processSessionId = processSessionId,
                 workflowDeviceActionContext = workflowDeviceActionContext,
+                agentProfileInfo = agentProfile?.toExecutionProfileInfo(memoryRecallEnabled),
             ),
         )
         val state = AgentRuntimeExecutionState(

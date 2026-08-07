@@ -108,6 +108,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回当前安装应用的名称、包名、版本名和版本号，或明确说明信息不可用。",
         ),
         AgentSkillDefinition(
+            id = "agent-profile-info",
+            name = "当前 Agent 状态",
+            description = "读取本次前台 Agent Run 实际冻结的非敏感 Profile 状态。",
+            instructions = "用户询问当前使用的 Agent、模型、API 模式或本次记忆召回状态时，只调用 agent.get_profile。该工具只适用于前台直接 Agent；不得要求或猜测 Provider 地址、API Key、系统提示词、工具白名单或内部 ID。",
+            toolNames = setOf("agent.get_profile"),
+            keywords = setOf("当前 Agent", "当前智能体", "使用的模型", "模型配置", "API 模式", "记忆召回", "agent profile", "current model"),
+            triggerExamples = listOf("当前使用的是哪个 Agent 和模型", "看看这次 Agent 的配置状态"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "Profile 状态缺失或执行上下文不是前台直接 Agent 时停止并说明不可用，不从设置缓存或历史回答猜测。",
+            completionCriteria = "返回本次 Run 冻结的 Agent 名称、模型、API 模式和记忆召回状态，或明确说明状态不可用。",
+        ),
+        AgentSkillDefinition(
             id = "local-notes",
             name = "本机笔记",
             description = "检索或创建小灵本机笔记。",

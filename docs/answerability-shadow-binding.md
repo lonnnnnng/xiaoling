@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 195 阶段 Agent Profile 边界（无变更）
+
+本阶段的 `agent.get_profile` 只读取当前前台直接 Run 的短生命周期 Profile 状态，不读取知识候选、答案引用、Judge 身份或 Shadow 账本，也不会触发答案观测、模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和现有候选绑定规则均保持不变。
+
 ## 第 194 阶段应用信息边界（无变更）
 
 本阶段的 `app.get_info` 只读当前安装包元数据，不读取知识文档、答案引用、Judge 身份或 Shadow 账本，也不会触发答案观测、模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和现有候选绑定规则均保持不变。

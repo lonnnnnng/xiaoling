@@ -1,5 +1,13 @@
 # 产品需求
 
+## 当前 Agent Profile 只读状态（第 195 阶段，完成）
+
+- Agent 可通过无参数的 `agent.get_profile` 读取本次 Run 实际冻结的 Agent 名称、模型、API 模式和本次长期记忆召回状态。
+- 工具必须声明为 `SAFE`、仅前台直接 Agent 可用、禁止后台/Workflow，超时 5 秒；执行入口还必须重新检查当前 Run 的直接前台上下文和短生命周期 Profile 状态。
+- 结果只允许输出上述四项和固定的非敏感边界说明；Provider 地址、API Key、系统提示词、内部 Profile ID、工具白名单及其他配置不得进入 ToolResult、审计或回答输入。无上下文、Profile 缺失、配置不完整或参数非空时必须 fail-closed。
+- Profile 状态只通过 `AgentToolExecutionContext` 的窄内存对象传递，不写入 Room、Run Event、Workflow、消息或设置；新增独立 `agent-profile-info` Skill，既有 Profile、历史 Run 与 `LEGACY_RUN_TOOL_NAMES` 不自动扩权。
+- 本阶段只要求聚焦 Registry/Skill JVM 与 Debug/AndroidTest 构建；完整 JVM、全量 Lint、Redmi 功能 instrumentation、文档 corpus gate 和 Release 按分级验证策略后置。
+
 ## 只读应用信息工具（第 194 阶段，完成）
 
 - Agent 可通过无参数的 `app.get_info` 读取当前安装的小灵应用最小身份信息：应用名称、包名、版本名和版本号。

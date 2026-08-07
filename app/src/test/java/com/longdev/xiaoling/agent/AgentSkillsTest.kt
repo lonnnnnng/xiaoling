@@ -35,6 +35,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInAgentProfileInfoSkillStaysDirectAndNonSensitive() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "当前使用的是哪个 Agent 和模型",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "agent-profile-info" }
+        assertEquals(setOf("agent.get_profile"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得要求或猜测 Provider 地址"))
+        assertTrue(skill.failureRecovery.contains("前台直接 Agent"))
+    }
+
+    @Test
     fun builtInLocalNoteDetailSkillRequiresTheNewSafeReadTool() {
         val skill = BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }
 

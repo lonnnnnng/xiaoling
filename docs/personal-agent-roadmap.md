@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 195 阶段：当前 Agent Profile 只读状态（完成）
+
+- 新增 `agent.get_profile`，让前台直接 Agent 可以回答本次 Run 实际冻结的 Agent 名称、模型、API 模式和长期记忆召回状态；结果不展示 Provider 地址、API Key、系统提示词、内部 ID 或工具白名单。
+- 工具无参数、`SAFE`、仅前台 `DIRECT`、禁止 Workflow/后台且超时 5 秒。Profile 信息只在当前执行上下文短暂传递；缺少上下文、状态漂移、配置不完整或参数漂移时 fail-closed。
+- 新增独立 `agent-profile-info` Skill，既有 Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 不自动加入新工具；没有新增 Room、权限、网络、设备动作、Workflow 或后台副作用。
+- 聚焦 JVM `AgentSkillsTest 30/30 + XiaoLingToolRegistryTest 76/76`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release。下一阶段继续选择个人 Agent 的直接可用窄闭环。
+
 ## 第 194 阶段：只读应用信息窄闭环（完成）
 
 - 新增 `app.get_info`，Agent 可以回答当前安装小灵的应用名称、包名、版本名和版本号；工具无参数、`SAFE`、支持后台且超时 5 秒。

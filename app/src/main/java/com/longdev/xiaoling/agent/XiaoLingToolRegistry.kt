@@ -102,6 +102,14 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = AGENT_GET_PROFILE_TOOL_NAME,
+            description = "读取本次前台 Agent Run 冻结的 Agent 名称、模型、API 模式和记忆召回状态；不返回 Provider 地址、API Key、系统提示词或工具白名单。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "app.list_conversations",
             description = "列出最近的本地会话标题、消息数和更新时间，用于帮助用户回到历史对话。",
             risk = ToolRisk.SAFE,
@@ -997,6 +1005,10 @@ class XiaoLingToolRegistry(
             // long: 暂停和恢复会改写未来调度事实；未绑定前台直接 Run 时两项能力必须一起隐藏，避免后台或 Workflow 递归控制计划。
             available = available.filterNot { it.name in TASK_SCHEDULE_CONTROL_TOOL_NAMES }
         }
+        if (!agentProfileInfoAllowed(context)) {
+            // long: Profile 状态只描述当前直接 Agent 的冻结身份；Workflow、后台和未绑定上下文不能把它当成可用工具发现出来。
+            available = available.filterNot { it.name == AGENT_GET_PROFILE_TOOL_NAME }
+        }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
@@ -1030,13 +1042,15 @@ class XiaoLingToolRegistry(
             ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext)) &&
             (definition.name !in CALENDAR_MUTATION_TOOL_NAMES || calendarMutationAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
-            (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext))
+            (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
+            (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
         return when (call.name) {
             "app.current_time" -> currentTime()
             APP_GET_INFO_TOOL_NAME -> getAppInfo(call)
+            AGENT_GET_PROFILE_TOOL_NAME -> getAgentProfile(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
@@ -1142,6 +1156,29 @@ class XiaoLingToolRegistry(
                 content = "读取当前应用信息失败",
             )
         }
+    }
+
+    private fun getAgentProfile(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "agent.get_profile 不接受参数")
+        }
+        val context = runContext
+        if (
+            context == null ||
+            context.executionOrigin != AgentExecutionOrigin.FOREGROUND ||
+            context.invocationSource != AgentInvocationSource.DIRECT
+        ) {
+            return ToolExecutionResult(success = false, content = "当前仅允许前台直接 Agent 读取 Profile 状态")
+        }
+        val profileInfo = context.agentProfileInfo
+            ?: return ToolExecutionResult(success = false, content = "当前 Agent Profile 状态不可用")
+        if (profileInfo.name.isBlank() || profileInfo.model.isBlank()) {
+            return ToolExecutionResult(success = false, content = "当前 Agent Profile 配置不完整")
+        }
+        return ToolExecutionResult(
+            success = true,
+            content = AgentProfileInfoResultCodec.encode(profileInfo),
+        )
     }
 
     private suspend fun snapshotDevice(call: ToolCall): ToolExecutionResult {
@@ -2738,6 +2775,10 @@ private fun workflowDeviceActionAllowedByIntent(
     return !returnsToXiaoLing || toolName == DEVICE_BACK_TOOL_NAME
 }
 
+private fun agentProfileInfoAllowed(context: AgentToolExecutionContext?): Boolean =
+    context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+        context.invocationSource == AgentInvocationSource.DIRECT
+
 private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
     AgentInvocationSource.DIRECT,
     AgentInvocationSource.WORKFLOW,
@@ -2745,6 +2786,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
+private const val AGENT_GET_PROFILE_TOOL_NAME = "agent.get_profile"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"

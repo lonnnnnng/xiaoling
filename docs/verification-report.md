@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 195 阶段：当前 Agent Profile 只读状态
+
+- 新增 `AgentExecutionProfileInfo` 和 `agent.get_profile`。工具无参数、`SAFE`、仅前台 `DIRECT`、禁止 Workflow/后台、5 秒超时；结果固定为 Agent 名称、模型、API 模式和本次记忆召回状态，不包含 Provider 地址、API Key、系统提示词、内部 Profile ID 或工具白名单。
+- `AgentSkillsTest` `30/30`、`XiaoLingToolRegistryTest` `76/76` 通过；覆盖 Skill 选择、工具定义、直接上下文成功、无上下文/Workflow/带参调用 fail-closed 和敏感字段排除。`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。
+- Profile 信息只在当前进程的 `AgentToolExecutionContext` 窄对象中传递；没有新增 Room、权限、网络请求、Provider 读取、设备动作、Workflow 或后台副作用，旧 Profile/历史 Run/Legacy 工具集合未自动扩权。
+- 按分级验证约束，本阶段未运行完整 JVM、全量 Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release；没有使用或启动 Pixel_9，Room v36 与 answerability Shadow 边界不变。
+
 ## 2026-08-08 第 194 阶段：只读应用信息工具
 
 - 新增 `AppInfoReader`/`AndroidAppInfoReader`，生产 `XiaoLingToolRegistry` 注入当前 PackageManager 读取器；`app.get_info` 无参数、`SAFE`、支持后台、5 秒超时，结果固定为应用名称、包名、版本名和版本号四字段。

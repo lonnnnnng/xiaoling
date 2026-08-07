@@ -1022,6 +1022,8 @@ data class AgentToolExecutionContext(
     val invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
     val processSessionId: String = "",
     val workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
+    // long: Profile 状态只在当前进程的执行上下文中短暂传递；不把系统提示词、Provider 凭据或工具白名单复制到工具结果/持久化账本。
+    val agentProfileInfo: AgentExecutionProfileInfo? = null,
 )
 
 interface AgentRunContextAwareToolRegistry {

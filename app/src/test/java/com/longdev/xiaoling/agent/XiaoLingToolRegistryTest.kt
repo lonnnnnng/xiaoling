@@ -333,6 +333,7 @@ class XiaoLingToolRegistryTest {
                 setOf(
                 "app.current_time",
                 "app.get_info",
+                "agent.get_profile",
                 "app.list_conversations",
                 "app.search_conversations",
                 "calendar.list_events",
@@ -362,6 +363,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_info").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_info").inputSchema)
         assertTrue(tools.getValue("app.get_info").permissionPolicy.supportsBackground)
+        assertEquals(ToolRisk.SAFE, tools.getValue("agent.get_profile").risk)
+        assertEquals(emptyList<String>(), tools.getValue("agent.get_profile").inputSchema)
+        assertFalse(tools.getValue("agent.get_profile").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
@@ -1867,6 +1871,67 @@ class XiaoLingToolRegistryTest {
         assertEquals("当前应用信息不可用", unavailable.content)
         assertFalse(withArguments.success)
         assertEquals("app.get_info 不接受参数", withArguments.content)
+    }
+
+    @Test
+    fun agentProfileToolReturnsOnlyCurrentRunAllowlistedStatus() = runTest {
+        val registry = testRegistry()
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-profile-info",
+                userMessageId = "message-profile-info",
+                runId = "run-profile-info",
+                goal = "当前使用哪个模型",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+                agentProfileInfo = AgentExecutionProfileInfo(
+                    name = "主 Agent\n不应换行",
+                    model = "gpt-5.5",
+                    apiMode = com.longdev.xiaoling.model.ApiMode.RESPONSES,
+                    memoryRecallEnabled = true,
+                ),
+            ),
+        )
+        assertNotNull(registry.definition("agent.get_profile"))
+
+        val result = registry.execute(
+            ToolCall(name = "agent.get_profile", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("Agent 名称：主 Agent 不应换行"))
+        assertTrue(result.content.contains("模型：gpt-5.5"))
+        assertTrue(result.content.contains("API 模式：Responses API"))
+        assertTrue(result.content.contains("本次长期记忆召回：已开启"))
+        assertFalse(result.content.contains("Provider"))
+        assertFalse(result.content.contains("API Key"))
+        assertFalse(result.content.contains("systemPrompt"))
+    }
+
+    @Test
+    fun agentProfileToolFailsClosedWithoutDirectProfileContext() = runTest {
+        val registry = testRegistry()
+        assertTrue(registry.availableToolsFor(null).none { it.name == "agent.get_profile" })
+        val missing = registry.execute(
+            ToolCall(name = "agent.get_profile", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "查看当前 Agent"))
+        assertTrue(registry.availableTools().none { it.name == "agent.get_profile" })
+        assertNull(registry.definition("agent.get_profile"))
+        val workflow = registry.execute(
+            ToolCall(name = "agent.get_profile", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        val withArguments = registry.execute(
+            ToolCall(
+                name = "agent.get_profile",
+                arguments = mapOf("model" to "gpt-5.5"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertFalse(missing.success)
+        assertFalse(workflow.success)
+        assertEquals("agent.get_profile 不接受参数", withArguments.content)
     }
 
     @Test

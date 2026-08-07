@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 195 阶段：当前 Agent Profile 只读状态（完成）
+
+- 新增 `AgentExecutionProfileInfo`，只保留当前 Run 需要展示的 Agent 名称、模型、`ApiMode` 和有效记忆召回状态；`AgentToolExecutionContext` 仅在进程内携带该窄对象，不复制系统提示词、Provider ID/地址、凭据或工具白名单。
+- `XiaoLingToolRegistry` 新增 `agent.get_profile`，无参数、`SAFE`、`supportsBackground=false`、5 秒超时。定义层、可见工具面和执行入口共同限制前台 `DIRECT`；没有 Profile 上下文、调用来自 Workflow/后台、配置不完整或带参调用时统一失败。
+- `AgentProfileInfoResultCodec` 对名称和模型清理换行并限制长度，固定输出四项状态和非敏感边界说明；结果不含 Provider 地址、API Key、系统提示词、内部 Profile ID 或工具白名单。`MinimalAgentRuntime` 只在新 Run/受控关联 Run 绑定当前 Profile 的窄投影，恢复/旧 Run 不因注册新工具自动扩权。
+- 新增独立 `agent-profile-info` Skill。`AgentSkillsTest` `30/30`、`XiaoLingToolRegistryTest` `76/76` 通过；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。
+- 本阶段没有新增 Room Schema、Android 权限、网络请求、Provider 读取、设备动作、Workflow 或后台副作用；未运行完整 JVM、Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release，也未使用 Pixel_9。
+
 ## 第 194 阶段：只读应用信息工具（完成）
 
 - 新增 `AppInfoReader`、`AppInfoRecord` 和 `AppInfoReadResult`。`AndroidAppInfoReader` 使用当前 `Context` 的 `PackageManager` 回读自身包，兼容 API 26 至当前版本，只生成应用名称、包名、版本名和长版本号；读取竞态或 OEM 异常统一返回失败，不泄露异常正文。
