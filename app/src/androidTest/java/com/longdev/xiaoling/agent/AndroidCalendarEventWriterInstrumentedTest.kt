@@ -252,6 +252,126 @@ class AndroidCalendarEventWriterInstrumentedTest {
         }
     }
 
+    @Test
+    fun conditionalUpdateVerifiesNewFingerprintAndCommittedRecoveryOnlyReadsProvider() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权日历读写",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val suffix = System.currentTimeMillis().toString()
+        val startAtMillis = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(2)
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        var createdAppOwnedCalendarId: Long? = null
+        var updatedEventId: Long? = null
+        var driftEventId: Long? = null
+
+        try {
+            suspend fun create(title: String, marker: String): Long {
+                val result = writer.createOrReadBack(
+                    CalendarEventWriteRequest(
+                        idempotencyKey = marker,
+                        title = title,
+                        startAtMillis = startAtMillis,
+                        endAtMillis = startAtMillis + TimeUnit.HOURS.toMillis(1),
+                        timeZoneId = ZoneId.systemDefault().id,
+                    ),
+                )
+                assertTrue("Redmi 必须先创建并回读临时事件：$result", result is CalendarEventWriteResult.Committed)
+                return (result as CalendarEventWriteResult.Committed).event.eventId.toLong()
+            }
+
+            updatedEventId = create("__xiaoling_stage185_update_$suffix", "stage185-update-$suffix")
+            if (!hadAppOwnedCalendar) {
+                val appCalendarId = appOwnedCalendarId(context)
+                if (appCalendarId != null && eventCalendarId(context, updatedEventId.toString()) == appCalendarId) {
+                    createdAppOwnedCalendarId = appCalendarId
+                }
+            }
+            val originalDetail = reader.getEvent(updatedEventId)
+            assertTrue(originalDetail is CalendarEventDetailReadResult.Success)
+            val originalEvent = (originalDetail as CalendarEventDetailReadResult.Success).event
+            val updatedStart = startAtMillis + TimeUnit.HOURS.toMillis(3)
+            val updateRequest = CalendarEventUpdateRequest(
+                idempotencyKey = "tool-call-stage185-update-$suffix",
+                eventId = updatedEventId,
+                expectedFingerprint = CalendarEventFingerprint.create(originalEvent),
+                scope = CalendarEventUpdateScope.EVENT,
+                title = "__xiaoling_stage185_updated_$suffix",
+                startAtMillis = updatedStart,
+                endAtMillis = updatedStart + TimeUnit.HOURS.toMillis(2),
+                timeZoneId = "UTC",
+            )
+
+            val updated = writer.updateOrReadBack(updateRequest)
+            val recovered = writer.verifyUpdateCommitted("calendar-$updatedEventId", updateRequest)
+            val repeatedWithoutReceipt = writer.updateOrReadBack(updateRequest)
+            val detailAfterUpdate = reader.getEvent(updatedEventId)
+
+            assertTrue(updated is CalendarEventUpdateResult.Committed && updated.verified)
+            assertTrue(recovered is CalendarEventUpdateResult.Committed && recovered.verified)
+            assertTrue(repeatedWithoutReceipt is CalendarEventUpdateResult.FingerprintMismatch)
+            assertTrue(detailAfterUpdate is CalendarEventDetailReadResult.Success)
+            val current = (detailAfterUpdate as CalendarEventDetailReadResult.Success).event
+            assertEquals(updateRequest.title, current.title)
+            assertEquals(updateRequest.startAtMillis, current.startAtMillis)
+            assertEquals(updateRequest.endAtMillis, current.endAtMillis)
+            assertEquals(updateRequest.timeZoneId, current.timeZoneId)
+            assertEquals(
+                CalendarEventFingerprint.create(current),
+                (updated as CalendarEventUpdateResult.Committed).update.fingerprint,
+            )
+
+            driftEventId = create("__xiaoling_stage185_drift_$suffix", "stage185-drift-$suffix")
+            val driftDetail = reader.getEvent(driftEventId)
+            assertTrue(driftDetail is CalendarEventDetailReadResult.Success)
+            val staleEvent = (driftDetail as CalendarEventDetailReadResult.Success).event
+            val changedRows = context.contentResolver.update(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, driftEventId),
+                ContentValues().apply { put(CalendarContract.Events.TITLE, "__xiaoling_stage185_external_$suffix") },
+                null,
+                null,
+            )
+            assertEquals(1, changedRows)
+
+            val rejected = writer.updateOrReadBack(
+                CalendarEventUpdateRequest(
+                    idempotencyKey = "tool-call-stage185-drift-$suffix",
+                    eventId = driftEventId,
+                    expectedFingerprint = CalendarEventFingerprint.create(staleEvent),
+                    scope = CalendarEventUpdateScope.EVENT,
+                    title = "__xiaoling_stage185_should_not_apply_$suffix",
+                    startAtMillis = updatedStart,
+                    endAtMillis = updatedStart + TimeUnit.HOURS.toMillis(1),
+                    timeZoneId = "UTC",
+                ),
+            )
+
+            assertTrue(rejected is CalendarEventUpdateResult.FingerprintMismatch)
+            val driftCurrent = reader.getEvent(driftEventId)
+            assertTrue(driftCurrent is CalendarEventDetailReadResult.Success)
+            assertEquals(
+                "__xiaoling_stage185_external_$suffix",
+                (driftCurrent as CalendarEventDetailReadResult.Success).event.title,
+            )
+        } finally {
+            // long: 修改成功与漂移拒绝都会保留事件；收尾只按本轮 Provider ID 精确删除，不扫描标题或用户日程。
+            listOfNotNull(updatedEventId, driftEventId).forEach { eventId ->
+                context.contentResolver.delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                    null,
+                    null,
+                )
+            }
+            createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
+        }
+    }
+
     private fun appOwnedCalendarId(context: android.content.Context): Long? {
         val cursor = context.contentResolver.query(
             CalendarContract.Calendars.CONTENT_URI,

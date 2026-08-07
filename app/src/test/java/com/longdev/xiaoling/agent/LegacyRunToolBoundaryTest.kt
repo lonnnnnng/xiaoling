@@ -15,6 +15,7 @@ class LegacyRunToolBoundaryTest {
         assertFalse("memory.get" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("knowledge.search" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("calendar.delete_event" in LEGACY_RUN_TOOL_NAMES)
+        assertFalse("calendar.update_event" in LEGACY_RUN_TOOL_NAMES)
     }
 
     @Test

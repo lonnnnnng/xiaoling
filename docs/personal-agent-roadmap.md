@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 185 阶段：受控系统日程修改（完成）
+
+- 新增 `calendar.update_event` 与独立 `calendar-update` Skill，前台 Agent 必须严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`，并原样传递稳定 ID、当前指纹和 `scope=event`。
+- 能力面只开放一次性非全天事件的完整标题、起止时间与时区更新。series、occurrence、重复事件和全天事件明确拒绝；时间必须携带偏移并与 IANA 时区一致，空标题、时间逆序和无变化请求不会写入。
+- Provider 条件 UPDATE 绑定审批前完整事件快照，写后回读四个目标字段并返回新指纹。审批期间漂移时影响 0 行，不能以旧授权覆盖外部新事实。
+- 恢复契约为 `RESTART_REQUIRED + DENY`；只有匹配 `COMMITTED` 回执、`scope=event` 和前台 DIRECT 上下文才能只读验证，恢复阶段不执行 UPDATE。工具发现、定义、正常执行和恢复入口均 fail-closed。
+- 聚焦 JVM `101/101`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider 修改单项及文档 corpus `1/1` 通过。真机单项覆盖四字段更新、新指纹、COMMITTED 只读恢复、无回执不重放和审批期外部漂移拒绝；测试事件已精确清理。
+- 本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，也未改变 Room v36、旧 Skill/Profile/Run、Workflow 或后台边界。
+- 下一阶段只补真实模型 `calendar.search_events -> calendar.get -> calendar.update_event` 的 Skill 选择、参数传递、逐次审批、typed verification、COMMITTED 回执、Provider 新状态和精确清理证据。series/occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 184 阶段：真实 Provider 受控系统日程删除闭环（完成）
 
 - Debug-only `calendar_delete_real` 使用设备当前 Provider、唯一一次性日程夹具和显式临时 Profile；Profile 只允许 `calendar.search_events / calendar.get / calendar.delete_event` 与 `calendar-delete`，不把创建或其他工具带入 Run。

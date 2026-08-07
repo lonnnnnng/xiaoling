@@ -114,6 +114,26 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInCalendarUpdateSkillRequiresFreshDetailAndKeepsOldSkillsStable() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "calendar-update" }
+
+        assertEquals(
+            setOf("calendar.search_events", "calendar.get", "calendar.update_event"),
+            skill.toolNames,
+        )
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertEquals(
+            setOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+            skill.requiredAndroidPermissions,
+        )
+        assertTrue(skill.instructions.contains("expected_fingerprint"))
+        assertTrue(skill.instructions.contains("scope=event"))
+        assertTrue(skill.instructions.contains("occurrence"))
+        assertTrue("calendar.update_event" !in BuiltInAgentSkillRegistry.all().single { it.id == "calendar-detail" }.toolNames)
+        assertTrue("calendar.update_event" !in BuiltInAgentSkillRegistry.all().single { it.id == "calendar-delete" }.toolNames)
+    }
+
+    @Test
     fun builtInCalendarOverviewSkillUsesOnlyReadOnlyCalendarTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "查看我未来一周的日程安排",

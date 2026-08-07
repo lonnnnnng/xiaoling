@@ -239,6 +239,49 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = CALENDAR_UPDATE_EVENT_TOOL_NAME,
+            description = "按稳定事件 ID 和当前详情指纹修改一次性非全天事件的标题、起止时间与时区；重复系列和单次 occurrence 暂不支持。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "event_id",
+                    description = "calendar.search_events 返回并经 calendar.get 回读确认的稳定 calendar-<正整数> 事件 ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 10,
+                    maxLength = 28,
+                ),
+                ToolInputField(
+                    name = "expected_fingerprint",
+                    description = "calendar.get 当前返回的版本化事件指纹，必须原样传递。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 82,
+                    maxLength = 82,
+                ),
+                ToolInputField(
+                    name = "scope",
+                    description = "当前只有 event 可修改一次性事件；series 与 occurrence 会明确拒绝。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    enumValues = CalendarEventUpdateScope.entries.map(CalendarEventUpdateScope::wireName).toSet(),
+                ),
+                ToolInputField("title", "修改后的完整日程标题。", true, ToolInputType.STRING, minLength = 1, maxLength = 200),
+                ToolInputField("start_at", "修改后带 UTC 偏移的 ISO-8601 开始时间。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
+                ToolInputField("end_at", "修改后带 UTC 偏移的 ISO-8601 结束时间。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
+                ToolInputField("time_zone", "修改后的 IANA 时区，例如 Asia/Shanghai。", true, ToolInputType.STRING, minLength = 1, maxLength = 100),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateCalendarUpdateArguments)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.DENY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = CALENDAR_DELETE_EVENT_TOOL_NAME,
             description = "按稳定事件 ID 和当前详情指纹删除一次性事件或整个重复系列；单次 occurrence 删除暂不支持。",
             risk = ToolRisk.REQUIRES_APPROVAL,
@@ -933,9 +976,9 @@ class XiaoLingToolRegistry(
             // long: 任务重试会创建并立即接管一个新 Workflow Run；Workflow 内递归调用或后台调用都不能扩大为第二条执行链。
             available = available.filterNot { it.name == TASK_RETRY_TOOL_NAME }
         }
-        if (!calendarDeleteAllowed(context)) {
-            // long: 系统日程删除不可撤销且 Provider 可能同步到外部账户；只有当前前台直接 Run 才能向模型暴露该工具。
-            available = available.filterNot { it.name == CALENDAR_DELETE_EVENT_TOOL_NAME }
+        if (!calendarMutationAllowed(context)) {
+            // long: 日程修改和删除可能同步到外部账户；只有当前前台直接 Run 才能向模型暴露这两项逐次审批工具。
+            available = available.filterNot { it.name in CALENDAR_MUTATION_TOOL_NAMES }
         }
         if (!taskCancelAllowed(context)) {
             available = available.filterNot { it.name == TASK_CANCEL_TOOL_NAME }
@@ -975,7 +1018,7 @@ class XiaoLingToolRegistry(
             definition.name !in workflowDeviceActionToolNames ||
                 workflowDeviceActionAllowedByIntent(runContext, definition.name)
             ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext)) &&
-            (definition.name != CALENDAR_DELETE_EVENT_TOOL_NAME || calendarDeleteAllowed(runContext)) &&
+            (definition.name !in CALENDAR_MUTATION_TOOL_NAMES || calendarMutationAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext))
     }
@@ -989,6 +1032,7 @@ class XiaoLingToolRegistry(
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> createCalendarEvent(call)
+            CALENDAR_UPDATE_EVENT_TOOL_NAME -> updateCalendarEvent(call)
             CALENDAR_DELETE_EVENT_TOOL_NAME -> deleteCalendarEvent(call)
             "tasks.list" -> listTasks(call)
             "tasks.inspect" -> inspectTask(call)
@@ -1043,6 +1087,7 @@ class XiaoLingToolRegistry(
             NOTES_DELETE_TOOL_NAME -> verifyCommittedNoteDeletion(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEvent(call, receipt)
+            CALENDAR_UPDATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventUpdate(call, receipt)
             CALENDAR_DELETE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventDeletion(call, receipt)
             TASK_RETRY_TOOL_NAME -> verifyCommittedTaskRetry(call, receipt)
             else -> null
@@ -1056,6 +1101,7 @@ class XiaoLingToolRegistry(
             toolName == NOTES_DELETE_TOOL_NAME ||
             toolName == "memory.remember" ||
             toolName == CALENDAR_CREATE_EVENT_TOOL_NAME ||
+            toolName == CALENDAR_UPDATE_EVENT_TOOL_NAME ||
             toolName == CALENDAR_DELETE_EVENT_TOOL_NAME ||
             toolName == TASK_RETRY_TOOL_NAME
     }
@@ -1852,8 +1898,78 @@ class XiaoLingToolRegistry(
         executionReceipt = receipt,
     )
 
+    private suspend fun updateCalendarEvent(call: ToolCall): ToolExecutionResult {
+        if (!calendarMutationAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "系统日程修改只允许当前前台直接 Agent 在逐次审批后执行。")
+        }
+        val request = call.toCalendarEventUpdateRequest()
+            ?: return ToolExecutionResult(success = false, content = "日程修改参数无效。")
+        return calendarEventWriter.updateOrReadBack(request).toToolExecutionResult(call)
+    }
+
+    private suspend fun verifyCommittedCalendarEventUpdate(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        if (!calendarMutationAllowed(runContext)) {
+            return failedCalendarEventUpdateVerification(receipt)
+        }
+        val request = call.toCalendarEventUpdateRequest()
+            ?: return failedCalendarEventUpdateVerification(receipt)
+        val receiptMatches = receipt.toolCallId == call.id &&
+            receipt.operationId == "$CALENDAR_EVENT_ID_PREFIX${request.eventId}" &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatches) return failedCalendarEventUpdateVerification(receipt)
+        return calendarEventWriter.verifyUpdateCommitted(receipt.operationId, request).toToolExecutionResult(call)
+    }
+
+    private fun CalendarEventUpdateResult.toToolExecutionResult(call: ToolCall): ToolExecutionResult = when (this) {
+        is CalendarEventUpdateResult.Committed -> {
+            val receipt = ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = "$CALENDAR_EVENT_ID_PREFIX${update.eventId}",
+                idempotencyKey = call.id,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            )
+            if (verified) {
+                ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = "已修改并验证日程：$CALENDAR_EVENT_ID_PREFIX${update.eventId}\n当前事件指纹：${update.fingerprint}",
+                    executionReceipt = receipt,
+                )
+            } else {
+                ToolExecutionResult(
+                    success = false,
+                    verified = false,
+                    content = "日程修改已提交，但 Provider 回读不可用，不能确认修改完成。",
+                    executionReceipt = receipt,
+                )
+            }
+        }
+        CalendarEventUpdateResult.NotFound -> ToolExecutionResult(false, "目标日程已不存在，不能修改。")
+        CalendarEventUpdateResult.ScopeMismatch -> ToolExecutionResult(false, "当前目标不是可修改的一次性事件；请重新读取详情并确认范围。")
+        CalendarEventUpdateResult.SeriesUnsupported -> ToolExecutionResult(false, "当前不支持修改整个重复系列；没有执行修改。")
+        CalendarEventUpdateResult.OccurrenceUnsupported -> ToolExecutionResult(false, "当前不支持修改重复日程的单次 occurrence；没有执行修改。")
+        CalendarEventUpdateResult.AllDayUnsupported -> ToolExecutionResult(false, "当前不支持修改全天日程；没有执行修改。")
+        CalendarEventUpdateResult.FingerprintMismatch -> ToolExecutionResult(false, "目标日程在读取或审批后已变化，已拒绝修改；请重新搜索并读取当前详情。")
+        CalendarEventUpdateResult.NoChanges -> ToolExecutionResult(false, "修改后的标题、时间和时区与当前日程完全一致；没有执行修改。")
+        CalendarEventUpdateResult.PermissionDenied -> ToolExecutionResult(false, "没有日历读写权限，请在设置的“日历访问”页面授权。")
+        CalendarEventUpdateResult.ProviderUnavailable -> ToolExecutionResult(false, "系统日历服务不可用。")
+        CalendarEventUpdateResult.Failed -> ToolExecutionResult(false, "修改或验证系统日程失败。")
+    }
+
+    private fun failedCalendarEventUpdateVerification(receipt: ToolExecutionReceipt): ToolExecutionResult =
+        ToolExecutionResult(
+            success = false,
+            verified = false,
+            content = "已提交的日程修改与当前持久化证据不一致，不能恢复验证。",
+            executionReceipt = receipt,
+        )
+
     private suspend fun deleteCalendarEvent(call: ToolCall): ToolExecutionResult {
-        if (!calendarDeleteAllowed(runContext)) {
+        if (!calendarMutationAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "系统日程删除只允许当前前台直接 Agent 在逐次审批后执行。")
         }
         val request = call.toCalendarEventDeleteRequest()
@@ -2600,7 +2716,9 @@ private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
+private const val CALENDAR_UPDATE_EVENT_TOOL_NAME = "calendar.update_event"
 private const val CALENDAR_DELETE_EVENT_TOOL_NAME = "calendar.delete_event"
+private val CALENDAR_MUTATION_TOOL_NAMES = setOf(CALENDAR_UPDATE_EVENT_TOOL_NAME, CALENDAR_DELETE_EVENT_TOOL_NAME)
 private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
 private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
 private const val TASK_PAUSE_TOOL_NAME = "tasks.pause"
@@ -2654,6 +2772,16 @@ private fun validateCalendarDeleteArguments(arguments: Map<String, String>): Lis
     }
 }
 
+private fun validateCalendarUpdateArguments(arguments: Map<String, String>): List<String> = buildList {
+    addAll(validateCalendarCreateArguments(arguments))
+    if (arguments["event_id"].orEmpty().trim().toCalendarEventIdOrNull() == null) {
+        add("日程事件 ID 必须是 calendar-<正整数>，且只能使用日程搜索已返回并经详情回读的 ID")
+    }
+    if (!CalendarEventFingerprint.isValid(arguments["expected_fingerprint"].orEmpty().trim())) {
+        add("日程事件指纹必须原样使用 calendar.get 当前返回的 calendar-event-v1 指纹")
+    }
+}
+
 private fun ToolCall.toCalendarEventWriteRequest(): CalendarEventWriteRequest? {
     if (validateCalendarCreateArguments(arguments).isNotEmpty()) return null
     val start = OffsetDateTime.parse(arguments.getValue("start_at"))
@@ -2677,7 +2805,23 @@ private fun ToolCall.toCalendarEventDeleteRequest(): CalendarEventDeleteRequest?
     )
 }
 
-private fun calendarDeleteAllowed(context: AgentToolExecutionContext?): Boolean {
+private fun ToolCall.toCalendarEventUpdateRequest(): CalendarEventUpdateRequest? {
+    if (validateCalendarUpdateArguments(arguments).isNotEmpty()) return null
+    val start = OffsetDateTime.parse(arguments.getValue("start_at"))
+    val end = OffsetDateTime.parse(arguments.getValue("end_at"))
+    return CalendarEventUpdateRequest(
+        idempotencyKey = id,
+        eventId = arguments.getValue("event_id").trim().toCalendarEventIdOrNull() ?: return null,
+        expectedFingerprint = arguments.getValue("expected_fingerprint").trim(),
+        scope = CalendarEventUpdateScope.fromWireName(arguments.getValue("scope")) ?: return null,
+        title = arguments.getValue("title").trim(),
+        startAtMillis = start.toInstant().toEpochMilli(),
+        endAtMillis = end.toInstant().toEpochMilli(),
+        timeZoneId = arguments.getValue("time_zone"),
+    )
+}
+
+private fun calendarMutationAllowed(context: AgentToolExecutionContext?): Boolean {
     return context?.let {
         it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             it.invocationSource == AgentInvocationSource.DIRECT

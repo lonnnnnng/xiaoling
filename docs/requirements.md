@@ -1,5 +1,15 @@
 # 产品需求
 
+## 受控系统日程修改（第 185 阶段，完成）
+
+- 新增 `calendar.update_event(event_id, expected_fingerprint, scope, title, start_at, end_at, time_zone)` 与独立 `calendar-update` Skill。模型必须先通过 `calendar.search_events -> calendar.get` 定位唯一目标，再原样传递稳定事件 ID、当前版本化指纹和 `scope=event`；不得按标题、时间、列表序号或模型文本猜测身份和版本。
+- 工具只允许前台 DIRECT Run、逐次审批并要求 `READ_CALENDAR + WRITE_CALENDAR`。允许修改的字段仅为完整标题、开始时间、结束时间和时区；起止时间必须带 UTC 偏移并与 IANA 时区一致。空标题、时间逆序、无变化请求及字段缺失必须拒绝。
+- 当前只支持一次性非全天事件。`scope=series`、`scope=occurrence`、Provider 当前为重复事件或全天事件时必须明确拒绝，不得创建 exception event、改为系列修改或把全天事件隐式转换为定时事件。
+- UPDATE 必须用审批前详情的 `_ID / DELETED / ALL_DAY / TITLE / DTSTART / DTEND / EVENT_TIMEZONE / RRULE / RDATE` 组成条件选择。审批期间发生外部改名、改期、改变重复规则、删除或其他快照漂移时，影响行数必须为 0；不得覆盖新事实。
+- 写入影响恰好一行后，必须按同一事件 ID 回读标题、起止时间和时区。四个目标字段全部一致才形成绑定同一事件的 `COMMITTED` 回执，并返回由新 Provider 快照计算的版本化指纹；回读不可用或字段不一致不能宣称修改成功。
+- 恢复契约固定为 `RESTART_REQUIRED + DENY`。无回执、非 `COMMITTED`、回执错配或未提交路径不得重放 UPDATE；只有匹配回执、`scope=event` 与前台 DIRECT 上下文同时成立时允许只读回读验证。恢复验证不得调用 UPDATE。
+- 旧 Skill、Profile、历史/Legacy Run、Workflow 和后台不自动获得修改能力；Room v36、重复系列/occurrence 修改、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型保持不变。验证只要求聚焦 JVM、Debug/AndroidTest APK、Redmi 真实 Provider 单项与文档 corpus；完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 真实 Provider 受控系统日程删除闭环（第 184 阶段，完成）
 
 - 必须仅在 Redmi 使用设备当前已选择的真实模型 Provider，通过唯一 `calendar-delete` Skill 严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`；临时 Profile 只能开放这三个工具，不得包含创建、列表、设备动作或其他 Skill。

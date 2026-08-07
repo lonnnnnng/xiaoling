@@ -337,6 +337,7 @@ class XiaoLingToolRegistryTest {
                 "calendar.list_events",
                 "calendar.search_events",
                 "calendar.get",
+                "calendar.update_event",
                 "calendar.delete_event",
                 "tasks.list",
                 "tasks.inspect",
@@ -361,6 +362,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.get").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("calendar.update_event").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("calendar.delete_event").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
@@ -393,6 +395,13 @@ class XiaoLingToolRegistryTest {
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertEquals(listOf("event_id"), tools.getValue("calendar.get").inputSchema.map { it.name })
         assertTrue(tools.getValue("calendar.get").validateArguments(mapOf("event_id" to "calendar-1")).errors.isEmpty())
+        assertEquals(
+            listOf("event_id", "expected_fingerprint", "scope", "title", "start_at", "end_at", "time_zone"),
+            tools.getValue("calendar.update_event").inputSchema.map { it.name },
+        )
+        assertEquals(ToolReplaySafety.RESTART_REQUIRED, tools.getValue("calendar.update_event").replaySafety)
+        assertEquals(ToolNotCommittedReplayPolicy.DENY, tools.getValue("calendar.update_event").notCommittedReplayPolicy)
+        assertFalse(tools.getValue("calendar.update_event").permissionPolicy.supportsBackground)
         assertEquals(
             listOf("event_id", "expected_fingerprint", "scope"),
             tools.getValue("calendar.delete_event").inputSchema.map { it.name },
@@ -973,6 +982,105 @@ class XiaoLingToolRegistryTest {
         assertFalse(occurrence.success)
         assertTrue(occurrence.content.contains("单次 occurrence"))
         assertEquals(0, writer.deleteCount)
+    }
+
+    @Test
+    fun calendarUpdateEventIsOnlyAvailableToDirectForegroundAgentAndCannotBeBypassed() = runTest {
+        val event = calendarUpdateFixture()
+        val writer = InMemoryCalendarEventWriter(updatableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        val call = calendarUpdateCall(event)
+
+        assertTrue(registry.availableToolsFor(null).none { it.name == "calendar.update_event" })
+        val withoutContext = registry.execute(call)
+        registry.bindRunContext(workflowDeviceContext(userIntent = "修改日程"))
+        assertTrue(registry.availableTools().none { it.name == "calendar.update_event" })
+        val workflow = registry.execute(call)
+        registry.bindRunContext(directCalendarUpdateContext())
+
+        assertNotNull(registry.definition("calendar.update_event"))
+        assertFalse(withoutContext.success)
+        assertFalse(workflow.success)
+        assertTrue(withoutContext.content.contains("前台直接 Agent"))
+        assertEquals(0, writer.updateCount)
+    }
+
+    @Test
+    fun calendarUpdateEventCommitsOnceAndRecoveryOnlyReadsUpdatedEvent() = runTest {
+        val event = calendarUpdateFixture()
+        val writer = InMemoryCalendarEventWriter(updatableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        registry.bindRunContext(directCalendarUpdateContext())
+        val call = calendarUpdateCall(event)
+
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+        val wrongScope = registry.verifyCommittedEffect(
+            call.copy(arguments = call.arguments + ("scope" to "series")),
+            receipt,
+        )
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals("calendar-84", receipt.operationId)
+        assertEquals(1, writer.updateCount)
+        assertEquals(2, writer.verifyUpdateCount)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertEquals(false, wrongScope?.success)
+        assertTrue(registry.supportsCommittedEffectVerification("calendar.update_event"))
+    }
+
+    @Test
+    fun calendarUpdateEventCommittedRecoveryRejectsWorkflowAndBackgroundContexts() = runTest {
+        val event = calendarUpdateFixture()
+        val writer = InMemoryCalendarEventWriter(updatableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        registry.bindRunContext(directCalendarUpdateContext())
+        val call = calendarUpdateCall(event)
+        val receipt = requireNotNull(registry.execute(call).executionReceipt)
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "修改日程"))
+        val workflowRecovery = registry.verifyCommittedEffect(call, receipt)
+        registry.bindRunContext(
+            directCalendarUpdateContext().copy(executionOrigin = AgentExecutionOrigin.BACKGROUND),
+        )
+        val backgroundRecovery = registry.verifyCommittedEffect(call, receipt)
+
+        assertEquals(false, workflowRecovery?.success)
+        assertEquals(false, backgroundRecovery?.success)
+        assertEquals(1, writer.updateCount)
+        assertEquals(0, writer.verifyUpdateCount)
+    }
+
+    @Test
+    fun calendarUpdateEventRejectsFingerprintDriftSeriesAndOccurrence() = runTest {
+        val event = calendarUpdateFixture()
+        val writer = InMemoryCalendarEventWriter(updatableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        registry.bindRunContext(directCalendarUpdateContext())
+
+        val drifted = registry.execute(
+            calendarUpdateCall(event).copy(
+                arguments = calendarUpdateCall(event).arguments +
+                    ("expected_fingerprint" to CalendarEventFingerprint.create(event.copy(title = "旧标题"))),
+            ),
+        )
+        val series = registry.execute(
+            calendarUpdateCall(event).copy(arguments = calendarUpdateCall(event).arguments + ("scope" to "series")),
+        )
+        val occurrence = registry.execute(
+            calendarUpdateCall(event).copy(arguments = calendarUpdateCall(event).arguments + ("scope" to "occurrence")),
+        )
+
+        assertFalse(drifted.success)
+        assertTrue(drifted.content.contains("已变化"))
+        assertFalse(series.success)
+        assertTrue(series.content.contains("重复系列"))
+        assertFalse(occurrence.success)
+        assertTrue(occurrence.content.contains("单次 occurrence"))
+        assertEquals(0, writer.updateCount)
     }
 
     @Test
@@ -2798,6 +2906,40 @@ class XiaoLingToolRegistryTest {
         invocationSource = AgentInvocationSource.DIRECT,
     )
 
+    private fun directCalendarUpdateContext(): AgentToolExecutionContext = AgentToolExecutionContext(
+        conversationId = "conversation-calendar-update",
+        userMessageId = "message-calendar-update",
+        runId = "run-calendar-update",
+        goal = "修改项目评审日程",
+        executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource = AgentInvocationSource.DIRECT,
+    )
+
+    private fun calendarUpdateFixture(): CalendarEventDetailRecord = CalendarEventDetailRecord(
+        eventId = 84L,
+        title = "项目评审",
+        startAtMillis = 1_000L,
+        endAtMillis = 2_000L,
+        allDay = false,
+        timeZoneId = "Asia/Shanghai",
+        recurring = false,
+    )
+
+    private fun calendarUpdateCall(event: CalendarEventDetailRecord): ToolCall = ToolCall(
+        id = "tool-call-calendar-update-1",
+        name = "calendar.update_event",
+        arguments = mapOf(
+            "event_id" to "calendar-${event.eventId}",
+            "expected_fingerprint" to CalendarEventFingerprint.create(event),
+            "scope" to "event",
+            "title" to "项目评审（已调整）",
+            "start_at" to "2026-08-08T10:00:00+08:00",
+            "end_at" to "2026-08-08T11:00:00+08:00",
+            "time_zone" to "Asia/Shanghai",
+        ),
+        risk = ToolRisk.REQUIRES_APPROVAL,
+    )
+
     private fun productionRegistry(
         deviceController: DeviceController,
         clock: AgentClock = FakeAgentClock(),
@@ -3091,11 +3233,16 @@ private object EmptyTestAgentTaskStore : AgentTaskStore {
 
 private class InMemoryCalendarEventWriter(
     private var deletableEvent: CalendarEventDetailRecord? = null,
+    private var updatableEvent: CalendarEventDetailRecord? = null,
 ) : CalendarEventWriter {
     val records = mutableListOf<Pair<CalendarEventWriteRequest, CalendarEventWriteRecord>>()
     var deleteCount: Int = 0
         private set
     var verifyDeleteCount: Int = 0
+        private set
+    var updateCount: Int = 0
+        private set
+    var verifyUpdateCount: Int = 0
         private set
 
     override suspend fun createOrReadBack(request: CalendarEventWriteRequest): CalendarEventWriteResult {
@@ -3156,6 +3303,61 @@ private class InMemoryCalendarEventWriter(
             )
         } else {
             CalendarEventDeleteResult.Failed
+        }
+    }
+
+    override suspend fun updateOrReadBack(request: CalendarEventUpdateRequest): CalendarEventUpdateResult {
+        val current = updatableEvent ?: return CalendarEventUpdateResult.NotFound
+        if (request.scope == CalendarEventUpdateScope.OCCURRENCE) return CalendarEventUpdateResult.OccurrenceUnsupported
+        if (request.scope == CalendarEventUpdateScope.SERIES) return CalendarEventUpdateResult.SeriesUnsupported
+        if (CalendarEventFingerprint.create(current) != request.expectedFingerprint) {
+            return CalendarEventUpdateResult.FingerprintMismatch
+        }
+        if (current.recurring) return CalendarEventUpdateResult.ScopeMismatch
+        updateCount += 1
+        val updated = current.copy(
+            title = request.title,
+            startAtMillis = request.startAtMillis,
+            endAtMillis = request.endAtMillis,
+            timeZoneId = request.timeZoneId,
+        )
+        updatableEvent = updated
+        return CalendarEventUpdateResult.Committed(
+            update = CalendarEventUpdateRecord(
+                eventId = request.eventId,
+                scope = request.scope,
+                fingerprint = CalendarEventFingerprint.create(updated),
+                reused = false,
+            ),
+            verified = true,
+        )
+    }
+
+    override suspend fun verifyUpdateCommitted(
+        eventId: String,
+        request: CalendarEventUpdateRequest,
+    ): CalendarEventUpdateResult {
+        verifyUpdateCount += 1
+        val current = updatableEvent
+        return if (
+            eventId == "calendar-${request.eventId}" &&
+            request.scope == CalendarEventUpdateScope.EVENT &&
+            current?.title == request.title &&
+            current.startAtMillis == request.startAtMillis &&
+            current.endAtMillis == request.endAtMillis &&
+            current.timeZoneId == request.timeZoneId
+        ) {
+            CalendarEventUpdateResult.Committed(
+                update = CalendarEventUpdateRecord(
+                    eventId = request.eventId,
+                    scope = request.scope,
+                    fingerprint = CalendarEventFingerprint.create(current),
+                    reused = true,
+                ),
+                verified = true,
+            )
+        } else {
+            CalendarEventUpdateResult.Failed
         }
     }
 }

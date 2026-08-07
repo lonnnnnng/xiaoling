@@ -40,6 +40,53 @@ enum class CalendarEventDeleteScope(val wireName: String) {
     }
 }
 
+enum class CalendarEventUpdateScope(val wireName: String) {
+    EVENT("event"),
+    SERIES("series"),
+    OCCURRENCE("occurrence"),
+    ;
+
+    companion object {
+        fun fromWireName(value: String): CalendarEventUpdateScope? = entries.firstOrNull { it.wireName == value }
+    }
+}
+
+data class CalendarEventUpdateRequest(
+    val idempotencyKey: String,
+    val eventId: Long,
+    val expectedFingerprint: String,
+    val scope: CalendarEventUpdateScope,
+    val title: String,
+    val startAtMillis: Long,
+    val endAtMillis: Long,
+    val timeZoneId: String,
+)
+
+data class CalendarEventUpdateRecord(
+    val eventId: Long,
+    val scope: CalendarEventUpdateScope,
+    val fingerprint: String,
+    val reused: Boolean,
+)
+
+sealed interface CalendarEventUpdateResult {
+    data class Committed(
+        val update: CalendarEventUpdateRecord,
+        val verified: Boolean,
+    ) : CalendarEventUpdateResult
+
+    data object NotFound : CalendarEventUpdateResult
+    data object ScopeMismatch : CalendarEventUpdateResult
+    data object SeriesUnsupported : CalendarEventUpdateResult
+    data object OccurrenceUnsupported : CalendarEventUpdateResult
+    data object AllDayUnsupported : CalendarEventUpdateResult
+    data object FingerprintMismatch : CalendarEventUpdateResult
+    data object NoChanges : CalendarEventUpdateResult
+    data object PermissionDenied : CalendarEventUpdateResult
+    data object ProviderUnavailable : CalendarEventUpdateResult
+    data object Failed : CalendarEventUpdateResult
+}
+
 data class CalendarEventDeleteRequest(
     val idempotencyKey: String,
     val eventId: Long,
@@ -89,6 +136,14 @@ interface CalendarEventWriter {
         request: CalendarEventWriteRequest,
     ): CalendarEventWriteResult
 
+    suspend fun updateOrReadBack(request: CalendarEventUpdateRequest): CalendarEventUpdateResult =
+        CalendarEventUpdateResult.ProviderUnavailable
+
+    suspend fun verifyUpdateCommitted(
+        eventId: String,
+        request: CalendarEventUpdateRequest,
+    ): CalendarEventUpdateResult = CalendarEventUpdateResult.ProviderUnavailable
+
     suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult =
         CalendarEventDeleteResult.ProviderUnavailable
 
@@ -106,6 +161,14 @@ object UnavailableCalendarEventWriter : CalendarEventWriter {
         eventId: String,
         request: CalendarEventWriteRequest,
     ): CalendarEventWriteResult = CalendarEventWriteResult.ProviderUnavailable
+
+    override suspend fun updateOrReadBack(request: CalendarEventUpdateRequest): CalendarEventUpdateResult =
+        CalendarEventUpdateResult.ProviderUnavailable
+
+    override suspend fun verifyUpdateCommitted(
+        eventId: String,
+        request: CalendarEventUpdateRequest,
+    ): CalendarEventUpdateResult = CalendarEventUpdateResult.ProviderUnavailable
 
     override suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult =
         CalendarEventDeleteResult.ProviderUnavailable
@@ -175,6 +238,109 @@ class AndroidCalendarEventWriter(
             CalendarEventWriteResult.PermissionDenied
         } catch (_: RuntimeException) {
             CalendarEventWriteResult.Failed
+        }
+    }
+
+    override suspend fun updateOrReadBack(request: CalendarEventUpdateRequest): CalendarEventUpdateResult =
+        withContext(Dispatchers.IO) {
+            mutationMutex.withLock {
+                try {
+                    when (request.scope) {
+                        CalendarEventUpdateScope.SERIES -> return@withLock CalendarEventUpdateResult.SeriesUnsupported
+                        CalendarEventUpdateScope.OCCURRENCE -> return@withLock CalendarEventUpdateResult.OccurrenceUnsupported
+                        CalendarEventUpdateScope.EVENT -> Unit
+                    }
+                    val current = when (val snapshot = readDeleteSnapshot(request.eventId)) {
+                        is CalendarEventDeleteSnapshot.Visible -> snapshot.event
+                        CalendarEventDeleteSnapshot.DeletedOrMissing -> return@withLock CalendarEventUpdateResult.NotFound
+                        CalendarEventDeleteSnapshot.ProviderUnavailable -> return@withLock CalendarEventUpdateResult.ProviderUnavailable
+                    }
+                    if (CalendarEventFingerprint.create(current) != request.expectedFingerprint) {
+                        return@withLock CalendarEventUpdateResult.FingerprintMismatch
+                    }
+                    if (current.recurring) return@withLock CalendarEventUpdateResult.ScopeMismatch
+                    if (current.allDay) return@withLock CalendarEventUpdateResult.AllDayUnsupported
+                    if (current.matches(request)) return@withLock CalendarEventUpdateResult.NoChanges
+
+                    // long: 只更新审批展示过的四个字段，并用旧快照作为 WHERE 条件；外部日历在审批期间改写任一详情时影响行数必须为零。
+                    val conditionalUpdate = current.toConditionalDelete()
+                    val values = ContentValues().apply {
+                        put(CalendarContract.Events.TITLE, request.title)
+                        put(CalendarContract.Events.DTSTART, request.startAtMillis)
+                        put(CalendarContract.Events.DTEND, request.endAtMillis)
+                        put(CalendarContract.Events.EVENT_TIMEZONE, request.timeZoneId)
+                    }
+                    val updatedRows = contentResolver.update(
+                        CalendarContract.Events.CONTENT_URI,
+                        values,
+                        conditionalUpdate.selection,
+                        conditionalUpdate.arguments,
+                    )
+                    if (updatedRows != 1) return@withLock classifyRejectedUpdate(request)
+                    when (val snapshot = readDeleteSnapshot(request.eventId)) {
+                        is CalendarEventDeleteSnapshot.Visible -> {
+                            val updated = snapshot.event
+                            CalendarEventUpdateResult.Committed(
+                                update = CalendarEventUpdateRecord(
+                                    eventId = request.eventId,
+                                    scope = request.scope,
+                                    fingerprint = CalendarEventFingerprint.create(updated),
+                                    reused = false,
+                                ),
+                                verified = updated.matches(request) && !updated.allDay && !updated.recurring,
+                            )
+                        }
+                        CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventUpdateResult.Failed
+                        CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventUpdateResult.Committed(
+                            update = CalendarEventUpdateRecord(
+                                eventId = request.eventId,
+                                scope = request.scope,
+                                fingerprint = "",
+                                reused = false,
+                            ),
+                            verified = false,
+                        )
+                    }
+                } catch (_: SecurityException) {
+                    CalendarEventUpdateResult.PermissionDenied
+                } catch (_: RuntimeException) {
+                    CalendarEventUpdateResult.Failed
+                }
+            }
+        }
+
+    override suspend fun verifyUpdateCommitted(
+        eventId: String,
+        request: CalendarEventUpdateRequest,
+    ): CalendarEventUpdateResult = withContext(Dispatchers.IO) {
+        if (eventId != "calendar-${request.eventId}") return@withContext CalendarEventUpdateResult.Failed
+        if (request.scope != CalendarEventUpdateScope.EVENT) return@withContext CalendarEventUpdateResult.Failed
+        try {
+            // long: 已提交恢复只按稳定 ID 回读审批后的目标字段，绝不再次 UPDATE；目标后续漂移时必须停止并保留当前 Provider 事实。
+            when (val snapshot = readDeleteSnapshot(request.eventId)) {
+                is CalendarEventDeleteSnapshot.Visible -> {
+                    val current = snapshot.event
+                    if (!current.matches(request) || current.allDay || current.recurring) {
+                        CalendarEventUpdateResult.Failed
+                    } else {
+                        CalendarEventUpdateResult.Committed(
+                            update = CalendarEventUpdateRecord(
+                                eventId = request.eventId,
+                                scope = request.scope,
+                                fingerprint = CalendarEventFingerprint.create(current),
+                                reused = true,
+                            ),
+                            verified = true,
+                        )
+                    }
+                }
+                CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventUpdateResult.NotFound
+                CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventUpdateResult.ProviderUnavailable
+            }
+        } catch (_: SecurityException) {
+            CalendarEventUpdateResult.PermissionDenied
+        } catch (_: RuntimeException) {
+            CalendarEventUpdateResult.Failed
         }
     }
 
@@ -260,6 +426,20 @@ class AndroidCalendarEventWriter(
                     CalendarEventDeleteResult.FingerprintMismatch
                 } else {
                     CalendarEventDeleteResult.Failed
+                }
+            }
+        }
+    }
+
+    private fun classifyRejectedUpdate(request: CalendarEventUpdateRequest): CalendarEventUpdateResult {
+        return when (val snapshot = readDeleteSnapshot(request.eventId)) {
+            CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventUpdateResult.NotFound
+            CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventUpdateResult.ProviderUnavailable
+            is CalendarEventDeleteSnapshot.Visible -> {
+                if (CalendarEventFingerprint.create(snapshot.event) != request.expectedFingerprint) {
+                    CalendarEventUpdateResult.FingerprintMismatch
+                } else {
+                    CalendarEventUpdateResult.Failed
                 }
             }
         }
@@ -503,6 +683,13 @@ private fun android.database.Cursor.getNullableLong(columnIndex: Int): Long? =
 
 private fun CalendarEventWriteRecord.matches(request: CalendarEventWriteRequest): Boolean =
     title == request.title &&
+        startAtMillis == request.startAtMillis &&
+        endAtMillis == request.endAtMillis &&
+        timeZoneId == request.timeZoneId
+
+private fun CalendarEventDetailRecord.matches(request: CalendarEventUpdateRequest): Boolean =
+    eventId == request.eventId &&
+        title == request.title &&
         startAtMillis == request.startAtMillis &&
         endAtMillis == request.endAtMillis &&
         timeZoneId == request.timeZoneId

@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 第 185 阶段：受控系统日程修改（完成）
+
+- `CalendarEventWriter` 新增 `CalendarEventUpdateRequest / Record / Result / Scope`。生产实现仅接受 `EVENT`，先回读当前事件并核对版本化指纹、非重复和非全天状态；标题、起止时间与时区完全相同时按无变化拒绝，不触发 Provider 写入。
+- 条件 UPDATE 复用详情快照投影，将 `_ID / DELETED / ALL_DAY / TITLE / DTSTART / DTEND / EVENT_TIMEZONE / RRULE / RDATE` 全部放入 selection；只写 `TITLE / DTSTART / DTEND / EVENT_TIMEZONE`。影响行数不是 1 时重新分类为 NotFound、指纹漂移或失败，不覆盖审批期间的外部变更。
+- 写后按事件 ID 回读并核对四个目标字段；成功结果携带由新快照生成的指纹与 `COMMITTED` 回执。Provider 暂时不可回读时保留已提交但未验证事实，不把它升级成成功；字段不一致返回失败。
+- Registry 新增 `calendar.update_event`，声明 `REQUIRES_APPROVAL / EXECUTOR_VERIFIED / RESTART_REQUIRED / DENY`，并要求日历读写权限。参数解析复用带偏移时间与 IANA 时区一致性校验；工具发现、定义、执行和 `COMMITTED` 恢复入口均限制前台 DIRECT。
+- 恢复验证先核对 ToolCall、事件 operation ID、幂等键、`COMMITTED` 状态和 `scope=event`，随后只读回查当前四字段并生成新指纹，不调用 UPDATE。独立回归测试锁定 Workflow 与后台 DIRECT 上下文都不能绕过恢复入口。
+- 新增 `calendar-update` Skill，固定 `calendar.search_events -> calendar.get -> calendar.update_event`，要求原样传递 ID 和指纹；全天、series、occurrence 必须停止。旧 Skill/Profile/Legacy Run/Workflow/后台和 Room v36 未扩权。
+- 聚焦 JVM `XiaoLingToolRegistryTest 71/71 + AgentSkillsTest 28/28 + LegacyRunToolBoundaryTest 2/2`，合计 `101/101` 通过。最终 `:app:assembleDebug :app:assembleDebugAndroidTest` 成功；Redmi `AndroidCalendarEventWriterInstrumentedTest#conditionalUpdateVerifiesNewFingerprintAndCommittedRecoveryOnlyReadsProvider` 为 `OK (1 test)`、耗时 `0.35s`，覆盖四字段修改、新指纹、只读恢复、无回执不重放和审批期漂移拒绝。更新文档资产后的 corpus gate 为 `OK (1 test)`；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 184 阶段：真实 Provider 受控系统日程删除闭环（完成）
 
 - `AgentE2eDebugReceiver` 新增 `calendar_delete_real`。探针读取设备当前 Provider 与 User-Agent，创建 stage184 专属临时 Profile；白名单精确为 `calendar.search_events / calendar.get / calendar.delete_event` 和 `calendar-delete`，正式执行复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。

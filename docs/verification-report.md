@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 185 阶段：受控系统日程修改
+
+- TDD 首轮因 `CalendarEventUpdateRequest / Result / Scope` 与生产工具尚不存在得到预期编译失败。实现与最终审查修正后，聚焦 `XiaoLingToolRegistryTest 71/71 + AgentSkillsTest 28/28 + LegacyRunToolBoundaryTest 2/2`，合计 JVM `101/101` 通过。
+- 审查确认正常执行已限制前台 DIRECT，但最初的 `COMMITTED` 恢复入口只核对 scope 和回执。最终补上同一运行上下文门禁，并增加 Workflow 与后台 DIRECT 反例；两种拒绝路径均不调用 UPDATE，也不触发 Provider 恢复回读。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 最终构建成功。仅向 Redmi `wsvwypiz7xwslvl7` 安装主包与测试包并授予日历读写权限；没有向在线模拟器发送安装、授权、启动、日志或测试命令。
+- Redmi `AndroidCalendarEventWriterInstrumentedTest#conditionalUpdateVerifiesNewFingerprintAndCommittedRecoveryOnlyReadsProvider` 最终结果 `OK (1 test)`、耗时 `0.35s`。真实 Calendar Provider 证明标题、起止时间和时区四字段修改、新事件指纹、已有 COMMITTED 回执只读恢复、无回执重复调用不重放 UPDATE，以及外部改名后旧指纹条件更新影响 0 行；测试事件已精确清理。
+- 更新长期文档并重建 AndroidTest 资产后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。该 gate 当前覆盖六个项目文档资产（含历史验证卷，不含仓库 README），测试包随后卸载并重新启动主应用。
+- 本阶段未运行完整 JVM、Lint、Release APK 或默认全量 instrumentation。Room v36、旧 Skill/Profile/Legacy Run、Workflow 和后台未扩权；下一阶段验证真实模型 `calendar.search_events -> calendar.get -> calendar.update_event` 的审批闭环。
+
 ## 2026-08-08 第 184 阶段：真实 Provider 受控系统日程删除闭环
 
 - `:app:assembleDebug` 构建成功并仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装。通过显式 Debug Receiver 触发 `calendar_delete_real`，并授予主应用日历读写权限；没有向模拟器发送安装、启动、授权、日志或测试命令。
