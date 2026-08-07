@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 192 阶段：确认后关联新 Run 的 Room 历史保留验收（完成）
+
+- 在任务中心完成专用确认后，Room 真实落库的关联 Run 通过 `retryOfRunId` 指向原 Run；原 Run 保持 `FAILED` 终态，不会被恢复、重放或覆盖。
+- 来源 Run 的 Step、Approval、Tool Result、`COMMITTED` 回执、Event 和 Tool Ledger 在创建新 Run 前后以及两次磁盘 Repository 重建后均保持不变；新 Run 从独立 `QUEUED` 空账本开始。
+- Redmi `RoomAgentRunRepositoryInstrumentedTest` 聚焦交叉回归 `4/4` 通过，测试 APK 已卸载，Debug/AndroidTest 构建与文档 corpus gate 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 下一阶段继续推进个人 Agent 主线的下一个可直接使用窄闭环；旧 Run 保留、重试确认、后台和高级生态边界不因本阶段扩权。
+
 ## 第 191 阶段：任务中心重新发起边界统一（完成）
 
 - 持久化 Recovery 带 `restartDisposition` 时，不再根据“明确未提交”就直接准备重试；任何这类 Run 都必须使用专用确认。

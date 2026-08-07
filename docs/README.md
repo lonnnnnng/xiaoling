@@ -4,6 +4,8 @@
 
 当前开发基线已到第 191 阶段、Room v36，尚未形成新 Release。第 191 阶段将任意带有 `restartDisposition` 的恢复 Run 统一投影为专用“创建关联新 Run”确认；确认时重读最新 Room，处置码或证据漂移就刷新/拒绝，旧 Run 不恢复、不重放。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
+当前开发基线已到第 192 阶段、Room v36，尚未形成新 Release。第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
+
 第 188 阶段新增 Debug-only `calendar_update_conflict_real`，在 Redmi 真实模型三步链的审批落库后制造同事件外部漂移。最终 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 为 `FAILED`，审批 `APPROVED`，条件 UPDATE 被拒绝且没有 `COMMITTED` 回执，Provider 保留外部新事实；夹具、临时 Profile 和临时日历精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
 第 186 阶段仅在 Redmi 使用设备当前真实模型 Provider，通过 Debug-only `calendar_update_real` 和显式 Receiver 运行正式 Agent 链；临时 Profile 精确只含 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`。最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格完成三步，原样传递唯一关键词、稳定事件 ID、详情指纹、`scope=event` 和完整新字段，三项 typed `PASSED`、Room 审批 `APPROVED`、Executor 验证、同事件 `COMMITTED` 回执以及 Provider 四字段/新指纹回读均通过。夹具、必要时新建的本地日历及临时 Profile 精确清理。Debug/AndroidTest APK 已构建，文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release 或全量 instrumentation，生产能力边界不变。

@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 192 阶段：确认后关联新 Run 的 Room 历史保留验收
+
+- 新增 `RoomAgentRunRepositoryInstrumentedTest#linkedRetryPersistsRelationAndPreservesSourceAuditAcrossRepositoryRestart`。夹具来源 Run 含已批准的 `notes.create`、完成 Step、成功 Tool Result、`COMMITTED` 回执和独立审计 Event，随后收敛为 `FAILED` 终态。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 运行新增测试及三个相邻恢复/关联测试，合计 `RoomAgentRunRepositoryInstrumentedTest` 聚焦 `4/4` 通过。
+- 测试在确认后的 Room 创建路径写入 `retryOfRunId`，创建前后和两次磁盘 Repository 重建后，来源 Run 的终态、Step、Approval、Tool Call/Result、执行回执、Event 与 Tool Ledger 均保持不变；新 Run 持久化为独立 `QUEUED`，没有复制来源账本或事件。
+- 更新文档后重建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；测试包随后从 Redmi 卸载，主应用数据未清理。未向 `emulator-5554` 发送任何 ADB 命令；本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，也未修改生产代码、Room v36 Schema、恢复策略、Workflow 或后台能力。
+
 ## 2026-08-08 第 191 阶段：任务中心重新发起边界统一
 
 - 聚焦 JVM `AgentTaskRetryPolicyTest` `28/28` + `AgentRunRetryCoordinatorTest` `13/13` + `AgentTaskRetryEvidencePresentationTest` `4/4` + `AgentRetryConfirmationPresentationTest` `2/2`，合计 `47/47` 通过。

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 192 阶段：确认后关联新 Run 的 Room 历史保留验收（完成）
+
+- `RoomAgentRunRepositoryInstrumentedTest#linkedRetryPersistsRelationAndPreservesSourceAuditAcrossRepositoryRestart` 构造含已批准 `notes.create`、成功 Tool Result、`COMMITTED` 回执、完成 Step 和审计 Event 的来源 `FAILED` Run。
+- 测试先关闭/重建磁盘 Room，再用 `createRun(..., retryOfRunId = sourceRun.id)` 模拟确认后的新 Run 创建；创建前后和再次重建 Repository 后，来源 `AgentRunDetailRecord` 逐对象相等，包含终态、Step、Approval、Tool Call/Result、回执与 Event。
+- 新 Run 的 `retryOfRunId` 在 Room 重建后仍指向来源，状态为独立 `QUEUED`，没有复制来源步骤、工具账本、审批或事件。新增测试与三个相邻恢复/关联测试在 Redmi 合计 `4/4` 通过；Debug/AndroidTest APK 构建成功，文档 corpus gate 随后复验通过。
+- 本阶段只增加 instrumentation 证据，不修改生产 Repository、Runtime、Room v36 Schema、恢复策略、Workflow 或后台能力；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 191 阶段：任务中心重新发起边界统一（完成）
 
 - `AgentTaskRetryPolicy` 对所有带 `restartDisposition` 的终态 Run 统一设置 `requiresConfirmation=true`，包括证据显示 `NOT_COMMITTED` 的低风险情况。

@@ -1,5 +1,12 @@
 # 产品需求
 
+## 确认后关联新 Run 的 Room 历史保留验收（第 192 阶段，完成）
+
+- 任务中心确认后创建的新 Run 必须在 Room 中持久化 `retryOfRunId`，来源 Run 可以是 `FAILED` 或其他已落定终态，但不得被改写为可执行或新的恢复事实。
+- 来源 Run 的 `AgentRun` 终态字段、全部 `AgentStep`、Approval 记录、Tool Call/Tool Result、执行回执和 Run Event 必须在创建关联 Run 前后逐项保持不变；新 Run 不复制来源步骤、工具结果、审批或事件。
+- 关闭并重建 `RoomAgentRunRepository` 后，来源历史与 `retryOfRunId` 关系仍必须可读；新 Run 从独立 `QUEUED` 状态开始，后续工具和审批由新 Run 自己产生。
+- 本阶段只增加 Room 持久化交叉验收，不新增自动恢复、旧协程/Executor 重放、Provider 写入、Room Schema、Workflow 或后台能力；完整 JVM、Lint、Release 和全量 instrumentation 继续按分级验证策略后置。
+
 ## 任务中心重新发起边界统一（第 191 阶段，完成）
 
 - 对最新 `run.recovered` 中存在 `restartDisposition` 的终态 Run，任务中心必须显示专用“创建新 Run”入口，不能以普通“重试”让用户误以为会继续旧执行栈。

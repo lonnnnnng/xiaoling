@@ -1919,6 +1919,168 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun linkedRetryPersistsRelationAndPreservesSourceAuditAcrossRepositoryRestart() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "xiaoling-stage192-linked-retry-audit.db"
+        context.deleteDatabase(databaseName)
+        var openedDatabase: XiaoLingDatabase? = null
+        var reopenedDatabase: XiaoLingDatabase? = null
+        try {
+            val firstOpenedDatabase = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+            openedDatabase = firstOpenedDatabase
+            val firstRepository = RoomAgentRunRepository(context, firstOpenedDatabase)
+            val sourceRun = firstRepository.createRun(
+                conversationId = "conversation-stage192-linked-retry",
+                userMessageId = "message-stage192-source",
+                goal = "验证来源 Run 审计历史在确认后创建新 Run 时保持不变",
+            )
+            firstRepository.updateRunStatus(sourceRun.id, AgentRunStatus.EXECUTING)
+            val definition = ToolDefinition(
+                name = "notes.create",
+                description = "创建本地笔记",
+                risk = ToolRisk.REQUIRES_APPROVAL,
+                replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            )
+            val call = ToolCall(
+                id = "tool-call-stage192-source",
+                name = definition.name,
+                arguments = mapOf(
+                    "title" to "第192阶段来源审计",
+                    "content" to "来源 Tool Result 必须继续留在旧 Run",
+                ),
+                risk = definition.risk,
+            )
+            val callMetadata = RunEventMetadata.ToolCall(
+                id = call.id,
+                toolName = call.name,
+                risk = call.risk,
+                arguments = call.arguments,
+                recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
+            )
+            firstRepository.appendEvent(sourceRun.id, "tool.call.proposed", "模型提出工具调用", callMetadata)
+            firstRepository.appendEvent(sourceRun.id, "tool.call.validated", "工具调用已校验", callMetadata)
+            val executionStep = firstRepository.appendStep(
+                runId = sourceRun.id,
+                type = AgentStepTypes.TOOL_EXECUTE,
+                title = "写入本地笔记",
+                detail = "来源 Run 已产生独立工具事实",
+                status = AgentStepStatus.RUNNING,
+            )
+            val approval = firstRepository.createApprovalRequest(
+                conversationId = sourceRun.conversationId,
+                runId = sourceRun.id,
+                toolCall = call,
+                definition = definition,
+            )
+            checkNotNull(
+                firstRepository.decideApprovalRequest(
+                    requestId = approval.id,
+                    status = ApprovalRequestStatus.APPROVED,
+                    reason = "第192阶段来源 Run 已批准",
+                ),
+            )
+            firstRepository.appendEvent(
+                runId = sourceRun.id,
+                type = "tool.result",
+                message = "工具执行成功：${call.name}",
+                metadata = RunEventMetadata.ToolResult(
+                    toolName = call.name,
+                    content = "来源 Tool Result 正文",
+                    durationMs = 21L,
+                    success = true,
+                    verified = true,
+                    toolCallId = call.id,
+                    replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+                    executionReceipt = ToolExecutionReceipt(
+                        toolCallId = call.id,
+                        operationId = "stage192-source-operation",
+                        idempotencyKey = call.id,
+                        status = ToolExecutionReceiptStatus.COMMITTED,
+                    ),
+                ),
+            )
+            firstRepository.updateStep(
+                stepId = executionStep.id,
+                status = AgentStepStatus.COMPLETED,
+                detail = "写入事实已落库",
+            )
+            firstRepository.appendEvent(
+                runId = sourceRun.id,
+                type = "stage192.source.audit",
+                message = "来源 Run 的审计历史保留",
+                metadata = RunEventMetadata.Reason("确认后创建关联 Run 不复制旧事实"),
+            )
+            firstRepository.updateRunStatus(
+                runId = sourceRun.id,
+                status = AgentRunStatus.FAILED,
+                errorMessage = "后续目标验证失败，来源 Run 保持终态",
+            )
+
+            val sourceBeforeLink = checkNotNull(firstRepository.runDetail(sourceRun.id))
+            assertEquals(AgentRunStatus.FAILED, sourceBeforeLink.snapshot.run.status)
+            assertEquals(1, sourceBeforeLink.snapshot.steps.size)
+            assertEquals(1, sourceBeforeLink.toolLedger.results.size)
+            assertEquals(1, sourceBeforeLink.approvals.size)
+
+            // long: 先重建一次 Repository 再执行确认后的创建，确保关联关系不是只存在于旧进程对象，而是以 Room 事实为准。
+            firstOpenedDatabase.close()
+            openedDatabase = null
+            val firstReopenedDatabase = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+            reopenedDatabase = firstReopenedDatabase
+            val restartedRepository = RoomAgentRunRepository(context, firstReopenedDatabase)
+            assertEquals(sourceBeforeLink, restartedRepository.runDetail(sourceRun.id))
+
+            val linkedRun = restartedRepository.createRun(
+                conversationId = sourceRun.conversationId,
+                userMessageId = "message-stage192-linked",
+                goal = sourceRun.goal,
+                retryOfRunId = sourceRun.id,
+            )
+            assertFalse(linkedRun.id == sourceRun.id)
+            assertEquals(sourceRun.id, linkedRun.retryOfRunId)
+            assertEquals(sourceBeforeLink, restartedRepository.runDetail(sourceRun.id))
+
+            val linkedDetail = checkNotNull(restartedRepository.runDetail(linkedRun.id))
+            assertEquals(AgentRunStatus.QUEUED, linkedDetail.snapshot.run.status)
+            assertEquals(sourceRun.id, linkedDetail.snapshot.run.retryOfRunId)
+            assertTrue(linkedDetail.snapshot.steps.isEmpty())
+            assertTrue(linkedDetail.toolLedger.calls.isEmpty())
+            assertTrue(linkedDetail.toolLedger.results.isEmpty())
+            assertTrue(linkedDetail.approvals.isEmpty())
+            assertEquals(listOf("run.created"), linkedDetail.snapshot.events.map { it.type })
+
+            // long: 再次关闭/重开后同时读取来源与新 Run，验证 retryOfRunId、终态和全部审计子账本都真正持久化。
+            firstReopenedDatabase.close()
+            reopenedDatabase = null
+            val finalDatabase = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+                .also { reopenedDatabase = it }
+            val finalRepository = RoomAgentRunRepository(context, finalDatabase)
+            assertEquals(sourceBeforeLink, finalRepository.runDetail(sourceRun.id))
+            val finalLinked = checkNotNull(finalRepository.runDetail(linkedRun.id))
+            assertEquals(sourceRun.id, finalLinked.snapshot.run.retryOfRunId)
+            assertEquals(AgentRunStatus.QUEUED, finalLinked.snapshot.run.status)
+            assertTrue(finalLinked.snapshot.steps.isEmpty())
+            assertTrue(finalLinked.toolLedger.calls.isEmpty())
+            assertTrue(finalLinked.toolLedger.results.isEmpty())
+            assertTrue(finalLinked.approvals.isEmpty())
+            assertEquals(listOf("run.created"), finalLinked.snapshot.events.map { it.type })
+        } finally {
+            openedDatabase?.close()
+            reopenedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test
     fun retryPolicyRequiresConfirmationWhenCommittedWriteReportsVerificationFailure() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-retry-ledger",
