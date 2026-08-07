@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 186 阶段：真实 Provider 受控系统日程修改闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增 Debug-only `calendar_update_real`，通过显式 `AgentE2eDebugReceiver` 触发，读取设备当前 Provider，创建 stage186 专属一次性非全天事件和临时 Profile；正式 Run 复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`，不新增生产旁路。
+- 临时 Profile 白名单精确为 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`，`memoryEnabled=false`。系统提示和用户目标同时固定三步顺序、稳定 ID、当前指纹、`scope=event`、完整新字段和修改前审批。
+- 验收从 `skill.selected` 解码唯一 Skill，并从 Tool Ledger 核对严格三步顺序、原样关键词、稳定事件 ID、详情指纹、四个更新参数、三项 `PASSED`、UPDATE Executor 验证、同事件 `COMMITTED` 回执和单条 `APPROVED` 审批；随后由 `AndroidCalendarEventReader` 权威回读标题、起止、时区和新指纹。
+- 日志只记录 Provider/模型标识、Run、状态、Skill、工具名、审批和布尔结论，不记录 API Key、标题、参数、指纹或正文。`finally` 按精确 Provider 事件 ID 清理修改后的夹具，必要时删除本轮新建的小灵本地日历，恢复原 Profile 并移除临时 Profile。
+- 最终 Redmi Run `run-554e65fa-ca43-461c-8346-034f3a426694` 为 `COMPLETED`；日志证明 `approval=APPROVED / resultsVerified=true / receipt=COMMITTED / providerUpdated=true / newFingerprint=true`，清理为 `temporaryProfileRemoved=true / testEventRemoved=true / temporaryCalendarRemoved=true`。`:app:assembleDebug :app:assembleDebugAndroidTest` 成功；文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 185 阶段：受控系统日程修改（完成）
 
 - `CalendarEventWriter` 新增 `CalendarEventUpdateRequest / Record / Result / Scope`。生产实现仅接受 `EVENT`，先回读当前事件并核对版本化指纹、非重复和非全天状态；标题、起止时间与时区完全相同时按无变化拒绝，不触发 Provider 写入。

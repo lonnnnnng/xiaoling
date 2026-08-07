@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实 Provider 受控系统日程修改闭环（第 186 阶段，完成）
+
+- 必须仅在 Redmi 使用设备当前已选择的真实模型 Provider，通过唯一 `calendar-update` Skill 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；临时 Profile 只能开放这三个工具，不得包含创建、列表、删除、设备动作或其他 Skill。
+- 搜索必须原样使用 Debug 夹具唯一关键词；`calendar.get.event_id` 必须等于搜索结果稳定 ID，修改调用必须原样复用同一 `event_id`、详情返回的当前 `expected_fingerprint`、`scope=event` 和探针指定的完整标题、带偏移起止时间、IANA 时区。
+- Room Tool Ledger 三项结果必须 `success=true` 且 typed `PASSED`；修改结果必须 `executorVerified=true` 并携带同一稳定事件 ID 的 `COMMITTED` 回执。Room 中只能出现一条 `calendar.update_event` 审批且必须收敛为 `APPROVED`；Provider 回读必须确认四个目标字段和新指纹。
+- 夹具只能在 Agent Run 外使用正式 Calendar writer 创建，并使用 stage186 专属 marker。成功、模型失败、审批失败、断言失败或进程中断时都按 Provider 事件 ID 精确清理；只有本轮新建的应用本地日历才允许删除，原 Profile 必须恢复，临时 Profile 必须移除。
+- Debug 日志不得包含 API Key、事件标题、工具参数、事件指纹或工具正文，只记录 Run ID、状态、Skill、工具名和布尔结论。本阶段不得修改生产 Registry、Skill、Writer、Reader、Room Schema、旧 Profile/Run、权限或后台边界。
+- 验证只要求 Debug APK、Redmi 真实模型核心路径和文档 corpus 单项；JVM、Lint、Release APK、AndroidTest APK 和全量 instrumentation 按分级策略后置。
+
 ## 受控系统日程修改（第 185 阶段，完成）
 
 - 新增 `calendar.update_event(event_id, expected_fingerprint, scope, title, start_at, end_at, time_zone)` 与独立 `calendar-update` Skill。模型必须先通过 `calendar.search_events -> calendar.get` 定位唯一目标，再原样传递稳定事件 ID、当前版本化指纹和 `scope=event`；不得按标题、时间、列表序号或模型文本猜测身份和版本。

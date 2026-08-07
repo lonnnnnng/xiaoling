@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 185 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 186 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 186 阶段在 Redmi 使用当前真实模型 Provider 完成受控系统日程修改闭环。Debug-only `calendar_update_real` 通过显式 Receiver 创建唯一一次性非全天夹具，临时 Profile 只允许 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`；最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格三步完成，搜索关键词、稳定事件 ID、详情指纹、`scope=event` 和完整新标题/起止/时区原样传递，三项结果均 typed `PASSED`。Room 审批为 `APPROVED`，UPDATE 结果具备 Executor 验证和同事件 `COMMITTED` 回执，Provider 回读确认四字段与新指纹一致；事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK 构建成功，文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation。下一阶段继续评估真实模型链的失败恢复和跨进程 `COMMITTED` 只读验证，不扩展重复事件、occurrence、Workflow 或后台能力。
 
 第 185 阶段完成受控系统日程修改。新增仅前台 DIRECT、逐次审批的 `calendar.update_event` 与独立 `calendar-update` Skill；模型必须先 `calendar.search_events -> calendar.get`，再原样传递稳定事件 ID、当前版本化指纹和 `scope=event`，只可提交完整的新标题、带偏移起止时间与 IANA 时区。Provider UPDATE 绑定审批前完整快照，外部漂移、无变化、全天、重复系列与 occurrence 均 fail-closed；写后回读四个目标字段并返回新指纹。恢复固定为 `RESTART_REQUIRED + DENY`，只有匹配 `COMMITTED` 回执时只读验证，恢复入口再次限制前台 DIRECT 且不重放 UPDATE。旧 Skill、Profile、Legacy Run、Workflow、后台和 Room v36 均未扩权。聚焦 JVM `101/101`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段验证真实模型 `calendar.search_events -> calendar.get -> calendar.update_event` 审批闭环。
 

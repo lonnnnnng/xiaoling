@@ -136,6 +136,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_MEMORY_SEARCH_GET_REAL -> runMemorySearchGetReal(appContext)
                     OPERATION_CALENDAR_SEARCH_GET_REAL -> runCalendarSearchGetReal(appContext)
                     OPERATION_CALENDAR_DELETE_REAL -> runCalendarDeleteReal(appContext)
+                    OPERATION_CALENDAR_UPDATE_REAL -> runCalendarUpdateReal(appContext)
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
                     OPERATION_NOTES_UPDATE_REAL -> runNotesUpdateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
@@ -1872,6 +1873,244 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             Log.i(
                 TAG,
                 "calendar-delete-real cleanup=true temporaryProfileRemoved=true testEventRemoved=true " +
+                    "temporaryCalendarRemoved=$calendarRemoved",
+            )
+        }
+    }
+
+    private suspend fun runCalendarUpdateReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val zoneId = ZoneId.systemDefault()
+        val keyword = "stage186-$now"
+        val originalTitle = "第186阶段待修改日程-$keyword"
+        val fixtureStartAtMillis = now + TimeUnit.DAYS.toMillis(2)
+        val updatedStart = ZonedDateTime.now(zoneId)
+            .plusDays(3)
+            .withHour(10)
+            .withMinute(15)
+            .withSecond(0)
+            .withNano(0)
+        val updatedEnd = updatedStart.plusHours(1)
+        val updatedStartText = updatedStart.toOffsetDateTime().toString()
+        val updatedEndText = updatedEnd.toOffsetDateTime().toString()
+        val updatedTitle = "第186阶段已修改日程-$keyword"
+        val request = CalendarEventWriteRequest(
+            idempotencyKey = "$STAGE186_CALENDAR_IDEMPOTENCY_PREFIX$now",
+            title = originalTitle,
+            startAtMillis = fixtureStartAtMillis,
+            endAtMillis = fixtureStartAtMillis + TimeUnit.HOURS.toMillis(1),
+            timeZoneId = zoneId.id,
+        )
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage186-calendar-update-profile"
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        // long: 只回收带第186阶段专属 marker 的应用夹具，失败重试也不能按标题或时间范围扫描用户日程。
+        deleteStaleCalendarEvents(context, STAGE186_CALENDAR_MARKER_PREFIX)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第186阶段系统日程修改验收",
+            avatar = "186",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只有用户明确要求修改时才操作。必须先按唯一关键词调用 calendar.search_events，再把唯一结果的稳定 event_id 原样传给 calendar.get；读取当前事件指纹后，只用同一 event_id、指纹、scope=event 和用户给出的完整新标题、带偏移起止时间、IANA 时区调用 calendar.update_event。修改前必须请求确认，不得猜测参数、跳过详情读取或调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("calendar.search_events", "calendar.get", "calendar.update_event"),
+            allowedSkillIds = listOf("calendar-update"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        var fixtureEventId: String? = null
+        var createdAppOwnedCalendarId: Long? = null
+        try {
+            val fixtureResult = writer.createOrReadBack(request)
+            if (fixtureResult is CalendarEventWriteResult.Committed) {
+                // long: Provider 一旦写入夹具就保存稳定身份，模型、审批或断言失败后仍能在 finally 精确回收。
+                fixtureEventId = fixtureResult.event.eventId
+                if (!hadAppOwnedCalendar) {
+                    val appCalendarId = appOwnedCalendarId(context)
+                    if (appCalendarId != null && eventCalendarId(context, fixtureResult.event.eventId) == appCalendarId) {
+                        createdAppOwnedCalendarId = appCalendarId
+                    }
+                }
+            }
+            check(fixtureResult is CalendarEventWriteResult.Committed && fixtureResult.verified) {
+                "第186阶段临时日程创建或回读失败：$fixtureResult"
+            }
+            val fixture = fixtureResult.event
+            val numericEventId = fixture.eventId.toLongOrNull()
+                ?: error("第186阶段临时日程没有有效 Provider ID")
+            val detailBeforeRun = reader.getEvent(numericEventId)
+            check(detailBeforeRun is CalendarEventDetailReadResult.Success) {
+                "第186阶段临时日程详情不可读：$detailBeforeRun"
+            }
+            val expectedFingerprint = CalendarEventFingerprint.create(detailBeforeRun.event)
+
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第186阶段系统日程修改 Profile" }
+            Log.i(TAG, "calendar-update-real start=true provider=${provider.id} model=${provider.model}")
+            val conversationId = "conversation-redmi-calendar-update-$now"
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-calendar-update-$now",
+                goal = "请用唯一关键词“$keyword”搜索未来 7 天的系统日程，读取唯一结果的当前权威详情和事件指纹，然后把这个一次性非全天事件的完整标题改为“$updatedTitle”，开始时间改为“$updatedStartText”，结束时间改为“$updatedEndText”，IANA 时区保持为“${zoneId.id}”。必须严格执行 calendar.search_events -> calendar.get -> calendar.update_event，修改时原样使用同一稳定 event_id、当前指纹和 scope=event，并在修改前请求确认。禁止猜测参数或调用其他工具。",
+                skillSelectionGoal = "修改日程：找到唯一匹配的一次性系统日程并受控修改",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = repository,
+                    reason = "第186阶段 Redmi 真实系统日程修改验收批准",
+                ),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第186阶段 calendar.update_event Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第186阶段系统日程修改 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val selectedSkillIds = detail.snapshot.events
+                .singleOrNull { it.type == "skill.selected" }
+                ?.metadata
+                .let { it as? RunEventMetadata.Reason }
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("calendar-update")) {
+                "第186阶段没有选择系统日程修改 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            check(calls.map { it.toolName } == listOf("calendar.search_events", "calendar.get", "calendar.update_event")) {
+                "系统日程修改没有严格按 search -> get -> update 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            val updateCall = calls[2]
+            val stableEventId = "calendar-${fixture.eventId}"
+            check(searchCall.arguments["query"]?.trim() == keyword) {
+                "calendar.search_events 没有原样使用唯一关键词"
+            }
+            check(getCall.arguments["event_id"]?.trim() == stableEventId) {
+                "calendar.get 没有读取搜索结果对应的稳定事件 ID"
+            }
+            check(
+                updateCall.arguments["event_id"]?.trim() == stableEventId &&
+                    updateCall.arguments["expected_fingerprint"]?.trim() == expectedFingerprint &&
+                    updateCall.arguments["scope"]?.trim() == CalendarEventUpdateScope.EVENT.wireName &&
+                    updateCall.arguments["title"]?.trim() == updatedTitle &&
+                    updateCall.arguments["start_at"]?.trim() == updatedStartText &&
+                    updateCall.arguments["end_at"]?.trim() == updatedEndText &&
+                    updateCall.arguments["time_zone"]?.trim() == zoneId.id,
+            ) { "calendar.update_event 没有原样使用详情版本、event scope 和完整目标字段" }
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            val orderedResults = calls.map { call ->
+                checkNotNull(resultsByCallId[call.id]) { "${call.toolName} 缺少 Tool Result" }
+            }
+            check(orderedResults.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "系统日程修改链存在未通过 typed 验证的工具结果"
+            }
+            val getResult = orderedResults[1]
+            check(
+                getResult.content.contains("ID：$stableEventId") &&
+                    getResult.content.contains("标题：$originalTitle") &&
+                    getResult.content.contains("事件指纹：$expectedFingerprint"),
+            ) { "calendar.get 没有返回当前 Provider 的稳定 ID、标题和事件指纹" }
+            val updateResult = orderedResults[2]
+            check(
+                updateResult.executorVerified == true &&
+                    updateResult.executionReceipt?.let { receipt ->
+                        receipt.operationId == stableEventId &&
+                            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+                    } == true,
+            ) { "calendar.update_event 缺少 Executor 验证或 COMMITTED 稳定回执" }
+            check(
+                detail.approvals.singleOrNull { it.toolName == "calendar.update_event" }?.status ==
+                    ApprovalRequestStatus.APPROVED,
+            ) { "calendar.update_event Room 审批没有收敛为 APPROVED" }
+            val detailAfterRun = reader.getEvent(numericEventId)
+            check(detailAfterRun is CalendarEventDetailReadResult.Success) {
+                "calendar.update_event 后当前 Provider 事件不可读"
+            }
+            val newFingerprint = CalendarEventFingerprint.create(detailAfterRun.event)
+            check(
+                detailAfterRun.event.title == updatedTitle &&
+                    detailAfterRun.event.startAtMillis == updatedStart.toInstant().toEpochMilli() &&
+                    detailAfterRun.event.endAtMillis == updatedEnd.toInstant().toEpochMilli() &&
+                    detailAfterRun.event.timeZoneId == zoneId.id &&
+                    newFingerprint != expectedFingerprint &&
+                    updateResult.content.contains(stableEventId) &&
+                    updateResult.content.contains(newFingerprint),
+            ) { "calendar.update_event 后 Provider 四字段或新指纹不一致" }
+            Log.i(
+                TAG,
+                "calendar-update-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=calendar-update tools=calendar.search_events,calendar.get,calendar.update_event " +
+                    "approval=APPROVED resultsVerified=true stableIdBound=true fingerprintBound=true " +
+                    "receipt=COMMITTED providerUpdated=true newFingerprint=true responseLength=${summary.responseText.length}",
+            )
+        } finally {
+            // long: 修改成功后事件仍存在；收尾始终按本轮 Provider ID 删除，绝不扫描标题、时间或其他日程。
+            val eventRemoved = fixtureEventId?.toLongOrNull()?.let { eventId ->
+                runCatching {
+                    when (reader.getEvent(eventId)) {
+                        CalendarEventDetailReadResult.NotFound -> true
+                        is CalendarEventDetailReadResult.Success -> {
+                            context.contentResolver.delete(
+                                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                                null,
+                                null,
+                            ) == 1 && reader.getEvent(eventId) is CalendarEventDetailReadResult.NotFound
+                        }
+                        else -> false
+                    }
+                }.getOrDefault(false)
+            } ?: true
+            val calendarRemoved = createdAppOwnedCalendarId?.let { calendarId ->
+                runCatching { deleteAppOwnedCalendar(context, calendarId) }.getOrDefault(false)
+            } ?: true
+            val restored = recoveredOriginalProfileId?.let { profileId ->
+                runCatching { profileStore.select(profileId) }.getOrDefault(false)
+            } ?: true
+            val profileRemoved = runCatching { profileStore.delete(temporaryProfileId) }.getOrDefault(false)
+            check(eventRemoved && calendarRemoved) { "第186阶段临时日程或本地日历清理失败" }
+            check(restored && (profileRemoved || profileStore.list().none { it.id == temporaryProfileId })) {
+                "第186阶段临时 Profile 清理失败"
+            }
+            Log.i(
+                TAG,
+                "calendar-update-real cleanup=true temporaryProfileRemoved=true testEventRemoved=true " +
                     "temporaryCalendarRemoved=$calendarRemoved",
             )
         }
@@ -3781,6 +4020,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_MEMORY_SEARCH_GET_REAL = "memory_search_get_real"
         const val OPERATION_CALENDAR_SEARCH_GET_REAL = "calendar_search_get_real"
         const val OPERATION_CALENDAR_DELETE_REAL = "calendar_delete_real"
+        const val OPERATION_CALENDAR_UPDATE_REAL = "calendar_update_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
         const val OPERATION_NOTES_UPDATE_REAL = "notes_update_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
@@ -3799,6 +4039,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val STAGE182_CALENDAR_MARKER_PREFIX = "xiaoling://calendar-event/$STAGE182_CALENDAR_IDEMPOTENCY_PREFIX"
         private const val STAGE184_CALENDAR_IDEMPOTENCY_PREFIX = "stage184-calendar-delete-"
         private const val STAGE184_CALENDAR_MARKER_PREFIX = "xiaoling://calendar-event/$STAGE184_CALENDAR_IDEMPOTENCY_PREFIX"
+        private const val STAGE186_CALENDAR_IDEMPOTENCY_PREFIX = "stage186-calendar-update-"
+        private const val STAGE186_CALENDAR_MARKER_PREFIX = "xiaoling://calendar-event/$STAGE186_CALENDAR_IDEMPOTENCY_PREFIX"
         private const val STAGE182_LOCAL_ACCOUNT_NAME = "com.longdev.xiaoling.local"
         private const val STAGE182_LOCAL_CALENDAR_NAME = "xiaoling-local-calendar"
         const val EXTRA_TASK_ID = "task_id"

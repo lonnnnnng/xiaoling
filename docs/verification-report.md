@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 186 阶段：真实 Provider 受控系统日程修改闭环
+
+- `:app:assembleDebug` 与后续 `:app:assembleDebugAndroidTest` 均成功。仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装主 Debug APK 和测试 APK，授予日历读写权限并启动主应用；没有向在线模拟器发送安装、授权、启动、日志或测试命令。
+- 通过显式 `com.longdev.xiaoling/.agent.AgentE2eDebugReceiver` 触发 Debug-only `calendar_update_real`，读取设备当前 Provider，创建 stage186 专属一次性非全天事件和临时 Profile。隐式广播未产生新 Run，显式触发后才进入正式探针；这只是 Android 广播投递方式修正，不改变生产入口。
+- 最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 为 `COMPLETED`，选择唯一 `calendar-update`，严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`。搜索关键词、稳定事件 ID、当前指纹、`scope=event`、完整标题/起止/时区均原样传递。
+- 三项 Tool Result 均 `success=true / PASSED`；修改审批为 `APPROVED`，结果 `executorVerified=true` 且回执为同一事件的 `COMMITTED`。Provider 回读确认标题、起止时间、时区四字段更新成功，指纹从旧值变为新值。
+- 成功日志为 `resultsVerified=true / stableIdBound=true / fingerprintBound=true / receipt=COMMITTED / providerUpdated=true / newFingerprint=true`，清理日志为 `temporaryProfileRemoved=true / testEventRemoved=true / temporaryCalendarRemoved=true`。日志未输出 API Key、标题、参数、指纹或正文。
+- 更新文档资产后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；测试包随后卸载并保留主应用数据。本阶段未运行 JVM、Lint、Release APK 或默认全量 instrumentation；Room v36、旧 Skill/Profile/Legacy Run、Workflow 和后台未扩权。下一阶段先验证真实模型失败/中断后的 `RESTART_REQUIRED + DENY` 恢复和跨进程只读确认。
+
 ## 2026-08-08 第 185 阶段：受控系统日程修改
 
 - TDD 首轮因 `CalendarEventUpdateRequest / Result / Scope` 与生产工具尚不存在得到预期编译失败。实现与最终审查修正后，聚焦 `XiaoLingToolRegistryTest 71/71 + AgentSkillsTest 28/28 + LegacyRunToolBoundaryTest 2/2`，合计 JVM `101/101` 通过。

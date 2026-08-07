@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 186 阶段：真实 Provider 受控系统日程修改闭环（完成）
+
+- Debug-only `calendar_update_real` 读取 Redmi 当前真实模型 Provider，创建 stage186 专属一次性非全天夹具和临时 Profile；Profile 只允许 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`，不把创建或其他工具带入 Run。
+- 最终 Redmi Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格执行三步链。关键词原样传递，get 使用搜索结果稳定 ID，update 再原样复用同一 ID、当前指纹、`scope=event` 和完整新标题/起止/时区；三项 Tool Result 均 `success=true / PASSED`。
+- `calendar.update_event` 的 Room 审批为 `APPROVED`，结果具备 Executor 验证和同一事件 ID 的 `COMMITTED` 回执；Provider 回读确认四个目标字段与新指纹一致。最终回答文本不参与成功判断。
+- 夹具、必要时创建的本地日历及临时 Profile 在成功与失败路径均精确清理。日志只输出脱敏布尔摘要；真实验收通过显式 Debug Receiver 触发，未改变生产广播或能力面。
+- Debug/AndroidTest APK 构建成功，文档 corpus gate `1/1` 通过；本阶段未运行 JVM、Lint、Release APK 或全量 instrumentation，也未改变 Room v36、旧 Skill/Profile/Legacy Run、Workflow 或后台边界。
+- 下一阶段先验证真实模型失败/中断后的 `RESTART_REQUIRED + DENY` 恢复契约与跨进程 `COMMITTED` 只读确认，不重放 UPDATE；series/occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 185 阶段：受控系统日程修改（完成）
 
 - 新增 `calendar.update_event` 与独立 `calendar-update` Skill，前台 Agent 必须严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`，并原样传递稳定 ID、当前指纹和 `scope=event`。
