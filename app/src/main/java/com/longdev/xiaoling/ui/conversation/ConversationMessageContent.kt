@@ -69,6 +69,7 @@ import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
+import com.longdev.xiaoling.ui.localNoteIdForNavigation
 import com.longdev.xiaoling.ui.inspectedTaskNameForNavigation
 import com.longdev.xiaoling.ui.normalizeModelMarkdown
 import com.longdev.xiaoling.ui.parseMarkdownTableBlock
@@ -94,6 +95,7 @@ internal fun ChatBubble(
     answerabilityNotice: KnowledgeAnswerabilityUserNotice?,
     onOpenKnowledgeDocument: (String) -> Unit,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenLocalNote: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
 ) {
     val isUser = message.role == "user"
@@ -142,6 +144,7 @@ internal fun ChatBubble(
                     message = message,
                     contentColor = contentColor,
                     onOpenInspectedTask = onOpenInspectedTask,
+                    onOpenLocalNote = onOpenLocalNote,
                 )
                 KnowledgeReferencesContent(
                     messageId = message.id,
@@ -190,6 +193,7 @@ private fun MessageBodyParts(
     message: ChatMessage,
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenLocalNote: (String) -> Unit,
 ) {
     message.effectiveParts().forEachIndexed { index, part ->
         if (index > 0) Spacer(Modifier.height(7.dp))
@@ -198,7 +202,12 @@ private fun MessageBodyParts(
             is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
             is MessagePart.Image -> ImageMessagePartContent(part)
             is MessagePart.Document -> DocumentMessagePartContent(part, contentColor)
-            is MessagePart.Tool -> ToolMessagePartContent(part, contentColor, onOpenInspectedTask)
+            is MessagePart.Tool -> ToolMessagePartContent(
+                part = part,
+                contentColor = contentColor,
+                onOpenInspectedTask = onOpenInspectedTask,
+                onOpenLocalNote = onOpenLocalNote,
+            )
         }
     }
 }
@@ -378,6 +387,7 @@ private fun ToolMessagePartContent(
     part: MessagePart.Tool,
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenLocalNote: (String) -> Unit,
 ) {
     val presentation = part.toPresentation()
     HorizontalDivider(color = contentColor.copy(alpha = 0.16f))
@@ -439,6 +449,19 @@ private fun ToolMessagePartContent(
                 modifier = Modifier.size(15.dp),
             )
             Text("查看任务")
+        }
+    }
+    part.localNoteIdForNavigation()?.let { noteId ->
+        TextButton(
+            onClick = { onOpenLocalNote(noteId) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Description,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+            Text("查看笔记")
         }
     }
 }

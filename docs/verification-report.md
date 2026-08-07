@@ -4,11 +4,39 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 169 阶段：创建笔记后的答案级导航
+
+- `notes.create` 与恢复验证成功结果现在附带 `· id=<noteId>`；导航只接受成功、typed `VERIFIED`、完整 `title/content` 参数、标题精确绑定和全文唯一合法 note ID。审批、回读、幂等回执和失败语义不变。
+- 聚焦 JVM `LocalNoteNavigationTest 4/4 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5 + XiaoLingToolRegistryTest 46/46 + AgentRunResumePolicyTest 57/57` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。仅 Redmi `wsvwypiz7xwslvl7` 的 `ConversationPageInstrumentedTest` 为 `OK (10 tests)`，文档 corpus gate 为 `OK (1 test)`；测试包已卸载，主应用保留，Pixel_9 未使用。
+- 按分级验证，本阶段不运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+## 2026-08-07 第 168 阶段：答案级本地笔记导航
+
+- `notes.list / notes.search` 结果下新增“查看笔记”入口；纯策略同时校验工具名、成功状态、非失败验证、参数契约、固定结果标题和唯一标准 `note-UUID` 条目。入口点击只携带 note ID，`LocalNoteManagementPage` 再通过 ViewModel/Room Store 读取完整详情，删除或不存在继续由当前事实失败。
+- 聚焦 JVM `LocalNoteNavigationTest 3/3 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；仅 Redmi `wsvwypiz7xwslvl7` 的 `ConversationPageInstrumentedTest` 为 `OK (9 tests)`，文档 corpus gate 为 `OK (1 test)`。测试包已卸载，主应用保留，Pixel_9 未使用。
+- 按分级验证，本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；一次错误 runner 参数导致的全量 instrumentation 已在未完成时中止，不计入通过数，也没有写入任何验收结论。
+
+## 2026-08-07 第 167 阶段：中断筛选空状态与历史回退
+
+- `AgentTaskCenterPage` 在 `INTERRUPTED` 筛选为空时显示失败/取消复盘边界和不会重放工具的说明；若仍有其他历史，提供“显示全部”本地筛选回退，空数据库不展示该按钮。
+- 聚焦 JVM `AgentTaskFilterPolicyTest 5/5 + StartupRunRecoveryNoticePolicyTest 5/5 = 10/10`，`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。仅在 Redmi `wsvwypiz7xwslvl7` 运行文档 corpus gate，结果 `OK (1 test)`；测试包已卸载，Pixel_9 未使用。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+## 2026-08-07 第 166 阶段：恢复入口聚焦中断 Run
+
+- 新增 `AgentTaskFilter.INTERRUPTED`，只匹配 `FAILED / CANCELLED`；启动恢复动作进入 Agent 任务中心时使用该初始筛选，设置页手动入口仍使用 `ALL`，用户后续筛选不会因 Room 刷新被覆盖。
+- 聚焦 JVM `AgentTaskFilterPolicyTest 4/4 + StartupRunRecoveryNoticePolicyTest 5/5 = 9/9`，`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。仅在 Redmi `wsvwypiz7xwslvl7` 运行文档 corpus gate，结果 `OK (1 test)`；测试包已卸载，Pixel_9 未使用。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+## 2026-08-07 第 165 阶段：启动恢复提示直达任务中心
+
+- 实现 `OperationResultAction.OPEN_AGENT_RUN_HISTORY`：仅启动恢复的 `FAILED / CANCELLED` 汇总提示携带该动作；普通 `OperationResult` 默认无动作，原有隐私文案和一次性消费语义不变。
+- `CenterNotice` 在存在该动作时显示“查看任务”按钮；点击刷新 Agent Run 历史、打开 `AGENT_RUN_HISTORY`，并立即清除提示。未点击或自动消失不会导航，不传递 Run/Workflow ID。
+- `StartupRunRecoveryNoticePolicyTest` 定向 `5/5` 通过；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。仅在 Redmi `wsvwypiz7xwslvl7` 运行文档 corpus gate，最终 `OK (1 test)`；测试包已卸载，未使用 Pixel_9。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 ## 2026-08-07 第 164 阶段：启动中断 Run 用户提示
 
 - 已实现 `settleStartupInterruptedRuns()` 与 `projectStartupRunRecoveryNotice()`；启动恢复继续先保留三类可恢复 Run，再关闭其余旧进程候选。只有 `closeInterruptedRuns()` 实际收敛后回读为 `FAILED / CANCELLED` 的记录进入提示。
 - 提示通过现有 `OperationResult -> CenterNotice -> clearResult()` 一次性消费，只显示失败/取消数量、不重放工具和任务中心指引，不暴露目标、Run ID、原始错误或工具正文。
-- 聚焦 JVM `StartupRunRecoveryNoticePolicyTest 5/5`，`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。六份长期文档更新后，仅在 Redmi `wsvwypiz7xwslvl7` 运行 corpus gate，结果 `OK (1 test)`、耗时约 `2.8s`；Pixel_9 未接收命令。按分级验证未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
+- 聚焦 JVM `StartupRunRecoveryNoticePolicyTest 5/5`，`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。六份长期文档更新后，仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果 `OK (1 test)`、耗时约 `2.7s`；测试包已卸载，主应用保留；Pixel_9 未接收命令。按分级验证未运行完整 JVM、全量 Lint、Release 或默认完整 instrumentation。
 
 ## 2026-08-07 第 163 阶段：取消结果后的任务快照刷新
 

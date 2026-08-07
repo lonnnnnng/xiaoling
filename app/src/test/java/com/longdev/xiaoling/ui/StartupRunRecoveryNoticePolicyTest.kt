@@ -28,6 +28,7 @@ class StartupRunRecoveryNoticePolicyTest {
         assertTrue(notice.title.contains("上次中断"))
         assertTrue(notice.message.contains("失败 1 个"))
         assertTrue(notice.message.contains("不会重放工具"))
+        assertEquals(OperationResultAction.OPEN_INTERRUPTED_AGENT_RUN_HISTORY, notice.action)
         assertFalse(notice.message.contains("run-private"))
         assertFalse(notice.message.contains("整理私密项目"))
         assertFalse(notice.message.contains("provider-secret-error"))
@@ -42,6 +43,7 @@ class StartupRunRecoveryNoticePolicyTest {
         assertNotNull(notice)
         assertTrue(notice!!.message.contains("取消 1 个"))
         assertFalse(notice.message.contains("失败 1 个"))
+        assertEquals(OperationResultAction.OPEN_INTERRUPTED_AGENT_RUN_HISTORY, notice.action)
     }
 
     @Test

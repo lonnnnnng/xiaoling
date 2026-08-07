@@ -284,6 +284,45 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensCreatedLocalNoteOnlyAfterVerifiedReadBack() {
+        val actions = FakeConversationActions()
+        val noteId = "note-12345678-1234-1234-1234-1234567890ab"
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-note-create",
+                                role = "assistant",
+                                text = "笔记已创建并完成回读验证。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-note-create",
+                                    toolName = "notes.create",
+                                    arguments = mapOf("title" to "项目计划", "content" to "正文"),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.VERIFIED,
+                                    rawResult = "已创建并验证笔记：项目计划 · id=$noteId\n正文",
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看笔记").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(noteId, actions.lastOpenedNoteId)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -296,6 +335,7 @@ class ConversationPageInstrumentedTest {
         var openWorkflowCount = 0
         var lastOpenedWorkflowId: String? = null
         var lastInspectedTaskName: String? = null
+        var lastOpenedNoteId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -361,6 +401,10 @@ class ConversationPageInstrumentedTest {
 
         override fun openInspectedTask(taskName: String) {
             lastInspectedTaskName = taskName
+        }
+
+        override fun openLocalNote(noteId: String) {
+            lastOpenedNoteId = noteId
         }
 
         override fun approvePendingAgentTool() = Unit

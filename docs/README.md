@@ -1,5 +1,15 @@
 # 文档索引
 
+第 169 阶段完成创建笔记后的答案级导航：`notes.create` 只有成功、typed `VERIFIED`、标题/正文参数完整、结果标题精确绑定请求标题且全文只有一个合法 note ID 时显示“查看笔记”；回读验证失败、标题漂移、非法/重复 ID 和普通模型文本均不显示入口。成功结果新增稳定 ID，不改变审批、幂等回执、旧 Run 或 Room Schema。聚焦 JVM `LocalNoteNavigationTest 4/4 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5 + XiaoLingToolRegistryTest 46/46 + AgentRunResumePolicyTest 57/57`、Redmi `ConversationPageInstrumentedTest 10/10` 和文档 corpus gate `1/1` 通过；只构建 Debug/AndroidTest APK，未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+第 168 阶段完成答案级本地笔记导航：可信 `notes.list / notes.search` 的单结果 Tool part 在成功、非失败验证、参数契约、固定结果标题和唯一合法 `note-UUID` 条件同时满足时显示“查看笔记”；点击只携带稳定 note ID，应用壳进入本地笔记页后由 Room Store 重新回读详情，删除或不存在时沿用现有失败提示。多结果、空结果、伪造/非法 ID、失败或不匹配工具均不显示入口。聚焦 JVM `LocalNoteNavigationTest 3/3 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5`、Redmi `ConversationPageInstrumentedTest 9/9` 和文档 corpus gate `1/1` 通过；只构建 Debug/AndroidTest APK，未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+第 167 阶段完成“已中断”筛选空状态：没有 `FAILED / CANCELLED` 时显示明确复盘说明，存在其他历史时提供“显示全部”回退；回退只改变本地筛选，不触发刷新或任务操作。聚焦 JVM `10/10`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+第 166 阶段完成恢复入口聚焦中断 Run：任务中心新增“已中断”筛选，仅显示已落定的 `FAILED / CANCELLED`；启动恢复提示从“查看任务”进入时默认使用该筛选，设置页手动进入仍显示全部，用户切换筛选不受刷新覆盖。该切片不改变 Run、重试、取消、权限或后台能力。聚焦 JVM `9/9`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
+第 165 阶段完成启动恢复提示直达任务中心：只有应用生成的失败/取消收敛提示带一次性“查看任务”动作；点击先刷新 Agent Run 历史，再进入现有任务中心并消费提示。普通操作结果继续是无动作的短提示，不携带内部 ID，也不改变恢复、执行或权限边界。聚焦 JVM `5/5`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+
 第 164 阶段完成启动中断 Run 用户提示：应用仍先按现有策略恢复待审批、已提交待验证和已验证 Run，其余候选通过 `closeInterruptedRuns()` 原子收敛后按 ID 回读 Room；只有实际进入 `FAILED / CANCELLED` 的记录才汇总为一个一次性提示。提示只显示分类数量、明确不重放工具并引导任务中心，不包含目标、Run ID 或原始错误，也不改变恢复与执行权限。聚焦 JVM `5/5`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过。
 
 第 163 阶段完成取消结果后的任务快照刷新：普通 Agent 只有在 `tasks.cancel` 成功且 typed `VERIFIED`、结果命中应用生成的稳定取消文案后，才主动刷新 Workflow/ScheduledTask/Run 的 Room 投影；未验证、模型伪造、重复取消和其他工具不会触发刷新。该切片不新增工具、权限、Room Schema 或后台能力；聚焦 JVM `8/8`、Debug/AndroidTest APK 与 Redmi 文档 corpus gate `1/1` 通过。

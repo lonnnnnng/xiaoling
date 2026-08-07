@@ -28,6 +28,9 @@ internal class XiaoLingNavigationController(
     val requestedWorkflowId: String?
         get() = state.requestedWorkflowId
 
+    val requestedLocalNoteId: String?
+        get() = state.requestedLocalNoteId
+
     fun hidesBottomBar(providerEditorOpen: Boolean): Boolean = state.hidesBottomBar(providerEditorOpen)
 
     fun selectTab(tab: XiaoLingAppTab) {
@@ -38,17 +41,23 @@ internal class XiaoLingNavigationController(
         pane: XiaoLingSettingsPane,
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
         requestedWorkflowId: String? = null,
+        requestedLocalNoteId: String? = null,
     ) {
         mutableState.value = coordinator.openSettingsPane(
             state = state,
             pane = pane,
             requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
             requestedWorkflowId = requestedWorkflowId,
+            requestedLocalNoteId = requestedLocalNoteId,
         )
     }
 
     fun openKnowledgeDocument(documentId: String) {
         mutableState.value = coordinator.openKnowledgeDocument(state, documentId)
+    }
+
+    fun openLocalNote(noteId: String) {
+        mutableState.value = coordinator.openLocalNote(state, noteId)
     }
 
     fun routeExternal(target: XiaoLingExternalNavigationTarget) {
@@ -70,17 +79,19 @@ internal class XiaoLingNavigationController(
 }
 
 private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<String>>(
-    // long: Activity 重建只保留仍可能指向内容的两个一次性目标；Tab、设置子页和返回时间继续回到初始值。
+    // long: Activity 重建只保留仍可能指向内容的一次性目标；Tab、设置子页和返回时间继续回到初始值。
     save = { state ->
         listOf(
             state.requestedKnowledgeDocumentId.orEmpty(),
             state.requestedWorkflowId.orEmpty(),
+            state.requestedLocalNoteId.orEmpty(),
         )
     },
     restore = { savedTargets ->
         XiaoLingNavigationState(
             requestedKnowledgeDocumentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null },
             requestedWorkflowId = savedTargets.getOrNull(1).orEmpty().ifBlank { null },
+            requestedLocalNoteId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
         )
     },
 )

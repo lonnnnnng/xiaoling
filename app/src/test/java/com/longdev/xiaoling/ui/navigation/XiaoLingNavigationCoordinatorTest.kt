@@ -32,6 +32,18 @@ class XiaoLingNavigationCoordinatorTest {
     }
 
     @Test
+    fun openLocalNoteRoutesToLocalNoteSettings() {
+        val result = coordinator.openLocalNote(
+            state = XiaoLingNavigationState(),
+            noteId = "note-1",
+        )
+
+        assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
+        assertEquals(XiaoLingSettingsPane.LOCAL_NOTE_MANAGEMENT, result.settingsPane)
+        assertEquals("note-1", result.requestedLocalNoteId)
+    }
+
+    @Test
     fun externalConversationTargetsReturnToConversationRoot() {
         val initial = XiaoLingNavigationState(
             tab = XiaoLingAppTab.SETTINGS,
@@ -88,6 +100,7 @@ class XiaoLingNavigationCoordinatorTest {
             settingsPane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
             requestedKnowledgeDocumentId = "document-1",
             requestedWorkflowId = "workflow-1",
+            requestedLocalNoteId = "note-1",
         )
 
         val result = coordinator.back(
@@ -100,6 +113,7 @@ class XiaoLingNavigationCoordinatorTest {
         assertEquals(XiaoLingSettingsPane.ROOT, result.state.settingsPane)
         assertNull(result.state.requestedKnowledgeDocumentId)
         assertNull(result.state.requestedWorkflowId)
+        assertNull(result.state.requestedLocalNoteId)
         assertNull(result.effect)
     }
 

@@ -43,6 +43,7 @@ internal data class XiaoLingNavigationState(
     val settingsPane: XiaoLingSettingsPane = XiaoLingSettingsPane.ROOT,
     val requestedKnowledgeDocumentId: String? = null,
     val requestedWorkflowId: String? = null,
+    val requestedLocalNoteId: String? = null,
     val lastRootBackAtMillis: Long = 0L,
 ) {
     val isSettingsSubPage: Boolean
@@ -69,11 +70,13 @@ internal class XiaoLingNavigationCoordinator(
         pane: XiaoLingSettingsPane,
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
         requestedWorkflowId: String? = null,
+        requestedLocalNoteId: String? = null,
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
         requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
         requestedWorkflowId = requestedWorkflowId,
+        requestedLocalNoteId = requestedLocalNoteId,
     )
 
     fun openKnowledgeDocument(
@@ -83,6 +86,15 @@ internal class XiaoLingNavigationCoordinator(
         state = state,
         pane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
         requestedKnowledgeDocumentId = documentId,
+    )
+
+    fun openLocalNote(
+        state: XiaoLingNavigationState,
+        noteId: String,
+    ): XiaoLingNavigationState = openSettingsPane(
+        state = state,
+        pane = XiaoLingSettingsPane.LOCAL_NOTE_MANAGEMENT,
+        requestedLocalNoteId = noteId,
     )
 
     fun routeExternal(
@@ -122,6 +134,7 @@ internal class XiaoLingNavigationCoordinator(
                     settingsPane = XiaoLingSettingsPane.ROOT,
                     requestedKnowledgeDocumentId = null,
                     requestedWorkflowId = null,
+                    requestedLocalNoteId = null,
                 ),
             )
         }

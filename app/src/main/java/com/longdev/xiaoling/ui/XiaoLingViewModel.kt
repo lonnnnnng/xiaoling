@@ -493,10 +493,16 @@ data class ConversationSession(
     val updatedAt: Long,
 )
 
+enum class OperationResultAction {
+    OPEN_AGENT_RUN_HISTORY,
+    OPEN_INTERRUPTED_AGENT_RUN_HISTORY,
+}
+
 data class OperationResult(
     val success: Boolean,
     val title: String,
     val message: String,
+    val action: OperationResultAction? = null,
     val requestUrl: String? = null,
     val latencyMs: Long? = null,
     val firstTokenLatencyMs: Long? = null,

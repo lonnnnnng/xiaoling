@@ -1418,7 +1418,7 @@ class XiaoLingToolRegistry(
             ToolExecutionResult(
                 success = true,
                 verified = true,
-                content = "已创建并验证笔记：${created.title}\n${created.content}",
+                content = "已创建并验证笔记：${created.title} · id=${created.id}\n${created.content}",
                 executionReceipt = receipt,
             )
         }
@@ -1441,7 +1441,7 @@ class XiaoLingToolRegistry(
             ToolExecutionResult(
                 success = true,
                 verified = true,
-                content = "已创建并验证笔记：${stored.title}\n${stored.content}",
+                content = "已创建并验证笔记：${stored.title} · id=${stored.id}\n${stored.content}",
                 executionReceipt = receipt,
             )
         } else {

@@ -67,6 +67,8 @@ internal interface ConversationActions {
 
     fun openInspectedTask(taskName: String)
 
+    fun openLocalNote(noteId: String)
+
     fun approvePendingAgentTool()
 
     fun rejectPendingAgentTool()

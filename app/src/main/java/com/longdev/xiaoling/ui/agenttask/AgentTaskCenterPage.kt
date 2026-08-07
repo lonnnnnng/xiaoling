@@ -94,9 +94,10 @@ internal fun AgentTaskCenterPage(
     state: AgentTaskCenterUiState,
     actions: AgentTaskCenterActions,
     onBack: () -> Unit,
+    initialFilter: AgentTaskFilter = AgentTaskFilter.ALL,
     modifier: Modifier = Modifier,
 ) {
-    var taskFilter by remember { mutableStateOf(AgentTaskFilter.ALL) }
+    var taskFilter by remember(initialFilter) { mutableStateOf(initialFilter) }
     LaunchedEffect(Unit) {
         if (state.runs.isEmpty() && !state.loading) {
             actions.refreshAgentRunHistory()
@@ -162,12 +163,25 @@ internal fun AgentTaskCenterPage(
                     }
                 }
                 filteredRuns.isEmpty() -> item {
-                    AgentTaskCenterSection(title = "当前筛选") {
+                    val interruptedFilter = taskFilter == AgentTaskFilter.INTERRUPTED
+                    AgentTaskCenterSection(title = if (interruptedFilter) "已中断" else "当前筛选") {
                         Text(
-                            text = "没有符合条件的 Agent 任务",
+                            text = if (interruptedFilter) {
+                                "当前没有失败或已取消的 Agent Run；恢复入口不会重放工具。"
+                            } else {
+                                "没有符合条件的 Agent 任务"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (interruptedFilter && state.runs.isNotEmpty()) {
+                            TextButton(
+                                onClick = { taskFilter = AgentTaskFilter.ALL },
+                                modifier = Modifier.testTag("agent-task-show-all"),
+                            ) {
+                                Text("显示全部")
+                            }
+                        }
                     }
                 }
                 else -> {

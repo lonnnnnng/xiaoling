@@ -31,5 +31,6 @@ internal fun projectStartupRunRecoveryNotice(
         success = false,
         title = "已处理上次中断",
         message = "上次中断的 Agent 任务已安全收敛：$settlementSummary。不会重放工具，可在 Agent 任务中心查看详情。",
+        action = OperationResultAction.OPEN_INTERRUPTED_AGENT_RUN_HISTORY,
     )
 }

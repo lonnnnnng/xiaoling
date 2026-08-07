@@ -1,5 +1,37 @@
 # 当前实现说明
 
+## 第 169 阶段：创建笔记后的答案级导航（完成）
+
+- `XiaoLingToolRegistry.createNote()` 与 `verifyCommittedNote()` 的成功结果在原有回读验证和 `ToolExecutionReceipt` 不变的前提下追加 `· id=<noteId>`；失败结果、幂等操作 ID 和载荷冲突语义不变。
+- `localNoteIdForNavigation()` 增加 `notes.create` 分支：只接受 `title/content` 完整参数、标题无换行、typed `VERIFIED`、结果首行的标题精确绑定和全文唯一合法 note ID；不会从正文或模型文本猜测对象。
+- 既有 Conversation 回调和一次性 `requestedLocalNoteId` 导航目标复用第168阶段实现，点击后仍由 `LocalNoteManagementViewModel`/Store 当前回读，不把 Tool result 当作详情事实。
+- 本阶段不修改 MessagePart/Room Schema、审批权限、恢复策略或后台执行能力。
+
+## 第 168 阶段：答案级本地笔记导航（完成）
+
+- 新增 `MessagePart.Tool.localNoteIdForNavigation()` 纯策略：严格限定 `notes.list / notes.search`、成功、`verificationStatus != FAILED`、参数键/范围、`最近笔记：` 或 `匹配笔记：` 首行，以及唯一 `note-UUID` 条目行；结果正文中的任意普通 `id=`、多条结果和空结果均 fail-closed。
+- `ConversationActions`、`ConversationPage` 和 `ToolMessagePartContent` 增加“查看笔记”回调；应用壳通过 `XiaoLingNavigationCoordinator/Controller` 保存一次性 `requestedLocalNoteId`，切换到 `LOCAL_NOTE_MANAGEMENT` 时传入 `preferredNoteId`。
+- `LocalNoteManagementPage` 以 `LaunchedEffect(preferredNoteId)` 调用既有 `LocalNoteManagementViewModel.selectNote()`，详情仍由 `AgentNoteManagementStore.get()` 当前事实回读，不复用 Tool part 摘要；返回设置时清空导航目标，Activity Saver 只保留一次性目标。
+- 本阶段不改消息持久化模型、Room Schema、工具权限、写工具、后台执行或任意 App 边界。
+
+## 第 167 阶段：中断筛选空状态与历史回退（完成）
+
+- `AgentTaskCenterPage` 在 `INTERRUPTED` 筛选为空时显示“没有失败或已取消的 Agent Run”及不会重放工具的稳定说明；存在其他历史时才显示 `agent-task-show-all` 回退按钮。
+- 回退只修改页面本地筛选为 `ALL`，不刷新、不执行、不修改 Room；其他筛选仍复用原有泛化空状态。
+- `AgentTaskFilterPolicyTest` 增加显式 `ALL` 回退边界；本阶段不触碰 Runtime、Repository 或任务操作权限。
+
+## 第 166 阶段：恢复入口聚焦中断 Run（完成）
+
+- `AgentTaskFilter.INTERRUPTED` 只匹配 `FAILED / CANCELLED`，不依赖重试资格，因此即使某个失败 Run 不可重试，也能在恢复复盘入口中看到。
+- `XiaoLingContent` 保存任务中心的初始筛选：启动恢复动作使用 `INTERRUPTED`，设置根手动进入使用 `ALL`；`AgentTaskCenterPage` 只在入口筛选变化时初始化本地筛选，用户后续切换不被刷新覆盖。
+- `AgentTaskFilterPolicyTest` 增加失败、取消和执行中反例；本阶段不触碰 Runtime、Repository、Run 状态或后台调度。
+
+## 第 165 阶段：启动恢复提示直达任务中心（完成）
+
+- `OperationResult` 增加可选 `OperationResultAction`；启动恢复策略仅为实际收敛到 `FAILED / CANCELLED` 的提示设置任务中心动作，其他结果保持默认 `null`。
+- `XiaoLingApp` 将该动作投影到 `CenterNotice`。按钮只在动作存在时渲染；点击执行 `refreshAgentRunHistory()`、打开 `SettingsPane.AGENT_RUN_HISTORY` 并清除一次性提示，自动消失仍不会导航。
+- `StartupRunRecoveryNoticePolicyTest` 增加失败/取消动作断言；本阶段不改变恢复、执行、权限、Room Schema 或后台行为。
+
 ## 第 164 阶段：启动中断 Run 用户提示（完成）
 
 - 新增 `settleStartupInterruptedRuns()`，保持 `closeInterruptedRuns()` 为唯一结算入口；只有返回正数后才按冻结候选 ID 逐一回读 `AgentRunRecord`，避免根据启动前 `EXECUTING / VERIFYING` 中间态猜测结果。

@@ -52,6 +52,28 @@ class AgentTaskFilterPolicyTest {
     }
 
     @Test
+    fun interruptedFilterIncludesOnlySettledFailureAndCancellation() {
+        assertTrue(
+            AgentTaskFilter.INTERRUPTED.matches(
+                status = AgentRunStatus.FAILED,
+                retryEligibility = AgentTaskRetryEligibility.NotRetryable,
+            ),
+        )
+        assertTrue(
+            AgentTaskFilter.INTERRUPTED.matches(
+                status = AgentRunStatus.CANCELLED,
+                retryEligibility = AgentTaskRetryEligibility.NotRetryable,
+            ),
+        )
+        assertFalse(
+            AgentTaskFilter.INTERRUPTED.matches(
+                status = AgentRunStatus.EXECUTING,
+                retryEligibility = AgentTaskRetryEligibility.NotRetryable,
+            ),
+        )
+    }
+
+    @Test
     fun activeAndCompletedFiltersPreserveExistingStatusBoundaries() {
         assertTrue(
             AgentTaskFilter.ACTIVE.matches(
@@ -67,6 +89,16 @@ class AgentTaskFilterPolicyTest {
         )
         assertTrue(
             AgentTaskFilter.COMPLETED.matches(
+                status = AgentRunStatus.COMPLETED,
+                retryEligibility = AgentTaskRetryEligibility.NotRetryable,
+            ),
+        )
+    }
+
+    @Test
+    fun allFilterRemainsTheExplicitFallbackForEmptyInterruptedView() {
+        assertTrue(
+            AgentTaskFilter.ALL.matches(
                 status = AgentRunStatus.COMPLETED,
                 retryEligibility = AgentTaskRetryEligibility.NotRetryable,
             ),

@@ -300,6 +300,7 @@ internal fun ConversationPage(
                                 answerabilityNotice = messages.answerabilityNotices[message.id],
                                 onOpenKnowledgeDocument = actions::openKnowledgeDocument,
                                 onOpenInspectedTask = actions::openInspectedTask,
+                                onOpenLocalNote = actions::openLocalNote,
                                 onReuseUserMessage = actions::updatePrompt,
                             )
                             if (messages.activeAgentRun?.run?.userMessageId == message.id) {

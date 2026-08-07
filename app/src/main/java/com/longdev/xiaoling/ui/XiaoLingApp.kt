@@ -157,6 +157,7 @@ private fun XiaoLingContent(
     val isProviderEditor = navigation.tab == XiaoLingAppTab.SETTINGS && state.manageDraft != null
     val hideBottomBar = navigation.hidesBottomBar(providerEditorOpen = isProviderEditor)
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
+    var agentTaskCenterInitialFilter by remember { mutableStateOf(AgentTaskFilter.ALL) }
     val conversationActions = remember(
         viewModel,
         attachImageLauncher,
@@ -225,6 +226,10 @@ private fun XiaoLingContent(
                         requestedWorkflowId = workflowId,
                     )
                 }
+            }
+
+            override fun openLocalNote(noteId: String) {
+                navigation.openLocalNote(noteId)
             }
 
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
@@ -297,6 +302,7 @@ private fun XiaoLingContent(
             centerNotice = CenterNotice(
                 text = "${result.title}：${result.message}",
                 success = result.success,
+                action = result.action,
             )
             viewModel.clearResult()
         }
@@ -373,6 +379,7 @@ private fun XiaoLingContent(
                             )
                         },
                         onOpenAgentRunHistory = {
+                            agentTaskCenterInitialFilter = AgentTaskFilter.ALL
                             navigation.openSettingsPane(SettingsPane.AGENT_RUN_HISTORY)
                         },
                         onOpenProcessExitObservations = {
@@ -391,11 +398,14 @@ private fun XiaoLingContent(
                         },
                         requestedKnowledgeDocumentId = navigation.requestedKnowledgeDocumentId,
                         requestedWorkflowId = navigation.requestedWorkflowId,
+                        requestedLocalNoteId = navigation.requestedLocalNoteId,
+                        agentTaskCenterInitialFilter = agentTaskCenterInitialFilter,
                         onBackToSettings = {
                             navigation.openSettingsPane(
                                 pane = SettingsPane.ROOT,
                                 requestedKnowledgeDocumentId = null,
                                 requestedWorkflowId = null,
+                                requestedLocalNoteId = null,
                             )
                         },
                         modifier = Modifier.matchParentSize(),
@@ -407,6 +417,22 @@ private fun XiaoLingContent(
         centerNotice?.let {
             CenterNoticePopup(
                 notice = it,
+                onAction = { action ->
+                    when (action) {
+                        OperationResultAction.OPEN_AGENT_RUN_HISTORY -> {
+                            agentTaskCenterInitialFilter = AgentTaskFilter.ALL
+                            viewModel.refreshAgentRunHistory()
+                            navigation.openSettingsPane(SettingsPane.AGENT_RUN_HISTORY)
+                            centerNotice = null
+                        }
+                        OperationResultAction.OPEN_INTERRUPTED_AGENT_RUN_HISTORY -> {
+                            agentTaskCenterInitialFilter = AgentTaskFilter.INTERRUPTED
+                            viewModel.refreshAgentRunHistory()
+                            navigation.openSettingsPane(SettingsPane.AGENT_RUN_HISTORY)
+                            centerNotice = null
+                        }
+                    }
+                },
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -478,12 +504,14 @@ private fun XiaoLingContent(
 private data class CenterNotice(
     val text: String,
     val success: Boolean = true,
+    val action: OperationResultAction? = null,
     val id: Long = System.nanoTime(),
 )
 
 @Composable
 private fun CenterNoticePopup(
     notice: CenterNotice,
+    onAction: (OperationResultAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val containerColor = if (notice.success) {
@@ -505,12 +533,29 @@ private fun CenterNoticePopup(
         modifier = modifier
             .padding(horizontal = 36.dp),
     ) {
-        // long: 轻提示只承担状态反馈，不绑定 clickable 或 pointerInput，避免提示出现时拦截页面点击。
-        Text(
-            text = notice.text,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-        )
+        Column(
+            modifier = Modifier.padding(start = 14.dp, end = 8.dp, top = 9.dp, bottom = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            // long: 普通通知仍只展示状态；只有恢复提示携带受限动作，避免轻提示意外变成全局操作入口。
+            Text(
+                text = notice.text,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            notice.action?.let { action ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(
+                        onClick = { onAction(action) },
+                        modifier = Modifier.testTag("center_notice_action"),
+                    ) {
+                        Text("查看任务")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -760,6 +805,8 @@ private fun SettingsPage(
     onRequestNotificationPermission: () -> Unit,
     requestedKnowledgeDocumentId: String?,
     requestedWorkflowId: String?,
+    requestedLocalNoteId: String?,
+    agentTaskCenterInitialFilter: AgentTaskFilter,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -820,6 +867,7 @@ private fun SettingsPage(
             )
             pane == SettingsPane.LOCAL_NOTE_MANAGEMENT -> LocalNoteManagementPage(
                 onBack = onBackToSettings,
+                preferredNoteId = requestedLocalNoteId,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.KNOWLEDGE_MANAGEMENT -> KnowledgeManagementPage(
@@ -866,6 +914,7 @@ private fun SettingsPage(
                 state = state.toAgentTaskCenterUiState(),
                 actions = viewModel,
                 onBack = onBackToSettings,
+                initialFilter = agentTaskCenterInitialFilter,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.PROCESS_EXIT_OBSERVATIONS -> ProcessExitObservationPage(

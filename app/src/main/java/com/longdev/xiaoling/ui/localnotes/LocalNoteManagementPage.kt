@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,9 +50,13 @@ import java.util.Locale
 @Composable
 internal fun LocalNoteManagementPage(
     onBack: () -> Unit,
+    preferredNoteId: String? = null,
     modifier: Modifier = Modifier,
     viewModel: LocalNoteManagementViewModel = viewModel(),
 ) {
+    LaunchedEffect(preferredNoteId) {
+        preferredNoteId?.let(viewModel::selectNote)
+    }
     LocalNoteManagementContent(
         state = viewModel.uiState,
         actions = viewModel,
