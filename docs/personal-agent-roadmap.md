@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 190 阶段：启动恢复失败可见投影（完成）
+
+- 启动提示在 Room 收敛完成后回读最新 Recovery 事件，统计存在 `restartDisposition` 的无法原地恢复 Run。
+- 用户可从提示进入 Agent 任务中心，明确知道继续操作只能通过确认后创建关联新 Run；不恢复或重放旧 Run。
+- 提示继续遵守隐私边界，仅展示终态数量和操作边界，不暴露目标、原始错误、Run ID 或工具参数。聚焦 JVM 通过；未扩展恢复执行、自动重试、Room Schema、Workflow 或后台能力。
+- 下一阶段对任务中心的“确认后重新发起”边界做一次一致性检查，确保提示、详情卡和重试协调器都不会重放旧 Run。
+
 ## 第 189 阶段：失败日程修改 Run 终态恢复验证（完成）
 
 - 在真实 Room 中构造已失败的 `calendar.update_event` Run：执行结果失败、无 `COMMITTED` 回执，工具恢复契约为 `RESTART_REQUIRED + DENY`。

@@ -1,7 +1,14 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
+import com.longdev.xiaoling.agent.AgentRunRestartDisposition
+import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
+import com.longdev.xiaoling.agent.AgentRunResumeKind
+import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.RunEventRecord
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -44,6 +51,30 @@ class StartupRunRecoveryNoticePolicyTest {
         assertTrue(notice!!.message.contains("取消 1 个"))
         assertFalse(notice.message.contains("失败 1 个"))
         assertEquals(OperationResultAction.OPEN_INTERRUPTED_AGENT_RUN_HISTORY, notice.action)
+    }
+
+    @Test
+    fun restartRequiredBoundaryIsVisibleWithoutExposingRunDetails() {
+        val notice = projectStartupRunRecoveryNotice(
+            listOf(
+                run(
+                    id = "run-restart-required",
+                    status = AgentRunStatus.CANCELLED,
+                    restartDisposition = AgentRunRestartDisposition(
+                        code = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                        reason = "旧 Run 不可原地恢复",
+                        evidenceBoundary = "仅允许建立新 Run",
+                        suggestedAction = "在任务中心确认后重试",
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(notice!!.message.contains("无法原地恢复"))
+        assertTrue(notice.message.contains("确认后创建关联新 Run"))
+        assertTrue(notice.message.contains("旧 Run 不会重放"))
+        assertFalse(notice.message.contains("run-restart-required"))
+        assertFalse(notice.message.contains("旧 Run 不可原地恢复"))
     }
 
     @Test
@@ -101,16 +132,41 @@ class StartupRunRecoveryNoticePolicyTest {
         status: AgentRunStatus,
         goal: String = "任务目标",
         errorMessage: String? = null,
-    ) = AgentRunRecord(
-        id = id,
-        conversationId = "conversation-$id",
-        userMessageId = "message-$id",
-        goal = goal,
-        status = status,
-        result = null,
-        errorMessage = errorMessage,
-        createdAt = 1L,
-        updatedAt = 2L,
-        completedAt = 3L,
-    )
+        restartDisposition: AgentRunRestartDisposition? = null,
+    ): AgentRunDetailRecord {
+        val record = AgentRunRecord(
+            id = id,
+            conversationId = "conversation-$id",
+            userMessageId = "message-$id",
+            goal = goal,
+            status = status,
+            result = null,
+            errorMessage = errorMessage,
+            createdAt = 1L,
+            updatedAt = 2L,
+            completedAt = 3L,
+        )
+        val events = restartDisposition?.let { disposition ->
+            listOf(
+                RunEventRecord(
+                    id = "event-recovery-$id",
+                    runId = id,
+                    type = "run.recovered",
+                    message = "启动恢复收敛",
+                    createdAt = 3L,
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.EXECUTING,
+                        toStatus = status,
+                        reason = disposition.reason,
+                        resumeKind = AgentRunResumeKind.RESTART_REQUIRED,
+                        restartDisposition = disposition,
+                    ),
+                ),
+            )
+        }.orEmpty()
+        return AgentRunDetailRecord(
+            snapshot = AgentRunSnapshot(record, emptyList(), events),
+            approvals = emptyList(),
+        )
+    }
 }

@@ -4,6 +4,12 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 190 阶段：启动恢复失败可见投影
+
+- `:app:testDebugUnitTest --tests com.longdev.xiaoling.ui.StartupRunRecoveryNoticePolicyTest` 通过。测试覆盖失败/取消终态汇总、Recovery 中 `restartDisposition` 的边界提示、私密内容脱敏与无收敛时不读候选。
+- 启动提示仅回读收敛后的 `AgentRunDetailRecord`，统计无法原地恢复的 Run，跳转任务中心后还是由现有重试证据和确认流程决定是否新建 Run。未调用恢复执行器，未重放工具。
+- 本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未修改生产恢复策略、Room v36、Workflow 或后台边界。
+
 ## 2026-08-08 第 189 阶段：失败日程修改 Run 终态恢复验证
 
 - `:app:assembleDebug :app:assembleDebugAndroidTest` 通过；新增 `RoomAgentRunRepositoryInstrumentedTest#failedCalendarUpdateRunStaysTerminalAcrossRestartAndCannotReplay`。

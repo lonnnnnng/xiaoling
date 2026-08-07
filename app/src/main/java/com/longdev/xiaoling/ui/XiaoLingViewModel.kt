@@ -847,7 +847,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 val notice = settleStartupInterruptedRuns(
                     candidateRunIds = recoveryCandidates.agentRunIds,
                     closeInterruptedRuns = agentRunUseCase::closeInterruptedRuns,
-                    loadRun = { runId -> agentRunRepository.runDetail(runId)?.snapshot?.run },
+                    loadRun = { runId -> agentRunRepository.runDetail(runId) },
                 )
                 StartupAgentRecoveryState(
                     approvalRuns = approvals,

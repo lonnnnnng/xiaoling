@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 189 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 190 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 190 阶段完成启动恢复后的可见故障投影。启动提示在回读持久化 Recovery 元数据后，会统计无法原地恢复的 Run，明确提示用户只能在任务中心确认后创建关联新 Run，旧 Run 不会重放；不展示任务目标、错误、Run ID 或其他私密内容。聚焦 JVM 单元测试通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
 第 189 阶段完成失败日程修改 Run 的终态恢复验证。Redmi 上的 Room instrumentation 构造无 `COMMITTED` 回执的 `calendar.update_event` 失败事实，重建 `RoomAgentRunRepository` 后恢复策略仍为 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`；启动收口返回 `0`，Run 保持 `FAILED`，Step、Tool Result 和事件数量不变，且没有新增 `run.recovered`。Debug/AndroidTest APK、Redmi 恢复单项和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未新增生产恢复、重放、Room Schema 或后台能力。
 

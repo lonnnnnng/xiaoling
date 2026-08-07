@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 190 阶段：启动恢复失败可见投影（完成）
+
+- `settleStartupInterruptedRuns()` 现在在启动收敛事务完成后回读完整 `AgentRunDetailRecord`，仅从最新 `run.recovered` 中统计存在 `restartDisposition` 的 Run。
+- 当存在无法原地恢复的 Run 时，`OperationResult` 会提示用户前往任务中心确认后创建关联新 Run，明确旧 Run 不会重放；统计和提示不包含目标、错误、Run ID 或工具参数。
+- `XiaoLingViewModel.initialize()` 只改为传递 Room detail 给提示投影，未改变 `closeInterruptedRuns()` 、`AgentRunResumePolicy` 或重试协调器的执行行为。聚焦 JVM `StartupRunRecoveryNoticePolicyTest` 通过。
+
 ## 第 189 阶段：失败日程修改 Run 终态恢复验证（完成）
 
 - `RoomAgentRunRepositoryInstrumentedTest#failedCalendarUpdateRunStaysTerminalAcrossRestartAndCannotReplay` 使用真实 Room 构造 `calendar.update_event` 失败 Run，Tool Result 显式为 `success=false`、`RESTART_REQUIRED` 且无 execution receipt。
