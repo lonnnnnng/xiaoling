@@ -120,6 +120,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "从当前 Store 返回目标笔记正文，或明确说明未找到或已删除。",
         ),
         AgentSkillDefinition(
+            id = "local-note-delete",
+            name = "笔记删除",
+            description = "检索并在用户确认后删除一条小灵本机笔记。",
+            instructions = "只有用户明确要求删除时才执行。先用 notes.list 或 notes.search 定位唯一笔记，再用 notes.get 核对正文和稳定 ID；目标不唯一、已删除或用户未确认时停止，不猜测 ID。",
+            toolNames = setOf("notes.list", "notes.search", "notes.get", "notes.delete"),
+            keywords = setOf("删除笔记", "移除笔记", "delete note", "remove note"),
+            triggerExamples = listOf("删除标题匹配的这条笔记", "找到这条笔记并确认后删除"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "搜索无结果、目标不唯一、详情读取失败或删除未验证时停止，不宣称删除成功。",
+            completionCriteria = "目标笔记经用户批准后形成删除回执并回读不可见，或明确说明未删除。",
+        ),
+        AgentSkillDefinition(
             id = "task-overview",
             name = "任务清单",
             description = "查看小灵中已有的任务、应用内提醒和最近运行状态。",

@@ -1,5 +1,13 @@
 # 产品需求
 
+## Agent 受控删除本地笔记（第 172 阶段，完成）
+
+- 应新增仅前台、需要逐次用户确认的 `notes.delete(note_id)`；`note_id` 必须是当前 `notes.list/search/get` 返回的标准稳定 ID，畸形、不存在、已删除或未经授权的目标不得产生副作用。
+- Agent 必须先定位唯一笔记并用 `notes.get` 核对正文，再删除同一个 ID。独立 `local-note-delete` Skill 不得修改既有只读/创建 Skill，旧 Profile 与历史 Run 不得自动获得删除权限。
+- 生产删除必须复用 Room tombstone，清空用户正文但保留 ID 与原创建幂等键；成功前必须回读 list/search/get 不可见，历史 `notes.create` 重放必须继续失败。
+- 成功删除必须生成绑定 ToolCall 和 note ID 的 `COMMITTED` 回执。只有该回执完整存在时才可恢复期只读验证；未提交、回执缺失、参数或 operation 漂移时不得再次执行 delete，也不得宣称成功。
+- 本阶段不新增 Room Schema、Android 权限、后台笔记写入、批量删除、编辑或任意 App 能力。Debug 夹具必须使用固定幂等键精确清理，不能扫描或物理删除用户笔记。
+
 ## 真实 Provider 搜索并读取笔记全文（第 171 阶段，完成）
 
 - Debug 验收必须读取手机当前已保存 Provider，创建唯一且可精确清理的测试笔记；API Key 不得进入广播参数、探针日志或测试夹具。

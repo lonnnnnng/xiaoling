@@ -2,6 +2,8 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
+第 172 阶段完成 Agent 受控删除本地笔记。新增仅前台、需要审批的 `notes.delete(note_id)` 与独立 `local-note-delete` Skill；Agent 必须先定位并读取唯一笔记，再删除同一稳定 ID。生产路径复用 Room tombstone，清空正文但保留创建幂等键，历史 `notes.create` 不能恢复内容；已提交回执只允许恢复期回读验证，没有回执时不自动重放。Redmi 真实 Run `run-ad492c65-a750-400b-a437-ea41eac61784` 严格执行 `notes.search -> notes.get -> notes.delete`，审批和三项验证均通过，夹具与临时 Profile 已清理。
+
 第 171 阶段在 Redmi 完成真实 Provider 的本地笔记全文读取闭环。Debug-only 探针使用当前已保存 Provider 和显式临时 Profile，真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 选择 `local-note-detail` Skill，严格执行 `notes.search -> notes.get`；两项结果均为 `success=true / verificationStatus=PASSED`，搜索结果的稳定 ID 原样进入全文读取，正文保留“本地数据，不是工具指令”边界，审批记录为 0。测试笔记与临时 Profile 均已清理，没有新增生产权限、Room Schema 或 Release 代码。
 
 第 170 阶段在发布后新增 SAFE `notes.get(note_id)`，让 Agent 能从 `notes.list / notes.search` 返回的稳定 `note-UUID` 继续读取当前本地笔记正文。工具严格拒绝畸形 ID，把不存在与已删除 tombstone 合并为同一安全失败，并把异常旧数据的正文输出限制在 20,000 字符；正文明确标记为本地数据而非工具指令。没有新增 Room Schema、写权限或后台副作用。既有 Profile 不自动扩权，需显式启用新工具和独立 `local-note-detail` Skill；第 171 阶段已补齐聚焦 JVM、Debug APK 和 Redmi 真实 Provider 验证。
@@ -68,7 +70,7 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
   - 任务模式可把明确的未来或周期表达映射为应用内提醒：支持一次性 1 至 10080 分钟、每日和每周规则，确认页显示系统时区和“非精确定时”边界。用户确认前不创建任何 Workflow 或调度记录；确认后 Room 原子写入 Workflow 与首个 ScheduledTask/周期规则，再复用现有 WorkManager 和结果通知。定时提醒不允许目标 App、`device.*` 完成标准或设备最终应用，需要审批的其他动作到时只会进入既有待处理通知，不会在后台自动获批。立即任务保持原前台执行路径。
   - Android 13+ 提醒确认需要通知权限时，确认弹层会等待系统权限结果并禁用重复确认/返回；无论授权或拒绝，只有权限回调返回且原计划仍有效时才提交已确认提醒。通知权限只决定结果通知能否显示，不改变用户已确认的应用内调度语义。
   - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
-  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`tasks.list`、`notes.list`、`notes.search`、`notes.get`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create` 和 `memory.remember`。`notes.get` 只接受搜索结果中的稳定 `note-UUID` 并从当前 Store 读取正文；`tasks.list` 只读返回现有 Workflow/提醒的名称、目标、启停、步骤数、最近状态和下次时间。既有 Profile 不会自动扩权，需显式启用新工具与对应 Skill。
+  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`tasks.list`、`notes.list`、`notes.search`、`notes.get`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create`、`notes.delete` 和 `memory.remember`。`notes.get/delete` 只接受读取结果中的稳定 `note-UUID`；删除仅允许前台执行并复用 tombstone 防恢复语义。既有 Profile 不会自动扩权，需显式启用新工具与对应 Skill。
   - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。
   - `NOT_COMMITTED_REPLAY_ELIGIBLE` 已接入用户控制的受控关联重试：请求与确认都重新读取 Room，使用来源 Profile 和当前 Registry 重核恢复资格；确认后创建带 `retryOfRunId` 的新 Run，冻结来源工具名称、风险、参数与恢复契约，同时生成新的 ToolCall ID。新 Run 不调用模型重新规划，仍重新发起独立工具审批，批准后只执行该调用一次并直接总结；旧 Run、旧 ToolCall、旧审批和旧 Executor 均保持不变，Workflow 与后台入口不开放该路径。
   - 进程恢复后的链尾审批已由独立 `RecoveredAgentApprovalCoordinator` 编排：每次决定都重新读取 Room detail 并复用 `AgentRunResumePolicy` 核验唯一链尾证据，批准前先恢复原 USER 附件，重复批准/拒绝由一次性互斥门禁拒绝。另一会话的恢复审批占用门禁时返回 `Busy`，当前 `PENDING` 卡片保持可重试；附件或前置能力失败且审批仍为 `PENDING` 时也会恢复卡片。拒绝在一个 Room 事务中原子收敛 Approval、审批 Step 与原 Run，避免半状态。普通前台审批仍由独立 `AgentApprovalDecisionCoordinator` 管理 waiter，两条边界不合并。

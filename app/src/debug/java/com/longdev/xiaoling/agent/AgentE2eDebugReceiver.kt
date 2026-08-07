@@ -120,6 +120,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_TASK_CANCEL_REAL -> runTaskCancelReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
+                    OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
                         appContext,
@@ -956,6 +957,156 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         }
     }
 
+    private suspend fun runNotesDeleteReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage172-$now"
+        val title = "第172阶段待删除笔记-$keyword"
+        val content = "这条正文用于确认 Agent 在删除前读取了正确目标，删除后历史创建调用也不能恢复。"
+        val fixtureIdempotencyKey = "stage172-notes-delete-fixture"
+        val temporaryProfileId = "stage172-notes-delete-profile"
+        val profileStore = RoomAgentProfileStore(context)
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        val database = XiaoLingDatabase.getInstance(context)
+        val noteDao = database.agentNoteDao()
+        // long: 固定幂等键只属于第172阶段 Debug 夹具；上次进程若在 finally 前退出，可以精确回收活动笔记或隐藏 tombstone，不扫描和误删用户笔记。
+        noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey)
+            ?.let { staleFixture -> noteDao.deleteNote(staleFixture.id) }
+        val noteStore = RoomAgentNoteStore(context)
+        val fixture = noteStore.create(title, content, fixtureIdempotencyKey)
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第172阶段笔记删除验收",
+            avatar = "172",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只有用户明确要求删除时才操作。必须先按唯一关键词搜索，再读取唯一结果全文核对稳定 ID，最后只删除这一个 ID；不得猜测 ID、跳过读取或调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("notes.list", "notes.search", "notes.get", "notes.delete"),
+            allowedSkillIds = listOf("local-note-delete"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        try {
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第172阶段笔记删除 Profile" }
+            Log.i(TAG, "notes-delete-real start=true provider=${provider.id} model=${provider.model}")
+            val conversationId = "conversation-redmi-notes-delete-$now"
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-notes-delete-$now",
+                goal = "请使用唯一关键词“$keyword”搜索本地笔记，读取唯一结果的全文确认目标，然后删除同一个稳定 ID。删除前必须请求确认；禁止猜测 ID、跳过全文读取或操作其他笔记。",
+                skillSelectionGoal = "找到并删除标题匹配的这条笔记",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = repository,
+                    reason = "第172阶段 Redmi 真实笔记删除验收批准",
+                ),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第172阶段 notes.delete Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第172阶段笔记删除 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val selectedSkillIds = detail.snapshot.events
+                .singleOrNull { it.type == "skill.selected" }
+                ?.metadata
+                .let { it as? RunEventMetadata.Reason }
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("local-note-delete")) {
+                "第172阶段没有选择笔记删除 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            check(calls.map { it.toolName } == listOf("notes.search", "notes.get", "notes.delete")) {
+                "笔记删除没有严格按 search -> get -> delete 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            val deleteCall = calls[2]
+            check(searchCall.arguments["query"]?.trim() == keyword) { "notes.search 没有原样使用唯一关键词" }
+            check(getCall.arguments["note_id"]?.trim() == fixture.id) { "notes.get 没有读取搜索结果对应的稳定 ID" }
+            check(deleteCall.arguments["note_id"]?.trim() == fixture.id) { "notes.delete 没有删除已核对的同一稳定 ID" }
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            val orderedResults = calls.map { call -> checkNotNull(resultsByCallId[call.id]) { "${call.toolName} 缺少 Tool Result" } }
+            check(orderedResults.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "笔记删除链存在未通过验证的工具结果"
+            }
+            val deleteResult = orderedResults.last()
+            check(deleteResult.executorVerified == true && deleteResult.executionReceipt?.operationId == fixture.id) {
+                "notes.delete 缺少 Executor 验证或稳定删除回执"
+            }
+            check(
+                detail.approvals.singleOrNull { it.toolName == "notes.delete" }?.status == ApprovalRequestStatus.APPROVED,
+            ) { "notes.delete Room 审批没有收敛为 APPROVED" }
+            val tombstone = checkNotNull(noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey)) {
+                "notes.delete 没有保留防历史重放的 tombstone"
+            }
+            check(tombstone.id == fixture.id && tombstone.title.isEmpty() && tombstone.content.isEmpty()) {
+                "notes.delete tombstone 未清空正文或目标漂移"
+            }
+            check(noteStore.get(fixture.id) == null && noteStore.search(keyword, 10).isEmpty()) {
+                "notes.delete 后当前 Store 仍可读取测试笔记"
+            }
+            val replayFailure = runCatching {
+                noteStore.create(title, content, fixtureIdempotencyKey)
+            }.exceptionOrNull()
+            check(replayFailure is AgentNoteDeletedException) {
+                "历史 notes.create 重放未被 tombstone 拒绝"
+            }
+            Log.i(
+                TAG,
+                "notes-delete-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=local-note-delete tools=notes.search,notes.get,notes.delete approval=APPROVED " +
+                    "resultsVerified=true stableIdBound=true tombstone=true historicalCreateBlocked=true",
+            )
+        } finally {
+            val deletedCount = noteDao.deleteNote(fixture.id)
+            recoveredOriginalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(temporaryProfileId)
+            check(deletedCount == 1 && noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey) == null) {
+                "第172阶段测试笔记清理失败：deletedCount=$deletedCount"
+            }
+            check(profileStore.list().none { it.id == temporaryProfileId }) {
+                "第172阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "notes-delete-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
+    }
+
     private class DebugRoomApprovalGate(
         private val conversationId: String,
         private val repository: RoomAgentRunRepository,
@@ -972,7 +1123,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 status = ApprovalRequestStatus.APPROVED,
                 reason = reason,
             )
-            check(decided?.status == ApprovalRequestStatus.APPROVED) { "Debug notes.create 审批无法持久化批准" }
+            check(decided?.status == ApprovalRequestStatus.APPROVED) { "Debug 工具审批无法持久化批准" }
             return ApprovalDecision(approved = true, reason = decided.decisionReason.orEmpty())
         }
     }
@@ -2478,6 +2629,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_TASK_CANCEL_REAL = "task_cancel_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
+        const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"

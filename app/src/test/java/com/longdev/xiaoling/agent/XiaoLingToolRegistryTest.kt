@@ -343,6 +343,7 @@ class XiaoLingToolRegistryTest {
                 "notes.search",
                 "notes.get",
                 "notes.create",
+                "notes.delete",
                 "memory.search",
                 "memory.remember",
                 "knowledge.search",
@@ -357,12 +358,17 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.delete").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertEquals(listOf("note_id"), tools.getValue("notes.get").inputSchema.map { it.name })
         assertEquals(ToolRisk.SAFE, tools.getValue("notes.get").risk)
+        assertEquals(listOf("note_id"), tools.getValue("notes.delete").inputSchema.map { it.name })
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
+        assertFalse(tools.getValue("notes.delete").permissionPolicy.supportsBackground)
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertNotNull(tools.getValue("tasks.inspect").inputSchema.singleOrNull { it.name == "name" && it.required })
@@ -467,8 +473,11 @@ class XiaoLingToolRegistryTest {
         )
         assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.delete").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
         val deviceSnapshot = testRegistry().registeredTools().single { it.name == "device.snapshot" }
         assertEquals(ToolRisk.SAFE, deviceSnapshot.risk)
@@ -1392,6 +1401,101 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun notesDeleteRemovesOnlyTheStableTargetAndReturnsCommittedReceipt() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(
+                id = noteId,
+                title = "待删除笔记",
+                content = "删除后必须从当前 Store 消失。",
+                createdAt = 1L,
+                updatedAt = 2L,
+            )
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        val call = ToolCall(
+            id = "tool-call-note-delete",
+            name = "notes.delete",
+            arguments = mapOf("note_id" to noteId),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("已删除并验证笔记：待删除笔记"))
+        assertNull(noteStore.get(noteId))
+        assertEquals(listOf(noteId), noteStore.deletedIds)
+        assertEquals(
+            ToolExecutionReceipt(
+                toolCallId = call.id,
+                operationId = noteId,
+                idempotencyKey = noteId,
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+            result.executionReceipt,
+        )
+    }
+
+    @Test
+    fun notesDeleteRejectsMalformedAndMissingIdsWithoutCallingDelete() = runTest {
+        val noteStore = InMemoryAgentNoteStore()
+        val registry = testRegistry(noteStore = noteStore)
+
+        val malformed = registry.execute(
+            ToolCall(
+                name = "notes.delete",
+                arguments = mapOf("note_id" to "note-1"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        val missing = registry.execute(
+            ToolCall(
+                name = "notes.delete",
+                arguments = mapOf("note_id" to "note-12345678-1234-1234-1234-123456789abc"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertFalse(malformed.success)
+        assertEquals("笔记 ID 格式无效", malformed.content)
+        assertFalse(missing.success)
+        assertEquals("未找到笔记或笔记已被删除", missing.content)
+        assertEquals(0, noteStore.deleteCallCount)
+    }
+
+    @Test
+    fun notesDeleteCommittedEffectVerificationOnlyReadsTheBoundTarget() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(noteId, "恢复删除", "正文", 1L, 2L)
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        val call = ToolCall(
+            id = "tool-call-note-delete-recovery",
+            name = "notes.delete",
+            arguments = mapOf("note_id" to noteId),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val receipt = requireNotNull(registry.execute(call).executionReceipt)
+
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+        val drifted = registry.verifyCommittedEffect(
+            call,
+            receipt.copy(operationId = "note-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+        )
+
+        assertEquals(1, noteStore.deleteCallCount)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertEquals(receipt, recovered?.executionReceipt)
+        assertEquals(false, drifted?.success)
+        assertEquals(false, drifted?.verified)
+        assertTrue(registry.supportsCommittedEffectVerification("notes.delete"))
+    }
+
+    @Test
     fun notesCreateRepeatedToolCallReturnsSameOperationId() = runTest {
         val noteStore = InMemoryAgentNoteStore()
         val registry = testRegistry(noteStore = noteStore)
@@ -2281,8 +2385,10 @@ private class InMemoryAgentConversationStore : AgentConversationStore {
     }
 }
 
-private open class InMemoryAgentNoteStore : AgentNoteStore {
+private open class InMemoryAgentNoteStore : AgentNoteManagementStore {
     val records = mutableListOf<AgentNoteRecord>()
+    val deletedIds = mutableListOf<String>()
+    var deleteCallCount = 0
     private val recordsByIdempotencyKey = mutableMapOf<String, AgentNoteRecord>()
 
     override suspend fun list(limit: Int): List<AgentNoteRecord> = records.take(limit)
@@ -2313,6 +2419,13 @@ private open class InMemoryAgentNoteStore : AgentNoteStore {
     }
 
     open override suspend fun get(id: String): AgentNoteRecord? = records.firstOrNull { it.id == id }
+
+    override suspend fun delete(id: String): Boolean {
+        deleteCallCount += 1
+        val removed = records.removeAll { it.id == id }
+        if (removed) deletedIds += id
+        return removed
+    }
 }
 
 private open class InMemoryAgentMemoryStore : AgentMemoryStore {

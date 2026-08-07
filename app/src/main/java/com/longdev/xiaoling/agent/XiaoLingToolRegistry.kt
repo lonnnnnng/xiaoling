@@ -353,6 +353,35 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = NOTES_DELETE_TOOL_NAME,
+            description = "按 notes.list、notes.search 或 notes.get 返回的稳定 ID 删除一条本地笔记；删除前需要用户确认，删除后会回读验证。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "note_id",
+                    description = "要删除的本地笔记稳定 note-UUID，只能使用当前读取结果中的 ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 41,
+                    maxLength = 41,
+                ),
+            ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    if (NOTE_ID_PATTERN.matches(arguments["note_id"].orEmpty().trim())) {
+                        emptyList()
+                    } else {
+                        listOf("笔记 ID 格式无效")
+                    }
+                },
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            // long: 删除以稳定 note ID 作为幂等目标；没有 COMMITTED 回执时仍保持 DENY，禁止中断后根据“当前不可见”猜测并重放删除。
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "memory.search",
             description = "检索本机长期记忆，帮助回答用户偏好、历史事实或长期备注。",
             risk = ToolRisk.SAFE,
@@ -754,6 +783,7 @@ class XiaoLingToolRegistry(
             "notes.search" -> searchNotes(call)
             "notes.get" -> getNote(call)
             "notes.create" -> createNote(call)
+            NOTES_DELETE_TOOL_NAME -> deleteNote(call)
             "memory.search" -> searchMemory(call)
             "memory.remember" -> remember(call)
             "knowledge.search" -> searchKnowledge(call)
@@ -790,6 +820,7 @@ class XiaoLingToolRegistry(
     ): ToolExecutionResult? {
         return when (call.name) {
             "notes.create" -> verifyCommittedNote(call, receipt)
+            NOTES_DELETE_TOOL_NAME -> verifyCommittedNoteDeletion(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
             TASK_RETRY_TOOL_NAME -> verifyCommittedTaskRetry(call, receipt)
             else -> null
@@ -799,6 +830,7 @@ class XiaoLingToolRegistry(
     override fun supportsCommittedEffectVerification(toolName: String): Boolean {
         // long: 只有具备 operation 账本和结果快照的写工具才进入验证阶段恢复；能力白名单与幂等声明分离，避免未来仅修改 replaySafety 就扩大恢复范围。
         return toolName == "notes.create" ||
+            toolName == NOTES_DELETE_TOOL_NAME ||
             toolName == "memory.remember" ||
             toolName == TASK_RETRY_TOOL_NAME
     }
@@ -1489,6 +1521,71 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun deleteNote(call: ToolCall): ToolExecutionResult {
+        val noteId = call.arguments["note_id"].orEmpty().trim()
+        if (!NOTE_ID_PATTERN.matches(noteId)) {
+            return ToolExecutionResult(success = false, content = "笔记 ID 格式无效")
+        }
+        val managementStore = noteStore as? AgentNoteManagementStore
+            ?: return ToolExecutionResult(success = false, content = "当前笔记存储不支持删除")
+        val existing = noteStore.get(noteId)
+            ?: return ToolExecutionResult(success = false, content = "未找到笔记或笔记已被删除")
+        val safeTitle = existing.title.replace(NOTE_TITLE_LINE_BREAKS, " ").take(MAX_NOTE_TITLE_OUTPUT_LENGTH)
+        // long: Agent 删除与用户详情页共用 Store tombstone 事务；保留原创建幂等键，历史 notes.create 重放只能命中已删除记录并失败，不能恢复正文。
+        if (!managementStore.delete(noteId)) {
+            return ToolExecutionResult(success = false, content = "未找到笔记或笔记已被删除")
+        }
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = noteId,
+            idempotencyKey = noteId,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        return if (noteStore.get(noteId) == null) {
+            ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已删除并验证笔记：$safeTitle · id=$noteId",
+                executionReceipt = receipt,
+            )
+        } else {
+            ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "笔记删除已提交但回读仍可见，不能确认删除成功",
+                executionReceipt = receipt,
+            )
+        }
+    }
+
+    private suspend fun verifyCommittedNoteDeletion(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val noteId = call.arguments["note_id"].orEmpty().trim()
+        val receiptMatchesCall = NOTE_ID_PATTERN.matches(noteId) &&
+            receipt.toolCallId == call.id &&
+            receipt.operationId == noteId &&
+            receipt.idempotencyKey == noteId &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        // long: 恢复阶段只读取回执绑定的目标是否仍不可见，不再次调用 delete；缺回执、目标漂移或重新出现都必须 fail-closed。
+        return if (receiptMatchesCall && noteStore.get(noteId) == null) {
+            ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已删除并验证笔记：id=$noteId",
+                executionReceipt = receipt,
+            )
+        } else {
+            ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "已提交删除与持久化工具证据不一致，不能恢复验证",
+                executionReceipt = receipt,
+            )
+        }
+    }
+
     private suspend fun remember(call: ToolCall): ToolExecutionResult {
         val request = memoryWriteRequest(call)
         if (request.content.isBlank()) return ToolExecutionResult(success = false, content = "长期记忆内容不能为空")
@@ -1874,6 +1971,7 @@ private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
 private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
+private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")

@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 172 阶段：Agent 受控删除本地笔记
+
+- 新增 `notes.delete(note_id)` 与独立 `local-note-delete` Skill。工具仅前台、需要确认、要求标准稳定 note ID，执行生产 Room tombstone 后回读不可见并写入绑定目标的 `COMMITTED` 回执；未提交路径不允许重放，旧 Profile/Skill/Run 不自动扩权。
+- 聚焦 JVM `AgentSkillsTest 20/20 + LegacyRunToolBoundaryTest 2/2 + XiaoLingToolRegistryTest 51/51 = 73/73` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`。仅 Redmi 运行既有 `RoomAgentNoteStoreInstrumentedTest#userDeleteClearsContentAndPreventsHistoricalToolReplay`，结果 `OK (1 test)`、耗时 `0.377s`。
+- Redmi `wsvwypiz7xwslvl7` 真实 Run `run-ad492c65-a750-400b-a437-ea41eac61784` 为 `COMPLETED`，选择 `local-note-delete` 并严格执行 `notes.search -> notes.get -> notes.delete`。Room 审批为 `APPROVED`，三项 Tool Ledger 均 `success=true / PASSED`，删除结果为 `executorVerified=true`，稳定 ID、tombstone 和历史创建重放拒绝均核验通过。
+- 测试笔记和临时 Profile 已精确清理；最新长期文档重新打入 AndroidTest APK 后，仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮结果为 `OK (1 test)`、耗时 `2.736s`。测试 APK 已卸载，主应用与用户 Provider/数据保留。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release；所有设备命令只发送到 Redmi。
+
 ## 2026-08-07 第 171 阶段：真实 Provider 搜索并读取笔记全文
 
 - 新增 Debug-only `notes_search_get_real`。它从设备现有 Provider 读取配置，建立唯一长正文笔记夹具和显式 `local-note-detail` 临时 Profile；API Key 不进入广播参数或探针日志，生产 Release、Room Schema 和用户 Profile 权限不变。

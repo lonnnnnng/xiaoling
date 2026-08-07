@@ -29,6 +29,21 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInLocalNoteDeleteSkillKeepsMutationSeparateFromReadAndCreateSkills() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "找到并删除标题匹配的这条笔记",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "local-note-delete" }
+        assertEquals(setOf("notes.list", "notes.search", "notes.get", "notes.delete"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("只有用户明确要求删除"))
+        assertTrue(BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }.declaredRisk == ToolRisk.SAFE)
+        assertTrue("notes.delete" !in BuiltInAgentSkillRegistry.all().single { it.id == "local-notes" }.toolNames)
+    }
+
+    @Test
     fun builtInKnowledgeSkillSelectsOnlyReadOnlyKnowledgeTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "请从知识库检索发布文档中的真机验收要求",

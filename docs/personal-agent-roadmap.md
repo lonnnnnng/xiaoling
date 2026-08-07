@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 172 阶段：Agent 受控删除本地笔记（完成）
+
+- 个人 Agent 现在可以在用户明确要求时先搜索并读取唯一笔记，再经逐步审批删除同一稳定 ID；`notes.delete` 不接受标题猜测、不允许后台执行，也不自动进入旧 Profile。
+- 删除沿用用户管理页已经验证的 tombstone：当前 list/search/get 不再可见，原创建幂等键继续阻止历史 ToolCall 恢复正文。即时执行与提交后恢复都必须由应用侧回读验证，模型总结不能升级删除事实。
+- 聚焦 JVM `73/73`、Debug/AndroidTest APK、Redmi Room tombstone `1/1` 和真实 Provider Run 已通过。该阶段没有新增 Room Schema、Android 权限、后台写入、批量删除或笔记编辑。
+- 下一阶段继续选择新的直接使用能力；笔记编辑仍需先解决版本冲突和历史 ToolCall 审计，后台设备自动化仍需长任务可靠性与高权限恢复证据，不因本阶段顺带开放。
+
 ## 第 171 阶段：真实 Provider 搜索并读取笔记全文（完成）
 
 - Redmi 真实 Run 已从自然语言目标选择 `local-note-detail`，先按唯一关键词调用 `notes.search`，再把结果中的稳定 ID 原样传给 `notes.get`；两项只读事实均通过 Runtime 验证，模型没有猜 ID 或调用额外工具。

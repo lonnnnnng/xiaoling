@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 172 阶段：Agent 受控删除本地笔记（完成）
+
+- `XiaoLingToolRegistry` 新增仅前台、`REQUIRES_APPROVAL / EXECUTOR_VERIFIED` 的 `notes.delete(note_id)`。Schema 与业务校验共同要求标准 41 字符 `note-UUID`，执行前还从当前 Store 确认目标存在；不存在与 tombstone 统一失败。
+- 删除只通过 `AgentNoteManagementStore.delete()` 进入 Room tombstone 事务，清空标题/正文并保留 ID 与原创建幂等键。成功结果绑定当前 ToolCall、note ID 和 `COMMITTED` 回执，随后回读必须不可见；历史 `notes.create` 继续因 tombstone 抛错，不能恢复正文。
+- 删除以稳定 note ID 作为幂等目标，但 `notCommittedReplayPolicy` 保持 `DENY`：只有持久化提交回执存在时，恢复链才按同一 call/operation/idempotency/note ID 回读验证，不再次调用 delete；缺回执或身份漂移 fail-closed。
+- 新增独立 `local-note-delete` Skill，要求 `list/search -> get -> delete` 且仅在用户明确删除时执行。既有 `local-notes`、`local-note-detail`、旧 Profile 与 `LEGACY_RUN_TOOL_NAMES` 均不加入删除能力。
+- Debug-only `notes_delete_real` 用固定幂等键精确回收中断夹具，并从 Room 核对 Skill、三步 Tool Ledger、审批、tombstone、历史创建重放拒绝和清理，不进入 Release。
+
 ## 第 171 阶段：真实 Provider 搜索并读取笔记全文（完成）
 
 - `AgentE2eDebugReceiver` 新增 `notes_search_get_real`，只读取手机现有 Provider，不通过广播、测试参数或日志传递 API Key；该入口只存在于 Debug source set。
