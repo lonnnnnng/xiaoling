@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 173 阶段：版本化本地笔记编辑闭环
+
+- Room 升级至 v36：旧笔记迁移后 `revision=1`，编辑使用 revision 条件更新并在同一事务写入独立 operation 账本；版本漂移、tombstone、载荷漂移或恢复结果漂移均拒绝覆盖。新增前台 `REQUIRES_APPROVAL` 的 `notes.update`、独立 `local-note-update` Skill 和用户笔记编辑 UI，旧 Profile/Skill/Run 不自动扩权。
+- 聚焦 JVM `AgentSkillsTest 21/21 + LegacyRunToolBoundaryTest 2/2 + XiaoLingToolRegistryTest 53/53 = 76/76` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`。仅 Redmi `wsvwypiz7xwslvl7` 运行数据库迁移、Room Note Store、ViewModel 与 Compose 四个定向类，最终 `OK (42 tests)`、耗时 `13.984s`。
+- Redmi 真实 Run `run-4f5e33bd-5494-4a24-a6cb-8cf49ab2da44` 为 `COMPLETED`，选择 `local-note-update` 并严格执行 `notes.search -> notes.get -> notes.update`；审批为 `APPROVED`，稳定 ID、`expectedRevision=1 / resultRevision=2`、结果回读、operation 恢复验证和历史创建阻断均通过。临时 Profile 和测试笔记已清理。
+- 一次排查时误加 `--receiver-foreground`，MIUI 在约 10 秒真实模型尚未返回时以 `bg anr` 结束 Debug 进程；去掉该标志并显式指定 Receiver 后约 32 秒完成，上述通过样本不包含该失败尝试。最终文档 corpus gate 仅在 Redmi 运行并通过；测试包已卸载，主应用与用户 Provider/数据保留。按分级验证未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，未向模拟器发送任何安装、启动、日志或测试命令。
+
 ## 2026-08-07 第 172 阶段：Agent 受控删除本地笔记
 
 - 新增 `notes.delete(note_id)` 与独立 `local-note-delete` Skill。工具仅前台、需要确认、要求标准稳定 note ID，执行生产 Room tombstone 后回读不可见并写入绑定目标的 `COMMITTED` 回执；未提交路径不允许重放，旧 Profile/Skill/Run 不自动扩权。

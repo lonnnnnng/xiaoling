@@ -121,6 +121,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
+                    OPERATION_NOTES_UPDATE_REAL -> runNotesUpdateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
                         appContext,
@@ -983,7 +984,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val noteDao = database.agentNoteDao()
         // long: 固定幂等键只属于第172阶段 Debug 夹具；上次进程若在 finally 前退出，可以精确回收活动笔记或隐藏 tombstone，不扫描和误删用户笔记。
         noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey)
-            ?.let { staleFixture -> noteDao.deleteNote(staleFixture.id) }
+            ?.let { staleFixture ->
+                noteDao.deleteEditOperationsForNote(staleFixture.id)
+                noteDao.deleteNote(staleFixture.id)
+            }
         val noteStore = RoomAgentNoteStore(context)
         val fixture = noteStore.create(title, content, fixtureIdempotencyKey)
         val profile = AgentProfileRecord(
@@ -1094,6 +1098,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     "resultsVerified=true stableIdBound=true tombstone=true historicalCreateBlocked=true",
             )
         } finally {
+            noteDao.deleteEditOperationsForNote(fixture.id)
             val deletedCount = noteDao.deleteNote(fixture.id)
             recoveredOriginalProfileId?.let { profileStore.select(it) }
             profileStore.delete(temporaryProfileId)
@@ -1104,6 +1109,170 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "第172阶段临时 Profile 清理失败"
             }
             Log.i(TAG, "notes-delete-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
+    }
+
+    private suspend fun runNotesUpdateReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage173-$now"
+        val originalTitle = "第173阶段待编辑笔记-$keyword"
+        val originalContent = "第一版正文用于确认 Agent 读取的是当前 revision。"
+        val updatedTitle = "第173阶段已编辑笔记-$keyword"
+        val updatedContent = "第二版正文用于确认 revision 条件更新、回读验证和历史创建重放拒绝。"
+        val fixtureIdempotencyKey = "stage173-notes-update-fixture"
+        val temporaryProfileId = "stage173-notes-update-profile"
+        val profileStore = RoomAgentProfileStore(context)
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        val database = XiaoLingDatabase.getInstance(context)
+        val noteDao = database.agentNoteDao()
+        // long: 固定幂等键只定位第173阶段夹具；进程若在 finally 前退出，下一次运行会同时清除旧正文、tombstone 和编辑 operation 的目标记录，不扫描用户笔记。
+        noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey)
+            ?.let { staleFixture ->
+                noteDao.deleteEditOperationsForNote(staleFixture.id)
+                noteDao.deleteNote(staleFixture.id)
+            }
+        val noteStore = RoomAgentNoteStore(context)
+        val fixture = noteStore.create(originalTitle, originalContent, fixtureIdempotencyKey)
+        check(fixture.revision == 1L) { "第173阶段夹具初始 revision 不是 1" }
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第173阶段笔记编辑验收",
+            avatar = "173",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只有用户明确要求编辑时才操作。必须先按唯一关键词搜索，再读取唯一结果全文、稳定 ID 和 revision，最后只以同一 ID 和 revision 提交完整的新标题与正文；不得猜测版本、跳过读取或调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("notes.list", "notes.search", "notes.get", "notes.update"),
+            allowedSkillIds = listOf("local-note-update"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        try {
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第173阶段笔记编辑 Profile" }
+            Log.i(TAG, "notes-update-real start=true provider=${provider.id} model=${provider.model}")
+            val conversationId = "conversation-redmi-notes-update-$now"
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-notes-update-$now",
+                goal = "请使用唯一关键词“$keyword”搜索本地笔记，读取唯一结果的全文、稳定 ID 和 revision，然后把完整标题改为“$updatedTitle”，完整正文改为“$updatedContent”。编辑前必须请求确认；禁止猜测 ID、revision、跳过全文读取或操作其他笔记。",
+                skillSelectionGoal = "把这条笔记的正文更新为新内容",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = repository,
+                    reason = "第173阶段 Redmi 真实笔记编辑验收批准",
+                ),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第173阶段 notes.update Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第173阶段笔记编辑 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val selectedSkillIds = detail.snapshot.events
+                .singleOrNull { it.type == "skill.selected" }
+                ?.metadata
+                .let { it as? RunEventMetadata.Reason }
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("local-note-update")) {
+                "第173阶段没有选择笔记编辑 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            check(calls.map { it.toolName } == listOf("notes.search", "notes.get", "notes.update")) {
+                "笔记编辑没有严格按 search -> get -> update 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            val updateCall = calls[2]
+            check(searchCall.arguments["query"]?.trim() == keyword) { "notes.search 没有原样使用唯一关键词" }
+            check(getCall.arguments["note_id"]?.trim() == fixture.id) { "notes.get 没有读取搜索结果对应的稳定 ID" }
+            check(updateCall.arguments["note_id"]?.trim() == fixture.id) { "notes.update 没有编辑已核对的同一稳定 ID" }
+            check(updateCall.arguments["expected_revision"]?.trim() == "1") { "notes.update 没有使用 notes.get 返回的 revision" }
+            check(updateCall.arguments["title"]?.trim() == updatedTitle) { "notes.update 新标题漂移" }
+            check(updateCall.arguments["content"]?.trim() == updatedContent) { "notes.update 新正文漂移" }
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            val orderedResults = calls.map { call -> checkNotNull(resultsByCallId[call.id]) { "${call.toolName} 缺少 Tool Result" } }
+            check(orderedResults.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "笔记编辑链存在未通过验证的工具结果"
+            }
+            val updateResult = orderedResults.last()
+            check(updateResult.executorVerified == true && updateResult.executionReceipt?.operationId == fixture.id) {
+                "notes.update 缺少 Executor 验证或稳定编辑回执"
+            }
+            check(
+                detail.approvals.singleOrNull { it.toolName == "notes.update" }?.status == ApprovalRequestStatus.APPROVED,
+            ) { "notes.update Room 审批没有收敛为 APPROVED" }
+            val updated = checkNotNull(noteStore.get(fixture.id)) { "notes.update 后笔记不可读" }
+            check(updated.title == updatedTitle && updated.content == updatedContent && updated.revision == 2L) {
+                "notes.update 没有形成 revision=2 的完整新内容"
+            }
+            val updateRequest = AgentNoteUpdateRequest(
+                noteId = fixture.id,
+                title = updatedTitle,
+                content = updatedContent,
+                expectedRevision = 1L,
+            )
+            check(
+                noteStore.verifyUpdateOperation(updateCall.id, fixture.id, updateRequest) is AgentNoteUpdateVerification.Verified,
+            ) { "notes.update operation 账本无法恢复验证" }
+            val replayFailure = runCatching {
+                noteStore.create(originalTitle, originalContent, fixtureIdempotencyKey)
+            }.exceptionOrNull()
+            check(replayFailure is AgentNoteIdempotencyConflictException) {
+                "历史 notes.create 重放没有被编辑后的载荷漂移拒绝"
+            }
+            Log.i(
+                TAG,
+                "notes-update-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=local-note-update tools=notes.search,notes.get,notes.update approval=APPROVED " +
+                    "resultsVerified=true stableIdBound=true expectedRevision=1 resultRevision=2 operationVerified=true historicalCreateBlocked=true",
+            )
+        } finally {
+            noteDao.deleteEditOperationsForNote(fixture.id)
+            val deletedCount = noteDao.deleteNote(fixture.id)
+            recoveredOriginalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(temporaryProfileId)
+            check(deletedCount == 1 && noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey) == null) {
+                "第173阶段测试笔记清理失败：deletedCount=$deletedCount"
+            }
+            check(profileStore.list().none { it.id == temporaryProfileId }) {
+                "第173阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "notes-update-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
         }
     }
 
@@ -2630,6 +2799,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
+        const val OPERATION_NOTES_UPDATE_REAL = "notes_update_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"

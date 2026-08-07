@@ -6,6 +6,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.agent.AgentNoteManagementStore
 import com.longdev.xiaoling.agent.AgentNoteRecord
+import com.longdev.xiaoling.agent.AgentNoteUpdateRequest
+import com.longdev.xiaoling.agent.AgentNoteUpdateResult
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -82,6 +84,39 @@ class LocalNoteManagementViewModelInstrumentedTest {
         assertEquals(null, deleted.pendingDeleteNote)
     }
 
+    @Test
+    fun editUsesSelectedRevisionAndKeepsCommittedResultWhenReloadFails() {
+        val store = FakeAgentNoteStore()
+        val viewModel = onMain {
+            LocalNoteManagementViewModel(application = application, store = store)
+        }
+        awaitState(viewModel) { !it.loading && it.notes.any { note -> note.id == NOTE_A } }
+
+        onMain { viewModel.selectNote(NOTE_A) }
+        awaitState(viewModel) { it.selectedNote?.id == NOTE_A }
+        onMain {
+            viewModel.requestEdit(NOTE_A)
+            viewModel.updateEditTitle("第一条已修改")
+            viewModel.updateEditContent("第二版完整正文")
+        }
+        val editing = onMain { viewModel.uiState }
+        assertEquals(1L, editing.editingNote?.revision)
+        assertTrue(store.updateCalls.isEmpty())
+
+        store.failNextList = true
+        onMain { viewModel.confirmEdit() }
+        val updated = awaitState(viewModel) {
+            !it.savingEdit && it.notice == "已编辑笔记：第一条已修改" && it.error?.contains("列表刷新失败") == true
+        }
+
+        assertEquals(1, store.updateCalls.size)
+        assertEquals(1L, store.updateCalls.single().expectedRevision)
+        assertEquals("第二版完整正文", updated.selectedNote?.content)
+        assertEquals(2L, updated.selectedNote?.revision)
+        assertEquals("第一条已修改", updated.notes.single { it.id == NOTE_A }.title)
+        assertEquals(null, updated.editingNote)
+    }
+
     private fun awaitState(
         viewModel: LocalNoteManagementViewModel,
         timeoutMillis: Long = 5_000,
@@ -107,6 +142,7 @@ class LocalNoteManagementViewModelInstrumentedTest {
         val searchCalls = mutableListOf<Pair<String, Int>>()
         val getCalls = mutableListOf<String>()
         val deleteCalls = mutableListOf<String>()
+        val updateCalls = mutableListOf<AgentNoteUpdateRequest>()
         val deletedIds = mutableSetOf<String>()
         var failNextList = false
 
@@ -119,7 +155,7 @@ class LocalNoteManagementViewModelInstrumentedTest {
             return listOf(
                 note(NOTE_A, "第一条", "完整正文 A"),
                 note(NOTE_C, "保留条目", "刷新失败后仍应展示"),
-            ).filterNot { it.id in deletedIds }
+            ).map { overrides[it.id] ?: it }.filterNot { it.id in deletedIds }
         }
 
         override suspend fun search(query: String, limit: Int): List<AgentNoteRecord> {
@@ -133,7 +169,7 @@ class LocalNoteManagementViewModelInstrumentedTest {
 
         override suspend fun get(id: String): AgentNoteRecord? {
             getCalls += id
-            return when (id) {
+            return overrides[id] ?: when (id) {
                 NOTE_A -> note(NOTE_A, "第一条", "完整正文 A")
                 NOTE_B -> note(NOTE_B, "第二条", "完整正文 B")
                 else -> null
@@ -146,6 +182,25 @@ class LocalNoteManagementViewModelInstrumentedTest {
             if (exists) deletedIds += id
             return exists
         }
+
+        override suspend fun update(
+            request: AgentNoteUpdateRequest,
+            idempotencyKey: String,
+        ): AgentNoteUpdateResult {
+            updateCalls += request
+            val current = get(request.noteId) ?: return AgentNoteUpdateResult.NotFound
+            if (current.revision != request.expectedRevision) return AgentNoteUpdateResult.RevisionConflict(current)
+            val updated = current.copy(
+                title = request.title,
+                content = request.content,
+                updatedAt = current.updatedAt + 1L,
+                revision = current.revision + 1L,
+            )
+            overrides[updated.id] = updated
+            return AgentNoteUpdateResult.Updated(updated)
+        }
+
+        private val overrides = mutableMapOf<String, AgentNoteRecord>()
     }
 
     private companion object {

@@ -6,6 +6,10 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentNoteDeletedException
 import com.longdev.xiaoling.agent.AgentNoteIdempotencyConflictException
+import com.longdev.xiaoling.agent.AgentNoteUpdateIdempotencyConflictException
+import com.longdev.xiaoling.agent.AgentNoteUpdateRequest
+import com.longdev.xiaoling.agent.AgentNoteUpdateResult
+import com.longdev.xiaoling.agent.AgentNoteUpdateVerification
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -118,6 +122,62 @@ class RoomAgentNoteStoreInstrumentedTest {
             )
         }.exceptionOrNull()
         assertTrue(replayError is AgentNoteDeletedException)
+    }
+
+    @Test
+    fun editUsesRevisionAndOperationLedgerWithoutOverwritingNewerContent() = runBlocking {
+        var store = openStore()
+        val original = store.create(
+            title = "待编辑笔记",
+            content = "第一版正文",
+            idempotencyKey = "tool-call-note-edit-source",
+        )
+        assertEquals(1L, original.revision)
+        val request = AgentNoteUpdateRequest(
+            noteId = original.id,
+            title = "已编辑笔记",
+            content = "第二版正文",
+            expectedRevision = original.revision,
+        )
+
+        val first = store.update(request, idempotencyKey = "tool-call-note-edit")
+        assertTrue(first is AgentNoteUpdateResult.Updated)
+        val updated = (first as AgentNoteUpdateResult.Updated).note
+        assertEquals(2L, updated.revision)
+        assertEquals("第二版正文", updated.content)
+        assertTrue(
+            store.verifyUpdateOperation("tool-call-note-edit", original.id, request) is AgentNoteUpdateVerification.Verified,
+        )
+
+        database?.close()
+        database = null
+        store = openStore()
+        val replay = store.update(request, idempotencyKey = "tool-call-note-edit")
+        assertTrue(replay is AgentNoteUpdateResult.Updated)
+        assertEquals(2L, (replay as AgentNoteUpdateResult.Updated).note.revision)
+
+        val stale = store.update(
+            request.copy(title = "不应覆盖", content = "旧 revision 不得写入"),
+            idempotencyKey = "tool-call-note-edit-stale",
+        )
+        assertTrue(stale is AgentNoteUpdateResult.RevisionConflict)
+        assertEquals("第二版正文", store.get(original.id)?.content)
+
+        val payloadConflict = runCatching {
+            store.update(request.copy(content = "篡改重放"), idempotencyKey = "tool-call-note-edit")
+        }.exceptionOrNull()
+        assertTrue(payloadConflict is AgentNoteUpdateIdempotencyConflictException)
+
+        assertTrue(store.delete(original.id))
+        val afterDelete = store.update(
+            request.copy(expectedRevision = 3L, content = "不能复活"),
+            idempotencyKey = "tool-call-note-edit-after-delete",
+        )
+        assertTrue(afterDelete is AgentNoteUpdateResult.NotFound)
+        assertNull(store.get(original.id))
+        assertTrue(
+            store.verifyUpdateOperation("tool-call-note-edit", original.id, request) is AgentNoteUpdateVerification.Failed,
+        )
     }
 
     @Test

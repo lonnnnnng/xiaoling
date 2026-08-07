@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -38,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -144,7 +146,7 @@ internal fun LocalNoteManagementContent(
             }
         }
 
-        state.error?.takeIf { state.pendingDeleteNote == null }?.let { error ->
+        state.error?.takeIf { state.pendingDeleteNote == null && state.editingNote == null }?.let { error ->
             Surface(
                 color = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -207,9 +209,23 @@ internal fun LocalNoteManagementContent(
                 onCancel = actions::cancelDelete,
             )
         }
+        state.editingNote != null -> {
+            LocalNoteEditDialog(
+                source = state.editingNote,
+                title = state.editTitle,
+                content = state.editContent,
+                saving = state.savingEdit,
+                error = state.error,
+                onTitleChange = actions::updateEditTitle,
+                onContentChange = actions::updateEditContent,
+                onConfirm = actions::confirmEdit,
+                onCancel = actions::cancelEdit,
+            )
+        }
         state.selectedNote != null -> {
             LocalNoteDetailDialog(
                 note = state.selectedNote,
+                onEdit = { actions.requestEdit(state.selectedNote.id) },
                 onDelete = { actions.requestDelete(state.selectedNote.id) },
                 onClose = actions::closeDetail,
             )
@@ -259,6 +275,7 @@ private fun LocalNoteItemCard(
 @Composable
 private fun LocalNoteDetailDialog(
     note: AgentNoteRecord,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -272,7 +289,7 @@ private fun LocalNoteDetailDialog(
             ) {
                 Text(note.content, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = "创建于 ${note.createdAt.toLocalNoteTimeLabel()}\n更新于 ${note.updatedAt.toLocalNoteTimeLabel()}",
+                    text = "版本 ${note.revision} · 创建于 ${note.createdAt.toLocalNoteTimeLabel()}\n更新于 ${note.updatedAt.toLocalNoteTimeLabel()}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -282,15 +299,85 @@ private fun LocalNoteDetailDialog(
             TextButton(onClick = onClose) { Text("关闭") }
         },
         dismissButton = {
-            TextButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "删除笔记",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(17.dp),
-                )
-                Text("删除", color = MaterialTheme.colorScheme.error)
+            Row {
+                TextButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "编辑笔记", modifier = Modifier.size(17.dp))
+                    Text("编辑")
+                }
+                TextButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "删除笔记",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(17.dp),
+                    )
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
             }
+        },
+    )
+}
+
+@Composable
+private fun LocalNoteEditDialog(
+    source: AgentNoteRecord,
+    title: String,
+    content: String,
+    saving: Boolean,
+    error: String?,
+    onTitleChange: (String) -> Unit,
+    onContentChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val canSave = title.isNotBlank() && content.isNotBlank() &&
+        (title.trim() != source.title || content.trim() != source.content)
+    AlertDialog(
+        onDismissRequest = { if (!saving) onCancel() },
+        title = { Text("编辑本地笔记") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "基于版本 ${source.revision} 保存；如果笔记已在其他位置更新，本次不会覆盖。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = onTitleChange,
+                    label = { Text("标题") },
+                    singleLine = true,
+                    enabled = !saving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("local-note-edit-title"),
+                )
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = onContentChange,
+                    label = { Text("正文") },
+                    minLines = 5,
+                    maxLines = 10,
+                    enabled = !saving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("local-note-edit-content"),
+                )
+                error?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = canSave && !saving) {
+                if (saving) {
+                    CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp)
+                }
+                Text(if (saving) "保存中" else "保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !saving) { Text("取消") }
         },
     )
 }

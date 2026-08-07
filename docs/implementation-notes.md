@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 173 阶段：版本化本地笔记编辑闭环（完成）
+
+- `AgentNoteRecord`、Room `agent_notes` 和所有 list/search/get 输出增加 `revision`。`MIGRATION_35_36` 为旧行补 `revision=1`，并新增 `agent_note_edit_operations`；Schema 36 已导出，迁移测试同时核对旧正文、版本默认值和空 operation 账本。
+- `AgentNoteDao.updateNoteIfRevisionMatches()` 以 `id + expectedRevision + 非 tombstone` 条件更新标题、正文、时间并原子递增版本。`RoomAgentNoteStore.update()` 在同一事务回读结果并写 operation；请求和结果采用长度前缀 canonical SHA-256，避免字段拼接歧义。
+- 成功提交的 operation 以 ToolCall ID 为幂等键。同一 call/载荷回放只验证并返回原结果，载荷、note ID、revision 或当前内容漂移均拒绝；标题和正文均未变化时返回未编辑且不伪造 operation。已提交恢复调用 `verifyUpdateOperation()` 只读核对 operation 与当前笔记哈希，不再次执行 UPDATE。tombstone 删除也递增 revision，不能通过旧 revision 编辑复活。
+- `XiaoLingToolRegistry` 新增仅前台、`REQUIRES_APPROVAL / EXECUTOR_VERIFIED` 的 `notes.update`，要求完整 `note_id / expected_revision / title / content`，并使用受控同调用重放。独立 `local-note-update` Skill 固定“定位唯一目标 -> 读取全文和 revision -> 审批更新”链路，旧 Profile、Skill 和 legacy Run 工具集合保持不变。
+- `LocalNoteManagementViewModel/Page` 增加版本化编辑状态、五行正文编辑器、保存/取消和冲突后最新版本回载。Debug-only `notes_update_real` 从 Room Tool Ledger 核对 `notes.search -> notes.get -> notes.update`、审批、稳定 ID、revision `1 -> 2`、operation 验证和历史创建阻断，并在 finally 精确清理夹具与临时 Profile。
+
 ## 第 172 阶段：Agent 受控删除本地笔记（完成）
 
 - `XiaoLingToolRegistry` 新增仅前台、`REQUIRES_APPROVAL / EXECUTOR_VERIFIED` 的 `notes.delete(note_id)`。Schema 与业务校验共同要求标准 41 字符 `note-UUID`，执行前还从当前 Store 确认目标存在；不存在与 tombstone 统一失败。

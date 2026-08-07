@@ -8,12 +8,15 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.agent.AgentNoteManagementStore
 import com.longdev.xiaoling.agent.AgentNoteRecord
+import com.longdev.xiaoling.agent.AgentNoteUpdateRequest
+import com.longdev.xiaoling.agent.AgentNoteUpdateResult
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 internal data class LocalNoteManagementUiState(
     val loading: Boolean = false,
@@ -23,6 +26,11 @@ internal data class LocalNoteManagementUiState(
     val selectedNoteId: String? = null,
     val selectedNote: AgentNoteRecord? = null,
     val loadingDetail: Boolean = false,
+    val editingNote: AgentNoteRecord? = null,
+    val editTitle: String = "",
+    val editContent: String = "",
+    val editIdempotencyKey: String? = null,
+    val savingEdit: Boolean = false,
     val pendingDeleteNote: AgentNoteRecord? = null,
     val deleting: Boolean = false,
     val notice: String? = null,
@@ -36,6 +44,11 @@ internal interface LocalNoteManagementActions {
     fun clearSearch()
     fun selectNote(noteId: String)
     fun closeDetail()
+    fun requestEdit(noteId: String)
+    fun updateEditTitle(value: String)
+    fun updateEditContent(value: String)
+    fun cancelEdit()
+    fun confirmEdit()
     fun requestDelete(noteId: String)
     fun cancelDelete()
     fun confirmDelete()
@@ -62,18 +75,18 @@ internal class LocalNoteManagementViewModel internal constructor(
     }
 
     override fun refresh() {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         val activeQuery = uiState.searchQuery.trim().takeIf { uiState.showingSearchResults && it.isNotBlank() }
         loadNotes(activeQuery)
     }
 
     override fun updateSearchQuery(value: String) {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         uiState = uiState.copy(searchQuery = value, error = null)
     }
 
     override fun search() {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         val query = uiState.searchQuery.trim()
         if (query.isBlank()) {
             clearSearch()
@@ -83,13 +96,13 @@ internal class LocalNoteManagementViewModel internal constructor(
     }
 
     override fun clearSearch() {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         uiState = uiState.copy(searchQuery = "", error = null)
         loadNotes(query = null)
     }
 
     override fun selectNote(noteId: String) {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         if (uiState.selectedNoteId == noteId && uiState.selectedNote != null) return
         detailJob?.cancel()
         uiState = uiState.copy(
@@ -120,25 +133,152 @@ internal class LocalNoteManagementViewModel internal constructor(
     }
 
     override fun closeDetail() {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         detailJob?.cancel()
         uiState = uiState.copy(
             selectedNoteId = null,
             selectedNote = null,
             loadingDetail = false,
+            editingNote = null,
+            editTitle = "",
+            editContent = "",
+            editIdempotencyKey = null,
             pendingDeleteNote = null,
             error = null,
         )
     }
 
+    override fun requestEdit(noteId: String) {
+        if (uiState.deleting || uiState.savingEdit) return
+        val note = uiState.selectedNote?.takeIf { it.id == noteId } ?: return
+        uiState = uiState.copy(
+            editingNote = note,
+            editTitle = note.title,
+            editContent = note.content,
+            editIdempotencyKey = "ui-note-edit-${UUID.randomUUID()}",
+            error = null,
+            notice = null,
+        )
+    }
+
+    override fun updateEditTitle(value: String) {
+        if (uiState.savingEdit || value.length > MAX_NOTE_TITLE_LENGTH) return
+        uiState = uiState.copy(editTitle = value, error = null)
+    }
+
+    override fun updateEditContent(value: String) {
+        if (uiState.savingEdit || value.length > MAX_NOTE_CONTENT_LENGTH) return
+        uiState = uiState.copy(editContent = value, error = null)
+    }
+
+    override fun cancelEdit() {
+        if (uiState.savingEdit) return
+        uiState = uiState.copy(
+            editingNote = null,
+            editTitle = "",
+            editContent = "",
+            editIdempotencyKey = null,
+            error = null,
+        )
+    }
+
+    override fun confirmEdit() {
+        if (mutationJob?.isActive == true) return
+        val source = uiState.editingNote ?: return
+        val idempotencyKey = uiState.editIdempotencyKey ?: return
+        val title = uiState.editTitle.trim()
+        val content = uiState.editContent.trim()
+        if (title.isBlank() || content.isBlank()) {
+            uiState = uiState.copy(error = "笔记标题和正文不能为空")
+            return
+        }
+        if (title == source.title && content == source.content) {
+            uiState = uiState.copy(error = "笔记标题和正文没有变化")
+            return
+        }
+        listJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(savingEdit = true, error = null, notice = null)
+        mutationJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    store.update(
+                        request = AgentNoteUpdateRequest(
+                            noteId = source.id,
+                            title = title,
+                            content = content,
+                            expectedRevision = source.revision,
+                        ),
+                        idempotencyKey = idempotencyKey,
+                    )
+                }
+                when (result) {
+                    is AgentNoteUpdateResult.Updated -> {
+                        val updated = result.note
+                        val activeQuery = uiState.searchQuery.trim()
+                            .takeIf { uiState.showingSearchResults && it.isNotBlank() }
+                        uiState = uiState.copy(
+                            notes = uiState.notes.map { if (it.id == updated.id) updated else it },
+                            selectedNote = updated,
+                            editingNote = null,
+                            editTitle = "",
+                            editContent = "",
+                            editIdempotencyKey = null,
+                            savingEdit = false,
+                            notice = "已编辑笔记：${updated.title}",
+                            error = null,
+                        )
+                        loadNotes(query = activeQuery, refreshFailurePrefix = "笔记已编辑")
+                    }
+                    is AgentNoteUpdateResult.Unchanged -> {
+                        uiState = uiState.copy(savingEdit = false, error = "笔记标题和正文没有变化")
+                    }
+                    is AgentNoteUpdateResult.RevisionConflict -> {
+                        val current = result.current
+                        uiState = uiState.copy(
+                            notes = uiState.notes.map { if (it.id == current.id) current else it },
+                            selectedNote = current,
+                            editingNote = null,
+                            editTitle = "",
+                            editContent = "",
+                            editIdempotencyKey = null,
+                            savingEdit = false,
+                            error = "笔记已在其他位置更新，已加载最新版本，请重新编辑",
+                        )
+                    }
+                    AgentNoteUpdateResult.NotFound -> {
+                        uiState = uiState.copy(
+                            notes = uiState.notes.filterNot { it.id == source.id },
+                            selectedNoteId = null,
+                            selectedNote = null,
+                            editingNote = null,
+                            editTitle = "",
+                            editContent = "",
+                            editIdempotencyKey = null,
+                            savingEdit = false,
+                            error = "笔记已不存在",
+                        )
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    savingEdit = false,
+                    error = error.message ?: "编辑本地笔记失败",
+                )
+            }
+        }
+    }
+
     override fun requestDelete(noteId: String) {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         val note = uiState.selectedNote?.takeIf { it.id == noteId } ?: return
         uiState = uiState.copy(pendingDeleteNote = note, error = null)
     }
 
     override fun cancelDelete() {
-        if (uiState.deleting) return
+        if (uiState.deleting || uiState.savingEdit) return
         uiState = uiState.copy(pendingDeleteNote = null, error = null)
     }
 
@@ -224,5 +364,7 @@ internal class LocalNoteManagementViewModel internal constructor(
 
     private companion object {
         const val NOTE_PAGE_LIMIT = 10
+        const val MAX_NOTE_TITLE_LENGTH = 200
+        const val MAX_NOTE_CONTENT_LENGTH = 20_000
     }
 }

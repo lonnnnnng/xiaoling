@@ -1,11 +1,18 @@
 # 小灵个人 Agent 路线图
 
+## 第 173 阶段：版本化本地笔记编辑闭环（完成）
+
+- 用户现在可从本地笔记详情进入五行正文编辑器；保存携带详情页读取到的 revision，冲突时保留最新版本并提示重新编辑，不以最后写入时间猜测覆盖顺序。
+- 个人 Agent 新增独立 `local-note-update` Skill 和仅前台、逐次审批的 `notes.update`。工具链必须为唯一目标执行 `notes.search -> notes.get -> notes.update`，并提交同一稳定 ID、当前 revision、完整标题和完整正文；旧 Profile、旧 Skill、旧 Run 与 `LEGACY_RUN_TOOL_NAMES` 不自动扩权。
+- Room v35→v36 把旧笔记统一迁移为 `revision=1`；条件更新成功后 revision 递增。独立 edit operation 账本绑定 ToolCall、请求载荷哈希和结果哈希，已提交恢复只读验证，载荷漂移、结果变化、版本冲突和 tombstone 均 fail-closed。
+- 聚焦 JVM `76/76`、Debug/AndroidTest APK、Redmi 定向 `42/42` 和真实 Provider Run `run-4f5e33bd-5494-4a24-a6cb-8cf49ab2da44` 已通过。下一阶段继续选择直接扩展个人 Agent 可完成任务范围的窄闭环；批量编辑、后台笔记写入、任意文件修改和旧权限自动升级继续关闭。
+
 ## 第 172 阶段：Agent 受控删除本地笔记（完成）
 
 - 个人 Agent 现在可以在用户明确要求时先搜索并读取唯一笔记，再经逐步审批删除同一稳定 ID；`notes.delete` 不接受标题猜测、不允许后台执行，也不自动进入旧 Profile。
 - 删除沿用用户管理页已经验证的 tombstone：当前 list/search/get 不再可见，原创建幂等键继续阻止历史 ToolCall 恢复正文。即时执行与提交后恢复都必须由应用侧回读验证，模型总结不能升级删除事实。
 - 聚焦 JVM `73/73`、Debug/AndroidTest APK、Redmi Room tombstone `1/1` 和真实 Provider Run 已通过。该阶段没有新增 Room Schema、Android 权限、后台写入、批量删除或笔记编辑。
-- 下一阶段继续选择新的直接使用能力；笔记编辑仍需先解决版本冲突和历史 ToolCall 审计，后台设备自动化仍需长任务可靠性与高权限恢复证据，不因本阶段顺带开放。
+- 第 173 阶段已通过 revision 乐观锁和独立 operation 账本关闭笔记编辑的版本冲突与历史 ToolCall 审计差距；后台设备自动化仍需长任务可靠性与高权限恢复证据，不因笔记能力顺带开放。
 
 ## 第 171 阶段：真实 Provider 搜索并读取笔记全文（完成）
 

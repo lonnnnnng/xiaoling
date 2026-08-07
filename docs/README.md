@@ -2,6 +2,8 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
+当前开发基线已到第 173 阶段、Room v36，尚未形成新 Release。第 173 阶段完成版本化本地笔记编辑：用户管理页和前台 Agent 均使用稳定 note ID 与 revision，旧笔记迁移为 revision 1，条件更新在并发漂移或 tombstone 时拒绝覆盖。新增 `notes.update`、独立 `local-note-update` Skill 和绑定 ToolCall/请求/结果的 edit operation 账本；已提交恢复只读验证，不重复 UPDATE，旧 Profile/Skill/Run 不自动扩权。聚焦 JVM `76/76`、Debug/AndroidTest APK、仅 Redmi 定向 instrumentation `42/42` 和真实 Provider `notes.search -> notes.get -> notes.update` 闭环均通过。
+
 第 172 阶段完成 Agent 受控删除本地笔记：新增前台 `REQUIRES_APPROVAL` 的 `notes.delete(note_id)` 与独立 `local-note-delete` Skill，旧 Profile 和旧 Run 不自动扩权。删除复用生产 Room tombstone，执行后回读不可见并签发绑定 note ID 的提交回执；只有已有 `COMMITTED` 回执时可恢复期只读验证，未提交路径不重放。Redmi 真实 Provider 严格完成 `notes.search -> notes.get -> notes.delete`，审批、稳定 ID、三项验证、tombstone 和历史创建重放拒绝均通过。
 
 第 171 阶段完成真实 Provider 的笔记搜索到全文读取闭环：Debug-only `notes_search_get_real` 使用唯一测试笔记和临时只读 Profile，在 Redmi 的真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 选择 `local-note-detail` Skill，并严格执行 `notes.search -> notes.get`。Tool Ledger 权威确认关键词、稳定 note ID 传递、两项 `success=true / PASSED`、正文数据边界和零审批；夹具与临时 Profile 均已清理。聚焦 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过，未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。

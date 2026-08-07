@@ -891,7 +891,35 @@ data class AgentNoteRecord(
     val content: String,
     val createdAt: Long,
     val updatedAt: Long,
+    val revision: Long = 1L,
 )
+
+data class AgentNoteUpdateRequest(
+    val noteId: String,
+    val title: String,
+    val content: String,
+    val expectedRevision: Long,
+)
+
+sealed interface AgentNoteUpdateResult {
+    data class Updated(val note: AgentNoteRecord) : AgentNoteUpdateResult
+    data class Unchanged(val note: AgentNoteRecord) : AgentNoteUpdateResult
+    data class RevisionConflict(val current: AgentNoteRecord) : AgentNoteUpdateResult
+    data object NotFound : AgentNoteUpdateResult
+}
+
+sealed interface AgentNoteUpdateVerification {
+    data class Verified(val note: AgentNoteRecord) : AgentNoteUpdateVerification
+    data class Failed(val reason: AgentNoteUpdateVerificationFailure) : AgentNoteUpdateVerification
+}
+
+enum class AgentNoteUpdateVerificationFailure {
+    OPERATION_NOT_FOUND,
+    PAYLOAD_MISMATCH,
+    OPERATION_MISMATCH,
+    NOTE_NOT_FOUND,
+    NOTE_CHANGED,
+}
 
 interface AgentNoteStore {
     suspend fun list(limit: Int): List<AgentNoteRecord>
@@ -902,6 +930,17 @@ interface AgentNoteStore {
 
 interface AgentNoteManagementStore : AgentNoteStore {
     suspend fun delete(id: String): Boolean
+    suspend fun update(
+        request: AgentNoteUpdateRequest,
+        idempotencyKey: String,
+    ): AgentNoteUpdateResult
+    suspend fun verifyUpdateOperation(
+        idempotencyKey: String,
+        noteId: String,
+        request: AgentNoteUpdateRequest,
+    ): AgentNoteUpdateVerification = AgentNoteUpdateVerification.Failed(
+        AgentNoteUpdateVerificationFailure.OPERATION_NOT_FOUND,
+    )
 }
 
 class AgentNoteIdempotencyConflictException : IllegalStateException(
@@ -910,6 +949,10 @@ class AgentNoteIdempotencyConflictException : IllegalStateException(
 
 class AgentNoteDeletedException : IllegalStateException(
     "笔记已被用户删除，不能通过历史工具调用恢复",
+)
+
+class AgentNoteUpdateIdempotencyConflictException : IllegalStateException(
+    "笔记编辑调用已绑定到其他内容",
 )
 
 class AgentMemoryIdempotencyConflictException : IllegalStateException(

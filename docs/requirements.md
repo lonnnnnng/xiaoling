@@ -1,5 +1,13 @@
 # 产品需求
 
+## 版本化本地笔记编辑闭环（第 173 阶段，完成）
+
+- 用户本地笔记详情页应提供编辑入口，标题和正文使用当前完整内容初始化；正文输入区默认至少五行。保存必须携带详情读取到的 revision，取消不得修改 Room，保存期间不得重复提交。
+- 应新增仅前台、需要逐次用户确认的 `notes.update(note_id, expected_revision, title, content)` 与独立 `local-note-update` Skill。Agent 必须先定位唯一笔记并用 `notes.get` 读取稳定 ID、完整正文和 revision；旧 Profile、旧 Skill、历史 Run 与后台 Workflow 不得自动获得编辑权限。
+- Room v35→v36 必须把旧笔记迁移为 `revision=1`。更新只能在 ID、非 tombstone 和 `expected_revision` 同时匹配时提交；成功后 revision 必须恰好递增 1 并回读标题、正文和版本，版本漂移、删除或不存在不得产生覆盖副作用。
+- 每次成功提交并产生内容变化的编辑应在同一事务写入独立 operation 账本，绑定 ToolCall 幂等键、note ID、期望/结果 revision、请求载荷哈希和结果哈希。标题和正文均未变化的请求不得伪造提交回执；它仍由普通 Tool Ledger 记录为未执行编辑。同一已提交调用使用同一载荷时只回读原结果，载荷漂移必须拒绝；恢复期若 operation 已存在，只能验证当前结果，不得再次执行 UPDATE。
+- 本阶段不开放批量编辑、后台笔记写入、任意文件修改或任意 App 能力。Debug 夹具和临时 Profile 无论成功失败都必须精确清理，不扫描或改写用户笔记。
+
 ## Agent 受控删除本地笔记（第 172 阶段，完成）
 
 - 应新增仅前台、需要逐次用户确认的 `notes.delete(note_id)`；`note_id` 必须是当前 `notes.list/search/get` 返回的标准稳定 ID，畸形、不存在、已删除或未经授权的目标不得产生副作用。

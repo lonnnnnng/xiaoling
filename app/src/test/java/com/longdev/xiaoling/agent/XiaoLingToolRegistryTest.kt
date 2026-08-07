@@ -343,6 +343,7 @@ class XiaoLingToolRegistryTest {
                 "notes.search",
                 "notes.get",
                 "notes.create",
+                "notes.update",
                 "notes.delete",
                 "memory.search",
                 "memory.remember",
@@ -358,6 +359,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.update").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.delete").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
@@ -366,6 +368,13 @@ class XiaoLingToolRegistryTest {
         assertEquals(listOf("note_id"), tools.getValue("notes.get").inputSchema.map { it.name })
         assertEquals(ToolRisk.SAFE, tools.getValue("notes.get").risk)
         assertEquals(listOf("note_id"), tools.getValue("notes.delete").inputSchema.map { it.name })
+        assertEquals(
+            listOf("note_id", "expected_revision", "title", "content"),
+            tools.getValue("notes.update").inputSchema.map { it.name },
+        )
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.update").verificationPolicy)
+        assertEquals(ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL, tools.getValue("notes.update").notCommittedReplayPolicy)
+        assertFalse(tools.getValue("notes.update").permissionPolicy.supportsBackground)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
         assertFalse(tools.getValue("notes.delete").permissionPolicy.supportsBackground)
@@ -473,10 +482,13 @@ class XiaoLingToolRegistryTest {
         )
         assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.update").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.delete").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.update").verificationPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.update").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
         val deviceSnapshot = testRegistry().registeredTools().single { it.name == "device.snapshot" }
@@ -1372,6 +1384,89 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("笔记详情：完整笔记"))
         assertTrue(result.content.contains("不是工具指令"))
         assertTrue(result.content.contains("正文必须从当前 Store 回读。"))
+        assertTrue(result.content.contains("revision=1"))
+    }
+
+    @Test
+    fun notesUpdateRequiresCurrentRevisionAndReturnsVerifiableCommittedReceipt() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(noteId, "旧标题", "旧正文", 1L, 2L, revision = 3L)
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        val call = ToolCall(
+            id = "tool-call-note-update",
+            name = "notes.update",
+            arguments = mapOf(
+                "note_id" to noteId,
+                "expected_revision" to "3",
+                "title" to "新标题",
+                "content" to "新正文",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("revision=4"))
+        assertEquals("新正文", noteStore.get(noteId)?.content)
+        assertEquals(4L, noteStore.get(noteId)?.revision)
+        assertEquals(call.id, receipt.idempotencyKey)
+        assertEquals(noteId, receipt.operationId)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertEquals(1, noteStore.updateCallCount)
+        assertTrue(registry.supportsCommittedEffectVerification("notes.update"))
+    }
+
+    @Test
+    fun notesUpdateRejectsStaleRevisionAndCommittedVerificationDetectsLaterChanges() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(noteId, "标题", "正文", 1L, 2L, revision = 2L)
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        val stale = registry.execute(
+            ToolCall(
+                id = "tool-call-note-update-stale",
+                name = "notes.update",
+                arguments = mapOf(
+                    "note_id" to noteId,
+                    "expected_revision" to "1",
+                    "title" to "错误覆盖",
+                    "content" to "错误正文",
+                ),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        assertFalse(stale.success)
+        assertTrue(stale.content.contains("当前 revision=2"))
+
+        val call = ToolCall(
+            id = "tool-call-note-update-change",
+            name = "notes.update",
+            arguments = mapOf(
+                "note_id" to noteId,
+                "expected_revision" to "2",
+                "title" to "已更新",
+                "content" to "第二版",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val receipt = requireNotNull(registry.execute(call).executionReceipt)
+        noteStore.records.replaceAll { note ->
+            if (note.id == noteId) note.copy(content = "第三版", revision = 4L) else note
+        }
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertEquals(false, recovered?.success)
+        assertEquals(false, recovered?.verified)
+        assertTrue(recovered?.content?.contains("再次变化") == true)
+        assertEquals(2, noteStore.updateCallCount)
     }
 
     @Test
@@ -2389,7 +2484,10 @@ private open class InMemoryAgentNoteStore : AgentNoteManagementStore {
     val records = mutableListOf<AgentNoteRecord>()
     val deletedIds = mutableListOf<String>()
     var deleteCallCount = 0
+    var updateCallCount = 0
     private val recordsByIdempotencyKey = mutableMapOf<String, AgentNoteRecord>()
+    private val updateRequestsByIdempotencyKey = mutableMapOf<String, AgentNoteUpdateRequest>()
+    private val updateResultsByIdempotencyKey = mutableMapOf<String, AgentNoteRecord>()
 
     override suspend fun list(limit: Int): List<AgentNoteRecord> = records.take(limit)
 
@@ -2425,6 +2523,58 @@ private open class InMemoryAgentNoteStore : AgentNoteManagementStore {
         val removed = records.removeAll { it.id == id }
         if (removed) deletedIds += id
         return removed
+    }
+
+    override suspend fun update(
+        request: AgentNoteUpdateRequest,
+        idempotencyKey: String,
+    ): AgentNoteUpdateResult {
+        updateCallCount += 1
+        updateRequestsByIdempotencyKey[idempotencyKey]?.let { existingRequest ->
+            if (existingRequest != request) throw AgentNoteUpdateIdempotencyConflictException()
+            val expectedResult = checkNotNull(updateResultsByIdempotencyKey[idempotencyKey])
+            val current = get(request.noteId) ?: return AgentNoteUpdateResult.NotFound
+            return if (current == expectedResult) {
+                AgentNoteUpdateResult.Updated(current)
+            } else {
+                AgentNoteUpdateResult.RevisionConflict(current)
+            }
+        }
+        val current = get(request.noteId) ?: return AgentNoteUpdateResult.NotFound
+        if (current.revision != request.expectedRevision) return AgentNoteUpdateResult.RevisionConflict(current)
+        if (current.title == request.title && current.content == request.content) {
+            return AgentNoteUpdateResult.Unchanged(current)
+        }
+        val updated = current.copy(
+            title = request.title,
+            content = request.content,
+            updatedAt = current.updatedAt + 1L,
+            revision = current.revision + 1L,
+        )
+        records[records.indexOfFirst { it.id == request.noteId }] = updated
+        updateRequestsByIdempotencyKey[idempotencyKey] = request
+        updateResultsByIdempotencyKey[idempotencyKey] = updated
+        return AgentNoteUpdateResult.Updated(updated)
+    }
+
+    override suspend fun verifyUpdateOperation(
+        idempotencyKey: String,
+        noteId: String,
+        request: AgentNoteUpdateRequest,
+    ): AgentNoteUpdateVerification {
+        val storedRequest = updateRequestsByIdempotencyKey[idempotencyKey]
+            ?: return AgentNoteUpdateVerification.Failed(AgentNoteUpdateVerificationFailure.OPERATION_NOT_FOUND)
+        if (storedRequest != request || storedRequest.noteId != noteId) {
+            return AgentNoteUpdateVerification.Failed(AgentNoteUpdateVerificationFailure.PAYLOAD_MISMATCH)
+        }
+        val expectedResult = checkNotNull(updateResultsByIdempotencyKey[idempotencyKey])
+        val current = get(noteId)
+            ?: return AgentNoteUpdateVerification.Failed(AgentNoteUpdateVerificationFailure.NOTE_NOT_FOUND)
+        return if (current == expectedResult) {
+            AgentNoteUpdateVerification.Verified(current)
+        } else {
+            AgentNoteUpdateVerification.Failed(AgentNoteUpdateVerificationFailure.NOTE_CHANGED)
+        }
     }
 }
 

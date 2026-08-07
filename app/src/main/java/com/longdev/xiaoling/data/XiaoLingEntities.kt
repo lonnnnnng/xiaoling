@@ -428,6 +428,21 @@ data class AgentNoteEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val idempotencyKey: String?,
+    @ColumnInfo(defaultValue = "1") val revision: Long,
+)
+
+@Entity(
+    tableName = "agent_note_edit_operations",
+    indices = [Index(value = ["noteId"])],
+)
+data class AgentNoteEditOperationEntity(
+    @PrimaryKey val idempotencyKey: String,
+    val noteId: String,
+    val expectedRevision: Long,
+    val resultRevision: Long,
+    val payloadHash: String,
+    val resultHash: String,
+    val createdAt: Long,
 )
 
 @Entity(

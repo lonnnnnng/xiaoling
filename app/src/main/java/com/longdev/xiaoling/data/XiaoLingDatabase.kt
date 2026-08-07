@@ -30,6 +30,7 @@ import org.json.JSONObject
         KnowledgeChunkEmbeddingEntity::class,
         KnowledgeRetrievalEntity::class,
         AgentNoteEntity::class,
+        AgentNoteEditOperationEntity::class,
         AgentSkillEntity::class,
         AgentProfileEntity::class,
         WorkflowEntity::class,
@@ -41,7 +42,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 35,
+    version = 36,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -58,7 +59,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 35
+        const val CURRENT_VERSION = 36
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -885,6 +886,30 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 旧笔记没有编辑历史，只能从 revision=1 开始；后续编辑以条件更新递增，不能用时间戳猜测并发顺序。
+                db.execSQL("ALTER TABLE `agent_notes` ADD COLUMN `revision` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_note_edit_operations` (
+                        `idempotencyKey` TEXT NOT NULL,
+                        `noteId` TEXT NOT NULL,
+                        `expectedRevision` INTEGER NOT NULL,
+                        `resultRevision` INTEGER NOT NULL,
+                        `payloadHash` TEXT NOT NULL,
+                        `resultHash` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`idempotencyKey`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_note_edit_operations_noteId` ON `agent_note_edit_operations` (`noteId`)",
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -920,6 +945,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_32_33,
             MIGRATION_33_34,
             MIGRATION_34_35,
+            MIGRATION_35_36,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

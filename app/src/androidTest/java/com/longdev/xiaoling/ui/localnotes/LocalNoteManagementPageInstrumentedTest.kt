@@ -8,9 +8,11 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import com.longdev.xiaoling.agent.AgentNoteRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -106,7 +108,45 @@ class LocalNoteManagementPageInstrumentedTest {
         }
     }
 
-    private class FakeLocalNoteManagementActions : LocalNoteManagementActions {
+    @Test
+    fun selectedNoteCanOpenVersionedEditorAndSaveDraft() {
+        var state by mutableStateOf(
+            LocalNoteManagementUiState(
+                selectedNoteId = "note-a",
+                selectedNote = note(),
+            ),
+        )
+        val actions = FakeLocalNoteManagementActions(
+            onEditTitleChange = { value -> state = state.copy(editTitle = value) },
+            onEditContentChange = { value -> state = state.copy(editContent = value) },
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                LocalNoteManagementContent(state = state, actions = actions, onBack = {})
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("编辑笔记").performClick()
+        composeRule.runOnIdle {
+            assertEquals("note-a", actions.requestedEditNoteId)
+            state = state.copy(editingNote = note(), editTitle = "标题 A", editContent = "这是完整正文，不是列表摘要。")
+        }
+        composeRule.onNodeWithText("基于版本 1 保存；如果笔记已在其他位置更新，本次不会覆盖。").assertIsDisplayed()
+        composeRule.onNodeWithTag("local-note-edit-title").performTextReplacement("新标题")
+        composeRule.onNodeWithTag("local-note-edit-content").performTextReplacement("新正文")
+        composeRule.onNodeWithText("保存").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("新标题", actions.latestEditTitle)
+            assertEquals("新正文", actions.latestEditContent)
+            assertEquals(1, actions.confirmEditCount)
+        }
+    }
+
+    private class FakeLocalNoteManagementActions(
+        private val onEditTitleChange: (String) -> Unit = {},
+        private val onEditContentChange: (String) -> Unit = {},
+    ) : LocalNoteManagementActions {
         var refreshCount = 0
         var latestQuery = ""
         var searchCount = 0
@@ -114,6 +154,11 @@ class LocalNoteManagementPageInstrumentedTest {
         var selectedNoteId: String? = null
         var closeCount = 0
         var requestedDeleteNoteId: String? = null
+        var requestedEditNoteId: String? = null
+        var latestEditTitle = ""
+        var latestEditContent = ""
+        var cancelEditCount = 0
+        var confirmEditCount = 0
         var cancelDeleteCount = 0
         var confirmDeleteCount = 0
 
@@ -139,6 +184,28 @@ class LocalNoteManagementPageInstrumentedTest {
 
         override fun closeDetail() {
             closeCount += 1
+        }
+
+        override fun requestEdit(noteId: String) {
+            requestedEditNoteId = noteId
+        }
+
+        override fun updateEditTitle(value: String) {
+            latestEditTitle = value
+            onEditTitleChange(value)
+        }
+
+        override fun updateEditContent(value: String) {
+            latestEditContent = value
+            onEditContentChange(value)
+        }
+
+        override fun cancelEdit() {
+            cancelEditCount += 1
+        }
+
+        override fun confirmEdit() {
+            confirmEditCount += 1
         }
 
         override fun requestDelete(noteId: String) {

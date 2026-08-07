@@ -1170,6 +1170,51 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate35To36PreservesNotesAndStartsVersionedEditLedgerEmpty() {
+        migrationHelper.createDatabase(NOTE_EDIT_MIGRATION_DATABASE_NAME, 35).apply {
+            execSQL(
+                """
+                INSERT INTO agent_notes (id, title, content, createdAt, updatedAt, idempotencyKey)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "note-v35",
+                    "旧版本笔记",
+                    "迁移后正文必须保留",
+                    100L,
+                    200L,
+                    "tool-call-note-v35",
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            NOTE_EDIT_MIGRATION_DATABASE_NAME,
+            36,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query(
+            "SELECT title, content, createdAt, updatedAt, idempotencyKey, revision FROM agent_notes WHERE id = 'note-v35'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("旧版本笔记", cursor.getString(0))
+            assertEquals("迁移后正文必须保留", cursor.getString(1))
+            assertEquals(100L, cursor.getLong(2))
+            assertEquals(200L, cursor.getLong(3))
+            assertEquals("tool-call-note-v35", cursor.getString(4))
+            assertEquals(1L, cursor.getLong(5))
+        }
+        migrated.query("SELECT COUNT(*) FROM agent_note_edit_operations").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(0, cursor.getInt(0))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate29To30CreatesEmbeddingIndexAndKeepsLegacyRetrievalLexicalOnly() {
         migrationHelper.createDatabase(EMBEDDING_MIGRATION_DATABASE_NAME, 29).apply {
             execSQL(
@@ -1387,5 +1432,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val ANSWERABILITY_SHADOW_MIGRATION_DATABASE_NAME = "xiaoling-answerability-shadow-migration-test"
         private const val WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME = "xiaoling-workflow-target-app-migration-test"
         private const val GOAL_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-goal-verification-migration-test"
+        private const val NOTE_EDIT_MIGRATION_DATABASE_NAME = "xiaoling-note-edit-migration-test"
     }
 }

@@ -132,6 +132,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "目标笔记经用户批准后形成删除回执并回读不可见，或明确说明未删除。",
         ),
         AgentSkillDefinition(
+            id = "local-note-update",
+            name = "笔记编辑",
+            description = "检索、读取并在用户确认后编辑一条小灵本机笔记。",
+            instructions = "只有用户明确要求编辑时才执行。先用 notes.list 或 notes.search 定位唯一笔记，再用 notes.get 读取完整正文、稳定 ID 和 revision；调用 notes.update 时必须提交编辑后的完整标题、完整正文和同一 revision。目标不唯一、版本冲突、已删除或用户未确认时停止。",
+            toolNames = setOf("notes.list", "notes.search", "notes.get", "notes.update"),
+            keywords = setOf("编辑笔记", "修改笔记", "更新笔记", "edit note", "update note"),
+            triggerExamples = listOf("修改标题匹配的这条笔记", "把这条笔记的正文更新为新内容"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "搜索无结果、目标不唯一、版本冲突、详情读取失败或编辑未验证时停止，不覆盖新版本。",
+            completionCriteria = "目标笔记经用户批准后 revision 递增且正文回读一致，或明确说明未编辑。",
+        ),
+        AgentSkillDefinition(
             id = "task-overview",
             name = "任务清单",
             description = "查看小灵中已有的任务、应用内提醒和最近运行状态。",

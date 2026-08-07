@@ -494,17 +494,46 @@ interface AgentNoteDao {
     @Query("SELECT * FROM agent_notes WHERE idempotencyKey = :idempotencyKey")
     suspend fun getNoteByIdempotencyKey(idempotencyKey: String): AgentNoteEntity?
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertEditOperation(operation: AgentNoteEditOperationEntity)
+
+    @Query("SELECT * FROM agent_note_edit_operations WHERE idempotencyKey = :idempotencyKey")
+    suspend fun getEditOperation(idempotencyKey: String): AgentNoteEditOperationEntity?
+
+    @Query("DELETE FROM agent_note_edit_operations WHERE noteId = :noteId")
+    suspend fun deleteEditOperationsForNote(noteId: String): Int
+
     @Query("DELETE FROM agent_notes WHERE id = :id")
     suspend fun deleteNote(id: String): Int
 
     @Query(
         """
         UPDATE agent_notes
-        SET title = '', content = '', updatedAt = :updatedAt
+        SET title = '', content = '', updatedAt = :updatedAt, revision = revision + 1
         WHERE id = :id AND NOT (title = '' AND content = '')
         """,
     )
     suspend fun tombstoneNote(id: String, updatedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE agent_notes
+        SET title = :title,
+            content = :content,
+            updatedAt = :updatedAt,
+            revision = revision + 1
+        WHERE id = :id
+          AND revision = :expectedRevision
+          AND NOT (title = '' AND content = '')
+        """,
+    )
+    suspend fun updateNoteIfRevisionMatches(
+        id: String,
+        title: String,
+        content: String,
+        updatedAt: Long,
+        expectedRevision: Long,
+    ): Int
 
     @Query("SELECT * FROM agent_notes WHERE NOT (title = '' AND content = '') ORDER BY updatedAt DESC LIMIT :limit")
     suspend fun list(limit: Int): List<AgentNoteEntity>

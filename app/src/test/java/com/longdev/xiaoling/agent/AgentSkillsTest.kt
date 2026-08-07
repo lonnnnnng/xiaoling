@@ -44,6 +44,21 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInLocalNoteUpdateSkillRequiresReadRevisionAndKeepsExistingSkillsStable() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "把这条笔记的正文更新为新内容",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "local-note-update" }
+        assertEquals(setOf("notes.list", "notes.search", "notes.get", "notes.update"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("revision"))
+        assertTrue("notes.update" !in BuiltInAgentSkillRegistry.all().single { it.id == "local-notes" }.toolNames)
+        assertTrue("notes.update" !in BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }.toolNames)
+    }
+
+    @Test
     fun builtInKnowledgeSkillSelectsOnlyReadOnlyKnowledgeTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "请从知识库检索发布文档中的真机验收要求",
