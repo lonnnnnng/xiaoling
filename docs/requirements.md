@@ -1,5 +1,11 @@
 # 产品需求
 
+## 小灵 v0.1.16 发布基线
+
+`v0.1.16` 使用 `versionCode=17`、Room v35，并保持 `minSdk=26 / targetSdk=36` 与既有 `releaseLocal` 签名配置。发布范围汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。
+
+本次发布不得扩大既有安全边界：后台设备自动化、任意 App、恢复旧执行栈、生产 answerability enforcement、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。按用户明确要求，本轮只执行必要的 `assembleRelease`，不额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation；该边界必须在 Release Notes 和验证报告中披露。
+
 ## 创建笔记后的答案级导航（第 169 阶段，完成）
 
 - `notes.create` 只有成功并完成应用侧回读验证后，答案下才可显示“查看笔记”；结果必须附带稳定 note ID，且不得改变既有审批、幂等和失败语义。
@@ -332,7 +338,7 @@ Redmi 验收必须在同一真实 Agent Run 中完成至少两个设备动作并
 
 验收只允许使用 Redmi `wsvwypiz7xwslvl7`，并运行真实生产 `MinimalAgentRuntime + RoomAgentRunRepository` 的 `snapshot -> swipe` 链路。当前证据为 `success=true action=swipe verified=true approvals=0 registryCompletion=PASSED answerDecision=VERIFIED privacySafe=true`，前后包均为 `com.android.settings`；更新后的项目文档语料首轮/最终单项还必须保持通过，当前均为 `OK (1 test)`、耗时 `2.307s / 2.3s`。这只证明首个限定 App/页面，不承诺任意 App。后台或定时设备自动化、恢复自动续跑、坐标、截图和任意 App 继续关闭。
 
-## 小灵 v0.1.15 发布基线
+## 小灵 v0.1.15 历史发布基线
 
 `v0.1.15` 使用 `versionCode=16`、Room v33，并保持 `minSdk=26 / targetSdk=36` 与既有 `releaseLocal` 签名配置。发布范围汇总 `v0.1.14` 后第 122 至 127 阶段：前台 Workflow `device.swipe` 的安全/evidence/答案级投影/生产默认接线，以及自然语言个人任务、严格 1 至 8 步计划、确认前零执行和确认后原子创建普通 Workflow/Run。
 

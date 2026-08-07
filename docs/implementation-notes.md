@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 小灵 v0.1.16 发布基线
+
+- `versionCode=17`、`versionName=0.1.16`、Room v35，继续使用现有 `releaseLocal` 签名配置。
+- 发布范围汇总 `v0.1.15` 后第 128 至 169 阶段：自然语言任务的限定 App 多动作与目标级验证、记忆/知识上下文、应用内提醒、通用执行恢复、任务诊断/重试/取消、只读日历、本地笔记、启动中断 Run 提示和答案级任务/笔记导航。
+- 本轮只执行发布必需的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`。
+- 后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
+
 ## 第 169 阶段：创建笔记后的答案级导航（完成）
 
 - `XiaoLingToolRegistry.createNote()` 与 `verifyCommittedNote()` 的成功结果在原有回读验证和 `ToolExecutionReceipt` 不变的前提下追加 `· id=<noteId>`；失败结果、幂等操作 ID 和载荷冲突语义不变。
@@ -277,7 +284,7 @@
 - TDD 首轮以 `AgentBudgetExceededException: 检测到重复工具调用：device.snapshot` 暴露刷新缺口；修复后八组聚焦 JVM `92/92`。Debug APK 构建成功；仅 Redmi 的 v33→v34 迁移、目标包持久化、计划确认弹层分别为 `OK (1 test)`，真实多动作日志为 `success=true / actions=swipe, back / verified=2/2 / approvals=0 / freshSnapshots=true / targetPackage=com.android.settings / finalPackage=com.longdev.xiaoling / privacySafe=true`。提交前 Standards/Spec 双轴复审在文档同步后无遗留实现 finding。
 - 第 128 阶段本身没有实现目标级判定；该缺口已经由上面的第 129 阶段完成。任意 App、后台/定时设备控制、截图/视觉、坐标、精确定时或 Foreground Service 仍未开放。
 
-## 小灵 v0.1.15 发布基线
+## 小灵 v0.1.15 历史发布基线
 
 - `versionName=0.1.15 / versionCode=16`，保持 `minSdk=26 / targetSdk=36`、Room v33 和既有 `releaseLocal` 签名配置。
 - 发布范围为 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 的安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，以及自然语言个人任务、严格结构化计划、确认前零执行和确认后原子创建普通 Workflow/Run。
@@ -1048,7 +1055,7 @@
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.15`（`versionCode 16`，Room v33）
+当前发布版本：`v0.1.16`（`versionCode 17`，Room v35）
 
 ## 第 75 阶段实现与验证边界
 

@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-07 小灵 v0.1.16 发布构建
+
+- 当前发布版本：小灵 `v0.1.16`，`versionCode=17`、`minSdk=26`、`targetSdk=36`、Room v35。
+- 发布范围：`v0.1.15` 后第 128 至 169 阶段；覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记、启动中断 Run 提示和答案级任务/笔记导航。
+- 本地发布构建只执行 `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`。构建内部正常经过 R8 与 `lintVitalRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装、instrumentation 或其他验收。
+- 正式 APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`。本轮没有额外执行签名、zipalign、版本回读或真机安装复核；既有阶段证据不冒充本次发布门禁。
+- 后台设备自动化、任意 App、生产 answerability enforcement、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
+
 ## 2026-08-07 第 169 阶段：创建笔记后的答案级导航
 
 - `notes.create` 与恢复验证成功结果现在附带 `· id=<noteId>`；导航只接受成功、typed `VERIFIED`、完整 `title/content` 参数、标题精确绑定和全文唯一合法 note ID。审批、回读、幂等回执和失败语义不变。
@@ -62,7 +70,7 @@
 
 - 第 157 阶段开发验证已完成：`tasks.retry` 受控重试、前台接管和 stale Registry context 修复均已落地。聚焦 JVM 四个类共 `130/130` 通过，Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 安装并运行 `RoomAgentTaskStoreInstrumentedTest`，结果 `OK (8 tests)`。本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；Pixel_9 仅在设备列表枚举，未接收命令。
 
-- 当前发布版本：小灵 `v0.1.15`，`versionCode=16`、`minSdk=26`、`targetSdk=36`、Room v33。
+- 上一发布版本：小灵 `v0.1.15`，`versionCode=16`、`minSdk=26`、`targetSdk=36`、Room v33。
 - 发布范围：`v0.1.14` 后第 122 至 127 阶段；包含 `device.swipe` 的专属安全契约、执行期/完成态 evidence、答案级脱敏投影、生产默认接线与 Redmi 限定验收，以及自然语言个人任务、严格 1 至 8 步计划、确认前零执行和确认后原子创建普通 Workflow/Run。
 - 发布提交：`b42defa06f02000b841ad7688e76edcf8bc8ce55`（`发布小灵 0.1.15`）；annotated tag `v0.1.15` 的 tag object 为 `7ecfd5269a2822feffbbda88cad0f53964f89aac`，解引用到该提交。[小灵 v0.1.15](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest，状态为非草稿、非预发布。
 - 正式产物：`outputs/release/xiaoling-v0.1.15.apk`，大小 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；使用现有 `releaseLocal` 配置构建，但本轮未额外执行 `apksigner`、zipalign 或证书复核。

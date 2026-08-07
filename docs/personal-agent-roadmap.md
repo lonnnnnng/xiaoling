@@ -1,5 +1,9 @@
 # 小灵个人 Agent 路线图
 
+## v0.1.16 发布基线
+
+`v0.1.16` 以 `versionCode 17` 汇总 `v0.1.15` 后第 128 至 169 阶段。完整个人 Agent 主线已经贯通自然语言目标、限定 App 多动作、目标级本地验证、记忆/知识上下文、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。下一阶段继续围绕个人 Agent 的直接可用闭环推进，不把高级生态或纯横向打磨放回主线。
+
 ## 第 169 阶段：创建笔记后的答案级导航（完成）
 
 - `notes.create` 成功且完成 Executor 回读验证后，工具结果附带稳定 note ID；答案下可以直接进入本地笔记详情，保持与 `notes.list / notes.search` 一致的用户闭环。
@@ -263,7 +267,7 @@
 
 这些阶段必须各自产生用户可直接体验的新能力，不再把纯重构、单层 evidence、Shadow 扩样或文档整理单独作为主线阶段。截图/视觉、后台设备控制、任意 App、精确定时、MCP、系统日历、远程 Channel、多 Agent、跨设备同步和本地模型继续后置；它们不作为完整前台个人 Agent MVP 的前置条件。
 
-## v0.1.15 发布基线
+## v0.1.15 历史发布基线
 
 `v0.1.15` 以 `versionCode 16` 汇总 `v0.1.14` 后第 122 至 127 阶段：`device.swipe` 完整前台 Workflow 链和自然语言个人任务与可确认计划。Release APK 为 `3,318,322` 字节，SHA-256 为 `a9c5b57dd3aa9d7f262d7909499dbdd7f91361cccf3b4d6bcd893d100c34e674`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15) 已发布并成为 latest。本轮按用户明确要求只执行 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest APK、签名/zipalign 复核、Redmi 安装或 instrumentation；此前阶段的聚焦证据继续有效，但不冒充本次发布门禁。发布后的主干已完成第 132 阶段完整里程碑和第 133 至 136 阶段真实使用打磨，开发数据库保持 Room v35，尚未形成新的 Release。
 

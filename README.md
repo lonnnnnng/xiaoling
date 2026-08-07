@@ -1,5 +1,7 @@
 # 小灵
 
+当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
+
 第 158 阶段完成真实 Provider 的受控任务重试闭环。Debug-only 探针创建可清理的失败 Workflow 夹具，Redmi 真实 Run 严格执行 `tasks.list -> tasks.inspect -> tasks.retry`；三项 Tool Ledger 均为 `success=true / verificationStatus=PASSED`，生产 `TaskRetryLaunchPolicy` 通过后创建关联新 Run。来源 Run 保持 `FAILED` 与原步骤事实不变，新 Run 只复用首个成功前缀为 `SKIPPED`，再由真实 Provider 执行第二个 `app.current_time` 步骤并完成目标级收敛；临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，也未操作 Pixel_9。
 
 第 157 阶段完成受控任务重试闭环。新增仅前台直接 Agent 可见、`REQUIRES_APPROVAL` 的 `tasks.retry(name)`，严格按精确任务名只处理当前最新的 `BLOCKED / FAILED / CANCELLED` Run；ToolCall ID 派生确定性新 Workflow Run，重复调用只回读仍处于 `QUEUED` 的同一提交，任务已启动、被其他运行取代、步骤证据变化或身份漂移时 fail-closed。成功前缀仅标记为 `SKIPPED` 并保留 `reusedFromStepId`，来源 Run、步骤、结果和副作用不变。前台宿主从 Room Tool Ledger、typed `PASSED` 验证和提交回执重新读取新 Run 后才接管执行，模型文本不参与启动判断。聚焦 JVM `XiaoLingToolRegistryTest 44/44 + AgentSkillsTest 17/17 + TaskRetryLaunchPolicyTest 2/2 + MinimalAgentRuntimeTest 67/67`、Debug/AndroidTest APK 和仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
@@ -30,7 +32,7 @@
 
 GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
 
-最新版本：[小灵 v0.1.15](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.15)
+最新版本：[小灵 v0.1.16](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16)
 
 ## 当前定位
 
