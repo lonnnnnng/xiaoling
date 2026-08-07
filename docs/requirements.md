@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实 Provider 系统日程详情闭环（第 182 阶段，完成）
+
+- 必须仅在 Redmi 使用设备当前真实模型 Provider，选择唯一 `calendar-detail`，并严格执行 `calendar.search_events -> calendar.get`；不得调用列表、创建、设备动作或其他工具。
+- 搜索参数必须原样使用 Debug 夹具的唯一关键词；`calendar.get.event_id` 必须精确等于搜索结果返回的稳定 `calendar-<Events._ID>`，不得从标题、时间或模型文本猜测。
+- Room Tool Ledger 中两项结果必须 `success=true` 且 typed `PASSED`；搜索结果必须包含唯一事件和同一稳定 ID，详情必须包含当前 Provider 的 ID、标题、时区和重复状态，SAFE 链不得产生审批记录。
+- 临时 Profile 必须只开放两个只读工具和 `calendar-detail`。事件夹具允许在 Agent Run 外用正式 writer 创建，但必须使用专属幂等 marker；成功、模型失败、断言失败或启动恢复竞态都按 Provider 返回事件 ID 精确清理，并恢复原 Profile。只有本轮新建的小灵本地日历才允许删除。
+- Debug 日志不得包含 API Key、事件标题、工具参数或详情正文。本阶段不得修改生产 Registry、Skill、Room Schema、Android 权限申请、旧 Profile/Run、日程写删工具或后台边界。
+- 验证只要求 Debug/AndroidTest APK、Redmi 真实 Provider 核心路径和文档 corpus 单项门禁；完整 JVM、Lint、Release APK 和全量 instrumentation 按分级策略后置。
+
 ## 系统日程稳定身份与权威详情读取（第 181 阶段，完成）
 
 - `calendar.list_events / calendar.search_events` 必须返回从 `CalendarContract.Instances.EVENT_ID` 取得、绑定 `Events._ID` 的稳定 `calendar-<正整数>`。模型只能使用工具已经返回的 ID，不得从标题、时间、列表序号或模型文本猜测 Provider 内部身份。

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 182 阶段：真实 Provider 系统日程详情闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增 `calendar_search_get_real`。探针读取设备当前 Provider 与 User-Agent，创建固定 ID 的临时 Profile；白名单精确为 `calendar.search_events / calendar.get` 和 `calendar-detail`，`memoryEnabled=false`，正式运行仍复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。
+- Agent Run 外复用 `AndroidCalendarEventWriter.createOrReadBack` 创建两天后的唯一一次性事件。写入返回 `Committed` 时先保存事件 ID 和本轮可能新建的本地日历 ID，再检查回读验证，保证“已写入但验证失败”仍能进入精确清理。
+- 验收从 `skill.selected` 解码 Skill ID，并从 Tool Ledger 核对调用顺序、原样关键词、`calendar-<Events._ID>` 参数传递、两项 `PASSED`、搜索/详情当前字段和零审批。成功日志只记录 Run、状态、Skill、工具名和布尔结论。
+- 中断残留只按 `CUSTOM_APP_PACKAGE` 与 `xiaoling://calendar-event/stage182-calendar-search-get-*` 查询，再逐个 Events URI 删除。`finally` 先删除当前事件，再删除本轮实际创建的小灵本地日历，最后恢复原 Profile并删除临时 Profile；不按标题或时间范围清理。
+- 最终 Redmi Run 为 `run-e238ca62-58c5-4c54-a611-e368f2ddace2`。Debug/AndroidTest APK 与文档 corpus `1/1` 通过；没有修改生产 Registry/Skill/Writer/Reader/Room，也未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 181 阶段：系统日程稳定身份与权威详情读取（完成）
 
 - `CalendarEventRecord` 新增数值 `eventId`，`AndroidCalendarEventReader` 的 Instances 最小投影加入 `EVENT_ID`。Registry 统一格式化为 `calendar-<Events._ID>`，列表序号仍只用于展示，不参与后续身份解析。

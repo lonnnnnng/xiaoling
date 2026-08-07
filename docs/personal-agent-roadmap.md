@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 182 阶段：真实 Provider 系统日程详情闭环（完成）
+
+- Debug-only `calendar_search_get_real` 从设备当前已选择 Provider 构建正式 `AgentRunUseCase`。临时 Profile 只允许 `calendar.search_events / calendar.get` 与 `calendar-detail`，不包含 `calendar.create_event`，事件夹具由 Agent Run 外的正式 Calendar writer 创建。
+- 最终 Redmi Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 选择唯一 `calendar-detail`，严格执行 `calendar.search_events -> calendar.get`；搜索关键词原样传递，详情参数等于搜索结果的稳定 `calendar-<Events._ID>`，两项 Tool Result 均 `success=true / PASSED`，详情来自当前 Provider且审批为 0。
+- 首次覆盖安装后立即触发的 Run `run-f7f6e2d3-25df-48f3-95b8-76ffb4c53f30` 与启动恢复竞态，因 Run 已被收敛而拒绝追加步骤；该轮夹具/Profile 已清理。稳定进程与最终清理修正后的代码均复验成功，不把首次编排失败记作日程工具失败。
+- 探针只按应用包名与 stage182 marker 回收中断残留；当前事件按 Provider 返回 ID 删除，只有本轮实际新建的小灵本地日历才按精确 ID 删除。日志不记录 API Key、事件标题或工具参数。
+- Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过。未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段再单独冻结日程修改/删除的审批、幂等、系列/单次 occurrence 与恢复契约；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 181 阶段：系统日程稳定身份与权威详情读取（完成）
 
 - `calendar.list_events / calendar.search_events` 为每个实例返回其 `Events._ID` 派生的稳定 `calendar-<正整数>`；重复事件的 ID 指向事件系列。本阶段不承诺单次 occurrence 修改。
 - 新增仅前台、SAFE 的 `calendar.get(event_id)`。工具只接受列表或搜索返回形态的稳定 ID，并从当前 Calendar Provider 单条回读标题、起止时间、全天、时区及 RRULE/RDATE 重复状态；地点、描述、参与人、组织者和账户不进入数据模型或 Provider 投影。
 - 新增独立 `calendar-detail` Skill，严格执行 `calendar.search_events -> calendar.get`；无结果、结果不唯一、ID 非法、事件已删除、Provider 不可用或权限撤销时停止，不把搜索摘要或旧内容冒充当前详情。
 - 聚焦 JVM `89/89`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 和文档 corpus `1/1` 通过；临时事件按 Provider 返回 ID 精确清理。双轴审查补齐 RDATE-only 重复事件识别；未运行真实模型 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release。
-- 第 182 阶段优先用真实模型 Provider 跑通 `calendar.search_events -> calendar.get` Agent 闭环，再单独评估日程修改/删除的审批、幂等、系列/单次 occurrence 语义和恢复；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+- 第 182 阶段已完成真实模型 Provider 闭环；后续按第 182 阶段列出的日程修改/删除契约评估推进。
 
 ## 第 180 阶段：答案级长期记忆导航（完成）
 

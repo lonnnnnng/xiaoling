@@ -4,6 +4,16 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 182 阶段：真实 Provider 系统日程详情闭环
+
+- `:app:assembleDebug` 构建成功。仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装并显式授权日历读写；写权限只用于 Debug 夹具创建/清理，临时 Agent Profile 精确只含 `calendar.search_events / calendar.get`。虽然设备枚举中有 `emulator-5554`，没有向模拟器发送安装、启动、授权、日志或测试命令。
+- 覆盖安装后首次 Run `run-f7f6e2d3-25df-48f3-95b8-76ffb4c53f30` 与启动恢复并发，日志为 `Agent Run 已结束，不能追加步骤`；`finally` 仍报告事件、本地日历和临时 Profile 清理成功。应用稳定后同一实现首次成功 Run 为 `run-7b552e08-4aba-4f00-9f1f-66e70c1dc0df`。
+- 审查前补强“Provider 已写入但回读验证失败”的清理窗口：`Committed` 一产生即捕获精确事件/日历 ID。重新构建、覆盖安装并等待稳定启动后，最终代码 Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 为 `COMPLETED`，选择 `calendar-detail`，严格执行 `calendar.search_events -> calendar.get`。
+- 最终 Run 中搜索关键词原样使用，`calendar.get.event_id` 等于搜索结果稳定 ID；两项结果均 `success=true / PASSED`，搜索命中唯一夹具，详情包含同一 ID、标题、时区与“重复：否”，审批为 0，模型回复长度为 `347`。清理日志为 `temporaryProfileRemoved=true / testEventRemoved=true / temporaryCalendarRemoved=true`。
+- Standards 审查唯一硬问题是长期文档尚未同步，本节及其余六份文档已补齐；长 Debug 探针方法是沿用既有真实验收模式的非阻断结构建议。Spec 审查未发现缺失或扩权：事件创建不在 Agent Run 内，生产能力面保持不变。
+- 六份长期文档同步后重新构建 AndroidTest 文档资产，仅在 Redmi 运行项目文档 corpus gate，结果 `OK (1 test)`。
+- 本阶段未运行完整 JVM、Lint、Release APK 或默认全量 instrumentation；Debug/AndroidTest APK 已构建，未新增生产工具、权限、Room Schema、后台能力或发布版本。
+
 ## 2026-08-07 第 181 阶段：系统日程稳定身份与权威详情读取
 
 - TDD 首轮运行 `XiaoLingToolRegistryTest`，因 `eventId`、`CalendarEventDetailRecord / CalendarEventDetailReadResult` 和 `getEvent` 尚不存在得到预期编译失败；最小实现后 `XiaoLingToolRegistryTest 63/63 + AgentSkillsTest 26/26`，合计聚焦 JVM `89/89` 通过。

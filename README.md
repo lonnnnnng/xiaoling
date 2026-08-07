@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 181 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 182 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 182 阶段在 Redmi 完成真实模型 Provider 的系统日程详情闭环。Debug-only 探针在 Agent Run 外用正式 Calendar writer 创建唯一临时事件，临时 Profile 只允许 `calendar.search_events / calendar.get` 与 `calendar-detail`；最终 Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 严格两步完成，搜索关键词原样使用、稳定 `calendar-<Events._ID>` 原样传递，两项结果均成功且 typed `PASSED`，权威详情和零审批通过。事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，也未扩展生产工具、权限、Room、旧 Profile/Run 或后台能力。
 
 第 181 阶段完成系统日程稳定身份与权威详情读取。`calendar.list_events / calendar.search_events` 现在返回绑定 `CalendarContract.Events._ID` 的稳定 `calendar-<正整数>`，新增前台 SAFE `calendar.get(event_id)` 只按该 ID 从当前 Provider 回读标题、起止时间、全天、时区和 RRULE/RDATE 重复状态；地点、描述、参与人、组织者和账户不进入投影。独立 `calendar-detail` Skill 强制先搜索、唯一匹配后再读取，不允许猜测 ID；旧 Skill、Profile、历史/Legacy Run、日程修改删除、后台和 committed-effect verification 均未扩权。聚焦 JVM `89/89`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 和文档 corpus `1/1` 通过，临时事件已按 Provider ID 精确清理；未运行真实模型 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release。
 
