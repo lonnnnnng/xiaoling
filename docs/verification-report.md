@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 178 阶段：按稳定 ID 读取长期记忆详情
+
+- 新增 SAFE `memory.get(memory_id)` 和独立 `personal-memory-detail` Skill。搜索结果补充稳定 `memory-UUID`，详情从当前 Store 回读；非法 ID 在访问 Store 前拒绝，禁用、过期和不存在统一失败且不返回正文。关闭单次召回时搜索与详情工具均隐藏并在执行入口阻断。
+- TDD 首轮运行 `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest` 共 `87` 项，因工具/Skill 尚不存在、召回开关未覆盖详情和搜索结果缺 ID 得到预期 `7` 项失败。最小实现后同组 `87/87` 通过，`:app:assembleDebug` 为 `BUILD SUCCESSFUL`。
+- Standards 审查确认中文 `long` 业务注释、公开测试 seam、旧 Skill/Profile/Legacy Run 权限冻结均符合项目约束；Spec 审查确认 ID、启用/过期治理、召回关闭和无 Schema/写入扩权行为完整，两个轴均为 0 项。
+- 本阶段没有运行完整 JVM、Lint、AndroidTest、Redmi instrumentation/真实 Provider 或 Release。真实模型能否稳定完成 `memory.search -> memory.get` 尚未验证，留给下一阶段仅在 Redmi 执行；Room v36 与 `v0.1.16 / Room v35` 发布基线不变。
+
 ## 2026-08-07 第 177 阶段：周期计划真实使用与可信答案闭环
 
 - 新增共享可信结果解析，将 `tasks.pause / tasks.resume` 的应用生成首行同时用于受限会话终态、Workflow 快照刷新和答案级“查看任务”。唯一 execution、严格 `{name}`、typed `VERIFIED`、工具/状态一致与单行名称缺一不可；模型文本、重复 execution、状态错配和未验证结果 fail-closed。点击仍从当前 Room 按唯一精确名称解析，不保存内部 ID。

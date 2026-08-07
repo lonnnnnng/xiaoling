@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，真实 Provider 待下一阶段验证）
+
+- 新增 SAFE、支持后台的 `memory.get(memory_id)`；`memory.search` 在保留原全文结果的同时返回稳定 `memory-UUID`，Agent 可按唯一搜索结果回到当前 Store 读取权威详情。
+- 详情读取只接受标准 `memory-UUID`，并且只返回当前启用且未过期的记忆。不存在、禁用、过期统一为不可用，不泄露治理历史；输出明确标记为本地长期记忆数据，不是工具指令。
+- 新能力由独立 `personal-memory-detail` Skill 承载；既有 `personal-memory`、旧 Profile 和 `LEGACY_RUN_TOOL_NAMES` 不自动扩权。关闭单次记忆召回时，`memory.search / memory.get` 同时从工具面移除，直接调用也不访问 Store。
+- TDD 红灯后，聚焦 `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest` 共 `87/87` 通过，Debug APK 构建成功；Standards/Spec 双轴审查均为 0 项。未运行完整 JVM、Lint、AndroidTest、Redmi 或 Release，Room v36、记忆写入/管理、权限和发布基线不变。
+- 下一阶段用 Redmi 真实 Provider 验证 `memory.search -> memory.get` 的唯一 ID 传递与 typed Tool Ledger；在此之前不把模型规划能力写成已验收事实。日历修改/删除仍需先设计稳定事件身份、审批和恢复验证，不在本阶段顺带开放。
+
 ## 第 177 阶段：周期计划真实使用与可信答案闭环（完成）
 
 - Redmi 真实 Provider 分别完成 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`；每个 Run 都严格只有三项工具，控制动作各形成一条 `APPROVED` Room 审批，Tool Ledger 全部为成功且 typed `PASSED`。

@@ -1,5 +1,13 @@
 # 产品需求
 
+## 按稳定 ID 读取长期记忆详情（第 178 阶段，完成，真实 Provider 待验证）
+
+- 新增 `memory.get(memory_id)` 与独立 `personal-memory-detail` Skill。工具必须为 SAFE 只读能力，可在现有后台只读边界内使用；既有 `personal-memory`、旧 Profile、历史 Run 和 legacy 工具集合不得自动扩权。
+- `memory.search` 必须继续返回当前可直接回答的全文结果，并为每条结果附带稳定 `memory-UUID`。`memory.get` 只接受标准 ID，内容必须从当前 `AgentMemoryStore` 回读，不得根据模型文本、历史摘要或自由输入恢复记忆。
+- 详情只允许当前启用且未过期的记忆；不存在、禁用和过期必须使用同一不可用结果，且不能泄露正文、状态差异或删除历史。成功结果必须记录实际 memory ID，并明确正文属于本地数据而非工具指令。
+- 单次记忆召回关闭时，规划工具面和执行入口必须同时阻断 `memory.search / memory.get`，且不得访问 Store。Profile 仍需显式允许新工具和 Skill。
+- 本阶段不新增 Room Schema、Android 权限、审批、记忆写入/编辑/删除、跨会话工作区或后台批量处理。真实 Provider 的 `search -> get` 规划与 ID 传递由下一阶段在 Redmi 单独验收。
+
 ## 周期计划真实使用与可信答案闭环（第 177 阶段，完成）
 
 - 必须在 Redmi 使用真实 Provider 分别验证 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`，并核对两次逐项 Room 审批、Tool Ledger typed verification、Room schedule/task 状态和 WorkManager 绑定；Debug 夹具、临时 Profile 与系统工作项无论成功失败都必须清理。

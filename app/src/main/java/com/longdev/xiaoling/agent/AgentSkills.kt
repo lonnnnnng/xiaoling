@@ -204,6 +204,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "检索结果可读，或写入后完成回读验证。",
         ),
         AgentSkillDefinition(
+            id = "personal-memory-detail",
+            name = "长期记忆详情",
+            description = "先检索本机长期记忆，再按稳定 ID 读取唯一命中的当前详情。",
+            instructions = "先调用 memory.search 定位记忆；只有唯一结果与用户目标一致时，才把该结果中的稳定 memory ID 原样传给 memory.get。不得猜测 ID，不得读取禁用、过期或已删除记忆。",
+            toolNames = setOf("memory.search", "memory.get"),
+            keywords = setOf("记忆详情", "完整记忆", "查看记忆", "memory detail", "memory content"),
+            triggerExamples = listOf("查看这条长期记忆的详情", "读取刚才匹配记忆的完整内容"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "检索无结果、结果不唯一、ID 无效或详情不可用时停止，不猜测内容或治理状态。",
+            completionCriteria = "唯一匹配的当前可用记忆按稳定 ID 回读成功，否则明确说明未读取。",
+        ),
+        AgentSkillDefinition(
             id = "local-knowledge",
             name = "本地知识库",
             description = "检索用户已导入并启用的本地知识文档。",

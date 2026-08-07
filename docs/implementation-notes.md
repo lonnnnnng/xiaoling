@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，真实 Provider 待验证）
+
+- `XiaoLingToolRegistry` 新增 `memory.get(memory_id)`：Schema 要求 43 字符 `memory-UUID`，业务校验与执行入口复用同一格式；执行后只接受 `enabled=true` 且未过期的当前 Store 记录，不存在、禁用或过期统一返回“未找到可用的长期记忆”。
+- `memory.search` 保持原有全文、类型和来源输出，并追加每条记录的稳定 ID；`memory.get` 成功结果返回同一 ID、当前正文、类型、标签和来源，同时通过 `memoryIdsUsed` 进入 ToolResult 审计。
+- 单次召回关闭策略改为同时过滤 `memory.search / memory.get`；两个执行分支也在读取 Store 前返回关闭提示，避免模型绕过工具清单按 ID 探测。两项工具均保持 SAFE、支持现有后台只读边界。
+- 新增独立 SAFE `personal-memory-detail` Skill，要求先 search、唯一命中后再原样传 ID；原 `personal-memory` 工具集合仍为 `memory.search / memory.remember`，`LEGACY_RUN_TOOL_NAMES` 也不加入新工具，因此旧 Profile/Run 不自动获得详情读取能力。
+- TDD 首轮 `87` 个聚焦测试中 `7` 个按预期失败；最小实现后同组 `87/87` 通过，`:app:assembleDebug` 成功。Standards 与 Spec 双轴审查均为 0 项；未运行完整 JVM、Lint、AndroidTest、Redmi 或 Release。
+
 ## 第 177 阶段：周期计划真实使用与可信答案闭环（完成）
 
 - 新增 `TaskScheduleControlCompletionPresentation` 与共享可信解析策略。策略只接受唯一 `tasks.pause / tasks.resume` execution、`success=true`、typed `VERIFIED`、严格 `{name}`、单行 1 至 100 字符任务名，以及与工具动作一致的应用生成首行；暂停、重复暂停、恢复和重复恢复分别投影为稳定无内部 ID 的会话终态。

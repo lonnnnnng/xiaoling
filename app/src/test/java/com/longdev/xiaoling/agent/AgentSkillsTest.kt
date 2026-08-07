@@ -29,6 +29,16 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInMemoryDetailSkillKeepsExistingMemorySkillStable() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "personal-memory-detail" }
+        val existing = BuiltInAgentSkillRegistry.all().single { it.id == "personal-memory" }
+
+        assertEquals(setOf("memory.search", "memory.get"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue("memory.get" !in existing.toolNames)
+    }
+
+    @Test
     fun builtInLocalNoteDeleteSkillKeepsMutationSeparateFromReadAndCreateSkills() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "找到并删除标题匹配的这条笔记",
