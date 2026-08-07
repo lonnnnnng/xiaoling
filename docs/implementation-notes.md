@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 187 阶段：日程修改中断恢复边界加固（完成）
+
+- `XiaoLingToolRegistryTest` 增加日程修改恢复契约断言：`calendar.update_event` 的 `replaySafety` 为 `RESTART_REQUIRED`，`notCommittedReplayPolicy` 及其版本化 `ToolDefinitionRecoverySnapshot` 均为 `DENY`；合法前台 DIRECT 上下文仍是工具定义可见的必要条件。
+- `AndroidCalendarEventWriterInstrumentedTest` 在成功 UPDATE 后重新创建 `AndroidCalendarEventWriter`，再执行 `verifyUpdateCommitted()`；回读成功且不产生新的 Provider UPDATE。重建实例直接调用 `updateOrReadBack()` 时仍因旧指纹不匹配而拒绝，证明没有 `COMMITTED` 回执就不会重放修改。
+- 聚焦 JVM `196/196`、`:app:assembleDebug :app:assembleDebugAndroidTest`、Redmi `AndroidCalendarEventWriterInstrumentedTest` `4/4` 和文档 corpus gate `1/1` 通过。测试 APK 已卸载，主应用数据保留；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+- 本阶段没有修改生产 Registry、Writer、Reader、Room Schema、旧 Profile/Run、Workflow 或后台能力；下一阶段继续验证真实模型失败/中断后的恢复处置和只读回查。
+
 ## 第 186 阶段：真实 Provider 受控系统日程修改闭环（完成）
 
 - `AgentE2eDebugReceiver` 新增 Debug-only `calendar_update_real`，通过显式 `AgentE2eDebugReceiver` 触发，读取设备当前 Provider，创建 stage186 专属一次性非全天事件和临时 Profile；正式 Run 复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`，不新增生产旁路。

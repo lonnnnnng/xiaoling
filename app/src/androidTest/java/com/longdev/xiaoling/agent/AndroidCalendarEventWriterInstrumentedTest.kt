@@ -309,8 +309,10 @@ class AndroidCalendarEventWriterInstrumentedTest {
             )
 
             val updated = writer.updateOrReadBack(updateRequest)
-            val recovered = writer.verifyUpdateCommitted("calendar-$updatedEventId", updateRequest)
-            val repeatedWithoutReceipt = writer.updateOrReadBack(updateRequest)
+            // long: 重新创建 Provider 写入器模拟进程/Registry 重建；恢复只能按稳定事件 ID 只读回查，不能依赖旧实例内存或再次 UPDATE。
+            val restartedWriter = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+            val recovered = restartedWriter.verifyUpdateCommitted("calendar-$updatedEventId", updateRequest)
+            val repeatedWithoutReceipt = restartedWriter.updateOrReadBack(updateRequest)
             val detailAfterUpdate = reader.getEvent(updatedEventId)
 
             assertTrue(updated is CalendarEventUpdateResult.Committed && updated.verified)

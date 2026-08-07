@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 187 阶段：日程修改中断恢复边界加固
+
+- 聚焦 JVM 命令 `:app:testDebugUnitTest --tests com.longdev.xiaoling.agent.XiaoLingToolRegistryTest --tests com.longdev.xiaoling.agent.AgentRunResumePolicyTest --tests com.longdev.xiaoling.agent.MinimalAgentRuntimeTest` 通过，结果 `196/196`。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。仅向 Redmi `wsvwypiz7xwslvl7` 安装测试 APK，并运行 `AndroidCalendarEventWriterInstrumentedTest`，结果 `OK (4 tests)`；没有向 `emulator-5554` 发送安装、授权、启动、日志或测试命令。
+- 真机测试在成功 UPDATE 后重建 `AndroidCalendarEventWriter`，`verifyUpdateCommitted()` 只读回当前 Provider 并通过；重建实例无 `COMMITTED` 回执直接 UPDATE 仍因旧指纹拒绝。该证据证明恢复不会再次调用 UPDATE，事件与本轮资源按既有逻辑精确清理。
+- 更新文档资产并重建 AndroidTest APK 后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`、耗时 `2.597s`；测试 APK 已卸载，主应用与用户数据保留。本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未修改生产 Registry/Writer/Reader、Room v36、旧 Profile/Run、Workflow 或后台边界。
+
 ## 2026-08-08 第 186 阶段：真实 Provider 受控系统日程修改闭环
 
 - `:app:assembleDebug` 与后续 `:app:assembleDebugAndroidTest` 均成功。仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装主 Debug APK 和测试 APK，授予日历读写权限并启动主应用；没有向在线模拟器发送安装、授权、启动、日志或测试命令。

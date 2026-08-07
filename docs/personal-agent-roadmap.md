@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 187 阶段：日程修改中断恢复边界加固（完成）
+
+- 固定 `calendar.update_event` 的恢复契约为 `RESTART_REQUIRED + DENY`。无回执、非 `COMMITTED`、回执错配或未提交执行边界均不具备原地恢复或受控重放资格。
+- 在 Redmi 上重建 `AndroidCalendarEventWriter` 后只读回查已提交事件；重建实例的无回执 UPDATE 仍因旧指纹拒绝，证明跨进程/Registry 重建不会再次写入日程。
+- 聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi `AndroidCalendarEventWriterInstrumentedTest` `4/4` 和文档 corpus gate `1/1` 通过；测试 APK 已卸载，未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+- 下一阶段继续补真实模型失败/中断后的 Run/Room 恢复证据；不扩展 series/occurrence、后台日历自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 186 阶段：真实 Provider 受控系统日程修改闭环（完成）
 
 - Debug-only `calendar_update_real` 读取 Redmi 当前真实模型 Provider，创建 stage186 专属一次性非全天夹具和临时 Profile；Profile 只允许 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`，不把创建或其他工具带入 Run。

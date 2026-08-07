@@ -1,5 +1,12 @@
 # 产品需求
 
+## 日程修改中断恢复边界（第 187 阶段，完成）
+
+- `calendar.update_event` 的未提交、执行中断、回执缺失或回执状态不是 `COMMITTED` 时，恢复策略必须返回 `RESTART_REQUIRED`，且 `ToolNotCommittedReplayPolicy` 固定为 `DENY`；不得因为事件当前看起来已变化而猜测 UPDATE 是否成功。
+- 只有原 ToolCall、同一事件 operation ID、幂等键、`scope=event` 和 `COMMITTED` 回执全部一致时，恢复入口才可在前台 DIRECT 上下文执行只读 `verifyUpdateCommitted()`；该入口不得调用 `updateOrReadBack()`。
+- Registry/Writer/Room 重建后仍只按稳定事件 ID回读当前 Provider；重建后的验证不得依赖进程内缓存，也不得新增 UPDATE、审批或新的模型规划事实。
+- 本阶段只加固契约与测试证据，不新增权限、Room Schema、Skill/Profile、Workflow、后台日历能力或任意 App 修改能力。
+
 ## 真实 Provider 受控系统日程修改闭环（第 186 阶段，完成）
 
 - 必须仅在 Redmi 使用设备当前已选择的真实模型 Provider，通过唯一 `calendar-update` Skill 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；临时 Profile 只能开放这三个工具，不得包含创建、列表、删除、设备动作或其他 Skill。

@@ -1033,6 +1033,20 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun calendarUpdateEventRecoveryContractDeniesInterruptedUncommittedReplay() {
+        val registry = testRegistry()
+        registry.bindRunContext(directCalendarUpdateContext())
+        val definition = checkNotNull(registry.definition("calendar.update_event"))
+
+        assertEquals(ToolReplaySafety.RESTART_REQUIRED, definition.replaySafety)
+        assertEquals(ToolNotCommittedReplayPolicy.DENY, definition.notCommittedReplayPolicy)
+        assertEquals(
+            ToolNotCommittedReplayPolicy.DENY,
+            ToolDefinitionRecoveryContract.snapshot(definition).notCommittedReplayPolicy,
+        )
+    }
+
+    @Test
     fun calendarUpdateEventCommittedRecoveryRejectsWorkflowAndBackgroundContexts() = runTest {
         val event = calendarUpdateFixture()
         val writer = InMemoryCalendarEventWriter(updatableEvent = event)
