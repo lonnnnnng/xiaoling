@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 193 阶段：任务中心关联 Run 双向查看与安全导航
+
+- `AgentTaskCenterProjection` 新增来源/关联目标投影：关联 Run 只有在当前历史唯一存在来源时可“查看来源 Run”；来源 Run 只有在 `createdAt` 唯一确定最新关联 Run 时可“查看关联 Run”。缺失、历史裁剪、重复 ID 和最新时间并列均保持不可导航。
+- `AgentTaskCenterPage` 的导航点击先核对当前列表中的唯一目标，再切换到全部筛选、滚动到目标并调用现有 `selectAgentRun`。本阶段没有新增重试、审批、模型规划、工具执行、Provider 写入或 Room 查询。
+- `AgentTaskCenterProjectionTest` 聚焦 JVM 为 `3/3`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装测试 APK 和最新 Debug 主 APK，`AgentTaskCenterPageInstrumentedTest` 最终为 `OK (4 tests)`。
+- 首次真机运行准确暴露测试 APK 与设备旧主 APK 不同步的 `NoSuchMethodError`；没有修改业务断言或清理数据，仅在 Redmi `adb install -r` 最新主 APK 后复跑通过。文档更新后重建 AndroidTest APK，并在同一 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；测试包随后卸载。没有向 `emulator-5554` 发送任何 ADB 命令。
+- 按分级验证约束，本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation；Room v36、旧 Run/关联 Run 持久化语义、重试确认、Workflow、设备动作、Provider、answerability shadow 和后台边界均未改变。
+
 ## 2026-08-08 第 192 阶段：确认后关联新 Run 的 Room 历史保留验收
 
 - 新增 `RoomAgentRunRepositoryInstrumentedTest#linkedRetryPersistsRelationAndPreservesSourceAuditAcrossRepositoryRestart`。夹具来源 Run 含已批准的 `notes.create`、完成 Step、成功 Tool Result、`COMMITTED` 回执和独立审计 Event，随后收敛为 `FAILED` 终态。

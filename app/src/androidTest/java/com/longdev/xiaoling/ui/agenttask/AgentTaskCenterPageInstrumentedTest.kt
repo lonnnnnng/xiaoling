@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
@@ -69,6 +70,46 @@ class AgentTaskCenterPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun selectedSourceRunRoutesToLatestKnownLinkedRun() {
+        val actions = FakeAgentTaskCenterActions()
+        composeRule.setContent {
+            MaterialTheme {
+                AgentTaskCenterPage(
+                    state = linkedTaskCenterState(selectedRunId = "run-source"),
+                    actions = actions,
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看关联 Run").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("run-retry"), actions.selectedRunIds)
+        }
+    }
+
+    @Test
+    fun selectedRetryRunRoutesToKnownSourceRun() {
+        val actions = FakeAgentTaskCenterActions()
+        composeRule.setContent {
+            MaterialTheme {
+                AgentTaskCenterPage(
+                    state = linkedTaskCenterState(selectedRunId = "run-retry"),
+                    actions = actions,
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看来源 Run").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("run-source"), actions.selectedRunIds)
+        }
+    }
+
     private fun taskCenterState(restartRequired: Boolean = false): AgentTaskCenterUiState {
         val events = if (restartRequired) {
             listOf(
@@ -122,6 +163,59 @@ class AgentTaskCenterPageInstrumentedTest {
                     retrying = false,
                 ),
             ),
+        )
+    }
+
+    private fun linkedTaskCenterState(selectedRunId: String): AgentTaskCenterUiState {
+        val source = taskCenterDetail(
+            id = "run-source",
+            status = AgentRunStatus.FAILED,
+            createdAt = 1L,
+        )
+        val retry = taskCenterDetail(
+            id = "run-retry",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 2L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+        return AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = if (selectedRunId == source.snapshot.run.id) {
+                listOf(source, retry)
+            } else {
+                listOf(retry, source)
+            },
+            selectedRunId = selectedRunId,
+            retryingRunId = null,
+        )
+    }
+
+    private fun taskCenterDetail(
+        id: String,
+        status: AgentRunStatus,
+        createdAt: Long,
+        retryOfRunId: String? = null,
+    ): AgentRunDetailRecord {
+        return AgentRunDetailRecord(
+            snapshot = AgentRunSnapshot(
+                run = AgentRunRecord(
+                    id = id,
+                    conversationId = "conversation-1",
+                    userMessageId = "message-$id",
+                    goal = "goal-$id",
+                    status = status,
+                    result = null,
+                    errorMessage = null,
+                    createdAt = createdAt,
+                    updatedAt = createdAt,
+                    completedAt = null,
+                    retryOfRunId = retryOfRunId,
+                ),
+                steps = emptyList(),
+                events = emptyList(),
+            ),
+            approvals = emptyList(),
         )
     }
 

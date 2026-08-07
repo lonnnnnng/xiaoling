@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,6 +99,8 @@ internal fun AgentTaskCenterPage(
     modifier: Modifier = Modifier,
 ) {
     var taskFilter by remember(initialFilter) { mutableStateOf(initialFilter) }
+    var pendingNavigationRunId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     LaunchedEffect(Unit) {
         if (state.runs.isEmpty() && !state.loading) {
             actions.refreshAgentRunHistory()
@@ -105,6 +108,27 @@ internal fun AgentTaskCenterPage(
     }
     val filteredRuns = remember(state.runs, taskFilter) {
         state.runs.filter { item -> item.detail.matches(taskFilter) }
+    }
+    LaunchedEffect(pendingNavigationRunId, filteredRuns, state.runs) {
+        val targetRunId = pendingNavigationRunId ?: return@LaunchedEffect
+        if (state.runs.count { it.detail.snapshot.run.id == targetRunId } != 1) {
+            pendingNavigationRunId = null
+            return@LaunchedEffect
+        }
+        val targetIndex = filteredRuns.indexOfFirst { it.detail.snapshot.run.id == targetRunId }
+        if (targetIndex >= 0) {
+            listState.animateScrollToItem(targetIndex + 1)
+            pendingNavigationRunId = null
+        }
+    }
+
+    val navigateToRelatedRun: (String) -> Unit = { targetRunId ->
+        // long: 关联导航只信任当前从 Room 投影出的唯一 Run；先恢复“全部”筛选再选中，避免目标被状态筛选隐藏时出现无反馈跳转。
+        if (state.runs.count { it.detail.snapshot.run.id == targetRunId } == 1) {
+            taskFilter = AgentTaskFilter.ALL
+            pendingNavigationRunId = targetRunId
+            actions.selectAgentRun(targetRunId)
+        }
     }
 
     Column(
@@ -125,6 +149,7 @@ internal fun AgentTaskCenterPage(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -202,7 +227,10 @@ internal fun AgentTaskCenterPage(
                             onRetry = { actions.requestAgentRunRetry(runId) },
                         )
                         if (item.selected) {
-                            AgentRunDetailPanel(item.detail)
+                            AgentRunDetailPanel(
+                                item = item,
+                                onNavigateToRun = navigateToRelatedRun,
+                            )
                         }
                     }
                 }
@@ -494,7 +522,11 @@ private fun AgentRunHistoryItemCard(
 }
 
 @Composable
-private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
+private fun AgentRunDetailPanel(
+    item: AgentTaskCenterRunUiState,
+    onNavigateToRun: (String) -> Unit,
+) {
+    val detail = item.detail
     val snapshot = detail.snapshot
     val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
     val recoveryFailure = snapshot.events.asReversed().firstNotNullOfOrNull { event ->
@@ -520,12 +552,21 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                 overflow = TextOverflow.Ellipsis,
             )
             snapshot.run.retryOfRunId?.let { sourceRunId ->
-                Text(
-                    text = "来源 Run：$sourceRunId",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
-                    color = MaterialTheme.colorScheme.tertiary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                AgentRelatedRunLink(
+                    prefix = "来源 Run",
+                    runId = sourceRunId,
+                    actionLabel = "查看来源 Run",
+                    navigationRunId = item.sourceRunNavigationId,
+                    onNavigateToRun = onNavigateToRun,
+                )
+            }
+            item.linkedRetryRunNavigationId?.let { linkedRunId ->
+                AgentRelatedRunLink(
+                    prefix = "关联 Run",
+                    runId = linkedRunId,
+                    actionLabel = "查看关联 Run",
+                    navigationRunId = linkedRunId,
+                    onNavigateToRun = onNavigateToRun,
                 )
             }
             snapshot.run.errorMessage?.takeIf { it.isNotBlank() }?.let {
@@ -598,6 +639,47 @@ private fun AgentRunDetailPanel(detail: AgentRunDetailRecord) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AgentRelatedRunLink(
+    prefix: String,
+    runId: String,
+    actionLabel: String,
+    navigationRunId: String?,
+    onNavigateToRun: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "$prefix：$runId",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+            color = MaterialTheme.colorScheme.tertiary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (navigationRunId != null) {
+            TextButton(
+                onClick = { onNavigateToRun(navigationRunId) },
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                modifier = Modifier
+                    .height(26.dp)
+                    .testTag("agent-task-related-run-$navigationRunId"),
+            ) {
+                Text(actionLabel, style = MaterialTheme.typography.labelSmall)
+            }
+        } else {
+            Text(
+                text = "当前历史不可用",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

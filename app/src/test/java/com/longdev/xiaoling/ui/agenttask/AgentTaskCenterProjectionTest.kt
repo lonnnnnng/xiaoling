@@ -41,7 +41,80 @@ class AgentTaskCenterProjectionTest {
         assertEquals(pending, result.pendingRetryConfirmation)
     }
 
-    private fun runDetail(id: String, status: AgentRunStatus): AgentRunDetailRecord {
+    @Test
+    fun projectLinksRetryToKnownSourceAndSourceToLatestRetry() {
+        val source = runDetail("run-source", AgentRunStatus.FAILED, createdAt = 1L)
+        val olderRetry = runDetail(
+            id = "run-retry-old",
+            status = AgentRunStatus.CANCELLED,
+            createdAt = 2L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+        val latestRetry = runDetail(
+            id = "run-retry-latest",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 3L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+
+        val result = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(latestRetry, olderRetry, source),
+            selectedRunId = source.snapshot.run.id,
+            retryingRunId = null,
+        )
+
+        assertEquals("run-retry-latest", result.runs.last().linkedRetryRunNavigationId)
+        assertEquals("run-source", result.runs.first().sourceRunNavigationId)
+    }
+
+    @Test
+    fun projectDoesNotGuessMissingSourceOrTiedLatestRetry() {
+        val source = runDetail("run-source", AgentRunStatus.FAILED, createdAt = 1L)
+        val firstRetry = runDetail(
+            id = "run-retry-1",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 2L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+        val secondRetry = runDetail(
+            id = "run-retry-2",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 2L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+        val duplicateRetry = runDetail(
+            id = "run-retry-1",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 4L,
+            retryOfRunId = source.snapshot.run.id,
+        )
+        val orphanRetry = runDetail(
+            id = "run-retry-orphan",
+            status = AgentRunStatus.QUEUED,
+            createdAt = 3L,
+            retryOfRunId = "run-trimmed",
+        )
+
+        val result = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(orphanRetry, duplicateRetry, secondRetry, firstRetry, source),
+            selectedRunId = null,
+            retryingRunId = null,
+        )
+
+        assertEquals(null, result.runs.first().sourceRunNavigationId)
+        assertEquals(null, result.runs.last().linkedRetryRunNavigationId)
+    }
+
+    private fun runDetail(
+        id: String,
+        status: AgentRunStatus,
+        createdAt: Long = 1L,
+        retryOfRunId: String? = null,
+    ): AgentRunDetailRecord {
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
                 run = AgentRunRecord(
@@ -52,9 +125,10 @@ class AgentTaskCenterProjectionTest {
                     status = status,
                     result = null,
                     errorMessage = null,
-                    createdAt = 1L,
+                    createdAt = createdAt,
                     updatedAt = 2L,
                     completedAt = if (status == AgentRunStatus.COMPLETED) 3L else null,
+                    retryOfRunId = retryOfRunId,
                 ),
                 steps = emptyList(),
                 events = emptyList(),

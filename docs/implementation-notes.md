@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 193 阶段：任务中心关联 Run 双向查看与安全导航（完成）
+
+- `AgentTaskCenterProjection` 在不改变历史顺序的前提下，按当前 Room 历史投影 `sourceRunNavigationId` 与 `linkedRetryRunNavigationId`。来源目标必须唯一存在；关联目标按 `createdAt` 取最新，时间并列时返回空，避免从裁剪或异常重复数据猜测导航对象。
+- `AgentTaskCenterPage` 在 Run 详情中提供“查看来源 Run / 查看关联 Run”。点击前重新核对当前列表中的唯一 ID，切回 `AgentTaskFilter.ALL`，再用 `LazyListState` 滚动到目标并复用 `selectAgentRun`；该动作不接触重试协调器、审批或 Runtime。
+- `AgentTaskCenterProjectionTest` 新增已知来源/最新关联和缺失来源/并列时间 fail-closed 覆盖，聚焦 JVM `3/3`；`AgentTaskCenterPageInstrumentedTest` 新增双向路由，Redmi `OK (4 tests)`。`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。
+- 首次 Redmi 运行因主 APK 尚未与新测试 APK 同步暴露 `NoSuchMethodError`；仅在 Redmi 使用 `adb install -r` 覆盖最新 Debug 主包后复跑，最终 `4/4` 通过，未清理应用数据。文档语料更新后另行运行 corpus gate `OK (1 test)`，测试包随后卸载。
+- 本阶段只修改任务中心查看体验，不改变 Room v36、关联 Run/旧 Run 事实、重试确认、Workflow、设备动作、Provider 或后台边界；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 192 阶段：确认后关联新 Run 的 Room 历史保留验收（完成）
 
 - `RoomAgentRunRepositoryInstrumentedTest#linkedRetryPersistsRelationAndPreservesSourceAuditAcrossRepositoryRestart` 构造含已批准 `notes.create`、成功 Tool Result、`COMMITTED` 回执、完成 Step 和审计 Event 的来源 `FAILED` Run。

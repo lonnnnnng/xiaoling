@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 193 阶段关联导航边界（无变更）
+
+本阶段只为任务中心提供当前历史内的关联 Run 查看入口，不读取或改写答案级知识引用、Shadow measurement、Judge 绑定或匿名账本。任务中心导航不触发 `/agent` 答案观测、知识检索、模型调用或生产拒绝；Shadow 默认关闭、`enforcementApplied=false` 与现有 Room v33 证据边界保持不变。
+
 ## 当前边界
 
 answerability Shadow 只观察用户显式开启后的前台直接 `/agent` 答案。每次显式开启最多授权一轮观测：候选存在、答案成功保存且调用前仍开启时，Publisher 先关闭并持久化开关，再进入观测协调器；候选缺失、答案保存失败或用户提前撤销不消费本次窗口。候选必须来自同一 Run 中最近一次成功、验证未失败且带稳定引用的 `knowledge.search`；冻结 Judge 身份必须与当前 Provider 配置完全一致。普通聊天、Workflow、后台 Worker、候选缺失、身份漂移或答案保存失败都不得请求 Judge 或写入匿名账本。
