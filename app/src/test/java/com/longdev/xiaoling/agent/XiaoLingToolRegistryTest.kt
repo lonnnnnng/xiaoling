@@ -337,6 +337,7 @@ class XiaoLingToolRegistryTest {
                 "calendar.list_events",
                 "calendar.search_events",
                 "calendar.get",
+                "calendar.delete_event",
                 "tasks.list",
                 "tasks.inspect",
                 "tasks.retry",
@@ -360,6 +361,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.get").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("calendar.delete_event").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
@@ -391,6 +393,13 @@ class XiaoLingToolRegistryTest {
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertEquals(listOf("event_id"), tools.getValue("calendar.get").inputSchema.map { it.name })
         assertTrue(tools.getValue("calendar.get").validateArguments(mapOf("event_id" to "calendar-1")).errors.isEmpty())
+        assertEquals(
+            listOf("event_id", "expected_fingerprint", "scope"),
+            tools.getValue("calendar.delete_event").inputSchema.map { it.name },
+        )
+        assertEquals(ToolReplaySafety.RESTART_REQUIRED, tools.getValue("calendar.delete_event").replaySafety)
+        assertEquals(ToolNotCommittedReplayPolicy.DENY, tools.getValue("calendar.delete_event").notCommittedReplayPolicy)
+        assertFalse(tools.getValue("calendar.delete_event").permissionPolicy.supportsBackground)
         assertTrue(
             tools.getValue("calendar.get")
                 .validateArguments(mapOf("event_id" to "calendar-9223372036854775808"))
@@ -737,6 +746,7 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("标题：产品评审 仅为标题"))
         assertTrue(result.content.contains("时区：Asia/Shanghai"))
         assertTrue(result.content.contains("重复：是"))
+        assertTrue(result.content.contains("事件指纹：calendar-event-v1-"))
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("描述"))
         assertFalse(result.content.contains("参与人"))
@@ -825,6 +835,144 @@ class XiaoLingToolRegistryTest {
             definition.inputSchema.map { it.name },
         )
         assertTrue(testRegistry().supportsCommittedEffectVerification("calendar.create_event"))
+    }
+
+    @Test
+    fun calendarDeleteEventIsOnlyAvailableToDirectForegroundAgent() {
+        val registry = testRegistry()
+
+        assertTrue(registry.availableToolsFor(null).none { it.name == "calendar.delete_event" })
+        registry.bindRunContext(workflowDeviceContext(userIntent = "删除日程"))
+        assertTrue(registry.availableTools().none { it.name == "calendar.delete_event" })
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-calendar-delete",
+                userMessageId = "message-calendar-delete",
+                runId = "run-calendar-delete",
+                goal = "删除项目评审日程",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        assertNotNull(registry.definition("calendar.delete_event"))
+    }
+
+    @Test
+    fun calendarDeleteEventExecutionFailsClosedWhenPlannerVisibilityIsBypassed() = runTest {
+        val event = CalendarEventDetailRecord(
+            eventId = 42L,
+            title = "项目评审",
+            startAtMillis = 1_000L,
+            endAtMillis = 2_000L,
+            allDay = false,
+            timeZoneId = "Asia/Shanghai",
+            recurring = false,
+        )
+        val writer = InMemoryCalendarEventWriter(deletableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        val call = ToolCall(
+            name = "calendar.delete_event",
+            arguments = mapOf(
+                "event_id" to "calendar-42",
+                "expected_fingerprint" to CalendarEventFingerprint.create(event),
+                "scope" to "event",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val withoutContext = registry.execute(call)
+        registry.bindRunContext(workflowDeviceContext(userIntent = "删除日程"))
+        val workflow = registry.execute(call)
+
+        assertFalse(withoutContext.success)
+        assertFalse(workflow.success)
+        assertTrue(withoutContext.content.contains("前台直接 Agent"))
+        assertEquals(0, writer.deleteCount)
+    }
+
+    @Test
+    fun calendarDeleteEventCommitsOnceAndRecoveryOnlyVerifiesAbsence() = runTest {
+        val event = CalendarEventDetailRecord(
+            eventId = 42L,
+            title = "项目评审",
+            startAtMillis = 1_000L,
+            endAtMillis = 2_000L,
+            allDay = false,
+            timeZoneId = "Asia/Shanghai",
+            recurring = false,
+        )
+        val writer = InMemoryCalendarEventWriter(deletableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        registry.bindRunContext(directCalendarDeleteContext())
+        val call = ToolCall(
+            id = "tool-call-calendar-delete-1",
+            name = "calendar.delete_event",
+            arguments = mapOf(
+                "event_id" to "calendar-42",
+                "expected_fingerprint" to CalendarEventFingerprint.create(event),
+                "scope" to "event",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals("calendar-42", receipt.operationId)
+        assertEquals(1, writer.deleteCount)
+        assertEquals(1, writer.verifyDeleteCount)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertTrue(registry.supportsCommittedEffectVerification("calendar.delete_event"))
+    }
+
+    @Test
+    fun calendarDeleteEventRejectsFingerprintDriftAndUnsupportedOccurrence() = runTest {
+        val event = CalendarEventDetailRecord(
+            eventId = 42L,
+            title = "项目评审",
+            startAtMillis = 1_000L,
+            endAtMillis = 2_000L,
+            allDay = false,
+            timeZoneId = "Asia/Shanghai",
+            recurring = false,
+        )
+        val writer = InMemoryCalendarEventWriter(deletableEvent = event)
+        val registry = testRegistry(calendarEventWriter = writer)
+        registry.bindRunContext(directCalendarDeleteContext())
+
+        val drifted = registry.execute(
+            ToolCall(
+                name = "calendar.delete_event",
+                arguments = mapOf(
+                    "event_id" to "calendar-42",
+                    "expected_fingerprint" to CalendarEventFingerprint.create(event.copy(title = "旧标题")),
+                    "scope" to "event",
+                ),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        val occurrence = registry.execute(
+            ToolCall(
+                name = "calendar.delete_event",
+                arguments = mapOf(
+                    "event_id" to "calendar-42",
+                    "expected_fingerprint" to CalendarEventFingerprint.create(event),
+                    "scope" to "occurrence",
+                ),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertFalse(drifted.success)
+        assertTrue(drifted.content.contains("已变化"))
+        assertFalse(occurrence.success)
+        assertTrue(occurrence.content.contains("单次 occurrence"))
+        assertEquals(0, writer.deleteCount)
     }
 
     @Test
@@ -2641,6 +2789,15 @@ class XiaoLingToolRegistryTest {
         )
     }
 
+    private fun directCalendarDeleteContext(): AgentToolExecutionContext = AgentToolExecutionContext(
+        conversationId = "conversation-calendar-delete",
+        userMessageId = "message-calendar-delete",
+        runId = "run-calendar-delete",
+        goal = "删除项目评审日程",
+        executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource = AgentInvocationSource.DIRECT,
+    )
+
     private fun productionRegistry(
         deviceController: DeviceController,
         clock: AgentClock = FakeAgentClock(),
@@ -2932,8 +3089,14 @@ private object EmptyTestAgentTaskStore : AgentTaskStore {
     override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
 }
 
-private class InMemoryCalendarEventWriter : CalendarEventWriter {
+private class InMemoryCalendarEventWriter(
+    private var deletableEvent: CalendarEventDetailRecord? = null,
+) : CalendarEventWriter {
     val records = mutableListOf<Pair<CalendarEventWriteRequest, CalendarEventWriteRecord>>()
+    var deleteCount: Int = 0
+        private set
+    var verifyDeleteCount: Int = 0
+        private set
 
     override suspend fun createOrReadBack(request: CalendarEventWriteRequest): CalendarEventWriteResult {
         records.firstOrNull { it.first.idempotencyKey == request.idempotencyKey }?.let { (existingRequest, record) ->
@@ -2962,6 +3125,38 @@ private class InMemoryCalendarEventWriter : CalendarEventWriter {
         val record = records.firstOrNull { it.first == request && it.second.eventId == eventId }?.second
             ?: return CalendarEventWriteResult.Failed
         return CalendarEventWriteResult.Committed(record.copy(reused = true), verified = true)
+    }
+
+    override suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult {
+        val current = deletableEvent ?: return CalendarEventDeleteResult.NotFound
+        if (request.scope == CalendarEventDeleteScope.OCCURRENCE) return CalendarEventDeleteResult.OccurrenceUnsupported
+        if (CalendarEventFingerprint.create(current) != request.expectedFingerprint) {
+            return CalendarEventDeleteResult.FingerprintMismatch
+        }
+        if (current.recurring != (request.scope == CalendarEventDeleteScope.SERIES)) {
+            return CalendarEventDeleteResult.ScopeMismatch
+        }
+        deleteCount += 1
+        deletableEvent = null
+        return CalendarEventDeleteResult.Committed(
+            deletion = CalendarEventDeleteRecord(request.eventId, request.scope, reused = false),
+            verified = true,
+        )
+    }
+
+    override suspend fun verifyDeleteCommitted(
+        eventId: String,
+        request: CalendarEventDeleteRequest,
+    ): CalendarEventDeleteResult {
+        verifyDeleteCount += 1
+        return if (eventId == "calendar-${request.eventId}" && deletableEvent == null) {
+            CalendarEventDeleteResult.Committed(
+                deletion = CalendarEventDeleteRecord(request.eventId, request.scope, reused = true),
+                verified = true,
+            )
+        } else {
+            CalendarEventDeleteResult.Failed
+        }
     }
 }
 

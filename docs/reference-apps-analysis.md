@@ -2,9 +2,11 @@
 
 `v0.1.16` 是当前发布对照基线：汇总 `v0.1.15` 后第 128 至 169 阶段，完成个人 Agent 的目标级验证、提醒、任务控制面、只读日历、本地笔记、启动恢复提示和答案级导航。发布没有借机复制参考项目的任意 App、后台设备控制、多 Agent 或远程 Channel；本轮按用户要求只构建 Release APK，没有执行额外发布验证。
 
+第 183 阶段把“破坏性动作必须绑定当前权威对象、审批后防漂移、提交后只读恢复”的原则扩展到 Android Calendar Provider。模型只能从 search/get 链取得稳定事件 ID 和版本化指纹，应用再用完整 Provider 条件删除决定是否提交；一次性事件、整个系列和 occurrence 语义不会相互降级。旧 Profile/Run 不自动扩权，Workflow、后台、日程修改、远程 Channel 与多 Agent 也没有随删除能力开放。下一阶段只补真实模型 `search -> get -> delete` 审批证据，不横向扩大工具面。
+
 第 182 阶段用真实模型 Provider 证明“模型只定位，稳定身份进入下一工具，应用从当前 Provider 决定事实”的完整日程链。模型严格执行 `calendar.search_events -> calendar.get`，Room Ledger 同时证明 Skill、原样关键词、事件 ID、typed verification 和零审批；夹具写入在 Agent Run 外且不进入 Profile 工具面。没有因为验收需要写权限就开放生产创建/修改/删除，也没有复制后台日历代理、远程 Channel 或多 Agent 能力。
 
-第 181 阶段把“模型定位稳定对象、应用按身份读取权威 Store”的原则扩展到 Android Calendar Provider。`calendar.search_events` 只提供最小摘要和稳定 `Events._ID`，`calendar.get` 再从当前 Provider 单条回读；事件已删、权限变化或 Provider 异常不会回退到旧摘要。地点、描述、参与人、组织者和账户不进入类型系统，写入/删除、后台、远程 Channel 与多 Agent 也未随详情能力扩权。下一阶段仍需真实模型 Provider 证明该两步 Skill，而不能由 Registry 或原始 Provider 探针代替 Agent 闭环。
+第 181 阶段把“模型定位稳定对象、应用按身份读取权威 Store”的原则扩展到 Android Calendar Provider。`calendar.search_events` 只提供最小摘要和稳定 `Events._ID`，`calendar.get` 再从当前 Provider 单条回读；事件已删、权限变化或 Provider 异常不会回退到旧摘要。地点、描述、参与人、组织者和账户不进入类型系统，写入/删除、后台、远程 Channel 与多 Agent 也未随详情能力扩权。第 182 阶段已用真实模型 Provider 证明该两步 Skill，第 183 阶段再在独立授权边界内加入受控删除。
 
 第 179 阶段用真实 Provider 验证“模型定位、应用按稳定身份读取、Ledger 决定事实”的完整链路。模型严格执行 `memory.search -> memory.get`，Room 同时证明 Skill、参数、typed verification、记忆 ID 审计和零审批；Debug 夹具只用于验收并在异常路径清理。没有把远程记忆、跨用户工作区、后台批量治理或多 Agent 能力带入生产。
 

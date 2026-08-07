@@ -1,12 +1,22 @@
 # 小灵个人 Agent 路线图
 
+## 第 183 阶段：受控系统日程删除（完成）
+
+- `calendar.get` 已把当前 Provider 事件快照固化为 `calendar-event-v1-<sha256>`；新增 `calendar.delete_event(event_id, expected_fingerprint, scope)` 与独立 `calendar-delete` Skill，模型必须先搜索、唯一命中并读取详情，再原样传递同一稳定 ID 与指纹。
+- 删除工具仅进入前台 DIRECT Run，逐次审批并要求 `READ_CALENDAR + WRITE_CALENDAR`。工具发现和执行入口都检查 RunContext；旧 Skill、Profile、历史/Legacy Run、Workflow 与后台不自动扩权。
+- `event` 只允许一次性事件，`series` 只允许整个重复系列；`occurrence` 明确不支持且不会降级。Provider 条件删除同时绑定 ID、标题、起止、全天、时区、RRULE/RDATE 与删除状态，审批期间任何漂移都拒绝。
+- 已提交恢复只接受匹配的 `COMMITTED` 回执，并且只读确认目标不可见；`RESTART_REQUIRED + DENY` 禁止未提交、未知或无回执路径重新 DELETE。无回执重复调用按 NotFound 处理，不猜测此前是否由本工具删除。
+- 聚焦 JVM `97/97` 通过；仅在 Redmi 运行真实 Calendar Provider 删除单项，覆盖成功删除、COMMITTED 只读恢复、无回执不重放和外部改名后旧指纹拒绝，结果 `OK (1 test)`、耗时 `0.392s`。
+- Debug/AndroidTest APK 与更新后的文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，测试包已卸载且主应用数据保留。
+- 下一阶段仅补真实模型 `calendar.search_events -> calendar.get -> calendar.delete_event`、逐次审批、typed verification、回执与清理的完整证据。日程修改、occurrence、后台自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 182 阶段：真实 Provider 系统日程详情闭环（完成）
 
 - Debug-only `calendar_search_get_real` 从设备当前已选择 Provider 构建正式 `AgentRunUseCase`。临时 Profile 只允许 `calendar.search_events / calendar.get` 与 `calendar-detail`，不包含 `calendar.create_event`，事件夹具由 Agent Run 外的正式 Calendar writer 创建。
 - 最终 Redmi Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 选择唯一 `calendar-detail`，严格执行 `calendar.search_events -> calendar.get`；搜索关键词原样传递，详情参数等于搜索结果的稳定 `calendar-<Events._ID>`，两项 Tool Result 均 `success=true / PASSED`，详情来自当前 Provider且审批为 0。
 - 首次覆盖安装后立即触发的 Run `run-f7f6e2d3-25df-48f3-95b8-76ffb4c53f30` 与启动恢复竞态，因 Run 已被收敛而拒绝追加步骤；该轮夹具/Profile 已清理。稳定进程与最终清理修正后的代码均复验成功，不把首次编排失败记作日程工具失败。
 - 探针只按应用包名与 stage182 marker 回收中断残留；当前事件按 Provider 返回 ID 删除，只有本轮实际新建的小灵本地日历才按精确 ID 删除。日志不记录 API Key、事件标题或工具参数。
-- Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过。未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段再单独冻结日程修改/删除的审批、幂等、系列/单次 occurrence 与恢复契约；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+- Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过。未运行完整 JVM、Lint、Release APK 或全量 instrumentation。第 183 阶段已先冻结并实现受控删除；日程修改、occurrence、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 ## 第 181 阶段：系统日程稳定身份与权威详情读取（完成）
 

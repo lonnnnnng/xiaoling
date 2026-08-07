@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 第 183 阶段：受控系统日程删除（完成）
+
+- 新增 `CalendarEventFingerprint`，按固定字段顺序规范化 Provider 详情并输出 `calendar-event-v1-<sha256>`；`CalendarEventReader.getEvent` 的成功详情携带该指纹，使审批绑定当前事件版本，而不是只绑定可复用的 `Events._ID`。
+- `CalendarEventWriter` 新增删除请求/结果与 Android 实现。执行前读取当前事件并核对稳定 ID、指纹和 scope，再以 `_ID / TITLE / DTSTART / DTEND / ALL_DAY / EVENT_TIMEZONE / RRULE / RDATE / DELETED` 组成 ContentResolver selection 执行条件删除；影响行数不是 1 或删除后仍可见时不签发成功回执。
+- Registry 新增 `calendar.delete_event(event_id, expected_fingerprint, scope)`。工具为 `REQUIRES_APPROVAL`、仅前台 DIRECT、要求日历读写权限、`EXECUTOR_VERIFIED`，且执行入口再次检查 RunContext，防止调用方绕过工具发现层直接执行。`event / series / occurrence` 分别对应一次性事件、整个重复系列和明确拒绝的单次实例语义。
+- `calendar-delete` Skill 强制先搜索并读取唯一事件，再使用详情返回的同一 ID 与指纹请求删除。旧 Skill、Profile、历史/Legacy Run 未加入新工具；Workflow 和后台调用在发现层与执行层双重拒绝。
+- 删除恢复使用 `RESTART_REQUIRED + DENY`。`verifyCommittedEffect` 仅在已有匹配 `COMMITTED` 回执时调用 writer 的只读确认；无回执的第二次调用返回 NotFound，不把“已经不可见”冒充本轮成功，也不重放 Provider DELETE。
+- 聚焦 JVM `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest + CalendarEventFingerprintTest` 合计 `97/97` 通过。Redmi `AndroidCalendarEventWriterInstrumentedTest#conditionalDeleteRejectsDriftAndCommittedRecoveryOnlyReadsProvider` 验证真实删除、COMMITTED 只读恢复、无回执重复调用拒绝与外部改名后的旧指纹拒绝，结果 `OK (1 test)`、耗时 `0.392s`。
+- 最终 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功；更新文档资产后，Redmi `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。测试包随后卸载，主应用数据保留；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+
 ## 第 182 阶段：真实 Provider 系统日程详情闭环（完成）
 
 - `AgentE2eDebugReceiver` 新增 `calendar_search_get_real`。探针读取设备当前 Provider 与 User-Agent，创建固定 ID 的临时 Profile；白名单精确为 `calendar.search_events / calendar.get` 和 `calendar-detail`，`memoryEnabled=false`，正式运行仍复用 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。

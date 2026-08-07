@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 182 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 183 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 183 阶段完成受控系统日程删除。`calendar.get` 现在返回绑定当前 Provider 事件字段的版本化 SHA-256 指纹；新增仅前台 DIRECT、逐次审批的 `calendar.delete_event(event_id, expected_fingerprint, scope)` 与独立 `calendar-delete` Skill。`event` 只删除一次性事件，`series` 只删除整个重复系列，`occurrence` 明确拒绝且不会降级为系列删除；提交前使用事件 ID、标题、起止时间、全天、时区、RRULE/RDATE 和删除状态执行 Provider 条件删除，审批期间发生漂移即拒绝。恢复契约为 `RESTART_REQUIRED + DENY`，只有已有 `COMMITTED` 回执时允许只读确认目标不可见，绝不再次删除。旧 Skill、Profile、Legacy Run、Workflow、后台和日程修改均未扩权。聚焦 JVM `97/97`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段验证真实模型 `calendar.search_events -> calendar.get -> calendar.delete_event` 审批闭环。
 
 第 182 阶段在 Redmi 完成真实模型 Provider 的系统日程详情闭环。Debug-only 探针在 Agent Run 外用正式 Calendar writer 创建唯一临时事件，临时 Profile 只允许 `calendar.search_events / calendar.get` 与 `calendar-detail`；最终 Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 严格两步完成，搜索关键词原样使用、稳定 `calendar-<Events._ID>` 原样传递，两项结果均成功且 typed `PASSED`，权威详情和零审批通过。事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，也未扩展生产工具、权限、Room、旧 Profile/Run 或后台能力。
 

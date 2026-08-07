@@ -22,6 +22,8 @@ data class CalendarEventDetailRecord(
     val allDay: Boolean,
     val timeZoneId: String?,
     val recurring: Boolean,
+    val recurrenceRule: String? = null,
+    val recurrenceDates: String? = null,
 )
 
 sealed interface CalendarEventReadResult {
@@ -175,6 +177,8 @@ class AndroidCalendarEventReader(
                         timeZoneId = it.getString(timeZoneColumn)?.takeIf(String::isNotBlank),
                         recurring = !it.getString(recurrenceColumn).isNullOrBlank() ||
                             !it.getString(recurrenceDateColumn).isNullOrBlank(),
+                        recurrenceRule = it.getString(recurrenceColumn)?.takeIf(String::isNotBlank),
+                        recurrenceDates = it.getString(recurrenceDateColumn)?.takeIf(String::isNotBlank),
                     ),
                 )
             }

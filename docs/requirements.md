@@ -1,5 +1,14 @@
 # 产品需求
 
+## 受控系统日程删除（第 183 阶段，完成）
+
+- `calendar.get` 必须返回 `calendar-event-v1-<sha256>` 事件指纹；指纹绑定 `_ID / TITLE / DTSTART / DTEND / ALL_DAY / EVENT_TIMEZONE / RRULE / RDATE` 与派生重复状态的规范值，条件删除再额外要求 `DELETED=0`。删除只能接受同一详情读取返回的稳定 `calendar-<Events._ID>` 和当前指纹，不得按标题、时间、列表序号或模型文本猜测目标。
+- 新增 `calendar.delete_event(event_id, expected_fingerprint, scope)` 与独立 `calendar-delete` Skill。工具只允许前台 DIRECT Run、逐次审批，并同时要求 `READ_CALENDAR + WRITE_CALENDAR`；不得进入 Workflow、后台自动化或 Legacy Run。
+- `scope=event` 只允许一次性事件，`scope=series` 只允许删除整个重复系列；`scope=occurrence` 必须明确拒绝，不能静默降级为系列删除。scope 与 Provider 当前重复状态不匹配时必须 fail-closed。
+- 删除必须通过 Provider 条件选择再次绑定审批时看到的全部指纹字段。审批期间发生外部改名、改期、改变重复规则、删除或其他字段漂移时，影响行数必须为 0 并返回冲突；成功后必须按同一事件 ID 回读不可见才能形成 `COMMITTED` 回执。
+- 恢复契约固定为 `RESTART_REQUIRED + DENY`。只有可信 `COMMITTED` 回执与当前 ToolCall、稳定 ID、请求指纹和 scope 一致时，才允许只读确认目标仍不可见；没有回执、`NOT_COMMITTED`、`UNKNOWN` 或回执错配均不得再次 DELETE，也不得把当前不可见猜测成成功。
+- 旧日历 Skill、Profile、历史/Legacy Run 不自动获得删除能力；日程修改、occurrence 修改/删除、后台、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续关闭。验证只要求聚焦 JVM、Debug/AndroidTest APK、Redmi 真实 Provider 单项及文档 corpus；完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 真实 Provider 系统日程详情闭环（第 182 阶段，完成）
 
 - 必须仅在 Redmi 使用设备当前真实模型 Provider，选择唯一 `calendar-detail`，并严格执行 `calendar.search_events -> calendar.get`；不得调用列表、创建、设备动作或其他工具。

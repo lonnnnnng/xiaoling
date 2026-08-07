@@ -2,12 +2,14 @@ package com.longdev.xiaoling.agent
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -148,6 +150,103 @@ class AndroidCalendarEventWriterInstrumentedTest {
                     null,
                 )
                 assertEquals("真机探针必须精确清理本次创建的日程", 1, deleted)
+            }
+            createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
+        }
+    }
+
+    @Test
+    fun conditionalDeleteRejectsDriftAndCommittedRecoveryOnlyReadsProvider() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权日历读写",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val suffix = System.currentTimeMillis().toString()
+        val startAtMillis = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(2)
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        var createdAppOwnedCalendarId: Long? = null
+        var firstEventId: Long? = null
+        var driftEventId: Long? = null
+
+        try {
+            suspend fun create(title: String, marker: String): Long {
+                val result = writer.createOrReadBack(
+                    CalendarEventWriteRequest(
+                        idempotencyKey = marker,
+                        title = title,
+                        startAtMillis = startAtMillis,
+                        endAtMillis = startAtMillis + TimeUnit.HOURS.toMillis(1),
+                        timeZoneId = ZoneId.systemDefault().id,
+                    ),
+                )
+                assertTrue("Redmi 必须先创建并回读临时事件：$result", result is CalendarEventWriteResult.Committed)
+                return (result as CalendarEventWriteResult.Committed).event.eventId.toLong()
+            }
+
+            firstEventId = create("__xiaoling_stage183_delete_$suffix", "stage183-delete-$suffix")
+            if (!hadAppOwnedCalendar) {
+                val appCalendarId = appOwnedCalendarId(context)
+                if (appCalendarId != null && eventCalendarId(context, firstEventId.toString()) == appCalendarId) {
+                    createdAppOwnedCalendarId = appCalendarId
+                }
+            }
+            val firstDetail = reader.getEvent(firstEventId)
+            assertTrue(firstDetail is CalendarEventDetailReadResult.Success)
+            val firstEvent = (firstDetail as CalendarEventDetailReadResult.Success).event
+            val deleteRequest = CalendarEventDeleteRequest(
+                idempotencyKey = "tool-call-stage183-delete-$suffix",
+                eventId = firstEventId,
+                expectedFingerprint = CalendarEventFingerprint.create(firstEvent),
+                scope = CalendarEventDeleteScope.EVENT,
+            )
+
+            val deleted = writer.deleteOrReadBack(deleteRequest)
+            val recovered = writer.verifyDeleteCommitted("calendar-$firstEventId", deleteRequest)
+            val repeatedWithoutReceipt = writer.deleteOrReadBack(deleteRequest)
+
+            assertTrue(deleted is CalendarEventDeleteResult.Committed && deleted.verified)
+            assertTrue(recovered is CalendarEventDeleteResult.Committed && recovered.verified)
+            assertTrue(repeatedWithoutReceipt is CalendarEventDeleteResult.NotFound)
+            assertTrue(reader.getEvent(firstEventId) is CalendarEventDetailReadResult.NotFound)
+            firstEventId = null
+
+            driftEventId = create("__xiaoling_stage183_drift_$suffix", "stage183-drift-$suffix")
+            val driftDetail = reader.getEvent(driftEventId)
+            assertTrue(driftDetail is CalendarEventDetailReadResult.Success)
+            val staleEvent = (driftDetail as CalendarEventDetailReadResult.Success).event
+            val updatedRows = context.contentResolver.update(
+                ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, driftEventId),
+                ContentValues().apply { put(CalendarContract.Events.TITLE, "__xiaoling_stage183_changed_$suffix") },
+                null,
+                null,
+            )
+            assertEquals(1, updatedRows)
+
+            val rejected = writer.deleteOrReadBack(
+                CalendarEventDeleteRequest(
+                    idempotencyKey = "tool-call-stage183-drift-$suffix",
+                    eventId = driftEventId,
+                    expectedFingerprint = CalendarEventFingerprint.create(staleEvent),
+                    scope = CalendarEventDeleteScope.EVENT,
+                ),
+            )
+
+            assertTrue(rejected is CalendarEventDeleteResult.FingerprintMismatch)
+            assertFalse(reader.getEvent(driftEventId) is CalendarEventDetailReadResult.NotFound)
+        } finally {
+            // long: 漂移反例必须保留目标供断言，收尾再按 Provider 返回 ID 精确删除；不按标题或时间范围清理用户日程。
+            listOfNotNull(firstEventId, driftEventId).forEach { eventId ->
+                context.contentResolver.delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                    null,
+                    null,
+                )
             }
             createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
         }

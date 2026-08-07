@@ -29,6 +29,45 @@ data class CalendarEventWriteRecord(
     val reused: Boolean,
 )
 
+enum class CalendarEventDeleteScope(val wireName: String) {
+    EVENT("event"),
+    SERIES("series"),
+    OCCURRENCE("occurrence"),
+    ;
+
+    companion object {
+        fun fromWireName(value: String): CalendarEventDeleteScope? = entries.firstOrNull { it.wireName == value }
+    }
+}
+
+data class CalendarEventDeleteRequest(
+    val idempotencyKey: String,
+    val eventId: Long,
+    val expectedFingerprint: String,
+    val scope: CalendarEventDeleteScope,
+)
+
+data class CalendarEventDeleteRecord(
+    val eventId: Long,
+    val scope: CalendarEventDeleteScope,
+    val reused: Boolean,
+)
+
+sealed interface CalendarEventDeleteResult {
+    data class Committed(
+        val deletion: CalendarEventDeleteRecord,
+        val verified: Boolean,
+    ) : CalendarEventDeleteResult
+
+    data object NotFound : CalendarEventDeleteResult
+    data object ScopeMismatch : CalendarEventDeleteResult
+    data object OccurrenceUnsupported : CalendarEventDeleteResult
+    data object FingerprintMismatch : CalendarEventDeleteResult
+    data object PermissionDenied : CalendarEventDeleteResult
+    data object ProviderUnavailable : CalendarEventDeleteResult
+    data object Failed : CalendarEventDeleteResult
+}
+
 sealed interface CalendarEventWriteResult {
     data class Committed(
         val event: CalendarEventWriteRecord,
@@ -49,6 +88,14 @@ interface CalendarEventWriter {
         eventId: String,
         request: CalendarEventWriteRequest,
     ): CalendarEventWriteResult
+
+    suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult =
+        CalendarEventDeleteResult.ProviderUnavailable
+
+    suspend fun verifyDeleteCommitted(
+        eventId: String,
+        request: CalendarEventDeleteRequest,
+    ): CalendarEventDeleteResult = CalendarEventDeleteResult.ProviderUnavailable
 }
 
 object UnavailableCalendarEventWriter : CalendarEventWriter {
@@ -59,6 +106,14 @@ object UnavailableCalendarEventWriter : CalendarEventWriter {
         eventId: String,
         request: CalendarEventWriteRequest,
     ): CalendarEventWriteResult = CalendarEventWriteResult.ProviderUnavailable
+
+    override suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult =
+        CalendarEventDeleteResult.ProviderUnavailable
+
+    override suspend fun verifyDeleteCommitted(
+        eventId: String,
+        request: CalendarEventDeleteRequest,
+    ): CalendarEventDeleteResult = CalendarEventDeleteResult.ProviderUnavailable
 }
 
 class AndroidCalendarEventWriter(
@@ -120,6 +175,126 @@ class AndroidCalendarEventWriter(
             CalendarEventWriteResult.PermissionDenied
         } catch (_: RuntimeException) {
             CalendarEventWriteResult.Failed
+        }
+    }
+
+    override suspend fun deleteOrReadBack(request: CalendarEventDeleteRequest): CalendarEventDeleteResult =
+        withContext(Dispatchers.IO) {
+            mutationMutex.withLock {
+                try {
+                    if (request.scope == CalendarEventDeleteScope.OCCURRENCE) {
+                        return@withLock CalendarEventDeleteResult.OccurrenceUnsupported
+                    }
+                    val current = when (val snapshot = readDeleteSnapshot(request.eventId)) {
+                        is CalendarEventDeleteSnapshot.Visible -> snapshot.event
+                        CalendarEventDeleteSnapshot.DeletedOrMissing -> return@withLock CalendarEventDeleteResult.NotFound
+                        CalendarEventDeleteSnapshot.ProviderUnavailable -> return@withLock CalendarEventDeleteResult.ProviderUnavailable
+                    }
+                    if (CalendarEventFingerprint.create(current) != request.expectedFingerprint) {
+                        return@withLock CalendarEventDeleteResult.FingerprintMismatch
+                    }
+                    val scopeMatches = when (request.scope) {
+                        CalendarEventDeleteScope.EVENT -> !current.recurring
+                        CalendarEventDeleteScope.SERIES -> current.recurring
+                        CalendarEventDeleteScope.OCCURRENCE -> false
+                    }
+                    if (!scopeMatches) return@withLock CalendarEventDeleteResult.ScopeMismatch
+
+                    // long: Events._ID 删除会移除整条事件或整个重复系列；把审批时快照字段放入 selection，阻止外部日历在审批期间改写目标后仍被误删。
+                    val conditionalDelete = current.toConditionalDelete()
+                    val deletedRows = contentResolver.delete(
+                        CalendarContract.Events.CONTENT_URI,
+                        conditionalDelete.selection,
+                        conditionalDelete.arguments,
+                    )
+                    if (deletedRows != 1) {
+                        return@withLock classifyRejectedDelete(request)
+                    }
+                    when (readDeleteSnapshot(request.eventId)) {
+                        CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventDeleteResult.Committed(
+                            deletion = CalendarEventDeleteRecord(request.eventId, request.scope, reused = false),
+                            verified = true,
+                        )
+                        is CalendarEventDeleteSnapshot.Visible -> CalendarEventDeleteResult.Failed
+                        CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventDeleteResult.Committed(
+                            deletion = CalendarEventDeleteRecord(request.eventId, request.scope, reused = false),
+                            verified = false,
+                        )
+                    }
+                } catch (_: SecurityException) {
+                    CalendarEventDeleteResult.PermissionDenied
+                } catch (_: RuntimeException) {
+                    CalendarEventDeleteResult.Failed
+                }
+            }
+        }
+
+    override suspend fun verifyDeleteCommitted(
+        eventId: String,
+        request: CalendarEventDeleteRequest,
+    ): CalendarEventDeleteResult = withContext(Dispatchers.IO) {
+        if (eventId != "calendar-${request.eventId}") return@withContext CalendarEventDeleteResult.Failed
+        try {
+            // long: COMMITTED 恢复只能确认目标仍不可见，不能再次调用 delete；否则进程重建可能把后来复用的用户事件误删。
+            when (readDeleteSnapshot(request.eventId)) {
+                CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventDeleteResult.Committed(
+                    deletion = CalendarEventDeleteRecord(request.eventId, request.scope, reused = true),
+                    verified = true,
+                )
+                is CalendarEventDeleteSnapshot.Visible -> CalendarEventDeleteResult.Failed
+                CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventDeleteResult.ProviderUnavailable
+            }
+        } catch (_: SecurityException) {
+            CalendarEventDeleteResult.PermissionDenied
+        } catch (_: RuntimeException) {
+            CalendarEventDeleteResult.Failed
+        }
+    }
+
+    private fun classifyRejectedDelete(request: CalendarEventDeleteRequest): CalendarEventDeleteResult {
+        return when (val snapshot = readDeleteSnapshot(request.eventId)) {
+            CalendarEventDeleteSnapshot.DeletedOrMissing -> CalendarEventDeleteResult.NotFound
+            CalendarEventDeleteSnapshot.ProviderUnavailable -> CalendarEventDeleteResult.ProviderUnavailable
+            is CalendarEventDeleteSnapshot.Visible -> {
+                if (CalendarEventFingerprint.create(snapshot.event) != request.expectedFingerprint) {
+                    CalendarEventDeleteResult.FingerprintMismatch
+                } else {
+                    CalendarEventDeleteResult.Failed
+                }
+            }
+        }
+    }
+
+    private fun readDeleteSnapshot(eventId: Long): CalendarEventDeleteSnapshot {
+        val cursor = contentResolver.query(
+            ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+            DELETE_PROJECTION,
+            null,
+            null,
+            null,
+        ) ?: return CalendarEventDeleteSnapshot.ProviderUnavailable
+        return cursor.use {
+            if (!it.moveToFirst()) return@use CalendarEventDeleteSnapshot.DeletedOrMissing
+            val deleted = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Events.DELETED)) != 0
+            if (deleted) return@use CalendarEventDeleteSnapshot.DeletedOrMissing
+            val recurrenceRule = it.getString(it.getColumnIndexOrThrow(CalendarContract.Events.RRULE))
+                ?.takeIf(String::isNotBlank)
+            val recurrenceDates = it.getString(it.getColumnIndexOrThrow(CalendarContract.Events.RDATE))
+                ?.takeIf(String::isNotBlank)
+            CalendarEventDeleteSnapshot.Visible(
+                CalendarEventDetailRecord(
+                    eventId = it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events._ID)),
+                    title = it.getString(it.getColumnIndexOrThrow(CalendarContract.Events.TITLE)).orEmpty(),
+                    startAtMillis = it.getNullableLong(it.getColumnIndexOrThrow(CalendarContract.Events.DTSTART)),
+                    endAtMillis = it.getNullableLong(it.getColumnIndexOrThrow(CalendarContract.Events.DTEND)),
+                    allDay = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
+                    timeZoneId = it.getString(it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE))
+                        ?.takeIf(String::isNotBlank),
+                    recurring = recurrenceRule != null || recurrenceDates != null,
+                    recurrenceRule = recurrenceRule,
+                    recurrenceDates = recurrenceDates,
+                ),
+            )
         }
     }
 
@@ -256,8 +431,75 @@ class AndroidCalendarEventWriter(
             CalendarContract.Events.CUSTOM_APP_PACKAGE,
             CalendarContract.Events.CUSTOM_APP_URI,
         )
+        val DELETE_PROJECTION = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.RRULE,
+            CalendarContract.Events.RDATE,
+            CalendarContract.Events.DELETED,
+        )
     }
 }
+
+private sealed interface CalendarEventDeleteSnapshot {
+    data class Visible(val event: CalendarEventDetailRecord) : CalendarEventDeleteSnapshot
+    data object DeletedOrMissing : CalendarEventDeleteSnapshot
+    data object ProviderUnavailable : CalendarEventDeleteSnapshot
+}
+
+private data class CalendarEventConditionalDelete(
+    val selection: String,
+    val arguments: Array<String>,
+)
+
+private fun CalendarEventDetailRecord.toConditionalDelete(): CalendarEventConditionalDelete {
+    val clauses = mutableListOf(
+        "${CalendarContract.Events._ID}=?",
+        "${CalendarContract.Events.DELETED}=0",
+        "${CalendarContract.Events.ALL_DAY}=?",
+    )
+    val arguments = mutableListOf(eventId.toString(), if (allDay) "1" else "0")
+    clauses.addNullableTextMatch(CalendarContract.Events.TITLE, title, arguments)
+    clauses.addNullableLongMatch(CalendarContract.Events.DTSTART, startAtMillis, arguments)
+    clauses.addNullableLongMatch(CalendarContract.Events.DTEND, endAtMillis, arguments)
+    clauses.addNullableTextMatch(CalendarContract.Events.EVENT_TIMEZONE, timeZoneId, arguments)
+    clauses.addNullableTextMatch(CalendarContract.Events.RRULE, recurrenceRule, arguments)
+    clauses.addNullableTextMatch(CalendarContract.Events.RDATE, recurrenceDates, arguments)
+    return CalendarEventConditionalDelete(clauses.joinToString(" AND "), arguments.toTypedArray())
+}
+
+private fun MutableList<String>.addNullableTextMatch(
+    column: String,
+    value: String?,
+    arguments: MutableList<String>,
+) {
+    if (value.isNullOrBlank()) {
+        add("($column IS NULL OR $column='')")
+    } else {
+        add("$column=?")
+        arguments += value
+    }
+}
+
+private fun MutableList<String>.addNullableLongMatch(
+    column: String,
+    value: Long?,
+    arguments: MutableList<String>,
+) {
+    if (value == null) {
+        add("$column IS NULL")
+    } else {
+        add("$column=?")
+        arguments += value.toString()
+    }
+}
+
+private fun android.database.Cursor.getNullableLong(columnIndex: Int): Long? =
+    if (isNull(columnIndex)) null else getLong(columnIndex)
 
 private fun CalendarEventWriteRecord.matches(request: CalendarEventWriteRequest): Boolean =
     title == request.title &&

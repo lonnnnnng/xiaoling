@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 183 阶段：受控系统日程删除
+
+- TDD 首轮因指纹、删除契约和 Registry 工具尚不存在得到预期失败。实现后聚焦运行 `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest + CalendarEventFingerprintTest`，合计 JVM `97/97` 通过。
+- Standards 审查发现 `calendar.delete_event` 只在工具发现层检查前台 DIRECT，直接调用 `execute()` 可绕过。执行入口已补同一 `calendarDeleteAllowed(runContext)` 门禁，并新增 null context 与 Workflow 直接调用反例；修复后上述聚焦 JVM 仍为 `97/97`。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidCalendarEventWriterInstrumentedTest#conditionalDeleteRejectsDriftAndCommittedRecoveryOnlyReadsProvider`，结果 `OK (1 test)`、耗时 `0.392s`。真实 Calendar Provider 证明成功删除、已有 COMMITTED 回执只读确认不可见、无回执重复调用返回 NotFound，以及外部改名后旧指纹条件删除影响 0 行。
+- 测试同时证明 scope 边界：一次性事件只接受 `event`，重复事件只接受整个 `series`，`occurrence` 明确拒绝；旧 Profile/Run、Workflow、后台和日程修改未扩权。测试包已卸载，主 Debug 应用重新启动；未向在线模拟器发送 ADB 命令。
+- 最终 `:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。首次 corpus 命令误用 `.knowledge` 包名并得到预期的 `ClassNotFoundException`；按源码包名 `.storage` 修正后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`，测试包随后卸载且主应用数据保留。
+- 本阶段未运行完整 JVM、Lint、Release APK 或默认全量 instrumentation。下一阶段应以真实模型 Provider 验证 `calendar.search_events -> calendar.get -> calendar.delete_event` 的 Skill 选择、稳定 ID/指纹传递、逐次审批、typed verification、COMMITTED 回执和精确清理。
+
 ## 2026-08-07 第 182 阶段：真实 Provider 系统日程详情闭环
 
 - `:app:assembleDebug` 构建成功。仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装并显式授权日历读写；写权限只用于 Debug 夹具创建/清理，临时 Agent Profile 精确只含 `calendar.search_events / calendar.get`。虽然设备枚举中有 `emulator-5554`，没有向模拟器发送安装、启动、授权、日志或测试命令。
