@@ -2,9 +2,11 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 178 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 179 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
-第 178 阶段完成按稳定 ID 读取长期记忆详情。新增 SAFE `memory.get(memory_id)` 与独立 `personal-memory-detail` Skill；`memory.search` 保留原全文并补充稳定 `memory-UUID`，详情只回读当前启用且未过期的 Store 记录。不存在、禁用和过期统一不可用；关闭单次召回时搜索/详情同时隐藏并阻断 Store 访问。旧 `personal-memory`、Profile、历史 Run 和 legacy 工具集合不自动扩权。聚焦 JVM `87/87`、Debug APK 与双轴审查通过；本轮未运行完整 JVM、Lint、AndroidTest、Redmi 或 Release，真实 Provider 闭环留待下一阶段。
+第 179 阶段完成真实 Provider 长期记忆详情闭环。仅在 Redmi 上运行的最终 Run `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6` 选择 `personal-memory-detail`，严格执行 `memory.search -> memory.get`；两项 typed verification、稳定 ID 与 `memoryIdsUsed`、详情数据边界和零审批均通过。Debug 夹具和临时 Profile 已清理。聚焦 JVM `87/87`、Debug/AndroidTest APK 与 Redmi 文档 corpus `1/1` 通过；未运行完整 JVM、Lint、全量 instrumentation 或 Release。
+
+第 178 阶段完成按稳定 ID 读取长期记忆详情。新增 SAFE `memory.get(memory_id)` 与独立 `personal-memory-detail` Skill；`memory.search` 保留原全文并补充稳定 `memory-UUID`，详情只回读当前启用且未过期的 Store 记录。不存在、禁用和过期统一不可用；关闭单次召回时搜索/详情同时隐藏并阻断 Store 访问。旧 `personal-memory`、Profile、历史 Run 和 legacy 工具集合不自动扩权。聚焦 JVM `87/87`、Debug APK 与双轴审查通过；真实 Provider 闭环已由第 179 阶段在 Redmi 完成。
 
 第 177 阶段完成周期计划暂停/恢复的真实使用闭环。Redmi 真实 Provider 分别严格执行 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`，两次 Room 审批和全部 typed verification 均通过；暂停后旧未来 Task/WorkRequest 为 `CANCELLED`，恢复只生成一个当前时间之后的 `ENQUEUED` 实例，不补跑且不改写旧 Task。可信结果现在会生成受限会话终态、刷新 Workflow/ScheduledTask/周期规则快照，并在答案下提供“查看任务”；点击仍按当前 Room 唯一精确名称二次解析，不保存内部 ID。聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi 的真实 Provider 双 Run 与文档 corpus `1/1` 通过，夹具、临时 Profile 和残留 Work 已清理；后台、一次性计划控制、精确定时、Foreground Service 和高级日历写入继续关闭。
 

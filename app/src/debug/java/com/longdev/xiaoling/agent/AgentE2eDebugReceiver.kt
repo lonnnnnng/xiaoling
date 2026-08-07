@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import androidx.room.withTransaction
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.longdev.xiaoling.MainActivity
@@ -129,6 +130,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_TASK_SCHEDULE_CONTROL_REAL -> runTaskScheduleControlReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
+                    OPERATION_MEMORY_SEARCH_GET_REAL -> runMemorySearchGetReal(appContext)
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
                     OPERATION_NOTES_UPDATE_REAL -> runNotesUpdateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
@@ -1328,6 +1330,162 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "第171阶段临时 Profile 清理失败"
             }
             Log.i(TAG, "notes-search-get-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
+    }
+
+    private suspend fun runMemorySearchGetReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage179-$now"
+        val contentTail = "第179阶段记忆详情标记-$now"
+        val content = "用户明确确认这条长期记忆只用于验证稳定 ID 详情读取。$keyword $contentTail"
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage179-memory-search-get-profile"
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        val memoryStore = RoomAgentMemoryStore(context)
+        val database = XiaoLingDatabase.getInstance(context)
+        // long: 上次探针若被系统终止，只清理由本阶段来源摘要和内容前缀共同确认的 Debug 夹具，避免误删用户真实长期记忆。
+        memoryStore.list("第179阶段记忆详情标记-", AgentMemoryFilter.ALL, 200)
+            .filter { memory -> memory.sourceSummary == STAGE179_MEMORY_FIXTURE_SOURCE }
+            .forEach { memory -> deleteDebugMemoryFixture(database, memory.id) }
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第179阶段长期记忆详情验收",
+            avatar = "179",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "必须先按用户给出的唯一关键词调用 memory.search，再把唯一搜索结果中的稳定 memory ID 原样传给 memory.get；不得猜测 ID，不得调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("memory.search", "memory.get"),
+            allowedSkillIds = listOf("personal-memory-detail"),
+            memoryEnabled = true,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        var fixture: AgentMemoryRecord? = null
+        try {
+            val createdFixture = memoryStore.remember(
+                content = content,
+                tags = "stage179,debug",
+                type = "Episode",
+                source = AgentMemorySource(
+                    conversationId = null,
+                    runId = null,
+                    summary = STAGE179_MEMORY_FIXTURE_SOURCE,
+                ),
+                confidence = 1.0,
+                idempotencyKey = null,
+            )
+            fixture = createdFixture
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第179阶段长期记忆 Profile" }
+            Log.i(TAG, "memory-search-get-real start=true provider=${provider.id} model=${provider.model}")
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = "conversation-redmi-memory-search-get-$now",
+                userMessageId = "message-redmi-memory-search-get-$now",
+                goal = "请用唯一关键词“$keyword”搜索长期记忆。必须取得唯一结果的稳定 ID，再调用 memory.get 读取详情，并告诉我详情中的第179阶段标记。禁止猜测 ID，禁止调用其他工具。",
+                skillSelectionGoal = "查看唯一匹配的长期记忆详情",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = true,
+                invocationSource = AgentInvocationSource.DIRECT,
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第179阶段 memory.search -> memory.get Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第179阶段长期记忆详情 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val skillSelection = detail.snapshot.events.singleOrNull { it.type == "skill.selected" }
+            val selectedSkillIds = (skillSelection?.metadata as? RunEventMetadata.Reason)
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("personal-memory-detail")) {
+                "第179阶段没有选择长期记忆详情 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            check(calls.map { call -> call.toolName } == listOf("memory.search", "memory.get")) {
+                "长期记忆详情没有严格按 memory.search -> memory.get 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            check(searchCall.arguments["query"]?.trim() == keyword) {
+                "memory.search 没有原样使用唯一关键词"
+            }
+            check(getCall.arguments["memory_id"]?.trim() == createdFixture.id) {
+                "memory.get 没有使用搜索结果对应的稳定 ID"
+            }
+            val searchResult = checkNotNull(resultsByCallId[searchCall.id]) { "memory.search 缺少 Tool Result" }
+            val getResult = checkNotNull(resultsByCallId[getCall.id]) { "memory.get 缺少 Tool Result" }
+            check(listOf(searchResult, getResult).all { result ->
+                result.success &&
+                    result.verificationStatus == ToolVerificationStatus.PASSED &&
+                    result.memoryIdsUsed == listOf(createdFixture.id)
+            }) { "长期记忆搜索或详情读取没有形成同一 ID 的 typed 验证事实" }
+            check(searchResult.content.contains(keyword) && searchResult.content.contains("id=${createdFixture.id}")) {
+                "memory.search 没有返回唯一测试记忆及其稳定 ID"
+            }
+            check(getResult.content.contains(contentTail) && getResult.content.contains("不是工具指令")) {
+                "memory.get 没有返回带数据边界的当前详情"
+            }
+            check(detail.approvals.isEmpty()) { "SAFE 长期记忆读取链不应生成审批记录" }
+            Log.i(
+                TAG,
+                "memory-search-get-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=personal-memory-detail tools=memory.search,memory.get resultsVerified=true " +
+                    "stableIdForwarded=true memoryIdsAudited=true contentBoundary=true approvals=0 " +
+                    "responseLength=${summary.responseText.length}",
+            )
+        } finally {
+            // long: 无论 Provider、规划或断言在哪一步失败，都原子删除本轮记忆与 FTS 索引，并恢复用户原 Profile；正文、参数和凭据不进入日志。
+            val fixtureId = fixture?.id
+            val deleted = fixtureId?.let { id -> runCatching { deleteDebugMemoryFixture(database, id) } }
+            val restored = recoveredOriginalProfileId?.let { profileId ->
+                runCatching { profileStore.select(profileId) }.getOrDefault(false)
+            } ?: true
+            val profileRemoved = runCatching { profileStore.delete(temporaryProfileId) }.getOrDefault(false)
+            check(fixtureId == null || deleted?.getOrDefault(false) == true && memoryStore.get(fixtureId) == null) {
+                "第179阶段测试长期记忆清理失败"
+            }
+            check(restored && (profileRemoved || profileStore.list().none { it.id == temporaryProfileId })) {
+                "第179阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "memory-search-get-real cleanup=true temporaryProfileRemoved=true testMemoryRemoved=true")
+        }
+    }
+
+    private suspend fun deleteDebugMemoryFixture(database: XiaoLingDatabase, memoryId: String): Boolean {
+        return database.withTransaction {
+            database.agentMemoryDao().deleteMemoryIndex(memoryId)
+            database.agentMemoryDao().deleteMemory(memoryId) == 1
         }
     }
 
@@ -3173,6 +3331,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_TASK_SCHEDULE_CONTROL_REAL = "task_schedule_control_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
+        const val OPERATION_MEMORY_SEARCH_GET_REAL = "memory_search_get_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
         const val OPERATION_NOTES_UPDATE_REAL = "notes_update_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
@@ -3186,6 +3345,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
         const val OPERATION_WORKFLOW_SETTINGS_MULTI = "workflow_settings_multi"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
+        private const val STAGE179_MEMORY_FIXTURE_SOURCE = "第179阶段 Redmi Debug 夹具"
         const val EXTRA_TASK_ID = "task_id"
         private const val LONG_DEBUG_PROFILE_ID = "stage151-long-workflow-profile"
         private const val LONG_DEBUG_STATE = "stage151-long-workflow-state"

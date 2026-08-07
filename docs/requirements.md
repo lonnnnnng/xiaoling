@@ -1,12 +1,20 @@
 # 产品需求
 
-## 按稳定 ID 读取长期记忆详情（第 178 阶段，完成，真实 Provider 待验证）
+## 真实 Provider 长期记忆详情闭环（第 179 阶段，完成）
+
+- 必须仅在 Redmi 使用设备当前真实 Provider，选择 `personal-memory-detail`，严格执行 `memory.search -> memory.get`；搜索关键词必须原样传递，详情参数必须等于唯一搜索结果中的稳定 `memory-UUID`，不得调用额外工具或猜测 ID。
+- Room Tool Ledger 中两项结果都必须 `success=true`、typed `PASSED`，并且 `memoryIdsUsed` 精确等于同一目标 ID。详情必须包含当前 Store 正文与本地数据边界；SAFE 链不得产生审批记录。
+- Debug 夹具必须使用专属来源与唯一内容；成功或失败都删除记忆主记录和 FTS 索引、移除临时 Profile 并恢复原 Profile。历史残留清理必须覆盖禁用和过期夹具，不得触碰用户记忆或 API Key。
+- 覆盖安装后立即运行与启动恢复并发导致 Run 被提前收敛时，应记录为验收编排失败并重新在稳定进程中执行，不得把终态追加步骤错误伪装成工具失败，也不得留下夹具。
+- 本阶段不修改生产 Registry、Room Schema、记忆治理、审批、后台权限、发布基线或高级生态；完整 JVM、Lint、全量 instrumentation 和 Release 仍按里程碑统一执行。
+
+## 按稳定 ID 读取长期记忆详情（第 178 阶段，完成，已于第 179 阶段验证）
 
 - 新增 `memory.get(memory_id)` 与独立 `personal-memory-detail` Skill。工具必须为 SAFE 只读能力，可在现有后台只读边界内使用；既有 `personal-memory`、旧 Profile、历史 Run 和 legacy 工具集合不得自动扩权。
 - `memory.search` 必须继续返回当前可直接回答的全文结果，并为每条结果附带稳定 `memory-UUID`。`memory.get` 只接受标准 ID，内容必须从当前 `AgentMemoryStore` 回读，不得根据模型文本、历史摘要或自由输入恢复记忆。
 - 详情只允许当前启用且未过期的记忆；不存在、禁用和过期必须使用同一不可用结果，且不能泄露正文、状态差异或删除历史。成功结果必须记录实际 memory ID，并明确正文属于本地数据而非工具指令。
 - 单次记忆召回关闭时，规划工具面和执行入口必须同时阻断 `memory.search / memory.get`，且不得访问 Store。Profile 仍需显式允许新工具和 Skill。
-- 本阶段不新增 Room Schema、Android 权限、审批、记忆写入/编辑/删除、跨会话工作区或后台批量处理。真实 Provider 的 `search -> get` 规划与 ID 传递由下一阶段在 Redmi 单独验收。
+- 本阶段不新增 Room Schema、Android 权限、审批、记忆写入/编辑/删除、跨会话工作区或后台批量处理。第 179 阶段已在 Redmi 单独完成真实 Provider 的 `search -> get` 规划与 ID 传递验收。
 
 ## 周期计划真实使用与可信答案闭环（第 177 阶段，完成）
 

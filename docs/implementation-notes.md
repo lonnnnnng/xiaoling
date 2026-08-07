@@ -1,6 +1,14 @@
 # 当前实现说明
 
-## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，真实 Provider 待验证）
+## 第 179 阶段：真实 Provider 长期记忆详情闭环（完成）
+
+- Debug Receiver 新增 `memory_search_get_real`。探针读取手机当前 Provider，创建带专属来源的唯一记忆夹具和只允许 `memory.search / memory.get`、`personal-memory-detail` 的临时 Profile，再通过正式 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository` 执行。
+- 验收从 `skill.selected` 解码 Skill ID，并从 Tool Ledger 核对调用顺序、原样关键词、稳定 ID 参数、两项 typed `PASSED`、同一 `memoryIdsUsed`、详情正文边界和零审批；日志不输出 API Key、记忆正文或工具参数。
+- 夹具创建已纳入 `try/finally`；历史清理通过管理查询覆盖 ALL 状态，并同时校验专属来源。删除在 Room transaction 中先清 FTS 再删主记录；各清理步骤独立执行，单项失败不会阻断原 Profile 恢复。
+- 最终 Redmi Run `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6` 严格完成 `memory.search -> memory.get`。覆盖安装后立即触发的首次 Run `run-94e7a078-acb4-4c9b-a317-fb9f9dacc054` 因启动恢复竞态提前终止，但 `finally` 已清理；稳定进程复验成功。
+- 第 178 阶段聚焦 JVM `87/87` 冻结通过，Debug/AndroidTest APK 构建成功，更新后的 Redmi 文档 corpus `1/1` 通过。未运行完整 JVM、Lint、全量 instrumentation 或 Release；生产代码、Room v36 和发布基线未改变。
+
+## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，已于第 179 阶段验证）
 
 - `XiaoLingToolRegistry` 新增 `memory.get(memory_id)`：Schema 要求 43 字符 `memory-UUID`，业务校验与执行入口复用同一格式；执行后只接受 `enabled=true` 且未过期的当前 Store 记录，不存在、禁用或过期统一返回“未找到可用的长期记忆”。
 - `memory.search` 保持原有全文、类型和来源输出，并追加每条记录的稳定 ID；`memory.get` 成功结果返回同一 ID、当前正文、类型、标签和来源，同时通过 `memoryIdsUsed` 进入 ToolResult 审计。

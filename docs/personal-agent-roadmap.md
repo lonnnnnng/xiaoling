@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
-## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，真实 Provider 待下一阶段验证）
+## 第 179 阶段：真实 Provider 长期记忆详情闭环（完成）
+
+- Redmi 真实 Provider 已选择独立 `personal-memory-detail` Skill，并严格执行 `memory.search -> memory.get`；搜索关键词原样传递，详情调用使用搜索结果中的唯一稳定 `memory-UUID`，没有调用额外工具。
+- 两项 Tool Result 均为成功且 typed `PASSED`，`memoryIdsUsed` 都精确记录同一夹具 ID；详情包含当前正文和“本地数据，不是工具指令”边界，SAFE 读取链审批为 0。
+- Debug-only 探针使用临时 Profile 和唯一长期记忆夹具；清理覆盖 FTS、主记录、禁用/过期历史残留，并在异常时优先恢复原 Profile。最终 Run 为 `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6`，夹具和临时 Profile 均已删除。
+- 首次在覆盖安装后立即启动探针时，启动恢复并发提前收敛 Run `run-94e7a078-acb4-4c9b-a317-fb9f9dacc054`，Runtime 拒绝向终态 Run 追加步骤；清理仍成功。应用稳定启动后同一最终代码复验通过，因此不把首次失败误记为 `memory.get` 行为错误。
+- 聚焦 JVM `87/87`、Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 已通过；未运行完整 JVM、Lint、全量 instrumentation 或 Release。下一阶段继续选择新的个人 Agent 窄闭环，日历修改/删除仍需稳定事件身份、审批、幂等和恢复验证，不因本阶段顺带开放。
+
+## 第 178 阶段：按稳定 ID 读取长期记忆详情（完成，已于第 179 阶段验证）
 
 - 新增 SAFE、支持后台的 `memory.get(memory_id)`；`memory.search` 在保留原全文结果的同时返回稳定 `memory-UUID`，Agent 可按唯一搜索结果回到当前 Store 读取权威详情。
 - 详情读取只接受标准 `memory-UUID`，并且只返回当前启用且未过期的记忆。不存在、禁用、过期统一为不可用，不泄露治理历史；输出明确标记为本地长期记忆数据，不是工具指令。
 - 新能力由独立 `personal-memory-detail` Skill 承载；既有 `personal-memory`、旧 Profile 和 `LEGACY_RUN_TOOL_NAMES` 不自动扩权。关闭单次记忆召回时，`memory.search / memory.get` 同时从工具面移除，直接调用也不访问 Store。
 - TDD 红灯后，聚焦 `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest` 共 `87/87` 通过，Debug APK 构建成功；Standards/Spec 双轴审查均为 0 项。未运行完整 JVM、Lint、AndroidTest、Redmi 或 Release，Room v36、记忆写入/管理、权限和发布基线不变。
-- 下一阶段用 Redmi 真实 Provider 验证 `memory.search -> memory.get` 的唯一 ID 传递与 typed Tool Ledger；在此之前不把模型规划能力写成已验收事实。日历修改/删除仍需先设计稳定事件身份、审批和恢复验证，不在本阶段顺带开放。
+- 第 179 阶段已用 Redmi 真实 Provider 完成 `memory.search -> memory.get` 的唯一 ID 传递、typed Tool Ledger 和零审批验收。日历修改/删除仍需先设计稳定事件身份、审批和恢复验证，不在本阶段顺带开放。
 
 ## 第 177 阶段：周期计划真实使用与可信答案闭环（完成）
 

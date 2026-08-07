@@ -4,12 +4,20 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 179 阶段：真实 Provider 长期记忆详情闭环
+
+- Debug-only `memory_search_get_real` 使用设备当前 Provider、唯一记忆夹具和临时只读 Profile，通过正式 Runtime 验证 `personal-memory-detail`。探针从 Room 核对 Skill、调用顺序、参数、Tool Result、`memoryIdsUsed`、审批和最终状态，日志不记录凭据或正文。
+- 仅使用 Redmi `wsvwypiz7xwslvl7`。最终 Run `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6` 为 `COMPLETED`，严格执行 `memory.search -> memory.get`；两项结果均 `success=true / PASSED`，搜索关键词原样使用，详情参数与唯一夹具 ID 一致，`memoryIdsUsed` 同样精确，正文数据边界存在且审批为 0。
+- 首次覆盖安装后立即启动的 Run `run-94e7a078-acb4-4c9b-a317-fb9f9dacc054` 与启动恢复并发，提前进入终态后触发 `Agent Run 已结束，不能追加步骤`。该轮 `finally` 已成功删除夹具和临时 Profile；应用稳定后使用同一最终代码复验通过，因此保留为编排失败证据而非工具失败。
+- 审查发现夹具原先在 `try/finally` 之前创建且残留查询只覆盖 10 条启用记录；最终版把创建移入保护区，管理查询覆盖 ALL/200，并让 FTS/主记录删除、原 Profile 恢复和临时 Profile 移除独立执行。最终清理日志为 `temporaryProfileRemoved=true / testMemoryRemoved=true`。
+- 聚焦 JVM `87/87` 冻结通过，`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。更新后的 AndroidTest 资产仅在 Redmi 运行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，耗时 `2.524s`，结果 `OK (1 test)`；测试包随后卸载。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release；没有向模拟器发送任何 ADB 命令。
+
 ## 2026-08-07 第 178 阶段：按稳定 ID 读取长期记忆详情
 
 - 新增 SAFE `memory.get(memory_id)` 和独立 `personal-memory-detail` Skill。搜索结果补充稳定 `memory-UUID`，详情从当前 Store 回读；非法 ID 在访问 Store 前拒绝，禁用、过期和不存在统一失败且不返回正文。关闭单次召回时搜索与详情工具均隐藏并在执行入口阻断。
 - TDD 首轮运行 `XiaoLingToolRegistryTest + AgentSkillsTest + LegacyRunToolBoundaryTest` 共 `87` 项，因工具/Skill 尚不存在、召回开关未覆盖详情和搜索结果缺 ID 得到预期 `7` 项失败。最小实现后同组 `87/87` 通过，`:app:assembleDebug` 为 `BUILD SUCCESSFUL`。
 - Standards 审查确认中文 `long` 业务注释、公开测试 seam、旧 Skill/Profile/Legacy Run 权限冻结均符合项目约束；Spec 审查确认 ID、启用/过期治理、召回关闭和无 Schema/写入扩权行为完整，两个轴均为 0 项。
-- 本阶段没有运行完整 JVM、Lint、AndroidTest、Redmi instrumentation/真实 Provider 或 Release。真实模型能否稳定完成 `memory.search -> memory.get` 尚未验证，留给下一阶段仅在 Redmi 执行；Room v36 与 `v0.1.16 / Room v35` 发布基线不变。
+- 本阶段没有运行完整 JVM、Lint、AndroidTest、Redmi instrumentation/真实 Provider 或 Release。第 179 阶段已仅在 Redmi 验证真实模型稳定完成 `memory.search -> memory.get`；Room v36 与 `v0.1.16 / Room v35` 发布基线不变。
 
 ## 2026-08-07 第 177 阶段：周期计划真实使用与可信答案闭环
 
