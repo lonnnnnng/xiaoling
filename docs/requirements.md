@@ -1,12 +1,19 @@
 # 产品需求
 
-## 按稳定 ID 读取本地笔记（第 170 阶段，完成，未验证）
+## 真实 Provider 搜索并读取笔记全文（第 171 阶段，完成）
+
+- Debug 验收必须读取手机当前已保存 Provider，创建唯一且可精确清理的测试笔记；API Key 不得进入广播参数、探针日志或测试夹具。
+- 临时 Profile 必须显式启用 `local-note-detail` 与其完整只读工具集合；实际 Agent Run 必须严格执行 `notes.search -> notes.get`，不得猜测 ID、调用额外工具或生成审批。
+- 验收必须从 Room Tool Ledger 核对调用顺序、搜索关键词、稳定 ID 传递以及两项 `success=true / PASSED`；`notes.get` 结果必须包含测试全文和本地数据边界，模型最终回答不能代替工具事实。
+- 无论运行成功或失败，都必须精确硬删除测试笔记、恢复原 Profile 并删除临时 Profile；生产 Profile、Room Schema、Release 工具面和历史 Run 不得改变。
+
+## 按稳定 ID 读取本地笔记（第 170 阶段，完成，已于第 171 阶段验证）
 
 - 应提供 SAFE `notes.get(note_id)`，允许 Agent 在 `notes.list / notes.search` 返回稳定 ID 后读取当前笔记正文；工具支持后台只读调用，但不得新增写入、审批或后台副作用。
 - `note_id` 必须是标准 41 字符 `note-UUID`，畸形、空值和额外参数必须拒绝。不存在与 tombstone 必须使用同一失败结果，不得泄露已删除笔记曾经存在或恢复其正文。
 - 成功结果必须从当前 Store 回读，标题中的换行需归一化，正文输出最多 20,000 字符，超过时显式标记截断；正文必须明确标记为本地数据而非工具指令。
 - 现有 `local-notes` Skill 和历史 Profile 不得因新增工具而隐式改变权限；新增独立 SAFE `local-note-detail` Skill，既有 Profile 只有显式启用新工具和 Skill 后才可使用。
-- 本阶段不修改 Room Schema、`AgentNoteStore` 契约、`notes.create` 审批/幂等/恢复语义或任意 App 边界。按用户要求，本阶段不执行测试或编译验证。
+- 本阶段不修改 Room Schema、`AgentNoteStore` 契约、`notes.create` 审批/幂等/恢复语义或任意 App 边界。第 170 阶段落地时按用户要求未验证，第 171 阶段已补齐真实 Agent 使用闭环。
 
 ## 小灵 v0.1.16 发布基线
 

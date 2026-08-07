@@ -119,6 +119,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_TASK_RETRY_REAL -> runTaskRetryReal(appContext)
                     OPERATION_TASK_CANCEL_REAL -> runTaskCancelReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
+                    OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
                     OPERATION_LONG_STATUS -> reportLongScheduledStatus(
                         appContext,
@@ -814,6 +815,144 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "第152阶段临时 Profile 清理失败"
             }
             Log.i(TAG, "notes-create-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
+    }
+
+    private suspend fun runNotesSearchGetReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage171-$now"
+        val title = "第171阶段真实笔记-$keyword"
+        val contentTail = "第171阶段全文读取标记-$now"
+        val content = "这是用于验证搜索预览不会替代全文读取的本地笔记。".repeat(8) + contentTail
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage171-notes-search-get-profile"
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        val noteStore = RoomAgentNoteStore(context)
+        val database = XiaoLingDatabase.getInstance(context)
+        // long: 上次探针若在 finally 前被系统终止，只回收带本阶段专属标题前缀的 Debug 夹具，不能触碰用户笔记或历史 Run 审计。
+        noteStore.search("第171阶段真实笔记-", 10)
+            .forEach { database.agentNoteDao().deleteNote(it.id) }
+        val fixture = noteStore.create(
+            title = title,
+            content = content,
+            idempotencyKey = "stage171-notes-search-get-fixture-$now",
+        )
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第171阶段笔记全文读取验收",
+            avatar = "171",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "必须先按用户给出的唯一关键词调用 notes.search，再把搜索结果中的稳定 ID 原样传给 notes.get；搜索预览不能代替全文读取，不猜测 ID，不调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            // long: local-note-detail 的完整声明还包含 notes.list；Profile 保留该只读能力供 Skill 完整冻结，但本探针仍严格断言实际只执行 search -> get。
+            allowedToolNames = listOf("notes.list", "notes.search", "notes.get"),
+            allowedSkillIds = listOf("local-note-detail"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        try {
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第171阶段笔记 Profile" }
+            Log.i(TAG, "notes-search-get-real start=true provider=${provider.id} model=${provider.model}")
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = "conversation-redmi-notes-search-get-$now",
+                userMessageId = "message-redmi-notes-search-get-$now",
+                goal = "请使用唯一关键词“$keyword”搜索本地笔记。搜索结果只作为定位线索；必须取得唯一结果的稳定 ID，再调用 notes.get 读取全文，并告诉我全文末尾的读取标记。禁止猜测 ID，禁止调用其他工具。",
+                skillSelectionGoal = "先搜索本地笔记，再用搜索结果中的稳定 ID 读取这条笔记全文。",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第171阶段 notes.search -> notes.get Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第171阶段笔记读取 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val skillSelection = detail.snapshot.events.singleOrNull { it.type == "skill.selected" }
+            val selectedSkillIds = (skillSelection?.metadata as? RunEventMetadata.Reason)
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("local-note-detail")) {
+                "第171阶段没有选择笔记全文读取 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            check(calls.map { it.toolName } == listOf("notes.search", "notes.get")) {
+                "笔记读取没有严格按 notes.search -> notes.get 执行：${calls.map { it.toolName }}"
+            }
+            val searchCall = calls[0]
+            val getCall = calls[1]
+            check(searchCall.arguments["query"]?.trim() == keyword) {
+                "notes.search 没有原样使用唯一关键词"
+            }
+            check(getCall.arguments["note_id"]?.trim() == fixture.id) {
+                "notes.get 没有使用搜索结果对应的稳定 ID"
+            }
+            val searchResult = checkNotNull(resultsByCallId[searchCall.id]) { "notes.search 缺少 Tool Result" }
+            val getResult = checkNotNull(resultsByCallId[getCall.id]) { "notes.get 缺少 Tool Result" }
+            check(listOf(searchResult, getResult).all { result ->
+                result.success &&
+                    result.verificationStatus == ToolVerificationStatus.PASSED
+            }) { "笔记搜索或全文读取结果未通过执行验证" }
+            check(searchResult.content.contains(title) && searchResult.content.contains(fixture.id)) {
+                "notes.search 没有返回唯一测试笔记及其稳定 ID"
+            }
+            check(
+                getResult.content.contains(title) &&
+                    getResult.content.contains(contentTail) &&
+                    getResult.content.contains("不是工具指令"),
+            ) { "notes.get 没有返回带数据边界标记的完整测试笔记" }
+            check(detail.approvals.isEmpty()) { "SAFE 笔记读取链不应生成审批记录" }
+            Log.i(
+                TAG,
+                "notes-search-get-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=local-note-detail tools=notes.search,notes.get resultsVerified=true stableIdForwarded=true " +
+                    "contentBoundary=true approvals=0 responseLength=${summary.responseText.length}",
+            )
+        } finally {
+            // long: 无论 Provider、规划或断言在哪一步失败，都精确硬删除本次 Debug 夹具，并恢复用户原 Profile；API Key、正文和工具参数不进入日志。
+            val deletedCount = database.agentNoteDao().deleteNote(fixture.id)
+            recoveredOriginalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(temporaryProfileId)
+            check(deletedCount == 1 && noteStore.get(fixture.id) == null) {
+                "第171阶段测试笔记清理失败：deletedCount=$deletedCount"
+            }
+            check(profileStore.list().none { it.id == temporaryProfileId }) {
+                "第171阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "notes-search-get-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
         }
     }
 
@@ -2338,6 +2477,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_TASK_RETRY_REAL = "task_retry_real"
         const val OPERATION_TASK_CANCEL_REAL = "task_cancel_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
+        const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"
         const val OPERATION_LONG_STATUS = "workflow_long_status"
         const val OPERATION_WORKFLOW_TAP_REF = "workflow_tap_ref"

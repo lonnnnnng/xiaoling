@@ -1,11 +1,19 @@
 # 当前实现说明
 
-## 第 170 阶段：按稳定 ID 读取本地笔记（完成，未验证）
+## 第 171 阶段：真实 Provider 搜索并读取笔记全文（完成）
+
+- `AgentE2eDebugReceiver` 新增 `notes_search_get_real`，只读取手机现有 Provider，不通过广播、测试参数或日志传递 API Key；该入口只存在于 Debug source set。
+- 探针直接通过 `RoomAgentNoteStore.create()` 建立唯一长正文夹具，Profile 显式冻结 `notes.list / notes.search / notes.get` 与 `local-note-detail`。`notes.list` 只为保持 Skill 完整工具声明，实际 Tool Ledger 必须严格等于 `notes.search -> notes.get`。
+- 验收从 Tool Ledger 的调用参数核对搜索关键词和 `note_id`，不从模型回答解析身份；两项结果都必须 `success=true / PASSED`，搜索结果必须含唯一标题和 ID，详情必须含全文尾标与“不是工具指令”边界，且 Room 审批必须为空。
+- `finally` 精确硬删除本次 Debug 夹具，恢复原 Profile 并删除临时 Profile；Run、事件与 Tool Ledger 保留审计，API Key、正文及完整参数不写入探针日志。
+- 聚焦 JVM、Debug/AndroidTest APK 和 Redmi 单项文档 corpus gate 均通过；测试包已卸载，主应用数据保留。按分级验证未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
+## 第 170 阶段：按稳定 ID 读取本地笔记（完成，已于第 171 阶段验证）
 
 - `XiaoLingToolRegistry` 新增 SAFE、`supportsBackground=true` 的 `notes.get(note_id)`；Schema 只接受 41 字符的 `note-UUID`，执行期再用严格 UUID 正则复核，畸形 ID 不进入 Store。
 - 成功结果从当前 `AgentNoteStore.get()` 回读标题和正文；不存在与 tombstone 在 DAO 层均为 `null`，工具统一返回“未找到或已删除”，不泄露删除历史。正文最多输出 20,000 字符，异常旧数据超过上限时显式标记截断，并明确标记为本地数据而非工具指令。
 - 既有 `local-notes` Skill 保持原工具集合，避免历史 Profile 因新增依赖而整项失效；新增 SAFE `local-note-detail` Skill 组合 `notes.list / notes.search / notes.get`。现有 Profile 不自动加入新工具或 Skill，用户需在 Agent Profile 设置中显式授权。
-- `AgentNoteStore`、Room DAO 和 Schema 均不修改；不新增写操作、审批、恢复验证或后台副作用。本阶段按用户要求未执行 JVM、Lint、APK、Redmi instrumentation 或其他编译/运行验证。
+- `AgentNoteStore`、Room DAO 和 Schema 均不修改；不新增写操作、审批、恢复验证或后台副作用。第 170 阶段落地时按用户要求未验证，第 171 阶段已补齐聚焦 JVM、Debug APK 和 Redmi 真实 Provider 闭环。
 
 ## 小灵 v0.1.16 发布基线
 

@@ -2,7 +2,9 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-第 170 阶段完成按稳定 ID 读取本地笔记正文：新增 SAFE、支持后台的 `notes.get(note_id)`，只接受标准 `note-UUID`，从当前 Store 回读正文，并把不存在与 tombstone 统一为不泄露历史内容的失败结果。正文输出最多 20,000 字符并明确标记为本地数据而非工具指令；没有新增 Room Schema、写权限或后台副作用。为避免历史 Profile 的 `local-notes` Skill 因工具集合变化而失效，旧 Skill 保持不变，新增独立 SAFE `local-note-detail` Skill；既有 Profile 需显式启用新工具和 Skill。本阶段按用户要求未运行测试或编译验证。
+第 171 阶段完成真实 Provider 的笔记搜索到全文读取闭环：Debug-only `notes_search_get_real` 使用唯一测试笔记和临时只读 Profile，在 Redmi 的真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 选择 `local-note-detail` Skill，并严格执行 `notes.search -> notes.get`。Tool Ledger 权威确认关键词、稳定 note ID 传递、两项 `success=true / PASSED`、正文数据边界和零审批；夹具与临时 Profile 均已清理。聚焦 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过，未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
+第 170 阶段完成按稳定 ID 读取本地笔记正文：新增 SAFE、支持后台的 `notes.get(note_id)`，只接受标准 `note-UUID`，从当前 Store 回读正文，并把不存在与 tombstone 统一为不泄露历史内容的失败结果。正文输出最多 20,000 字符并明确标记为本地数据而非工具指令；没有新增 Room Schema、写权限或后台副作用。为避免历史 Profile 的 `local-notes` Skill 因工具集合变化而失效，旧 Skill 保持不变，新增独立 SAFE `local-note-detail` Skill；既有 Profile 需显式启用新工具和 Skill。第 171 阶段已补齐真实使用闭环验证。
 
 第 169 阶段完成创建笔记后的答案级导航：`notes.create` 只有成功、typed `VERIFIED`、标题/正文参数完整、结果标题精确绑定请求标题且全文只有一个合法 note ID 时显示“查看笔记”；回读验证失败、标题漂移、非法/重复 ID 和普通模型文本均不显示入口。成功结果新增稳定 ID，不改变审批、幂等回执、旧 Run 或 Room Schema。聚焦 JVM `LocalNoteNavigationTest 4/4 + XiaoLingNavigationCoordinatorTest 8/8 + TaskInspectionNavigationTest 5/5 + XiaoLingToolRegistryTest 46/46 + AgentRunResumePolicyTest 57/57`、Redmi `ConversationPageInstrumentedTest 10/10` 和文档 corpus gate `1/1` 通过；只构建 Debug/AndroidTest APK，未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
 

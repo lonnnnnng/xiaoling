@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-第 170 阶段在发布后新增 SAFE `notes.get(note_id)`，让 Agent 能从 `notes.list / notes.search` 返回的稳定 `note-UUID` 继续读取当前本地笔记正文。工具严格拒绝畸形 ID，把不存在与已删除 tombstone 合并为同一安全失败，并把异常旧数据的正文输出限制在 20,000 字符；正文明确标记为本地数据而非工具指令。没有新增 Room Schema、写权限或后台副作用。既有 Profile 不自动扩权，需显式启用新工具和独立 `local-note-detail` Skill。本阶段按用户要求未执行测试或编译验证。
+第 171 阶段在 Redmi 完成真实 Provider 的本地笔记全文读取闭环。Debug-only 探针使用当前已保存 Provider 和显式临时 Profile，真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 选择 `local-note-detail` Skill，严格执行 `notes.search -> notes.get`；两项结果均为 `success=true / verificationStatus=PASSED`，搜索结果的稳定 ID 原样进入全文读取，正文保留“本地数据，不是工具指令”边界，审批记录为 0。测试笔记与临时 Profile 均已清理，没有新增生产权限、Room Schema 或 Release 代码。
+
+第 170 阶段在发布后新增 SAFE `notes.get(note_id)`，让 Agent 能从 `notes.list / notes.search` 返回的稳定 `note-UUID` 继续读取当前本地笔记正文。工具严格拒绝畸形 ID，把不存在与已删除 tombstone 合并为同一安全失败，并把异常旧数据的正文输出限制在 20,000 字符；正文明确标记为本地数据而非工具指令。没有新增 Room Schema、写权限或后台副作用。既有 Profile 不自动扩权，需显式启用新工具和独立 `local-note-detail` Skill；第 171 阶段已补齐聚焦 JVM、Debug APK 和 Redmi 真实 Provider 验证。
 
 第 158 阶段完成真实 Provider 的受控任务重试闭环。Debug-only 探针创建可清理的失败 Workflow 夹具，Redmi 真实 Run 严格执行 `tasks.list -> tasks.inspect -> tasks.retry`；三项 Tool Ledger 均为 `success=true / verificationStatus=PASSED`，生产 `TaskRetryLaunchPolicy` 通过后创建关联新 Run。来源 Run 保持 `FAILED` 与原步骤事实不变，新 Run 只复用首个成功前缀为 `SKIPPED`，再由真实 Provider 执行第二个 `app.current_time` 步骤并完成目标级收敛；临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，也未操作 Pixel_9。
 

@@ -4,11 +4,19 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 171 阶段：真实 Provider 搜索并读取笔记全文
+
+- 新增 Debug-only `notes_search_get_real`。它从设备现有 Provider 读取配置，建立唯一长正文笔记夹具和显式 `local-note-detail` 临时 Profile；API Key 不进入广播参数或探针日志，生产 Release、Room Schema 和用户 Profile 权限不变。
+- 聚焦 JVM `AgentSkillsTest 19/19 + LegacyRunToolBoundaryTest 2/2 + XiaoLingToolRegistryTest 48/48 = 69/69`、`:app:assembleDebug` 和 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。更新文档后仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`、耗时 `2.535s`；测试包已卸载，主应用保留。未运行完整 JVM、Lint、AndroidTest 全量、默认完整 instrumentation 或 Release。
+- Redmi `wsvwypiz7xwslvl7` 真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 为 `COMPLETED`，选择 `local-note-detail`，Tool Ledger 严格为 `notes.search -> notes.get`；两项均 `success=true / verificationStatus=PASSED`，稳定 ID 正确传递，详情包含全文尾标和“不是工具指令”边界，审批为 0。临时 Profile 与测试笔记均已清理。
+- 首轮真实工具链本身已成功，但探针错误要求 SAFE 工具 `executorVerified=true`，因此在结果断言处失败；移除该副作用工具专属条件。第二轮紧随 APK 冷启动，启动恢复扫描先收敛了新 Run，触发 `Agent Run 已结束，不能追加步骤`；应用稳定后不重装重启地重跑通过。这两次均完成夹具/Profile 清理，不计入通过样本。
+- 手机现装 APK 使用 Android Debug 证书，首次用 `releaseLocal` 重签包覆盖得到 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`；核对双方指纹后改用同证书 Debug APK，`adb install -r` 成功且未卸载、未清数据。所有设备命令只发往 Redmi，未向在线模拟器发送安装、启动、日志或测试命令。
+
 ## 2026-08-07 第 170 阶段：按稳定 ID 读取本地笔记
 
 - 新增 SAFE、支持后台的 `notes.get(note_id)`，严格验证标准 `note-UUID`，从当前 Store 回读标题/正文；不存在与 tombstone 统一失败，正文输出上限为 20,000 字符，并明确标记为本地数据而非工具指令。
 - 新增独立 SAFE `local-note-detail` Skill，保留既有 `local-notes` 工具集合，避免历史 Profile 因新增工具依赖而失效或自动扩权；`AgentNoteStore`、Room DAO、Schema、写入审批和恢复边界不变。
-- 已同步 Registry/Skill/legacy 工具集合及对应 JVM 测试源码断言，但按用户“不测试”的当前要求，本阶段未执行 JVM、Lint、APK 构建、Redmi instrumentation 或运行验收。当前结论仅为代码与文档已落地，不表述为已验证可用。
+- 第 170 阶段落地时只同步 Registry/Skill/legacy 工具集合及 JVM 测试源码断言，按当时用户要求未执行验证；第 171 阶段现已补齐聚焦 JVM、Debug APK 与 Redmi 真实 Provider 使用闭环。
 
 ## 2026-08-07 小灵 v0.1.16 发布构建
 

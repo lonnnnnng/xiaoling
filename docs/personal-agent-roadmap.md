@@ -1,11 +1,18 @@
 # 小灵个人 Agent 路线图
 
-## 第 170 阶段：按稳定 ID 读取本地笔记（完成，未验证）
+## 第 171 阶段：真实 Provider 搜索并读取笔记全文（完成）
+
+- Redmi 真实 Run 已从自然语言目标选择 `local-note-detail`，先按唯一关键词调用 `notes.search`，再把结果中的稳定 ID 原样传给 `notes.get`；两项只读事实均通过 Runtime 验证，模型没有猜 ID 或调用额外工具。
+- 该闭环继续使用显式临时 Profile、零审批、当前 Store 回读和正文数据边界。Debug 探针及夹具不进入 Release，用户原 Profile、笔记库和生产权限均不改变。
+- 聚焦 JVM、Debug/AndroidTest APK、Redmi 真实 Provider 和文档 corpus gate 已通过；未运行完整矩阵或 Release。
+- 第 170 阶段的“搜索摘要 -> 完整正文”主线差距已关闭。下一阶段继续选择能直接增加个人 Agent 可完成任务范围的垂直能力，不回到纯 Shadow 扩样、单文件瘦身或完整矩阵常态化。
+
+## 第 170 阶段：按稳定 ID 读取本地笔记（完成，已于第 171 阶段验证）
 
 - 新增 SAFE `notes.get(note_id)`，Agent 可以先用 `notes.list / notes.search` 定位稳定 `note-UUID`，再从当前 Store 读取正文，补齐“搜索摘要 -> 完整内容”的只读闭环。
 - ID 必须是标准 `note-UUID`；不存在和已删除 tombstone 使用同一失败结果，正文最多返回 20,000 字符并标记为本地数据，不能通过任意 ID 探测或恢复已删除内容。
 - 新能力由独立 SAFE `local-note-detail` Skill 承载；既有 `local-notes` 与历史 Profile 不自动扩权，用户显式启用后才可用。Room、写入审批、后台副作用和任意 App 边界不变。
-- 本阶段按用户要求未运行测试或编译验证。下一阶段优先把这一新只读能力接入真实 Profile/Provider 的完整 Agent 使用闭环，再选择新的主线能力，不回到纯横向打磨。
+- 第 170 阶段落地时按用户要求未运行测试或编译；第 171 阶段已用真实 Profile/Provider 完成该闭环，再选择新的主线能力，不回到纯横向打磨。
 
 ## v0.1.16 发布基线
 
