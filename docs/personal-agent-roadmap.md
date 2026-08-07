@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 197 阶段：答案级历史会话导航（完成）
+
+- 可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool part 现在可以投影“查看会话”入口，但必须同时满足应用固定结果标题、严格参数、唯一合法 `conversation-...` ID 和非失败验证；普通模型文本、空/多结果、额外参数、换行注入、ID 不一致或正文伪造均不产生入口。
+- 点击入口后不直接相信消息快照：ViewModel 先从当前 Room 重读会话表，只有目标 ID 恰好唯一存在时才复用既有会话选择与消息加载；删除、漂移、重复、读取失败和目标不再存在均 fail-closed。
+- 本切片只改变答案级查看体验，不发送消息、不创建 Run、不触发工具/审批/Provider 写入，不新增 Room Schema、权限、Workflow、设备动作或后台能力。旧会话、历史 Run、重试和 Shadow 边界保持不变。
+- 聚焦会话导航 JVM `17/17`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release。下一阶段继续选择个人 Agent 的直接可用窄闭环。
+
 ## 第 196 阶段：历史会话详情只读闭环（完成）
 
 - 新增 `app.get_conversation(conversation_id)`，补齐历史会话的“列表/搜索摘要 -> 稳定会话 ID -> 当前正文”链路。ID 只能使用 `app.list_conversations` 或 `app.search_conversations` 返回形态的 `conversation-...` 值；会话不存在、格式漂移或额外参数均停止。

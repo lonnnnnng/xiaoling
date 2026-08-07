@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 197 阶段：答案级历史会话导航
+
+- 可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool part 现在才可能生成“查看会话”入口；固定结果标题、参数契约、唯一合法 `conversation-...` ID、详情回显一致和非失败验证均通过时才显示，普通模型文本、空/多结果、额外参数、换行注入、伪造/漂移 ID 均不显示。
+- 点击前由 ViewModel 重新读取当前 Room 会话表，目标 ID 恰好唯一存在时复用既有会话选择和消息加载；目标被删除、不存在、重复或读取失败时 fail-closed，不使用旧 UI 缓存，不发送消息、不创建 Run。
+- 聚焦 JVM 会话导航 `17/17`（含 `ConversationNavigationTest 3/3`、既有任务/笔记/记忆导航回归），`:app:assembleDebug :app:assembleDebugAndroidTest` `BUILD SUCCESSFUL`，`git diff --check` 通过。
+- 按快速迭代分级，本阶段未运行完整 JVM、全量 Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release；没有向 `Pixel_9`/`emulator-5554` 发送命令，Room v36、Workflow、设备动作、恢复与 answerability Shadow 边界不变。
+
 ## 2026-08-08 第 196 阶段：历史会话详情只读闭环
 
 - 新增 `app.get_conversation(conversation_id)`、`AgentConversationDetailPolicy` 和 `AgentConversationStore.get`。工具只接受列表/搜索返回形态的稳定 `conversation-...` ID，`SAFE`、仅前台 `DIRECT`、5 秒超时；详情从当前 Room 回读且只投影用户/助手文本，最多 40 条、单条 20,000 字符、总计 60,000 字符。

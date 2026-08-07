@@ -2,10 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 190 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
-当前开发基线已推进至第 191 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 197 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
-当前开发基线已推进至第 192 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+第 197 阶段完成答案级历史会话导航：可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool 卡只有在应用生成的固定结果外壳、参数契约和唯一稳定会话 ID 同时通过时才显示“查看会话”。点击前重新读取当前 Room，目标不存在、被删除、重复、ID 漂移或结果被模型改写时均不导航；成功后复用既有会话选择与正文加载，不发送消息、不创建 Run、不扩展 Workflow 或后台能力。聚焦会话导航 JVM `17/17`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
 
 第 192 阶段完成确认后创建关联新 Run 的 Room 历史保留验收。来源 `FAILED` Run 含已批准的写工具、Step、成功 Tool Result、`COMMITTED` 回执和审计 Event；创建 `retryOfRunId` 关联新 Run 后，来源 Run 的终态、Step、Tool Result、Approval、Event 与 Tool Ledger 均保持不变。两次磁盘 Room 重建后关系仍存在，新 Run 仍是独立 `QUEUED` 账本，不复制来源事实。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和文档 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

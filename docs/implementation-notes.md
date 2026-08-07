@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 197 阶段：答案级历史会话导航（完成）
+
+- 新增 `ConversationNavigation.kt`，只从可信 `MessagePart.Tool` 的 `app.list_conversations / app.search_conversations / app.get_conversation` 结果解析唯一稳定会话 ID；固定标题、参数字段、数量边界、详情 ID 回显和稳定 ID 总数任一不符都不生成入口。
+- `ConversationMessageContent` 增加“查看会话”按钮，应用壳通过 `ConversationActions` 把目标交给 `XiaoLingViewModel.refreshConversationsAndResolveNavigation()`。该方法在点击前重新读取 `ConversationRepository` 当前 Room，会话 ID 恰好唯一存在时才交给既有 `ConversationSelectionCoordinator` 加载正文；导航读取任务带代次取消，迟到结果不能覆盖用户新选择。
+- 新增 `ConversationNavigationTest` 三组策略测试，并在 `ConversationPageInstrumentedTest` 增加可信 Tool 卡路由用例。会话导航聚焦 JVM 共 `17/17`，`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。
+- 没有新增 Room Schema、权限、网络、Provider、Tool、Skill、Workflow、设备动作或后台副作用；未运行完整 JVM、Lint、Redmi instrumentation、文档 corpus gate 或 Release。
+
 ## 第 196 阶段：历史会话详情只读闭环（完成）
 
 - `AgentConversationStore` 新增按稳定 ID 的详情读取；`RoomAgentConversationStore` 只查询目标会话和 `user/assistant` 消息，不加载 `MessagePart`，因此工具参数、附件 BLOB、原始推理、Provider 元数据和验证账本不会进入详情上下文。

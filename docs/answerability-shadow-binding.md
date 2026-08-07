@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 197 阶段历史会话导航边界（无变更）
+
+本阶段只把可信历史会话 Tool 结果投影为前台查看入口，并在点击前重读当前 Room；不会读取或改写答案引用、Judge 身份、Shadow measurement 或匿名账本，也不会触发答案观测、模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和现有候选绑定规则保持不变。
+
 ## 第 196 阶段历史会话详情边界（无变更）
 
 本阶段的 `app.get_conversation` 只读取当前会话的用户/助手历史文本，不读取知识候选、答案引用、Judge 身份或 Shadow 账本，也不会触发答案观测、模型调用或生产拒绝。详情内容有界并标记为本地资料；Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和现有候选绑定规则均保持不变。

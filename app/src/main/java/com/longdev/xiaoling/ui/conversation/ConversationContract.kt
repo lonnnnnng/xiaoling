@@ -67,6 +67,8 @@ internal interface ConversationActions {
 
     fun openInspectedTask(taskName: String)
 
+    fun openConversation(conversationId: String)
+
     fun openLocalNote(noteId: String)
 
     fun openMemory(memoryId: String)

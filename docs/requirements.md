@@ -1,5 +1,12 @@
 # 产品需求
 
+## 答案级历史会话导航（第 197 阶段，完成）
+
+- 只有应用生成的 `app.list_conversations`、`app.search_conversations` 或 `app.get_conversation` Tool 结果，在固定结果标题、参数契约、唯一合法 `conversation-...` ID 和非失败验证同时满足时，才能显示“查看会话”。普通模型文本、空/多结果、额外参数、换行注入、ID 回显不一致或正文伪造不得形成入口。
+- 点击入口前必须重新读取当前 Room 会话表；目标 ID 恰好唯一存在时才切换到既有会话并回读正文。目标被删除、漂移、重复、读取失败或不再存在时阻断导航并给出失败提示，不使用旧 UI 缓存猜测。
+- 导航只改变当前会话查看状态，不发送消息、不创建 Run、不触发工具、审批、Provider 写入、Workflow、设备动作或后台任务；不新增 Room Schema、权限或历史事实。
+- 本阶段按分级验证策略执行会话导航聚焦 JVM 和 Debug/AndroidTest APK 构建；完整 JVM、Lint、Redmi instrumentation、文档 corpus gate 和 Release 后置。
+
 ## 历史会话详情只读闭环（第 196 阶段，完成）
 
 - Agent 只有在先取得 `app.list_conversations` 或 `app.search_conversations` 结果中的唯一稳定 `conversation-...` ID 后，才能调用 `app.get_conversation(conversation_id)`；不得按标题、时间、列表序号、模型文本或任意猜测构造 ID。

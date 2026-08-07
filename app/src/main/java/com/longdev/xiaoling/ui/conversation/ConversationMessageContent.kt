@@ -67,6 +67,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
+import com.longdev.xiaoling.ui.conversationIdForNavigation
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
 import com.longdev.xiaoling.ui.localNoteIdForNavigation
@@ -96,6 +97,7 @@ internal fun ChatBubble(
     answerabilityNotice: KnowledgeAnswerabilityUserNotice?,
     onOpenKnowledgeDocument: (String) -> Unit,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenConversation: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
@@ -146,6 +148,7 @@ internal fun ChatBubble(
                     message = message,
                     contentColor = contentColor,
                     onOpenInspectedTask = onOpenInspectedTask,
+                    onOpenConversation = onOpenConversation,
                     onOpenLocalNote = onOpenLocalNote,
                     onOpenMemory = onOpenMemory,
                 )
@@ -196,6 +199,7 @@ private fun MessageBodyParts(
     message: ChatMessage,
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenConversation: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
 ) {
@@ -210,6 +214,7 @@ private fun MessageBodyParts(
                 part = part,
                 contentColor = contentColor,
                 onOpenInspectedTask = onOpenInspectedTask,
+                onOpenConversation = onOpenConversation,
                 onOpenLocalNote = onOpenLocalNote,
                 onOpenMemory = onOpenMemory,
             )
@@ -392,6 +397,7 @@ private fun ToolMessagePartContent(
     part: MessagePart.Tool,
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
+    onOpenConversation: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
 ) {
@@ -455,6 +461,19 @@ private fun ToolMessagePartContent(
                 modifier = Modifier.size(15.dp),
             )
             Text("查看任务")
+        }
+    }
+    part.conversationIdForNavigation()?.let { conversationId ->
+        TextButton(
+            onClick = { onOpenConversation(conversationId) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ListAlt,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+            Text("查看会话")
         }
     }
     part.localNoteIdForNavigation()?.let { noteId ->

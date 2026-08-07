@@ -300,6 +300,7 @@ internal fun ConversationPage(
                                 answerabilityNotice = messages.answerabilityNotices[message.id],
                                 onOpenKnowledgeDocument = actions::openKnowledgeDocument,
                                 onOpenInspectedTask = actions::openInspectedTask,
+                                onOpenConversation = actions::openConversation,
                                 onOpenLocalNote = actions::openLocalNote,
                                 onOpenMemory = actions::openMemory,
                                 onReuseUserMessage = actions::updatePrompt,

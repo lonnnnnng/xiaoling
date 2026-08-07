@@ -228,6 +228,10 @@ private fun XiaoLingContent(
                 }
             }
 
+            override fun openConversation(conversationId: String) {
+                viewModel.refreshConversationsAndResolveNavigation(conversationId)
+            }
+
             override fun openLocalNote(noteId: String) {
                 navigation.openLocalNote(noteId)
             }

@@ -794,6 +794,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var memoryCandidateLoadJob: Job? = null
     private var skillLoadJob: Job? = null
     private var workflowLoadJob: Job? = null
+    private var conversationNavigationLoadJob: Job? = null
+    private var conversationNavigationGeneration = 0L
     private var saveProfilesJob: Job? = null
     private var knowledgeReferenceStatusJob: Job? = null
     private var processExitObservationLoadJob: Job? = null
@@ -3283,11 +3285,44 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openNewConversation() {
+        cancelConversationNavigationLoad()
         conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)
     }
 
     fun selectConversation(conversationId: String) {
+        cancelConversationNavigationLoad()
         conversationSelectionCoordinator.select(uiState, conversationId, ::handleConversationSelectionEvent)
+    }
+
+    internal fun refreshConversationsAndResolveNavigation(conversationId: String) {
+        val generation = ++conversationNavigationGeneration
+        conversationNavigationLoadJob?.cancel()
+        conversationNavigationLoadJob = viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { conversationStore.load() }
+            }.onSuccess { stored ->
+                if (generation != conversationNavigationGeneration) return@onSuccess
+                val refreshedConversations = stored.conversations.map { it.toSession() }
+                val resolvedId = ConversationNavigationPolicy.resolveUniqueId(
+                    conversationIds = refreshedConversations.map(ConversationSession::id),
+                    raw = conversationId,
+                )
+                if (resolvedId == null) {
+                    conversationNavigationLoadJob = null
+                    showValidation("目标会话已不存在或不唯一")
+                    return@onSuccess
+                }
+                // long: Tool 卡里的 ID 只用于提出目标；点击前先用当前 Room 会话表重建唯一列表，再交给既有选择/加载协调器读取正文。
+                uiState = uiState.copy(conversations = refreshedConversations)
+                conversationNavigationLoadJob = null
+                selectConversation(resolvedId)
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                if (generation != conversationNavigationGeneration) return@onFailure
+                conversationNavigationLoadJob = null
+                showValidation(error.message ?: "无法读取目标会话")
+            }
+        }
     }
 
     fun refreshKnowledgeReferenceStatuses(references: List<KnowledgeReference>) {
@@ -3342,7 +3377,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteCurrentConversation() {
+        cancelConversationNavigationLoad()
         conversationSelectionCoordinator.deleteCurrent(uiState, ::handleConversationSelectionEvent)
+    }
+
+    private fun cancelConversationNavigationLoad() {
+        conversationNavigationGeneration += 1L
+        conversationNavigationLoadJob?.cancel()
+        conversationNavigationLoadJob = null
     }
 
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {

@@ -363,6 +363,45 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensTrustedConversationToolResultByStableId() {
+        val actions = FakeConversationActions()
+        val conversationId = "conversation-history-197"
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-conversation-list",
+                                role = "assistant",
+                                text = "找到了一个历史会话。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-conversation-list",
+                                    toolName = "app.search_conversations",
+                                    arguments = mapOf("query" to "历史", "limit" to "1"),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                                    rawResult = "匹配会话：\n- 历史复盘 · 2 条消息 · id=$conversationId",
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看会话").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(conversationId, actions.lastOpenedConversationId)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -377,6 +416,7 @@ class ConversationPageInstrumentedTest {
         var lastInspectedTaskName: String? = null
         var lastOpenedNoteId: String? = null
         var lastOpenedMemoryId: String? = null
+        var lastOpenedConversationId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -442,6 +482,10 @@ class ConversationPageInstrumentedTest {
 
         override fun openInspectedTask(taskName: String) {
             lastInspectedTaskName = taskName
+        }
+
+        override fun openConversation(conversationId: String) {
+            lastOpenedConversationId = conversationId
         }
 
         override fun openLocalNote(noteId: String) {
