@@ -4,6 +4,12 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 200 阶段：本地笔记详情/编辑结果答案级导航
+
+- `LocalNoteNavigation.kt` 现在支持可信 `notes.get` 与 `notes.update` 结果导航：详情必须绑定唯一请求 `note_id`、固定详情/正文安全边界、单一规范 ID 和正 revision；编辑必须为 `VERIFIED`，参数集合精确，标题/ID回显一致，且新 revision 严格为 `expected_revision + 1`。`notes.create` 写入结果继续要求 `VERIFIED`。
+- 点击后复用现有本地笔记管理页，从当前 Note Store 二次读取；失败、只读写入、额外参数、标题/ID/revision 漂移、重复身份或正文伪造均不生成入口，不展示历史 Tool 正文。
+- 聚焦 JVM `LocalNoteNavigationTest 7/7`，`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；本阶段尚未运行完整 JVM、Lint、Redmi instrumentation、文档 corpus gate 或 Release，没有使用 `Pixel_9`。
+
 ## 2026-08-08 第 199 阶段：日程创建/修改结果答案级导航
 
 - `calendar.create_event` 成功结果新增唯一稳定事件 ID；`CalendarNavigation.kt` 只接受 `VERIFIED` 创建/修改结果。创建绑定规范化标题和四项参数，修改绑定同一事件 ID、`scope=event`、有效审批前指纹与不同的新指纹；结果外壳、参数或 ID/指纹任一漂移均不生成入口。

@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 200 阶段：本地笔记详情/编辑结果答案级导航（完成）
+
+- `notes.get` 现在只有在唯一 `note_id`、固定详情/正文安全边界、单一稳定 note UUID 和规范 revision 同时成立时才生成“查看笔记”；正文被明确标记为本地数据，不会成为工具指令或授权。
+- `notes.update` 只有在 `VERIFIED`、精确参数集合、标题/ID与请求一致且返回 revision 恰为 `expected_revision + 1` 时才生成入口；`notes.create` 的写入结果继续要求 Executor 验证，`READABLE_ONLY`、版本/标题/ID漂移、额外参数和伪造正文均 fail-closed。
+- 点击入口复用现有本地笔记管理页并按当前 Store 二次读取，不把历史 Tool 正文当成权威事实；本阶段不新增权限、Room Schema、Tool/Skill、审批豁免、Workflow、后台或 Release 能力。
+- 聚焦 JVM `LocalNoteNavigationTest 7/7`、Debug/AndroidTest APK 构建通过；本阶段未运行完整 JVM、Lint、Redmi instrumentation 或 Release。下一阶段继续从个人 Agent 的直接可用事实闭环中选择一个单一窄切片。
+
 ## 第 199 阶段：日程创建/修改结果答案级导航（完成）
 
 - `calendar.create_event` 成功结果现在携带应用生成的稳定事件 ID；`calendar.create_event / calendar.update_event` 只有在 `VERIFIED`、严格参数、固定结果外壳与唯一规范 ID 同时成立时才复用“查看日程”。

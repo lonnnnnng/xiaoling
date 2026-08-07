@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 200 阶段：本地笔记详情/编辑结果答案级导航（完成）
+
+- `LocalNoteNavigation.kt` 新增 `notes.get` 解析：仅接受唯一 `note_id`，详情首行必须包含应用结果的稳定 note UUID 与规范正整数 revision，下一行必须是固定的本地正文安全边界；全文只能出现一个合法 note ID，避免正文伪造或重复身份生成入口。
+- `notes.update` 仅接受 `VERIFIED` 写入结果，参数集合必须精确包含 `note_id / expected_revision / title / content`，结果标题与 ID 必须回显请求值，返回 revision 必须严格为 `expected_revision + 1`；`notes.create` 同样不再接受 `READABLE_ONLY` 写入结果。
+- 通过后复用既有“查看笔记”按钮、导航宿主和 `LocalNoteManagementPage`，点击后按当前 Note Store 二次读取；不展示历史 Tool 正文，也不扩展编辑、删除、审批、Room Schema、Workflow 或后台能力。
+- `LocalNoteNavigationTest` 聚焦覆盖创建、详情、参数/ID/revision/正文伪造和编辑版本边界，共 `7/7` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 构建通过。本阶段未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
+
 ## 第 199 阶段：日程创建/修改结果答案级导航（完成）
 
 - `calendar.create_event` 的成功结果增加 `· id=calendar-<正整数>`，ID 来自写后回读确认的 Calendar Provider 事件；原 `COMMITTED` 回执、幂等键和验证语义不变。

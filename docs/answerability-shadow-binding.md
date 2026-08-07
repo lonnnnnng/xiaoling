@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 200 阶段本地笔记导航边界（无变更）
+
+本阶段只把已通过应用结果契约校验的本地笔记详情/编辑结果投影为查看入口，并在点击后回到当前本地 Note Store 二次读取；不会把笔记正文送入知识候选、Judge、Shadow measurement 或匿名账本，也不会触发额外模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。
+
 ## 第 199 阶段日程写入结果导航边界（无变更）
 
 本阶段只让已通过应用执行验证的日程创建/修改结果携带稳定查看目标，并复用当前 Calendar Provider 详情页；不会把写入结果送入知识候选、Judge、Shadow measurement 或匿名账本，也不会触发额外模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。

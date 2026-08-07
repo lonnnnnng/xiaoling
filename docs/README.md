@@ -1,5 +1,7 @@
 # 文档索引
 
+第 200 阶段补齐答案级本地笔记详情/编辑结果导航：`notes.get` 只接受唯一 `note_id`、固定详情/正文边界、单一稳定 ID 和规范 revision；`notes.update` 只在 `VERIFIED`、参数精确、标题/ID一致且 revision 恰为 `expected_revision + 1` 时显示“查看笔记”，`notes.create` 写入结果继续要求 `VERIFIED`。点击后复用本地笔记管理页并从当前 Store 二次读取；失败、只读写入、版本/标题/ID漂移和正文伪造均 fail-closed。聚焦 JVM `7/7`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release，也未使用 Pixel_9。
+
 第 199 阶段补齐日程创建/修改后的答案级查看入口：`calendar.create_event` 成功结果新增应用生成的稳定事件 ID；创建/修改 Tool 卡只有在 `VERIFIED`、严格参数、固定结果外壳、唯一规范 ID 和有效新指纹同时成立时才显示“查看日程”。修改结果必须绑定请求 ID，且新指纹不能等于审批前指纹；失败、只读验证、漂移、伪造和删除结果均 fail-closed。点击后继续从当前 Calendar Provider 二次读取，不展示历史 Tool 正文。没有新增权限、写入范围、Room Schema、Workflow 或后台能力；聚焦 JVM `82/82` 与 Debug/AndroidTest APK 构建通过，未运行 Redmi instrumentation、完整 JVM、Lint 或 Release，也未使用 Pixel_9。
 
 第 198 阶段完成答案级系统日程详情导航：可信 `calendar.list_events / calendar.search_events / calendar.get` Tool 卡只有在严格参数、应用固定结果外壳和唯一规范 `calendar-<正整数>` ID 同时成立时才显示“查看日程”。独立详情页按当前 Calendar Provider 二次读取标题、起止、全天、时区和重复状态；删除、撤权、Provider 不可用、结果漂移、多结果或伪造 ID 均 fail-closed，不显示历史 Tool 正文。没有新增权限、写入、Room Schema、Workflow 或后台能力；聚焦 JVM 和 Debug/AndroidTest APK 构建通过，未运行 Redmi instrumentation、完整 JVM、Lint 或 Release，也未使用 Pixel_9。
@@ -14,7 +16,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 199 阶段、Room v36，尚未形成新 Release。第 199 阶段补齐日程创建/修改成功结果到当前 Provider 详情页的答案级查看入口；第 198 阶段补齐日程列表/搜索/详情 Tool 卡入口；第 197 阶段补齐历史会话 Tool 卡入口；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。六阶段均未改变 Room Schema、Workflow、设备动作、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
+当前开发基线已到第 200 阶段、Room v36，尚未形成新 Release。第 200 阶段补齐本地笔记详情/编辑结果到当前 Store 的答案级查看入口；第 199 阶段补齐日程创建/修改成功结果到当前 Provider 详情页的答案级查看入口；第 198 阶段补齐日程列表/搜索/详情 Tool 卡入口；第 197 阶段补齐历史会话 Tool 卡入口；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。七阶段均未改变 Room Schema、Workflow、设备动作、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

@@ -1,5 +1,13 @@
 # 产品需求
 
+## 本地笔记详情/编辑结果答案级导航（第 200 阶段，完成）
+
+- `notes.get` 只有在参数精确为唯一 `note_id`、ID 为规范 note UUID、结果首行含同一 ID 与规范正 revision、下一行是固定正文安全警示且全文只出现一个合法 ID 时才能显示“查看笔记”。`READABLE_ONLY` 允许只读详情；失败、ID/版本漂移、额外参数、正文伪造或重复 ID 必须 fail-closed。
+- `notes.update` 只有在 `VERIFIED` 且参数集合精确包含 `note_id / expected_revision / title / content` 时才能生成入口；结果标题和 ID 必须与请求一致，结果 revision 必须严格等于 `expected_revision + 1`。标题、ID、版本、结果外壳或正文任一漂移均不得导航。
+- `notes.create` 属于本地写入副作用，只有 `VERIFIED` 的固定结果才允许入口；`READABLE_ONLY` 写入结果不得生成入口。删除结果不在本阶段新增入口。
+- 点击入口必须复用既有本地笔记管理页并从当前 Note Store 二次读取；不得把历史 Tool 正文当成详情权威，不得创建 Run、重新执行工具、绕过审批或扩大编辑权限。
+- 本阶段不新增 Android 权限、Room Schema、Tool/Skill、Workflow、后台自动化或 Release 行为；按快速迭代运行聚焦 JVM 与 Debug/AndroidTest APK 编译，完整 JVM、Lint、Redmi instrumentation 和 Release 后置。
+
 ## 日程创建/修改结果答案级导航（第 199 阶段，完成）
 
 - `calendar.create_event` 成功结果必须由应用输出规范标题与唯一 `calendar-<正整数>` ID；只有 `VERIFIED` 且标题、四项请求参数和固定单行结果外壳一致时才能显示“查看日程”。
