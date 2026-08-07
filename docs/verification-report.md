@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 181 阶段：系统日程稳定身份与权威详情读取
+
+- TDD 首轮运行 `XiaoLingToolRegistryTest`，因 `eventId`、`CalendarEventDetailRecord / CalendarEventDetailReadResult` 和 `getEvent` 尚不存在得到预期编译失败；最小实现后 `XiaoLingToolRegistryTest 63/63 + AgentSkillsTest 26/26`，合计聚焦 JVM `89/89` 通过。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。仅向 Redmi `wsvwypiz7xwslvl7` 安装主包和测试包；设备枚举中虽然存在 `emulator-5554`，但没有向模拟器发送安装、授权、启动、日志或测试命令。
+- Redmi `AndroidCalendarEventWriterInstrumentedTest#stableProviderEventIdLinksListSearchAndAuthoritativeDetail` 最终复验耗时 `0.252s`，结果 `OK (1 test)`。探针创建唯一临时事件，验证 list/search 返回同一 `Events._ID`、get 回读标题/起止/时区/全天/重复状态，再按 Provider 返回的精确事件 ID 删除；必要时新建的应用本地日历也在 `finally` 清理。
+- Standards 审查没有发现仓库规则违规，仅记录日期格式器三行重复为非阻断低优先级建议。Spec 审查发现 RDATE-only 重复事件会被误判，最终 projection 与判断同时补入 `Events.RDATE`；“calendar-1 长度不足 10”为误报，实际长度为 10，并新增 Schema 合法性测试锁定。
+- 六份长期文档同步后重新构建 AndroidTest 资产，仅在 Redmi 运行项目文档 corpus gate，结果 `OK (1 test)`。
+- 本阶段没有新增 Room Schema、日程写/删工具、后台能力或 Release；未运行真实模型 Provider Run、完整 JVM、Lint、默认全量 instrumentation 或 Release。第 182 阶段优先验证真实 Agent 的 `calendar.search_events -> calendar.get` 闭环。
+
 ## 2026-08-07 第 180 阶段：答案级长期记忆导航
 
 - `MemoryNavigationTest` 先因 `memoryIdForNavigation()` 不存在得到预期编译失败；实现后，长期记忆导航、既有笔记导航、记忆管理投影和 Agent Tool part 可信投影四个聚焦 JVM 类均通过。解析覆盖单条 `memory.search/get`、空/多结果、错配 ID、失败状态、错工具和非法参数。

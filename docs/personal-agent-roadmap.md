@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 181 阶段：系统日程稳定身份与权威详情读取（完成）
+
+- `calendar.list_events / calendar.search_events` 为每个实例返回其 `Events._ID` 派生的稳定 `calendar-<正整数>`；重复事件的 ID 指向事件系列。本阶段不承诺单次 occurrence 修改。
+- 新增仅前台、SAFE 的 `calendar.get(event_id)`。工具只接受列表或搜索返回形态的稳定 ID，并从当前 Calendar Provider 单条回读标题、起止时间、全天、时区及 RRULE/RDATE 重复状态；地点、描述、参与人、组织者和账户不进入数据模型或 Provider 投影。
+- 新增独立 `calendar-detail` Skill，严格执行 `calendar.search_events -> calendar.get`；无结果、结果不唯一、ID 非法、事件已删除、Provider 不可用或权限撤销时停止，不把搜索摘要或旧内容冒充当前详情。
+- 聚焦 JVM `89/89`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 和文档 corpus `1/1` 通过；临时事件按 Provider 返回 ID 精确清理。双轴审查补齐 RDATE-only 重复事件识别；未运行真实模型 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release。
+- 第 182 阶段优先用真实模型 Provider 跑通 `calendar.search_events -> calendar.get` Agent 闭环，再单独评估日程修改/删除的审批、幂等、系列/单次 occurrence 语义和恢复；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 180 阶段：答案级长期记忆导航（完成）
 
 - 可信 `memory.search / memory.get` Tool part 在成功、验证状态非失败、参数合法、应用生成结果外壳与唯一 `memoryIdsUsed` 稳定 ID 一致时显示“查看记忆”；普通模型文本、旧工具自由文本、多结果、非法 ID、失败或错配结果均不能制造入口。
 - 点击只把解析出的 `memory-UUID` 交给应用。ViewModel 在切换页面前重新读取当前 Room；目标存在时清空搜索与筛选、把当前记录置顶并选中，管理页自动滚动到目标卡。目标已删除时不导航，并从内存列表移除该记录及对应选中态，不展示历史 Tool 正文或猜测替代目标。
 - TDD 首轮因 `memoryIdForNavigation()` 尚不存在得到预期编译失败；最小实现后长期记忆导航、笔记导航、记忆投影和 Tool part 可信投影四个聚焦 JVM 类通过，Debug/AndroidTest APK 构建成功。仅在 Redmi 运行 Tool 卡回调与真实 Room 存在/删除导航两项 instrumentation，均为 `OK (1 test)`；更新后的文档 corpus gate 同样为 `OK (1 test)`，临时记忆已清理。
 - Standards 审查发现并修复协程取消误报与候选加载状态未触发滚动索引重算；Spec 审查无问题。未运行新的真实 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release；Room v36、工具权限、Skill、审批、后台能力和发布基线不变。
-- 下一阶段继续个人 Agent 主线窄闭环，优先补系统日程的稳定身份与权威详情读取，再单独评估修改/删除所需审批、幂等与恢复；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+- 下一阶段目标已由第 181 阶段完成；后续按第 181 阶段列出的真实 Provider 验收与写操作边界推进。
 
 ## 第 179 阶段：真实 Provider 长期记忆详情闭环（完成）
 

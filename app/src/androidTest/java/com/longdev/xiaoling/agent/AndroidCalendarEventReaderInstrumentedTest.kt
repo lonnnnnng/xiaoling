@@ -30,6 +30,7 @@ class AndroidCalendarEventReaderInstrumentedTest {
         assertTrue(result is CalendarEventReadResult.Success)
         val events = (result as CalendarEventReadResult.Success).events
         assertTrue(events.size <= 10)
+        assertTrue(events.all { event -> event.eventId > 0L })
         assertTrue(events.zipWithNext().all { (left, right) -> left.startAtMillis <= right.startAtMillis })
     }
 

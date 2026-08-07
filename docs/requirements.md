@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统日程稳定身份与权威详情读取（第 181 阶段，完成）
+
+- `calendar.list_events / calendar.search_events` 必须返回从 `CalendarContract.Instances.EVENT_ID` 取得、绑定 `Events._ID` 的稳定 `calendar-<正整数>`。模型只能使用工具已经返回的 ID，不得从标题、时间、列表序号或模型文本猜测 Provider 内部身份。
+- 新增 SAFE `calendar.get(event_id)` 与独立 `calendar-detail` Skill。Skill 必须先调用 `calendar.search_events`，且只有唯一结果与用户目标一致时才读取详情；搜索摘要不得冒充当前详情。
+- 详情必须按单一 `Events/<id>` URI 从当前系统 Provider 回读，只返回标题、事件起止时间、全天、时区和 RRULE/RDATE 是否重复。地点、描述、参与人、组织者、日历账户和其他 Provider 字段不得进入 projection、结果类型、日志或模型上下文。
+- ID 非法或溢出、事件不存在/已删除、Provider 返回空、权限在调用间撤销或查询异常时必须 fail-closed。重复事件身份指向系列，本阶段不承诺 occurrence 级修改语义。
+- 工具仅允许前台并要求 `READ_CALENDAR`，不进入 committed-effect verification。旧 Skill、Profile、历史 Run、Legacy Run 不自动扩权；日程修改/删除、后台 Workflow、精确定时、Foreground Service 和高级生态继续关闭。
+- 验证包括公开 Registry/Skill 契约、非法 ID 与权限/删除失败边界、Debug/AndroidTest APK，以及仅 Redmi 上创建一条临时事件后验证 `list -> search -> get` 同一 ID 与详情回读并精确清理。完整 JVM、Lint、全量 instrumentation 与 Release 按分级验证策略后置。
+
 ## 答案级长期记忆导航（第 180 阶段，完成）
 
 - 只有可信 `memory.search / memory.get` Tool part 可以生成“查看记忆”入口。入口必须要求工具成功、验证状态非失败、工具名和参数严格合法、`memoryIdsUsed` 只有一个标准 `memory-UUID`，并且应用生成的搜索条目或详情首行指向同一 ID。

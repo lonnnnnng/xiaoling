@@ -121,6 +121,21 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInCalendarDetailSkillSearchesBeforeReadingAuthoritativeDetail() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "查找产品评审日程并查看权威详情",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "calendar-detail" }
+        assertEquals(setOf("calendar.search_events", "calendar.get"), skill.toolNames)
+        assertEquals(setOf("android.permission.READ_CALENDAR"), skill.requiredAndroidPermissions)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("先调用 calendar.search_events"))
+        assertTrue(skill.instructions.contains("不得猜测"))
+    }
+
+    @Test
     fun builtInDayOverviewSkillCombinesOnlyReadOnlyCalendarAndTaskFacts() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "今天有哪些安排和提醒",

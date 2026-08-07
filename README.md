@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 180 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 181 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 181 阶段完成系统日程稳定身份与权威详情读取。`calendar.list_events / calendar.search_events` 现在返回绑定 `CalendarContract.Events._ID` 的稳定 `calendar-<正整数>`，新增前台 SAFE `calendar.get(event_id)` 只按该 ID 从当前 Provider 回读标题、起止时间、全天、时区和 RRULE/RDATE 重复状态；地点、描述、参与人、组织者和账户不进入投影。独立 `calendar-detail` Skill 强制先搜索、唯一匹配后再读取，不允许猜测 ID；旧 Skill、Profile、历史/Legacy Run、日程修改删除、后台和 committed-effect verification 均未扩权。聚焦 JVM `89/89`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 和文档 corpus `1/1` 通过，临时事件已按 Provider ID 精确清理；未运行真实模型 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release。
 
 第 180 阶段完成答案级长期记忆导航。可信 `memory.search / memory.get` Tool 卡只有在成功、非失败验证、严格参数、应用生成结果外壳与唯一 `memoryIdsUsed` 稳定 ID 一致时才显示“查看记忆”；点击只传 `memory-UUID`。应用在导航前重新读取当前 Room，记录存在时清空旧筛选、置顶并选中，已删除时阻断导航并移除缓存正文；管理页自动滚动到目标卡。聚焦 JVM 四个相关测试类、Debug/AndroidTest APK、仅 Redmi 的 Tool 卡和真实 Room 导航 `2/2` 及文档 corpus `1/1` 通过，临时记忆已清理；未运行真实 Provider、完整 JVM、Lint、全量 instrumentation 或 Release。
 

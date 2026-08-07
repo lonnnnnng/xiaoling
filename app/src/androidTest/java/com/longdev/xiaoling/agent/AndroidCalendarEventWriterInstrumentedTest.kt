@@ -74,6 +74,85 @@ class AndroidCalendarEventWriterInstrumentedTest {
         }
     }
 
+    @Test
+    fun stableProviderEventIdLinksListSearchAndAuthoritativeDetail() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权日历读写",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val suffix = System.currentTimeMillis().toString()
+        val startAtMillis = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(2)
+        val request = CalendarEventWriteRequest(
+            idempotencyKey = "stage181-$suffix",
+            title = "__xiaoling_stage181_${suffix}__",
+            startAtMillis = startAtMillis,
+            endAtMillis = startAtMillis + TimeUnit.HOURS.toMillis(1),
+            timeZoneId = ZoneId.systemDefault().id,
+        )
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        var createdEventId: String? = null
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        var createdAppOwnedCalendarId: Long? = null
+
+        try {
+            val created = writer.createOrReadBack(request)
+            assertTrue("Redmi 必须先创建并回读临时事件：$created", created is CalendarEventWriteResult.Committed)
+            created as CalendarEventWriteResult.Committed
+            createdEventId = created.event.eventId
+            val numericEventId = created.event.eventId.toLong()
+            if (!hadAppOwnedCalendar) {
+                val appCalendarId = appOwnedCalendarId(context)
+                if (appCalendarId != null && eventCalendarId(context, created.event.eventId) == appCalendarId) {
+                    createdAppOwnedCalendarId = appCalendarId
+                }
+            }
+
+            val listResult = reader.listEvents(
+                startAtMillis = System.currentTimeMillis(),
+                endAtMillis = startAtMillis + TimeUnit.DAYS.toMillis(1),
+                limit = 20,
+            )
+            val searchResult = reader.searchEvents(
+                startAtMillis = System.currentTimeMillis(),
+                endAtMillis = startAtMillis + TimeUnit.DAYS.toMillis(1),
+                query = request.title,
+                limit = 10,
+            )
+            val detailResult = reader.getEvent(numericEventId)
+
+            assertTrue(listResult is CalendarEventReadResult.Success)
+            assertTrue((listResult as CalendarEventReadResult.Success).events.any { it.eventId == numericEventId })
+            assertTrue(searchResult is CalendarEventReadResult.Success)
+            assertEquals(listOf(numericEventId), (searchResult as CalendarEventReadResult.Success).events.map { it.eventId })
+            assertTrue(detailResult is CalendarEventDetailReadResult.Success)
+            val detail = (detailResult as CalendarEventDetailReadResult.Success).event
+            // long: 真实 Provider 验收只比较详情契约中的最小字段；测试从类型层面无法访问地点、描述、参与人、组织者或账户。
+            assertEquals(numericEventId, detail.eventId)
+            assertEquals(request.title, detail.title)
+            assertEquals(request.startAtMillis, detail.startAtMillis)
+            assertEquals(request.endAtMillis, detail.endAtMillis)
+            assertEquals(request.timeZoneId, detail.timeZoneId)
+            assertTrue(!detail.allDay)
+            assertTrue(!detail.recurring)
+        } finally {
+            // long: 第181阶段探针仍只删除本轮 Provider 返回的精确事件 ID，不按标题或时间范围清理用户日程。
+            createdEventId?.toLongOrNull()?.let { eventId ->
+                val deleted = context.contentResolver.delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                    null,
+                    null,
+                )
+                assertEquals("真机探针必须精确清理本次创建的日程", 1, deleted)
+            }
+            createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
+        }
+    }
+
     private fun appOwnedCalendarId(context: android.content.Context): Long? {
         val cursor = context.contentResolver.query(
             CalendarContract.Calendars.CONTENT_URI,

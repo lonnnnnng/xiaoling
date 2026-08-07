@@ -2,6 +2,8 @@
 
 `v0.1.16` 是当前发布对照基线：汇总 `v0.1.15` 后第 128 至 169 阶段，完成个人 Agent 的目标级验证、提醒、任务控制面、只读日历、本地笔记、启动恢复提示和答案级导航。发布没有借机复制参考项目的任意 App、后台设备控制、多 Agent 或远程 Channel；本轮按用户要求只构建 Release APK，没有执行额外发布验证。
 
+第 181 阶段把“模型定位稳定对象、应用按身份读取权威 Store”的原则扩展到 Android Calendar Provider。`calendar.search_events` 只提供最小摘要和稳定 `Events._ID`，`calendar.get` 再从当前 Provider 单条回读；事件已删、权限变化或 Provider 异常不会回退到旧摘要。地点、描述、参与人、组织者和账户不进入类型系统，写入/删除、后台、远程 Channel 与多 Agent 也未随详情能力扩权。下一阶段仍需真实模型 Provider 证明该两步 Skill，而不能由 Registry 或原始 Provider 探针代替 Agent 闭环。
+
 第 179 阶段用真实 Provider 验证“模型定位、应用按稳定身份读取、Ledger 决定事实”的完整链路。模型严格执行 `memory.search -> memory.get`，Room 同时证明 Skill、参数、typed verification、记忆 ID 审计和零审批；Debug 夹具只用于验收并在异常路径清理。没有把远程记忆、跨用户工作区、后台批量治理或多 Agent 能力带入生产。
 
 第 178 阶段把成熟 Agent 的“先检索稳定对象，再按身份回到权威 Store”原则扩展到长期记忆。模型只能在显式新 Skill 中使用 `memory.search -> memory.get`，应用侧独立校验 `memory-UUID`、启用状态、过期状态和单次召回开关；不存在、禁用和过期不作可观察区分。旧 Skill/Profile/Run 不自动扩权，也没有复制跨会话工作区、后台批量记忆治理、远程 Channel 或多 Agent 能力。

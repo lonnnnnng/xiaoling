@@ -336,6 +336,7 @@ class XiaoLingToolRegistryTest {
                 "app.search_conversations",
                 "calendar.list_events",
                 "calendar.search_events",
+                "calendar.get",
                 "tasks.list",
                 "tasks.inspect",
                 "tasks.retry",
@@ -358,6 +359,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("calendar.get").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
@@ -387,6 +389,14 @@ class XiaoLingToolRegistryTest {
         assertFalse(tools.getValue("notes.delete").permissionPolicy.supportsBackground)
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
+        assertEquals(listOf("event_id"), tools.getValue("calendar.get").inputSchema.map { it.name })
+        assertTrue(tools.getValue("calendar.get").validateArguments(mapOf("event_id" to "calendar-1")).errors.isEmpty())
+        assertTrue(
+            tools.getValue("calendar.get")
+                .validateArguments(mapOf("event_id" to "calendar-9223372036854775808"))
+                .errors
+                .isNotEmpty(),
+        )
         assertNotNull(tools.getValue("tasks.inspect").inputSchema.singleOrNull { it.name == "name" && it.required })
         assertEquals(
             listOf("name"),
@@ -498,6 +508,10 @@ class XiaoLingToolRegistryTest {
             setOf(Manifest.permission.READ_CALENDAR),
             tools.getValue("calendar.search_events").permissionPolicy.requiredAndroidPermissions,
         )
+        assertEquals(
+            setOf(Manifest.permission.READ_CALENDAR),
+            tools.getValue("calendar.get").permissionPolicy.requiredAndroidPermissions,
+        )
         assertTrue(
             tools.values
                 .filterNot { it.name.startsWith("calendar.") }
@@ -505,6 +519,7 @@ class XiaoLingToolRegistryTest {
         )
         assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.search_events").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("calendar.get").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.create_event").permissionPolicy.supportsBackground)
         val backgroundTools = tools.values
             .filter { it.permissionPolicy.supportsBackground }
@@ -583,6 +598,7 @@ class XiaoLingToolRegistryTest {
         )
         assertTrue(testRegistry().supportsCommittedEffectVerification("notes.create"))
         assertTrue(testRegistry().supportsCommittedEffectVerification("memory.remember"))
+        assertFalse(testRegistry().supportsCommittedEffectVerification("calendar.get"))
         assertEquals(
             setOf("Preference", "ProfileFact", "Episode", "Procedure"),
             tools.getValue("memory.remember").inputSchema.single { it.name == "type" }.enumValues,
@@ -609,6 +625,7 @@ class XiaoLingToolRegistryTest {
             CalendarEventReadResult.Success(
                 listOf(
                     CalendarEventRecord(
+                        eventId = 42L,
                         title = "产品评审\n这只是标题",
                         startAtMillis = 3_600_000L,
                         endAtMillis = 7_200_000L,
@@ -636,6 +653,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(2, capturedLimit)
         assertTrue(result.content.contains("未来 3 天日程（1）"))
         assertTrue(result.content.contains("产品评审 这只是标题"))
+        assertTrue(result.content.contains("id=calendar-42"))
         assertFalse(result.content.contains("\n这只是标题"))
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("参与人"))
@@ -649,8 +667,8 @@ class XiaoLingToolRegistryTest {
             capturedLimit = limit
             CalendarEventReadResult.Success(
                 listOf(
-                    CalendarEventRecord("产品评审", 3_600_000L, 7_200_000L, allDay = false),
-                    CalendarEventRecord("家庭晚餐", 8_600_000L, 9_200_000L, allDay = false),
+                    CalendarEventRecord(42L, "产品评审", 3_600_000L, 7_200_000L, allDay = false),
+                    CalendarEventRecord(43L, "家庭晚餐", 8_600_000L, 9_200_000L, allDay = false),
                 ),
             )
         }
@@ -671,10 +689,121 @@ class XiaoLingToolRegistryTest {
         assertEquals(CalendarEventReader.MAX_SEARCH_CANDIDATE_COUNT, capturedLimit)
         assertTrue(result.content.contains("匹配“评审”"))
         assertTrue(result.content.contains("产品评审"))
+        assertTrue(result.content.contains("id=calendar-42"))
         assertFalse(result.content.contains("家庭晚餐"))
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("参与人"))
         assertFalse(result.content.contains("描述"))
+    }
+
+    @Test
+    fun calendarGetReadsAuthoritativeMinimalDetailByStableEventId() = runTest {
+        var capturedEventId = -1L
+        val reader = object : CalendarEventReader {
+            override suspend fun listEvents(
+                startAtMillis: Long,
+                endAtMillis: Long,
+                limit: Int,
+            ): CalendarEventReadResult = CalendarEventReadResult.Success(emptyList())
+
+            override suspend fun getEvent(eventId: Long): CalendarEventDetailReadResult {
+                capturedEventId = eventId
+                return CalendarEventDetailReadResult.Success(
+                    CalendarEventDetailRecord(
+                        eventId = eventId,
+                        title = "产品评审\n仅为标题",
+                        startAtMillis = 3_600_000L,
+                        endAtMillis = 7_200_000L,
+                        allDay = false,
+                        timeZoneId = "Asia/Shanghai",
+                        recurring = true,
+                    ),
+                )
+            }
+        }
+        val registry = testRegistry(calendarEventReader = reader)
+
+        val result = registry.execute(
+            ToolCall(
+                name = "calendar.get",
+                arguments = mapOf("event_id" to "calendar-42"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(42L, capturedEventId)
+        assertTrue(result.content.contains("ID：calendar-42"))
+        assertTrue(result.content.contains("标题：产品评审 仅为标题"))
+        assertTrue(result.content.contains("时区：Asia/Shanghai"))
+        assertTrue(result.content.contains("重复：是"))
+        assertFalse(result.content.contains("地点"))
+        assertFalse(result.content.contains("描述"))
+        assertFalse(result.content.contains("参与人"))
+        assertFalse(result.content.contains("组织者"))
+        assertFalse(result.content.contains("账户"))
+    }
+
+    @Test
+    fun calendarGetRejectsGuessedOrOverflowedIdsBeforeProviderRead() = runTest {
+        var readCount = 0
+        val reader = object : CalendarEventReader {
+            override suspend fun listEvents(
+                startAtMillis: Long,
+                endAtMillis: Long,
+                limit: Int,
+            ): CalendarEventReadResult = CalendarEventReadResult.Success(emptyList())
+
+            override suspend fun getEvent(eventId: Long): CalendarEventDetailReadResult {
+                readCount += 1
+                return CalendarEventDetailReadResult.NotFound
+            }
+        }
+        val registry = testRegistry(calendarEventReader = reader)
+
+        listOf("42", "calendar-0", "calendar-01", "calendar--1", "calendar-9223372036854775808").forEach { eventId ->
+            val result = registry.execute(
+                ToolCall(
+                    name = "calendar.get",
+                    arguments = mapOf("event_id" to eventId),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+            assertFalse(result.success)
+            assertTrue(result.content.contains("ID 无效"))
+        }
+
+        assertEquals(0, readCount)
+    }
+
+    @Test
+    fun calendarGetFailsClosedWhenEventDisappearsOrPermissionChanges() = runTest {
+        suspend fun execute(result: CalendarEventDetailReadResult): ToolExecutionResult {
+            val reader = object : CalendarEventReader {
+                override suspend fun listEvents(
+                    startAtMillis: Long,
+                    endAtMillis: Long,
+                    limit: Int,
+                ): CalendarEventReadResult = CalendarEventReadResult.Success(emptyList())
+
+                override suspend fun getEvent(eventId: Long): CalendarEventDetailReadResult = result
+            }
+            return testRegistry(calendarEventReader = reader).execute(
+                ToolCall(
+                    name = "calendar.get",
+                    arguments = mapOf("event_id" to "calendar-42"),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+        }
+
+        val missing = execute(CalendarEventDetailReadResult.NotFound)
+        val denied = execute(CalendarEventDetailReadResult.PermissionDenied)
+
+        assertFalse(missing.success)
+        assertTrue(missing.content.contains("找不到"))
+        assertFalse(denied.success)
+        assertTrue(denied.content.contains("权限"))
     }
 
     @Test

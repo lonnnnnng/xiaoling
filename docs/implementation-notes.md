@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 181 阶段：系统日程稳定身份与权威详情读取（完成）
+
+- `CalendarEventRecord` 新增数值 `eventId`，`AndroidCalendarEventReader` 的 Instances 最小投影加入 `EVENT_ID`。Registry 统一格式化为 `calendar-<Events._ID>`，列表序号仍只用于展示，不参与后续身份解析。
+- `CalendarEventReader` 在保留 `listEvents` 唯一抽象方法和既有 lambda 兼容性的同时，增加默认 `getEvent(eventId)`；生产实现通过 `ContentUris.withAppendedId(Events.CONTENT_URI, eventId)` 单条查询，检查 `_ID / DELETED`，并把空行、权限竞态、Provider 不可用和运行异常映射为独立 fail-closed 结果。
+- 详情 projection 只有 `_ID / TITLE / DTSTART / DTEND / ALL_DAY / EVENT_TIMEZONE / RRULE / RDATE / DELETED`。`CalendarEventDetailRecord` 不建模地点、描述、参与人、组织者或账户；可空起止时间不会被猜测，RRULE 或 RDATE 任一存在即标记为重复。
+- `XiaoLingToolRegistry` 新增前台 SAFE `calendar.get(event_id)`，Schema 与执行入口共同要求规范 `calendar-[1-9][0-9]{0,18}` 且数值可表示为正 `Long`；成功结果只输出稳定 ID 与最小详情。该工具没有审批、回执、重放或 committed-effect verification，也未加入 Legacy 工具集合。
+- `calendar-detail` Skill 精确持有 `calendar.search_events / calendar.get`，指令要求唯一匹配后原样传递稳定 ID。聚焦 JVM `XiaoLingToolRegistryTest 63/63 + AgentSkillsTest 26/26`、Debug/AndroidTest APK 与 Redmi Provider 单项通过；测试用临时事件和必要时新建的本地日历均在 `finally` 精确清理。
+
 ## 第 180 阶段：答案级长期记忆导航（完成）
 
 - 新增 `MemoryNavigation.memoryIdForNavigation()`，只解析可信 `MessagePart.Tool`。`memory.get` 同时核对严格 `{memory_id}`、结果首行和唯一 `memoryIdsUsed`；`memory.search` 核对可选 `query/limit`、结果头、唯一应用条目与同一稳定 ID。失败、错工具、多结果、非法参数和结果错配均返回空。
