@@ -37,6 +37,7 @@ import com.longdev.xiaoling.agent.ToolDefinitionRecoveryContract
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolExecutionResult
+import com.longdev.xiaoling.agent.ToolNotCommittedReplayPolicy
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
 import com.longdev.xiaoling.agent.ToolRegistry
@@ -107,6 +108,89 @@ class RoomAgentRunRepositoryInstrumentedTest {
             listOf("THINKING", "CANCELLED"),
             snapshot.events.filter { it.type == "run.status" }.map { it.message },
         )
+    }
+
+    @Test
+    fun failedCalendarUpdateRunStaysTerminalAcrossRestartAndCannotReplay() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-calendar-update-failed-restart",
+            userMessageId = "message-calendar-update-failed-restart",
+            goal = "外部漂移后的日程修改失败不得重放",
+        )
+        val call = ToolCall(
+            id = "tool-call-calendar-update-failed-restart",
+            name = "calendar.update_event",
+            arguments = mapOf(
+                "event_id" to "calendar-188",
+                "expected_fingerprint" to "calendar-event-v1-stale",
+                "scope" to "event",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val executionStep = repository.appendStep(
+            run.id,
+            AgentStepTypes.TOOL_EXECUTE,
+            "执行工具",
+            "Provider 外部漂移后失败",
+            AgentStepStatus.FAILED,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.result",
+            "工具执行失败：${call.name}",
+            RunEventMetadata.ToolResult(
+                toolName = call.name,
+                content = "事件版本已变化，未执行修改",
+                durationMs = 12L,
+                success = false,
+                verified = false,
+                toolCallId = call.id,
+                replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+                executionReceipt = null,
+            ),
+        )
+        repository.updateRunStatus(
+            run.id,
+            AgentRunStatus.FAILED,
+            errorMessage = "Provider 条件 UPDATE 因外部漂移拒绝",
+        )
+
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        val detail = checkNotNull(restartedRepository.runDetail(run.id))
+        val assessment = AgentRunResumePolicy.assess(
+            detail,
+            definitionLookup = { name ->
+                ToolDefinition(
+                    name = name,
+                    description = "受控系统日程修改",
+                    risk = ToolRisk.REQUIRES_APPROVAL,
+                    replaySafety = ToolReplaySafety.RESTART_REQUIRED,
+                    notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.DENY,
+                ).takeIf { it.name == call.name }
+            },
+        )
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        val eventCount = detail.snapshot.events.size
+        assertEquals(0, restartedRepository.closeInterruptedRuns(runIds = setOf(run.id)))
+        val after = checkNotNull(restartedRepository.runDetail(run.id))
+        assertEquals(AgentRunStatus.FAILED, after.snapshot.run.status)
+        assertEquals(executionStep.id, after.snapshot.steps.single().id)
+        assertEquals(eventCount, after.snapshot.events.size)
+        assertEquals(1, after.toolLedger.results.count { it.toolCallId == call.id })
+        assertEquals(0, after.snapshot.events.count { it.type == "run.recovered" })
     }
 
     @Test

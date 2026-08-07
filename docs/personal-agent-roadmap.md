@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 189 阶段：失败日程修改 Run 终态恢复验证（完成）
+
+- 在真实 Room 中构造已失败的 `calendar.update_event` Run：执行结果失败、无 `COMMITTED` 回执，工具恢复契约为 `RESTART_REQUIRED + DENY`。
+- 重建 `RoomAgentRunRepository` 后，恢复策略为 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`；运行启动收口返回零变更，Run 保持 `FAILED`，原 Step、Tool Result 和 Event 证据不变，没有 `run.recovered`。
+- Debug/AndroidTest APK、Redmi 恢复单项和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未修改生产恢复、Room v36、Workflow 或后台能力。
+- 下一阶段评估启动恢复后面向用户的可见故障投影与重新发起边界；继续不扩展 series/occurrence、后台日历自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 188 阶段：真实 Provider 审批后漂移失败闭环（完成）
 
 - Debug-only `calendar_update_conflict_real` 在 Redmi 真实模型三步链中，于审批请求落库后制造同一事件的外部标题漂移。

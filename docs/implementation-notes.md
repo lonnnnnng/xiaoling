@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 189 阶段：失败日程修改 Run 终态恢复验证（完成）
+
+- `RoomAgentRunRepositoryInstrumentedTest#failedCalendarUpdateRunStaysTerminalAcrossRestartAndCannotReplay` 使用真实 Room 构造 `calendar.update_event` 失败 Run，Tool Result 显式为 `success=false`、`RESTART_REQUIRED` 且无 execution receipt。
+- 重建 `RoomAgentRunRepository` 后，`AgentRunResumePolicy` 结合恢复定义的 `ToolNotCommittedReplayPolicy.DENY`，给出 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`，不进入受控重放或已提交只读验证。
+- `closeInterruptedRuns(runIds=setOf(run.id))` 返回 `0`。重读确认 Run 仍为 `FAILED`，原 Step ID、Tool Result 与 Event 数量不变，且没有 `run.recovered`。
+- `:app:assembleDebug :app:assembleDebugAndroidTest`、Redmi 恢复单项与文档 corpus gate `1/1` 通过。本阶段只新增 instrumentation 回归，未修改生产 Repository、Resume Policy、Registry、Room v36、Workflow 或后台能力。
+
 ## 第 188 阶段：真实 Provider 审批后漂移失败闭环（完成）
 
 - Debug-only `calendar_update_conflict_real` 复用第 186 阶段正式 Agent 链和最小临时 Profile；`DebugRoomApprovalGate` 在审批请求落库后、决定前执行一次指定事件的外部标题漂移，随后仍由生产 `calendar.update_event` 执行条件 UPDATE。

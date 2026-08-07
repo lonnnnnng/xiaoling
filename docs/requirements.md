@@ -1,5 +1,12 @@
 # 产品需求
 
+## 失败日程修改 Run 终态恢复验证（第 189 阶段，完成）
+
+- 已收敛为 `FAILED` 的 `calendar.update_event` Run 在应用或 Repository 重建后必须保持终态；启动恢复不得将其改写为可执行、可重放或新的失败事实。
+- 无 `COMMITTED` 执行回执且定义为 `RESTART_REQUIRED + DENY` 的日程修改，恢复策略必须返回 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`；不得根据 Provider 当前状态推测原 UPDATE 是否成功。
+- `closeInterruptedRuns()` 只处理可收口的中断 Run，对已失败 Run 必须返回零变更；原 Step、Tool Result 和 Event 证据不变，不得新增 `run.recovered`。
+- 本阶段只增加 Room instrumentation 证据，不新增生产恢复通道、UPDATE 重放、Provider 写入、Room Schema、Workflow 或后台能力。
+
 ## 真实 Provider 审批后漂移失败闭环（第 188 阶段，完成）
 
 - Redmi 真实模型必须仍严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；测试夹具只能在 `calendar.update_event` 审批请求已写入 Room 后修改同一 Provider 事件，模拟用户审批等待期间的外部漂移。

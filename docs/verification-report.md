@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 189 阶段：失败日程修改 Run 终态恢复验证
+
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 通过；新增 `RoomAgentRunRepositoryInstrumentedTest#failedCalendarUpdateRunStaysTerminalAcrossRestartAndCannotReplay`。
+- 仅向 Redmi `wsvwypiz7xwslvl7` 安装 AndroidTest APK 并运行该单项，结果 `OK (1 test)`。测试使用真实 Room 构造无 `COMMITTED` 回执的 `calendar.update_event` 失败 Run，重建 `RoomAgentRunRepository` 后仍得到 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`。
+- `closeInterruptedRuns()` 返回 `0`，Run 保持 `FAILED`，原 Step ID、Tool Result 和 Event 数量不变，未新增 `run.recovered`；这证明启动恢复不会重新打开终态 Run 或重放 UPDATE。
+- 更新文档资产并重建 AndroidTest APK 后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。测试包随后卸载，主应用与用户数据保留。
+- 没有向 `emulator-5554` 发送安装、启动、日志或测试命令。本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未修改生产 Repository/Resume Policy/Registry、Room v36、旧 Run/Workflow 或后台边界。
+
 ## 2026-08-08 第 188 阶段：真实 Provider 审批后漂移失败闭环
 
 - `:app:testDebugUnitTest --tests com.longdev.xiaoling.agent.XiaoLingToolRegistryTest --tests com.longdev.xiaoling.agent.AgentRunResumePolicyTest --tests com.longdev.xiaoling.agent.MinimalAgentRuntimeTest` 通过，结果 `196/196`；`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。

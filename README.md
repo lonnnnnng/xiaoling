@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 186 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 189 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 189 阶段完成失败日程修改 Run 的终态恢复验证。Redmi 上的 Room instrumentation 构造无 `COMMITTED` 回执的 `calendar.update_event` 失败事实，重建 `RoomAgentRunRepository` 后恢复策略仍为 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`；启动收口返回 `0`，Run 保持 `FAILED`，Step、Tool Result 和事件数量不变，且没有新增 `run.recovered`。Debug/AndroidTest APK、Redmi 恢复单项和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未新增生产恢复、重放、Room Schema 或后台能力。
 
 第 188 阶段完成真实 Provider 的审批后漂移失败验收。Redmi 真实模型 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；审批落库后由 Debug 夹具修改同一事件，条件 UPDATE 正确拒绝，Run 收敛为 `FAILED`，UPDATE 没有 `COMMITTED` 回执，Provider 保留外部新事实。夹具、临时 Profile 和临时日历均精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 真实失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
