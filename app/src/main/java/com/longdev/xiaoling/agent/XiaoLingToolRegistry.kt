@@ -1982,7 +1982,7 @@ class XiaoLingToolRegistry(
                 ToolExecutionResult(
                     success = true,
                     verified = true,
-                    content = "已创建并验证日程：${event.title.toCalendarTitle()}",
+                    content = "已创建并验证日程：${event.title.toCalendarTitle()} · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}",
                     executionReceipt = receipt,
                 )
             } else {

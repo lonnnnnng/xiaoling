@@ -1,5 +1,13 @@
 # 产品需求
 
+## 日程创建/修改结果答案级导航（第 199 阶段，完成）
+
+- `calendar.create_event` 成功结果必须由应用输出规范标题与唯一 `calendar-<正整数>` ID；只有 `VERIFIED` 且标题、四项请求参数和固定单行结果外壳一致时才能显示“查看日程”。
+- `calendar.update_event` 只有 `VERIFIED`、参数集合精确、`scope=event`、请求 ID 与结果 ID 一致、审批前指纹有效、结果新指纹有效且不同于旧指纹时才能显示入口。额外参数、非法时间字段长度、换行注入、ID/指纹漂移或额外正文均须 fail-closed。
+- `calendar.delete_event` 成功后不得显示日程详情入口；失败、`READABLE_ONLY` 或未验证写入也不得形成入口。普通模型文本不能制造 Tool 卡或导航。
+- 点击后必须复用当前 Calendar Provider 二次读取页；事件被删除、撤权或 Provider 不可用时显示当前失败状态，不得展示写入结果正文作为详情。
+- 本阶段不得新增权限、日程创建/修改范围、审批豁免、Room Schema、Workflow、后台自动化或 Release 行为。
+
 ## 答案级系统日程详情导航（第 198 阶段，完成）
 
 - 只有成功且验证状态非失败的 `calendar.list_events`、`calendar.search_events` 或 `calendar.get` Tool 结果，在参数契约、应用生成的动态标题和唯一规范 `calendar-<正整数>` ID 同时一致时，才能显示“查看日程”。空结果、多结果、额外参数、日期/关键词标题漂移、非规范/溢出 ID、正文伪造或详情 ID 与参数不一致不得形成入口。

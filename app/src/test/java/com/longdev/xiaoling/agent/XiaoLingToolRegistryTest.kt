@@ -1136,7 +1136,7 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(result.success)
         assertEquals(true, result.verified)
-        assertTrue(result.content.contains("已创建并验证日程：项目评审"))
+        assertEquals("已创建并验证日程：项目评审 · id=calendar-197", result.content)
         assertEquals(1, writer.records.size)
         assertEquals(result.executionReceipt, replay.executionReceipt)
         assertEquals(call.id, receipt.idempotencyKey)
@@ -3477,7 +3477,7 @@ private class InMemoryCalendarEventWriter(
             }
         }
         val record = CalendarEventWriteRecord(
-            eventId = "calendar-event-${records.size + 1}",
+            eventId = (197 + records.size).toString(),
             title = request.title,
             startAtMillis = request.startAtMillis,
             endAtMillis = request.endAtMillis,

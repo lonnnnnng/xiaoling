@@ -29,6 +29,41 @@ class CalendarNavigationTest {
     }
 
     @Test
+    fun trustedVerifiedCreateAndUpdateResultsReturnStableEventId() {
+        assertEquals(
+            EVENT_ID,
+            listPart(
+                toolName = "calendar.create_event",
+                arguments = mapOf(
+                    "title" to "项目评审",
+                    "start_at" to "2026-08-08T09:00:00+08:00",
+                    "end_at" to "2026-08-08T10:00:00+08:00",
+                    "time_zone" to "Asia/Shanghai",
+                ),
+                result = "已创建并验证日程：项目评审 · id=$EVENT_ID",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).calendarEventIdForNavigation(),
+        )
+        assertEquals(
+            EVENT_ID,
+            listPart(
+                toolName = "calendar.update_event",
+                arguments = mapOf(
+                    "event_id" to EVENT_ID,
+                    "expected_fingerprint" to FINGERPRINT,
+                    "scope" to "event",
+                    "title" to "项目评审",
+                    "start_at" to "2026-08-08T09:00:00+08:00",
+                    "end_at" to "2026-08-08T10:00:00+08:00",
+                    "time_zone" to "Asia/Shanghai",
+                ),
+                result = "已修改并验证日程：$EVENT_ID\n当前事件指纹：$UPDATED_FINGERPRINT",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).calendarEventIdForNavigation(),
+        )
+    }
+
+    @Test
     fun emptyMultipleMalformedAndInjectedResultsDoNotCreateNavigation() {
         assertNull(listPart(result = "未来 7 天没有日程。").calendarEventIdForNavigation())
         assertNull(
@@ -92,6 +127,51 @@ class CalendarNavigationTest {
         assertNull(CalendarNavigationPolicy.numericId("calendar-0"))
         assertNull(CalendarNavigationPolicy.numericId("calendar-9223372036854775808"))
         assertEquals(197L, CalendarNavigationPolicy.numericId(EVENT_ID))
+        assertNull(
+            listPart(
+                toolName = "calendar.update_event",
+                arguments = mapOf(
+                    "event_id" to EVENT_ID,
+                    "expected_fingerprint" to FINGERPRINT,
+                    "scope" to "event",
+                    "title" to "项目评审",
+                    "start_at" to "2026-08-08T09:00:00+08:00",
+                    "end_at" to "2026-08-08T10:00:00+08:00",
+                    "time_zone" to "Asia/Shanghai",
+                ),
+                result = "已修改并验证日程：calendar-198\n当前事件指纹：$FINGERPRINT",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).calendarEventIdForNavigation(),
+        )
+        assertNull(
+            listPart(
+                toolName = "calendar.update_event",
+                arguments = mapOf(
+                    "event_id" to EVENT_ID,
+                    "expected_fingerprint" to FINGERPRINT,
+                    "scope" to "event",
+                    "title" to "项目评审",
+                    "start_at" to "2026-08-08T09:00:00+08:00",
+                    "end_at" to "2026-08-08T10:00:00+08:00",
+                    "time_zone" to "Asia/Shanghai",
+                ),
+                result = "已修改并验证日程：$EVENT_ID\n当前事件指纹：$FINGERPRINT",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).calendarEventIdForNavigation(),
+        )
+        assertNull(
+            listPart(
+                toolName = "calendar.create_event",
+                arguments = mapOf(
+                    "title" to "项目评审",
+                    "start_at" to "2026-08-08T09:00:00+08:00",
+                    "end_at" to "2026-08-08T10:00:00+08:00",
+                    "time_zone" to "Asia/Shanghai",
+                ),
+                result = "已创建并验证日程：项目评审 · id=$EVENT_ID",
+                verificationStatus = MessageToolVerificationStatus.READABLE_ONLY,
+            ).calendarEventIdForNavigation(),
+        )
     }
 
     private fun listPart(
@@ -113,5 +193,7 @@ class CalendarNavigationTest {
     private companion object {
         const val EVENT_ID = "calendar-197"
         const val SECOND_EVENT_ID = "calendar-198"
+        const val FINGERPRINT = "calendar-event-v1-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        const val UPDATED_FINGERPRINT = "calendar-event-v1-fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
     }
 }

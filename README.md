@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 198 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 199 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 199 阶段补齐日程创建/修改后的答案级查看入口：`calendar.create_event` 成功结果新增应用生成的唯一稳定事件 ID；可信创建或修改 Tool 卡只有在 `VERIFIED`、参数契约、固定结果外壳、唯一规范 ID 与当前新指纹同时成立时才复用第 198 阶段“查看日程”入口。修改结果的 ID 必须与请求一致，新指纹必须有效且不同于审批前指纹；失败、只读验证、额外参数、标题漂移、伪造 ID/指纹和删除结果均不导航。点击后仍从当前 Calendar Provider 二次读取，不回退历史 Tool 正文。该切片不新增权限、日程写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `82/82`、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。
 
 第 198 阶段完成答案级系统日程详情导航：可信 `calendar.list_events / calendar.search_events / calendar.get` Tool 卡只有在参数、应用生成结果外壳和唯一规范 `calendar-<正整数>` ID 同时成立时才显示“查看日程”。点击后进入独立只读详情页，并按当前 Calendar Provider 重新读取标题、起止、全天、时区和重复状态；事件删除、权限撤销、Provider 不可用、参数/标题漂移、多结果或伪造 ID 均 fail-closed，不回退历史 Tool 正文。该切片不新增权限、日程写入、审批、Room Schema、Workflow 或后台能力。聚焦导航 JVM、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。
 

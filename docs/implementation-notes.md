@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 199 阶段：日程创建/修改结果答案级导航（完成）
+
+- `calendar.create_event` 的成功结果增加 `· id=calendar-<正整数>`，ID 来自写后回读确认的 Calendar Provider 事件；原 `COMMITTED` 回执、幂等键和验证语义不变。
+- `CalendarNavigation.kt` 新增创建/修改分支。两类写操作都必须是 `VERIFIED`；创建要求四项参数、规范化标题和固定单行结果完全一致，修改要求七项参数、`scope=event`、请求 ID、有效旧指纹、固定两行结果和不同于旧值的新指纹同时成立。
+- 通过后复用既有“查看日程”按钮、导航目标和 `CalendarEventDetailPage`，点击仍按当前 Provider 二次读取；`calendar.delete_event` 不产生入口，因为成功后目标已不存在。
+- 新增创建/修改正反向解析回归，并固定 Registry 创建结果外壳。聚焦 JVM `CalendarNavigationTest 4/4 + XiaoLingToolRegistryTest 78/78`，合计 `82/82`；Debug/AndroidTest APK 构建通过。
+- 没有新增 Tool、Skill、权限、Room Schema、日程写入范围、审批、Workflow、后台或 Release 行为。
+
 ## 第 198 阶段：答案级系统日程详情导航（完成）
 
 - 新增 `CalendarNavigation.kt`，严格核对 `calendar.list_events / calendar.search_events / calendar.get` 参数、动态结果标题、唯一事件条目和规范稳定 ID；列表/搜索结果数量必须为 1，`calendar.get` 的参数与详情 ID 必须一致，溢出、前导零、多 ID 或正文伪造均不产生入口。

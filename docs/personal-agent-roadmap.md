@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 199 阶段：日程创建/修改结果答案级导航（完成）
+
+- `calendar.create_event` 成功结果现在携带应用生成的稳定事件 ID；`calendar.create_event / calendar.update_event` 只有在 `VERIFIED`、严格参数、固定结果外壳与唯一规范 ID 同时成立时才复用“查看日程”。
+- 创建结果必须精确绑定规范化请求标题；修改结果必须绑定同一请求 ID、`scope=event` 与有效新指纹，且新指纹不能等于审批前指纹。失败、只读结果、额外参数、标题/ID/指纹漂移、正文伪造或删除结果均不导航。
+- 点击后继续使用第 198 阶段独立详情页，从当前 Calendar Provider 二次读取最小字段；本阶段不扩大创建/修改范围，不新增权限、审批、Room Schema、Workflow 或后台能力。
+- 聚焦 JVM `82/82`、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。下一阶段继续选择个人 Agent 的直接可用窄闭环，优先补当前答案与权威本地事实之间仍缺少的安全查看入口。
+
 ## 第 198 阶段：答案级系统日程详情导航（完成）
 
 - 可信 `calendar.list_events / calendar.search_events / calendar.get` Tool part 现在可以投影“查看日程”，但必须满足严格参数、应用生成的动态标题、唯一规范 `calendar-<正整数>` ID 和非失败验证；空/多结果、额外参数、标题漂移、非规范/溢出 ID、详情错配或正文伪造均不产生入口。

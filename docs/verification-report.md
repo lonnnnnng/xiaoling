@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 199 阶段：日程创建/修改结果答案级导航
+
+- `calendar.create_event` 成功结果新增唯一稳定事件 ID；`CalendarNavigation.kt` 只接受 `VERIFIED` 创建/修改结果。创建绑定规范化标题和四项参数，修改绑定同一事件 ID、`scope=event`、有效审批前指纹与不同的新指纹；结果外壳、参数或 ID/指纹任一漂移均不生成入口。
+- 成功后复用第 198 阶段“查看日程”与 Provider 二次读取详情页；删除结果、失败结果和 `READABLE_ONLY` 写操作不会导航。Room v36、写入审批、Tool/Skill、Workflow、后台和 Shadow 边界不变。
+- 聚焦 JVM `CalendarNavigationTest 4/4 + XiaoLingToolRegistryTest 78/78`，合计 `82/82`；`:app:assembleDebug :app:assembleDebugAndroidTest` `BUILD SUCCESSFUL`。首次编译发现遗漏工具常量与多行布尔表达式解析问题，修复后同一命令通过。
+- 按快速迭代分级，本阶段未运行完整 JVM、全量 Lint、Redmi instrumentation、文档 corpus gate 或 Release；没有向 `Pixel_9`/模拟器发送命令。
+
 ## 2026-08-08 第 198 阶段：答案级系统日程详情导航
 
 - `CalendarNavigation.kt` 只接受成功、验证状态非失败且参数/应用结果外壳一致的 `calendar.list_events / calendar.search_events / calendar.get`。列表/搜索必须精确为单条结果，详情参数与正文 ID 必须一致；多结果、额外参数、动态标题漂移、非规范/溢出 ID 和正文伪造均不生成“查看日程”。

@@ -1,5 +1,6 @@
 package com.longdev.xiaoling.ui
 
+import com.longdev.xiaoling.agent.CalendarEventFingerprint
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
 
@@ -36,6 +37,30 @@ internal fun MessagePart.Tool.calendarEventIdForNavigation(): String? {
                 ?.let(CalendarNavigationPolicy::normalizeId)
                 ?: return null
             detailId.takeIf { it == requestedId && result.countStableCalendarIds() == 1 }
+        }
+
+        CALENDAR_CREATE_TOOL_NAME -> {
+            if (verificationStatus != MessageToolVerificationStatus.VERIFIED) return null
+            val requestedTitle = arguments.validCalendarCreateArguments() ?: return null
+            val match = CALENDAR_CREATE_RESULT_PATTERN.matchEntire(result) ?: return null
+            if (match.groupValues[1] != requestedTitle) return null
+            val id = CalendarNavigationPolicy.normalizeId(match.groupValues[2]) ?: return null
+            // long: 创建副作用只有在应用回读并给出唯一稳定 ID 后才允许继续查看当前 Provider 事实。
+            id.takeIf { result.countStableCalendarIds() == 1 }
+        }
+
+        CALENDAR_UPDATE_TOOL_NAME -> {
+            if (verificationStatus != MessageToolVerificationStatus.VERIFIED) return null
+            val requestedId = arguments.validCalendarUpdateArguments() ?: return null
+            val match = CALENDAR_UPDATE_RESULT_PATTERN.matchEntire(result) ?: return null
+            val resultId = CalendarNavigationPolicy.normalizeId(match.groupValues[1]) ?: return null
+            val currentFingerprint = match.groupValues[2]
+            if (
+                resultId != requestedId ||
+                !CalendarEventFingerprint.isValid(currentFingerprint) ||
+                currentFingerprint == arguments[CALENDAR_EXPECTED_FINGERPRINT_ARGUMENT]
+            ) return null
+            resultId.takeIf { result.countStableCalendarIds() == 1 }
         }
 
         else -> null
@@ -82,6 +107,53 @@ private fun Map<String, String>.validCalendarSearchArguments(): CalendarSearchNa
     return CalendarSearchNavigationArguments(query = query, daysAhead = days)
 }
 
+private fun Map<String, String>.validCalendarCreateArguments(): String? {
+    if (keys != setOf(CALENDAR_TITLE_ARGUMENT, CALENDAR_START_ARGUMENT, CALENDAR_END_ARGUMENT, CALENDAR_TIME_ZONE_ARGUMENT)) {
+        return null
+    }
+    val title = get(CALENDAR_TITLE_ARGUMENT)
+        ?.trim()
+        ?.takeIf { value -> value.length in 1..200 && value.none { it == '\n' || it == '\r' } }
+        ?.toCalendarTitle()
+        ?.takeIf { value -> value.isNotBlank() && " · id=" !in value }
+        ?: return null
+    if (!hasCalendarTimeArgument(CALENDAR_START_ARGUMENT) || !hasCalendarTimeArgument(CALENDAR_END_ARGUMENT)) return null
+    if (!hasCalendarTimeZoneArgument()) return null
+    return title
+}
+
+private fun Map<String, String>.validCalendarUpdateArguments(): String? {
+    if (
+        keys != setOf(
+            CALENDAR_EVENT_ID_ARGUMENT,
+            CALENDAR_EXPECTED_FINGERPRINT_ARGUMENT,
+            CALENDAR_SCOPE_ARGUMENT,
+            CALENDAR_TITLE_ARGUMENT,
+            CALENDAR_START_ARGUMENT,
+            CALENDAR_END_ARGUMENT,
+            CALENDAR_TIME_ZONE_ARGUMENT,
+        )
+    ) return null
+    val eventId = CalendarNavigationPolicy.normalizeId(get(CALENDAR_EVENT_ID_ARGUMENT).orEmpty()) ?: return null
+    if (get(CALENDAR_SCOPE_ARGUMENT) != CALENDAR_EVENT_SCOPE) return null
+    if (!CalendarEventFingerprint.isValid(get(CALENDAR_EXPECTED_FINGERPRINT_ARGUMENT).orEmpty())) return null
+    val title = get(CALENDAR_TITLE_ARGUMENT)
+        ?.trim()
+        ?.takeIf { value -> value.length in 1..200 && value.none { it == '\n' || it == '\r' } }
+        ?: return null
+    if (title.toCalendarTitle().isBlank() || !hasCalendarTimeArgument(CALENDAR_START_ARGUMENT) || !hasCalendarTimeArgument(CALENDAR_END_ARGUMENT)) {
+        return null
+    }
+    if (!hasCalendarTimeZoneArgument()) return null
+    return eventId
+}
+
+private fun Map<String, String>.hasCalendarTimeArgument(name: String): Boolean =
+    (get(name)?.takeIf { value -> value.length in 20..40 && value.none { it == '\n' || it == '\r' } } != null)
+
+private fun Map<String, String>.hasCalendarTimeZoneArgument(): Boolean =
+    (get(CALENDAR_TIME_ZONE_ARGUMENT)?.takeIf { value -> value.length in 1..100 && value.none { it == '\n' || it == '\r' } } != null)
+
 private fun String.toCalendarTitle(): String = trim()
     .replace(Regex("\\s+"), " ")
     .take(200)
@@ -112,14 +184,29 @@ internal object CalendarNavigationPolicy {
 private const val CALENDAR_LIST_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_TOOL_NAME = "calendar.get"
+private const val CALENDAR_CREATE_TOOL_NAME = "calendar.create_event"
+private const val CALENDAR_UPDATE_TOOL_NAME = "calendar.update_event"
 private const val CALENDAR_DAYS_ARGUMENT = "days_ahead"
 private const val CALENDAR_QUERY_ARGUMENT = "query"
 private const val CALENDAR_LIMIT_ARGUMENT = "limit"
 private const val CALENDAR_EVENT_ID_ARGUMENT = "event_id"
+private const val CALENDAR_EXPECTED_FINGERPRINT_ARGUMENT = "expected_fingerprint"
+private const val CALENDAR_SCOPE_ARGUMENT = "scope"
+private const val CALENDAR_TITLE_ARGUMENT = "title"
+private const val CALENDAR_START_ARGUMENT = "start_at"
+private const val CALENDAR_END_ARGUMENT = "end_at"
+private const val CALENDAR_TIME_ZONE_ARGUMENT = "time_zone"
+private const val CALENDAR_EVENT_SCOPE = "event"
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private const val DEFAULT_CALENDAR_DAYS = 7
 private const val CALENDAR_DETAIL_HEADING = "日程详情："
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
+private val CALENDAR_CREATE_RESULT_PATTERN = Regex(
+    "已创建并验证日程：(.+) · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
+)
+private val CALENDAR_UPDATE_RESULT_PATTERN = Regex(
+    "已修改并验证日程：($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})\\n当前事件指纹：(calendar-event-v1-[0-9a-f]{64})",
+)
 private val CALENDAR_RESULT_ENTRY_PATTERN = Regex(
     pattern = "(?m)^1\\. .* · id=(calendar-[1-9][0-9]{0,18})$",
 )
