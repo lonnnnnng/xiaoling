@@ -156,6 +156,62 @@ class AgentRunRetryCoordinatorTest {
     }
 
     @Test
+    fun restartRequiredRunUsesDedicatedNewRunConfirmation() = runTest {
+        val detail = notCommittedReplayDetail(
+            dispositionCode = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+        )
+        val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
+        val events = mutableListOf<AgentRunRetryEvent>()
+
+        coordinator(this, detail).request(
+            runId = detail.snapshot.run.id,
+            busy = false,
+            onEvent = events::add,
+        ).join()
+
+        assertEquals(
+            listOf(
+                AgentRunRetryEvent.ConfirmationRequired(
+                    AgentRetryConfirmationUiState(
+                        runId = detail.snapshot.run.id,
+                        goal = detail.snapshot.run.goal,
+                        evidenceCode = evidence.code,
+                        evidenceFingerprint = evidence.fingerprint,
+                        kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+                        expectedRestartDispositionCode =
+                            AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                    ),
+                ),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun restartRequiredConfirmationRejectsDispositionMismatchBeforePreparation() = runTest {
+        val detail = notCommittedReplayDetail(
+            dispositionCode = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+        )
+        val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
+        val events = mutableListOf<AgentRunRetryEvent>()
+        val pending = AgentRetryConfirmationUiState(
+            runId = detail.snapshot.run.id,
+            goal = detail.snapshot.run.goal,
+            evidenceCode = evidence.code,
+            evidenceFingerprint = evidence.fingerprint,
+            kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+            expectedRestartDispositionCode = AgentRunRestartDispositionCode.PROFILE_EVIDENCE_INVALID,
+        )
+
+        coordinator(this, detail).confirm(pending, events::add).join()
+
+        assertEquals(
+            listOf(AgentRunRetryEvent.Failed("run-source", "恢复处置已变化，请重新发起重试")),
+            events,
+        )
+    }
+
+    @Test
     fun retryableRunWithoutSideEffectMovesToPreparation() = runTest {
         val detail = detail(status = AgentRunStatus.FAILED)
         val events = mutableListOf<AgentRunRetryEvent>()
@@ -253,6 +309,55 @@ class AgentRunRetryCoordinatorTest {
                     pending.copy(
                         evidenceCode = currentEvidence.code,
                         evidenceFingerprint = currentEvidence.fingerprint,
+                    ),
+                ),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun evidenceDriftRefreshesGenericConfirmationToRestartRequiredBoundary() = runTest {
+        val original = writeSideEffectDetail()
+        val originalEvidence = AgentTaskRetryPolicy.assessEvidence(original)
+        val pending = AgentRetryConfirmationUiState(
+            runId = original.snapshot.run.id,
+            goal = original.snapshot.run.goal,
+            evidenceCode = originalEvidence.code,
+            evidenceFingerprint = originalEvidence.fingerprint,
+        )
+        val changed = original.copy(
+            snapshot = original.snapshot.copy(
+                events = original.snapshot.events + event(
+                    type = "run.recovered",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.EXECUTING,
+                        toStatus = AgentRunStatus.FAILED,
+                        reason = "恢复处置已冻结",
+                        restartDisposition = AgentRunRestartDisposition(
+                            code = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                            reason = "旧 Run 不可原地恢复",
+                            evidenceBoundary = "保留旧 Run 审计事实",
+                            suggestedAction = "确认后创建关联新 Run",
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val currentEvidence = AgentTaskRetryPolicy.assessEvidence(changed)
+        val events = mutableListOf<AgentRunRetryEvent>()
+
+        coordinator(this, changed).confirm(pending, events::add).join()
+
+        assertEquals(
+            listOf(
+                AgentRunRetryEvent.ConfirmationRefreshed(
+                    pending.copy(
+                        evidenceCode = currentEvidence.code,
+                        evidenceFingerprint = currentEvidence.fingerprint,
+                        kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+                        expectedRestartDispositionCode =
+                            AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
                     ),
                 ),
             ),

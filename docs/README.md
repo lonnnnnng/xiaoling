@@ -2,7 +2,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 190 阶段、Room v36，尚未形成新 Release。第 190 阶段在启动展示层回读 Recovery 元数据，对无法原地恢复的 Run 统计并显示“确认后创建关联新 Run，旧 Run 不会重放”，不展示目标、错误、Run ID 或其他私密内容。聚焦 JVM 单元测试通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
+当前开发基线已到第 191 阶段、Room v36，尚未形成新 Release。第 191 阶段将任意带有 `restartDisposition` 的恢复 Run 统一投影为专用“创建关联新 Run”确认；确认时重读最新 Room，处置码或证据漂移就刷新/拒绝，旧 Run 不恢复、不重放。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
 第 188 阶段新增 Debug-only `calendar_update_conflict_real`，在 Redmi 真实模型三步链的审批落库后制造同事件外部漂移。最终 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 为 `FAILED`，审批 `APPROVED`，条件 UPDATE 被拒绝且没有 `COMMITTED` 回执，Provider 保留外部新事实；夹具、临时 Profile 和临时日历精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 

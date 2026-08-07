@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 191 阶段：任务中心重新发起边界统一
+
+- 聚焦 JVM `AgentTaskRetryPolicyTest` `28/28` + `AgentRunRetryCoordinatorTest` `13/13` + `AgentTaskRetryEvidencePresentationTest` `4/4` + `AgentRetryConfirmationPresentationTest` `2/2`，合计 `47/47` 通过。
+- `:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。仅在 Redmi `wsvwypiz7xwslvl7` 覆盖安装 Debug 主包和测试包，`AgentTaskCenterDialogsInstrumentedTest` 结果 `OK (3 tests)`，`AgentTaskCenterPageInstrumentedTest` 结果 `OK (2 tests)`。
+- 真机验证覆盖专用确认弹窗和任务卡的“创建关联新 Run”文案；未向 `emulator-5554` 发送任何安装、启动或测试命令。
+- 本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未修改旧 Run 状态、Room Schema、Workflow 或后台执行能力。
+
 ## 2026-08-08 第 190 阶段：启动恢复失败可见投影
 
 - `:app:testDebugUnitTest --tests com.longdev.xiaoling.ui.StartupRunRecoveryNoticePolicyTest` 通过。测试覆盖失败/取消终态汇总、Recovery 中 `restartDisposition` 的边界提示、私密内容脱敏与无收敛时不读候选。

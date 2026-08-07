@@ -34,18 +34,16 @@ object AgentTaskRetryPolicy {
         return if (detail.snapshot.run.status in retryableStatuses) {
             AgentTaskRetryEligibility.Retryable(
                 requiresConfirmation = assessEvidence(detail).requiresConfirmation ||
-                    hasNotCommittedReplayEligibility(detail),
+                    hasRestartDisposition(detail),
             )
         } else {
             AgentTaskRetryEligibility.NotRetryable
         }
     }
 
-    private fun hasNotCommittedReplayEligibility(detail: AgentRunDetailRecord): Boolean {
-        val latestRecovery = detail.latestRecoveryMetadata()
-        // long: 受控同调用资格虽然仍属于“尚未提交”，但它会创建携带原调用语义的新 Run，必须由用户单独确认，不能沿用普通未提交任务的直接重试入口。
-        return latestRecovery?.restartDisposition?.code ==
-            AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE
+    private fun hasRestartDisposition(detail: AgentRunDetailRecord): Boolean {
+        // long: 只要启动恢复已冻结结构化处置，后续就必须再经一次用户确认创建关联新 Run；“明确未提交”只能降低副作用风险，不能把旧 Run 的启动处置变成直接续跑授权。
+        return detail.latestRecoveryMetadata()?.restartDisposition != null
     }
 
     fun assessEvidence(detail: AgentRunDetailRecord): AgentTaskRetryEvidence {

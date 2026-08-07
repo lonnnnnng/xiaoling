@@ -11,8 +11,9 @@ internal data class AgentTaskRetryEvidencePresentation(
 
 internal fun presentAgentTaskRetryEvidence(
     code: AgentTaskRetryEvidenceCode,
+    restartRequired: Boolean = false,
 ): AgentTaskRetryEvidencePresentation {
-    return when (code) {
+    val presentation = when (code) {
         AgentTaskRetryEvidenceCode.NO_SIDE_EFFECT -> AgentTaskRetryEvidencePresentation(
             code = code,
             label = "未发现高风险副作用",
@@ -49,5 +50,10 @@ internal fun presentAgentTaskRetryEvidence(
             detail = "工具账本或事件证据存在缺失、漂移或矛盾。",
             suggestedAction = "确认后创建关联新 Run，不能恢复或重放旧 Run。",
         )
+    }
+    return if (restartRequired) {
+        presentation.copy(suggestedAction = "确认后创建关联新 Run，旧 Run 保持不变。")
+    } else {
+        presentation
     }
 }

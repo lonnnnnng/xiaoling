@@ -6,6 +6,7 @@ import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 
 enum class AgentRetryConfirmationKind {
     EVIDENCE_RETRY,
+    RESTART_REQUIRED_RELAUNCH,
     NOT_COMMITTED_CONTROLLED_REPLAY,
 }
 

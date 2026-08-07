@@ -41,15 +41,12 @@ private fun AgentRetryConfirmationDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val presentation = presentAgentRetryConfirmation(pending)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (pending.kind == AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY) {
-                    "确认受控关联重试"
-                } else {
-                    "确认重新运行"
-                },
+                text = presentation.title,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -61,27 +58,21 @@ private fun AgentRetryConfirmationDialog(
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                val evidence = presentAgentTaskRetryEvidence(pending.evidenceCode)
+                val evidence = presentAgentTaskRetryEvidence(
+                    pending.evidenceCode,
+                    restartRequired = pending.kind != AgentRetryConfirmationKind.EVIDENCE_RETRY,
+                )
                 Text(
                     text = "${evidence.label} · ${evidence.code.name}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold,
                 )
-                if (pending.kind == AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY) {
-                    Text(
-                        text = "将创建关联新 Run 并使用来源 Run 冻结的工具名称、风险和参数。" +
-                            "不会恢复旧 Run、旧模型协程或旧 Executor；新 Run 内的工具仍需重新审批。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        text = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    text = presentation.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
@@ -104,4 +95,34 @@ private fun AgentRetryConfirmationDialog(
         },
         shape = RoundedCornerShape(8.dp),
     )
+}
+
+internal data class AgentRetryConfirmationPresentation(
+    val title: String,
+    val detail: String,
+)
+
+internal fun presentAgentRetryConfirmation(
+    pending: AgentRetryConfirmationUiState,
+): AgentRetryConfirmationPresentation {
+    val evidence = presentAgentTaskRetryEvidence(
+        pending.evidenceCode,
+        restartRequired = pending.kind != AgentRetryConfirmationKind.EVIDENCE_RETRY,
+    )
+    return when (pending.kind) {
+        AgentRetryConfirmationKind.EVIDENCE_RETRY -> AgentRetryConfirmationPresentation(
+            title = "确认重新运行",
+            detail = "${evidence.detail} ${evidence.suggestedAction} 写入工具仍需重新审批。",
+        )
+        AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH -> AgentRetryConfirmationPresentation(
+            title = "确认创建关联新 Run",
+            detail = "来源 Run 无法原地恢复。将保留旧 Run 的终态和审计记录，并创建关联新 Run；" +
+                "不会恢复旧模型协程、旧 Executor 或重放旧工具。新 Run 内的写入工具仍需重新审批。",
+        )
+        AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY -> AgentRetryConfirmationPresentation(
+            title = "确认受控关联重试",
+            detail = "将创建关联新 Run 并使用来源 Run 冻结的工具名称、风险和参数。" +
+                "不会恢复旧 Run、旧模型协程或旧 Executor；新 Run 内的工具仍需重新审批。",
+        )
+    }
 }

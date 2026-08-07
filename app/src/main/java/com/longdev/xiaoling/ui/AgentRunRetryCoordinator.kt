@@ -108,6 +108,23 @@ internal class AgentRunRetryCoordinator(
                     }
                     return@launch
                 }
+                if (dispositionCode != null) {
+                    val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
+                    // long: 启动收敛已明确旧 Run 不可原地恢复；即使副作用证据显示低风险，也只能打开“创建关联新 Run”的专用确认。
+                    onEvent(
+                        AgentRunRetryEvent.ConfirmationRequired(
+                            AgentRetryConfirmationUiState(
+                                runId = runId,
+                                goal = detail.snapshot.run.goal,
+                                evidenceCode = evidence.code,
+                                evidenceFingerprint = evidence.fingerprint,
+                                kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+                                expectedRestartDispositionCode = dispositionCode,
+                            ),
+                        ),
+                    )
+                    return@launch
+                }
                 if (eligibility.requiresConfirmation) {
                     val evidence = AgentTaskRetryPolicy.assessEvidence(detail)
                     onEvent(
@@ -150,40 +167,65 @@ internal class AgentRunRetryCoordinator(
             // long: 用户确认只授权弹窗打开时看到的副作用证据；分类相同但账本内容漂移也必须刷新确认，不能把旧授权套到新证据上。
             onEvent(
                 AgentRunRetryEvent.ConfirmationRefreshed(
-                    pending.copy(
-                        evidenceCode = currentEvidence.code,
-                        evidenceFingerprint = currentEvidence.fingerprint,
-                    ),
+                    pending.refreshedFor(detail, currentEvidence.code, currentEvidence.fingerprint),
                 ),
             )
             return@launch
         }
-        if (pending.kind == AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY) {
-            if (
-                pending.expectedRestartDispositionCode !=
-                AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE ||
-                detail.latestRestartDispositionCode() != pending.expectedRestartDispositionCode
-            ) {
-                onEvent(AgentRunRetryEvent.Failed(pending.runId, "受控重放资格已变化，请重新发起重试"))
-                return@launch
+        when (pending.kind) {
+            AgentRetryConfirmationKind.EVIDENCE_RETRY -> {
+                val currentDispositionCode = detail.latestRestartDispositionCode()
+                if (currentDispositionCode != null) {
+                    val currentEvidence = AgentTaskRetryPolicy.assessEvidence(detail)
+                    onEvent(
+                        AgentRunRetryEvent.ConfirmationRefreshed(
+                            pending.copy(
+                                evidenceCode = currentEvidence.code,
+                                evidenceFingerprint = currentEvidence.fingerprint,
+                                kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+                                expectedRestartDispositionCode = currentDispositionCode,
+                            ),
+                        ),
+                    )
+                    return@launch
+                }
+                onEvent(AgentRunRetryEvent.PreparationRequired(detail))
             }
-            when (val assessment = requalifyNotCommittedReplay(detail)) {
-                is AgentNotCommittedReplayQualificationAssessment.Ineligible -> onEvent(
-                    AgentRunRetryEvent.Failed(
-                        pending.runId,
-                        "受控重放资格已失效：${assessment.reason}",
-                    ),
-                )
-                is AgentNotCommittedReplayQualificationAssessment.Eligible -> onEvent(
-                    AgentRunRetryEvent.PreparationRequired(
-                        detail = detail,
-                        controlledReplayQualification = assessment.qualification,
-                    ),
-                )
+            AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH -> {
+                if (
+                    pending.expectedRestartDispositionCode == null ||
+                    detail.latestRestartDispositionCode() != pending.expectedRestartDispositionCode
+                ) {
+                    onEvent(AgentRunRetryEvent.Failed(pending.runId, "恢复处置已变化，请重新发起重试"))
+                    return@launch
+                }
+                onEvent(AgentRunRetryEvent.PreparationRequired(detail))
             }
-            return@launch
+            AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY -> {
+                if (
+                    pending.expectedRestartDispositionCode !=
+                    AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE ||
+                    detail.latestRestartDispositionCode() != pending.expectedRestartDispositionCode
+                ) {
+                    onEvent(AgentRunRetryEvent.Failed(pending.runId, "受控重放资格已变化，请重新发起重试"))
+                    return@launch
+                }
+                when (val assessment = requalifyNotCommittedReplay(detail)) {
+                    is AgentNotCommittedReplayQualificationAssessment.Ineligible -> onEvent(
+                        AgentRunRetryEvent.Failed(
+                            pending.runId,
+                            "受控重放资格已失效：${assessment.reason}",
+                        ),
+                    )
+                    is AgentNotCommittedReplayQualificationAssessment.Eligible -> onEvent(
+                        AgentRunRetryEvent.PreparationRequired(
+                            detail = detail,
+                            controlledReplayQualification = assessment.qualification,
+                        ),
+                    )
+                }
+            }
         }
-        onEvent(AgentRunRetryEvent.PreparationRequired(detail))
     }
 
     private suspend fun loadRunDetailSafely(
@@ -255,4 +297,25 @@ internal class AgentRunRetryCoordinator(
 
 private fun AgentRunDetailRecord.latestRestartDispositionCode(): AgentRunRestartDispositionCode? {
     return latestRecoveryMetadata()?.restartDisposition?.code
+}
+
+private fun AgentRetryConfirmationUiState.refreshedFor(
+    detail: AgentRunDetailRecord,
+    currentEvidenceCode: AgentTaskRetryEvidenceCode,
+    currentEvidenceFingerprint: String,
+): AgentRetryConfirmationUiState {
+    val dispositionCode = detail.latestRestartDispositionCode()
+    val refreshedKind = when (dispositionCode) {
+        AgentRunRestartDispositionCode.NOT_COMMITTED_REPLAY_ELIGIBLE ->
+            AgentRetryConfirmationKind.NOT_COMMITTED_CONTROLLED_REPLAY
+        null -> AgentRetryConfirmationKind.EVIDENCE_RETRY
+        else -> AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH
+    }
+    // long: 证据漂移时必须同时刷新恢复处置类型和代码，否则新弹窗会继续携带旧边界，下一次确认可能走错新 Run 创建分支。
+    return copy(
+        evidenceCode = currentEvidenceCode,
+        evidenceFingerprint = currentEvidenceFingerprint,
+        kind = refreshedKind,
+        expectedRestartDispositionCode = dispositionCode,
+    )
 }

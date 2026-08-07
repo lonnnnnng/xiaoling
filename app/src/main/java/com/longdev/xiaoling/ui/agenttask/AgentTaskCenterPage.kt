@@ -341,8 +341,11 @@ private fun AgentRunHistoryItemCard(
     val run = detail.snapshot.run
     val metrics = AgentRunMetricsPolicy.summarizeRun(detail, nowMs = System.currentTimeMillis())
     val retryEligibility = AgentTaskRetryPolicy.evaluate(detail)
-    val retryEvidence = presentAgentTaskRetryEvidence(AgentTaskRetryPolicy.assessEvidence(detail).code)
     val restartDisposition = detail.latestRestartDispositionPresentation()
+    val retryEvidence = presentAgentTaskRetryEvidence(
+        AgentTaskRetryPolicy.assessEvidence(detail).code,
+        restartRequired = restartDisposition != null,
+    )
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (selected) {
@@ -421,10 +424,22 @@ private fun AgentRunHistoryItemCard(
                         if (retrying) {
                             CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 1.5.dp)
                         } else {
-                            Icon(Icons.Default.Restore, contentDescription = "重试 Agent Run", modifier = Modifier.size(14.dp))
+                            Icon(
+                                Icons.Default.Restore,
+                                contentDescription = if (restartDisposition != null) "创建关联新 Run" else "重试 Agent Run",
+                                modifier = Modifier.size(14.dp),
+                            )
                         }
                         Spacer(Modifier.width(4.dp))
-                        Text(if (retrying) "重试中" else "重试", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            text = when {
+                                retrying && restartDisposition != null -> "创建中"
+                                retrying -> "重试中"
+                                restartDisposition != null -> "创建新 Run"
+                                else -> "重试"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                        )
                     }
                 }
             }

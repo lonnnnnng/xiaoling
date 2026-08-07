@@ -33,6 +33,17 @@ class AgentTaskRetryEvidencePresentationTest {
     }
 
     @Test
+    fun restartRequiredPresentationOverridesDirectRetryGuidance() {
+        val presentation = presentAgentTaskRetryEvidence(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            restartRequired = true,
+        )
+
+        assertTrue(presentation.suggestedAction.contains("确认后创建关联新 Run"))
+        assertTrue(presentation.suggestedAction.contains("旧 Run 保持不变"))
+    }
+
+    @Test
     fun everyEvidenceCodeHasVisibleReasonAndNextAction() {
         AgentTaskRetryEvidenceCode.entries.forEach { code ->
             val presentation = presentAgentTaskRetryEvidence(code)

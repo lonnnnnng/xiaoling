@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 191 阶段：任务中心重新发起边界统一（完成）
+
+- `AgentTaskRetryPolicy` 对所有带 `restartDisposition` 的终态 Run 统一设置 `requiresConfirmation=true`，包括证据显示 `NOT_COMMITTED` 的低风险情况。
+- `AgentRunRetryCoordinator` 新增 `RESTART_REQUIRED_RELAUNCH` 确认类型；请求、确认和证据刷新均携带处置码，处置码漂移时不准准备新 Run。证据漂移且出现新处置边界时，确认卡会切换为专用类型。
+- 任务卡按处置证据显示“创建新 Run”，弹窗明确旧 Run 终态、旧模型协程、旧 Executor 和工具不会被恢复/重放；新 Run 中写入工具仍需审批。
+- 聚焦 JVM `47/47`、Redmi `AgentTaskCenterDialogsInstrumentedTest` `3/3`、`AgentTaskCenterPageInstrumentedTest` `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复执行、Room v36、Workflow 和后台边界不变。
+
 ## 第 190 阶段：启动恢复失败可见投影（完成）
 
 - `settleStartupInterruptedRuns()` 现在在启动收敛事务完成后回读完整 `AgentRunDetailRecord`，仅从最新 `run.recovered` 中统计存在 `restartDisposition` 的 Run。

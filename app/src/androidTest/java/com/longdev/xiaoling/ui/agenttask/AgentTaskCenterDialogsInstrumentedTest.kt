@@ -83,6 +83,33 @@ class AgentTaskCenterDialogsInstrumentedTest {
         ).assertExists()
     }
 
+    @Test
+    fun restartRequiredExplainsNewRunOnlyBoundary() {
+        val pending = AgentRetryConfirmationUiState(
+            runId = "run-restart-required",
+            goal = "继续上次中断任务",
+            evidenceCode = AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            evidenceFingerprint = "fingerprint-restart-required",
+            kind = AgentRetryConfirmationKind.RESTART_REQUIRED_RELAUNCH,
+            expectedRestartDispositionCode = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+        )
+        val actions = FakeAgentTaskCenterActions(onConfirmed = {}, onCancelled = {})
+        composeRule.setContent {
+            MaterialTheme {
+                AgentTaskCenterDialogs(
+                    state = AgentTaskCenterUiState(pendingRetryConfirmation = pending),
+                    actions = actions,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("确认创建关联新 Run").assertExists()
+        composeRule.onNodeWithText(
+            "来源 Run 无法原地恢复。将保留旧 Run 的终态和审计记录，并创建关联新 Run；" +
+                "不会恢复旧模型协程、旧 Executor 或重放旧工具。新 Run 内的写入工具仍需重新审批。",
+        ).assertExists()
+    }
+
     private class FakeAgentTaskCenterActions(
         private val onConfirmed: () -> Unit,
         private val onCancelled: () -> Unit,

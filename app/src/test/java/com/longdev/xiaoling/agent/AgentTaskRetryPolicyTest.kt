@@ -77,6 +77,38 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun restartRequiredDispositionRequiresConfirmationEvenWhenSideEffectEvidenceIsSafe() {
+        val detail = detail(
+            status = AgentRunStatus.CANCELLED,
+            events = listOf(
+                event(
+                    type = "run.recovered",
+                    metadata = RunEventMetadata.Recovery(
+                        fromStatus = AgentRunStatus.THINKING,
+                        toStatus = AgentRunStatus.CANCELLED,
+                        reason = "启动恢复收敛",
+                        restartDisposition = AgentRunRestartDisposition(
+                            code = AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE,
+                            reason = "旧 Run 不可原地恢复",
+                            evidenceBoundary = "保留旧 Run 终态",
+                            suggestedAction = "确认后创建关联新 Run",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEvidenceCode.NOT_COMMITTED,
+            AgentTaskRetryPolicy.assessEvidence(detail).code,
+        )
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
+    @Test
     fun recoveryMetadataOnAnotherEventTypeDoesNotGrantControlledReplayConfirmation() {
         val detail = detail(
             status = AgentRunStatus.CANCELLED,

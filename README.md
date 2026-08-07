@@ -3,6 +3,9 @@
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
 当前开发基线已推进至第 190 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 191 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 191 阶段完成任务中心的重新发起边界统一。只要持久化 Recovery 存在 `restartDisposition`，即使工具证据标记为未提交，也必须通过专用确认后才创建关联新 Run。任务卡显示“创建新 Run”，弹窗和确认重新核对 Recovery 处置码；证据或处置漂移会刷新/拒绝，不恢复或重放旧 Run。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复执行、Room v36、Workflow 和后台边界不变。
 
 第 190 阶段完成启动恢复后的可见故障投影。启动提示在回读持久化 Recovery 元数据后，会统计无法原地恢复的 Run，明确提示用户只能在任务中心确认后创建关联新 Run，旧 Run 不会重放；不展示任务目标、错误、Run ID 或其他私密内容。聚焦 JVM 单元测试通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
