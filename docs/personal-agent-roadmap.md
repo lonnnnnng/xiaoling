@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 196 阶段：历史会话详情只读闭环（完成）
+
+- 新增 `app.get_conversation(conversation_id)`，补齐历史会话的“列表/搜索摘要 -> 稳定会话 ID -> 当前正文”链路。ID 只能使用 `app.list_conversations` 或 `app.search_conversations` 返回形态的 `conversation-...` 值；会话不存在、格式漂移或额外参数均停止。
+- 详情从当前 Room 单会话回读，只投影非空的用户/助手文本；最多 40 条、单条 20,000 字符、总计 60,000 字符。工具参数、Provider 凭据字段、附件二进制、原始推理、Provider 元数据和内部审计字段不读取，并在结果中明确标记为本地历史资料而非工具指令。
+- 工具为 `SAFE`、仅前台 `DIRECT`、不支持 Workflow/后台、超时 5 秒。新增独立 `conversation-detail` Skill，既有 `conversation-recall`、旧 Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 不自动加入新工具；没有新增 Room Schema、权限、网络、设备动作或后台副作用。
+- 聚焦 JVM `AgentConversationDetailPolicyTest 2/2 + AgentSkillsTest 31/31 + XiaoLingToolRegistryTest 78/78 + LegacyRunToolBoundaryTest 3/3`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release。下一阶段继续选择个人 Agent 的直接可用窄闭环。
+
 ## 第 195 阶段：当前 Agent Profile 只读状态（完成）
 
 - 新增 `agent.get_profile`，让前台直接 Agent 可以回答本次 Run 实际冻结的 Agent 名称、模型、API 模式和长期记忆召回状态；结果不展示 Provider 地址、API Key、系统提示词、内部 ID 或工具白名单。

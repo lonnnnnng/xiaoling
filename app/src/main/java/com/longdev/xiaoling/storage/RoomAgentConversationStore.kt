@@ -1,6 +1,10 @@
 package com.longdev.xiaoling.storage
 
 import android.content.Context
+import com.longdev.xiaoling.agent.AgentConversationDetailPolicy
+import com.longdev.xiaoling.agent.AgentConversationDetailRecord
+import com.longdev.xiaoling.agent.AgentConversationMessageRecord
+import com.longdev.xiaoling.agent.AgentConversationMessageRole
 import com.longdev.xiaoling.agent.AgentConversationRecord
 import com.longdev.xiaoling.agent.AgentConversationStore
 import com.longdev.xiaoling.data.XiaoLingDatabase
@@ -32,6 +36,32 @@ class RoomAgentConversationStore(
             .map { conversation ->
                 conversation.toRecord(messagesByConversation[conversation.id].orEmpty().size)
             }
+    }
+
+    override suspend fun get(conversationId: String): AgentConversationDetailRecord? {
+        val normalizedId = AgentConversationDetailPolicy.normalizeId(conversationId) ?: return null
+        val dao = database.conversationDao()
+        val conversation = dao.getConversation(normalizedId) ?: return null
+        val messages = dao.getMessagesByConversationId(normalizedId)
+            .mapNotNull { message ->
+                val role = when (message.role) {
+                    "user" -> AgentConversationMessageRole.USER
+                    "assistant" -> AgentConversationMessageRole.ASSISTANT
+                    else -> return@mapNotNull null
+                }
+                AgentConversationMessageRecord(
+                    role = role,
+                    text = message.text,
+                    createdAt = message.createdAt,
+                )
+            }
+        // long: 详情只从当前 Room 单会话回读用户/助手文本，不加载 MessagePart，因此工具参数、附件 BLOB、推理和 Provider 元数据不会进入 Agent 上下文。
+        return AgentConversationDetailRecord(
+            id = conversation.id,
+            title = conversation.title,
+            updatedAt = conversation.updatedAt,
+            messages = AgentConversationDetailPolicy.boundMessages(messages),
+        )
     }
 
     private suspend fun loadAll(): List<AgentConversationRecord> {

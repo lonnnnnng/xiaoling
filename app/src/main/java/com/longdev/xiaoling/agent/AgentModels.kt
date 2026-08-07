@@ -777,9 +777,28 @@ data class AgentConversationRecord(
     val updatedAt: Long,
 )
 
+data class AgentConversationMessageRecord(
+    val role: AgentConversationMessageRole,
+    val text: String,
+    val createdAt: Long,
+)
+
+enum class AgentConversationMessageRole {
+    USER,
+    ASSISTANT,
+}
+
+data class AgentConversationDetailRecord(
+    val id: String,
+    val title: String,
+    val updatedAt: Long,
+    val messages: List<AgentConversationMessageRecord>,
+)
+
 interface AgentConversationStore {
     suspend fun list(limit: Int): List<AgentConversationRecord>
     suspend fun search(query: String, limit: Int): List<AgentConversationRecord>
+    suspend fun get(conversationId: String): AgentConversationDetailRecord?
 }
 
 data class AgentTaskRecord(

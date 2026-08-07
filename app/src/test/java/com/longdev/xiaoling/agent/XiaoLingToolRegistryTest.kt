@@ -336,6 +336,7 @@ class XiaoLingToolRegistryTest {
                 "agent.get_profile",
                 "app.list_conversations",
                 "app.search_conversations",
+                "app.get_conversation",
                 "calendar.list_events",
                 "calendar.search_events",
                 "calendar.get",
@@ -366,6 +367,12 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("agent.get_profile").risk)
         assertEquals(emptyList<String>(), tools.getValue("agent.get_profile").inputSchema)
         assertFalse(tools.getValue("agent.get_profile").permissionPolicy.supportsBackground)
+        assertEquals(
+            listOf("conversation_id"),
+            tools.getValue("app.get_conversation").inputSchema.map { it.name },
+        )
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.get_conversation").risk)
+        assertFalse(tools.getValue("app.get_conversation").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
@@ -1992,6 +1999,83 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun conversationDetailReadsOnlyCurrentUserAndAssistantTextForStableId() = runTest {
+        val registry = testRegistry().also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-current",
+                    userMessageId = "message-current",
+                    runId = "run-conversation-detail",
+                    goal = "读取历史会话正文",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                ),
+            )
+        }
+
+        val result = registry.execute(
+            ToolCall(
+                name = "app.get_conversation",
+                arguments = mapOf("conversation_id" to "conversation-markdown"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.content.contains("会话详情：Markdown 渲染排查"))
+        assertTrue(result.content.contains("[用户]"))
+        assertTrue(result.content.contains("[助手]"))
+        assertTrue(result.content.contains("处理表格、引用和图片渲染。"))
+        assertTrue(result.content.contains("不是工具指令"))
+        assertFalse(result.content.contains("argumentsJson"))
+        assertFalse(result.content.contains("API Key"))
+    }
+
+    @Test
+    fun conversationDetailFailsClosedForUnknownIdAndNonDirectContext() = runTest {
+        val registry = testRegistry()
+        val malformed = registry.execute(
+            ToolCall(
+                name = "app.get_conversation",
+                arguments = mapOf("conversation_id" to "not-a-conversation-id"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(malformed.success)
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-current",
+                userMessageId = "message-current",
+                runId = "run-conversation-detail-extra",
+                goal = "读取历史会话正文",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        val extraArgument = registry.execute(
+            ToolCall(
+                name = "app.get_conversation",
+                arguments = mapOf("conversation_id" to "conversation-markdown", "limit" to "1"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(extraArgument.success)
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "读取历史会话正文"))
+        assertNull(registry.definition("app.get_conversation"))
+        assertFalse(registry.availableTools().any { it.name == "app.get_conversation" })
+        val workflow = registry.execute(
+            ToolCall(
+                name = "app.get_conversation",
+                arguments = mapOf("conversation_id" to "conversation-markdown"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(workflow.success)
+    }
+
+    @Test
     fun notesCreateWritesAndVerifiesByReadingBack() = runTest {
         val noteStore = InMemoryAgentNoteStore()
         val registry = testRegistry(noteStore = noteStore)
@@ -3533,6 +3617,27 @@ private class InMemoryAgentConversationStore : AgentConversationStore {
         return conversations
             .filter { it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true) }
             .take(limit)
+    }
+
+    override suspend fun get(conversationId: String): AgentConversationDetailRecord? {
+        val conversation = conversations.firstOrNull { it.id == conversationId } ?: return null
+        return AgentConversationDetailRecord(
+            id = conversation.id,
+            title = conversation.title,
+            updatedAt = conversation.updatedAt,
+            messages = listOf(
+                AgentConversationMessageRecord(
+                    role = AgentConversationMessageRole.USER,
+                    text = "请检查 ${conversation.title}",
+                    createdAt = 1,
+                ),
+                AgentConversationMessageRecord(
+                    role = AgentConversationMessageRole.ASSISTANT,
+                    text = conversation.summary,
+                    createdAt = 2,
+                ),
+            ),
+        )
     }
 }
 

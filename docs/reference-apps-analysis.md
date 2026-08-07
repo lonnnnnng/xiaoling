@@ -2,6 +2,8 @@
 
 `v0.1.16` 是当前发布对照基线：汇总 `v0.1.15` 后第 128 至 169 阶段，完成个人 Agent 的目标级验证、提醒、任务控制面、只读日历、本地笔记、启动恢复提示和答案级导航。发布没有借机复制参考项目的任意 App、后台设备控制、多 Agent 或远程 Channel；本轮按用户要求只构建 Release APK，没有执行额外发布验证。
 
+第 196 阶段把参考 Agent 常见的“先定位稳定会话，再回权威存储读取正文”原则落实为 `app.get_conversation`。模型必须先使用列表/搜索得到 `conversation-...` 身份，应用再从 Room 读取当前会话的用户/助手文本；详情有界且不加载 MessagePart、附件、工具参数或内部审计。独立 `conversation-detail` Skill 与前台 DIRECT 门禁保持旧 Profile/Run 不自动扩权，也没有复制参考项目的跨会话工作区、远程 Channel、任意 App 或后台自动化。
+
 第 195 阶段把参考 Agent 常见的“运行前冻结身份、执行中只投影必要状态”收敛为 `agent.get_profile`。Runtime 只把 Agent 名称、模型、API 模式和有效记忆召回开关组成的窄对象放入当前进程上下文；结果不读取或展示 Provider 地址、凭据、系统提示词、内部 ID 或工具白名单。定义、Skill 和执行入口共同限制前台直接 Agent，既没有复制参考项目的系统诊断/配置枚举，也没有把状态写入 Room 或历史 Run。
 
 第 194 阶段把参考 Agent 常见的“先读取本应用权威元数据，再由应用决定可见字段”收敛为一个极窄的 `app.get_info`。PackageManager 只回读当前安装包的名称、包名和版本字段，结果不带 Provider、凭据、设备标识或安装来源；这比读取全局已安装应用清单更小，也不需要 `QUERY_ALL_PACKAGES`。独立 `app-info` Skill 和 Profile 冻结继续遵守“新增能力不静默进入旧 Run”的原则，没有复制参考项目的系统级诊断、任意 App 枚举、后台副作用或远程控制。

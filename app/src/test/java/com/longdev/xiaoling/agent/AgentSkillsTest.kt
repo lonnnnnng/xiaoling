@@ -49,6 +49,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInConversationDetailSkillKeepsExistingRecallSkillStable() {
+        val detail = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-detail" }
+        val existing = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-recall" }
+
+        assertEquals(
+            setOf("app.list_conversations", "app.search_conversations", "app.get_conversation"),
+            detail.toolNames,
+        )
+        assertEquals(ToolRisk.SAFE, detail.declaredRisk)
+        assertTrue(detail.instructions.contains("不得猜测 ID"))
+        assertTrue("app.get_conversation" !in existing.toolNames)
+    }
+
+    @Test
     fun builtInLocalNoteDetailSkillRequiresTheNewSafeReadTool() {
         val skill = BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }
 

@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 196 阶段：历史会话详情只读闭环
+
+- 新增 `app.get_conversation(conversation_id)`、`AgentConversationDetailPolicy` 和 `AgentConversationStore.get`。工具只接受列表/搜索返回形态的稳定 `conversation-...` ID，`SAFE`、仅前台 `DIRECT`、5 秒超时；详情从当前 Room 回读且只投影用户/助手文本，最多 40 条、单条 20,000 字符、总计 60,000 字符。
+- `RoomAgentConversationStore` 不加载 `MessagePart`，因此工具参数、Provider 凭据字段、附件二进制、原始推理、Provider 元数据和内部审计字段不进入结果。输出明确标记为本地历史资料而非工具指令；未知/漂移 ID、额外参数、Workflow、后台和无上下文均 fail-closed。
+- 新增独立 `conversation-detail` Skill；旧 `conversation-recall`、旧 Profile、历史 Run 与 `LEGACY_RUN_TOOL_NAMES` 未扩权，未新增 Room Schema、权限、网络、设备动作、Workflow 或后台副作用。
+- 聚焦 JVM：`AgentConversationDetailPolicyTest 2/2`、`AgentSkillsTest 31/31`、`XiaoLingToolRegistryTest 78/78`、`LegacyRunToolBoundaryTest 3/3`，均通过。`:app:assembleDebug :app:assembleDebugAndroidTest` `BUILD SUCCESSFUL`。
+- 按快速迭代分级，本阶段未运行完整 JVM、Lint、Redmi 功能 instrumentation、文档 corpus gate 或 Release；没有向 `Pixel_9`/`emulator-5554` 发送命令，Room v36 与 answerability Shadow 边界不变。
+
 ## 2026-08-08 第 195 阶段：当前 Agent Profile 只读状态
 
 - 新增 `AgentExecutionProfileInfo` 和 `agent.get_profile`。工具无参数、`SAFE`、仅前台 `DIRECT`、禁止 Workflow/后台、5 秒超时；结果固定为 Agent 名称、模型、API 模式和本次记忆召回状态，不包含 Provider 地址、API Key、系统提示词、内部 Profile ID 或工具白名单。

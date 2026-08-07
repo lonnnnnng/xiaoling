@@ -152,6 +152,24 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = APP_GET_CONVERSATION_TOOL_NAME,
+            description = "按 app.list_conversations 或 app.search_conversations 返回的稳定 ID 读取当前会话中的用户和助手文本；不读取工具参数、Provider 凭据字段、附件二进制或内部审计字段。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "conversation_id",
+                    description = "会话列表或搜索结果返回的稳定 conversation-... ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = AgentConversationDetailPolicy.MAX_CONVERSATION_ID_LENGTH,
+                ),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateConversationId)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = CALENDAR_LIST_EVENTS_TOOL_NAME,
             description = "只读列出未来一段时间内的系统日历事件；仅返回标题、起止时间和全天标记，不读取地点、描述、参与人或账户。",
             risk = ToolRisk.SAFE,
@@ -1009,6 +1027,10 @@ class XiaoLingToolRegistry(
             // long: Profile 状态只描述当前直接 Agent 的冻结身份；Workflow、后台和未绑定上下文不能把它当成可用工具发现出来。
             available = available.filterNot { it.name == AGENT_GET_PROFILE_TOOL_NAME }
         }
+        if (!conversationDetailAllowed(context)) {
+            // long: 历史正文只在前台直接 Agent 的明确回读链中开放，Workflow/后台只能使用会话摘要，避免长正文静默进入自动任务。
+            available = available.filterNot { it.name == APP_GET_CONVERSATION_TOOL_NAME }
+        }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
@@ -1043,7 +1065,8 @@ class XiaoLingToolRegistry(
             (definition.name !in CALENDAR_MUTATION_TOOL_NAMES || calendarMutationAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
-            (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext))
+            (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext)) &&
+            (definition.name != APP_GET_CONVERSATION_TOOL_NAME || conversationDetailAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -1053,6 +1076,7 @@ class XiaoLingToolRegistry(
             AGENT_GET_PROFILE_TOOL_NAME -> getAgentProfile(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
+            APP_GET_CONVERSATION_TOOL_NAME -> getConversation(call)
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
@@ -1469,6 +1493,24 @@ class XiaoLingToolRegistry(
         if (query.isBlank()) return ToolExecutionResult(success = false, content = "会话搜索关键词不能为空")
         val conversations = conversationStore.search(query = query, limit = call.limit())
         return ToolExecutionResult(success = true, content = conversations.toConversationText("匹配会话"))
+    }
+
+    private suspend fun getConversation(call: ToolCall): ToolExecutionResult {
+        val context = runContext
+        if (!conversationDetailAllowed(context)) {
+            return ToolExecutionResult(success = false, content = "当前仅允许前台直接 Agent 读取历史会话正文")
+        }
+        if (call.arguments.keys != setOf("conversation_id")) {
+            return ToolExecutionResult(success = false, content = "app.get_conversation 只接受 conversation_id 参数")
+        }
+        val conversationId = AgentConversationDetailPolicy.normalizeId(call.arguments["conversation_id"].orEmpty())
+            ?: return ToolExecutionResult(success = false, content = "会话 ID 必须来自会话列表或搜索结果")
+        val detail = conversationStore.get(conversationId)
+            ?: return ToolExecutionResult(success = false, content = "会话不存在或当前不可读取")
+        return ToolExecutionResult(
+            success = true,
+            content = AgentConversationDetailPolicy.encode(detail),
+        )
     }
 
     private suspend fun listTasks(call: ToolCall): ToolExecutionResult {
@@ -2779,6 +2821,10 @@ private fun agentProfileInfoAllowed(context: AgentToolExecutionContext?): Boolea
     context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
         context.invocationSource == AgentInvocationSource.DIRECT
 
+private fun conversationDetailAllowed(context: AgentToolExecutionContext?): Boolean =
+    context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+        context.invocationSource == AgentInvocationSource.DIRECT
+
 private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
     AgentInvocationSource.DIRECT,
     AgentInvocationSource.WORKFLOW,
@@ -2787,6 +2833,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
 private const val AGENT_GET_PROFILE_TOOL_NAME = "agent.get_profile"
+private const val APP_GET_CONVERSATION_TOOL_NAME = "app.get_conversation"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
@@ -2809,6 +2856,13 @@ private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
 
 private fun validateNoArguments(arguments: Map<String, String>): List<String> =
     if (arguments.isEmpty()) emptyList() else listOf("该工具不接受参数")
+
+private fun validateConversationId(arguments: Map<String, String>): List<String> =
+    if (AgentConversationDetailPolicy.normalizeId(arguments["conversation_id"].orEmpty()) != null) {
+        emptyList()
+    } else {
+        listOf("会话 ID 必须是会话列表或搜索结果返回的 conversation-... ID")
+    }
 
 private fun validateCalendarGetArguments(arguments: Map<String, String>): List<String> =
     if (arguments["event_id"].orEmpty().trim().toCalendarEventIdOrNull() != null) {

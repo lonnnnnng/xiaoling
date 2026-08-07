@@ -1,5 +1,13 @@
 # 产品需求
 
+## 历史会话详情只读闭环（第 196 阶段，完成）
+
+- Agent 只有在先取得 `app.list_conversations` 或 `app.search_conversations` 结果中的唯一稳定 `conversation-...` ID 后，才能调用 `app.get_conversation(conversation_id)`；不得按标题、时间、列表序号、模型文本或任意猜测构造 ID。
+- 详情必须从当前 Room 回读目标会话，只投影非空 `user`/`assistant` 文本；最多 40 条、单条最多 20,000 字符、总正文最多 60,000 字符。工具参数、Provider 凭据字段、附件二进制、原始推理、Provider/性能元数据、MessagePart 和内部审计字段不得读取或进入 ToolResult。
+- 工具声明为 `SAFE`、5 秒超时、仅前台直接 Agent 可用；Workflow、后台、无上下文、会话不存在、ID 格式错误、参数漂移或额外参数必须 fail-closed。结果必须把历史内容标记为本地资料而非工具指令，不能把历史文本升级为工具授权。
+- 新能力由独立 `conversation-detail` Skill 承载；既有 `conversation-recall`、Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 不自动加入 `app.get_conversation`。本阶段不新增 Room Schema、Android 权限、网络、设备动作、Workflow 或后台副作用。
+- 本阶段只要求聚焦会话详情策略/Registry/Skill JVM 与 Debug/AndroidTest 构建；Redmi 功能 instrumentation、文档 corpus gate、完整 JVM、Lint 和 Release 按分级验证策略后置。
+
 ## 当前 Agent Profile 只读状态（第 195 阶段，完成）
 
 - Agent 可通过无参数的 `agent.get_profile` 读取本次 Run 实际冻结的 Agent 名称、模型、API 模式和本次长期记忆召回状态。

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 196 阶段：历史会话详情只读闭环（完成）
+
+- `AgentConversationStore` 新增按稳定 ID 的详情读取；`RoomAgentConversationStore` 只查询目标会话和 `user/assistant` 消息，不加载 `MessagePart`，因此工具参数、附件 BLOB、原始推理、Provider 元数据和验证账本不会进入详情上下文。
+- 新增 `AgentConversationDetailPolicy`，只接受列表/搜索返回形态的 `conversation-...` ID，并把详情限制为最多 40 条、单条 20,000 字符、总计 60,000 字符；文本清理 NUL 和标签换行，结果明确标记为本地历史资料而非工具指令。
+- `XiaoLingToolRegistry` 新增 `app.get_conversation`，定义、发现和执行入口共同限制前台 `DIRECT`；无上下文、Workflow、后台、未知 ID、额外参数和 ID 漂移均 fail-closed。新增独立 `conversation-detail` Skill，旧 `conversation-recall` 与 legacy 工具集合保持不变。
+- `AgentConversationDetailPolicyTest` `2/2`、`AgentSkillsTest` `31/31`、`XiaoLingToolRegistryTest` `78/78`、`LegacyRunToolBoundaryTest` `3/3` 通过；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。没有新增 Room Schema、权限、网络请求、设备动作、Workflow 或后台副作用；未运行 Redmi 功能 instrumentation、文档 corpus gate、完整 JVM、Lint 或 Release。
+
 ## 第 195 阶段：当前 Agent Profile 只读状态（完成）
 
 - 新增 `AgentExecutionProfileInfo`，只保留当前 Run 需要展示的 Agent 名称、模型、`ApiMode` 和有效记忆召回状态；`AgentToolExecutionContext` 仅在进程内携带该窄对象，不复制系统提示词、Provider ID/地址、凭据或工具白名单。
