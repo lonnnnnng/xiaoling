@@ -70,6 +70,7 @@ import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
 import com.longdev.xiaoling.ui.localNoteIdForNavigation
+import com.longdev.xiaoling.ui.memoryIdForNavigation
 import com.longdev.xiaoling.ui.inspectedTaskNameForNavigation
 import com.longdev.xiaoling.ui.normalizeModelMarkdown
 import com.longdev.xiaoling.ui.parseMarkdownTableBlock
@@ -96,6 +97,7 @@ internal fun ChatBubble(
     onOpenKnowledgeDocument: (String) -> Unit,
     onOpenInspectedTask: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
+    onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
 ) {
     val isUser = message.role == "user"
@@ -145,6 +147,7 @@ internal fun ChatBubble(
                     contentColor = contentColor,
                     onOpenInspectedTask = onOpenInspectedTask,
                     onOpenLocalNote = onOpenLocalNote,
+                    onOpenMemory = onOpenMemory,
                 )
                 KnowledgeReferencesContent(
                     messageId = message.id,
@@ -194,6 +197,7 @@ private fun MessageBodyParts(
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
+    onOpenMemory: (String) -> Unit,
 ) {
     message.effectiveParts().forEachIndexed { index, part ->
         if (index > 0) Spacer(Modifier.height(7.dp))
@@ -207,6 +211,7 @@ private fun MessageBodyParts(
                 contentColor = contentColor,
                 onOpenInspectedTask = onOpenInspectedTask,
                 onOpenLocalNote = onOpenLocalNote,
+                onOpenMemory = onOpenMemory,
             )
         }
     }
@@ -388,6 +393,7 @@ private fun ToolMessagePartContent(
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
+    onOpenMemory: (String) -> Unit,
 ) {
     val presentation = part.toPresentation()
     HorizontalDivider(color = contentColor.copy(alpha = 0.16f))
@@ -462,6 +468,19 @@ private fun ToolMessagePartContent(
                 modifier = Modifier.size(15.dp),
             )
             Text("查看笔记")
+        }
+    }
+    part.memoryIdForNavigation()?.let { memoryId ->
+        TextButton(
+            onClick = { onOpenMemory(memoryId) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Memory,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+            Text("查看记忆")
         }
     }
 }

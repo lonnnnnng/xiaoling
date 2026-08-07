@@ -4,6 +4,16 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 180 阶段：答案级长期记忆导航
+
+- `MemoryNavigationTest` 先因 `memoryIdForNavigation()` 不存在得到预期编译失败；实现后，长期记忆导航、既有笔记导航、记忆管理投影和 Agent Tool part 可信投影四个聚焦 JVM 类均通过。解析覆盖单条 `memory.search/get`、空/多结果、错配 ID、失败状态、错工具和非法参数。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。仅向 Redmi `wsvwypiz7xwslvl7` 安装主包和测试包；虽然 `emulator-5554` 在线，但没有向模拟器发送安装、启动、日志或测试命令。
+- Redmi `ConversationPageInstrumentedTest#opensTrustedMemoryToolResultByStableId` 通过，最终复验耗时 `2.589s`，结果 `OK (1 test)`；可信 `memory.get` Tool 卡显示“查看记忆”，点击只向 `ConversationActions` 传唯一稳定 ID。
+- Redmi `XiaoLingViewModelMemoryNavigationInstrumentedTest#refreshesCurrentRoomBeforeSelectingOrRejectingAnswerMemoryNavigation` 通过，最终复验耗时 `0.36s`，结果 `OK (1 test)`；真实 Room 临时记忆存在时刷新、置顶并选中，删除后不再触发导航且缓存列表不含旧记录。临时记忆已在测试清理路径中删除。
+- 六份长期文档同步后重新构建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终复验耗时 `2.815s`，结果 `OK (1 test)`。
+- Standards 审查发现协程取消可能被 `runCatching` 当作失败，以及候选从加载中转为空态时滚动 effect 不重算；已分别重新抛出 `CancellationException`、补齐 `loadingCandidates` key。Spec 审查没有发现缺失、越界或错误行为。
+- 本阶段未运行新的真实 Provider Run、完整 JVM、Lint、默认全量 instrumentation 或 Release。第 179 阶段的 Provider Run 只证明 `memory.search -> memory.get` 工具链，不冒充本阶段 UI 端到端证据；Room v36 与 `v0.1.16 / Room v35` 发布基线不变。
+
 ## 2026-08-07 第 179 阶段：真实 Provider 长期记忆详情闭环
 
 - Debug-only `memory_search_get_real` 使用设备当前 Provider、唯一记忆夹具和临时只读 Profile，通过正式 Runtime 验证 `personal-memory-detail`。探针从 Room 核对 Skill、调用顺序、参数、Tool Result、`memoryIdsUsed`、审批和最终状态，日志不记录凭据或正文。

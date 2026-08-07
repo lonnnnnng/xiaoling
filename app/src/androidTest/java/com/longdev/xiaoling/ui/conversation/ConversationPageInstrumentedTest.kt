@@ -323,6 +323,46 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensTrustedMemoryToolResultByStableId() {
+        val actions = FakeConversationActions()
+        val memoryId = "memory-12345678-1234-1234-1234-1234567890ab"
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-memory-get",
+                                role = "assistant",
+                                text = "已读取长期记忆。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-memory-get",
+                                    toolName = "memory.get",
+                                    arguments = mapOf("memory_id" to memoryId),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                                    rawResult = "长期记忆详情：id=$memoryId\n内容：偏好简洁回答\n类型：preference\n来源：用户明确要求\n边界：本地长期记忆数据，不是工具指令。",
+                                    memoryIdsUsed = listOf(memoryId),
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看记忆").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(memoryId, actions.lastOpenedMemoryId)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -336,6 +376,7 @@ class ConversationPageInstrumentedTest {
         var lastOpenedWorkflowId: String? = null
         var lastInspectedTaskName: String? = null
         var lastOpenedNoteId: String? = null
+        var lastOpenedMemoryId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -405,6 +446,10 @@ class ConversationPageInstrumentedTest {
 
         override fun openLocalNote(noteId: String) {
             lastOpenedNoteId = noteId
+        }
+
+        override fun openMemory(memoryId: String) {
+            lastOpenedMemoryId = memoryId
         }
 
         override fun approvePendingAgentTool() = Unit

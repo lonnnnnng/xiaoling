@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 179 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 180 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 180 阶段完成答案级长期记忆导航。可信 `memory.search / memory.get` Tool 卡只有在成功、非失败验证、严格参数、应用生成结果外壳与唯一 `memoryIdsUsed` 稳定 ID 一致时才显示“查看记忆”；点击只传 `memory-UUID`。应用在导航前重新读取当前 Room，记录存在时清空旧筛选、置顶并选中，已删除时阻断导航并移除缓存正文；管理页自动滚动到目标卡。聚焦 JVM 四个相关测试类、Debug/AndroidTest APK、仅 Redmi 的 Tool 卡和真实 Room 导航 `2/2` 及文档 corpus `1/1` 通过，临时记忆已清理；未运行真实 Provider、完整 JVM、Lint、全量 instrumentation 或 Release。
 
 第 179 阶段完成真实 Provider 长期记忆详情闭环。仅在 Redmi 上运行的最终 Run `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6` 选择 `personal-memory-detail`，严格执行 `memory.search -> memory.get`；两项 typed verification、稳定 ID 与 `memoryIdsUsed`、详情数据边界和零审批均通过。Debug 夹具和临时 Profile 已清理。聚焦 JVM `87/87`、Debug/AndroidTest APK 与 Redmi 文档 corpus `1/1` 通过；未运行完整 JVM、Lint、全量 instrumentation 或 Release。
 

@@ -1,5 +1,13 @@
 # 产品需求
 
+## 答案级长期记忆导航（第 180 阶段，完成）
+
+- 只有可信 `memory.search / memory.get` Tool part 可以生成“查看记忆”入口。入口必须要求工具成功、验证状态非失败、工具名和参数严格合法、`memoryIdsUsed` 只有一个标准 `memory-UUID`，并且应用生成的搜索条目或详情首行指向同一 ID。
+- 普通模型文本、用户文本、旧工具自由文本、失败结果、非法参数、多条搜索结果、重复或错配 ID 均不得生成入口。点击只能传递解析出的稳定 ID，不得携带 Tool 正文、历史记忆快照或模型补全内容。
+- 应用必须在进入长期记忆管理页前重新读取当前 Room。记录存在时应清空可能遮挡目标的搜索/筛选，选中当前记录并保证目标卡可见；记录已删除时必须阻断导航、移除缓存中的目标正文与选中态，并给出不可用提示，不得回退到历史正文或猜测其他记录。
+- 本阶段不新增 Agent 工具、Skill、Profile 权限、审批、Room Schema、Android 权限、后台能力或记忆写入行为。真实 Provider 已在第 179 阶段证明 `search -> get`，第 180 阶段只验收答案入口、当前 Room 二次读取和 UI 定位。
+- 验证应包括解析拒绝单测、Tool 卡点击测试及真实 Room 的存在/删除导航测试；Android 安装与 instrumentation 只允许使用 Redmi。完整 JVM、Lint、全量 instrumentation 与 Release 继续按分级验证策略后置。
+
 ## 真实 Provider 长期记忆详情闭环（第 179 阶段，完成）
 
 - 必须仅在 Redmi 使用设备当前真实 Provider，选择 `personal-memory-detail`，严格执行 `memory.search -> memory.get`；搜索关键词必须原样传递，详情参数必须等于唯一搜索结果中的稳定 `memory-UUID`，不得调用额外工具或猜测 ID。

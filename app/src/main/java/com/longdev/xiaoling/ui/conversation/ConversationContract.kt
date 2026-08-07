@@ -69,6 +69,8 @@ internal interface ConversationActions {
 
     fun openLocalNote(noteId: String)
 
+    fun openMemory(memoryId: String)
+
     fun approvePendingAgentTool()
 
     fun rejectPendingAgentTool()

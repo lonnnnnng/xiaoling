@@ -1496,6 +1496,68 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         loadMemoryCandidates()
     }
 
+    internal fun refreshMemoriesAndResolveNavigation(
+        memoryId: String,
+        onResolved: () -> Unit,
+    ) {
+        memoryLoadJob?.cancel()
+        uiState = uiState.copy(loadingMemories = true, memoryError = null)
+        memoryLoadJob = viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    agentMemoryStore.get(memoryId)?.let { currentMemory ->
+                        val listedMemories = agentMemoryStore.list(
+                            query = "",
+                            filter = AgentMemoryFilter.ALL,
+                            limit = MEMORY_MANAGEMENT_LIMIT,
+                        )
+                        // long: 答案里的 ID 只负责定位；进入管理页前重新读取当前 Room，并把目标放在首项，避免旧筛选或 200 条窗口让仍存在的记录不可见。
+                        listOf(currentMemory) + listedMemories
+                            .asSequence()
+                            .filterNot { memory -> memory.id == memoryId }
+                            .take(MEMORY_MANAGEMENT_LIMIT - 1)
+                            .toList()
+                    }
+                }
+            }.onSuccess { memories ->
+                if (memories == null) {
+                    val currentMemories = uiState.memories.filterNot { memory -> memory.id == memoryId }
+                    uiState = uiState.copy(
+                        loadingMemories = false,
+                        memories = currentMemories,
+                        selectedMemoryId = uiState.selectedMemoryId
+                            ?.takeUnless { selectedId -> selectedId == memoryId }
+                            ?.takeIf { selectedId -> currentMemories.any { memory -> memory.id == selectedId } }
+                            ?: currentMemories.firstOrNull()?.id,
+                        memoryError = "这条长期记忆已不存在",
+                        result = OperationResult(
+                            success = false,
+                            title = "长期记忆不可用",
+                            message = "这条长期记忆已不存在",
+                        ),
+                    )
+                    return@onSuccess
+                }
+                uiState = uiState.copy(
+                    loadingMemories = false,
+                    memories = memories,
+                    memorySearchQuery = "",
+                    memoryFilter = AgentMemoryFilter.ALL,
+                    selectedMemoryId = memoryId,
+                    memoryError = null,
+                )
+                onResolved()
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                uiState = uiState.copy(
+                    loadingMemories = false,
+                    memoryError = error.message ?: "无法读取长期记忆",
+                )
+                showFailure(error)
+            }
+        }
+    }
+
     fun refreshSkills() {
         skillLoadJob?.cancel()
         uiState = uiState.copy(loadingSkills = true, skillError = null)

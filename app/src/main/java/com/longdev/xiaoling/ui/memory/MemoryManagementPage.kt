@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -71,10 +72,29 @@ internal fun MemoryManagementPage(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val memoryListState = rememberLazyListState()
     LaunchedEffect(Unit) {
         if (state.memories.isEmpty() && !state.loading) {
             actions.refreshMemories()
         }
+    }
+    val selectedMemoryIndex = state.memories.indexOfFirst { item -> item.selected }
+    LaunchedEffect(
+        selectedMemoryIndex,
+        state.candidatesEnabled,
+        state.loadingCandidates,
+        state.candidates.size,
+        state.deletedMemoryForUndo?.id,
+    ) {
+        if (selectedMemoryIndex < 0) return@LaunchedEffect
+        val precedingItemCount = (if (state.deletedMemoryForUndo != null) 1 else 0) +
+            if (state.candidatesEnabled) {
+                2 + if (state.candidates.isEmpty() && !state.loadingCandidates) 1 else state.candidates.size
+            } else {
+                0
+            }
+        // long: 答案导航会在进入页面前选中当前 Room 记录；按实际前置区块计算索引，确保目标卡片不会被候选记忆或撤销提示留在屏幕之外。
+        memoryListState.scrollToItem(precedingItemCount + selectedMemoryIndex)
     }
 
     Column(
@@ -142,6 +162,7 @@ internal fun MemoryManagementPage(
         )
 
         LazyColumn(
+            state = memoryListState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 180 阶段：答案级长期记忆导航（完成）
+
+- 新增 `MemoryNavigation.memoryIdForNavigation()`，只解析可信 `MessagePart.Tool`。`memory.get` 同时核对严格 `{memory_id}`、结果首行和唯一 `memoryIdsUsed`；`memory.search` 核对可选 `query/limit`、结果头、唯一应用条目与同一稳定 ID。失败、错工具、多结果、非法参数和结果错配均返回空。
+- `ConversationActions`、`ConversationPage` 与 Tool 卡增加 `openMemory(memoryId)` 回调和“查看记忆”按钮。按钮只接收解析器返回的 ID；普通模型自由文本仍会在 `AgentMessagePartPolicy` 边界被排除，不能进入 Tool part。
+- `XiaoLingViewModel.refreshMemoriesAndResolveNavigation()` 取消旧加载后，在 IO 线程先以 ID `get` 当前 Room，再用 ALL/空查询重建最多 200 条管理列表。目标被置顶并设为 `selectedMemoryId` 后才调用页面导航；不存在时不调用回调，并移除缓存目标、对应选中态和正文。协程取消继续向上传播，不被错误 UI 当作读取失败。
+- `MemoryManagementPage` 使用稳定 `LazyListState`，按撤销提示、候选标题/空态/条目和正式记忆标题计算目标索引；候选加载状态也进入 effect key，确保加载中转为空态后重新定位。
+- 聚焦 JVM 四个相邻测试类、Debug/AndroidTest APK、Redmi Tool 卡 `1/1`、真实 Room 导航 `1/1` 和文档 corpus `1/1` 通过。真实 Room 测试创建临时记忆，验证存在时置顶选中、删除后阻断且无缓存正文，并在 `finally` 清理。未运行真实 Provider、完整 JVM、Lint、全量 instrumentation 或 Release。
+
 ## 第 179 阶段：真实 Provider 长期记忆详情闭环（完成）
 
 - Debug Receiver 新增 `memory_search_get_real`。探针读取手机当前 Provider，创建带专属来源的唯一记忆夹具和只允许 `memory.search / memory.get`、`personal-memory-detail` 的临时 Profile，再通过正式 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository` 执行。

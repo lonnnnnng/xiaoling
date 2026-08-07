@@ -301,6 +301,7 @@ internal fun ConversationPage(
                                 onOpenKnowledgeDocument = actions::openKnowledgeDocument,
                                 onOpenInspectedTask = actions::openInspectedTask,
                                 onOpenLocalNote = actions::openLocalNote,
+                                onOpenMemory = actions::openMemory,
                                 onReuseUserMessage = actions::updatePrompt,
                             )
                             if (messages.activeAgentRun?.run?.userMessageId == message.id) {

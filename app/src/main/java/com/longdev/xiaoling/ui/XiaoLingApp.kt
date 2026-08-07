@@ -232,6 +232,12 @@ private fun XiaoLingContent(
                 navigation.openLocalNote(noteId)
             }
 
+            override fun openMemory(memoryId: String) {
+                viewModel.refreshMemoriesAndResolveNavigation(memoryId) {
+                    navigation.openSettingsPane(SettingsPane.MEMORY_MANAGEMENT)
+                }
+            }
+
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
 
             override fun rejectPendingAgentTool() = viewModel.rejectPendingAgentTool()

@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 180 阶段：答案级长期记忆导航（完成）
+
+- 可信 `memory.search / memory.get` Tool part 在成功、验证状态非失败、参数合法、应用生成结果外壳与唯一 `memoryIdsUsed` 稳定 ID 一致时显示“查看记忆”；普通模型文本、旧工具自由文本、多结果、非法 ID、失败或错配结果均不能制造入口。
+- 点击只把解析出的 `memory-UUID` 交给应用。ViewModel 在切换页面前重新读取当前 Room；目标存在时清空搜索与筛选、把当前记录置顶并选中，管理页自动滚动到目标卡。目标已删除时不导航，并从内存列表移除该记录及对应选中态，不展示历史 Tool 正文或猜测替代目标。
+- TDD 首轮因 `memoryIdForNavigation()` 尚不存在得到预期编译失败；最小实现后长期记忆导航、笔记导航、记忆投影和 Tool part 可信投影四个聚焦 JVM 类通过，Debug/AndroidTest APK 构建成功。仅在 Redmi 运行 Tool 卡回调与真实 Room 存在/删除导航两项 instrumentation，均为 `OK (1 test)`；更新后的文档 corpus gate 同样为 `OK (1 test)`，临时记忆已清理。
+- Standards 审查发现并修复协程取消误报与候选加载状态未触发滚动索引重算；Spec 审查无问题。未运行新的真实 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release；Room v36、工具权限、Skill、审批、后台能力和发布基线不变。
+- 下一阶段继续个人 Agent 主线窄闭环，优先补系统日程的稳定身份与权威详情读取，再单独评估修改/删除所需审批、幂等与恢复；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 179 阶段：真实 Provider 长期记忆详情闭环（完成）
 
 - Redmi 真实 Provider 已选择独立 `personal-memory-detail` Skill，并严格执行 `memory.search -> memory.get`；搜索关键词原样传递，详情调用使用搜索结果中的唯一稳定 `memory-UUID`，没有调用额外工具。
