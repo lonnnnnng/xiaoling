@@ -2,6 +2,8 @@
 
 `v0.1.16` 是当前发布对照基线：汇总 `v0.1.15` 后第 128 至 169 阶段，完成个人 Agent 的目标级验证、提醒、任务控制面、只读日历、本地笔记、启动恢复提示和答案级导航。发布没有借机复制参考项目的任意 App、后台设备控制、多 Agent 或远程 Channel；本轮按用户要求只构建 Release APK，没有执行额外发布验证。
 
+第 177 阶段继续采用成熟 Agent 中“模型提出动作，应用控制面决定事实，答案入口回到权威对象”的原则。Redmi 真实 Provider 只负责按 Skill 选择 `list -> inspect -> pause/resume`，Room 审批、typed Tool Ledger、schedule/task 状态和 WorkManager 绑定共同决定是否成功；会话终态、快照刷新与“查看任务”复用同一可信解析，点击后仍从当前 Room 二次解析唯一任务。没有复制参考项目的后台设备控制、一次性计划控制、任意 App、远程 Channel 或多 Agent 能力。
+
 第 172 阶段沿用成熟 Agent 中“破坏性操作必须先绑定权威对象、再审批、再验证”的原则：模型只能从 search/get 结果取得 note ID，生产 Store 用 tombstone 保留防历史重放事实，Room 审批与 Tool Ledger 决定能否宣称删除成功。提交后恢复只读回读同一目标，不恢复旧协程或重放删除；没有扩展后台设备控制、任意 App、远程 Channel 或多 Agent。
 
 第 171 阶段把“先定位稳定对象，再回到权威存储读取详情”落实为真实 Agent 闭环：模型只负责按 Skill 规划 `notes.search -> notes.get`，对象身份由 Room Tool Ledger 参数与当前 Store 交叉核对，最终回答不能替代这条证据链。Debug 夹具和临时 Profile 在完成或失败时都清理，没有把参考项目的远程通道、后台控制或任意数据访问方式带入生产。

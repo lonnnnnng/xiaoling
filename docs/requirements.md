@@ -1,5 +1,13 @@
 # 产品需求
 
+## 周期计划真实使用与可信答案闭环（第 177 阶段，完成）
+
+- 必须在 Redmi 使用真实 Provider 分别验证 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`，并核对两次逐项 Room 审批、Tool Ledger typed verification、Room schedule/task 状态和 WorkManager 绑定；Debug 夹具、临时 Profile 与系统工作项无论成功失败都必须清理。
+- 暂停验收必须从真实已入队的 DAILY/WEEKLY 未来实例开始，确认规则保留且停用、未来 Task/WorkRequest 已取消、正在运行和旧事实不被改写。恢复必须确认规则重新启用、仅有一个当前时间之后的新 Task 与有效 WorkRequest，且不补跑暂停窗口。
+- 可信暂停/恢复结果应在普通前台 Agent 会话生成受限终态，并刷新 Workflow、ScheduledTask 与周期规则快照。结果解析必须要求唯一控制 execution、`success=true`、typed `VERIFIED`、严格 `{name}` 参数和与工具动作一致的应用生成首行；模型文本、重复 execution、状态错配、换行名称和未验证结果必须 fail-closed。
+- 可信工具卡应提供“查看任务”，点击只传递清理后的任务名，并从当前 Room Workflow 快照做唯一精确名称二次解析；删除、重命名、同名或缺失时不得猜测历史内部 ID。
+- 本阶段不得扩大到 Workflow/后台调用、一次性计划控制、精确定时、Foreground Service、系统日程修改/删除、MCP、远程 Channel、多 Agent 或本地模型；Room v36、旧 Profile 和历史 Run 保持不变。
+
 ## 应用内周期计划暂停/恢复（第 176 阶段，完成）
 
 - 新增 `tasks.pause(name)`、`tasks.resume(name)` 与独立 `task-schedule-control` Skill。两项工具只允许前台直接 Agent、需要逐次用户确认且不支持后台；旧 Profile、历史 Run、`task-overview/retry/cancel` Skill 和 legacy 工具集合不得自动扩权。
@@ -7,7 +15,7 @@
 - 暂停必须保留周期规则行，只取消仍为 `SCHEDULED` 的未来实例并清空规则的未来指针；已经进入 `RUNNING / STOP_REQUESTED` 的实例及其 Workflow/Agent Run 继续按原链收敛，不得被暂停改写。
 - 恢复必须复用原 schedule ID，并根据当前时间、原墙上时间和时区只物化一个未来实例；暂停期间错过的周期不得补跑。重复暂停/恢复按当前 Room 状态幂等，不得生成重复 Task 或 WorkRequest。
 - 恢复只有在未来 Task 已绑定 WorkRequest 且回读一致时才能报告成功。系统入队或关联失败必须把本次新 Task 收敛，并把规则回滚为无未来指针的暂停态，使用户可以重新恢复。
-- 本阶段不修改 Room v36 Schema、历史 Run、一次性计划、前台手动 Run、设备 Workflow、Foreground Service、精确定时或系统日程；真实 Provider 自然语言闭环与可信结果导航留给下一独立阶段。
+- 本阶段不修改 Room v36 Schema、历史 Run、一次性计划、前台手动 Run、设备 Workflow、Foreground Service、精确定时或系统日程；真实 Provider 自然语言闭环与可信结果导航已由第 177 阶段完成。
 
 ## 受控系统日程创建（第 175 阶段，完成）
 

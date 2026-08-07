@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 177 阶段：周期计划真实使用与可信答案闭环
+
+- 新增共享可信结果解析，将 `tasks.pause / tasks.resume` 的应用生成首行同时用于受限会话终态、Workflow 快照刷新和答案级“查看任务”。唯一 execution、严格 `{name}`、typed `VERIFIED`、工具/状态一致与单行名称缺一不可；模型文本、重复 execution、状态错配和未验证结果 fail-closed。点击仍从当前 Room 按唯一精确名称解析，不保存内部 ID。
+- TDD 红灯首先因 `presentTaskScheduleControlCompletion` 与刷新策略不存在而编译失败；最小实现及共享策略收口后，`TaskScheduleControlCompletionPresentationTest 4/4 + TaskScheduleControlWorkflowRefreshPolicyTest 2/2 + TaskInspectionNavigationTest 7/7 = 13/13` 通过。`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 覆盖安装 Debug 并运行真实 Provider。最终暂停 Run `run-07179fa4-f970-4727-8d98-14952e6accd0` 严格执行 `tasks.list -> tasks.inspect -> tasks.pause`；恢复 Run `run-8f66d1a8-ef4a-4ef2-a6f5-7ffa7c3d952d` 严格执行 `tasks.list -> tasks.inspect -> tasks.resume`。两次控制动作各有唯一 `APPROVED` Room 审批，全部 ToolResult 为成功且 typed `PASSED`。
+- 暂停后原未来 Task 与 WorkRequest 均为 `CANCELLED`，Workflow 保持启用；恢复后原 Task 事实不变，只形成一个当前时间之后的新 Task，绑定唯一 `ENQUEUED` WorkRequest，`noBackfill=true / completionVisible=true`。最终日志同时确认 `oldTaskUnchanged=true / futureTaskUnique=true`。
+- 双轴审查的 Standards 轴发现探针关键状态段缺少贴近实现的中文业务注释和 WorkInfo Future 没有超时；现已补充分段 `long` 注释并将读取限制为 10 秒。共享可信策略消除了会话终态与导航 marker 漂移风险；Spec 轴未发现遗漏或越界。
+- 真实闭环结束后停用夹具 Workflow、取消残留 Work、删除临时 Profile 并恢复原 Profile。更新后的长期文档重新打入 AndroidTest APK，仅在 Redmi 运行 corpus gate，首轮为 `OK (1 test)`、耗时 `2.831s`。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release；没有向已连接模拟器发送任何 ADB 命令。
+
 ## 2026-08-07 第 176 阶段：应用内周期计划暂停/恢复
 
 - 新增仅前台直接 Agent 可见、逐次审批的 `tasks.pause(name)` 与 `tasks.resume(name)`，并由独立 `task-schedule-control` Skill 承载。`tasks.list / inspect` 显示独立周期计划状态；旧 Profile、历史 Run、任务只读/重试/取消 Skill、一次性计划和后台工具面不变。

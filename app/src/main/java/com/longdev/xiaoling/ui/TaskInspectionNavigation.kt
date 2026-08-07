@@ -23,6 +23,15 @@ internal fun MessagePart.Tool.inspectedTaskNameForNavigation(): String? {
                 result.lineSequence().firstOrNull().orEmpty().startsWith("任务“$name”") &&
                 CANCEL_RESULT_MARKERS.any { marker -> result.contains(marker) }
         }
+        TASK_PAUSE_TOOL_NAME,
+        TASK_RESUME_TOOL_NAME,
+        -> parseTrustedTaskScheduleControlResult(
+            toolName = toolName,
+            arguments = arguments,
+            rawResult = result,
+        )
+            ?.takeIf { verificationStatus == MessageToolVerificationStatus.VERIFIED }
+            ?.taskName
         else -> null
     }
 }
@@ -37,6 +46,8 @@ internal fun resolveInspectedWorkflowId(
 
 private const val TASK_INSPECTION_TOOL_NAME = "tasks.inspect"
 private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
+private const val TASK_PAUSE_TOOL_NAME = "tasks.pause"
+private const val TASK_RESUME_TOOL_NAME = "tasks.resume"
 private const val TASK_NAME_ARGUMENT = "name"
 private const val TASK_INSPECTION_RESULT_HEADING = "任务最近运行"
 private val CANCEL_RESULT_MARKERS = listOf(

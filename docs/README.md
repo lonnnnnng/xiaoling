@@ -2,7 +2,9 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 176 阶段、Room v36，尚未形成新 Release。第 176 阶段新增仅前台 `REQUIRES_APPROVAL` 的 `tasks.pause / tasks.resume` 与独立 `task-schedule-control` Skill，只控制应用内 DAILY/WEEKLY 周期规则。暂停保留规则与历史事实、撤销未开始实例且不停止当前运行；恢复从当前时间之后只生成一个实例，不补跑错过周期。指针/状态漂移拒绝，入队失败回滚为暂停态；旧 Profile/Run、一次性计划、Room 和后台边界不变。聚焦 JVM `82/82`、Debug/AndroidTest APK、仅 Redmi 的任务 Store `13/13` 与文档 corpus `1/1` 通过。
+当前开发基线已到第 177 阶段、Room v36，尚未形成新 Release。第 177 阶段在第 176 阶段控制面之上完成 Redmi 真实 Provider 的暂停/恢复双 Run，并把同一可信结果解析接到受限会话终态、Workflow 快照刷新和答案级“查看任务”。暂停后旧未来 Task/WorkRequest 已取消；恢复只生成一个未来 `ENQUEUED` 实例，不补跑且不改写旧 Task。导航点击仍回到当前 Room 按唯一精确任务名解析，不携带内部 ID；后台、一次性计划控制、精确定时、Foreground Service 和高级日历写入继续关闭。聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi 的真实 Provider 双 Run 与文档 corpus `1/1` 已通过，夹具、临时 Profile 和残留 Work 已清理。
+
+第 176 阶段新增仅前台 `REQUIRES_APPROVAL` 的 `tasks.pause / tasks.resume` 与独立 `task-schedule-control` Skill，只控制应用内 DAILY/WEEKLY 周期规则。暂停保留规则与历史事实、撤销未开始实例且不停止当前运行；恢复从当前时间之后只生成一个实例，不补跑错过周期。指针/状态漂移拒绝，入队失败回滚为暂停态；旧 Profile/Run、一次性计划、Room 和后台边界不变。聚焦 JVM `82/82`、Debug/AndroidTest APK、仅 Redmi 的任务 Store `13/13` 与文档 corpus `1/1` 通过。
 
 第 175 阶段新增前台 `REQUIRES_APPROVAL` 的 `calendar.create_event` 与独立 `calendar-create` Skill，只创建一次性非全天事件；ISO-8601 起止时间的 UTC 偏移必须与 IANA 时区一致。Provider 写入以 ToolCall 稳定标记幂等，事件 ID 形成 `COMMITTED` 回执并支持只读恢复验证；没有可写日历时只创建不接入账户的本地“小灵”日历。设置页分别申请 `READ_CALENDAR` 和创建所需读写权限，旧 Profile/Run、Room 和后台边界不变。聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi Provider/权限页 `3/3` 与文档 corpus `1/1` 通过，测试数据已清理。
 

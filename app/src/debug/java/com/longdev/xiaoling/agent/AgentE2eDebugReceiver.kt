@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.longdev.xiaoling.MainActivity
 import com.longdev.xiaoling.automation.WorkflowDeviceActionDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceActionEvidenceInput
@@ -21,6 +23,7 @@ import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
 import com.longdev.xiaoling.automation.WorkflowRunStatus
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
+import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.WorkflowStepDefinitionInput
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
@@ -51,6 +54,7 @@ import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
 import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.ui.presentTaskRetryCompletion
+import com.longdev.xiaoling.ui.presentTaskScheduleControlCompletion
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,6 +62,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.time.ZonedDateTime
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class AgentE2eDebugReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -119,6 +126,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_TASK_INSPECTION_REAL -> runTaskInspectionReal(appContext)
                     OPERATION_TASK_RETRY_REAL -> runTaskRetryReal(appContext)
                     OPERATION_TASK_CANCEL_REAL -> runTaskCancelReal(appContext)
+                    OPERATION_TASK_SCHEDULE_CONTROL_REAL -> runTaskScheduleControlReal(appContext)
                     OPERATION_NOTES_CREATE_REAL -> runNotesCreateReal(appContext)
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
@@ -857,6 +865,226 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             }
             Log.i(TAG, "task-cancel-real cleanup=true workflowDisabled=true temporaryProfileRemoved=true")
         }
+    }
+
+    private suspend fun runTaskScheduleControlReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val conversationId = "conversation-redmi-task-schedule-control-$now"
+        val fixtureName = "第177阶段周期计划夹具-$now"
+        val workflowRepository = RoomWorkflowRepository(context)
+        val scheduler = WorkManagerScheduledTaskScheduler(context)
+        val profileStore = RoomAgentProfileStore(context)
+        val temporaryProfileId = "stage177-task-schedule-control-profile"
+        val existingProfiles = profileStore.list()
+        val originalProfileId = RoomStateStore(context).selectedAgentProfileId()
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        originalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+        val localNow = ZonedDateTime.now()
+        val fixture = workflowRepository.createWorkflowAndRecurringSchedule(
+            name = fixtureName,
+            steps = listOf(WorkflowStepDefinitionInput("读取当前周期提醒状态")),
+            type = WorkflowScheduleType.DAILY,
+            hour = localNow.hour,
+            minute = localNow.minute,
+            dayOfWeek = null,
+            zoneId = localNow.zone.id,
+        )
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第177阶段周期计划暂停恢复验收",
+            avatar = "177",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "只处理用户明确指定的周期计划。每轮必须严格按 tasks.list、tasks.inspect、用户要求的 tasks.pause 或 tasks.resume 顺序调用工具；不要调用另一项控制工具，不要猜测任务名称。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("tasks.list", "tasks.inspect", "tasks.pause", "tasks.resume"),
+            allowedSkillIds = listOf("task-schedule-control"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        var currentTaskId: String? = fixture.second.task.id
+        try {
+            // long: 暂停验收必须从真实已入队实例开始；否则只能证明 Room 开关变化，不能证明系统队列中的未来工作也被撤销。
+            val initialWorkRequestId = scheduler.enqueue(fixture.second.task)
+            val initialTask = workflowRepository.attachWorkRequest(fixture.second.task.id, initialWorkRequestId)
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第177阶段周期计划控制 Profile" }
+            Log.i(
+                TAG,
+                "task-schedule-control-real start=true provider=${provider.id} model=${provider.model} taskName=$fixtureName",
+            )
+
+            val pauseSummary = runTaskScheduleControlTurn(
+                context = context,
+                conversationId = conversationId,
+                messageId = "message-redmi-task-pause-$now",
+                fixtureName = fixtureName,
+                actionToolName = "tasks.pause",
+                actionLabel = "暂停",
+                config = config,
+                profile = profile,
+            )
+            // long: 暂停只撤销尚未开始的未来实例并保留 Workflow；三项事实必须同时回读，避免把半完成的系统取消报告成成功。
+            val pausedSchedule = workflowRepository.listWorkflowSchedules().single { schedule ->
+                schedule.id == fixture.second.schedule.id
+            }
+            val pausedTask = checkNotNull(workflowRepository.getScheduledTask(initialTask.id)) {
+                "暂停后原周期 Task 丢失"
+            }
+            val pausedWork = WorkManager.getInstance(context)
+                .getWorkInfoById(UUID.fromString(initialWorkRequestId))
+                .get(10, TimeUnit.SECONDS)
+            check(!pausedSchedule.enabled && pausedSchedule.nextTaskId == null && pausedSchedule.nextPlannedAt == null) {
+                "暂停后周期规则没有保持可恢复的暂停态：$pausedSchedule"
+            }
+            check(pausedTask.status == ScheduledTaskStatus.CANCELLED && pausedWork?.state == WorkInfo.State.CANCELLED) {
+                "暂停后未来实例或 WorkRequest 未取消：task=${pausedTask.status} work=${pausedWork?.state}"
+            }
+            check(workflowRepository.getWorkflow(fixture.first.id)?.enabled == true) {
+                "暂停周期计划不应停用 Workflow"
+            }
+
+            val resumeSummary = runTaskScheduleControlTurn(
+                context = context,
+                conversationId = conversationId,
+                messageId = "message-redmi-task-resume-$now",
+                fixtureName = fixtureName,
+                actionToolName = "tasks.resume",
+                actionLabel = "恢复",
+                config = config,
+                profile = profile,
+            )
+            // long: 恢复只允许从当前时间之后物化一个新实例；旧取消事实、唯一活动 Task 和 WorkRequest 绑定共同防止补跑或重复调度。
+            val resumedSchedule = workflowRepository.listWorkflowSchedules().single { schedule ->
+                schedule.id == fixture.second.schedule.id
+            }
+            val resumedTaskId = checkNotNull(resumedSchedule.nextTaskId) { "恢复后没有形成新的未来实例" }
+            currentTaskId = resumedTaskId
+            val resumedTask = checkNotNull(workflowRepository.getScheduledTask(resumedTaskId)) {
+                "恢复后的周期 Task 无法回读"
+            }
+            val resumedWorkRequestId = checkNotNull(resumedTask.workRequestId) {
+                "恢复后的周期 Task 没有绑定 WorkRequest"
+            }
+            val resumedWork = WorkManager.getInstance(context)
+                .getWorkInfoById(UUID.fromString(resumedWorkRequestId))
+                .get(10, TimeUnit.SECONDS)
+            val activeTasks = workflowRepository.listScheduledTasks().filter { task ->
+                task.workflowId == fixture.first.id && task.status == ScheduledTaskStatus.SCHEDULED
+            }
+            check(
+                resumedSchedule.enabled &&
+                    resumedSchedule.nextTaskId == resumedTask.id &&
+                    resumedSchedule.nextPlannedAt == resumedTask.plannedAt &&
+                    resumedTask.id != initialTask.id &&
+                    resumedTask.plannedAt > System.currentTimeMillis(),
+            ) { "恢复后没有从当前时间之后形成唯一新实例：schedule=$resumedSchedule task=$resumedTask" }
+            check(activeTasks.map { task -> task.id } == listOf(resumedTask.id)) {
+                "恢复后存在多个待执行实例：${activeTasks.map { it.id }}"
+            }
+            check(resumedWork?.state == WorkInfo.State.ENQUEUED) {
+                "恢复后的 WorkRequest 未进入 ENQUEUED：${resumedWork?.state}"
+            }
+            check(workflowRepository.getScheduledTask(initialTask.id) == pausedTask) {
+                "恢复操作修改了已取消的旧 Task 事实"
+            }
+            Log.i(
+                TAG,
+                "task-schedule-control-real success=true pauseRun=${pauseSummary.runId} resumeRun=${resumeSummary.runId} " +
+                    "pauseTools=tasks.list,tasks.inspect,tasks.pause resumeTools=tasks.list,tasks.inspect,tasks.resume " +
+                    "approvals=2 oldTaskStatus=${pausedTask.status} oldTaskUnchanged=true scheduleActive=${resumedSchedule.enabled} " +
+                    "futureTaskUnique=true futureWork=${resumedWork.state} noBackfill=true completionVisible=true",
+            )
+        } finally {
+            // long: 无论真实模型在哪一步失败，都先撤销本轮可执行工作再停用夹具并恢复 Profile，避免验收数据在未来自行触发。
+            currentTaskId?.let { taskId ->
+                runCatching { scheduler.cancel(taskId) }
+                runCatching { workflowRepository.cancelScheduledTask(taskId) }
+            }
+            workflowRepository.setEnabled(fixture.first.id, false)
+            originalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(profile.id)
+            check(profileStore.list().none { it.id == profile.id }) {
+                "第177阶段临时 Profile 清理失败"
+            }
+            Log.i(
+                TAG,
+                "task-schedule-control-real cleanup=true workflowDisabled=true residualWorkCancelled=true temporaryProfileRemoved=true",
+            )
+        }
+    }
+
+    private suspend fun runTaskScheduleControlTurn(
+        context: Context,
+        conversationId: String,
+        messageId: String,
+        fixtureName: String,
+        actionToolName: String,
+        actionLabel: String,
+        config: ProviderRequestConfig,
+        profile: AgentProfileRecord,
+    ): AgentRunSummary {
+        val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+            conversationId = conversationId,
+            userMessageId = messageId,
+            goal = "请${actionLabel}周期任务“$fixtureName”。必须先调用 tasks.list，再使用清单中的完全相同名称调用 tasks.inspect，最后调用 $actionToolName。",
+            skillSelectionGoal = "${actionLabel}周期任务“$fixtureName”",
+            config = config,
+            summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+            agentProfile = profile.snapshot(),
+            memoryRecallEnabled = false,
+            invocationSource = AgentInvocationSource.DIRECT,
+            approvalGate = DebugRoomApprovalGate(
+                conversationId = conversationId,
+                repository = RoomAgentRunRepository(context),
+                reason = "第177阶段 Redmi 真实周期计划${actionLabel}验收批准",
+            ),
+        )
+        val detail = checkNotNull(RoomAgentRunRepository(context).runDetail(summary.runId)) {
+            "$actionToolName 真实 Agent Run 未写入 Room"
+        }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "$actionToolName 真实 Agent Run 未完成：${detail.snapshot.run.status}"
+        }
+        val expectedTools = listOf("tasks.list", "tasks.inspect", actionToolName)
+        check(detail.toolLedger.results.map { result -> result.toolName } == expectedTools) {
+            "$actionToolName 没有按清单、诊断、控制顺序完成：${detail.toolLedger.results.map { it.toolName }}"
+        }
+        check(detail.toolLedger.results.all { result ->
+            result.success && result.verificationStatus == ToolVerificationStatus.PASSED
+        }) { "$actionToolName Tool Ledger 未全部通过 typed 验证：${detail.toolLedger.results}" }
+        check(
+            detail.approvals.singleOrNull { approval -> approval.toolName == actionToolName }?.status ==
+                ApprovalRequestStatus.APPROVED,
+        ) { "$actionToolName 没有形成唯一已批准的 Room 审批" }
+        val completion = checkNotNull(presentTaskScheduleControlCompletion(summary.verifiedContext)) {
+            "$actionToolName 可信结果没有生成受限会话终态"
+        }
+        check(completion.role == "assistant" && completion.text.contains(fixtureName))
+        check(detail.toolLedger.results.none { result ->
+            result.content.contains("workflow-schedule-") || result.content.contains("scheduled-task-")
+        }) { "$actionToolName 结果泄露内部调度 ID" }
+        return summary
     }
 
     private suspend fun runNotesCreateReal(context: Context) {
@@ -2942,6 +3170,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_TASK_INSPECTION_REAL = "task_inspection_real"
         const val OPERATION_TASK_RETRY_REAL = "task_retry_real"
         const val OPERATION_TASK_CANCEL_REAL = "task_cancel_real"
+        const val OPERATION_TASK_SCHEDULE_CONTROL_REAL = "task_schedule_control_real"
         const val OPERATION_NOTES_CREATE_REAL = "notes_create_real"
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"

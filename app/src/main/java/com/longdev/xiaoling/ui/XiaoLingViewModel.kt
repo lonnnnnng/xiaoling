@@ -4375,11 +4375,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 } else {
                     null
                 }
-                val finalMessages = messagesWithUser + assistantMessage + listOfNotNull(cancelPresentation).map { result ->
-                        // long: 取消终态必须在同一会话快照中紧跟 Agent 摘要，避免“已提交”与最终状态被异步保存拆开。
+                val scheduleControlPresentation = if (workflowRunId == null) {
+                    presentTaskScheduleControlCompletion(summary.verifiedContext)
+                } else {
+                    null
+                }
+                val taskCompletionMessages = listOfNotNull(
+                    cancelPresentation?.let { result -> result.role to result.text },
+                    scheduleControlPresentation?.let { result -> result.role to result.text },
+                )
+                val finalMessages = messagesWithUser + assistantMessage +
+                    taskCompletionMessages.map { (role, text) ->
+                        // long: 任务变更终态必须在同一会话快照中紧跟 Agent 摘要，避免模型总结与 Room 持久化状态被异步保存拆开。
                         ChatMessage(
-                            role = result.role,
-                            text = result.text,
+                            role = role,
+                            text = text,
                             createdAt = System.currentTimeMillis(),
                             origin = MessageOrigin.AGENT_RESULT,
                         )
@@ -4409,8 +4419,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowRunId = workflowRunId,
                 )
                 if (workflowRunId == null) {
-                    if (shouldRefreshWorkflowsAfterTaskCancel(summary.verifiedContext)) {
-                        // long: 会话中的取消摘要与任务中心必须在同一轮完成 Room 快照刷新，用户随后打开任务中心才能看到最新取消状态。
+                    if (
+                        shouldRefreshWorkflowsAfterTaskCancel(summary.verifiedContext) ||
+                        shouldRefreshWorkflowsAfterTaskScheduleControl(summary.verifiedContext)
+                    ) {
+                        // long: 会话中的任务终态与任务中心必须在同一轮刷新 Room 快照，随后打开“查看任务”才能读到最新状态。
                         refreshWorkflows()
                     }
                     startCommittedTaskRetryIfPresent(

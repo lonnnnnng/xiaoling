@@ -69,6 +69,53 @@ class TaskInspectionNavigationTest {
     }
 
     @Test
+    fun verifiedPauseAndResumePartsReturnExactTaskNameForNavigation() {
+        val pause = inspectionPart(
+            toolName = "tasks.pause",
+            arguments = mapOf("name" to "每日回顾"),
+            result = "任务“每日回顾”：周期计划已暂停，后续不会生成新的执行实例。每日。",
+            verificationStatus = MessageToolVerificationStatus.VERIFIED,
+        )
+        val resume = inspectionPart(
+            toolName = "tasks.resume",
+            arguments = mapOf("name" to "每日回顾"),
+            result = "任务“每日回顾”：周期计划已恢复。每日。 下次：2026-08-08 09:00。",
+            verificationStatus = MessageToolVerificationStatus.VERIFIED,
+        )
+
+        assertEquals("每日回顾", pause.inspectedTaskNameForNavigation())
+        assertEquals("每日回顾", resume.inspectedTaskNameForNavigation())
+    }
+
+    @Test
+    fun scheduleControlNavigationRejectsWrongStateUnverifiedAndInjectedNames() {
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.pause",
+                arguments = mapOf("name" to "每日回顾"),
+                result = "任务“每日回顾”：周期计划已恢复。每日。",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).inspectedTaskNameForNavigation(),
+        )
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.resume",
+                arguments = mapOf("name" to "每日回顾"),
+                result = "任务“每日回顾”：周期计划已恢复。每日。",
+                verificationStatus = MessageToolVerificationStatus.READABLE_ONLY,
+            ).inspectedTaskNameForNavigation(),
+        )
+        assertNull(
+            inspectionPart(
+                toolName = "tasks.resume",
+                arguments = mapOf("name" to "每日\n回顾"),
+                result = "任务“每日\n回顾”：周期计划已恢复。每日。",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).inspectedTaskNameForNavigation(),
+        )
+    }
+
+    @Test
     fun currentWorkflowResolutionRequiresOneExactNameMatch() {
         val target = workflow(id = "workflow-target", name = "每日回顾")
 

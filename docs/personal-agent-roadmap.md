@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 177 阶段：周期计划真实使用与可信答案闭环（完成）
+
+- Redmi 真实 Provider 分别完成 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`；每个 Run 都严格只有三项工具，控制动作各形成一条 `APPROVED` Room 审批，Tool Ledger 全部为成功且 typed `PASSED`。
+- 暂停后周期规则保留为暂停态，旧未来 Task 和 WorkRequest 收敛为 `CANCELLED`；恢复复用原规则，只生成一个当前时间之后的新 Task，绑定唯一 `ENQUEUED` WorkRequest，不补跑暂停窗口，也不改写旧 Task 事实。
+- 会话终态、Workflow/ScheduledTask/周期规则刷新和答案级“查看任务”共用同一可信解析：只接受唯一 `tasks.pause / tasks.resume`、严格 `{name}`、typed `VERIFIED` 和与工具动作一致的应用生成首行。点击仍按当前 Room 唯一精确任务名二次解析，不保存内部 ID。
+- 聚焦 JVM `13/13`、Debug/AndroidTest APK、Redmi 真实 Provider 双 Run 与文档 corpus `1/1` 已通过；夹具 Workflow 已停用，临时 Profile 和残留 Work 已清理。Room v36、旧 Profile/Run、一次性计划、后台工具面、精确定时、Foreground Service 和高级日历写入均未改变。
+- 下一阶段继续选择一个能直接增加个人 Agent 完整任务范围的窄闭环；不回到纯横向打磨，也不提前引入 MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 176 阶段：应用内周期计划暂停/恢复（完成）
 
 - 个人 Agent 新增仅前台、逐次审批的 `tasks.pause / tasks.resume` 和独立 `task-schedule-control` Skill；`tasks.list / inspect` 现在能区分工作流启停与周期计划暂停。旧 Profile、历史 Run 和原任务 Skill 不自动扩权。
 - 暂停保留 DAILY/WEEKLY 规则，只撤销尚未开始的未来实例；正在运行的 Task/Workflow Run 保持不变且完成后不再物化下一次。恢复复用原规则并从现在之后只生成一个实例，不补跑暂停窗口。
 - 精确名称、唯一规则、规则/Task 身份、活动状态和 WorkRequest 关联均从 Room 回读；任何漂移拒绝。恢复入队失败会原子回滚到可重试暂停态，不留下“已启用但无可执行实例”的假状态。
 - 聚焦 JVM `82/82`、Debug/AndroidTest APK、Redmi `RoomAgentTaskStoreInstrumentedTest 13/13` 与文档 corpus `1/1` 已通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 下一阶段用 Redmi 真实 Provider 验证 `tasks.list -> tasks.inspect -> tasks.pause / tasks.resume` 自然语言闭环，再把可信结果接到任务快照刷新和任务中心入口；后台调度权限、精确定时与系统日程高级写操作继续关闭。
+- 第 177 阶段已完成 Redmi 真实 Provider 自然语言双闭环，并把可信结果接到任务快照刷新和任务中心入口；后台调度权限、精确定时与系统日程高级写操作继续关闭。
 
 ## 第 175 阶段：受控系统日程创建（完成）
 

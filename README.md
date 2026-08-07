@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 176 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 177 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 177 阶段完成周期计划暂停/恢复的真实使用闭环。Redmi 真实 Provider 分别严格执行 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`，两次 Room 审批和全部 typed verification 均通过；暂停后旧未来 Task/WorkRequest 为 `CANCELLED`，恢复只生成一个当前时间之后的 `ENQUEUED` 实例，不补跑且不改写旧 Task。可信结果现在会生成受限会话终态、刷新 Workflow/ScheduledTask/周期规则快照，并在答案下提供“查看任务”；点击仍按当前 Room 唯一精确名称二次解析，不保存内部 ID。聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi 的真实 Provider 双 Run 与文档 corpus `1/1` 通过，夹具、临时 Profile 和残留 Work 已清理；后台、一次性计划控制、精确定时、Foreground Service 和高级日历写入继续关闭。
 
 第 176 阶段完成应用内周期计划暂停/恢复。新增仅前台、逐次审批的 `tasks.pause(name)`、`tasks.resume(name)` 与独立 `task-schedule-control` Skill；精确任务名必须唯一，只有 DAILY/WEEKLY 规则可控制。暂停取消尚未开始的未来实例并保留规则，不中断正在运行的实例；恢复复用原规则、只安排当前时间之后的一个实例，不补跑暂停窗口。规则/实例指针漂移统一 fail-closed，恢复入队失败会回滚为可重试暂停态；旧 Profile、历史 Run、一次性计划、Room v36 和后台边界保持不变。聚焦 JVM `82/82`、Debug/AndroidTest APK、仅 Redmi 的任务 Store `13/13` 与文档 corpus `1/1` 通过。
 

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 177 阶段：周期计划真实使用与可信答案闭环（完成）
+
+- 新增 `TaskScheduleControlCompletionPresentation` 与共享可信解析策略。策略只接受唯一 `tasks.pause / tasks.resume` execution、`success=true`、typed `VERIFIED`、严格 `{name}`、单行 1 至 100 字符任务名，以及与工具动作一致的应用生成首行；暂停、重复暂停、恢复和重复恢复分别投影为稳定无内部 ID 的会话终态。
+- `XiaoLingViewModel` 只在普通前台 Agent 使用上述可信终态；结果与 Agent 摘要写入同一会话快照，并触发既有 `refreshWorkflows()` 重新读取 Workflow、Run、ScheduledTask 与周期规则。Workflow 内调用、失败、未验证、模型伪造或重复控制 execution 不生成终态也不触发刷新。
+- `TaskInspectionNavigation` 复用同一可信解析策略，让暂停/恢复 Tool part 使用既有“查看任务”入口。入口只携带任务名；应用壳仍先刷新 Room，再以当前唯一精确名称解析 Workflow ID，删除、重命名、缺失或同名时降级为通用列表。
+- Debug-only `task_schedule_control_real` 通过生产 `RoomWorkflowRepository + WorkManagerScheduledTaskScheduler + AgentRunUseCase` 创建真实 DAILY 夹具，使用临时 `task-schedule-control` Profile 运行暂停和恢复双 Run，并核对审批、typed Tool Ledger、规则/Task/WorkRequest 状态、旧 Task 不变和唯一未来实例。`finally` 取消残留工作、停用夹具并恢复 Profile。
+- TDD 红灯因新 presentation/refresh seam 尚不存在而编译失败；最小实现与共享策略收口后，`TaskScheduleControlCompletionPresentationTest 4/4 + TaskScheduleControlWorkflowRefreshPolicyTest 2/2 + TaskInspectionNavigationTest 7/7 = 13/13` 通过，Debug/AndroidTest APK 构建成功。Redmi 真实 Provider 双 Run 与文档 corpus `1/1` 通过并完成清理；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+
 ## 第 176 阶段：应用内周期计划暂停/恢复（完成）
 
 - `XiaoLingToolRegistry` 新增 `tasks.pause / tasks.resume`，使用 `{name}` Schema、`REQUIRES_APPROVAL / EXECUTOR_VERIFIED / IDEMPOTENT_BY_KEY`，并在工具清单、definition 和执行入口三处限制为前台直接 Agent。独立 `task-schedule-control` Skill 不修改既有任务 Skill。
