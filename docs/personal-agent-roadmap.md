@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 188 阶段：真实 Provider 审批后漂移失败闭环（完成）
+
+- Debug-only `calendar_update_conflict_real` 在 Redmi 真实模型三步链中，于审批请求落库后制造同一事件的外部标题漂移。
+- Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 的审批为 `APPROVED`，但条件 UPDATE 正确拒绝，Run 为 `FAILED`，结果没有 `COMMITTED` 回执，Provider 保留外部事实。
+- 夹具、临时 Profile 和临时日历按事件 ID 精确清理；聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 真实失败探针和文档 corpus gate `1/1` 通过。未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+- 下一阶段补失败 Run 启动收敛的 `RESTART_REQUIRED + DENY` 证据投影和跨进程 Room 回查；不扩展日程修改范围或后台能力。
+
 ## 第 187 阶段：日程修改中断恢复边界加固（完成）
 
 - 固定 `calendar.update_event` 的恢复契约为 `RESTART_REQUIRED + DENY`。无回执、非 `COMMITTED`、回执错配或未提交执行边界均不具备原地恢复或受控重放资格。

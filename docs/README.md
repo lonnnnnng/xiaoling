@@ -4,6 +4,8 @@
 
 当前开发基线已到第 187 阶段、Room v36，尚未形成新 Release。第 187 阶段固定 `calendar.update_event` 的中断恢复契约为 `RESTART_REQUIRED + DENY`，JVM 聚焦任务 `196/196` 通过；Redmi 重建 `AndroidCalendarEventWriter` 后的只读回查与无回执重放拒绝为 `4/4`，Debug/AndroidTest APK 构建成功，文档 corpus gate `1/1` 通过。测试 APK 已卸载，主应用数据保留；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
+第 188 阶段新增 Debug-only `calendar_update_conflict_real`，在 Redmi 真实模型三步链的审批落库后制造同事件外部漂移。最终 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 为 `FAILED`，审批 `APPROVED`，条件 UPDATE 被拒绝且没有 `COMMITTED` 回执，Provider 保留外部新事实；夹具、临时 Profile 和临时日历精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
+
 第 186 阶段仅在 Redmi 使用设备当前真实模型 Provider，通过 Debug-only `calendar_update_real` 和显式 Receiver 运行正式 Agent 链；临时 Profile 精确只含 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`。最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格完成三步，原样传递唯一关键词、稳定事件 ID、详情指纹、`scope=event` 和完整新字段，三项 typed `PASSED`、Room 审批 `APPROVED`、Executor 验证、同事件 `COMMITTED` 回执以及 Provider 四字段/新指纹回读均通过。夹具、必要时新建的本地日历及临时 Profile 精确清理。Debug/AndroidTest APK 已构建，文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release 或全量 instrumentation，生产能力边界不变。
 
 第 185 阶段新增仅前台 DIRECT、逐次审批的 `calendar.update_event` 与独立 `calendar-update` Skill；工具只修改一次性非全天事件的标题、起止时间和时区，并要求稳定事件 ID、当前指纹与显式 `scope=event`。Provider 条件 UPDATE 绑定旧快照，审批期间漂移即拒绝；写后回读四个目标字段并返回新指纹。`RESTART_REQUIRED + DENY` 禁止未提交路径重放，只有匹配 `COMMITTED` 回执时才在前台 DIRECT 上下文只读验证。旧 Skill/Profile/Run、Workflow、后台和 Room 均未扩权。聚焦 JVM `101/101`、Debug/AndroidTest APK、仅 Redmi 的真实 Provider `1/1` 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。

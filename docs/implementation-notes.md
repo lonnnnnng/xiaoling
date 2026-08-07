@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 188 阶段：真实 Provider 审批后漂移失败闭环（完成）
+
+- Debug-only `calendar_update_conflict_real` 复用第 186 阶段正式 Agent 链和最小临时 Profile；`DebugRoomApprovalGate` 在审批请求落库后、决定前执行一次指定事件的外部标题漂移，随后仍由生产 `calendar.update_event` 执行条件 UPDATE。
+- 真实 Redmi Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 严格完成 `calendar.search_events -> calendar.get -> calendar.update_event`，审批为 `APPROVED`，外部漂移导致结果失败、无 `COMMITTED` 回执，Run 为 `FAILED`；Provider 回读仍是外部新事实。
+- `finally` 仍只按第 186 阶段 marker 和 Provider 事件 ID 清理，恢复原 Profile 并删除临时 Profile/本地日历。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。
+- 该探针不修改生产工具定义、恢复策略、Room Schema 或后台能力；下一阶段继续验证失败 Run 的启动收敛与 `RESTART_REQUIRED + DENY` 证据投影。
+
 ## 第 187 阶段：日程修改中断恢复边界加固（完成）
 
 - `XiaoLingToolRegistryTest` 增加日程修改恢复契约断言：`calendar.update_event` 的 `replaySafety` 为 `RESTART_REQUIRED`，`notCommittedReplayPolicy` 及其版本化 `ToolDefinitionRecoverySnapshot` 均为 `DENY`；合法前台 DIRECT 上下文仍是工具定义可见的必要条件。

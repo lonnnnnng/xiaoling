@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import android.content.BroadcastReceiver
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -137,6 +138,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_CALENDAR_SEARCH_GET_REAL -> runCalendarSearchGetReal(appContext)
                     OPERATION_CALENDAR_DELETE_REAL -> runCalendarDeleteReal(appContext)
                     OPERATION_CALENDAR_UPDATE_REAL -> runCalendarUpdateReal(appContext)
+                    OPERATION_CALENDAR_UPDATE_CONFLICT_REAL -> runCalendarUpdateReal(
+                        context = appContext,
+                        forceProviderDrift = true,
+                    )
                     OPERATION_NOTES_DELETE_REAL -> runNotesDeleteReal(appContext)
                     OPERATION_NOTES_UPDATE_REAL -> runNotesUpdateReal(appContext)
                     OPERATION_LONG_SCHEDULED -> runLongScheduledWorkflow(appContext)
@@ -1878,7 +1883,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun runCalendarUpdateReal(context: Context) {
+    private suspend fun runCalendarUpdateReal(
+        context: Context,
+        forceProviderDrift: Boolean = false,
+    ) {
         val storedProvider = ProviderRepository(context).load()
         val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
             ?: error("没有已选择的 Provider")
@@ -1978,25 +1986,76 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             check(profileStore.select(profile.id)) { "无法选择第186阶段系统日程修改 Profile" }
             Log.i(TAG, "calendar-update-real start=true provider=${provider.id} model=${provider.model}")
             val conversationId = "conversation-redmi-calendar-update-$now"
-            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
-                conversationId = conversationId,
-                userMessageId = "message-redmi-calendar-update-$now",
-                goal = "请用唯一关键词“$keyword”搜索未来 7 天的系统日程，读取唯一结果的当前权威详情和事件指纹，然后把这个一次性非全天事件的完整标题改为“$updatedTitle”，开始时间改为“$updatedStartText”，结束时间改为“$updatedEndText”，IANA 时区保持为“${zoneId.id}”。必须严格执行 calendar.search_events -> calendar.get -> calendar.update_event，修改时原样使用同一稳定 event_id、当前指纹和 scope=event，并在修改前请求确认。禁止猜测参数或调用其他工具。",
-                skillSelectionGoal = "修改日程：找到唯一匹配的一次性系统日程并受控修改",
-                config = config,
-                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
-                agentProfile = profile.snapshot(),
-                memoryRecallEnabled = false,
-                invocationSource = AgentInvocationSource.DIRECT,
-                approvalGate = DebugRoomApprovalGate(
+            var observedRunId: String? = null
+            var successfulSummary: AgentRunSummary? = null
+            val runFailure = runCatching {
+                AgentRunUseCase(context, OpenAiCompatibleClient()).run(
                     conversationId = conversationId,
-                    repository = repository,
-                    reason = "第186阶段 Redmi 真实系统日程修改验收批准",
-                ),
-            )
-            val detail = checkNotNull(repository.runDetail(summary.runId)) {
-                "第186阶段 calendar.update_event Run 未写入 Room"
+                    userMessageId = "message-redmi-calendar-update-$now",
+                    goal = "请用唯一关键词“$keyword”搜索未来 7 天的系统日程，读取唯一结果的当前权威详情和事件指纹，然后把这个一次性非全天事件的完整标题改为“$updatedTitle”，开始时间改为“$updatedStartText”，结束时间改为“$updatedEndText”，IANA 时区保持为“${zoneId.id}”。必须严格执行 calendar.search_events -> calendar.get -> calendar.update_event，修改时原样使用同一稳定 event_id、当前指纹和 scope=event，并在修改前请求确认。禁止猜测参数或调用其他工具。",
+                    skillSelectionGoal = "修改日程：找到唯一匹配的一次性系统日程并受控修改",
+                    config = config,
+                    summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                    agentProfile = profile.snapshot(),
+                    memoryRecallEnabled = false,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                    approvalGate = DebugRoomApprovalGate(
+                        conversationId = conversationId,
+                        repository = repository,
+                        reason = if (forceProviderDrift) {
+                            "第188阶段 Redmi 真实系统日程漂移失败验收批准"
+                        } else {
+                            "第186阶段 Redmi 真实系统日程修改验收批准"
+                        },
+                        beforeDecision = if (forceProviderDrift) {
+                            { toolCall ->
+                                if (toolCall.name == "calendar.update_event") {
+                                    val eventId = toolCall.arguments["event_id"]
+                                        ?.removePrefix("calendar-")
+                                        ?.toLongOrNull()
+                                        ?: error("第188阶段漂移夹具缺少稳定事件 ID")
+                                    val changedRows = context.contentResolver.update(
+                                        ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                                        ContentValues().apply { put(CalendarContract.Events.TITLE, "第188阶段外部漂移") },
+                                        null,
+                                        null,
+                                    )
+                                    check(changedRows == 1) { "第188阶段无法制造审批后的 Provider 漂移" }
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                    ),
+                    onSnapshot = { snapshot -> observedRunId = snapshot.run.id },
+                )
+            }.onSuccess { summary -> successfulSummary = summary }.exceptionOrNull()
+            val runId = observedRunId ?: error("第${if (forceProviderDrift) 188 else 186}阶段日程 Run 未产生可回查的 Run ID")
+            val detail = checkNotNull(repository.runDetail(runId)) {
+                "第${if (forceProviderDrift) 188 else 186}阶段 calendar.update_event Run 未写入 Room"
             }
+            if (forceProviderDrift) {
+                check(runFailure != null) { "第188阶段外部漂移后 UPDATE 未进入预期失败路径" }
+                check(detail.snapshot.run.status == AgentRunStatus.FAILED) {
+                    "第188阶段外部漂移后 Run 没有进入 FAILED：${detail.snapshot.run.status}"
+                }
+                val updateResult = detail.toolLedger.results.singleOrNull { it.toolName == "calendar.update_event" }
+                check(updateResult?.success == false && updateResult.executionReceipt == null) {
+                    "第188阶段外部漂移失败不应产生成功或 COMMITTED 回执"
+                }
+                check(reader.getEvent(numericEventId).let { current ->
+                    current is CalendarEventDetailReadResult.Success && current.event.title == "第188阶段外部漂移"
+                }) { "第188阶段外部漂移后的 Provider 事实不符合预期" }
+                Log.i(
+                    TAG,
+                    "calendar-update-conflict-real success=true run=$runId status=${detail.snapshot.run.status} " +
+                        "skill=calendar-update tools=calendar.search_events,calendar.get,calendar.update_event " +
+                        "approval=APPROVED resultsVerified=false receipt=NONE providerUpdated=false " +
+                        "driftRejected=true expectedFailure=true",
+                )
+                return
+            }
+            val summary = successfulSummary ?: error("第186阶段日程修改没有返回成功摘要：${runFailure?.message}")
             check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
                 "第186阶段系统日程修改 Run 未完成：${detail.snapshot.run.status}"
             }
@@ -2497,6 +2556,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private val conversationId: String,
         private val repository: RoomAgentRunRepository,
         private val reason: String = "第152阶段 Redmi 真实闭环验收批准",
+        private val beforeDecision: (suspend (ToolCall) -> Unit)? = null,
     ) : ApprovalGate {
         override suspend fun requestApproval(
             runId: String,
@@ -2504,6 +2564,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             definition: ToolDefinition,
         ): ApprovalDecision {
             val request = repository.createApprovalRequest(conversationId, runId, toolCall, definition)
+            // long: 失败探针只在审批事实持久化后制造 Provider 漂移，验证条件 UPDATE 不会用旧授权覆盖外部新事实。
+            beforeDecision?.invoke(toolCall)
             val decided = repository.decideApprovalRequest(
                 requestId = request.id,
                 status = ApprovalRequestStatus.APPROVED,
@@ -4021,6 +4083,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_CALENDAR_SEARCH_GET_REAL = "calendar_search_get_real"
         const val OPERATION_CALENDAR_DELETE_REAL = "calendar_delete_real"
         const val OPERATION_CALENDAR_UPDATE_REAL = "calendar_update_real"
+        const val OPERATION_CALENDAR_UPDATE_CONFLICT_REAL = "calendar_update_conflict_real"
         const val OPERATION_NOTES_DELETE_REAL = "notes_delete_real"
         const val OPERATION_NOTES_UPDATE_REAL = "notes_update_real"
         const val OPERATION_LONG_SCHEDULED = "workflow_long_scheduled"

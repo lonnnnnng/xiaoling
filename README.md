@@ -4,6 +4,8 @@
 
 当前开发基线已推进至第 186 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
+第 188 阶段完成真实 Provider 的审批后漂移失败验收。Redmi 真实模型 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；审批落库后由 Debug 夹具修改同一事件，条件 UPDATE 正确拒绝，Run 收敛为 `FAILED`，UPDATE 没有 `COMMITTED` 回执，Provider 保留外部新事实。夹具、临时 Profile 和临时日历均精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 真实失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
+
 第 187 阶段完成日程修改的中断恢复边界加固。`calendar.update_event` 的恢复契约增加显式 JVM 断言，固定为 `RESTART_REQUIRED + DENY`；Redmi 日程写入器测试在更新提交后重建 `AndroidCalendarEventWriter`，只读回查成功，缺少 `COMMITTED` 回执的再次更新仍被指纹门禁拒绝，证明跨进程/Registry 重建不会重放 UPDATE。聚焦 JVM `196/196`、Debug/AndroidTest APK、仅 Redmi 的 `AndroidCalendarEventWriterInstrumentedTest` `4/4` 和文档 corpus gate `1/1` 通过；测试 APK 已卸载，主应用数据保留。未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力、Room v36、旧 Run/Workflow/后台边界不变。下一阶段继续在真实模型链上验证失败/中断处置，不扩大日程修改范围。
 
 第 186 阶段在 Redmi 使用当前真实模型 Provider 完成受控系统日程修改闭环。Debug-only `calendar_update_real` 通过显式 Receiver 创建唯一一次性非全天夹具，临时 Profile 只允许 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`；最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格三步完成，搜索关键词、稳定事件 ID、详情指纹、`scope=event` 和完整新标题/起止/时区原样传递，三项结果均 typed `PASSED`。Room 审批为 `APPROVED`，UPDATE 结果具备 Executor 验证和同事件 `COMMITTED` 回执，Provider 回读确认四字段与新指纹一致；事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK 构建成功，文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation。下一阶段继续评估真实模型链的失败恢复和跨进程 `COMMITTED` 只读验证，不扩展重复事件、occurrence、Workflow 或后台能力。

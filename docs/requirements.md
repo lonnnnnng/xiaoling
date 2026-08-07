@@ -1,5 +1,12 @@
 # 产品需求
 
+## 真实 Provider 审批后漂移失败闭环（第 188 阶段，完成）
+
+- Redmi 真实模型必须仍严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；测试夹具只能在 `calendar.update_event` 审批请求已写入 Room 后修改同一 Provider 事件，模拟用户审批等待期间的外部漂移。
+- 条件 UPDATE 必须拒绝旧指纹，Run 收敛为失败；失败结果不能携带 `COMMITTED` 回执或 `executorVerified=true`，不能覆盖外部新标题/事实。
+- 失败探针必须回读 Provider 确认外部漂移仍存在，并按事件 ID、marker 精确清理事件、临时日历和 Profile；日志不得输出标题、指纹、参数或凭据。
+- 本阶段只验证真实失败事实，不新增恢复重放、后台日历、重复事件、occurrence、权限或 Room Schema 能力。
+
 ## 日程修改中断恢复边界（第 187 阶段，完成）
 
 - `calendar.update_event` 的未提交、执行中断、回执缺失或回执状态不是 `COMMITTED` 时，恢复策略必须返回 `RESTART_REQUIRED`，且 `ToolNotCommittedReplayPolicy` 固定为 `DENY`；不得因为事件当前看起来已变化而猜测 UPDATE 是否成功。

@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 188 阶段：真实 Provider 审批后漂移失败闭环
+
+- `:app:testDebugUnitTest --tests com.longdev.xiaoling.agent.XiaoLingToolRegistryTest --tests com.longdev.xiaoling.agent.AgentRunResumePolicyTest --tests com.longdev.xiaoling.agent.MinimalAgentRuntimeTest` 通过，结果 `196/196`；`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 安装 Debug APK，通过显式 `com.longdev.xiaoling/.agent.AgentE2eDebugReceiver` 和 action `com.longdev.xiaoling.debug.AGENT_E2E` 触发 Debug-only `calendar_update_conflict_real`。真实 Provider Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`。
+- `calendar.update_event` 审批已写入 Room 并为 `APPROVED` 后，夹具修改同一事件标题；条件 UPDATE 被拒绝，Run 为 `FAILED`，结果没有 `COMMITTED` 回执，Provider 回读仍为外部漂移事实。日志只包含 Run、状态、工具名和布尔结论。
+- 夹具事件、临时 Profile 和必要时创建的本地日历已精确清理；没有向 `emulator-5554` 发送 ADB 命令。本阶段未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未新增生产权限、Room Schema、后台或恢复重放能力。
+- 文档资产更新并重建 AndroidTest APK 后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`、耗时 `2.702s`；测试包随后卸载。
+
 ## 2026-08-08 第 187 阶段：日程修改中断恢复边界加固
 
 - 聚焦 JVM 命令 `:app:testDebugUnitTest --tests com.longdev.xiaoling.agent.XiaoLingToolRegistryTest --tests com.longdev.xiaoling.agent.AgentRunResumePolicyTest --tests com.longdev.xiaoling.agent.MinimalAgentRuntimeTest` 通过，结果 `196/196`。
