@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 174 阶段：个人事项简报（完成）
+
+- `BuiltInAgentSkillRegistry` 新增 `personal-briefing`，声明工具集固定为 `calendar.list_events / tasks.list / notes.search / notes.get`，required permission 继续是 `READ_CALENDAR`，risk 为 SAFE。组合关键词只针对“个人简报 + 相关笔记”目标增强评分，普通 `day-overview` 仍只有日历和任务两项工具。
+- 现有 `AgentSkillCatalog` 和 `SkillScopedToolRegistry` 继续负责 Profile/Skill 显式白名单与实际工具面收窄；新 Skill 没有 Registry 执行分支、Room 表、审批或后台旁路。单 Run 最多四次调用的既有 Runtime 上限保持不变。
+- Skill 指令要求先读取日历与任务，再以用户明确关键词搜索笔记并用唯一稳定 ID 读取全文；失败恢复按来源分区，不能把搜索预览、模型文本或历史对话提升为完整笔记事实。
+- Debug-only `personal_briefing_real` 使用固定幂等键创建可精确清理的唯一笔记夹具和临时 Profile，从 `skill.selected`、Tool Ledger、参数、typed 结果与最终回答核对四工具顺序、未来 1 天窗口、关键词、稳定 ID、全文尾标、数据边界、零审批和三类来源分区。finally 恢复原 Profile 并硬删除夹具，API Key 和正文不进入日志。
+
 ## 第 173 阶段：版本化本地笔记编辑闭环（完成）
 
 - `AgentNoteRecord`、Room `agent_notes` 和所有 list/search/get 输出增加 `revision`。`MIGRATION_35_36` 为旧行补 `revision=1`，并新增 `agent_note_edit_operations`；Schema 36 已导出，迁移测试同时核对旧正文、版本默认值和空 operation 账本。

@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 174 阶段：个人事项简报
+
+- 新增独立 SAFE `personal-briefing` Skill，只在显式个人简报与笔记关键词目标下组合现有 `calendar.list_events / tasks.list / notes.search / notes.get`；`READ_CALENDAR` 主动授权、原 `day-overview`、旧 Profile、Room v36、审批和后台边界均不改变。
+- TDD 红灯为 `AgentSkillsTest 22 tests / 1 failed`，失败原因是新 Skill 尚未实现；加入 Skill 后第二轮仍为 `1 failed`，定位为复合目标同时命中旧日历/任务/笔记 Skill，新 Skill 未进入前三。收紧组合短语评分后 `AgentSkillsTest 22/22` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL in 13s`。
+- Redmi `wsvwypiz7xwslvl7` 覆盖安装后确认 `READ_CALENDAR: granted=true`。真实 Run `run-c411e92c-c81c-469d-a10f-2fac5497cd4f` 为 `COMPLETED`，选择 `personal-briefing` 并严格执行 `calendar.list_events -> tasks.list -> notes.search -> notes.get`；四项结果均通过 typed 验证，未来 1 天参数、唯一关键词、稳定 ID 传递、全文尾标、本地数据边界、零审批和日程/任务/笔记分区均成立。
+- 真实 Provider 从开始到成功约 `42.23s`，临时 Profile 和测试笔记已清理，主应用与用户 Provider/数据保留。最终文档 corpus gate 仅在 Redmi 运行并通过；本阶段没有运行完整 JVM、Lint、默认完整 instrumentation 或 Release，也没有向模拟器发送安装、启动、日志或测试命令。
+
 ## 2026-08-07 第 173 阶段：版本化本地笔记编辑闭环
 
 - Room 升级至 v36：旧笔记迁移后 `revision=1`，编辑使用 revision 条件更新并在同一事务写入独立 operation 账本；版本漂移、tombstone、载荷漂移或恢复结果漂移均拒绝覆盖。新增前台 `REQUIRES_APPROVAL` 的 `notes.update`、独立 `local-note-update` Skill 和用户笔记编辑 UI，旧 Profile/Skill/Run 不自动扩权。

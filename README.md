@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 173 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 174 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 174 阶段完成只读“个人事项简报”闭环。新增独立 `personal-briefing` Skill，在用户明确给出笔记关键词时，于同一前台 Agent Run 内严格组合 `calendar.list_events -> tasks.list -> notes.search -> notes.get`，最终按日程、任务和笔记分区回答；笔记搜索预览不能替代稳定 ID 全文读取，正文继续按本地数据而非工具指令处理。原 `day-overview` 双工具边界保持不变，旧 Profile 不自动扩权，也没有新增工具、权限、审批、Room Schema 或后台能力。聚焦 JVM `AgentSkillsTest 22/22` 与 Debug/AndroidTest APK 通过；Redmi 真实 Provider Run `run-c411e92c-c81c-469d-a10f-2fac5497cd4f` 完成四项 typed 验证、稳定 ID 传递、来源分区和零审批，夹具与临时 Profile 已清理。
 
 第 173 阶段完成版本化本地笔记编辑闭环。用户可在本地笔记详情页编辑标题和正文；Agent 新增仅前台、需要审批的 `notes.update(note_id, expected_revision, title, content)` 与独立 `local-note-update` Skill，必须先搜索并读取唯一笔记，再携带同一稳定 ID 和 revision 提交完整新内容。Room v35→v36 为旧笔记补 `revision=1`，条件更新在版本漂移或 tombstone 时拒绝覆盖，并用独立 operation 账本绑定 ToolCall、请求哈希和结果哈希；已提交恢复只读回查，不再次执行 UPDATE。聚焦 JVM `76/76`、Debug/AndroidTest APK、Redmi 数据库/Room/ViewModel/Compose `42/42` 及真实 Provider Run `run-4f5e33bd-5494-4a24-a6cb-8cf49ab2da44` 均通过，夹具和临时 Profile 已清理。
 

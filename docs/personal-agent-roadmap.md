@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 174 阶段：个人事项简报（完成）
+
+- 新增独立 SAFE `personal-briefing` Skill，把近期系统日程、小灵任务和用户明确关键词对应的一条本地笔记全文组合为同一份个人简报。普通日程/任务请求仍使用既有 Skill，原 `day-overview` 不增加笔记工具。
+- 同一 Run 严格完成 `calendar.list_events -> tasks.list -> notes.search -> notes.get`；搜索只负责定位，必须把唯一结果的稳定 ID 原样传给全文读取。最终回答分开标记日程、任务和笔记，笔记正文只作为本地数据。
+- 该能力已占满当前单 Run 四工具上限，不在同一 Skill 中继续叠加记忆、知识库或设备动作。既有 Profile 需显式启用新 Skill 与完整工具集；`READ_CALENDAR` 主动授权、零审批、前台执行和只读边界保持不变。
+- 聚焦 JVM `22/22`、Debug/AndroidTest APK 与 Redmi 真实 Provider Run `run-c411e92c-c81c-469d-a10f-2fac5497cd4f` 已通过，夹具与临时 Profile 已清理。下一阶段继续选择新的可直接使用窄闭环，不把多来源堆叠、后台设备动作或高级生态混入本 Skill。
+
 ## 第 173 阶段：版本化本地笔记编辑闭环（完成）
 
 - 用户现在可从本地笔记详情进入五行正文编辑器；保存携带详情页读取到的 revision，冲突时保留最新版本并提示重新编辑，不以最后写入时间猜测覆盖顺序。

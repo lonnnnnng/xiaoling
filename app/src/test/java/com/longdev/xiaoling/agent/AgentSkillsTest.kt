@@ -110,6 +110,29 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInPersonalBriefingSkillCombinesCalendarTasksAndOneExplicitNoteWithoutExpandingDayOverview() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "生成个人简报，查看今天安排、提醒和项目代号相关笔记全文",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "personal-briefing" }
+        assertEquals("personal-briefing", selected.first().id)
+        assertEquals(
+            setOf("calendar.list_events", "tasks.list", "notes.search", "notes.get"),
+            skill.toolNames,
+        )
+        assertEquals(setOf("android.permission.READ_CALENDAR"), skill.requiredAndroidPermissions)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("明确关键词"))
+        assertTrue(skill.completionCriteria.contains("日程、任务和笔记"))
+        assertEquals(
+            setOf("calendar.list_events", "tasks.list"),
+            BuiltInAgentSkillRegistry.all().single { it.id == "day-overview" }.toolNames,
+        )
+    }
+
+    @Test
     fun builtInTaskOverviewSkillCanInspectOnlyReadOnlyRecentRunFacts() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "每日回顾任务为什么失败了",

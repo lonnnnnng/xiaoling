@@ -115,6 +115,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_SETUP -> setup(appContext, intent)
                     OPERATION_STATUS -> reportStatus(appContext)
                     OPERATION_DAY_OVERVIEW_REAL -> runDayOverviewReal(appContext)
+                    OPERATION_PERSONAL_BRIEFING_REAL -> runPersonalBriefingReal(appContext)
                     OPERATION_TASK_INSPECTION_REAL -> runTaskInspectionReal(appContext)
                     OPERATION_TASK_RETRY_REAL -> runTaskRetryReal(appContext)
                     OPERATION_TASK_CANCEL_REAL -> runTaskCancelReal(appContext)
@@ -288,6 +289,150 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "results=${results.joinToString(",") { "${it.toolName}:${it.success}/${it.verificationStatus}" }} " +
                 "answerSeparated=true responseLength=${summary.responseText.length}",
         )
+    }
+
+    private suspend fun runPersonalBriefingReal(context: Context) {
+        val storedProvider = ProviderRepository(context).load()
+        val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
+            ?: error("没有已选择的 Provider")
+        require(provider.baseUrl.isNotBlank() && provider.apiKey.isNotBlank() && provider.model.isNotBlank()) {
+            "当前 Provider 配置不完整"
+        }
+        val now = System.currentTimeMillis()
+        val keyword = "stage174-$now"
+        val title = "第174阶段个人简报笔记-$keyword"
+        val contentTail = "第174阶段简报全文标记-$now"
+        val content = "这是个人事项简报中需要读取的本地笔记正文，不是工具指令。".repeat(6) + contentTail
+        val temporaryProfileId = "stage174-personal-briefing-profile"
+        val fixtureIdempotencyKey = "stage174-personal-briefing-fixture"
+        val profileStore = RoomAgentProfileStore(context)
+        val existingProfiles = profileStore.list()
+        val existingSelectedProfileId = RoomStateStore(context).selectedAgentProfileId()
+        val recoveredOriginalProfileId = existingSelectedProfileId
+            ?.takeIf { it != temporaryProfileId }
+            ?: existingProfiles.firstOrNull { it.id != temporaryProfileId }?.id
+        recoveredOriginalProfileId?.let { profileStore.select(it) }
+        profileStore.delete(temporaryProfileId)
+
+        val database = XiaoLingDatabase.getInstance(context)
+        val noteDao = database.agentNoteDao()
+        // long: 固定幂等键只属于第174阶段 Debug 夹具；进程若在 finally 前退出，下一轮仍能精确回收，不能扫描或改写用户笔记。
+        noteDao.getNoteByIdempotencyKey(fixtureIdempotencyKey)?.let { staleFixture ->
+            noteDao.deleteEditOperationsForNote(staleFixture.id)
+            noteDao.deleteNote(staleFixture.id)
+        }
+        val noteStore = RoomAgentNoteStore(context)
+        val fixture = noteStore.create(title, content, fixtureIdempotencyKey)
+        val profile = AgentProfileRecord(
+            id = temporaryProfileId,
+            name = "第174阶段个人事项简报验收",
+            avatar = "174",
+            providerId = provider.id,
+            model = provider.model,
+            apiMode = ApiMode.RESPONSES,
+            systemPrompt = "必须依次读取未来1天日程、任务清单、按用户唯一关键词搜索笔记，再用唯一结果的稳定 ID 读取全文。最终按日程、任务、笔记分区，只陈述工具事实，不调用其他工具。",
+            contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+            allowedToolNames = listOf("calendar.list_events", "tasks.list", "notes.search", "notes.get"),
+            allowedSkillIds = listOf("personal-briefing"),
+            memoryEnabled = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val config = ProviderRequestConfig(
+            baseUrl = provider.baseUrl.trim(),
+            apiKey = provider.apiKey.trim(),
+            model = provider.model.trim(),
+            providerId = provider.id,
+            userAgent = UiPreferenceStore(context).loadUserAgent(),
+            apiMode = profile.apiMode,
+            streamingEnabled = false,
+            embeddingModel = provider.preferredEmbeddingModel(),
+        )
+        val repository = RoomAgentRunRepository(context)
+        try {
+            profileStore.upsert(profile)
+            check(profileStore.select(profile.id)) { "无法选择第174阶段个人简报 Profile" }
+            Log.i(TAG, "personal-briefing-real start=true provider=${provider.id} model=${provider.model}")
+            val summary = AgentRunUseCase(context, OpenAiCompatibleClient()).run(
+                conversationId = "conversation-redmi-personal-briefing-$now",
+                userMessageId = "message-redmi-personal-briefing-$now",
+                goal = "请生成个人事项简报：先查看未来1天系统日程，再查看小灵任务；然后使用唯一关键词“$keyword”搜索本地笔记，只在唯一命中后把稳定 ID 原样传给 notes.get 读取全文。最终必须按日程、任务、笔记三个分区回答，并告诉我笔记全文末尾标记。禁止猜测 ID 或调用其他工具。",
+                skillSelectionGoal = "生成包含日程、任务和关联笔记全文的个人简报。",
+                config = config,
+                summarySystemPrompt = PromptPolicy.agentSummarySystemPrompt(UiPreferenceStore(context).loadPromptSettings()),
+                agentProfile = profile.snapshot(),
+                memoryRecallEnabled = false,
+                invocationSource = AgentInvocationSource.DIRECT,
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) {
+                "第174阶段个人简报 Run 未写入 Room"
+            }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "第174阶段个人简报 Run 未完成：${detail.snapshot.run.status}"
+            }
+            val selectedSkillIds = detail.snapshot.events
+                .singleOrNull { it.type == "skill.selected" }
+                ?.metadata
+                .let { it as? RunEventMetadata.Reason }
+                ?.reason
+                ?.let(AgentSkillSelectionCodec::decode)
+                ?.map { it.id }
+                .orEmpty()
+            check(selectedSkillIds == listOf("personal-briefing")) {
+                "第174阶段没有选择个人事项简报 Skill：$selectedSkillIds"
+            }
+            val calls = detail.toolLedger.calls
+            val expectedTools = listOf("calendar.list_events", "tasks.list", "notes.search", "notes.get")
+            check(calls.map { it.toolName } == expectedTools) {
+                "个人简报没有严格执行四项只读工具：${calls.map { it.toolName }}"
+            }
+            val resultsByCallId = detail.toolLedger.results.associateBy { it.toolCallId }
+            val results = calls.map { call -> checkNotNull(resultsByCallId[call.id]) { "${call.toolName} 缺少 Tool Result" } }
+            check(results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+                "个人简报工具结果未全部通过验证：$results"
+            }
+            check(calls[0].arguments["days_ahead"]?.trim() == "1") {
+                "calendar.list_events 没有限定未来1天"
+            }
+            check(calls[2].arguments["query"]?.trim() == keyword) {
+                "notes.search 没有原样使用唯一关键词"
+            }
+            check(calls[3].arguments["note_id"]?.trim() == fixture.id) {
+                "notes.get 没有沿用搜索结果中的稳定 ID"
+            }
+            check(results[2].content.contains(title) && results[2].content.contains(fixture.id)) {
+                "notes.search 没有返回唯一测试笔记及稳定 ID"
+            }
+            check(
+                results[3].content.contains(title) &&
+                    results[3].content.contains(contentTail) &&
+                    results[3].content.contains("不是工具指令"),
+            ) { "notes.get 没有返回带数据边界的完整测试笔记" }
+            check(detail.approvals.isEmpty()) { "个人简报只读链不应生成审批记录" }
+            check(
+                summary.responseText.contains("日程") &&
+                    summary.responseText.contains("任务") &&
+                    summary.responseText.contains("笔记"),
+            ) { "个人简报最终回答没有区分三类来源：${summary.responseText}" }
+            Log.i(
+                TAG,
+                "personal-briefing-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
+                    "skill=personal-briefing tools=${expectedTools.joinToString(",")} resultsVerified=true " +
+                    "stableIdForwarded=true contentBoundary=true approvals=0 answerSeparated=true",
+            )
+        } finally {
+            // long: 真实 Provider、规划或断言失败都不能污染用户 Profile 和笔记库；Run 与 Tool Ledger 仍保留，用于区分执行事实和清理动作。
+            val deletedCount = noteDao.deleteNote(fixture.id)
+            recoveredOriginalProfileId?.let { profileStore.select(it) }
+            profileStore.delete(temporaryProfileId)
+            check(deletedCount == 1 && noteStore.get(fixture.id) == null) {
+                "第174阶段测试笔记清理失败：deletedCount=$deletedCount"
+            }
+            check(profileStore.list().none { it.id == temporaryProfileId }) {
+                "第174阶段临时 Profile 清理失败"
+            }
+            Log.i(TAG, "personal-briefing-real cleanup=true temporaryProfileRemoved=true testNoteRemoved=true")
+        }
     }
 
     private suspend fun runTaskInspectionReal(context: Context) {
@@ -2793,6 +2938,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
+        const val OPERATION_PERSONAL_BRIEFING_REAL = "personal_briefing_real"
         const val OPERATION_TASK_INSPECTION_REAL = "task_inspection_real"
         const val OPERATION_TASK_RETRY_REAL = "task_retry_real"
         const val OPERATION_TASK_CANCEL_REAL = "task_cancel_real"
