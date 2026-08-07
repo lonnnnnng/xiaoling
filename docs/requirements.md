@@ -1,5 +1,14 @@
 # 产品需求
 
+## 应用内周期计划暂停/恢复（第 176 阶段，完成）
+
+- 新增 `tasks.pause(name)`、`tasks.resume(name)` 与独立 `task-schedule-control` Skill。两项工具只允许前台直接 Agent、需要逐次用户确认且不支持后台；旧 Profile、历史 Run、`task-overview/retry/cancel` Skill 和 legacy 工具集合不得自动扩权。
+- 目标必须由 `tasks.list / tasks.inspect` 返回的精确唯一任务名解析，并且存在唯一 DAILY/WEEKLY 规则。一次性计划、同名任务、工作流停用、规则与实例身份不一致、缺失指针、终态指针或系统调度证据缺失都必须 fail-closed。
+- 暂停必须保留周期规则行，只取消仍为 `SCHEDULED` 的未来实例并清空规则的未来指针；已经进入 `RUNNING / STOP_REQUESTED` 的实例及其 Workflow/Agent Run 继续按原链收敛，不得被暂停改写。
+- 恢复必须复用原 schedule ID，并根据当前时间、原墙上时间和时区只物化一个未来实例；暂停期间错过的周期不得补跑。重复暂停/恢复按当前 Room 状态幂等，不得生成重复 Task 或 WorkRequest。
+- 恢复只有在未来 Task 已绑定 WorkRequest 且回读一致时才能报告成功。系统入队或关联失败必须把本次新 Task 收敛，并把规则回滚为无未来指针的暂停态，使用户可以重新恢复。
+- 本阶段不修改 Room v36 Schema、历史 Run、一次性计划、前台手动 Run、设备 Workflow、Foreground Service、精确定时或系统日程；真实 Provider 自然语言闭环与可信结果导航留给下一独立阶段。
+
 ## 受控系统日程创建（第 175 阶段，完成）
 
 - 新增 `calendar.create_event(title, start_at, end_at, time_zone)` 与独立 `calendar-create` Skill。工具为 `REQUIRES_APPROVAL`、`supportsBackground=false`，需要 `READ_CALENDAR + WRITE_CALENDAR`；用户必须在前台逐次确认，旧 Profile、历史 Run 和既有只读日历 Skill 不自动获得写能力。

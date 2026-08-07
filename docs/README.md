@@ -2,7 +2,9 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 175 阶段、Room v36，尚未形成新 Release。第 175 阶段新增前台 `REQUIRES_APPROVAL` 的 `calendar.create_event` 与独立 `calendar-create` Skill，只创建一次性非全天事件；ISO-8601 起止时间的 UTC 偏移必须与 IANA 时区一致。Provider 写入以 ToolCall 稳定标记幂等，事件 ID 形成 `COMMITTED` 回执并支持只读恢复验证；没有可写日历时只创建不接入账户的本地“小灵”日历。设置页分别申请 `READ_CALENDAR` 和创建所需读写权限，旧 Profile/Run、Room 和后台边界不变。聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi Provider/权限页 `3/3` 与文档 corpus `1/1` 通过，测试数据已清理。
+当前开发基线已到第 176 阶段、Room v36，尚未形成新 Release。第 176 阶段新增仅前台 `REQUIRES_APPROVAL` 的 `tasks.pause / tasks.resume` 与独立 `task-schedule-control` Skill，只控制应用内 DAILY/WEEKLY 周期规则。暂停保留规则与历史事实、撤销未开始实例且不停止当前运行；恢复从当前时间之后只生成一个实例，不补跑错过周期。指针/状态漂移拒绝，入队失败回滚为暂停态；旧 Profile/Run、一次性计划、Room 和后台边界不变。聚焦 JVM `82/82`、Debug/AndroidTest APK、仅 Redmi 的任务 Store `13/13` 与文档 corpus `1/1` 通过。
+
+第 175 阶段新增前台 `REQUIRES_APPROVAL` 的 `calendar.create_event` 与独立 `calendar-create` Skill，只创建一次性非全天事件；ISO-8601 起止时间的 UTC 偏移必须与 IANA 时区一致。Provider 写入以 ToolCall 稳定标记幂等，事件 ID 形成 `COMMITTED` 回执并支持只读恢复验证；没有可写日历时只创建不接入账户的本地“小灵”日历。设置页分别申请 `READ_CALENDAR` 和创建所需读写权限，旧 Profile/Run、Room 和后台边界不变。聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi Provider/权限页 `3/3` 与文档 corpus `1/1` 通过，测试数据已清理。
 
 第 174 阶段新增独立 SAFE `personal-briefing` Skill：只有用户明确给出笔记关键词时，才在同一 Run 组合 `calendar.list_events -> tasks.list -> notes.search -> notes.get`，并把最终回答分成日程、任务和笔记三类来源。它复用现有 `READ_CALENDAR` 主动授权和四项只读工具，原 `day-overview`、旧 Profile、Room、审批及后台边界均不改变。聚焦 JVM `22/22`、Debug/AndroidTest APK 和 Redmi 真实 Provider 四工具闭环通过。
 

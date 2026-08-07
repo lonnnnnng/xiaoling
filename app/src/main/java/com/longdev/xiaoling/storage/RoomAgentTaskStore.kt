@@ -10,10 +10,14 @@ import com.longdev.xiaoling.agent.AgentTaskRecord
 import com.longdev.xiaoling.agent.AgentTaskRetryRecord
 import com.longdev.xiaoling.agent.AgentTaskRetryResult
 import com.longdev.xiaoling.agent.AgentTaskRetryVerificationResult
+import com.longdev.xiaoling.agent.AgentTaskScheduleMutationRecord
+import com.longdev.xiaoling.agent.AgentTaskScheduleMutationResult
+import com.longdev.xiaoling.agent.AgentTaskScheduleState
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRunStepRecord
 import com.longdev.xiaoling.agent.AgentTaskStore
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
+import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
@@ -21,9 +25,22 @@ import com.longdev.xiaoling.automation.ScheduledWorkflowStopOutcome
 import com.longdev.xiaoling.automation.WorkManagerScheduledTaskScheduler
 import com.longdev.xiaoling.automation.WorkflowRunRecord
 import com.longdev.xiaoling.automation.WorkflowRunStatus
+import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowStepRecord
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import kotlinx.coroutines.delay
+
+private sealed interface RecurringScheduleLookup {
+    data class Found(
+        val name: String,
+        val workflowEnabled: Boolean,
+        val schedule: WorkflowScheduleRecord,
+    ) : RecurringScheduleLookup
+
+    data class Ambiguous(val matchCount: Int) : RecurringScheduleLookup
+    data object NotFound : RecurringScheduleLookup
+    data object NoRecurringSchedule : RecurringScheduleLookup
+}
 
 internal class RoomAgentTaskStore(
     context: Context,
@@ -32,6 +49,7 @@ internal class RoomAgentTaskStore(
         context.applicationContext,
         repository,
     ),
+    private val scheduler: ScheduledTaskScheduler = WorkManagerScheduledTaskScheduler(context.applicationContext),
 ) : AgentTaskStore {
     override suspend fun list(limit: Int): List<AgentTaskRecord> {
         require(limit in 1..10) { "任务清单条数必须在 1 到 10 之间" }
@@ -50,7 +68,7 @@ internal class RoomAgentTaskStore(
             .mapValues { (_, tasks) -> tasks.minBy { task -> task.plannedAt } }
         val schedules = repository.listWorkflowSchedules()
             .asSequence()
-            .filter { schedule -> schedule.workflowId in workflowIds && schedule.enabled }
+            .filter { schedule -> schedule.workflowId in workflowIds }
             .associateBy { schedule -> schedule.workflowId }
 
         return workflows.map { workflow ->
@@ -62,7 +80,7 @@ internal class RoomAgentTaskStore(
             val scheduleType = when (nextPlannedAt) {
                 schedulePlannedAt -> schedule?.type?.name
                 taskPlannedAt -> scheduledTask?.type?.name
-                else -> null
+                else -> schedule?.type?.name
             }
             // long: Agent 只读取用户可理解的任务摘要；Room 内部 Run/Task/Schedule ID、错误详情和步骤输出不进入工具结果。
             AgentTaskRecord(
@@ -74,6 +92,7 @@ internal class RoomAgentTaskStore(
                 latestRunStatus = latestRuns[workflow.id]?.status?.name,
                 scheduleType = scheduleType,
                 nextPlannedAt = nextPlannedAt,
+                recurringScheduleEnabled = schedule?.enabled,
             )
         }
     }
@@ -87,6 +106,9 @@ internal class RoomAgentTaskStore(
         if (matches.size > 1) return AgentTaskInspectionResult.Ambiguous(matches.size)
 
         val workflow = matches.single()
+        val recurringSchedule = repository.listWorkflowSchedules().singleOrNull { schedule ->
+            schedule.workflowId == workflow.id
+        }
         val latestRun = repository.latestRunsForWorkflows(listOf(workflow.id)).singleOrNull()
         if (latestRun == null) {
             return AgentTaskInspectionResult.Found(
@@ -100,6 +122,9 @@ internal class RoomAgentTaskStore(
                     latestRunCompletedAt = null,
                     diagnosis = null,
                     steps = emptyList(),
+                    recurringScheduleType = recurringSchedule?.type?.name,
+                    recurringScheduleEnabled = recurringSchedule?.enabled,
+                    recurringNextPlannedAt = recurringSchedule?.nextPlannedAt,
                 ),
             )
         }
@@ -119,6 +144,9 @@ internal class RoomAgentTaskStore(
                 steps = detail?.steps.orEmpty()
                     .sortedBy { step -> step.sequence }
                     .map { step -> AgentTaskRunStepRecord(sequence = step.sequence, status = step.status.name) },
+                recurringScheduleType = recurringSchedule?.type?.name,
+                recurringScheduleEnabled = recurringSchedule?.enabled,
+                recurringNextPlannedAt = recurringSchedule?.nextPlannedAt,
             ),
         )
     }
@@ -221,6 +249,129 @@ internal class RoomAgentTaskStore(
                 ),
             )
         }
+    }
+
+    override suspend fun pause(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskScheduleMutationResult {
+        val lookup = when (val resolved = resolveRecurringSchedule(name)) {
+            RecurringScheduleLookup.NotFound -> return AgentTaskScheduleMutationResult.NotFound
+            RecurringScheduleLookup.NoRecurringSchedule -> return AgentTaskScheduleMutationResult.NoRecurringSchedule
+            is RecurringScheduleLookup.Ambiguous -> return AgentTaskScheduleMutationResult.Ambiguous(resolved.matchCount)
+            is RecurringScheduleLookup.Found -> resolved
+        }
+        val result = runCatching { repository.pauseWorkflowSchedule(lookup.schedule.id) }
+            .getOrElse { error ->
+                return AgentTaskScheduleMutationResult.Rejected(error.message ?: "暂停周期计划失败")
+            }
+            ?: return AgentTaskScheduleMutationResult.Rejected("周期计划状态已经变化，请重新读取任务后再暂停。")
+        val systemCancellationFailed = result.cancelledTaskId?.let { taskId ->
+            runCatching { scheduler.cancel(taskId) }.isFailure
+        } ?: false
+        val current = repository.listWorkflowSchedules().singleOrNull { schedule -> schedule.id == result.schedule.id }
+        if (current == null || current.enabled || current.nextTaskId != null) {
+            return AgentTaskScheduleMutationResult.Rejected("周期计划暂停后回读不一致，已停止报告成功。")
+        }
+        val record = AgentTaskScheduleMutationRecord(
+            name = lookup.name,
+            state = AgentTaskScheduleState.PAUSED,
+            scheduleType = current.type.name,
+            nextPlannedAt = null,
+            runningTaskUnaffected = result.runningTaskUnaffected,
+            systemOperationFailed = systemCancellationFailed,
+        )
+        // long: 同一计划的重复暂停由 Room 当前状态判定为幂等成功；会话和 ToolCall ID 只参与 Runtime 审计，不参与猜测任务身份。
+        return if (result.changed) {
+            AgentTaskScheduleMutationResult.Changed(record)
+        } else {
+            AgentTaskScheduleMutationResult.AlreadyInState(record)
+        }
+    }
+
+    override suspend fun resume(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskScheduleMutationResult {
+        val lookup = when (val resolved = resolveRecurringSchedule(name)) {
+            RecurringScheduleLookup.NotFound -> return AgentTaskScheduleMutationResult.NotFound
+            RecurringScheduleLookup.NoRecurringSchedule -> return AgentTaskScheduleMutationResult.NoRecurringSchedule
+            is RecurringScheduleLookup.Ambiguous -> return AgentTaskScheduleMutationResult.Ambiguous(resolved.matchCount)
+            is RecurringScheduleLookup.Found -> resolved
+        }
+        if (!lookup.workflowEnabled) return AgentTaskScheduleMutationResult.Rejected("任务已停用，不能恢复周期计划。")
+        val result = runCatching { repository.resumeWorkflowSchedule(lookup.schedule.id) }
+            .getOrElse { error ->
+                return AgentTaskScheduleMutationResult.Rejected(error.message ?: "恢复周期计划失败")
+            }
+            ?: return AgentTaskScheduleMutationResult.Rejected("周期计划状态已经变化，请重新读取任务后再恢复。")
+        val task = result.task
+        if (result.changed && task != null) {
+            try {
+                val workRequestId = scheduler.enqueue(task)
+                repository.attachWorkRequest(task.id, workRequestId)
+            } catch (error: Throwable) {
+                runCatching { scheduler.cancel(task.id) }
+                val rolledBack = runCatching {
+                    repository.rollbackWorkflowScheduleResume(
+                        scheduleId = result.schedule.id,
+                        taskId = task.id,
+                        reason = error.message ?: "恢复周期计划后系统入队失败",
+                    )
+                }.getOrDefault(false)
+                return AgentTaskScheduleMutationResult.Rejected(
+                    if (rolledBack) {
+                        "周期计划恢复后系统入队失败，计划已保持暂停，可重新尝试恢复。"
+                    } else {
+                        "周期计划恢复期间状态再次变化，请重新读取任务。"
+                    },
+                )
+            }
+        }
+        val current = repository.listWorkflowSchedules().singleOrNull { schedule -> schedule.id == result.schedule.id }
+            ?: return AgentTaskScheduleMutationResult.Rejected("周期计划恢复后无法回读，已停止报告成功。")
+        if (!current.enabled) {
+            return AgentTaskScheduleMutationResult.Rejected("周期计划恢复期间状态再次变化，请重新读取任务。")
+        }
+        val currentTask = current.nextTaskId?.let { taskId -> repository.getScheduledTask(taskId) }
+        if (
+            result.changed && (
+                current.nextTaskId != task?.id ||
+                    currentTask?.status != ScheduledTaskStatus.SCHEDULED ||
+                    currentTask.workRequestId.isNullOrBlank()
+                )
+        ) {
+            return AgentTaskScheduleMutationResult.Rejected("周期计划恢复后的系统调度证据不一致，已停止报告成功。")
+        }
+        val record = AgentTaskScheduleMutationRecord(
+            name = lookup.name,
+            state = AgentTaskScheduleState.ACTIVE,
+            scheduleType = current.type.name,
+            nextPlannedAt = current.nextPlannedAt,
+            runningTaskUnaffected = false,
+            systemOperationFailed = false,
+        )
+        return if (result.changed) {
+            AgentTaskScheduleMutationResult.Changed(record)
+        } else {
+            AgentTaskScheduleMutationResult.AlreadyInState(record)
+        }
+    }
+
+    private suspend fun resolveRecurringSchedule(name: String): RecurringScheduleLookup {
+        val normalizedName = name.trim()
+        require(normalizedName.isNotEmpty()) { "任务名称不能为空" }
+        require(normalizedName.length <= 100) { "任务名称不能超过 100 个字符" }
+        val workflows = repository.listWorkflows().filter { workflow -> workflow.name == normalizedName }
+        if (workflows.isEmpty()) return RecurringScheduleLookup.NotFound
+        if (workflows.size > 1) return RecurringScheduleLookup.Ambiguous(workflows.size)
+        val workflow = workflows.single()
+        val schedules = repository.listWorkflowSchedules().filter { schedule -> schedule.workflowId == workflow.id }
+        if (schedules.isEmpty()) return RecurringScheduleLookup.NoRecurringSchedule
+        if (schedules.size > 1) return RecurringScheduleLookup.Ambiguous(schedules.size)
+        return RecurringScheduleLookup.Found(normalizedName, workflow.enabled, schedules.single())
     }
 
     private fun ScheduledWorkflowStopOutcome.toAgentTaskCancelOutcome(): AgentTaskCancelOutcome {

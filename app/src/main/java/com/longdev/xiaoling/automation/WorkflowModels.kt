@@ -547,6 +547,19 @@ data class WorkflowScheduleCancellation(
     val cancelledTaskId: String?,
 )
 
+data class WorkflowSchedulePause(
+    val schedule: WorkflowScheduleRecord,
+    val cancelledTaskId: String?,
+    val changed: Boolean,
+    val runningTaskUnaffected: Boolean,
+)
+
+data class WorkflowScheduleResume(
+    val schedule: WorkflowScheduleRecord,
+    val task: ScheduledTaskRecord?,
+    val changed: Boolean,
+)
+
 object WorkflowSchedulePolicy {
     const val MINUTES_PER_DAY = 24 * 60
 

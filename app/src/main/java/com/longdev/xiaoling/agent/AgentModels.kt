@@ -791,6 +791,7 @@ data class AgentTaskRecord(
     val latestRunStatus: String?,
     val scheduleType: String?,
     val nextPlannedAt: Long?,
+    val recurringScheduleEnabled: Boolean? = null,
 )
 
 data class AgentTaskRunStepRecord(
@@ -817,6 +818,9 @@ data class AgentTaskInspectionRecord(
     val latestRunCompletedAt: Long?,
     val diagnosis: AgentTaskRunDiagnosis?,
     val steps: List<AgentTaskRunStepRecord>,
+    val recurringScheduleType: String? = null,
+    val recurringScheduleEnabled: Boolean? = null,
+    val recurringNextPlannedAt: Long? = null,
 )
 
 sealed interface AgentTaskInspectionResult {
@@ -867,6 +871,29 @@ sealed interface AgentTaskCancelResult {
     data object NoActiveSchedule : AgentTaskCancelResult
 }
 
+enum class AgentTaskScheduleState {
+    ACTIVE,
+    PAUSED,
+}
+
+data class AgentTaskScheduleMutationRecord(
+    val name: String,
+    val state: AgentTaskScheduleState,
+    val scheduleType: String,
+    val nextPlannedAt: Long?,
+    val runningTaskUnaffected: Boolean,
+    val systemOperationFailed: Boolean,
+)
+
+sealed interface AgentTaskScheduleMutationResult {
+    data class Changed(val schedule: AgentTaskScheduleMutationRecord) : AgentTaskScheduleMutationResult
+    data class AlreadyInState(val schedule: AgentTaskScheduleMutationRecord) : AgentTaskScheduleMutationResult
+    data class Ambiguous(val matchCount: Int) : AgentTaskScheduleMutationResult
+    data class Rejected(val reason: String) : AgentTaskScheduleMutationResult
+    data object NotFound : AgentTaskScheduleMutationResult
+    data object NoRecurringSchedule : AgentTaskScheduleMutationResult
+}
+
 interface AgentTaskStore {
     suspend fun list(limit: Int): List<AgentTaskRecord>
     suspend fun inspect(name: String): AgentTaskInspectionResult
@@ -883,6 +910,16 @@ interface AgentTaskStore {
         conversationId: String,
         idempotencyKey: String,
     ): AgentTaskCancelResult = AgentTaskCancelResult.Rejected("任务取消存储不可用")
+    suspend fun pause(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskScheduleMutationResult = AgentTaskScheduleMutationResult.Rejected("周期计划暂停存储不可用")
+    suspend fun resume(
+        name: String,
+        conversationId: String,
+        idempotencyKey: String,
+    ): AgentTaskScheduleMutationResult = AgentTaskScheduleMutationResult.Rejected("周期计划恢复存储不可用")
 }
 
 data class AgentNoteRecord(

@@ -10,6 +10,10 @@ import com.longdev.xiaoling.agent.AgentTaskCancelResult
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRetryResult
 import com.longdev.xiaoling.agent.AgentTaskRetryVerificationResult
+import com.longdev.xiaoling.agent.AgentTaskScheduleMutationResult
+import com.longdev.xiaoling.agent.AgentTaskScheduleState
+import com.longdev.xiaoling.automation.ScheduledTaskRecord
+import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.automation.ScheduledTaskType
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopCoordinator
@@ -36,7 +40,8 @@ class RoomAgentTaskStoreInstrumentedTest {
         .allowMainThreadQueries()
         .build()
     private val repository = RoomWorkflowRepository(context, database)
-    private val store = RoomAgentTaskStore(context, repository, testStopCoordinator())
+    private val scheduler = RecordingScheduledTaskScheduler()
+    private val store = RoomAgentTaskStore(context, repository, testStopCoordinator(), scheduler)
 
     @After
     fun tearDown() {
@@ -113,6 +118,144 @@ class RoomAgentTaskStoreInstrumentedTest {
 
         assertEquals(ScheduledTaskType.ONE_TIME.name, task.scheduleType)
         assertEquals(oneTimeTask.plannedAt, task.nextPlannedAt)
+    }
+
+    @Test
+    fun pauseAndResumeRecurringScheduleAreIdempotentAndKeepHistoricalRunUnchanged() = runBlocking {
+        val workflow = repository.createWorkflow("每日回顾", "总结今天完成的工作")
+        val source = repository.createManualRun(workflow.id, "conversation-history")
+        repository.markAgentRunStarted(source.run.id, source.steps.single().id, "agent-run-history")
+        repository.completeRun(source.run.id, WorkflowRunStatus.FAILED, errorMessage = "历史失败")
+        val sourceBefore = repository.runDetail(source.run.id)
+        val recurringTime = ZonedDateTime.now().plusHours(2)
+        val plan = repository.createOrReplaceWorkflowSchedule(
+            workflowId = workflow.id,
+            type = WorkflowScheduleType.DAILY,
+            hour = recurringTime.hour,
+            minute = recurringTime.minute,
+            dayOfWeek = null,
+        )
+        repository.attachWorkRequest(plan.task.id, "work-request-before-pause")
+
+        val paused = store.pause(" 每日回顾 ", "conversation-direct", "tool-call-pause")
+        val repeatedPause = store.pause("每日回顾", "conversation-direct", "tool-call-pause")
+
+        val pausedRecord = (paused as AgentTaskScheduleMutationResult.Changed).schedule
+        assertEquals(AgentTaskScheduleState.PAUSED, pausedRecord.state)
+        assertEquals(false, pausedRecord.runningTaskUnaffected)
+        assertEquals(listOf(plan.task.id), scheduler.cancelledTaskIds)
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(plan.task.id)?.status)
+        assertEquals(false, repository.listWorkflowSchedules().single().enabled)
+        assertEquals(null, repository.listWorkflowSchedules().single().nextTaskId)
+        assertEquals(true, repeatedPause is AgentTaskScheduleMutationResult.AlreadyInState)
+        val pausedProjection = store.list(5).single()
+        assertEquals(WorkflowScheduleType.DAILY.name, pausedProjection.scheduleType)
+        assertEquals(false, pausedProjection.recurringScheduleEnabled)
+        assertEquals(null, pausedProjection.nextPlannedAt)
+
+        val resumed = store.resume("每日回顾", "conversation-direct", "tool-call-resume")
+        val repeatedResume = store.resume("每日回顾", "conversation-direct", "tool-call-resume")
+
+        val resumedRecord = (resumed as AgentTaskScheduleMutationResult.Changed).schedule
+        assertEquals(AgentTaskScheduleState.ACTIVE, resumedRecord.state)
+        assertEquals(1, scheduler.enqueuedTaskIds.size)
+        assertEquals(true, resumedRecord.nextPlannedAt!! > System.currentTimeMillis())
+        assertEquals(true, repeatedResume is AgentTaskScheduleMutationResult.AlreadyInState)
+        assertEquals(1, scheduler.enqueuedTaskIds.size)
+        assertEquals(true, repository.listWorkflowSchedules().single().enabled)
+        assertEquals(sourceBefore, repository.runDetail(source.run.id))
+        assertEquals(ScheduledTaskStatus.CANCELLED, repository.getScheduledTask(plan.task.id)?.status)
+    }
+
+    @Test
+    fun pauseRecurringScheduleKeepsRunningInstanceAndPreventsNextMaterialization() = runBlocking {
+        val workflow = repository.createWorkflow("运行中的每日回顾", "完成当前回顾后暂停")
+        val recurringTime = ZonedDateTime.now().plusHours(2)
+        val plan = repository.createOrReplaceWorkflowSchedule(
+            workflowId = workflow.id,
+            type = WorkflowScheduleType.DAILY,
+            hour = recurringTime.hour,
+            minute = recurringTime.minute,
+            dayOfWeek = null,
+        )
+        repository.attachWorkRequest(plan.task.id, "work-request-running")
+        val claim = repository.claimScheduledRun(plan.task.id)!!
+        repository.markAgentRunStarted(
+            claim.run.run.id,
+            claim.run.steps.single().id,
+            "agent-run-running-pause",
+        )
+
+        val paused = store.pause(
+            "运行中的每日回顾",
+            "conversation-direct",
+            "tool-call-pause-running",
+        ) as AgentTaskScheduleMutationResult.Changed
+
+        assertEquals(true, paused.schedule.runningTaskUnaffected)
+        assertEquals(emptyList<String>(), scheduler.cancelledTaskIds)
+        assertEquals(ScheduledTaskStatus.RUNNING, repository.getScheduledTask(plan.task.id)?.status)
+        assertEquals(WorkflowRunStatus.RUNNING, repository.runDetail(claim.run.run.id)?.run?.status)
+        assertEquals(false, repository.listWorkflowSchedules().single().enabled)
+        repository.completeRun(claim.run.run.id, WorkflowRunStatus.COMPLETED, result = "当前实例已完成")
+        repository.finishScheduledTask(plan.task.id, ScheduledTaskStatus.COMPLETED)
+        assertEquals(null, repository.materializeNextOccurrence(plan.task.id))
+        assertEquals(1, repository.listScheduledTasks().size)
+    }
+
+    @Test
+    fun scheduleControlRejectsPointerDriftInsteadOfClearingOrReportingActive() = runBlocking {
+        val workflow = repository.createWorkflow("漂移计划", "验证计划指针")
+        val recurringTime = ZonedDateTime.now().plusHours(2)
+        val plan = repository.createOrReplaceWorkflowSchedule(
+            workflowId = workflow.id,
+            type = WorkflowScheduleType.DAILY,
+            hour = recurringTime.hour,
+            minute = recurringTime.minute,
+            dayOfWeek = null,
+        )
+        repository.cancelScheduledTask(plan.task.id)
+
+        assertEquals(
+            true,
+            store.pause("漂移计划", "conversation-direct", "tool-call-pause-drift") is
+                AgentTaskScheduleMutationResult.Rejected,
+        )
+        assertEquals(
+            true,
+            store.resume("漂移计划", "conversation-direct", "tool-call-resume-drift") is
+                AgentTaskScheduleMutationResult.Rejected,
+        )
+        assertEquals(true, repository.listWorkflowSchedules().single().enabled)
+        assertEquals(plan.task.id, repository.listWorkflowSchedules().single().nextTaskId)
+    }
+
+    @Test
+    fun failedResumeSchedulingRollsBackToPausedAndCanRetryOnce() = runBlocking {
+        val workflow = repository.createWorkflow("可重试恢复", "恢复每日计划")
+        val recurringTime = ZonedDateTime.now().plusHours(2)
+        repository.createOrReplaceWorkflowSchedule(
+            workflowId = workflow.id,
+            type = WorkflowScheduleType.DAILY,
+            hour = recurringTime.hour,
+            minute = recurringTime.minute,
+            dayOfWeek = null,
+        )
+        store.pause("可重试恢复", "conversation-direct", "tool-call-pause-before-failure")
+        scheduler.failEnqueue = true
+
+        val failed = store.resume("可重试恢复", "conversation-direct", "tool-call-resume-failed")
+
+        assertEquals(true, failed is AgentTaskScheduleMutationResult.Rejected)
+        assertEquals(false, repository.listWorkflowSchedules().single().enabled)
+        assertEquals(null, repository.listWorkflowSchedules().single().nextTaskId)
+        scheduler.failEnqueue = false
+
+        val retried = store.resume("可重试恢复", "conversation-direct", "tool-call-resume-retry")
+
+        assertEquals(true, retried is AgentTaskScheduleMutationResult.Changed)
+        assertEquals(true, repository.listWorkflowSchedules().single().enabled)
+        assertEquals(1, scheduler.enqueuedTaskIds.size)
     }
 
     @Test
@@ -363,5 +506,21 @@ class RoomAgentTaskStoreInstrumentedTest {
             reconcileUnsettledTask = { false },
             settlementChecks = 1,
         )
+    }
+}
+
+private class RecordingScheduledTaskScheduler : ScheduledTaskScheduler {
+    val enqueuedTaskIds = mutableListOf<String>()
+    val cancelledTaskIds = mutableListOf<String>()
+    var failEnqueue = false
+
+    override suspend fun enqueue(task: ScheduledTaskRecord): String {
+        if (failEnqueue) error("测试系统入队失败")
+        enqueuedTaskIds += task.id
+        return "work-request-${task.id}"
+    }
+
+    override suspend fun cancel(taskId: String) {
+        cancelledTaskIds += taskId
     }
 }

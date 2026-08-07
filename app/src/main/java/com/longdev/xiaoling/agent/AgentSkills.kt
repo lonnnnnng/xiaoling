@@ -180,6 +180,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回已取消、已请求停止或已收敛的稳定结果；系统取消失败时说明停止意图已持久化。",
         ),
         AgentSkillDefinition(
+            id = "task-schedule-control",
+            name = "周期计划暂停与恢复",
+            description = "核对并暂停或恢复小灵任务的周期计划。",
+            instructions = "先读取任务清单并按精确名称核对周期计划；只有用户明确要求时才调用 tasks.pause 或 tasks.resume。暂停只撤销尚未开始的未来实例，不中断正在运行的任务；恢复从当前时间之后计算下一次执行，不补跑暂停期间错过的周期。一次性计划、同名任务或状态漂移时停止。",
+            toolNames = setOf("tasks.list", "tasks.inspect", "tasks.pause", "tasks.resume"),
+            keywords = setOf("暂停提醒", "恢复提醒", "暂停周期任务", "恢复周期任务", "pause schedule", "resume schedule"),
+            triggerExamples = listOf("暂停每日回顾提醒", "恢复每周总结任务"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "任务不存在、同名、没有周期计划、工作流停用或状态漂移时停止；不修改历史 Run，也不猜测内部 ID。",
+            completionCriteria = "周期计划已暂停并停止生成未来实例，或已恢复且只生成一个未来实例；否则明确说明状态未改变。",
+        ),
+        AgentSkillDefinition(
             id = "personal-memory",
             name = "长期记忆",
             description = "检索或保存用户明确授权的长期记忆。",

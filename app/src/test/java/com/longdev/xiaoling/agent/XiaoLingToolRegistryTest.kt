@@ -339,6 +339,8 @@ class XiaoLingToolRegistryTest {
                 "tasks.list",
                 "tasks.inspect",
                 "tasks.retry",
+                "tasks.pause",
+                "tasks.resume",
                 "notes.list",
                 "notes.search",
                 "notes.get",
@@ -358,12 +360,15 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.inspect").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.retry").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.pause").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.resume").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.update").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.delete").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
+        assertFalse(registry.availableTools().any { tool -> tool.name in setOf("tasks.pause", "tasks.resume") })
         assertNotNull(tools.getValue("notes.create").inputSchema.singleOrNull { it.name == "title" && it.required })
         assertEquals(listOf("note_id"), tools.getValue("notes.get").inputSchema.map { it.name })
         assertEquals(ToolRisk.SAFE, tools.getValue("notes.get").risk)
@@ -388,6 +393,12 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("tasks.retry").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("tasks.retry").replaySafety)
         assertFalse(tools.getValue("tasks.retry").permissionPolicy.supportsBackground)
+        listOf("tasks.pause", "tasks.resume").forEach { toolName ->
+            assertEquals(listOf("name"), tools.getValue(toolName).inputSchema.map { field -> field.name })
+            assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue(toolName).verificationPolicy)
+            assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue(toolName).replaySafety)
+            assertFalse(tools.getValue(toolName).permissionPolicy.supportsBackground)
+        }
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
@@ -425,6 +436,42 @@ class XiaoLingToolRegistryTest {
         )
         assertNull(registry.definition("tasks.retry"))
         assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
+    }
+
+    @Test
+    fun taskScheduleControlIsOnlyAvailableToDirectForegroundAgent() {
+        val registry = testRegistry()
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "暂停每日回顾提醒",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNotNull(registry.definition("tasks.pause"))
+        assertNotNull(registry.definition("tasks.resume"))
+        assertTrue(registry.availableTools().any { tool -> tool.name == "tasks.pause" })
+        assertTrue(registry.availableTools().any { tool -> tool.name == "tasks.resume" })
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "暂停每日回顾提醒"))
+        assertNull(registry.definition("tasks.pause"))
+        assertNull(registry.definition("tasks.resume"))
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-background",
+                userMessageId = "message-background",
+                runId = "run-background",
+                goal = "恢复每日回顾提醒",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertFalse(registry.availableTools().any { tool -> tool.name in setOf("tasks.pause", "tasks.resume") })
     }
 
     @Test
@@ -1994,6 +2041,17 @@ class XiaoLingToolRegistryTest {
                             scheduleType = "DAILY",
                             nextPlannedAt = 1_784_252_245_000L,
                         ),
+                        AgentTaskRecord(
+                            name = "每周总结",
+                            goal = "每周形成总结",
+                            enabled = true,
+                            stepCount = 1,
+                            updatedAt = 2L,
+                            latestRunStatus = null,
+                            scheduleType = "WEEKLY",
+                            nextPlannedAt = null,
+                            recurringScheduleEnabled = false,
+                        ),
                     )
                 }
 
@@ -2015,6 +2073,7 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("每日回顾 · 已启用 · 2 步 · 最近：已完成 · 每日提醒"))
         assertTrue(result.content.contains("下次：2026-07-17 09:37"))
         assertTrue(result.content.contains("目标：总结今天完成的工作"))
+        assertTrue(result.content.contains("每周总结 · 已启用 · 1 步 · 每周提醒 · 周期计划：已暂停"))
         assertFalse(result.content.contains("workflow-private-id"))
     }
 
@@ -2040,6 +2099,9 @@ class XiaoLingToolRegistryTest {
                                 AgentTaskRunStepRecord(sequence = 1, status = "COMPLETED"),
                                 AgentTaskRunStepRecord(sequence = 2, status = "FAILED"),
                             ),
+                            recurringScheduleType = "DAILY",
+                            recurringScheduleEnabled = false,
+                            recurringNextPlannedAt = null,
                         ),
                     )
                 }
@@ -2056,6 +2118,7 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(result.success)
         assertTrue(result.content.contains("任务：每日回顾 · 已启用"))
+        assertTrue(result.content.contains("每日提醒：已暂停"))
         assertTrue(result.content.contains("最近运行：失败 · 计划运行"))
         assertTrue(result.content.contains("诊断：存在失败步骤"))
         assertTrue(result.content.contains("1. 已完成"))
@@ -2177,6 +2240,99 @@ class XiaoLingToolRegistryTest {
         assertTrue(result.content.contains("已取消"))
         assertFalse(result.content.contains("workflow-run-private-id"))
         assertFalse(result.content.contains("scheduled-task-private-id"))
+    }
+
+    @Test
+    fun taskScheduleControlReturnsStableVerifiedResultsWithoutInternalIds() = runTest {
+        val calls = mutableListOf<String>()
+        val registry = testRegistry(
+            taskStore = object : AgentTaskStore {
+                override suspend fun list(limit: Int): List<AgentTaskRecord> = emptyList()
+
+                override suspend fun inspect(name: String): AgentTaskInspectionResult = AgentTaskInspectionResult.NotFound
+
+                override suspend fun pause(
+                    name: String,
+                    conversationId: String,
+                    idempotencyKey: String,
+                ): AgentTaskScheduleMutationResult {
+                    calls += "pause:$name:$conversationId:$idempotencyKey"
+                    return AgentTaskScheduleMutationResult.Changed(
+                        AgentTaskScheduleMutationRecord(
+                            name = name,
+                            state = AgentTaskScheduleState.PAUSED,
+                            scheduleType = "DAILY",
+                            nextPlannedAt = null,
+                            runningTaskUnaffected = true,
+                            systemOperationFailed = false,
+                        ),
+                    )
+                }
+
+                override suspend fun resume(
+                    name: String,
+                    conversationId: String,
+                    idempotencyKey: String,
+                ): AgentTaskScheduleMutationResult {
+                    calls += "resume:$name:$conversationId:$idempotencyKey"
+                    return AgentTaskScheduleMutationResult.Changed(
+                        AgentTaskScheduleMutationRecord(
+                            name = name,
+                            state = AgentTaskScheduleState.ACTIVE,
+                            scheduleType = "DAILY",
+                            nextPlannedAt = 1_784_252_245_000L,
+                            runningTaskUnaffected = false,
+                            systemOperationFailed = false,
+                        ),
+                    )
+                }
+            },
+        )
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct",
+                userMessageId = "message-direct",
+                runId = "run-direct",
+                goal = "暂停再恢复每日回顾提醒",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val paused = registry.execute(
+            ToolCall(
+                id = "tool-call-task-pause",
+                name = "tasks.pause",
+                arguments = mapOf("name" to " 每日回顾 "),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        val resumed = registry.execute(
+            ToolCall(
+                id = "tool-call-task-resume",
+                name = "tasks.resume",
+                arguments = mapOf("name" to " 每日回顾 "),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "pause:每日回顾:conversation-direct:tool-call-task-pause",
+                "resume:每日回顾:conversation-direct:tool-call-task-resume",
+            ),
+            calls,
+        )
+        assertTrue(paused.success)
+        assertEquals(true, paused.verified)
+        assertTrue(paused.content.contains("周期计划已暂停"))
+        assertTrue(paused.content.contains("正在运行的实例保持不变"))
+        assertTrue(resumed.success)
+        assertEquals(true, resumed.verified)
+        assertTrue(resumed.content.contains("周期计划已恢复"))
+        assertTrue(resumed.content.contains("下次：2026-07-17 09:37"))
+        assertFalse(paused.content.contains("schedule-private-id"))
+        assertFalse(resumed.content.contains("scheduled-task-private-id"))
     }
 
     @Test

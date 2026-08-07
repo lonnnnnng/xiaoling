@@ -290,6 +290,44 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = TASK_PAUSE_TOOL_NAME,
+            description = "按精确名称暂停小灵任务的周期计划；只撤销尚未开始的未来实例，不中断正在运行的任务。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "name",
+                    description = "要暂停周期计划的精确任务名称，可先通过 tasks.list 和 tasks.inspect 核对。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = TASK_RESUME_TOOL_NAME,
+            description = "按精确名称恢复小灵任务的周期计划；从当前时间之后安排一次未来实例，不补跑暂停期间的周期。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "name",
+                    description = "要恢复周期计划的精确任务名称，可先通过 tasks.list 和 tasks.inspect 核对。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
             risk = ToolRisk.SAFE,
@@ -812,6 +850,10 @@ class XiaoLingToolRegistry(
         if (!taskCancelAllowed(context)) {
             available = available.filterNot { it.name == TASK_CANCEL_TOOL_NAME }
         }
+        if (!taskScheduleControlAllowed(context)) {
+            // long: 暂停和恢复会改写未来调度事实；未绑定前台直接 Run 时两项能力必须一起隐藏，避免后台或 Workflow 递归控制计划。
+            available = available.filterNot { it.name in TASK_SCHEDULE_CONTROL_TOOL_NAMES }
+        }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
@@ -843,7 +885,8 @@ class XiaoLingToolRegistry(
             definition.name !in workflowDeviceActionToolNames ||
                 workflowDeviceActionAllowedByIntent(runContext, definition.name)
             ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext)) &&
-            (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext))
+            (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
+            (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -858,6 +901,8 @@ class XiaoLingToolRegistry(
             "tasks.inspect" -> inspectTask(call)
             TASK_RETRY_TOOL_NAME -> retryTask(call)
             TASK_CANCEL_TOOL_NAME -> cancelTask(call)
+            TASK_PAUSE_TOOL_NAME -> mutateTaskSchedule(call, pause = true)
+            TASK_RESUME_TOOL_NAME -> mutateTaskSchedule(call, pause = false)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.get" -> getNote(call)
@@ -1229,6 +1274,9 @@ class XiaoLingToolRegistry(
                 append(" · ${task.stepCount} 步")
                 task.latestRunStatus?.let { status -> append(" · 最近：${taskRunStatusLabel(status)}") }
                 task.scheduleType?.let { type -> append(" · ${taskScheduleTypeLabel(type)}") }
+                task.recurringScheduleEnabled?.let { enabled ->
+                    append(if (enabled) " · 周期计划：已启用" else " · 周期计划：已暂停")
+                }
                 task.nextPlannedAt?.let { plannedAt ->
                     append(" · 下次：${formatter.format(Instant.ofEpochMilli(plannedAt))}")
                 }
@@ -1259,6 +1307,14 @@ class XiaoLingToolRegistry(
                     appendLine("任务最近运行")
                     appendLine("任务：${task.name} · ${if (task.enabled) "已启用" else "已停用"}")
                     appendLine("目标：${task.goal}")
+                    task.recurringScheduleEnabled?.let { enabled ->
+                        val type = task.recurringScheduleType?.let(::taskScheduleTypeLabel) ?: "周期计划"
+                        append("$type：${if (enabled) "已启用" else "已暂停"}")
+                        task.recurringNextPlannedAt?.let { plannedAt ->
+                            append(" · 下次：${formatter.format(Instant.ofEpochMilli(plannedAt))}")
+                        }
+                        appendLine()
+                    }
                     if (task.latestRunStatus == null) {
                         append("最近运行：暂无")
                     } else {
@@ -1352,6 +1408,79 @@ class XiaoLingToolRegistry(
             )
             is AgentTaskCancelResult.Cancelled -> result.cancellation.toToolExecutionResult()
         }
+    }
+
+    private suspend fun mutateTaskSchedule(call: ToolCall, pause: Boolean): ToolExecutionResult {
+        val context = runContext
+            ?.takeIf(::taskScheduleControlAllowed)
+            ?: return ToolExecutionResult(success = false, verified = false, content = "周期计划暂停或恢复只允许前台直接 Agent 执行")
+        val name = call.arguments["name"].orEmpty().trim()
+        if (name.isBlank()) return ToolExecutionResult(success = false, verified = false, content = "任务名称不能为空")
+        val result = if (pause) {
+            taskStore.pause(name, context.conversationId, call.id)
+        } else {
+            taskStore.resume(name, context.conversationId, call.id)
+        }
+        return when (result) {
+            AgentTaskScheduleMutationResult.NotFound -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "没有找到名称为“$name”的任务。",
+            )
+            is AgentTaskScheduleMutationResult.Ambiguous -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "找到 ${result.matchCount} 个名称为“$name”的任务，请先在任务中心消除歧义。",
+            )
+            AgentTaskScheduleMutationResult.NoRecurringSchedule -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "任务“$name”没有可暂停或恢复的周期计划；一次性计划不由此工具修改。",
+            )
+            is AgentTaskScheduleMutationResult.Rejected -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = result.reason,
+            )
+            is AgentTaskScheduleMutationResult.Changed -> result.schedule.toToolExecutionResult(pause, alreadyInState = false)
+            is AgentTaskScheduleMutationResult.AlreadyInState -> result.schedule.toToolExecutionResult(pause, alreadyInState = true)
+        }
+    }
+
+    private fun AgentTaskScheduleMutationRecord.toToolExecutionResult(
+        pause: Boolean,
+        alreadyInState: Boolean,
+    ): ToolExecutionResult {
+        val expectedState = if (pause) AgentTaskScheduleState.PAUSED else AgentTaskScheduleState.ACTIVE
+        if (state != expectedState) {
+            return ToolExecutionResult(success = false, verified = false, content = "周期计划状态与请求不一致，已停止执行。")
+        }
+        val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
+        val stateText = when {
+            pause && alreadyInState -> "周期计划已经暂停，无需重复操作"
+            pause -> "周期计划已暂停，后续不会生成新的执行实例"
+            !pause && alreadyInState -> "周期计划已经处于恢复状态，无需重复操作"
+            else -> "周期计划已恢复"
+        }
+        val nextText = if (!pause) {
+            nextPlannedAt?.let { plannedAt -> " 下次：${formatter.format(Instant.ofEpochMilli(plannedAt))}。" }
+                ?: " 下次执行时间尚未形成。"
+        } else {
+            ""
+        }
+        val runningText = if (runningTaskUnaffected) " 正在运行的实例保持不变。" else ""
+        val systemText = if (systemOperationFailed) {
+            if (pause) " 系统取消调用失败，但暂停状态已经持久化，残留工作到时会安全跳过。"
+            else " 首个系统调度入队失败，应用下次对账时会从未来时间重新安排。"
+        } else {
+            ""
+        }
+        return ToolExecutionResult(
+            success = true,
+            verified = true,
+            content = "任务“$name”：$stateText。${taskScheduleTypeLabel(scheduleType)}。$nextText$runningText$systemText".trimEnd(),
+        )
     }
 
     private suspend fun verifyCommittedTaskRetry(
@@ -2231,6 +2360,9 @@ private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
 private const val TASK_RETRY_TOOL_NAME = "tasks.retry"
 private const val TASK_CANCEL_TOOL_NAME = "tasks.cancel"
+private const val TASK_PAUSE_TOOL_NAME = "tasks.pause"
+private const val TASK_RESUME_TOOL_NAME = "tasks.resume"
+private val TASK_SCHEDULE_CONTROL_TOOL_NAMES = setOf(TASK_PAUSE_TOOL_NAME, TASK_RESUME_TOOL_NAME)
 private const val NOTES_UPDATE_TOOL_NAME = "notes.update"
 private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
@@ -2277,6 +2409,13 @@ private fun taskRetryAllowed(context: AgentToolExecutionContext?): Boolean {
 
 private fun taskCancelAllowed(context: AgentToolExecutionContext?): Boolean {
     // long: 任务取消会写入 STOP_REQUESTED 或 CANCELLED 栅栏；没有当前前台直接 Run 时隐藏能力，避免后台和 Workflow 递归取消。
+    return context?.let {
+        it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            it.invocationSource == AgentInvocationSource.DIRECT
+    } == true
+}
+
+private fun taskScheduleControlAllowed(context: AgentToolExecutionContext?): Boolean {
     return context?.let {
         it.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             it.invocationSource == AgentInvocationSource.DIRECT

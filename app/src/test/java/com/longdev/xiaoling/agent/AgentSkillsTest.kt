@@ -192,6 +192,26 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInTaskScheduleControlSkillPausesAndResumesOnlyRecurringPlans() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "暂停每日回顾提醒，明天再恢复",
+            limit = 5,
+        )
+
+        val skill = selected.single { candidate -> candidate.id == "task-schedule-control" }
+        assertEquals(
+            setOf("tasks.list", "tasks.inspect", "tasks.pause", "tasks.resume"),
+            skill.toolNames,
+        )
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("周期计划"))
+        assertTrue(skill.instructions.contains("不补跑"))
+        assertTrue(skill.instructions.contains("不中断正在运行"))
+        val cancelSkill = BuiltInAgentSkillRegistry.all().single { candidate -> candidate.id == "task-cancel" }
+        assertEquals(setOf("tasks.list", "tasks.inspect", "tasks.cancel"), cancelSkill.toolNames)
+    }
+
+    @Test
     fun builtInDeviceObservationSkillContainsOnlyReadOnlySnapshotTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "观察当前手机界面并告诉我有哪些可访问节点",

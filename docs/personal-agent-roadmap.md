@@ -1,11 +1,19 @@
 # 小灵个人 Agent 路线图
 
+## 第 176 阶段：应用内周期计划暂停/恢复（完成）
+
+- 个人 Agent 新增仅前台、逐次审批的 `tasks.pause / tasks.resume` 和独立 `task-schedule-control` Skill；`tasks.list / inspect` 现在能区分工作流启停与周期计划暂停。旧 Profile、历史 Run 和原任务 Skill 不自动扩权。
+- 暂停保留 DAILY/WEEKLY 规则，只撤销尚未开始的未来实例；正在运行的 Task/Workflow Run 保持不变且完成后不再物化下一次。恢复复用原规则并从现在之后只生成一个实例，不补跑暂停窗口。
+- 精确名称、唯一规则、规则/Task 身份、活动状态和 WorkRequest 关联均从 Room 回读；任何漂移拒绝。恢复入队失败会原子回滚到可重试暂停态，不留下“已启用但无可执行实例”的假状态。
+- 聚焦 JVM `82/82`、Debug/AndroidTest APK、Redmi `RoomAgentTaskStoreInstrumentedTest 13/13` 与文档 corpus `1/1` 已通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
+- 下一阶段用 Redmi 真实 Provider 验证 `tasks.list -> tasks.inspect -> tasks.pause / tasks.resume` 自然语言闭环，再把可信结果接到任务快照刷新和任务中心入口；后台调度权限、精确定时与系统日程高级写操作继续关闭。
+
 ## 第 175 阶段：受控系统日程创建（完成）
 
 - 个人 Agent 现在可在用户明确要求并逐次批准后创建系统日程；首版只支持一次性非全天事件，必须给出标题、带偏移的起止时间和 IANA 时区。独立 `calendar-create` Skill 不改变原只读日历 Skill，旧 Profile/Run 不自动扩权。
 - 写入通过 ToolCall 稳定标记、事件 ID 回执和 Provider 回读完成幂等与恢复验证；同一调用不会按标题/时间猜测去重。Redmi 没有任何日历时，会创建不接入账户的本地“小灵”日历，使目标设备仍能完成真实闭环。
 - 聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi 定向 `3/3` 和文档 corpus `1/1` 已通过，测试事件及本轮临时日历已清理。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 下一阶段回到个人 Agent 直接可用能力，优先评估应用内计划任务的暂停/恢复；系统日程修改、删除、重复/全天事件、参与人、提醒和后台自动创建继续关闭。
+- 第 176 阶段已完成应用内周期计划暂停/恢复；系统日程修改、删除、重复/全天事件、参与人、提醒和后台自动创建继续关闭。
 
 ## 第 174 阶段：个人事项简报（完成）
 

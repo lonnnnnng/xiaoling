@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-07 第 176 阶段：应用内周期计划暂停/恢复
+
+- 新增仅前台直接 Agent 可见、逐次审批的 `tasks.pause(name)` 与 `tasks.resume(name)`，并由独立 `task-schedule-control` Skill 承载。`tasks.list / inspect` 显示独立周期计划状态；旧 Profile、历史 Run、任务只读/重试/取消 Skill、一次性计划和后台工具面不变。
+- Room 事务验证精确唯一名称、唯一规则、schedule/workflow/task 关联和活动状态。暂停保留规则、取消未开始 Task、清空未来指针，运行实例不受影响；恢复复用规则、只生成当前时间之后的一个实例，绑定 WorkRequest 后回读。指针或终态漂移拒绝，入队失败回滚为可重试暂停态。
+- TDD 首个 Skill 红灯为 `24 tests / 1 failed`，原因是 `task-schedule-control` 尚未注册；Registry 注册/门禁红灯为 `2/2 failed`，执行分派红灯为 `1/1 failed`。最小实现及审查修复后，聚焦 JVM 为 `AgentSkillsTest 24/24 + XiaoLingToolRegistryTest 58/58 = 82/82`；`:app:assembleDebug :app:assembleDebugAndroidTest` 构建成功。
+- 双轴审查发现并修复两项状态问题：启用规则若缺少有效活动实例会误报已恢复；恢复入队失败会留下 `enabled=true` 且指向失败 Task。修复后所有控制入口在漂移时 fail-closed，失败恢复精确回滚；重复的任务/规则解析也收敛为共享 helper。
+- 仅使用 Redmi `wsvwypiz7xwslvl7` 安装和运行任务 Store 类。首轮 `12/13`，唯一失败是测试夹具只认领 Run、未调用 `markAgentRunStarted`，因此期望 RUNNING 时实际为 QUEUED；补齐既有状态推进后复验 `OK (13 tests)`。应用代码在该失败前已正确保留 RUNNING ScheduledTask，修复未放宽生产断言。
+- 更新后的六份长期文档重新打入 AndroidTest assets，仅在 Redmi 运行 corpus gate 并通过 `1/1`。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation、Release 或真实 Provider；没有向已连接的模拟器发送安装、启动、日志或测试命令。真实 Provider 自然语言暂停/恢复与可信结果导航作为下一独立阶段。
+
 ## 2026-08-07 第 175 阶段：受控系统日程创建
 
 - 新增前台 `REQUIRES_APPROVAL` 的 `calendar.create_event`、独立 `calendar-create` Skill、`WRITE_CALENDAR` 主动授权和 `CalendarEventWriter` Provider seam。首版只接受一次性非全天事件；带偏移 ISO-8601 起止时间、IANA 时区、时间顺序和时区实际偏移均在执行前验证。

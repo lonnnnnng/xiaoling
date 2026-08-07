@@ -23,9 +23,11 @@ import com.longdev.xiaoling.automation.WorkflowDeviceObservationInsufficientReas
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationResolution
 import com.longdev.xiaoling.automation.WorkflowAgentRunStatusPolicy
 import com.longdev.xiaoling.automation.WorkflowScheduleCancellation
+import com.longdev.xiaoling.automation.WorkflowSchedulePause
 import com.longdev.xiaoling.automation.WorkflowSchedulePlan
 import com.longdev.xiaoling.automation.WorkflowSchedulePolicy
 import com.longdev.xiaoling.automation.WorkflowScheduleRecord
+import com.longdev.xiaoling.automation.WorkflowScheduleResume
 import com.longdev.xiaoling.automation.WorkflowScheduleType
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
@@ -529,6 +531,145 @@ class RoomWorkflowRepository(
             )
             dao.upsertWorkflowSchedule(updated)
             WorkflowScheduleCancellation(updated.toRecord(), pendingTask?.id)
+        }
+    }
+
+    suspend fun pauseWorkflowSchedule(scheduleId: String): WorkflowSchedulePause? {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction null
+            if (!schedule.enabled) {
+                check(schedule.nextTaskId == null && schedule.nextPlannedAt == null) {
+                    "已暂停周期计划仍保留未来实例指针"
+                }
+                return@withTransaction WorkflowSchedulePause(
+                    schedule = schedule.toRecord(),
+                    cancelledTaskId = null,
+                    changed = false,
+                    runningTaskUnaffected = false,
+                )
+            }
+            val now = System.currentTimeMillis()
+            val currentTaskId = checkNotNull(schedule.nextTaskId) { "启用周期计划缺少未来实例指针" }
+            val currentTask = checkNotNull(dao.getScheduledTask(currentTaskId)) { "周期计划指向的未来实例不存在" }
+            check(currentTask.workflowId == schedule.workflowId && currentTask.scheduleId == schedule.id) {
+                "周期计划与未来实例身份不一致"
+            }
+            check(currentTask.status in ACTIVE_SCHEDULE_CONTROL_TASK_STATUSES) {
+                "周期计划指向的未来实例已经结束"
+            }
+            val pendingTask = currentTask.takeIf { task -> task.status == ScheduledTaskStatus.SCHEDULED.name }
+            pendingTask?.let { task ->
+                dao.upsertScheduledTask(
+                    task.copy(
+                        status = ScheduledTaskStatus.CANCELLED.name,
+                        completedAt = now,
+                        errorMessage = "周期计划已暂停",
+                        updatedAt = now,
+                    ),
+                )
+            }
+            // long: 暂停只切断规则到未来实例的指针；已进入 RUNNING/STOP_REQUESTED 的执行链继续按原证据收敛，历史 Run 和 Task 不被重写。
+            val updated = schedule.copy(
+                enabled = false,
+                nextTaskId = null,
+                nextPlannedAt = null,
+                updatedAt = now,
+            )
+            dao.upsertWorkflowSchedule(updated)
+            WorkflowSchedulePause(
+                schedule = updated.toRecord(),
+                cancelledTaskId = pendingTask?.id,
+                changed = true,
+                runningTaskUnaffected = currentTask.status in setOf(
+                    ScheduledTaskStatus.RUNNING.name,
+                    ScheduledTaskStatus.STOP_REQUESTED.name,
+                ),
+            )
+        }
+    }
+
+    suspend fun resumeWorkflowSchedule(scheduleId: String): WorkflowScheduleResume? {
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction null
+            if (schedule.enabled) {
+                val currentTaskId = checkNotNull(schedule.nextTaskId) { "启用周期计划缺少未来实例指针" }
+                val currentTask = checkNotNull(dao.getScheduledTask(currentTaskId)) { "周期计划指向的未来实例不存在" }
+                check(currentTask.workflowId == schedule.workflowId && currentTask.scheduleId == schedule.id) {
+                    "周期计划与未来实例身份不一致"
+                }
+                check(currentTask.status in ACTIVE_SCHEDULE_CONTROL_TASK_STATUSES) {
+                    "周期计划指向的未来实例已经结束"
+                }
+                check(!currentTask.workRequestId.isNullOrBlank()) {
+                    "周期计划的未来实例尚未完成系统调度关联"
+                }
+                return@withTransaction WorkflowScheduleResume(
+                    schedule = schedule.toRecord(),
+                    task = currentTask.toRecord(),
+                    changed = false,
+                )
+            }
+            check(schedule.nextTaskId == null && schedule.nextPlannedAt == null) {
+                "已暂停周期计划仍保留未来实例指针"
+            }
+            val workflow = dao.getWorkflow(schedule.workflowId) ?: return@withTransaction null
+            require(workflow.enabled) { "工作流已停用，不能恢复周期计划" }
+            val now = System.currentTimeMillis()
+            val plannedAt = WorkflowSchedulePolicy.nextPlannedAt(
+                now = now,
+                type = schedule.toRecord().type,
+                timeOfDayMinutes = schedule.timeOfDayMinutes,
+                dayOfWeek = schedule.dayOfWeek,
+                zoneId = schedule.zoneId,
+            )
+            val task = recurringTask(schedule.workflowId, schedule.id, plannedAt, now)
+            // long: 恢复复用原规则身份并只物化一个未来实例；暂停窗口中的错过周期不补跑，也不复制旧 Run 或已完成副作用。
+            val updated = schedule.copy(
+                enabled = true,
+                nextTaskId = task.id,
+                nextPlannedAt = task.plannedAt,
+                updatedAt = now,
+            )
+            dao.upsertScheduledTask(task)
+            dao.upsertWorkflowSchedule(updated)
+            WorkflowScheduleResume(updated.toRecord(), task.toRecord(), changed = true)
+        }
+    }
+
+    suspend fun rollbackWorkflowScheduleResume(
+        scheduleId: String,
+        taskId: String,
+        reason: String,
+    ): Boolean {
+        require(reason.isNotBlank()) { "恢复回滚原因不能为空" }
+        return database.withTransaction {
+            val dao = database.workflowDao()
+            val schedule = dao.getWorkflowSchedule(scheduleId) ?: return@withTransaction false
+            if (!schedule.enabled || schedule.nextTaskId != taskId) return@withTransaction false
+            val task = dao.getScheduledTask(taskId) ?: return@withTransaction false
+            if (task.scheduleId != schedule.id || task.workflowId != schedule.workflowId) return@withTransaction false
+            if (task.status != ScheduledTaskStatus.SCHEDULED.name) return@withTransaction false
+            val now = System.currentTimeMillis()
+            dao.upsertScheduledTask(
+                task.copy(
+                    status = ScheduledTaskStatus.FAILED.name,
+                    completedAt = now,
+                    errorMessage = reason,
+                    updatedAt = now,
+                ),
+            )
+            // long: 系统入队未形成可执行事实时，把规则恢复为可重试的暂停态；不能留下 enabled=true 却永久指向失败实例的假活跃计划。
+            dao.upsertWorkflowSchedule(
+                schedule.copy(
+                    enabled = false,
+                    nextTaskId = null,
+                    nextPlannedAt = null,
+                    updatedAt = now,
+                ),
+            )
+            true
         }
     }
 
@@ -2254,6 +2395,12 @@ class RoomWorkflowRepository(
             ScheduledTaskStatus.COMPLETED,
             ScheduledTaskStatus.FAILED,
             ScheduledTaskStatus.CANCELLED,
+        )
+
+        private val ACTIVE_SCHEDULE_CONTROL_TASK_STATUSES = setOf(
+            ScheduledTaskStatus.SCHEDULED.name,
+            ScheduledTaskStatus.RUNNING.name,
+            ScheduledTaskStatus.STOP_REQUESTED.name,
         )
 
         private fun backgroundMessage(

@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 176 阶段：应用内周期计划暂停/恢复（完成）
+
+- `XiaoLingToolRegistry` 新增 `tasks.pause / tasks.resume`，使用 `{name}` Schema、`REQUIRES_APPROVAL / EXECUTOR_VERIFIED / IDEMPOTENT_BY_KEY`，并在工具清单、definition 和执行入口三处限制为前台直接 Agent。独立 `task-schedule-control` Skill 不修改既有任务 Skill。
+- `RoomWorkflowRepository.pauseWorkflowSchedule()` 在事务内核对 schedule、workflow、next Task 身份和活动状态；仅 `SCHEDULED` 实例进入 `CANCELLED`，`RUNNING / STOP_REQUESTED` 保持原执行链。规则行改为 `enabled=false` 并清空未来指针，Worker 完成后因规则停用不会继续物化。
+- `resumeWorkflowSchedule()` 要求暂停规则没有残留指针，按原 DAILY/WEEKLY 墙上时间和时区从当前时间计算下一实例，复用 schedule ID。Store 通过 `ScheduledTaskScheduler` 入队、关联并回读 WorkRequest；重复恢复只有在现有活动 Task 与系统关联完整时才返回已恢复。
+- `rollbackWorkflowScheduleResume()` 处理 Room 提交后系统入队/关联失败：只有规则仍精确指向本次新 Task 时才把 Task 标为失败并把规则恢复为暂停，避免覆盖并发暂停或留下假活跃状态。规则指针缺失、终态、跨规则/Workflow 或无 WorkRequest 均 fail-closed。
+- `AgentTaskRecord/InspectionRecord` 增加独立周期计划启停投影，避免把工作流启用误解为周期仍活跃；内部 Schedule/Task/Run/WorkRequest ID 不进入工具文本。Room Schema 保持 v36。
+- TDD 聚焦 JVM 为 `AgentSkillsTest 24/24 + XiaoLingToolRegistryTest 58/58 = 82/82`；Debug/AndroidTest APK 构建成功。仅 Redmi 定向运行 `RoomAgentTaskStoreInstrumentedTest`，首次夹具因未把 Run 从 QUEUED 推进到 RUNNING 得到 `12/13`，修正夹具后为 `13/13`；更新后文档 corpus gate 为 `1/1`。
+
 ## 第 175 阶段：受控系统日程创建（完成）
 
 - 新增 `CalendarEventWriter` seam 与 `AndroidCalendarEventWriter`。写入前查询可贡献且保存事件的日历；无目标时以 `ACCOUNT_TYPE_LOCAL` 创建固定身份的本地“小灵”日历，不把账户字段送入 ToolResult。
