@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 194 阶段：只读应用信息工具
+
+- 新增 `AppInfoReader`/`AndroidAppInfoReader`，生产 `XiaoLingToolRegistry` 注入当前 PackageManager 读取器；`app.get_info` 无参数、`SAFE`、支持后台、5 秒超时，结果固定为应用名称、包名、版本名和版本号四字段。
+- `XiaoLingToolRegistryTest` `74/74`、`AgentSkillsTest` `29/29` 通过；覆盖定义属性、成功结果、敏感字段排除、不可用与带参失败。`:app:assembleDebug` `BUILD SUCCESSFUL`。
+- 新增独立 `app-info` Skill；既有 Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 未扩权。文档写回后的 AndroidTest 资产仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终 `OK (1 test)`；测试包随后卸载，主应用包保留。
+- 按分级验证约束，本阶段未运行完整 JVM、全量 Lint、Redmi 功能 instrumentation 或 Release；没有使用或启动 Pixel_9，Room v36、Workflow、设备动作、日历、Shadow 和后台副作用边界不变。
+
 ## 2026-08-08 第 193 阶段：任务中心关联 Run 双向查看与安全导航
 
 - `AgentTaskCenterProjection` 新增来源/关联目标投影：关联 Run 只有在当前历史唯一存在来源时可“查看来源 Run”；来源 Run 只有在 `createdAt` 唯一确定最新关联 Run 时可“查看关联 Run”。缺失、历史裁剪、重复 ID 和最新时间并列均保持不可导航。

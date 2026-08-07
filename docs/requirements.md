@@ -1,5 +1,13 @@
 # 产品需求
 
+## 只读应用信息工具（第 194 阶段，完成）
+
+- Agent 可通过无参数的 `app.get_info` 读取当前安装的小灵应用最小身份信息：应用名称、包名、版本名和版本号。
+- 工具必须声明为 `SAFE`、支持后台、超时 5 秒；应用侧从当前 `PackageManager` 读取权威安装事实，不从 Provider 配置、构建历史或模型文本猜测版本。
+- 结果只能包含上述四个字段；Provider、API Key、设备序列号/标识、安装来源、签名和其他配置不得进入 ToolResult、审计或回答输入。PackageManager 不可用、包读取失败或参数非空时必须 fail-closed。
+- 新能力由独立 `app-info` Skill 承载；已有 Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 不自动加入 `app.get_info`，新 Profile 或用户显式编辑的 Profile 才能使用。不得新增 Room Schema、权限、设备动作或后台副作用。
+- 本阶段只要求聚焦 Registry/Skill JVM、Debug/AndroidTest 构建和文档 corpus gate；完整 JVM、全量 Lint、Redmi 功能 instrumentation 和 Release 按分级验证策略后置。
+
 ## 任务中心关联 Run 双向查看与安全导航（第 193 阶段，完成）
 
 - 选中的关联 Run 必须展示来源 Run；只有来源 Run 在当前任务中心历史中恰好存在一个时，才提供“查看来源 Run”操作。来源被历史裁剪、目标缺失或 ID 不唯一时，只展示不可导航的状态，不猜测或重新读取未知历史。

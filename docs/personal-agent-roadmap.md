@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 194 阶段：只读应用信息窄闭环（完成）
+
+- 新增 `app.get_info`，Agent 可以回答当前安装小灵的应用名称、包名、版本名和版本号；工具无参数、`SAFE`、支持后台且超时 5 秒。
+- 应用侧只从 PackageManager 回读自身安装事实，固定四字段结果并排除 Provider、API Key、设备标识、安装来源和其他配置；读取失败或参数漂移时 fail-closed。
+- 新增独立 `app-info` Skill，旧 Profile、历史 Run 和 `LEGACY_RUN_TOOL_NAMES` 不自动扩权；新 Profile 或显式编辑后才可使用。没有新增 Room、权限、设备动作、Workflow 或后台副作用。
+- 聚焦 JVM `XiaoLingToolRegistryTest 74/74 + AgentSkillsTest 29/29`、Debug/AndroidTest APK 构建和 Redmi 文档 corpus gate 通过；未运行完整 JVM、Lint、Redmi 功能 instrumentation 或 Release。下一阶段继续选择个人 Agent 的直接可用窄闭环。
+
 ## 第 193 阶段：任务中心关联 Run 双向查看与安全导航（完成）
 
 - 任务中心详情现在可以在当前历史内双向查看关联关系：关联 Run 查看唯一来源，来源 Run 查看按创建时间唯一确定的最新关联 Run。

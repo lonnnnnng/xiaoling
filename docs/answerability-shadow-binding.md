@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 194 阶段应用信息边界（无变更）
+
+本阶段的 `app.get_info` 只读当前安装包元数据，不读取知识文档、答案引用、Judge 身份或 Shadow 账本，也不会触发答案观测、模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和现有候选绑定规则均保持不变。
+
 ## 第 193 阶段关联导航边界（无变更）
 
 本阶段只为任务中心提供当前历史内的关联 Run 查看入口，不读取或改写答案级知识引用、Shadow measurement、Judge 绑定或匿名账本。任务中心导航不触发 `/agent` 答案观测、知识检索、模型调用或生产拒绝；Shadow 默认关闭、`enforcementApplied=false` 与现有 Room v33 证据边界保持不变。

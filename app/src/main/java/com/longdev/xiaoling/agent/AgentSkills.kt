@@ -96,6 +96,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回可读的会话列表或明确说明未找到。",
         ),
         AgentSkillDefinition(
+            id = "app-info",
+            name = "应用信息",
+            description = "读取当前小灵的名称、包名和版本信息。",
+            instructions = "用户询问当前应用名称、包名、版本或安装版本时，只调用 app.get_info。结果仅包含应用名称、包名、版本名和版本号；不得要求或猜测 Provider、API Key、设备标识、安装来源或其他配置。",
+            toolNames = setOf("app.get_info"),
+            keywords = setOf("应用信息", "应用名称", "包名", "版本名", "版本号", "当前版本", "安装版本", "app info", "package name", "version"),
+            triggerExamples = listOf("当前应用的版本是多少", "告诉我小灵的包名和版本", "查看应用信息"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "应用信息读取失败时停止并报告，不从构建配置或历史回答猜测当前安装版本。",
+            completionCriteria = "返回当前安装应用的名称、包名、版本名和版本号，或明确说明信息不可用。",
+        ),
+        AgentSkillDefinition(
             id = "local-notes",
             name = "本机笔记",
             description = "检索或创建小灵本机笔记。",

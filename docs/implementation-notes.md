@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 194 阶段：只读应用信息工具（完成）
+
+- 新增 `AppInfoReader`、`AppInfoRecord` 和 `AppInfoReadResult`。`AndroidAppInfoReader` 使用当前 `Context` 的 `PackageManager` 回读自身包，兼容 API 26 至当前版本，只生成应用名称、包名、版本名和长版本号；读取竞态或 OEM 异常统一返回失败，不泄露异常正文。
+- `AppInfoResultCodec` 固定输出四行白名单文本，并清理换行、空值和过长标签。`XiaoLingToolRegistry` 新增 `app.get_info`，无参数、`SAFE`、`supportsBackground=true`、5 秒超时；Registry 直接执行时也拒绝非空参数。
+- `AgentRunUseCase` 只在生产 Registry 注入 `AndroidAppInfoReader`。`BuiltInAgentSkillRegistry` 新增独立 `app-info` Skill；没有把工具加入 `LEGACY_RUN_TOOL_NAMES`，因此旧 Run/旧 Profile 的冻结工具面保持不变，默认 Profile 只有首次创建时才从当前注册表继承它。
+- `XiaoLingToolRegistryTest` 覆盖工具定义、后台属性、四字段成功结果、隐私字段排除、不可用和带参失败；`AgentSkillsTest` 覆盖 Skill 选择与只读工具边界。聚焦 JVM 为 `74/74 + 29/29`，`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功，Redmi 文档 corpus gate `OK (1 test)`；未运行完整 JVM、Lint、Redmi 功能 instrumentation 或 Release。
+- 本阶段没有新增 Android 权限、Room Schema、Workflow/设备动作、Provider 写入、Shadow 或后台副作用。
+
 ## 第 193 阶段：任务中心关联 Run 双向查看与安全导航（完成）
 
 - `AgentTaskCenterProjection` 在不改变历史顺序的前提下，按当前 Room 历史投影 `sourceRunNavigationId` 与 `linkedRetryRunNavigationId`。来源目标必须唯一存在；关联目标按 `createdAt` 取最新，时间并列时返回空，避免从裁剪或异常重复数据猜测导航对象。

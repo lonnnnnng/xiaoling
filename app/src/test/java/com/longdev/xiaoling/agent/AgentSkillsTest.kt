@@ -21,6 +21,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInAppInfoSkillExposesOnlyTheReadOnlyAppInfoTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "请告诉我当前应用的包名和版本号",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "app-info" }
+        assertEquals(setOf("app.get_info"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得要求或猜测 Provider"))
+        assertTrue("app.get_info" !in BuiltInAgentSkillRegistry.all().single { it.id == "device-time" }.toolNames)
+    }
+
+    @Test
     fun builtInLocalNoteDetailSkillRequiresTheNewSafeReadTool() {
         val skill = BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }
 

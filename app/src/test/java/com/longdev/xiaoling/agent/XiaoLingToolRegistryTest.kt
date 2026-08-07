@@ -332,6 +332,7 @@ class XiaoLingToolRegistryTest {
             tools.keys.containsAll(
                 setOf(
                 "app.current_time",
+                "app.get_info",
                 "app.list_conversations",
                 "app.search_conversations",
                 "calendar.list_events",
@@ -358,6 +359,9 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.get_info").risk)
+        assertEquals(emptyList<String>(), tools.getValue("app.get_info").inputSchema)
+        assertTrue(tools.getValue("app.get_info").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
@@ -546,6 +550,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(
             setOf(
                 "app.current_time",
+                "app.get_info",
                 "app.list_conversations",
                 "app.search_conversations",
                 "notes.list",
@@ -1812,6 +1817,59 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun appInfoToolReturnsOnlyAllowlistedInstalledMetadata() = runTest {
+        val registry = testRegistry(
+            appInfoReader = AppInfoReader {
+                AppInfoReadResult.Success(
+                    AppInfoRecord(
+                        appName = "小灵",
+                        packageName = "com.longdev.xiaoling",
+                        versionName = "0.1.16",
+                        versionCode = 17L,
+                    ),
+                )
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "app.get_info",
+                arguments = emptyMap(),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(
+            "应用名称：小灵\n包名：com.longdev.xiaoling\n版本名：0.1.16\n版本号：17",
+            result.content,
+        )
+        assertFalse(result.content.contains("Provider"))
+        assertFalse(result.content.contains("API Key"))
+        assertFalse(result.content.contains("wsvwypiz7xwslvl7"))
+    }
+
+    @Test
+    fun appInfoToolFailsClosedWhenReaderIsUnavailableOrArgumentsArePresent() = runTest {
+        val registry = testRegistry(appInfoReader = UnavailableAppInfoReader)
+        val unavailable = registry.execute(
+            ToolCall(name = "app.get_info", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        val withArguments = registry.execute(
+            ToolCall(
+                name = "app.get_info",
+                arguments = mapOf("package_name" to "com.example.other"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertFalse(unavailable.success)
+        assertEquals("当前应用信息不可用", unavailable.content)
+        assertFalse(withArguments.success)
+        assertEquals("app.get_info 不接受参数", withArguments.content)
+    }
+
+    @Test
     fun knowledgeSearchReturnsStableReferencesBoundToCurrentRun() = runTest {
         val knowledgeStore = InMemoryKnowledgeDocumentStore()
         val registry = testRegistry(knowledgeStore = knowledgeStore).also {
@@ -2893,6 +2951,7 @@ class XiaoLingToolRegistryTest {
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
         calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
         calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
+        appInfoReader: AppInfoReader = UnavailableAppInfoReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -2906,6 +2965,7 @@ class XiaoLingToolRegistryTest {
             knowledgeStore = knowledgeStore,
             calendarEventReader = calendarEventReader,
             calendarEventWriter = calendarEventWriter,
+            appInfoReader = appInfoReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )

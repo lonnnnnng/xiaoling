@@ -51,6 +51,7 @@ class XiaoLingToolRegistry(
     private val knowledgeStore: KnowledgeDocumentStore,
     private val calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
     private val calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
+    private val appInfoReader: AppInfoReader = UnavailableAppInfoReader,
     private val deviceController: DeviceController = DisabledDeviceController,
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
@@ -79,6 +80,7 @@ class XiaoLingToolRegistry(
         knowledgeStore = store,
         calendarEventReader = calendarEventReader,
         calendarEventWriter = calendarEventWriter,
+        appInfoReader = appInfoReader,
         deviceController = deviceController,
         workflowDeviceActionToolNames = workflowDeviceActionToolNames,
     )
@@ -89,6 +91,14 @@ class XiaoLingToolRegistry(
             description = "读取手机本地当前时间和时区，用于需要时间上下文的任务。",
             risk = ToolRisk.SAFE,
             permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = APP_GET_INFO_TOOL_NAME,
+            description = "读取当前小灵应用的名称、包名、版本名和版本号；不返回 Provider、API Key、设备标识或其他配置。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -1026,6 +1036,7 @@ class XiaoLingToolRegistry(
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
         return when (call.name) {
             "app.current_time" -> currentTime()
+            APP_GET_INFO_TOOL_NAME -> getAppInfo(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
@@ -1111,6 +1122,26 @@ class XiaoLingToolRegistry(
             success = true,
             content = "当前时间：${clock.formattedNow()} · 时区：${clock.zoneId()}",
         )
+    }
+
+    private suspend fun getAppInfo(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "app.get_info 不接受参数")
+        }
+        return when (val result = appInfoReader.read()) {
+            is AppInfoReadResult.Success -> ToolExecutionResult(
+                success = true,
+                content = AppInfoResultCodec.encode(result.info),
+            )
+            AppInfoReadResult.Unavailable -> ToolExecutionResult(
+                success = false,
+                content = "当前应用信息不可用",
+            )
+            AppInfoReadResult.Failed -> ToolExecutionResult(
+                success = false,
+                content = "读取当前应用信息失败",
+            )
+        }
     }
 
     private suspend fun snapshotDevice(call: ToolCall): ToolExecutionResult {
@@ -2713,6 +2744,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 )
 
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
+private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
@@ -2732,6 +2764,9 @@ private const val MAX_CALENDAR_TIME_ZONE_LENGTH = 100
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
+
+private fun validateNoArguments(arguments: Map<String, String>): List<String> =
+    if (arguments.isEmpty()) emptyList() else listOf("该工具不接受参数")
 
 private fun validateCalendarGetArguments(arguments: Map<String, String>): List<String> =
     if (arguments["event_id"].orEmpty().trim().toCalendarEventIdOrNull() != null) {

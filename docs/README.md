@@ -1,5 +1,7 @@
 # 文档索引
 
+第 194 阶段新增只读 `app.get_info`：工具无参数、`SAFE`、支持后台、5 秒超时，只从当前安装包的 PackageManager 读取应用名称、包名、版本名和版本号。结果固定为四字段，不返回 Provider、API Key、设备标识、安装来源或其他配置；读取失败和带参数调用均 fail-closed。新增独立内置 `app-info` Skill，既有 Profile、历史 Run 与 `LEGACY_RUN_TOOL_NAMES` 不自动扩权，新 Profile 才会默认继承注册工具。聚焦 JVM `XiaoLingToolRegistryTest 74/74 + AgentSkillsTest 29/29`、Debug/AndroidTest APK 构建和 Redmi 文档 corpus gate 通过；未运行完整 JVM、Lint、Redmi 功能 instrumentation 或 Release。本阶段不改变 Room v36、Workflow、设备动作、日历、Shadow 与后台能力。
+
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
 当前开发基线已到第 193 阶段、Room v36，尚未形成新 Release。第 193 阶段为任务中心增加关联 Run 双向查看：关联新 Run 只有在当前历史中唯一找到来源时才显示“查看来源 Run”；来源 Run 只在当前历史中能按创建时间唯一确定最新关联 Run 时显示“查看关联 Run”。点击前再次核对当前任务中心数据，切换到全部筛选并滚动到目标，不触发重试、审批或执行。聚焦 JVM `3/3`、Redmi `AgentTaskCenterPageInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
