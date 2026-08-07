@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 198 阶段：答案级系统日程详情导航
+
+- `CalendarNavigation.kt` 只接受成功、验证状态非失败且参数/应用结果外壳一致的 `calendar.list_events / calendar.search_events / calendar.get`。列表/搜索必须精确为单条结果，详情参数与正文 ID 必须一致；多结果、额外参数、动态标题漂移、非规范/溢出 ID 和正文伪造均不生成“查看日程”。
+- 点击入口只携带稳定 `calendar-<正整数>` ID。独立详情 pane 每次进入都用 `AndroidCalendarEventReader` 重新查询当前 Calendar Provider，只显示标题、ID、起止、全天、时区和重复状态；目标删除、权限撤销、Provider 不可用或读取失败时不显示历史 Tool 正文。
+- 聚焦 JVM `CalendarNavigationTest 3/3 + XiaoLingNavigationCoordinatorTest 9/9`，合计 `12/12`；`:app:assembleDebug :app:assembleDebugAndroidTest` `BUILD SUCCESSFUL`，新增 Tool 卡/详情页 AndroidTest 已完成编译，`git diff --check` 通过。
+- 按快速迭代分级，本阶段未运行完整 JVM、全量 Lint、Redmi instrumentation、文档 corpus gate 或 Release；没有向 `Pixel_9`/模拟器发送命令。Room v36、日程 Tool/Skill、写入审批、Workflow、后台和 answerability Shadow 边界不变。
+
 ## 2026-08-08 第 197 阶段：答案级历史会话导航
 
 - 可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool part 现在才可能生成“查看会话”入口；固定结果标题、参数契约、唯一合法 `conversation-...` ID、详情回显一致和非失败验证均通过时才显示，普通模型文本、空/多结果、额外参数、换行注入、伪造/漂移 ID 均不显示。

@@ -13,6 +13,7 @@ internal enum class XiaoLingSettingsPane {
     AGENT_PROFILE_MANAGEMENT,
     DEVICE_AGENT,
     CALENDAR_ACCESS,
+    CALENDAR_EVENT_DETAIL,
     ANSWERABILITY_SHADOW,
     MEMORY_MANAGEMENT,
     LOCAL_NOTE_MANAGEMENT,
@@ -44,6 +45,7 @@ internal data class XiaoLingNavigationState(
     val requestedKnowledgeDocumentId: String? = null,
     val requestedWorkflowId: String? = null,
     val requestedLocalNoteId: String? = null,
+    val requestedCalendarEventId: String? = null,
     val lastRootBackAtMillis: Long = 0L,
 ) {
     val isSettingsSubPage: Boolean
@@ -71,12 +73,14 @@ internal class XiaoLingNavigationCoordinator(
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
         requestedWorkflowId: String? = null,
         requestedLocalNoteId: String? = null,
+        requestedCalendarEventId: String? = null,
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
         requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
         requestedWorkflowId = requestedWorkflowId,
         requestedLocalNoteId = requestedLocalNoteId,
+        requestedCalendarEventId = requestedCalendarEventId,
     )
 
     fun openKnowledgeDocument(
@@ -95,6 +99,15 @@ internal class XiaoLingNavigationCoordinator(
         state = state,
         pane = XiaoLingSettingsPane.LOCAL_NOTE_MANAGEMENT,
         requestedLocalNoteId = noteId,
+    )
+
+    fun openCalendarEvent(
+        state: XiaoLingNavigationState,
+        eventId: String,
+    ): XiaoLingNavigationState = openSettingsPane(
+        state = state,
+        pane = XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL,
+        requestedCalendarEventId = eventId,
     )
 
     fun routeExternal(
@@ -135,6 +148,7 @@ internal class XiaoLingNavigationCoordinator(
                     requestedKnowledgeDocumentId = null,
                     requestedWorkflowId = null,
                     requestedLocalNoteId = null,
+                    requestedCalendarEventId = null,
                 ),
             )
         }

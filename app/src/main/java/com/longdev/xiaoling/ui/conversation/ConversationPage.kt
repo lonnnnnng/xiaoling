@@ -301,6 +301,7 @@ internal fun ConversationPage(
                                 onOpenKnowledgeDocument = actions::openKnowledgeDocument,
                                 onOpenInspectedTask = actions::openInspectedTask,
                                 onOpenConversation = actions::openConversation,
+                                onOpenCalendarEvent = actions::openCalendarEvent,
                                 onOpenLocalNote = actions::openLocalNote,
                                 onOpenMemory = actions::openMemory,
                                 onReuseUserMessage = actions::updatePrompt,

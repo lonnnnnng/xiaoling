@@ -1,5 +1,7 @@
 # 文档索引
 
+第 198 阶段完成答案级系统日程详情导航：可信 `calendar.list_events / calendar.search_events / calendar.get` Tool 卡只有在严格参数、应用固定结果外壳和唯一规范 `calendar-<正整数>` ID 同时成立时才显示“查看日程”。独立详情页按当前 Calendar Provider 二次读取标题、起止、全天、时区和重复状态；删除、撤权、Provider 不可用、结果漂移、多结果或伪造 ID 均 fail-closed，不显示历史 Tool 正文。没有新增权限、写入、Room Schema、Workflow 或后台能力；聚焦 JVM 和 Debug/AndroidTest APK 构建通过，未运行 Redmi instrumentation、完整 JVM、Lint 或 Release，也未使用 Pixel_9。
+
 第 197 阶段完成答案级历史会话导航：可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool 卡只有在固定结果外壳、参数契约和唯一稳定会话 ID 同时通过时才显示“查看会话”；点击前重新读取当前 Room，目标不存在、删除、重复、ID 漂移或模型改写时均 fail-closed。成功后复用既有会话选择与正文加载，不发送消息、不创建 Run、不扩展 Workflow 或后台能力。聚焦会话导航 JVM `17/17`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release，也未使用 Pixel_9。
 
 第 196 阶段新增前台直接 Agent 的只读 `app.get_conversation`：必须先从 `app.list_conversations` 或 `app.search_conversations` 得到稳定 `conversation-...` ID，再从当前 Room 回读唯一会话。详情只投影用户/助手文本，最多 40 条、单条 20,000 字符、总计 60,000 字符；工具参数、Provider 凭据字段、附件二进制、原始推理和内部审计字段不进入结果。工具为 `SAFE`、仅前台 `DIRECT`、5 秒超时，未知/漂移 ID、额外参数、Workflow、后台和无上下文均 fail-closed。新增独立 `conversation-detail` Skill，既有 `conversation-recall`、旧 Profile、历史 Run 与 `LEGACY_RUN_TOOL_NAMES` 不自动扩权；无 Room Schema、权限、网络、设备动作或后台副作用。聚焦 `AgentConversationDetailPolicyTest 2/2 + AgentSkillsTest 31/31 + XiaoLingToolRegistryTest 78/78 + LegacyRunToolBoundaryTest 3/3`，Debug/AndroidTest APK 构建通过；未运行 Redmi 功能 instrumentation、文档 corpus gate、完整 JVM、Lint 或 Release，也未使用 Pixel_9。
@@ -10,7 +12,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 197 阶段、Room v36，尚未形成新 Release。第 197 阶段补齐历史会话 Tool 卡到答案级查看入口并在点击前重读 Room；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195 阶段增加前台直接 Agent Profile 状态读取；第 194 阶段增加安装应用信息读取。四阶段均未改变 Room Schema、Workflow、设备动作、日历、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
+当前开发基线已到第 198 阶段、Room v36，尚未形成新 Release。第 198 阶段补齐日程 Tool 卡到当前 Calendar Provider 详情页的答案级查看入口；第 197 阶段补齐历史会话 Tool 卡到答案级查看入口并在点击前重读 Room；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195 阶段增加前台直接 Agent Profile 状态读取；第 194 阶段增加安装应用信息读取。五阶段均未改变 Room Schema、Workflow、设备动作、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

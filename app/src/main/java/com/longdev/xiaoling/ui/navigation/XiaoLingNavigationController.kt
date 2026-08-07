@@ -31,6 +31,9 @@ internal class XiaoLingNavigationController(
     val requestedLocalNoteId: String?
         get() = state.requestedLocalNoteId
 
+    val requestedCalendarEventId: String?
+        get() = state.requestedCalendarEventId
+
     fun hidesBottomBar(providerEditorOpen: Boolean): Boolean = state.hidesBottomBar(providerEditorOpen)
 
     fun selectTab(tab: XiaoLingAppTab) {
@@ -42,6 +45,7 @@ internal class XiaoLingNavigationController(
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
         requestedWorkflowId: String? = null,
         requestedLocalNoteId: String? = null,
+        requestedCalendarEventId: String? = null,
     ) {
         mutableState.value = coordinator.openSettingsPane(
             state = state,
@@ -49,6 +53,7 @@ internal class XiaoLingNavigationController(
             requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
             requestedWorkflowId = requestedWorkflowId,
             requestedLocalNoteId = requestedLocalNoteId,
+            requestedCalendarEventId = requestedCalendarEventId,
         )
     }
 
@@ -58,6 +63,10 @@ internal class XiaoLingNavigationController(
 
     fun openLocalNote(noteId: String) {
         mutableState.value = coordinator.openLocalNote(state, noteId)
+    }
+
+    fun openCalendarEvent(eventId: String) {
+        mutableState.value = coordinator.openCalendarEvent(state, eventId)
     }
 
     fun routeExternal(target: XiaoLingExternalNavigationTarget) {
@@ -85,6 +94,7 @@ private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<S
             state.requestedKnowledgeDocumentId.orEmpty(),
             state.requestedWorkflowId.orEmpty(),
             state.requestedLocalNoteId.orEmpty(),
+            state.requestedCalendarEventId.orEmpty(),
         )
     },
     restore = { savedTargets ->
@@ -92,6 +102,7 @@ private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<S
             requestedKnowledgeDocumentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null },
             requestedWorkflowId = savedTargets.getOrNull(1).orEmpty().ifBlank { null },
             requestedLocalNoteId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
+            requestedCalendarEventId = savedTargets.getOrNull(3).orEmpty().ifBlank { null },
         )
     },
 )

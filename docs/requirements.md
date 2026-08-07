@@ -1,5 +1,13 @@
 # 产品需求
 
+## 答案级系统日程详情导航（第 198 阶段，完成）
+
+- 只有成功且验证状态非失败的 `calendar.list_events`、`calendar.search_events` 或 `calendar.get` Tool 结果，在参数契约、应用生成的动态标题和唯一规范 `calendar-<正整数>` ID 同时一致时，才能显示“查看日程”。空结果、多结果、额外参数、日期/关键词标题漂移、非规范/溢出 ID、正文伪造或详情 ID 与参数不一致不得形成入口。
+- 列表/搜索仅在应用结果明确只有一条事件时提供入口；点击只传稳定事件 ID。Activity 重建可以保存这一个一次性目标，返回设置根页必须清除，不能让旧目标污染下次进入。
+- 详情页必须使用现有 `AndroidCalendarEventReader` 按当前 Calendar Provider 二次读取，只显示标题、事件 ID、起止时间、全天、时区和是否重复；不得读取或展示地点、描述、参与人、组织者、账户或历史 Tool 正文。
+- 事件已删除、权限撤销、Provider 不可用、读取失败或目标非法时必须显示当前失败状态，不得回退工具摘要或模型文本。页面不得自动申请权限、写入日程、创建审批或触发 Agent Run。
+- 本阶段不新增 Android 权限、Room Schema、Tool/Skill、日程写入、Workflow、后台或 Release 能力。验证按快速迭代分级执行聚焦导航 JVM、Debug/AndroidTest APK；Redmi instrumentation、完整 JVM、Lint 和 Release 后置。
+
 ## 答案级历史会话导航（第 197 阶段，完成）
 
 - 只有应用生成的 `app.list_conversations`、`app.search_conversations` 或 `app.get_conversation` Tool 结果，在固定结果标题、参数契约、唯一合法 `conversation-...` ID 和非失败验证同时满足时，才能显示“查看会话”。普通模型文本、空/多结果、额外参数、换行注入、ID 回显不一致或正文伪造不得形成入口。

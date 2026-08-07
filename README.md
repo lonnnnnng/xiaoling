@@ -2,7 +2,9 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 197 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 198 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+
+第 198 阶段完成答案级系统日程详情导航：可信 `calendar.list_events / calendar.search_events / calendar.get` Tool 卡只有在参数、应用生成结果外壳和唯一规范 `calendar-<正整数>` ID 同时成立时才显示“查看日程”。点击后进入独立只读详情页，并按当前 Calendar Provider 重新读取标题、起止、全天、时区和重复状态；事件删除、权限撤销、Provider 不可用、参数/标题漂移、多结果或伪造 ID 均 fail-closed，不回退历史 Tool 正文。该切片不新增权限、日程写入、审批、Room Schema、Workflow 或后台能力。聚焦导航 JVM、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。
 
 第 197 阶段完成答案级历史会话导航：可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool 卡只有在应用生成的固定结果外壳、参数契约和唯一稳定会话 ID 同时通过时才显示“查看会话”。点击前重新读取当前 Room，目标不存在、被删除、重复、ID 漂移或结果被模型改写时均不导航；成功后复用既有会话选择与正文加载，不发送消息、不创建 Run、不扩展 Workflow 或后台能力。聚焦会话导航 JVM `17/17`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
 

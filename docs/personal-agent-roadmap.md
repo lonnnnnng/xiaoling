@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 198 阶段：答案级系统日程详情导航（完成）
+
+- 可信 `calendar.list_events / calendar.search_events / calendar.get` Tool part 现在可以投影“查看日程”，但必须满足严格参数、应用生成的动态标题、唯一规范 `calendar-<正整数>` ID 和非失败验证；空/多结果、额外参数、标题漂移、非规范/溢出 ID、详情错配或正文伪造均不产生入口。
+- 点击后不信任历史 Tool 正文：应用导航到独立详情页，并使用当前 Calendar Provider 按稳定 ID 二次读取。页面只展示标题、ID、起止时间、全天、时区和重复状态；删除、权限撤销、Provider 不可用或读取失败均 fail-closed。
+- 该切片只补答案到当前系统事实的查看闭环，不申请权限、不创建/修改/删除日程，不发送消息、不创建 Run，不新增 Room Schema、Tool/Skill、Workflow、设备动作或后台能力。
+- 聚焦导航 JVM、Debug/AndroidTest APK 构建通过；AndroidTest 新用例已编译但未在 Redmi 运行，完整 JVM、Lint、文档 corpus gate 和 Release 未运行。下一阶段继续选择个人 Agent 的直接可用窄闭环。
+
 ## 第 197 阶段：答案级历史会话导航（完成）
 
 - 可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool part 现在可以投影“查看会话”入口，但必须同时满足应用固定结果标题、严格参数、唯一合法 `conversation-...` ID 和非失败验证；普通模型文本、空/多结果、额外参数、换行注入、ID 不一致或正文伪造均不产生入口。

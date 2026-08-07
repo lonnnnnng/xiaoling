@@ -44,6 +44,18 @@ class XiaoLingNavigationCoordinatorTest {
     }
 
     @Test
+    fun openCalendarEventRoutesToReadOnlyDetailAndCarriesStableId() {
+        val result = coordinator.openCalendarEvent(
+            state = XiaoLingNavigationState(),
+            eventId = "calendar-197",
+        )
+
+        assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
+        assertEquals(XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL, result.settingsPane)
+        assertEquals("calendar-197", result.requestedCalendarEventId)
+    }
+
+    @Test
     fun externalConversationTargetsReturnToConversationRoot() {
         val initial = XiaoLingNavigationState(
             tab = XiaoLingAppTab.SETTINGS,
@@ -101,6 +113,7 @@ class XiaoLingNavigationCoordinatorTest {
             requestedKnowledgeDocumentId = "document-1",
             requestedWorkflowId = "workflow-1",
             requestedLocalNoteId = "note-1",
+            requestedCalendarEventId = "calendar-1",
         )
 
         val result = coordinator.back(
@@ -114,6 +127,7 @@ class XiaoLingNavigationCoordinatorTest {
         assertNull(result.state.requestedKnowledgeDocumentId)
         assertNull(result.state.requestedWorkflowId)
         assertNull(result.state.requestedLocalNoteId)
+        assertNull(result.state.requestedCalendarEventId)
         assertNull(result.effect)
     }
 

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 198 阶段：答案级系统日程详情导航（完成）
+
+- 新增 `CalendarNavigation.kt`，严格核对 `calendar.list_events / calendar.search_events / calendar.get` 参数、动态结果标题、唯一事件条目和规范稳定 ID；列表/搜索结果数量必须为 1，`calendar.get` 的参数与详情 ID 必须一致，溢出、前导零、多 ID 或正文伪造均不产生入口。
+- `ConversationMessageContent` 新增“查看日程”，通过 `ConversationActions` 交给应用导航宿主。`XiaoLingNavigationState` 增加可保存的单次日程目标与独立 `CALENDAR_EVENT_DETAIL` pane；系统返回或回到设置根页会清除目标。
+- 新增 `CalendarEventDetailPage`。页面进入后使用 `AndroidCalendarEventReader` 按当前 Provider 回读，Compose 只投影标题、稳定 ID、起止、全天、时区和重复状态；事件删除、权限撤销、Provider/读取失败都只显示当前错误，不读取历史消息正文。
+- 新增 `CalendarNavigationTest`、导航协调器回归、`CalendarEventDetailPageInstrumentedTest` 和 Tool 卡动作路由测试。聚焦 JVM 与 Debug/AndroidTest APK 构建通过；AndroidTest 新用例仅完成编译，未在 Redmi 运行。
+- 没有新增 Tool、Skill、Room Schema、权限、日程写入、审批、Workflow、后台或 Release 行为。
+
 ## 第 197 阶段：答案级历史会话导航（完成）
 
 - 新增 `ConversationNavigation.kt`，只从可信 `MessagePart.Tool` 的 `app.list_conversations / app.search_conversations / app.get_conversation` 结果解析唯一稳定会话 ID；固定标题、参数字段、数量边界、详情 ID 回显和稳定 ID 总数任一不符都不生成入口。

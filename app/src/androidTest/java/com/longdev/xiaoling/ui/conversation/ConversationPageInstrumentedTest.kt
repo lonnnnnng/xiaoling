@@ -402,6 +402,45 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    @Test
+    fun opensTrustedCalendarToolResultByStableId() {
+        val actions = FakeConversationActions()
+        val eventId = "calendar-197"
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-calendar-get",
+                                role = "assistant",
+                                text = "已读取日程详情。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-calendar-get",
+                                    toolName = "calendar.get",
+                                    arguments = mapOf("event_id" to eventId),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                                    rawResult = "日程详情：\nID：$eventId\n标题：项目评审\n开始：2026-08-08 10:00\n结束：2026-08-08 11:00\n全天：否\n时区：Asia/Shanghai\n重复：否\n事件指纹：calendar-event-v1-abcdef",
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看日程").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(eventId, actions.lastOpenedCalendarEventId)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -417,6 +456,7 @@ class ConversationPageInstrumentedTest {
         var lastOpenedNoteId: String? = null
         var lastOpenedMemoryId: String? = null
         var lastOpenedConversationId: String? = null
+        var lastOpenedCalendarEventId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -486,6 +526,10 @@ class ConversationPageInstrumentedTest {
 
         override fun openConversation(conversationId: String) {
             lastOpenedConversationId = conversationId
+        }
+
+        override fun openCalendarEvent(eventId: String) {
+            lastOpenedCalendarEventId = eventId
         }
 
         override fun openLocalNote(noteId: String) {
