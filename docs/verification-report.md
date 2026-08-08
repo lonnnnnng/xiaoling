@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 212 阶段：前台 Agent Profile 隐私验收探针
+
+- 新增 `RealProviderAgentProfileInstrumentedTest`，使用显式临时 Profile（仅 `agent.get_profile`）和随机会话 ID，复用正式 `AgentRunUseCase`、真实 `OpenAiCompatibleClient` 与 Room Run Repository；探针断言四项允许状态和全部敏感字段不可见。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 成功，测试 APK 已安装到 Redmi `wsvwypiz7xwslvl7`。未向 Pixel_9 或其他模拟器发送目标 ADB 命令。
+- Redmi 单项测试已启动，但真实 Provider 请求失败于 `ApiFailure: 无法解析服务器域名`。主机 DNS 解析到 `198.18.0.245`，主机 `GET /models` 返回 `404`（服务可达）；Redmi `ip route` 只有 `10.10.14.0/30 dev tun0`，到 `1.1.1.1` 和 Provider 域名均不可达。该项暂记为“网络阻塞”，不记为通过，也不运行无关全量验证。
+- 设置页手工核对：旧 `设备打开应用 E2E` Profile 的工具数仍为 2，未自动获得新工具；`默认 Agent` 的显式工具列表包含 `agent.get_profile`。下一步是网络恢复后重跑同一单项，成功后再进入 `app.get_info`。
+
 ## 2026-08-08 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收
 
 - 仅在 Redmi `wsvwypiz7xwslvl7` 建立唯一历史夹具 `conversation-stage211-target-20260808 / stage211_history_target_20260808`，含用户正文 `stage211_room_user_marker_20260808` 和助手正文 `stage211_room_assistant_before_20260808`；专用验收会话为 `conversation-stage211-agent-20260808`。现有 Profile 临时收窄为 `app.list_conversations / app.search_conversations / app.get_conversation`、`conversation-detail` 和长期记忆关闭。

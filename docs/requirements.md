@@ -1,5 +1,12 @@
 # 产品需求
 
+## 前台 Agent Profile 隐私验收（第 212 阶段，代码完成）
+
+- `agent.get_profile` 只能由当前前台直接 Agent 调用；本阶段定向 AndroidTest 必须复用正式 `AgentRunUseCase`，Profile 工具白名单精确包含该工具，且不得扩大旧 Profile 的工具面。
+- 结果只允许返回本次 Run 冻结的 Agent 名称、模型、API 模式和长期记忆召回状态；Provider URL、API Key、系统提示词、内部 Profile ID 和工具白名单必须保持不可见，Room Tool Ledger 也必须满足同一边界。
+- 真实 Provider 验收只在 Redmi `wsvwypiz7xwslvl7` 执行。当前设备网络只有 `tun0` 且域名不可解析时，记录为外部网络阻塞，不把失败转换成通过，也不改用 Pixel_9 或扩大测试矩阵。
+- 网络恢复后只重跑第 212 阶段单项；通过后再推进下一独立只读切片 `app.get_info`。
+
 ## 真实前台历史会话搜索、当前正文与答案级导航验收（第 211 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。临时 Profile 必须精确限制为 `app.list_conversations / app.search_conversations / app.get_conversation`、`conversation-detail` Skill 和长期记忆关闭；不得开放会话写入、设备动作、Provider 写入、Workflow 或后台能力。

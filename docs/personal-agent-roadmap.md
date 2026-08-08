@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 第 212 阶段：前台 Agent Profile 隐私验收（代码完成，Redmi 网络待恢复）
+
+- `agent.get_profile` 的 Redmi-only 定向 AndroidTest 已接入正式 `AgentRunUseCase`，以最小白名单验证前台 `DIRECT` 的真实规划、执行和 Room Tool Ledger 投影；输出只允许 Agent 名称、模型、API 模式和记忆召回状态。
+- Provider URL、API Key、系统提示词、内部 Profile ID 和工具白名单均有 fail-closed 断言；旧 Profile 不自动扩权，`默认 Agent` 只通过显式白名单获得该工具。
+- 编译和 Debug/AndroidTest APK 构建通过；Redmi 运行时因仅有 `tun0` 路由而无法解析 Provider 域名，真实模型验收尚未闭环。网络恢复后优先重跑该单项，再推进 `app.get_info`，不跳过隐私边界。
+
 ## 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收（完成）
 
 - Redmi 首条 Run `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 已选择 `conversation-detail@1` 并完成 `app.search_conversations -> app.get_conversation`，但搜索同时命中当前验收会话和历史目标；旧 Run 保持 `COMPLETED`、两项 typed `PASSED` 和原结果不变。
