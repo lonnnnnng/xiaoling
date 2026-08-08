@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 204 阶段：真实前台记忆写入与答案级 UI 验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台人工链路：临时 Profile `stage204-memory-ui` 只允许 `memory.remember`，输入 `/agent remember_stage204_ui_memory_marker_1786155352` 后人工批准审批卡，Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 最终为 `COMPLETED`；审批为 `APPROVED`，Executor/typed verification 为 `PASSED`。
+- 对话页的 Tool Ledger 与完成卡同时显示唯一 `memory.remember`、来源 Run 和稳定记忆 ID `memory-2015dbef-dad1-4ce8-b73d-ca35ba61dd28`；进入“长期记忆”页后从当前 Room 重新读取并显示同一 marker、来源 `/agent Run`、Run ID、类型 `Episode` 和正文，证明答案级入口到权威 Room 事实的真实前台闭环。
+- 通过 UI 删除该唯一测试记忆后，页面显示“已删除：remember_stage204_ui_memory_marker_1786155352 / 还没有长期记忆”。随后删除临时 Profile，确认原 Profile“设备打开应用 E2E”仍为当前 Agent；临时会话已删除，会话列表只剩原有用户会话，旧 Run/审批审计保持不变。
+- HTTP 日志核对到配置化默认 User-Agent：`Codex Desktop/0.145.0-alpha.18 (Mac OS 14.7.4; arm64) unknown (Codex Desktop; 26.715.31251)`。未输出 Provider API Key、记忆正文到日志，也未向 Pixel_9 或任何模拟器发送命令。
+- 这是一次真实人工输入、审批点击、Room 回读和清理验收，不等同 Debug-only 探针，也没有新增生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力。按分级验证约束，本阶段未运行完整 JVM、Lint、APK 构建、Release 或全量 instrumentation。
+
 ## 2026-08-08 第 203 阶段：真实长期记忆会话投影验收
 
 - 最终 Debug/AndroidTest APK 重新构建成功并仅安装到 Redmi `wsvwypiz7xwslvl7`。三个定向 instrumentation 均通过：`RoomMessagePartStoreInstrumentedTest#verifiedMemoryRememberResultProjectsStableToolPartAfterRoomReopen`、`ConversationPageInstrumentedTest#opensVerifiedRememberedMemoryToolResultByStableId`、`XiaoLingViewModelMemoryNavigationInstrumentedTest#refreshesCurrentRoomBeforeSelectingOrRejectingAnswerMemoryNavigation`，结果为 `OK (3 tests)`。

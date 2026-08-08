@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 204 阶段：真实前台记忆写入与答案级 UI 验收（完成）
+
+- 通过 Redmi `wsvwypiz7xwslvl7` 的真实前台 `/agent` 输入和人工审批，复用现有 `memory.remember` 生产链路；临时 Profile `stage204-memory-ui` 仅包含该工具，最终 Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 为 `COMPLETED`，审批为 `APPROVED`，Executor/typed verification 为 `PASSED`。
+- 对话页 Tool Ledger、完成卡和“长期记忆”管理页均从同一 Room 事实投影 marker、来源 Run、类型 `Episode` 和 `memory-2015dbef-dad1-4ce8-b73d-ca35ba61dd28`；这验证了答案级入口并非从模型文本猜测资源身份。
+- UI 删除后再次读取为空；临时 Profile 和临时会话均已删除，原 Profile 仍选中，旧 Run/审批审计不变。请求日志确认默认 User-Agent 走统一可配置 Header 构造，凭据未进入日志。
+- 本阶段没有代码或生产能力变更，仅完成真实人工验收与清理；未运行完整 JVM、Lint、APK、Release 或全量 instrumentation，未使用 Pixel_9。
+
 ## 第 203 阶段：真实长期记忆会话投影验收（完成）
 
 - `AgentE2eDebugReceiver` 新增 `memory_remember_conversation_real`，只在 Debug 构建可用，并通过既有 `runMemoryRememberReal()` 复用正式 Provider、`AgentRunUseCase`、Room 审批和 typed verification；生产 `sendAgentRun()` 路径没有增加权限或工具。

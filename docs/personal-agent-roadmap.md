@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 204 阶段：真实前台记忆写入与答案级 UI 验收（完成）
+
+- 用 Redmi `wsvwypiz7xwslvl7` 完成真实人工输入 `/agent remember_stage204_ui_memory_marker_1786155352`、审批、`memory.remember` 执行、后置验证和答案级长期记忆查看；同一稳定 `memory-UUID` 在 Tool Ledger、完成卡和当前 Room 页面间保持一致。
+- 验收后删除测试记忆、临时 Profile 和临时会话，恢复原 Profile，旧 Run/审批审计保持不变。该结果把第 201–203 阶段的代码与 Debug 证据补成真实前台 UI 闭环，但不扩大生产 Tool/Skill、Room、Workflow、后台或权限边界。
+- 默认 User-Agent 的配置化注入在真实请求日志中核对通过；只使用 Redmi，未使用 Pixel_9。按快速迭代分级，本阶段不运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 下一阶段回到个人 Agent 主线，优先选择一个仍能直接提升“自然语言目标 → 可验证结果 → 权威事实查看”的窄切片；继续保持旧 Run 不变、设备动作只限前台、后台设备自动化和远期生态能力后置。
+
 ## 第 203 阶段：真实长期记忆会话投影验收（完成）
 
 - 新增仅 Debug 的 `memory_remember_conversation_real` 操作，复用第 202 阶段正式 `AgentRunUseCase`、当前 Provider、Room 审批和记忆执行器；真实 `memory.remember` 结果短暂写入专属会话后重新加载，仍保留唯一可信 Tool part、`VERIFIED`、稳定 `memoryIdsUsed` 与 `memoryIdForNavigation()`。

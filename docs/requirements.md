@@ -1,5 +1,13 @@
 # 产品需求
 
+## 真实前台记忆写入与答案级 UI 验收（第 204 阶段，完成）
+
+- 真实前台验收必须只在 Redmi `wsvwypiz7xwslvl7` 执行；临时 Profile 只能开放 `memory.remember`，用户输入和审批必须经过现有对话/Room 链路，不得用 Debug 直写替代人工 UI 事实。
+- Tool Ledger、完成卡和长期记忆页必须都绑定同一应用生成的 `memory-UUID`、来源 Run 和当前 Room 记录；页面展示的正文、类型和来源只能来自权威 Room 回读，不能信任模型自由文本。
+- 验收结束或失败都必须精确删除测试记忆、临时 Profile 和临时会话，恢复原 Profile；旧 Run、审批审计、用户会话和其他记忆不得改写或删除。
+- 默认 User-Agent 必须继续由统一请求配置注入并可在 HTTP 日志中核对；日志不得包含 API Key、原始凭据或不必要的记忆正文。
+- 本阶段只证明真实人工输入、审批、Room 回读、答案级查看和清理闭环，不新增生产 Tool/Skill、权限、Room Schema、Workflow、后台能力或 Release 门禁；验证投入遵循分级约束。
+
 ## 真实长期记忆会话投影验收（第 203 阶段，完成）
 
 - Debug-only `memory_remember_conversation_real` 必须复用正式 `AgentRunUseCase` 和当前 Provider，不能通过直接写 Room 或伪造 ToolResult 宣称普通会话支持；只允许把本轮真实结果短暂写入带专属 ID 的临时会话。
