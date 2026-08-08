@@ -4,6 +4,17 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收
+
+- 仅在 Redmi `wsvwypiz7xwslvl7` 建立唯一历史夹具 `conversation-stage211-target-20260808 / stage211_history_target_20260808`，含用户正文 `stage211_room_user_marker_20260808` 和助手正文 `stage211_room_assistant_before_20260808`；专用验收会话为 `conversation-stage211-agent-20260808`。现有 Profile 临时收窄为 `app.list_conversations / app.search_conversations / app.get_conversation`、`conversation-detail` 和长期记忆关闭。
+- 初次准备测试虽在 Room 断言选中验收会话，但仍存活的旧前台 ViewModel 随后把原选择写回；强停主应用后重跑幂等准备单项，专用会话稳定选中，未重复创建夹具或覆盖原恢复快照。两次准备单项本身均为 `OK (1 test)`。
+- 首条真实 Run `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 为 `COMPLETED`，选择 `conversation-detail@1`，严格执行 `app.search_conversations(limit=10, query=stage211_history_target_20260808) -> app.get_conversation(conversation-stage211-target-20260808)`；两项 ToolResult 均 `success=true / verificationStatus=PASSED`，审批数为 0。搜索结果同时包含当前验收会话和历史目标，因为当前用户消息本身含同一 marker；详情仍正确读取目标的两条 Room 正文。
+- 生产修复为 `AgentConversationStore.search(query, limit, excludeConversationId)`、Registry 传入当前 RunContext 会话 ID、Room Store 在排序和截断前排除该 ID。聚焦 JVM `conversationSearchFindsOldConversation + conversationSearchExcludesCurrentRunConversationBeforeApplyingLimit` 为 `2/2`，`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。
+- 修复后 Run `run-25bd9d0a-90a9-41b2-adbb-1cca0ddd62ab` 同样为 `COMPLETED` 并选择 `conversation-detail@1`；搜索结果只包含唯一历史目标，随后 get 原样使用同一稳定 ID。两项 ToolResult 继续为 `success=true / PASSED`，审批数为 0。
+- Run 审计后把目标助手正文改为 `stage211_room_assistant_after_20260808`。对话页历史 get Tool 卡仍显示冻结的 `before`；点击其“查看会话”后，目标页面显示用户 marker 和当前 Room 的 `after`。导航审计 `OK (1 test)` 确认选中 ID 已切到目标、`before` 不可见、修复后 Run 仍为 `COMPLETED` 且没有新建 Run。
+- 准备、真实 Run/正文变化审计、答案导航审计和精确清理四个独立单项均为 `OK (1 test)`。清理后目标/验收会话、临时 Profile、快照、截图/XML、本机只读数据库副本和临时测试源码已删除，原 Profile 与有效会话选择恢复；两条真实 Run、Skill 选择和 Tool Ledger 审计保留。
+- 最终文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。没有向 Pixel_9 或其他模拟器发送目标 ADB 命令；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未主动 push。Room v36、权限、Workflow、后台、Shadow 和发布边界保持不变。
+
 ## 2026-08-08 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。阶段外使用正式 Calendar writer 创建唯一一次性夹具 `calendar-88 / stage210_calendar_delete_20260808 / 2026-08-14 10:20–10:50 / Asia/Shanghai`，事件指纹为 `calendar-event-v1-7039017f961da7c6d64409f73c562cf0dbf985d4fcb657509c284fb627c80996`；专用 E2E Profile 临时收窄为 `calendar.search_events / calendar.get / calendar.delete_event`、`calendar-delete` Skill 和长期记忆关闭。

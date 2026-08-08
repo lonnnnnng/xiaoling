@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 211 阶段真实历史会话读取 UI 边界（无变更）
+
+本阶段的 `app.search_conversations / app.get_conversation`、当前会话排除和答案级“查看会话”只读取 Room 会话身份及用户/助手正文；搜索结果、历史正文、Run 后正文变化和 UI 导航均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。
+
 ## 第 210 阶段真实日程删除 UI 边界（无变更）
 
 本阶段只在 Redmi 的真实前台 Provider 链中验证 `calendar.delete_event` 的审批、指纹条件删除、提交回执、当前不可见和历史入口二次读取；事件标题、时间、指纹、删除结果与 NotFound 页面均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。

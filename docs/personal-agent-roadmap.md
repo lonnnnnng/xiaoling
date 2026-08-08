@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收（完成）
+
+- Redmi 首条 Run `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 已选择 `conversation-detail@1` 并完成 `app.search_conversations -> app.get_conversation`，但搜索同时命中当前验收会话和历史目标；旧 Run 保持 `COMPLETED`、两项 typed `PASSED` 和原结果不变。
+- 生产搜索现在从 RunContext 取得当前会话 ID，并在应用 limit 前排除它。修复后 Run `run-25bd9d0a-90a9-41b2-adbb-1cca0ddd62ab` 只返回唯一目标 `conversation-stage211-target-20260808`，再以同一稳定 ID 从当前 Room 读取用户/助手正文；全链 SAFE、零审批、两项 `PASSED`。
+- Run 后把目标助手正文从 `before` 改成 `after`，历史 Tool 卡继续冻结旧结果；点击“查看会话”显示当前 Room 的 `after`，且没有新增 Run。这补齐了真实前台“搜索摘要 -> 稳定 ID -> 当前正文 -> 当前页面”的完整可清理闭环。
+- 夹具会话、临时 Profile、快照和测试包已精确清理，原 Profile/会话选择恢复，两条 Run 审计保留；Room v36、权限、Workflow、后台和发布边界不变。
+- 第 212 阶段优先完成真实前台 `agent.get_profile` 验收，核对本次 Run 冻结的 Agent 名称、模型、API 模式和记忆状态，并证明 Provider URL/API Key、系统提示词、内部 ID 与工具白名单不可见；`app.get_info` 留在后续独立切片。
+
 ## 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent calendar delete` 人工审批闭环。Run `run-fa9e0a15-db83-4db6-8919-501566d60ebf` 为 `COMPLETED`，唯一 `calendar-delete` 严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`，稳定 ID、当前指纹和 `scope=event` 全链一致。

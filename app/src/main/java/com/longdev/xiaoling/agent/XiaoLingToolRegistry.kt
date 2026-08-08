@@ -1491,7 +1491,11 @@ class XiaoLingToolRegistry(
     private suspend fun searchConversations(call: ToolCall): ToolExecutionResult {
         val query = call.arguments["query"].orEmpty().trim()
         if (query.isBlank()) return ToolExecutionResult(success = false, content = "会话搜索关键词不能为空")
-        val conversations = conversationStore.search(query = query, limit = call.limit())
+        val conversations = conversationStore.search(
+            query = query,
+            limit = call.limit(),
+            excludeConversationId = runContext?.conversationId,
+        )
         return ToolExecutionResult(success = true, content = conversations.toConversationText("匹配会话"))
     }
 

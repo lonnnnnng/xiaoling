@@ -1999,6 +1999,34 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun conversationSearchExcludesCurrentRunConversationBeforeApplyingLimit() = runTest {
+        val registry = testRegistry().also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-markdown",
+                    userMessageId = "message-current-search",
+                    runId = "run-current-search",
+                    goal = "查找旧表格会话",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                ),
+            )
+        }
+
+        val result = registry.execute(
+            ToolCall(
+                name = "app.search_conversations",
+                arguments = mapOf("query" to "表格", "limit" to "1"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertFalse(result.content.contains("conversation-markdown"))
+        assertTrue(result.content.contains("conversation-table-history"))
+    }
+
+    @Test
     fun conversationDetailReadsOnlyCurrentUserAndAssistantTextForStableId() = runTest {
         val registry = testRegistry().also {
             it.bindRunContext(
@@ -3611,12 +3639,24 @@ private class InMemoryAgentConversationStore : AgentConversationStore {
             messageCount = 8,
             updatedAt = 9,
         ),
+        AgentConversationRecord(
+            id = "conversation-table-history",
+            title = "历史表格排查",
+            summary = "检查旧表格格式。",
+            messageCount = 4,
+            updatedAt = 8,
+        ),
     )
 
     override suspend fun list(limit: Int): List<AgentConversationRecord> = conversations.take(limit)
 
-    override suspend fun search(query: String, limit: Int): List<AgentConversationRecord> {
+    override suspend fun search(
+        query: String,
+        limit: Int,
+        excludeConversationId: String?,
+    ): List<AgentConversationRecord> {
         return conversations
+            .filterNot { it.id == excludeConversationId }
             .filter { it.title.contains(query, ignoreCase = true) || it.summary.contains(query, ignoreCase = true) }
             .take(limit)
     }

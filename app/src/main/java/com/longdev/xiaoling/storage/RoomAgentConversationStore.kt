@@ -19,17 +19,28 @@ class RoomAgentConversationStore(
             .take(limit.coerceIn(1, 10))
     }
 
-    override suspend fun search(query: String, limit: Int): List<AgentConversationRecord> {
+    override suspend fun search(
+        query: String,
+        limit: Int,
+        excludeConversationId: String?,
+    ): List<AgentConversationRecord> {
         val normalized = query.trim()
         if (normalized.isBlank()) return emptyList()
+        val excludedId = excludeConversationId?.trim()?.takeIf(String::isNotBlank)
         val messagesByConversation = database.conversationDao().getAllMessages().groupBy { it.conversationId }
         // long: 会话检索是只读工具，直接从 Room 快照构造结果；不依赖当前 Compose 页面状态，应用重启后仍能查到历史会话。
         return database.conversationDao()
             .getAllConversations()
             .filter { conversation ->
-                conversation.title.contains(normalized, ignoreCase = true) ||
-                    conversation.summary.contains(normalized, ignoreCase = true) ||
-                    messagesByConversation[conversation.id].orEmpty().any { it.text.contains(normalized, ignoreCase = true) }
+                // long: 当前用户指令会先写入本轮会话；“查找旧会话”若不排除当前 ID，搜索关键词必然先命中这条新消息并污染唯一历史结果。
+                conversation.id != excludedId &&
+                    (
+                        conversation.title.contains(normalized, ignoreCase = true) ||
+                            conversation.summary.contains(normalized, ignoreCase = true) ||
+                            messagesByConversation[conversation.id].orEmpty().any {
+                                it.text.contains(normalized, ignoreCase = true)
+                            }
+                    )
             }
             .sortedByDescending { it.updatedAt }
             .take(limit.coerceIn(1, 10))

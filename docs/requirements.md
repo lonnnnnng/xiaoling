@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实前台历史会话搜索、当前正文与答案级导航验收（第 211 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。临时 Profile 必须精确限制为 `app.list_conversations / app.search_conversations / app.get_conversation`、`conversation-detail` Skill 和长期记忆关闭；不得开放会话写入、设备动作、Provider 写入、Workflow 或后台能力。
+- `app.search_conversations` 用于查找旧会话时，必须在排序与应用 `limit` 前排除当前 RunContext 会话 ID。当前用户指令已经写入本轮会话，不得让它凭相同关键词污染历史结果；无 RunContext 的 Store 调用保持既有搜索语义。
+- 模型必须先用精确关键词搜索唯一历史会话，再把结果中的同一稳定 `conversation-...` ID 原样传给 `app.get_conversation`。两项工具均为 SAFE、零审批，成功账本必须具备 typed verification `PASSED`；详情只允许当前 Room 的用户/助手正文和既有有界说明。
+- 答案级“查看会话”必须只携带可信 Tool part 中的稳定会话 ID，并在点击时重新读取当前 Room。若 ToolResult 生成后正文发生变化，页面必须显示新正文；不得回放旧 ToolResult、发送消息、创建 Run 或触发工具。
+- 首次暴露自命中的 Run 必须保持原终态和审计，不因修复而重写。验收结束必须精确删除目标/验收会话、临时 Profile、快照和测试包，恢复原有效会话与 Profile；阶段 Run 和 Tool Ledger 审计继续保留。
+- 本阶段只修复历史会话搜索的当前上下文排除，不新增 Room Schema、权限、会话写入、Workflow、后台或 Release 能力；下一阶段转向 `agent.get_profile` 真实前台隐私边界验收。
+
 ## 真实前台系统日程删除、当前不可见与清理验收（第 210 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式删除 Profile 必须精确限制为 `calendar.search_events / calendar.get / calendar.delete_event` 与 `calendar-delete` Skill，长期记忆关闭；夹具创建必须在 Run 外完成，不得把创建、修改、设备动作或后台工具带入模型工具面。

@@ -797,7 +797,11 @@ data class AgentConversationDetailRecord(
 
 interface AgentConversationStore {
     suspend fun list(limit: Int): List<AgentConversationRecord>
-    suspend fun search(query: String, limit: Int): List<AgentConversationRecord>
+    suspend fun search(
+        query: String,
+        limit: Int,
+        excludeConversationId: String? = null,
+    ): List<AgentConversationRecord>
     suspend fun get(conversationId: String): AgentConversationDetailRecord?
 }
 

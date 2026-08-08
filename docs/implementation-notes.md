@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收（完成）
+
+- 首条 Redmi Run `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 选择 `conversation-detail@1` 并完成 `app.search_conversations -> app.get_conversation`，两项 ToolResult 均 typed `PASSED`、审批数为 0；但当前用户指令已经写入验收会话，Room 搜索正文时把当前会话和唯一历史夹具同时返回，暴露出真实自命中问题。
+- `AgentConversationStore.search()` 新增可选 `excludeConversationId`；`XiaoLingToolRegistry` 从当前 `AgentToolExecutionContext.conversationId` 传入，`RoomAgentConversationStore` 在排序和应用 limit 前排除该 ID。这样 `limit=1` 不会先截断到当前会话后再得到空结果，无 RunContext 的普通 Store 调用继续保持原行为。
+- 修复后 Run `run-25bd9d0a-90a9-41b2-adbb-1cca0ddd62ab` 仍选择 `conversation-detail@1`，搜索只返回唯一 `conversation-stage211-target-20260808`，随后使用该稳定 ID 读取两条当前用户/助手正文；两项结果均 `success=true / PASSED`，没有审批、写入或后台副作用。
+- 为证明答案级入口不回放旧 ToolResult，Run 审计后把目标助手正文从 `stage211_room_assistant_before_20260808` 改为 `stage211_room_assistant_after_20260808`。历史 Tool 卡继续显示冻结的 `before`，点击“查看会话”后当前页面显示 `after`；导航审计确认选中 ID 已切到目标且没有创建新 Run。
+- 夹具目标/验收会话、临时 Profile、快照、截图/XML、本机只读数据库副本和测试包均精确清理，原 Profile 与有效会话选择恢复，两条真实 Run 审计保留。临时 instrumentation 源码已删除，不进入提交。
+- 聚焦 JVM 会话搜索 `2/2`、`:app:assembleDebug :app:assembleDebugAndroidTest`、Redmi 准备/Run 审计/导航审计/清理四个单项和文档 corpus gate 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。第 212 阶段优先验证真实前台 `agent.get_profile`，不扩大 Provider 凭据、系统提示词、后台或 Workflow 边界。
+
 ## 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收（完成）
 
 - 本阶段没有修改生产代码，直接复用既有 `calendar.search_events / calendar.get / calendar.delete_event`、`calendar-delete` Skill、Room Approval、Tool Ledger、Provider 条件删除、提交后不可见回读和答案级当前日程导航。
