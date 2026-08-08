@@ -2467,6 +2467,8 @@ class XiaoLingToolRegistryTest {
 
         assertTrue(remember.success)
         assertEquals(true, remember.verified)
+        assertEquals(listOf("memory-1"), remember.memoryIdsUsed)
+        assertTrue(remember.content.endsWith(" · id=memory-1"))
         assertTrue(remember.content.contains("来源：由 /agent Run 写入（来源 Run 可查看）"))
         assertFalse(remember.content.contains("记住用户偏好"))
         assertEquals(

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 201 阶段：长期记忆写入结果答案级导航（完成）
+
+- `memory.remember` 的成功与恢复验证结果现在都携带 Store 生成的唯一 `memory-UUID`：正文末尾输出 `id=...`，`ToolExecutionResult.memoryIdsUsed` 同时只保留该 ID；失败结果不产生身份。
+- `MemoryNavigation.kt` 新增已验证写入分支。只有 `VERIFIED`、`note/type/tags` 参数集合合法、固定成功回执、唯一合法 ID 与 `memoryIdsUsed` 一致时才显示“查看记忆”；`READABLE_ONLY`、额外参数、ID 漂移、重复身份和旧结果均 fail-closed。
+- 点击继续复用 `refreshMemoriesAndResolveNavigation()`，先从当前 Room 读取目标并置顶到记忆管理页；不使用回执正文猜测事实，不扩大写入、审批、Room Schema、Workflow 或后台能力。
+- 现有搜索/详情导航和旧 Run 结果保持兼容：没有新增稳定 ID 的历史结果仍不可导航。
+- `MemoryNavigationTest` `5/5` 与 Registry 写入/恢复聚焦用例 `2/2` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 构建通过，Redmi 文档 corpus gate `1/1` 通过。本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
+
 ## 第 200 阶段：本地笔记详情/编辑结果答案级导航（完成）
 
 - `LocalNoteNavigation.kt` 新增 `notes.get` 解析：仅接受唯一 `note_id`，详情首行必须包含应用结果的稳定 note UUID 与规范正整数 revision，下一行必须是固定的本地正文安全边界；全文只能出现一个合法 note ID，避免正文伪造或重复身份生成入口。

@@ -2458,6 +2458,7 @@ class XiaoLingToolRegistry(
                 success = true,
                 verified = true,
                 content = memorySuccessContent(record),
+                memoryIdsUsed = listOf(record.id),
                 executionReceipt = receipt,
             )
         }
@@ -2492,6 +2493,7 @@ class XiaoLingToolRegistry(
                     success = true,
                     verified = true,
                     content = memorySuccessContent(memory),
+                    memoryIdsUsed = listOf(memory.id),
                     executionReceipt = receipt,
                 )
             }
@@ -2518,7 +2520,8 @@ class XiaoLingToolRegistry(
 
     private fun memorySuccessContent(memory: AgentMemoryRecord): String {
         val tagText = memory.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
-        return "已保存并验证长期记忆：${memory.content} · 类型：${memory.type}$tagText · 来源：${memory.sourceSummary}"
+        // long: 已验证写入结果显式携带 Store 生成的稳定 ID，答案入口才能回到当前 Room，而不是依赖模型复述正文定位记录。
+        return "已保存并验证长期记忆：${memory.content} · 类型：${memory.type}$tagText · 来源：${memory.sourceSummary} · id=${memory.id}"
     }
 
     private fun failedMemoryVerification(

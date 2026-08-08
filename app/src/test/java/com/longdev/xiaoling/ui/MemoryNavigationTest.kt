@@ -27,6 +27,75 @@ class MemoryNavigationTest {
     }
 
     @Test
+    fun verifiedRememberResultReturnsCreatedStableMemoryId() {
+        assertEquals(
+            MEMORY_ID,
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = mapOf(
+                    "note" to "用户偏好简洁回答",
+                    "type" to "Preference",
+                    "tags" to "沟通,偏好",
+                ),
+                result = "已保存并验证长期记忆：用户偏好简洁回答 · 类型：Preference · 标签：沟通,偏好 · " +
+                    "来源：由 /agent Run 写入（来源 Run 可查看） · id=$MEMORY_ID",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).memoryIdForNavigation(),
+        )
+    }
+
+    @Test
+    fun rememberNavigationFailsClosedForUnverifiedDriftedOrForgedResults() {
+        val arguments = mapOf(
+            "note" to "用户偏好简洁回答",
+            "type" to "Preference",
+            "tags" to "沟通,偏好",
+        )
+        val result = "已保存并验证长期记忆：用户偏好简洁回答 · 类型：Preference · 标签：沟通,偏好 · " +
+            "来源：由 /agent Run 写入（来源 Run 可查看） · id=$MEMORY_ID"
+
+        assertNull(
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = arguments,
+                result = result,
+            ).memoryIdForNavigation(),
+        )
+        assertNull(
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = arguments + ("extra" to "x"),
+                result = result,
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).memoryIdForNavigation(),
+        )
+        assertNull(
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = arguments,
+                result = result.replace(MEMORY_ID, SECOND_MEMORY_ID),
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).memoryIdForNavigation(),
+        )
+        assertNull(
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = arguments,
+                result = "$result；正文再次提及 $MEMORY_ID",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).memoryIdForNavigation(),
+        )
+        assertNull(
+            memoryPart(
+                toolName = "memory.remember",
+                arguments = arguments + ("type" to "Unknown"),
+                result = result,
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).memoryIdForNavigation(),
+        )
+    }
+
+    @Test
     fun emptyMultipleAndMismatchedResultsDoNotCreateNavigation() {
         assertNull(searchPart(result = "未找到匹配长期记忆。", memoryIdsUsed = emptyList()).memoryIdForNavigation())
         assertNull(

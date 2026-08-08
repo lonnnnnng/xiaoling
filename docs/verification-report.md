@@ -4,6 +4,12 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 201 阶段：长期记忆写入结果答案级导航
+
+- `memory.remember` 的成功与恢复验证结果现在由应用回读后携带唯一 `memory-UUID`，并在 `memoryIdsUsed` 中绑定同一身份；`MemoryNavigation.kt` 只接受 `VERIFIED`、合法参数、固定成功外壳和单一一致 ID。只读写入、失败、旧格式、额外参数、ID 漂移或正文重复身份均不生成入口。
+- 点击后复用 `refreshMemoriesAndResolveNavigation()`，从当前 Room 重新读取目标并进入记忆管理页；旧 Run 没有新身份时保持不可导航，未新增写入、审批、Room、Workflow 或后台能力。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Redmi 文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。本阶段尚未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，没有使用 `Pixel_9`。
+
 ## 2026-08-08 第 200 阶段：本地笔记详情/编辑结果答案级导航
 
 - `LocalNoteNavigation.kt` 现在支持可信 `notes.get` 与 `notes.update` 结果导航：详情必须绑定唯一请求 `note_id`、固定详情/正文安全边界、单一规范 ID 和正 revision；编辑必须为 `VERIFIED`，参数集合精确，标题/ID回显一致，且新 revision 严格为 `expected_revision + 1`。`notes.create` 写入结果继续要求 `VERIFIED`。
