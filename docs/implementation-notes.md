@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 202 阶段：真实 Provider 长期记忆写入审批闭环（完成）
+
+- `AgentE2eDebugReceiver` 新增仅 Debug 的 `memory_remember_real` 显式操作。它从设备当前已选 Provider 读取配置，不通过广播参数传递 API Key；临时 Profile 只允许 `memory.remember`，执行入口仍是正式 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。
+- `DebugRoomApprovalGate` 在 Room 创建审批请求后自动写入唯一 `APPROVED` 决策。验收从 Tool Ledger 核对唯一调用、只含已声明参数且保留第 202 阶段标记，再核对 `success=true`、`executorVerified=true`、`verificationStatus=PASSED`、唯一 `memory-UUID`、`memoryIdsUsed` 与 `executionReceipt.operationId` 一致。
+- 写入结果随后通过 `RoomAgentMemoryStore.get()` 当前回读，比较实际 note、规范化 type、tags、enabled 和 `sourceRunId`；结果正文必须同时包含实际 note 与同一稳定 ID。这样真实模型可以合法补充可选字段，但不能伪造身份或把历史结果当成当前事实。
+- `finally` 使用本阶段专属内容前缀和已知 ID 删除 Room/FTS 记忆，恢复并删除临时 Profile；日志只输出 Run、状态、审批、验证和长度摘要，不输出正文、参数、Provider 地址或凭据。该操作没有生产 Tool/Skill、Room Schema、权限、Workflow 或后台扩权。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`（`83/83`）、`:app:assembleDebug :app:assembleDebugAndroidTest` 和 Redmi `run-b747809a-73f0-4813-9c90-7b6a019c978f` 真实闭环通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation、文档 corpus gate 或 Release。
+
 ## 第 201 阶段：长期记忆写入结果答案级导航（完成）
 
 - `memory.remember` 的成功与恢复验证结果现在都携带 Store 生成的唯一 `memory-UUID`：正文末尾输出 `id=...`，`ToolExecutionResult.memoryIdsUsed` 同时只保留该 ID；失败结果不产生身份。

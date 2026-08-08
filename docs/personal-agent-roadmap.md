@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 第 202 阶段：真实 Provider 长期记忆写入审批闭环（完成）
+
+- 个人 Agent 主链现在在 Redmi 真机上完成了真实的“模型提出 `memory.remember` -> Room 审批 -> 执行与回读验证 -> 稳定 ID 结果”写入闭环；唯一 ID 同时绑定 Tool Ledger、提交回执和当前 Room 记录。
+- Debug 探针使用最小临时 Profile，只开放 `memory.remember`，失败/完成均精确清理测试记忆并恢复原 Profile；没有把测试夹具变成用户长期事实，也没有把 Provider 凭据放进日志。
+- 聚焦 JVM `83/83`、Debug/AndroidTest APK 构建和 Redmi 真实 Run `run-b747809a-73f0-4813-9c90-7b6a019c978f` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation、文档 corpus gate 或 Release。下一阶段继续从个人 Agent 的直接可用事实闭环中选择一个单一窄切片，不扩展后台、Workflow、Foreground Service、精确定时、MCP、远程 Channel、多 Agent 或本地模型边界。
+
 ## 第 201 阶段：长期记忆写入结果答案级导航（完成）
 
 - `memory.remember` 成功和恢复验证结果现在提出应用生成的唯一 `memory-UUID`，并通过 `memoryIdsUsed` 与正文末尾 ID 双重绑定；只有 `VERIFIED` 的固定回执才显示“查看记忆”。

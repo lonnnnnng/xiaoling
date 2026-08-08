@@ -1,5 +1,13 @@
 # 产品需求
 
+## 真实 Provider 长期记忆写入审批闭环（第 202 阶段，完成）
+
+- 真实 Provider 写入验收必须复用正式 `AgentRunUseCase`、Tool Ledger、Room 审批和 `memory.remember` 执行器；Debug 探针不得旁路调用 Store 伪造 Agent 成功。
+- 临时 Profile 只开放 `memory.remember`，调用必须保留本阶段唯一标记且只使用已声明的 `note/type/tags` 参数；结果必须是唯一合法 `memory-UUID`，并同时出现在 `memoryIdsUsed`、提交回执和当前 Room 回读记录中。
+- Room 回读必须核对实际 note、规范化类型、标签、启用状态和当前 Run 来源；唯一审批必须为 `APPROVED`，Executor 和 typed verification 必须为通过。模型对可选字段的合法补充可以保留，但任意未声明参数、标记丢失、ID 不一致或正文无法回读均 fail-closed。
+- 探针失败或完成都必须按专属前缀/稳定 ID 清理测试记忆，恢复原 Profile；不得把测试正文、Provider 凭据或内部参数写入日志，也不得影响用户已有记忆。
+- 本阶段仅新增 Debug 验收入口，不新增生产 Tool/Skill、Android 权限、Room Schema、写入范围、Workflow、后台自动化或 Release 行为；验证按快速迭代聚焦相关 JVM、Debug/AndroidTest APK 和 Redmi 单项真实 Provider 闭环，完整矩阵后置。
+
 ## 长期记忆写入结果答案级导航（第 201 阶段，完成）
 
 - `memory.remember` 只有在应用回读验证成功后，才输出唯一 `memory-UUID` 并填充 `memoryIdsUsed`；只有 `VERIFIED`、参数集合合法、固定成功结果外壳、结果 ID 与 `memoryIdsUsed` 唯一一致时才能显示“查看记忆”。

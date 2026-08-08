@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 202 阶段：真实 Provider 长期记忆写入审批闭环
+
+- Debug-only `memory_remember_real` 使用 Redmi `wsvwypiz7xwslvl7` 当前已选 Provider 和最小临时 Profile，只开放 `memory.remember`，通过正式 `AgentRunUseCase`、`OpenAiCompatibleClient`、Room Tool Ledger 和 `DebugRoomApprovalGate` 完成真实模型写入。
+- 最终 Run `run-b747809a-73f0-4813-9c90-7b6a019c978f` 的唯一 `memory.remember` 调用保留第 202 阶段唯一标记；Room 审批为 `APPROVED`，`executorVerified=true`、`verificationStatus=PASSED`，`memoryIdsUsed`、`executionReceipt.operationId` 和当前 Room 回读记录绑定同一合法 `memory-UUID`。回读核对实际 note、规范化 type、tags、enabled 与 `sourceRunId`，结果正文同时包含实际 note 和稳定 ID。
+- 首次运行只暴露了验收断言过度要求模型完全复制提示词 note/可选字段外壳的问题；未形成错误成功结论，探针在 `finally` 中清理了本轮数据。调整为允许声明内的可选 `type/tags`、但必须保留唯一标记并与 Room 回读一致后，第二次 Redmi 运行通过。两次运行均恢复原 Profile，最终测试记忆和临时 Profile 已清理。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`（`83/83`），`:app:compileDebugKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Debug 主包通过 `adb -s wsvwypiz7xwslvl7 install -r` 覆盖安装且未清除应用数据。按分级验证约束，本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation、文档 corpus gate 或 Release，也未向 Pixel_9/模拟器发送命令。
+
 ## 2026-08-08 第 201 阶段：长期记忆写入结果答案级导航
 
 - `memory.remember` 的成功与恢复验证结果现在由应用回读后携带唯一 `memory-UUID`，并在 `memoryIdsUsed` 中绑定同一身份；`MemoryNavigation.kt` 只接受 `VERIFIED`、合法参数、固定成功外壳和单一一致 ID。只读写入、失败、旧格式、额外参数、ID 漂移或正文重复身份均不生成入口。

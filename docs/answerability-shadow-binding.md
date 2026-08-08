@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 202 阶段真实 Provider 长期记忆写入边界（无变更）
+
+本阶段只在 Redmi 真机的 Debug-only 探针中验证真实 `memory.remember` 的审批、提交回执和当前 Room 回读；测试 note、Provider 凭据和内部参数不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。
+
 ## 第 201 阶段长期记忆写入导航边界（无变更）
 
 本阶段只把已通过 Executor 验证的 `memory.remember` 回执投影为当前记忆查看入口，并在点击后回到 Room 二次读取；不会把记忆正文送入知识候选、Judge、Shadow measurement 或匿名账本，也不会触发额外模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。

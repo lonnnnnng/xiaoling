@@ -1,5 +1,7 @@
 # 文档索引
 
+第 202 阶段完成真实 Provider 的长期记忆写入闭环：仅 Debug 的 `memory_remember_real` 显式 Receiver 使用最小临时 Profile，只开放 `memory.remember`，在 Redmi `wsvwypiz7xwslvl7` 上通过正式 `AgentRunUseCase` 完成真实调用。Room 审批为 `APPROVED`，Executor/typed verification 为 `PASSED`，结果 `memoryIdsUsed`、提交回执和当前 Room 回读绑定同一稳定 `memory-UUID`；实际 note、类型、标签、启用状态和 Run 来源均核对通过。测试记忆与临时 Profile 精确清理，原 Profile/数据保留。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`（`83/83`）、Debug/AndroidTest APK 构建和 Redmi 真实 Run `run-b747809a-73f0-4813-9c90-7b6a019c978f` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation、文档 corpus gate 或 Release，也未使用 Pixel_9；没有新增生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
+
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数精确、固定结果外壳和唯一合法 ID 同时成立时才显示“查看记忆”。只读写入、失败、额外参数、ID 漂移、重复身份和旧结果均 fail-closed；点击后从当前 Room 二次读取。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，也未使用 Pixel_9。
 
 第 200 阶段补齐答案级本地笔记详情/编辑结果导航：`notes.get` 只接受唯一 `note_id`、固定详情/正文边界、单一稳定 ID 和规范 revision；`notes.update` 只在 `VERIFIED`、参数精确、标题/ID一致且 revision 恰为 `expected_revision + 1` 时显示“查看笔记”，`notes.create` 写入结果继续要求 `VERIFIED`。点击后复用本地笔记管理页并从当前 Store 二次读取；失败、只读写入、版本/标题/ID漂移和正文伪造均 fail-closed。聚焦 JVM `7/7`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release，也未使用 Pixel_9。
@@ -18,7 +20,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 201 阶段、Room v36，尚未形成新 Release。第 201 阶段补齐长期记忆写入结果到当前 Room 的答案级查看入口；第 200 阶段补齐本地笔记详情/编辑结果到当前 Store 的答案级查看入口；第 199 阶段补齐日程创建/修改成功结果到当前 Provider 详情页的答案级查看入口；第 198 阶段补齐日程列表/搜索/详情 Tool 卡入口；第 197 阶段补齐历史会话 Tool 卡入口；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。八阶段均未改变 Room Schema、Workflow、设备动作、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
+当前开发基线已到第 202 阶段、Room v36，尚未形成新 Release。第 202 阶段完成真实 Provider 长期记忆写入审批/回读闭环；第 201 阶段补齐长期记忆写入结果到当前 Room 的答案级查看入口；第 200 阶段补齐本地笔记详情/编辑结果到当前 Store 的答案级查看入口；第 199 阶段补齐日程创建/修改成功结果到当前 Provider 详情页的答案级查看入口；第 198 阶段补齐日程列表/搜索/详情 Tool 卡入口；第 197 阶段补齐历史会话 Tool 卡入口；第 196 阶段补齐“搜索摘要 -> 稳定 ID -> 当前正文”的前台只读闭环；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。九阶段均未改变生产 Room Schema、Workflow、设备动作、Shadow 或后台能力，发布基线仍为 `v0.1.16`。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
