@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 215 阶段：前台只读电池状态（完成）
+
+- 新增 `app.get_battery` 和独立 `battery-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。
+- 应用只从当前电池广播投影电量百分比、是否充电和供电方式；广播不可用、数据无效或 OEM 读取异常时 fail-closed，不返回设备标识、应用列表、Provider 配置、电池温度或健康信息。
+- 聚焦 JVM `112/112`、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation `OK (1 test)`（`0.198s`）通过；测试包已卸载。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- Room v36、旧 Profile/Run、Workflow、后台执行、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型边界保持不变；下一阶段继续选择一个能直接提升“自然语言目标 -> 可验证结果 -> 权威事实查看”的窄能力切片。
+
 ## 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（完成）
 
 - `RealProviderAgentProfileInstrumentedTest` 新增仅 AndroidTest 的 `agentProfileUseStoredProvider=true` 入口，从 Redmi 当前选中 Provider 读取真实配置；显式参数模式仍用于隔离环境，不改变生产配置行为。

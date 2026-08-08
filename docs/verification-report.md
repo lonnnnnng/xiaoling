@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-09 第 215 阶段：前台只读电池状态闭环
+
+- 新增 `app.get_battery`，由正式 `XiaoLingToolRegistry` 注入 `AndroidBatteryStatusReader`，无参数、`SAFE`、`supportsBackground=false`；结果固定为电量百分比、充电状态和供电方式三项，不包含设备标识、应用列表、Provider 配置、电池温度或健康信息。
+- 聚焦 JVM `XiaoLingToolRegistryTest` `80/80` 与 `AgentSkillsTest` `32/32`，合计 `112/112`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均构建成功。
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 安装 Debug 主包与测试包，运行 `AndroidBatteryStatusInstrumentedTest#foregroundRegistryReadsCurrentBatteryFactsOnly`，结果为 `OK (1 test)`，耗时 `0.198s`。断言确认三项输出存在且不泄露 Provider、API Key、设备序列或应用包名；测试包已卸载，主应用和用户数据保留。
+- 本阶段没有使用 Pixel_9 或其他模拟器，也未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow、后台和发布边界保持不变。
+
 ## 2026-08-09 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收
 
 - 第 212 阶段首次显式传入兜底 Provider 参数时出现 `ApiFailure: 无法解析服务器域名`；为区分外部兜底配置失效与手机当前配置，AndroidTest 新增 `agentProfileUseStoredProvider=true`，从 Redmi 当前选中 Provider 读取配置，不把 API Key 写入命令参数或日志。

@@ -1,5 +1,7 @@
 # 小灵
 
+第 215 阶段完成前台只读 `app.get_battery` 电池状态闭环：新增 `battery-status` Skill 与 `AndroidBatteryStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前电量百分比、是否充电和供电方式；电池广播不可用或异常时 fail-closed，不返回设备标识、应用列表、Provider 配置、电池温度或健康信息。聚焦 JVM `XiaoLingToolRegistryTest 80/80 + AgentSkillsTest 32/32`（`112/112`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidBatteryStatusInstrumentedTest#foregroundRegistryReadsCurrentBatteryFactsOnly`，结果 `OK (1 test)`、耗时 `0.198s`，测试包已卸载且主应用数据保留。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
+
 第 214 阶段完成 Redmi 当前 Provider 驱动的 `agent.get_profile` 隐私验收：AndroidTest 支持 `agentProfileUseStoredProvider=true`，直接读取 Redmi 当前已选 Provider，Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一结果为 `success=true / verificationStatus=PASSED`。结果只允许 Agent 名称、模型、Responses API 模式和记忆召回状态，Provider URL、API Key、系统提示词、内部 ID 和工具白名单均不可见。仅使用 Redmi 定向 instrumentation `OK (1 test)`，测试包已卸载；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
 第 208 阶段完成 Redmi 真实前台系统日程创建、人工审批、答案级查看与精确清理验收：复用专用 E2E Profile，正式 Run 前临时收窄为仅 `calendar.create_event`、`calendar-create` Skill 和关闭长期记忆。首次遗漏 `/agent` 前缀只产生普通聊天，模型明确拒绝实际写入，没有生成 Run、审批或 Calendar Provider 事件；新会话使用正确命令后，Run `run-0850939c-00dd-497a-b70c-4af0306c2168`、ToolCall `tool-call-a406bf1f-0b83-4810-9d3a-3993c74a0637` 和 Approval `approval-d1841b1a-2e56-40a1-bbd8-8c29a00be93e` 完成真实闭环。事件 `calendar-84` 的标题为 `stage208_calendar_ui_20260808`，时间为 `2026-08-10 10:20–10:50 Asia/Shanghai`；结果为 `success=1 / executorVerified=1 / verificationStatus=PASSED / receiptStatus=COMMITTED / receiptOperationId=84 / replaySafety=IDEMPOTENT_BY_KEY`，审批 `APPROVED`，Run `COMPLETED`。答案级“查看日程”从当前 Calendar Provider 二次读取同一标题、起止、时区、非全天和不重复事实。事件、阶段会话及既有会话中精确四条误入消息已清理，Profile 恢复为 `calendar.list_events / tasks.list`、空 Skill 和关闭长期记忆，原 Run、审批与 Tool Ledger 审计保持不变。仅使用 Redmi；本阶段没有生产代码或能力变更，聚焦清理 instrumentation 与文档 corpus gate 均为 `OK (1 test)`，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
@@ -18,7 +20,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 214 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 215 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

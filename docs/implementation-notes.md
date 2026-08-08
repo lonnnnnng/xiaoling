@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 215 阶段：前台只读电池状态（完成）
+
+- 新增 `BatteryStatusReader` 与 `AndroidBatteryStatusReader`，从当前应用注册的 `ACTION_BATTERY_CHANGED` 广播读取电量、充电状态和供电方式；电量范围/比例无效、广播缺失或 OEM 运行时异常时分别返回不可用或失败，不猜测当前状态。
+- `XiaoLingToolRegistry` 注册无参数 `app.get_battery`，风险为 `SAFE`，`supportsBackground=false`，超时 5 秒；结果固定为三行电量、充电状态和供电方式，不包含设备标识、应用列表、Provider 配置、电池温度或健康信息。
+- 新增 `battery-status` Skill，仅在用户询问电量/充电/供电时选择该工具；旧 Profile、历史 Run、Workflow 和后台能力不自动扩权。
+- 聚焦 JVM `XiaoLingToolRegistryTest 80/80 + AgentSkillsTest 32/32`（`112/112`）、`:app:assembleDebug :app:assembleDebugAndroidTest`，以及 Redmi `wsvwypiz7xwslvl7` 的 `AndroidBatteryStatusInstrumentedTest#foregroundRegistryReadsCurrentBatteryFactsOnly` `OK (1 test)`（`0.198s`）均通过；测试包已卸载。未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（完成）
 
 - `RealProviderAgentProfileInstrumentedTest` 增加 `agentProfileUseStoredProvider=true` 参数；该参数只在 AndroidTest 内通过正式 `ProviderRepository` 读取当前选中 Provider，显式 URL/API Key/模型参数仍保留给隔离运行，不改变生产配置或权限。

@@ -1,5 +1,12 @@
 # 产品需求
 
+## 前台只读电池状态（第 215 阶段，完成）
+
+- `app.get_battery` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
+- 结果只能包含当前电量百分比、是否充电和供电方式三项固定事实；不得返回设备标识、应用列表、Provider URL/API Key、温度、健康信息或其他系统配置。电池广播不可用、数据无效或读取异常时必须 fail-closed。
+- 必须由独立 `battery-status` Skill 在电量、充电或供电问题下选择该工具；旧 Profile、历史 Run 和 Legacy 工具集合不得自动扩权。
+- 本阶段的聚焦 JVM、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation 已通过；完整 JVM、全量 Lint、Release 和全量 instrumentation 按快速迭代分级策略后置。
+
 ## Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（第 214 阶段，完成）
 
 - `RealProviderAgentProfileInstrumentedTest` 支持 `agentProfileUseStoredProvider=true`，只在 AndroidTest 中读取 Redmi 当前选中 Provider；显式参数模式继续保留，生产代码不增加配置旁路。

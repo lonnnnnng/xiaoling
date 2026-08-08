@@ -120,6 +120,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回当前安装应用的名称、包名、版本名和版本号，或明确说明信息不可用。",
         ),
         AgentSkillDefinition(
+            id = "battery-status",
+            name = "电池状态",
+            description = "读取当前设备电量和充电状态。",
+            instructions = "用户询问当前电量、是否充电或供电方式时，只调用 app.get_battery。结果只作为当前设备状态资料，不得要求或猜测设备标识、应用列表或其他系统配置。",
+            toolNames = setOf("app.get_battery"),
+            keywords = setOf("电量", "电池", "充电", "供电", "battery", "charging"),
+            triggerExamples = listOf("现在还有多少电", "手机是否正在充电"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "电池状态读取失败时停止并明确说明，不从历史回答或模型猜测当前状态。",
+            completionCriteria = "返回当前电量、充电状态和供电方式，或明确说明状态不可用。",
+        ),
+        AgentSkillDefinition(
             id = "agent-profile-info",
             name = "当前 Agent 状态",
             description = "读取本次前台 Agent Run 实际冻结的非敏感 Profile 状态。",

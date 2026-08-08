@@ -49,6 +49,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInBatteryStatusSkillExposesOnlyTheReadOnlyBatteryTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "当前手机还有多少电，是否正在充电",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "battery-status" }
+        assertEquals(setOf("app.get_battery"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得要求或猜测设备标识"))
+    }
+
+    @Test
     fun builtInConversationDetailSkillKeepsExistingRecallSkillStable() {
         val detail = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-detail" }
         val existing = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-recall" }

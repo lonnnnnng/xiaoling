@@ -36,6 +36,7 @@ class AgentRunUseCase(
             packageName = context.applicationContext.packageName,
         ),
         appInfoReader = AndroidAppInfoReader(context.applicationContext),
+        batteryStatusReader = AndroidBatteryStatusReader(context.applicationContext),
         deviceController = DeviceObservationComponents.controller(context.applicationContext),
     )
     private val skillCatalog = AgentSkillCatalog(

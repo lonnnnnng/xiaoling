@@ -333,6 +333,7 @@ class XiaoLingToolRegistryTest {
                 setOf(
                 "app.current_time",
                 "app.get_info",
+                "app.get_battery",
                 "agent.get_profile",
                 "app.list_conversations",
                 "app.search_conversations",
@@ -364,6 +365,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_info").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_info").inputSchema)
         assertTrue(tools.getValue("app.get_info").permissionPolicy.supportsBackground)
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.get_battery").risk)
+        assertEquals(emptyList<String>(), tools.getValue("app.get_battery").inputSchema)
+        assertFalse(tools.getValue("app.get_battery").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("agent.get_profile").risk)
         assertEquals(emptyList<String>(), tools.getValue("agent.get_profile").inputSchema)
         assertFalse(tools.getValue("agent.get_profile").permissionPolicy.supportsBackground)
@@ -1881,6 +1885,38 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun batteryStatusToolReturnsOnlyCurrentPowerFactsAndRejectsArguments() = runTest {
+        val registry = testRegistry(
+            batteryStatusReader = BatteryStatusReader {
+                BatteryStatusReadResult.Success(
+                    BatteryStatusRecord(
+                        levelPercent = 87,
+                        charging = true,
+                        powerSource = BatteryPowerSource.USB,
+                    ),
+                )
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(name = "app.get_battery", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        val withArguments = registry.execute(
+            ToolCall(
+                name = "app.get_battery",
+                arguments = mapOf("device_id" to "secret-device"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals("电量：87%\n充电状态：正在充电\n供电方式：USB", result.content)
+        assertFalse(result.content.contains("secret-device"))
+        assertFalse(withArguments.success)
+        assertEquals("app.get_battery 不接受参数", withArguments.content)
+    }
+
+    @Test
     fun agentProfileToolReturnsOnlyCurrentRunAllowlistedStatus() = runTest {
         val registry = testRegistry()
         registry.bindRunContext(
@@ -3131,6 +3167,7 @@ class XiaoLingToolRegistryTest {
         calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
         calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
+        batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -3145,6 +3182,7 @@ class XiaoLingToolRegistryTest {
             calendarEventReader = calendarEventReader,
             calendarEventWriter = calendarEventWriter,
             appInfoReader = appInfoReader,
+            batteryStatusReader = batteryStatusReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )
