@@ -1,5 +1,12 @@
 # 产品需求
 
+## 真实前台本地笔记写入、查看与清理验收（第 205 阶段，完成）
+
+- 真实验收必须只在 Redmi `wsvwypiz7xwslvl7` 执行；临时 Profile `stage205notesui` 只能开放 `notes.list / notes.search / notes.create`，并只选择 `local-notes` Skill。用户必须在前台 `/agent` 输入自然语言目标并通过现有审批卡批准，不能用 Debug 直写替代人工 UI 事实。
+- Tool Ledger、完成卡和笔记管理页必须绑定同一 `notes.create` Run 与应用生成的稳定 note ID；查看笔记时从当前 Room/Note Store 回读标题、正文和 revision `1`，不能信任模型自由文本或历史 Tool 正文。
+- 验收成功或失败都必须精确清理测试笔记、临时 Profile 和临时会话，并恢复原 Profile；旧 Run、审批记录、用户会话及其他笔记不得改写或删除。删除后的列表必须显示为空或不再包含测试笔记。
+- 本阶段只证明真实人工输入、审批、写入验证、当前 Room 查看和清理闭环，不新增生产 Tool/Skill、权限、Room Schema、Workflow、后台能力或 Release 门禁；验证投入遵循分级约束，只使用 Redmi。
+
 ## 真实前台记忆写入与答案级 UI 验收（第 204 阶段，完成）
 
 - 真实前台验收必须只在 Redmi `wsvwypiz7xwslvl7` 执行；临时 Profile 只能开放 `memory.remember`，用户输入和审批必须经过现有对话/Room 链路，不得用 Debug 直写替代人工 UI 事实。

@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 205 阶段：真实前台本地笔记写入、查看与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链路。临时 Profile `stage205notesui` 精确配置为 Provider “设备动作 E2E”、模型 `gpt-5.6-luna`、Responses 模式、`notes.list / notes.search / notes.create` 三项工具、`local-notes` Skill，长期记忆关闭。
+- 人工输入 `/agent create a local note titled stage205_notes_ui with body stage205_notes_ui_marker_20260808_153711` 并批准审批卡后，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 为 `COMPLETED`；唯一写工具为 `notes.create`，`success=true`、`executorVerified=true`、typed verification `PASSED`，审批为 `APPROVED`。
+- 从当前 Room 二次读取笔记确认标题 `stage205_notes_ui`、正文 marker、revision `1`、稳定 ID `note-ed6086ba-7590-4d07-8272-8030226622c9`；这证明答案级查看使用权威本地事实，而不是模型回执正文。随后通过 UI 删除测试笔记，页面显示已删除并回到“还没有本地笔记”。
+- 删除临时会话和 Profile，恢复原 Profile“设备打开应用 E2E”；清理后再次核对旧 Run/审批/Executor/typed verification 审计仍为 `COMPLETED / APPROVED / success=true / executorVerified=true / PASSED`。Redmi 当前前台为 `com.longdev.xiaoling/.MainActivity`，Biu 未被修改或启动。
+- 本阶段没有代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更；只使用 Redmi，未向 Pixel_9 或其他模拟器发送命令。按分级验证约束，未运行完整 JVM、Lint、APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 204 阶段：真实前台记忆写入与答案级 UI 验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台人工链路：临时 Profile `stage204-memory-ui` 只允许 `memory.remember`，输入 `/agent remember_stage204_ui_memory_marker_1786155352` 后人工批准审批卡，Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 最终为 `COMPLETED`；审批为 `APPROVED`，Executor/typed verification 为 `PASSED`。

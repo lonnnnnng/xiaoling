@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 205 阶段：真实前台本地笔记写入、查看与清理验收（完成）
+
+- 在 Redmi `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 本地笔记闭环：临时 Profile `stage205notesui` 精确开放 `notes.list / notes.search / notes.create` 和 `local-notes` Skill，人工批准后执行 `notes.create`，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 为 `COMPLETED`，审批 `APPROVED`，Executor/typed verification 为 `PASSED`。
+- 写入后从当前 Room 二次读取标题 `stage205_notes_ui`、正文 marker、revision `1` 和稳定 note ID `note-ed6086ba-7590-4d07-8272-8030226622c9`；Tool Ledger、完成卡和笔记页的身份一致。随后通过 UI 删除测试笔记，精确清理临时会话/Profile，恢复原 Profile，旧 Run 与审批审计保持不变。
+- 本阶段没有新增生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力；仅使用 Redmi，未使用 Pixel_9。按快速迭代分级未运行完整 JVM、Lint、APK、Release 或全量 instrumentation。
+- 下一阶段继续回到个人 Agent 主线，选择一个能直接增加“自然语言目标 → 可验证结果 → 权威事实查看”覆盖面的单一窄切片；保持旧 Run 不变、设备动作只限前台，后台设备自动化、精确定时、Foreground Service 和远期生态能力后置。
+
 ## 第 204 阶段：真实前台记忆写入与答案级 UI 验收（完成）
 
 - 用 Redmi `wsvwypiz7xwslvl7` 完成真实人工输入 `/agent remember_stage204_ui_memory_marker_1786155352`、审批、`memory.remember` 执行、后置验证和答案级长期记忆查看；同一稳定 `memory-UUID` 在 Tool Ledger、完成卡和当前 Room 页面间保持一致。

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 205 阶段：真实前台本地笔记写入、查看与清理验收（完成）
+
+- 在 Redmi `wsvwypiz7xwslvl7` 上复用正式 `/agent`、`AgentRunUseCase`、Room Approval、Tool Ledger 和 `notes.create` Executor；临时 Profile `stage205notesui` 的工具集合严格为 `notes.list / notes.search / notes.create`，Skill 仅为 `local-notes`，长期记忆关闭。
+- 人工输入目标后批准唯一写入审批，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 收敛为 `COMPLETED`；`notes.create` 结果为 `success=true`、`executorVerified=true`、typed verification `PASSED`。当前 Room 回读得到标题 `stage205_notes_ui`、marker 正文、revision `1` 和 `note-ed6086ba-7590-4d07-8272-8030226622c9`，证明查看页面没有依赖模型结果正文。
+- 通过 UI 删除测试笔记后，列表回到“还没有本地笔记”；临时会话、Profile 和测试数据均按稳定身份精确清理，原 Profile 恢复为当前 Agent，旧 Run/Approval/Executor 审计保持可读。日志不输出 API Key 或不必要的正文。
+- 本阶段没有生产实现或数据模型改动，也没有新增 Tool/Skill、权限、Workflow 或后台路径；未执行完整 JVM、Lint、APK、Release 或全量 instrumentation。下一阶段仍应优先做个人 Agent 的直接可用窄闭环。
+
 ## 第 204 阶段：真实前台记忆写入与答案级 UI 验收（完成）
 
 - 通过 Redmi `wsvwypiz7xwslvl7` 的真实前台 `/agent` 输入和人工审批，复用现有 `memory.remember` 生产链路；临时 Profile `stage204-memory-ui` 仅包含该工具，最终 Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 为 `COMPLETED`，审批为 `APPROVED`，Executor/typed verification 为 `PASSED`。

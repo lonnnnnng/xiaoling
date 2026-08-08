@@ -1,5 +1,7 @@
 # 小灵
 
+第 205 阶段完成 Redmi 真实前台本地笔记写入、查看与清理验收：临时 Profile `stage205notesui` 仅开放 `notes.list / notes.search / notes.create` 和 `local-notes` Skill，人工输入并批准 `/agent create a local note titled stage205_notes_ui with body stage205_notes_ui_marker_20260808_153711` 后，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`；当前 Room 回读得到标题、正文、revision `1` 和稳定 note ID `note-ed6086ba-7590-4d07-8272-8030226622c9`。随后通过 UI 删除笔记、临时会话和 Profile，原 Profile 与旧 Run 审计保持不变。仅使用 Redmi，未修改生产代码、未执行完整测试矩阵、APK 或 Release，也未主动 push。
+
 第 204 阶段完成 Redmi 真实前台人工记忆写入与答案级 UI 验收：临时 Profile `stage204-memory-ui` 仅开放 `memory.remember`，人工输入并批准后，Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`；对话页 Tool Ledger、完成卡和长期记忆页从当前 Room 显示同一 marker、来源 Run 和稳定 ID `memory-2015dbef-dad1-4ce8-b73d-ca35ba61dd28`。测试记忆、临时 Profile 和临时会话随后精确清理，原 Profile 与旧 Run 保持不变；默认 User-Agent 也由 HTTP 日志核对。仅使用 Redmi，未执行完整 JVM、Lint、APK、Release 或全量 instrumentation。
 
 第 203 阶段完成真实长期记忆结果进入普通会话投影的窄切片验收：新增仅 Debug 的 `memory_remember_conversation_real` 操作，复用第 202 阶段正式 `AgentRunUseCase` 和当前 Provider；真实 `memory.remember` 结果短暂写入专属 Room 会话，重新加载后仍保留唯一可信 Tool part、`VERIFIED` 状态、稳定 `memoryIdsUsed` 和“查看记忆”导航 ID，清理断言确认临时会话不存在。Redmi `wsvwypiz7xwslvl7` 最终 Run `run-f9e8b439-5701-4530-a0cd-39095c037bf9` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、会话投影通过，临时 Profile/记忆已清理；聚焦 JVM `5/5 + 78/78`、Redmi instrumentation `3/3`、Debug/AndroidTest APK 构建和文档 corpus gate `1/1` 通过。探针只验证持久化投影，不等同于完整人工 UI 输入和审批点击自动化；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未使用 Pixel_9。没有新增生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
@@ -8,7 +10,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 203 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 205 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 
