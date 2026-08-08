@@ -1,15 +1,22 @@
 # 小灵个人 Agent 路线图
 
+## 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（完成）
+
+- `RealProviderAgentProfileInstrumentedTest` 新增仅 AndroidTest 的 `agentProfileUseStoredProvider=true` 入口，从 Redmi 当前选中 Provider 读取真实配置；显式参数模式仍用于隔离环境，不改变生产配置行为。
+- Redmi Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一 `agent.get_profile` 调用和结果均通过 typed `PASSED`；只显示 Agent 名称、模型、Responses API 模式和记忆召回状态，Provider URL、API Key、系统提示词、内部 ID 和工具白名单保持不可见。
+- 仅构建/安装 AndroidTest APK 并在 Redmi `wsvwypiz7xwslvl7` 定向运行，结果 `OK (1 test)`，测试包已卸载。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 下一阶段继续选择一个能直接提升“自然语言目标 -> 可验证结果 -> 权威事实查看”的单一个人 Agent 窄闭环；旧 Run、后台设备自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型保持现有边界。
+
 ## 第 213 阶段：当前应用信息只读验收（完成）
 
 - `app.get_info` 已在 Redmi `wsvwypiz7xwslvl7` 通过生产 Registry 定向 instrumentation，当前包信息四字段投影和敏感字段隔离均为 `OK (1 test)`。
-- 本阶段不需要 Provider 网络，不新增权限、Room Schema、Workflow 或后台能力；下一步仍先恢复网络并重跑第 212 阶段 `agent.get_profile` 真实 Provider 单项，再进入新的个人 Agent 能力切片。
+- 本阶段不需要 Provider 网络，不新增权限、Room Schema、Workflow 或后台能力；第 214 阶段已完成第 212 阶段的真实 Provider 重跑，下一步进入新的个人 Agent 能力切片。
 
-## 第 212 阶段：前台 Agent Profile 隐私验收（代码完成，Redmi 网络待恢复）
+## 第 212 阶段：前台 Agent Profile 隐私验收（代码与 Redmi 真实验收完成）
 
 - `agent.get_profile` 的 Redmi-only 定向 AndroidTest 已接入正式 `AgentRunUseCase`，以最小白名单验证前台 `DIRECT` 的真实规划、执行和 Room Tool Ledger 投影；输出只允许 Agent 名称、模型、API 模式和记忆召回状态。
 - Provider URL、API Key、系统提示词、内部 Profile ID 和工具白名单均有 fail-closed 断言；旧 Profile 不自动扩权，`默认 Agent` 只通过显式白名单获得该工具。
-- 编译和 Debug/AndroidTest APK 构建通过；Redmi 运行时因仅有 `tun0` 路由而无法解析 Provider 域名，真实模型验收尚未闭环。网络恢复后优先重跑该单项，再推进 `app.get_info`，不跳过隐私边界。
+- 编译和 Debug/AndroidTest APK 构建通过；第 214 阶段改用 Redmi 当前选中 Provider 重跑后已闭环。此前显式兜底域名运行失败仅作为外部网络阻塞记录，不覆盖本次真实通过结论。
 
 ## 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收（完成）
 

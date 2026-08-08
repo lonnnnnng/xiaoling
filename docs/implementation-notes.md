@@ -1,17 +1,23 @@
 # 当前实现说明
 
+## 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（完成）
+
+- `RealProviderAgentProfileInstrumentedTest` 增加 `agentProfileUseStoredProvider=true` 参数；该参数只在 AndroidTest 内通过正式 `ProviderRepository` 读取当前选中 Provider，显式 URL/API Key/模型参数仍保留给隔离运行，不改变生产配置或权限。
+- Redmi `wsvwypiz7xwslvl7` Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一 `agent.get_profile` ToolResult 为 `success=true / verificationStatus=PASSED`，敏感字段断言全部通过；测试包已卸载。
+
+
 ## 第 213 阶段：当前应用信息只读验收（完成）
 
 - 新增 `AndroidAppInfoInstrumentedTest`，使用生产 `XiaoLingToolRegistry`、`AndroidAppInfoReader`、Room Store 和当前安装包 Context，验证 `app.get_info` 的真实执行结果；不依赖 Provider、网络、后台或 Workflow。
 - Redmi `wsvwypiz7xwslvl7` 定向 instrumentation `foregroundRegistryReadsCurrentPackageMetadataOnly` 为 `OK (1 test)`：结果严格为应用名称、包名 `com.longdev.xiaoling`、版本名和版本号四项，Provider、API Key、设备标识和安装来源均不可见。
-- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功，测试包已安装并在单项完成后卸载。第 212 阶段真实 Provider 仍因 Redmi 只有 `tun0` 路由而等待网络恢复。
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功，测试包已安装并在单项完成后卸载。第 214 阶段已使用 Redmi 当前 Provider 完成第 212 阶段真实重跑。
 
-## 第 212 阶段：前台 Agent Profile 隐私验收探针（代码完成，真实 Provider 待网络恢复）
+## 第 212 阶段：前台 Agent Profile 隐私验收探针（代码与真实 Provider 验收完成）
 
-- 新增 `RealProviderAgentProfileInstrumentedTest`，只在显式传入 Provider 参数时运行；它通过正式 `AgentRunUseCase`、`XiaoLingToolRegistry` 和 `RoomAgentRunRepository` 复核 `agent.get_profile` 的真实规划、执行和持久化结果，不新增生产 Tool、Skill、Room Schema 或权限。
+- 新增 `RealProviderAgentProfileInstrumentedTest`，支持显式参数或 `agentProfileUseStoredProvider=true` 从 Redmi 当前选中 Provider 读取配置；它通过正式 `AgentRunUseCase`、`XiaoLingToolRegistry` 和 `RoomAgentRunRepository` 复核 `agent.get_profile` 的真实规划、执行和持久化结果，不新增生产 Tool、Skill、Room Schema 或权限。
 - 测试 Profile 白名单精确为 `agent.get_profile`，Skill 为 `agent-profile-info`，执行上下文固定为前台 `DIRECT`；结果必须包含 Agent 名称、模型、`Responses API` 和本次记忆召回状态，并拒绝 Provider URL、API Key、系统提示词、内部 Profile ID 和工具白名单。
-- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 和 `:app:assembleDebugAndroidTest` 已通过。Redmi 已安装测试包并启动单项测试；失败发生在真实 Provider 请求前的设备网络层，错误为 `无法解析服务器域名`。主机解析到 `198.18.0.245` 且 `/models` 返回 `404`，Redmi 仅有 `tun0` 路由、无可用默认网络，因此不能将该次真实 Provider 结果记为通过。
-- 前台手工核对确认旧的 `设备打开应用 E2E` Profile 仍只有原白名单，`agent.get_profile` 没有被自动扩权；`默认 Agent` 的设置页白名单包含该工具。当前阶段保留定向探针，待 Redmi 网络恢复后只重跑该单项，不扩大验证矩阵。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 和 `:app:assembleDebugAndroidTest` 已通过。第 214 阶段从 Redmi 当前 Provider 重跑后，Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一 ToolResult 为 `success=true / PASSED`，敏感字段断言通过。
+- 前台手工核对确认旧的 `设备打开应用 E2E` Profile 仍只有原白名单，`agent.get_profile` 没有被自动扩权；`默认 Agent` 的设置页白名单包含该工具。显式兜底域名失败只保留为网络阻塞记录，不覆盖当前 Provider 的真实通过结论。
 
 ## 第 211 阶段：真实历史会话搜索、当前正文与答案级导航验收（完成）
 

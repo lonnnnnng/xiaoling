@@ -5,6 +5,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
+import com.longdev.xiaoling.storage.ProviderRepository
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -24,9 +25,21 @@ class RealProviderAgentProfileInstrumentedTest {
     @Test
     fun foregroundAgentReadsOnlyAllowlistedProfileState() = kotlinx.coroutines.runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
-        val baseUrl = arguments.getString(ARG_BASE_URL).orEmpty().trim()
-        val apiKey = arguments.getString(ARG_API_KEY).orEmpty().trim()
-        val model = arguments.getString(ARG_MODEL).orEmpty().trim()
+        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val useStoredProvider = arguments.getString(ARG_USE_STORED_PROVIDER).orEmpty().trim() == "true"
+        val storedProvider = if (useStoredProvider) {
+            val stored = ProviderRepository(targetContext).load()
+            stored.profiles.firstOrNull { it.id == stored.selectedProfileId }
+        } else {
+            null
+        }
+        // long: 真机验收优先复用手机当前已选 Provider，避免把过期兜底域名误当成生产网络失败；显式参数仍保留给隔离环境。
+        val baseUrl = storedProvider?.baseUrl?.trim()
+            ?: arguments.getString(ARG_BASE_URL).orEmpty().trim()
+        val apiKey = storedProvider?.apiKey?.trim()
+            ?: arguments.getString(ARG_API_KEY).orEmpty().trim()
+        val model = storedProvider?.model?.trim()
+            ?: arguments.getString(ARG_MODEL).orEmpty().trim()
         assumeTrue("未显式提供第212阶段 Profile Provider Base URL，跳过真实探针", baseUrl.isNotBlank())
         assumeTrue("未显式提供第212阶段 Profile Provider API Key，跳过真实探针", apiKey.isNotBlank())
         assumeTrue("未显式提供第212阶段 Profile Provider 模型，跳过真实探针", model.isNotBlank())
@@ -59,7 +72,7 @@ class RealProviderAgentProfileInstrumentedTest {
         val conversationId = "conversation-stage212-${UUID.randomUUID()}"
         val userMessageId = "message-stage212-${UUID.randomUUID()}"
         val run = AgentRunUseCase(
-            context = InstrumentationRegistry.getInstrumentation().targetContext,
+            context = targetContext,
             client = OpenAiCompatibleClient(),
         ).run(
             conversationId = conversationId,
@@ -108,5 +121,6 @@ class RealProviderAgentProfileInstrumentedTest {
         const val ARG_BASE_URL = "agentProfileProviderBaseUrl"
         const val ARG_API_KEY = "agentProfileProviderApiKey"
         const val ARG_MODEL = "agentProfileProviderModel"
+        const val ARG_USE_STORED_PROVIDER = "agentProfileUseStoredProvider"
     }
 }

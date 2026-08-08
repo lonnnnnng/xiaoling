@@ -1,16 +1,23 @@
 # 验证报告
 
-验证日期：2026-08-08（北京时间）
+验证日期：2026-08-09（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-09 第 214 阶段：Redmi 当前 Provider 驱动的 Agent Profile 隐私验收
+
+- 第 212 阶段首次显式传入兜底 Provider 参数时出现 `ApiFailure: 无法解析服务器域名`；为区分外部兜底配置失效与手机当前配置，AndroidTest 新增 `agentProfileUseStoredProvider=true`，从 Redmi 当前选中 Provider 读取配置，不把 API Key 写入命令参数或日志。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 安装最新 AndroidTest APK 并运行 `RealProviderAgentProfileInstrumentedTest#foregroundAgentReadsOnlyAllowlistedProfileState`，结果为 `OK (1 test)`，耗时 `12.853s`。Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`；唯一 `agent.get_profile` ToolResult 为 `success=true / verificationStatus=PASSED`，日志摘要为 `privacySafe=true`。
+- 结果只包含 Agent 名称、`gpt-5.6-sol`、Responses API 和长期记忆状态；Provider URL、API Key、系统提示词、Profile ID 和工具白名单均未进入结果。HTTP 日志中的 Authorization 为 `***MASKED***`，User-Agent 为配置默认值。
+- 测试包已卸载，主应用和 Room/Provider 数据保留；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。第 212 阶段真实 Provider 隐私验收现已闭环，下一步进入新的窄能力切片。
 
 ## 2026-08-08 第 213 阶段：当前应用信息只读验收
 
 - Redmi `wsvwypiz7xwslvl7` 定向执行 `AndroidAppInfoInstrumentedTest#foregroundRegistryReadsCurrentPackageMetadataOnly`，结果为 `OK (1 test)`。
 - 生产 `XiaoLingToolRegistry + AndroidAppInfoReader` 返回四项：应用名称、包名 `com.longdev.xiaoling`、版本名和版本号；断言确认 Provider、API Key、设备标识和安装来源均不在结果中。
-- 本阶段只构建/安装 AndroidTest APK，完成后卸载测试包；没有使用 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。第 212 阶段真实 Provider 仍为网络阻塞。
+- 本阶段只构建/安装 AndroidTest APK，完成后卸载测试包；没有使用 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。第 212 阶段当时的显式兜底参数运行记录为网络阻塞，后续已由第 214 阶段使用手机当前 Provider 完成重跑。
 
-## 2026-08-08 第 212 阶段：前台 Agent Profile 隐私验收探针
+## 2026-08-08 第 212 阶段：前台 Agent Profile 隐私验收探针（首次显式配置尝试）
 
 - 新增 `RealProviderAgentProfileInstrumentedTest`，使用显式临时 Profile（仅 `agent.get_profile`）和随机会话 ID，复用正式 `AgentRunUseCase`、真实 `OpenAiCompatibleClient` 与 Room Run Repository；探针断言四项允许状态和全部敏感字段不可见。
 - `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 成功，测试 APK 已安装到 Redmi `wsvwypiz7xwslvl7`。未向 Pixel_9 或其他模拟器发送目标 ADB 命令。

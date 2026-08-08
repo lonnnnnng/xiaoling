@@ -1,17 +1,23 @@
 # 产品需求
 
+## Redmi 当前 Provider 驱动的 Agent Profile 隐私验收（第 214 阶段，完成）
+
+- `RealProviderAgentProfileInstrumentedTest` 支持 `agentProfileUseStoredProvider=true`，只在 AndroidTest 中读取 Redmi 当前选中 Provider；显式参数模式继续保留，生产代码不增加配置旁路。
+- 真实 Run 必须复用正式 `AgentRunUseCase`，临时 Profile 只允许 `agent.get_profile`；结果只能包含 Agent 名称、模型、Responses API 模式和记忆召回状态，Provider URL、API Key、系统提示词、内部 Profile ID 与工具白名单必须不可见。
+- Redmi `wsvwypiz7xwslvl7` 单项 instrumentation `OK (1 test)`，Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，ToolResult `success=true / PASSED`；测试包完成后卸载，不扩展旧 Profile、Workflow、后台、权限或 Release 边界。
+
 ## 当前应用信息只读验收（第 213 阶段，完成）
 
 - `app.get_info` 只返回当前安装包的应用名称、包名、版本名和版本号，结果固定四字段；Provider、API Key、设备标识、安装来源和其他配置不得进入 Agent 结果。
 - Redmi `wsvwypiz7xwslvl7` 必须通过生产 Registry 的定向 instrumentation；该切片不依赖模型网络，不扩大工具、权限、Workflow 或后台能力。
-- 第 212 阶段 `agent.get_profile` 的真实 Provider 验收仍受 Redmi 网络阻塞约束，网络恢复后优先重跑，不以本阶段本地只读结果替代。
+- 第 212 阶段 `agent.get_profile` 的真实 Provider 验收已由第 214 阶段使用 Redmi 当前选中 Provider 重跑通过；本阶段本地只读结果与真实模型隐私证据分别保留。
 
 ## 前台 Agent Profile 隐私验收（第 212 阶段，代码完成）
 
 - `agent.get_profile` 只能由当前前台直接 Agent 调用；本阶段定向 AndroidTest 必须复用正式 `AgentRunUseCase`，Profile 工具白名单精确包含该工具，且不得扩大旧 Profile 的工具面。
 - 结果只允许返回本次 Run 冻结的 Agent 名称、模型、API 模式和长期记忆召回状态；Provider URL、API Key、系统提示词、内部 Profile ID 和工具白名单必须保持不可见，Room Tool Ledger 也必须满足同一边界。
 - 真实 Provider 验收只在 Redmi `wsvwypiz7xwslvl7` 执行。当前设备网络只有 `tun0` 且域名不可解析时，记录为外部网络阻塞，不把失败转换成通过，也不改用 Pixel_9 或扩大测试矩阵。
-- 网络恢复后只重跑第 212 阶段单项；通过后再推进下一独立只读切片 `app.get_info`。
+- 第 214 阶段已重跑该单项并通过；后续进入新的独立个人 Agent 窄能力切片。
 
 ## 真实前台历史会话搜索、当前正文与答案级导航验收（第 211 阶段，完成）
 

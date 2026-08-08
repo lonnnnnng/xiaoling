@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 214 阶段验证了参考 Agent 的“运行时使用当前配置、结果只投影最小非敏感状态”原则：AndroidTest 从 Redmi 当前选中 Provider 读取配置，真实 `agent.get_profile` Run 只返回 Agent 名称、模型、协议和记忆状态，凭据、Provider 地址、系统提示词及内部能力清单仍在结果边界之外。测试参数属于验收层，不改变生产 Profile 自动扩权或 Provider 持久化行为。
+
 第 211 阶段把成熟 Agent 的“历史搜索必须排除当前工作上下文、稳定身份只提出导航目标、点击后回权威 Store”原则落实到本地会话。首跑真实证明当前用户指令会让正文搜索自命中；生产 Store 因此在 limit 前排除 RunContext 当前会话。修复后唯一历史 ID 贯穿搜索、详情和答案级导航，Run 后修改正文也只在点击时从当前 Room 读取新值。该阶段没有复制参考项目的跨会话写入、远程历史同步、后台索引或多 Agent 工作区。
 
 第 210 阶段继续采用成熟 Agent 的“删除必须绑定当前版本、逐次审批、提交后回权威 Store、历史入口不得冒充当前事实”原则：Redmi 真实前台 Run 使用搜索返回的稳定 ID、详情指纹和 `scope=event` 完成条件删除，Room 审批、typed verification、Executor 验证与 `COMMITTED` 回执共同决定成功。删除后点击历史搜索卡只从当前 Calendar Provider 得到“已不存在或已删除”，不会显示旧详情。该阶段没有复制参考项目的后台批量日历代理、自动补偿、重复实例编辑、远程协作或多 Agent 编排。
@@ -682,7 +684,7 @@
 1. **已完成：Accessibility 授权与健康检查**：明确说明能力和隐私影响，默认关闭；区分未授权、服务未连接、权限失效和服务正常。
 2. **已完成：只读 snapshot**：输出有界、结构化、脱敏的可访问节点树；密码框、验证码、支付页和隐私应用默认不返回正文。
 3. **已完成：短生命周期节点引用**：ref 绑定 snapshot 和窗口状态，页面变化、超时、失败或关闭开关后立即失效。
-4. **已完成：有限动作工具**：前台直接 `/agent` 已加入 `open_app / back / home / tap_ref / type_text / swipe`；前台 Workflow 已逐项开放 `open_app / back / home / tap_ref / type_text`，`swipe` 仍等待更强的后置滚动验证。副作用动作按风险审批，应用与输入范围由确定性策略限制。
+4. **已完成：有限动作工具**：前台直接 `/agent` 和前台 Workflow 已加入 `open_app / back / home / tap_ref / type_text / swipe`；副作用动作按风险审批，应用与输入范围由确定性策略限制，所有动作都要求重新观察和后置验证。
 5. **已完成：观察-动作-验证**：每次动作后重新抓取 snapshot；不只凭 Android API 返回成功判断业务完成，也不把过期 ref 降级成坐标点击。
 6. **已完成：限定 App 验收与可回放轨迹**：在 Redmi 上覆盖小灵、系统计算器、时钟、设置和桌面，记录脱敏 before/action/after/outcome；暂不承诺任意 App。
 

@@ -1,8 +1,10 @@
 # 文档索引
 
-第 213 阶段完成 `app.get_info` 的 Redmi 本地只读验收：生产 `XiaoLingToolRegistry + AndroidAppInfoReader + Room` 返回当前应用名称、包名、版本名和版本号四项，敏感字段保持不可见；Redmi 定向 instrumentation `OK (1 test)`。不依赖 Provider 网络，不运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。第 212 阶段 Provider 真实验收仍等待 Redmi 网络恢复。
+第 214 阶段完成 Redmi 当前 Provider 驱动的 `agent.get_profile` 隐私验收：AndroidTest 支持 `agentProfileUseStoredProvider=true`，Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一结果 `success=true / PASSED`，敏感配置与内部能力清单不可见。仅 Redmi 定向 instrumentation `OK (1 test)`，测试包已卸载；未使用 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。
 
-第 212 阶段已完成 `agent.get_profile` 的定向实现与测试探针：新增 Redmi-only AndroidTest，复用正式 `AgentRunUseCase`，要求 Profile 白名单仅包含 `agent.get_profile`，并断言结果只包含 Agent 名称、模型、API 模式和记忆召回状态。AndroidTest 编译、Debug/AndroidTest APK 构建通过；Redmi `wsvwypiz7xwslvl7` 已实际启动该测试，但设备当前只有 `tun0` 路由，Provider 域名解析失败，主机侧 DNS/HTTPS 正常，因此真实 Provider 验收待设备网络恢复。未运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation；`app.get_info` 留作下一独立切片。
+第 213 阶段完成 `app.get_info` 的 Redmi 本地只读验收：生产 `XiaoLingToolRegistry + AndroidAppInfoReader + Room` 返回当前应用名称、包名、版本名和版本号四项，敏感字段保持不可见；Redmi 定向 instrumentation `OK (1 test)`。不依赖 Provider 网络，不运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。第 214 阶段已使用手机当前 Provider 完成第 212 阶段真实重跑。
+
+第 212 阶段已完成 `agent.get_profile` 的定向实现与测试探针：新增 Redmi-only AndroidTest，复用正式 `AgentRunUseCase`，要求 Profile 白名单仅包含 `agent.get_profile`，并断言结果只包含 Agent 名称、模型、API 模式和记忆召回状态。第 214 阶段新增 `agentProfileUseStoredProvider=true` 后，Redmi `wsvwypiz7xwslvl7` 真实 Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，单项 instrumentation `OK (1 test)`；测试包已卸载。未运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation，下一步进入新的个人 Agent 窄能力切片。
 
 第 211 阶段完成 Redmi 真实前台历史会话搜索、当前正文读取和答案级“查看会话”验收，并修复当前 Run 会话污染旧会话搜索的问题。首跑 `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 已严格执行 `app.search_conversations -> app.get_conversation`，但搜索同时命中当前验收会话和目标历史会话；该 Run 保持 `COMPLETED` 和两项 typed `PASSED` 审计不变。生产 Store 随后在应用 limit 前排除 RunContext 当前会话，修复后 Run `run-25bd9d0a-90a9-41b2-adbb-1cca0ddd62ab` 只命中唯一 `conversation-stage211-target-20260808`，同样选择 `conversation-detail@1` 并完成两项 `PASSED` 只读工具。Run 后把目标助手正文从 `before` 改为 `after`，历史 Tool 卡仍冻结旧正文；点击“查看会话”后页面显示当前 Room 的 `after`，且没有创建新 Run。夹具会话、临时 Profile、快照和测试包已精确清理，两条 Run 审计保留。只使用 Redmi；聚焦 JVM `2/2`、Debug/AndroidTest APK、四个定向 instrumentation 与文档 corpus gate 通过，未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
