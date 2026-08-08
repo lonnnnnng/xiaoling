@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链。临时 Profile `stage207notesui` 的正式配置为 `notes.list / notes.search / notes.get / notes.delete`、`local-note-delete`、长期记忆关闭；夹具创建完成后已移除 `notes.create / local-notes`。
+- 首次夹具 `stage207_fixture_20260808` 的稳定 ID 为 `note-124651a0-85d6-4d78-8790-f64029cc746a`、revision `1`。Run `run-281935cb-a3b5-4661-8be8-264da24ae39b` 严格完成 `notes.search -> notes.get -> notes.delete`，删除审批 `APPROVED`，结果 `success=true / executorVerified=true / verificationStatus=PASSED / receiptStatus=COMMITTED / replaySafety=IDEMPOTENT_BY_KEY`；Store 回读目标不可见。随后模型又提出同查询 `notes.search`，该额外调用只有 proposed、未 validated，重复工具调用保护使 Run 保留为 `BUDGET_EXHAUSTED`，错误为“检测到重复工具调用：notes.search”。已提交删除、审批、回执和 typed `tool.verify=PASSED` 均未回滚。
+- 第二个夹具 `stage207_retry_20260808` 的稳定 ID 为 `note-07ab7353-7f75-4d4e-b08c-4f818f454c92`、revision `1`。Run `run-20b449fe-da68-4718-9eaf-5ac6d691d888` 只完成 `notes.search / notes.get` 后即以 `COMPLETED` 停止，没有提出删除，因此不能算删除验收成功。
+- 后续独立 Run `run-e520f307-96fd-4bc9-b4e8-3b9425c405d4` 严格完成 `notes.search -> notes.get -> notes.delete`，终态 `COMPLETED`，耗时约 `3m12s`，共 15 个 Step、5 次模型请求、3 次工具调用和 1 次审批。搜索、详情、审批与删除绑定同一 note ID；三项 ToolResult 均 `success=true / verificationStatus=PASSED`，删除审批 `APPROVED`，删除 Executor 验证为“是”，账本为 `proposed / validated / result / verified`，回执 `COMMITTED`、重放 `IDEMPOTENT_BY_KEY`。`tool.call.proposed` 中的恢复契约仍为 `notCommittedReplayPolicy=DENY`，无回执路径不会重放 DELETE。
+- 打开“本地笔记”并点击刷新后，页面显示“最近 0 条 · 最多展示 10 条 / 还没有本地笔记”。Room 只读复核显示两条夹具均为标题/正文空字符串、revision `2` 的 tombstone，当前可见笔记数为 0。删除 4 个临时会话后，对应会话数为 0，但 5 条阶段 Agent Run 仍保留；删除 `stage207notesui` 前先选择原 Profile“设备打开应用 E2E”，清理后 Profile 总数为 2，且原 Profile 仍为当前 Agent。
+- 本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更；没有向 Pixel_9 或其他模拟器发送目标 ADB 命令。按分级验证约束，仅运行文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链。为建立唯一夹具，临时 Profile `stage206notesui` 曾短暂加入 `notes.create / local-notes`；夹具创建并从当前 Store 确认为 `note-f7519a66-7573-492a-813f-9883b5c947d5 / stage206_fixture_20260808 / stage206_fixture_body_v1 / revision=1` 后，正式更新前已恢复为 `notes.list / notes.search / notes.get / notes.update`、`local-note-update`、长期记忆关闭。

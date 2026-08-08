@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收（完成）
+
+- 本阶段没有修改生产代码，直接复用现有 `local-note-delete` Skill、`notes.search / notes.get / notes.delete`、Room Approval、Tool Ledger、tombstone 事务和 `COMMITTED` 只读恢复边界。正式 Profile `stage207notesui` 只保留四项笔记工具、一个删除 Skill，并关闭长期记忆。
+- 首次 Run `run-281935cb-a3b5-4661-8be8-264da24ae39b` 对 `note-124651a0-85d6-4d78-8790-f64029cc746a` 完成搜索、详情、审批删除和验证；`notes.delete` 为 `success=true / executorVerified=true / PASSED / COMMITTED / IDEMPOTENT_BY_KEY`。模型随后又提出同查询的 `notes.search`，该调用只到 proposed，重复工具调用保护令 Run 收敛为 `BUDGET_EXHAUSTED`，已提交删除和旧账本保持不变。
+- 独立 Run `run-20b449fe-da68-4718-9eaf-5ac6d691d888` 只完成 `notes.search / notes.get` 后即由模型结束，未产生删除审批。后续 Run `run-e520f307-96fd-4bc9-b4e8-3b9425c405d4` 才严格完成三步：15 个 Step、5 次模型请求、3 次工具调用和 1 次审批，删除目标为 `note-07ab7353-7f75-4d4e-b08c-4f818f454c92`，终态 `COMPLETED`。
+- 最终删除 Tool Ledger 为完整 `proposed / validated / result / verified`；审批 `APPROVED`，Executor 验证为“是”，typed verification `PASSED`，回执 `COMMITTED`，重放 `IDEMPOTENT_BY_KEY`。`tool.call.proposed` 冻结的恢复契约继续是 `notCommittedReplayPolicy=DENY`，恢复不会在无回执时重放 DELETE。
+- 本地笔记页刷新后显示“最近 0 条 / 还没有本地笔记”；两条夹具的 Room 行均清空标题/正文并递增到 revision `2`。4 个临时会话和临时 Profile 已删除，5 条 Run 审计保留，原 Profile“设备打开应用 E2E”恢复选中且 Profile 总数为 2。
+- 只使用 Redmi，没有向模拟器发送目标 ADB 命令。聚焦文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。第 208 阶段优先转向真实前台系统日程创建与当前 Provider 查看，不继续重复本地笔记 CRUD 验收。
+
 ## 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收（完成）
 
 - 本阶段没有修改生产代码，直接复用现有 `local-note-update` Skill、`notes.search / notes.get / notes.update`、Room Approval、Tool Ledger、乐观 revision 和答案级笔记导航。正式 Run 前，临时 Profile `stage206notesui` 已收窄为四项笔记工具、一个编辑 Skill 和关闭长期记忆。

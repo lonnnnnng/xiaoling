@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 207 阶段继续采用成熟 Agent 的“副作用提交事实与整轮任务终态分离”原则：首次 Redmi Run 的 `notes.delete` 已经审批、提交并从 Store 回读不可见，但模型在后续重复规划时触发保护，Run 仍真实保留为 `BUDGET_EXHAUSTED`，没有为了界面好看而回滚副作用或把整轮改成成功。独立新 Run 随后以同一“稳定 ID -> 人工审批 -> DELETE -> 当前 Store 回读”契约完成，并保留 `COMMITTED / IDEMPOTENT_BY_KEY / 未提交 DENY` 的恢复边界。该阶段没有复制参考项目的自动补偿删除、后台批量清理、跨设备同步、任意 App 控制、远程协作或多 Agent 编排。
+
 第 206 阶段继续采用成熟 Agent 的“先定位稳定对象、读取当前版本、人工审批条件写入、提交后回权威 Store”的原则：Redmi 真实前台 `/agent` 严格执行 `notes.search -> notes.get -> notes.update`，同一 note ID 和 revision `1` 进入审批；只有 Executor 验证、`COMMITTED` 回执和 revision `2` 回读都成立才确认成功。答案级入口继续只携带稳定身份，页面从当前 Store 读取更新后事实。该阶段没有复制参考项目的跨设备笔记同步、后台批量编辑、任意 App 控制、远程协作或多 Agent 编排。
 
 第 205 阶段继续采用成熟 Agent 的“副作用先审批、写入后回权威 Store、答案只携带稳定身份”原则：Redmi 真实前台 `/agent` 先由用户批准 `notes.create`，再从当前 Room 回读 note 标题、正文、revision 和稳定 ID；删除和清理也以持久化事实为准，旧 Run 不被覆盖。该阶段只验证本地笔记的真实可用闭环，没有复制参考项目的跨设备同步、后台批量写入、任意 App 控制、远程协作或多 Agent 编排。

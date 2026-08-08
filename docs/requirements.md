@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实前台本地笔记删除与失败边界验收（第 207 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式删除 Profile 必须精确限制为 `notes.list / notes.search / notes.get / notes.delete` 与 `local-note-delete` Skill，长期记忆关闭；夹具创建可以临时开放 `notes.create`，但删除前必须恢复最小权限。
+- 模型必须按 `notes.search -> notes.get -> notes.delete` 使用同一应用生成稳定 note ID；删除必须等待真实应用侧人工审批。成功账本必须具备 `proposed / validated / result / verified`、审批 `APPROVED`、Executor 回读不可见、typed verification `PASSED` 和与同一 note ID 绑定的 `COMMITTED` 回执。
+- 未提交删除的重放策略必须保持 `DENY`；只有已有匹配 `COMMITTED` 回执时，恢复链才允许只读确认当前 Store 不可见，不再次执行 DELETE。账本展示的 `IDEMPOTENT_BY_KEY` 只描述已提交结果证据，不能放宽未提交路径。
+- 如果删除已经提交，但模型随后继续规划并因重复调用、预算或其他错误结束，Run 必须保留真实失败终态，已提交 ToolResult、审批、回执和 Store 事实不得回滚、覆盖或伪装为整体成功。后续尝试必须创建独立 Run，不能改写旧 Run。
+- 验收结束必须刷新本地笔记页确认测试记录不可见，精确删除临时会话/Profile 并恢复原 Profile；阶段 Run 审计必须继续保留。不得修改其他会话、笔记或 Profile。
+- 本阶段只验证既有生产删除链的真实人工闭环和失败边界，不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 能力；验证投入遵循快速迭代分级。
+
 ## 真实前台本地笔记编辑与版本递增验收（第 206 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式更新 Run 的临时 Profile 必须精确限制为 `notes.list / notes.search / notes.get / notes.update` 与 `local-note-update` Skill，长期记忆关闭；建立唯一 revision `1` 夹具时可以短暂加入 `notes.create / local-notes`，但必须在更新前恢复最小权限。

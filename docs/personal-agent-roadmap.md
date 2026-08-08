@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `notes.search -> notes.get -> notes.delete` 人工审批闭环。最终 Run `run-e520f307-96fd-4bc9-b4e8-3b9425c405d4` 为 `COMPLETED`，三项 typed verification 均为 `PASSED`，删除审批 `APPROVED`、Executor 回读不可见、回执 `COMMITTED`，当前 Store 刷新后为 0 条。
+- 首次 Run `run-281935cb-a3b5-4661-8be8-264da24ae39b` 证明了重要失败边界：删除已经提交并验证后，模型再次提出重复搜索，Run 按真实事实保留为 `BUDGET_EXHAUSTED`；已提交 ToolResult、回执、Store 不可见与旧 Run 审计均未被改写。后续删除由独立 Run 完成，没有原地恢复或重放旧执行栈。
+- 中间只读 Run、最终成功 Run、4 个临时会话与两个 tombstone 夹具均已核对；临时会话/Profile 精确清理后，5 条阶段 Run 仍保留，原 Profile 当前选中且总数恢复为 2。本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变化。
+- 第 208 阶段优先完成真实前台 `calendar.create_event` 的人工审批、稳定事件 ID、答案级当前 Calendar Provider 查看和精确清理；同一阶段不扩展日程修改/删除、后台日程代理、精确定时或 Foreground Service。MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `notes.search -> notes.get -> notes.update` 链；正式 Profile 只开放四项笔记工具和 `local-note-update`，同一稳定 note ID 从 revision `1` 经人工审批更新为 revision `2`。
