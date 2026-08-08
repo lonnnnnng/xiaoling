@@ -1,5 +1,13 @@
 # 产品需求
 
+## 真实前台本地笔记编辑与版本递增验收（第 206 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式更新 Run 的临时 Profile 必须精确限制为 `notes.list / notes.search / notes.get / notes.update` 与 `local-note-update` Skill，长期记忆关闭；建立唯一 revision `1` 夹具时可以短暂加入 `notes.create / local-notes`，但必须在更新前恢复最小权限。
+- 模型必须严格执行 `notes.search -> notes.get -> notes.update`：搜索只允许唯一命中，详情和更新必须原样传递同一应用生成 note ID；更新参数必须使用详情返回的当前 revision，禁止猜测 ID、跳过详情或以旧版本覆盖。
+- `notes.update` 必须通过真实应用侧人工审批。Tool Ledger 必须同时证明审批 `APPROVED`、Executor 验证、typed verification `PASSED` 和 `COMMITTED` 回执；成功结果 revision 必须恰为 `expected_revision + 1`。
+- 答案级“查看笔记”和本地笔记页必须从当前 Note Store 二次读取更新后的标题、正文和 revision，不能把模型总结或历史 Tool 正文当作当前事实。验收后必须删除测试笔记、临时会话和临时 Profile，恢复原 Profile；旧 Run 审计保持不变。
+- 本阶段只验证既有生产编辑链的真实人工闭环，不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 能力；验证投入遵循快速迭代分级。
+
 ## 真实前台本地笔记写入、查看与清理验收（第 205 阶段，完成）
 
 - 真实验收必须只在 Redmi `wsvwypiz7xwslvl7` 执行；临时 Profile `stage205notesui` 只能开放 `notes.list / notes.search / notes.create`，并只选择 `local-notes` Skill。用户必须在前台 `/agent` 输入自然语言目标并通过现有审批卡批准，不能用 Debug 直写替代人工 UI 事实。

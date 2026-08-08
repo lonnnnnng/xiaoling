@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收（完成）
+
+- 本阶段没有修改生产代码，直接复用现有 `local-note-update` Skill、`notes.search / notes.get / notes.update`、Room Approval、Tool Ledger、乐观 revision 和答案级笔记导航。正式 Run 前，临时 Profile `stage206notesui` 已收窄为四项笔记工具、一个编辑 Skill 和关闭长期记忆。
+- Redmi Run `run-d7cb01df-d13a-4d43-93df-902c19ed972b` 严格执行三步。搜索和详情均返回 `note-f7519a66-7573-492a-813f-9883b5c947d5 / revision=1`；更新审批参数继续绑定同一 ID、`expected_revision=1`、标题 `stage206_note_v2` 和正文 `stage206_body_v2`。
+- 人工批准后，任务中心显示 15 步、3 次工具调用、1 次审批且 Run `COMPLETED`。`notes.update` Tool Ledger 为 `proposed / validated / result / verified`，Executor 验证为“是”，回执为 `COMMITTED`，重放策略为 `IDEMPOTENT_BY_KEY`，结果 revision 为 `2`。
+- 答案级“查看笔记”和刷新后的管理页从当前 Store 回读 `stage206_note_v2 / stage206_body_v2 / 版本 2`。随后通过 UI 删除测试笔记和两个临时会话，删除临时 Profile，并恢复阶段前 Profile“设备打开应用 E2E”；历史 Run 审计保留。
+- 本阶段只使用 Redmi，没有向模拟器发送 ADB 命令；`:app:assembleDebugAndroidTest` 成功，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`，测试包随后卸载。未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。下一阶段优先补齐真实前台受控笔记删除链，不横向扩展后台或远期生态能力。
+
 ## 第 205 阶段：真实前台本地笔记写入、查看与清理验收（完成）
 
 - 在 Redmi `wsvwypiz7xwslvl7` 上复用正式 `/agent`、`AgentRunUseCase`、Room Approval、Tool Ledger 和 `notes.create` Executor；临时 Profile `stage205notesui` 的工具集合严格为 `notes.list / notes.search / notes.create`，Skill 仅为 `local-notes`，长期记忆关闭。

@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `notes.search -> notes.get -> notes.update` 链；正式 Profile 只开放四项笔记工具和 `local-note-update`，同一稳定 note ID 从 revision `1` 经人工审批更新为 revision `2`。
+- Run `run-d7cb01df-d13a-4d43-93df-902c19ed972b` 为 `COMPLETED`，审批 `APPROVED`，Executor/typed verification 通过，回执 `COMMITTED`；答案级入口和本地笔记页从当前 Store 回读更新后的标题、正文和版本，而不是依赖模型总结。
+- 测试笔记、两个临时会话和临时 Profile 已精确清理，原 Profile 与旧 Run 审计保持不变。本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变化；仅构建 AndroidTest APK 并通过文档 corpus gate `1/1`，未运行完整测试矩阵、主 APK 或 Release。
+- 第 207 阶段优先完成真实前台 `notes.search -> notes.get -> notes.delete` 的人工审批、当前 Store 不可见和精确清理验收；继续保持旧 Run 不变，后台设备自动化、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型后置。
+
 ## 第 205 阶段：真实前台本地笔记写入、查看与清理验收（完成）
 
 - 在 Redmi `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 本地笔记闭环：临时 Profile `stage205notesui` 精确开放 `notes.list / notes.search / notes.create` 和 `local-notes` Skill，人工批准后执行 `notes.create`，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 为 `COMPLETED`，审批 `APPROVED`，Executor/typed verification 为 `PASSED`。

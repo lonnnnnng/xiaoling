@@ -4,6 +4,14 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 206 阶段：真实前台本地笔记编辑、版本递增与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链。为建立唯一夹具，临时 Profile `stage206notesui` 曾短暂加入 `notes.create / local-notes`；夹具创建并从当前 Store 确认为 `note-f7519a66-7573-492a-813f-9883b5c947d5 / stage206_fixture_20260808 / stage206_fixture_body_v1 / revision=1` 后，正式更新前已恢复为 `notes.list / notes.search / notes.get / notes.update`、`local-note-update`、长期记忆关闭。
+- 正式 Run `run-d7cb01df-d13a-4d43-93df-902c19ed972b` 为 `COMPLETED`，耗时约 `2m16s`，含 15 个步骤、5 次模型请求、3 次工具调用和 1 次审批。调用顺序严格为 `notes.search -> notes.get -> notes.update`；搜索、详情和更新均绑定同一稳定 note ID，更新参数为 `expected_revision=1 / title=stage206_note_v2 / content=stage206_body_v2`。
+- 人工点击审批卡“批准执行”后，任务中心显示 `notes.update` 审批已批准，Tool Ledger 为 `proposed / validated / result / verified`，Executor 验证为“是”，执行回执 `COMMITTED`，重放策略 `IDEMPOTENT_BY_KEY`，结果 revision 恰为 `2`；三个工具步骤的执行后验证均为通过。
+- 对话 Tool 卡的“查看笔记”与刷新后的本地笔记页均从当前 Store 回读 `stage206_note_v2 / stage206_body_v2 / 版本 2`，创建时间保持不变且更新时间对应本轮提交。随后通过 UI 删除测试笔记，删除创建/更新两个临时会话和 `stage206notesui`，恢复原 Profile“设备打开应用 E2E”；旧 Run 审计继续保留。
+- 本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更；未向 Pixel_9 或其他模拟器发送 ADB 命令。按分级验证约束，仅构建 `:app:assembleDebugAndroidTest` 并在 Redmi 运行文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`；测试包随后卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 205 阶段：真实前台本地笔记写入、查看与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链路。临时 Profile `stage205notesui` 精确配置为 Provider “设备动作 E2E”、模型 `gpt-5.6-luna`、Responses 模式、`notes.list / notes.search / notes.create` 三项工具、`local-notes` Skill，长期记忆关闭。

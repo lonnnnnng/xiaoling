@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 206 阶段继续采用成熟 Agent 的“先定位稳定对象、读取当前版本、人工审批条件写入、提交后回权威 Store”的原则：Redmi 真实前台 `/agent` 严格执行 `notes.search -> notes.get -> notes.update`，同一 note ID 和 revision `1` 进入审批；只有 Executor 验证、`COMMITTED` 回执和 revision `2` 回读都成立才确认成功。答案级入口继续只携带稳定身份，页面从当前 Store 读取更新后事实。该阶段没有复制参考项目的跨设备笔记同步、后台批量编辑、任意 App 控制、远程协作或多 Agent 编排。
+
 第 205 阶段继续采用成熟 Agent 的“副作用先审批、写入后回权威 Store、答案只携带稳定身份”原则：Redmi 真实前台 `/agent` 先由用户批准 `notes.create`，再从当前 Room 回读 note 标题、正文、revision 和稳定 ID；删除和清理也以持久化事实为准，旧 Run 不被覆盖。该阶段只验证本地笔记的真实可用闭环，没有复制参考项目的跨设备同步、后台批量写入、任意 App 控制、远程协作或多 Agent 编排。
 
 第 204 阶段继续采用成熟 Agent 的“副作用先审批、结果以稳定身份进入账本、查看时回到权威存储”原则：Redmi 真实人工 `/agent` 输入经过 `memory.remember` 审批后，Tool Ledger、完成卡和长期记忆页都从同一 Room 事实显示稳定记忆 ID；测试数据、临时 Profile 和临时会话随后精确清理，旧 Run 不变。该阶段只补齐真实前台 UI 与既有答案级导航的验收，不复制参考项目的跨设备记忆同步、后台批量治理、任意 App 控制、远程协作或多 Agent 编排。
