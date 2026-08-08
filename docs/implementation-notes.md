@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收（完成）
+
+- 本阶段没有修改生产代码，直接复用既有 `calendar.search_events / calendar.get / calendar.delete_event`、`calendar-delete` Skill、Room Approval、Tool Ledger、Provider 条件删除、提交后不可见回读和答案级当前日程导航。
+- 临时 instrumentation 动态保存当前 Profile/会话并创建带应用 marker 的 `calendar-88`。准备重试发现旧 UI 状态把选择重新写回已删除的第 209 阶段会话；夹具改为只保存 Room 中仍存在的恢复目标 `conversation-answer-reference-e2e`，并在可重试分支重新选择第 210 阶段会话，不创建重复夹具。
+- Redmi Run `run-fa9e0a15-db83-4db6-8919-501566d60ebf` 明确选中 `calendar-delete`，严格执行三步。搜索原样使用 `stage210_calendar_delete_20260808`，get/delete 绑定同一稳定 ID；删除参数继续使用详情指纹 `calendar-event-v1-7039017f961da7c6d64409f73c562cf0dbf985d4fcb657509c284fb627c80996` 与 `scope=event`。
+- 人工批准后，三项 ToolResult 均为 typed `PASSED`；删除具备 Executor 验证、`RESTART_REQUIRED` 和同一事件的 `COMMITTED` 回执，Provider 当前回读为 NotFound。点击删除前历史搜索卡的“查看日程”只显示“当前日程已不存在或已被删除”，证明导航仍回权威 Provider。
+- 准备、删除审计和精确清理三个单项均为 `OK (1 test)`。清理后事件/阶段会话不存在，原 Profile 工具/Skill/记忆和有效会话选择恢复，真实 Run 审计保留；临时测试、快照、截图/XML 和测试包已删除。
+- 只使用 Redmi，没有向模拟器发送目标 ADB 命令。`:app:assembleDebugAndroidTest` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。第 211 阶段优先验证真实前台历史会话搜索、当前正文读取和答案级“查看会话”，不转向后台日历、重复实例或远期生态。
+
 ## 第 209 阶段：真实前台系统日程修改、查看与清理验收（完成）
 
 - 本阶段没有修改生产代码，直接复用既有 `calendar.search_events / calendar.get / calendar.update_event`、`calendar-update` Skill、Room Approval、Tool Ledger、Provider 条件更新、写后回读和答案级“查看日程”。专用 E2E Profile 在正式 Run 前临时收窄为这三项工具、一个 Skill 和关闭长期记忆。

@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent calendar delete` 人工审批闭环。Run `run-fa9e0a15-db83-4db6-8919-501566d60ebf` 为 `COMPLETED`，唯一 `calendar-delete` 严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`，稳定 ID、当前指纹和 `scope=event` 全链一致。
+- 删除审批为 `APPROVED`，三项 ToolResult 均 typed `PASSED`；删除结果具备 Executor 验证、`RESTART_REQUIRED` 和 `COMMITTED` 回执。当前 Provider 为 NotFound，历史搜索卡的“查看日程”也只显示目标已不存在，没有回放旧详情。
+- 夹具事件、阶段会话、临时 Profile、快照和测试包已精确清理，原 Profile/有效会话选择恢复，真实 Run 审计保留。由此系统日程的真实前台创建、修改、删除和当前事实查看均已形成独立可清理闭环；重复系列/occurrence 与后台日程代理仍关闭。
+- 第 211 阶段优先完成真实前台 `app.search_conversations -> app.get_conversation`、稳定会话 ID、当前 Room 正文读取和答案级“查看会话”验收；MCP、远程 Channel、多 Agent、本地模型、精确定时和 Foreground Service 继续后置。
+
 ## 第 209 阶段：真实前台系统日程修改、查看与清理验收（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `calendar.search_events -> calendar.get -> calendar.update_event` 三步人工审批闭环。首条不完整输入只形成两步只读 Run；第二条 Run 完成 `stage209_calendar_20260808_after / 11:20–12:00` 更新；第三条 Run 明确选中 `calendar-update`，使用中间指纹再次更新为 `stage209_final / 13:10–13:50`。

@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实前台系统日程删除、当前不可见与清理验收（第 210 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式删除 Profile 必须精确限制为 `calendar.search_events / calendar.get / calendar.delete_event` 与 `calendar-delete` Skill，长期记忆关闭；夹具创建必须在 Run 外完成，不得把创建、修改、设备动作或后台工具带入模型工具面。
+- 用户目标必须明确连续包含“删除日程”或 `calendar delete`，模型必须严格执行 `search -> get -> delete_event`；搜索只允许唯一命中，get/delete 必须原样复用同一稳定事件 ID，删除还必须使用详情返回的当前指纹和与一次性事件匹配的 `scope=event`。
+- 删除必须等待真实应用侧人工审批。成功账本必须同时具备审批 `APPROVED`、三项 typed verification `PASSED`、删除 Executor 验证、`RESTART_REQUIRED` 和同一事件的 `COMMITTED` 回执；无回执路径不得重放 DELETE，也不得把当前不可见猜测为本轮成功。
+- 成功后当前 Calendar Provider 必须返回 NotFound，`calendar.delete_event` 结果不得生成详情入口；删除前搜索/详情卡若仍保留历史入口，点击后也必须重新读取当前 Provider 并显示目标已不存在，不得回放历史 Tool 正文。
+- 验收结束必须精确删除阶段会话、快照、测试包和仍可见的 marker 夹具，恢复 Room 中仍存在的原会话以及原 Profile 工具/Skill/记忆；阶段 Run、审批和 Tool Ledger 审计必须保留。悬空的旧会话选择不得作为恢复目标。
+- 本阶段只验证既有生产删除链的真实人工闭环，不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 能力；下一阶段转向历史会话搜索/正文/答案级查看，重复系列/occurrence 和后台日程代理继续关闭。
+
 ## 真实前台系统日程修改、查看与清理验收（第 209 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式修改 Profile 必须精确限制为 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update` Skill，长期记忆关闭；不得同时开放创建、删除、设备动作或后台工具。

@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 210 阶段继续采用成熟 Agent 的“删除必须绑定当前版本、逐次审批、提交后回权威 Store、历史入口不得冒充当前事实”原则：Redmi 真实前台 Run 使用搜索返回的稳定 ID、详情指纹和 `scope=event` 完成条件删除，Room 审批、typed verification、Executor 验证与 `COMMITTED` 回执共同决定成功。删除后点击历史搜索卡只从当前 Calendar Provider 得到“已不存在或已删除”，不会显示旧详情。该阶段没有复制参考项目的后台批量日历代理、自动补偿、重复实例编辑、远程协作或多 Agent 编排。
+
 第 209 阶段继续采用成熟 Agent 的“先定位稳定对象、审批后条件提交、提交后回权威 Store、答案只携带稳定身份”原则：Redmi 真实前台连续保留三条 Run 审计，首条不完整输入只读完成，第二条无 Skill 选择但完成中间 UPDATE，第三条明确选中 `calendar-update` 并以中间指纹完成最终 UPDATE。两次修改都经过人工审批、Executor/typed verification 和 `COMMITTED` 回执；“查看日程”再次从当前 Calendar Provider 回读 `calendar-85` 的最终事实。该阶段没有复制参考项目的后台批量日历代理、自动补偿、任意 App 控制、远程协作或多 Agent 编排。
 
 第 208 阶段继续采用成熟 Agent 的“显式执行入口、逐次审批、提交后回权威 Store、答案只携带稳定身份”原则：遗漏 `/agent` 的输入严格停留在普通聊天且没有写入日历；正确 Run 才产生 `APPROVED / PASSED / COMMITTED` 账本和稳定 `calendar-84`，答案级入口再从当前 Calendar Provider 读取真实事件。验收清理删除夹具和临时会话，但保留 Run、审批与 Tool Ledger 审计。该阶段没有复制参考项目的后台日历代理、自动批量修改/删除、重复实例控制、任意 App 操作、远程协作或多 Agent 编排。

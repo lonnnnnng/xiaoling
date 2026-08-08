@@ -4,6 +4,16 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 210 阶段：真实前台系统日程删除、当前不可见与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。阶段外使用正式 Calendar writer 创建唯一一次性夹具 `calendar-88 / stage210_calendar_delete_20260808 / 2026-08-14 10:20–10:50 / Asia/Shanghai`，事件指纹为 `calendar-event-v1-7039017f961da7c6d64409f73c562cf0dbf985d4fcb657509c284fb627c80996`；专用 E2E Profile 临时收窄为 `calendar.search_events / calendar.get / calendar.delete_event`、`calendar-delete` Skill 和长期记忆关闭。
+- 准备重试发现阶段前 `selectedConversationId` 指向已经删除的第 209 阶段会话。临时验收夹具没有继续保存悬空身份，而是只接受当前 Room 仍存在的最近会话 `conversation-answer-reference-e2e` 作为恢复目标；随后重新选择第 210 阶段专属会话，未创建第二个事件或改写旧 Run。
+- 在前台输入完整短指令 `/agent calendar delete stage210_calendar_delete_20260808`。Run `run-fa9e0a15-db83-4db6-8919-501566d60ebf` 为 `COMPLETED`，明确选择唯一 `calendar-delete`，严格执行 `calendar.search_events -> calendar.get -> calendar.delete_event`；搜索参数原样为唯一关键词，详情与删除绑定同一 `calendar-88`，删除继续原样使用当前指纹和 `scope=event`。
+- 唯一 `calendar.delete_event` 审批为 `APPROVED`；三项 ToolResult 均 `success=true / verificationStatus=PASSED`，删除结果为 `executorVerified=true / replaySafety=RESTART_REQUIRED / receiptStatus=COMMITTED / receiptOperationId=calendar-88`。删除后当前 Calendar Provider 回读为 NotFound。
+- 删除成功卡本身没有制造已不存在资源的导航。点击删除前搜索结果保留的“查看日程”后，详情页重新查询当前 Provider 并显示“当前日程已不存在或已被删除”，没有回放历史标题、时间或 Tool 正文。
+- 精确清理 instrumentation 删除阶段会话，恢复原 Profile 的 `calendar.list_events / tasks.list`、空 Skill、长期记忆关闭和有效原会话 `conversation-answer-reference-e2e`；事件保持不可见，Run/审批/Tool Ledger 审计保留。临时测试源码、数据库快照、本机副本、截图/XML 和测试包均已移除，主应用恢复前台。
+- 本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更，也没有向 Pixel_9 或其他模拟器发送目标 ADB 命令。按分级验证约束，仅构建 `:app:assembleDebugAndroidTest`，运行准备、删除审计、精确清理和文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，四项均为 `OK (1 test)`；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 209 阶段：真实前台系统日程修改、查看与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。专用 E2E Profile 在正式 Run 前临时配置为 `calendar.search_events / calendar.get / calendar.update_event`、`calendar-update` Skill 和长期记忆关闭；唯一夹具事件为 `calendar-85`，应用 marker 为 `xiaoling://calendar-event/stage209-calendar-update-fixture-20260808`。
