@@ -8,7 +8,7 @@
 
 - `memory.remember` 的成功与恢复验证结果现在由应用回读后携带唯一 `memory-UUID`，并在 `memoryIdsUsed` 中绑定同一身份；`MemoryNavigation.kt` 只接受 `VERIFIED`、合法参数、固定成功外壳和单一一致 ID。只读写入、失败、旧格式、额外参数、ID 漂移或正文重复身份均不生成入口。
 - 点击后复用 `refreshMemoriesAndResolveNavigation()`，从当前 Room 重新读取目标并进入记忆管理页；旧 Run 没有新身份时保持不可导航，未新增写入、审批、Room、Workflow 或后台能力。
-- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Redmi 文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。本阶段尚未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，没有使用 `Pixel_9`。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、`:app:assembleDebug :app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；Redmi `XiaoLingViewModelMemoryNavigationInstrumentedTest` 为 `OK (1 test)`，文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。本阶段尚未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，没有使用 `Pixel_9`。
 
 ## 2026-08-08 第 200 阶段：本地笔记详情/编辑结果答案级导航
 

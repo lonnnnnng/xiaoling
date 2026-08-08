@@ -4,7 +4,7 @@
 
 当前开发基线已推进至第 201 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
-第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
+第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 
 第 200 阶段补齐答案级本地笔记详情/编辑结果导航：`notes.get` 只有在唯一 `note_id`、固定详情首行、固定正文警示、单一稳定 ID 和规范 revision 同时成立时才显示“查看笔记”；`notes.update` 只有在 `VERIFIED`、参数集合精确、标题/ID与请求一致且返回 revision 恰为 `expected_revision + 1` 时才显示入口；`notes.create` 的写入结果继续要求 `VERIFIED`。点击后复用现有本地笔记管理页并按当前 Store 二次读取，不回退 Tool 正文；失败、只读写入、版本/标题/ID漂移和正文伪造均 fail-closed。聚焦 JVM `7/7`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
 

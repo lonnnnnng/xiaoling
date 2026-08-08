@@ -1,6 +1,6 @@
 # 文档索引
 
-第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数精确、固定结果外壳和唯一合法 ID 同时成立时才显示“查看记忆”。只读写入、失败、额外参数、ID 漂移、重复身份和旧结果均 fail-closed；点击后从当前 Room 二次读取。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建和 Redmi 文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，也未使用 Pixel_9。
+第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数精确、固定结果外壳和唯一合法 ID 同时成立时才显示“查看记忆”。只读写入、失败、额外参数、ID 漂移、重复身份和旧结果均 fail-closed；点击后从当前 Room 二次读取。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release，也未使用 Pixel_9。
 
 第 200 阶段补齐答案级本地笔记详情/编辑结果导航：`notes.get` 只接受唯一 `note_id`、固定详情/正文边界、单一稳定 ID 和规范 revision；`notes.update` 只在 `VERIFIED`、参数精确、标题/ID一致且 revision 恰为 `expected_revision + 1` 时显示“查看笔记”，`notes.create` 写入结果继续要求 `VERIFIED`。点击后复用本地笔记管理页并从当前 Store 二次读取；失败、只读写入、版本/标题/ID漂移和正文伪造均 fail-closed。聚焦 JVM `7/7`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release，也未使用 Pixel_9。
 

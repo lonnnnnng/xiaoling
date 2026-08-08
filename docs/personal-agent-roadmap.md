@@ -5,7 +5,7 @@
 - `memory.remember` 成功和恢复验证结果现在提出应用生成的唯一 `memory-UUID`，并通过 `memoryIdsUsed` 与正文末尾 ID 双重绑定；只有 `VERIFIED` 的固定回执才显示“查看记忆”。
 - 参数集合、记忆类型、标签边界和唯一身份任一漂移，或结果为 `READABLE_ONLY`、失败、旧格式、重复正文 ID 时均不导航；旧 Run 不因新结果契约被改写。
 - 点击后复用现有记忆管理页，先从当前 Room 二次读取并置顶目标；本阶段不新增写入范围、权限、Room Schema、Tool/Skill、Workflow、后台或 Release 能力。
-- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建和 Redmi 文档 corpus gate `1/1` 通过；本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。下一阶段继续从个人 Agent 的直接可用事实闭环中选择一个单一窄切片。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。下一阶段继续从个人 Agent 的直接可用事实闭环中选择一个单一窄切片。
 
 ## 第 200 阶段：本地笔记详情/编辑结果答案级导航（完成）
 

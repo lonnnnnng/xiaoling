@@ -6,7 +6,7 @@
 - `note` 必须非空且不超过 2,000 字符；`type` 只能是 `Preference / ProfileFact / Episode / Procedure`；标签最多 10 个、单个最多 50 字符、总长度最多 500 字符。额外参数、非法类型/标签、ID 漂移、重复 ID、结果改写或正文伪造必须 fail-closed。
 - `READABLE_ONLY`、失败结果和没有新稳定 ID 的旧 Run 不得生成入口；旧历史事实不得被回填或改写。
 - 点击入口必须复用现有记忆管理页，并从当前 Room 二次读取目标；目标不存在、禁用、过期或读取失败时显示当前失败状态，不展示历史回执正文，不重新执行 `memory.remember`。
-- 本阶段不新增 Android 权限、Room Schema、Tool/Skill、写入范围、Workflow、后台自动化或 Release 行为；按快速迭代运行聚焦 JVM、必要的 APK 编译和 Redmi 文档 corpus 单项门禁，完整 JVM、Lint、Redmi 全量 instrumentation 与 Release 后置。
+- 本阶段不新增 Android 权限、Room Schema、Tool/Skill、写入范围、Workflow、后台自动化或 Release 行为；按快速迭代运行聚焦 JVM、必要的 APK 编译、Redmi 当前 Room 导航单项和文档 corpus 单项门禁，完整 JVM、Lint、Redmi 全量 instrumentation 与 Release 后置。
 
 ## 本地笔记详情/编辑结果答案级导航（第 200 阶段，完成）
 

@@ -6,7 +6,7 @@
 - `MemoryNavigation.kt` 新增已验证写入分支。只有 `VERIFIED`、`note/type/tags` 参数集合合法、固定成功回执、唯一合法 ID 与 `memoryIdsUsed` 一致时才显示“查看记忆”；`READABLE_ONLY`、额外参数、ID 漂移、重复身份和旧结果均 fail-closed。
 - 点击继续复用 `refreshMemoriesAndResolveNavigation()`，先从当前 Room 读取目标并置顶到记忆管理页；不使用回执正文猜测事实，不扩大写入、审批、Room Schema、Workflow 或后台能力。
 - 现有搜索/详情导航和旧 Run 结果保持兼容：没有新增稳定 ID 的历史结果仍不可导航。
-- `MemoryNavigationTest` `5/5` 与 Registry 写入/恢复聚焦用例 `2/2` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 构建通过，Redmi 文档 corpus gate `1/1` 通过。本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
+- `MemoryNavigationTest` `5/5` 与 Registry 写入/恢复聚焦用例 `2/2` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 构建通过，Redmi Room 导航单项 `1/1` 和文档 corpus gate `1/1` 通过。本阶段未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 
 ## 第 200 阶段：本地笔记详情/编辑结果答案级导航（完成）
 
