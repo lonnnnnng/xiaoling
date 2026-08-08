@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 213 阶段：当前应用信息只读验收（完成）
+
+- 新增 `AndroidAppInfoInstrumentedTest`，使用生产 `XiaoLingToolRegistry`、`AndroidAppInfoReader`、Room Store 和当前安装包 Context，验证 `app.get_info` 的真实执行结果；不依赖 Provider、网络、后台或 Workflow。
+- Redmi `wsvwypiz7xwslvl7` 定向 instrumentation `foregroundRegistryReadsCurrentPackageMetadataOnly` 为 `OK (1 test)`：结果严格为应用名称、包名 `com.longdev.xiaoling`、版本名和版本号四项，Provider、API Key、设备标识和安装来源均不可见。
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功，测试包已安装并在单项完成后卸载。第 212 阶段真实 Provider 仍因 Redmi 只有 `tun0` 路由而等待网络恢复。
+
 ## 第 212 阶段：前台 Agent Profile 隐私验收探针（代码完成，真实 Provider 待网络恢复）
 
 - 新增 `RealProviderAgentProfileInstrumentedTest`，只在显式传入 Provider 参数时运行；它通过正式 `AgentRunUseCase`、`XiaoLingToolRegistry` 和 `RoomAgentRunRepository` 复核 `agent.get_profile` 的真实规划、执行和持久化结果，不新增生产 Tool、Skill、Room Schema 或权限。

@@ -1,5 +1,11 @@
 # 产品需求
 
+## 当前应用信息只读验收（第 213 阶段，完成）
+
+- `app.get_info` 只返回当前安装包的应用名称、包名、版本名和版本号，结果固定四字段；Provider、API Key、设备标识、安装来源和其他配置不得进入 Agent 结果。
+- Redmi `wsvwypiz7xwslvl7` 必须通过生产 Registry 的定向 instrumentation；该切片不依赖模型网络，不扩大工具、权限、Workflow 或后台能力。
+- 第 212 阶段 `agent.get_profile` 的真实 Provider 验收仍受 Redmi 网络阻塞约束，网络恢复后优先重跑，不以本阶段本地只读结果替代。
+
 ## 前台 Agent Profile 隐私验收（第 212 阶段，代码完成）
 
 - `agent.get_profile` 只能由当前前台直接 Agent 调用；本阶段定向 AndroidTest 必须复用正式 `AgentRunUseCase`，Profile 工具白名单精确包含该工具，且不得扩大旧 Profile 的工具面。

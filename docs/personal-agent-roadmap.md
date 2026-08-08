@@ -1,5 +1,10 @@
 # 小灵个人 Agent 路线图
 
+## 第 213 阶段：当前应用信息只读验收（完成）
+
+- `app.get_info` 已在 Redmi `wsvwypiz7xwslvl7` 通过生产 Registry 定向 instrumentation，当前包信息四字段投影和敏感字段隔离均为 `OK (1 test)`。
+- 本阶段不需要 Provider 网络，不新增权限、Room Schema、Workflow 或后台能力；下一步仍先恢复网络并重跑第 212 阶段 `agent.get_profile` 真实 Provider 单项，再进入新的个人 Agent 能力切片。
+
 ## 第 212 阶段：前台 Agent Profile 隐私验收（代码完成，Redmi 网络待恢复）
 
 - `agent.get_profile` 的 Redmi-only 定向 AndroidTest 已接入正式 `AgentRunUseCase`，以最小白名单验证前台 `DIRECT` 的真实规划、执行和 Room Tool Ledger 投影；输出只允许 Agent 名称、模型、API 模式和记忆召回状态。
