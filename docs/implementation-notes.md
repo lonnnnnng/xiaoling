@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 208 阶段：真实前台系统日程创建、查看与清理验收（完成）
+
+- 本阶段没有修改生产代码，直接复用既有 `calendar.create_event`、`calendar-create` Skill、Room Approval、Tool Ledger、Calendar Provider 写后回读和答案级“查看日程”。专用 E2E Profile 在正式 Run 前临时收窄为一个创建工具、一个 Skill 和关闭长期记忆。
+- 首次输入遗漏 `/agent` 前缀，只形成普通用户/助手消息；模型明确说明不能实际写日历，没有创建 Agent Run、审批或 Provider 事件。随后新建阶段会话并使用正确 `/agent` 命令，避免把普通聊天结果误当成工具执行事实。
+- 正式 Run `run-0850939c-00dd-497a-b70c-4af0306c2168` 为 `COMPLETED`；ToolCall `tool-call-a406bf1f-0b83-4810-9d3a-3993c74a0637` 的审批 `approval-d1841b1a-2e56-40a1-bbd8-8c29a00be93e` 为 `APPROVED`。事件 `calendar-84` 写入后具备 Executor 验证、typed `PASSED`、`COMMITTED` 回执、operation ID `84` 和 `IDEMPOTENT_BY_KEY` 重放证据。
+- 答案级入口没有信任模型总结，而是从当前 Calendar Provider 回读 `stage208_calendar_ui_20260808 / 2026-08-10 10:20–10:50 / Asia/Shanghai / 非全天 / 不重复`。创建、审批、结果和详情页由同一稳定事件 ID 贯通。
+- 清理只接受事件 ID、标题、时间、时区和应用 marker 全部匹配的夹具。首次清理用例已删除事件，但因临时测试错误地把返回 `Unit` 的会话 DAO 当成删除行数而失败，Room 事务随即回滚；修正为两态可重试后在 Redmi 通过 `OK (1 test)`。最终事件不可见、阶段会话与精确四条误入消息已删除，Profile 恢复为 `calendar.list_events / tasks.list`、空 Skill 和关闭长期记忆，原 Run/审批/Tool Ledger 审计保留。
+- 只使用 Redmi，没有向模拟器发送目标 ADB 命令。文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。第 209 阶段优先转向真实前台受控日程修改，不扩大到日程删除、后台日程代理、精确定时或 Foreground Service。
+
 ## 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收（完成）
 
 - 本阶段没有修改生产代码，直接复用现有 `local-note-delete` Skill、`notes.search / notes.get / notes.delete`、Room Approval、Tool Ledger、tombstone 事务和 `COMMITTED` 只读恢复边界。正式 Profile `stage207notesui` 只保留四项笔记工具、一个删除 Skill，并关闭长期记忆。

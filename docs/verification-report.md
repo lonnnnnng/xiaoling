@@ -4,6 +4,15 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 208 阶段：真实前台系统日程创建、查看与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。专用 E2E Profile 在正式 Run 前临时配置为仅 `calendar.create_event`、`calendar-create` Skill 和长期记忆关闭；`READ_CALENDAR / WRITE_CALENDAR` 均已授权。
+- 首次在既有会话中输入创建目标时遗漏 `/agent` 前缀，只新增四条普通用户/助手消息；模型明确拒绝实际写入，没有生成 Agent Run、审批、ToolCall 或 Calendar Provider 事件。随后新建会话并输入 `/agent create a one time calendar event titled stage208_calendar_ui_20260808 on August 10 2026 from 10:20 to 10:50 in Asia/Shanghai`。
+- 正式 Run `run-0850939c-00dd-497a-b70c-4af0306c2168` 为 `COMPLETED`。唯一 ToolCall `tool-call-a406bf1f-0b83-4810-9d3a-3993c74a0637` 的审批 `approval-d1841b1a-2e56-40a1-bbd8-8c29a00be93e` 为 `APPROVED`；创建结果为 `success=1 / executorVerified=1 / verificationStatus=PASSED / replaySafety=IDEMPOTENT_BY_KEY / receiptStatus=COMMITTED / receiptOperationId=84`，稳定事件 ID 为 `calendar-84`。
+- 点击答案级“查看日程”后，详情页从当前 Calendar Provider 回读标题 `stage208_calendar_ui_20260808`、开始 `2026-08-10 10:20`、结束 `2026-08-10 10:50`、时区 `Asia/Shanghai`、全天“否”、重复“否”；没有使用模型总结或历史 Tool 正文替代当前 Provider 事实。
+- 精确清理 instrumentation 首次已删除匹配应用 marker 的 `calendar-84`，随后因临时测试把返回 `Unit` 的 `deleteConversations` 错误断言为删除行数而失败；Room 事务回滚，没有形成部分消息/Profile 清理。修正为可重试两态后再次仅在 Redmi 运行，结果 `OK (1 test)`：事件已不可见，阶段会话和既有会话中精确四条误入消息不存在，Profile 恢复为 `calendar.list_events / tasks.list`、空 Skill、长期记忆关闭，原 Run 仍为 `COMPLETED`。测试包已卸载，主应用冷启动成功，Run、审批和 Tool Ledger 审计保留。
+- 本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更；没有向 Pixel_9 或其他模拟器发送目标 ADB 命令。按分级验证约束，仅构建 AndroidTest APK、运行上述清理单项和文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，两项均为 `OK (1 test)`；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台 `/agent` 链。临时 Profile `stage207notesui` 的正式配置为 `notes.list / notes.search / notes.get / notes.delete`、`local-note-delete`、长期记忆关闭；夹具创建完成后已移除 `notes.create / local-notes`。

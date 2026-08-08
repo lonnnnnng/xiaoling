@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 208 阶段：真实前台系统日程创建、查看与清理验收（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent calendar.create_event` 人工审批闭环。Run `run-0850939c-00dd-497a-b70c-4af0306c2168` 为 `COMPLETED`，审批 `APPROVED`，创建结果具备 Executor 验证、typed `PASSED`、`COMMITTED` 回执和稳定事件 ID `calendar-84`。
+- 答案级“查看日程”从当前 Calendar Provider 二次读取标题、起止、时区、全天和重复状态；遗漏 `/agent` 的普通聊天没有产生副作用，证明聊天与 Agent 执行入口仍保持明确边界。
+- 测试事件、阶段会话和精确四条误入消息已清理，专用 E2E Profile 恢复为原两项只读工具、空 Skill 和关闭长期记忆；阶段 Run、审批与账本审计保持不变。本阶段没有生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力变化。
+- 第 209 阶段优先完成真实前台 `calendar.search_events -> calendar.get -> calendar.update_event` 的稳定 ID/指纹传递、逐次审批、当前 Provider 新状态查看和精确清理。日程删除留到后续独立阶段；重复系列/occurrence、后台日程代理、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 207 阶段：真实前台本地笔记删除、失败边界与清理验收（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `notes.search -> notes.get -> notes.delete` 人工审批闭环。最终 Run `run-e520f307-96fd-4bc9-b4e8-3b9425c405d4` 为 `COMPLETED`，三项 typed verification 均为 `PASSED`，删除审批 `APPROVED`、Executor 回读不可见、回执 `COMMITTED`，当前 Store 刷新后为 0 条。

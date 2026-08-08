@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实前台系统日程创建、查看与清理验收（第 208 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式创建时专用 E2E Profile 必须精确限制为 `calendar.create_event` 与 `calendar-create` Skill，长期记忆关闭；不得同时开放日程修改、删除、设备动作或后台工具。
+- 用户必须从前台以 `/agent` 明确进入 Agent 执行；缺少前缀的普通聊天不得创建 Run、审批或 Calendar Provider 事件，也不得根据模型文本推断副作用已经发生。
+- `calendar.create_event` 必须等待真实应用侧人工审批。成功账本必须同时具备审批 `APPROVED`、Executor 写后回读、typed verification `PASSED`、`COMMITTED` 回执和应用生成的唯一稳定 `calendar-<正整数>` ID；标题、起止时间和 IANA 时区必须与审批参数一致。
+- 答案级“查看日程”必须只携带稳定事件 ID，并从当前 Calendar Provider 二次读取标题、起止、全天、时区和重复状态；模型总结和历史 Tool 正文不得作为当前日程事实。
+- 验收结束必须在严格核对事件 ID、应用 marker、标题、时间和时区后删除唯一夹具，精确删除阶段会话及误入既有会话的消息，恢复原 Profile 工具/Skill/记忆配置；阶段 Run、审批与 Tool Ledger 审计必须保留。
+- 本阶段只验证既有生产创建链的真实人工闭环，不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 能力；验证投入遵循快速迭代分级。
+
 ## 真实前台本地笔记删除与失败边界验收（第 207 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式删除 Profile 必须精确限制为 `notes.list / notes.search / notes.get / notes.delete` 与 `local-note-delete` Skill，长期记忆关闭；夹具创建可以临时开放 `notes.create`，但删除前必须恢复最小权限。
