@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 209 阶段：真实前台系统日程修改、查看与清理验收（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent` 的 `calendar.search_events -> calendar.get -> calendar.update_event` 三步人工审批闭环。首条不完整输入只形成两步只读 Run；第二条 Run 完成 `stage209_calendar_20260808_after / 11:20–12:00` 更新；第三条 Run 明确选中 `calendar-update`，使用中间指纹再次更新为 `stage209_final / 13:10–13:50`。
+- 两条修改 Run 的审批均为 `APPROVED`，三项 ToolResult 均为 typed `PASSED`；两次 UPDATE 都有 Executor 验证、`RESTART_REQUIRED` 和 `COMMITTED` 回执。答案级“查看日程”从当前 Calendar Provider 回读稳定 ID `calendar-85`、最终标题/时间、`Asia/Shanghai`、非全天和不重复。
+- 三条 Run 审计保留且旧 Run 未被改写；夹具事件、阶段会话、临时 Profile、测试包和快照均精确清理，原 Profile 与原会话选择恢复。本阶段没有生产能力、Room、Workflow、权限或后台变化。
+- 第 210 阶段优先完成真实前台日程删除的 `search -> get -> delete_event`、逐次审批、提交后不可见回读和精确清理；重复系列/occurrence、后台代理、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 208 阶段：真实前台系统日程创建、查看与清理验收（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 已完成真实前台 `/agent calendar.create_event` 人工审批闭环。Run `run-0850939c-00dd-497a-b70c-4af0306c2168` 为 `COMPLETED`，审批 `APPROVED`，创建结果具备 Executor 验证、typed `PASSED`、`COMMITTED` 回执和稳定事件 ID `calendar-84`。

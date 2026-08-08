@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 209 阶段继续采用成熟 Agent 的“先定位稳定对象、审批后条件提交、提交后回权威 Store、答案只携带稳定身份”原则：Redmi 真实前台连续保留三条 Run 审计，首条不完整输入只读完成，第二条无 Skill 选择但完成中间 UPDATE，第三条明确选中 `calendar-update` 并以中间指纹完成最终 UPDATE。两次修改都经过人工审批、Executor/typed verification 和 `COMMITTED` 回执；“查看日程”再次从当前 Calendar Provider 回读 `calendar-85` 的最终事实。该阶段没有复制参考项目的后台批量日历代理、自动补偿、任意 App 控制、远程协作或多 Agent 编排。
+
 第 208 阶段继续采用成熟 Agent 的“显式执行入口、逐次审批、提交后回权威 Store、答案只携带稳定身份”原则：遗漏 `/agent` 的输入严格停留在普通聊天且没有写入日历；正确 Run 才产生 `APPROVED / PASSED / COMMITTED` 账本和稳定 `calendar-84`，答案级入口再从当前 Calendar Provider 读取真实事件。验收清理删除夹具和临时会话，但保留 Run、审批与 Tool Ledger 审计。该阶段没有复制参考项目的后台日历代理、自动批量修改/删除、重复实例控制、任意 App 操作、远程协作或多 Agent 编排。
 
 第 207 阶段继续采用成熟 Agent 的“副作用提交事实与整轮任务终态分离”原则：首次 Redmi Run 的 `notes.delete` 已经审批、提交并从 Store 回读不可见，但模型在后续重复规划时触发保护，Run 仍真实保留为 `BUDGET_EXHAUSTED`，没有为了界面好看而回滚副作用或把整轮改成成功。独立新 Run 随后以同一“稳定 ID -> 人工审批 -> DELETE -> 当前 Store 回读”契约完成，并保留 `COMMITTED / IDEMPOTENT_BY_KEY / 未提交 DENY` 的恢复边界。该阶段没有复制参考项目的自动补偿删除、后台批量清理、跨设备同步、任意 App 控制、远程协作或多 Agent 编排。

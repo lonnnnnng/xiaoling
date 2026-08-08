@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 209 阶段真实日程修改 UI 边界（无变更）
+
+本阶段只在 Redmi 的真实前台 Provider 链中验证 `calendar.update_event` 的审批、指纹条件更新、提交回执和答案级当前日程查看；三条 Run 的工具结果、日程标题/时间和 Provider 指纹均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。
+
 ## 第 203 阶段真实长期记忆会话投影边界（无变更）
 
 本阶段只在 Redmi 的 Debug-only 真实 Provider 探针中把已验证的 `memory.remember` 结果短暂投影到专属 Room 会话，再重建并检查可信 Tool part 与稳定记忆导航；临时会话和测试记忆均精确清理。该投影不读取或改写知识候选、答案引用、Judge 身份、Shadow measurement 或匿名账本，不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。

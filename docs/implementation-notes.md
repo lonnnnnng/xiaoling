@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 209 阶段：真实前台系统日程修改、查看与清理验收（完成）
+
+- 本阶段没有修改生产代码，直接复用既有 `calendar.search_events / calendar.get / calendar.update_event`、`calendar-update` Skill、Room Approval、Tool Ledger、Provider 条件更新、写后回读和答案级“查看日程”。专用 E2E Profile 在正式 Run 前临时收窄为这三项工具、一个 Skill 和关闭长期记忆。
+- 首条 Run `run-9edc1948-884e-4652-b961-c4f596af2767` 因 ADB 长文本输入不完整，只形成搜索/详情两步只读链并以 `COMPLETED` 收敛；后续没有原地补写或改写该 Run，而是创建独立 Run 继续。
+- 第二条 Run `run-94aab56a-05f5-4025-a24e-cf97f93d8eaf` 完成首次受控修改。它没有 `skill.selected`，但审批、三项 typed `PASSED`、Executor 验证、`RESTART_REQUIRED` 与 `COMMITTED` 回执完整；`calendar-85` 更新为 `stage209_calendar_20260808_after / 11:20–12:00`，并产生中间指纹 `calendar-event-v1-6fb258ec8d7f849217667110cfc6af3289834d8feb5d3a909317712ea5377845`。
+- 第三条 Run `run-9bef4fe7-6fb2-4c27-91f9-3ad4a6893d96` 通过明确的 `calendar update` 目标选中 `calendar-update`，再次执行相同三步。最终 UPDATE 原样使用中间指纹、稳定 ID 与 `scope=event`，审批 `APPROVED`，Provider 回读为 `stage209_final / 2026-08-12 13:10–13:50 / Asia/Shanghai / 非全天 / 不重复`，最终指纹与中间指纹不同。
+- 临时 instrumentation 依创建时间审计三条 Run，分别固定“只读、无 Skill 的中间更新、命中 Skill 的最终更新”三种事实；Provider 核对和精确清理均为 `OK (1 test)`。清理后事件与阶段会话不存在，原 Profile 工具/Skill/记忆和原会话选择恢复，三条 Run 审计保留；临时测试源码、数据库快照和测试包均已移除。
+- 只使用 Redmi，没有向模拟器发送目标 ADB 命令。`:app:assembleDebugAndroidTest` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。第 210 阶段优先转向真实前台受控日程删除和当前 Provider 不可见验收，不扩大到重复实例、后台日程代理、精确定时或 Foreground Service。
+
 ## 第 208 阶段：真实前台系统日程创建、查看与清理验收（完成）
 
 - 本阶段没有修改生产代码，直接复用既有 `calendar.create_event`、`calendar-create` Skill、Room Approval、Tool Ledger、Calendar Provider 写后回读和答案级“查看日程”。专用 E2E Profile 在正式 Run 前临时收窄为一个创建工具、一个 Skill 和关闭长期记忆。

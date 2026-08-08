@@ -4,6 +4,16 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 209 阶段：真实前台系统日程修改、查看与清理验收
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。专用 E2E Profile 在正式 Run 前临时配置为 `calendar.search_events / calendar.get / calendar.update_event`、`calendar-update` Skill 和长期记忆关闭；唯一夹具事件为 `calendar-85`，应用 marker 为 `xiaoling://calendar-event/stage209-calendar-update-fixture-20260808`。
+- 首次 Run `run-9edc1948-884e-4652-b961-c4f596af2767` 因 ADB 长文本没有完整进入输入框，只执行 `calendar.search_events -> calendar.get` 后以 `COMPLETED` 收敛，没有审批或写入；该旧 Run 保持原样，未被后续尝试覆盖。
+- 第二条 Run `run-94aab56a-05f5-4025-a24e-cf97f93d8eaf` 完整执行 `calendar.search_events -> calendar.get -> calendar.update_event`，审批 `APPROVED`，三项结果均 `success=true / verificationStatus=PASSED`，修改结果为 `executorVerified=true / replaySafety=RESTART_REQUIRED / receiptStatus=COMMITTED`。事件从原夹具更新为 `stage209_calendar_20260808_after / 2026-08-12 11:20–12:00 / Asia/Shanghai`，新指纹为 `calendar-event-v1-6fb258ec8d7f849217667110cfc6af3289834d8feb5d3a909317712ea5377845`。该目标没有连续的 `calendar update` 关键词，因此真实审计中没有 `skill.selected`，但既有工具授权仍允许完成受控修改。
+- 第三条 Run `run-9bef4fe7-6fb2-4c27-91f9-3ad4a6893d96` 明确命中 `calendar-update`，再次严格执行三步；`calendar.update_event` 使用第二条 Run 的新指纹、同一稳定事件 ID 和 `scope=event`，人工审批为 `APPROVED`。三项 ToolResult 均通过 typed verification，写入结果具备 Executor 验证、`RESTART_REQUIRED` 与同一事件的 `COMMITTED` 回执；最终指纹为 `calendar-event-v1-898dc7739f8a0bed19760163c670c2dd0abf3d3df41b7bbda06df86b43f181be`。
+- 点击最终更新卡的“查看日程”后，详情页从当前 Calendar Provider 回读 `calendar-85 / stage209_final / 2026-08-12 13:10–13:50 / Asia/Shanghai / 非全天 / 不重复`；没有使用模型总结或历史 Tool 正文替代当前 Provider 事实。
+- 精确清理 instrumentation 核对事件 ID、最终标题、最终时间、时区与应用 marker 后删除夹具，删除阶段会话并恢复原会话选择；专用 E2E Profile 恢复为 `calendar.list_events / tasks.list`、空 Skill 和长期记忆关闭。三条 Run 均保持 `COMPLETED` 且审计保留；阶段数据库快照、本机副本和测试包已删除，主应用恢复前台。
+- 本阶段没有生产代码、Tool/Skill、Room Schema、权限、Workflow 或后台能力变更，也没有向 Pixel_9 或其他模拟器发送目标 ADB 命令。按分级验证约束，仅构建 `:app:assembleDebugAndroidTest`，运行三 Run/Provider 核对单项、精确清理单项和文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate`，三项均为 `OK (1 test)`；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
+
 ## 2026-08-08 第 208 阶段：真实前台系统日程创建、查看与清理验收
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 完成真实前台链路。专用 E2E Profile 在正式 Run 前临时配置为仅 `calendar.create_event`、`calendar-create` Skill 和长期记忆关闭；`READ_CALENDAR / WRITE_CALENDAR` 均已授权。

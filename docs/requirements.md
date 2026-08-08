@@ -1,5 +1,14 @@
 # 产品需求
 
+## 真实前台系统日程修改、查看与清理验收（第 209 阶段，完成）
+
+- 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式修改 Profile 必须精确限制为 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update` Skill，长期记忆关闭；不得同时开放创建、删除、设备动作或后台工具。
+- 模型必须先以 `calendar.search_events -> calendar.get` 定位唯一稳定事件 ID 和当前指纹，再调用 `calendar.update_event`；每次 UPDATE 都必须携带同一 `event_id`、前一版本 `expected_fingerprint`、`scope=event`、标题、起止时间和 IANA 时区，禁止按标题或模型文本猜测身份。
+- 每次修改都必须等待真实应用侧人工审批。成功账本必须具备 `APPROVED`、Executor 写后回读、typed verification `PASSED`、`RESTART_REQUIRED` 和同一事件的 `COMMITTED` 回执；连续 Run 不得改写旧 Run，新的版本必须使用前一提交返回的指纹。
+- 答案级“查看日程”只能携带稳定 `calendar-<正整数>` ID，并从当前 Calendar Provider 二次读取标题、起止、全天、时区和重复状态；模型总结、审批参数和历史 Tool 正文不得作为当前事实。
+- 验收结束必须在严格核对事件 ID、最终标题、时间、时区和应用 marker 后删除唯一夹具，精确删除阶段会话/快照/测试包，恢复原 Profile 工具、Skill、记忆和会话选择；三条阶段 Run/审批/Tool Ledger 审计必须保留。
+- 本阶段只验证既有生产修改链的真实人工闭环，不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 能力；下一阶段再做真实前台日程删除，重复系列/occurrence、后台、精确定时和 Foreground Service 继续关闭。
+
 ## 真实前台系统日程创建、查看与清理验收（第 208 阶段，完成）
 
 - 真实验收只允许在 Redmi `wsvwypiz7xwslvl7` 执行。正式创建时专用 E2E Profile 必须精确限制为 `calendar.create_event` 与 `calendar-create` Skill，长期记忆关闭；不得同时开放日程修改、删除、设备动作或后台工具。
