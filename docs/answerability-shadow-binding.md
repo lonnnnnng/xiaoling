@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 203 阶段真实长期记忆会话投影边界（无变更）
+
+本阶段只在 Redmi 的 Debug-only 真实 Provider 探针中把已验证的 `memory.remember` 结果短暂投影到专属 Room 会话，再重建并检查可信 Tool part 与稳定记忆导航；临时会话和测试记忆均精确清理。该投影不读取或改写知识候选、答案引用、Judge 身份、Shadow measurement 或匿名账本，不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。
+
 ## 第 202 阶段真实 Provider 长期记忆写入边界（无变更）
 
 本阶段只在 Redmi 真机的 Debug-only 探针中验证真实 `memory.remember` 的审批、提交回执和当前 Room 回读；测试 note、Provider 凭据和内部参数不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v33 匿名账本和既有候选绑定规则保持不变。

@@ -1,5 +1,13 @@
 # 产品需求
 
+## 真实长期记忆会话投影验收（第 203 阶段，完成）
+
+- Debug-only `memory_remember_conversation_real` 必须复用正式 `AgentRunUseCase` 和当前 Provider，不能通过直接写 Room 或伪造 ToolResult 宣称普通会话支持；只允许把本轮真实结果短暂写入带专属 ID 的临时会话。
+- 临时会话重新从 Room 加载后，必须得到唯一 `memory.remember` Tool part，并同时保留 `VERIFIED`、成功状态、原始已声明参数、稳定 `memoryIdsUsed` 和可解析的 `memoryIdForNavigation()`；任一缺失或漂移都 fail-closed。
+- 探针完成或失败都必须按精确会话 ID 原子删除消息部件、消息和会话，并确认查询不到该会话；不得触碰用户会话、记忆、Profile 或 Provider 凭据，日志不得输出正文或参数。
+- 本阶段只验证真实结果到普通会话/答案导航的持久化投影，不等同完整人工 UI 输入、审批点击自动化或生产路径扩权；不新增 Tool/Skill、权限、Room Schema、Workflow、后台或 Release 行为。
+- Redmi `wsvwypiz7xwslvl7` 真实 Run、聚焦 JVM、三个定向 instrumentation 和 Debug/AndroidTest APK 均通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+
 ## 真实 Provider 长期记忆写入审批闭环（第 202 阶段，完成）
 
 - 真实 Provider 写入验收必须复用正式 `AgentRunUseCase`、Tool Ledger、Room 审批和 `memory.remember` 执行器；Debug 探针不得旁路调用 Store 伪造 Agent 成功。

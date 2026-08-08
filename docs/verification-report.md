@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-08 第 203 阶段：真实长期记忆会话投影验收
+
+- 最终 Debug/AndroidTest APK 重新构建成功并仅安装到 Redmi `wsvwypiz7xwslvl7`。三个定向 instrumentation 均通过：`RoomMessagePartStoreInstrumentedTest#verifiedMemoryRememberResultProjectsStableToolPartAfterRoomReopen`、`ConversationPageInstrumentedTest#opensVerifiedRememberedMemoryToolResultByStableId`、`XiaoLingViewModelMemoryNavigationInstrumentedTest#refreshesCurrentRoomBeforeSelectingOrRejectingAnswerMemoryNavigation`，结果为 `OK (3 tests)`。
+- 聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78` 通过；`:app:compileDebugKotlin`、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`，文档 corpus gate `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。没有运行完整 JVM、全量 Lint、Release 或全量 instrumentation。
+- 真实探针 `memory_remember_conversation_real` 复用第 202 阶段正式链路。Redmi Run `run-f9e8b439-5701-4530-a0cd-39095c037bf9` 为 `COMPLETED`，日志仅报告 `approval=APPROVED`、`executorVerified=true`、`verification=PASSED`、`roomReadBack=true`、`conversationProjection=true`；临时 Profile、测试记忆和专属会话均清理成功。未向 Pixel_9 或其他模拟器发送命令。
+- 证据边界：该 Debug-only 探针验证真实结果经 Room 重建后仍能生成可信 Tool part 和稳定“查看记忆”目标，不等同于完整人工 UI 输入、审批点击自动化或生产 `sendAgentRun()` 扩权；没有新增 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
+
 ## 2026-08-08 第 202 阶段：真实 Provider 长期记忆写入审批闭环
 
 - Debug-only `memory_remember_real` 使用 Redmi `wsvwypiz7xwslvl7` 当前已选 Provider 和最小临时 Profile，只开放 `memory.remember`，通过正式 `AgentRunUseCase`、`OpenAiCompatibleClient`、Room Tool Ledger 和 `DebugRoomApprovalGate` 完成真实模型写入。

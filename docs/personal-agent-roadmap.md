@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 203 阶段：真实长期记忆会话投影验收（完成）
+
+- 新增仅 Debug 的 `memory_remember_conversation_real` 操作，复用第 202 阶段正式 `AgentRunUseCase`、当前 Provider、Room 审批和记忆执行器；真实 `memory.remember` 结果短暂写入专属会话后重新加载，仍保留唯一可信 Tool part、`VERIFIED`、稳定 `memoryIdsUsed` 与 `memoryIdForNavigation()`。
+- 临时会话使用精确 ID 原子清理并确认不存在；不触碰用户会话，不改变生产 Tool、Skill、Room Schema、权限、Workflow 或后台能力。Debug 探针验证的是持久化投影，不宣称完成完整人工 UI 输入和审批点击自动化。
+- Redmi `wsvwypiz7xwslvl7` 最终 Run `run-f9e8b439-5701-4530-a0cd-39095c037bf9` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、会话投影通过；JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`、Redmi instrumentation `3/3`、Debug/AndroidTest APK 构建和文档 corpus gate `1/1` 均通过。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未使用 Pixel_9。
+
+
 ## 第 202 阶段：真实 Provider 长期记忆写入审批闭环（完成）
 
 - 个人 Agent 主链现在在 Redmi 真机上完成了真实的“模型提出 `memory.remember` -> Room 审批 -> 执行与回读验证 -> 稳定 ID 结果”写入闭环；唯一 ID 同时绑定 Tool Ledger、提交回执和当前 Room 记录。

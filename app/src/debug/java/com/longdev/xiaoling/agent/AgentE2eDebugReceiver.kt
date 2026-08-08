@@ -56,9 +56,14 @@ import com.longdev.xiaoling.storage.RoomWorkflowRepository
 import com.longdev.xiaoling.storage.RoomStateStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.UiPreferenceStore
+import com.longdev.xiaoling.storage.MessageRepository
+import com.longdev.xiaoling.storage.StoredConversationMessage
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.data.ConversationEntity
+import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.presentTaskRetryCompletion
 import com.longdev.xiaoling.ui.presentTaskScheduleControlCompletion
+import com.longdev.xiaoling.ui.memoryIdForNavigation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -136,6 +141,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                     OPERATION_NOTES_SEARCH_GET_REAL -> runNotesSearchGetReal(appContext)
                     OPERATION_MEMORY_SEARCH_GET_REAL -> runMemorySearchGetReal(appContext)
                     OPERATION_MEMORY_REMEMBER_REAL -> runMemoryRememberReal(appContext)
+                    OPERATION_MEMORY_REMEMBER_CONVERSATION_REAL -> runMemoryRememberReal(
+                        context = appContext,
+                        verifyConversationProjection = true,
+                    )
                     OPERATION_CALENDAR_SEARCH_GET_REAL -> runCalendarSearchGetReal(appContext)
                     OPERATION_CALENDAR_DELETE_REAL -> runCalendarDeleteReal(appContext)
                     OPERATION_CALENDAR_UPDATE_REAL -> runCalendarUpdateReal(appContext)
@@ -1494,7 +1503,10 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun runMemoryRememberReal(context: Context) {
+    private suspend fun runMemoryRememberReal(
+        context: Context,
+        verifyConversationProjection: Boolean = false,
+    ) {
         val storedProvider = ProviderRepository(context).load()
         val provider = storedProvider.profiles.firstOrNull { it.id == storedProvider.selectedProfileId }
             ?: error("没有已选择的 Provider")
@@ -1617,6 +1629,15 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             check(result.content.contains("id=$memoryId") && result.content.contains(submittedNote)) {
                 "memory.remember 结果没有携带应用生成的稳定 ID 与已提交 note"
             }
+            if (verifyConversationProjection) {
+                verifyStage203MemoryConversationProjection(
+                    database = database,
+                    summary = summary,
+                    memoryId = memoryId,
+                    userMessage = submittedNote,
+                    now = now,
+                )
+            }
             check(
                 detail.approvals.size == 1 &&
                     detail.approvals.single().toolName == "memory.remember" &&
@@ -1626,7 +1647,8 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 TAG,
                 "memory-remember-real success=true run=${summary.runId} status=${detail.snapshot.run.status} " +
                     "tool=memory.remember approval=APPROVED executorVerified=true verification=PASSED " +
-                    "stableIdBound=true roomReadBack=true responseLength=${summary.responseText.length}",
+                    "stableIdBound=true roomReadBack=true conversationProjection=$verifyConversationProjection " +
+                    "responseLength=${summary.responseText.length}",
             )
         } finally {
             // long: 无论 Provider、审批或断言在哪一步失败，都按 ID 与专属前缀清理本轮记忆，再恢复用户原 Profile；不记录正文、参数或凭据。
@@ -1637,6 +1659,75 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "第202阶段临时 Profile 清理失败"
             }
             Log.i(TAG, "memory-remember-real cleanup=true temporaryProfileRemoved=true testMemoryRemoved=true")
+        }
+    }
+
+    private suspend fun verifyStage203MemoryConversationProjection(
+        database: XiaoLingDatabase,
+        summary: AgentRunSummary,
+        memoryId: String,
+        userMessage: String,
+        now: Long,
+    ) {
+        val conversationId = "conversation-stage203-memory-remember-$now"
+        val assistantMessageId = "message-stage203-memory-remember-$now"
+        val messageRepository = MessageRepository(database)
+        val conversation = ConversationEntity(
+            id = conversationId,
+            title = "第203阶段长期记忆会话投影",
+            summary = "",
+            summaryUntilMessageId = null,
+            summaryUpdatedAt = null,
+            summaryModel = null,
+            createdAt = now,
+            updatedAt = now,
+        )
+        try {
+            database.conversationDao().insertConversations(listOf(conversation))
+            messageRepository.insert(
+                listOf(
+                    conversationId to StoredConversationMessage(
+                        id = "message-stage203-memory-user-$now",
+                        role = "user",
+                        text = userMessage,
+                        createdAt = now,
+                        origin = "USER",
+                        verifiedAgentContext = null,
+                        meta = null,
+                    ),
+                    conversationId to StoredConversationMessage(
+                        id = assistantMessageId,
+                        role = "assistant",
+                        text = summary.responseText,
+                        createdAt = now + 1,
+                        origin = "AGENT_RESULT",
+                        verifiedAgentContext = VerifiedAgentContextCodec.encode(summary.verifiedContext),
+                        meta = null,
+                    ),
+                ),
+            )
+            val restoredAssistant = messageRepository.loadConversation(conversationId)
+                .single { message -> message.id == assistantMessageId }
+            val tool = restoredAssistant.parts.filterIsInstance<MessagePart.Tool>().singleOrNull()
+                ?: error("第203阶段普通会话没有投影唯一可信 Tool part")
+            check(
+                tool.toolName == "memory.remember" &&
+                    tool.success &&
+                    tool.memoryIdsUsed == listOf(memoryId) &&
+                    tool.memoryIdForNavigation() == memoryId,
+            ) { "第203阶段会话 Tool part 未保留稳定记忆身份或导航契约" }
+        } finally {
+            // long: 探针只把真实结果短暂写入专属会话来验证持久化投影，结束后按精确会话 ID 删除，绝不触碰用户会话。
+            database.withTransaction {
+                val dao = database.conversationDao()
+                val messageIds = dao.getMessageIdsByConversationIds(listOf(conversationId))
+                if (messageIds.isNotEmpty()) dao.deleteMessageParts(messageIds)
+                dao.deleteMessagesByConversationIds(listOf(conversationId))
+                dao.deleteConversations(listOf(conversationId))
+            }
+            check(database.conversationDao().getConversation(conversationId) == null) {
+                "第203阶段临时会话清理失败"
+            }
         }
     }
 
@@ -4242,6 +4333,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_NOTES_SEARCH_GET_REAL = "notes_search_get_real"
         const val OPERATION_MEMORY_SEARCH_GET_REAL = "memory_search_get_real"
         const val OPERATION_MEMORY_REMEMBER_REAL = "memory_remember_real"
+        const val OPERATION_MEMORY_REMEMBER_CONVERSATION_REAL = "memory_remember_conversation_real"
         const val OPERATION_CALENDAR_SEARCH_GET_REAL = "calendar_search_get_real"
         const val OPERATION_CALENDAR_DELETE_REAL = "calendar_delete_real"
         const val OPERATION_CALENDAR_UPDATE_REAL = "calendar_update_real"

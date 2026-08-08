@@ -364,6 +364,51 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun opensVerifiedRememberedMemoryToolResultByStableId() {
+        val actions = FakeConversationActions()
+        val memoryId = "memory-12345678-1234-1234-1234-1234567890ab"
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                id = "assistant-memory-remember",
+                                role = "assistant",
+                                text = "已保存长期记忆。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = VerifiedAgentContext(
+                                    runId = "run-memory-remember",
+                                    toolName = "memory.remember",
+                                    arguments = mapOf(
+                                        "note" to "用户偏好简洁回答",
+                                        "type" to "Preference",
+                                        "tags" to "沟通,偏好",
+                                    ),
+                                    success = true,
+                                    verificationStatus = AgentVerificationStatus.VERIFIED,
+                                    rawResult = "已保存并验证长期记忆：用户偏好简洁回答 · 类型：Preference · 标签：沟通,偏好 · " +
+                                        "来源：由 /agent Run 写入（来源 Run 可查看） · id=$memoryId",
+                                    memoryIdsUsed = listOf(memoryId),
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("查看记忆").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(memoryId, actions.lastOpenedMemoryId)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
     fun opensTrustedConversationToolResultByStableId() {
         val actions = FakeConversationActions()
         val conversationId = "conversation-history-197"

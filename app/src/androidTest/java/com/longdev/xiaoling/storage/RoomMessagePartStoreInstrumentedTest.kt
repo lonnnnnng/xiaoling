@@ -123,6 +123,68 @@ class RoomMessagePartStoreInstrumentedTest {
     }
 
     @Test
+    fun verifiedMemoryRememberResultProjectsStableToolPartAfterRoomReopen() = runBlocking {
+        val memoryId = "memory-12345678-1234-1234-1234-1234567890ab"
+        val note = "用户偏好简洁回答"
+        val result = "已保存并验证长期记忆：$note · 类型：Preference · 标签：沟通,偏好 · " +
+            "来源：由 /agent Run 写入（来源 Run 可查看） · id=$memoryId"
+        val verifiedContext = VerifiedAgentContext(
+            runId = "run-memory-remember-room",
+            toolName = "memory.remember",
+            arguments = mapOf(
+                "note" to note,
+                "type" to "Preference",
+                "tags" to "沟通,偏好",
+            ),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = result,
+            memoryIdsUsed = listOf(memoryId),
+        )
+        val stored = StoredConversationMessage(
+            id = "message-memory-remember-room",
+            role = "assistant",
+            text = "已保存长期记忆。",
+            createdAt = 102L,
+            origin = "AGENT_RESULT",
+            verifiedAgentContext = VerifiedAgentContextCodec.encode(verifiedContext),
+            meta = null,
+        )
+        val conversationId = "conversation-memory-remember-room"
+
+        openDatabase().let { first ->
+            first.conversationDao().insertConversations(
+                listOf(
+                    ConversationEntity(
+                        id = conversationId,
+                        title = "长期记忆写入",
+                        summary = "",
+                        summaryUntilMessageId = null,
+                        summaryUpdatedAt = null,
+                        summaryModel = null,
+                        createdAt = 102L,
+                        updatedAt = 102L,
+                    ),
+                ),
+            )
+            MessageRepository(first).replaceAll(listOf(conversationId to stored))
+            first.close()
+            database = null
+        }
+
+        val restored = MessageRepository(openDatabase())
+            .loadConversation(conversationId)
+            .single()
+        val tool = restored.parts.filterIsInstance<MessagePart.Tool>().single()
+
+        assertEquals("memory.remember", tool.toolName)
+        assertEquals(note, tool.arguments["note"])
+        assertEquals(MessageToolVerificationStatus.VERIFIED, tool.verificationStatus)
+        assertEquals(listOf(memoryId), tool.memoryIdsUsed)
+        assertEquals(result, tool.result)
+    }
+
+    @Test
     fun malformedKnowledgeReferenceJsonDoesNotBlockConversationLoad() = runBlocking {
         val stored = agentMessage(id = "message-malformed-knowledge", createdAt = 100L)
         val opened = openDatabase()

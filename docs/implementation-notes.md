@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 203 阶段：真实长期记忆会话投影验收（完成）
+
+- `AgentE2eDebugReceiver` 新增 `memory_remember_conversation_real`，只在 Debug 构建可用，并通过既有 `runMemoryRememberReal()` 复用正式 Provider、`AgentRunUseCase`、Room 审批和 typed verification；生产 `sendAgentRun()` 路径没有增加权限或工具。
+- 真实结果写入专属 `ConversationEntity` 和 `StoredConversationMessage` 后，`MessageRepository.loadConversation()` 重新投影 `VerifiedAgentContext`，断言唯一 `MessagePart.Tool` 的工具名、成功/验证状态、`memoryIdsUsed` 和 `memoryIdForNavigation()` 均绑定同一 ID。
+- `finally` 以专属会话 ID 删除 message parts、messages、conversation，并再次查询确认不存在；日志只输出 Run 状态、审批/验证和投影布尔值，不输出记忆正文、参数、Provider 或凭据。
+- 新增 Room 投影和 Compose 导航单项：最终 Redmi `3/3`，JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`，Debug/AndroidTest APK 构建和文档 corpus gate `1/1` 成功；真实 Run `run-f9e8b439-5701-4530-a0cd-39095c037bf9` 通过。该探针不覆盖人工输入/点击审批的完整 UI 流程，也不引入生产能力。
+
 ## 第 202 阶段：真实 Provider 长期记忆写入审批闭环（完成）
 
 - `AgentE2eDebugReceiver` 新增仅 Debug 的 `memory_remember_real` 显式操作。它从设备当前已选 Provider 读取配置，不通过广播参数传递 API Key；临时 Profile 只允许 `memory.remember`，执行入口仍是正式 `AgentRunUseCase + OpenAiCompatibleClient + RoomAgentRunRepository`。
