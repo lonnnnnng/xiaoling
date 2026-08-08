@@ -44,7 +44,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 211 阶段、Room v36，尚未形成新 Release。第 211 阶段完成真实前台历史会话搜索、正文读取、答案级当前 Room 导航，并修复当前 Run 会话污染旧会话搜索；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。发布基线仍为 `v0.1.16`；第 212 阶段优先推进真实前台 `agent.get_profile` 的冻结 Profile 信息与隐私字段不可见验收。
+当前开发基线已到第 214 阶段、Room v36，尚未形成新 Release。第 214 阶段完成当前 Provider 驱动的 `agent.get_profile` 隐私验收；第 213 阶段完成 `app.get_info`；第 211 阶段完成真实前台历史会话搜索、正文读取和答案级当前 Room 导航；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。发布基线仍为 `v0.1.16`，下一步选择新的个人 Agent 窄能力切片。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
