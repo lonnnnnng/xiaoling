@@ -75,6 +75,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInStorageStatusSkillExposesOnlyTheReadOnlyStorageTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "手机还剩多少存储空间，当前使用率是多少",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "storage-status" }
+        assertEquals(setOf("app.get_storage"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得要求或猜测文件名"))
+    }
+
+    @Test
     fun builtInConversationDetailSkillKeepsExistingRecallSkillStable() {
         val detail = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-detail" }
         val existing = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-recall" }

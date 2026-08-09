@@ -335,6 +335,7 @@ class XiaoLingToolRegistryTest {
                 "app.get_info",
                 "app.get_battery",
                 "app.get_connectivity",
+                "app.get_storage",
                 "agent.get_profile",
                 "app.list_conversations",
                 "app.search_conversations",
@@ -372,6 +373,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_connectivity").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_connectivity").inputSchema)
         assertFalse(tools.getValue("app.get_connectivity").permissionPolicy.supportsBackground)
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.get_storage").risk)
+        assertEquals(emptyList<String>(), tools.getValue("app.get_storage").inputSchema)
+        assertFalse(tools.getValue("app.get_storage").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("agent.get_profile").risk)
         assertEquals(emptyList<String>(), tools.getValue("agent.get_profile").inputSchema)
         assertFalse(tools.getValue("agent.get_profile").permissionPolicy.supportsBackground)
@@ -1953,6 +1957,37 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun storageStatusToolReturnsOnlyCurrentCapacityFactsAndRejectsArguments() = runTest {
+        val registry = testRegistry(
+            storageStatusReader = StorageStatusReader {
+                StorageStatusReadResult.Success(
+                    StorageStatusRecord(
+                        totalBytes = 100L * 1024 * 1024 * 1024,
+                        availableBytes = 25L * 1024 * 1024 * 1024,
+                    ),
+                )
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(name = "app.get_storage", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        val withArguments = registry.execute(
+            ToolCall(
+                name = "app.get_storage",
+                arguments = mapOf("path" to "/private/secret"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals("存储总量：100.0 GB\n可用空间：25.0 GB\n已使用：75.0%", result.content)
+        assertFalse(result.content.contains("/private/secret"))
+        assertFalse(withArguments.success)
+        assertEquals("app.get_storage 不接受参数", withArguments.content)
+    }
+
+    @Test
     fun agentProfileToolReturnsOnlyCurrentRunAllowlistedStatus() = runTest {
         val registry = testRegistry()
         registry.bindRunContext(
@@ -3205,6 +3240,7 @@ class XiaoLingToolRegistryTest {
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
+        storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -3221,6 +3257,7 @@ class XiaoLingToolRegistryTest {
             appInfoReader = appInfoReader,
             batteryStatusReader = batteryStatusReader,
             connectivityStatusReader = connectivityStatusReader,
+            storageStatusReader = storageStatusReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )

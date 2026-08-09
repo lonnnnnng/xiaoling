@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-09 第 218 阶段：前台只读存储状态闭环
+
+- 新增 `app.get_storage`，由正式 `XiaoLingToolRegistry` 注入 `AndroidStorageStatusReader`，无参数、`SAFE`、`supportsBackground=false`；结果固定为总容量、可用空间和使用率三项，不包含文件名、路径、应用数据、Provider 配置或设备身份。
+- 聚焦 JVM `XiaoLingToolRegistryTest` `82/82` 与 `AgentSkillsTest` `34/34`，合计 `116/116`；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均构建成功。
+- ADB 清单包含 Redmi `wsvwypiz7xwslvl7` 和 `emulator-5554`，但所有安装、instrumentation 和卸载命令都显式指定 Redmi。Redmi 单项 `AndroidStorageStatusInstrumentedTest#foregroundRegistryReadsCurrentStorageFactsOnly` 为 `OK (1 test)`，耗时 `0.222s`；测试包已卸载，主应用和用户数据保留。
+- 本阶段没有向模拟器发送目标 ADB 命令，也未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow、后台和发布边界保持不变。
+
 ## 2026-08-09 第 217 阶段：真实前台电量/网络双状态 Agent Run
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 读取当前选中 Provider，创建临时最小 Profile（只允许 `app.get_battery / app.get_connectivity` 与两个对应 Skill，关闭长期记忆），复用正式 `AgentRunUseCase` 执行自然语言目标。

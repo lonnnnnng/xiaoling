@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 218 阶段：前台只读存储状态（完成）
+
+- 新增 `StorageStatusReader` 与 `AndroidStorageStatusReader`，使用 `StatFs` 读取 Android 数据分区的总容量和可用容量；统计值无效或 OEM 文件系统读取异常时 fail-closed，不读取或返回文件名、路径、应用数据和设备身份。
+- `XiaoLingToolRegistry` 注册无参数 `app.get_storage`，风险为 `SAFE`，`supportsBackground=false`，超时 5 秒；结果固定为总容量、可用空间和使用率三行。新增独立 `storage-status` Skill，旧 Profile、历史 Run、Workflow 和后台能力不自动扩权。
+- 聚焦 JVM `XiaoLingToolRegistryTest 82/82 + AgentSkillsTest 34/34`（`116/116`）、`:app:assembleDebug :app:assembleDebugAndroidTest`，以及 Redmi `wsvwypiz7xwslvl7` 的 `AndroidStorageStatusInstrumentedTest#foregroundRegistryReadsCurrentStorageFactsOnly` `OK (1 test)`（`0.222s`）均通过；测试包已卸载。未向 ADB 清单中的模拟器发送目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 217 阶段：真实前台电量/网络双状态 Agent Run（完成）
 
 - Redmi 当前选中 Provider 下创建临时最小 Agent Profile，只允许 `app.get_battery / app.get_connectivity` 与对应两个 Skill；正式 `AgentRunUseCase` 接收自然语言目标并完成两项只读工具调用。

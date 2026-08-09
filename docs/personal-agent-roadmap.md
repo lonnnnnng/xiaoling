@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 218 阶段：前台只读存储状态（完成）
+
+- 新增 `app.get_storage` 和独立 `storage-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。
+- 应用只投影当前数据分区总容量、可用空间和使用率；不读取文件名、路径、应用数据或设备身份，统计不可用或异常时 fail-closed。
+- 聚焦 JVM `116/116`、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation `OK (1 test)`（`0.222s`）通过；测试包已卸载。未向模拟器发送目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- Room v36、旧 Profile/Run、Workflow、后台执行和高级生态边界保持不变；下一阶段完成真实 Provider 的自然语言存储状态闭环，再选择新的个人 Agent 任务范围。
+
 ## 第 217 阶段：真实前台电量/网络双状态 Agent Run（完成）
 
 - 在 Redmi 当前 Provider 下使用临时最小 Profile，正式 `AgentRunUseCase` 根据自然语言目标完成 `app.get_battery -> app.get_connectivity` 两项只读调用；两项结果均 typed `PASSED`，Run 为 `COMPLETED`，审批数为 0。

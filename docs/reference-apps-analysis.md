@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 218 阶段把参考 Agent 的“设备资源只暴露任务所需摘要”原则落实为前台 `app.get_storage`：应用仅使用系统分区统计生成总容量、可用空间和使用率，不复制文件浏览、路径扫描、应用数据枚举或后台存储监控。工具保持 SAFE、仅前台、无权限且失败时 fail-closed，旧 Profile、Workflow 和后台工具面不变。
+
 第 217 阶段用真实 Provider Run 验证参考 Agent 的“自然语言路由到最小 Skill 集合，再由本地 Tool Ledger 形成可信事实”原则：同一前台 Run 只允许电池和网络两个 SAFE 工具，两个结果均 typed `PASSED`，且最终投影不携带 Provider 凭据或设备身份。没有把 Provider 健康检查伪装成可在 Provider 不可用时自举的 Agent Tool，也没有扩大后台、Workflow、远程 Channel 或多 Agent 边界。
 
 第 216 阶段把参考 Agent 的“先读取连接能力、只投影最小可用事实”原则落实为前台 `app.get_connectivity`：结果只包含连接状态、传输类型和系统判定的互联网可达性，不复制参考项目的 SSID/IP/运营商枚举、Provider 凭据、后台网络守护或远程 Channel。网络栈读取失败保持 fail-closed，旧 Profile、Workflow 和后台工具面不变。

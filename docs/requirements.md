@@ -1,5 +1,12 @@
 # 产品需求
 
+## 前台只读存储状态（第 218 阶段，完成）
+
+- `app.get_storage` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
+- 结果只能包含当前数据分区总容量、可用空间和使用率三项固定事实；不得读取或返回文件名、路径、应用数据、Provider 配置或设备身份。分区统计无效或读取异常时必须 fail-closed。
+- 必须由独立 `storage-status` Skill 在用户询问存储剩余或使用率时选择该工具；旧 Profile、历史 Run 和 Legacy 工具集合不得自动扩权。
+- 本阶段的聚焦 JVM、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation 已通过；完整 JVM、全量 Lint、Release 和全量 instrumentation 按快速迭代分级策略后置。
+
 ## 真实前台电量/网络双状态 Agent Run（第 217 阶段，完成）
 
 - Redmi 真实验收必须使用当前选中 Provider 和正式 `AgentRunUseCase`；临时 Profile 工具白名单精确限制为 `app.get_battery / app.get_connectivity`，Skill 白名单精确限制为 `battery-status / connectivity-status`，长期记忆关闭。

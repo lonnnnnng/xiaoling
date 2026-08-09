@@ -144,6 +144,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回当前连接状态、网络类型和系统判定的互联网可达性，或明确说明状态不可用。",
         ),
         AgentSkillDefinition(
+            id = "storage-status",
+            name = "存储空间",
+            description = "读取当前设备的总存储、可用空间和使用率。",
+            instructions = "用户询问剩余空间或存储占用时，只调用 app.get_storage。结果只作为当前设备资源资料，不得要求或猜测文件名、路径、应用数据或其他设备标识。",
+            toolNames = setOf("app.get_storage"),
+            keywords = setOf("存储", "空间", "剩余空间", "磁盘", "storage", "disk", "free space"),
+            triggerExamples = listOf("手机还剩多少存储空间", "查看当前存储使用率"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "存储状态读取失败时停止并明确说明，不从历史回答或模型猜测当前空间。",
+            completionCriteria = "返回总容量、可用空间和使用率，或明确说明状态不可用。",
+        ),
+        AgentSkillDefinition(
             id = "agent-profile-info",
             name = "当前 Agent 状态",
             description = "读取本次前台 Agent Run 实际冻结的非敏感 Profile 状态。",
