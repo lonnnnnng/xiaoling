@@ -1,12 +1,19 @@
 # 产品需求
 
+## 进程重启后的审批恢复（第 227 阶段，完成）
+
+- `WAITING_APPROVAL` Run 在进程结束后必须从 Room 恢复到原会话，不得丢失审批卡或回退为普通消息。
+- 恢复卡必须标记“进程重建后待恢复”，按钮使用“批准并继续”，并继续绑定原 Run、Approval、ToolCall、工具名和持久化参数。
+- 用户批准后必须原地恢复原 Run，满足 `COMPLETED / APPROVED / PASSED / COMMITTED`；不得新建 Run、重新规划或扩大 Profile 工具白名单。
+- 验收只在 Redmi 前台执行，临时业务数据按稳定身份清理，Run/Approval/Tool Ledger 审计保留；第 228 阶段转向新的个人 Agent 受控能力。
+
 ## Skill 草稿发送与审批真实闭环（第 226 阶段，完成）
 
 - 第 225 阶段生成的 `/agent ...` 草稿只有在用户明确点击发送后才允许创建 Run；Skill 管理页和示例点击不得自动发送、调用模型或执行工具。
 - 真实 Run 必须审计当前 Profile 的 `PROFILE_SELECTED`、唯一 `skill.selected` 和 `notes.create` 工具身份；写入工具必须先停在审批卡，不能由测试代码代替用户批准。
 - 用户批准后必须同时满足 Run `COMPLETED`、Approval `APPROVED`、ToolResult `PASSED`、执行回执 `COMMITTED`，并核对当前会话 Tool Message 与 Ledger 一致。
 - 验收清理只能按稳定回执 ID 删除临时笔记，移除临时 Profile/会话并恢复原选择；Run、Approval、Tool Ledger 审计必须保留。生产 Tool/Skill、Room v36、权限、Workflow、后台与 Shadow 边界不得扩张。
-- 第 227 阶段转向进程重启后的 `WAITING_APPROVAL` 恢复展示与原地批准，继续保持前台、逐次审批边界。
+- 第 227 阶段已完成进程重启后的 `WAITING_APPROVAL` 恢复展示与原地批准。
 
 ## Agent Skill 试用真实应用壳闭环（第 225 阶段，完成）
 

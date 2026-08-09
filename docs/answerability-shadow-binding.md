@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 227 阶段进程重启审批恢复边界（无变更）
+
+本阶段只验证持久化 `WAITING_APPROVAL` 在进程重启后恢复到原会话并完成同一工具审批；恢复 UI、Run、Approval、Tool Ledger 和临时数据清理不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 226 阶段 Skill 草稿发送与审批边界（无变更）
 
 本阶段只在 Redmi 真实前台验证用户明确发送 Skill 草稿、`local-notes` Skill 选择、`notes.create` 审批和提交回执；临时笔记与会话清理不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Run、Approval 和 Tool Ledger 仅作为执行审计保留；Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

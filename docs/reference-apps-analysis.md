@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 227 阶段继续采用成熟 Agent 的“持久化审批可恢复、恢复后仍需原地确认、执行身份不可漂移”原则：Redmi 主进程被结束并重启后，应用从 Room 恢复原 `notes.create` 审批卡，使用“批准并继续”完成同一 Run，而不是新建 Run 或重新规划。临时数据按稳定身份清理但保留执行审计；没有复制参考项目的后台自动恢复、隐式授权、远程 Channel 或多 Agent 编排。
+
 第 226 阶段继续采用成熟 Agent 的“显式发送、逐次审批、提交后回权威 Store、执行审计与验收清理分离”原则：Redmi 真实前台只有用户发送第 225 阶段草稿后才创建 Run，`local-notes` 的 `notes.create` 先停在审批卡，批准后以 `PASSED / COMMITTED` 回执完成，当前会话 Tool Message 与 Ledger 互相校验。临时笔记、Profile 和会话按稳定身份清理但保留 Run 审计；没有复制参考项目的自动发送、隐式授权、后台 Skill 调度、任意 App 控制、远程 Channel 或多 Agent 编排。
 
 第 225 阶段把成熟 Agent 的“能力发现与执行事实分离”原则落实到真实 Redmi 应用壳：设置页示例点击只改变本地可见草稿，验收同时冻结 Profile、会话、消息和 Run 事实，证明导航不会暗中触发模型或工具。该阶段没有复制参考项目的一键运行、隐式授权、后台 Skill 调度、远程触发或多 Agent 编排。

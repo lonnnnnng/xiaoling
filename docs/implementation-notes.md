@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
+
+- 复用第 226 阶段最小 `local-notes` Profile/会话和真实前台审批 Run；在 `WAITING_APPROVAL` 仍持久化时只对 Redmi 主包执行 `am force-stop`，随后重新启动 `MainActivity`。
+- 启动恢复从 Room 重建同一 `AgentApprovalUiState`，页面明确显示“进程重建后待恢复”和“批准并继续”，工具名仍为 `notes.create`，没有重新规划或新建 Run。
+- 用户批准后原 Run `run-65a2efbf-4bf9-44b3-81d9-71c71cf21cfb` 收敛为 `COMPLETED`，审批 `APPROVED`，ToolResult `PASSED`，执行回执 `COMMITTED`；audit/cleanup 保留 Run 审计并删除临时业务数据。
+- 发送段在强制结束目标进程后由 instrumentation 报告预期 `Process crashed`，恢复结果以重启后 UI 和 Room audit 为准；未修改生产代码或扩展后台/Workflow 能力。
+
+### 下一阶段
+
+第 228 阶段回到个人 Agent 主线，选择一个新的、可由真实前台自然语言完成的受控能力切片；继续保持最小 Profile、逐次审批和提交后权威 Store 回读。
+
 ## 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环（完成）
 
 - 新增 `Stage226SkillSendUiInstrumentedTest`，仍使用真实 `MainActivity`；prepare 段创建只开放 `notes.list / notes.search / notes.create` 与 `local-notes` 的最小临时 Profile/会话，send 段从 Skill 示例草稿明确点击发送，测试代码不代替用户发送或审批。
@@ -10,7 +21,7 @@
 
 ### 下一阶段
 
-第 227 阶段优先验证进程重启后 `WAITING_APPROVAL` 的恢复展示和批准入口，确认恢复仍绑定同一 Run/Approval/会话身份；通过后再继续扩大个人 Agent 的受控写入能力。
+第 227 阶段已完成进程重启后的 `WAITING_APPROVAL` 恢复展示和原地批准；下一阶段转向新的受控个人 Agent 能力。
 
 ## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
 

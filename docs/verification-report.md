@@ -4,6 +4,23 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 227 阶段：进程重启后的审批恢复真实闭环
+
+### 结论
+
+- 第 226 阶段的真实 `WAITING_APPROVAL` Run 在 Redmi 主进程被 `am force-stop` 结束后，重新启动 `MainActivity` 能恢复同一会话的审批卡。
+- 恢复 UI 显示“进程重建后待恢复”和“批准并继续”，工具名仍为 `notes.create`；没有创建新 Run、改变 ToolCall 身份或绕过审批。
+- 用户批准后原 Run `run-65a2efbf-4bf9-44b3-81d9-71c71cf21cfb` 为 `COMPLETED`，审批为 `APPROVED`，结果为 `PASSED`，回执为 `COMMITTED`；临时笔记、Profile、会话已精确清理，审计保留。
+
+### 验证证据
+
+- 只使用 Redmi `wsvwypiz7xwslvl7`；发送段在目标进程被强制结束后报告预期 `Process crashed`，随后手动重启主应用、读取 UI 文案并点击“批准并继续”，定向 audit 为 `OK (1 test)`、`2.989s`。
+- 未向 Pixel_9 或其他模拟器发送命令；本阶段未运行完整 JVM、Lint、Release 或全量 instrumentation，也没有生产代码变更。
+
+### 下一阶段
+
+第 228 阶段选择新的个人 Agent 受控能力切片，继续使用最小 Profile、前台审批和权威 Store 回读。
+
 ## 2026-08-10 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环
 
 ### 结论

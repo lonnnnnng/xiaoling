@@ -1,5 +1,7 @@
 # 文档索引
 
+第 227 阶段完成 Redmi 真实进程重启后的审批恢复闭环：第 226 阶段的 `WAITING_APPROVAL` Run 在用户审批前由 `am force-stop` 结束主进程，再重新启动 `MainActivity`；恢复页面显示“进程重建后待恢复”和“批准并继续”，工具仍绑定 `notes.create`。用户批准后同一 Run `run-65a2efbf-4bf9-44b3-81d9-71c71cf21cfb` 收敛为 `COMPLETED / APPROVED / PASSED / COMMITTED`，临时笔记、Profile、会话精确清理，Run/Approval/Tool Ledger 审计保留。仅 Redmi 真实重启与定向 audit 通过；发送段因目标进程被强制结束报告预期 `Process crashed`，不作为功能失败；未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段转向新的个人 Agent 受控能力切片。
+
 第 226 阶段完成用户明确发送 Skill 草稿后的 Redmi 真实前台闭环：在第 225 阶段生成的 `/agent ...` 草稿上由用户点击发送，正式 Run 记录 `PROFILE_SELECTED` 与 `skill.selected=local-notes@...`，模型提出 `notes.create` 后停在真实审批卡；用户点击“批准执行”后，Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 收敛为 `COMPLETED`，审批为 `APPROVED`，结果为 `PASSED / COMMITTED`，会话 Tool Message 与 Ledger 一致。临时笔记、Profile 和会话已按稳定身份清理，Run/Approval/Tool Ledger 审计保留。仅 Redmi 分段 `prepare / send / audit-cleanup` 通过（分别 `3.297s / 109.099s / 3.116s`），Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段优先验证进程重启后的审批恢复入口，再扩大个人 Agent 写入能力。
 
 第 225 阶段完成 Agent Skill 试用的 Redmi 真实应用壳闭环：AndroidTest 从设置根页滚动进入 `Agent Skills`，自动选择当前 `agent-profile-default` 已授权的 SAFE `conversation-recall`，展开并点击首条示例，最终只在对话输入框得到规范 `/agent ...` 草稿。测试前后选中 Profile、选中会话、当前会话消息 SHA-256 和最近 100 条 Run 完整详情 SHA-256 均不变，未自动发送、调用模型、创建 Run 或执行工具。`:app:compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 构建和仅 Redmi 单项 `OK (1 test)`（`7.624s`）通过；主应用数据与 Provider 配置保留，未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36 与生产能力边界不变。

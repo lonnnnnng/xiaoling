@@ -1,12 +1,20 @@
 # 小灵个人 Agent 路线图
 
+## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 在 `WAITING_APPROVAL` 期间被强制结束并重新启动，应用恢复同一 `notes.create` 审批卡，显示“批准并继续”。
+- 用户批准后原 Run `run-65a2efbf-4bf9-44b3-81d9-71c71cf21cfb` 完成 `COMPLETED / APPROVED / PASSED / COMMITTED`；清理临时笔记/Profile/会话，保留执行审计。
+- 该阶段未新增生产能力，验证范围保持 Redmi 定向前台恢复，不扩展后台自动化或 Release。
+
+下一阶段（第 228 阶段）：回到个人 Agent 主线，选择新的受控能力切片。
+
 ## 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环（完成）
 
 - 第 225 阶段生成的 `/agent ...` 草稿必须由用户明确发送后才进入正式 Run；Redmi `wsvwypiz7xwslvl7` 真实 Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 记录 Profile 与 `local-notes` Skill 选择。
 - `notes.create` 在真实审批卡停留，用户点击“批准执行”后完成 `APPROVED / PASSED / COMMITTED`，Tool Message 与 Ledger 一致。
 - 临时笔记、Profile、会话已精确清理，Run 审计保留；仅 Redmi 分段验证和 Debug/AndroidTest APK 构建通过，未扩大到完整测试或 Release。
 
-下一阶段（第 227 阶段）：先完成进程重启后的审批恢复闭环，再继续增加个人 Agent 的受控写入能力。
+第 227 阶段已补齐进程重启后的审批恢复闭环。
 
 ## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
 
