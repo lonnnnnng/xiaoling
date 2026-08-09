@@ -55,6 +55,8 @@ internal interface ConversationActions {
 
     fun discardPendingSharedDraft()
 
+    fun createAgentNoteDraftFromSharedText()
+
     fun sendMessage()
 
     fun stopGenerating()

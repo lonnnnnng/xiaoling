@@ -84,6 +84,52 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun routesSharedTextNoteDraftThroughActionsWithoutSending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        enabledModels = listOf("model"),
+                        prompt = "分享内容",
+                        sharedDraftImported = true,
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("保存为笔记").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.createAgentNoteDraftCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
+    fun hidesSharedTextNoteDraftWhilePersonalTaskConfirmationIsPending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        enabledModels = listOf("model"),
+                        prompt = "分享内容",
+                        sharedDraftImported = true,
+                        awaitingPersonalTaskPlanConfirmation = true,
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("保存为笔记").assertDoesNotExist()
+    }
+
+    @Test
     fun fillsPersonalTaskGoalFromTemplateWithoutSending() {
         val actions = FakeConversationActions()
         composeRule.setContent {
@@ -493,6 +539,7 @@ class ConversationPageInstrumentedTest {
         var documentAttachmentRequestCount = 0
         var openSharedDraftCount = 0
         var discardSharedDraftCount = 0
+        var createAgentNoteDraftCount = 0
         var sendCount = 0
         var stopCount = 0
         var openWorkflowCount = 0
@@ -546,6 +593,10 @@ class ConversationPageInstrumentedTest {
 
         override fun discardPendingSharedDraft() {
             discardSharedDraftCount += 1
+        }
+
+        override fun createAgentNoteDraftFromSharedText() {
+            createAgentNoteDraftCount += 1
         }
 
         override fun sendMessage() {

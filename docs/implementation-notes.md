@@ -1,5 +1,19 @@
 # 当前实现说明
 
+## 第 230 阶段：系统分享文本到显式 Agent 笔记草稿（完成）
+
+- 新增纯 Kotlin `SharedTextAgentDraftPolicy`：仅非空分享文本可以生成固定 `/agent 使用 notes.create ...` 草稿，正文保持原顺序；策略只返回字符串，不持有 Context、Provider、Run 或发送回调。
+- `SharedDraftSourceLabel` 在当前来源确为外部分享、无图片/文档、无附件读取、未发送、会话未加载且没有待确认/运行中的个人任务时展示“保存为笔记”。`ConversationActions -> XiaoLingViewModel.createAgentNoteDraftFromSharedText()` 只替换输入框、退出个人任务模式并清除分享来源标记，不调用 `sendMessage()`；图片分享继续只有普通草稿/附件路径。
+- JVM `SharedTextAgentDraftPolicyTest` 先因缺少策略按预期 red，再 green；`SharedDraftNoticeInstrumentedTest`、`ConversationPageInstrumentedTest` 和 `SharedDraftActivityInstrumentedTest` 分别覆盖按钮、动作路由不发送，以及真实 `ACTION_SEND text/plain` 转换后无消息/Run。聚焦 JVM、`:app:compileDebugAndroidTestKotlin` 与 Redmi 单项均通过。
+- `Stage230SharedTextAgentNoteInstrumentedTest` 只在显式 `stage230RealRun=true` 下启用；临时 Profile 仅开放 `notes.list / notes.search / notes.create` 与 `local-notes`。真实 Run `run-e2b833d7-0e9b-43f3-8589-86874dd049e3` 完成，唯一审批 `APPROVED`，`notes.create` 为 `executorVerified=true / PASSED / COMMITTED`，按回执 note ID 从当前 Store 回读正文后精确清理。
+- 重复验收以前一条 Run `run-6d9fef60-635a-4fb7-b9e4-3fd165770fc8` 为 baseline，完整稳定摘要比较通过；临时 Profile/会话/笔记清理后两个 Run 审计保留。instrumentation 清空 Provider 时，测试只在显式参数下把本地 `AGENTS.md` 兜底配置写入当前 Keystore，源码和 Git 不包含凭据；同时把 Activity/真实闭环测试的超时错误从整份 `XiaoLingUiState` 改为长度、布尔状态和 Run 状态摘要，避免失败日志打印 Provider 配置。
+- 提交前双轴复核把真实闭环夹具的清理提升为 `finally`：即使写入成功后某个审计断言失败，也只从该临时会话对应 Run 的 `COMMITTED notes.create` 回执恢复稳定 note ID，再精确删除笔记、Profile 和会话，不按标题或正文模糊清理。
+- 最终只在 Redmi `wsvwypiz7xwslvl7` 手动安装 Debug/Test APK，并直接运行真实单项 `OK (1 test)`、`23.4s`；最终聚焦复跑 `OK (4 tests)`、`6.96s`，覆盖 UI 路由、个人任务等待隐藏、真实分享退出个人任务模式和文档 corpus。随后卸载 test APK，保留 `com.longdev.xiaoling` `0.1.16 (17)`，`MainActivity` 前台且 crash buffer 为空。未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36 与生产 Tool/Skill/Workflow/后台边界不变。
+
+### 下一阶段
+
+第 231 阶段继续个人 Agent 主线，优先选择另一个能从真实用户入口进入、仍有显式发送/审批并可由权威 Store 验证的完整任务；不开放图片自动 Agent 化、后台系统分享、剪贴板读取或任意 Intent 自动执行。
+
 ## 第 229 阶段：设备观察真实前台自然语言闭环（完成）
 
 - 新增 `Stage229DeviceSnapshotUiInstrumentedTest`，采用显式 `stage229Manual=true` 的分段夹具：prepare 创建只开放 `device.open_app / device.snapshot` 与 `device-control` 的临时最小 Profile/会话，真实应用前台由用户发送和审批，audit 从 Room 权威账本核对并清理临时业务数据。
@@ -11,7 +25,7 @@
 
 ### 下一阶段
 
-第 230 阶段继续个人 Agent 主线，选择新的受控能力切片；优先补真实用户任务覆盖，不重复为已跑通的设备观察链扩大任意 App、后台自动化或测试矩阵。
+第 230 阶段已完成系统分享文本到显式 Agent 笔记草稿、真实发送、审批和 Store 回读闭环；下一阶段进入第 231 阶段。
 
 ## 第 228 阶段：设备 Agent 健康只读切片（完成）
 

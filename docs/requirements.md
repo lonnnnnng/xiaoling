@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统分享文本到显式 Agent 笔记草稿（第 230 阶段，完成）
+
+- 第 100 阶段的 `text/plain ACTION_SEND` 必须继续先投影为用户可编辑草稿；外部 Intent、冷启动、热启动和分享来源标签均不得自动添加 `/agent`、调用模型、创建 Run、发送消息或写入笔记。
+- 只有纯文本分享、当前无图片/文档、无附件读取、未发送、会话未加载且没有待确认/运行中的个人任务时，来源标签才显示“保存为笔记”。图片分享、用户后续附加图片/文档、空文本或来源标记已因编辑清理时不得开放该动作。
+- 用户点击后只允许用 `SharedTextAgentDraftPolicy` 把当前分享正文改写为明确的 `/agent notes.create` 草稿，同时退出个人任务模式并清除分享来源标记；正文必须保持原顺序。用户仍需再次点击发送，`notes.create` 仍必须走现有 Profile/Skill 校验和逐次审批。
+- 真实闭环必须在 Redmi 当前可用 Provider 下满足 Run `COMPLETED`、唯一 Approval `APPROVED`、唯一 `notes.create` 结果 `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`，并按 operation ID 从当前 `AgentNoteStore` 回读同一条笔记。清理只能删除该稳定 note ID、临时 Profile 和临时会话，Run/Approval/Tool Ledger 审计保留。
+- 重复验收必须冻结最近旧 Run 的完整稳定摘要并证明新执行不改写旧 Run。instrumentation 导致 Provider/Keystore 丢失时，只允许显式 runner 参数恢复本地 `AGENTS.md` 兜底配置；凭据不得进入源码、日志、Run、Tool Ledger、文档或 Git。
+- 本阶段不改变 `notes.create`、`local-notes`、Room v36、普通图片分享、Workflow、后台或任意 Intent 能力；按快速迭代分级验证只运行聚焦 JVM、AndroidTest 编译、Debug/Test APK 和 Redmi 单项，完整 JVM、Lint、Release 与全量 instrumentation 后置。
+
 ## 设备观察真实前台自然语言闭环（第 229 阶段，完成）
 
 - 验收必须只使用 Redmi `wsvwypiz7xwslvl7`、真实 `MainActivity` 和当前可用 Provider；临时 Profile 的工具白名单必须精确为 `device.open_app / device.snapshot`，Skill 白名单精确为 `device-control`，长期记忆关闭。

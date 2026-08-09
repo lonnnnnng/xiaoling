@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 230 阶段系统分享 Agent 草稿边界（无变更）
+
+本阶段只把用户显式选择的 `text/plain` 分享改写为可编辑 `/agent notes.create` 草稿，并在正式发送、审批和 Store 回读后按既有可信执行记录展示结果。分享原文、临时笔记、Provider 恢复参数、Run/Approval/Tool Ledger 和草稿转换动作均不进入知识候选、Judge、Shadow measurement 或匿名账本，不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 229 阶段设备观察真实前台闭环边界（无变更）
 
 本阶段只在 Redmi 真实前台验证既有 `device.open_app -> device.snapshot` 的自然语言规划、逐次审批、操作后回读、消息投影和旧 Run 不变；系统设置节点摘要、审批、Run/Tool Ledger 与临时会话不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Snapshot 继续按 `READABLE_ONLY` 投影，设备动作按 `VERIFIED` 投影；Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

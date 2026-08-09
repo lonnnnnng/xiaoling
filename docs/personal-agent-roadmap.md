@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 230 阶段：系统分享文本到显式 Agent 笔记草稿（完成）
+
+- `text/plain ACTION_SEND` 延续第 100 阶段安全边界，先进入可编辑新会话草稿；用户只有点击“保存为笔记”才得到明确 `/agent notes.create` 草稿，仍需再次点击发送和逐次批准写入。
+- 转换入口只对纯文本分享开放；图片/文档、附件读取、发送中或会话加载中均不显示。转换不会创建 Run、调用模型或执行工具，用户编辑仍可退出分享来源状态。
+- Redmi 真实闭环 Run `run-e2b833d7-0e9b-43f3-8589-86874dd049e3` 为 `COMPLETED`，唯一审批 `APPROVED`，`notes.create` 回执 `COMMITTED` 且 typed verification `PASSED`；当前 Store 回读成功，临时笔记/Profile/会话精确清理。
+- 前一条成功 Run `run-6d9fef60-635a-4fb7-b9e4-3fd165770fc8` 的稳定摘要在第二轮前后不变。生产 `notes.create`、`local-notes`、Room v36、Workflow 和后台边界未扩张。
+
+下一阶段（第 231 阶段）：继续选择完整用户任务覆盖，而不是增加另一项低价值状态查询；候选必须保留显式用户意图、最小权限、逐次审批和权威结果验证。图片分享自动进入 Agent、剪贴板读取、后台 Intent、任意 App、MCP、远程 Channel、多 Agent 和本地模型仍不前置。
+
 ## 第 229 阶段：设备观察真实前台自然语言闭环（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 使用临时最小 Profile，只允许 `device.open_app / device.snapshot` 和 `device-control`；用户在真实 `MainActivity` 发送自然语言 `/agent` 目标，并对 `com.android.settings` 打开动作逐次审批。
@@ -7,7 +16,7 @@
 - 消息投影保持分层语义：设备动作是 `VERIFIED`，只读 Snapshot 是 `READABLE_ONLY`。旧 Run `run-e615ff22-6c4a-447d-bc08-bc49b9c4f85b` 的稳定摘要在新 Run 前后不变；临时 Profile/会话清理后，新旧 Run 审计均保留。
 - 本阶段没有新增生产 Tool/Skill、Room、Workflow 或后台能力，只补齐“健康检查之后由自然语言进入审批设备动作，再由操作后观察形成可信答案”的真实应用壳证据；不外推到任意 App。
 
-下一阶段（第 230 阶段）：继续选择新的个人 Agent 受控能力切片，优先扩大完整用户任务覆盖；后台设备自动化、任意 App、MCP、远程 Channel、多 Agent 和本地模型仍不前置。
+第 230 阶段已完成系统分享文本到显式 Agent 笔记草稿和真实写入闭环；下一阶段进入第 231 阶段。
 
 ## 第 228 阶段：设备 Agent 健康只读切片（完成）
 

@@ -359,6 +359,7 @@ internal fun ConversationPage(
                 onRemovePendingDocument = actions::removePendingDocument,
                 onOpenPendingSharedDraft = actions::openPendingSharedDraft,
                 onDiscardPendingSharedDraft = actions::discardPendingSharedDraft,
+                onCreateAgentNoteDraftFromSharedText = actions::createAgentNoteDraftFromSharedText,
                 onSend = actions::sendMessage,
                 onStop = actions::stopGenerating,
                 onOpenWorkflowManagement = actions::openWorkflowManagement,
@@ -539,6 +540,7 @@ private fun MessageInputBar(
     onRemovePendingDocument: () -> Unit,
     onOpenPendingSharedDraft: () -> Unit,
     onDiscardPendingSharedDraft: () -> Unit,
+    onCreateAgentNoteDraftFromSharedText: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
@@ -596,7 +598,14 @@ private fun MessageInputBar(
                     onDiscard = onDiscardPendingSharedDraft,
                 )
             }
-            if (state.sharedDraftImported) SharedDraftSourceLabel()
+            if (state.sharedDraftImported) {
+                SharedDraftSourceLabel(
+                    agentActionEnabled = state.pendingImage == null && state.pendingDocument == null &&
+                        !attaching && !state.sendingMessage && !state.loadingConversationMessages &&
+                        !state.awaitingPersonalTaskPlanConfirmation && state.personalTaskOperationPhase == null,
+                    onCreateAgentNoteDraft = onCreateAgentNoteDraftFromSharedText,
+                )
+            }
             state.pendingImage?.let { attachment ->
                 PendingImagePreview(
                     attachment = attachment,
@@ -835,7 +844,10 @@ internal fun SharedDraftPendingNotice(
 }
 
 @Composable
-internal fun SharedDraftSourceLabel() {
+internal fun SharedDraftSourceLabel(
+    agentActionEnabled: Boolean = false,
+    onCreateAgentNoteDraft: () -> Unit = {},
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -856,6 +868,14 @@ internal fun SharedDraftSourceLabel() {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (agentActionEnabled) {
+            TextButton(
+                onClick = onCreateAgentNoteDraft,
+                modifier = Modifier.testTag("shared-draft-agent-note"),
+            ) {
+                Text("保存为笔记", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }
 

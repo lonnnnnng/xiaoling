@@ -4,6 +4,35 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 230 阶段：系统分享文本到显式 Agent 笔记草稿
+
+### 结论
+
+- `text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有用户点击“保存为笔记”才生成 `/agent 使用 notes.create ...` 草稿并退出个人任务模式。转换本身不发送、不创建 Run，图片/文档、附件处理中或个人任务待确认/运行中不开放入口。
+- Redmi 真实模型最终 Run `run-e2b833d7-0e9b-43f3-8589-86874dd049e3` 为 `COMPLETED`；唯一 `notes.create` 审批为 `APPROVED`，结果为 `success=true / executorVerified=true / PASSED`，执行回执为 `COMMITTED`，按 operation ID 从当前 Store 回读正文成功。
+- 测试笔记、临时 Profile 和临时会话已按稳定身份清理，Run/Approval/Tool Ledger 审计保留。第二轮开始前冻结的成功 Run `run-6d9fef60-635a-4fb7-b9e4-3fd165770fc8` 稳定摘要在新 Run 完成后不变。
+
+### 验证证据
+
+- TDD red 为 `SharedTextAgentDraftPolicy` 未定义的编译失败；补最小策略后 `SharedTextAgentDraftPolicyTest` 与既有 `SharedDraftProjectionPolicyTest` 通过。`:app:compileDebugAndroidTestKotlin` 通过。
+- Redmi `SharedDraftNoticeInstrumentedTest` 为 `OK (1 test)`，验证“保存为笔记”按钮；`SharedDraftActivityInstrumentedTest#textShareCanBecomeExplicitAgentNoteDraftWithoutSending` 为 `OK (1 test)`，验证真实 `ACTION_SEND`、正文保留且转换前后均无自动消息/Run。
+- 第一次真实闭环因 connected instrumentation 清空 Provider，在“Base URL 为空”处安全停止；第二次因读取 `AGENTS.md` 时误用半角冒号导致 runner Base URL 参数为空，同样未发起 API 请求。改为匹配全角配置行后，connected 单项为 `OK (1 test)`、总耗时 `36s`。
+- 为保留主应用，随后手动安装 Debug/Test APK 并直接运行 `am instrument`：第一轮 `OK (1 test)`、`22.483s`，Run `run-6d9fef60-635a-4fb7-b9e4-3fd165770fc8`；第二轮以该 Run 为 baseline，`OK (1 test)`、`23.4s`，最终 Run `run-e2b833d7-0e9b-43f3-8589-86874dd049e3`，旧摘要比较通过。
+- 安装修复后的主 Debug APK 后，最终聚焦复跑为 `OK (4 tests)`、`6.96s`：UI 动作不发送、个人任务待确认时隐藏入口、真实分享转换会退出个人任务模式、更新后的文档 corpus gate 均通过。
+- 最终文档措辞写回后重新构建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮结果为 `OK (1 test)`、`3.075s`；本条写回后的最终文本继续使用同一单项复验。
+- 复跑前发现既有 Activity 测试超时会把整份 `XiaoLingUiState` 写入失败日志；本阶段已改为只输出 prompt 长度、布尔状态和 Run 状态，避免后续失败日志携带 Provider 配置。test APK 已卸载，Debug 应用 `com.longdev.xiaoling` `versionName=0.1.16 / versionCode=17` 保留在 Redmi，`MainActivity` 为当前焦点，crash buffer 为空；Provider 由显式 runner 参数在当前 Keystore 中恢复，凭据不进入源码或提交。
+- 提交前 Standards/Spec 双轴复核发现真实闭环在创建笔记后、记录清理 ID 前断言失败时可能残留夹具；现已把收尾置于 `finally`，并仅从临时会话对应 Run 的 `COMMITTED notes.create` 回执恢复稳定 note ID 后精确删除。聚焦 JVM 与 `:app:compileDebugAndroidTestKotlin` 复验通过。
+
+### 验证范围
+
+- 只使用 Redmi `wsvwypiz7xwslvl7`；未启动、连接或操作 Pixel_9，也未使用 `uiautomator dump`。
+- 已执行聚焦 JVM、AndroidTest 编译、Debug/Test APK、三个 UI/Activity/真实模型单项、Store 回读、精确清理和旧 Run 摘要比较。
+- 按快速迭代分级验证约束，未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；Room v36、生产 Tool/Skill、Workflow、后台和图片分享边界不变。
+
+### 下一阶段
+
+第 231 阶段继续扩大完整用户任务覆盖，候选必须从真实用户入口进入并保留显式发送、最小权限、逐次审批和权威结果验证；不前置图片自动 Agent 化、剪贴板读取、后台 Intent 或任意 App。
+
 ## 2026-08-10 第 229 阶段：设备观察真实前台自然语言闭环
 
 ### 结论

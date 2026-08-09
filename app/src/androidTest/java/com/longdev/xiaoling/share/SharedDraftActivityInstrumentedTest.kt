@@ -197,6 +197,39 @@ class SharedDraftActivityInstrumentedTest {
         }
     }
 
+    @Test
+    fun textShareCanBecomeExplicitAgentNoteDraftWithoutSending() {
+        val sharedText = "share-note-${System.nanoTime()}\n保留正文"
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            val imported = scenario.awaitState {
+                it.prompt == sharedText && it.sharedDraftImported
+            }
+            assertNull(imported.activeAgentRun)
+            assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.updatePersonalTaskMode(true)
+                viewModel.createAgentNoteDraftFromSharedText()
+            }
+            val converted = scenario.awaitState {
+                it.prompt.startsWith("/agent 使用 notes.create") && !it.sharedDraftImported && !it.personalTaskMode
+            }
+            assertTrue(converted.prompt.contains(sharedText))
+            assertNull(converted.activeAgentRun)
+            assertFalse(converted.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
     private fun ActivityScenario<MainActivity>.awaitState(
         predicate: (XiaoLingUiState) -> Boolean,
     ): XiaoLingUiState {
@@ -209,7 +242,12 @@ class SharedDraftActivityInstrumentedTest {
             if (predicate(latest)) return latest
             Thread.sleep(STATE_POLL_MS)
         }
-        throw AssertionError("Timed out waiting for shared draft state: $latest")
+        throw AssertionError(
+            "Timed out waiting for shared draft state: " +
+                "promptLength=${latest.prompt.length}, sharedDraftImported=${latest.sharedDraftImported}, " +
+                "personalTaskMode=${latest.personalTaskMode}, pendingImage=${latest.pendingImage != null}, " +
+                "sendingMessage=${latest.sendingMessage}, loadingMessages=${latest.loadingConversationMessages}",
+        )
     }
 
     private fun createTestPng(): android.net.Uri {

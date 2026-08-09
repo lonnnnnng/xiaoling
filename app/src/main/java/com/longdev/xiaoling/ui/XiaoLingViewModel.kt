@@ -115,6 +115,7 @@ import com.longdev.xiaoling.prompt.PromptPolicy
 import com.longdev.xiaoling.prompt.PromptSettings
 import com.longdev.xiaoling.share.SharedDraftImport
 import com.longdev.xiaoling.share.SharedDraftPayload
+import com.longdev.xiaoling.share.SharedTextAgentDraftPolicy
 import com.longdev.xiaoling.storage.ConversationRepository
 import com.longdev.xiaoling.storage.ImageAttachmentReader
 import com.longdev.xiaoling.storage.DocumentAttachmentReader
@@ -1004,6 +1005,30 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun discardPendingSharedDraft() {
         uiState = uiState.copy(pendingSharedDraft = null, result = null)
+    }
+
+    fun createAgentNoteDraftFromSharedText() {
+        if (!uiState.sharedDraftImported || uiState.pendingImage != null || uiState.pendingDocument != null ||
+            uiState.attachingImage || uiState.attachingDocument || uiState.sendingMessage ||
+            uiState.loadingConversationMessages || uiState.pendingPersonalTaskPlan != null ||
+            uiState.personalTaskOperationPhase != null
+        ) {
+            return
+        }
+        val draft = SharedTextAgentDraftPolicy.createNoteDraft(uiState.prompt)
+        if (draft == null) {
+            showValidation("当前分享没有可保存的文本")
+            return
+        }
+        // long: 这里仅替换编辑器草稿并关闭分享标记，发送仍由用户点击输入框右下角按钮触发。
+        uiState = uiState.copy(
+            prompt = draft,
+            sharedDraftImported = false,
+            personalTaskMode = false,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
+            result = null,
+        )
     }
 
     private fun handleSharedDraftImport(result: SharedDraftImport) {
