@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 224 阶段 Skill 直接试用边界（无变更）
+
+本阶段只把当前 Skill 自有示例投影为可审阅的 `/agent` 对话草稿；点击不会发送消息、调用模型、创建 Run、执行工具或产生答案，因此不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发生产拒绝。Skill/Profile/工具状态漂移时 fail-closed，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 223 阶段全天日程真实前台闭环边界（无变更）
 
 本阶段只在 Redmi 真实前台链路验证 `calendar.create_all_day_event` 的自然语言规划、人工审批、Tool Ledger、答案级当前 Provider 查看与精确清理；日程标题、日期、稳定事件 ID、审批和回执均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。旧 Run 完整详情保持不变，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

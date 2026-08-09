@@ -51,6 +51,8 @@ internal fun agentSkillToggleTag(skillId: String): String = "agent-skill-toggle:
 
 internal fun agentSkillDeleteTag(skillId: String): String = "agent-skill-delete:$skillId"
 
+internal fun agentSkillTryExampleTag(skillId: String, index: Int): String = "agent-skill-try:$skillId:$index"
+
 @Composable
 internal fun AgentSkillManagementPage(
     state: AgentSkillManagementUiState,
@@ -122,6 +124,7 @@ internal fun AgentSkillManagementPage(
                             actions.setSkillEnabled(item.skill.definition.id, enabled)
                         },
                         onDelete = { actions.requestLocalSkillDelete(item.skill.definition.id) },
+                        onTryExample = { example -> actions.trySkill(item.skill.definition.id, example) },
                     )
                 }
             }
@@ -184,6 +187,7 @@ private fun AgentSkillItem(
     item: AgentSkillManagementItemUiState,
     onEnabledChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
+    onTryExample: (String) -> Unit,
 ) {
     val skillId = item.skill.definition.id
     // long: 展开状态绑定稳定 Skill ID；刷新返回新对象或列表重排时，详情不能跳到另一个 Skill。
@@ -265,6 +269,34 @@ private fun AgentSkillItem(
                     Text(
                         "Android 权限：${definition.requiredAndroidPermissions.joinToString()}",
                         style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                val tryExamples = definition.triggerExamples
+                    .map(String::trim)
+                    .filter(String::isNotEmpty)
+                    .distinct()
+                    .take(3)
+                if (tryExamples.isNotEmpty()) {
+                    Text("试用示例", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    tryExamples.forEachIndexed { index, example ->
+                        OutlinedButton(
+                            onClick = { onTryExample(example) },
+                            enabled = item.tryEnabled,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(agentSkillTryExampleTag(skillId, index)),
+                        ) {
+                            Text(example, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text(
+                        text = item.tryDisabledReason ?: "点击后只填入对话输入框，不会自动发送或执行",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (item.tryEnabled) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
                     )
                 }
                 if (item.runAudits.isEmpty()) {

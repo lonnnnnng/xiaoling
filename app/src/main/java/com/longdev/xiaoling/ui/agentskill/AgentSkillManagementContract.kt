@@ -3,6 +3,7 @@ package com.longdev.xiaoling.ui.agentskill
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentSkillSelectionCodec
 import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.RunEventMetadata
@@ -18,6 +19,8 @@ interface AgentSkillManagementActions {
     fun setSkillEnabled(skillId: String, enabled: Boolean)
 
     fun requestLocalSkillDelete(skillId: String)
+
+    fun trySkill(skillId: String, triggerExample: String)
 }
 
 internal data class AgentSkillManagementUiState(
@@ -38,6 +41,8 @@ internal data class AgentSkillManagementItemUiState(
     val deleteEnabled: Boolean,
     val dependencies: List<AgentSkillDependencyUiState>,
     val runAudits: List<AgentSkillRunAuditUiState>,
+    val tryEnabled: Boolean,
+    val tryDisabledReason: String?,
 )
 
 internal data class AgentSkillDependencyUiState(
@@ -63,14 +68,21 @@ internal object AgentSkillManagementProjection {
         auditError: String?,
         error: String?,
         pendingLocalSkillDelete: AgentSkillRecord? = null,
+        selectedProfile: AgentProfileRecord? = null,
     ): AgentSkillManagementUiState {
         val toolsByName = registeredTools.associateBy(ToolDefinition::name)
+        val registeredToolNames = toolsByName.keys
         val auditsBySkillId = projectRunAudits(runHistory)
         // long: Skill 列表会在导入、启停和刷新后重排或替换对象，所有操作状态必须按稳定 Skill ID 绑定到最新记录。
         return AgentSkillManagementUiState(
             skills = skills.map { skill ->
                 val mutating = skill.definition.id in mutatingSkillIds
                 val local = skill.definition.source == AgentSkillSource.LOCAL
+                val tryAvailability = AgentSkillTryPolicy.availability(
+                    skill = skill,
+                    selectedProfile = selectedProfile,
+                    registeredToolNames = registeredToolNames,
+                )
                 AgentSkillManagementItemUiState(
                     skill = skill,
                     toggleEnabled = !mutating,
@@ -84,6 +96,8 @@ internal object AgentSkillManagementProjection {
                         )
                     },
                     runAudits = auditsBySkillId[skill.definition.id].orEmpty(),
+                    tryEnabled = tryAvailability.enabled,
+                    tryDisabledReason = tryAvailability.disabledReason,
                 )
             },
             loading = loading,

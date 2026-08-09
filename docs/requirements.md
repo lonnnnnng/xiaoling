@@ -1,5 +1,14 @@
 # 产品需求
 
+## Agent Skill 直接试用入口（第 224 阶段，完成）
+
+- Skill 管理页展开项必须展示自身最多 3 条去重、非空 `triggerExamples`，并明确告知点击只填入对话输入框，不会自动发送或执行。
+- 只有 Skill 已启用、当前 Agent Profile 允许该 Skill 及其全部工具、且所需工具仍在当前 Registry 注册时，试用按钮才可用；禁用原因必须在页面可见。
+- 页面只提交稳定 Skill ID 和被点击示例；应用壳必须按最新 Skill/Profile/Registry 状态二次核对，示例不再属于当前定义、状态漂移或重复 Skill 身份时 fail-closed。
+- 成功只生成规范 `/agent ...` 草稿、关闭个人任务模式并回到对话根页。不得自动调用 `sendMessage()`、模型或工具，不得创建 Run、伪造 Skill 选择或绕过后续审批。
+- 本地导入 Skill 示例仍是不可信用户内容，只能作为可见草稿。生产 Tool/Skill 定义、Room v36、权限、Workflow 和后台能力不得因本阶段扩张。
+- 第 225 阶段只补 Redmi 真实应用壳的“设置 -> Skill 示例 -> 对话草稿”闭环；是否发送必须继续由用户决定。
+
 ## 受控单日全天日程真实前台闭环（第 223 阶段，完成）
 
 - 必须只在 Redmi 当前 Provider 下，以自然语言目标驱动最小临时 Profile 唯一调用 `calendar.create_all_day_event`；用户必须在审批卡核对标题和日期后主动批准，不得通过测试代码代替模型规划或审批点击。

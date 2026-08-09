@@ -1,6 +1,8 @@
 package com.longdev.xiaoling.ui.agentskill
 
 import com.longdev.xiaoling.agent.AgentSkillDefinition
+import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunRecord
@@ -11,6 +13,7 @@ import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.model.ApiMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -121,10 +124,42 @@ class AgentSkillManagementProjectionTest {
         assertEquals("审计读取失败", state.auditError)
     }
 
+    @Test
+    fun projectsTryAvailabilityFromCurrentProfileAndToolRegistry() {
+        val selected = profile(allowedSkillIds = listOf("enabled"))
+        val state = AgentSkillManagementProjection.project(
+            skills = listOf(
+                skill("enabled", AgentSkillSource.BUILT_IN, triggerExamples = listOf("现在几点")),
+                skill("not-selected", AgentSkillSource.BUILT_IN, triggerExamples = listOf("查看状态")),
+            ),
+            loading = false,
+            importing = false,
+            mutatingSkillIds = emptySet(),
+            registeredTools = listOf(
+                ToolDefinition(
+                    name = "app.current_time",
+                    description = "可用工具",
+                    risk = ToolRisk.SAFE,
+                ),
+            ),
+            runHistory = emptyList(),
+            loadingAudits = false,
+            auditError = null,
+            error = null,
+            selectedProfile = selected,
+        )
+
+        assertTrue(state.skills.single { it.skill.definition.id == "enabled" }.tryEnabled)
+        val notSelected = state.skills.single { it.skill.definition.id == "not-selected" }
+        assertFalse(notSelected.tryEnabled)
+        assertEquals("当前 Agent 未启用此 Skill", notSelected.tryDisabledReason)
+    }
+
     private fun skill(
         id: String,
         source: AgentSkillSource,
         toolNames: Set<String> = setOf("app.current_time"),
+        triggerExamples: List<String> = emptyList(),
     ) = AgentSkillRecord(
         definition = AgentSkillDefinition(
             id = id,
@@ -133,11 +168,30 @@ class AgentSkillManagementProjectionTest {
             instructions = "$id instructions",
             toolNames = toolNames,
             keywords = setOf(id),
+            triggerExamples = triggerExamples,
             declaredRisk = ToolRisk.SAFE,
             source = source,
         ),
         enabled = true,
         importedAt = 1L,
+        updatedAt = 1L,
+    )
+
+    private fun profile(
+        allowedSkillIds: List<String>,
+    ) = AgentProfileRecord(
+        id = "profile",
+        name = "默认 Agent",
+        avatar = "A",
+        providerId = "provider",
+        model = "model",
+        apiMode = ApiMode.RESPONSES,
+        systemPrompt = "",
+        contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+        allowedToolNames = listOf("app.current_time"),
+        allowedSkillIds = allowedSkillIds,
+        memoryEnabled = false,
+        createdAt = 1L,
         updatedAt = 1L,
     )
 

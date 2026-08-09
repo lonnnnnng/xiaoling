@@ -10,9 +10,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.agent.AgentSkillDefinition
+import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentSkillSource
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.model.ApiMode
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -90,6 +93,66 @@ class AgentSkillManagementPageInstrumentedTest {
         composeRule.onNodeWithText("执行：local instructions").assertExists()
     }
 
+    @Test
+    fun enabledExampleOnlyRoutesStableSkillAndLeavesExecutionToConversation() {
+        val actions = FakeAgentSkillManagementActions()
+        composeRule.setContent {
+            MaterialTheme {
+                AgentSkillManagementPage(
+                    state = managementState(),
+                    actions = actions,
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(agentSkillItemTag("local")).performClick()
+        composeRule.onNodeWithText("点击后只填入对话输入框，不会自动发送或执行").assertExists()
+        composeRule.onNodeWithTag(agentSkillTryExampleTag("local", 0)).performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(listOf("local" to "试用 local"), actions.tryRequests)
+        }
+    }
+
+    @Test
+    fun expandedSkillShowsAtMostThreeDistinctNonBlankExamples() {
+        val state = managementState().let { current ->
+            val local = current.skills.single { item -> item.skill.definition.id == "local" }
+            current.copy(
+                skills = current.skills.map { item ->
+                    if (item.skill.definition.id != "local") {
+                        item
+                    } else {
+                        local.copy(
+                            skill = local.skill.copy(
+                                definition = local.skill.definition.copy(
+                                    triggerExamples = listOf("第一个", " ", "第一个", "第二个", "第三个", "第四个"),
+                                ),
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+        composeRule.setContent {
+            MaterialTheme {
+                AgentSkillManagementPage(
+                    state = state,
+                    actions = FakeAgentSkillManagementActions(),
+                    onBack = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(agentSkillItemTag("local")).performClick()
+        composeRule.onNodeWithTag(agentSkillTryExampleTag("local", 0)).assertExists()
+        composeRule.onNodeWithTag(agentSkillTryExampleTag("local", 1)).assertExists()
+        composeRule.onNodeWithTag(agentSkillTryExampleTag("local", 2)).assertExists()
+        composeRule.onNodeWithTag(agentSkillTryExampleTag("local", 3)).assertDoesNotExist()
+        composeRule.onNodeWithText("第四个").assertDoesNotExist()
+    }
+
     private fun managementState(): AgentSkillManagementUiState = AgentSkillManagementProjection.project(
         skills = listOf(
             skill("built-in", AgentSkillSource.BUILT_IN),
@@ -109,6 +172,7 @@ class AgentSkillManagementPageInstrumentedTest {
         loadingAudits = false,
         auditError = null,
         error = null,
+        selectedProfile = profile(),
     )
 
     private fun skill(id: String, source: AgentSkillSource) = AgentSkillRecord(
@@ -119,11 +183,28 @@ class AgentSkillManagementPageInstrumentedTest {
             instructions = "$id instructions",
             toolNames = setOf("app.current_time"),
             keywords = setOf(id),
+            triggerExamples = listOf("试用 $id"),
             declaredRisk = ToolRisk.SAFE,
             source = source,
         ),
         enabled = true,
         importedAt = 1L,
+        updatedAt = 1L,
+    )
+
+    private fun profile() = AgentProfileRecord(
+        id = "profile",
+        name = "默认 Agent",
+        avatar = "A",
+        providerId = "provider",
+        model = "model",
+        apiMode = ApiMode.RESPONSES,
+        systemPrompt = "",
+        contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
+        allowedToolNames = listOf("app.current_time"),
+        allowedSkillIds = listOf("built-in", "local"),
+        memoryEnabled = false,
+        createdAt = 1L,
         updatedAt = 1L,
     )
 
@@ -133,6 +214,7 @@ class AgentSkillManagementPageInstrumentedTest {
         var importCount = 0
         val enabledChanges = mutableListOf<Pair<String, Boolean>>()
         val requestedDeletes = mutableListOf<String>()
+        val tryRequests = mutableListOf<Pair<String, String>>()
 
         override fun refreshSkills() {
             refreshCount += 1
@@ -152,6 +234,10 @@ class AgentSkillManagementPageInstrumentedTest {
 
         override fun requestLocalSkillDelete(skillId: String) {
             requestedDeletes += skillId
+        }
+
+        override fun trySkill(skillId: String, triggerExample: String) {
+            tryRequests += skillId to triggerExample
         }
     }
 }

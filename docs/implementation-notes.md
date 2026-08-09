@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 224 阶段：Agent Skill 直接试用入口（完成）
+
+- `AgentSkillManagementPage` 展开项新增“试用示例”，从当前定义的 `triggerExamples` 取最多 3 条去重、非空文本；按钮旁明确说明只填入输入框，不会自动发送或执行。
+- 新增 `AgentSkillTryPolicy` 作为 Skill 页面与应用壳之间的窄 seam：只有 Skill 启用、当前 Agent Profile 允许该 Skill、Profile 允许其全部工具、工具仍注册且示例仍属于最新 Skill 定义时，才能生成规范 `/agent ...` 草稿。刷新、导入、Profile 切换或陈旧按钮导致的状态漂移统一返回空结果。
+- 页面 action 只提交稳定 Skill ID 与被点击示例。应用壳按最新 `XiaoLingUiState` 二次核对，通过后关闭个人任务模式、更新本地 prompt，并通过 `SKILL_TRY` 外部导航目标回到对话根页；没有调用 `sendMessage()`、模型或工具，后续审批边界不变。
+- 本地导入 Skill 的示例仍按不可信用户内容处理：只能作为用户可见草稿，不能直接触发执行；重复示例在页面去重，策略对规范匹配取首条，避免合法按钮因重复数据失效。
+- 聚焦 JVM `AgentSkillTryPolicyTest 4/4 + AgentSkillManagementProjectionTest 4/4 + XiaoLingNavigationCoordinatorTest 9/9`（`17/17`）通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 成功。Redmi `AgentSkillManagementPageInstrumentedTest` 为 `OK (4 tests)`、`6.085s`。
+- 主 Debug 已覆盖安装且用户数据保留；未运行完整 JVM、Lint、Release 或全量 instrumentation。生产 Tool/Skill 定义、Room v36、权限、Workflow 和后台能力未改变。
+
+### 下一阶段
+
+第 225 阶段在 Redmi 当前 Agent Profile 下补真实应用壳闭环：从设置进入 Skill 管理、选择已授权 SAFE 示例、回到对话核对草稿，再由用户决定是否发送；仍不得自动执行。
+
 ## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
 
 - 仅在 Redmi `wsvwypiz7xwslvl7` 当前 Provider 下创建最小临时 Profile，人工输入 `/agent Create a single-day all-day calendar event titled stage223_all_day_1786293137009 on 2026-08-15. Use only calendar.create_all_day_event.`；模型只规划唯一全天创建工具，审批卡核对后由用户点击“批准执行”。

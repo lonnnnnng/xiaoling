@@ -71,6 +71,7 @@ import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementDialogs
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementPage
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementProjection
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementUiState
+import com.longdev.xiaoling.ui.agentskill.AgentSkillTryPolicy
 import com.longdev.xiaoling.ui.conversation.ConversationActions
 import com.longdev.xiaoling.ui.conversation.ConversationPage
 import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
@@ -384,6 +385,29 @@ private fun XiaoLingContent(
                         },
                         onOpenSkillManagement = {
                             navigation.openSettingsPane(SettingsPane.SKILL_MANAGEMENT)
+                        },
+                        onTrySkill = { skillId, example ->
+                            if (state.sendingMessage || state.pendingPersonalTaskPlan != null) {
+                                centerNotice = CenterNotice("当前 Agent 操作结束后再试用 Skill", success = false)
+                            } else {
+                                val draft = AgentSkillTryPolicy.prepareDraft(
+                                    skillId = skillId,
+                                    requestedExample = example,
+                                    skills = state.skills,
+                                    selectedProfile = state.agentProfiles.firstOrNull { profile ->
+                                        profile.id == state.selectedAgentProfileId
+                                    },
+                                    registeredToolNames = state.registeredAgentTools.mapTo(linkedSetOf()) { tool -> tool.name },
+                                )
+                                if (draft == null) {
+                                    centerNotice = CenterNotice("Skill 状态已变化，请刷新后重试", success = false)
+                                } else {
+                                    // long: Skill 试用只准备可审阅的 Agent 草稿；关闭任务模式并回到对话根页，但绝不自动发送或绕过后续审批。
+                                    viewModel.updatePersonalTaskMode(false)
+                                    viewModel.updatePrompt(draft.prompt)
+                                    navigation.routeExternal(XiaoLingExternalNavigationTarget.SKILL_TRY)
+                                }
+                            }
                         },
                         onOpenWorkflowManagement = { workflowId ->
                             viewModel.refreshWorkflows()
@@ -763,6 +787,7 @@ private fun XiaoLingUiState.toAgentSkillManagementUiState(): AgentSkillManagemen
         auditError = agentRunHistoryError,
         error = skillError,
         pendingLocalSkillDelete = pendingLocalSkillDelete,
+        selectedProfile = agentProfiles.firstOrNull { profile -> profile.id == selectedAgentProfileId },
     )
 }
 
@@ -812,6 +837,7 @@ private fun SettingsPage(
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
+    onTrySkill: (String, String) -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
     onOpenAgentRunHistory: () -> Unit,
     onOpenProcessExitObservations: () -> Unit,
@@ -919,6 +945,10 @@ private fun SettingsPage(
 
                     override fun requestLocalSkillDelete(skillId: String) {
                         viewModel.requestLocalSkillDelete(skillId)
+                    }
+
+                    override fun trySkill(skillId: String, triggerExample: String) {
+                        onTrySkill(skillId, triggerExample)
                     }
                 },
                 onBack = onBackToSettings,

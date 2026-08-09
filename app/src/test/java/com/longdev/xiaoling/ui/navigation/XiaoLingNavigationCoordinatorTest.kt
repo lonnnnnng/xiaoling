@@ -68,6 +68,7 @@ class XiaoLingNavigationCoordinatorTest {
             XiaoLingExternalNavigationTarget.WORKFLOW,
             XiaoLingExternalNavigationTarget.MEMORY_CONVERSATION,
             XiaoLingExternalNavigationTarget.SHARED_DRAFT,
+            XiaoLingExternalNavigationTarget.SKILL_TRY,
         ).forEach { target ->
             val result = coordinator.routeExternal(initial, target)
 

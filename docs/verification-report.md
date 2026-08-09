@@ -4,6 +4,28 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 224 阶段：Agent Skill 直接试用入口
+
+### 结论
+
+- Skill 管理页展开项新增最多 3 条去重、非空试用示例；按钮资格绑定 Skill 启用、当前 Agent Profile 的 Skill/工具白名单和当前 Registry 工具集合。
+- 页面 action 只提交稳定 Skill ID 与示例，应用壳按最新状态二次核对；通过后仅关闭个人任务模式、预填规范 `/agent ...` 草稿并回到对话根页。
+- 点击不会调用 `sendMessage()`、模型或工具，不创建 Run，也不改变后续逐次审批。状态漂移、陈旧示例、未授权 Skill、工具缺失或重复 Skill 身份均 fail-closed。
+- 生产 Tool/Skill 定义、Room v36、权限、Workflow、后台能力和答案可回答性 Shadow 均未改变。
+
+### 验证证据
+
+- 聚焦 JVM：`AgentSkillTryPolicyTest 4/4 + AgentSkillManagementProjectionTest 4/4 + XiaoLingNavigationCoordinatorTest 9/9`，合计 `17/17`，无失败或跳过。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 成功，最终一轮耗时约 `8s`。
+- 仅 Redmi `wsvwypiz7xwslvl7` 运行 `AgentSkillManagementPageInstrumentedTest`，结果 `OK (4 tests)`、`6.085s`；覆盖稳定 ID action、最多 3 条去重示例、刷新重排和平台回调。
+- 更新后的项目文档 corpus gate 首轮为 `OK (1 test)`、`3.172s`。
+- Debug 主应用和测试 APK 均只向 Redmi 覆盖安装；主应用用户数据保留，文档门禁后卸载测试包。未向模拟器发送安装、测试、日志或 UI 命令。
+- 未运行完整 JVM、Lint、Release 或全量 instrumentation，符合快速迭代分级验证约束。
+
+### 下一阶段
+
+- 第 225 阶段在 Redmi 当前 Agent Profile 下补真实应用壳闭环：从设置进入 Skill 管理、选择已授权 SAFE 示例、回到对话核对草稿，再由用户决定是否发送；仍不得自动执行。
+
 ## 2026-08-10 第 223 阶段：受控单日全天日程真实前台闭环
 
 ### 结论

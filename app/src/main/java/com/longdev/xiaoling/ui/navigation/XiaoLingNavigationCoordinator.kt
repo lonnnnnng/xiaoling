@@ -31,6 +31,7 @@ internal enum class XiaoLingExternalNavigationTarget {
     MEMORY_CONVERSATION,
     MEMORY_RUN,
     SHARED_DRAFT,
+    SKILL_TRY,
 }
 
 internal enum class XiaoLingNavigationEffect {
@@ -123,6 +124,7 @@ internal class XiaoLingNavigationCoordinator(
         XiaoLingExternalNavigationTarget.WORKFLOW,
         XiaoLingExternalNavigationTarget.MEMORY_CONVERSATION,
         XiaoLingExternalNavigationTarget.SHARED_DRAFT,
+        XiaoLingExternalNavigationTarget.SKILL_TRY,
         -> state.copy(
             tab = XiaoLingAppTab.CONVERSATION,
             settingsPane = XiaoLingSettingsPane.ROOT,

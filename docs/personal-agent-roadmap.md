@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 224 阶段：Agent Skill 直接试用入口（完成）
+
+- Skill 管理页从每项自身 `triggerExamples` 展示最多 3 条去重、非空示例，让既有个人 Agent 能力从配置清单变成可发现入口。
+- 试用资格同时绑定 Skill 启用状态、当前 Agent Profile 的 Skill/工具白名单和当前工具注册表；状态漂移、陈旧示例、未授权 Skill 或缺失工具均 fail-closed。
+- 点击只把规范 `/agent ...` 填入对话并关闭个人任务模式、回到对话根页，不自动发送、不调用模型、不创建 Run，也不改变后续逐次审批和 Tool Ledger 边界。
+- 聚焦 JVM `17/17`、Debug/AndroidTest APK 与仅 Redmi 页面 `OK (4 tests)`（`6.085s`）通过；Room v36、生产 Tool/Skill、权限与后台能力不变。
+
+下一阶段（第 225 阶段）：在 Redmi 当前 Agent Profile 下补真实应用壳闭环，验证“设置 -> Skill 示例 -> 对话草稿”，发送仍由用户决定。
+
 ## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
 
 - Redmi 当前 Provider 下，真实自然语言目标只调用 `calendar.create_all_day_event`，经人工审批后完成；Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b`、ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 为 `COMPLETED / APPROVED / PASSED / COMMITTED`。
