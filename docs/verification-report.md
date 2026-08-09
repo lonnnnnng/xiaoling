@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-09 第 217 阶段：真实前台电量/网络双状态 Agent Run
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 读取当前选中 Provider，创建临时最小 Profile（只允许 `app.get_battery / app.get_connectivity` 与两个对应 Skill，关闭长期记忆），复用正式 `AgentRunUseCase` 执行自然语言目标。
+- 真实 Run 为 `COMPLETED`；Tool Ledger 恰有两项结果，分别为 `app.get_battery` 与 `app.get_connectivity`，两项均 `success=true / verificationStatus=PASSED`，审批数为 0。最终回答不包含 Provider URL、API Key、Profile 内部 ID、设备序列或应用包名。
+- `RealProviderDeviceStatusInstrumentedTest#foregroundAgentReadsBatteryAndConnectivityFactsOnly` 结果为 `OK (1 test)`，耗时 `24.087s`；测试 APK 完成后已卸载，主应用和用户数据保留，阶段 Run 审计保留。
+- 本阶段没有使用 Pixel_9 或其他模拟器，也未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；生产工具、Room v36、旧 Profile/Run、Workflow、后台和发布边界保持不变。
+
 ## 2026-08-09 第 216 阶段：前台只读网络状态闭环
 
 - 新增 `app.get_connectivity`，由正式 `XiaoLingToolRegistry` 注入 `AndroidConnectivityStatusReader`，无参数、`SAFE`、`supportsBackground=false`；结果固定为网络状态、网络类型和互联网可达性三项，不包含 SSID、IP 地址、运营商、Provider 配置或凭据。

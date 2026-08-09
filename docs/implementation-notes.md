@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 217 阶段：真实前台电量/网络双状态 Agent Run（完成）
+
+- Redmi 当前选中 Provider 下创建临时最小 Agent Profile，只允许 `app.get_battery / app.get_connectivity` 与对应两个 Skill；正式 `AgentRunUseCase` 接收自然语言目标并完成两项只读工具调用。
+- Run 收敛为 `COMPLETED`，两项 ToolResult 均 `success=true / verificationStatus=PASSED`，审批数为 0；最终回答和工具结果不包含 Base URL、API Key、Profile 内部 ID、设备序列或应用包名。临时 Profile 仅存在于验收入口，Run 审计保留，测试包完成后卸载。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RealProviderDeviceStatusInstrumentedTest#foregroundAgentReadsBatteryAndConnectivityFactsOnly`，结果 `OK (1 test)`、耗时 `24.087s`；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未使用 Pixel_9。生产 Tool/Skill、Room v36、旧 Profile/Run、Workflow 和后台边界没有扩权。
+
 ## 第 216 阶段：前台只读网络状态（完成）
 
 - 新增 `ConnectivityStatusReader` 与 `AndroidConnectivityStatusReader`，从 `ConnectivityManager` 当前活动网络和 `NetworkCapabilities` 读取连接状态、传输类型及系统 `NET_CAPABILITY_VALIDATED` 判定；不读取 SSID、IP 地址、运营商、Provider 或凭据，系统网络栈异常时 fail-closed。

@@ -1,5 +1,7 @@
 # 小灵
 
+第 217 阶段完成真实前台个人 Agent 的电量/网络双状态闭环：在 Redmi 当前选中 Provider 下，临时 Profile 只允许 `app.get_battery / app.get_connectivity` 与 `battery-status / connectivity-status`，正式 `AgentRunUseCase` 根据自然语言目标完成两项读取。Run 为 `COMPLETED`，两项 ToolResult 均 `success=true / verificationStatus=PASSED`，审批数为 0；最终回答不包含 Provider URL、API Key、Profile 内部 ID、设备序列或应用包名。仅使用 Redmi `wsvwypiz7xwslvl7` 定向真实 Provider instrumentation `OK (1 test)`，耗时 `24.087s`，测试包已卸载；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36、旧 Profile/Run、Workflow 和后台边界不变。
+
 第 216 阶段完成前台只读 `app.get_connectivity` 网络状态闭环：新增 `connectivity-status` Skill 与 `AndroidConnectivityStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前是否有活动网络、传输类型和系统判定的互联网可达性；不返回 SSID、IP 地址、运营商、Provider URL、API Key 或其他网络配置，读取异常时 fail-closed。聚焦 JVM `XiaoLingToolRegistryTest 81/81 + AgentSkillsTest 33/33`（`114/114`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidConnectivityStatusInstrumentedTest#foregroundRegistryReadsCurrentConnectivityFactsOnly`，结果 `OK (1 test)`、耗时 `0.261s`，测试包已卸载且主应用数据保留。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 
 第 215 阶段完成前台只读 `app.get_battery` 电池状态闭环：新增 `battery-status` Skill 与 `AndroidBatteryStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前电量百分比、是否充电和供电方式；电池广播不可用或异常时 fail-closed，不返回设备标识、应用列表、Provider 配置、电池温度或健康信息。聚焦 JVM `XiaoLingToolRegistryTest 80/80 + AgentSkillsTest 32/32`（`112/112`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidBatteryStatusInstrumentedTest#foregroundRegistryReadsCurrentBatteryFactsOnly`，结果 `OK (1 test)`、耗时 `0.198s`，测试包已卸载且主应用数据保留。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
@@ -22,7 +24,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 216 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
+当前开发基线已推进至第 217 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

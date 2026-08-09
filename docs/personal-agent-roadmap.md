@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 第 217 阶段：真实前台电量/网络双状态 Agent Run（完成）
+
+- 在 Redmi 当前 Provider 下使用临时最小 Profile，正式 `AgentRunUseCase` 根据自然语言目标完成 `app.get_battery -> app.get_connectivity` 两项只读调用；两项结果均 typed `PASSED`，Run 为 `COMPLETED`，审批数为 0。
+- 验收确认个人 Agent 主链能够把自然语言目标路由到两个独立 Skill，并把当前本地事实汇总为最终回答；Provider 凭据、Profile 内部 ID 和设备身份不进入 Tool Ledger 结果或最终回答。
+- 仅 Redmi `wsvwypiz7xwslvl7` 真实 Provider instrumentation `OK (1 test)`（`24.087s`）通过；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段继续选择能扩大真实个人 Agent 任务覆盖面的单一窄闭环，不引入 Provider 健康 Agent Tool、后台设备自动化或高级生态能力。
+
 ## 第 216 阶段：前台只读网络状态（完成）
 
 - 新增 `app.get_connectivity` 和独立 `connectivity-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。

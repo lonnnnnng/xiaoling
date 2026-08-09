@@ -1,5 +1,12 @@
 # 产品需求
 
+## 真实前台电量/网络双状态 Agent Run（第 217 阶段，完成）
+
+- Redmi 真实验收必须使用当前选中 Provider 和正式 `AgentRunUseCase`；临时 Profile 工具白名单精确限制为 `app.get_battery / app.get_connectivity`，Skill 白名单精确限制为 `battery-status / connectivity-status`，长期记忆关闭。
+- 用户目标必须驱动模型调用两项只读工具，不得创建审批、调用其他工具或把 Provider URL/API Key、Profile 内部 ID、设备序列和应用包名带入 Tool Ledger 或最终回答。
+- Run 只有在 `COMPLETED`、两项 ToolResult 均 `success=true / verificationStatus=PASSED` 且审批数为 0 时才算通过；网络、电池任一读取失败都不得被模型总结升级为成功。
+- 本阶段只完成 Redmi 单项真实 Provider 验收和 AndroidTest APK 编译，未运行完整 JVM、全量 Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
+
 ## 前台只读网络状态（第 216 阶段，完成）
 
 - `app.get_connectivity` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
