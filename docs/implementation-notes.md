@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 220 阶段：前台长期记忆安全删除（完成）
+
+- `AgentMemoryStore` 新增 `deleteForAgent(memoryId, idempotencyKey)` 与 `verifyDeletedOperation(idempotencyKey, memoryId)`；`RoomAgentMemoryStore` 复用 `agent_memory_operations`，用独立 payload/result hash 区分 `memory.remember` 与删除 operation。
+- 删除 operation 写入、FTS 删除和主记录删除封装在同一 Room 事务。相同幂等键和相同 ID 复用原 operation；相同键载荷漂移拒绝。数据库重开后仍可只读验证；用户撤销后同 ID 重新出现时返回 `MEMORY_STILL_EXISTS`。
+- `XiaoLingToolRegistry` 维护搜索候选和详情确认两个短生命周期状态，只允许同一 Run 的唯一 `memory.search -> memory.get -> memory.delete`。删除授权会至少探测两条候选，避免 `limit=1` 把截断结果误判为唯一；额外候选不进入工具输出。新搜索、详情失败、删除成功、Run 切换或召回关闭都会清空状态，避免模型把历史 ID 当作当前删除授权。
+- `memory.delete` 声明 `REQUIRES_APPROVAL / EXECUTOR_VERIFIED / IDEMPOTENT_BY_KEY / DENY`；成功回执以 ToolCall ID 同时填充 `toolCallId` 与 `idempotencyKey`，以 memory ID 填充 `operationId`，状态固定为 `COMMITTED`。已提交恢复只调用 `verifyDeletedOperation`，不重新执行删除。
+- 独立 `personal-memory-delete` Skill 与前台召回门禁共同控制发现面；Workflow、后台、Legacy Run 和旧 Profile 不变。Room 继续为 v36。
+- 最终聚焦 JVM 为 `XiaoLingToolRegistryTest 84/84 + AgentSkillsTest 35/35`，Debug/AndroidTest APK 构建成功；Redmi 的生产 Registry 隔离 Room 删除链、Room 跨重开账本与文档 corpus gate 分别通过。真实 Provider 与人工审批 UI 留给第 221 阶段。
+
 ## 第 219 阶段：真实前台存储状态 Agent Run（完成）
 
 - Redmi 当前选中 Provider 下创建临时最小 Agent Profile，只允许 `app.get_storage` 与 `storage-status`；正式 `AgentRunUseCase` 接收自然语言目标并完成唯一存储状态工具调用。

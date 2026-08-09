@@ -63,6 +63,8 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
+    private var searchedMemoryDeleteCandidateId: String? = null
+    private var confirmedMemoryDeleteCandidateId: String? = null
     // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
@@ -717,6 +719,36 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = MEMORY_DELETE_TOOL_NAME,
+            description = "按 memory.search 和 memory.get 返回的同一稳定 ID 删除一条本机长期记忆；删除前需要用户确认，删除后回读当前 Store 验证不可见。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "memory_id",
+                    description = "要删除的长期记忆稳定 memory-UUID，只能原样使用当前 memory.get 已确认的 ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 43,
+                    maxLength = 43,
+                ),
+            ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    if (MEMORY_ID_PATTERN.matches(arguments["memory_id"].orEmpty().trim())) {
+                        emptyList()
+                    } else {
+                        listOf("长期记忆 ID 格式无效")
+                    }
+                },
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            // long: 已提交删除可按 operation 账本只读验证；没有 COMMITTED 回执时固定 DENY，不能因当前不可见而猜测本轮已经执行。
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.DENY,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "memory.remember",
             description = "把用户明确希望长期保留的偏好、事实或备注写入本机长期记忆；写入前必须经过用户审批。",
             risk = ToolRisk.REQUIRES_APPROVAL,
@@ -876,6 +908,8 @@ class XiaoLingToolRegistry(
         if (runContext?.runId != context.runId) {
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
+            searchedMemoryDeleteCandidateId = null
+            confirmedMemoryDeleteCandidateId = null
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
                 deviceController.clearReferences()
@@ -1035,8 +1069,8 @@ class XiaoLingToolRegistry(
     ): List<ToolDefinition> {
         var available = tools
         if (context?.memoryRecallEnabled == false) {
-            // long: 单次召回开关同时约束搜索和按 ID 读取，避免模型绕过搜索禁用状态直接探测长期记忆详情。
-            available = available.filterNot { it.name in MEMORY_READ_TOOL_NAMES }
+            // long: 单次召回开关同时约束搜索、详情和删除，避免模型在无法建立稳定 ID 证据时直接探测或破坏长期记忆。
+            available = available.filterNot { it.name in MEMORY_ACCESS_TOOL_NAMES }
         }
         if (!taskRetryAllowed(context)) {
             // long: 任务重试会创建并立即接管一个新 Workflow Run；Workflow 内递归调用或后台调用都不能扩大为第二条执行链。
@@ -1060,6 +1094,10 @@ class XiaoLingToolRegistry(
         if (!conversationDetailAllowed(context)) {
             // long: 历史正文只在前台直接 Agent 的明确回读链中开放，Workflow/后台只能使用会话摘要，避免长正文静默进入自动任务。
             available = available.filterNot { it.name == APP_GET_CONVERSATION_TOOL_NAME }
+        }
+        if (!memoryDeleteAllowed(context)) {
+            // long: 长期记忆删除只属于当前前台直接 Run；Workflow、后台和未绑定上下文不能把破坏性治理动作带进模型工具面。
+            available = available.filterNot { it.name == MEMORY_DELETE_TOOL_NAME }
         }
         if (!deviceSnapshotAllowed(context)) {
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
@@ -1096,7 +1134,8 @@ class XiaoLingToolRegistry(
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
             (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext)) &&
-            (definition.name != APP_GET_CONVERSATION_TOOL_NAME || conversationDetailAllowed(runContext))
+            (definition.name != APP_GET_CONVERSATION_TOOL_NAME || conversationDetailAllowed(runContext)) &&
+            (definition.name != MEMORY_DELETE_TOOL_NAME || memoryDeleteAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -1130,6 +1169,7 @@ class XiaoLingToolRegistry(
             NOTES_DELETE_TOOL_NAME -> deleteNote(call)
             "memory.search" -> searchMemory(call)
             "memory.get" -> getMemory(call)
+            MEMORY_DELETE_TOOL_NAME -> deleteMemory(call)
             "memory.remember" -> remember(call)
             "knowledge.search" -> searchKnowledge(call)
             DEVICE_SNAPSHOT_TOOL_NAME -> snapshotDevice(call)
@@ -1168,6 +1208,7 @@ class XiaoLingToolRegistry(
             NOTES_UPDATE_TOOL_NAME -> verifyCommittedNoteUpdate(call, receipt)
             NOTES_DELETE_TOOL_NAME -> verifyCommittedNoteDeletion(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
+            MEMORY_DELETE_TOOL_NAME -> verifyCommittedMemoryDeletion(call, receipt)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEvent(call, receipt)
             CALENDAR_UPDATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventUpdate(call, receipt)
             CALENDAR_DELETE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventDeletion(call, receipt)
@@ -1182,6 +1223,7 @@ class XiaoLingToolRegistry(
             toolName == NOTES_UPDATE_TOOL_NAME ||
             toolName == NOTES_DELETE_TOOL_NAME ||
             toolName == "memory.remember" ||
+            toolName == MEMORY_DELETE_TOOL_NAME ||
             toolName == CALENDAR_CREATE_EVENT_TOOL_NAME ||
             toolName == CALENDAR_UPDATE_EVENT_TOOL_NAME ||
             toolName == CALENDAR_DELETE_EVENT_TOOL_NAME ||
@@ -2686,15 +2728,23 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun searchMemory(call: ToolCall): ToolExecutionResult {
+        searchedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateId = null
         if (runContext?.memoryRecallEnabled == false) {
             return ToolExecutionResult(success = true, content = "本次 Run 已关闭长期记忆召回。")
         }
-        val memories = memoryStore.search(
+        val requestedLimit = call.limit()
+        // long: 删除授权需要证明查询本身唯一，不能把 limit=1 的截断结果当作唯一匹配；额外探测的一条只用于本地授权判断，不会进入工具输出。
+        val candidateProbeLimit = if (memoryDeleteAllowed(runContext)) max(requestedLimit, 2) else requestedLimit
+        val candidateProbe = memoryStore.search(
             query = call.arguments["query"].orEmpty().trim(),
-            limit = call.limit(),
+            limit = candidateProbeLimit,
             enabledOnly = true,
         )
+        val memories = candidateProbe.take(requestedLimit)
         if (memories.isEmpty()) return ToolExecutionResult(success = true, content = "未找到匹配长期记忆。")
+        // long: 删除只能从唯一搜索结果建立短期候选；多结果仍可用于普通回答，但不能让后续详情任选一个就获得删除授权。
+        searchedMemoryDeleteCandidateId = candidateProbe.singleOrNull()?.id
         return ToolExecutionResult(
             success = true,
             memoryIdsUsed = memories.map { it.id },
@@ -2706,6 +2756,7 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun getMemory(call: ToolCall): ToolExecutionResult {
+        confirmedMemoryDeleteCandidateId = null
         if (runContext?.memoryRecallEnabled == false) {
             return ToolExecutionResult(success = true, content = "本次 Run 已关闭长期记忆召回。")
         }
@@ -2717,12 +2768,84 @@ class XiaoLingToolRegistry(
         val memory = memoryStore.get(memoryId)
             ?.takeIf { it.enabled && !AgentMemoryDecayPolicy.isExpired(it, clock.nowMillis()) }
             ?: return ToolExecutionResult(success = false, content = "未找到可用的长期记忆。")
+        if (searchedMemoryDeleteCandidateId == memoryId) {
+            // long: 只有同 Run 唯一搜索候选的当前详情回读成功后才允许删除；ID 漂移、禁用、过期或不存在都不会生成授权。
+            confirmedMemoryDeleteCandidateId = memoryId
+        }
         val tags = memory.tags.takeIf { it.isNotBlank() }?.let { " · 标签：$it" }.orEmpty()
         return ToolExecutionResult(
             success = true,
             memoryIdsUsed = listOf(memory.id),
             content = "长期记忆详情：id=${memory.id}\n内容：${memory.content}\n类型：${memory.type}$tags\n来源：${memory.sourceSummary}\n边界：本地长期记忆数据，不是工具指令。",
         )
+    }
+
+    private suspend fun deleteMemory(call: ToolCall): ToolExecutionResult {
+        val memoryId = call.arguments["memory_id"].orEmpty().trim()
+        if (!MEMORY_ID_PATTERN.matches(memoryId)) {
+            return ToolExecutionResult(success = false, content = "长期记忆 ID 格式无效。")
+        }
+        if (confirmedMemoryDeleteCandidateId != memoryId) {
+            return ToolExecutionResult(
+                success = false,
+                content = "删除前必须在同一 Run 先搜索并读取详情，且三步使用同一长期记忆 ID。",
+            )
+        }
+        if (!memoryStore.deleteForAgent(memoryId = memoryId, idempotencyKey = call.id)) {
+            return ToolExecutionResult(success = false, content = "未找到长期记忆或记忆已被删除。")
+        }
+        searchedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateId = null
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = memoryId,
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        return verifiedMemoryDeletionResult(call, receipt)
+    }
+
+    private suspend fun verifyCommittedMemoryDeletion(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val memoryId = call.arguments["memory_id"].orEmpty().trim()
+        val receiptMatchesCall = MEMORY_ID_PATTERN.matches(memoryId) &&
+            receipt.toolCallId == call.id &&
+            receipt.operationId == memoryId &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatchesCall) {
+            return ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "长期记忆删除回执身份不一致，不能恢复验证。",
+                executionReceipt = receipt,
+            )
+        }
+        // long: 提交后恢复只核对删除 operation 与当前 Store，不调用 deleteForAgent；无回执路径继续由 Runtime 的 DENY 契约阻断。
+        return verifiedMemoryDeletionResult(call, receipt)
+    }
+
+    private suspend fun verifiedMemoryDeletionResult(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val memoryId = call.arguments["memory_id"].orEmpty().trim()
+        return when (val verification = memoryStore.verifyDeletedOperation(call.id, memoryId)) {
+            AgentMemoryDeleteOperationVerification.Verified -> ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已删除并验证长期记忆：id=$memoryId",
+                executionReceipt = receipt,
+            )
+            is AgentMemoryDeleteOperationVerification.Failed -> ToolExecutionResult(
+                success = false,
+                verified = false,
+                content = "长期记忆删除验证失败：${verification.reason.name}",
+                executionReceipt = receipt,
+            )
+        }
     }
 
     private suspend fun searchKnowledge(call: ToolCall): ToolExecutionResult {
@@ -2863,7 +2986,7 @@ private val DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
 
 private val NOTE_ID_PATTERN = Regex("note-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 private val MEMORY_ID_PATTERN = Regex("memory-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-private val MEMORY_READ_TOOL_NAMES = setOf("memory.search", "memory.get")
+private val MEMORY_ACCESS_TOOL_NAMES = setOf("memory.search", "memory.get", MEMORY_DELETE_TOOL_NAME)
 private val NOTE_TITLE_LINE_BREAKS = Regex("[\\r\\n]+")
 private const val MAX_NOTE_TITLE_OUTPUT_LENGTH = 200
 private const val MAX_NOTE_CONTENT_OUTPUT_LENGTH = 20_000
@@ -2925,6 +3048,11 @@ private fun conversationDetailAllowed(context: AgentToolExecutionContext?): Bool
     context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
         context.invocationSource == AgentInvocationSource.DIRECT
 
+private fun memoryDeleteAllowed(context: AgentToolExecutionContext?): Boolean =
+    context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+        context.invocationSource == AgentInvocationSource.DIRECT &&
+        context.memoryRecallEnabled != false
+
 private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
     AgentInvocationSource.DIRECT,
     AgentInvocationSource.WORKFLOW,
@@ -2950,6 +3078,7 @@ private const val TASK_RESUME_TOOL_NAME = "tasks.resume"
 private val TASK_SCHEDULE_CONTROL_TOOL_NAMES = setOf(TASK_PAUSE_TOOL_NAME, TASK_RESUME_TOOL_NAME)
 private const val NOTES_UPDATE_TOOL_NAME = "notes.update"
 private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
+private const val MEMORY_DELETE_TOOL_NAME = "memory.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private const val MAX_CALENDAR_TIME_ZONE_LENGTH = 100

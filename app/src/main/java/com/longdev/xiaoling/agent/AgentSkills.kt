@@ -288,6 +288,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "唯一匹配的当前可用记忆按稳定 ID 回读成功，否则明确说明未读取。",
         ),
         AgentSkillDefinition(
+            id = "personal-memory-delete",
+            name = "长期记忆删除",
+            description = "检索、核对并在用户确认后删除一条本机长期记忆。",
+            instructions = "只有用户明确要求删除长期记忆时，才严格执行 memory.search -> memory.get -> memory.delete。三步必须原样复用同一稳定 memory ID；结果不唯一、详情不可用、ID 漂移或用户未确认时立即停止。",
+            toolNames = setOf("memory.search", "memory.get", "memory.delete"),
+            keywords = setOf("删除记忆", "忘记这条", "移除记忆", "delete memory", "forget memory"),
+            triggerExamples = listOf("删除这条长期记忆", "找到并忘记这项偏好"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "搜索无结果、目标不唯一、详情读取失败或删除未验证时停止，不猜测 ID，也不宣称已经删除。",
+            completionCriteria = "同一稳定 ID 经用户批准后形成提交回执且当前 Store 回读不可见，否则明确说明未删除。",
+        ),
+        AgentSkillDefinition(
             id = "local-knowledge",
             name = "本地知识库",
             description = "检索用户已导入并启用的本地知识文档。",

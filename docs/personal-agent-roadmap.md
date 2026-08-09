@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 220 阶段：前台长期记忆安全删除（完成）
+
+- 新增生产 `memory.delete(memory_id)` 与独立 `personal-memory-delete` Skill，仅向开启长期记忆召回的前台 `DIRECT` Agent 暴露；不加入 Workflow、后台、Legacy Run 或旧 Profile。
+- Registry 在同一 Run 内签发短生命周期授权，严格要求唯一 `memory.search -> memory.get -> memory.delete` 且三步使用同一稳定 `memory-UUID`。跳过搜索/详情、多结果、ID 漂移、Run 切换、关闭召回或读取失败都会清空授权并拒绝删除。
+- 删除为 `REQUIRES_APPROVAL + EXECUTOR_VERIFIED`，ToolCall ID 同时作为幂等键，memory ID 作为稳定 operation ID；回执为 `COMMITTED`，恢复契约为 `IDEMPOTENT_BY_KEY + DENY`。已提交恢复只读核对 Room operation ledger 和当前不可见，不重新调用 DELETE。
+- Room 在同一事务内写入删除 operation 并删除主记录与 FTS；用户撤销后同 ID 再次存在时，旧 operation 验证返回 `MEMORY_STILL_EXISTS`。没有新增表或 Migration，Room 保持 v36。
+- 聚焦 JVM `119/119`、Debug/AndroidTest APK 构建成功；仅 Redmi 分别通过生产 Registry 删除链、Room 跨重开删除账本和文档 corpus gate，测试包已卸载。没有真实 Provider 自然语言 Run、人工审批 UI 或答案级当前不可见验收。
+
+下一阶段（第 221 阶段）：在 Redmi 当前 Provider 下完成真实自然语言 `memory.search -> memory.get -> memory.delete`，人工批准删除，核对 Tool Ledger 的三步稳定 ID、`COMMITTED/PASSED` 证据与长期记忆页当前不可见，并精确清理阶段夹具；旧 Run 保持不变。
+
 ## 第 219 阶段：真实前台存储状态 Agent Run（完成）
 
 - 在 Redmi 当前 Provider 下使用临时最小 Profile，正式 `AgentRunUseCase` 根据自然语言目标唯一调用 `app.get_storage`；结果 typed `PASSED`，Run 为 `COMPLETED`，审批数为 0。

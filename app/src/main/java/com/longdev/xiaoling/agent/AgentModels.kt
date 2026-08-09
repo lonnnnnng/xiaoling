@@ -724,6 +724,19 @@ enum class AgentMemoryOperationVerificationFailure {
     MEMORY_EXPIRED,
 }
 
+sealed interface AgentMemoryDeleteOperationVerification {
+    data object Verified : AgentMemoryDeleteOperationVerification
+    data class Failed(val reason: AgentMemoryDeleteOperationVerificationFailure) : AgentMemoryDeleteOperationVerification
+}
+
+enum class AgentMemoryDeleteOperationVerificationFailure {
+    OPERATION_NOT_FOUND,
+    EVIDENCE_INCOMPLETE,
+    PAYLOAD_MISMATCH,
+    OPERATION_MISMATCH,
+    MEMORY_STILL_EXISTS,
+}
+
 interface AgentMemoryStore {
     suspend fun remember(
         content: String,
@@ -742,6 +755,13 @@ interface AgentMemoryStore {
         nowMillis: Long,
     ): AgentMemoryOperationVerification = AgentMemoryOperationVerification.Failed(
         AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE,
+    )
+    suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean = false
+    suspend fun verifyDeletedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+    ): AgentMemoryDeleteOperationVerification = AgentMemoryDeleteOperationVerification.Failed(
+        AgentMemoryDeleteOperationVerificationFailure.OPERATION_NOT_FOUND,
     )
 }
 

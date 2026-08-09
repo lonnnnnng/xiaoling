@@ -1,5 +1,14 @@
 # 产品需求
 
+## 前台长期记忆安全删除（第 220 阶段，完成）
+
+- 生产删除工具必须命名为 `memory.delete`，只接受一个合法稳定 `memory_id`；只有开启长期记忆召回的前台 `DIRECT` Agent 才可发现，不得进入 Workflow、后台、Legacy Run 或旧 Profile。
+- 删除前必须在同一 Run 内完成唯一 `memory.search -> memory.get`，并由 `memory.get` 确认唯一候选；删除参数必须与搜索和详情的 ID 完全一致。跳步、多结果、ID 漂移、Run 切换、召回关闭、新搜索或读取失败后均不得沿用旧授权。
+- 删除必须逐次审批，并在提交后从当前 Store 验证目标不可见。回执必须绑定当前 ToolCall ID、同值幂等键、稳定 memory ID operation、`COMMITTED` 状态和 `IDEMPOTENT_BY_KEY + DENY` 恢复声明。
+- 已提交恢复只能只读核对 operation ledger、载荷哈希和目标当前不可见，不得重新调用删除；用户撤销导致同 ID 再次可见时，旧删除验证必须明确返回 `MEMORY_STILL_EXISTS`。
+- operation 记录、主记录删除与 FTS 删除必须位于同一 Room 事务；本阶段不得为该能力新增 Schema 或 Migration，Room 维持 v36。
+- 第 220 阶段的隔离测试证据不能替代真实前台验收。第 221 阶段必须只在 Redmi 当前 Provider 下完成自然语言三步链、人工审批、Tool Ledger、记忆页当前不可见和测试夹具精确清理；旧 Run 保持不变。
+
 ## 真实前台存储状态 Agent Run（第 219 阶段，完成）
 
 - Redmi 真实验收必须使用当前选中 Provider 和正式 `AgentRunUseCase`；临时 Profile 工具白名单精确限制为 `app.get_storage`，Skill 白名单精确限制为 `storage-status`，长期记忆关闭。

@@ -358,6 +358,7 @@ class XiaoLingToolRegistryTest {
                 "notes.delete",
                 "memory.search",
                 "memory.get",
+                "memory.delete",
                 "memory.remember",
                 "knowledge.search",
                 ),
@@ -401,6 +402,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.delete").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("memory.get").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.delete").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("knowledge.search").risk)
         assertFalse(registry.availableTools().any { tool -> tool.name == "tasks.retry" })
         assertFalse(registry.availableTools().any { tool -> tool.name in setOf("tasks.pause", "tasks.resume") })
@@ -458,6 +460,11 @@ class XiaoLingToolRegistryTest {
         }
         assertNotNull(tools.getValue("memory.remember").inputSchema.singleOrNull { it.name == "note" && it.required })
         assertEquals(listOf("memory_id"), tools.getValue("memory.get").inputSchema.map { it.name })
+        assertEquals(listOf("memory_id"), tools.getValue("memory.delete").inputSchema.map { it.name })
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("memory.delete").verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.delete").replaySafety)
+        assertEquals(ToolNotCommittedReplayPolicy.DENY, tools.getValue("memory.delete").notCommittedReplayPolicy)
+        assertFalse(tools.getValue("memory.delete").permissionPolicy.supportsBackground)
         assertNotNull(tools.getValue("knowledge.search").inputSchema.singleOrNull { it.name == "query" && it.required })
     }
 
@@ -644,6 +651,7 @@ class XiaoLingToolRegistryTest {
         )
         assertTrue(testRegistry().supportsCommittedEffectVerification("notes.create"))
         assertTrue(testRegistry().supportsCommittedEffectVerification("memory.remember"))
+        assertTrue(testRegistry().supportsCommittedEffectVerification("memory.delete"))
         assertFalse(testRegistry().supportsCommittedEffectVerification("calendar.get"))
         assertEquals(
             setOf("Preference", "ProfileFact", "Episode", "Procedure"),
@@ -657,6 +665,162 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertTrue(invalidTags.errors.contains("长期记忆标签不能超过 10 个"))
+    }
+
+    @Test
+    fun memoryDeleteIsOnlyAvailableToDirectForegroundAgent() {
+        val registry = testRegistry()
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-memory-delete",
+                userMessageId = "message-memory-delete",
+                runId = "run-memory-delete",
+                goal = "删除这条长期记忆",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNotNull(registry.definition("memory.delete"))
+        assertTrue(registry.availableTools().any { it.name == "memory.delete" })
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "删除这条长期记忆"))
+        assertNull(registry.definition("memory.delete"))
+        assertFalse(registry.availableTools().any { it.name == "memory.delete" })
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-memory-delete-background",
+                userMessageId = "message-memory-delete-background",
+                runId = "run-memory-delete-background",
+                goal = "删除这条长期记忆",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNull(registry.definition("memory.delete"))
+        assertFalse(registry.availableTools().any { it.name == "memory.delete" })
+    }
+
+    @Test
+    fun memoryDeleteCommitsStableIdAndRecoveryOnlyVerifiesCurrentAbsence() = runTest {
+        val memoryId = "memory-12345678-1234-1234-1234-123456789abc"
+        val memoryStore = InMemoryAgentMemoryStore().apply {
+            records += AgentMemoryRecord(
+                id = memoryId,
+                content = "用户喜欢紧凑界面",
+                tags = "ui",
+                type = "Preference",
+                sourceConversationId = "conversation-memory-delete",
+                sourceRunId = "run-memory-source",
+                sourceSummary = "用户确认保存",
+                confidence = 0.9,
+                enabled = true,
+                createdAt = 1L,
+                updatedAt = 1L,
+            )
+        }
+        val registry = testRegistry(memoryStore = memoryStore).also {
+            it.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-memory-delete",
+                    userMessageId = "message-memory-delete",
+                    runId = "run-memory-delete",
+                    goal = "删除这条长期记忆",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                ),
+            )
+        }
+        val call = ToolCall(
+            id = "tool-call-memory-delete",
+            name = "memory.delete",
+            arguments = mapOf("memory_id" to memoryId),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val bypassed = registry.execute(call)
+        assertFalse(bypassed.success)
+        assertTrue(bypassed.content.contains("先搜索并读取详情"))
+        assertEquals(0, memoryStore.deleteCallCount)
+
+        val ambiguousMemoryId = "memory-12345678-1234-1234-1234-123456789def"
+        memoryStore.records += memoryStore.records.single().copy(
+            id = ambiguousMemoryId,
+            content = "用户喜欢紧凑界面（另一条）",
+        )
+        val truncatedSearch = registry.execute(
+            ToolCall(
+                name = "memory.search",
+                arguments = mapOf("query" to "紧凑界面", "limit" to "1"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        val truncatedDetail = registry.execute(
+            ToolCall(
+                name = "memory.get",
+                arguments = mapOf("memory_id" to memoryId),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertEquals(listOf(memoryId), truncatedSearch.memoryIdsUsed)
+        assertTrue(truncatedDetail.success)
+        assertFalse(registry.execute(call).success)
+        assertEquals(0, memoryStore.deleteCallCount)
+        memoryStore.records.removeAll { it.id == ambiguousMemoryId }
+
+        val search = registry.execute(
+            ToolCall(
+                name = "memory.search",
+                arguments = mapOf("query" to "紧凑界面"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        val detail = registry.execute(
+            ToolCall(
+                name = "memory.get",
+                arguments = mapOf("memory_id" to memoryId),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertTrue(search.success)
+        assertTrue(detail.success)
+
+        val deleted = registry.execute(call)
+        val receipt = checkNotNull(deleted.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(deleted.success)
+        assertEquals(true, deleted.verified)
+        assertEquals(ToolExecutionReceiptStatus.COMMITTED, receipt.status)
+        assertEquals(call.id, receipt.toolCallId)
+        assertEquals(call.id, receipt.idempotencyKey)
+        assertEquals(memoryId, receipt.operationId)
+        assertNull(memoryStore.get(memoryId))
+        assertEquals(1, memoryStore.deleteCallCount)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertEquals(1, memoryStore.deleteCallCount)
+
+        memoryStore.records += memoryStore.deletedRecord!!
+        val restored = registry.verifyCommittedEffect(call, receipt)
+        assertEquals(false, restored?.success)
+        assertEquals(false, restored?.verified)
+        assertEquals(1, memoryStore.deleteCallCount)
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-memory-delete-next",
+                userMessageId = "message-memory-delete-next",
+                runId = "run-memory-delete-next",
+                goal = "删除这条长期记忆",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        val crossRun = registry.execute(call.copy(id = "tool-call-memory-delete-next"))
+        assertFalse(crossRun.success)
+        assertEquals(1, memoryStore.deleteCallCount)
     }
 
     @Test
@@ -2837,7 +3001,8 @@ class XiaoLingToolRegistryTest {
             )
         }
 
-        assertTrue(registry.availableTools().none { it.name in setOf("memory.search", "memory.get") })
+        assertTrue(registry.availableTools().none { it.name in setOf("memory.search", "memory.get", "memory.delete") })
+        assertNull(registry.definition("memory.delete"))
         val search = registry.execute(
             ToolCall(name = "memory.search", arguments = mapOf("query" to "Android"), risk = ToolRisk.SAFE),
         )
@@ -3900,6 +4065,8 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
     val getQueries = mutableListOf<String>()
     var rememberCallCount = 0
     var verificationCallCount = 0
+    var deleteCallCount = 0
+    var deletedRecord: AgentMemoryRecord? = null
     private val recordsByIdempotencyKey = mutableMapOf<String, AgentMemoryRecord>()
     private val requestsByIdempotencyKey = mutableMapOf<String, AgentMemoryWriteRequest>()
 
@@ -3980,5 +4147,24 @@ private open class InMemoryAgentMemoryStore : AgentMemoryStore {
                     record.sourceSummary.contains(normalized, ignoreCase = true)
             }
             .take(limit)
+    }
+
+    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean {
+        deleteCallCount += 1
+        val memory = records.firstOrNull { it.id == memoryId } ?: return false
+        deletedRecord = memory
+        records.remove(memory)
+        return true
+    }
+
+    override suspend fun verifyDeletedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+    ): AgentMemoryDeleteOperationVerification {
+        return if (deletedRecord?.id == memoryId && records.none { it.id == memoryId }) {
+            AgentMemoryDeleteOperationVerification.Verified
+        } else {
+            AgentMemoryDeleteOperationVerification.Failed(AgentMemoryDeleteOperationVerificationFailure.MEMORY_STILL_EXISTS)
+        }
     }
 }

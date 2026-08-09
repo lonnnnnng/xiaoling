@@ -1,5 +1,7 @@
 # 文档索引
 
+第 220 阶段完成前台长期记忆安全删除：新增 `memory.delete` 与独立 `personal-memory-delete` Skill，只在开启记忆召回的前台 `DIRECT` Run 可发现；生产 Registry 强制同一 Run 唯一 `memory.search -> memory.get -> memory.delete` 且稳定 ID 一致，跳步、多结果、ID 漂移、Run 切换或关闭召回均 fail-closed。删除需审批并由 Executor 回读验证，`COMMITTED + IDEMPOTENT_BY_KEY + DENY` 回执通过 Room operation ledger 支持重启后只读核对；删除主记录、FTS 和账本同一事务，Room 保持 v36。聚焦 JVM `119/119`、Debug/AndroidTest APK 构建成功；Redmi 上 Registry 完整删除链、跨重开账本与文档 corpus gate 分别 `OK (1 test)`，测试包已卸载。尚未完成真实 Provider 自然语言 Run、人工审批 UI 与答案级当前不可见验收；第 221 阶段收口这些真实前台证据。旧 Profile/Run、Workflow 和后台边界不变。
+
 第 219 阶段完成真实前台个人 Agent 的存储状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，唯一调用 `app.get_storage`；Run `COMPLETED`、typed `PASSED`、审批数为 0，结果不含 Provider 凭据、Profile 内部 ID、文件路径、应用数据或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 
 第 218 阶段完成前台只读 `app.get_storage` 存储状态闭环：工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只投影总容量、可用空间和使用率，不读取文件名、路径、应用数据或设备身份。聚焦 JVM `XiaoLingToolRegistryTest 82/82 + AgentSkillsTest 34/34`（`116/116`）、Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 定向 instrumentation `OK (1 test)`，耗时 `0.222s`，测试包已卸载。ADB 清单中的模拟器未接收目标命令；未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
@@ -14,7 +16,7 @@
 
 第 213 阶段完成 `app.get_info` 的 Redmi 本地只读验收：生产 `XiaoLingToolRegistry + AndroidAppInfoReader + Room` 返回当前应用名称、包名、版本名和版本号四项，敏感字段保持不可见；Redmi 定向 instrumentation `OK (1 test)`。不依赖 Provider 网络，不运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation。第 214 阶段已使用手机当前 Provider 完成第 212 阶段真实重跑。
 
-第 212 阶段已完成 `agent.get_profile` 的定向实现与测试探针：新增 Redmi-only AndroidTest，复用正式 `AgentRunUseCase`，要求 Profile 白名单仅包含 `agent.get_profile`，并断言结果只包含 Agent 名称、模型、API 模式和记忆召回状态。第 214 阶段新增 `agentProfileUseStoredProvider=true` 后，Redmi `wsvwypiz7xwslvl7` 真实 Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，单项 instrumentation `OK (1 test)`；测试包已卸载。未运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation，下一步进入新的个人 Agent 窄能力切片。
+第 212 阶段已完成 `agent.get_profile` 的定向实现与测试探针：新增 Redmi-only AndroidTest，复用正式 `AgentRunUseCase`，要求 Profile 白名单仅包含 `agent.get_profile`，并断言结果只包含 Agent 名称、模型、API 模式和记忆召回状态。第 214 阶段新增 `agentProfileUseStoredProvider=true` 后，Redmi `wsvwypiz7xwslvl7` 真实 Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，单项 instrumentation `OK (1 test)`；测试包已卸载。未运行 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation，后续已进入新的个人 Agent 窄能力切片。
 
 第 211 阶段完成 Redmi 真实前台历史会话搜索、当前正文读取和答案级“查看会话”验收，并修复当前 Run 会话污染旧会话搜索的问题。首跑 `run-4fae0edb-af9a-437b-836e-c8ca95ffaf00` 已严格执行 `app.search_conversations -> app.get_conversation`，但搜索同时命中当前验收会话和目标历史会话；该 Run 保持 `COMPLETED` 和两项 typed `PASSED` 审计不变。生产 Store 随后在应用 limit 前排除 RunContext 当前会话，修复后 Run `run-25bd9d0a-90a9-41b2-adbb-1cca0ddd62ab` 只命中唯一 `conversation-stage211-target-20260808`，同样选择 `conversation-detail@1` 并完成两项 `PASSED` 只读工具。Run 后把目标助手正文从 `before` 改为 `after`，历史 Tool 卡仍冻结旧正文；点击“查看会话”后页面显示当前 Room 的 `after`，且没有创建新 Run。夹具会话、临时 Profile、快照和测试包已精确清理，两条 Run 审计保留。只使用 Redmi；聚焦 JVM `2/2`、Debug/AndroidTest APK、四个定向 instrumentation 与文档 corpus gate 通过，未运行完整 JVM、Lint、Release 或全量 instrumentation。
 

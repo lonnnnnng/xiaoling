@@ -4,6 +4,28 @@
 
 ## 当前验证基线
 
+## 2026-08-09 第 220 阶段：前台长期记忆安全删除
+
+### 结论
+
+- 生产能力已加入 `memory.delete(memory_id)` 与独立 `personal-memory-delete` Skill。发现面限定为开启长期记忆召回的前台 `DIRECT` Agent；Workflow、后台、Legacy Run 与旧 Profile 不变。
+- Registry 强制同一 Run 唯一 `memory.search -> memory.get -> memory.delete` 和稳定 ID 一致；即使模型请求 `limit=1`，授权判定也会在本地额外探测第二个候选且不扩大工具输出，跳步、多结果、ID 漂移、Run 切换或关闭召回均 fail-closed。
+- 删除需审批并由 Executor 验证当前 Store 不可见。回执为 `COMMITTED`，以 ToolCall ID 绑定幂等键、以 memory ID 绑定 operation；`IDEMPOTENT_BY_KEY + DENY` 只允许已提交后的只读恢复验证。
+- Room operation ledger、主记录删除和 FTS 删除位于同一事务；数据库仍为 v36，无 Migration。
+
+### 验证证据
+
+- 聚焦 JVM：`XiaoLingToolRegistryTest 84/84 + AgentSkillsTest 35/35`，合计 `119/119`。
+- 构建：`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功。
+- Redmi `wsvwypiz7xwslvl7` 定向 instrumentation：修复后 `AndroidMemoryDeleteInstrumentedTest#foregroundRegistryDeletesOnlySearchedAndConfirmedMemory` 覆盖 `limit=1` 多结果拒绝和唯一结果删除，结果为 `OK (1 test)`，耗时 `0.64s`；`RoomAgentMemoryIdempotencyInstrumentedTest#memoryDeleteOperationSurvivesReopenAndFailsAfterUserRestoresTarget` 为 `OK (1 test)`，耗时 `0.473s`。
+- 同一 Redmi 定向执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`，耗时 `3.174s`。
+- 测试包 `com.longdev.xiaoling.test` 已卸载；主 Debug 应用与用户数据保留。设备清单中未出现模拟器，本阶段所有安装、测试与卸载命令均显式指定 Redmi。
+- 未运行完整 JVM、Lint、Release 或全量 instrumentation；没有真实 Provider 自然语言 Run、人工审批 UI、Tool Ledger 页面与长期记忆页当前不可见验收，不能把隔离 instrumentation 宣称为完整用户闭环。
+
+### 下一阶段
+
+- 第 221 阶段只在 Redmi 当前 Provider 下创建唯一测试记忆，通过真实自然语言严格执行 `memory.search -> memory.get -> memory.delete`，人工批准后核对三步 Tool Ledger、`COMMITTED/PASSED`、当前记忆页不可见，并精确清理临时 Profile、会话与夹具；旧 Run 保持不变。
+
 ## 2026-08-09 第 219 阶段：真实前台存储状态 Agent Run
 
 - 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 读取当前选中 Provider，创建临时最小 Profile（只允许 `app.get_storage / storage-status`，关闭长期记忆），复用正式 `AgentRunUseCase` 执行自然语言存储查询。

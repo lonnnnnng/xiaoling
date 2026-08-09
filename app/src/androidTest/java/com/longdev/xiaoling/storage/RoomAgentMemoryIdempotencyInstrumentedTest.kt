@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.agent.AgentMemoryIdempotencyConflictException
+import com.longdev.xiaoling.agent.AgentMemoryDeleteOperationVerification
+import com.longdev.xiaoling.agent.AgentMemoryDeleteOperationVerificationFailure
 import com.longdev.xiaoling.agent.AgentMemoryOperationVerification
 import com.longdev.xiaoling.agent.AgentMemoryOperationVerificationFailure
 import com.longdev.xiaoling.agent.AgentMemoryWriteRequest
@@ -275,6 +277,40 @@ class RoomAgentMemoryIdempotencyInstrumentedTest {
         assertEquals(
             AgentMemoryOperationVerificationFailure.EVIDENCE_INCOMPLETE,
             (verification as AgentMemoryOperationVerification.Failed).reason,
+        )
+    }
+
+    @Test
+    fun memoryDeleteOperationSurvivesReopenAndFailsAfterUserRestoresTarget() = runBlocking {
+        var store = openStore()
+        val created = store.remember(
+            content = "用户要求删除的长期记忆",
+            tags = "delete",
+            type = "Preference",
+            source = AgentMemorySource("conversation-delete", "run-delete", "用户确认保存"),
+            confidence = 0.8,
+        )
+
+        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete"))
+        assertEquals(null, store.get(created.id))
+        database?.close()
+        database = null
+        store = openStore()
+
+        assertEquals(
+            AgentMemoryDeleteOperationVerification.Verified,
+            store.verifyDeletedOperation("tool-call-memory-delete", created.id),
+        )
+        assertTrue(store.deleteForAgent(created.id, "tool-call-memory-delete"))
+        store.restore(checkNotNull(store.latestDeleted()))
+
+        assertEquals(
+            AgentMemoryDeleteOperationVerificationFailure.MEMORY_STILL_EXISTS,
+            (store.verifyDeletedOperation("tool-call-memory-delete", created.id) as AgentMemoryDeleteOperationVerification.Failed).reason,
+        )
+        assertTrue(
+            runCatching { store.deleteForAgent(created.id, "tool-call-memory-delete") }
+                .exceptionOrNull() is AgentMemoryIdempotencyConflictException,
         )
     }
 

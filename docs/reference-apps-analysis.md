@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 220 阶段继续采用成熟个人 Agent 的“先以当前读取结果缩窄目标、逐次审批副作用、提交后回权威 Store 验证”的边界，但没有复制参考项目的任意记忆批量删除或后台治理。生产 `memory.delete` 只接受同一前台 Run 中唯一 `memory.search -> memory.get` 确认的稳定 ID；短生命周期授权、Room operation ledger 与 `IDEMPOTENT_BY_KEY + DENY` 恢复边界共同阻止 ID 猜测、跨 Run 沿用和中断后重放。第 220 阶段只完成隔离 Redmi 证据，真实 Provider 自然语言、人工审批和当前页面不可见验收留给第 221 阶段。
+
 第 219 阶段用真实 Provider Run 验证 `storage-status` 的完整前台路由：模型只获得 `app.get_storage`，本地 Registry 生成容量摘要，Tool Ledger typed `PASSED` 后才形成最终回答。结果没有复制参考项目的文件系统浏览、路径扫描或后台存储监控；阶段完成后明确停止继续横向堆叠同类状态字段，后续重新回到能扩大真实任务范围的能力。
 
 第 218 阶段把参考 Agent 的“设备资源只暴露任务所需摘要”原则落实为前台 `app.get_storage`：应用仅使用系统分区统计生成总容量、可用空间和使用率，不复制文件浏览、路径扫描、应用数据枚举或后台存储监控。工具保持 SAFE、仅前台、无权限且失败时 fail-closed，旧 Profile、Workflow 和后台工具面不变。

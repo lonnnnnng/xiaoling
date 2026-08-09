@@ -15,6 +15,8 @@ import com.longdev.xiaoling.agent.AgentMemoryStore
 import com.longdev.xiaoling.agent.AgentMemoryUpdate
 import com.longdev.xiaoling.agent.AgentMemorySensitiveCategory
 import com.longdev.xiaoling.agent.AgentMemoryDecayPolicy
+import com.longdev.xiaoling.agent.AgentMemoryDeleteOperationVerification
+import com.longdev.xiaoling.agent.AgentMemoryDeleteOperationVerificationFailure
 import com.longdev.xiaoling.agent.AgentMemoryIdempotencyConflictException
 import com.longdev.xiaoling.agent.AgentMemoryOperationVerification
 import com.longdev.xiaoling.agent.AgentMemoryOperationVerificationFailure
@@ -206,6 +208,81 @@ class RoomAgentMemoryStore(
             deleteUndoStore.clear(memoryId)
             throw error
         }
+    }
+
+    override suspend fun deleteForAgent(memoryId: String, idempotencyKey: String): Boolean {
+        require(memoryId.isNotBlank()) { "长期记忆 ID 不能为空" }
+        require(idempotencyKey.isNotBlank()) { "长期记忆删除幂等键不能为空" }
+        require(idempotencyKey.length <= 200) { "长期记忆删除幂等键不能超过 200 个字符" }
+        val payloadHash = memoryDeletePayloadHash(memoryId)
+        val resultHash = memoryDeleteResultHash(memoryId)
+        return try {
+            database.withTransaction {
+                val dao = database.agentMemoryDao()
+                dao.getMemoryOperation(idempotencyKey)?.let { operation ->
+                    if (
+                        operation.memoryId != memoryId ||
+                        operation.payloadHash != payloadHash ||
+                        operation.resultHash != resultHash ||
+                        dao.getMemory(memoryId) != null
+                    ) {
+                        throw AgentMemoryIdempotencyConflictException()
+                    }
+                    return@withTransaction true
+                }
+                val current = dao.getMemory(memoryId)?.toRecord() ?: return@withTransaction false
+                // long: 删除 operation、FTS 和主记录必须处于同一 Room 事务；崩溃后要么三者都存在，要么只留下可证明已提交且当前不可见的删除账本。
+                deleteUndoStore.save(current)
+                dao.insertMemoryOperation(
+                    AgentMemoryOperationEntity(
+                        idempotencyKey = idempotencyKey,
+                        memoryId = memoryId,
+                        payloadHash = payloadHash,
+                        resultHash = resultHash,
+                        createdAt = System.currentTimeMillis(),
+                    ),
+                )
+                dao.deleteMemoryIndex(memoryId)
+                check(dao.deleteMemory(memoryId) == 1) { "长期记忆删除提交失败" }
+                check(dao.getMemory(memoryId) == null) { "长期记忆删除后回读验证失败" }
+                true
+            }
+        } catch (error: Throwable) {
+            deleteUndoStore.clear(memoryId)
+            throw error
+        }
+    }
+
+    override suspend fun verifyDeletedOperation(
+        idempotencyKey: String,
+        memoryId: String,
+    ): AgentMemoryDeleteOperationVerification {
+        val operation = database.agentMemoryDao().getMemoryOperation(idempotencyKey)
+            ?: return AgentMemoryDeleteOperationVerification.Failed(
+                AgentMemoryDeleteOperationVerificationFailure.OPERATION_NOT_FOUND,
+            )
+        if (operation.memoryId != memoryId) {
+            return AgentMemoryDeleteOperationVerification.Failed(
+                AgentMemoryDeleteOperationVerificationFailure.OPERATION_MISMATCH,
+            )
+        }
+        if (operation.payloadHash != memoryDeletePayloadHash(memoryId)) {
+            return AgentMemoryDeleteOperationVerification.Failed(
+                AgentMemoryDeleteOperationVerificationFailure.PAYLOAD_MISMATCH,
+            )
+        }
+        if (operation.resultHash != memoryDeleteResultHash(memoryId)) {
+            return AgentMemoryDeleteOperationVerification.Failed(
+                AgentMemoryDeleteOperationVerificationFailure.EVIDENCE_INCOMPLETE,
+            )
+        }
+        // long: 只读恢复必须同时证明 operation 已提交且目标当前不可见；用户撤销后同 ID 重新出现时，旧删除成功结论立即失效。
+        if (database.agentMemoryDao().getMemory(memoryId) != null) {
+            return AgentMemoryDeleteOperationVerification.Failed(
+                AgentMemoryDeleteOperationVerificationFailure.MEMORY_STILL_EXISTS,
+            )
+        }
+        return AgentMemoryDeleteOperationVerification.Verified
     }
 
     override suspend fun latestDeleted(): AgentMemoryRecord? {
@@ -470,6 +547,12 @@ class RoomAgentMemoryStore(
             ),
         )
     }
+
+    private fun memoryDeletePayloadHash(memoryId: String): String =
+        sha256Canonical(listOf("memory.delete", memoryId))
+
+    private fun memoryDeleteResultHash(memoryId: String): String =
+        sha256Canonical(listOf("memory.deleted", memoryId))
 
     private fun sha256Canonical(fields: List<String?>): String {
         val canonical = fields.joinToString(separator = "") { field ->

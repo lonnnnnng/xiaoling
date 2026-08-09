@@ -120,6 +120,21 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInMemoryDeleteSkillRequiresSearchAndDetailWithoutExpandingExistingSkills() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "找到并删除这条长期记忆",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "personal-memory-delete" }
+        assertEquals(setOf("memory.search", "memory.get", "memory.delete"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("memory.search -> memory.get -> memory.delete"))
+        assertTrue("memory.delete" !in BuiltInAgentSkillRegistry.all().single { it.id == "personal-memory" }.toolNames)
+        assertTrue("memory.delete" !in BuiltInAgentSkillRegistry.all().single { it.id == "personal-memory-detail" }.toolNames)
+    }
+
+    @Test
     fun builtInLocalNoteDeleteSkillKeepsMutationSeparateFromReadAndCreateSkills() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "找到并删除标题匹配的这条笔记",
