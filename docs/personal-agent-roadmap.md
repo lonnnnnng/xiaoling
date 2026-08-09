@@ -1,12 +1,21 @@
 # 小灵个人 Agent 路线图
 
+## 第 229 阶段：设备观察真实前台自然语言闭环（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 使用临时最小 Profile，只允许 `device.open_app / device.snapshot` 和 `device-control`；用户在真实 `MainActivity` 发送自然语言 `/agent` 目标，并对 `com.android.settings` 打开动作逐次审批。
+- 最终 Run `run-6074ad3d-04bb-4cb6-8f10-b8e555570142` 为 `COMPLETED`，唯一审批 `APPROVED`，两项 ToolResult 均 `PASSED`；`open_app` 具备 Executor 验证，随后 Snapshot 从当前 Settings 窗口读取 29 个有界节点、0 个脱敏节点且未截断。
+- 消息投影保持分层语义：设备动作是 `VERIFIED`，只读 Snapshot 是 `READABLE_ONLY`。旧 Run `run-e615ff22-6c4a-447d-bc08-bc49b9c4f85b` 的稳定摘要在新 Run 前后不变；临时 Profile/会话清理后，新旧 Run 审计均保留。
+- 本阶段没有新增生产 Tool/Skill、Room、Workflow 或后台能力，只补齐“健康检查之后由自然语言进入审批设备动作，再由操作后观察形成可信答案”的真实应用壳证据；不外推到任意 App。
+
+下一阶段（第 230 阶段）：继续选择新的个人 Agent 受控能力切片，优先扩大完整用户任务覆盖；后台设备自动化、任意 App、MCP、远程 Channel、多 Agent 和本地模型仍不前置。
+
 ## 第 228 阶段：设备 Agent 健康只读切片（完成）
 
 - 新增前台直接 Agent 工具 `app.get_device_agent_health` 与独立 `device-agent-health` Skill；工具无参数、SAFE、仅前台直接调用，不需要审批，不读取窗口、包名、节点、文本或设备动作。
 - 健康结果严格限制为四态：未启用、未授权、服务断连、READY。Workflow、后台和无上下文均隐藏该工具；查询不会触发 snapshot、节点引用或设备动作。
 - 聚焦 JVM 回归、Debug/AndroidTest APK 构建和 Redmi `wsvwypiz7xwslvl7` 真实 Provider 分段验收通过；真实 Run 完成、ToolResult `PASSED`、审批数为 0，敏感字段边界通过。
 
-下一阶段（第 229 阶段）：继续个人 Agent 主线，选择一个能在 Redmi 前台自然语言真实跑通、结果可从权威 Store 回读的新窄能力；维持最小 Profile、显式边界和分级验证约束。
+第 229 阶段已完成设备观察链的真实前台自然语言、审批和权威账本回读；下一阶段进入第 230 阶段。
 
 ## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
 

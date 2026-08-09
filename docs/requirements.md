@@ -1,5 +1,14 @@
 # 产品需求
 
+## 设备观察真实前台自然语言闭环（第 229 阶段，完成）
+
+- 验收必须只使用 Redmi `wsvwypiz7xwslvl7`、真实 `MainActivity` 和当前可用 Provider；临时 Profile 的工具白名单必须精确为 `device.open_app / device.snapshot`，Skill 白名单精确为 `device-control`，长期记忆关闭。
+- 用户自然语言目标必须只规划 `device.open_app(package_name=com.android.settings) -> device.snapshot`。打开动作必须显示真实审批卡并由用户批准；不得由测试代码代替发送或审批，不得调用 `tap_ref / type_text / swipe / back / home`。
+- Run 必须为 `COMPLETED`，唯一审批为 `APPROVED`，两项 ToolResult 均为 `PASSED`；`open_app` 必须具备 `executorVerified=true` 并绑定动作后包名，Snapshot 必须回读 `com.android.settings`、保持 200 节点与 20,000 字符上限并通过隐私过滤。
+- 会话 Tool Message 必须与 Tool Ledger 的顺序、参数和结果一致；设备动作投影为 `VERIFIED`，只读 Snapshot 投影为 `READABLE_ONLY`，不得把 `RESULT_READABLE` 错报为 Executor 验证。
+- prepare 必须冻结最近旧 Run 的稳定摘要，audit 证明新执行不改写旧 Run；临时 Profile/会话清理后保留新旧 Run、Approval 与 Tool Ledger 审计。生产 Tool/Skill、Room v36、Workflow、后台设备自动化和任意 App 边界不得扩张。
+- 本阶段按快速迭代分级验证只运行 AndroidTest 编译/构建与 Redmi 分段单项；完整 JVM、Lint、Release 和全量 instrumentation 后置。第 230 阶段继续选择新的个人 Agent 受控能力切片。
+
 ## 设备 Agent 健康只读能力（第 228 阶段，完成）
 
 - 新增 `app.get_device_agent_health`，无参数、`SAFE`、仅前台直接 Agent 可见，不需要审批，不支持 Workflow、后台或无上下文调用。

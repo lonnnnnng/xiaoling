@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 229 阶段：设备观察真实前台自然语言闭环（完成）
+
+- 新增 `Stage229DeviceSnapshotUiInstrumentedTest`，采用显式 `stage229Manual=true` 的分段夹具：prepare 创建只开放 `device.open_app / device.snapshot` 与 `device-control` 的临时最小 Profile/会话，真实应用前台由用户发送和审批，audit 从 Room 权威账本核对并清理临时业务数据。
+- Redmi `wsvwypiz7xwslvl7` 当前 Provider 使用 `gpt-5.6-luna` 完成 Run `run-6074ad3d-04bb-4cb6-8f10-b8e555570142`；工具顺序严格为 `device.open_app -> device.snapshot`，打开参数为 `com.android.settings`，唯一审批 `APPROVED`，两项 ToolResult 均 `PASSED`，`open_app.executorVerified=true`。
+- Snapshot 内容由生产 `DeviceSnapshotCodec` 解码为 `package=com.android.settings / nodes=29 / redacted=0 / truncated=false`，持久化正文 4,924 字符且不包含 Provider URL/API Key。会话 Tool Message 与 Ledger 参数/结果一致；`open_app` 投影为 `VERIFIED`，只读 `snapshot` 按 `RESULT_READABLE` 语义投影为 `READABLE_ONLY`。
+- prepare 把上一条成功 Run `run-e615ff22-6c4a-447d-bc08-bc49b9c4f85b` 的完整详情稳定摘要冻结为 baseline；最终 audit 比较摘要并通过，证明新 Run 没有改写旧 Run。临时 Profile/会话均已删除，两个真实 Run、Approval 和 Tool Ledger 审计保留。
+- instrumentation 会把 Redmi 的 Accessibility 总开关置为关闭；验收按“force-stop 主应用 -> 清空并重新注册服务组件 -> `accessibility_enabled=1` -> 启动应用”恢复，最终服务配置可用。设备交互期间不使用会接管系统 Accessibility 的 `uiautomator dump`。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebugAndroidTest`、测试 APK 覆盖安装、prepare 和最终 audit 均通过；最终 audit 为 `OK (1 test)`、`0.571s`，更新后文档 corpus gate 为 `OK (1 test)`。按快速迭代分级验证未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，未使用 Pixel_9。生产代码、Tool/Skill、Room v36、Workflow 和后台能力不变。
+
+### 下一阶段
+
+第 230 阶段继续个人 Agent 主线，选择新的受控能力切片；优先补真实用户任务覆盖，不重复为已跑通的设备观察链扩大任意 App、后台自动化或测试矩阵。
+
 ## 第 228 阶段：设备 Agent 健康只读切片（完成）
 
 - `XiaoLingToolRegistry` 注册 `app.get_device_agent_health`，执行时只读取 `DeviceController.health()` 并映射为四个固定中文状态；空参数校验失败即停止。
@@ -10,7 +23,7 @@
 
 ### 下一阶段
 
-第 229 阶段继续选择可在 Redmi 前台自然语言真实跑通的新个人 Agent 窄能力，优先形成权威 Store 回读闭环，不提前扩展后台、任意 App 或 Release 测试矩阵。
+第 229 阶段已完成既有设备观察工具的 Redmi 真实前台自然语言、审批、回读和旧 Run 不变闭环；下一阶段进入第 230 阶段的新受控能力切片。
 
 ## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
 

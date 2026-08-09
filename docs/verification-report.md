@@ -4,6 +4,32 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 229 阶段：设备观察真实前台自然语言闭环
+
+### 结论
+
+- 真实 `MainActivity` 已在 Redmi 当前 Provider 下，用临时最小 Profile 完成自然语言 `device.open_app -> device.snapshot`；用户在审批卡核对 `package_name=com.android.settings` 后点击“批准执行”。
+- 最终 Run `run-6074ad3d-04bb-4cb6-8f10-b8e555570142` 为 `COMPLETED`，唯一审批为 `APPROVED`，两项 ToolResult 均为 `success=true / verificationStatus=PASSED`；`device.open_app.executorVerified=true`，Settings 已真实打开。
+- Snapshot 结果为 `package=com.android.settings / nodeCount=29 / redactedNodeCount=0 / truncated=false / contentLength=4924`。会话 Tool Message 与 Ledger 的工具顺序、参数和结果一致，状态按语义为 `VERIFIED / READABLE_ONLY`，结果及最终回答不包含 Provider URL/API Key。
+- prepare 记录上一条成功 Run `run-e615ff22-6c4a-447d-bc08-bc49b9c4f85b` 的完整详情稳定摘要；最终 audit 比较通过，确认旧 Run 未改写。临时 Profile 和会话残留均为 `0`，两个 Run 审计保留。
+
+### 验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 和 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`，只覆盖安装最新 AndroidTest APK；主应用包和既有数据未重装或清空。
+- 第一次 audit 暴露测试预期错误：`device.snapshot` 的 Tool Ledger 虽为 `PASSED`，但消息层按 `RESULT_READABLE` 正确投影为 `READABLE_ONLY`，不应与 `device.open_app` 一样要求 `VERIFIED`。修正为精确状态顺序后重新编译安装。
+- 第二轮 `prepareMinimalProfileAndDedicatedConversation` 为 `OK (1 test)`、`0.363s`；真实前台发送后审批卡在约 12 秒出现，批准后 Settings 打开，最终 `auditCompletedForegroundRunAndCleanup` 为 `OK (1 test)`、`0.571s`。
+- 更新后的项目文档重新打包后，`projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
+- 只使用 Redmi `wsvwypiz7xwslvl7`，未向 Pixel_9 或其他模拟器发送命令。设备动作期间没有调用会接管系统 Accessibility 的 `uiautomator dump`；instrumentation 后已重新注册小灵服务并确认 `accessibility_enabled=1`。
+
+### 验证范围
+
+- 已执行 AndroidTest 聚焦编译/构建、测试 APK 覆盖安装、Redmi prepare、真实应用前台自然语言发送与审批、Settings 动作后观察、Room audit/cleanup 和数据库只读证据核对。
+- 按快速迭代分级验证约束，未运行完整 JVM、全量 Lint、主 APK、Release APK 或全量 instrumentation；生产代码、Room v36、Tool/Skill、Workflow 和后台边界不变。
+
+### 下一阶段
+
+第 230 阶段继续个人 Agent 主线，选择新的受控能力切片，优先扩大完整用户任务覆盖，不把本阶段限定 Settings 的成功外推为任意 App。
+
 ## 2026-08-10 第 228 阶段：设备 Agent 健康只读切片
 
 ### 结论

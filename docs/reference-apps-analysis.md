@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 229 阶段继续采用成熟个人 Agent 的“自然语言规划与设备执行分离、风险动作逐次审批、动作后重新观察、只读结果与执行验证分层、旧账本不可变”原则：Redmi 真实前台只允许 `device.open_app -> device.snapshot`，批准打开系统设置后由 Accessibility 回读当前窗口，动作消息投影为 `VERIFIED`、只读快照为 `READABLE_ONLY`。临时 Profile/会话清理但新旧 Run 审计保留；没有复制参考项目的任意 App、坐标/截图驱动、后台设备守护、远程 Channel 或多 Agent 编排。
+
 第 228 阶段采用成熟个人 Agent 的“健康探针只投影最小状态、能力发现与设备执行分离”原则：`app.get_device_agent_health` 只在前台直接 Agent 暴露四态健康结果，Workflow、后台和无上下文不见该工具，也不会因健康查询触发 snapshot、节点读取或设备动作。该阶段没有复制参考项目的窗口抓取、任意 App 控制、后台设备守护、远程 Channel 或多 Agent 编排。
 
 第 227 阶段继续采用成熟 Agent 的“持久化审批可恢复、恢复后仍需原地确认、执行身份不可漂移”原则：Redmi 主进程被结束并重启后，应用从 Room 恢复原 `notes.create` 审批卡，使用“批准并继续”完成同一 Run，而不是新建 Run 或重新规划。临时数据按稳定身份清理但保留执行审计；没有复制参考项目的后台自动恢复、隐式授权、远程 Channel 或多 Agent 编排。
