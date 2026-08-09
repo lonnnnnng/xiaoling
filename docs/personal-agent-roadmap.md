@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 228 阶段：设备 Agent 健康只读切片（完成）
+
+- 新增前台直接 Agent 工具 `app.get_device_agent_health` 与独立 `device-agent-health` Skill；工具无参数、SAFE、仅前台直接调用，不需要审批，不读取窗口、包名、节点、文本或设备动作。
+- 健康结果严格限制为四态：未启用、未授权、服务断连、READY。Workflow、后台和无上下文均隐藏该工具；查询不会触发 snapshot、节点引用或设备动作。
+- 聚焦 JVM 回归、Debug/AndroidTest APK 构建和 Redmi `wsvwypiz7xwslvl7` 真实 Provider 分段验收通过；真实 Run 完成、ToolResult `PASSED`、审批数为 0，敏感字段边界通过。
+
+下一阶段（第 229 阶段）：继续个人 Agent 主线，选择一个能在 Redmi 前台自然语言真实跑通、结果可从权威 Store 回读的新窄能力；维持最小 Profile、显式边界和分级验证约束。
+
 ## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 在 `WAITING_APPROVAL` 期间被强制结束并重新启动，应用恢复同一 `notes.create` 审批卡，显示“批准并继续”。

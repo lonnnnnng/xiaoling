@@ -1,5 +1,12 @@
 # 产品需求
 
+## 设备 Agent 健康只读能力（第 228 阶段，完成）
+
+- 新增 `app.get_device_agent_health`，无参数、`SAFE`、仅前台直接 Agent 可见，不需要审批，不支持 Workflow、后台或无上下文调用。
+- 结果只能是“未启用”“未授权”“服务断连”“READY”四种有限状态；不得返回窗口、包名、节点、文本、设备身份、Provider 配置或凭据，也不得触发设备动作。
+- 真实 Provider 验收使用 Redmi 当前 Provider 和临时最小 Profile，Run 完成、ToolResult `PASSED`、审批数为 0；临时会话不改变正式 Profile/Provider，审计保持可追溯。
+- 本阶段按快速迭代分级验证执行聚焦 JVM、Debug/AndroidTest APK 和单项 Redmi instrumentation；完整 JVM、Lint、Release、全量 instrumentation 留到里程碑或正式发版。
+
 ## 进程重启后的审批恢复（第 227 阶段，完成）
 
 - `WAITING_APPROVAL` Run 在进程结束后必须从 Room 恢复到原会话，不得丢失审批卡或回退为普通消息。

@@ -143,6 +143,14 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME,
+            description = "读取设备 Agent 的当前健康状态，只返回未启用、未授权、服务断连或 READY，不读取窗口内容、不执行动作。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = "app.list_conversations",
             description = "列出最近的本地会话标题、消息数和更新时间，用于帮助用户回到历史对话。",
             risk = ToolRisk.SAFE,
@@ -1122,6 +1130,9 @@ class XiaoLingToolRegistry(
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
+        if (!deviceHealthAllowed(context)) {
+            available = available.filterNot { it.name == APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME }
+        }
         if (!directDeviceActionsAllowed(context)) {
             // long: 生产 Workflow 只放行已闭环的 open_app/back/home/tap_ref/type_text/swipe；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
@@ -1155,6 +1166,7 @@ class XiaoLingToolRegistry(
             (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext)) &&
             (definition.name != APP_GET_CONVERSATION_TOOL_NAME || conversationDetailAllowed(runContext)) &&
             (definition.name != MEMORY_DELETE_TOOL_NAME || memoryDeleteAllowed(runContext))
+            && (definition.name != APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME || deviceHealthAllowed(runContext))
     }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
@@ -1165,6 +1177,7 @@ class XiaoLingToolRegistry(
             APP_GET_CONNECTIVITY_TOOL_NAME -> getConnectivityStatus(call)
             APP_GET_STORAGE_TOOL_NAME -> getStorageStatus(call)
             AGENT_GET_PROFILE_TOOL_NAME -> getAgentProfile(call)
+            APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME -> getDeviceAgentHealth(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
             APP_GET_CONVERSATION_TOOL_NAME -> getConversation(call)
@@ -1473,6 +1486,11 @@ class XiaoLingToolRegistry(
             deviceController.health() == DeviceAgentHealthState.READY
     }
 
+    private fun deviceHealthAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource == AgentInvocationSource.DIRECT &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND
+    }
+
     private fun directDeviceActionsAllowed(context: AgentToolExecutionContext?): Boolean {
         return context?.invocationSource == AgentInvocationSource.DIRECT &&
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
@@ -1672,6 +1690,21 @@ class XiaoLingToolRegistry(
             success = true,
             content = AgentConversationDetailPolicy.encode(detail),
         )
+    }
+
+    private fun getDeviceAgentHealth(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "$APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME 不接受参数")
+        }
+        val state = deviceController.health()
+        val label = when (state) {
+            DeviceAgentHealthState.AGENT_DISABLED -> "未启用"
+            DeviceAgentHealthState.ACCESSIBILITY_NOT_AUTHORIZED -> "未授权"
+            DeviceAgentHealthState.SERVICE_DISCONNECTED -> "服务断连"
+            DeviceAgentHealthState.READY -> "READY"
+        }
+        // long: 健康查询只投影能指导用户下一步的有限状态，不把窗口、包名、节点或无障碍内部对象暴露给模型。
+        return ToolExecutionResult(success = true, content = "设备 Agent 健康状态：$label")
     }
 
     private suspend fun listTasks(call: ToolCall): ToolExecutionResult {
@@ -3007,6 +3040,7 @@ private object DisabledDeviceController : DeviceController {
 }
 
 private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+private const val APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME = "app.get_device_agent_health"
 internal const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
 private const val DEVICE_BACK_TOOL_NAME = "device.back"
 private const val DEVICE_HOME_TOOL_NAME = "device.home"

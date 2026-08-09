@@ -49,6 +49,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInDeviceAgentHealthSkillSelectsOnlyTheReadOnlyHealthTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "检查无障碍服务状态，看看设备 Agent 是否可用",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "device-agent-health" }
+        assertEquals(setOf("app.get_device_agent_health"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不读取窗口"))
+        assertTrue(skill.completionCriteria.contains("READY"))
+    }
+
+    @Test
     fun builtInBatteryStatusSkillExposesOnlyTheReadOnlyBatteryTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "当前手机还有多少电，是否正在充电",

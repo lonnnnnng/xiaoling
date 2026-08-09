@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 228 阶段：设备 Agent 健康只读切片（完成）
+
+- `XiaoLingToolRegistry` 注册 `app.get_device_agent_health`，执行时只读取 `DeviceController.health()` 并映射为四个固定中文状态；空参数校验失败即停止。
+- `availableToolsFor` 和 `definition` 同时要求 `AgentInvocationSource.DIRECT + AgentExecutionOrigin.FOREGROUND`，因此 Workflow、后台和未绑定上下文无法发现或执行该工具。
+- `AgentSkills` 新增 `device-agent-health`，工具白名单只包含健康探针，说明明确禁止读取窗口、包名、节点和文本，也不因健康异常尝试设备动作。
+- 新增 `RealProviderDeviceAgentHealthInstrumentedTest`，在 Redmi 当前 Provider 下用临时最小 Profile 复用正式 `AgentRunUseCase`；结果严格匹配四态集合，Run/ToolResult/隐私边界断言通过，临时会话使用随机 ID，不修改正式数据。
+- 聚焦 JVM、Debug/AndroidTest APK 和 Redmi 单项真实 Provider instrumentation 均通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+第 229 阶段继续选择可在 Redmi 前台自然语言真实跑通的新个人 Agent 窄能力，优先形成权威 Store 回读闭环，不提前扩展后台、任意 App 或 Release 测试矩阵。
+
 ## 第 227 阶段：进程重启后的审批恢复真实闭环（完成）
 
 - 复用第 226 阶段最小 `local-notes` Profile/会话和真实前台审批 Run；在 `WAITING_APPROVAL` 仍持久化时只对 Redmi 主包执行 `am force-stop`，随后重新启动 `MainActivity`。

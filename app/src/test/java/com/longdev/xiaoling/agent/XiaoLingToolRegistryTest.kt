@@ -2015,6 +2015,104 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun foregroundHealthToolProjectsOnlyTheFourFiniteStates() = runTest {
+        val expectedLabels = mapOf(
+            DeviceAgentHealthState.AGENT_DISABLED to "未启用",
+            DeviceAgentHealthState.ACCESSIBILITY_NOT_AUTHORIZED to "未授权",
+            DeviceAgentHealthState.SERVICE_DISCONNECTED to "服务断连",
+            DeviceAgentHealthState.READY to "READY",
+        )
+
+        expectedLabels.forEach { (healthState, label) ->
+            val controller = FakeDeviceController(enabled = true, healthState = healthState)
+            val registry = testRegistry(deviceController = controller)
+            registry.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-health-${healthState.name}",
+                    userMessageId = "message-health-${healthState.name}",
+                    runId = "run-health-${healthState.name}",
+                    goal = "检查设备 Agent 健康状态",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                ),
+            )
+
+            val result = registry.execute(
+                ToolCall(
+                    name = "app.get_device_agent_health",
+                    arguments = emptyMap(),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+
+            assertTrue(result.success)
+            assertEquals("设备 Agent 健康状态：$label", result.content)
+            // long: 健康探针只读取连接状态，不能因为查询健康而触发 snapshot 或设备动作。
+            assertEquals(0, controller.captureCount)
+            assertTrue(controller.actions.isEmpty())
+        }
+    }
+
+    @Test
+    fun healthToolRejectsArguments() = runTest {
+        val controller = FakeDeviceController(enabled = true, healthState = DeviceAgentHealthState.READY)
+        val registry = testRegistry(deviceController = controller)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-health-args",
+                userMessageId = "message-health-args",
+                runId = "run-health-args",
+                goal = "检查设备 Agent 健康状态",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "app.get_device_agent_health",
+                arguments = mapOf("window" to "current"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.content.contains("不接受参数"))
+    }
+
+    @Test
+    fun healthToolIsVisibleOnlyToForegroundDirectAgent() {
+        val registry = testRegistry(deviceController = FakeDeviceController(enabled = true))
+        val contexts = listOf(
+            AgentToolExecutionContext(
+                conversationId = "conversation-health-direct",
+                userMessageId = "message-health-direct",
+                runId = "run-health-direct",
+                goal = "检查设备 Agent 健康状态",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ) to true,
+            workflowDeviceContext(userIntent = "检查设备 Agent 健康状态") to false,
+            AgentToolExecutionContext(
+                conversationId = "conversation-health-background",
+                userMessageId = "message-health-background",
+                runId = "run-health-background",
+                goal = "检查设备 Agent 健康状态",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ) to false,
+            null to false,
+        )
+
+        contexts.forEach { (context, visible) ->
+            registry.bindRunContext(context ?: return@forEach)
+            assertEquals(visible, registry.availableTools().any { it.name == "app.get_device_agent_health" })
+            assertEquals(visible, registry.definition("app.get_device_agent_health") != null)
+        }
+        assertFalse(registry.availableToolsFor(null).any { it.name == "app.get_device_agent_health" })
+    }
+
+    @Test
     fun directForegroundDeviceActionReturnsVerifiedAfterSnapshot() = runTest {
         val controller = FakeDeviceController(enabled = true)
         val registry = testRegistry(deviceController = controller)

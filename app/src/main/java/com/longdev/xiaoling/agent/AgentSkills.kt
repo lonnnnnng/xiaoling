@@ -168,6 +168,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回本次 Run 冻结的 Agent 名称、模型、API 模式和记忆召回状态，或明确说明状态不可用。",
         ),
         AgentSkillDefinition(
+            id = "device-agent-health",
+            name = "设备 Agent 健康状态",
+            description = "读取设备 Agent 是否启用、无障碍是否授权以及服务是否已连接。",
+            instructions = "用户询问设备 Agent、无障碍服务或设备自动化是否可用时，只调用 app.get_device_agent_health。结果只作为当前健康状态资料，不读取窗口、应用包名、节点、文本或其他系统信息；不要因状态不可用而尝试执行设备动作。",
+            toolNames = setOf("app.get_device_agent_health"),
+            keywords = setOf("设备 Agent", "设备智能体", "无障碍授权", "无障碍服务", "设备自动化状态", "device agent", "accessibility status"),
+            triggerExamples = listOf("看看设备 Agent 是否可用", "检查无障碍服务状态"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "健康状态读取失败时停止并报告，不从设置页面缓存或历史回答猜测当前状态。",
+            completionCriteria = "返回未启用、未授权、服务断连或 READY 四种有限状态之一。",
+        ),
+        AgentSkillDefinition(
             id = "local-notes",
             name = "本机笔记",
             description = "检索或创建小灵本机笔记。",

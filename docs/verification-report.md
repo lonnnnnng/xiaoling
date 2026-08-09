@@ -4,6 +4,28 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 228 阶段：设备 Agent 健康只读切片
+
+### 结论
+
+- 生产新增 `app.get_device_agent_health` 和 `device-agent-health` Skill；工具只对前台直接 Agent 开放，无参数、SAFE、无审批，结果仅为“未启用 / 未授权 / 服务断连 / READY”四态。
+- Registry/Skill 聚焦 JVM 回归通过，Debug 与 AndroidTest APK 构建通过；Workflow、后台、无上下文工具面均隐藏健康探针，查询未触发 snapshot、节点或设备动作。
+
+### Redmi 真实 Provider 证据
+
+- 仅使用 `wsvwypiz7xwslvl7`，安装最新 Debug/Test APK 后运行 `RealProviderDeviceAgentHealthInstrumentedTest#foregroundAgentReadsOnlyDeviceAgentHealth`，结果 `OK (1 test)`，JUnit 时间 `14.538s`。
+- 临时最小 Profile 只允许 `app.get_device_agent_health` 与 `device-agent-health`；正式 `AgentRunUseCase` Run 为 `COMPLETED`，唯一 ToolResult 为 `success=true / verificationStatus=PASSED`，审批数为 `0`，结果属于四态集合，最终回答和账本均未包含 Provider URL、API Key、Profile ID、包名或观察信息。
+- 临时会话使用随机 ID，未修改正式 Profile、Provider、Room Schema 或 Accessibility 授权；Run 审计保留。ADB 清单中虽有其他设备，但未向 Pixel_9 或任何模拟器发送命令。
+
+### 验证范围
+
+- 已执行聚焦 JVM、`assembleDebug`、`assembleDebugAndroidTest`、`compileDebugAndroidTestKotlin` 和 Redmi 单项 instrumentation。
+- 按分级验证约束，未执行完整 JVM、全量 Lint、Release APK 或全量 instrumentation。
+
+### 下一阶段
+
+第 229 阶段继续个人 Agent 主线，选择一个能在 Redmi 前台自然语言完成并从权威 Store 回读的新窄能力。
+
 ## 2026-08-10 第 227 阶段：进程重启后的审批恢复真实闭环
 
 ### 结论
