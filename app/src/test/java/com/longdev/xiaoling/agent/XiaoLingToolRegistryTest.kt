@@ -334,6 +334,7 @@ class XiaoLingToolRegistryTest {
                 "app.current_time",
                 "app.get_info",
                 "app.get_battery",
+                "app.get_connectivity",
                 "agent.get_profile",
                 "app.list_conversations",
                 "app.search_conversations",
@@ -368,6 +369,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_battery").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_battery").inputSchema)
         assertFalse(tools.getValue("app.get_battery").permissionPolicy.supportsBackground)
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.get_connectivity").risk)
+        assertEquals(emptyList<String>(), tools.getValue("app.get_connectivity").inputSchema)
+        assertFalse(tools.getValue("app.get_connectivity").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("agent.get_profile").risk)
         assertEquals(emptyList<String>(), tools.getValue("agent.get_profile").inputSchema)
         assertFalse(tools.getValue("agent.get_profile").permissionPolicy.supportsBackground)
@@ -1917,6 +1921,38 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun connectivityStatusToolReturnsOnlyCurrentNetworkFactsAndRejectsArguments() = runTest {
+        val registry = testRegistry(
+            connectivityStatusReader = ConnectivityStatusReader {
+                ConnectivityStatusReadResult.Success(
+                    ConnectivityStatusRecord(
+                        connected = true,
+                        transport = ConnectivityTransport.WIFI,
+                        internetValidated = true,
+                    ),
+                )
+            },
+        )
+
+        val result = registry.execute(
+            ToolCall(name = "app.get_connectivity", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        val withArguments = registry.execute(
+            ToolCall(
+                name = "app.get_connectivity",
+                arguments = mapOf("ssid" to "secret-network"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals("网络状态：已连接\n网络类型：Wi-Fi\n互联网可达：是", result.content)
+        assertFalse(result.content.contains("secret-network"))
+        assertFalse(withArguments.success)
+        assertEquals("app.get_connectivity 不接受参数", withArguments.content)
+    }
+
+    @Test
     fun agentProfileToolReturnsOnlyCurrentRunAllowlistedStatus() = runTest {
         val registry = testRegistry()
         registry.bindRunContext(
@@ -3168,6 +3204,7 @@ class XiaoLingToolRegistryTest {
         calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
+        connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -3183,6 +3220,7 @@ class XiaoLingToolRegistryTest {
             calendarEventWriter = calendarEventWriter,
             appInfoReader = appInfoReader,
             batteryStatusReader = batteryStatusReader,
+            connectivityStatusReader = connectivityStatusReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )

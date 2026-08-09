@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 第 216 阶段：前台只读网络状态（完成）
+
+- 新增 `ConnectivityStatusReader` 与 `AndroidConnectivityStatusReader`，从 `ConnectivityManager` 当前活动网络和 `NetworkCapabilities` 读取连接状态、传输类型及系统 `NET_CAPABILITY_VALIDATED` 判定；不读取 SSID、IP 地址、运营商、Provider 或凭据，系统网络栈异常时 fail-closed。
+- `XiaoLingToolRegistry` 注册无参数 `app.get_connectivity`，风险为 `SAFE`，`supportsBackground=false`，超时 5 秒；结果固定为网络状态、网络类型和互联网可达性三行。
+- 新增独立 `connectivity-status` Skill，仅在用户询问联网状态或网络类型时选择该工具；旧 Profile、历史 Run、Workflow 和后台能力不自动扩权。
+- 聚焦 JVM `XiaoLingToolRegistryTest 81/81 + AgentSkillsTest 33/33`（`114/114`）、`:app:assembleDebug :app:assembleDebugAndroidTest`，以及 Redmi `wsvwypiz7xwslvl7` 的 `AndroidConnectivityStatusInstrumentedTest#foregroundRegistryReadsCurrentConnectivityFactsOnly` `OK (1 test)`（`0.261s`）均通过；测试包已卸载。未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 215 阶段：前台只读电池状态（完成）
 
 - 新增 `BatteryStatusReader` 与 `AndroidBatteryStatusReader`，从当前应用注册的 `ACTION_BATTERY_CHANGED` 广播读取电量、充电状态和供电方式；电量范围/比例无效、广播缺失或 OEM 运行时异常时分别返回不可用或失败，不猜测当前状态。

@@ -53,6 +53,7 @@ class XiaoLingToolRegistry(
     private val calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
     private val appInfoReader: AppInfoReader = UnavailableAppInfoReader,
     private val batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
+    private val connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
     private val deviceController: DeviceController = DisabledDeviceController,
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
@@ -83,6 +84,7 @@ class XiaoLingToolRegistry(
         calendarEventWriter = calendarEventWriter,
         appInfoReader = appInfoReader,
         batteryStatusReader = batteryStatusReader,
+        connectivityStatusReader = connectivityStatusReader,
         deviceController = deviceController,
         workflowDeviceActionToolNames = workflowDeviceActionToolNames,
     )
@@ -106,6 +108,14 @@ class XiaoLingToolRegistry(
         ToolDefinition(
             name = APP_GET_BATTERY_TOOL_NAME,
             description = "读取当前设备电量、充电状态和供电方式；不返回设备标识、应用列表或其他系统配置。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = APP_GET_CONNECTIVITY_TOOL_NAME,
+            description = "读取当前网络连接状态、传输类型和系统判定的互联网可达性；不返回网络名称、地址或 Provider 配置。",
             risk = ToolRisk.SAFE,
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
@@ -1084,6 +1094,7 @@ class XiaoLingToolRegistry(
             "app.current_time" -> currentTime()
             APP_GET_INFO_TOOL_NAME -> getAppInfo(call)
             APP_GET_BATTERY_TOOL_NAME -> getBatteryStatus(call)
+            APP_GET_CONNECTIVITY_TOOL_NAME -> getConnectivityStatus(call)
             AGENT_GET_PROFILE_TOOL_NAME -> getAgentProfile(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
@@ -1209,6 +1220,26 @@ class XiaoLingToolRegistry(
             BatteryStatusReadResult.Failed -> ToolExecutionResult(
                 success = false,
                 content = "读取当前电池状态失败",
+            )
+        }
+    }
+
+    private suspend fun getConnectivityStatus(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "app.get_connectivity 不接受参数")
+        }
+        return when (val result = connectivityStatusReader.read()) {
+            is ConnectivityStatusReadResult.Success -> ToolExecutionResult(
+                success = true,
+                content = ConnectivityStatusResultCodec.encode(result.status),
+            )
+            ConnectivityStatusReadResult.Unavailable -> ToolExecutionResult(
+                success = false,
+                content = "当前网络状态不可用",
+            )
+            ConnectivityStatusReadResult.Failed -> ToolExecutionResult(
+                success = false,
+                content = "读取当前网络状态失败",
             )
         }
     }
@@ -2871,6 +2902,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
 private const val APP_GET_BATTERY_TOOL_NAME = "app.get_battery"
+private const val APP_GET_CONNECTIVITY_TOOL_NAME = "app.get_connectivity"
 private const val AGENT_GET_PROFILE_TOOL_NAME = "agent.get_profile"
 private const val APP_GET_CONVERSATION_TOOL_NAME = "app.get_conversation"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"

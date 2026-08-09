@@ -62,6 +62,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInConnectivityStatusSkillExposesOnlyTheReadOnlyConnectivityTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "现在是否联网，当前使用什么网络",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "connectivity-status" }
+        assertEquals(setOf("app.get_connectivity"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得要求或猜测网络名称"))
+    }
+
+    @Test
     fun builtInConversationDetailSkillKeepsExistingRecallSkillStable() {
         val detail = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-detail" }
         val existing = BuiltInAgentSkillRegistry.all().single { it.id == "conversation-recall" }

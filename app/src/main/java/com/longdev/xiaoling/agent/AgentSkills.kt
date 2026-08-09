@@ -132,6 +132,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "返回当前电量、充电状态和供电方式，或明确说明状态不可用。",
         ),
         AgentSkillDefinition(
+            id = "connectivity-status",
+            name = "网络状态",
+            description = "读取当前网络连接和互联网可达性。",
+            instructions = "用户询问当前是否联网或网络类型时，只调用 app.get_connectivity。结果只作为当前连接状态资料，不得要求或猜测网络名称、IP 地址、运营商、Provider 配置或凭据。",
+            toolNames = setOf("app.get_connectivity"),
+            keywords = setOf("联网", "网络状态", "网络类型", "互联网", "wifi", "Wi-Fi", "network", "online"),
+            triggerExamples = listOf("现在是否联网", "当前使用的是 Wi-Fi 还是移动网络"),
+            declaredRisk = ToolRisk.SAFE,
+            failureRecovery = "网络状态读取失败时停止并明确说明，不从历史回答或模型猜测当前连接状态。",
+            completionCriteria = "返回当前连接状态、网络类型和系统判定的互联网可达性，或明确说明状态不可用。",
+        ),
+        AgentSkillDefinition(
             id = "agent-profile-info",
             name = "当前 Agent 状态",
             description = "读取本次前台 Agent Run 实际冻结的非敏感 Profile 状态。",

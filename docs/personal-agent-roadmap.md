@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 216 阶段：前台只读网络状态（完成）
+
+- 新增 `app.get_connectivity` 和独立 `connectivity-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。
+- 应用只从当前活动网络能力投影是否连接、传输类型和系统判定的互联网可达性；不返回 SSID、IP 地址、运营商、Provider 配置或凭据，网络栈不可用或异常时 fail-closed。
+- 聚焦 JVM `114/114`、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation `OK (1 test)`（`0.261s`）通过；测试包已卸载。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- Room v36、旧 Profile/Run、Workflow、后台执行、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型边界保持不变；下一阶段继续选择一个能直接提升“自然语言目标 -> 可验证结果 -> 权威事实查看”的窄能力切片。
+
 ## 第 215 阶段：前台只读电池状态（完成）
 
 - 新增 `app.get_battery` 和独立 `battery-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。

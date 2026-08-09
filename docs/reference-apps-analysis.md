@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 216 阶段把参考 Agent 的“先读取连接能力、只投影最小可用事实”原则落实为前台 `app.get_connectivity`：结果只包含连接状态、传输类型和系统判定的互联网可达性，不复制参考项目的 SSID/IP/运营商枚举、Provider 凭据、后台网络守护或远程 Channel。网络栈读取失败保持 fail-closed，旧 Profile、Workflow 和后台工具面不变。
+
 第 215 阶段把参考 Agent 的“只暴露当前任务需要的最小设备事实、读取失败不猜测”原则落实到前台电池状态：`app.get_battery` 只投影电量、充电状态和供电方式，工具为 SAFE 且不支持后台；Android 广播缺失或异常时 fail-closed。该阶段没有复制参考项目的设备标识枚举、应用列表、温度/健康诊断、后台设备代理、远程协作或多 Agent 编排。
 
 第 214 阶段验证了参考 Agent 的“运行时使用当前配置、结果只投影最小非敏感状态”原则：AndroidTest 从 Redmi 当前选中 Provider 读取配置，真实 `agent.get_profile` Run 只返回 Agent 名称、模型、协议和记忆状态，凭据、Provider 地址、系统提示词及内部能力清单仍在结果边界之外。测试参数属于验收层，不改变生产 Profile 自动扩权或 Provider 持久化行为。

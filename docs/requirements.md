@@ -1,5 +1,12 @@
 # 产品需求
 
+## 前台只读网络状态（第 216 阶段，完成）
+
+- `app.get_connectivity` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
+- 结果只能包含当前是否有活动网络、传输类型和系统判定的互联网可达性三项固定事实；不得返回 SSID、IP 地址、运营商、Provider URL/API Key、设备标识或其他网络配置。网络能力不可用或读取异常时必须 fail-closed。
+- 必须由独立 `connectivity-status` Skill 在用户询问联网状态或网络类型时选择该工具；旧 Profile、历史 Run 和 Legacy 工具集合不得自动扩权。
+- 本阶段的聚焦 JVM、Debug/AndroidTest APK 和 Redmi `wsvwypiz7xwslvl7` 单项 instrumentation 已通过；完整 JVM、全量 Lint、Release 和全量 instrumentation 按快速迭代分级策略后置。
+
 ## 前台只读电池状态（第 215 阶段，完成）
 
 - `app.get_battery` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
