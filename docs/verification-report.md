@@ -1,8 +1,28 @@
 # 验证报告
 
-验证日期：2026-08-09（北京时间）
+验证日期：2026-08-10（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-10 第 223 阶段：受控单日全天日程真实前台闭环
+
+### 结论
+
+- 仅在 Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，人工输入自然语言目标并在审批卡核对后点击“批准执行”；测试代码没有代替模型规划、审批点击或答案级页面查看。
+- Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b`、ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 最终为 `COMPLETED / APPROVED / PASSED / COMMITTED`；稳定事件 ID 为 `calendar-90`。
+- 答案级“查看日程”已真实点击，当前 Provider 页面显示标题 `stage223_all_day_1786293137009`、开始日期 `2026-08-15`、全天“是”、时区 `UTC`、重复“否”。
+- 旧 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 的完整详情摘要保持不变；`calendar-90` 按精确 ID 删除，临时 Profile/会话清理并恢复原选择，新 Run、Approval、Tool Ledger 审计保留。
+
+### 验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功。
+- Redmi prepare 单项通过；audit 输出 `STAGE223_AUDITED ... eventId=calendar-90 status=COMPLETED approval=APPROVED verification=PASSED receipt=COMMITTED navigationBound=true providerCurrent=true oldRunUnchanged=true`，结果 `OK (1 test)`、`0.688s`。
+- Redmi cleanup 输出 `STAGE223_CLEANUP ... runPreserved=true eventId=calendar-90 exactEventRemoved=true temporaryProfileRemoved=true conversationRemoved=true originalProfileRestored=true`，结果 `OK (1 test)`、`0.427s`。
+- 所有 Android 命令只指定 Redmi；未清理主应用数据或 Provider 配置。未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，符合快速迭代分级验证约束。
+
+### 下一阶段
+
+- 第 224 阶段重新选择新的用户可体验个人 Agent 主线；不顺带开放多日、重复、参与人、提醒或后台日程。
 
 ## 2026-08-10 第 222 阶段：受控单日全天日程
 

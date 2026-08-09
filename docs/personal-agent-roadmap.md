@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
+
+- Redmi 当前 Provider 下，真实自然语言目标只调用 `calendar.create_all_day_event`，经人工审批后完成；Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b`、ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 为 `COMPLETED / APPROVED / PASSED / COMMITTED`。
+- 答案级“查看日程”从当前 Calendar Provider 回读稳定事件 `calendar-90`：标题 `stage223_all_day_1786293137009`、日期 `2026-08-15`、全天、`UTC`、非重复；不是展示历史模型正文。
+- 旧 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 完整详情未被改写。事件按精确 ID 删除，临时 Profile/会话清理并恢复原选择，新 Run/Approval/Tool Ledger 审计保留。
+- 本阶段只新增 AndroidTest 验收夹具；生产能力、Room v36、旧 Profile、Workflow 和后台边界均未扩大。聚焦 AndroidTest 编译/构建与 Redmi prepare/audit/cleanup 单项通过。
+
+下一阶段（第 224 阶段）：重新选择新的用户可体验个人 Agent 主线；不顺带开放多日、重复、参与人、提醒或后台日程。
+
 ## 第 222 阶段：受控单日全天日程（完成）
 
 - 新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill，把个人 Agent 的系统日历创建范围从定时事件扩展到一次性单日全天事件；旧 Skill/Profile 不自动扩权。

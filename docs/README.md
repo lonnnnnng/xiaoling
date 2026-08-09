@@ -1,10 +1,10 @@
 # 文档索引
 
-第 221 阶段完成前台长期记忆安全删除真实闭环：Redmi 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`，人工审批为 `APPROVED`，三项结果均 `PASSED`，删除回执 `COMMITTED`，当前长期记忆页不可见。清理后临时 Profile、临时记忆、撤销文件和验收消息均不存在，Run/审批/Tool Ledger 审计保留；发现清理夹具曾误删原空会话后已补回 `conversation-1786204146694`（标题“新会话”、无消息）并恢复选中状态。只使用 Redmi，聚焦 `assembleDebugAndroidTest` 成功与定向修复核对 `OK (1 test)`；测试包已卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，Room v36、Workflow 和后台边界不变。
+第 223 阶段完成受控单日全天日程真实前台闭环：仅在 Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，人工输入自然语言目标并批准唯一 `calendar.create_all_day_event`。Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b`、ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 收敛为 `COMPLETED / APPROVED / PASSED / COMMITTED`，稳定事件 `calendar-90` 可由答案级“查看日程”进入当前 Provider，核对标题 `stage223_all_day_1786293137009`、日期 `2026-08-15`、全天、`UTC` 和非重复。旧 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 的完整详情摘要不变；测试事件按精确 ID 删除，临时 Profile/会话清理，原选择恢复，真实 Run/审批/Tool Ledger 审计保留。聚焦 AndroidTest 编译/构建与 Redmi prepare/audit/cleanup 单项通过，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation；生产代码、Room v36 和高级日历边界不变。
 
 第 222 阶段完成受控单日全天日程：新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill，只接受规范 `yyyy-MM-dd`，逐次审批后按 UTC 零点写入 `ALL_DAY=1`，结束固定为排他的次日 UTC 零点。ToolCall ID 继续承担幂等身份，Provider 回读同时验证标题、日期边界、时区和全天标记；成功结果携带稳定日程 ID，并可从答案进入当前日程详情。聚焦 JVM `126/126`、Debug/AndroidTest APK 和 Redmi Calendar Provider 单项 `OK (1 test)`（`0.192s`）通过；测试包已卸载，主应用数据保留。未开放多日、重复、参与人、提醒、后台日程或旧 Profile 自动扩权。
 
-第 223 阶段在 Redmi 当前 Provider 下完成真实自然语言“创建单日全天日程”、人工审批、Tool Ledger、答案级当前 Provider 查看和精确清理；旧 Run 保持不变。
+第 221 阶段完成前台长期记忆安全删除真实闭环：Redmi 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`，人工审批为 `APPROVED`，三项结果均 `PASSED`，删除回执 `COMMITTED`，当前长期记忆页不可见。清理后临时 Profile、临时记忆、撤销文件和验收消息均不存在，Run/审批/Tool Ledger 审计保留；发现清理夹具曾误删原空会话后已补回 `conversation-1786204146694`（标题“新会话”、无消息）并恢复选中状态。只使用 Redmi，聚焦 `assembleDebugAndroidTest` 成功与定向修复核对 `OK (1 test)`；测试包已卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，Room v36、Workflow 和后台边界不变。
 
 第 219 阶段完成真实前台个人 Agent 的存储状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，唯一调用 `app.get_storage`；Run `COMPLETED`、typed `PASSED`、审批数为 0，结果不含 Provider 凭据、Profile 内部 ID、文件路径、应用数据或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 
@@ -60,7 +60,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 219 阶段、Room v36，尚未形成新 Release。第 219 阶段完成真实前台存储状态 Agent Run；第 218 阶段完成前台只读存储状态工具；第 217 阶段完成真实前台电量/网络双状态 Agent Run；第 216 阶段完成前台只读网络状态工具；第 215 阶段完成前台只读电池状态工具；第 214 阶段完成当前 Provider 驱动的 `agent.get_profile` 隐私验收；第 213 阶段完成 `app.get_info`；第 211 阶段完成真实前台历史会话搜索、正文读取和答案级当前 Room 导航；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。发布基线仍为 `v0.1.16`，下一步选择新的个人 Agent 窄能力切片。
+当前开发基线已到第 223 阶段、Room v36，尚未形成新 Release。第 223/222 阶段完成受控单日全天日程能力与真实前台闭环；第 221/220 阶段完成长期记忆安全删除能力与真实前台闭环；第 219 至 212 阶段补齐存储、电量、网络、Agent Profile 和安装应用信息的只读能力及真实 Provider 验收；第 211 阶段完成真实前台历史会话搜索、正文读取和答案级当前 Room 导航；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看。发布基线仍为 `v0.1.16`；第 224 阶段重新选择新的用户可体验个人 Agent 主线，不顺带扩大高级日历参数面。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

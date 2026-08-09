@@ -1,5 +1,13 @@
 # 产品需求
 
+## 受控单日全天日程真实前台闭环（第 223 阶段，完成）
+
+- 必须只在 Redmi 当前 Provider 下，以自然语言目标驱动最小临时 Profile 唯一调用 `calendar.create_all_day_event`；用户必须在审批卡核对标题和日期后主动批准，不得通过测试代码代替模型规划或审批点击。
+- Run、Approval、Tool Ledger 与 Provider 当前事实必须同时成立：Run 为 `COMPLETED`，审批为 `APPROVED`，结果为 `PASSED / COMMITTED`，稳定事件 ID 可从答案级入口回当前 Provider 查看标题、日期、全天、UTC 时区和非重复状态。
+- 验收必须比较既有 Run 的完整详情摘要，证明新增执行不会改写旧 Step、Approval、Event 或 Tool Ledger；新 Run 审计保留。
+- 清理只能使用本次 `COMMITTED` 回执中的精确 Provider 事件 ID，并在删除前重新匹配本轮随机标题、日期边界、全天、UTC 与非重复状态；不得按标题或日期扫描删除用户日程，身份漂移时必须保留事件并失败。临时 Profile 使用动态夹具 ID，删除前核对前缀/名称；临时 Profile/会话删除后必须恢复原选择。
+- 本阶段不修改生产代码、Room v36、旧 Profile、Workflow 或后台边界。第 224 阶段重新选择新的用户可体验个人 Agent 主线，不顺带开放多日、重复、参与人、提醒或后台日程。
+
 ## 受控单日全天日程（第 222 阶段，完成）
 
 - 全天创建必须使用独立 `calendar.create_all_day_event(title, date)` 和独立 Skill；不得把旧定时创建工具改成条件参数，也不得让旧 Profile 自动获得新工具。

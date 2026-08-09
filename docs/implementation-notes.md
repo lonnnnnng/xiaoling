@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
+
+- 仅在 Redmi `wsvwypiz7xwslvl7` 当前 Provider 下创建最小临时 Profile，人工输入 `/agent Create a single-day all-day calendar event titled stage223_all_day_1786293137009 on 2026-08-15. Use only calendar.create_all_day_event.`；模型只规划唯一全天创建工具，审批卡核对后由用户点击“批准执行”。
+- Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b` 与 ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 收敛为 `COMPLETED / APPROVED / PASSED / COMMITTED`。稳定事件 `calendar-90` 的答案级入口绑定当前结果，点击后从 Calendar Provider 回读标题、`2026-08-15`、全天、`UTC` 和非重复状态。
+- 新增仅用于验收的 `Stage223CalendarCreateAllDayUiInstrumentedTest`，按 prepare / 人工执行 / audit / cleanup 分段；只有显式传入 `stage223Manual=true` 且设备为 Redmi `begonia` 才运行，默认全量 instrumentation 会跳过。分段状态改用同步 `SharedPreferences.commit()`，确保 instrumentation 进程退出前已刷盘。旧 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 的完整详情摘要前后相同。
+- cleanup 以 `COMMITTED` 回执中的精确 Provider ID 定位 `calendar-90`，删除前还必须重新匹配本轮随机标题、日期边界、全天、UTC 与非重复状态；任何身份漂移都拒绝删除。临时 Profile 使用动态 ID 且删除前核对夹具前缀/名称，随后删除临时会话并恢复原选择；新 Run、Approval 和 Tool Ledger 审计保留。生产代码、Room v36、旧 Profile、Workflow 和后台能力未改变。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebugAndroidTest` 通过；Redmi prepare、audit、cleanup 三个单项均为 `OK (1 test)`，audit `0.688s`、cleanup `0.427s`。未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。
+
+### 下一阶段
+
+第 224 阶段重新选择新的用户可体验个人 Agent 主线；不顺带开放多日、重复、参与人、提醒或后台日程。
+
 ## 第 222 阶段：受控单日全天日程（完成）
 
 - 新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill。工具只接受单行标题和规范 `yyyy-MM-dd`，风险、权限、审批、Executor 验证、`IDEMPOTENT_BY_KEY` 与 `CONTROLLED_SAME_CALL` 恢复契约复用既有日程创建边界；旧 `calendar-create` 和旧 Profile 不自动加入新工具。

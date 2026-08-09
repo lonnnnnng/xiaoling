@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 223 阶段全天日程真实前台闭环边界（无变更）
+
+本阶段只在 Redmi 真实前台链路验证 `calendar.create_all_day_event` 的自然语言规划、人工审批、Tool Ledger、答案级当前 Provider 查看与精确清理；日程标题、日期、稳定事件 ID、审批和回执均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。旧 Run 完整详情保持不变，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 222 阶段全天日程创建边界（无变更）
 
 本阶段的 `calendar.create_all_day_event` 参数、审批、Provider 写入/回读、稳定事件 ID 与答案级当前详情入口不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
