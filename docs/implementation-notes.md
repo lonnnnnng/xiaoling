@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环（完成）
+
+- 新增 `Stage226SkillSendUiInstrumentedTest`，仍使用真实 `MainActivity`；prepare 段创建只开放 `notes.list / notes.search / notes.create` 与 `local-notes` 的最小临时 Profile/会话，send 段从 Skill 示例草稿明确点击发送，测试代码不代替用户发送或审批。
+- Redmi `wsvwypiz7xwslvl7` 真实日志确认发送后才创建 Run，并写入 `PROFILE_SELECTED` 与 `skill.selected=local-notes@...`；模型提出唯一 `notes.create` 后 UI 出现“批准执行”，用户点击后继续正式恢复执行。
+- Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 最终为 `COMPLETED`，审批 `APPROVED`，ToolResult 为 `PASSED`，执行回执为 `COMMITTED`；会话中的 `MessagePart.Tool` 参数、结果和 `VERIFIED` 状态与 Run Ledger 完全一致。
+- audit/cleanup 按稳定回执 ID 删除临时笔记，删除临时 Profile/会话并恢复原选择；Run、Approval、Tool Ledger 审计保留。`stage226HoldForApproval=true` 仅用于人工审批期间保持前台 Activity，不改变生产逻辑。
+- `:app:assembleDebug :app:assembleDebugAndroidTest`、Redmi prepare/send/audit-cleanup 三个单项均通过，耗时分别为 `3.297s / 109.099s / 3.116s`。未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、生产 Tool/Skill、权限、Workflow、后台和 Shadow 边界不变。
+
+### 下一阶段
+
+第 227 阶段优先验证进程重启后 `WAITING_APPROVAL` 的恢复展示和批准入口，确认恢复仍绑定同一 Run/Approval/会话身份；通过后再继续扩大个人 Agent 的受控写入能力。
+
 ## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
 
 - 新增 `Stage225SkillTryUiInstrumentedTest`，使用真实 `MainActivity` 和 Redmi 当前 Room 状态，从设置根页进入 Skill 管理；测试只选择当前 Profile 已授权、已启用、具非空示例的 SAFE Skill，不写入夹具 Profile、Skill、会话或 Run。

@@ -4,6 +4,25 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环
+
+### 结论
+
+- 第 225 阶段生成的 Skill 草稿只有在用户明确点击发送后才创建真实 Agent Run；设置页/示例页点击本身不执行任务。
+- Redmi `wsvwypiz7xwslvl7` 的 Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 记录了动态 Profile 的 `PROFILE_SELECTED` 和 `skill.selected=local-notes@...`，唯一高风险调用为 `notes.create`。
+- 用户在真实审批卡点击“批准执行”后，审批为 `APPROVED`，ToolResult 为 `success=true / executorVerified=true / PASSED`，执行回执为 `COMMITTED`；当前会话 Tool Message 与 Run Ledger 的参数、结果和 `VERIFIED` 状态一致。
+- 清理按执行回执中的稳定 note ID 删除临时笔记，移除临时 Profile/会话并恢复原选择；Run、Approval、Tool Ledger 审计保留，未清理用户原有数据。
+
+### 验证证据
+
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 成功；分段 instrumentation `prepareMinimalProfileAndDedicatedConversation`、`sendSkillDraftAndStopAtApproval`、`auditApprovedRunAndExactCleanup` 均为 `OK (1 test)`，耗时 `3.297s / 109.099s / 3.116s`。
+- send 段显式传入 `stage226Manual=true stage226HoldForApproval=true`，只在 Redmi 前台保留审批窗口；用户点击后日志输出 `STAGE226_AUDITED ... approval=APPROVED verification=PASSED receipt=COMMITTED` 和 `STAGE226_CLEANUP ... runPreserved=true`。
+- Debug 主 APK 与测试 APK只向 Redmi 覆盖安装；未向 Pixel_9 或其他模拟器发送命令。未运行完整 JVM、Lint、Release 或全量 instrumentation，符合快速迭代分级验证约束。
+
+### 下一阶段
+
+第 227 阶段验证进程重启后的 `WAITING_APPROVAL` 恢复展示、同一 Approval 身份校验和批准后原地恢复；不扩展到后台自动化或 Release。
+
 ## 2026-08-10 第 225 阶段：Agent Skill 试用真实应用壳闭环
 
 ### 结论

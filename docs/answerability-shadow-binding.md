@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 226 阶段 Skill 草稿发送与审批边界（无变更）
+
+本阶段只在 Redmi 真实前台验证用户明确发送 Skill 草稿、`local-notes` Skill 选择、`notes.create` 审批和提交回执；临时笔记与会话清理不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Run、Approval 和 Tool Ledger 仅作为执行审计保留；Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 225 阶段 Skill 试用真实壳边界（无变更）
 
 Redmi 真实应用壳只把当前 Profile 已授权 SAFE Skill 的示例预填为 `/agent ...` 草稿；选中 Profile、会话、消息和最近 Run 摘要均保持不变，没有产生答案、知识候选、Judge、Shadow measurement 或匿名账本，也不触发生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

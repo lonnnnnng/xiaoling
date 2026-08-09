@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 226 阶段：Skill 草稿发送、审批与本地笔记真实前台闭环（完成）
+
+- 第 225 阶段生成的 `/agent ...` 草稿必须由用户明确发送后才进入正式 Run；Redmi `wsvwypiz7xwslvl7` 真实 Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 记录 Profile 与 `local-notes` Skill 选择。
+- `notes.create` 在真实审批卡停留，用户点击“批准执行”后完成 `APPROVED / PASSED / COMMITTED`，Tool Message 与 Ledger 一致。
+- 临时笔记、Profile、会话已精确清理，Run 审计保留；仅 Redmi 分段验证和 Debug/AndroidTest APK 构建通过，未扩大到完整测试或 Release。
+
+下一阶段（第 227 阶段）：先完成进程重启后的审批恢复闭环，再继续增加个人 Agent 的受控写入能力。
+
 ## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
 
 - 仅在 Redmi `wsvwypiz7xwslvl7` 使用真实 `MainActivity`，从设置根页滚动进入 Skill 管理，选择当前 Profile 已授权的 SAFE `conversation-recall` 示例并回到对话。

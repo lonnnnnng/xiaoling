@@ -1,5 +1,13 @@
 # 产品需求
 
+## Skill 草稿发送与审批真实闭环（第 226 阶段，完成）
+
+- 第 225 阶段生成的 `/agent ...` 草稿只有在用户明确点击发送后才允许创建 Run；Skill 管理页和示例点击不得自动发送、调用模型或执行工具。
+- 真实 Run 必须审计当前 Profile 的 `PROFILE_SELECTED`、唯一 `skill.selected` 和 `notes.create` 工具身份；写入工具必须先停在审批卡，不能由测试代码代替用户批准。
+- 用户批准后必须同时满足 Run `COMPLETED`、Approval `APPROVED`、ToolResult `PASSED`、执行回执 `COMMITTED`，并核对当前会话 Tool Message 与 Ledger 一致。
+- 验收清理只能按稳定回执 ID 删除临时笔记，移除临时 Profile/会话并恢复原选择；Run、Approval、Tool Ledger 审计必须保留。生产 Tool/Skill、Room v36、权限、Workflow、后台与 Shadow 边界不得扩张。
+- 第 227 阶段转向进程重启后的 `WAITING_APPROVAL` 恢复展示与原地批准，继续保持前台、逐次审批边界。
+
 ## Agent Skill 试用真实应用壳闭环（第 225 阶段，完成）
 
 - 验收必须使用真实 `MainActivity`，从设置根页进入 Skill 管理并点击当前 Agent Profile 已授权的 SAFE Skill 示例；不得直接调用生产回调或写入测试 Profile/Skill 绕过导航。

@@ -1,5 +1,7 @@
 # 文档索引
 
+第 226 阶段完成用户明确发送 Skill 草稿后的 Redmi 真实前台闭环：在第 225 阶段生成的 `/agent ...` 草稿上由用户点击发送，正式 Run 记录 `PROFILE_SELECTED` 与 `skill.selected=local-notes@...`，模型提出 `notes.create` 后停在真实审批卡；用户点击“批准执行”后，Run `run-b2823b2d-e56a-4931-807d-78c769dc51ef` 收敛为 `COMPLETED`，审批为 `APPROVED`，结果为 `PASSED / COMMITTED`，会话 Tool Message 与 Ledger 一致。临时笔记、Profile 和会话已按稳定身份清理，Run/Approval/Tool Ledger 审计保留。仅 Redmi 分段 `prepare / send / audit-cleanup` 通过（分别 `3.297s / 109.099s / 3.116s`），Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段优先验证进程重启后的审批恢复入口，再扩大个人 Agent 写入能力。
+
 第 225 阶段完成 Agent Skill 试用的 Redmi 真实应用壳闭环：AndroidTest 从设置根页滚动进入 `Agent Skills`，自动选择当前 `agent-profile-default` 已授权的 SAFE `conversation-recall`，展开并点击首条示例，最终只在对话输入框得到规范 `/agent ...` 草稿。测试前后选中 Profile、选中会话、当前会话消息 SHA-256 和最近 100 条 Run 完整详情 SHA-256 均不变，未自动发送、调用模型、创建 Run 或执行工具。`:app:compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 构建和仅 Redmi 单项 `OK (1 test)`（`7.624s`）通过；主应用数据与 Provider 配置保留，未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36 与生产能力边界不变。
 
 第 224 阶段完成 Agent Skill 直接试用入口：Skill 管理页展开后展示最多 3 条去重、非空的 `triggerExamples`；只有 Skill 已启用、当前 Agent Profile 同时允许该 Skill 与全部工具、且工具仍注册时按钮才可用。点击后应用壳按最新状态重新核对稳定 Skill ID 与示例归属，关闭个人任务模式，将规范 `/agent ...` 目标填入输入框并回到对话根页；不会自动发送、调用模型或绕过工具审批。聚焦 JVM `17/17`、Debug/AndroidTest APK 和 Redmi 页面 `OK (4 tests)`（`6.085s`）通过；主 Debug 覆盖安装并保留数据，未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36、生产 Tool/Skill 定义、权限和后台边界不变。
