@@ -1,5 +1,7 @@
 # 文档索引
 
+第 219 阶段完成真实前台个人 Agent 的存储状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，唯一调用 `app.get_storage`；Run `COMPLETED`、typed `PASSED`、审批数为 0，结果不含 Provider 凭据、Profile 内部 ID、文件路径、应用数据或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
+
 第 218 阶段完成前台只读 `app.get_storage` 存储状态闭环：工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只投影总容量、可用空间和使用率，不读取文件名、路径、应用数据或设备身份。聚焦 JVM `XiaoLingToolRegistryTest 82/82 + AgentSkillsTest 34/34`（`116/116`）、Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 定向 instrumentation `OK (1 test)`，耗时 `0.222s`，测试包已卸载。ADB 清单中的模拟器未接收目标命令；未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 
 第 217 阶段完成真实前台个人 Agent 的电量/网络双状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，实际调用 `app.get_battery -> app.get_connectivity` 两项只读工具；Run `COMPLETED`，两项 typed `PASSED`，审批数为 0，结果不含 Provider 凭据、Profile 内部 ID 或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `24.087s`，测试包已卸载；未使用 Pixel_9、完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
@@ -52,7 +54,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 218 阶段、Room v36，尚未形成新 Release。第 218 阶段完成前台只读存储状态工具与 Redmi 单项验收；第 217 阶段完成真实前台电量/网络双状态 Agent Run；第 216 阶段完成前台只读网络状态工具；第 215 阶段完成前台只读电池状态工具；第 214 阶段完成当前 Provider 驱动的 `agent.get_profile` 隐私验收；第 213 阶段完成 `app.get_info`；第 211 阶段完成真实前台历史会话搜索、正文读取和答案级当前 Room 导航；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。发布基线仍为 `v0.1.16`，下一步选择新的个人 Agent 窄能力切片。
+当前开发基线已到第 219 阶段、Room v36，尚未形成新 Release。第 219 阶段完成真实前台存储状态 Agent Run；第 218 阶段完成前台只读存储状态工具；第 217 阶段完成真实前台电量/网络双状态 Agent Run；第 216 阶段完成前台只读网络状态工具；第 215 阶段完成前台只读电池状态工具；第 214 阶段完成当前 Provider 驱动的 `agent.get_profile` 隐私验收；第 213 阶段完成 `app.get_info`；第 211 阶段完成真实前台历史会话搜索、正文读取和答案级当前 Room 导航；第 210 至 208 阶段闭环真实前台系统日程删除、修改和创建；第 207 至 205 阶段闭环本地笔记删除、编辑和写入；第 204 至 202 阶段闭环真实长期记忆写入与持久化投影；第 201 至 196 阶段补齐记忆、笔记、日程和历史会话答案级权威事实查看；第 195/194 阶段增加 Agent Profile 与安装应用信息读取。发布基线仍为 `v0.1.16`，下一步选择新的个人 Agent 窄能力切片。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

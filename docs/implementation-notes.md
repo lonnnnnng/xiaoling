@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 第 219 阶段：真实前台存储状态 Agent Run（完成）
+
+- Redmi 当前选中 Provider 下创建临时最小 Agent Profile，只允许 `app.get_storage` 与 `storage-status`；正式 `AgentRunUseCase` 接收自然语言目标并完成唯一存储状态工具调用。
+- Run 收敛为 `COMPLETED`，唯一 ToolResult 为 `success=true / verificationStatus=PASSED`，审批数为 0；结果和最终回答不包含 Base URL、API Key、Profile 内部 ID、文件路径、应用数据、设备序列或应用包名。临时 Profile 仅存在于验收入口，Run 审计保留，测试包完成后卸载。
+- 仅在 Redmi `wsvwypiz7xwslvl7` 运行 `RealProviderStorageStatusInstrumentedTest#foregroundAgentReadsCurrentStorageFactsOnly`，结果 `OK (1 test)`、耗时 `13.46s`；未向模拟器发送目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation。生产 Tool/Skill、Room v36、旧 Profile/Run、Workflow 和后台边界没有扩权。
+
 ## 第 218 阶段：前台只读存储状态（完成）
 
 - 新增 `StorageStatusReader` 与 `AndroidStorageStatusReader`，使用 `StatFs` 读取 Android 数据分区的总容量和可用容量；统计值无效或 OEM 文件系统读取异常时 fail-closed，不读取或返回文件名、路径、应用数据和设备身份。

@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 219 阶段用真实 Provider Run 验证 `storage-status` 的完整前台路由：模型只获得 `app.get_storage`，本地 Registry 生成容量摘要，Tool Ledger typed `PASSED` 后才形成最终回答。结果没有复制参考项目的文件系统浏览、路径扫描或后台存储监控；阶段完成后明确停止继续横向堆叠同类状态字段，后续重新回到能扩大真实任务范围的能力。
+
 第 218 阶段把参考 Agent 的“设备资源只暴露任务所需摘要”原则落实为前台 `app.get_storage`：应用仅使用系统分区统计生成总容量、可用空间和使用率，不复制文件浏览、路径扫描、应用数据枚举或后台存储监控。工具保持 SAFE、仅前台、无权限且失败时 fail-closed，旧 Profile、Workflow 和后台工具面不变。
 
 第 217 阶段用真实 Provider Run 验证参考 Agent 的“自然语言路由到最小 Skill 集合，再由本地 Tool Ledger 形成可信事实”原则：同一前台 Run 只允许电池和网络两个 SAFE 工具，两个结果均 typed `PASSED`，且最终投影不携带 Provider 凭据或设备身份。没有把 Provider 健康检查伪装成可在 Provider 不可用时自举的 Agent Tool，也没有扩大后台、Workflow、远程 Channel 或多 Agent 边界。

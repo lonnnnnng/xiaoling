@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 第 219 阶段：真实前台存储状态 Agent Run（完成）
+
+- 在 Redmi 当前 Provider 下使用临时最小 Profile，正式 `AgentRunUseCase` 根据自然语言目标唯一调用 `app.get_storage`；结果 typed `PASSED`，Run 为 `COMPLETED`，审批数为 0。
+- 验收确认 `storage-status` 能从真实模型路由到本地权威容量摘要，并把总容量、可用空间和使用率形成最终回答；Provider 凭据、文件路径、应用数据和设备身份不进入 Tool Ledger 或回答。
+- 仅 Redmi `wsvwypiz7xwslvl7` 真实 Provider instrumentation `OK (1 test)`（`13.46s`）通过；测试包已卸载，模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 下一阶段停止继续横向增加同类设备状态字段，重新选择能扩大真实个人任务范围的单一能力；后台设备自动化、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 218 阶段：前台只读存储状态（完成）
 
 - 新增 `app.get_storage` 和独立 `storage-status` Skill，工具无参数、`SAFE`、仅前台直接 Agent 可用，不需要 Android 权限，也不进入 Workflow 或后台设备自动化。

@@ -4,6 +4,13 @@
 
 ## 当前验证基线
 
+## 2026-08-09 第 219 阶段：真实前台存储状态 Agent Run
+
+- 仅在 Redmi 真机 `wsvwypiz7xwslvl7` 读取当前选中 Provider，创建临时最小 Profile（只允许 `app.get_storage / storage-status`，关闭长期记忆），复用正式 `AgentRunUseCase` 执行自然语言存储查询。
+- 真实 Run 为 `COMPLETED`；Tool Ledger 恰有一项 `app.get_storage` 结果，`success=true / verificationStatus=PASSED`，审批数为 0。工具结果和最终回答不包含 Provider URL、API Key、Profile 内部 ID、文件路径、应用数据、设备序列或应用包名。
+- `RealProviderStorageStatusInstrumentedTest#foregroundAgentReadsCurrentStorageFactsOnly` 结果为 `OK (1 test)`，耗时 `13.46s`；测试 APK 完成后已卸载，主应用和用户数据保留，阶段 Run 审计保留。
+- ADB 清单中的 `emulator-5554` 没有收到目标安装、测试或卸载命令。本阶段未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；生产工具、Room v36、旧 Profile/Run、Workflow、后台和发布边界保持不变。
+
 ## 2026-08-09 第 218 阶段：前台只读存储状态闭环
 
 - 新增 `app.get_storage`，由正式 `XiaoLingToolRegistry` 注入 `AndroidStorageStatusReader`，无参数、`SAFE`、`supportsBackground=false`；结果固定为总容量、可用空间和使用率三项，不包含文件名、路径、应用数据、Provider 配置或设备身份。

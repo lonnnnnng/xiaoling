@@ -1,5 +1,12 @@
 # 产品需求
 
+## 真实前台存储状态 Agent Run（第 219 阶段，完成）
+
+- Redmi 真实验收必须使用当前选中 Provider 和正式 `AgentRunUseCase`；临时 Profile 工具白名单精确限制为 `app.get_storage`，Skill 白名单精确限制为 `storage-status`，长期记忆关闭。
+- 用户目标必须驱动模型唯一调用存储状态工具，不得创建审批、调用其他工具或把 Provider URL/API Key、Profile 内部 ID、文件路径、应用数据、设备序列和应用包名带入 Tool Ledger 或最终回答。
+- Run 只有在 `COMPLETED`、唯一 ToolResult 为 `success=true / verificationStatus=PASSED` 且审批数为 0 时才算通过；读取失败或结果字段漂移不得被模型总结升级为成功。
+- 本阶段只完成 Redmi 单项真实 Provider 验收和 AndroidTest APK 编译，未运行完整 JVM、全量 Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
+
 ## 前台只读存储状态（第 218 阶段，完成）
 
 - `app.get_storage` 必须是无参数、`SAFE`、仅前台可调用的只读工具，`supportsBackground=false`，不申请 Android 权限，不进入 Workflow 或后台设备自动化。
