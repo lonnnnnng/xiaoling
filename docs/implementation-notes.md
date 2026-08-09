@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 第 221 阶段：前台长期记忆安全删除真实闭环（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，真实前台 `/agent` Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格完成 `memory.search -> memory.get -> memory.delete`；人工审批 `APPROVED`，三项 ToolResult `PASSED`，删除回执 `COMMITTED`，稳定 memory ID `memory-ee8cc2f1-27c0-4756-91f6-804ddf2608cf` 删除后在长期记忆页不可见。
+- 阶段清理确认临时 Profile、临时记忆、撤销快照、验收消息均已移除，Run/Approval/Tool Ledger 审计仍可读取。清理测试原先把 Run 所在的旧空会话当作临时会话删除，已修正夹具边界：只删除临时会话；本轮通过 `repairOriginalConversationBoundaryAndVerifyRun` 恢复 `conversation-1786204146694` 为无消息“新会话”并恢复选中状态，定向 Redmi `OK (1 test)`。
+- 新增 `Stage221MemoryDeleteUiInstrumentedTest` 的会话边界回归；`assembleDebugAndroidTest` 成功。测试 APK 已从 Redmi 卸载，主应用数据未清理；未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。
+
+### 下一阶段
+
+第 222 阶段继续个人 Agent 主线，选择下一个前台可直接体验的窄能力闭环；验证按改动风险执行，后台自动化、精确定时和远期生态能力继续后置。
+
 ## 第 220 阶段：前台长期记忆安全删除（完成）
 
 - `AgentMemoryStore` 新增 `deleteForAgent(memoryId, idempotencyKey)` 与 `verifyDeletedOperation(idempotencyKey, memoryId)`；`RoomAgentMemoryStore` 复用 `agent_memory_operations`，用独立 payload/result hash 区分 `memory.remember` 与删除 operation。

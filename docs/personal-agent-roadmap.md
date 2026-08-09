@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 221 阶段：前台长期记忆安全删除真实闭环（完成）
+
+- Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`；人工审批 `APPROVED`，三项结果 `PASSED`，删除回执 `COMMITTED`，稳定 memory ID `memory-ee8cc2f1-27c0-4756-91f6-804ddf2608cf` 在当前长期记忆页不可见。
+- 临时 Profile、记忆、撤销文件、验收消息已清理，Run/Approval/Tool Ledger 保留。验收夹具已增加会话边界回归，恢复复用的原空会话 `conversation-1786204146694` 为无消息“新会话”，不再误删用户会话。
+- `assembleDebugAndroidTest` 与 Redmi 定向修复核对通过；测试包已卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation。
+
+下一阶段（第 222 阶段）：继续个人 Agent 主线，选择一个用户可直接体验的前台窄能力闭环；不提前开放后台自动化、精确定时、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 220 阶段：前台长期记忆安全删除（完成）
 
 - 新增生产 `memory.delete(memory_id)` 与独立 `personal-memory-delete` Skill，仅向开启长期记忆召回的前台 `DIRECT` Agent 暴露；不加入 Workflow、后台、Legacy Run 或旧 Profile。

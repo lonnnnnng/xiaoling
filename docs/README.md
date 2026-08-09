@@ -1,6 +1,8 @@
 # 文档索引
 
-第 220 阶段完成前台长期记忆安全删除：新增 `memory.delete` 与独立 `personal-memory-delete` Skill，只在开启记忆召回的前台 `DIRECT` Run 可发现；生产 Registry 强制同一 Run 唯一 `memory.search -> memory.get -> memory.delete` 且稳定 ID 一致，跳步、多结果、ID 漂移、Run 切换或关闭召回均 fail-closed。删除需审批并由 Executor 回读验证，`COMMITTED + IDEMPOTENT_BY_KEY + DENY` 回执通过 Room operation ledger 支持重启后只读核对；删除主记录、FTS 和账本同一事务，Room 保持 v36。聚焦 JVM `119/119`、Debug/AndroidTest APK 构建成功；Redmi 上 Registry 完整删除链、跨重开账本与文档 corpus gate 分别 `OK (1 test)`，测试包已卸载。尚未完成真实 Provider 自然语言 Run、人工审批 UI 与答案级当前不可见验收；第 221 阶段收口这些真实前台证据。旧 Profile/Run、Workflow 和后台边界不变。
+第 221 阶段完成前台长期记忆安全删除真实闭环：Redmi 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`，人工审批为 `APPROVED`，三项结果均 `PASSED`，删除回执 `COMMITTED`，当前长期记忆页不可见。清理后临时 Profile、临时记忆、撤销文件和验收消息均不存在，Run/审批/Tool Ledger 审计保留；发现清理夹具曾误删原空会话后已补回 `conversation-1786204146694`（标题“新会话”、无消息）并恢复选中状态。只使用 Redmi，聚焦 `assembleDebugAndroidTest` 成功与定向修复核对 `OK (1 test)`；测试包已卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，Room v36、Workflow 和后台边界不变。
+
+第 222 阶段回到个人 Agent 主线，继续选择一个用户可直接体验的前台窄能力闭环；保持当前分级验证约束，不把后台自动化、精确定时、MCP、远程 Channel、多 Agent 或本地模型提前扩权。
 
 第 219 阶段完成真实前台个人 Agent 的存储状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，唯一调用 `app.get_storage`；Run `COMPLETED`、typed `PASSED`、审批数为 0，结果不含 Provider 凭据、Profile 内部 ID、文件路径、应用数据或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 

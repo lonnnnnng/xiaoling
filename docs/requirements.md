@@ -1,5 +1,12 @@
 # 产品需求
 
+## 前台长期记忆安全删除真实闭环（第 221 阶段，完成）
+
+- Redmi `wsvwypiz7xwslvl7` 真实 Provider Run 必须严格使用同一稳定 memory ID 完成 `memory.search -> memory.get -> memory.delete`，删除前由用户批准，结果需同时具备 `PASSED`、Executor 验证和 `COMMITTED` 回执。
+- 删除后的当前长期记忆视图、搜索结果和临时验收数据必须为空；临时 Profile、撤销快照和临时会话可清理，但 Run、Approval 和 Tool Ledger 审计必须保留。
+- 验收夹具不得把原会话误判为临时会话；若临时 Run 复用了原空会话，清理只删除消息而不删除原会话记录，并恢复其选中状态。
+- 本阶段不新增权限、Workflow、后台执行或 Release 能力。第 222 阶段回到个人 Agent 主线，按分级验证选择下一项前台窄能力。
+
 ## 前台长期记忆安全删除（第 220 阶段，完成）
 
 - 生产删除工具必须命名为 `memory.delete`，只接受一个合法稳定 `memory_id`；只有开启长期记忆召回的前台 `DIRECT` Agent 才可发现，不得进入 Workflow、后台、Legacy Run 或旧 Profile。
