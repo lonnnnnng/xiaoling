@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
+
+- 新增 `Stage225SkillTryUiInstrumentedTest`，使用真实 `MainActivity` 和 Redmi 当前 Room 状态，从设置根页进入 Skill 管理；测试只选择当前 Profile 已授权、已启用、具非空示例的 SAFE Skill，不写入夹具 Profile、Skill、会话或 Run。
+- 设置入口、Skill `LazyColumn` 和对话 `BasicTextField` 增加稳定测试标签。真实壳设置覆盖层会合并子树语义，测试使用 unmerged tree 定位 Skill 列表；根页和展开后的示例均先滚入可见区域再点击，覆盖真实可达路径而不是绕过应用导航。
+- 点击前冻结选中 Profile ID、选中会话 ID、当前会话消息 SHA-256 和最近 100 条 Run 完整详情 SHA-256。Redmi 最终选择 `agent-profile-default / conversation-recall`，回到对话后输入框为规范 `/agent ...` 草稿，四项身份/摘要前后相同，未自动发送。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug :app:assembleDebugAndroidTest` 成功；仅 Redmi 单项为 `OK (1 test)`、`7.624s`，输出 `STAGE225_SKILL_TRY ... conversationUnchanged=true messagesUnchanged=true runsUnchanged=true promptPrefilled=true autoSent=false`。
+- 本阶段不调用模型或工具，不创建 Run，不清理主应用数据、Provider 配置、用户会话或 Profile；未运行完整 JVM、Lint、Release 或全量 instrumentation。生产 Tool/Skill、Room v36、审批、Workflow、后台和 Shadow 边界不变。
+
+### 下一阶段
+
+第 226 阶段只在用户明确发送试用草稿后验证 Run 才被创建、目标 Skill 被正式选择且后续审批不被绕过；不得把 Skill 管理页点击升级为自动执行。
+
 ## 第 224 阶段：Agent Skill 直接试用入口（完成）
 
 - `AgentSkillManagementPage` 展开项新增“试用示例”，从当前定义的 `triggerExamples` 取最多 3 条去重、非空文本；按钮旁明确说明只填入输入框，不会自动发送或执行。
@@ -11,7 +23,7 @@
 
 ### 下一阶段
 
-第 225 阶段在 Redmi 当前 Agent Profile 下补真实应用壳闭环：从设置进入 Skill 管理、选择已授权 SAFE 示例、回到对话核对草稿，再由用户决定是否发送；仍不得自动执行。
+第 225 阶段已完成上述 Redmi 真实应用壳闭环；试用草稿仍由用户决定是否发送。
 
 ## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
 

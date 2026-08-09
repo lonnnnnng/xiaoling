@@ -1,5 +1,7 @@
 # 文档索引
 
+第 225 阶段完成 Agent Skill 试用的 Redmi 真实应用壳闭环：AndroidTest 从设置根页滚动进入 `Agent Skills`，自动选择当前 `agent-profile-default` 已授权的 SAFE `conversation-recall`，展开并点击首条示例，最终只在对话输入框得到规范 `/agent ...` 草稿。测试前后选中 Profile、选中会话、当前会话消息 SHA-256 和最近 100 条 Run 完整详情 SHA-256 均不变，未自动发送、调用模型、创建 Run 或执行工具。`:app:compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 构建和仅 Redmi 单项 `OK (1 test)`（`7.624s`）通过；主应用数据与 Provider 配置保留，未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36 与生产能力边界不变。
+
 第 224 阶段完成 Agent Skill 直接试用入口：Skill 管理页展开后展示最多 3 条去重、非空的 `triggerExamples`；只有 Skill 已启用、当前 Agent Profile 同时允许该 Skill 与全部工具、且工具仍注册时按钮才可用。点击后应用壳按最新状态重新核对稳定 Skill ID 与示例归属，关闭个人任务模式，将规范 `/agent ...` 目标填入输入框并回到对话根页；不会自动发送、调用模型或绕过工具审批。聚焦 JVM `17/17`、Debug/AndroidTest APK 和 Redmi 页面 `OK (4 tests)`（`6.085s`）通过；主 Debug 覆盖安装并保留数据，未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36、生产 Tool/Skill 定义、权限和后台边界不变。
 
 第 223 阶段完成受控单日全天日程真实前台闭环：仅在 Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，人工输入自然语言目标并批准唯一 `calendar.create_all_day_event`。Run `run-7614212d-ebf7-4bbd-8be9-c3196b9a3e4b`、ToolCall `tool-call-15700c37-2932-424a-91b0-05e9a20bf312` 收敛为 `COMPLETED / APPROVED / PASSED / COMMITTED`，稳定事件 `calendar-90` 可由答案级“查看日程”进入当前 Provider，核对标题 `stage223_all_day_1786293137009`、日期 `2026-08-15`、全天、`UTC` 和非重复。旧 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 的完整详情摘要不变；测试事件按精确 ID 删除，临时 Profile/会话清理，原选择恢复，真实 Run/审批/Tool Ledger 审计保留。聚焦 AndroidTest 编译/构建与 Redmi prepare/audit/cleanup 单项通过，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation；生产代码、Room v36 和高级日历边界不变。
@@ -62,7 +64,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已到第 224 阶段、Room v36，尚未形成新 Release。第 224 阶段把现有 Skill 示例接成可发现、可审阅但不自动发送的 Agent 草稿入口；第 223/222 阶段完成受控单日全天日程能力与真实前台闭环；第 221/220 阶段完成长期记忆安全删除能力与真实前台闭环；第 219 至 212 阶段补齐存储、电量、网络、Agent Profile 和安装应用信息的只读能力及真实 Provider 验收；第 211 至 196 阶段完成会话、日程、笔记和记忆的真实闭环与答案级权威事实查看。发布基线仍为 `v0.1.16`；第 225 阶段补齐 Skill 试用的 Redmi 真实应用壳闭环。
+当前开发基线已到第 225 阶段、Room v36，尚未形成新 Release。第 225/224 阶段把现有 Skill 示例接成可发现、可审阅、不自动发送的 Agent 草稿入口，并完成 Redmi 真实应用壳闭环；第 223/222 阶段完成受控单日全天日程能力与真实前台闭环；第 221/220 阶段完成长期记忆安全删除能力与真实前台闭环；第 219 至 212 阶段补齐存储、电量、网络、Agent Profile 和安装应用信息的只读能力及真实 Provider 验收；第 211 至 196 阶段完成会话、日程、笔记和记忆的真实闭环与答案级权威事实查看。发布基线仍为 `v0.1.16`；第 226 阶段验证用户明确发送试用草稿后才创建 Run，并继续核对 Skill 选择和审批边界。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

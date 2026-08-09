@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 225 阶段 Skill 试用真实壳边界（无变更）
+
+Redmi 真实应用壳只把当前 Profile 已授权 SAFE Skill 的示例预填为 `/agent ...` 草稿；选中 Profile、会话、消息和最近 Run 摘要均保持不变，没有产生答案、知识候选、Judge、Shadow measurement 或匿名账本，也不触发生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 224 阶段 Skill 直接试用边界（无变更）
 
 本阶段只把当前 Skill 自有示例投影为可审阅的 `/agent` 对话草稿；点击不会发送消息、调用模型、创建 Run、执行工具或产生答案，因此不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发生产拒绝。Skill/Profile/工具状态漂移时 fail-closed，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

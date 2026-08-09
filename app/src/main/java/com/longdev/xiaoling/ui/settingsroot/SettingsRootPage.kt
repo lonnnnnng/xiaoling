@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.ui.PageTitle
@@ -174,6 +175,7 @@ internal fun SettingsRootPage(
                 },
                 icon = Icons.Default.Settings,
                 onClick = actions::openSkillManagement,
+                testTag = "settings-entry-agent-skills",
             )
 
             SettingsEntryCard(
@@ -247,6 +249,7 @@ private fun SettingsEntryCard(
     icon: ImageVector = Icons.Default.Memory,
     onClick: () -> Unit,
     trailing: (@Composable () -> Unit)? = null,
+    testTag: String? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -254,6 +257,7 @@ private fun SettingsEntryCard(
         shape = RoundedCornerShape(9.dp),
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (testTag == null) Modifier else Modifier.testTag(testTag))
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(9.dp))
             .clip(RoundedCornerShape(9.dp))
             .clickable(onClick = onClick),

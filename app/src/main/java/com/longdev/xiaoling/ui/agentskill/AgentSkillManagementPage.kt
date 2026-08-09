@@ -92,7 +92,9 @@ internal fun AgentSkillManagementPage(
         }
 
         LazyColumn(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .testTag("agent-skill-list"),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             contentPadding = PaddingValues(bottom = 8.dp),
         ) {

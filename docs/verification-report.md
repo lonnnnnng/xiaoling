@@ -4,6 +4,27 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 225 阶段：Agent Skill 试用真实应用壳闭环
+
+### 结论
+
+- 真实 `MainActivity` 已从设置根页进入 `Agent Skills`，读取 Redmi 当前选中的 Profile、会话和 Skill Store，并选择已授权 SAFE `conversation-recall` 的首条示例。
+- 点击后回到对话根页，输入框为规范 `/agent ...` 草稿；选中 Profile `agent-profile-default`、选中会话、当前会话消息和最近 100 条 Run 完整详情均未变化。
+- 没有自动发送、调用模型、创建 Run、执行工具或触发审批；没有写入测试 Profile/Skill，也没有清理用户数据或 Provider 配置。
+- 生产 Tool/Skill、Room v36、权限、审批、Workflow、后台能力和答案可回答性 Shadow 均未改变。
+
+### 验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebug :app:assembleDebugAndroidTest` 成功。
+- 仅 Redmi `wsvwypiz7xwslvl7` 运行 `Stage225SkillTryUiInstrumentedTest#currentSafeSkillExampleOnlyPrefillsAgentDraftWithoutCreatingFacts`，结果 `OK (1 test)`、`7.624s`。
+- 设备日志输出：`STAGE225_SKILL_TRY profileId=agent-profile-default skillId=conversation-recall conversationUnchanged=true messagesUnchanged=true runsUnchanged=true promptPrefilled=true autoSent=false`。
+- 首轮测试暴露设置入口和 Skill 示例位于屏幕外时直接点击无效，以及真实设置壳合并子树 semantics；最终测试以稳定入口/列表/输入标签、真实滚动和 unmerged tree 收敛，未增加测试夹具业务数据。
+- Debug 主应用和测试 APK 均只向 Redmi 覆盖安装；未向 Pixel_9 或其他模拟器发送命令。未运行完整 JVM、Lint、Release 或全量 instrumentation，符合快速迭代分级验证约束。
+
+### 下一阶段
+
+- 第 226 阶段只在用户明确发送试用草稿后验证 Run 创建、正式 Skill 选择和逐次审批；Skill 管理页点击继续不得自动执行。
+
 ## 2026-08-10 第 224 阶段：Agent Skill 直接试用入口
 
 ### 结论
@@ -24,7 +45,7 @@
 
 ### 下一阶段
 
-- 第 225 阶段在 Redmi 当前 Agent Profile 下补真实应用壳闭环：从设置进入 Skill 管理、选择已授权 SAFE 示例、回到对话核对草稿，再由用户决定是否发送；仍不得自动执行。
+- 第 225 阶段已完成上述真实应用壳闭环；试用草稿仍由用户决定是否发送。
 
 ## 2026-08-10 第 223 阶段：受控单日全天日程真实前台闭环
 

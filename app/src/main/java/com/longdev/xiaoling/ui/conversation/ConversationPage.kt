@@ -629,6 +629,7 @@ private fun MessageInputBar(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .testTag("conversation-prompt-input")
                         .padding(end = 48.dp, bottom = 34.dp),
                     decorationBox = { innerTextField ->
                         Box(modifier = Modifier.fillMaxWidth()) {

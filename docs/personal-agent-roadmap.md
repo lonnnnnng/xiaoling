@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 225 阶段：Agent Skill 试用真实应用壳闭环（完成）
+
+- 仅在 Redmi `wsvwypiz7xwslvl7` 使用真实 `MainActivity`，从设置根页滚动进入 Skill 管理，选择当前 Profile 已授权的 SAFE `conversation-recall` 示例并回到对话。
+- 当前 `agent-profile-default`、选中会话、会话消息摘要和最近 100 条 Run 完整详情摘要前后不变；输入框得到规范 `/agent ...` 草稿，但没有自动发送、模型调用、Run 或工具执行。
+- AndroidTest 编译、Debug/AndroidTest APK 和 Redmi 单项 `OK (1 test)`（`7.624s`）通过；Room v36、生产 Tool/Skill、审批、Workflow、后台和 Shadow 边界不变。
+
+下一阶段（第 226 阶段）：只在用户明确发送草稿后验证正式 Run 创建、Skill 选择和逐次审批，继续禁止管理页点击自动执行。
+
 ## 第 224 阶段：Agent Skill 直接试用入口（完成）
 
 - Skill 管理页从每项自身 `triggerExamples` 展示最多 3 条去重、非空示例，让既有个人 Agent 能力从配置清单变成可发现入口。
@@ -7,7 +15,7 @@
 - 点击只把规范 `/agent ...` 填入对话并关闭个人任务模式、回到对话根页，不自动发送、不调用模型、不创建 Run，也不改变后续逐次审批和 Tool Ledger 边界。
 - 聚焦 JVM `17/17`、Debug/AndroidTest APK 与仅 Redmi 页面 `OK (4 tests)`（`6.085s`）通过；Room v36、生产 Tool/Skill、权限与后台能力不变。
 
-下一阶段（第 225 阶段）：在 Redmi 当前 Agent Profile 下补真实应用壳闭环，验证“设置 -> Skill 示例 -> 对话草稿”，发送仍由用户决定。
+第 225 阶段已完成“设置 -> Skill 示例 -> 对话草稿”真实应用壳闭环，发送仍由用户决定。
 
 ## 第 223 阶段：受控单日全天日程真实前台闭环（完成）
 
