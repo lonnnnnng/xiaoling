@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 231 阶段：系统分享文本到显式个人任务草稿（完成）
+
+- `openSharedDraft()` 在用户打开或确认替换分享时显式清除 `personalTaskMode`、上一轮任务失败/完成提示和普通结果；`handleSharedDraftImport()` 继续保留既有草稿冲突确认，保证冷启动、热启动及已有任务编辑态中的二次 `ACTION_SEND` 不会绕过用户选择。
+- `SharedDraftSourceLabel` 把纯文本分享动作拆成“转为任务”和“保存为笔记”两个独立入口，并共享附件、发送、加载和个人任务运行门禁；个人任务模式下不会再次显示任务转换。`ConversationActions -> XiaoLingViewModel.createPersonalTaskDraftFromSharedText()` 只保留正文、清除分享来源并切换编辑模式，不调用模型、`sendMessage()`、计划器或 Workflow。
+- `SharedDraftActivityInstrumentedTest` 覆盖二次分享退出旧任务模式及转换前后无消息/Run；`SharedDraftNoticeInstrumentedTest`、`ConversationPageInstrumentedTest` 覆盖两个入口和“转为任务不发送”。新增 `Stage231SharedTextPersonalTaskInstrumentedTest`，只在显式 `stage231RealRun=true` 下用临时最小 Profile 执行正式“分享 -> 转为任务 -> 生成计划 -> 确认 -> Workflow”链。
+- Redmi 真实计划只包含 `app.current_time` 且没有提醒。Workflow Run `workflow-run-e923d6fb-6e35-435b-9c52-df3fa49c2043` 与 Agent Run `run-feb8faa9-4842-4f32-8dcb-63eab27bfe1e` 均完成；ToolResult 为 `PASSED`、目标级结论为 `VERIFIED`、审批数为 0，总耗时 `22.575s`。
+- 夹具在 `finally` 中停用验收 Workflow、删除临时 Profile/会话并恢复原 Profile/会话选择；最近旧 Agent Run 与 Workflow Run 的稳定摘要比较通过，历史审计不被改写。测试只在显式 runner 参数下恢复当前 Keystore Provider，生产分享路径不读取这些参数。
+- Redmi 新 Activity 单项为 `OK (1 test)`、`3.648s`，其余三个 UI/路由单项为 `OK (3 tests)`、`5.61s`；最终文档 corpus gate 为 `OK (1 test)`。未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、生产工具面、后台分享和定时边界不变。
+
+### 下一阶段
+
+第 232 阶段在同一显式任务入口完成一次性提醒闭环，继续复用现有 WorkManager 非精确定时与计划确认；不引入 Exact Alarm、Foreground Service 或后台分享自动执行。
+
 ## 第 230 阶段：系统分享文本到显式 Agent 笔记草稿（完成）
 
 - 新增纯 Kotlin `SharedTextAgentDraftPolicy`：仅非空分享文本可以生成固定 `/agent 使用 notes.create ...` 草稿，正文保持原顺序；策略只返回字符串，不持有 Context、Provider、Run 或发送回调。

@@ -4,6 +4,33 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 231 阶段：系统分享文本到显式个人任务草稿
+
+### 结论
+
+- `text/plain ACTION_SEND` 继续遵守既有草稿冲突确认；分享被打开进入编辑器后先退出旧个人任务模式并成为普通可编辑草稿。用户点击“转为任务”后只切换到个人任务编辑态，不自动发送、不请求模型、不生成计划，也不创建 Workflow/Run。
+- 用户随后明确生成并确认单步计划。Redmi Workflow Run `workflow-run-e923d6fb-6e35-435b-9c52-df3fa49c2043`、关联 Agent Run `run-feb8faa9-4842-4f32-8dcb-63eab27bfe1e` 均为 `COMPLETED`；唯一工具 `app.current_time` 为 `PASSED`，目标级结论为 `VERIFIED`，审批数为 0。
+- 临时 Profile/会话已删除、原 Profile/会话选择已恢复，验收 Workflow 已停用但 Run 审计保留；最近旧 Agent Run 与 Workflow Run 的稳定摘要均未变化。
+
+### 验证证据
+
+- `SharedDraftActivityInstrumentedTest#textShareReturnsToOrdinaryDraftAndRequiresExplicitTaskConversion` 验证已有个人任务模式中的二次分享会回普通草稿，转换前后都没有用户消息或 Agent Run。
+- `SharedDraftNoticeInstrumentedTest` 与 `ConversationPageInstrumentedTest` 验证“转为任务/保存为笔记”并列入口、任务转换动作只路由一次且不会触发发送；个人任务待确认/运行门禁继续隐藏两个分享动作。
+- Redmi 新 Activity 单项为 `OK (1 test)`、`3.648s`；其余三个 UI/Activity 聚焦单项为 `OK (3 tests)`、`5.61s`。
+- `Stage231SharedTextPersonalTaskInstrumentedTest` 使用显式真实运行参数和临时最小 Profile，正式经历分享导入、任务转换、计划生成、计划确认、Workflow 与 Agent Run；计划严格为一个 `app.current_time` 步骤且无提醒，单项 `OK (1 test)`、总耗时 `22.575s`。
+- 真实结果从 Room 权威账本回读：Workflow/Step 均完成，目标级结论 `VERIFIED`，Agent Run 完成，Tool Ledger 只有 `app.current_time` 且结果包含当前时间与时区、`verificationStatus=PASSED`，Approval 为空。夹具最终停用 Workflow、删除临时 Profile/会话并恢复原选择。
+- 六份长期文档与索引同步后重新构建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果为 `OK (1 test)`。
+
+### 验证范围
+
+- 只使用 Redmi `wsvwypiz7xwslvl7`；未启动、连接或操作 Pixel_9。
+- 已执行 AndroidTest 编译/构建、Redmi 聚焦 UI/Activity、真实模型单项、旧 Run 不变与夹具清理；文档更新后仅复验 corpus gate。
+- 按快速迭代分级验证约束，未运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation；Room v36、生产 Tool/Skill、精确定时、Foreground Service 和后台分享边界不变。
+
+### 下一阶段
+
+第 232 阶段在同一显式任务入口完成一次性提醒闭环，继续使用现有 WorkManager 非精确定时与计划确认；不预先引入 Exact Alarm、Foreground Service 或后台分享自动执行。
+
 ## 2026-08-10 第 230 阶段：系统分享文本到显式 Agent 笔记草稿
 
 ### 结论

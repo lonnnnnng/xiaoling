@@ -360,6 +360,7 @@ internal fun ConversationPage(
                 onOpenPendingSharedDraft = actions::openPendingSharedDraft,
                 onDiscardPendingSharedDraft = actions::discardPendingSharedDraft,
                 onCreateAgentNoteDraftFromSharedText = actions::createAgentNoteDraftFromSharedText,
+                onCreatePersonalTaskDraftFromSharedText = actions::createPersonalTaskDraftFromSharedText,
                 onSend = actions::sendMessage,
                 onStop = actions::stopGenerating,
                 onOpenWorkflowManagement = actions::openWorkflowManagement,
@@ -541,6 +542,7 @@ private fun MessageInputBar(
     onOpenPendingSharedDraft: () -> Unit,
     onDiscardPendingSharedDraft: () -> Unit,
     onCreateAgentNoteDraftFromSharedText: () -> Unit,
+    onCreatePersonalTaskDraftFromSharedText: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
@@ -599,11 +601,14 @@ private fun MessageInputBar(
                 )
             }
             if (state.sharedDraftImported) {
+                val sharedTextActionEnabled = state.pendingImage == null && state.pendingDocument == null &&
+                    !attaching && !state.sendingMessage && !state.loadingConversationMessages &&
+                    !state.awaitingPersonalTaskPlanConfirmation && state.personalTaskOperationPhase == null
                 SharedDraftSourceLabel(
-                    agentActionEnabled = state.pendingImage == null && state.pendingDocument == null &&
-                        !attaching && !state.sendingMessage && !state.loadingConversationMessages &&
-                        !state.awaitingPersonalTaskPlanConfirmation && state.personalTaskOperationPhase == null,
+                    noteActionEnabled = sharedTextActionEnabled,
+                    taskActionEnabled = sharedTextActionEnabled && !state.personalTaskMode,
                     onCreateAgentNoteDraft = onCreateAgentNoteDraftFromSharedText,
+                    onCreatePersonalTaskDraft = onCreatePersonalTaskDraftFromSharedText,
                 )
             }
             state.pendingImage?.let { attachment ->
@@ -845,8 +850,10 @@ internal fun SharedDraftPendingNotice(
 
 @Composable
 internal fun SharedDraftSourceLabel(
-    agentActionEnabled: Boolean = false,
+    noteActionEnabled: Boolean = false,
+    taskActionEnabled: Boolean = false,
     onCreateAgentNoteDraft: () -> Unit = {},
+    onCreatePersonalTaskDraft: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
@@ -868,7 +875,15 @@ internal fun SharedDraftSourceLabel(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (agentActionEnabled) {
+        if (taskActionEnabled) {
+            TextButton(
+                onClick = onCreatePersonalTaskDraft,
+                modifier = Modifier.testTag("shared-draft-personal-task"),
+            ) {
+                Text("转为任务", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        if (noteActionEnabled) {
             TextButton(
                 onClick = onCreateAgentNoteDraft,
                 modifier = Modifier.testTag("shared-draft-agent-note"),

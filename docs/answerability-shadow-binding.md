@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 231 阶段系统分享个人任务边界（无变更）
+
+本阶段只把用户显式选择的 `text/plain` 分享切换为个人任务编辑态，并在后续计划确认后复用既有 Workflow、`app.current_time` Tool Ledger 与目标级验证。分享原文、草稿转换、待确认计划、临时 Profile/会话、Workflow/Agent Run 和 runner 恢复参数均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 230 阶段系统分享 Agent 草稿边界（无变更）
 
 本阶段只把用户显式选择的 `text/plain` 分享改写为可编辑 `/agent notes.create` 草稿，并在正式发送、审批和 Store 回读后按既有可信执行记录展示结果。分享原文、临时笔记、Provider 恢复参数、Run/Approval/Tool Ledger 和草稿转换动作均不进入知识候选、Judge、Shadow measurement 或匿名账本，不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

@@ -109,7 +109,32 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
-    fun hidesSharedTextNoteDraftWhilePersonalTaskConfirmationIsPending() {
+    fun routesSharedTextTaskDraftThroughActionsWithoutSending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        enabledModels = listOf("model"),
+                        prompt = "分享任务内容",
+                        sharedDraftImported = true,
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("转为任务").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.createPersonalTaskDraftCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
+    fun hidesSharedTextActionsWhilePersonalTaskConfirmationIsPending() {
         val actions = FakeConversationActions()
         composeRule.setContent {
             MaterialTheme {
@@ -127,6 +152,7 @@ class ConversationPageInstrumentedTest {
         }
 
         composeRule.onNodeWithText("保存为笔记").assertDoesNotExist()
+        composeRule.onNodeWithText("转为任务").assertDoesNotExist()
     }
 
     @Test
@@ -540,6 +566,7 @@ class ConversationPageInstrumentedTest {
         var openSharedDraftCount = 0
         var discardSharedDraftCount = 0
         var createAgentNoteDraftCount = 0
+        var createPersonalTaskDraftCount = 0
         var sendCount = 0
         var stopCount = 0
         var openWorkflowCount = 0
@@ -597,6 +624,10 @@ class ConversationPageInstrumentedTest {
 
         override fun createAgentNoteDraftFromSharedText() {
             createAgentNoteDraftCount += 1
+        }
+
+        override fun createPersonalTaskDraftFromSharedText() {
+            createPersonalTaskDraftCount += 1
         }
 
         override fun sendMessage() {

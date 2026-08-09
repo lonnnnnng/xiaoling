@@ -230,6 +230,54 @@ class SharedDraftActivityInstrumentedTest {
         }
     }
 
+    @Test
+    fun textShareReturnsToOrdinaryDraftAndRequiresExplicitTaskConversion() {
+        val bootstrapText = "share-task-bootstrap-${System.nanoTime()}"
+        val sharedText = "share-task-${System.nanoTime()}\n读取当前设备时间"
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, bootstrapText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            scenario.awaitState { it.prompt == bootstrapText && it.sharedDraftImported }
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.updatePrompt("")
+                viewModel.updatePersonalTaskMode(true)
+                activity.startActivity(
+                    Intent(activity, MainActivity::class.java).apply {
+                        action = Intent.ACTION_SEND
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, sharedText)
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    },
+                )
+            }
+
+            val imported = scenario.awaitState {
+                it.prompt == sharedText && it.sharedDraftImported
+            }
+            assertFalse(imported.personalTaskMode)
+            assertNull(imported.activeAgentRun)
+            assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+            scenario.onActivity { activity ->
+                ViewModelProvider(activity)[XiaoLingViewModel::class.java].createPersonalTaskDraftFromSharedText()
+            }
+            val converted = scenario.awaitState {
+                it.prompt == sharedText && !it.sharedDraftImported && it.personalTaskMode
+            }
+            assertFalse(converted.sendingMessage)
+            assertNull(converted.activeAgentRun)
+            assertFalse(converted.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
     private fun ActivityScenario<MainActivity>.awaitState(
         predicate: (XiaoLingUiState) -> Boolean,
     ): XiaoLingUiState {

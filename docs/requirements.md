@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统分享文本到显式个人任务草稿（第 231 阶段，完成）
+
+- `text/plain ACTION_SEND` 必须继续遵守既有草稿冲突确认；分享被用户打开进入编辑器后，必须先退出既有个人任务模式并投影为普通可编辑草稿。冷启动、热启动和二次分享均不得自动请求模型、生成计划、创建 Workflow/Run 或执行工具。
+- 只有当前仍是纯文本分享、无图片/文档、无附件读取、未发送、会话未加载且没有待确认/运行中的个人任务时，来源标签才显示“转为任务”。“保存为笔记”保持独立入口；图片分享、用户后续附加附件或来源标记已因编辑清理时不得开放任务转换。
+- 用户点击“转为任务”后只允许保留去除首尾空白的原正文、清除分享来源并进入个人任务编辑模式，同时清理上一轮任务失败/完成提示和普通结果；不得调用 `sendMessage()`。用户随后仍需明确生成计划并确认计划，只有确认后才可创建 Workflow 和 Agent Run。
+- 本阶段真实计划必须为立即执行的单步 `app.current_time`，不得生成提醒；Workflow Run 必须为 `COMPLETED`、步骤为 `COMPLETED`、目标级结论为 `VERIFIED`，关联 Agent Run 必须为 `COMPLETED`、唯一 ToolResult 为 `PASSED` 且审批数为 0。
+- 验收必须冻结最近旧 Agent Run 与 Workflow Run 的稳定摘要并证明新执行不改写旧事实；临时 Profile/会话需清理、原选择需恢复，验收 Workflow 保留审计但必须停用。分享正文、Provider 凭据和 runner 恢复参数不得写入源码、文档、日志或 Git。
+- 本阶段不新增生产 Tool/Skill、Room Schema、精确定时、Foreground Service、后台分享自动执行或任意 Intent 能力；按快速迭代分级只执行 AndroidTest 编译/构建、Redmi 聚焦 UI/Activity、真实模型单项和文档 corpus gate，完整 JVM、Lint、Release 与全量 instrumentation 后置。
+
 ## 系统分享文本到显式 Agent 笔记草稿（第 230 阶段，完成）
 
 - 第 100 阶段的 `text/plain ACTION_SEND` 必须继续先投影为用户可编辑草稿；外部 Intent、冷启动、热启动和分享来源标签均不得自动添加 `/agent`、调用模型、创建 Run、发送消息或写入笔记。

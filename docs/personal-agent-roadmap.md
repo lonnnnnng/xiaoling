@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 231 阶段：系统分享文本到显式个人任务草稿（完成）
+
+- Android `text/plain ACTION_SEND` 继续遵守草稿冲突确认；分享被打开进入编辑器后成为普通可编辑草稿并退出旧个人任务模式。只有用户点击“转为任务”才进入个人任务编辑态，转换不发送、不请求模型、不生成计划，也不创建 Workflow/Run。
+- 用户仍需明确生成并确认计划。Redmi 真实计划只有一个 `app.current_time` 步骤且没有提醒；Workflow Run `workflow-run-e923d6fb-6e35-435b-9c52-df3fa49c2043`、Agent Run `run-feb8faa9-4842-4f32-8dcb-63eab27bfe1e` 均完成，结果为 `PASSED / VERIFIED`，审批数为 0。
+- 最近旧 Agent/Workflow Run 的稳定摘要保持不变；临时 Profile/会话已删除、原选择恢复，验收 Workflow 已停用但审计保留。生产 Tool/Skill、Room v36、后台分享、精确定时和任意 Intent 边界没有扩张。
+
+下一阶段（第 232 阶段）：让同一显式任务入口完成一次性提醒闭环，复用现有 WorkManager 非精确定时、计划确认和任务结果验证；暂不引入 Exact Alarm、Foreground Service、后台分享自动执行、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 230 阶段：系统分享文本到显式 Agent 笔记草稿（完成）
 
 - `text/plain ACTION_SEND` 延续第 100 阶段安全边界，先进入可编辑新会话草稿；用户只有点击“保存为笔记”才得到明确 `/agent notes.create` 草稿，仍需再次点击发送和逐次批准写入。

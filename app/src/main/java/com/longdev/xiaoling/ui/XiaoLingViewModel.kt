@@ -1008,13 +1008,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun createAgentNoteDraftFromSharedText() {
-        if (!uiState.sharedDraftImported || uiState.pendingImage != null || uiState.pendingDocument != null ||
-            uiState.attachingImage || uiState.attachingDocument || uiState.sendingMessage ||
-            uiState.loadingConversationMessages || uiState.pendingPersonalTaskPlan != null ||
-            uiState.personalTaskOperationPhase != null
-        ) {
-            return
-        }
+        if (!canTransformImportedSharedText()) return
         val draft = SharedTextAgentDraftPolicy.createNoteDraft(uiState.prompt)
         if (draft == null) {
             showValidation("当前分享没有可保存的文本")
@@ -1030,6 +1024,31 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             result = null,
         )
     }
+
+    fun createPersonalTaskDraftFromSharedText() {
+        if (!canTransformImportedSharedText()) return
+        val goal = uiState.prompt.trim()
+        if (goal.isBlank()) {
+            showValidation("当前分享没有可创建的任务")
+            return
+        }
+        // long: “转为任务”只把当前分享交给既有个人任务编辑态；计划生成、确认和执行仍由用户后续动作分别触发。
+        uiState = uiState.copy(
+            prompt = goal,
+            sharedDraftImported = false,
+            personalTaskMode = true,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
+            result = null,
+        )
+    }
+
+    private fun canTransformImportedSharedText(): Boolean =
+        uiState.sharedDraftImported &&
+            uiState.pendingImage == null && uiState.pendingDocument == null &&
+            !uiState.attachingImage && !uiState.attachingDocument && !uiState.sendingMessage &&
+            !uiState.loadingConversationMessages && uiState.pendingPersonalTaskPlan == null &&
+            uiState.personalTaskOperationPhase == null
 
     private fun handleSharedDraftImport(result: SharedDraftImport) {
         when (result) {
@@ -1077,6 +1096,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             pendingDocument = null,
             pendingSharedDraft = null,
             sharedDraftImported = false,
+            personalTaskMode = false,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
             result = null,
         )
         conversationSelectionCoordinator.openNew(uiState, ::handleConversationSelectionEvent)

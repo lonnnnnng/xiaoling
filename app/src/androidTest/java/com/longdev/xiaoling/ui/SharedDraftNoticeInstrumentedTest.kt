@@ -23,6 +23,7 @@ class SharedDraftNoticeInstrumentedTest {
         var opened = 0
         var discarded = 0
         var converted = 0
+        var taskConverted = 0
         val payload = SharedDraftPayload(
             text = "待处理文本",
             imageUri = null,
@@ -38,8 +39,10 @@ class SharedDraftNoticeInstrumentedTest {
                         onDiscard = { discarded += 1 },
                     )
                     SharedDraftSourceLabel(
-                        agentActionEnabled = true,
+                        noteActionEnabled = true,
+                        taskActionEnabled = true,
                         onCreateAgentNoteDraft = { converted += 1 },
+                        onCreatePersonalTaskDraft = { taskConverted += 1 },
                     )
                 }
             }
@@ -48,11 +51,13 @@ class SharedDraftNoticeInstrumentedTest {
         composeRule.onNodeWithText("来自外部应用的分享").assertIsDisplayed()
         composeRule.onNodeWithText("打开分享").performClick()
         composeRule.onNodeWithContentDescription("忽略分享").performClick()
+        composeRule.onNodeWithText("转为任务").performClick()
         composeRule.onNodeWithText("保存为笔记").performClick()
         composeRule.runOnIdle {
             assertEquals(1, opened)
             assertEquals(1, discarded)
             assertEquals(1, converted)
+            assertEquals(1, taskConverted)
         }
         composeRule.onNodeWithText("已从外部分享导入").assertIsDisplayed()
     }
