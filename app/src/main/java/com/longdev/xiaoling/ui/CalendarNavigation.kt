@@ -3,6 +3,7 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.CalendarEventFingerprint
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
+import java.time.LocalDate
 
 /**
  * 答案级系统日程导航的安全投影。
@@ -46,6 +47,16 @@ internal fun MessagePart.Tool.calendarEventIdForNavigation(): String? {
             if (match.groupValues[1] != requestedTitle) return null
             val id = CalendarNavigationPolicy.normalizeId(match.groupValues[2]) ?: return null
             // long: 创建副作用只有在应用回读并给出唯一稳定 ID 后才允许继续查看当前 Provider 事实。
+            id.takeIf { result.countStableCalendarIds() == 1 }
+        }
+
+        CALENDAR_CREATE_ALL_DAY_TOOL_NAME -> {
+            if (verificationStatus != MessageToolVerificationStatus.VERIFIED) return null
+            val request = arguments.validCalendarCreateAllDayArguments() ?: return null
+            val match = CALENDAR_CREATE_ALL_DAY_RESULT_PATTERN.matchEntire(result) ?: return null
+            if (match.groupValues[1] != request.title || match.groupValues[2] != request.date) return null
+            val id = CalendarNavigationPolicy.normalizeId(match.groupValues[3]) ?: return null
+            // long: 全天日程入口同时绑定审批中的标题和日期，避免模型把其他已创建事件的稳定 ID 拼接到当前答案。
             id.takeIf { result.countStableCalendarIds() == 1 }
         }
 
@@ -122,6 +133,20 @@ private fun Map<String, String>.validCalendarCreateArguments(): String? {
     return title
 }
 
+private fun Map<String, String>.validCalendarCreateAllDayArguments(): CalendarCreateAllDayNavigationArguments? {
+    if (keys != setOf(CALENDAR_TITLE_ARGUMENT, CALENDAR_DATE_ARGUMENT)) return null
+    val title = get(CALENDAR_TITLE_ARGUMENT)
+        ?.trim()
+        ?.takeIf { value -> value.length in 1..200 && value.none { it == '\n' || it == '\r' } }
+        ?.toCalendarTitle()
+        ?.takeIf { value -> value.isNotBlank() && " · id=" !in value }
+        ?: return null
+    val date = get(CALENDAR_DATE_ARGUMENT) ?: return null
+    val parsedDate = runCatching { LocalDate.parse(date) }.getOrNull() ?: return null
+    if (parsedDate.toString() != date) return null
+    return CalendarCreateAllDayNavigationArguments(title = title, date = date)
+}
+
 private fun Map<String, String>.validCalendarUpdateArguments(): String? {
     if (
         keys != setOf(
@@ -164,6 +189,11 @@ private data class CalendarSearchNavigationArguments(
     val daysAhead: Int,
 )
 
+private data class CalendarCreateAllDayNavigationArguments(
+    val title: String,
+    val date: String,
+)
+
 internal object CalendarNavigationPolicy {
     private const val MAX_ID_LENGTH = 28
 
@@ -185,6 +215,7 @@ private const val CALENDAR_LIST_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_SEARCH_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_TOOL_NAME = "calendar.create_event"
+private const val CALENDAR_CREATE_ALL_DAY_TOOL_NAME = "calendar.create_all_day_event"
 private const val CALENDAR_UPDATE_TOOL_NAME = "calendar.update_event"
 private const val CALENDAR_DAYS_ARGUMENT = "days_ahead"
 private const val CALENDAR_QUERY_ARGUMENT = "query"
@@ -196,6 +227,7 @@ private const val CALENDAR_TITLE_ARGUMENT = "title"
 private const val CALENDAR_START_ARGUMENT = "start_at"
 private const val CALENDAR_END_ARGUMENT = "end_at"
 private const val CALENDAR_TIME_ZONE_ARGUMENT = "time_zone"
+private const val CALENDAR_DATE_ARGUMENT = "date"
 private const val CALENDAR_EVENT_SCOPE = "event"
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private const val DEFAULT_CALENDAR_DAYS = 7
@@ -203,6 +235,9 @@ private const val CALENDAR_DETAIL_HEADING = "日程详情："
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
 private val CALENDAR_CREATE_RESULT_PATTERN = Regex(
     "已创建并验证日程：(.+) · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
+)
+private val CALENDAR_CREATE_ALL_DAY_RESULT_PATTERN = Regex(
+    "已创建并验证全天日程：(.+) · 日期=([0-9]{4}-[0-9]{2}-[0-9]{2}) · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
 )
 private val CALENDAR_UPDATE_RESULT_PATTERN = Regex(
     "已修改并验证日程：($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})\\n当前事件指纹：(calendar-event-v1-[0-9a-f]{64})",

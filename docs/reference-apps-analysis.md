@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 222 阶段沿用成熟 Agent 的“不同副作用契约使用独立工具、写入前审批、稳定调用身份幂等、提交后回权威 Provider”原则。单日全天日程没有通过可选参数混入旧定时工具，而是独立声明日期语义；应用同时验证 `ALL_DAY`、UTC 起止边界和稳定事件 ID。该阶段没有复制参考项目的重复日程生成、多日批量写入、参与人邀请、提醒后台化或旧能力自动扩权。
+
 第 221 阶段继续采用成熟 Agent 的“先缩窄稳定对象、逐次审批副作用、提交后回权威 Store、清理与审计分离”原则：Redmi 真实前台 Run 严格完成 `memory.search -> memory.get -> memory.delete`，删除回执与当前记忆页均以 Room 事实为准；验收清理不再删除复用的原空会话，Run/Approval/Tool Ledger 保留。该阶段没有复制参考项目的批量记忆治理、后台自动化、跨设备同步、远程协作或多 Agent 编排。
 
 第 220 阶段继续采用成熟个人 Agent 的“先以当前读取结果缩窄目标、逐次审批副作用、提交后回权威 Store 验证”的边界，但没有复制参考项目的任意记忆批量删除或后台治理。生产 `memory.delete` 只接受同一前台 Run 中唯一 `memory.search -> memory.get` 确认的稳定 ID；短生命周期授权、Room operation ledger 与 `IDEMPOTENT_BY_KEY + DENY` 恢复边界共同阻止 ID 猜测、跨 Run 沿用和中断后重放。第 220 阶段只完成隔离 Redmi 证据，真实 Provider 自然语言、人工审批和当前页面不可见验收留给第 221 阶段。

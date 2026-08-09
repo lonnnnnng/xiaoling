@@ -35,6 +35,7 @@ import com.longdev.xiaoling.device.DeviceSwipeViewportEvidence
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import java.time.Instant
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -301,6 +302,24 @@ class XiaoLingToolRegistry(
                 ToolInputField("time_zone", "IANA 时区，例如 Asia/Shanghai。", true, ToolInputType.STRING, minLength = 1, maxLength = 100),
             ),
             businessValidators = listOf(ToolBusinessValidator(::validateCalendarCreateArguments)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME,
+            description = "在系统可写日历中创建一次性单日全天事件；必须逐次确认，写入后按稳定调用标记回读验证。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField("title", "全天日程标题。", true, ToolInputType.STRING, minLength = 1, maxLength = 200),
+                ToolInputField("date", "ISO-8601 单日日期，固定为 yyyy-MM-dd，例如 2026-08-18。", true, ToolInputType.STRING, minLength = 10, maxLength = 10),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateCalendarCreateAllDayArguments)),
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
             replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
@@ -1153,6 +1172,7 @@ class XiaoLingToolRegistry(
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> createCalendarEvent(call)
+            CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME -> createCalendarEvent(call)
             CALENDAR_UPDATE_EVENT_TOOL_NAME -> updateCalendarEvent(call)
             CALENDAR_DELETE_EVENT_TOOL_NAME -> deleteCalendarEvent(call)
             "tasks.list" -> listTasks(call)
@@ -1210,6 +1230,7 @@ class XiaoLingToolRegistry(
             "memory.remember" -> verifyCommittedMemory(call, receipt)
             MEMORY_DELETE_TOOL_NAME -> verifyCommittedMemoryDeletion(call, receipt)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEvent(call, receipt)
+            CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME -> verifyCommittedCalendarEvent(call, receipt)
             CALENDAR_UPDATE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventUpdate(call, receipt)
             CALENDAR_DELETE_EVENT_TOOL_NAME -> verifyCommittedCalendarEventDeletion(call, receipt)
             TASK_RETRY_TOOL_NAME -> verifyCommittedTaskRetry(call, receipt)
@@ -1225,6 +1246,7 @@ class XiaoLingToolRegistry(
             toolName == "memory.remember" ||
             toolName == MEMORY_DELETE_TOOL_NAME ||
             toolName == CALENDAR_CREATE_EVENT_TOOL_NAME ||
+            toolName == CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME ||
             toolName == CALENDAR_UPDATE_EVENT_TOOL_NAME ||
             toolName == CALENDAR_DELETE_EVENT_TOOL_NAME ||
             toolName == TASK_RETRY_TOOL_NAME
@@ -2092,7 +2114,14 @@ class XiaoLingToolRegistry(
 
     private suspend fun createCalendarEvent(call: ToolCall): ToolExecutionResult {
         val request = call.toCalendarEventWriteRequest()
-            ?: return ToolExecutionResult(success = false, content = "日程时间或时区参数无效。")
+            ?: return ToolExecutionResult(
+                success = false,
+                content = if (call.name == CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME) {
+                    "全天日程日期参数无效，必须使用规范的 yyyy-MM-dd。"
+                } else {
+                    "日程时间或时区参数无效。"
+                },
+            )
         return calendarEventWriter.createOrReadBack(request).toToolExecutionResult(call)
     }
 
@@ -2118,10 +2147,18 @@ class XiaoLingToolRegistry(
                 status = ToolExecutionReceiptStatus.COMMITTED,
             )
             if (verified) {
+                val content = if (event.allDay) {
+                    val date = Instant.ofEpochMilli(event.startAtMillis)
+                        .atZone(ZoneOffset.UTC)
+                        .toLocalDate()
+                    "已创建并验证全天日程：${event.title.toCalendarTitle()} · 日期=$date · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}"
+                } else {
+                    "已创建并验证日程：${event.title.toCalendarTitle()} · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}"
+                }
                 ToolExecutionResult(
                     success = true,
                     verified = true,
-                    content = "已创建并验证日程：${event.title.toCalendarTitle()} · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}",
+                    content = content,
                     executionReceipt = receipt,
                 )
             } else {
@@ -3068,6 +3105,7 @@ private const val APP_GET_CONVERSATION_TOOL_NAME = "app.get_conversation"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
+private const val CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME = "calendar.create_all_day_event"
 private const val CALENDAR_UPDATE_EVENT_TOOL_NAME = "calendar.update_event"
 private const val CALENDAR_DELETE_EVENT_TOOL_NAME = "calendar.delete_event"
 private val CALENDAR_MUTATION_TOOL_NAMES = setOf(CALENDAR_UPDATE_EVENT_TOOL_NAME, CALENDAR_DELETE_EVENT_TOOL_NAME)
@@ -3126,6 +3164,21 @@ private fun validateCalendarCreateArguments(arguments: Map<String, String>): Lis
     }
 }
 
+private fun validateCalendarCreateAllDayArguments(arguments: Map<String, String>): List<String> = buildList {
+    if (arguments.keys != setOf("title", "date")) {
+        add("全天日程只接受 title 和 date")
+    }
+    val title = arguments["title"].orEmpty()
+    if (title.trim().length !in 1..MAX_CALENDAR_TITLE_LENGTH || title.any { it == '\n' || it == '\r' }) {
+        add("全天日程标题必须是 1 至 200 字符的单行文本")
+    }
+    val rawDate = arguments["date"].orEmpty()
+    val date = runCatching { LocalDate.parse(rawDate) }.getOrNull()
+    if (date == null || date.toString() != rawDate) {
+        add("全天日程日期必须是规范的 yyyy-MM-dd")
+    }
+}
+
 private fun validateCalendarDeleteArguments(arguments: Map<String, String>): List<String> = buildList {
     if (arguments["event_id"].orEmpty().trim().toCalendarEventIdOrNull() == null) {
         add("日程事件 ID 必须是 calendar-<正整数>，且只能使用日程搜索已返回并经详情回读的 ID")
@@ -3146,16 +3199,37 @@ private fun validateCalendarUpdateArguments(arguments: Map<String, String>): Lis
 }
 
 private fun ToolCall.toCalendarEventWriteRequest(): CalendarEventWriteRequest? {
-    if (validateCalendarCreateArguments(arguments).isNotEmpty()) return null
-    val start = OffsetDateTime.parse(arguments.getValue("start_at"))
-    val end = OffsetDateTime.parse(arguments.getValue("end_at"))
-    return CalendarEventWriteRequest(
-        idempotencyKey = id,
-        title = arguments.getValue("title").trim(),
-        startAtMillis = start.toInstant().toEpochMilli(),
-        endAtMillis = end.toInstant().toEpochMilli(),
-        timeZoneId = arguments.getValue("time_zone"),
-    )
+    return when (name) {
+        CALENDAR_CREATE_EVENT_TOOL_NAME -> {
+            if (validateCalendarCreateArguments(arguments).isNotEmpty()) return null
+            val start = OffsetDateTime.parse(arguments.getValue("start_at"))
+            val end = OffsetDateTime.parse(arguments.getValue("end_at"))
+            CalendarEventWriteRequest(
+                idempotencyKey = id,
+                title = arguments.getValue("title").trim(),
+                startAtMillis = start.toInstant().toEpochMilli(),
+                endAtMillis = end.toInstant().toEpochMilli(),
+                timeZoneId = arguments.getValue("time_zone"),
+            )
+        }
+
+        CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME -> {
+            if (validateCalendarCreateAllDayArguments(arguments).isNotEmpty()) return null
+            val startDate = LocalDate.parse(arguments.getValue("date"))
+            val start = startDate.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            // long: Provider 的全天结束时间必须是排他的次日 UTC 零点；单日契约在工具层固定，避免模型自行计算产生零长度或跨日事件。
+            CalendarEventWriteRequest(
+                idempotencyKey = id,
+                title = arguments.getValue("title").trim(),
+                startAtMillis = start,
+                endAtMillis = startDate.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+                timeZoneId = "UTC",
+                allDay = true,
+            )
+        }
+
+        else -> null
+    }
 }
 
 private fun ToolCall.toCalendarEventDeleteRequest(): CalendarEventDeleteRequest? {

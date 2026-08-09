@@ -47,6 +47,15 @@ class CalendarNavigationTest {
         assertEquals(
             EVENT_ID,
             listPart(
+                toolName = "calendar.create_all_day_event",
+                arguments = mapOf("title" to "项目纪念日", "date" to "2026-08-18"),
+                result = "已创建并验证全天日程：项目纪念日 · 日期=2026-08-18 · id=$EVENT_ID",
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+            ).calendarEventIdForNavigation(),
+        )
+        assertEquals(
+            EVENT_ID,
+            listPart(
                 toolName = "calendar.update_event",
                 arguments = mapOf(
                     "event_id" to EVENT_ID,

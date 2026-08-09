@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 222 阶段：受控单日全天日程（完成）
+
+- 新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill。工具只接受单行标题和规范 `yyyy-MM-dd`，风险、权限、审批、Executor 验证、`IDEMPOTENT_BY_KEY` 与 `CONTROLLED_SAME_CALL` 恢复契约复用既有日程创建边界；旧 `calendar-create` 和旧 Profile 不自动加入新工具。
+- `CalendarEventWriteRequest/Record` 新增 `allDay`。Android Provider 写入使用 UTC 零点、`ALL_DAY=1` 与排他的次日 UTC 零点；回读投影和幂等匹配同时比较全天标记，避免把同标题/日期的定时事件误认成已提交全天事件。
+- 成功结果固定为“已创建并验证全天日程：标题 · 日期=yyyy-MM-dd · id=calendar-N”；答案级导航同时绑定原 Tool 参数中的标题、日期、唯一稳定 ID 和 `VERIFIED`，点击后继续从当前 Calendar Provider 二次读取。
+- 聚焦 `AgentSkillsTest + XiaoLingToolRegistryTest + CalendarNavigationTest` 共 `126/126`，`:app:assembleDebug :app:assembleDebugAndroidTest` 成功；Redmi `AndroidCalendarEventWriterInstrumentedTest#writableProviderCreatesReplaysAndVerifiesSingleDayAllDayEvent` 为 `OK (1 test)`、`0.192s`，夹具按精确事件 ID 删除，测试包卸载。
+- 未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、多日/重复全天事件、参与人、提醒、后台日程和旧 Profile 保持不变。
+
+### 下一阶段
+
+第 223 阶段只补 Redmi 真实模型自然语言、人工审批、Tool Ledger、当前日程查看与精确清理证据，不在同一阶段扩大日历参数面。
+
 ## 第 221 阶段：前台长期记忆安全删除真实闭环（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，真实前台 `/agent` Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格完成 `memory.search -> memory.get -> memory.delete`；人工审批 `APPROVED`，三项 ToolResult `PASSED`，删除回执 `COMMITTED`，稳定 memory ID `memory-ee8cc2f1-27c0-4756-91f6-804ddf2608cf` 删除后在长期记忆页不可见。

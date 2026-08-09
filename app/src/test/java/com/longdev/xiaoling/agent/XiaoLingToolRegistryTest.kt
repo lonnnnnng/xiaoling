@@ -27,6 +27,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
+import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -1036,6 +1038,52 @@ class XiaoLingToolRegistryTest {
             definition.inputSchema.map { it.name },
         )
         assertTrue(testRegistry().supportsCommittedEffectVerification("calendar.create_event"))
+    }
+
+    @Test
+    fun calendarCreateAllDayEventUsesSingleDateAndStableRecoveryContract() = runTest {
+        val writer = InMemoryCalendarEventWriter()
+        val registry = testRegistry(calendarEventWriter = writer)
+        val definition = registry.registeredTools().single { it.name == "calendar.create_all_day_event" }
+        val call = ToolCall(
+            id = "tool-call-calendar-all-day-1",
+            name = "calendar.create_all_day_event",
+            arguments = mapOf("title" to "项目纪念日", "date" to "2026-08-18"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+        val request = writer.records.single().first
+        val recovered = registry.verifyCommittedEffect(call, requireNotNull(result.executionReceipt))
+
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, definition.risk)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, definition.approvalPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, definition.verificationPolicy)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, definition.replaySafety)
+        assertEquals(listOf("title", "date"), definition.inputSchema.map { it.name })
+        assertTrue(request.allDay)
+        assertEquals("UTC", request.timeZoneId)
+        assertEquals(LocalDate.parse("2026-08-18").atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(), request.startAtMillis)
+        assertEquals(request.startAtMillis + 86_400_000L, request.endAtMillis)
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals(true, recovered?.verified)
+    }
+
+    @Test
+    fun calendarCreateAllDayEventRejectsInvalidOrNonCanonicalDate() = runTest {
+        val registry = testRegistry(calendarEventWriter = InMemoryCalendarEventWriter())
+
+        val invalid = registry.execute(
+            ToolCall(
+                name = "calendar.create_all_day_event",
+                arguments = mapOf("title" to "项目纪念日", "date" to "2026-2-3"),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+
+        assertFalse(invalid.success)
+        assertTrue(invalid.content.contains("日期"))
     }
 
     @Test
@@ -3790,6 +3838,7 @@ private class InMemoryCalendarEventWriter(
             startAtMillis = request.startAtMillis,
             endAtMillis = request.endAtMillis,
             timeZoneId = request.timeZoneId,
+            allDay = request.allDay,
             reused = false,
         )
         records += request to record

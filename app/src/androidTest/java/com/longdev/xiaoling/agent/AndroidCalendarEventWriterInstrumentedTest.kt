@@ -13,10 +13,78 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 
 class AndroidCalendarEventWriterInstrumentedTest {
+    @Test
+    fun writableProviderCreatesReplaysAndVerifiesSingleDayAllDayEvent() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权日历读写",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val suffix = System.currentTimeMillis().toString()
+        val date = LocalDate.now(ZoneOffset.UTC).plusDays(4)
+        val startAtMillis = date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val request = CalendarEventWriteRequest(
+            idempotencyKey = "stage222-all-day-$suffix",
+            title = "__xiaoling_stage222_all_day_${suffix}__",
+            startAtMillis = startAtMillis,
+            endAtMillis = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            timeZoneId = "UTC",
+            allDay = true,
+        )
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        var createdAppOwnedCalendarId: Long? = null
+        var createdEventId: String? = null
+
+        try {
+            val first = writer.createOrReadBack(request)
+            assertTrue("Redmi 必须创建并回读单日全天事件：$first", first is CalendarEventWriteResult.Committed)
+            first as CalendarEventWriteResult.Committed
+            createdEventId = first.event.eventId
+            if (!hadAppOwnedCalendar) {
+                val appCalendarId = appOwnedCalendarId(context)
+                if (appCalendarId != null && eventCalendarId(context, first.event.eventId) == appCalendarId) {
+                    createdAppOwnedCalendarId = appCalendarId
+                }
+            }
+            val replay = writer.createOrReadBack(request)
+            val verified = writer.verifyCommitted(first.event.eventId, request)
+            val detail = reader.getEvent(first.event.eventId.toLong())
+
+            assertTrue(first.verified && first.event.allDay)
+            assertTrue(replay is CalendarEventWriteResult.Committed && replay.verified && replay.event.reused)
+            assertTrue(verified is CalendarEventWriteResult.Committed && verified.verified)
+            assertTrue(detail is CalendarEventDetailReadResult.Success)
+            detail as CalendarEventDetailReadResult.Success
+            assertTrue(detail.event.allDay)
+            assertFalse(detail.event.recurring)
+            assertEquals(startAtMillis, detail.event.startAtMillis)
+            assertEquals(startAtMillis + TimeUnit.DAYS.toMillis(1), detail.event.endAtMillis)
+            assertEquals("UTC", detail.event.timeZoneId)
+        } finally {
+            // long: 全天日程探针仍只按本次 Provider 返回的事件 ID 清理，不能按日期或标题波及用户同日安排。
+            createdEventId?.toLongOrNull()?.let { eventId ->
+                val deleted = context.contentResolver.delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                    null,
+                    null,
+                )
+                assertEquals("真机探针必须精确清理本次全天日程", 1, deleted)
+            }
+            createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
+        }
+    }
+
     @Test
     fun writableProviderCreatesReplaysVerifiesAndCleansExactEvent() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

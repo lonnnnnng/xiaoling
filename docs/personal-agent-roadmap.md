@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 222 阶段：受控单日全天日程（完成）
+
+- 新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill，把个人 Agent 的系统日历创建范围从定时事件扩展到一次性单日全天事件；旧 Skill/Profile 不自动扩权。
+- 日期严格为 `yyyy-MM-dd`，Provider 使用 UTC 当日零点、排他的次日 UTC 零点和 `ALL_DAY=1`。写入继续逐次审批，以 ToolCall ID 幂等，回读必须同时匹配标题、日期边界、时区和全天标记。
+- `VERIFIED` 成功结果携带唯一稳定事件 ID，答案级入口同时绑定标题和日期并回当前 Provider 查看；多日、重复、参与人、提醒和后台日程继续关闭。
+- 聚焦 JVM `126/126`、Debug/AndroidTest APK 和仅 Redmi Calendar Provider 单项 `OK (1 test)`（`0.192s`）通过，测试事件与测试包已清理。
+
+下一阶段（第 223 阶段）：在 Redmi 当前 Provider 下完成真实自然语言创建、人工审批、Tool Ledger、答案级当前日程查看与精确清理；旧 Run 保持不变。
+
 ## 第 221 阶段：前台长期记忆安全删除真实闭环（完成）
 
 - Redmi `wsvwypiz7xwslvl7` 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`；人工审批 `APPROVED`，三项结果 `PASSED`，删除回执 `COMMITTED`，稳定 memory ID `memory-ee8cc2f1-27c0-4756-91f6-804ddf2608cf` 在当前长期记忆页不可见。

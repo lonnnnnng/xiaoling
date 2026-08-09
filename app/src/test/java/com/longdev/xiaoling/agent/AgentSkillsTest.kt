@@ -191,6 +191,20 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInAllDayCalendarCreateSkillIsIndependentAndSingleDayOnly() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "calendar-create-all-day" }
+
+        assertEquals(setOf("calendar.create_all_day_event"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertEquals(
+            setOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+            skill.requiredAndroidPermissions,
+        )
+        assertTrue(skill.instructions.contains("一次性单日全天"))
+        assertTrue("calendar.create_all_day_event" !in BuiltInAgentSkillRegistry.all().single { it.id == "calendar-create" }.toolNames)
+    }
+
+    @Test
     fun builtInCalendarDeleteSkillRequiresFreshDetailAndKeepsOldSkillsStable() {
         val skill = BuiltInAgentSkillRegistry.all().single { it.id == "calendar-delete" }
 

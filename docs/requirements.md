@@ -1,5 +1,13 @@
 # 产品需求
 
+## 受控单日全天日程（第 222 阶段，完成）
+
+- 全天创建必须使用独立 `calendar.create_all_day_event(title, date)` 和独立 Skill；不得把旧定时创建工具改成条件参数，也不得让旧 Profile 自动获得新工具。
+- `date` 必须是规范 `yyyy-MM-dd`，首版只允许一次性单日全天事件。Provider 必须保存 `ALL_DAY=1`、UTC 当日零点和排他的次日 UTC 零点；不得创建多日、重复、参与人或提醒。
+- 工具必须逐次审批、按 ToolCall ID 幂等写入，并在当前 Provider 回读验证标题、UTC 日期边界、全天标记和稳定事件 ID；提交后恢复只读核对，不按标题或日期猜测重复事件。
+- 只有应用生成的固定成功结果、`VERIFIED`、原参数标题/日期和唯一合法 `calendar-N` 同时成立时，答案才提供“查看日程”；详情继续从当前 Provider 二次读取。
+- 第 223 阶段只做 Redmi 真实自然语言与人工审批验收；旧 Run、Room v36、后台日程和高级日历字段保持不变。
+
 ## 前台长期记忆安全删除真实闭环（第 221 阶段，完成）
 
 - Redmi `wsvwypiz7xwslvl7` 真实 Provider Run 必须严格使用同一稳定 memory ID 完成 `memory.search -> memory.get -> memory.delete`，删除前由用户批准，结果需同时具备 `PASSED`、Executor 验证和 `COMMITTED` 回执。

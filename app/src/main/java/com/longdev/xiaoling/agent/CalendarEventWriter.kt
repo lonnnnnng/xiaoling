@@ -18,6 +18,7 @@ data class CalendarEventWriteRequest(
     val startAtMillis: Long,
     val endAtMillis: Long,
     val timeZoneId: String,
+    val allDay: Boolean = false,
 )
 
 data class CalendarEventWriteRecord(
@@ -26,6 +27,7 @@ data class CalendarEventWriteRecord(
     val startAtMillis: Long,
     val endAtMillis: Long,
     val timeZoneId: String,
+    val allDay: Boolean,
     val reused: Boolean,
 )
 
@@ -205,7 +207,8 @@ class AndroidCalendarEventWriter(
                         put(CalendarContract.Events.DTSTART, request.startAtMillis)
                         put(CalendarContract.Events.DTEND, request.endAtMillis)
                         put(CalendarContract.Events.EVENT_TIMEZONE, request.timeZoneId)
-                        put(CalendarContract.Events.ALL_DAY, 0)
+                        // long: 全天事件按 Calendar Provider 契约使用 UTC 零点和排他的次日结束；标记必须参与回读验证，不能把定时事件误认成全天事件。
+                        put(CalendarContract.Events.ALL_DAY, if (request.allDay) 1 else 0)
                         // long: Provider 没有应用侧唯一键；把 ToolCall 身份写入官方可写字段，进程中断后才能精确回读，避免按标题和时间猜测去重。
                         put(CalendarContract.Events.CUSTOM_APP_PACKAGE, packageName)
                         put(CalendarContract.Events.CUSTOM_APP_URI, marker)
@@ -576,6 +579,7 @@ class AndroidCalendarEventWriter(
             startAtMillis = getLong(getColumnIndexOrThrow(CalendarContract.Events.DTSTART)),
             endAtMillis = getLong(getColumnIndexOrThrow(CalendarContract.Events.DTEND)),
             timeZoneId = getString(getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)).orEmpty(),
+            allDay = getInt(getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
             reused = reused,
         )
 
@@ -606,6 +610,7 @@ class AndroidCalendarEventWriter(
             CalendarContract.Events.DTSTART,
             CalendarContract.Events.DTEND,
             CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.ALL_DAY,
         )
         val MARKER_PROJECTION = arrayOf(
             CalendarContract.Events.CUSTOM_APP_PACKAGE,
@@ -685,7 +690,8 @@ private fun CalendarEventWriteRecord.matches(request: CalendarEventWriteRequest)
     title == request.title &&
         startAtMillis == request.startAtMillis &&
         endAtMillis == request.endAtMillis &&
-        timeZoneId == request.timeZoneId
+        timeZoneId == request.timeZoneId &&
+        allDay == request.allDay
 
 private fun CalendarEventDetailRecord.matches(request: CalendarEventUpdateRequest): Boolean =
     eventId == request.eventId &&
@@ -701,5 +707,6 @@ private fun CalendarEventWriteRequest.toRecord(eventId: String, reused: Boolean)
         startAtMillis = startAtMillis,
         endAtMillis = endAtMillis,
         timeZoneId = timeZoneId,
+        allDay = allDay,
         reused = reused,
     )

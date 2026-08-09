@@ -4,6 +4,27 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 222 阶段：受控单日全天日程
+
+### 结论
+
+- 生产新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill；只接受规范单日日期，旧定时创建 Skill/Profile 不自动扩权。
+- Provider 写入固定为 UTC 当日零点、排他的次日 UTC 零点和 `ALL_DAY=1`；ToolCall ID 幂等、逐次审批、Executor 回读和提交后只读验证继续沿用既有日程创建边界。
+- 已验证成功结果携带唯一稳定事件 ID，答案级导航同时绑定请求标题、日期和应用固定结果，再从当前 Calendar Provider 二次读取。
+- 多日、重复、参与人、提醒、后台日程、Room v36 和旧 Run 均未改变。
+
+### 验证证据
+
+- TDD 首轮在 `CalendarEventWriteRequest.allDay` 缺失处按预期编译失败；实现后 `AgentSkillsTest + XiaoLingToolRegistryTest + CalendarNavigationTest` 共 `126/126` 通过。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 成功，耗时约 `34s`。
+- 仅 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidCalendarEventWriterInstrumentedTest#writableProviderCreatesReplaysAndVerifiesSingleDayAllDayEvent`，结果 `OK (1 test)`、`0.192s`；真实 Provider 回读 `ALL_DAY=true / timeZone=UTC / end=start+1day`，幂等重放与提交后验证通过。
+- 测试事件按 Provider 返回的精确事件 ID 删除；测试包 `com.longdev.xiaoling.test` 已卸载，主 Debug 应用覆盖安装且用户数据保留。设备清单虽包含 `emulator-5554`，但未向模拟器发送安装、测试、日志、UI 或卸载命令。
+- 未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+- 第 223 阶段只在 Redmi 当前 Provider 下完成真实自然语言创建、人工审批、Tool Ledger、答案级当前日程查看和精确清理；不顺带开放其他高级日历字段。
+
 ## 2026-08-09 第 221 阶段：前台长期记忆安全删除真实闭环
 
 ### 结论

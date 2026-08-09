@@ -2,7 +2,9 @@
 
 第 221 阶段完成前台长期记忆安全删除真实闭环：Redmi 当前 Provider 下，真实自然语言 Run `run-73b6e1ca-2b73-4a39-a517-e2461afa5c43` 严格执行 `memory.search -> memory.get -> memory.delete`，人工审批为 `APPROVED`，三项结果均 `PASSED`，删除回执 `COMMITTED`，当前长期记忆页不可见。清理后临时 Profile、临时记忆、撤销文件和验收消息均不存在，Run/审批/Tool Ledger 审计保留；发现清理夹具曾误删原空会话后已补回 `conversation-1786204146694`（标题“新会话”、无消息）并恢复选中状态。只使用 Redmi，聚焦 `assembleDebugAndroidTest` 成功与定向修复核对 `OK (1 test)`；测试包已卸载，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，Room v36、Workflow 和后台边界不变。
 
-第 222 阶段回到个人 Agent 主线，继续选择一个用户可直接体验的前台窄能力闭环；保持当前分级验证约束，不把后台自动化、精确定时、MCP、远程 Channel、多 Agent 或本地模型提前扩权。
+第 222 阶段完成受控单日全天日程：新增独立 `calendar.create_all_day_event(title, date)` 与 `calendar-create-all-day` Skill，只接受规范 `yyyy-MM-dd`，逐次审批后按 UTC 零点写入 `ALL_DAY=1`，结束固定为排他的次日 UTC 零点。ToolCall ID 继续承担幂等身份，Provider 回读同时验证标题、日期边界、时区和全天标记；成功结果携带稳定日程 ID，并可从答案进入当前日程详情。聚焦 JVM `126/126`、Debug/AndroidTest APK 和 Redmi Calendar Provider 单项 `OK (1 test)`（`0.192s`）通过；测试包已卸载，主应用数据保留。未开放多日、重复、参与人、提醒、后台日程或旧 Profile 自动扩权。
+
+第 223 阶段在 Redmi 当前 Provider 下完成真实自然语言“创建单日全天日程”、人工审批、Tool Ledger、答案级当前 Provider 查看和精确清理；旧 Run 保持不变。
 
 第 219 阶段完成真实前台个人 Agent 的存储状态闭环：Redmi 当前 Provider 下，正式 `AgentRunUseCase` 使用临时最小 Profile 完成自然语言目标，唯一调用 `app.get_storage`；Run `COMPLETED`、typed `PASSED`、审批数为 0，结果不含 Provider 凭据、Profile 内部 ID、文件路径、应用数据或设备身份。仅 Redmi 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；模拟器未接收目标命令，未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
 
