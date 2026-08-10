@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环（完成）
+
+- Android `Bitmap + Canvas` 生成 1800×1100 高对比 PNG，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于图片像素。图片通过既有 `ACTION_SEND image/png` 和单个小写 `content://` URI 进入新会话可编辑附件草稿，继续复用 8 MB、MIME、签名与可解码性校验。
+- 分享导入、用户改写 prompt 和输入 `/agent` 均不自动发送或创建 Run。只有用户明确点击发送后，可信 USER Image 才由既有 Responses 映射为 `input_image` Data URL；Chat Completions、混合附件、重复附件和非 USER 来源边界没有放宽。
+- 验收 prompt、临时 Profile、文件名与 runner 参数均不包含三个动态值，Profile 只开放 `notes.create`。最终 Run `run-308f34b4-f4c8-4bc5-a9f8-5496f65d667b` 为 `COMPLETED`，唯一审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；工具参数只能来自模型对 PNG 像素的理解。
+- Room USER Image 保留原始 PNG 字节；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 最终真实单项为 `OK (1 test)`、`32.886s`，crash buffer 为空；文档 corpus 首次为 `1/1`、`2.979s`，审查后的最终文本 gate 也为 `1/1`（`3.067s`）。
+- 临时笔记/Profile/会话/MediaStore PNG 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+第 243 阶段已经把单文本、单文档和单图片的前台分享输入接入显式个人 Agent。下一阶段停止横向增加相似附件格式或多附件能力，重新选择一个能扩大“自然语言目标 → 可验证结果 → 权威事实查看”的单一用户任务场景；自动发送、后台摄取、`ACTION_SEND_MULTIPLE`、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环（完成）
 
 - Artifact Tool 完整参考工作簿与 5 部件最小 XLSX 均通过导入、值检查、公式错误扫描和渲染。Android 夹具固定为内容类型、根关系、workbook、workbook relationships 与 sheet1 五个 OPC 部件，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于 `xl/worksheets/sheet1.xml`。

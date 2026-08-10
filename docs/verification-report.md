@@ -4,6 +4,39 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环
+
+### 当前结论
+
+- Android `Bitmap + Canvas` 生成 1800×1100 高对比真实 PNG；动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于图片像素，prompt、Profile、文件名和 runner 参数均不携带实际值。
+- PNG 经既有统一读取器后保持精确 `image/png` 与原始字节。分享导入和用户编辑阶段无消息、无 Run，只有明确发送 `/agent` 后才作为可信 USER Image 进入 Responses `input_image` 规划。
+- 临时 Profile 只开放 `notes.create`。唯一工具参数准确恢复三个像素事实，写入仍经过逐次审批、Executor 回读、typed verification、提交回执和当前 Note Store 复核。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+### 已验证证据
+
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。最终 AndroidTest 构建只出现已有的 SDK XML 3/4 工具版本提示，没有新增 Kotlin 编译警告。
+- Debug 与 AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。真实闭环中间样本为 `OK (1 test)`、`31.878s`；修正成功后重复清理会移除选择键的问题后，最终样本为 `OK (1 test)`、`32.886s`。
+- 最终 Run `run-308f34b4-f4c8-4bc5-a9f8-5496f65d667b` 为 `COMPLETED`；唯一 `notes.create` 审批 `APPROVED`，ToolResult 为 `success=true / executorVerified=true / PASSED`，回执 `COMMITTED`，稳定 Note ID 为 `note-3ca2d372-0598-4cef-bd0b-fc212ae2d3c3`。
+- Room USER Message 按 Run 的 `userMessageId` 回读到与夹具逐字节一致的 PNG Image；Tool Message 参数与 Ledger 相同，Note Store 标题/正文包含 PNG 像素中的三个动态事实。
+- 同步第 243 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus 首次为 `OK (1 test)`、`2.979s`；审查后的最终文本 gate 也为 `OK (1 test)`、`3.067s`。
+
+### 失败样本与修复
+
+- 首次 Redmi 单项在模型请求前失败：MediaStore Images 拒绝 `RELATIVE_PATH=Download/XiaoLingTest`，关键错误为 `Primary directory Download not allowed ... allowed directories are [DCIM, Pictures]`。夹具改用 `Pictures/XiaoLingTest` 后进入正式视觉链。
+- 为让任一夹具写入阶段的异常都可恢复，测试在创建临时 Profile、会话和 MediaStore URI 前先持久化原选择与本轮稳定 ID；一次 Kotlin 编译据此暴露可空选择值未收窄，最终改为原选择缺失即拒绝运行。
+- 第一条成功样本后发现内部清理与外层 `finally` 对空状态重复执行会移除选择键。最终实现让空夹具状态直接 no-op；审查同时删除仅服务本次现场恢复的一次性候选推断分支，正式测试不从其他 Profile/会话猜测用户原选择。
+
+### 验证范围与收尾
+
+- 临时笔记只按本轮 `COMMITTED` operation ID 删除；临时 Profile、会话和 MediaStore PNG 按稳定身份精确清理，原选择恢复为 `agent-profile-default / conversation-1786313855078`，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 日志输出 `STAGE243_SHARED_IMAGE_AGENT ... imagePersisted=true storeReadBack=true oldRunUnchanged=true cleanupVerified=true`；最终 crash buffer 为空。设备清单中的两个模拟器没有收到安装、启动、日志或测试命令。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+单文本、单文档与单图片前台分享输入已经闭环。下一阶段停止横向增加相似附件格式，回到能扩大“自然语言目标 → 可验证结果 → 权威事实查看”的单一用户任务场景；多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 2026-08-10 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环
 
 ### 当前结论

@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环（完成）
+
+- 新增 `Stage243SharedImageAgentInstrumentedTest`，只在显式 `stage243RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 Android `Bitmap + Canvas` 生成 1800×1100 高对比 PNG，并通过 MediaStore `Pictures/XiaoLingTest` 的单个 `content://` URI 分享进入正式 `MainActivity`。
+- 动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只绘制在 PNG 像素中；文件名、用户 prompt、Profile system prompt 与 runner 参数均不含实际值。统一图片读取器继续执行 8 MB、MIME、PNG 签名和可解码性校验，读取后的原始字节不依赖外部 URI。
+- 用户把普通说明改为不含动态值的 `/agent` 命令后仍无 Run，明确发送才通过正式 `sendMessage -> AgentRunUseCase -> OpenAiAgentLlm` 把可信 USER Image 映射为 Responses `input_image` Data URL。临时 Profile 只开放 `notes.create`，总结请求不重复携带图片，写入继续经过交互审批、Executor verification、提交回执和 Tool Message 投影。
+- 最终 Run `run-308f34b4-f4c8-4bc5-a9f8-5496f65d667b` 的唯一 `notes.create` 为 `APPROVED / PASSED / COMMITTED`；Room USER PNG BLOB 与原始夹具字节一致，Ledger/Tool Message 和 Note Store 回读一致，旧 Run 摘要不变，日志为 `imagePersisted=true / storeReadBack=true / oldRunUnchanged=true / cleanupVerified=true`。
+- 首轮 Redmi 在模型调用前暴露 MediaStore 图片集合只允许 `DCIM/Pictures`，已从 `Download` 修正为 `Pictures`；随后把原选择和临时稳定 ID 提前到任何夹具写入之前持久化，并让空状态二次清理 no-op，避免成功后的外层 `finally` 清空用户选择。审查删除了一次性候选推断恢复，原选择缺失时直接拒绝运行；最终选择恢复为 `agent-profile-default / conversation-1786313855078`。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功；Redmi 最终真实单项为 `OK (1 test)`、`32.886s`，crash buffer 为空，文档 corpus 首次为 `1/1`、`2.979s`，审查后的最终文本 gate 也为 `1/1`（`3.067s`）。临时笔记/Profile/会话/MediaStore PNG 已精确清理，新 Run 审计保留。本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议，也未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环（完成）
 
 - 新增 `Stage242SharedXlsxAgentInstrumentedTest`，只在显式 `stage242RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 `ZipOutputStream` 生成包含 `[Content_Types].xml`、`_rels/.rels`、`xl/workbook.xml`、工作簿关系与 `xl/worksheets/sheet1.xml` 的 5 部件 OPC 包，再经 MediaStore 精确 XLSX MIME 分享进入正式 `MainActivity`。
