@@ -1173,7 +1173,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
             result = null,
         )
-        payload.imageUri?.let { attachImage(Uri.parse(it)) }
+        when {
+            payload.imageUri != null -> attachImage(Uri.parse(payload.imageUri))
+            payload.documentUri != null -> attachDocument(Uri.parse(payload.documentUri))
+        }
     }
 
     fun attachImage(uri: Uri) {
@@ -1224,6 +1227,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 if (error is CancellationException) throw error
                 uiState = uiState.copy(
                     attachingDocument = false,
+                    sharedDraftImported = false,
                     result = OperationResult(
                         success = false,
                         title = "文档不可用",
@@ -1236,7 +1240,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun removePendingDocument() {
         if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument) return
-        uiState = uiState.copy(pendingDocument = null, result = null)
+        uiState = uiState.copy(pendingDocument = null, sharedDraftImported = false, result = null)
     }
 
     fun updateAgentMemoryRecallEnabled(value: Boolean) {

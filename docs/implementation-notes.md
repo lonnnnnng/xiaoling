@@ -1,13 +1,22 @@
 # 当前实现说明
 
-## 第 236 阶段：系统分享文本到受控单日全天日程（实现完成，Redmi 验收待补）
+## 第 237 阶段：Android 单文档系统分享入口（完成）
+
+- `SharedDraftPayload` 新增可空 `documentUri`，`SharedDraftParser` 以 `DocumentAttachmentPolicy.pickerMimeTypes()` 作为受支持文档 MIME 源。无流的 `text/plain` 仍走普通文本分支，有流时转为 TXT 文档；文档分支只保存规范说明和单个小写 `content://` URI，不读取字节或暴露发送回调。
+- `AndroidShareIntentReader` 继续兼容 EXTRA_STREAM 与 ClipData 的同 URI 重复，并把不同 URI 或多项 ClipData 统一视为多附件。Manifest 增加 PDF、Markdown、JSON、CSV 和三类 OpenXML 精确 MIME；TXT 复用既有 `text/plain`，仍不声明通配 MIME 或 `ACTION_SEND_MULTIPLE`。
+- `XiaoLingViewModel.openSharedDraft()` 在清空旧编辑器并打开新会话后，根据 payload 互斥调用 `attachImage()` 或 `attachDocument()`。文档实际读取继续复用 `DocumentAttachmentReader`，失败与主动移除都会清除 `sharedDraftImported`；成功仍只产生 `pendingDocument`，不调用发送或模型入口。
+- `SharedDraftPendingNotice` 增加“文档”类型。聚焦 JVM 为 `SharedDraftParserTest 6/6`、`SharedDraftProjectionPolicyTest 3/3`、`DocumentAttachmentPolicyTest 8/8`，合计 `17/17`；Debug/AndroidTest APK 构建成功。
+- Redmi 聚焦 `5/5`、`8.645s`：Manifest 接受全部精确文档 MIME，并拒绝 ZIP/`ACTION_SEND_MULTIPLE`；Markdown MediaStore 文档及说明进入可编辑草稿，正文由统一文档读取器回读；冲突 URI 和缺失 URI fail-closed；文档标签、原文本冷/热分享和 PNG 校验回归通过。临时 MediaStore 文档/图片在 `finally` 精确删除，主应用数据与 Provider 配置保留；文档 corpus gate 为 `1/1`、`3.186s`。
+- 本阶段没有新增 Room Schema、Android 权限、Provider/Tool/Skill、持久 URI 授权、后台摄取或多附件能力；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
+## 第 236 阶段：系统分享文本到受控单日全天日程（完成）
 
 - `SharedTextAgentDraftPolicy` 新增 `createAllDayCalendarEventDraft()`：逐行识别中英文标题与日期标签，要求两类字段各出现一次；使用 `LocalDate` 解析并要求序列化结果与原始 `yyyy-MM-dd` 完全一致。策略遇到开始、结束或时区字段立即拒绝，只返回固定两参数 `/agent calendar.create_all_day_event` 文本，不持有 Context、Provider 或发送回调。
 - `ConversationActions`、`XiaoLingApp` 与 `XiaoLingViewModel.createAgentAllDayCalendarEventDraftFromSharedText()` 建立窄接线。ViewModel 复用既有分享转换门禁；拒绝时保留原草稿和来源标记，成功时只替换 prompt、退出个人任务模式并清理旧任务提示，不调用模型或 `sendMessage()`。
 - `SharedDraftSourceLabel` 新增 testTag 为 `shared-draft-agent-all-day-calendar` 的“创建全天日程”入口。五个显式动作继续分行展示，两个日程入口身份独立；图片/文档、附件读取、发送、会话加载和个人任务确认/执行门禁没有放宽。
 - `SharedTextAgentDraftPolicyTest 9/9` 覆盖标准草稿、缺字段、重复日期、非规范日期、定时字段拒绝和既有笔记/记忆/定时日程回归。`SharedDraftActivityInstrumentedTest`、`ConversationPageInstrumentedTest` 与 `SharedDraftNoticeInstrumentedTest` 已覆盖有效转换不发送、缺字段保留原分享和五入口回调/布局。
 - 新增 `Stage236SharedTextAllDayCalendarEventInstrumentedTest`。缺字段样本冻结“不新增用户消息或 Run、旧 Run 不变”；有效样本使用动态 UTC 三天后日期，临时 Profile 只允许 `calendar-create-all-day / calendar.create_all_day_event`，正式链覆盖分享导入、草稿转换、发送、逐次审批、Tool Ledger、UTC Provider 回读、MessagePart 导航身份与精确清理。兜底 Provider 只可由显式 runner 参数恢复，源码、日志和 Git 不含凭据。
-- `:app:assembleDebug :app:assembleDebugAndroidTest` 与 `git diff --check` 已通过。当前 macOS USB/ADB 只发现 `emulator-5554`，没有发现 Redmi `wsvwypiz7xwslvl7`；因此四个聚焦入口、真实 Provider 双测试、最终 Run/Event ID、文档 corpus、测试包卸载和 crash buffer 尚未执行，文档明确保留待验状态。未运行完整 JVM、Lint、Release 或全量 instrumentation；生产 Tool/Skill、权限、Room v36、Workflow 和后台边界不变。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 与 `git diff --check` 通过。Redmi 入口 `4/4`、`7.989s`，真实 Provider `2/2`、`21.034s`；最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一工具审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`，`calendar-92` 的标题、UTC 全天边界、`UTC`、全天和非重复由当前 Provider 回读一致。缺字段样本未创建 Run，旧 Run 摘要不变；事件、临时 Profile/会话及本轮本地日历按稳定身份清理。未运行完整 JVM、Lint、Release 或全量 instrumentation；生产 Tool/Skill、权限、Room v36、Workflow 和后台边界不变。
 
 ## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
 

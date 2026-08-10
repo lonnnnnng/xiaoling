@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.longdev.xiaoling.MainActivity
+import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -25,12 +26,15 @@ class SharedIntentManifestInstrumentedTest {
         assertTrue(activityInfo.exported)
         assertEquals(ActivityInfo.LAUNCH_SINGLE_TOP, activityInfo.launchMode)
 
-        listOf("text/plain", "image/png", "image/jpeg", "image/jpg", "image/webp").forEach { mimeType ->
+        val supportedMimeTypes = listOf("text/plain", "image/png", "image/jpeg", "image/jpg", "image/webp") +
+            DocumentAttachmentPolicy.pickerMimeTypes()
+        supportedMimeTypes.distinct().forEach { mimeType ->
             assertTrue("MainActivity should receive $mimeType", resolvesToMainActivity(mimeType))
         }
         assertFalse(resolvesToMainActivity("image/gif"))
-        assertFalse(resolvesToMainActivity("application/pdf"))
+        assertFalse(resolvesToMainActivity("application/zip"))
         assertFalse(resolvesToMainActivity("image/png", Intent.ACTION_SEND_MULTIPLE))
+        assertFalse(resolvesToMainActivity("application/pdf", Intent.ACTION_SEND_MULTIPLE))
     }
 
     @Suppress("DEPRECATION")

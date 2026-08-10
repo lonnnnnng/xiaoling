@@ -19,6 +19,26 @@ class SharedDraftNoticeInstrumentedTest {
     val composeRule = createComposeRule()
 
     @Test
+    fun pendingDocumentShareIsLabeledAsDocument() {
+        composeRule.setContent {
+            XiaoLingTheme {
+                SharedDraftPendingNotice(
+                    payload = SharedDraftPayload(
+                        text = "请总结",
+                        imageUri = null,
+                        documentUri = "content://documents/report.md",
+                    ),
+                    enabled = true,
+                    onOpen = {},
+                    onDiscard = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("文档").assertIsDisplayed()
+    }
+
+    @Test
     fun sharedDraftShowsSourceAndConflictActions() {
         var opened = 0
         var discarded = 0

@@ -1,6 +1,8 @@
 # 小灵
 
-第 236 阶段已完成系统分享文本到受控单日全天日程的生产实现与本地验证，Redmi 真实闭环待补。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题和规范 `yyyy-MM-dd` 日期各自唯一且没有开始、结束或时区等定时字段时，“创建全天日程”才生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Calendar Provider。五个分享动作保持分行可达，既有 `calendar.create_all_day_event` 的逐次审批、UTC 全天边界、Provider 回读、稳定事件 ID 和答案级导航契约不变。聚焦 JVM `9/9`、Debug/AndroidTest APK 构建和差异检查通过；`Stage236SharedTextAllDayCalendarEventInstrumentedTest` 已覆盖缺字段拒绝、真实分享、发送、审批、Provider 回读、精确清理和旧 Run 不变，但截至 2026-08-10 macOS USB/ADB 未发现 Redmi `wsvwypiz7xwslvl7`，因此入口测试、真实 Provider Run、文档 corpus 真机门禁、Run/Event ID 与 crash buffer 收尾仍明确待验，未向 `emulator-5554` 发送目标命令。未运行完整 JVM、Lint、Release 或全量 instrumentation。
+第 237 阶段完成 Android 单文档系统分享入口。`ACTION_SEND` 现在只接收 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；单个 `content://` URI 先成为可编辑新会话草稿，再复用现有 `DocumentAttachmentReader` 的 8 MB、UTF-8、PDF 页数和 OpenXML 结构校验，不自动发送、调用模型或创建 Run。`text/plain` 无 URI 时仍为普通文本，有 URI 时按 TXT 文档处理；冲突 URI、多项 ClipData、缺失/非 `content://` URI、未知 MIME 和 `ACTION_SEND_MULTIPLE` 均 fail-closed。聚焦 JVM `17/17`、Debug/AndroidTest APK 构建、仅 Redmi 入口/Manifest/文本图片回归 `5/5`（`8.645s`）及文档 corpus gate `1/1`（`3.186s`）通过；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
+第 236 阶段完成系统分享文本到受控单日全天日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题和规范 `yyyy-MM-dd` 日期各自唯一且没有开始、结束或时区等定时字段时，“创建全天日程”才生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Calendar Provider。五个分享动作保持分行可达。聚焦 JVM `9/9`、Debug/AndroidTest APK、Redmi 入口 `4/4`（`7.989s`）和真实 Provider `2/2`（`21.034s`）通过；最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider、消息 Tool part 和答案级导航统一绑定 `calendar-92`，缺字段样本未创建 Run，旧 Run 不变，事件按回执 ID 与 UTC 全天边界精确清理。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向 `emulator-5554` 发送目标命令。
 
 第 235 阶段完成系统分享文本到受控系统日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题、带 UTC 偏移的开始/结束时间和 IANA 时区各自唯一、有效且彼此一致时，“创建日程”才生成固定四参数 `/agent calendar.create_event` 草稿，缺字段不会发送或创建 Run。四个分享动作按两行适配 Redmi 窄屏。用户明确发送并批准后，Redmi 真实 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider 四字段回读和答案级入口绑定 `calendar-91`；事件按回执 ID 精确清理，旧 Run 不变。聚焦 JVM `6/6`、Debug/AndroidTest APK、Redmi 入口 `4/4`、真实 Provider `2/2` 和文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
@@ -34,7 +36,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 236 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 236 阶段已把系统分享文本分别接入受控笔记、个人任务、一次性提醒、长期记忆、一次性非全天系统日程和单日全天系统日程；第 236 阶段 Redmi 真实闭环仍待设备恢复后补验，下一阶段继续选择新的单一个人 Agent 用户任务，不以 Release 或全量测试占据日常快速迭代。
+当前开发基线已推进至第 237 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 237 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程和单份受支持文档草稿；下一阶段优先验证分享文档在用户明确发送后的既有 `/agent` 附件理解链，不以 Release 或全量测试占据日常快速迭代。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

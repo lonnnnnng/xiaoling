@@ -15,7 +15,7 @@ internal object AndroidShareIntentReader {
                 ?.uri
             val streamUri = extraStreamUri ?: clipStreamUri
             val clipItemCount = clipData?.itemCount ?: 0
-            // long: Android 分享方常把同一 URI 同时放进 EXTRA_STREAM 和 ClipData；只有两处 URI 不同时才代表多图，不能因兼容性重复字段误拒绝单图。
+            // long: Android 分享方常把同一 URI 同时放进 EXTRA_STREAM 和 ClipData；只有两处 URI 不同时才代表多附件，不能因兼容性重复字段误拒绝单图或单文档。
             val sharedItemCount = when {
                 clipItemCount > 1 -> clipItemCount
                 extraStreamUri != null && clipStreamUri != null && extraStreamUri != clipStreamUri -> 2

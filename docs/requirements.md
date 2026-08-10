@@ -1,6 +1,16 @@
 # 产品需求
 
-## 系统分享文本到受控单日全天日程（第 236 阶段，实现完成，Redmi 验收待补）
+## Android 单文档系统分享入口（第 237 阶段，完成）
+
+- Manifest 只可为 `ACTION_SEND` 暴露现有 `DocumentAttachmentPolicy` 支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；不得声明 `ACTION_SEND_MULTIPLE`、通配文档/图片 MIME、GIF、ZIP 或任意二进制类型。
+- 分享文档必须只有一个流 URI，且为小写 `content://`。EXTRA_STREAM 与单项 ClipData 携带同一 URI 可视为兼容重复；两者不同、多项 ClipData、缺失 URI、`file://`/大写 scheme、未知 MIME 必须在草稿投影前拒绝。
+- `text/plain` 没有流 URI 时继续按最多 20,000 字符的普通文本分享；携带流 URI 时按 TXT 文档处理。文档分享可带最多 20,000 字符的可编辑说明，但说明和附件都不得自动发送、添加 `/agent`、调用模型、创建 Run 或写入 Room。
+- 打开分享必须复用既有新会话与草稿冲突确认，然后调用统一 `attachDocument()`。`DocumentAttachmentReader / DocumentAttachmentPolicy` 继续承担 8 MB、UTF-8、PDF 页数、文件名/MIME/签名、OpenXML ZIP/OPC 和文本长度校验；分享解析层不得复制或放宽这些规则。
+- 文档读取失败时必须展示“文档不可用”，清除加载态与分享来源且不留下 `pendingDocument`；用户主动移除分享文档也必须清除来源。成功时只保留内存/消息模型中的规范附件，不依赖后续外部 URI 权限。
+- 验收必须覆盖精确 Manifest MIME、`ACTION_SEND_MULTIPLE` 拒绝、冲突 URI、Markdown 成功读取、缺失文档失败、文档类型标签、普通文本与图片回归以及无自动发送。聚焦 JVM `17/17`、Debug/AndroidTest APK、仅 Redmi `5/5`（`8.645s`）和文档 corpus gate `1/1`（`3.186s`）已通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+- 本阶段不新增 Room Schema、Android 权限、持久 URI 授权、后台摄取、多附件、自动 Agent 或工具能力。
+
+## 系统分享文本到受控单日全天日程（第 236 阶段，完成）
 
 - `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入 Calendar Provider。
 - “创建全天日程”与既有四个分享转换动作共享纯文本、无附件、未发送、会话已加载且个人任务没有待确认/运行中操作的门禁。五个入口必须在窄屏保持完整可点击，不能因新增入口遮挡来源说明或已有动作。
@@ -8,7 +18,7 @@
 - 用户点击后只生成包含 `title / date` 两个明确参数的可编辑 `/agent 使用 calendar.create_all_day_event ...` 草稿，同时清除分享来源并退出旧个人任务模式；不得调用 `sendMessage()`。用户仍需明确发送，写入仍需经过当前 Profile、`calendar-create-all-day` Skill、日历读写权限、Registry 校验和逐次审批。
 - 成功闭环必须为 Run `COMPLETED`、唯一 Approval `APPROVED`、唯一 ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`；当前 Calendar Provider 必须按 operation ID 回读相同标题、UTC 当日零点、排他的次日 UTC 零点、`ALL_DAY=1`、`UTC` 和非重复事实，消息 Tool part 的答案级入口必须绑定同一 `calendar-<正整数>`。
 - 验收清理只能从本轮 `COMMITTED` 回执恢复稳定事件 ID，并在删除前再次核对标题和 UTC 全天边界；不得按标题或日期搜索删除。临时 Profile/会话和本轮新建的本地日历需按身份清理，新 Run 审计保留，最近旧 Run 完整摘要不得变化。
-- 本阶段不新增 Tool/Skill、Room Schema、Manifest、Android 权限、多日/重复/参与人/提醒、Workflow 或后台日历能力。聚焦 JVM `9/9`、Debug/AndroidTest APK 构建和差异检查已通过；因 Redmi `wsvwypiz7xwslvl7` 未被 macOS USB/ADB 枚举，入口、真实 Provider、文档 corpus、Run/Event ID 与设备收尾仍待补，不能记为已验证。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+- 本阶段不新增 Tool/Skill、Room Schema、Manifest、Android 权限、多日/重复/参与人/提醒、Workflow 或后台日历能力。聚焦 JVM `9/9`、Debug/AndroidTest APK、Redmi 入口 `4/4`（`7.989s`）和真实 Provider `2/2`（`21.034s`）已通过；最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 与 `calendar-92` 满足审批、回读、导航和精确清理契约，缺字段未创建 Run，旧 Run 不变。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
 
 ## 系统分享文本到受控系统日程（第 235 阶段，完成）
 

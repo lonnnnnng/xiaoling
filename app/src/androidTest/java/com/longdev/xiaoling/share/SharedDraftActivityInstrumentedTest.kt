@@ -30,6 +30,100 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SharedDraftActivityInstrumentedTest {
     @Test
+    fun markdownContentShareUsesExistingDocumentValidationWithoutAutoSend() {
+        val caption = "share-document-${System.nanoTime()}"
+        val body = "# 第 237 阶段\n\n单文档分享必须先进入可编辑草稿。"
+        val documentUri = createTestMarkdown(body)
+        try {
+            val conflictingUri = Uri.parse("content://com.longdev.xiaoling.test/conflicting.md")
+            assertEquals(
+                SharedDraftImport.Rejected(SharedDraftRejectionReason.MULTIPLE_ITEMS),
+                AndroidShareIntentReader.read(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/markdown"
+                        putExtra(Intent.EXTRA_STREAM, documentUri)
+                        clipData = android.content.ClipData.newRawUri("conflicting-document", conflictingUri)
+                    },
+                ),
+            )
+
+            val launchIntent = Intent(
+                ApplicationProviderHolder.context,
+                MainActivity::class.java,
+            ).apply {
+                action = Intent.ACTION_SEND
+                type = "text/markdown"
+                putExtra(Intent.EXTRA_TEXT, caption)
+                putExtra(Intent.EXTRA_STREAM, documentUri)
+                clipData = android.content.ClipData.newUri(
+                    ApplicationProviderHolder.context.contentResolver,
+                    "shared-document",
+                    documentUri,
+                )
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+            ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+                val imported = scenario.awaitState {
+                    it.prompt == caption && it.pendingDocument != null && !it.attachingDocument
+                }
+                assertEquals("text/markdown", imported.pendingDocument?.mimeType)
+                assertEquals(body, imported.pendingDocument?.extractedText)
+                assertTrue(imported.pendingDocument?.fileName?.endsWith(".md") == true)
+                assertTrue(imported.sharedDraftImported)
+                assertFalse(imported.sendingMessage)
+                assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+                scenario.onActivity { activity ->
+                    ViewModelProvider(activity)[XiaoLingViewModel::class.java].removePendingDocument()
+                }
+                val removed = scenario.awaitState { it.pendingDocument == null }
+                assertFalse(removed.sharedDraftImported)
+                val navigationVersionBeforeMissingDocument = removed.sharedDraftNavigationVersion
+                val missingDocumentResult = CompletableDeferred<OperationResult>()
+                val missingUri = Uri.parse("content://com.longdev.xiaoling.test/missing.md")
+
+                scenario.onActivity { activity ->
+                    val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                    viewModel.updatePrompt("")
+                    activity.lifecycleScope.launch {
+                        // long: 分享文档读取失败的提示也是一次性事件；先监听再触发，才能证明失败没有静默留下伪附件状态。
+                        missingDocumentResult.complete(
+                            snapshotFlow { viewModel.uiState.result }
+                                .filterNotNull()
+                                .first(),
+                        )
+                    }
+                    activity.startActivity(
+                        Intent(activity, MainActivity::class.java).apply {
+                            action = Intent.ACTION_SEND
+                            type = "text/markdown"
+                            putExtra(Intent.EXTRA_STREAM, missingUri)
+                            clipData = android.content.ClipData.newRawUri("missing-document", missingUri)
+                            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        },
+                    )
+                }
+                val failed = scenario.awaitState {
+                    it.sharedDraftNavigationVersion > navigationVersionBeforeMissingDocument &&
+                        !it.attachingDocument &&
+                        it.pendingDocument == null &&
+                        !it.sharedDraftImported
+                }
+                assertNull(failed.pendingDocument)
+                assertFalse(failed.sendingMessage)
+                val result = runBlocking {
+                    withTimeout(5_000L) { missingDocumentResult.await() }
+                }
+                assertEquals("文档不可用", result.title)
+                assertFalse(result.success)
+            }
+        } finally {
+            ApplicationProviderHolder.context.contentResolver.delete(documentUri, null, null)
+        }
+    }
+
+    @Test
     fun pngContentShareUsesExistingAttachmentValidationWithoutAutoSend() {
         val caption = "share-image-${System.nanoTime()}"
         val imageUri = createTestPng()
@@ -474,8 +568,37 @@ class SharedDraftActivityInstrumentedTest {
             "Timed out waiting for shared draft state: " +
                 "promptLength=${latest.prompt.length}, sharedDraftImported=${latest.sharedDraftImported}, " +
                 "personalTaskMode=${latest.personalTaskMode}, pendingImage=${latest.pendingImage != null}, " +
-                "sendingMessage=${latest.sendingMessage}, loadingMessages=${latest.loadingConversationMessages}",
+                "pendingDocument=${latest.pendingDocument != null}, attachingImage=${latest.attachingImage}, " +
+                "attachingDocument=${latest.attachingDocument}, sendingMessage=${latest.sendingMessage}, " +
+                "loadingMessages=${latest.loadingConversationMessages}",
         )
+    }
+
+    private fun createTestMarkdown(body: String): Uri {
+        val resolver = ApplicationProviderHolder.context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "xiaoling-share-${System.nanoTime()}.md")
+            put(MediaStore.Downloads.MIME_TYPE, "text/markdown")
+            put(MediaStore.Downloads.RELATIVE_PATH, "Download/XiaoLingTest")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Unable to create test MediaStore document")
+        try {
+            resolver.openOutputStream(uri)?.use { output ->
+                output.write(body.toByteArray(Charsets.UTF_8))
+            } ?: error("Unable to write test MediaStore document")
+            resolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            return uri
+        } catch (error: Throwable) {
+            resolver.delete(uri, null, null)
+            throw error
+        }
     }
 
     private fun createTestPng(): android.net.Uri {

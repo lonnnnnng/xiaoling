@@ -1,14 +1,25 @@
 # 小灵个人 Agent 路线图
 
-## 第 236 阶段：系统分享文本到受控单日全天日程（实现完成，Redmi 验收待补）
+## 第 237 阶段：Android 单文档系统分享入口（完成）
+
+- `ACTION_SEND` 从原单文本/单图片扩展到 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；仍不声明 `ACTION_SEND_MULTIPLE`、通配 MIME、GIF、ZIP 或任意文件。
+- 解析层只接受单个小写 `content://` URI，并把可选 `EXTRA_TEXT` 作为普通可编辑说明。`text/plain` 无 URI 时继续是文本分享，有 URI 时按 TXT 文档；EXTRA_STREAM 与 ClipData 同 URI 属于兼容重复，不同 URI、多项 ClipData、缺失 URI、非 content URI 和未知 MIME 全部 fail-closed。
+- 打开分享后复用既有新会话、草稿冲突确认和 `attachDocument()`；真正字节读取仍由 `DocumentAttachmentReader / DocumentAttachmentPolicy` 完成 8 MB、UTF-8、PDF 1–50 页、扩展名/MIME/签名和 OpenXML ZIP/OPC 结构校验。读取失败或用户移除文档会清除分享来源，不自动发送、调用模型、创建 Run、写入 Room 或扩大工具权限。
+- 聚焦 JVM `SharedDraftParserTest 6/6 + SharedDraftProjectionPolicyTest 3/3 + DocumentAttachmentPolicyTest 8/8`（`17/17`）通过，Debug/AndroidTest APK 构建成功。仅 Redmi `wsvwypiz7xwslvl7` 的 Manifest、Markdown 成功/缺失文档、文档标签和文本/图片回归合计 `5/5`、`8.645s`，文档 corpus gate `1/1`、`3.186s`；主应用数据和 Provider 配置保留，未向模拟器发送目标命令。
+- 本阶段没有新增 Room Schema、Android 权限、后台 URI 持久化、自动 Agent 执行或多附件能力；完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
+下一阶段优先验证“分享文档先进入可编辑附件草稿，用户明确输入并发送 `/agent` 后才进入既有 Responses 文档理解链”的真实闭环；外部 Intent 仍不得自动添加 `/agent` 或触发模型。远程 Channel、多 Agent、本地模型、后台文档摄取和 `ACTION_SEND_MULTIPLE` 继续后置。
+
+## 第 236 阶段：系统分享文本到受控单日全天日程（完成）
 
 - Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“创建全天日程”后，`SharedTextAgentDraftPolicy` 才从唯一明确的标题和规范 `yyyy-MM-dd` 日期生成 `/agent calendar.create_all_day_event` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Provider。
 - 缺失、重复、非法或非规范日期全部 fail-closed；分享中只要出现开始、结束或时区等定时字段，全天入口就拒绝，不从定时事件猜测全天日期。五个分享动作继续分行展示，附件、发送、会话加载与个人任务状态门禁没有放宽。
 - 正式发送后仍复用既有 `calendar-create-all-day / calendar.create_all_day_event`、逐次审批、UTC 当日零点到次日零点、Provider 回读、稳定事件 ID、答案级导航和按回执精确清理；本阶段没有新增 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
-- 聚焦 JVM `SharedTextAgentDraftPolicyTest 9/9`、Debug/AndroidTest APK 构建和差异检查通过；入口、Conversation 与来源卡测试已补齐，`Stage236SharedTextAllDayCalendarEventInstrumentedTest` 已冻结缺字段不建 Run、真实发送/审批、Provider 回读、导航身份、旧 Run 不变和精确清理契约。
-- 截至 2026-08-10，macOS USB、ADB 与无线调试均未发现 Redmi `wsvwypiz7xwslvl7`，只看到 `emulator-5554`。因此 Redmi 入口组合、真实 Provider Run、最终 Run/Event ID、文档 corpus 真机门禁、测试包卸载和 crash buffer 收尾仍待补；未向模拟器发送目标命令，也未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 聚焦 JVM `SharedTextAgentDraftPolicyTest 9/9`、Debug/AndroidTest APK 构建和差异检查通过；Redmi 入口组合 `4/4`、`7.989s`，真实 Provider 双测试 `2/2`、`21.034s`。
+- 最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一 `calendar.create_all_day_event` 为 `APPROVED / PASSED / COMMITTED`，回执、当前 Provider 回读、消息 Tool part 与答案级导航绑定 `calendar-92`；缺字段样本输出 `runCreated=false`，旧 Run 完整摘要不变。事件只按回执 ID 且标题/UTC 全天边界一致时删除，临时 Profile/会话和本轮本地日历按身份清理。
+- 未向 `emulator-5554` 发送目标命令，也未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
-下一阶段优先评估“单份受支持文档通过 Android `ACTION_SEND` 进入既有文档附件草稿链”，复用 `DocumentAttachmentReader / DocumentAttachmentPolicy` 的 MIME、大小、格式与页数校验，继续禁止自动发送、`ACTION_SEND_MULTIPLE`、多附件、后台摄取和隐式 Agent 执行。Redmi 恢复后仍须先补齐第 236 阶段真实证据。
+第 237 阶段已完成单份受支持文档的系统分享草稿入口。
 
 ## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
 

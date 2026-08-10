@@ -61,7 +61,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- long: 系统分享只暴露应用已能完整校验和预览的单文本/单图片格式，不用 image/* 接收后再拒绝 GIF 等未支持内容。 -->
+            <!-- long: 系统分享只暴露现有附件链能完整校验的精确 MIME；不使用通配符，避免把 GIF、ZIP 或其他未知文件先接入应用再拒绝。 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
 
@@ -72,6 +72,13 @@
                 <data android:mimeType="image/jpeg" />
                 <data android:mimeType="image/jpg" />
                 <data android:mimeType="image/webp" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
             </intent-filter>
         </activity>
 

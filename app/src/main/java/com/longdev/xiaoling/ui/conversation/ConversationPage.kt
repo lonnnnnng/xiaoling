@@ -846,7 +846,11 @@ internal fun SharedDraftPendingNotice(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = if (payload.imageUri == null) "文本" else "图片",
+                text = when {
+                    payload.imageUri != null -> "图片"
+                    payload.documentUri != null -> "文档"
+                    else -> "文本"
+                },
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
                 color = MaterialTheme.colorScheme.outline,
             )

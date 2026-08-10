@@ -4,28 +4,48 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 237 阶段：Android 单文档系统分享入口
+
+### 当前结论
+
+- `ACTION_SEND` 从单文本/单图片扩展到 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；仍不声明通配 MIME、ZIP、GIF、未知文件或 `ACTION_SEND_MULTIPLE`。
+- 文档只接受单个小写 `content://` URI，并继续复用 `DocumentAttachmentReader / DocumentAttachmentPolicy` 的 8 MB、UTF-8、PDF 页数、文件名/MIME/签名和 OpenXML ZIP/OPC 校验。`text/plain` 无 URI 时仍为普通文本，有 URI 时按 TXT 文档处理。
+- 外部分享只产生可编辑说明与 `pendingDocument`，不自动添加 `/agent`、发送消息、调用模型、创建 Run、写入 Room 或扩大工具权限；读取失败和主动移除都会清除分享来源。
+
+### 已验证证据
+
+- 聚焦 JVM 为 `SharedDraftParserTest 6/6 + SharedDraftProjectionPolicyTest 3/3 + DocumentAttachmentPolicyTest 8/8`，合计 `17/17`；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`。
+- Redmi 聚焦为 `OK (5 tests)`、`8.645s`：Manifest 接受全部精确文档 MIME 并拒绝 ZIP/`ACTION_SEND_MULTIPLE`；Markdown MediaStore 文档与可编辑说明进入草稿，正文由统一文档读取器回读；冲突 URI、缺失 URI、文档标签、原文本冷/热分享和 PNG 回归均通过。
+- 测试在发送前后均确认没有新增用户消息或 Agent Run。临时 MediaStore 文档/图片在 `finally` 按 URI 精确删除，主应用数据和 Provider 配置保留。
+- 同步第 236/237 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus gate 为 `OK (1 test)`、`3.186s`。
+
+### 验证范围与收尾
+
+- 安装、instrumentation、日志和功能验收只对 Redmi `wsvwypiz7xwslvl7` 执行；ADB 清单中的 `emulator-5554` 未接收任何目标命令。
+- 本阶段没有新增 Room Schema、Android 权限、持久 URI 授权、Provider/Tool/Skill、后台摄取或多附件能力；按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+验证“分享文档先进入可编辑附件草稿，只有用户明确输入并发送 `/agent` 后才进入既有 Responses 文档理解链”的真实闭环；外部 Intent 仍不得自动添加 `/agent` 或触发模型，`ACTION_SEND_MULTIPLE`、后台文档摄取、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 2026-08-10 第 236 阶段：系统分享文本到受控单日全天日程
 
 ### 当前结论
 
 - `text/plain ACTION_SEND` 仍只导入普通可编辑草稿；新增“创建全天日程”只在标题和规范 `yyyy-MM-dd` 日期唯一、且不存在开始/结束/时区等定时字段时生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Provider。
 - 正式链继续复用既有 `calendar-create-all-day`、`calendar.create_all_day_event`、日历读写权限、Room Approval、Tool Ledger、幂等回执、UTC 全天 Provider 写后回读和答案级日程导航，没有新增生产 Tool/Skill、权限、Room Schema、Workflow 或后台能力。
-- 生产实现与本地聚焦验证已完成；Redmi 真实入口与 Provider 闭环因设备未连接而明确待补，本阶段不能记录为真机完成。
 
 ### 已验证证据
 
 - `SharedTextAgentDraftPolicyTest` 的 JUnit XML 为 `9 tests / 0 failures / 0 errors`；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`，`git diff --check` 通过。
-- Activity、Conversation 和来源卡测试已加入有效全天草稿、不完整分享拒绝、转换不发送和五入口回调/布局覆盖；新 `Stage236SharedTextAllDayCalendarEventInstrumentedTest` 已编译进 AndroidTest APK。
-- 真实测试夹具只接受显式 `stage236RealRun=true`，并在设备端再次断言 `Build.DEVICE=begonia`；清理只信任本轮 `COMMITTED` 回执事件 ID，并在删除前核对标题与 UTC 全天边界。
+- Redmi 聚焦入口为 `OK (4 tests)`、`7.989s`；真实 Provider 缺字段/有效样本为 `OK (2 tests)`、`21.034s`。有效分享只生成草稿，用户明确发送和批准后才写入 Calendar Provider。
+- 最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一 `calendar.create_all_day_event` 为 `APPROVED / PASSED / COMMITTED`；回执、当前 Provider 回读、消息 Tool part 和答案级导航统一绑定 `calendar-92`，标题、UTC 当日零点至次日零点、`ALL_DAY=1`、`UTC` 与非重复事实一致。
+- 设备日志为 `STAGE236_SHARED_ALL_DAY ... providerReadBack=true navigationIdentity=true oldRunUnchanged=true`；缺字段日志为 `STAGE236_MISSING_FIELD rejectedBeforeSend=true runCreated=false oldRunUnchanged=true`。
 
-### 待补真机证据
+### 验证范围与收尾
 
-- 2026-08-10 多次检查 `adb devices -l` 只发现 `emulator-5554`；`system_profiler SPUSBDataType` 和 `adb mdns services` 均未发现 Redmi `wsvwypiz7xwslvl7`，持续监听后仍为 `device not found`。没有向模拟器发送安装、测试或应用命令。
-- 因此四个聚焦入口测试、`Stage236SharedTextAllDayCalendarEventInstrumentedTest` 的缺字段/真实 Provider 双测试、`STAGE236_MISSING_FIELD` 与 `STAGE236_SHARED_ALL_DAY`、最终 Run/Event ID、Provider 回读、旧 Run 不变、精确清理、文档 corpus 真机门禁、测试包卸载和 crash buffer 均尚未执行。
-- Redmi 恢复后只需安装当前 Debug/Test APK、授予 `READ_CALENDAR / WRITE_CALENDAR`，执行上述聚焦类并写回真实证据；不得用模拟器替代，也不得把当前“待补”状态改写成通过。
-
-### 验证范围
-
+- 测试事件只从本轮 `COMMITTED` 回执恢复稳定 ID，并在删除前再次核对标题和 UTC 全天边界；临时 Profile/会话及本轮本地日历按身份清理，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 安装、instrumentation、日志和功能验收只对 Redmi `wsvwypiz7xwslvl7` 执行；ADB 清单中的 `emulator-5554` 未接收任何目标命令。
 - 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
 ## 2026-08-10 第 235 阶段：系统分享文本到受控系统日程闭环
