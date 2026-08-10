@@ -4,6 +4,34 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 232 阶段：系统分享文本到一次性应用内提醒
+
+### 结论
+
+- 系统分享文本继续先进入普通草稿；只有用户点击“转为任务”、生成计划并确认后，才创建一次性 Workflow/ScheduledTask 和 WorkRequest。确认前没有 Run，计划明确展示 WorkManager 非精确定时语义。
+- Redmi 真实 1 分钟提醒通过生产 WorkManager 到点执行。Workflow `workflow-b70615da-445f-41f1-a88c-a2e5cb0e815b`、ScheduledTask `scheduled-task-e8d56d3f-2cac-4073-befa-9c3d98233a23`、Workflow Run `workflow-run-a418e6a4-9723-4730-bdac-881fbc803f08`、Agent Run `run-b2187efb-4d4c-4da1-8563-3786373aeccc` 均为完成终态。
+- 唯一工具 `app.current_time` 为 `success=true / PASSED`，目标级结论为 `VERIFIED`，审批数为 0；完成通知以该 ScheduledTask 的稳定 ID 真实可见。
+- 临时 Profile、输入会话、后台会话和通知已清理，原 Profile/会话选择恢复，验收 Workflow 已停用；Task、Workflow/Agent Run 与 Tool Ledger 审计保留。最近旧 Agent Run、Workflow Run 与稳定终态 ScheduledTask 摘要均未变化。
+
+### 验证证据
+
+- 新增 `Stage232SharedTextOneTimeReminderInstrumentedTest`，只在 `stage232RealRun=true` 下执行；临时 Profile 精确允许 `app.current_time` 与 `device-time`，长期记忆关闭，通知权限与系统通知开关必须可用。
+- 第一轮真实模型把目标拆成两个步骤，测试在计划确认前以 `expected:<1> but was:<2>` 失败，未创建 Reminder/Run；夹具 `finally` 恢复原选择并清理临时数据。随后只把验收目标明确为单步，没有放宽生产计划规则。
+- 第二轮计划为“一次 · 确认后约 1 分钟”，确认前 ScheduledTask 集合不变；确认后 ONE_TIME Task 的 `plannedAt-createdAt=60,000ms` 且关联唯一 WorkRequest，Worker 到点才创建 `SCHEDULED` Run 和后台会话。
+- 最终真实单项为 `OK (1 test)`、`94.132s`。Room 回读确认 Task/Workflow/Step/Agent Run 完成、Tool Ledger 只有 `app.current_time`、目标级 `VERIFIED`、Approval 为空，通知标题包含“工作流已完成”和 Workflow 名称。
+- 聚焦 JVM `PersonalTaskPlanPolicyTest 12/12 + PersonalTaskCompletionPresentationTest 3/3` 通过；Redmi 分享转换、任务路由与非精确定时确认文案为 `OK (3 tests)`、`6.196s`。`:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 通过。
+- 七份长期文档与索引同步后重新构建 AndroidTest 资产，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终结果为 `OK (1 test)`。
+
+### 验证范围
+
+- 只使用 Redmi `wsvwypiz7xwslvl7`；未向 Pixel_9 或其他模拟器发送 ADB 命令。
+- Redmi 原通知权限为拒绝，本阶段为真实提醒结果验收授予 `POST_NOTIFICATIONS` 并设为允许；该权限继续保留，测试通知本身已取消。
+- 按快速迭代分级验证约束，未运行完整 JVM、全量 Lint、主 Debug APK、Release APK 或全量 instrumentation；Room v36、生产调度器、Worker、Tool/Skill 和后台审批边界不变。
+
+### 下一阶段
+
+第 233 阶段让提醒结果通知精确打开对应 Workflow/Run 或任务详情；内部导航身份必须可校验且短生命周期，外部 Intent 直接提供 workflowId 时必须 fail-closed。
+
 ## 2026-08-10 第 231 阶段：系统分享文本到显式个人任务草稿
 
 ### 结论

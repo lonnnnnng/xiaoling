@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 232 阶段采用成熟个人 Agent 的“外部入口、计划确认、持久化调度、后台执行和结果通知共享同一审计身份”原则：系统分享不会直接排程，确认后的 `ONCE` Task 由既有 WorkManager 到点 claim，后台 Agent 仍受 Profile 与审批门约束，最终通知只在 Room 终态后出现。实现没有复制参考项目的常驻分享监听、精确闹钟、Foreground Service、后台隐式审批、远程 Channel 或多 Agent 编排；通知点击当前仍只进入应用，精确结果导航留到下一独立安全切片。
+
 第 231 阶段继续采用成熟个人 Agent 的“外部内容默认只是用户草稿、能力升级必须显式选择、计划与执行分离、结果回到持久化账本验证”原则：Android 分享继续遵守草稿冲突确认，打开进入编辑器后不会继承旧个人任务模式，也不会自动请求模型；用户点击“转为任务”后仍需生成并确认计划，才由既有 Workflow 执行单步 `app.current_time` 并形成目标级 `VERIFIED`。实现没有复制参考项目的后台分享监听、Intent 自动执行、Exact Alarm、Foreground Service、任意 App、远程 Channel 或多 Agent 编排。
 
 第 230 阶段采用成熟个人 Agent 的“外部入口先形成用户可见草稿、能力升级必须二次显式确认、写入仍逐次审批、结果回到权威 Store 核验”原则：Android `text/plain` 分享不会直接发送或创建 Run，只有用户点击“保存为笔记”后才形成 `/agent notes.create` 草稿；图片/文档不复用该入口。真实 Redmi 闭环继续复用现有 `local-notes` 与 `notes.create`，没有复制参考项目的后台分享监听、剪贴板常驻读取、任意 Intent 自动执行、远程 Channel 或多 Agent 编排。

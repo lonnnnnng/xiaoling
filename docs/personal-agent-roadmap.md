@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 232 阶段：系统分享文本到一次性应用内提醒（完成）
+
+- 第 231 阶段的系统分享任务入口已与既有一次性提醒链真正贯通：用户显式转为任务、生成并确认 `ONCE / 1 分钟` 单步计划后，生产 WorkManager 到点创建后台 Workflow/Agent Run；确认前没有调度或执行事实。
+- Redmi Task `scheduled-task-e8d56d3f-2cac-4073-befa-9c3d98233a23`、Workflow Run `workflow-run-a418e6a4-9723-4730-bdac-881fbc803f08` 与 Agent Run `run-b2187efb-4d4c-4da1-8563-3786373aeccc` 均完成。唯一 `app.current_time` 结果为 `PASSED`，目标级结论 `VERIFIED`，审批数为 0，结果通知真实可见。
+- 临时业务数据和通知已清理、原选择恢复，验收 Workflow 停用，Task/Run 审计保留，旧 Agent/Workflow/ScheduledTask 稳定事实不变。本阶段没有引入 Exact Alarm、Foreground Service、后台分享自动执行或新的生产工具面。
+
+下一阶段（第 233 阶段）：让提醒完成通知精确打开对应 Workflow/Run 或任务结果；使用应用内部可校验、短生命周期导航身份，拒绝外部应用伪造 workflowId。MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 231 阶段：系统分享文本到显式个人任务草稿（完成）
 
 - Android `text/plain ACTION_SEND` 继续遵守草稿冲突确认；分享被打开进入编辑器后成为普通可编辑草稿并退出旧个人任务模式。只有用户点击“转为任务”才进入个人任务编辑态，转换不发送、不请求模型、不生成计划，也不创建 Workflow/Run。

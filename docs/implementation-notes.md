@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 232 阶段：系统分享文本到一次性应用内提醒（完成）
+
+- 新增 `Stage232SharedTextOneTimeReminderInstrumentedTest`，显式 `stage232RealRun=true` 才运行。测试从真实 `ACTION_SEND text/plain`、普通草稿、“转为任务”、模型计划和用户确认进入既有 `createConfirmedPersonalReminder()`；没有新增 Debug Runtime 或生产旁路。
+- 临时 Profile 只开放 `app.current_time` 与 `device-time`，长期记忆关闭。计划必须显示“一次 · 确认后约 1 分钟”，确认前 ScheduledTask 集合保持不变；确认后 Room 原子创建 Workflow/ONE_TIME Task，关联真实 WorkRequest，Worker 到点才创建 `SCHEDULED` Workflow Run 和后台会话。
+- 第一轮模型把未强调单步的目标拆成两步，测试在计划确认前以 `expected:<1> but was:<2>` 安全失败，没有创建提醒；验收目标随后明确为“只创建一个单步个人提醒”，没有放宽生产 1 至 8 步规则或伪造模型输出。
+- 第二轮 Redmi 单项为 `OK (1 test)`、`94.132s`。Workflow `workflow-b70615da-445f-41f1-a88c-a2e5cb0e815b`、Task `scheduled-task-e8d56d3f-2cac-4073-befa-9c3d98233a23`、Workflow Run `workflow-run-a418e6a4-9723-4730-bdac-881fbc803f08`、Agent Run `run-b2187efb-4d4c-4da1-8563-3786373aeccc` 均完成；唯一工具 `app.current_time` 为 `PASSED`，目标级结论 `VERIFIED`，审批数为 0，完成通知真实可见。
+- 夹具取消残留 WorkRequest/通知、停用验收 Workflow、删除临时 Profile 与输入/后台会话并恢复原选择；Task、Run 与账本审计保留。最近旧 Agent/Workflow Run 和稳定终态 ScheduledTask 摘要比较通过。Redmi 的通知权限从拒绝调整为允许，以便实际使用提醒结果通知。
+- 聚焦 JVM `PersonalTaskPlanPolicyTest 12/12 + PersonalTaskCompletionPresentationTest 3/3`、AndroidTest 编译/构建、Redmi UI `3/3`（`6.196s`）和最终文档 corpus `1/1` 通过。未运行完整 JVM、Lint、Release 或全量 instrumentation，生产调度与后台权限边界不变。
+
+### 下一阶段
+
+第 233 阶段补齐提醒通知点击后的精确结果导航：打开对应 Workflow/Run 或任务详情，而不是只进入应用首页；导航目标必须由应用内部可校验身份绑定，不能信任外部 Intent 直接传入 workflowId。
+
 ## 第 231 阶段：系统分享文本到显式个人任务草稿（完成）
 
 - `openSharedDraft()` 在用户打开或确认替换分享时显式清除 `personalTaskMode`、上一轮任务失败/完成提示和普通结果；`handleSharedDraftImport()` 继续保留既有草稿冲突确认，保证冷启动、热启动及已有任务编辑态中的二次 `ACTION_SEND` 不会绕过用户选择。

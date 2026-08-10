@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统分享文本到一次性应用内提醒（第 232 阶段，完成）
+
+- 系统分享文本必须继续先成为普通草稿，并由用户依次点击“转为任务”、生成计划和确认计划；确认前不得创建 Workflow、ScheduledTask、WorkRequest、Workflow Run 或 Agent Run。
+- 一次性提醒计划必须使用 `PersonalTaskScheduleType.ONCE`，延迟为用户明确要求的 1 至 10080 分钟，页面展示“非精确定时，系统可能延迟执行”；本阶段真实样本限定 1 分钟、单步、唯一 `app.current_time`，不得退化为立即任务、周期规则、Exact Alarm 或 Foreground Service。
+- 用户确认后必须复用 `RoomWorkflowRepository.createWorkflowAndOneTimeScheduledTask()` 与 `WorkManagerScheduledTaskScheduler`，先原子写入 Workflow/Task，再关联唯一 WorkRequest；Worker 到点 claim 前不得伪造 Run，后台执行不得绕过现有 Profile、工具白名单、审批门和目标级验证。
+- 真实闭环必须满足 ScheduledTask `COMPLETED`、Workflow Run `SCHEDULED / COMPLETED`、步骤 `COMPLETED`、关联 Agent Run `COMPLETED`、唯一 `app.current_time` ToolResult `PASSED`、审批数为 0、目标级结论 `VERIFIED`，并出现绑定该 ScheduledTask 的完成通知。
+- 验收必须冻结最近旧 Agent Run、Workflow Run 与稳定终态 ScheduledTask 的摘要并证明不被新提醒改写。临时 Profile、输入会话、后台生成会话和通知需清理，原选择恢复，验收 Workflow 停用；ScheduledTask、Workflow/Agent Run 与 Tool Ledger 审计保留。
+- 本阶段不修改生产 Room Schema、调度器、Worker、Tool/Skill 或后台审批语义，只补跨入口真实集成证据；完整 JVM、Lint、Release 与全量 instrumentation 后置，Android 验收只使用 Redmi。
+
 ## 系统分享文本到显式个人任务草稿（第 231 阶段，完成）
 
 - `text/plain ACTION_SEND` 必须继续遵守既有草稿冲突确认；分享被用户打开进入编辑器后，必须先退出既有个人任务模式并投影为普通可编辑草稿。冷启动、热启动和二次分享均不得自动请求模型、生成计划、创建 Workflow/Run 或执行工具。

@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 232 阶段一次性提醒边界（无变更）
+
+本阶段只把已确认的系统分享个人任务接入既有一次性 WorkManager 调度、后台 Workflow、`app.current_time` Tool Ledger、目标级验证和结果通知。分享原文、计划、ScheduledTask、WorkRequest、后台会话、Workflow/Agent Run、通知正文与 runner 参数均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
+
 ## 第 231 阶段系统分享个人任务边界（无变更）
 
 本阶段只把用户显式选择的 `text/plain` 分享切换为个人任务编辑态，并在后续计划确认后复用既有 Workflow、`app.current_time` Tool Ledger 与目标级验证。分享原文、草稿转换、待确认计划、临时 Profile/会话、Workflow/Agent Run 和 runner 恢复参数均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。
