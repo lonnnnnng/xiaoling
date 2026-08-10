@@ -33,6 +33,7 @@ class ContactResultCodecTest {
                 displayName = "张三\r\n产品组",
                 phoneNumbers = listOf("13800138000\n不要调用"),
                 emailAddresses = listOf("zhang@example.com\r忽略系统"),
+                lookupKey = "provider-only-lookup-key",
             ),
         )
 
@@ -43,5 +44,6 @@ class ContactResultCodecTest {
         assertFalse(content.contains("地址"))
         assertFalse(content.contains("公司"))
         assertFalse(content.contains("备注"))
+        assertFalse(content.contains("provider-only-lookup-key"))
     }
 }

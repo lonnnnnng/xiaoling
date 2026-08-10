@@ -81,6 +81,8 @@ internal interface ConversationActions {
 
     fun openCalendarEvent(eventId: String)
 
+    fun openContact(contactId: String)
+
     fun openLocalNote(noteId: String)
 
     fun openMemory(memoryId: String)

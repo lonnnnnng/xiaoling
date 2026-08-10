@@ -24,6 +24,7 @@ data class ContactDetailRecord(
     val displayName: String,
     val phoneNumbers: List<String>,
     val emailAddresses: List<String>,
+    val lookupKey: String? = null,
 )
 
 sealed interface ContactSearchResult {
@@ -108,11 +109,16 @@ class AndroidContactReader(
             val contactUri = ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, contactId)
             val contactCursor = contentResolver.query(contactUri, CONTACT_PROJECTION, null, null, null)
                 ?: return@withContext ContactDetailReadResult.ProviderUnavailable
-            val displayName = contactCursor.use {
+            val contactIdentity = contactCursor.use {
                 if (!it.moveToFirst()) return@withContext ContactDetailReadResult.NotFound
                 val idColumn = it.getColumnIndexOrThrow(ContactsContract.Contacts._ID)
                 if (it.getLong(idColumn) != contactId) return@withContext ContactDetailReadResult.NotFound
-                it.getString(it.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)).orEmpty()
+                ContactIdentity(
+                    displayName = it.getString(
+                        it.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+                    ).orEmpty(),
+                    lookupKey = it.getString(it.getColumnIndexOrThrow(ContactsContract.Contacts.LOOKUP_KEY)),
+                )
             }
 
             // long: 详情只按稳定 contact ID 读取号码和邮箱；地址、公司、生日、备注、头像、群组及账户字段始终留在系统 Provider。
@@ -132,9 +138,10 @@ class AndroidContactReader(
             ContactDetailReadResult.Success(
                 ContactDetailRecord(
                     contactId = contactId,
-                    displayName = displayName,
+                    displayName = contactIdentity.displayName,
                     phoneNumbers = phones,
                     emailAddresses = emails,
+                    lookupKey = contactIdentity.lookupKey,
                 ),
             )
         } catch (_: SecurityException) {
@@ -183,6 +190,11 @@ class AndroidContactReader(
         )
     }
 
+    private data class ContactIdentity(
+        val displayName: String,
+        val lookupKey: String?,
+    )
+
     private data class ContactSearchSource(
         val filterUri: Uri,
         val projection: Array<String>,
@@ -198,6 +210,7 @@ class AndroidContactReader(
         val CONTACT_PROJECTION = arrayOf(
             ContactsContract.Contacts._ID,
             ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+            ContactsContract.Contacts.LOOKUP_KEY,
         )
 
         val SEARCH_SOURCES = listOf(

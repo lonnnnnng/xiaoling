@@ -1,5 +1,7 @@
 # 文档索引
 
+第 246 阶段完成可信联系人答案级“查看联系人”入口：只从成功且可信的 `contacts.get / PASSED` 单一详情结果显示按钮；点击时重新检查权限并从当前 Contacts Provider 回读 ID 与 `lookupKey`，确认身份稳定后通过 `ACTION_VIEW` 跳转系统联系人详情。删除/合并、权限撤销、Provider 不可用、lookupKey 缺失或系统无处理方均 fail-closed，lookupKey 不进入 Tool/答案文本。聚焦 JVM `7/7`、Debug/AndroidTest APK；仅 Redmi 正向详情/删除竞态 `2/2`（`5.891s`）、撤权 fail-closed `1/1`（`2.799s`）和最终文档 corpus `1/1` 通过。Room v36、后台边界和联系人写入/通知读取后置不变。
+
 第 245 阶段完成系统联系人只读精确查询 v1。独立“联系人访问”页面只在用户主动点击后申请 `READ_CONTACTS`；`contacts.search / contacts.get` 与 `contacts-lookup` 仅在前台、Profile/Skill 白名单和当前权限下可用。搜索要求用户明确给出至少 2 个字符的姓名、电话或邮箱片段，每次最多 10 个候选，摘要不含具体号码或邮箱；详情只接受当前 Run 最近一次搜索返回的稳定 `contact-<正整数>` ID，再回读姓名、最多 10 个电话和 10 个邮箱。地址、公司、生日、备注、头像、群组、账户、全量枚举、联系人写入、拨号、发送和后台访问继续关闭。聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi UI `3/3`、权限/Provider `2/2` 与真实模型合成联系人 `1/1`（`26.973s`）通过；真实 Run 严格为 `contacts.search -> contacts.get / PASSED / approvals=0`。设备原通讯录为空，临时合成联系人已精确删除，权限已撤销；最终文档 corpus gate `1/1` 通过。Room v36 与后台边界不变，未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
 
 第 244 阶段完成系统语音输入到可编辑草稿 v1。Composer 麦克风入口使用 `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 与 Activity Result，应用不新增 `RECORD_AUDIO` 权限、不保存音频；首个非空识别候选只合并到当前草稿，保留已有输入，不自动添加 `/agent`、发送消息、调用模型或创建 Run。取消、空结果、无处理方和启动失败均 fail-closed。聚焦 JVM `12/12`、Debug/AndroidTest APK 和仅 Redmi 的无声 Compose 路由单项 `1/1`（`2.326s`）通过，系统识别 Activity 可解析；最终文档 corpus gate 为 `1/1`（`3.077s`）。按用户要求跳过真实声音内容验收。Room v36、Provider、Tool/Skill、Workflow 与后台边界不变，未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。

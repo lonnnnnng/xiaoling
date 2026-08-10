@@ -1,5 +1,13 @@
 # 产品需求
 
+## 联系人答案级“查看联系人”入口（第 246 阶段，完成）
+
+- 只有当前 Run 中成功、可信且严格匹配 `contacts.get` 的单一联系人详情 Tool Message 才能投影“查看联系人”按钮；失败、普通文本、伪造 ID、重复 ID、参数漂移或非 `contacts.get` 结果不得显示入口。
+- 点击入口必须重新检查 `READ_CONTACTS`，从当前 Contacts Provider 回读同一数值 contact ID、姓名与 `lookupKey`；记录不存在、删除/合并、权限撤销、Provider 异常或 lookupKey 缺失时必须 fail-closed，不启动系统联系人页。
+- 系统跳转只使用 `ContactsContract.Contacts.getLookupUri()` 与 `ACTION_VIEW`。无处理 Activity、权限拒绝和启动异常映射为可提示的失败结果，不重试、不猜测其他联系人。
+- `lookupKey` 仅为 Provider 内部导航凭据，不进入 ToolResult、答案文本、消息引用、日志或模型上下文；联系人姓名、电话和邮箱继续按不可信数据投影。
+- 聚焦 JVM `7/7`、Debug/AndroidTest APK 和仅 Redmi 的正向详情/删除竞态 `2/2`、撤权 `1/1` 已通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+
 ## 系统联系人只读精确查询 v1（第 245 阶段，完成）
 
 - 设置根页必须提供独立“联系人访问”入口；只有用户在该页面主动点击后才能申请 `READ_CONTACTS`。工具执行、Workflow、后台任务和应用启动不得自动弹出权限请求。

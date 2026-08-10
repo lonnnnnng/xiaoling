@@ -4,6 +4,27 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 246 阶段：可信联系人答案级系统详情导航
+
+### 当前结论
+
+- 可信且成功的 `contacts.get` 单一详情结果现在显示“查看联系人”入口；普通文本、失败结果、伪造/重复 ID、参数漂移和非目标工具结果均不显示。
+- 点击时重新检查 `READ_CONTACTS` 并从当前 Contacts Provider 回读 contact ID、姓名与 `lookupKey`；只有身份仍稳定时才使用 `ContactsContract.Contacts.getLookupUri()` + `ACTION_VIEW` 跳转系统联系人详情。
+- 删除/合并、权限撤销、Provider 不可用、lookupKey 缺失、无处理 Activity 或启动异常均 fail-closed，lookupKey 不进入 ToolResult、答案、日志或模型上下文。
+
+### 已验证证据
+
+- 聚焦 JVM：`ContactNavigationTest` `5/5`、`ContactResultCodecTest` `2/2`，合计 `7/7`，失败/错误/跳过均为 `0`。
+- 最新 Debug 与 AndroidTest APK 构建成功，并仅覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。
+- Redmi 正向详情跳转与删除竞态：`2/2`，耗时 `5.891s`；撤权 fail-closed：`1/1`，耗时 `2.799s`。没有向 Pixel_9 或其他模拟器发送安装、启动、日志或测试命令。
+- 测试结束后 `READ_CONTACTS` 为 `granted=false`，Redmi crash buffer 没有小灵异常；合成联系人由测试精确删除并在删除后 Provider 回读缺失。
+- 同步第 246 阶段长期文档后，Redmi 文档 corpus gate 连续两次为 `OK (1 test)`。
+
+### 验证范围与下一阶段
+
+- 按快速迭代分级约束，本阶段未运行完整 JVM、Lint、Release 或全量 instrumentation；未进行真实声音识别。
+- 下一阶段继续个人 Agent 主线，选择新的窄任务并保留“自然语言目标 -> 可验证结果 -> 当前权威事实查看”闭环；联系人写入、拨号/发送、通知读取、后台设备动作、TTS、多 Agent 与远程 Channel 继续后置。
+
 ## 2026-08-10 第 245 阶段：系统联系人只读精确查询 v1
 
 ### 当前结论

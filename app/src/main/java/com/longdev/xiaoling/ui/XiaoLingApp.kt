@@ -39,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -128,6 +129,8 @@ private fun XiaoLingContent(
 ) {
     val navigation = rememberXiaoLingNavigationController()
     val context = LocalContext.current
+    val contactOpenScope = rememberCoroutineScope()
+    val contactOpenCoordinator = remember(context) { createAndroidContactOpenCoordinator(context) }
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
     var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
@@ -171,6 +174,8 @@ private fun XiaoLingContent(
         attachDocumentLauncher,
         requestVoiceInput,
         navigation,
+        contactOpenCoordinator,
+        contactOpenScope,
     ) {
         object : ConversationActions {
             override fun selectConversation(conversationId: String) = viewModel.selectConversation(conversationId)
@@ -252,6 +257,15 @@ private fun XiaoLingContent(
 
             override fun openCalendarEvent(eventId: String) {
                 navigation.openCalendarEvent(eventId)
+            }
+
+            override fun openContact(contactId: String) {
+                contactOpenScope.launch {
+                    val result = contactOpenCoordinator.open(contactId)
+                    result.userMessage?.let { message ->
+                        centerNotice = CenterNotice(message, success = false)
+                    }
+                }
             }
 
             override fun openLocalNote(noteId: String) {

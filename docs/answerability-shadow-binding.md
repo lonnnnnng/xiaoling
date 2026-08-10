@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 246 阶段联系人导航边界（无变更）
+
+“查看联系人”入口只从可信 `contacts.get / PASSED` 的结构化 Tool Message 投影，不解析模型自由文本。点击产生的 contact ID/lookupKey 仅在当前前台动作内短暂存在，用于重新读取 Contacts Provider 并启动系统详情；二次读取失败时不生成答案事实、引用或 Shadow 样本。联系人姓名、电话、邮箱、lookupKey、系统 Provider 行、权限状态和合成验收数据继续排除在知识候选、Embedding、Judge、Shadow measurement 与匿名账本之外。Shadow 默认关闭、`enforcementApplied=false`、Room v36 和生产相关性拒绝保持不变。
+
 ## 第 245 阶段联系人只读边界（无变更）
 
 联系人搜索词、稳定 contact ID、姓名、电话、邮箱、临时合成联系人、系统 Provider 行以及权限状态都不得进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。`contacts.search / contacts.get` 的 Tool Message 只属于当前 Agent Run；答案可回答性仍仅评估既有知识引用链，不把通讯录事实伪装成知识库来源。Shadow 默认开关、`enforcementApplied=false`、Room v36、相关性拒绝和候选身份绑定均保持不变；最终文档 corpus gate `1/1` 通过。

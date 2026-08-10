@@ -303,6 +303,7 @@ internal fun ConversationPage(
                                 onOpenInspectedTask = actions::openInspectedTask,
                                 onOpenConversation = actions::openConversation,
                                 onOpenCalendarEvent = actions::openCalendarEvent,
+                                onOpenContact = actions::openContact,
                                 onOpenLocalNote = actions::openLocalNote,
                                 onOpenMemory = actions::openMemory,
                                 onReuseUserMessage = actions::updatePrompt,

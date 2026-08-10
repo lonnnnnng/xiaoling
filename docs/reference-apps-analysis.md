@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 246 阶段沿用成熟个人 Agent 的“答案只来自可信结构化事实、点击前重新读取权威源、短生命周期导航身份”原则。联系人详情按钮只由成功且可信的 `contacts.get / PASSED` 单一结果生成；点击时重新读取 Contacts Provider，使用 contact ID + `lookupKey` 构造 `ACTION_VIEW`，拒绝删除/合并、权限撤销、Provider 异常和系统启动失败。小灵没有复制参考项目的联系人深链接猜测、全量索引或后台联系人访问；`lookupKey` 不进入消息、日志、模型上下文或答案投影。Redmi 合成联系人正向/删除竞态与撤权 fail-closed 均通过，最终文档 corpus gate `1/1` 通过。
+
 第 245 阶段采用成熟个人 Agent 的“显式授权、先搜索稳定身份、再读取当前详情、联系人内容按不可信数据处理”原则。小灵没有照搬参考项目的通讯录全量同步、后台索引、关系图谱、自动拨号/发送或联系人写入；`contacts.search` 只返回姓名、匹配类型和稳定 ID，`contacts.get` 才回读姓名、电话和邮箱，其他 Contacts Data 字段不进入应用。真实模型验收只使用临时合成联系人，设备私人通讯录未进入 Provider 或日志；清理与撤权完成。最终文档 corpus gate `1/1` 通过。
 
 第 244 阶段采用成熟移动端 Agent 的“系统识别、草稿优先、用户显式发送”原则：小灵只通过 Android 系统 `RecognizerIntent` 取得文本，首个非空候选进入当前编辑器并保留已有草稿；语音入口与发送动作分离。实现没有复制参考项目的常驻麦克风、唤醒词、后台录音、原始音频上传、自动 `/agent`、自动发送或边说边执行。应用不新增录音权限，Room、Agent Runtime、Tool/Skill 和审批边界均不变化；TTS 继续独立后置。最终文档 corpus gate 为 `1/1`（`3.077s`）。

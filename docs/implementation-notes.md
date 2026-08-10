@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 246 阶段：可信联系人答案级系统详情导航（完成）
+
+- `ContactDetailRecord` 增加 Provider 内部使用的 `lookupKey`；`ContactResultCodec` 明确不输出该字段。
+- `ContactNavigation` 只接受成功且可信的单一 `contacts.get` 详情结果，并严格校验唯一 `contact-<正整数>` 参数/正文身份；伪造、失败、重复或漂移结果均不产生入口。
+- `ContactOpenCoordinator` 在点击时重新检查权限并调用 `ContactReader.getContact()`，核对 contact ID 与非空 lookupKey 后才允许 `AndroidContactNavigation` 用 `ContactsContract.Contacts.getLookupUri()` + `ACTION_VIEW` 打开系统详情。
+- 删除/合并、权限撤销、Provider 不可用、lookupKey 缺失、无处理 Activity 和启动异常均有稳定 fail-closed 结果；点击失败通过既有 CenterNotice 提示。
+- 新增 `ContactNavigationTest` 五个策略/协调器测试、`ContactResultCodecTest` 的 lookupKey 隐私断言、Compose 可信结果按钮路由测试和 `Stage246ContactNavigationInstrumentedTest` 的合成联系人详情/删除竞态/撤权验收。
+- 聚焦 JVM `7/7`、Debug/AndroidTest APK 构建成功；Redmi 正向详情/删除竞态 `2/2`（`5.891s`）、撤权 `1/1`（`2.799s`）与最终文档 corpus `1/1` 通过。权限已撤销，crash buffer 为空。
+
+### 下一阶段
+
+继续个人 Agent 主线，优先选择一个能形成“自然语言目标 -> 可验证结果 -> 当前权威事实查看”的窄任务；联系人写入、拨号/发送、通知读取、Workflow/后台设备动作和声音识别继续后置。
+
 ## 第 245 阶段：系统联系人只读精确查询 v1（完成）
 
 - 新增 `agent/ContactReader.kt`：`AndroidContactReader` 分别使用姓名、电话和邮箱三个 Contacts Provider filter URI，只消费用户显式查询词；每个来源最多扫描 50 个候选，合并后最多输出 10 个稳定联系人身份。搜索层不读取号码或邮箱值，只记录匹配类型。

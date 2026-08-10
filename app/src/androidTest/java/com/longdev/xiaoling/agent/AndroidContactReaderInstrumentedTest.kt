@@ -57,6 +57,7 @@ class AndroidContactReaderInstrumentedTest {
             assertTrue(detail is ContactDetailReadResult.Success)
             val contact = (detail as ContactDetailReadResult.Success).contact
             assertEquals(firstContactId, contact.contactId)
+            assertTrue(contact.lookupKey?.isNotBlank() == true)
             assertTrue(contact.phoneNumbers.size <= 10)
             assertTrue(contact.emailAddresses.size <= 10)
         }

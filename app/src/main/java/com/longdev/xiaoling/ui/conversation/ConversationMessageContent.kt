@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -69,6 +70,7 @@ import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.calendarEventIdForNavigation
+import com.longdev.xiaoling.ui.contactIdForNavigation
 import com.longdev.xiaoling.ui.conversationIdForNavigation
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
 import com.longdev.xiaoling.ui.knowledgeReferencesForDisplay
@@ -101,6 +103,7 @@ internal fun ChatBubble(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (String) -> Unit,
+    onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
@@ -153,6 +156,7 @@ internal fun ChatBubble(
                     onOpenInspectedTask = onOpenInspectedTask,
                     onOpenConversation = onOpenConversation,
                     onOpenCalendarEvent = onOpenCalendarEvent,
+                    onOpenContact = onOpenContact,
                     onOpenLocalNote = onOpenLocalNote,
                     onOpenMemory = onOpenMemory,
                 )
@@ -205,6 +209,7 @@ private fun MessageBodyParts(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (String) -> Unit,
+    onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
 ) {
@@ -221,6 +226,7 @@ private fun MessageBodyParts(
                 onOpenInspectedTask = onOpenInspectedTask,
                 onOpenConversation = onOpenConversation,
                 onOpenCalendarEvent = onOpenCalendarEvent,
+                onOpenContact = onOpenContact,
                 onOpenLocalNote = onOpenLocalNote,
                 onOpenMemory = onOpenMemory,
             )
@@ -405,6 +411,7 @@ private fun ToolMessagePartContent(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (String) -> Unit,
+    onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
 ) {
@@ -494,6 +501,19 @@ private fun ToolMessagePartContent(
                 modifier = Modifier.size(15.dp),
             )
             Text("查看日程")
+        }
+    }
+    part.contactIdForNavigation()?.let { contactId ->
+        TextButton(
+            onClick = { onOpenContact(contactId) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+            )
+            Text("查看联系人")
         }
     }
     part.localNoteIdForNavigation()?.let { noteId ->
