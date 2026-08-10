@@ -56,7 +56,7 @@ class KnowledgeReferencesContentInstrumentedTest {
                 currentRevision = 2,
             ),
         )
-        val openedDocumentId = AtomicReference<String?>(null)
+        val openedReference = AtomicReference<KnowledgeReference?>(null)
 
         composeRule.setContent {
             XiaoLingTheme {
@@ -65,7 +65,7 @@ class KnowledgeReferencesContentInstrumentedTest {
                     references = listOf(currentReference, historicalReference),
                     statuses = statuses,
                     contentColor = Color.Black,
-                    onOpenDocument = openedDocumentId::set,
+                    onOpenDocument = openedReference::set,
                 )
             }
         }
@@ -80,12 +80,12 @@ class KnowledgeReferencesContentInstrumentedTest {
         composeRule.onNodeWithText("历史规则.md").assertExists()
         composeRule.onNodeWithText("历史版本").assertExists()
         composeRule.onNodeWithText("当前为 revision 2 · 历史规则-v2.md").assertExists()
-        assertEquals(null, openedDocumentId.get())
+        assertEquals(null, openedReference.get())
 
-        composeRule.onNodeWithContentDescription("打开知识文档 当前手册.md").assertExists()
+        composeRule.onNodeWithContentDescription("打开知识原文 当前手册.md").assertExists()
         composeRule.onNodeWithTag("knowledge-reference-document-current-ui").assertTextContains("当前手册.md")
         composeRule.onNodeWithTag("knowledge-reference-document-current-ui").performClick()
-        assertEquals("document-current-ui", openedDocumentId.get())
+        assertEquals(currentReference, openedReference.get())
     }
 
     @Test

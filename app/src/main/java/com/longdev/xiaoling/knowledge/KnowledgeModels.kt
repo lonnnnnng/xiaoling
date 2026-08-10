@@ -164,6 +164,16 @@ data class KnowledgeReference(
     }
 }
 
+data class KnowledgeDocumentNavigationTarget(
+    val documentId: String,
+    val reference: KnowledgeReference? = null,
+) {
+    init {
+        require(documentId.isNotBlank()) { "知识文档导航缺少 document ID" }
+        require(reference == null || reference.documentId == documentId) { "知识引用与导航文档不一致" }
+    }
+}
+
 enum class KnowledgeReferenceAvailability {
     CURRENT,
     HISTORICAL,
@@ -188,6 +198,14 @@ data class KnowledgeReferenceStatus(
 ) {
     val canOpenDocument: Boolean
         get() = currentDocumentRevision != null
+}
+
+data class KnowledgeReferenceLocation(
+    val status: KnowledgeReferenceStatus,
+    val chunk: KnowledgeChunkRecord?,
+) {
+    val locatedCurrentEvidence: Boolean
+        get() = status.availability == KnowledgeReferenceAvailability.CURRENT && chunk != null
 }
 
 fun KnowledgeReference.assessAgainst(
@@ -275,6 +293,25 @@ interface KnowledgeDocumentStore {
                 chunk = chunks[reference.chunkId],
             )
         }
+    }
+
+    suspend fun locateReference(reference: KnowledgeReference): KnowledgeReferenceLocation {
+        val status = inspectReferences(listOf(reference)).single()
+        val chunk = if (status.availability == KnowledgeReferenceAvailability.CURRENT) {
+            getChunks(reference.documentId).singleOrNull { candidate -> candidate.id == reference.chunkId }
+        } else {
+            null
+        }
+        // long: 定位只接受状态核验过的同一当前 chunk；历史 revision、边界漂移或 chunk 缺失都不能猜测相邻原文。
+        return KnowledgeReferenceLocation(
+            status = status,
+            chunk = chunk?.takeIf { candidate ->
+                candidate.documentRevision == reference.documentRevision &&
+                    candidate.sequence == reference.chunkSequence &&
+                    candidate.startOffset == reference.startOffset &&
+                    candidate.endOffset == reference.endOffset
+            },
+        )
     }
 
     /**

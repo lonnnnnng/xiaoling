@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 249 阶段知识引用原文定位边界
+
+本阶段只消费既有 `knowledge.search` 已保留的 `KnowledgeReference` 身份，不改变候选生成、Embedding、融合排序、Judge、Shadow measurement、匿名账本或生产拒绝。点击引用后只在当前 Room 文档与 chunk 的同一事务快照中核对 revision、sequence 和 offset；定位成功显示当前原文，历史、停用、删除或漂移不生成新的候选、样本或替代引用。导航 Saver 只保存已有引用身份，不保存额外全文。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产相关性边界保持不变。
+
 ## 第 248 阶段真实日历提醒闭环边界（无变更）
 
 自然语言日程请求、30 分钟提醒、临时 Profile/会话、Run/Approval/Tool Ledger、Calendar Provider 事件与 reminder、Activity 重建和 UiAutomation 节点都只属于当前 Agent 执行与验收，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。答案级“查看日程”只从可信持久化 Tool Message 投影，并在点击后读取当前 Provider；它不是知识引用，也不提升可回答性结论。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产相关性拒绝均保持不变。

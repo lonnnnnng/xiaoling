@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.ui.navigation.XiaoLingAppTab
 import com.longdev.xiaoling.ui.navigation.XiaoLingBottomTabBar
@@ -298,8 +299,8 @@ private fun XiaoLingContent(
                 requestVoiceInput()
             }
 
-            override fun openKnowledgeDocument(documentId: String) {
-                navigation.openKnowledgeDocument(documentId)
+            override fun openKnowledgeReference(reference: KnowledgeReference) {
+                navigation.openKnowledgeReference(reference)
             }
         }
     }
@@ -427,7 +428,7 @@ private fun XiaoLingContent(
                         onOpenKnowledgeManagement = {
                             navigation.openSettingsPane(
                                 pane = SettingsPane.KNOWLEDGE_MANAGEMENT,
-                                requestedKnowledgeDocumentId = null,
+                                requestedKnowledgeTarget = null,
                             )
                         },
                         onOpenKnowledgeRelevanceRollout = {
@@ -484,7 +485,7 @@ private fun XiaoLingContent(
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                         },
-                        requestedKnowledgeDocumentId = navigation.requestedKnowledgeDocumentId,
+                        requestedKnowledgeTarget = navigation.requestedKnowledgeTarget,
                         requestedWorkflowId = navigation.requestedWorkflowId,
                         requestedScheduledTaskId = navigation.requestedScheduledTaskId,
                         requestedWorkflowRunId = navigation.requestedWorkflowRunId,
@@ -494,7 +495,7 @@ private fun XiaoLingContent(
                         onBackToSettings = {
                             navigation.openSettingsPane(
                                 pane = SettingsPane.ROOT,
-                                requestedKnowledgeDocumentId = null,
+                                requestedKnowledgeTarget = null,
                                 requestedWorkflowId = null,
                                 requestedScheduledTaskId = null,
                                 requestedWorkflowRunId = null,
@@ -900,7 +901,7 @@ private fun SettingsPage(
     onImportBackup: () -> Unit,
     onImportSkill: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
-    requestedKnowledgeDocumentId: String?,
+    requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget?,
     requestedWorkflowId: String?,
     requestedScheduledTaskId: String?,
     requestedWorkflowRunId: String?,
@@ -981,7 +982,7 @@ private fun SettingsPage(
             )
             pane == SettingsPane.KNOWLEDGE_MANAGEMENT -> KnowledgeManagementPage(
                 onBack = onBackToSettings,
-                preferredDocumentId = requestedKnowledgeDocumentId,
+                navigationTarget = requestedKnowledgeTarget,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.KNOWLEDGE_RELEVANCE_ROLLOUT -> KnowledgeRelevanceRolloutSettingsPage(

@@ -1,5 +1,8 @@
 package com.longdev.xiaoling.ui.navigation
 
+import androidx.compose.runtime.saveable.SaverScope
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -16,7 +19,57 @@ class XiaoLingNavigationCoordinatorTest {
 
         assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
         assertEquals(XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT, result.settingsPane)
-        assertEquals("document-1", result.requestedKnowledgeDocumentId)
+        assertEquals(KnowledgeDocumentNavigationTarget("document-1"), result.requestedKnowledgeTarget)
+    }
+
+    @Test
+    fun openKnowledgeReferenceCarriesCompleteCitationIdentity() {
+        val reference = KnowledgeReference(
+            retrievalId = "retrieval-1",
+            documentId = "document-1",
+            documentName = "handbook.md",
+            documentRevision = 2,
+            chunkId = "chunk-1",
+            chunkSequence = 1,
+            startOffset = 20,
+            endOffset = 44,
+        )
+
+        val result = coordinator.openKnowledgeReference(XiaoLingNavigationState(), reference)
+
+        assertEquals(XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT, result.settingsPane)
+        assertEquals(KnowledgeDocumentNavigationTarget("document-1", reference), result.requestedKnowledgeTarget)
+    }
+
+    @Test
+    fun knowledgeReferenceSaverRestoresCompleteCitationIdentity() {
+        val reference = knowledgeReference()
+        val original = XiaoLingNavigationState(
+            requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget("document-1", reference),
+        )
+
+        val saved = requireNotNull(XiaoLingNavigationStateSaver.run { saverScope.save(original) })
+        val restored = requireNotNull(XiaoLingNavigationStateSaver.restore(saved))
+
+        assertEquals(original.requestedKnowledgeTarget, restored.requestedKnowledgeTarget)
+    }
+
+    @Test
+    fun knowledgeReferenceSaverDowngradesLegacyOrInvalidCitationToDocumentTarget() {
+        val legacy = listOf("document-1", "", "", "", "", "")
+        val invalidRevision = listOf(
+            "document-1", "", "", "", "", "",
+            "retrieval-1", "handbook.md", "0", "chunk-1", "1", "20", "44",
+        )
+
+        assertEquals(
+            KnowledgeDocumentNavigationTarget("document-1"),
+            XiaoLingNavigationStateSaver.restore(legacy)?.requestedKnowledgeTarget,
+        )
+        assertEquals(
+            KnowledgeDocumentNavigationTarget("document-1"),
+            XiaoLingNavigationStateSaver.restore(invalidRevision)?.requestedKnowledgeTarget,
+        )
     }
 
     @Test
@@ -64,7 +117,7 @@ class XiaoLingNavigationCoordinatorTest {
         val initial = XiaoLingNavigationState(
             tab = XiaoLingAppTab.SETTINGS,
             settingsPane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
-            requestedKnowledgeDocumentId = "document-1",
+            requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget("document-1"),
         )
 
         listOf(
@@ -78,7 +131,7 @@ class XiaoLingNavigationCoordinatorTest {
 
             assertEquals(XiaoLingAppTab.CONVERSATION, result.tab)
             assertEquals(XiaoLingSettingsPane.ROOT, result.settingsPane)
-            assertEquals("document-1", result.requestedKnowledgeDocumentId)
+            assertEquals(KnowledgeDocumentNavigationTarget("document-1"), result.requestedKnowledgeTarget)
         }
     }
 
@@ -115,7 +168,7 @@ class XiaoLingNavigationCoordinatorTest {
         val initial = XiaoLingNavigationState(
             tab = XiaoLingAppTab.SETTINGS,
             settingsPane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
-            requestedKnowledgeDocumentId = "document-1",
+            requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget("document-1"),
             requestedWorkflowId = "workflow-1",
             requestedScheduledTaskId = "scheduled-task-1",
             requestedWorkflowRunId = "workflow-run-1",
@@ -131,7 +184,7 @@ class XiaoLingNavigationCoordinatorTest {
 
         assertEquals(XiaoLingAppTab.SETTINGS, result.state.tab)
         assertEquals(XiaoLingSettingsPane.ROOT, result.state.settingsPane)
-        assertNull(result.state.requestedKnowledgeDocumentId)
+        assertNull(result.state.requestedKnowledgeTarget)
         assertNull(result.state.requestedWorkflowId)
         assertNull(result.state.requestedScheduledTaskId)
         assertNull(result.state.requestedWorkflowRunId)
@@ -166,4 +219,17 @@ class XiaoLingNavigationCoordinatorTest {
         assertEquals(12_000L, atBoundary.state.lastRootBackAtMillis)
         assertEquals(XiaoLingNavigationEffect.SHOW_EXIT_NOTICE, atBoundary.effect)
     }
+
+    private fun knowledgeReference() = KnowledgeReference(
+        retrievalId = "retrieval-1",
+        documentId = "document-1",
+        documentName = "handbook.md",
+        documentRevision = 2,
+        chunkId = "chunk-1",
+        chunkSequence = 1,
+        startOffset = 20,
+        endOffset = 44,
+    )
+
+    private val saverScope = SaverScope { true }
 }

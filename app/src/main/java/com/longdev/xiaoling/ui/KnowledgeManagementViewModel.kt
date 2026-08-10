@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentImport
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
@@ -13,6 +14,9 @@ import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildResult
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceIssue
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceLocation
 import com.longdev.xiaoling.storage.KnowledgeDocumentReader
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
 import com.longdev.xiaoling.storage.SelectedProviderKnowledgeEmbeddingProvider
@@ -46,6 +50,14 @@ data class KnowledgeManagementUiState(
     val importing: Boolean = false,
     val error: String? = null,
     val notice: KnowledgeManagementNotice? = null,
+    val referenceLocation: KnowledgeReferenceLocationUiState? = null,
+)
+
+data class KnowledgeReferenceLocationUiState(
+    val title: String,
+    val detail: String,
+    val sourceText: String? = null,
+    val success: Boolean,
 )
 
 class KnowledgeManagementViewModel internal constructor(
@@ -78,7 +90,7 @@ class KnowledgeManagementViewModel internal constructor(
         if (mutationJob?.isActive == true) return
         loadJob?.cancel()
         detailJob?.cancel()
-        uiState = uiState.copy(loadingDocuments = true, error = null)
+        uiState = uiState.copy(loadingDocuments = true, referenceLocation = null, error = null)
         loadJob = viewModelScope.launch {
             try {
                 loadSnapshot(preferredDocumentId)
@@ -89,6 +101,60 @@ class KnowledgeManagementViewModel internal constructor(
                     loadingDocuments = false,
                     loadingDetail = false,
                     error = error.message ?: "无法读取知识库",
+                )
+            }
+        }
+    }
+
+    fun openNavigationTarget(target: KnowledgeDocumentNavigationTarget) {
+        if (mutationJob?.isActive == true) return
+        val reference = target.reference
+        if (reference == null) {
+            refresh(target.documentId)
+            return
+        }
+        loadJob?.cancel()
+        detailJob?.cancel()
+        uiState = uiState.copy(
+            loadingDocuments = true,
+            loadingDetail = true,
+            selectedDocumentId = target.documentId,
+            selectedDocument = null,
+            selectedEmbeddingIndexes = emptyList(),
+            referenceLocation = null,
+            error = null,
+        )
+        loadJob = viewModelScope.launch {
+            try {
+                val snapshot = withContext(Dispatchers.IO) {
+                    KnowledgeNavigationSnapshot(
+                        documents = store.listDocuments(),
+                        document = store.getDocumentDetail(target.documentId),
+                        embeddingIndexes = store.getEmbeddingIndexes(target.documentId),
+                        location = store.locateReference(reference),
+                    )
+                }
+                if (uiState.selectedDocumentId != target.documentId) return@launch
+                uiState = uiState.copy(
+                    loadingDocuments = false,
+                    documents = snapshot.documents,
+                    selectedDocument = snapshot.document,
+                    selectedEmbeddingIndexes = snapshot.embeddingIndexes,
+                    loadingDetail = false,
+                    referenceLocation = snapshot.location.toUiState(),
+                    error = if (snapshot.document == null) "知识文档已不存在" else null,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                uiState = uiState.copy(
+                    loadingDocuments = false,
+                    loadingDetail = false,
+                    referenceLocation = KnowledgeReferenceLocationUiState(
+                        title = "无法定位引用原文",
+                        detail = error.message ?: "知识引用读取失败",
+                        success = false,
+                    ),
                 )
             }
         }
@@ -105,6 +171,7 @@ class KnowledgeManagementViewModel internal constructor(
             selectedDocument = null,
             selectedEmbeddingIndexes = emptyList(),
             loadingDetail = true,
+            referenceLocation = null,
             error = null,
         )
         detailJob = viewModelScope.launch {
@@ -301,6 +368,7 @@ class KnowledgeManagementViewModel internal constructor(
             searching = if (invalidateReferences) false else uiState.searching,
             searchHits = if (invalidateReferences) emptyList() else uiState.searchHits,
             lastRetrieval = if (invalidateReferences) null else uiState.lastRetrieval,
+            referenceLocation = if (invalidateReferences) null else uiState.referenceLocation,
         )
         if (invalidateReferences) {
             // long: 替换、停用和删除都会使当前 chunk 引用失效；取消在途检索，避免旧请求稍后覆盖新 revision 或停用状态。
@@ -374,6 +442,7 @@ class KnowledgeManagementViewModel internal constructor(
             selectedDocument = snapshot.selectedDocument,
             selectedEmbeddingIndexes = snapshot.embeddingIndexes,
             loadingDetail = false,
+            referenceLocation = null,
         )
     }
 
@@ -388,6 +457,40 @@ class KnowledgeManagementViewModel internal constructor(
         val document: KnowledgeDocumentDetail?,
         val embeddingIndexes: List<KnowledgeEmbeddingIndexSummary>,
     )
+
+    private data class KnowledgeNavigationSnapshot(
+        val documents: List<KnowledgeDocumentSummary>,
+        val document: KnowledgeDocumentDetail?,
+        val embeddingIndexes: List<KnowledgeEmbeddingIndexSummary>,
+        val location: KnowledgeReferenceLocation,
+    )
+
+    private fun KnowledgeReferenceLocation.toUiState(): KnowledgeReferenceLocationUiState {
+        if (locatedCurrentEvidence) {
+            val currentChunk = requireNotNull(chunk)
+            return KnowledgeReferenceLocationUiState(
+                title = "当前引用原文",
+                detail = "revision ${currentChunk.documentRevision} · chunk ${currentChunk.sequence} · offset [${currentChunk.startOffset}, ${currentChunk.endOffset})",
+                sourceText = currentChunk.text,
+                success = true,
+            )
+        }
+        val detail = when (status.availability) {
+            KnowledgeReferenceAvailability.HISTORICAL ->
+                "文档已更新到 revision ${status.currentDocumentRevision ?: "?"}，历史引用不能冒充当前原文"
+            KnowledgeReferenceAvailability.UNAVAILABLE -> when (status.issue) {
+                KnowledgeReferenceIssue.DOCUMENT_DISABLED -> "文档已停用，当前不提供原文定位"
+                KnowledgeReferenceIssue.DOCUMENT_DELETED -> "文档已删除，当前原文不可用"
+                else -> "引用 chunk、revision 或 offset 已变化，拒绝猜测当前位置"
+            }
+            KnowledgeReferenceAvailability.CURRENT -> "当前 chunk 无法按完整引用身份回读"
+        }
+        return KnowledgeReferenceLocationUiState(
+            title = "引用原文不可定位",
+            detail = detail,
+            success = false,
+        )
+    }
 
     private fun KnowledgeEmbeddingRebuildResult.toNotice(): KnowledgeManagementNotice {
         return when (status) {

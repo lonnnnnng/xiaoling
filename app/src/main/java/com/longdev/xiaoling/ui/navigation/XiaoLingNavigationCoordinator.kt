@@ -1,5 +1,8 @@
 package com.longdev.xiaoling.ui.navigation
 
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
+import com.longdev.xiaoling.knowledge.KnowledgeReference
+
 internal enum class XiaoLingAppTab {
     CONVERSATION,
     SETTINGS,
@@ -44,7 +47,7 @@ internal enum class XiaoLingNavigationEffect {
 internal data class XiaoLingNavigationState(
     val tab: XiaoLingAppTab = XiaoLingAppTab.CONVERSATION,
     val settingsPane: XiaoLingSettingsPane = XiaoLingSettingsPane.ROOT,
-    val requestedKnowledgeDocumentId: String? = null,
+    val requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget? = null,
     val requestedWorkflowId: String? = null,
     val requestedScheduledTaskId: String? = null,
     val requestedWorkflowRunId: String? = null,
@@ -74,7 +77,7 @@ internal class XiaoLingNavigationCoordinator(
     fun openSettingsPane(
         state: XiaoLingNavigationState,
         pane: XiaoLingSettingsPane,
-        requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
+        requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget? = state.requestedKnowledgeTarget,
         requestedWorkflowId: String? = null,
         requestedScheduledTaskId: String? = null,
         requestedWorkflowRunId: String? = null,
@@ -83,7 +86,7 @@ internal class XiaoLingNavigationCoordinator(
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
-        requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+        requestedKnowledgeTarget = requestedKnowledgeTarget,
         requestedWorkflowId = requestedWorkflowId,
         requestedScheduledTaskId = requestedScheduledTaskId,
         requestedWorkflowRunId = requestedWorkflowRunId,
@@ -97,7 +100,16 @@ internal class XiaoLingNavigationCoordinator(
     ): XiaoLingNavigationState = openSettingsPane(
         state = state,
         pane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
-        requestedKnowledgeDocumentId = documentId,
+        requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget(documentId),
+    )
+
+    fun openKnowledgeReference(
+        state: XiaoLingNavigationState,
+        reference: KnowledgeReference,
+    ): XiaoLingNavigationState = openSettingsPane(
+        state = state,
+        pane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
+        requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget(reference.documentId, reference),
     )
 
     fun openLocalNote(
@@ -154,7 +166,7 @@ internal class XiaoLingNavigationCoordinator(
             return XiaoLingNavigationResult(
                 state = state.copy(
                     settingsPane = XiaoLingSettingsPane.ROOT,
-                    requestedKnowledgeDocumentId = null,
+                    requestedKnowledgeTarget = null,
                     requestedWorkflowId = null,
                     requestedScheduledTaskId = null,
                     requestedWorkflowRunId = null,

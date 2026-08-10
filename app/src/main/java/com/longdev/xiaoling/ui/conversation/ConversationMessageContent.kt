@@ -101,7 +101,7 @@ internal fun ChatBubble(
     knowledgeReferenceStatuses: Map<KnowledgeReference, KnowledgeReferenceStatus>,
     failedKnowledgeReferenceStatuses: Set<KnowledgeReference>,
     answerabilityNotice: KnowledgeAnswerabilityUserNotice?,
-    onOpenKnowledgeDocument: (String) -> Unit,
+    onOpenKnowledgeDocument: (KnowledgeReference) -> Unit,
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (String) -> Unit,

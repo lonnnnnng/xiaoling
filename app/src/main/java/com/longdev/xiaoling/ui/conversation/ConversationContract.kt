@@ -99,7 +99,7 @@ internal interface ConversationActions {
 
     fun requestVoiceInput()
 
-    fun openKnowledgeDocument(documentId: String)
+    fun openKnowledgeReference(reference: KnowledgeReference)
 }
 
 internal data class ConversationUiState(

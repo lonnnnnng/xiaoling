@@ -61,6 +61,12 @@ class KnowledgeManagementContentInstrumentedTest {
                     updatedAt = 3L,
                 ),
             ),
+            referenceLocation = KnowledgeReferenceLocationUiState(
+                title = "当前引用原文",
+                detail = "revision 2 · chunk 1 · offset [20, 36)",
+                sourceText = "当前引用的完整原文片段",
+                success = true,
+            ),
             searchQuery = "正文",
             searchHits = listOf(
                 KnowledgeSearchHit(
@@ -125,6 +131,9 @@ class KnowledgeManagementContentInstrumentedTest {
         ).assertExists()
         composeRule.onNodeWithText("offset 20..36", substring = true).assertExists()
         composeRule.onNodeWithText("知识库正文预览", substring = true).assertExists()
+        composeRule.onNodeWithText("当前引用原文").assertExists()
+        composeRule.onNodeWithText("revision 2 · chunk 1 · offset [20, 36)").assertExists()
+        composeRule.onNodeWithText("当前引用的完整原文片段").assertExists()
         composeRule.onNodeWithText("仅显示前 4,000 个字符", substring = true).assertExists()
         composeRule.onNodeWithText("provider-ui · text-embedding-ui · 1536 维 · 2 个分块").assertExists()
         composeRule.onNodeWithContentDescription("重建 Embedding 索引").assertExists()
@@ -184,6 +193,37 @@ class KnowledgeManagementContentInstrumentedTest {
 
         composeRule.onNodeWithText("Embedding：尚未建立，检索将使用词法兜底").assertExists()
         composeRule.onNodeWithContentDescription("重建 Embedding 索引").assertExists()
+    }
+
+    @Test
+    fun unavailableReferenceShowsReasonWithoutInventingSourceText() {
+        composeRule.setContent {
+            XiaoLingTheme {
+                KnowledgeManagementContent(
+                    state = KnowledgeManagementUiState(
+                        referenceLocation = KnowledgeReferenceLocationUiState(
+                            title = "引用原文不可定位",
+                            detail = "引用 chunk、revision 或 offset 已变化，拒绝猜测当前位置",
+                            success = false,
+                        ),
+                    ),
+                    onBack = {},
+                    onImport = {},
+                    onRefresh = {},
+                    onSearchQueryChanged = {},
+                    onSearch = {},
+                    onSelectDocument = {},
+                    onSetEnabled = { _, _ -> },
+                    onRebuildEmbeddings = {},
+                    onReplace = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("引用原文不可定位").assertExists()
+        composeRule.onNodeWithText("引用 chunk、revision 或 offset 已变化，拒绝猜测当前位置").assertExists()
+        composeRule.onNodeWithText("当前引用原文").assertDoesNotExist()
     }
 
     @Test

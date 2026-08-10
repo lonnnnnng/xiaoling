@@ -4,6 +4,25 @@
 
 ## 当前验证基线
 
+## 2026-08-11 第 249 阶段：答案级知识引用当前权威原文定位
+
+### 当前结论
+
+- 答案引用点击携带完整 retrieval、document revision、chunk、sequence 与 offset；Activity 重建可恢复完整引用，旧格式、缺字段和非法数值安全降级为普通文档落点。
+- 知识页只为当前启用文档中精确匹配的 chunk 显示原文与 `revision / chunk / offset`；历史、停用、删除和边界漂移明确拒绝，不猜测相邻文本。
+- Room 的文档状态和 chunk 来自同一事务；文档替换、停用或删除开始时立即清除旧定位卡。未新增 Tool、权限、Room Schema、副作用、Workflow 或后台路径。
+
+### 验证证据
+
+- 聚焦 `XiaoLingNavigationCoordinatorTest` 与 AndroidTest 编译通过；Debug 与 AndroidTest APK 构建通过，`git diff --check` 通过。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `KnowledgeReferencesContentInstrumentedTest + KnowledgeManagementContentInstrumentedTest + KnowledgeManagementViewModelInstrumentedTest`，结果 `OK (20 tests)`，耗时 `13.714s`。
+- 最终项目文档 corpus gate 为 `OK (1 test)`，耗时 `3.272s`。
+- 覆盖当前 chunk 精确正文、历史引用拒绝、停用/删除/漂移不泄露原文、导航完整身份、损坏存档降级，以及文档变更开始立即清除旧原文。
+
+### 保持关闭的边界
+
+按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation；生产 Shadow 拒绝、自动知识摄取、后台索引和高级生态能力保持关闭。
+
 ## 2026-08-11 第 248 阶段：带单提醒系统日程真实前台闭环
 
 ### 当前结论

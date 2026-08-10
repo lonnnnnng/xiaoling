@@ -1,5 +1,7 @@
 # 小灵
 
+第 249 阶段完成答案级知识引用的当前权威原文定位闭环。对话引用点击不再只携带文档 ID，而是传递 retrieval、document revision、chunk、sequence 与 offset 的完整身份；导航 Saver 可跨 Activity 重建恢复完整引用，旧格式、缺字段或非法数值只降级到普通文档落点。知识页仅在当前启用文档的同一 revision/chunk/offset 精确匹配时显示原文和位置，历史 revision、停用、删除或边界漂移均明确拒绝猜测；Room 定位在同一事务内读取文档与 chunk，替换、停用或删除开始时立即清除旧原文卡。聚焦导航 JVM、Debug/AndroidTest APK 和仅 Redmi 的引用/知识页/ViewModel `20/20`（`13.714s`）与最终文档 corpus gate `1/1`（`3.272s`）通过；未新增 Tool、权限、Room Schema、副作用或后台能力，也未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段优先进入“下一条系统日程”的前台只读权威事实闭环。
+
 第 248 阶段完成带单提醒系统日程的真实自然语言闭环。Redmi 上的专用最小 Profile 只允许 `calendar.create_event / calendar-create`；真实模型从用户明确请求规划标题、起止时间、`Asia/Shanghai` 与 `reminder_minutes_before=30`，发送和批准均通过屏幕可见节点完成。最终 Tool Ledger 为唯一调用、审批 `APPROVED`、Executor 与 typed verification `PASSED`、回执 `COMMITTED`；答案级“查看日程”在页面重建后仍可恢复并从当前 Calendar Provider 显示标题与“提前30分钟”。事件按 COMMITTED ID 精确删除，关联 reminder 级联清理，临时 Profile/会话和原选择恢复，新 Run 审计保留且旧 Run 不变。聚焦构建、Redmi Provider/详情前置 `2/2` 与真实闭环 `1/1`（`31.545s`）通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。全天提醒、重复、多提醒、参与人、Workflow 与后台日历仍未开放。
 
 第 247 阶段完成一次性非全天系统日程的单提醒写入能力。现有 `calendar.create_event` 新增可选 `reminder_minutes_before`，只有用户明确要求提醒时才传入，范围为 `0..10080` 分钟且只允许一个 `METHOD_ALERT`；无提醒调用保持原契约。Android 写入器使用 Calendar Provider `applyBatch` 原子提交事件与 reminder，事件继续以 ToolCall ID 标记；首次写入、同调用幂等重放和已提交恢复都要求当前 Provider 恰好回读一条相同提醒，缺失、额外提醒或分钟漂移均不能验证成功。答案级导航还会严格核对审批参数与结果中的提醒分钟，漂移或伪造结果不显示“查看日程”。聚焦 JVM `XiaoLingToolRegistryTest 95/95 + AgentSkillsTest 38/38 + CalendarNavigationTest 4/4`（`137/137`）、Debug/AndroidTest APK、仅 Redmi 的带提醒原子闭环 `1/1`（`0.271s`）、无提醒回归 `1/1`（`0.288s`）和最终文档 corpus `1/1` 通过；临时事件与关联 reminder 已精确清理。Room v36、权限集合、全天/重复事件、多提醒、参与人、Workflow 和后台边界均未扩展；真实模型审批与详情闭环已由第 248 阶段完成。
@@ -58,7 +60,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 247 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 243 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程、单份受支持文档草稿，以及 Markdown、PDF、DOCX、PPTX、XLSX 和单图片经用户明确发送后的真实 Agent 理解；第 244 阶段补齐系统语音识别到可编辑草稿，第 245 至 246 阶段完成前台只读联系人精确查询与答案级系统权威详情跳转，第 247 阶段为一次性非全天系统日程增加可选单提醒的原子 Provider 写入。下一阶段完成该提醒能力的真实模型规划、逐次审批、答案级查看和精确清理；TTS、联系人写入、通知读取、多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
+当前开发基线已推进至第 249 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 243 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程、单份受支持文档草稿，以及 Markdown、PDF、DOCX、PPTX、XLSX 和单图片经用户明确发送后的真实 Agent 理解；第 244 阶段补齐系统语音识别到可编辑草稿，第 245 至 246 阶段完成联系人查询与系统权威详情跳转，第 247 至 248 阶段完成一次性非全天日程单提醒的 Provider 与真实自然语言闭环，第 249 阶段补齐答案级知识引用到当前权威 chunk/offset 原文的安全定位。下一阶段优先实现“下一条系统日程”的前台只读事实闭环；TTS、联系人写入、通知读取、多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

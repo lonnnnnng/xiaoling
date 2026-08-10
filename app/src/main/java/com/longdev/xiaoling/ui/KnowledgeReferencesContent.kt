@@ -48,7 +48,7 @@ internal fun KnowledgeReferencesContent(
     answerabilityNotice: KnowledgeAnswerabilityUserNotice? = null,
     relevanceNotice: KnowledgeRelevanceUserNotice? = null,
     contentColor: Color,
-    onOpenDocument: (String) -> Unit,
+    onOpenDocument: (KnowledgeReference) -> Unit,
 ) {
     if (references.isEmpty() && answerabilityNotice == null && relevanceNotice == null) return
     var expanded by rememberSaveable(messageId) { mutableStateOf(false) }
@@ -160,14 +160,14 @@ private fun KnowledgeReferenceRow(
     reference: KnowledgeReference,
     presentation: KnowledgeReferencePresentation,
     contentColor: Color,
-    onOpenDocument: (String) -> Unit,
+    onOpenDocument: (KnowledgeReference) -> Unit,
 ) {
     val modifier = if (presentation.canOpenDocument) {
         Modifier
             .fillMaxWidth()
             .testTag("knowledge-reference-${reference.documentId}")
-            .clickable { onOpenDocument(reference.documentId) }
-            .semantics { contentDescription = "打开知识文档 ${presentation.documentName}" }
+            .clickable { onOpenDocument(reference) }
+            .semantics { contentDescription = "打开知识原文 ${presentation.documentName}" }
     } else {
         Modifier
             .fillMaxWidth()

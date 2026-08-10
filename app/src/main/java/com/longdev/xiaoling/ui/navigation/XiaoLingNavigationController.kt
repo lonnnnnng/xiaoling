@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
+import com.longdev.xiaoling.knowledge.KnowledgeReference
 
 @Stable
 internal class XiaoLingNavigationController(
@@ -22,8 +24,8 @@ internal class XiaoLingNavigationController(
     val settingsPane: XiaoLingSettingsPane
         get() = state.settingsPane
 
-    val requestedKnowledgeDocumentId: String?
-        get() = state.requestedKnowledgeDocumentId
+    val requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget?
+        get() = state.requestedKnowledgeTarget
 
     val requestedWorkflowId: String?
         get() = state.requestedWorkflowId
@@ -48,7 +50,7 @@ internal class XiaoLingNavigationController(
 
     fun openSettingsPane(
         pane: XiaoLingSettingsPane,
-        requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
+        requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget? = state.requestedKnowledgeTarget,
         requestedWorkflowId: String? = null,
         requestedScheduledTaskId: String? = null,
         requestedWorkflowRunId: String? = null,
@@ -58,7 +60,7 @@ internal class XiaoLingNavigationController(
         mutableState.value = coordinator.openSettingsPane(
             state = state,
             pane = pane,
-            requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
+            requestedKnowledgeTarget = requestedKnowledgeTarget,
             requestedWorkflowId = requestedWorkflowId,
             requestedScheduledTaskId = requestedScheduledTaskId,
             requestedWorkflowRunId = requestedWorkflowRunId,
@@ -69,6 +71,10 @@ internal class XiaoLingNavigationController(
 
     fun openKnowledgeDocument(documentId: String) {
         mutableState.value = coordinator.openKnowledgeDocument(state, documentId)
+    }
+
+    fun openKnowledgeReference(reference: KnowledgeReference) {
+        mutableState.value = coordinator.openKnowledgeReference(state, reference)
     }
 
     fun openLocalNote(noteId: String) {
@@ -97,21 +103,48 @@ internal class XiaoLingNavigationController(
     }
 }
 
-private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<String>>(
+internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<String>>(
     // long: Activity 重建只保留仍可能指向内容的一次性目标；Tab、设置子页和返回时间继续回到初始值。
     save = { state ->
         listOf(
-            state.requestedKnowledgeDocumentId.orEmpty(),
+            state.requestedKnowledgeTarget?.documentId.orEmpty(),
             state.requestedWorkflowId.orEmpty(),
             state.requestedScheduledTaskId.orEmpty(),
             state.requestedWorkflowRunId.orEmpty(),
             state.requestedLocalNoteId.orEmpty(),
             state.requestedCalendarEventId.orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.retrievalId.orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.documentName.orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.documentRevision?.toString().orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.chunkId.orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.chunkSequence?.toString().orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.startOffset?.toString().orEmpty(),
+            state.requestedKnowledgeTarget?.reference?.endOffset?.toString().orEmpty(),
         )
     },
     restore = { savedTargets ->
+        val documentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null }
+        val restoredReference = documentId?.let { id ->
+            val retrievalId = savedTargets.getOrNull(6).orEmpty()
+            val documentName = savedTargets.getOrNull(7).orEmpty()
+            val revision = savedTargets.getOrNull(8)?.toIntOrNull()
+            val chunkId = savedTargets.getOrNull(9).orEmpty()
+            val sequence = savedTargets.getOrNull(10)?.toIntOrNull()
+            val startOffset = savedTargets.getOrNull(11)?.toIntOrNull()
+            val endOffset = savedTargets.getOrNull(12)?.toIntOrNull()
+            if (
+                retrievalId.isNotBlank() && documentName.isNotBlank() && revision != null &&
+                revision > 0 && chunkId.isNotBlank() && sequence != null && sequence >= 0 &&
+                startOffset != null && startOffset >= 0 && endOffset != null && endOffset > startOffset
+            ) {
+                KnowledgeReference(retrievalId, id, documentName, revision, chunkId, sequence, startOffset, endOffset)
+            } else {
+                null
+            }
+        }
         XiaoLingNavigationState(
-            requestedKnowledgeDocumentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null },
+            // long: 引用原文定位跨 Activity 重建仍必须携带完整 revision/chunk/offset；任一字段缺失时只降级到普通文档落点，不拼凑引用身份。
+            requestedKnowledgeTarget = documentId?.let { KnowledgeDocumentNavigationTarget(it, restoredReference) },
             requestedWorkflowId = savedTargets.getOrNull(1).orEmpty().ifBlank { null },
             requestedScheduledTaskId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
             requestedWorkflowRunId = savedTargets.getOrNull(3).orEmpty().ifBlank { null },

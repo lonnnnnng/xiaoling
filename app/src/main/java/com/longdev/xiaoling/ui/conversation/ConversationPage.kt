@@ -299,7 +299,7 @@ internal fun ConversationPage(
                                 knowledgeReferenceStatuses = messages.knowledgeReferenceStatuses,
                                 failedKnowledgeReferenceStatuses = messages.failedKnowledgeReferenceStatuses,
                                 answerabilityNotice = messages.answerabilityNotices[message.id],
-                                onOpenKnowledgeDocument = actions::openKnowledgeDocument,
+                                onOpenKnowledgeDocument = actions::openKnowledgeReference,
                                 onOpenInspectedTask = actions::openInspectedTask,
                                 onOpenConversation = actions::openConversation,
                                 onOpenCalendarEvent = actions::openCalendarEvent,

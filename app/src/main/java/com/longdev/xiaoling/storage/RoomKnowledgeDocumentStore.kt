@@ -28,6 +28,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeSearchMatchChannel
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceAvailability
+import com.longdev.xiaoling.knowledge.KnowledgeReferenceLocation
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.knowledge.KnowledgeRelevanceRelativeDiagnosticsPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
@@ -280,6 +281,24 @@ class RoomKnowledgeDocumentStore(
                     chunk = chunks[reference.chunkId],
                 )
             }
+        }
+    }
+
+    override suspend fun locateReference(reference: KnowledgeReference): KnowledgeReferenceLocation {
+        return database.withTransaction {
+            val dao = database.knowledgeDao()
+            val document = dao.getDocumentSummaries(listOf(reference.documentId))
+                .singleOrNull()
+                ?.toSummary()
+            val chunk = dao.getChunksByIds(listOf(reference.chunkId))
+                .singleOrNull()
+                ?.toRecord()
+            val status = reference.assessAgainst(document, chunk)
+            // long: 当前原文的可用状态与 chunk 必须来自同一 Room 快照；文档停用、替换或删除不能夹在两次查询之间造成旧证据短暂复活。
+            KnowledgeReferenceLocation(
+                status = status,
+                chunk = chunk.takeIf { status.availability == KnowledgeReferenceAvailability.CURRENT },
+            )
         }
     }
 

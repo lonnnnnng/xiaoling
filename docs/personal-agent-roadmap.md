@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 249 阶段：答案级知识引用当前权威原文定位（完成）
+
+- 对话答案中的知识引用已从“只打开文档”升级为携带完整 retrieval/document/revision/chunk/offset 身份的精确落点，且可跨 Activity 重建恢复。
+- 当前启用文档只有在 revision、chunk 和 offset 全匹配时显示原文；历史、停用、删除、损坏存档和边界漂移全部 fail-closed，不猜测相邻内容。
+- Room 定位使用同一事务快照；替换、停用或删除一开始就清除旧原文卡。聚焦导航 JVM、Debug/AndroidTest APK、仅 Redmi `20/20` 与文档 corpus gate `1/1` 通过。
+- Tool/Skill、Room v36、权限、审批、Workflow、后台和生产 Shadow 拒绝边界均未变化。
+
+下一阶段（第 250 阶段）优先实现“我下一项安排是什么”的前台只读闭环：基于当前 Calendar Provider 返回唯一未来事件，通过既有答案级“查看日程”二次回读权威详情；无事件、权限撤销、Provider 异常或同一时刻歧义必须明确无结果。日历写入扩张、后台自动化、通知读取、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 248 阶段：带单提醒系统日程真实前台闭环（完成）
 
 - Redmi 上由真实模型从自然语言生成唯一 `calendar.create_event` 五参数调用；Profile 只允许 `calendar-create`，发送与逐次审批均通过屏幕可见节点完成。

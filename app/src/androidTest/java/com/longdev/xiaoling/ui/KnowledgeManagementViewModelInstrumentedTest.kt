@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
@@ -82,6 +83,61 @@ class KnowledgeManagementViewModelInstrumentedTest {
 
         assertEquals(DOCUMENT_B, state.selectedDocumentId)
         assertEquals(DOCUMENT_B, state.selectedDocument?.id)
+    }
+
+    @Test
+    fun currentReferenceNavigationShowsExactCurrentChunkText() {
+        val store = ControlledKnowledgeStore()
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedDocument?.id == DOCUMENT_A }
+        val reference = reference(documentRevision = 1)
+
+        onMain { viewModel.openNavigationTarget(KnowledgeDocumentNavigationTarget(DOCUMENT_A, reference)) }
+        val state = awaitState(viewModel) { it.referenceLocation?.success == true }
+
+        assertEquals("当前引用原文", state.referenceLocation?.title)
+        assertEquals("revision 1 · chunk 0 · offset [0, 4)", state.referenceLocation?.detail)
+        assertEquals("正文", state.referenceLocation?.sourceText)
+    }
+
+    @Test
+    fun historicalReferenceNavigationRefusesToGuessCurrentChunk() {
+        val store = ControlledKnowledgeStore()
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedDocument?.id == DOCUMENT_A }
+        val reference = reference(documentRevision = 0.coerceAtLeast(1)).copy(
+            documentRevision = 1,
+            chunkId = "document-a-r1-0",
+        )
+        store.replaceDocumentAWithRevisionTwo()
+
+        onMain { viewModel.openNavigationTarget(KnowledgeDocumentNavigationTarget(DOCUMENT_A, reference)) }
+        val state = awaitState(viewModel) { it.referenceLocation != null }
+
+        assertEquals(false, state.referenceLocation?.success)
+        assertTrue(state.referenceLocation?.detail?.contains("历史引用不能冒充当前原文") == true)
+        assertNull(state.referenceLocation?.sourceText)
+    }
+
+    @Test
+    fun documentMutationImmediatelyClearsLocatedReferenceText() {
+        val store = ControlledKnowledgeStore()
+        val viewModel = createViewModel(store)
+        awaitState(viewModel) { it.selectedDocument?.id == DOCUMENT_A }
+        onMain {
+            viewModel.openNavigationTarget(
+                KnowledgeDocumentNavigationTarget(DOCUMENT_A, reference(documentRevision = 1)),
+            )
+        }
+        awaitState(viewModel) { it.referenceLocation?.success == true }
+        store.blockNextListDocuments()
+
+        onMain { viewModel.setEnabled(DOCUMENT_A, false) }
+        assertTrue(store.awaitBlockedListDocuments())
+
+        assertNull(onMain { viewModel.uiState.referenceLocation })
+        store.completeBlockedListDocuments()
+        awaitState(viewModel) { DOCUMENT_A !in it.mutatingDocumentIds }
     }
 
     @Test
@@ -249,6 +305,13 @@ class KnowledgeManagementViewModelInstrumentedTest {
 
         fun rebuildCallCount(): Int = synchronized(lock) { rebuildCalls }
 
+        fun replaceDocumentAWithRevisionTwo() = synchronized(lock) {
+            summaries = summaries.map { summary ->
+                if (summary.id == DOCUMENT_A) summary.copy(revision = 2, contentHash = "hash-document-a-v2") else summary
+            }
+            details = details + (DOCUMENT_A to detail(DOCUMENT_A, true).copy(revision = 2, contentHash = "hash-document-a-v2"))
+        }
+
         fun blockNextDocumentBRead() = synchronized(lock) {
             documentBRead = CompletableDeferred()
             documentBReadStarted = CountDownLatch(1)
@@ -374,7 +437,20 @@ class KnowledgeManagementViewModelInstrumentedTest {
         override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? =
             synchronized(lock) { details[documentId]?.let { record(it.id, it.enabled) } }
 
-        override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = emptyList()
+        override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = synchronized(lock) {
+            val revision = summaries.firstOrNull { it.id == documentId }?.revision ?: return@synchronized emptyList()
+            listOf(
+                KnowledgeChunkRecord(
+                    id = "$documentId-r$revision-0",
+                    documentId = documentId,
+                    documentRevision = revision,
+                    sequence = 0,
+                    startOffset = 0,
+                    endOffset = 4,
+                    text = "正文",
+                ),
+            )
+        }
 
         override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> = references
 
@@ -431,6 +507,17 @@ class KnowledgeManagementViewModelInstrumentedTest {
             enabled = enabled,
             createdAt = 1L,
             updatedAt = 1L,
+        )
+
+        private fun reference(documentRevision: Int) = KnowledgeReference(
+            retrievalId = "retrieval-document-a",
+            documentId = DOCUMENT_A,
+            documentName = "a.md",
+            documentRevision = documentRevision,
+            chunkId = "$DOCUMENT_A-r$documentRevision-0",
+            chunkSequence = 0,
+            startOffset = 0,
+            endOffset = 4,
         )
 
         private fun embeddingIndex() = KnowledgeEmbeddingIndexSummary(

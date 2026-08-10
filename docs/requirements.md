@@ -1,5 +1,13 @@
 # 产品需求
 
+## 答案级知识引用当前原文定位（第 249 阶段，完成）
+
+- 引用入口必须传递完整的 retrieval、document、revision、chunk、sequence 和 offset 身份；Activity 重建后仍可恢复，旧版本存档、缺字段或非法数值只能降级为普通文档导航，不得崩溃或拼凑引用。
+- 只有当前启用文档的名称、revision、chunk ID、sequence 与 offset 全部精确匹配时才显示原文；历史版本、停用、删除、chunk 缺失或边界变化必须明确拒绝，不能猜测相邻文本。
+- Room 的文档状态与 chunk 定位必须来自同一事务快照。替换、停用或删除开始时立即移除已显示的引用原文，避免变更期间继续投影旧证据。
+- 知识页显示精确 `revision / chunk / offset` 和当前 chunk 正文；失败卡只显示拒绝原因，不携带旧 source text。
+- 本阶段不新增 Tool、Skill、权限、Room Schema、审批、副作用、Workflow 或后台能力。聚焦导航 JVM、Debug/AndroidTest APK 与仅 Redmi `20/20` 通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+
 ## 带单提醒系统日程真实前台闭环（第 248 阶段，完成）
 
 - 用户必须以自然语言明确给出标题、带偏移起止时间、IANA 时区和提前分钟；专用验收 Profile 只允许 `calendar.create_event` 与 `calendar-create`，长期记忆关闭，模型必须只生成一次五参数调用。

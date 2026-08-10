@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingIndexSummary
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
@@ -60,7 +61,7 @@ import java.util.Locale
 @Composable
 internal fun KnowledgeManagementPage(
     onBack: () -> Unit,
-    preferredDocumentId: String? = null,
+    navigationTarget: KnowledgeDocumentNavigationTarget? = null,
     modifier: Modifier = Modifier,
     viewModel: KnowledgeManagementViewModel = viewModel(),
 ) {
@@ -77,8 +78,8 @@ internal fun KnowledgeManagementPage(
         }
     }
 
-    LaunchedEffect(preferredDocumentId) {
-        preferredDocumentId?.let(viewModel::refresh)
+    LaunchedEffect(navigationTarget) {
+        navigationTarget?.let(viewModel::openNavigationTarget)
     }
 
     KnowledgeManagementContent(
@@ -262,6 +263,10 @@ internal fun KnowledgeManagementContent(
             }
         }
 
+        state.referenceLocation?.let { location ->
+            item { KnowledgeReferenceLocationCard(location) }
+        }
+
         state.selectedDocument?.let { document ->
             item {
                 KnowledgeDocumentDetailCard(
@@ -309,6 +314,41 @@ internal fun KnowledgeManagementContent(
                     selected = document.id == state.selectedDocumentId,
                     enabled = !mutationInProgress,
                     onClick = { onSelectDocument(document.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeReferenceLocationCard(location: KnowledgeReferenceLocationUiState) {
+    Surface(
+        color = if (location.success) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(6.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Text(
+                text = location.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (location.success) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = location.detail,
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = if (location.success) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+            )
+            location.sourceText?.let { sourceText ->
+                // long: 这里只展示经当前 revision、chunk ID 与 offset 四重核验的原文；历史或漂移引用只显示拒绝原因，不回退到文档预览猜位置。
+                Text(
+                    text = sourceText,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

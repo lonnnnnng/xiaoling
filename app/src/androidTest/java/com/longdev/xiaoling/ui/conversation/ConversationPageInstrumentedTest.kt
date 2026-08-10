@@ -846,6 +846,6 @@ class ConversationPageInstrumentedTest {
             voiceInputRequestCount += 1
         }
 
-        override fun openKnowledgeDocument(documentId: String) = Unit
+        override fun openKnowledgeReference(reference: KnowledgeReference) = Unit
     }
 }
