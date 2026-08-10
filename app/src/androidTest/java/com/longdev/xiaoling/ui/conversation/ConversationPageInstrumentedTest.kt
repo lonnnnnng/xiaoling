@@ -159,6 +159,31 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun routesSharedTextCalendarDraftThroughActionsWithoutSending() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        enabledModels = listOf("model"),
+                        prompt = "标题：项目评审",
+                        sharedDraftImported = true,
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("创建日程").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.createAgentCalendarEventDraftCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
     fun hidesSharedTextActionsWhilePersonalTaskConfirmationIsPending() {
         val actions = FakeConversationActions()
         composeRule.setContent {
@@ -178,6 +203,7 @@ class ConversationPageInstrumentedTest {
 
         composeRule.onNodeWithText("保存为笔记").assertDoesNotExist()
         composeRule.onNodeWithText("保存为记忆").assertDoesNotExist()
+        composeRule.onNodeWithText("创建日程").assertDoesNotExist()
         composeRule.onNodeWithText("转为任务").assertDoesNotExist()
     }
 
@@ -593,6 +619,7 @@ class ConversationPageInstrumentedTest {
         var discardSharedDraftCount = 0
         var createAgentNoteDraftCount = 0
         var createAgentMemoryDraftCount = 0
+        var createAgentCalendarEventDraftCount = 0
         var createPersonalTaskDraftCount = 0
         var sendCount = 0
         var stopCount = 0
@@ -655,6 +682,10 @@ class ConversationPageInstrumentedTest {
 
         override fun createAgentMemoryDraftFromSharedText() {
             createAgentMemoryDraftCount += 1
+        }
+
+        override fun createAgentCalendarEventDraftFromSharedText() {
+            createAgentCalendarEventDraftCount += 1
         }
 
         override fun createPersonalTaskDraftFromSharedText() {

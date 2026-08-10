@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 235 阶段采用成熟个人 Agent 的“外部内容先结构化为用户可见草稿、缺失参数不猜测、副作用逐次审批、提交后回权威 Provider、答案只携带稳定身份”原则：系统分享只有在标题、带偏移起止时间和 IANA 时区唯一明确时才形成 `/agent calendar.create_event` 草稿；缺字段样本不会创建 Run。最终 Tool Ledger、`COMMITTED/PASSED`、Calendar Provider 四字段回读和答案级 `calendar-91` 互相核对，清理只使用回执 ID。实现没有复制参考项目的自然语言时间猜测、后台日历摄取、重复/参与人/提醒自动创建、远程 Channel 或多 Agent 日历协作。
+
 第 234 阶段采用成熟个人 Agent 的“外部内容先成为用户可见草稿、长期上下文写入必须二次显式意图、逐次审批、提交后回权威 Store、导航只信稳定身份”原则：系统分享不会自动记忆，用户点击“保存为记忆”后仍需发送和批准；最终 `memory.remember` 的 Tool Ledger、`COMMITTED/PASSED`、当前 Room 记录和答案级 `memory-UUID` 互相核对。实现没有复制参考项目的剪贴板常驻监听、后台 Intent 自动摄取、隐式记忆提取、远程 Channel、跨设备同步或多 Agent 共享记忆。
 
 第 233 阶段采用成熟 Agent 的“通知只持有不可伪造的短期内部能力、落点仍由当前权威状态解析”原则：外部可见 PendingIntent 只有 256-bit 随机 token，显式、不可变且一次性；应用私有 Store 原子消费后还要由 Room 二次核对 Workflow/Task/Run，非空 Run 必须仍存在并反向绑定同一 Workflow/Task，再复用既有 Workflow 页面。一次性导航版本只负责让同一稳定目标的新通知重新展开，不形成第二导航栈或长期 bearer 身份。实现没有复制参考项目中直接把业务 ID 暴露为 exported deep link、信任 action/extra、可变隐式 PendingIntent、独立第二导航栈或远程 Channel；Redmi 冷/热通知、伪造与删除边界、同目标重入、精确高亮及分享回归均已通过。

@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 235 阶段系统分享日程边界（无变更）
+
+本阶段只把用户显式选择且四字段完整的 `text/plain` 分享改写为可编辑 `/agent calendar.create_event` 草稿，并在用户发送、逐次审批、Calendar Provider 回读和可信 MessagePart 投影后提供答案级日程入口。分享原文、结构化时间、事件 ID、临时 Profile/会话、Run/Approval/Tool Ledger 与 runner 参数均不进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 入口 `4/4` 与真实 Provider `2/2` 没有产生 Shadow 样本。
+
 ## 第 234 阶段系统分享长期记忆边界（无变更）
 
 本阶段只把用户显式选择的 `text/plain` 分享改写为可编辑 `/agent memory.remember` 草稿，并在用户发送、逐次审批、Room 回读和可信 MessagePart 投影后提供答案级记忆入口。分享正文、临时记忆、Profile/会话、Run/Approval/Tool Ledger、runner 参数和记忆导航 ID 均不进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 入口 `3/3` 与真实 Provider `1/1` 没有产生 Shadow 样本。

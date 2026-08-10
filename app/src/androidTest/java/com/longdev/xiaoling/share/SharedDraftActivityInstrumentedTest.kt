@@ -266,6 +266,82 @@ class SharedDraftActivityInstrumentedTest {
     }
 
     @Test
+    fun textShareCanBecomeExplicitCalendarEventDraftWithoutSending() {
+        val sharedText = """
+            标题：share-calendar-${System.nanoTime()}
+            开始：2026-08-12T09:00:00+08:00
+            结束：2026-08-12T09:30:00+08:00
+            时区：Asia/Shanghai
+        """.trimIndent()
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            val imported = scenario.awaitState {
+                it.prompt == sharedText && it.sharedDraftImported
+            }
+            assertNull(imported.activeAgentRun)
+            assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.updatePersonalTaskMode(true)
+                viewModel.createAgentCalendarEventDraftFromSharedText()
+            }
+            val converted = scenario.awaitState {
+                it.prompt.startsWith("/agent 使用 calendar.create_event") &&
+                    !it.sharedDraftImported &&
+                    !it.personalTaskMode
+            }
+            assertTrue(converted.prompt.contains("start_at：2026-08-12T09:00:00+08:00"))
+            assertTrue(converted.prompt.contains("time_zone：Asia/Shanghai"))
+            assertNull(converted.activeAgentRun)
+            assertFalse(converted.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
+    @Test
+    fun incompleteCalendarShareStaysImportedWithoutStartingAgent() {
+        val sharedText = """
+            标题：缺少时区的分享
+            开始：2026-08-12T09:00:00+08:00
+            结束：2026-08-12T09:30:00+08:00
+        """.trimIndent()
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            scenario.awaitState { it.prompt == sharedText && it.sharedDraftImported }
+            var rejected = XiaoLingUiState()
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.createAgentCalendarEventDraftFromSharedText()
+                // long: 配置提示会被 Activity 很快消费；在同步拒绝完成后立即读取 ViewModel，才能证明没有生成草稿或启动 Agent。
+                rejected = viewModel.uiState
+            }
+            assertEquals(sharedText, rejected.prompt)
+            assertEquals(false, rejected.result?.success)
+            assertTrue(rejected.result?.message?.contains("标题") == true)
+            assertTrue(rejected.sharedDraftImported)
+            assertNull(rejected.activeAgentRun)
+            assertFalse(rejected.sendingMessage)
+            assertFalse(rejected.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
+    @Test
     fun textShareReturnsToOrdinaryDraftAndRequiresExplicitTaskConversion() {
         val bootstrapText = "share-task-bootstrap-${System.nanoTime()}"
         val sharedText = "share-task-${System.nanoTime()}\n读取当前设备时间"

@@ -19,6 +19,7 @@ class SharedTextAgentDraftPolicyTest {
     fun blankSharedTextCannotCreateAgentDraft() {
         assertNull(SharedTextAgentDraftPolicy.createNoteDraft(" \n "))
         assertNull(SharedTextAgentDraftPolicy.createMemoryDraft(" \n "))
+        assertNull(SharedTextAgentDraftPolicy.createCalendarEventDraft(" \n "))
     }
 
     @Test
@@ -28,6 +29,75 @@ class SharedTextAgentDraftPolicyTest {
         assertEquals(
             "/agent 使用 memory.remember 将以下分享文本保存为一条长期记忆。请完整保留正文，不补充或推断未提供的事实；只在用户批准后写入，并选择最合适的记忆类型与少量标签：\n\n我偏好紧凑界面\n回答请先给结论",
             SharedTextAgentDraftPolicy.createMemoryDraft(sharedText),
+        )
+    }
+
+    @Test
+    fun explicitCalendarFieldsBecomeEditableAgentDraftWithoutGuessing() {
+        val sharedText = """
+            标题：项目评审
+            开始：2026-08-12T09:00:00+08:00
+            结束：2026-08-12T09:30:00+08:00
+            时区：Asia/Shanghai
+        """.trimIndent()
+
+        assertEquals(
+            """
+                /agent 使用 calendar.create_event 创建一条一次性非全天系统日程。只能使用以下四个明确参数，不得补充、改写或推断；发送后仍需逐次审批，审批通过后必须由当前 Calendar Provider 回读验证：
+                title：项目评审
+                start_at：2026-08-12T09:00:00+08:00
+                end_at：2026-08-12T09:30:00+08:00
+                time_zone：Asia/Shanghai
+            """.trimIndent(),
+            SharedTextAgentDraftPolicy.createCalendarEventDraft(sharedText),
+        )
+    }
+
+    @Test
+    fun calendarDraftRequiresEveryFieldExactlyOnce() {
+        val fields = listOf(
+            "标题：项目评审",
+            "开始：2026-08-12T09:00:00+08:00",
+            "结束：2026-08-12T09:30:00+08:00",
+            "时区：Asia/Shanghai",
+        )
+
+        fields.indices.forEach { omittedIndex ->
+            assertNull(
+                "缺少任一字段都不得生成日程草稿",
+                SharedTextAgentDraftPolicy.createCalendarEventDraft(
+                    fields.filterIndexed { index, _ -> index != omittedIndex }.joinToString("\n"),
+                ),
+            )
+        }
+        assertNull(
+            SharedTextAgentDraftPolicy.createCalendarEventDraft(
+                (fields + "标题：重复标题").joinToString("\n"),
+            ),
+        )
+    }
+
+    @Test
+    fun calendarDraftRejectsInvalidTimeOrderAndZoneOffset() {
+        assertNull(
+            SharedTextAgentDraftPolicy.createCalendarEventDraft(
+                """
+                    title: project review
+                    start_at: 2026-08-12T09:30:00+08:00
+                    end_at: 2026-08-12T09:00:00+08:00
+                    time_zone: Asia/Shanghai
+                """.trimIndent(),
+            ),
+        )
+        assertNull(
+            SharedTextAgentDraftPolicy.createCalendarEventDraft(
+                """
+                    标题：项目评审
+                    开始：2026-08-12T09:00:00Z
+                    结束：2026-08-12T09:30:00Z
+                    时区：Asia/Shanghai
+                """.trimIndent(),
+            ),
         )
     }
 }

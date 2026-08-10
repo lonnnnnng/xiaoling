@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
+
+- `SharedTextAgentDraftPolicy` 新增 `createCalendarEventDraft()`：逐行识别中英文标题、开始、结束和时区标签，要求四类字段各出现一次；使用 `OffsetDateTime` 与 `ZoneId` 在草稿生成前验证时间顺序、IANA 身份和两个时点的偏移一致性。策略只返回固定四参数 `/agent calendar.create_event` 文本，不持有 Context、Provider 或发送回调。
+- `ConversationActions`、`XiaoLingApp` 与 `XiaoLingViewModel.createAgentCalendarEventDraftFromSharedText()` 建立窄接线。ViewModel 复用现有分享转换门禁；拒绝时保留原草稿和来源标记，成功时只替换 prompt、退出个人任务模式并清理旧任务提示，不调用模型或 `sendMessage()`。
+- `SharedDraftSourceLabel` 新增 `shared-draft-agent-calendar` 的“创建日程”入口。四个动作拆成两行：首行为任务/笔记，次行为记忆/日程，避免 Redmi 窄屏横向溢出；附件、发送、会话加载与个人任务运行门禁没有放宽。
+- `SharedTextAgentDraftPolicyTest 6/6` 覆盖标准中英文标签、四字段缺失、重复字段、逆序时间、无效时区偏移和空文本。`SharedDraftActivityInstrumentedTest` 覆盖有效分享只生成草稿及缺时区分享原样拒绝，`ConversationPageInstrumentedTest` 覆盖回调不发送，`SharedDraftNoticeInstrumentedTest` 覆盖四入口布局；Redmi 最终 `4/4`、`8.06s`。
+- UI 首轮为 `3/4`：缺字段测试等待一次性 `OperationResult` 时超时，但超时快照已经显示原 prompt 未变、`sharedDraftImported=true`、未发送。测试改为在 ViewModel 同步拒绝后立即读取状态，最终 `4/4`；生产逻辑没有放宽。
+- 新增 `Stage235SharedTextCalendarEventInstrumentedTest`。缺字段样本先证明没有用户消息、模型调用或新 Run；有效样本使用动态北京时间后两天、09:00–09:30，临时 Profile 只允许 `calendar-create / calendar.create_event`，正式经历分享导入、草稿转换、发送、逐次审批、Tool Ledger、Provider 回读和 MessagePart 导航身份。
+- Redmi 真实 Provider `2/2`、`32.026s`。最终 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 的唯一工具审批 `APPROVED`，Executor/typed verification 为 `PASSED`，回执 `COMMITTED`；`calendar-91` 的标题、起止、`Asia/Shanghai`、非全天和非重复由当前 Provider 回读一致。测试只按回执事件 ID 删除夹具，临时 Profile/会话及本轮新建本地日历按身份清理，旧 Run 摘要不变。
+- `:app:assembleDebug :app:assembleDebugAndroidTest`、最终文档 corpus `1/1` 与 crash buffer 检查通过。未运行完整 JVM、Lint、Release 或全量 instrumentation；生产 `calendar.create_event`、Skill、权限、Room v36、Workflow 和后台边界不变。
+
 ## 第 234 阶段：系统分享文本到显式长期记忆闭环（完成）
 
 - `SharedTextAgentDraftPolicy` 新增 `createMemoryDraft()`：只接受去除首尾空白后的非空分享文本，生成固定 `/agent 使用 memory.remember ...` 草稿；策略不持有 Context、Provider、Profile、Run 或发送回调。原 `createNoteDraft()` 行为不变。

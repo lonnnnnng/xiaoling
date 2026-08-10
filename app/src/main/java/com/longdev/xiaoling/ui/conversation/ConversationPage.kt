@@ -361,6 +361,7 @@ internal fun ConversationPage(
                 onDiscardPendingSharedDraft = actions::discardPendingSharedDraft,
                 onCreateAgentNoteDraftFromSharedText = actions::createAgentNoteDraftFromSharedText,
                 onCreateAgentMemoryDraftFromSharedText = actions::createAgentMemoryDraftFromSharedText,
+                onCreateAgentCalendarEventDraftFromSharedText = actions::createAgentCalendarEventDraftFromSharedText,
                 onCreatePersonalTaskDraftFromSharedText = actions::createPersonalTaskDraftFromSharedText,
                 onSend = actions::sendMessage,
                 onStop = actions::stopGenerating,
@@ -544,6 +545,7 @@ private fun MessageInputBar(
     onDiscardPendingSharedDraft: () -> Unit,
     onCreateAgentNoteDraftFromSharedText: () -> Unit,
     onCreateAgentMemoryDraftFromSharedText: () -> Unit,
+    onCreateAgentCalendarEventDraftFromSharedText: () -> Unit,
     onCreatePersonalTaskDraftFromSharedText: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -609,9 +611,11 @@ private fun MessageInputBar(
                 SharedDraftSourceLabel(
                     noteActionEnabled = sharedTextActionEnabled,
                     memoryActionEnabled = sharedTextActionEnabled,
+                    calendarActionEnabled = sharedTextActionEnabled,
                     taskActionEnabled = sharedTextActionEnabled && !state.personalTaskMode,
                     onCreateAgentNoteDraft = onCreateAgentNoteDraftFromSharedText,
                     onCreateAgentMemoryDraft = onCreateAgentMemoryDraftFromSharedText,
+                    onCreateAgentCalendarEventDraft = onCreateAgentCalendarEventDraftFromSharedText,
                     onCreatePersonalTaskDraft = onCreatePersonalTaskDraftFromSharedText,
                 )
             }
@@ -856,9 +860,11 @@ internal fun SharedDraftPendingNotice(
 internal fun SharedDraftSourceLabel(
     noteActionEnabled: Boolean = false,
     memoryActionEnabled: Boolean = false,
+    calendarActionEnabled: Boolean = false,
     taskActionEnabled: Boolean = false,
     onCreateAgentNoteDraft: () -> Unit = {},
     onCreateAgentMemoryDraft: () -> Unit = {},
+    onCreateAgentCalendarEventDraft: () -> Unit = {},
     onCreatePersonalTaskDraft: () -> Unit = {},
 ) {
     Column(
@@ -884,7 +890,7 @@ internal fun SharedDraftSourceLabel(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // long: 三个显式转换动作独立成行，避免 Redmi 窄屏把来源标签或按钮挤出可点击区域。
+        // long: 四个显式转换动作按两行排列，避免 Redmi 窄屏横向溢出，同时保持每个入口都有独立可点击目标。
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -906,12 +912,26 @@ internal fun SharedDraftSourceLabel(
                     Text("保存为笔记", style = MaterialTheme.typography.labelSmall)
                 }
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (memoryActionEnabled) {
                 TextButton(
                     onClick = onCreateAgentMemoryDraft,
                     modifier = Modifier.testTag("shared-draft-agent-memory"),
                 ) {
                     Text("保存为记忆", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (calendarActionEnabled) {
+                TextButton(
+                    onClick = onCreateAgentCalendarEventDraft,
+                    modifier = Modifier.testTag("shared-draft-agent-calendar"),
+                ) {
+                    Text("创建日程", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

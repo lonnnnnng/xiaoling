@@ -1,5 +1,15 @@
 # 产品需求
 
+## 系统分享文本到受控系统日程（第 235 阶段，完成）
+
+- `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入 Calendar Provider。
+- “创建日程”与“转为任务 / 保存为笔记 / 保存为记忆”共享纯文本、无附件、未发送、会话已加载且个人任务没有待确认/运行中操作的门禁；四个入口必须在 Redmi 窄屏按两行保持完整可点击。
+- `SharedTextAgentDraftPolicy.createCalendarEventDraft()` 只接受唯一且非空的标题、带 UTC 偏移的 ISO-8601 开始时间、结束时间和 IANA 时区。缺少或重复任一字段、标题越界、时间无法解析、结束不晚于开始、固定偏移冒充时区或偏移与时区规则不一致时必须停止，不得让模型补全或猜测。
+- 用户点击后只生成包含 `title / start_at / end_at / time_zone` 四个明确参数的可编辑 `/agent 使用 calendar.create_event ...` 草稿，同时清除分享来源并退出旧个人任务模式；不得调用 `sendMessage()`。用户仍需明确发送，`calendar.create_event` 仍需经过当前 Profile、`calendar-create` Skill、日历读写权限、Registry 校验和逐次审批。
+- 成功闭环必须为 Run `COMPLETED`、唯一 Approval `APPROVED`、唯一 ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`；当前 Calendar Provider 必须按 operation ID 回读相同标题、起止时间、时区、非全天和非重复事实，消息 Tool part 的答案级入口必须绑定同一 `calendar-<正整数>`。
+- 验收清理只能从本轮 `COMMITTED` 回执恢复稳定事件 ID，并在删除前再次核对四字段；不得按标题、日期范围或模糊搜索删除日程。临时 Profile/会话和必要时创建的本地日历需清理，新 Run 审计保留，最近旧 Run 完整摘要不得变化。
+- 本阶段不新增 Tool/Skill、Room Schema、Manifest、Android 权限、全天/多日/重复/参与人/提醒、Workflow 或后台日历能力。Android 验收只使用 Redmi；聚焦 JVM `6/6`、Debug/AndroidTest APK、入口 `4/4`、真实 Provider `2/2` 与文档 corpus `1/1` 已通过，完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 系统分享文本到显式长期记忆（第 234 阶段，完成）
 
 - `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入长期记忆。

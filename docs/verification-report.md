@@ -4,6 +4,34 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 235 阶段：系统分享文本到受控系统日程闭环
+
+### 当前结论
+
+- `text/plain ACTION_SEND` 仍只导入普通可编辑草稿；新增“创建日程”只在标题、带偏移起止时间和 IANA 时区唯一且一致时生成固定四参数 `/agent calendar.create_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Provider。
+- 缺失/重复字段、时间逆序、无偏移、固定偏移时区或偏移与时区不一致全部在草稿生成前拒绝。四个分享动作按两行排列，沿用附件、发送、会话加载和个人任务运行门禁。
+- 正式闭环复用现有 `calendar-create`、`calendar.create_event`、日历读写权限、Room Approval、Tool Ledger、幂等回执、Provider 写后回读和答案级日程导航，没有新增生产 Tool/Skill、权限、Room Schema、Workflow 或后台能力。
+
+### 已验证证据
+
+- 聚焦 JVM `SharedTextAgentDraftPolicyTest 6/6` 通过；`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Redmi 入口最终为 `OK (4 tests)`、`8.06s`：有效 `ACTION_SEND` 只生成草稿，缺时区样本保留原 prompt/来源且没有消息或 Run，Conversation 回调不触发发送，来源卡四个入口均可点击。
+- 首轮入口组合为 `3/4`：缺字段测试等待被 Activity 快速消费的一次性 `OperationResult` 而超时；失败快照已证明原 prompt、来源标记和未发送状态正确。测试改为在同步拒绝后立即读取 ViewModel，最终 `4/4`，生产策略没有修改或放宽。
+- `Stage235SharedTextCalendarEventInstrumentedTest` 在同一 Redmi 先验证缺字段不创建 Run，再走真实分享、草稿转换、发送、审批和 Provider 回读，最终 `OK (2 tests)`、`32.026s`。
+- 最终 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 只有一个 `calendar.create_event`，参数为测试动态生成的明确标题、起止时间和 `Asia/Shanghai`；审批 `APPROVED`、`executorVerified=true`、typed verification `PASSED`、回执 `COMMITTED`。
+- 回执、当前 Calendar Provider 和消息 Tool part 的答案级导航绑定 `calendar-91`；Provider 回读标题、起止、时区、非全天和非重复一致，输出 `STAGE235_SHARED_CALENDAR ... providerReadBack=true navigationIdentity=true oldRunUnchanged=true`。缺字段输出为 `STAGE235_MISSING_FIELD ... runCreated=false oldRunUnchanged=true`。
+
+### 验证范围与收尾
+
+- 安装、instrumentation、日志和功能验收只对 Redmi `wsvwypiz7xwslvl7` 执行；ADB 清单中的 `emulator-5554` 未接收任何目标命令。
+- 测试事件只从本轮 `COMMITTED` 回执恢复稳定 ID，并在删除前再次核对四字段；临时 Profile/会话及必要时创建的本地日历已清理，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 七份长期文档与索引同步后重新构建 AndroidTest 资产，Redmi `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；test APK 随后卸载，主 Debug 数据保留，crash buffer 为空。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+继续选择新的单一用户任务覆盖；优先评估显式“标题 + 唯一日期”分享文本到现有全天日程能力，但必须单独冻结全天 UTC 边界，不把缺失时间猜成全天，也不扩展多日、重复、参与人、提醒、后台日历或外部 deep link。
+
 ## 2026-08-10 第 234 阶段：系统分享文本到显式长期记忆闭环
 
 ### 当前结论

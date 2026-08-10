@@ -1054,6 +1054,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
+    fun createAgentCalendarEventDraftFromSharedText() {
+        if (!canTransformImportedSharedText()) return
+        val draft = SharedTextAgentDraftPolicy.createCalendarEventDraft(uiState.prompt)
+        if (draft == null) {
+            showValidation("分享日程必须明确且唯一地包含标题、带偏移的开始时间、结束时间和 IANA 时区")
+            return
+        }
+        // long: 日程转换只准备 calendar.create_event 草稿并退出旧任务状态；发送、审批和 Calendar Provider 写入均保留为后续独立用户动作。
+        uiState = uiState.copy(
+            prompt = draft,
+            sharedDraftImported = false,
+            personalTaskMode = false,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
+            result = null,
+        )
+    }
+
     fun createPersonalTaskDraftFromSharedText() {
         if (!canTransformImportedSharedText()) return
         val goal = uiState.prompt.trim()

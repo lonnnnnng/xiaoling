@@ -1,5 +1,7 @@
 # 小灵
 
+第 235 阶段完成系统分享文本到受控系统日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题、带 UTC 偏移的开始/结束时间和 IANA 时区各自唯一、有效且彼此一致时，“创建日程”才生成固定四参数 `/agent calendar.create_event` 草稿，缺字段不会发送或创建 Run。四个分享动作按两行适配 Redmi 窄屏。用户明确发送并批准后，Redmi 真实 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider 四字段回读和答案级入口绑定 `calendar-91`；事件按回执 ID 精确清理，旧 Run 不变。聚焦 JVM `6/6`、Debug/AndroidTest APK、Redmi 入口 `4/4`、真实 Provider `2/2` 和文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 第 220 阶段完成前台长期记忆安全删除能力：新增 `memory.delete(memory_id)` 与独立 `personal-memory-delete` Skill，只向开启长期记忆召回的前台 `DIRECT` Agent 暴露，强制同一 Run 严格执行唯一 `memory.search -> memory.get -> memory.delete`，并要求三步稳定 `memory-UUID` 一致。删除必须人工审批，执行后由当前 Room 验证目标不可见；ToolCall ID 同时作为幂等键，稳定 memory ID 作为 operation ID，`COMMITTED + IDEMPOTENT_BY_KEY + DENY` 证据可在重启后只读核对，不重放 DELETE。删除、FTS 与 operation ledger 同一事务，Room 仍为 v36。聚焦 JVM `XiaoLingToolRegistryTest 84/84 + AgentSkillsTest 35/35`（`119/119`）、Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 分别运行生产 Registry 删除链、Room 跨重开删除账本与文档 corpus gate，均为 `OK (1 test)`，测试包已卸载。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未完成真实 Provider 自然语言 Run 与人工审批 UI 验收；旧 Profile/Run、Workflow 和后台边界不变。
 
 第 219 阶段完成真实前台个人 Agent 的存储状态闭环：在 Redmi 当前选中 Provider 下，临时 Profile 只允许 `app.get_storage` 与 `storage-status`，正式 `AgentRunUseCase` 根据自然语言目标完成存储读取。Run 为 `COMPLETED`，唯一 ToolResult 为 `success=true / verificationStatus=PASSED`，审批数为 0；结果和最终回答不包含 Provider URL、API Key、Profile 内部 ID、文件路径、应用数据、设备序列或应用包名。仅使用 Redmi `wsvwypiz7xwslvl7` 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；ADB 清单中的 `emulator-5554` 未接收目标命令。未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
@@ -30,7 +32,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 220 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 221 阶段将使用 Redmi 当前 Provider 完成真实自然语言 `memory.search -> memory.get -> memory.delete`、人工审批、Tool Ledger、当前记忆页不可见与测试夹具精确清理验收。
+当前开发基线已推进至第 235 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 235 阶段已把系统分享文本分别接入受控笔记、个人任务、一次性提醒、长期记忆和一次性非全天系统日程；下一阶段继续选择新的单一个人 Agent 用户任务，不以 Release 或全量测试占据日常快速迭代。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

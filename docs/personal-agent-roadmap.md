@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
+
+- Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“创建日程”后，`SharedTextAgentDraftPolicy` 才从唯一明确的标题、带偏移起止时间和 IANA 时区生成 `/agent calendar.create_event` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Provider。
+- 缺失、重复、逆序、无偏移、固定偏移时区或时区规则不一致均在发送前 fail-closed。缺时区 Redmi 样本保留原分享和来源标记，没有新增用户消息或 Run；四个分享动作按两行保持窄屏可达。
+- 用户仍需明确发送并批准唯一写入。Redmi 真实 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 完成 `APPROVED / COMMITTED / PASSED`；`calendar-91` 由当前 Provider 回读标题、起止、`Asia/Shanghai`、非全天和非重复事实，消息 Tool part 的答案级入口绑定同一稳定 ID。
+- 事件只按回执稳定 ID 且删除前四字段一致时清理；临时 Profile/会话及必要时创建的本地日历清理，Run 审计和旧 Run 不变证据保留。生产 Tool/Skill、日历权限、Room v36、Workflow 与后台能力未扩张。
+- 聚焦 JVM `6/6`、Debug/AndroidTest APK、Redmi 入口 `4/4`（`8.06s`）、真实 Provider `2/2`（`32.026s`）和文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
+下一阶段继续选择一个新的单一用户任务场景。可优先评估“明确标题 + 唯一日期”的分享文本到现有 `calendar.create_all_day_event`，但必须作为独立全天契约，继续保留可编辑草稿、再次发送、逐次审批、UTC 全天边界、Provider 回读和精确清理；多日、重复、参与人、提醒、后台日历、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 234 阶段：系统分享文本到显式长期记忆闭环（完成）
 
 - Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“保存为记忆”后，`SharedTextAgentDraftPolicy` 才生成明确的 `/agent 使用 memory.remember ...` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Room。
