@@ -1,5 +1,7 @@
 # 小灵
 
+第 241 阶段完成系统分享 PPTX 到显式个人 Agent 的真实 OpenXML 演示文稿理解闭环。先用 Artifact Tool 生成并渲染真实 PPTX，再从失败的 5 部件最简包收敛为经桌面渲染验证的 10 部件 OPC 结构；动态标题、验收码与结论只写入 `ppt/slides/slide1.xml`，应用侧仅确认 ZIP/OPC、精确 PPTX MIME，并保持 `extractedText=null / pageCount=null`。分享导入与用户编辑阶段没有消息或 Run，用户明确发送 `/agent` 后模型才形成唯一 `notes.create`。最终 Run `run-92128f92-cd87-42f0-bcd9-fc149bcfc5ae` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room PPTX BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore PPTX 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`25.217s`）通过；文档 corpus 首次为 `1/1`（`3.251s`），写回结果后的最终文本 gate 也为 `1/1`。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 第 240 阶段完成系统分享 DOCX 到显式个人 Agent 的真实 OpenXML 文档理解闭环。测试夹具生成标准 OPC ZIP，动态标题、验收码与结论只写入 `word/document.xml`；`DocumentAttachmentReader` 只确认 ZIP/OPC 结构、精确 DOCX MIME，明确保持 `extractedText=null / pageCount=null`。分享导入与用户编辑阶段没有消息或 Run，只有用户明确发送 `/agent` 后才携带原始 DOCX 进入 Responses。最终 Run `run-9f3618fd-b3a2-460f-853e-04ecd2620bdc` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room DOCX BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore DOCX 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`25.147s`）通过；文档 corpus 首次为 `1/1`（`3.131s`），写回结果后的最终文本 gate 也为 `1/1`。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
 第 239 阶段完成系统分享 PDF 到显式个人 Agent 的真实二进制文档理解闭环。测试用 Android `PdfDocument` 生成一页真实 PDF，`DocumentAttachmentReader` 只确认 `%PDF / application/pdf / pageCount=1`，明确保持 `extractedText=null`；分享导入与用户编辑阶段没有消息或 Run。用户明确发送 `/agent` 后，验收 prompt 不含 PDF 内动态标题、验收码或结论，真实模型仍从文件页面形成唯一 `notes.create`。最终 Run `run-2019d5f6-03fe-4bb5-a59f-b126f4b1f028` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room PDF BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore PDF 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`31.691s`）及文档 corpus gate `1/1`（`2.919s`）通过；生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
@@ -42,7 +44,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 240 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 240 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程、单份受支持文档草稿，以及 Markdown、PDF、DOCX 经用户明确发送后的真实 Agent 文档理解；下一阶段优先验证 PPTX 等其余 OpenXML 文档，继续以单一真实闭环推进，不以 Release 或全量测试占据日常快速迭代。
+当前开发基线已推进至第 241 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 241 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程、单份受支持文档草稿，以及 Markdown、PDF、DOCX、PPTX 经用户明确发送后的真实 Agent 文档理解；下一阶段优先验证 XLSX，完成当前三类 OpenXML 文件覆盖，继续以单一真实闭环推进，不以 Release 或全量测试占据日常快速迭代。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 
