@@ -4,6 +4,30 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 236 阶段：系统分享文本到受控单日全天日程
+
+### 当前结论
+
+- `text/plain ACTION_SEND` 仍只导入普通可编辑草稿；新增“创建全天日程”只在标题和规范 `yyyy-MM-dd` 日期唯一、且不存在开始/结束/时区等定时字段时生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Provider。
+- 正式链继续复用既有 `calendar-create-all-day`、`calendar.create_all_day_event`、日历读写权限、Room Approval、Tool Ledger、幂等回执、UTC 全天 Provider 写后回读和答案级日程导航，没有新增生产 Tool/Skill、权限、Room Schema、Workflow 或后台能力。
+- 生产实现与本地聚焦验证已完成；Redmi 真实入口与 Provider 闭环因设备未连接而明确待补，本阶段不能记录为真机完成。
+
+### 已验证证据
+
+- `SharedTextAgentDraftPolicyTest` 的 JUnit XML 为 `9 tests / 0 failures / 0 errors`；`:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`，`git diff --check` 通过。
+- Activity、Conversation 和来源卡测试已加入有效全天草稿、不完整分享拒绝、转换不发送和五入口回调/布局覆盖；新 `Stage236SharedTextAllDayCalendarEventInstrumentedTest` 已编译进 AndroidTest APK。
+- 真实测试夹具只接受显式 `stage236RealRun=true`，并在设备端再次断言 `Build.DEVICE=begonia`；清理只信任本轮 `COMMITTED` 回执事件 ID，并在删除前核对标题与 UTC 全天边界。
+
+### 待补真机证据
+
+- 2026-08-10 多次检查 `adb devices -l` 只发现 `emulator-5554`；`system_profiler SPUSBDataType` 和 `adb mdns services` 均未发现 Redmi `wsvwypiz7xwslvl7`，持续监听后仍为 `device not found`。没有向模拟器发送安装、测试或应用命令。
+- 因此四个聚焦入口测试、`Stage236SharedTextAllDayCalendarEventInstrumentedTest` 的缺字段/真实 Provider 双测试、`STAGE236_MISSING_FIELD` 与 `STAGE236_SHARED_ALL_DAY`、最终 Run/Event ID、Provider 回读、旧 Run 不变、精确清理、文档 corpus 真机门禁、测试包卸载和 crash buffer 均尚未执行。
+- Redmi 恢复后只需安装当前 Debug/Test APK、授予 `READ_CALENDAR / WRITE_CALENDAR`，执行上述聚焦类并写回真实证据；不得用模拟器替代，也不得把当前“待补”状态改写成通过。
+
+### 验证范围
+
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 2026-08-10 第 235 阶段：系统分享文本到受控系统日程闭环
 
 ### 当前结论

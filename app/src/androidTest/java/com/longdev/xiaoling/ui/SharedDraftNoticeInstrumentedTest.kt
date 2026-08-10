@@ -25,6 +25,7 @@ class SharedDraftNoticeInstrumentedTest {
         var converted = 0
         var memoryConverted = 0
         var calendarConverted = 0
+        var allDayCalendarConverted = 0
         var taskConverted = 0
         val payload = SharedDraftPayload(
             text = "待处理文本",
@@ -44,10 +45,12 @@ class SharedDraftNoticeInstrumentedTest {
                         noteActionEnabled = true,
                         memoryActionEnabled = true,
                         calendarActionEnabled = true,
+                        allDayCalendarActionEnabled = true,
                         taskActionEnabled = true,
                         onCreateAgentNoteDraft = { converted += 1 },
                         onCreateAgentMemoryDraft = { memoryConverted += 1 },
                         onCreateAgentCalendarEventDraft = { calendarConverted += 1 },
+                        onCreateAgentAllDayCalendarEventDraft = { allDayCalendarConverted += 1 },
                         onCreatePersonalTaskDraft = { taskConverted += 1 },
                     )
                 }
@@ -61,12 +64,14 @@ class SharedDraftNoticeInstrumentedTest {
         composeRule.onNodeWithText("保存为笔记").performClick()
         composeRule.onNodeWithText("保存为记忆").performClick()
         composeRule.onNodeWithText("创建日程").performClick()
+        composeRule.onNodeWithText("创建全天日程").performClick()
         composeRule.runOnIdle {
             assertEquals(1, opened)
             assertEquals(1, discarded)
             assertEquals(1, converted)
             assertEquals(1, memoryConverted)
             assertEquals(1, calendarConverted)
+            assertEquals(1, allDayCalendarConverted)
             assertEquals(1, taskConverted)
         }
         composeRule.onNodeWithText("已从外部分享导入").assertIsDisplayed()

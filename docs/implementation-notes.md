@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 236 阶段：系统分享文本到受控单日全天日程（实现完成，Redmi 验收待补）
+
+- `SharedTextAgentDraftPolicy` 新增 `createAllDayCalendarEventDraft()`：逐行识别中英文标题与日期标签，要求两类字段各出现一次；使用 `LocalDate` 解析并要求序列化结果与原始 `yyyy-MM-dd` 完全一致。策略遇到开始、结束或时区字段立即拒绝，只返回固定两参数 `/agent calendar.create_all_day_event` 文本，不持有 Context、Provider 或发送回调。
+- `ConversationActions`、`XiaoLingApp` 与 `XiaoLingViewModel.createAgentAllDayCalendarEventDraftFromSharedText()` 建立窄接线。ViewModel 复用既有分享转换门禁；拒绝时保留原草稿和来源标记，成功时只替换 prompt、退出个人任务模式并清理旧任务提示，不调用模型或 `sendMessage()`。
+- `SharedDraftSourceLabel` 新增 testTag 为 `shared-draft-agent-all-day-calendar` 的“创建全天日程”入口。五个显式动作继续分行展示，两个日程入口身份独立；图片/文档、附件读取、发送、会话加载和个人任务确认/执行门禁没有放宽。
+- `SharedTextAgentDraftPolicyTest 9/9` 覆盖标准草稿、缺字段、重复日期、非规范日期、定时字段拒绝和既有笔记/记忆/定时日程回归。`SharedDraftActivityInstrumentedTest`、`ConversationPageInstrumentedTest` 与 `SharedDraftNoticeInstrumentedTest` 已覆盖有效转换不发送、缺字段保留原分享和五入口回调/布局。
+- 新增 `Stage236SharedTextAllDayCalendarEventInstrumentedTest`。缺字段样本冻结“不新增用户消息或 Run、旧 Run 不变”；有效样本使用动态 UTC 三天后日期，临时 Profile 只允许 `calendar-create-all-day / calendar.create_all_day_event`，正式链覆盖分享导入、草稿转换、发送、逐次审批、Tool Ledger、UTC Provider 回读、MessagePart 导航身份与精确清理。兜底 Provider 只可由显式 runner 参数恢复，源码、日志和 Git 不含凭据。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 与 `git diff --check` 已通过。当前 macOS USB/ADB 只发现 `emulator-5554`，没有发现 Redmi `wsvwypiz7xwslvl7`；因此四个聚焦入口、真实 Provider 双测试、最终 Run/Event ID、文档 corpus、测试包卸载和 crash buffer 尚未执行，文档明确保留待验状态。未运行完整 JVM、Lint、Release 或全量 instrumentation；生产 Tool/Skill、权限、Room v36、Workflow 和后台边界不变。
+
 ## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
 
 - `SharedTextAgentDraftPolicy` 新增 `createCalendarEventDraft()`：逐行识别中英文标题、开始、结束和时区标签，要求四类字段各出现一次；使用 `OffsetDateTime` 与 `ZoneId` 在草稿生成前验证时间顺序、IANA 身份和两个时点的偏移一致性。策略只返回固定四参数 `/agent calendar.create_event` 文本，不持有 Context、Provider 或发送回调。

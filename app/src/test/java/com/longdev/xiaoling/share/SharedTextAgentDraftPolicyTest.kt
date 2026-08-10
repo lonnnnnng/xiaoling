@@ -20,6 +20,7 @@ class SharedTextAgentDraftPolicyTest {
         assertNull(SharedTextAgentDraftPolicy.createNoteDraft(" \n "))
         assertNull(SharedTextAgentDraftPolicy.createMemoryDraft(" \n "))
         assertNull(SharedTextAgentDraftPolicy.createCalendarEventDraft(" \n "))
+        assertNull(SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(" \n "))
     }
 
     @Test
@@ -95,6 +96,54 @@ class SharedTextAgentDraftPolicyTest {
                     标题：项目评审
                     开始：2026-08-12T09:00:00Z
                     结束：2026-08-12T09:30:00Z
+                    时区：Asia/Shanghai
+                """.trimIndent(),
+            ),
+        )
+    }
+
+    @Test
+    fun explicitAllDayCalendarFieldsBecomeEditableAgentDraft() {
+        val sharedText = """
+            标题：团队纪念日
+            日期：2026-08-15
+        """.trimIndent()
+
+        assertEquals(
+            """
+                /agent 使用 calendar.create_all_day_event 创建一条一次性单日全天系统日程。只能使用以下两个明确参数，不得补充、改写或推断；发送后仍需逐次审批，审批通过后必须由当前 Calendar Provider 回读验证：
+                title：团队纪念日
+                date：2026-08-15
+            """.trimIndent(),
+            SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(sharedText),
+        )
+    }
+
+    @Test
+    fun allDayCalendarDraftRequiresTitleAndCanonicalDateExactlyOnce() {
+        assertNull(SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft("标题：团队纪念日"))
+        assertNull(SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft("日期：2026-08-15"))
+        assertNull(
+            SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(
+                "标题：团队纪念日\n日期：2026-08-15\n日期：2026-08-16",
+            ),
+        )
+        assertNull(
+            SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(
+                "标题：团队纪念日\n日期：2026-8-15",
+            ),
+        )
+    }
+
+    @Test
+    fun allDayCalendarDraftRejectsTimedEventFieldsInsteadOfDroppingThem() {
+        assertNull(
+            SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(
+                """
+                    标题：项目评审
+                    日期：2026-08-15
+                    开始：2026-08-15T09:00:00+08:00
+                    结束：2026-08-15T09:30:00+08:00
                     时区：Asia/Shanghai
                 """.trimIndent(),
             ),

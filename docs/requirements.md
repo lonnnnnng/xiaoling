@@ -1,5 +1,15 @@
 # 产品需求
 
+## 系统分享文本到受控单日全天日程（第 236 阶段，实现完成，Redmi 验收待补）
+
+- `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入 Calendar Provider。
+- “创建全天日程”与既有四个分享转换动作共享纯文本、无附件、未发送、会话已加载且个人任务没有待确认/运行中操作的门禁。五个入口必须在窄屏保持完整可点击，不能因新增入口遮挡来源说明或已有动作。
+- `SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft()` 只接受唯一且非空的标题和唯一规范 `yyyy-MM-dd` 日期。缺失或重复字段、标题越界、非法/非规范日期必须停止；出现开始、结束或时区等定时字段时也必须拒绝，不得丢弃具体时间后猜成全天日程。
+- 用户点击后只生成包含 `title / date` 两个明确参数的可编辑 `/agent 使用 calendar.create_all_day_event ...` 草稿，同时清除分享来源并退出旧个人任务模式；不得调用 `sendMessage()`。用户仍需明确发送，写入仍需经过当前 Profile、`calendar-create-all-day` Skill、日历读写权限、Registry 校验和逐次审批。
+- 成功闭环必须为 Run `COMPLETED`、唯一 Approval `APPROVED`、唯一 ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`；当前 Calendar Provider 必须按 operation ID 回读相同标题、UTC 当日零点、排他的次日 UTC 零点、`ALL_DAY=1`、`UTC` 和非重复事实，消息 Tool part 的答案级入口必须绑定同一 `calendar-<正整数>`。
+- 验收清理只能从本轮 `COMMITTED` 回执恢复稳定事件 ID，并在删除前再次核对标题和 UTC 全天边界；不得按标题或日期搜索删除。临时 Profile/会话和本轮新建的本地日历需按身份清理，新 Run 审计保留，最近旧 Run 完整摘要不得变化。
+- 本阶段不新增 Tool/Skill、Room Schema、Manifest、Android 权限、多日/重复/参与人/提醒、Workflow 或后台日历能力。聚焦 JVM `9/9`、Debug/AndroidTest APK 构建和差异检查已通过；因 Redmi `wsvwypiz7xwslvl7` 未被 macOS USB/ADB 枚举，入口、真实 Provider、文档 corpus、Run/Event ID 与设备收尾仍待补，不能记为已验证。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 系统分享文本到受控系统日程（第 235 阶段，完成）
 
 - `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入 Calendar Provider。

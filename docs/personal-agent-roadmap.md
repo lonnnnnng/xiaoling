@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 236 阶段：系统分享文本到受控单日全天日程（实现完成，Redmi 验收待补）
+
+- Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“创建全天日程”后，`SharedTextAgentDraftPolicy` 才从唯一明确的标题和规范 `yyyy-MM-dd` 日期生成 `/agent calendar.create_all_day_event` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Provider。
+- 缺失、重复、非法或非规范日期全部 fail-closed；分享中只要出现开始、结束或时区等定时字段，全天入口就拒绝，不从定时事件猜测全天日期。五个分享动作继续分行展示，附件、发送、会话加载与个人任务状态门禁没有放宽。
+- 正式发送后仍复用既有 `calendar-create-all-day / calendar.create_all_day_event`、逐次审批、UTC 当日零点到次日零点、Provider 回读、稳定事件 ID、答案级导航和按回执精确清理；本阶段没有新增 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
+- 聚焦 JVM `SharedTextAgentDraftPolicyTest 9/9`、Debug/AndroidTest APK 构建和差异检查通过；入口、Conversation 与来源卡测试已补齐，`Stage236SharedTextAllDayCalendarEventInstrumentedTest` 已冻结缺字段不建 Run、真实发送/审批、Provider 回读、导航身份、旧 Run 不变和精确清理契约。
+- 截至 2026-08-10，macOS USB、ADB 与无线调试均未发现 Redmi `wsvwypiz7xwslvl7`，只看到 `emulator-5554`。因此 Redmi 入口组合、真实 Provider Run、最终 Run/Event ID、文档 corpus 真机门禁、测试包卸载和 crash buffer 收尾仍待补；未向模拟器发送目标命令，也未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+下一阶段优先评估“单份受支持文档通过 Android `ACTION_SEND` 进入既有文档附件草稿链”，复用 `DocumentAttachmentReader / DocumentAttachmentPolicy` 的 MIME、大小、格式与页数校验，继续禁止自动发送、`ACTION_SEND_MULTIPLE`、多附件、后台摄取和隐式 Agent 执行。Redmi 恢复后仍须先补齐第 236 阶段真实证据。
+
 ## 第 235 阶段：系统分享文本到受控系统日程闭环（完成）
 
 - Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“创建日程”后，`SharedTextAgentDraftPolicy` 才从唯一明确的标题、带偏移起止时间和 IANA 时区生成 `/agent calendar.create_event` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Provider。

@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 236 阶段继续采用成熟个人 Agent 的“外部内容先结构化为用户可见草稿、不同时间语义使用独立契约、缺失参数不猜测、副作用逐次审批、提交后回权威 Provider”原则：单日全天事件没有作为可选字段混入定时日程，而是只从唯一标题和规范日期生成独立 `/agent calendar.create_all_day_event` 草稿；出现定时字段会拒绝。实现复用既有 UTC 全天写入、稳定事件 ID、Provider 回读和答案级导航，没有复制参考项目的自然语言日期猜测、多日/重复日程、参与人邀请、提醒后台化、远程 Channel 或多 Agent 日历协作。当前仅完成本地实现与聚焦验证；Redmi 真实 Tool Ledger、回执和 Provider 证据仍待设备恢复后补齐。
+
 第 235 阶段采用成熟个人 Agent 的“外部内容先结构化为用户可见草稿、缺失参数不猜测、副作用逐次审批、提交后回权威 Provider、答案只携带稳定身份”原则：系统分享只有在标题、带偏移起止时间和 IANA 时区唯一明确时才形成 `/agent calendar.create_event` 草稿；缺字段样本不会创建 Run。最终 Tool Ledger、`COMMITTED/PASSED`、Calendar Provider 四字段回读和答案级 `calendar-91` 互相核对，清理只使用回执 ID。实现没有复制参考项目的自然语言时间猜测、后台日历摄取、重复/参与人/提醒自动创建、远程 Channel 或多 Agent 日历协作。
 
 第 234 阶段采用成熟个人 Agent 的“外部内容先成为用户可见草稿、长期上下文写入必须二次显式意图、逐次审批、提交后回权威 Store、导航只信稳定身份”原则：系统分享不会自动记忆，用户点击“保存为记忆”后仍需发送和批准；最终 `memory.remember` 的 Tool Ledger、`COMMITTED/PASSED`、当前 Room 记录和答案级 `memory-UUID` 互相核对。实现没有复制参考项目的剪贴板常驻监听、后台 Intent 自动摄取、隐式记忆提取、远程 Channel、跨设备同步或多 Agent 共享记忆。

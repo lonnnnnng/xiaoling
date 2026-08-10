@@ -1072,6 +1072,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
+    fun createAgentAllDayCalendarEventDraftFromSharedText() {
+        if (!canTransformImportedSharedText()) return
+        val draft = SharedTextAgentDraftPolicy.createAllDayCalendarEventDraft(uiState.prompt)
+        if (draft == null) {
+            showValidation("分享全天日程必须明确且唯一地包含单行标题和规范 yyyy-MM-dd 日期，且不能包含定时字段")
+            return
+        }
+        // long: 全天入口只准备独立 calendar.create_all_day_event 草稿；发送、审批和 UTC 全天边界写入仍由生产工具链控制。
+        uiState = uiState.copy(
+            prompt = draft,
+            sharedDraftImported = false,
+            personalTaskMode = false,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
+            result = null,
+        )
+    }
+
     fun createPersonalTaskDraftFromSharedText() {
         if (!canTransformImportedSharedText()) return
         val goal = uiState.prompt.trim()

@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 236 阶段系统分享全天日程边界（无变更，Redmi 验收待补）
+
+本阶段只把用户显式选择且标题/日期契约完整的 `text/plain` 分享改写为可编辑 `/agent calendar.create_all_day_event` 草稿；分享正文、日期、临时 Profile/会话、Run/Approval/Tool Ledger、事件 ID 与 runner 参数均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变。聚焦 JVM 与 APK 构建没有生成 Shadow 样本；Redmi 入口与真实 Provider 尚未执行，因此只能记录“无生产边界变化”，不能声称真机 Shadow 样本为零的验收已经完成。
+
 ## 第 235 阶段系统分享日程边界（无变更）
 
 本阶段只把用户显式选择且四字段完整的 `text/plain` 分享改写为可编辑 `/agent calendar.create_event` 草稿，并在用户发送、逐次审批、Calendar Provider 回读和可信 MessagePart 投影后提供答案级日程入口。分享原文、结构化时间、事件 ID、临时 Profile/会话、Run/Approval/Tool Ledger 与 runner 参数均不进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 入口 `4/4` 与真实 Provider `2/2` 没有产生 Shadow 样本。

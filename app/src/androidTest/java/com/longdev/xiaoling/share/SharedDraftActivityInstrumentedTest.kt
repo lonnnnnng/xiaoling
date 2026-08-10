@@ -342,6 +342,75 @@ class SharedDraftActivityInstrumentedTest {
     }
 
     @Test
+    fun textShareCanBecomeExplicitAllDayCalendarEventDraftWithoutSending() {
+        val sharedText = """
+            标题：share-all-day-${System.nanoTime()}
+            日期：2026-08-15
+        """.trimIndent()
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            val imported = scenario.awaitState {
+                it.prompt == sharedText && it.sharedDraftImported
+            }
+            assertNull(imported.activeAgentRun)
+            assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.updatePersonalTaskMode(true)
+                viewModel.createAgentAllDayCalendarEventDraftFromSharedText()
+            }
+            val converted = scenario.awaitState {
+                it.prompt.startsWith("/agent 使用 calendar.create_all_day_event") &&
+                    it.prompt.contains("date：2026-08-15") &&
+                    !it.sharedDraftImported &&
+                    !it.personalTaskMode
+            }
+            assertNull(converted.activeAgentRun)
+            assertFalse(converted.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
+    @Test
+    fun incompleteAllDayCalendarShareStaysImportedWithoutStartingAgent() {
+        val sharedText = "标题：缺少日期的全天日程"
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            scenario.awaitState { it.prompt == sharedText && it.sharedDraftImported }
+            var rejected = XiaoLingUiState()
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.createAgentAllDayCalendarEventDraftFromSharedText()
+                // long: 同步读取一次性校验结果，证明缺少日期时仍停留在分享草稿且没有进入模型链。
+                rejected = viewModel.uiState
+            }
+            assertEquals(sharedText, rejected.prompt)
+            assertEquals(false, rejected.result?.success)
+            assertTrue(rejected.result?.message?.contains("yyyy-MM-dd") == true)
+            assertTrue(rejected.sharedDraftImported)
+            assertNull(rejected.activeAgentRun)
+            assertFalse(rejected.sendingMessage)
+            assertFalse(rejected.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
+    @Test
     fun textShareReturnsToOrdinaryDraftAndRequiresExplicitTaskConversion() {
         val bootstrapText = "share-task-bootstrap-${System.nanoTime()}"
         val sharedText = "share-task-${System.nanoTime()}\n读取当前设备时间"

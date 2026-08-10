@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.share
 
 import java.time.OffsetDateTime
+import java.time.LocalDate
 import java.time.ZoneId
 
 internal object SharedTextAgentDraftPolicy {
@@ -28,6 +29,40 @@ internal object SharedTextAgentDraftPolicy {
             appendLine("end_at：${fields.endAt}")
             append("time_zone：${fields.timeZone}")
         }
+    }
+
+    fun createAllDayCalendarEventDraft(sharedText: String): String? {
+        val fields = parseAllDayCalendarEventFields(sharedText) ?: return null
+        // long: 全天日程只消费明确标题和唯一日期；不从定时字段推导日期，避免用户原本的具体时间被静默丢失。
+        return buildString {
+            appendLine("/agent 使用 calendar.create_all_day_event 创建一条一次性单日全天系统日程。只能使用以下两个明确参数，不得补充、改写或推断；发送后仍需逐次审批，审批通过后必须由当前 Calendar Provider 回读验证：")
+            appendLine("title：${fields.title}")
+            append("date：${fields.date}")
+        }
+    }
+
+    private fun parseAllDayCalendarEventFields(sharedText: String): AllDayCalendarEventDraftFields? {
+        val normalizedText = sharedText.trim()
+        if (normalizedText.isBlank()) return null
+        val values = linkedMapOf<AllDayCalendarEventField, String>()
+        normalizedText.lineSequence().forEach { line ->
+            val match = ALL_DAY_CALENDAR_FIELD_LINE.matchEntire(line)
+            if (match != null) {
+                val field = AllDayCalendarEventField.fromLabel(match.groupValues[1]) ?: return null
+                val value = match.groupValues[2].trim()
+                if (value.isBlank() || values.put(field, value) != null) return null
+                return@forEach
+            }
+            // long: 分享中出现开始、结束或时区意味着用户描述的是定时事件；全天入口必须拒绝，不能只截取标题后猜成全天。
+            if (CALENDAR_FIELD_LINE.matches(line)) return null
+        }
+        if (values.keys != AllDayCalendarEventField.entries.toSet()) return null
+        val title = values.getValue(AllDayCalendarEventField.TITLE)
+        val rawDate = values.getValue(AllDayCalendarEventField.DATE)
+        if (title.length !in 1..MAX_CALENDAR_TITLE_LENGTH) return null
+        val date = runCatching { LocalDate.parse(rawDate) }.getOrNull() ?: return null
+        if (date.toString() != rawDate) return null
+        return AllDayCalendarEventDraftFields(title = title, date = rawDate)
     }
 
     private fun parseCalendarEventFields(sharedText: String): CalendarEventDraftFields? {
@@ -71,6 +106,11 @@ internal object SharedTextAgentDraftPolicy {
         val timeZone: String,
     )
 
+    private data class AllDayCalendarEventDraftFields(
+        val title: String,
+        val date: String,
+    )
+
     private enum class CalendarEventField {
         TITLE,
         START_AT,
@@ -88,9 +128,26 @@ internal object SharedTextAgentDraftPolicy {
         }
     }
 
+    private enum class AllDayCalendarEventField {
+        TITLE,
+        DATE;
+
+        companion object {
+            fun fromLabel(label: String): AllDayCalendarEventField? = when (label.lowercase()) {
+                "标题", "title" -> TITLE
+                "日期", "全天日期", "date" -> DATE
+                else -> null
+            }
+        }
+    }
+
     private const val MAX_CALENDAR_TITLE_LENGTH = 200
     private val CALENDAR_FIELD_LINE = Regex(
         pattern = """^\s*(标题|开始(?:时间)?|结束(?:时间)?|时区|title|start(?:_at)?|end(?:_at)?|time_?zone)\s*[:：=]\s*(.*?)\s*$""",
+        option = RegexOption.IGNORE_CASE,
+    )
+    private val ALL_DAY_CALENDAR_FIELD_LINE = Regex(
+        pattern = """^\s*(标题|全天日期|日期|title|date)\s*[:：=]\s*(.*?)\s*$""",
         option = RegexOption.IGNORE_CASE,
     )
 }

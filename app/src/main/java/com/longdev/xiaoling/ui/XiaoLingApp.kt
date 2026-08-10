@@ -210,6 +210,8 @@ private fun XiaoLingContent(
 
             override fun createAgentCalendarEventDraftFromSharedText() = viewModel.createAgentCalendarEventDraftFromSharedText()
 
+            override fun createAgentAllDayCalendarEventDraftFromSharedText() = viewModel.createAgentAllDayCalendarEventDraftFromSharedText()
+
             override fun createPersonalTaskDraftFromSharedText() = viewModel.createPersonalTaskDraftFromSharedText()
 
             override fun sendMessage() = viewModel.sendMessage()

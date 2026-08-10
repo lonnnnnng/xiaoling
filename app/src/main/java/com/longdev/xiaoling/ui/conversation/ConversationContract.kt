@@ -61,6 +61,8 @@ internal interface ConversationActions {
 
     fun createAgentCalendarEventDraftFromSharedText()
 
+    fun createAgentAllDayCalendarEventDraftFromSharedText()
+
     fun createPersonalTaskDraftFromSharedText()
 
     fun sendMessage()
