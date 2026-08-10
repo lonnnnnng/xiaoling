@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 234 阶段采用成熟个人 Agent 的“外部内容先成为用户可见草稿、长期上下文写入必须二次显式意图、逐次审批、提交后回权威 Store、导航只信稳定身份”原则：系统分享不会自动记忆，用户点击“保存为记忆”后仍需发送和批准；最终 `memory.remember` 的 Tool Ledger、`COMMITTED/PASSED`、当前 Room 记录和答案级 `memory-UUID` 互相核对。实现没有复制参考项目的剪贴板常驻监听、后台 Intent 自动摄取、隐式记忆提取、远程 Channel、跨设备同步或多 Agent 共享记忆。
+
 第 233 阶段采用成熟 Agent 的“通知只持有不可伪造的短期内部能力、落点仍由当前权威状态解析”原则：外部可见 PendingIntent 只有 256-bit 随机 token，显式、不可变且一次性；应用私有 Store 原子消费后还要由 Room 二次核对 Workflow/Task/Run，非空 Run 必须仍存在并反向绑定同一 Workflow/Task，再复用既有 Workflow 页面。一次性导航版本只负责让同一稳定目标的新通知重新展开，不形成第二导航栈或长期 bearer 身份。实现没有复制参考项目中直接把业务 ID 暴露为 exported deep link、信任 action/extra、可变隐式 PendingIntent、独立第二导航栈或远程 Channel；Redmi 冷/热通知、伪造与删除边界、同目标重入、精确高亮及分享回归均已通过。
 
 第 232 阶段采用成熟个人 Agent 的“外部入口、计划确认、持久化调度、后台执行和结果通知共享同一审计身份”原则：系统分享不会直接排程，确认后的 `ONCE` Task 由既有 WorkManager 到点 claim，后台 Agent 仍受 Profile 与审批门约束，最终通知只在 Room 终态后出现。实现没有复制参考项目的常驻分享监听、精确闹钟、Foreground Service、后台隐式审批、远程 Channel 或多 Agent 编排；通知点击当前仍只进入应用，精确结果导航留到下一独立安全切片。

@@ -1,5 +1,15 @@
 # 产品需求
 
+## 系统分享文本到显式长期记忆（第 234 阶段，完成）
+
+- `text/plain ACTION_SEND` 必须继续先投影为普通可编辑草稿；外部 Intent、冷/热启动和来源标签不得自动添加 `/agent`、发送消息、调用模型、创建 Run、请求审批或写入长期记忆。
+- 只有当前分享为非空纯文本、没有图片/文档、附件读取/消息发送/会话加载均已停止，且个人任务没有待确认或运行中操作时，才显示“保存为记忆”。三个分享转换动作必须在 Redmi 窄屏保持完整可点击，不得因增加入口遮挡来源说明或已有动作。
+- 用户点击后只允许通过 `SharedTextAgentDraftPolicy.createMemoryDraft()` 生成明确的 `/agent 使用 memory.remember ...` 草稿，同时退出个人任务模式、清理旧任务结果并移除分享来源标记；不得调用 `sendMessage()`。草稿必须保留原正文顺序，用户仍可编辑或放弃。
+- 正式发送后必须继续经过当前 Agent Profile、`personal-memory` Skill、单次记忆召回开关、Registry 业务校验和 `memory.remember` 独立审批。只允许一次写入调用；模型可规范连续空白，但不得删改或补充分享文字事实。敏感信息拒绝、2,000 字符和标签/类型约束沿用现有工具边界。
+- 成功闭环必须为 Run `COMPLETED`、唯一 Approval `APPROVED`、唯一 ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`，并要求 `memoryIdsUsed`、operation ID、当前 Room 记录与消息 Tool part 的答案级导航身份全部绑定同一 `memory-UUID`。
+- 验收清理只能从本轮 `COMMITTED` 回执恢复稳定 memory ID，删除对应临时记忆、撤销文件、临时 Profile 和会话；不得按正文模糊搜索或影响用户记忆。新 Run 审计保留，最近旧 Run 的 Step、Approval、Event 与 Tool Ledger 必须保持不变。
+- 本阶段不新增 Tool/Skill、Room Schema、Android 权限、Workflow、后台分享、剪贴板监听或 Intent 自动执行。Android 验收只使用 Redmi；聚焦 JVM、Debug/AndroidTest APK、入口 `3/3`、真实 Provider `1/1` 与文档 corpus `1/1` 已通过，完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 提醒结果一次性安全导航（第 233 阶段，完成）
 
 - 只有 `BLOCKED / COMPLETED / FAILED / CANCELLED` ScheduledTask 可以生成点击导航；通知 Intent 不得直接携带或信任 workflowId、scheduledTaskId、workflowRunId、agentRunId 或任意嵌套 Intent。

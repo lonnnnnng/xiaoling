@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 234 阶段：系统分享文本到显式长期记忆闭环（完成）
+
+- Android `text/plain ACTION_SEND` 继续先进入普通可编辑草稿。只有用户点击“保存为记忆”后，`SharedTextAgentDraftPolicy` 才生成明确的 `/agent 使用 memory.remember ...` 草稿；转换不会自动发送、调用模型、创建 Run 或写入 Room。
+- 分享来源区将来源标签与“转为任务 / 保存为笔记 / 保存为记忆”三个动作分行，保证 Redmi 窄屏仍可完整点击。记忆入口与既有纯文本门禁一致：图片/文档、附件处理中、消息发送中、会话加载中或个人任务待确认/运行中均不开放。
+- 用户仍需明确发送，并对唯一 `memory.remember` 逐次批准。Redmi 真实 Run `run-51d3c846-5bb4-43ba-b904-906b61b58047` 完成 `APPROVED / COMMITTED / PASSED`；回执绑定 `memory-e6c7432a-a94f-4955-85fb-81bdfd7a6400`，当前 Room 回读、会话 Tool Message 的 `VERIFIED` 投影和答案级“查看记忆”稳定身份一致。模型只允许规范空白，不得增删分享文字信息。
+- 临时记忆、Profile、会话与撤销文件按回执稳定 ID 清理，Run/Approval/Tool Ledger 审计保留，最近旧 Run 的完整稳定摘要不变。生产 `memory.remember`、`personal-memory`、Room v36、权限、Workflow 和后台能力均未扩张。
+- 聚焦 JVM `SharedTextAgentDraftPolicyTest 3/3`、Debug/AndroidTest APK 构建、Redmi 入口 `3/3`、真实 Provider `1/1`（`19.732s`）与最终文档 corpus `1/1`（`3.288s`）通过；test APK 已卸载，crash buffer 为空。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
+下一阶段继续选择能增加个人 Agent 真实任务覆盖的单一场景；优先评估显式外部内容到日程等现有权威 Store 的受控入口，但只有在缺失字段、权限、审批和当前状态验证能够 fail-closed 时才立项。剪贴板常驻读取、后台 Intent 自动执行、任意 deep link、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 233 阶段：提醒结果一次性安全导航（完成）
 
 - 终态 ScheduledTask 通知不再只打开应用首页。Notifier 为当前 Task 签发 32 字节随机 Base64URL token，应用私有 Store 保存 `token -> workflowId / scheduledTaskId / workflowRunId / expiresAt`，有效期 24 小时；同一 Task 重新通知会撤销旧 token。

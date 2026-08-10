@@ -231,6 +231,41 @@ class SharedDraftActivityInstrumentedTest {
     }
 
     @Test
+    fun textShareCanBecomeExplicitAgentMemoryDraftWithoutSending() {
+        val sharedText = "share-memory-${System.nanoTime()}\n我偏好先给结论"
+        val launchIntent = Intent(
+            ApplicationProviderHolder.context,
+            MainActivity::class.java,
+        ).apply {
+            action = Intent.ACTION_SEND
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, sharedText)
+        }
+
+        ActivityScenario.launch<MainActivity>(launchIntent).use { scenario ->
+            val imported = scenario.awaitState {
+                it.prompt == sharedText && it.sharedDraftImported
+            }
+            assertNull(imported.activeAgentRun)
+            assertFalse(imported.chatMessages.any { message -> message.role == "user" })
+
+            scenario.onActivity { activity ->
+                val viewModel = ViewModelProvider(activity)[XiaoLingViewModel::class.java]
+                viewModel.updatePersonalTaskMode(true)
+                viewModel.createAgentMemoryDraftFromSharedText()
+            }
+            val converted = scenario.awaitState {
+                it.prompt.startsWith("/agent 使用 memory.remember") &&
+                    !it.sharedDraftImported &&
+                    !it.personalTaskMode
+            }
+            assertTrue(converted.prompt.contains(sharedText))
+            assertNull(converted.activeAgentRun)
+            assertFalse(converted.chatMessages.any { message -> message.role == "user" })
+        }
+    }
+
+    @Test
     fun textShareReturnsToOrdinaryDraftAndRequiresExplicitTaskConversion() {
         val bootstrapText = "share-task-bootstrap-${System.nanoTime()}"
         val sharedText = "share-task-${System.nanoTime()}\n读取当前设备时间"

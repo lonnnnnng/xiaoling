@@ -4,6 +4,33 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 234 阶段：系统分享文本到显式长期记忆闭环
+
+### 当前结论
+
+- `text/plain ACTION_SEND` 仍只导入普通可编辑草稿；新增“保存为记忆”只生成明确的 `/agent 使用 memory.remember ...` 草稿并退出旧任务模式，不自动发送、调用模型、创建 Run 或写入 Room。
+- 分享来源标签与“转为任务 / 保存为笔记 / 保存为记忆”分成两行，Redmi 窄屏三个动作均可点击。图片/文档、附件处理中、发送中、会话加载中和个人任务待确认/执行中继续隐藏转换入口。
+- 正式闭环继续复用现有 `personal-memory`、`memory.remember`、Room Approval、Tool Ledger、幂等回执、写后回读和答案级记忆导航，没有新增 Tool/Skill、权限、Room Schema、Workflow 或后台能力。
+
+### 已验证证据
+
+- 聚焦 JVM `SharedTextAgentDraftPolicyTest 3/3` 通过；`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Redmi 入口组合 `OK (3 tests)`、`5.912s`：`SharedDraftNoticeInstrumentedTest` 覆盖三个按钮，`ConversationPageInstrumentedTest#routesSharedTextMemoryDraftThroughActionsWithoutSending` 证明动作不发送，`SharedDraftActivityInstrumentedTest#textShareCanBecomeExplicitAgentMemoryDraftWithoutSending` 证明真实分享只生成草稿且没有消息/Run。
+- 首次真实 Provider 运行已经完成写入和审批，但模型仅把正文换行规范为空格，原测试因逐字节换行比较失败。临时记忆/Profile/会话仍由 `finally` 精确清理；生产逻辑没有修改或放宽。
+- 将业务边界校正为“规范空白后全部文字一致、不得增删事实”后，同一 Redmi 真实单项为 `OK (1 test)`、`19.732s`。最终 Run `run-51d3c846-5bb4-43ba-b904-906b61b58047` 只有一个 `memory.remember`，审批 `APPROVED`、`executorVerified=true`、typed verification `PASSED`、回执 `COMMITTED`。
+- 回执、`memoryIdsUsed`、当前 Room 记录和会话 Tool part 的答案级导航均绑定 `memory-e6c7432a-a94f-4955-85fb-81bdfd7a6400`；输出 `STAGE234_SHARED_MEMORY ... storeReadBack=true navigationIdentity=true oldRunUnchanged=true`。最近旧 Run 的完整稳定摘要保持不变。
+
+### 验证范围与收尾
+
+- 安装、instrumentation、日志和功能验收只对 Redmi `wsvwypiz7xwslvl7` 执行；ADB 清单中的 `emulator-5554` 未接收任何目标命令。
+- 临时记忆只按 `COMMITTED` 回执 memory ID 删除，同时清理撤销文件、临时 Profile 和会话；新 Run/Approval/Tool Ledger 审计保留。test APK 已卸载，主 Debug 保留，crash buffer 为空。
+- 最终文档写回并重打 AndroidTest 资产后，Redmi `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、`3.288s`。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+继续选择一个能增加个人 Agent 真实任务覆盖的单一用户场景。可优先评估显式外部文本到现有日程能力的受控入口，但不得猜测缺失时间字段、绕过日历权限/Profile/审批或把 Intent 升级为后台自动执行；剪贴板、任意 deep link、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 2026-08-10 第 233 阶段：提醒结果一次性安全导航
 
 ### 当前结论

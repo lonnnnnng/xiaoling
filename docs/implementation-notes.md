@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 234 阶段：系统分享文本到显式长期记忆闭环（完成）
+
+- `SharedTextAgentDraftPolicy` 新增 `createMemoryDraft()`：只接受去除首尾空白后的非空分享文本，生成固定 `/agent 使用 memory.remember ...` 草稿；策略不持有 Context、Provider、Profile、Run 或发送回调。原 `createNoteDraft()` 行为不变。
+- `ConversationActions`、`XiaoLingApp` 与 `XiaoLingViewModel.createAgentMemoryDraftFromSharedText()` 建立窄接线。ViewModel 复用 `canTransformImportedSharedText()`，只替换 prompt、清除分享标记、退出个人任务模式并清理旧失败/完成提示；不会调用模型、`sendMessage()` 或 Registry。
+- `SharedDraftSourceLabel` 新增“保存为记忆”，来源标签和三个显式转换动作分为两行；`shared-draft-agent-memory` testTag 固定入口身份。图片/文档、附件读取、发送、会话加载和个人任务确认/执行门禁继续共享，不为记忆入口单独放宽。
+- `SharedTextAgentDraftPolicyTest` 增加记忆草稿和空文本用例；`SharedDraftNoticeInstrumentedTest`、`ConversationPageInstrumentedTest`、`SharedDraftActivityInstrumentedTest` 分别覆盖按钮回调、动作不发送和真实 `ACTION_SEND` 只生成草稿，共 Redmi `3/3`（`5.912s`）。
+- 新增 `Stage234SharedTextAgentMemoryInstrumentedTest`。临时 Profile 只允许 `personal-memory` 及 `memory.search / memory.remember`，系统提示进一步要求唯一 `memory.remember`；测试从真实分享、草稿转换、用户发送、审批、Tool Ledger、当前 Room 回读到 MessagePart 导航身份走正式链路。兜底 Provider 只可由显式 runner 参数恢复，源码、日志和 Git 不含凭据。
+- 首次真实运行已完成业务写入，但模型把正文换行规范为空格，测试因逐字节换行断言失败；`finally` 仍按回执清理临时业务数据。断言随后修正为规范空白后全文一致，以继续拒绝删字、改写和补充事实；第二次 Redmi `OK (1 test)`、`19.732s`。
+- 最终 Run `run-51d3c846-5bb4-43ba-b904-906b61b58047` 的唯一调用为 `memory.remember`，审批 `APPROVED`、Executor 验证为真、typed verification 为 `PASSED`、回执为 `COMMITTED`；`memory-e6c7432a-a94f-4955-85fb-81bdfd7a6400` 在当前 Store 与答案级导航身份中一致。临时记忆/Profile/会话/撤销文件已清理，Run 审计和旧 Run 不变证据保留。
+- 聚焦 JVM `3/3`、`:app:assembleDebug :app:assembleDebugAndroidTest`、上述 Redmi 功能单项和最终文档 corpus `1/1`（`3.288s`）通过；test APK 已卸载，crash buffer 为空。未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、生产 Tool/Skill、权限、Workflow 和后台边界不变。
+
 ## 第 233 阶段：提醒结果一次性安全导航（完成）
 
 - 新增 `ScheduledTaskResultNavigationTokenStore`。生产 token 使用 `SecureRandom` 生成 32 字节并编码为 43 字符 Base64URL；私有 SharedPreferences 以单一版本化 JSON 保存映射，进程级锁内通过同步 `commit()` 完成签发和消费。消费只有在删除成功落盘后才返回目标，24 小时过期、同 Task 新 token 撤销旧 token、重复 token/重复记录和损坏状态均 fail-closed。

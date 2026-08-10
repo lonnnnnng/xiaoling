@@ -206,6 +206,8 @@ private fun XiaoLingContent(
 
             override fun createAgentNoteDraftFromSharedText() = viewModel.createAgentNoteDraftFromSharedText()
 
+            override fun createAgentMemoryDraftFromSharedText() = viewModel.createAgentMemoryDraftFromSharedText()
+
             override fun createPersonalTaskDraftFromSharedText() = viewModel.createPersonalTaskDraftFromSharedText()
 
             override fun sendMessage() = viewModel.sendMessage()

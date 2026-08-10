@@ -360,6 +360,7 @@ internal fun ConversationPage(
                 onOpenPendingSharedDraft = actions::openPendingSharedDraft,
                 onDiscardPendingSharedDraft = actions::discardPendingSharedDraft,
                 onCreateAgentNoteDraftFromSharedText = actions::createAgentNoteDraftFromSharedText,
+                onCreateAgentMemoryDraftFromSharedText = actions::createAgentMemoryDraftFromSharedText,
                 onCreatePersonalTaskDraftFromSharedText = actions::createPersonalTaskDraftFromSharedText,
                 onSend = actions::sendMessage,
                 onStop = actions::stopGenerating,
@@ -542,6 +543,7 @@ private fun MessageInputBar(
     onOpenPendingSharedDraft: () -> Unit,
     onDiscardPendingSharedDraft: () -> Unit,
     onCreateAgentNoteDraftFromSharedText: () -> Unit,
+    onCreateAgentMemoryDraftFromSharedText: () -> Unit,
     onCreatePersonalTaskDraftFromSharedText: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -606,8 +608,10 @@ private fun MessageInputBar(
                     !state.awaitingPersonalTaskPlanConfirmation && state.personalTaskOperationPhase == null
                 SharedDraftSourceLabel(
                     noteActionEnabled = sharedTextActionEnabled,
+                    memoryActionEnabled = sharedTextActionEnabled,
                     taskActionEnabled = sharedTextActionEnabled && !state.personalTaskMode,
                     onCreateAgentNoteDraft = onCreateAgentNoteDraftFromSharedText,
+                    onCreateAgentMemoryDraft = onCreateAgentMemoryDraftFromSharedText,
                     onCreatePersonalTaskDraft = onCreatePersonalTaskDraftFromSharedText,
                 )
             }
@@ -851,44 +855,64 @@ internal fun SharedDraftPendingNotice(
 @Composable
 internal fun SharedDraftSourceLabel(
     noteActionEnabled: Boolean = false,
+    memoryActionEnabled: Boolean = false,
     taskActionEnabled: Boolean = false,
     onCreateAgentNoteDraft: () -> Unit = {},
+    onCreateAgentMemoryDraft: () -> Unit = {},
     onCreatePersonalTaskDraft: () -> Unit = {},
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 10.dp, top = 8.dp, end = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Icon(
-            imageVector = Icons.Default.Share,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "已从外部分享导入",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (taskActionEnabled) {
-            TextButton(
-                onClick = onCreatePersonalTaskDraft,
-                modifier = Modifier.testTag("shared-draft-personal-task"),
-            ) {
-                Text("转为任务", style = MaterialTheme.typography.labelSmall)
-            }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "已从外部分享导入",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        if (noteActionEnabled) {
-            TextButton(
-                onClick = onCreateAgentNoteDraft,
-                modifier = Modifier.testTag("shared-draft-agent-note"),
-            ) {
-                Text("保存为笔记", style = MaterialTheme.typography.labelSmall)
+        // long: 三个显式转换动作独立成行，避免 Redmi 窄屏把来源标签或按钮挤出可点击区域。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (taskActionEnabled) {
+                TextButton(
+                    onClick = onCreatePersonalTaskDraft,
+                    modifier = Modifier.testTag("shared-draft-personal-task"),
+                ) {
+                    Text("转为任务", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (noteActionEnabled) {
+                TextButton(
+                    onClick = onCreateAgentNoteDraft,
+                    modifier = Modifier.testTag("shared-draft-agent-note"),
+                ) {
+                    Text("保存为笔记", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            if (memoryActionEnabled) {
+                TextButton(
+                    onClick = onCreateAgentMemoryDraft,
+                    modifier = Modifier.testTag("shared-draft-agent-memory"),
+                ) {
+                    Text("保存为记忆", style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
     }

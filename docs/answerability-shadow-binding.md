@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 234 阶段系统分享长期记忆边界（无变更）
+
+本阶段只把用户显式选择的 `text/plain` 分享改写为可编辑 `/agent memory.remember` 草稿，并在用户发送、逐次审批、Room 回读和可信 MessagePart 投影后提供答案级记忆入口。分享正文、临时记忆、Profile/会话、Run/Approval/Tool Ledger、runner 参数和记忆导航 ID 均不进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 入口 `3/3` 与真实 Provider `1/1` 没有产生 Shadow 样本。
+
 ## 第 233 阶段提醒结果导航边界（无变更）
 
 本阶段新增的 token、workflowId、scheduledTaskId、workflowRunId、签发/过期时间、PendingIntent action、Activity 冷/热导航、一次性导航版本和页面高亮只属于应用内结果路由安全状态，不进入知识候选、Judge 输入、Shadow measurement、匿名账本、Provider 请求或答案级知识引用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定规则保持不变；Redmi 最终组合 `6/6` 已通过，没有产生 Shadow 样本或生产拒绝变化。

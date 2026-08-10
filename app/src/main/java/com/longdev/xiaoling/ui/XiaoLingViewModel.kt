@@ -1036,6 +1036,24 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
+    fun createAgentMemoryDraftFromSharedText() {
+        if (!canTransformImportedSharedText()) return
+        val draft = SharedTextAgentDraftPolicy.createMemoryDraft(uiState.prompt)
+        if (draft == null) {
+            showValidation("当前分享没有可保存的记忆文本")
+            return
+        }
+        // long: 分享入口只准备 memory.remember 草稿；清除旧任务状态可以防止先前完成卡被误认为这次记忆写入的结果。
+        uiState = uiState.copy(
+            prompt = draft,
+            sharedDraftImported = false,
+            personalTaskMode = false,
+            personalTaskFailure = null,
+            personalTaskCompletion = null,
+            result = null,
+        )
+    }
+
     fun createPersonalTaskDraftFromSharedText() {
         if (!canTransformImportedSharedText()) return
         val goal = uiState.prompt.trim()
