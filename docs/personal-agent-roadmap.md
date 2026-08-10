@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环（完成）
+
+- Artifact Tool 完整参考工作簿与 5 部件最小 XLSX 均通过导入、值检查、公式错误扫描和渲染。Android 夹具固定为内容类型、根关系、workbook、workbook relationships 与 sheet1 五个 OPC 部件，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于 `xl/worksheets/sheet1.xml`。
+- 统一读取器完成 ZIP 中央目录、本地头、展开预算与 `xl/workbook.xml` 根部件校验后，仍保持 `extractedText=null / pageCount=null`。XLSX 继续先进入新会话可编辑附件草稿；导入、用户改写 prompt 和输入 `/agent` 均不自动发送或创建 Run。
+- 验收 prompt、临时 Profile、文件名与 runner 参数均不包含三个动态值，Profile 只开放 `notes.create`。最终 Run `run-568f80c5-9910-4477-a4ec-7f765e446dfd` 为 `COMPLETED`，唯一审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；工具参数只能来自模型对工作表单元格的理解。
+- Room USER Document 保留 XLSX 原始字节与空提取正文/页数；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 真实单项为 `OK (1 test)`、`28.379s`；文档 corpus 首次为 `1/1`、`3.071s`，写回结果后的最终文本 gate 也为 `1/1`、`3.179s`。
+- 临时笔记/Profile/会话/MediaStore XLSX 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+第 242 阶段已经完成 DOCX、PPTX、XLSX 三类 OpenXML 文件理解覆盖。下一阶段优先验证单图片通过系统分享进入可编辑草稿、由用户明确发送后再进入视觉 Agent 的受控闭环；继续禁止多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 第 241 阶段：系统分享 PPTX 到显式 Agent 理解闭环（完成）
 
 - 测试从 Artifact Tool 真实 PPTX 验证出发，确认 5 部件简化包无法被桌面解析器接受，再补齐 presentation、slide、layout、master 与双向关系，形成可渲染、无溢出的 10 部件 PPTX/OPC 夹具。动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于 `ppt/slides/slide1.xml`。
@@ -8,7 +18,7 @@
 - Room USER Document 保留 PPTX 原始字节与空提取正文/页数；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 真实单项为 `OK (1 test)`、`25.217s`；文档 corpus 首次为 `1/1`、`3.251s`，写回结果后的最终文本 gate 也为 `1/1`。
 - 临时笔记/Profile/会话/MediaStore PPTX 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
 
-下一阶段优先验证 XLSX，完成当前支持的三类 OpenXML 文件理解覆盖；继续禁止多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+第 242 阶段已完成 XLSX/OpenXML 工作簿理解闭环。
 
 ## 第 240 阶段：系统分享 DOCX 到显式 Agent 理解闭环（完成）
 

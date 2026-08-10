@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环（完成）
+
+- 新增 `Stage242SharedXlsxAgentInstrumentedTest`，只在显式 `stage242RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 `ZipOutputStream` 生成包含 `[Content_Types].xml`、`_rels/.rels`、`xl/workbook.xml`、工作簿关系与 `xl/worksheets/sheet1.xml` 的 5 部件 OPC 包，再经 MediaStore 精确 XLSX MIME 分享进入正式 `MainActivity`。
+- 夹具结构先由 Artifact Tool 完整工作簿验证，再对 5 部件最小包执行导入、`A1:B4` 值检查、公式错误扫描和渲染；两者均成功，因此测试没有把只满足应用 `xl/workbook.xml` 根部件门禁的伪 ZIP 当作真实 XLSX。
+- 动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只写入 `xl/worksheets/sheet1.xml` 的 Value 列；文件名、用户 prompt、Profile system prompt 与 runner 参数均不含实际值。统一读取器断言 ZIP 本地头、精确 XLSX MIME、`extractedText=null / pageCount=null`，应用没有本地正文旁路。
+- 用户把普通说明改为不含动态值的 `/agent` 命令后仍无 Run，明确发送才通过正式 `sendMessage -> AgentRunUseCase -> OpenAiAgentLlm` 携带 USER XLSX。临时 Responses Profile 只开放 `notes.create`，写入继续经过交互审批、Executor verification、提交回执和 Tool Message 投影。
+- 最终 Run `run-568f80c5-9910-4477-a4ec-7f765e446dfd` 的唯一 `notes.create` 为 `APPROVED / PASSED / COMMITTED`；Room USER XLSX BLOB、Ledger/Tool Message 和 Note Store 回读一致，旧 Run 摘要不变，日志为 `xlsxPersisted=true / storeReadBack=true / oldRunUnchanged=true / cleanupVerified=true`。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 成功；Redmi 真实单项为 `OK (1 test)`、`28.379s`，文档 corpus 首次为 `1/1`、`3.071s`，写回结果后的最终文本 gate 也为 `1/1`、`3.179s`。测试内断言临时笔记/Profile/会话/MediaStore XLSX 已清理，原选择恢复且新 Run 审计保留。本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议，也未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 241 阶段：系统分享 PPTX 到显式 Agent 理解闭环（完成）
 
 - 新增 `Stage241SharedPptxAgentInstrumentedTest`，只在显式 `stage241RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 `ZipOutputStream` 生成 presentation、slide、layout、master 及关系组成的 10 部件 OPC 包，再经 MediaStore 精确 PPTX MIME 分享进入正式 `MainActivity`。

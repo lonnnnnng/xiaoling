@@ -4,6 +4,33 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 242 阶段：系统分享 XLSX 到显式 Agent 理解闭环
+
+### 当前结论
+
+- Artifact Tool 完整参考工作簿与 5 部件最小 XLSX 均可正确读取 `A1:B4`，公式错误扫描为 0，并成功渲染。Android 夹具据此生成真实可解析 XLSX，而不是只满足应用 `xl/workbook.xml` 根部件门禁的伪 ZIP。
+- XLSX 经统一读取器后为精确 SpreadsheetML MIME、`extractedText=null / pageCount=null`。分享导入和用户编辑阶段无消息、无 Run，只有明确发送 `/agent` 后才进入 Responses Agent。
+- 动态标题、验收码和结论只存在于 `xl/worksheets/sheet1.xml` 的 Value 列，prompt、Profile、文件名与 runner 参数不携带实际值；临时 Profile 仅开放 `notes.create`。最终工具参数恢复全部值，证明当前 Provider 能理解 XLSX 工作表而不是依赖本地提取正文。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+### 已验证证据
+
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Debug 与 AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`；真实单项为 `OK (1 test)`、`28.379s`。
+- 最终 Run `run-568f80c5-9910-4477-a4ec-7f765e446dfd` 为 `COMPLETED`；唯一 `notes.create` 审批 `APPROVED`，ToolResult 为 `success=true / executorVerified=true / PASSED`，回执 `COMMITTED`，稳定 Note ID 为 `note-8dbf3fb3-438e-4eaf-84b1-d5db29fc7f9d`。
+- Room USER Message 按 Run 的 `userMessageId` 回读到原始 XLSX Document，ZIP 本地头、MIME 与空提取正文/页数保持；Tool Message 参数与 Ledger 相同，Note Store 标题/正文包含 `xl/worksheets/sheet1.xml` 中的三个动态事实。
+- 同步第 242 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus 首次为 `OK (1 test)`、`3.071s`；写回结果后的最终文本 gate 也为 `OK (1 test)`、`3.179s`。
+
+### 验证范围与收尾
+
+- 临时笔记只按本轮 `COMMITTED` operation ID 删除；临时 Profile、会话和 MediaStore XLSX 按稳定身份精确清理，原 Profile/会话选择恢复，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 日志输出 `STAGE242_SHARED_XLSX_AGENT ... xlsxPersisted=true storeReadBack=true oldRunUnchanged=true cleanupVerified=true`。安装、instrumentation 和日志只对 Redmi 执行，没有向两个在线模拟器发送目标命令。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+优先验证单图片经系统分享进入可编辑草稿、由用户明确发送后再进入视觉 Agent 的受控理解链；不扩展多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 2026-08-10 第 241 阶段：系统分享 PPTX 到显式 Agent 理解闭环
 
 ### 当前结论

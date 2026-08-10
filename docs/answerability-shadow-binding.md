@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 242 阶段 XLSX Agent 理解边界（无变更）
+
+本阶段只验证 `extractedText=null / pageCount=null` 的真实 XLSX 在用户明确发送 `/agent` 后进入既有 Responses 文件规划、`notes.create` 审批与 Store 回读。XLSX URI、原始 ZIP/OPC BLOB、`xl/worksheets/sheet1.xml` 动态单元格值、临时笔记/Profile/会话、Run/Approval/Tool Ledger、桌面参考夹具和 runner 参数均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 真实 `1/1` 没有产生 Shadow 样本。
+
 ## 第 241 阶段 PPTX Agent 理解边界（无变更）
 
 本阶段只验证 `extractedText=null / pageCount=null` 的真实 PPTX 在用户明确发送 `/agent` 后进入既有 Responses 文件规划、`notes.create` 审批与 Store 回读。PPTX URI、原始 ZIP/OPC BLOB、`ppt/slides/slide1.xml` 动态值、临时笔记/Profile/会话、Run/Approval/Tool Ledger、桌面参考夹具和 runner 参数均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 真实 `1/1` 没有产生 Shadow 样本。

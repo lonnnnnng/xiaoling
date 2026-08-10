@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 242 阶段继续采用成熟个人 Agent 的“富文档由供应商理解、应用验证可信 OPC 身份、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：XLSX 动态事实只存在于 `xl/worksheets/sheet1.xml`，应用侧明确没有提取正文或页数；完整与 5 部件最小工作簿先经 Artifact Tool 读取和渲染，再由模型形成正确 `notes.create`，Room XLSX BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 Excel 解析伪装模型理解、后台工作簿监听、自动摘要、隐式写入、远程 Channel 或多 Agent 文档协作。
+
 第 241 阶段继续采用成熟个人 Agent 的“富文档由供应商理解、应用验证可信 OPC 身份、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：PPTX 动态事实只存在于 `ppt/slides/slide1.xml`，应用侧明确没有提取正文或页数；夹具先通过真实桌面渲染边界，再由模型形成正确 `notes.create`，Room PPTX BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 PowerPoint 解析伪装模型理解、后台演示文稿监听、自动摘要、隐式写入、远程 Channel 或多 Agent 文档协作。
 
 第 240 阶段继续采用成熟个人 Agent 的“富文档由供应商理解、应用只验证可信 OPC 身份、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：DOCX 动态事实只存在于 `word/document.xml`，应用侧明确没有提取正文或页数；模型仍形成正确 `notes.create`，Room DOCX BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 Office 解析伪装模型理解、后台文件监听、自动摘要、隐式写入、远程 Channel 或多 Agent 文档协作。
