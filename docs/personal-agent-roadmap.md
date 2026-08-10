@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 238 阶段：系统分享文档到显式 Agent 理解闭环（完成）
+
+- Markdown 继续先通过 Android `ACTION_SEND` 进入新会话可编辑附件草稿；导入、用户编辑以及把普通说明替换为 `/agent` 的过程都不会自动发送、调用模型或创建 Run。只有用户明确点击发送后，可信 USER Document 才进入既有 Responses Agent 附件链。
+- 真实验收命令只描述“从一级标题和两个标签行创建笔记”，不包含动态文档标题、验收码或结论。临时 Profile 仅开放 `notes.create`；模型必须从附件生成唯一工具参数，写入仍需用户批准。
+- 最终 Run `run-96f7b55a-7741-4fb8-a92c-3fbe7a3a92cc` 为 `COMPLETED`，唯一审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`。USER 消息保留完整 Markdown Document BLOB，Tool Message 参数与 Ledger 一致，回执笔记按稳定 ID 从当前 Store 回读标题和两个附件专属字段。
+- 仅 Redmi `wsvwypiz7xwslvl7` 真实单项为 `OK (1 test)`、`21.901s`，文档 corpus gate 为 `1/1`、`3.406s`。临时笔记/Profile/会话/MediaStore 文档精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。
+- 本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+下一阶段优先验证 PDF 等没有本地提取正文的二进制文档仍能通过同一“分享草稿 → 明确 `/agent` 发送 → 受审批工具 → Store 回读”链路；不扩展多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 第 237 阶段：Android 单文档系统分享入口（完成）
 
 - `ACTION_SEND` 从原单文本/单图片扩展到 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；仍不声明 `ACTION_SEND_MULTIPLE`、通配 MIME、GIF、ZIP 或任意文件。
@@ -8,7 +18,7 @@
 - 聚焦 JVM `SharedDraftParserTest 6/6 + SharedDraftProjectionPolicyTest 3/3 + DocumentAttachmentPolicyTest 8/8`（`17/17`）通过，Debug/AndroidTest APK 构建成功。仅 Redmi `wsvwypiz7xwslvl7` 的 Manifest、Markdown 成功/缺失文档、文档标签和文本/图片回归合计 `5/5`、`8.645s`，文档 corpus gate `1/1`、`3.186s`；主应用数据和 Provider 配置保留，未向模拟器发送目标命令。
 - 本阶段没有新增 Room Schema、Android 权限、后台 URI 持久化、自动 Agent 执行或多附件能力；完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
 
-下一阶段优先验证“分享文档先进入可编辑附件草稿，用户明确输入并发送 `/agent` 后才进入既有 Responses 文档理解链”的真实闭环；外部 Intent 仍不得自动添加 `/agent` 或触发模型。远程 Channel、多 Agent、本地模型、后台文档摄取和 `ACTION_SEND_MULTIPLE` 继续后置。
+第 238 阶段已完成分享 Markdown 经用户明确 `/agent` 发送后的真实 Responses 文档理解闭环。
 
 ## 第 236 阶段：系统分享文本到受控单日全天日程（完成）
 

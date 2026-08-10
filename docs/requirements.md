@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统分享文档到显式 Agent 理解闭环（第 238 阶段，完成）
+
+- 第 237 阶段导入的单文档必须继续停留在可编辑草稿。外部 Intent、文档读取成功、用户编辑说明以及输入 `/agent` 本身均不得自动发送、调用模型、创建 Run、请求审批或执行工具；只有用户明确触发发送才可进入 Agent。
+- 前台直接 Agent 仅在 Responses 模式接收一个可信 USER Document；发送前必须沿用现有单附件、USER 来源、文档格式和 Profile/Provider 校验。附件必须先随 USER MessagePart 完整写入 Room，Run 才能建立，确保审批等待或进程恢复仍可按 userMessageId 重建原附件。
+- 真实验收命令不得包含动态文档标题、验收码或结论；模型提出的唯一 `notes.create(title, content)` 必须准确包含这些仅存在于文档的事实，证明工具参数来自附件而不是测试 prompt。
+- 写入必须经过 `REQUIRES_APPROVAL`，最终满足 Run `COMPLETED`、Approval `APPROVED`、ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`。Room USER Document、Tool Message、Ledger 参数和当前 Note Store 回读必须一致。
+- 清理只能从本轮 `COMMITTED` 回执恢复 note ID；临时笔记、Profile、会话和 MediaStore 文档必须精确删除，原 Profile/会话选择恢复，旧 Run 不变而本轮 Run 审计保留。
+- 仅 Redmi 真实单项 `1/1`（`21.901s`）和文档 corpus gate `1/1`（`3.406s`）已通过。本阶段不修改生产代码、Room v36、Manifest、权限、Tool/Skill、Workflow、后台或附件协议；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+
 ## Android 单文档系统分享入口（第 237 阶段，完成）
 
 - Manifest 只可为 `ACTION_SEND` 暴露现有 `DocumentAttachmentPolicy` 支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；不得声明 `ACTION_SEND_MULTIPLE`、通配文档/图片 MIME、GIF、ZIP 或任意二进制类型。

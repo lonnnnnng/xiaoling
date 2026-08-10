@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 238 阶段继续采用成熟个人 Agent 的“外部附件先成为用户可见草稿、能力升级必须由用户明确发送、附件事实与工具副作用共享同一审计身份、提交后回权威 Store”原则：测试 prompt 不携带文档专属值，模型必须从可信 USER Document 形成 `notes.create` 参数，写入仍逐次审批；Room 文档 BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的自动摘要、后台文件监听、隐式工具执行、任意文件队列、远程 Channel 或多 Agent 文档协作。
+
 第 237 阶段继续采用成熟个人 Agent 的“外部内容先进入用户可见草稿、附件解析复用统一安全边界、外部入口不自动执行”的原则：系统分享只声明现有附件链已支持的精确文档 MIME，单个 `content://` URI 进入新会话后继续由统一读取器执行大小、编码、PDF 和 OpenXML 校验；未知类型、多附件与不安全 URI fail-closed。实现没有复制参考项目的后台文件监听、自动摘要、任意文件摄取、持久 URI 队列、远程 Channel 或多 Agent 文档协作。
 
 第 236 阶段继续采用成熟个人 Agent 的“外部内容先结构化为用户可见草稿、不同时间语义使用独立契约、缺失参数不猜测、副作用逐次审批、提交后回权威 Provider”原则：单日全天事件没有作为可选字段混入定时日程，而是只从唯一标题和规范日期生成独立 `/agent calendar.create_all_day_event` 草稿；出现定时字段会拒绝。最终 Tool Ledger、`COMMITTED/PASSED`、Calendar Provider UTC 全天边界回读和答案级 `calendar-92` 互相核对，清理只使用回执 ID。实现没有复制参考项目的自然语言日期猜测、多日/重复日程、参与人邀请、提醒后台化、远程 Channel 或多 Agent 日历协作。

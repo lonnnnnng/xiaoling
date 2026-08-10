@@ -4,6 +4,31 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 238 阶段：系统分享文档到显式 Agent 理解闭环
+
+### 当前结论
+
+- 第 237 阶段的 Markdown 分享先进入可编辑附件草稿；导入与用户编辑阶段没有自动消息或 Run。只有用户明确输入并发送 `/agent` 后，可信 USER Document 才进入既有 Responses Agent 规划请求。
+- 测试 prompt 不包含动态文档标题、验收码或结论；临时 Profile 只开放 `notes.create`。因此最终工具参数中的三个附件专属事实不能来自 prompt 或其他工具，只能来自模型读取的分享文档。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+### 已验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`；AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。
+- 首次真实单项为 `OK (1 test)`、`28.886s`。补充测试内清理断言后最终复跑为 `OK (1 test)`、`21.901s`。
+- 最终 Run `run-96f7b55a-7741-4fb8-a92c-3fbe7a3a92cc` 为 `COMPLETED`；唯一 `notes.create` 审批 `APPROVED`，ToolResult 为 `success=true / executorVerified=true / PASSED`，回执 `COMMITTED`，稳定 Note ID 为 `note-9af3f41f-0684-4c63-867f-7bd8b551acdc`。
+- Room USER Message 按 Run 的 `userMessageId` 回读到完整 Markdown Document；Tool Message 参数与 Ledger 相同，Note Store 标题和正文包含仅存在于文档的动态标题、验收码及结论。日志输出 `documentPersisted=true / storeReadBack=true / oldRunUnchanged=true / cleanupVerified=true`。
+- 同步第 238 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus gate 为 `OK (1 test)`、`3.406s`。
+
+### 验证范围与收尾
+
+- 临时笔记只按本轮 `COMMITTED` operation ID 删除；临时 Profile、会话和 MediaStore 文档按稳定身份精确清理，原 Profile/会话选择恢复，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 安装、instrumentation、日志和功能验收只对 Redmi 执行；没有向 `emulator-5554` 发送目标命令。按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+优先用 PDF 等没有本地提取正文的二进制文档复用同一显式 Agent 链，确认供应商文件理解而不是本地文本兜底；继续禁止多附件、自动发送、后台文档摄取和远程执行。
+
 ## 2026-08-10 第 237 阶段：Android 单文档系统分享入口
 
 ### 当前结论

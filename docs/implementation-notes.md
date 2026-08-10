@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 238 阶段：系统分享文档到显式 Agent 理解闭环（完成）
+
+- 新增 `Stage238SharedDocumentAgentInstrumentedTest`，只在显式 `stage238RealRun=true` 且 `Build.DEVICE=begonia` 时运行。测试创建动态 Markdown MediaStore 文档，通过真实 `ACTION_SEND` 进入 `MainActivity`，先冻结“无用户消息、无 Run、附件正文已由统一读取器回读”，再由用户动作把 prompt 改为 `/agent` 并调用正式发送入口。
+- 临时 Agent Profile 使用当前 Redmi Provider 的 Responses 模式，只开放 `notes.create` 且关闭 Skill/长期记忆。测试命令没有动态标题、验收码或结论；规划器若能形成正确参数，只能来自每轮 Responses 请求携带的可信 USER Document。
+- 发送前 `ConversationPersistenceCoordinator` 先落库 USER Text/Document parts，正式 `AgentRunUseCase -> OpenAiAgentLlm -> MinimalAgentRuntime` 继续使用既有附件、逐次审批、Tool Ledger、Executor verification、提交回执和 Tool Message 投影，没有新增测试旁路或生产 Receiver。
+- 最终 Run `run-96f7b55a-7741-4fb8-a92c-3fbe7a3a92cc` 的唯一 `notes.create` 为 `APPROVED / PASSED / COMMITTED`；Room USER 文档提取正文、Ledger/Tool Message 参数以及 Note Store 的标题/正文均包含同一附件专属事实，旧 Run 摘要不变。
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功；Redmi 真实单项最终为 `OK (1 test)`、`21.901s`，文档 corpus gate 为 `1/1`、`3.406s`。测试内断言临时笔记/Profile/会话/MediaStore 文档已清理，原选择恢复且新 Run 审计保留。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
 ## 第 237 阶段：Android 单文档系统分享入口（完成）
 
 - `SharedDraftPayload` 新增可空 `documentUri`，`SharedDraftParser` 以 `DocumentAttachmentPolicy.pickerMimeTypes()` 作为受支持文档 MIME 源。无流的 `text/plain` 仍走普通文本分支，有流时转为 TXT 文档；文档分支只保存规范说明和单个小写 `content://` URI，不读取字节或暴露发送回调。

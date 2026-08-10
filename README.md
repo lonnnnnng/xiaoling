@@ -1,5 +1,7 @@
 # 小灵
 
+第 238 阶段完成系统分享单文档到显式个人 Agent 的真实理解闭环。Markdown 先通过 `ACTION_SEND` 进入可编辑附件草稿，导入和用户编辑阶段均没有消息或 Run；用户明确输入并发送 `/agent` 后，既有 Responses 附件链才把可信 USER Document 交给规划器。验收命令不包含文档标题或验收码，真实模型仍从附件生成唯一 `notes.create`，最终 Run `run-96f7b55a-7741-4fb8-a92c-3fbe7a3a92cc` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`。Room USER 文档 BLOB、Tool Message 和笔记 Store 回读一致；临时笔记/Profile/会话/MediaStore 文档精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`21.901s`）及文档 corpus gate `1/1`（`3.406s`）通过；生产代码、Room v36、工具/权限与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 第 237 阶段完成 Android 单文档系统分享入口。`ACTION_SEND` 现在只接收 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；单个 `content://` URI 先成为可编辑新会话草稿，再复用现有 `DocumentAttachmentReader` 的 8 MB、UTF-8、PDF 页数和 OpenXML 结构校验，不自动发送、调用模型或创建 Run。`text/plain` 无 URI 时仍为普通文本，有 URI 时按 TXT 文档处理；冲突 URI、多项 ClipData、缺失/非 `content://` URI、未知 MIME 和 `ACTION_SEND_MULTIPLE` 均 fail-closed。聚焦 JVM `17/17`、Debug/AndroidTest APK 构建、仅 Redmi 入口/Manifest/文本图片回归 `5/5`（`8.645s`）及文档 corpus gate `1/1`（`3.186s`）通过；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
 
 第 236 阶段完成系统分享文本到受控单日全天日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题和规范 `yyyy-MM-dd` 日期各自唯一且没有开始、结束或时区等定时字段时，“创建全天日程”才生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Calendar Provider。五个分享动作保持分行可达。聚焦 JVM `9/9`、Debug/AndroidTest APK、Redmi 入口 `4/4`（`7.989s`）和真实 Provider `2/2`（`21.034s`）通过；最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider、消息 Tool part 和答案级导航统一绑定 `calendar-92`，缺字段样本未创建 Run，旧 Run 不变，事件按回执 ID 与 UTC 全天边界精确清理。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向 `emulator-5554` 发送目标命令。
@@ -36,7 +38,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 237 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 237 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程和单份受支持文档草稿；下一阶段优先验证分享文档在用户明确发送后的既有 `/agent` 附件理解链，不以 Release 或全量测试占据日常快速迭代。
+当前开发基线已推进至第 238 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 238 阶段已把系统分享分别接入受控笔记、个人任务、一次性提醒、长期记忆、定时/全天系统日程、单份受支持文档草稿和用户明确发送后的真实 Agent 文档理解；下一阶段优先验证 PDF 等无本地提取正文的二进制文档，继续以单一真实闭环推进，不以 Release 或全量测试占据日常快速迭代。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 
@@ -218,8 +220,8 @@ GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
    - `API Key`：服务需要鉴权时填写。
 3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
 4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
-5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。也可从 Android 分享面板选择「小灵」，把单段文本或单张支持的图片导入新会话草稿，确认内容后再自行发送。
-6. 输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路，但当前 `/agent` 不接收附件。
+5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。也可从 Android 分享面板选择「小灵」，把单段文本、单张支持图片或单份受支持文档导入新会话草稿，确认内容后再自行发送。
+6. 输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路；前台直接 `/agent` 在 Responses 模式可携带单张图片或一个文档，仍不支持混合/多附件、Workflow 或后台附件执行。
 7. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
 8. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
 9. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟、系统设置、Google 天气和系统桌面等首批验收范围；前台手动 Workflow 可使用 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，全部后台设备工具仍关闭。

@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 238 阶段分享文档 Agent 理解边界（无变更）
+
+本阶段只验证分享 Markdown 在用户明确发送 `/agent` 后进入既有 Responses 附件规划、`notes.create` 审批与 Store 回读。文档 URI、原始/提取正文、动态标题、验收码、临时笔记/Profile/会话、Run/Approval/Tool Ledger 和 runner 参数均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 真实 `1/1` 没有产生 Shadow 样本。
+
 ## 第 237 阶段系统分享单文档边界（无变更）
 
 本阶段只把单份受支持文档和可选说明投影到既有可编辑附件草稿；文档 URI、文件名、MIME、提取正文、分享说明和读取失败信息均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 聚焦 `5/5` 没有发送消息、创建 Run 或产生 Shadow 样本。
