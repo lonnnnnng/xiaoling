@@ -1,6 +1,8 @@
 # 文档索引
 
-第 247 阶段完成 `calendar.create_event` 的可选单提醒 Provider 能力。`reminder_minutes_before` 只接受 `0..10080` 的规范整数；未明确要求时省略，全天/重复/多提醒不开放。事件与 `CalendarContract.Reminders` 使用 `applyBatch` 原子提交，幂等重放和已提交恢复都要求当前 Provider 恰好一条相同 `METHOD_ALERT` 提醒；答案级导航同时绑定请求与结果的提醒分钟。聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒 `1/1`、无提醒回归 `1/1` 和最终文档 corpus `1/1` 通过，临时 Provider 数据已精确清理。下一阶段补真实模型、审批和系统详情验收；Room v36、权限集合与后台边界不变。
+第 248 阶段完成带 30 分钟单提醒日程的 Redmi 真实自然语言闭环：真实模型只规划唯一 `calendar.create_event`，发送、审批和答案级“查看日程”都通过屏幕可见节点完成；Ledger、`APPROVED / PASSED / COMMITTED`、Provider 事件/提醒回读和详情页“提前30分钟”一致。页面重建后答案级入口仍可从 Room 恢复；事件按回执 ID 精确删除并确认 reminder 级联清理，原 Profile/会话恢复、新 Run 保留且旧 Run 不变。聚焦构建、Provider/详情前置 `2/2` 和最终真实单项 `1/1`（`31.545s`）通过。下一阶段回到新的个人 Agent 窄任务；全天提醒、重复、多提醒、参与人、Workflow 与后台日历继续后置。
+
+第 247 阶段完成 `calendar.create_event` 的可选单提醒 Provider 能力。`reminder_minutes_before` 只接受 `0..10080` 的规范整数；未明确要求时省略，全天/重复/多提醒不开放。事件与 `CalendarContract.Reminders` 使用 `applyBatch` 原子提交，幂等重放和已提交恢复都要求当前 Provider 恰好一条相同 `METHOD_ALERT` 提醒；答案级导航同时绑定请求与结果的提醒分钟。聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒 `1/1`、无提醒回归 `1/1` 和最终文档 corpus `1/1` 通过，临时 Provider 数据已精确清理。真实模型、审批和系统详情验收已由第 248 阶段完成；Room v36、权限集合与后台边界不变。
 
 第 246 阶段完成可信联系人答案级“查看联系人”入口：只从成功且可信的 `contacts.get / PASSED` 单一详情结果显示按钮；点击时重新检查权限并从当前 Contacts Provider 回读 ID 与 `lookupKey`，确认身份稳定后通过 `ACTION_VIEW` 跳转系统联系人详情。删除/合并、权限撤销、Provider 不可用、lookupKey 缺失或系统无处理方均 fail-closed，lookupKey 不进入 Tool/答案文本。聚焦 JVM `7/7`、Debug/AndroidTest APK；仅 Redmi 正向详情/删除竞态 `2/2`（`5.891s`）、撤权 fail-closed `1/1`（`2.799s`）和最终文档 corpus `1/1` 通过。Room v36、后台边界和联系人写入/通知读取后置不变。
 

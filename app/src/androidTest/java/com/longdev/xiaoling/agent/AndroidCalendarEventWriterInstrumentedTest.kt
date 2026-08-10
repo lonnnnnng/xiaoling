@@ -61,11 +61,16 @@ class AndroidCalendarEventWriterInstrumentedTest {
             val replay = writer.createOrReadBack(request)
             val recovered = writer.verifyCommitted(first.event.eventId, request)
             val reminders = eventReminders(context, first.event.eventId)
+            val detail = AndroidCalendarEventReader(context.contentResolver).getEvent(first.event.eventId.toLong())
 
             assertTrue(first.verified)
             assertEquals(30, first.event.reminderMinutesBefore)
             assertEquals(1, first.event.reminderCount)
             assertEquals(listOf(30 to CalendarContract.Reminders.METHOD_ALERT), reminders)
+            assertTrue(detail is CalendarEventDetailReadResult.Success)
+            detail as CalendarEventDetailReadResult.Success
+            assertEquals(30, detail.event.reminderMinutesBefore)
+            assertEquals(1, detail.event.reminderCount)
             assertTrue(replay is CalendarEventWriteResult.Committed && replay.verified && replay.event.reused)
             assertTrue(recovered is CalendarEventWriteResult.Committed && recovered.verified && recovered.event.reused)
         } finally {

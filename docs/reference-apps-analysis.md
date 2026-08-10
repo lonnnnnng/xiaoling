@@ -1,6 +1,8 @@
 # `reference-apps` 个人 Agent 实现分析
 
-第 247 阶段采用成熟日历 Agent 的“用户明确提醒、Provider 原子写入、提交后逐字段回读”原则。小灵只在现有一次性非全天 `calendar.create_event` 上增加一个受限 ALERT reminder；没有复制参考项目的默认提醒猜测、多个提醒、邮件通知、参与人邀请、重复事件扩张或后台调度。事件和 reminder 通过 Calendar Provider `applyBatch` 一起提交，幂等重放与已提交恢复要求提醒行数、方法和分钟完全一致。Redmi 带提醒、无提醒 Provider 单项与最终文档 corpus 均通过；真实模型与审批链留到下一阶段。
+第 248 阶段把参考 Agent 的“自然语言规划、用户可见审批、提交后权威回读、稳定身份清理”组合成一条 Redmi 真实链。测试没有直接调用审批或导航 API，而是点击屏幕节点；页面重建后仍从持久化 Tool Message 恢复答案级入口，再读取当前 Calendar Provider 的唯一 30 分钟 ALERT。实现没有复制默认提醒猜测、后台静默创建、重复/多提醒、参与人邀请或任意深链接；清理只信 COMMITTED event ID，并保留新 Run 审计与旧 Run 不变证据。
+
+第 247 阶段采用成熟日历 Agent 的“用户明确提醒、Provider 原子写入、提交后逐字段回读”原则。小灵只在现有一次性非全天 `calendar.create_event` 上增加一个受限 ALERT reminder；没有复制参考项目的默认提醒猜测、多个提醒、邮件通知、参与人邀请、重复事件扩张或后台调度。事件和 reminder 通过 Calendar Provider `applyBatch` 一起提交，幂等重放与已提交恢复要求提醒行数、方法和分钟完全一致。Redmi 带提醒、无提醒 Provider 单项与最终文档 corpus 均通过；真实模型与可见审批链已由第 248 阶段完成。
 
 第 246 阶段沿用成熟个人 Agent 的“答案只来自可信结构化事实、点击前重新读取权威源、短生命周期导航身份”原则。联系人详情按钮只由成功且可信的 `contacts.get / PASSED` 单一结果生成；点击时重新读取 Contacts Provider，使用 contact ID + `lookupKey` 构造 `ACTION_VIEW`，拒绝删除/合并、权限撤销、Provider 异常和系统启动失败。小灵没有复制参考项目的联系人深链接猜测、全量索引或后台联系人访问；`lookupKey` 不进入消息、日志、模型上下文或答案投影。Redmi 合成联系人正向/删除竞态与撤权 fail-closed 均通过，最终文档 corpus gate `1/1` 通过。
 

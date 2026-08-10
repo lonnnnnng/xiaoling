@@ -52,6 +52,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -493,7 +495,10 @@ private fun ToolMessagePartContent(
     part.calendarEventIdForNavigation()?.let { eventId ->
         TextButton(
             onClick = { onOpenCalendarEvent(eventId) },
-            modifier = Modifier.padding(top = 2.dp),
+            // long: 答案级导航需要被 TalkBack 与真机自动化稳定识别；显式语义避免按钮文字因 Compose 合并或裁剪而从无障碍树消失。
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .semantics { contentDescription = "查看日程" },
         ) {
             Icon(
                 imageVector = Icons.Default.Event,

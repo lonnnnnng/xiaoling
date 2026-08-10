@@ -2257,8 +2257,15 @@ class XiaoLingToolRegistry(
             appendLine("全天：${if (allDay) "是" else "否"}")
             appendLine("时区：$safeTimeZone")
             appendLine("重复：${if (recurring) "是" else "否"}")
+            appendLine("提醒：${toCalendarReminderText()}")
             append("事件指纹：${CalendarEventFingerprint.create(this@toCalendarDetailText)}")
         }
+    }
+
+    private fun CalendarEventDetailRecord.toCalendarReminderText(): String = when {
+        reminderCount == 0 -> "无"
+        reminderCount == 1 && reminderMinutesBefore != null -> "提前${reminderMinutesBefore}分钟"
+        else -> "存在提醒（当前最小详情不展开）"
     }
 
     private suspend fun createCalendarEvent(call: ToolCall): ToolExecutionResult {

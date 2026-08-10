@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 248 阶段：带单提醒系统日程真实前台闭环（完成）
+
+- `CalendarEventDetailRecord` 增加 `reminderMinutesBefore / reminderCount`；`AndroidCalendarEventReader.getEvent()` 同步查询 `CalendarContract.Reminders`。详情页和 `calendar.get` 对唯一合法 ALERT 显示“提前 N 分钟”，多提醒或非 ALERT 只显示存在提醒，不展开明细。
+- `Stage235SharedTextCalendarEventInstrumentedTest` 增加第 248 阶段真实用例：测试只向 ViewModel 写入自然语言 prompt，发送、批准和“查看日程”均通过 `UiAutomation` 可见节点点击。完成态同时审计五参数、Approval、Ledger、Executor verification、typed verification、COMMITTED 回执与消息导航身份。
+- 答案级日程按钮补充明确无障碍描述。Redmi 的 UiAutomation 在同一 Compose Window 内会保留审批前节点，因此测试在确认 Room 与 UI 状态都已形成可信导航身份后重建 Activity，再从持久化会话点击真实按钮；这也覆盖页面重建后的导航恢复。
+- 清理按 COMMITTED event ID 回读标题、时间、时区和唯一 30 分钟 ALERT，再精确删除事件并确认 reminder 级联为空；临时 Profile/会话和原选择恢复，新 Run 审计保留，旧 Run 摘要不变。
+- 聚焦 Debug/AndroidTest 构建通过；Redmi Provider/详情前置 `2/2`（`2.527s`），真实自然语言闭环 `1/1`（`31.545s`）。没有运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+回到新的个人 Agent 窄任务，继续采用“自然语言目标 -> 受限工具 -> 可见审批 -> 当前权威事实查看”的完整链。全天提醒、重复、多提醒、参与人、Workflow/后台日历、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 247 阶段：一次性系统日程可选单提醒 Provider 能力（完成）
 
 - `CalendarEventWriteRequest / CalendarEventWriteRecord` 增加可选提醒分钟与实际提醒行数；旧构造保持默认无提醒。
@@ -11,7 +23,7 @@
 
 ### 下一阶段
 
-在 Redmi 使用真实 Provider 完成自然语言“创建带一个提醒的日程”规划、逐次审批、Tool Ledger/回执/typed verification、答案级“查看日程”、系统 Provider 回读与精确清理。当前不扩到全天提醒、重复事件、多提醒、参与人或后台。
+该后续工作已由第 248 阶段完成：Redmi 真实 Provider 覆盖自然语言规划、可见逐次审批、Tool Ledger/回执/typed verification、答案级“查看日程”、系统 Provider 回读与精确清理；全天提醒、重复事件、多提醒、参与人和后台仍未开放。
 
 ## 第 246 阶段：可信联系人答案级系统详情导航（完成）
 

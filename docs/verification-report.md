@@ -1,8 +1,28 @@
 # 验证报告
 
-验证日期：2026-08-10（北京时间）
+验证日期：2026-08-11（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-11 第 248 阶段：带单提醒系统日程真实前台闭环
+
+### 当前结论
+
+- Redmi 专用最小 Profile 只允许 `calendar.create_event / calendar-create`。真实模型从自然语言准确规划标题、起止时间、`Asia/Shanghai` 与 `reminder_minutes_before=30`；发送、批准与答案级“查看日程”均通过屏幕可见节点完成。
+- 最终执行具备唯一 ToolCall、审批 `APPROVED`、Executor verification、typed verification `PASSED`、`COMMITTED` 回执和稳定事件 ID；当前 Calendar Provider 回读一条 30 分钟 `METHOD_ALERT`，详情页显示标题与“提前30分钟”。
+- 页面重建后持久化消息仍恢复可信导航入口。事件按 COMMITTED ID 精确删除，reminder 确认级联为空；临时 Profile/会话清理、原选择恢复，新 Run 审计保留且最近旧 Run 摘要不变。
+
+### 验证证据
+
+- 聚焦 JVM 与 Debug/AndroidTest APK 构建通过；`git diff --check` 通过。
+- Redmi 前置：`AndroidCalendarEventWriterInstrumentedTest#redmiProviderAtomicallyCreatesReplaysAndVerifiesSingleAlertReminder` 与 `CalendarEventDetailPageInstrumentedTest#currentProviderProjectionShowsOnlyBoundedReadOnlyFields` 为 `OK (2 tests)`，耗时 `2.527s`。
+- Redmi 最终真实用例 `stage248NaturalLanguageReminderCompletesThroughVisibleApprovalAndDetailUi` 为 `OK (1 test)`，耗时 `31.545s`。验收设备仅为 `wsvwypiz7xwslvl7 / begonia`，未使用模拟器。
+- 最终文档 corpus gate 为 `OK (1 test)`，耗时 `3.2s`。设备查询无 `stage248_calendar_reminder_*` 事件残留，测试 APK 已卸载；crash buffer 最新异常属于 `com.example.videoviewer`，更早记录来自 shell `uiautomator dump`，没有小灵相关异常。
+- 中间诊断确认 UiAutomation 在同一 Compose Window 内保留审批前节点；最终测试在 Room/UI 可信导航身份成立后重建 Activity，再点击恢复后的真实按钮，不直接调用审批或导航方法。
+
+### 保持关闭的边界
+
+未新增 Room Schema、Android 权限、全天提醒、重复事件、多提醒、参与人、Workflow 或后台日历。按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
 ## 2026-08-10 第 247 阶段：一次性系统日程可选单提醒 Provider 能力
 

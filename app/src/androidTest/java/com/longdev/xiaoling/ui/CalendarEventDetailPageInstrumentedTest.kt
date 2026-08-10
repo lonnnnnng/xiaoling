@@ -29,6 +29,8 @@ class CalendarEventDetailPageInstrumentedTest {
                             allDay = false,
                             timeZoneId = "Asia/Shanghai",
                             recurring = false,
+                            reminderMinutesBefore = 30,
+                            reminderCount = 1,
                         ),
                     ),
                     onBack = { events += "back" },
@@ -39,7 +41,8 @@ class CalendarEventDetailPageInstrumentedTest {
         composeRule.onNodeWithText("项目评审").assertExists()
         composeRule.onNodeWithText("calendar-197").assertExists()
         composeRule.onNodeWithText("Asia/Shanghai").assertExists()
-        composeRule.onNodeWithText("以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人或账户信息。").assertExists()
+        composeRule.onNodeWithText("提前30分钟").assertExists()
+        composeRule.onNodeWithText("以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人、账户或多提醒明细。").assertExists()
         composeRule.onNodeWithContentDescription("返回设置").performClick()
 
         composeRule.runOnIdle { assertEquals(listOf("back"), events) }
@@ -58,6 +61,6 @@ class CalendarEventDetailPageInstrumentedTest {
 
         composeRule.onNodeWithText("当前日程已不存在或已被删除").assertExists()
         composeRule.onNodeWithText("项目评审").assertDoesNotExist()
-        composeRule.onNodeWithText("以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人或账户信息。").assertDoesNotExist()
+        composeRule.onNodeWithText("以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人、账户或多提醒明细。").assertDoesNotExist()
     }
 }

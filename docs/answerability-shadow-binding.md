@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 248 阶段真实日历提醒闭环边界（无变更）
+
+自然语言日程请求、30 分钟提醒、临时 Profile/会话、Run/Approval/Tool Ledger、Calendar Provider 事件与 reminder、Activity 重建和 UiAutomation 节点都只属于当前 Agent 执行与验收，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。答案级“查看日程”只从可信持久化 Tool Message 投影，并在点击后读取当前 Provider；它不是知识引用，也不提升可回答性结论。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产相关性拒绝均保持不变。
+
 ## 第 247 阶段日历提醒写入边界（无变更）
 
 `reminder_minutes_before`、Calendar Provider reminder 行、临时事件、ToolCall/回执和审批状态都只属于当前 Agent Run 与日历写入验证，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。ToolResult 仅在 Provider 回读验证通过后显示受限分钟值；答案级日程入口继续按稳定事件 ID 二次打开系统权威详情，不把 reminder 伪装成知识库引用。Shadow 默认关闭、`enforcementApplied=false`、Room v36 和生产相关性拒绝保持不变。

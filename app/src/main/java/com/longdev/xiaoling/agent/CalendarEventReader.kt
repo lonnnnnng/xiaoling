@@ -24,6 +24,8 @@ data class CalendarEventDetailRecord(
     val recurring: Boolean,
     val recurrenceRule: String? = null,
     val recurrenceDates: String? = null,
+    val reminderMinutesBefore: Int? = null,
+    val reminderCount: Int = 0,
 )
 
 sealed interface CalendarEventReadResult {
@@ -167,6 +169,7 @@ class AndroidCalendarEventReader(
                 val timeZoneColumn = it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
                 val recurrenceColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RRULE)
                 val recurrenceDateColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RDATE)
+                val reminder = readReminderSummary(eventId)
                 CalendarEventDetailReadResult.Success(
                     CalendarEventDetailRecord(
                         eventId = it.getLong(idColumn),
@@ -179,6 +182,8 @@ class AndroidCalendarEventReader(
                             !it.getString(recurrenceDateColumn).isNullOrBlank(),
                         recurrenceRule = it.getString(recurrenceColumn)?.takeIf(String::isNotBlank),
                         recurrenceDates = it.getString(recurrenceDateColumn)?.takeIf(String::isNotBlank),
+                        reminderMinutesBefore = reminder.minutesBefore,
+                        reminderCount = reminder.count,
                     ),
                 )
             }
@@ -187,6 +192,31 @@ class AndroidCalendarEventReader(
             CalendarEventDetailReadResult.PermissionDenied
         } catch (_: RuntimeException) {
             CalendarEventDetailReadResult.Failed
+        }
+    }
+
+    private fun readReminderSummary(eventId: Long): CalendarEventReminderSummary {
+        val cursor = contentResolver.query(
+            CalendarContract.Reminders.CONTENT_URI,
+            REMINDER_PROJECTION,
+            "${CalendarContract.Reminders.EVENT_ID}=?",
+            arrayOf(eventId.toString()),
+            "${CalendarContract.Reminders._ID} ASC",
+        ) ?: return CalendarEventReminderSummary(minutesBefore = null, count = -1)
+        return cursor.use {
+            var count = 0
+            var singleAlertMinutes: Int? = null
+            while (it.moveToNext()) {
+                count += 1
+                val minutes = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.MINUTES))
+                val method = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.METHOD))
+                singleAlertMinutes = if (count == 1 && method == CalendarContract.Reminders.METHOD_ALERT && minutes >= 0) {
+                    minutes
+                } else {
+                    null
+                }
+            }
+            CalendarEventReminderSummary(singleAlertMinutes.takeIf { count == 1 }, count)
         }
     }
 
@@ -209,8 +239,18 @@ class AndroidCalendarEventReader(
             CalendarContract.Events.RDATE,
             CalendarContract.Events.DELETED,
         )
+        val REMINDER_PROJECTION = arrayOf(
+            CalendarContract.Reminders._ID,
+            CalendarContract.Reminders.MINUTES,
+            CalendarContract.Reminders.METHOD,
+        )
     }
 }
+
+private data class CalendarEventReminderSummary(
+    val minutesBefore: Int?,
+    val count: Int,
+)
 
 private fun android.database.Cursor.getNullableLong(columnIndex: Int): Long? =
     if (isNull(columnIndex)) null else getLong(columnIndex)

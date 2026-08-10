@@ -1,5 +1,13 @@
 # 产品需求
 
+## 带单提醒系统日程真实前台闭环（第 248 阶段，完成）
+
+- 用户必须以自然语言明确给出标题、带偏移起止时间、IANA 时区和提前分钟；专用验收 Profile 只允许 `calendar.create_event` 与 `calendar-create`，长期记忆关闭，模型必须只生成一次五参数调用。
+- 发送和审批必须通过 Redmi 屏幕可见节点完成，不得由测试直接调用 ViewModel 审批方法。成功链必须同时具备唯一 ToolCall、审批 `APPROVED`、Executor 写后回读、typed verification `PASSED`、`COMMITTED` 回执和稳定 `calendar-<正整数>` ID。
+- 答案级“查看日程”必须能在 Activity 页面重建后从持久化消息恢复；点击后从当前 Calendar Provider 回读并显示标题及“提前30分钟”，不能只信模型自由文本或旧内存状态。
+- 清理只能使用 COMMITTED event ID，删除前必须核对事件四字段与唯一 ALERT reminder，删除后确认事件不存在且 reminder 已级联清除。临时 Profile/会话和原选择恢复，新 Run 审计保留，最近旧 Run 摘要不得变化。
+- 仅 Redmi 的 Provider/详情前置 `2/2` 和真实自然语言闭环 `1/1`（`31.545s`）通过。未执行完整 JVM、Lint、Release 或全量 instrumentation；全天提醒、重复、多提醒、参与人、Workflow 和后台日历仍关闭。
+
 ## 一次性系统日程单提醒 Provider 能力（第 247 阶段，完成）
 
 - `calendar.create_event` 可以接受可选 `reminder_minutes_before`；只有用户明确要求日历提醒时才允许传入，必须是 `0..10080` 的规范十进制整数。缺省表示不创建提醒，不得使用系统默认值猜测用户意图。
@@ -8,7 +16,7 @@
 - 首次写入、同 ToolCall 幂等重放与 COMMITTED 恢复都必须回读当前 Provider，并要求提醒行数恰好为一、方法为 ALERT、分钟数与审批请求一致。提醒缺失、额外提醒、方法变化或分钟漂移必须让验证失败。
 - 答案级“查看日程”只在可信 `VERIFIED` 创建结果中显示，并同时绑定审批参数与应用生成结果的提醒分钟；提醒缺失、额外出现、数值漂移或标题伪造均不得导航。
 - 现有无提醒 `calendar.create_event` 行为、ToolCall 标记、审批、回执和恢复语义保持兼容；不新增 Android 权限，不进入 Workflow 或后台。
-- 聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒原子闭环 `1/1`（`0.271s`）与无提醒回归 `1/1`（`0.288s`）通过。真实模型规划/审批/系统详情点击留到下一阶段。
+- 聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒原子闭环 `1/1`（`0.271s`）与无提醒回归 `1/1`（`0.288s`）通过。真实模型规划、审批和系统详情点击已由第 248 阶段完成。
 
 ## 联系人答案级“查看联系人”入口（第 246 阶段，完成）
 

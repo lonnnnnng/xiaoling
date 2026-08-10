@@ -180,8 +180,16 @@ private fun CalendarEventCard(event: CalendarEventDetailRecord) {
             CalendarEventField("全天", if (event.allDay) "是" else "否")
             CalendarEventField("时区", safeTimeZone ?: "系统日历未提供")
             CalendarEventField("重复", if (event.recurring) "是" else "否")
+            CalendarEventField(
+                "提醒",
+                when {
+                    event.reminderCount == 0 -> "无"
+                    event.reminderCount == 1 && event.reminderMinutesBefore != null -> "提前${event.reminderMinutesBefore}分钟"
+                    else -> "存在提醒（当前不展开）"
+                },
+            )
             Text(
-                text = "以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人或账户信息。",
+                text = "以上内容来自当前系统 Calendar Provider 的只读回读，不包含地点、描述、参与人、账户或多提醒明细。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

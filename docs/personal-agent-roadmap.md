@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 248 阶段：带单提醒系统日程真实前台闭环（完成）
+
+- Redmi 上由真实模型从自然语言生成唯一 `calendar.create_event` 五参数调用；Profile 只允许 `calendar-create`，发送与逐次审批均通过屏幕可见节点完成。
+- 最终 Ledger、Approval、Executor verification、typed verification、COMMITTED 回执、消息工具身份和当前 Calendar Provider 的事件/唯一 30 分钟 ALERT reminder 全部一致。
+- 页面重建后，持久化答案仍恢复“查看日程”入口；点击真实按钮进入当前 Provider 详情并显示标题与“提前30分钟”。清理只使用回执 event ID，事件与 reminder 均确认消失；原选择恢复、新 Run 保留、旧 Run 不变。
+- 聚焦构建、Redmi Provider/详情前置 `2/2` 和真实闭环 `1/1`（`31.545s`）通过。Room v36、权限、Workflow 和后台边界不变，完整 JVM、Lint、Release 与全量 instrumentation 按分级策略后置。
+
+下一阶段从个人 Agent 主线选择新的窄任务，继续要求用户明确意图、最小 Profile、可验证副作用和权威事实回读；不横向扩展全天提醒、重复、多提醒、参与人、联系人写入、通知读取或后台设备动作。
+
 ## 第 247 阶段：一次性非全天系统日程可选单提醒（Provider 能力完成）
 
 - 现有 `calendar.create_event` 增加可选 `reminder_minutes_before`，只接受用户明确要求的 `0..10080` 分钟，并限制为一条 `METHOD_ALERT`；无提醒调用保持兼容。
@@ -7,7 +16,7 @@
 - 可信创建结果的答案级“查看日程”同时绑定请求和结果提醒分钟，伪造、缺失或漂移不产生入口。
 - 聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒 Provider `1/1`、无提醒回归 `1/1` 与最终文档 corpus `1/1` 通过，测试事件和关联 reminder 已精确清理。Room v36、权限、Workflow 和后台边界不变。
 
-下一阶段只补这一能力的真实自然语言规划、逐次审批、答案级系统日历查看和清理，不横向扩展全天/重复/多提醒/参与人，也不转向通知读取、联系人写入或后台设备动作。
+该后续工作已由第 248 阶段完成：真实自然语言规划、逐次审批、答案级系统日历查看和清理均已闭环；全天/重复/多提醒/参与人、通知读取、联系人写入和后台设备动作仍未扩展。
 
 ## 第 246 阶段：可信联系人答案级系统详情导航（完成）
 
