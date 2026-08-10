@@ -142,6 +142,17 @@ class ConversationProjectionTest {
     }
 
     @Test
+    fun voiceInputDoesNotRequireProviderButStopsWhileComposerIsBusy() {
+        val withoutProvider = project(prompt = "", enabledModels = emptyList())
+        val sending = project(prompt = "", enabledModels = emptyList(), sendingMessage = true)
+        val loading = project(prompt = "", enabledModels = emptyList(), loadingConversationMessages = true)
+
+        assertTrue(withoutProvider.composer.voiceInputEnabled)
+        assertFalse(sending.composer.voiceInputEnabled)
+        assertFalse(loading.composer.voiceInputEnabled)
+    }
+
+    @Test
     fun displayedKnowledgeReferencesAreDeduplicatedAcrossMessages() {
         val reference = knowledgeReference()
         val state = project(

@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 244 阶段采用成熟移动端 Agent 的“系统识别、草稿优先、用户显式发送”原则：小灵只通过 Android 系统 `RecognizerIntent` 取得文本，首个非空候选进入当前编辑器并保留已有草稿；语音入口与发送动作分离。实现没有复制参考项目的常驻麦克风、唤醒词、后台录音、原始音频上传、自动 `/agent`、自动发送或边说边执行。应用不新增录音权限，Room、Agent Runtime、Tool/Skill 和审批边界均不变化；TTS 继续独立后置。最终文档 corpus gate 为 `1/1`（`3.077s`）。
+
 第 243 阶段继续采用成熟个人 Agent 的“视觉附件由供应商理解、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：动态事实只存在于 PNG 像素，应用只验证可信图片身份并持久化原始 BLOB；模型仍形成正确 `notes.create`，Room Image、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 OCR 伪装模型理解、后台相册监听、自动摘要、隐式写入、多图片队列、远程 Channel 或多 Agent 视觉协作。仅 Redmi 真实闭环通过，文档 corpus 首次为 `1/1`（`2.979s`），审查后的最终文本 gate 也为 `1/1`（`3.067s`）。
 
 第 242 阶段继续采用成熟个人 Agent 的“富文档由供应商理解、应用验证可信 OPC 身份、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：XLSX 动态事实只存在于 `xl/worksheets/sheet1.xml`，应用侧明确没有提取正文或页数；完整与 5 部件最小工作簿先经 Artifact Tool 读取和渲染，再由模型形成正确 `notes.create`，Room XLSX BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 Excel 解析伪装模型理解、后台工作簿监听、自动摘要、隐式写入、远程 Channel 或多 Agent 文档协作。

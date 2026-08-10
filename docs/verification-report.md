@@ -4,6 +4,33 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 244 阶段：系统语音输入到可编辑草稿 v1
+
+### 当前结论
+
+- Composer 新增独立麦克风入口，使用 Android `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 与 Activity Result；应用不新增 `RECORD_AUDIO` 权限、不保存原始音频，也不建立常驻或后台录音链。
+- 系统返回结果只由 `VoiceInputDraftPolicy` 选择首个非空候选并合并到当前草稿。已有手工文本保持，语音不会自动添加 `/agent`、切换任务模式、发送消息、调用模型或创建 Run。
+- 输入能力不依赖普通 Provider 是否可用；发送、附件读取、会话加载和等待个人任务计划确认期间禁用。取消无副作用，空结果、无处理方和启动失败 fail-closed。
+- Room v36、Provider、Tool/Skill、Workflow、审批、知识 Shadow 和后台边界均未变化。
+
+### 已验证证据
+
+- `VoiceInputDraftPolicyTest 4/4 + ConversationProjectionTest 8/8`，合计聚焦 JVM `12/12` 通过。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Debug 与 AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`；无声 Compose 路由 `ConversationPageInstrumentedTest#routesVoiceInputWithoutSendingMessage` 为 `OK (1 test)`、`2.326s`，确认点击麦克风只调用 `requestVoiceInput()`，发送计数仍为 0。
+- Redmi 包管理器可把 `android.speech.action.RECOGNIZE_SPEECH` 解析到系统 Google 识别 Activity；Manifest 仅增加该 Intent 的 `<queries>` 可见性，没有录音权限或任意包查询。
+- 同步第 244 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus gate 为 `OK (1 test)`、`3.077s`。
+
+### 验证范围与收尾
+
+- 用户明确要求当前跳过需要播放声音的真实识别内容验收，因此正式门禁不记录声音样本、识别准确率或特定语言表现；后续也没有继续播放、采集或上传声音。
+- 临时识别草稿已通过重启清空，Mac 输出音量恢复为 `0` 且静音。最终测试只保留无声 JVM、构建、包解析与 Compose 动作隔离证据。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation；设备清单中的模拟器没有收到安装、启动、日志或测试命令。
+
+### 下一阶段
+
+TTS 仍是独立未完成项，但在当前不方便做声音验收时暂停。下一阶段回到能扩大“自然语言目标 → 可验证结果 → 权威事实查看”的单一个人 Agent 场景；后台语音、唤醒词、自动发送、多图片、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 2026-08-10 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环
 
 ### 当前结论

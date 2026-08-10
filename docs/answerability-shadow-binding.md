@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 244 阶段语音草稿边界（无变更）
+
+系统识别 Activity 返回的文本只存在于 Conversation 可编辑草稿；用户显式发送前没有消息、Run、Provider 请求、知识检索、Judge 或 Shadow measurement。应用不保存原始音频、不把识别候选写入匿名账本，也不建立后台语音摄取。用户后续发送时，文本与普通手工输入走同一既有答案可回答性边界，不获得特殊来源权重或绕过生产开关。Room v36、Shadow Store、`enforcementApplied=false`、相关性拒绝和候选身份绑定均保持不变；最终文档 corpus gate 为 `1/1`（`3.077s`）。
+
 ## 第 243 阶段图片 Agent 理解边界（无变更）
 
 本阶段只验证真实 PNG 在用户明确发送 `/agent` 后进入既有 Responses 图片规划、`notes.create` 审批与 Store 回读。图片 URI、原始 PNG BLOB、像素内动态值、临时笔记/Profile/会话、Run/Approval/Tool Ledger 和 runner 参数均不得进入知识候选、Judge 输入、Shadow measurement、匿名账本或 Provider 相关性请求，也不触发额外 Shadow 调用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定保持不变；Redmi 真实 `1/1` 没有产生 Shadow 样本。文档 corpus 首次为 `1/1`（`2.979s`），审查后的最终文本 gate 也为 `1/1`（`3.067s`）。

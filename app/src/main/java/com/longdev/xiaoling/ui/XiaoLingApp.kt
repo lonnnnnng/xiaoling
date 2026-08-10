@@ -1,7 +1,7 @@
 package com.longdev.xiaoling.ui
 
-import android.app.Activity
 import android.Manifest
+import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -77,6 +77,7 @@ import com.longdev.xiaoling.ui.conversation.ConversationPage
 import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
 import com.longdev.xiaoling.ui.conversation.ConversationProjection
 import com.longdev.xiaoling.ui.conversation.ConversationUiState
+import com.longdev.xiaoling.ui.conversation.rememberSystemVoiceInputRequest
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
 import com.longdev.xiaoling.ui.memory.MemoryManagementDialogs
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
@@ -127,6 +128,7 @@ private fun XiaoLingContent(
 ) {
     val navigation = rememberXiaoLingNavigationController()
     val context = LocalContext.current
+    var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
     var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -143,6 +145,11 @@ private fun XiaoLingContent(
     val attachDocumentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::attachDocument) }
+    val requestVoiceInput = rememberSystemVoiceInputRequest(
+        currentDraft = { viewModel.uiState.prompt },
+        onDraftChanged = viewModel::updatePrompt,
+        onFailure = { message -> centerNotice = CenterNotice(message, success = false) },
+    )
     var notificationPermissionPlanId by remember { mutableStateOf<String?>(null) }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -157,12 +164,12 @@ private fun XiaoLingContent(
     val transientResult = state.result?.takeUnless { it.shouldStayInline() }
     val isProviderEditor = navigation.tab == XiaoLingAppTab.SETTINGS && state.manageDraft != null
     val hideBottomBar = navigation.hidesBottomBar(providerEditorOpen = isProviderEditor)
-    var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
     var agentTaskCenterInitialFilter by remember { mutableStateOf(AgentTaskFilter.ALL) }
     val conversationActions = remember(
         viewModel,
         attachImageLauncher,
         attachDocumentLauncher,
+        requestVoiceInput,
         navigation,
     ) {
         object : ConversationActions {
@@ -271,6 +278,10 @@ private fun XiaoLingContent(
 
             override fun requestDocumentAttachment() {
                 attachDocumentLauncher.launch(DocumentAttachmentPolicy.pickerMimeTypes())
+            }
+
+            override fun requestVoiceInput() {
+                requestVoiceInput()
             }
 
             override fun openKnowledgeDocument(documentId: String) {

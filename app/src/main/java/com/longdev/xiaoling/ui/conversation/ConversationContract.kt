@@ -95,6 +95,8 @@ internal interface ConversationActions {
 
     fun requestDocumentAttachment()
 
+    fun requestVoiceInput()
+
     fun openKnowledgeDocument(documentId: String)
 }
 
@@ -156,6 +158,7 @@ internal data class ConversationComposerUiState(
     val canSend: Boolean = false,
     val controlsEnabled: Boolean = false,
     val attachmentEnabled: Boolean = false,
+    val voiceInputEnabled: Boolean = false,
     val memoryOptionEnabled: Boolean = false,
 )
 
@@ -263,6 +266,8 @@ internal object ConversationProjection {
                 controlsEnabled = !sendingMessage && !awaitingPersonalTaskPlanConfirmation && canUseComposer,
                 attachmentEnabled = !sendingMessage && !attaching && !loadingConversationMessages &&
                     ordinaryChatEnabled && !personalTaskMode && !awaitingPersonalTaskPlanConfirmation,
+                voiceInputEnabled = !sendingMessage && !attaching && !loadingConversationMessages &&
+                    !awaitingPersonalTaskPlanConfirmation,
                 memoryOptionEnabled = !sendingMessage && selectedAgent?.memoryEnabled == true,
             ),
         )

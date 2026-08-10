@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
+
+- Composer 新增显式麦克风入口，通过系统 `RecognizerIntent` Activity 获取文本；应用不新增 `RECORD_AUDIO` 权限、不保存或上传音频，也不常驻监听。
+- 首个非空候选只合并到当前可编辑草稿，已有手工输入原样保留。语音结果不会自动添加 `/agent`、切换个人任务、发送消息、调用模型、创建 Run 或执行工具，仍由用户检查后显式发送。
+- 输入入口独立于 Provider 可用性，但在发送、附件读取、会话加载和等待任务计划确认时关闭；取消无副作用，空结果、无处理方或启动失败 fail-closed。
+- 聚焦 JVM `12/12`、Debug/AndroidTest APK、仅 Redmi 的无声 Compose 单项 `1/1`（`2.326s`）和文档 corpus gate `1/1`（`3.077s`）通过，系统识别 Activity 可解析。按用户要求，真实声音内容识别不作为本阶段正式门禁；Room v36、Provider、Tool/Skill、Workflow 和后台边界不变。
+
+语音输入 v1 已补齐 P2 的显式输入缺口。TTS 继续作为独立能力后置，并在当前不方便做声音验收时暂停；下一阶段回到能扩大“自然语言目标 → 可验证结果 → 权威事实查看”的单一个人 Agent 场景，不扩展后台语音、唤醒词、自动发送、多图片、远程 Channel、多 Agent 或本地模型。
+
 ## 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环（完成）
 
 - Android `Bitmap + Canvas` 生成 1800×1100 高对比 PNG，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于图片像素。图片通过既有 `ACTION_SEND image/png` 和单个小写 `content://` URI 进入新会话可编辑附件草稿，继续复用 8 MB、MIME、签名与可解码性校验。
@@ -1807,7 +1816,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 以下能力在前述基础稳定后再进入：
 
-- 文件附件、图片、富文档直传和 `/agent` Responses 附件输入已完成；语音输入与 TTS 仍待实现。
+- 文件附件、图片、富文档直传、`/agent` Responses 附件输入和系统语音识别到可编辑草稿 v1 已完成；TTS、常驻语音、后台语音与音频附件仍待实现。
 - 文档解析、知识库管理、RAG 检索、Agent 接入、答案级引用 UI、Embedding v1、显式索引重建和多 Provider/模型空间共存已完成；规模化 ANN、自动后台批量重建与召回质量验证仍待实现。
 - MCP Client 与远程工具，但必须增加 Server 信任、工具审核和网络权限策略。
 - 通知摘要、日历、联系人和系统分享入口。
@@ -1842,7 +1851,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | 结构化消息 parts | Text/Reasoning/Image/Document/Tool 持久化、旧 text 回填、供应商摘要折叠展示、可信 Tool 投影、用户附件选择/预览/请求/备份和 Compose 展示已完成 | 让聊天内容、用户附件、供应商摘要与工具执行事实进入同一可恢复消息模型 |
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；前台手动 Workflow 精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
-| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
+| P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入、系统语音识别到可编辑草稿 v1，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、TTS、常驻/后台语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法

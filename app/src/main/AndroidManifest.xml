@@ -4,6 +4,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <queries>
+        <!-- long: 语音输入启动系统识别 Activity 前先确认处理方存在；只声明这一项 Intent 可见性，不扩大应用包查询范围。 -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
         <!-- long: open_app 只允许首批真机验收应用；显式声明包可见性，避免申请 QUERY_ALL_PACKAGES 扩大隐私面。 -->
         <package android:name="com.android.calculator2" />
         <package android:name="com.google.android.calculator" />

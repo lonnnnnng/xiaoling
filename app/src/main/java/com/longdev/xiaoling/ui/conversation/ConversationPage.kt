@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -355,6 +356,7 @@ internal fun ConversationPage(
                 onPromptChange = actions::updatePrompt,
                 onAttachImage = actions::requestImageAttachment,
                 onAttachDocument = actions::requestDocumentAttachment,
+                onVoiceInput = actions::requestVoiceInput,
                 onRemovePendingImage = actions::removePendingImage,
                 onRemovePendingDocument = actions::removePendingDocument,
                 onOpenPendingSharedDraft = actions::openPendingSharedDraft,
@@ -540,6 +542,7 @@ private fun MessageInputBar(
     onPromptChange: (String) -> Unit,
     onAttachImage: () -> Unit,
     onAttachDocument: () -> Unit,
+    onVoiceInput: () -> Unit,
     onRemovePendingImage: () -> Unit,
     onRemovePendingDocument: () -> Unit,
     onOpenPendingSharedDraft: () -> Unit,
@@ -670,6 +673,20 @@ private fun MessageInputBar(
                         }
                     },
                 )
+                IconButton(
+                    onClick = onVoiceInput,
+                    enabled = state.voiceInputEnabled,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(32.dp)
+                        .testTag("conversation-voice-input"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "语音输入",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
                 IconButton(
                     onClick = { attachmentMenuExpanded = true },
                     enabled = state.attachmentEnabled,

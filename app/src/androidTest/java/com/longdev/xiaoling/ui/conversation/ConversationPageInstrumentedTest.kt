@@ -59,6 +59,27 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun routesVoiceInputWithoutSendingMessage() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(enabledModels = listOf("model")),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("语音输入").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.voiceInputRequestCount)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
     fun routesSharedDraftCommandsThroughActions() {
         val actions = FakeConversationActions()
         composeRule.setContent {
@@ -641,6 +662,7 @@ class ConversationPageInstrumentedTest {
         var deleteConversationCount = 0
         var imageAttachmentRequestCount = 0
         var documentAttachmentRequestCount = 0
+        var voiceInputRequestCount = 0
         var openSharedDraftCount = 0
         var discardSharedDraftCount = 0
         var createAgentNoteDraftCount = 0
@@ -772,6 +794,10 @@ class ConversationPageInstrumentedTest {
 
         override fun requestDocumentAttachment() {
             documentAttachmentRequestCount += 1
+        }
+
+        override fun requestVoiceInput() {
+            voiceInputRequestCount += 1
         }
 
         override fun openKnowledgeDocument(documentId: String) = Unit

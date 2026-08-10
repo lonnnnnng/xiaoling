@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
+
+- 新增 `ui/conversation/SystemVoiceInput.kt`，把系统识别 Activity Result、处理方探测和失败反馈收敛到 Conversation 模块；`XiaoLingApp.kt` 只持有稳定请求函数，不继续堆叠语音生命周期细节。
+- `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 使用 `LANGUAGE_MODEL_FREE_FORM`、单候选和中文提示。Manifest 只在 `<queries>` 声明该 Intent 可见性；应用没有新增 `RECORD_AUDIO` 权限、麦克风硬件要求、音频文件、常驻 `SpeechRecognizer` 或后台录音服务。
+- 新增纯 Kotlin `VoiceInputDraftPolicy`：按顺序选择首个 trim 后非空候选；空草稿直接写入，已有草稿保留原文并复用末尾空白，否则用换行追加。该策略不认识 `/agent`、发送、个人任务或 Run，因此语音文本只能先成为普通可编辑草稿。
+- `ConversationActions` 新增独立 `requestVoiceInput()`；Composer 麦克风按钮与 `sendMessage()` 是不同动作。`voiceInputEnabled` 不依赖 Provider，但在发送、附件读取、会话加载或等待任务计划确认时关闭。
+- `VoiceInputDraftPolicyTest 4/4 + ConversationProjectionTest 8/8` 通过；Debug/AndroidTest APK 构建成功。仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的无声 `routesVoiceInputWithoutSendingMessage` 为 `OK (1 test)`、`2.326s`，同时通过包管理器确认系统识别 Activity 可解析；最终文档 corpus gate 为 `OK (1 test)`、`3.077s`。
+- 按用户当前要求，真实声音内容识别不纳入本阶段正式验收，不再播放或采集声音。未运行完整 JVM、Lint、Release 或全量 instrumentation；测试包收尾后卸载，主应用与数据保留。Room v36、Provider、Tool/Skill、Workflow、审批和后台边界不变。
+
+### 下一阶段
+
+TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一阶段回到能扩大“自然语言目标 → 可验证结果 → 权威事实查看”的单一个人 Agent 场景，不横向增加多图片、自动发送、后台语音摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 第 243 阶段：系统分享单图片到显式 Agent 视觉理解闭环（完成）
 
 - 新增 `Stage243SharedImageAgentInstrumentedTest`，只在显式 `stage243RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 Android `Bitmap + Canvas` 生成 1800×1100 高对比 PNG，并通过 MediaStore `Pictures/XiaoLingTest` 的单个 `content://` URI 分享进入正式 `MainActivity`。
