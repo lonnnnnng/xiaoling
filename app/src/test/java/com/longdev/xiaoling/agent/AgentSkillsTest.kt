@@ -258,6 +258,22 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInContactsLookupSearchesBeforeReadingAuthoritativeDetail() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "从通讯录查找张三的电话号码",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "contacts-lookup" }
+        assertEquals(setOf("contacts.search", "contacts.get"), skill.toolNames)
+        assertEquals(setOf("android.permission.READ_CONTACTS"), skill.requiredAndroidPermissions)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("先用 contacts.search"))
+        assertTrue(skill.instructions.contains("不得枚举全部联系人"))
+        assertTrue(skill.completionCriteria.contains("Contacts Provider"))
+    }
+
+    @Test
     fun builtInCalendarOverviewSkillUsesOnlyReadOnlyCalendarTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "查看我未来一周的日程安排",

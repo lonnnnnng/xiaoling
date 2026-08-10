@@ -345,6 +345,8 @@ class XiaoLingToolRegistryTest {
                 "calendar.list_events",
                 "calendar.search_events",
                 "calendar.get",
+                "contacts.search",
+                "contacts.get",
                 "calendar.update_event",
                 "calendar.delete_event",
                 "tasks.list",
@@ -392,6 +394,8 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.get").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("contacts.search").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("contacts.get").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("calendar.update_event").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("calendar.delete_event").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("tasks.list").risk)
@@ -426,6 +430,11 @@ class XiaoLingToolRegistryTest {
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertEquals(listOf("event_id"), tools.getValue("calendar.get").inputSchema.map { it.name })
         assertTrue(tools.getValue("calendar.get").validateArguments(mapOf("event_id" to "calendar-1")).errors.isEmpty())
+        assertEquals(listOf("query", "limit"), tools.getValue("contacts.search").inputSchema.map { it.name })
+        assertEquals(listOf("contact_id"), tools.getValue("contacts.get").inputSchema.map { it.name })
+        assertTrue(tools.getValue("contacts.get").validateArguments(mapOf("contact_id" to "contact-1")).errors.isEmpty())
+        assertFalse(tools.getValue("contacts.search").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("contacts.get").permissionPolicy.supportsBackground)
         assertEquals(
             listOf("event_id", "expected_fingerprint", "scope", "title", "start_at", "end_at", "time_zone"),
             tools.getValue("calendar.update_event").inputSchema.map { it.name },
@@ -566,15 +575,25 @@ class XiaoLingToolRegistryTest {
             setOf(Manifest.permission.READ_CALENDAR),
             tools.getValue("calendar.get").permissionPolicy.requiredAndroidPermissions,
         )
+        assertEquals(
+            setOf(Manifest.permission.READ_CONTACTS),
+            tools.getValue("contacts.search").permissionPolicy.requiredAndroidPermissions,
+        )
+        assertEquals(
+            setOf(Manifest.permission.READ_CONTACTS),
+            tools.getValue("contacts.get").permissionPolicy.requiredAndroidPermissions,
+        )
         assertTrue(
             tools.values
-                .filterNot { it.name.startsWith("calendar.") }
+                .filterNot { it.name.startsWith("calendar.") || it.name.startsWith("contacts.") }
                 .all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() },
         )
         assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.search_events").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.get").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.create_event").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("contacts.search").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("contacts.get").permissionPolicy.supportsBackground)
         val backgroundTools = tools.values
             .filter { it.permissionPolicy.supportsBackground }
             .map { it.name }
@@ -823,6 +842,207 @@ class XiaoLingToolRegistryTest {
         val crossRun = registry.execute(call.copy(id = "tool-call-memory-delete-next"))
         assertFalse(crossRun.success)
         assertEquals(1, memoryStore.deleteCallCount)
+    }
+
+    @Test
+    fun contactsSearchReturnsStableCandidatesWithoutLeakingDetailValues() = runTest {
+        var capturedQuery = ""
+        var capturedLimit = -1
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult {
+                capturedQuery = query
+                capturedLimit = limit
+                return ContactSearchResult.Success(
+                    listOf(
+                        ContactSearchRecord(
+                            contactId = 42L,
+                            displayName = "张三\n这只是姓名",
+                            matchedFields = setOf(ContactMatchField.NAME, ContactMatchField.EMAIL),
+                        ),
+                    ),
+                )
+            }
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult =
+                ContactDetailReadResult.ProviderUnavailable
+        }
+        val registry = testRegistry(contactReader = reader)
+
+        registry.execute(
+            ToolCall(
+                name = "contacts.search",
+                arguments = mapOf("query" to "张三"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "contacts.search",
+                arguments = mapOf("query" to " 张三 ", "limit" to "3"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals("张三", capturedQuery)
+        assertEquals(3, capturedLimit)
+        assertTrue(result.content.contains("张三 这只是姓名"))
+        assertTrue(result.content.contains("id=contact-42"))
+        assertTrue(result.content.contains("匹配=姓名/邮箱"))
+        assertFalse(result.content.contains("13800138000"))
+        assertFalse(result.content.contains("zhang@example.com"))
+        assertFalse(result.content.contains("\n这只是姓名"))
+    }
+
+    @Test
+    fun contactsGetReadsCurrentMinimalDetailByStableId() = runTest {
+        var capturedContactId = -1L
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+                ContactSearchResult.Success(
+                    listOf(ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME))),
+                )
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult {
+                capturedContactId = contactId
+                return ContactDetailReadResult.Success(
+                    ContactDetailRecord(
+                        contactId = contactId,
+                        displayName = "张三",
+                        phoneNumbers = listOf("13800138000"),
+                        emailAddresses = listOf("zhang@example.com"),
+                    ),
+                )
+            }
+        }
+        val registry = testRegistry(contactReader = reader)
+
+        registry.execute(
+            ToolCall(
+                name = "contacts.search",
+                arguments = mapOf("query" to "张三"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(
+                name = "contacts.get",
+                arguments = mapOf("contact_id" to "contact-42"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(42L, capturedContactId)
+        assertTrue(result.content.contains("ID：contact-42"))
+        assertTrue(result.content.contains("姓名：张三"))
+        assertTrue(result.content.contains("13800138000"))
+        assertTrue(result.content.contains("zhang@example.com"))
+        assertFalse(result.content.contains("地址"))
+        assertFalse(result.content.contains("账户"))
+    }
+
+    @Test
+    fun contactsGetRejectsInvalidOrStaleIdentityFailClosed() = runTest {
+        var readCount = 0
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+                ContactSearchResult.Success(
+                    listOf(ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME))),
+                )
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult {
+                readCount += 1
+                return ContactDetailReadResult.NotFound
+            }
+        }
+        val registry = testRegistry(contactReader = reader)
+
+        listOf("42", "contact-0", "contact-01", "contact--1", "contact-9223372036854775808").forEach { id ->
+            val result = registry.execute(
+                ToolCall(
+                    name = "contacts.get",
+                    arguments = mapOf("contact_id" to id),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+            assertFalse(result.success)
+            assertTrue(result.content.contains("ID 无效"))
+        }
+        assertEquals(0, readCount)
+
+        val guessed = registry.execute(
+            ToolCall(
+                name = "contacts.get",
+                arguments = mapOf("contact_id" to "contact-42"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(guessed.success)
+        assertTrue(guessed.content.contains("最近一次搜索结果"))
+        assertEquals(0, readCount)
+
+        registry.execute(
+            ToolCall(
+                name = "contacts.search",
+                arguments = mapOf("query" to "张三"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        val stale = registry.execute(
+            ToolCall(
+                name = "contacts.get",
+                arguments = mapOf("contact_id" to "contact-42"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(stale.success)
+        assertTrue(stale.content.contains("找不到"))
+        assertEquals(1, readCount)
+    }
+
+    @Test
+    fun contactsSearchCandidatesExpireWhenAgentRunChanges() = runTest {
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+                ContactSearchResult.Success(
+                    listOf(ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME))),
+                )
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult =
+                ContactDetailReadResult.Success(ContactDetailRecord(contactId, "张三", emptyList(), emptyList()))
+        }
+        val registry = testRegistry(contactReader = reader)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-contact-1",
+                userMessageId = "message-contact-1",
+                runId = "run-contact-1",
+                goal = "查找张三",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-contact-2",
+                userMessageId = "message-contact-2",
+                runId = "run-contact-2",
+                goal = "读取联系人",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val result = registry.execute(
+            ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE),
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.content.contains("最近一次搜索结果"))
     }
 
     @Test
@@ -3548,6 +3768,7 @@ class XiaoLingToolRegistryTest {
         knowledgeStore: KnowledgeDocumentStore = InMemoryKnowledgeDocumentStore(),
         calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
         calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
+        contactReader: ContactReader = UnavailableContactReader,
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
@@ -3565,6 +3786,7 @@ class XiaoLingToolRegistryTest {
             knowledgeStore = knowledgeStore,
             calendarEventReader = calendarEventReader,
             calendarEventWriter = calendarEventWriter,
+            contactReader = contactReader,
             appInfoReader = appInfoReader,
             batteryStatusReader = batteryStatusReader,
             connectivityStatusReader = connectivityStatusReader,

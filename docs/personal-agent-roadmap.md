@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 245 阶段：系统联系人只读精确查询 v1（完成）
+
+- 新增独立“联系人访问”设置页和 `READ_CONTACTS` 显式授权。授权只由用户主动点击触发，返回应用时重新读取真实状态；工具或后台任务不能自行拉起授权。
+- 前台直接 Agent 新增 `contacts.search / contacts.get` 与 `contacts-lookup`。搜索必须基于用户明确给出的至少 2 个字符姓名、电话或邮箱片段，最多 10 个候选；摘要只返回姓名、匹配类型和稳定 ID。详情只接受当前 Run 最近一次搜索返回的唯一候选，切换 Run 即失效，再回读姓名、电话和邮箱详情。
+- Provider 投影不含地址、公司、生日、备注、头像、群组、账户或其他 Data MIME；联系人字段压平控制字符与换行并标记为不可信数据。当前没有全量枚举、联系人写入、拨号、短信、邮件、Workflow 或后台联系人能力。
+- 聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi UI `3/3`、权限/Provider `2/2` 和真实模型合成联系人 `1/1`（`26.973s`）通过。最终 Run `run-c8ccb1a2-e657-4aca-a8d1-7f465956e379` 为 `COMPLETED`，严格执行 `contacts.search -> contacts.get`，零审批、两项 `PASSED`。
+- Redmi 原通讯录为空，验收只创建纯合成记录，正式应用仅临时获得读权限；合成联系人已精确删除、权限撤销。最终文档 corpus gate `1/1` 通过；Room v36 与后台边界不变。
+
+第 245 阶段把联系人域接入了“自然语言目标 -> 稳定身份 -> 当前权威详情”的前台只读主链。下一阶段继续完成可信答案上的“查看联系人”入口和系统权威详情跳转；联系人写入、拨号/发送、通知读取、TTS、多图片、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
 
 - Composer 新增显式麦克风入口，通过系统 `RecognizerIntent` Activity 获取文本；应用不新增 `RECORD_AUDIO` 权限、不保存或上传音频，也不常驻监听。
@@ -1852,6 +1862,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；前台手动 Workflow 精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入、系统语音识别到可编辑草稿 v1，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、TTS、常驻/后台语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
+| P2 | 联系人只读查询 | 显式 `READ_CONTACTS` 设置、`contacts.search -> contacts.get`、稳定 ID、最小字段、权限竞态和 Redmi 合成联系人真实模型闭环已完成；答案级系统详情跳转未完成，写入/拨号/发送/后台继续关闭 | 扩大个人信息查询覆盖，同时保持通讯录最小暴露 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法

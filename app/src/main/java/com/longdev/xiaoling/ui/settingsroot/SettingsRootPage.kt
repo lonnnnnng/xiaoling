@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
@@ -124,6 +125,13 @@ internal fun SettingsRootPage(
                 subtitle = "授权前台 Agent 只读近期日程",
                 icon = Icons.Default.DateRange,
                 onClick = actions::openCalendarAccess,
+            )
+
+            SettingsEntryCard(
+                title = "联系人访问",
+                subtitle = "授权前台 Agent 精确查询姓名、电话和邮箱",
+                icon = Icons.Default.Person,
+                onClick = actions::openContactsAccess,
             )
 
             SettingsEntryCard(

@@ -48,6 +48,7 @@ class SettingsRootPageInstrumentedTest {
             "Agent Profiles",
             "设备 Agent",
             "日历访问",
+            "联系人访问",
             "答案可回答性 Shadow",
             "长期记忆",
             "本地笔记",
@@ -72,6 +73,7 @@ class SettingsRootPageInstrumentedTest {
                     "agent-profiles",
                     "device-agent",
                     "calendar-access",
+                    "contacts-access",
                     "answerability-shadow",
                     "memories",
                     "local-notes",
@@ -218,6 +220,7 @@ class SettingsRootPageInstrumentedTest {
         override fun openAgentProfileManagement() = events.add("agent-profiles").let { Unit }
         override fun openDeviceAgent() = events.add("device-agent").let { Unit }
         override fun openCalendarAccess() = events.add("calendar-access").let { Unit }
+        override fun openContactsAccess() = events.add("contacts-access").let { Unit }
         override fun openAnswerabilityShadow() = events.add("answerability-shadow").let { Unit }
         override fun openMemoryManagement() = events.add("memories").let { Unit }
         override fun openLocalNoteManagement() = events.add("local-notes").let { Unit }

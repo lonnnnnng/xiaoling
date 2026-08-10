@@ -52,6 +52,7 @@ class XiaoLingToolRegistry(
     private val knowledgeStore: KnowledgeDocumentStore,
     private val calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
     private val calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
+    private val contactReader: ContactReader = UnavailableContactReader,
     private val appInfoReader: AppInfoReader = UnavailableAppInfoReader,
     private val batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
     private val connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
@@ -66,6 +67,7 @@ class XiaoLingToolRegistry(
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
+    private var searchedContactCandidateIds: Set<Long> = emptySet()
     // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
@@ -86,6 +88,7 @@ class XiaoLingToolRegistry(
         knowledgeStore = store,
         calendarEventReader = calendarEventReader,
         calendarEventWriter = calendarEventWriter,
+        contactReader = contactReader,
         appInfoReader = appInfoReader,
         batteryStatusReader = batteryStatusReader,
         connectivityStatusReader = connectivityStatusReader,
@@ -293,6 +296,55 @@ class XiaoLingToolRegistry(
                 ),
             ),
             businessValidators = listOf(ToolBusinessValidator(::validateCalendarGetArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = CONTACT_SEARCH_TOOL_NAME,
+            description = "只读按用户给出的姓名、电话号码或邮箱片段搜索系统联系人；搜索摘要不返回具体号码或邮箱。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CONTACTS),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "query",
+                    description = "用户明确给出的联系人姓名、电话号码或邮箱片段，至少 2 个字符。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 2,
+                    maxLength = 100,
+                ),
+                ToolInputField(
+                    name = "limit",
+                    description = "返回条数，默认 5，最大 10。",
+                    required = false,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                    maximum = 10.0,
+                ),
+            ),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = CONTACT_GET_TOOL_NAME,
+            description = "按联系人搜索返回的稳定 ID，从当前系统 Contacts Provider 回读姓名、电话号码和邮箱。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CONTACTS),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "contact_id",
+                    description = "contacts.search 返回的稳定 contact-<正整数> 联系人 ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 9,
+                    maxLength = 27,
+                ),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateContactGetArguments)),
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -937,6 +989,7 @@ class XiaoLingToolRegistry(
             clearWorkflowDeviceActionState()
             searchedMemoryDeleteCandidateId = null
             confirmedMemoryDeleteCandidateId = null
+            searchedContactCandidateIds = emptySet()
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
                 deviceController.clearReferences()
@@ -1184,6 +1237,8 @@ class XiaoLingToolRegistry(
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
+            CONTACT_SEARCH_TOOL_NAME -> searchContacts(call)
+            CONTACT_GET_TOOL_NAME -> getContact(call)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> createCalendarEvent(call)
             CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME -> createCalendarEvent(call)
             CALENDAR_UPDATE_EVENT_TOOL_NAME -> updateCalendarEvent(call)
@@ -2090,6 +2145,66 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun searchContacts(call: ToolCall): ToolExecutionResult {
+        val query = call.contactSearchQuery()
+        if (query.length < MIN_CONTACT_QUERY_LENGTH) {
+            return ToolExecutionResult(success = false, content = "联系人搜索词至少需要 2 个字符。")
+        }
+        return when (val result = contactReader.searchContacts(query, call.contactLimit())) {
+            is ContactSearchResult.Success -> {
+                // long: 详情 ID 只在当前 Run 最近一次搜索结果内有效；再次搜索会替换候选集合，切换 Run 则由 bindRunContext 立即清空。
+                searchedContactCandidateIds = result.contacts.mapTo(linkedSetOf(), ContactSearchRecord::contactId)
+                if (result.contacts.isEmpty()) {
+                    ToolExecutionResult(success = true, content = "没有找到匹配的系统联系人。")
+                } else {
+                    ToolExecutionResult(
+                        success = true,
+                        content = ContactResultCodec.encodeSearch(query, result.contacts),
+                    )
+                }
+            }
+            ContactSearchResult.PermissionDenied -> contactSearchFailure("没有联系人读取权限，请在设置的“联系人访问”页面授权。")
+            ContactSearchResult.ProviderUnavailable -> contactSearchFailure("系统联系人服务不可用。")
+            ContactSearchResult.Failed -> contactSearchFailure("读取系统联系人失败，请稍后重试。")
+        }
+    }
+
+    private fun contactSearchFailure(message: String): ToolExecutionResult {
+        searchedContactCandidateIds = emptySet()
+        return ToolExecutionResult(success = false, content = message)
+    }
+
+    private suspend fun getContact(call: ToolCall): ToolExecutionResult {
+        val stableId = call.arguments["contact_id"].orEmpty().trim()
+        val contactId = stableId.toContactIdOrNull()
+            ?: return ToolExecutionResult(success = false, content = "联系人 ID 无效，请先用 contacts.search 获取稳定 ID。")
+        if (contactId !in searchedContactCandidateIds) {
+            return ToolExecutionResult(success = false, content = "联系人 ID 不属于当前 Run 最近一次搜索结果，请先重新调用 contacts.search。")
+        }
+        return when (val result = contactReader.getContact(contactId)) {
+            is ContactDetailReadResult.Success -> ToolExecutionResult(
+                success = true,
+                content = ContactResultCodec.encodeDetail(result.contact),
+            )
+            ContactDetailReadResult.NotFound -> ToolExecutionResult(
+                success = false,
+                content = "当前系统联系人中找不到该记录，可能已被删除或合并。",
+            )
+            ContactDetailReadResult.PermissionDenied -> ToolExecutionResult(
+                success = false,
+                content = "联系人读取权限不可用，请先在设置中授权。",
+            )
+            ContactDetailReadResult.ProviderUnavailable -> ToolExecutionResult(
+                success = false,
+                content = "系统联系人服务不可用。",
+            )
+            ContactDetailReadResult.Failed -> ToolExecutionResult(
+                success = false,
+                content = "读取系统联系人详情失败。",
+            )
+        }
+    }
+
     private fun formatCalendarEvents(heading: String, events: List<CalendarEventRecord>): String {
         val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
         val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
@@ -2982,6 +3097,16 @@ class XiaoLingToolRegistry(
         ?.take(100)
         .orEmpty()
 
+    private fun ToolCall.contactLimit(): Int = arguments["limit"]
+        ?.toIntOrNull()
+        ?.coerceIn(1, 10)
+        ?: 5
+
+    private fun ToolCall.contactSearchQuery(): String = arguments["query"]
+        ?.trim()
+        ?.take(MAX_CONTACT_QUERY_LENGTH)
+        .orEmpty()
+
     private fun String.toCalendarTitle(): String = trim()
         .replace(CALENDAR_TITLE_WHITESPACE, " ")
         .take(MAX_CALENDAR_TITLE_LENGTH)
@@ -3138,6 +3263,8 @@ private const val AGENT_GET_PROFILE_TOOL_NAME = "agent.get_profile"
 private const val APP_GET_CONVERSATION_TOOL_NAME = "app.get_conversation"
 private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
+private const val CONTACT_SEARCH_TOOL_NAME = "contacts.search"
+private const val CONTACT_GET_TOOL_NAME = "contacts.get"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
 private const val CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME = "calendar.create_all_day_event"
 private const val CALENDAR_UPDATE_EVENT_TOOL_NAME = "calendar.update_event"
@@ -3157,6 +3284,10 @@ private const val MAX_CALENDAR_TIME_ZONE_LENGTH = 100
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
+private const val CONTACT_ID_PREFIX = "contact-"
+private const val MIN_CONTACT_QUERY_LENGTH = 2
+private const val MAX_CONTACT_QUERY_LENGTH = 100
+private val CONTACT_ID_PATTERN = Regex("contact-[1-9][0-9]{0,18}")
 
 private fun validateNoArguments(arguments: Map<String, String>): List<String> =
     if (arguments.isEmpty()) emptyList() else listOf("该工具不接受参数")
@@ -3175,10 +3306,23 @@ private fun validateCalendarGetArguments(arguments: Map<String, String>): List<S
         listOf("日程事件 ID 必须是 calendar-<正整数>，且只能使用日程列表或搜索已返回的 ID")
     }
 
+private fun validateContactGetArguments(arguments: Map<String, String>): List<String> =
+    if (arguments["contact_id"].orEmpty().trim().toContactIdOrNull() != null) {
+        emptyList()
+    } else {
+        listOf("联系人 ID 必须是 contact-<正整数>，且只能使用 contacts.search 返回的 ID")
+    }
+
 private fun String.toCalendarEventIdOrNull(): Long? {
     if (!CALENDAR_EVENT_ID_PATTERN.matches(this)) return null
     return removePrefix(CALENDAR_EVENT_ID_PREFIX).toLongOrNull()
         ?.takeIf { eventId -> eventId > 0L && this == "$CALENDAR_EVENT_ID_PREFIX$eventId" }
+}
+
+private fun String.toContactIdOrNull(): Long? {
+    if (!CONTACT_ID_PATTERN.matches(this)) return null
+    return removePrefix(CONTACT_ID_PREFIX).toLongOrNull()
+        ?.takeIf { contactId -> contactId > 0L && this == "$CONTACT_ID_PREFIX$contactId" }
 }
 
 private fun validateCalendarCreateArguments(arguments: Map<String, String>): List<String> {

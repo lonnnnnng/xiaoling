@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 245 阶段联系人只读边界（无变更）
+
+联系人搜索词、稳定 contact ID、姓名、电话、邮箱、临时合成联系人、系统 Provider 行以及权限状态都不得进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。`contacts.search / contacts.get` 的 Tool Message 只属于当前 Agent Run；答案可回答性仍仅评估既有知识引用链，不把通讯录事实伪装成知识库来源。Shadow 默认开关、`enforcementApplied=false`、Room v36、相关性拒绝和候选身份绑定均保持不变；最终文档 corpus gate `1/1` 通过。
+
 ## 第 244 阶段语音草稿边界（无变更）
 
 系统识别 Activity 返回的文本只存在于 Conversation 可编辑草稿；用户显式发送前没有消息、Run、Provider 请求、知识检索、Judge 或 Shadow measurement。应用不保存原始音频、不把识别候选写入匿名账本，也不建立后台语音摄取。用户后续发送时，文本与普通手工输入走同一既有答案可回答性边界，不获得特殊来源权重或绕过生产开关。Room v36、Shadow Store、`enforcementApplied=false`、相关性拒绝和候选身份绑定均保持不变；最终文档 corpus gate 为 `1/1`（`3.077s`）。

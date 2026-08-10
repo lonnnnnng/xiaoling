@@ -18,6 +18,7 @@ internal interface SettingsRootActions {
     fun openAgentProfileManagement()
     fun openDeviceAgent()
     fun openCalendarAccess()
+    fun openContactsAccess()
     fun openAnswerabilityShadow()
     fun openMemoryManagement()
     fun openLocalNoteManagement()

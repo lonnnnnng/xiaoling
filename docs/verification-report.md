@@ -4,6 +4,35 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 245 阶段：系统联系人只读精确查询 v1
+
+### 当前结论
+
+- 独立“联系人访问”设置页只在用户主动点击后申请 `READ_CONTACTS`，并在页面恢复时重新读取系统权限；工具执行与后台任务不能弹出授权。
+- `contacts.search` 仅按用户明确给出的姓名、电话号码或邮箱片段查询，最多 10 个候选；摘要只含姓名、匹配类型和稳定 ID。`contacts.get` 只消费当前 Run 最近一次搜索返回的规范 `contact-<正整数>`，切换 Run 或搜索失败即失效，再从当前 Contacts Provider 回读姓名、电话和邮箱。
+- 地址、公司、生日、备注、头像、群组、账户、任意 Data MIME、全量枚举、写联系人、拨号、短信、邮件、Workflow 和后台读取均未开放。字段统一压平控制字符/换行并标记为非指令数据。
+- Room v36、Provider 配置、联系人写入、通知读取、知识 Shadow 与后台边界均未变化。
+
+### 已验证证据
+
+- `ContactResultCodecTest 2/2 + AgentSkillsTest 38/38 + XiaoLingToolRegistryTest 93/93`，合计聚焦 JVM `133/133` 通过。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`。
+- Debug 与 AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。`ContactsAccessSettingsPageInstrumentedTest` 为 `2/2`、`3.34s`；设置根入口单项为 `1/1`、`5.934s`。
+- 撤销 `READ_CONTACTS` 后，`AndroidContactReaderInstrumentedTest#deniedPermissionFailsClosedWithoutContactFacts` 为 `1/1`、`0.079s`；临时授权后真实 Contacts Provider 有界搜索/详情为 `1/1`、`0.193s`。设备原通讯录为空，日志为 `fixturePresent=false`，没有输出姓名、ID、号码或邮箱。
+- `Stage245ContactsAgentInstrumentedTest` 以临时 shell 写权限创建一条纯合成联系人；正式应用只获 `READ_CONTACTS`。最终 Run `run-c8ccb1a2-e657-4aca-a8d1-7f465956e379` 为 `COMPLETED`，工具顺序严格是 `contacts.search -> contacts.get`，两项结果均 `PASSED`、审批数 0，耗时 `26.973s`；搜索结果不含合成电话/邮箱，详情和最终回复来自当前 Provider 回读。
+- 真机日志只记录 `syntheticFixture=true / privacySafe=true`；清理后的 Contacts filter 查询返回 `No result found`，合成联系人已删除，`READ_CONTACTS` 已撤销。
+- 同步第 245 阶段长期文档后，Redmi 文档 corpus gate 为 `OK (1 test)`。
+
+### 验证范围与收尾
+
+- 没有读取、输出或发送 Redmi 私人联系人；验收所需姓名、电话和邮箱全部动态生成且只属于临时合成记录。测试 Run 审计保留合成事实，系统联系人记录已精确清理。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation；设备清单中的模拟器没有收到安装、启动、日志或测试命令。
+- 测试包在最终 corpus gate 后卸载，主应用与数据保留；联系人权限保持撤销状态。
+
+### 下一阶段
+
+补齐可信 `contacts.get / PASSED` 结果的答案级“查看联系人”入口。点击时重新核对 `READ_CONTACTS` 与当前 Provider 记录，只允许跳转系统权威详情；联系人写入、拨号、短信、邮件和通知读取继续后置。
+
 ## 2026-08-10 第 244 阶段：系统语音输入到可编辑草稿 v1
 
 ### 当前结论
