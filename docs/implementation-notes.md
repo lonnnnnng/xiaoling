@@ -1,5 +1,14 @@
 # 当前实现说明
 
+## 第 239 阶段：系统分享 PDF 到显式 Agent 理解闭环（完成）
+
+- 新增 `Stage239SharedPdfAgentInstrumentedTest`，只在显式 `stage239RealRun=true` 且 `Build.DEVICE=begonia` 时运行。夹具用 `PdfDocument` 和等宽字体把三个动态 ASCII 标签行绘制到一页 PDF，再经 MediaStore `application/pdf` 分享进入正式 `MainActivity`。
+- 草稿读取断言 `%PDF`、`pageCount=1`、`extractedText=null`；用户把普通说明改为不含动态值的 `/agent` 命令后仍无 Run，明确发送才通过正式 `sendMessage -> AgentRunUseCase -> OpenAiAgentLlm` 携带 USER PDF。
+- 临时 Responses Profile 只开放 `notes.create`。模型从 PDF 恢复 `TITLE` 后的值，并把完整 `ACCEPTANCE_CODE / CONCLUSION` 行写入工具参数；写入继续经过交互审批、Executor verification、提交回执和 Tool Message 投影，没有新增生产旁路。
+- 最终 Run `run-2019d5f6-03fe-4bb5-a59f-b126f4b1f028` 的唯一 `notes.create` 为 `APPROVED / PASSED / COMMITTED`；Room USER PDF BLOB、Ledger/Tool Message 和 Note Store 回读一致，旧 Run 摘要不变，日志为 `pdfPersisted=true / storeReadBack=true / oldRunUnchanged=true / cleanupVerified=true`。
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 成功且无新增 Kotlin 警告；Redmi 真实单项为 `OK (1 test)`、`31.691s`，文档 corpus gate 为 `1/1`、`2.919s`。测试内断言临时笔记/Profile/会话/MediaStore PDF 已清理，原选择恢复且新 Run 审计保留。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
+
 ## 第 238 阶段：系统分享文档到显式 Agent 理解闭环（完成）
 
 - 新增 `Stage238SharedDocumentAgentInstrumentedTest`，只在显式 `stage238RealRun=true` 且 `Build.DEVICE=begonia` 时运行。测试创建动态 Markdown MediaStore 文档，通过真实 `ACTION_SEND` 进入 `MainActivity`，先冻结“无用户消息、无 Run、附件正文已由统一读取器回读”，再由用户动作把 prompt 改为 `/agent` 并调用正式发送入口。

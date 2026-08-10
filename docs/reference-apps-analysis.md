@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 239 阶段继续采用成熟个人 Agent 的“二进制附件由供应商理解、应用只冻结可信文件身份、外部入口不自动执行、工具副作用逐次审批、提交后回权威 Store”原则：PDF 在应用侧明确没有提取正文，动态事实只存在于文件页面；模型仍形成正确 `notes.create`，Room PDF BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的本地 OCR 伪装模型理解、后台 PDF 监听、自动摘要、隐式写入、远程 Channel 或多 Agent 文档协作。
+
 第 238 阶段继续采用成熟个人 Agent 的“外部附件先成为用户可见草稿、能力升级必须由用户明确发送、附件事实与工具副作用共享同一审计身份、提交后回权威 Store”原则：测试 prompt 不携带文档专属值，模型必须从可信 USER Document 形成 `notes.create` 参数，写入仍逐次审批；Room 文档 BLOB、Ledger、Tool Message 和 Note Store 互相核对。实现没有复制参考项目的自动摘要、后台文件监听、隐式工具执行、任意文件队列、远程 Channel 或多 Agent 文档协作。
 
 第 237 阶段继续采用成熟个人 Agent 的“外部内容先进入用户可见草稿、附件解析复用统一安全边界、外部入口不自动执行”的原则：系统分享只声明现有附件链已支持的精确文档 MIME，单个 `content://` URI 进入新会话后继续由统一读取器执行大小、编码、PDF 和 OpenXML 校验；未知类型、多附件与不安全 URI fail-closed。实现没有复制参考项目的后台文件监听、自动摘要、任意文件摄取、持久 URI 队列、远程 Channel 或多 Agent 文档协作。

@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 239 阶段：系统分享 PDF 到显式 Agent 理解闭环（完成）
+
+- 测试使用 Android `PdfDocument` 生成一页真实 PDF，只在页面绘制动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION`。统一文档读取器确认 `%PDF`、`application/pdf` 和 `pageCount=1`，且 `extractedText=null`，因此应用本地没有可供 Agent 直接复用的提取正文。
+- PDF 继续先进入新会话可编辑附件草稿；导入、用户改写 prompt 和输入 `/agent` 均不自动发送或创建 Run。只有用户明确点击发送后，可信 USER PDF BLOB 才进入 Responses 规划请求。
+- 验收 prompt 与临时 Profile 都不包含三个动态值，Profile 只开放 `notes.create`。最终 Run `run-2019d5f6-03fe-4bb5-a59f-b126f4b1f028` 为 `COMPLETED`，唯一审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；工具参数只能来自模型对 PDF 页面的理解。
+- Room USER Document 保留 PDF 原始字节、页数和空提取正文；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 真实单项为 `OK (1 test)`、`31.691s`，文档 corpus gate 为 `1/1`、`2.919s`。
+- 临时笔记/Profile/会话/MediaStore PDF 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+下一阶段优先验证 DOCX 等 OpenXML 文档仍能通过同一显式 Agent 链；继续禁止多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 第 238 阶段：系统分享文档到显式 Agent 理解闭环（完成）
 
 - Markdown 继续先通过 Android `ACTION_SEND` 进入新会话可编辑附件草稿；导入、用户编辑以及把普通说明替换为 `/agent` 的过程都不会自动发送、调用模型或创建 Run。只有用户明确点击发送后，可信 USER Document 才进入既有 Responses Agent 附件链。
@@ -8,7 +18,7 @@
 - 仅 Redmi `wsvwypiz7xwslvl7` 真实单项为 `OK (1 test)`、`21.901s`，文档 corpus gate 为 `1/1`、`3.406s`。临时笔记/Profile/会话/MediaStore 文档精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。
 - 本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议；未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
-下一阶段优先验证 PDF 等没有本地提取正文的二进制文档仍能通过同一“分享草稿 → 明确 `/agent` 发送 → 受审批工具 → Store 回读”链路；不扩展多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+第 239 阶段已完成 `extractedText=null` 的真实 PDF 文件理解闭环。
 
 ## 第 237 阶段：Android 单文档系统分享入口（完成）
 

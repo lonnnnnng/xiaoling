@@ -4,6 +4,32 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 239 阶段：系统分享 PDF 到显式 Agent 理解闭环
+
+### 当前结论
+
+- Android `PdfDocument` 生成的真实一页 PDF 经统一读取器后为 `%PDF / application/pdf / pageCount=1 / extractedText=null`。分享导入和用户编辑阶段无消息、无 Run，只有明确发送 `/agent` 后才进入 Responses Agent。
+- 动态标题、验收码和结论只存在于 PDF 页面，prompt 与 Profile 不携带实际值；临时 Profile 仅开放 `notes.create`。最终工具参数恢复全部值，证明当前 Provider 能理解 PDF 文件而不是依赖本地提取正文。
+- 本阶段没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+### 已验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`，消除两条非必要安全调用后无新增 Kotlin 编译警告。
+- AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`；真实单项为 `OK (1 test)`、`31.691s`。
+- 最终 Run `run-2019d5f6-03fe-4bb5-a59f-b126f4b1f028` 为 `COMPLETED`；唯一 `notes.create` 审批 `APPROVED`，ToolResult 为 `success=true / executorVerified=true / PASSED`，回执 `COMMITTED`，稳定 Note ID 为 `note-3f4d8c6e-5049-4552-af49-3b1cfed10ccb`。
+- Room USER Message 按 Run 的 `userMessageId` 回读到原始 PDF Document，签名、MIME、页数和空提取正文保持；Tool Message 参数与 Ledger 相同，Note Store 标题/正文包含 PDF 页面中的三个动态事实。
+- 同步第 239 阶段长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus gate 为 `OK (1 test)`、`2.919s`。
+
+### 验证范围与收尾
+
+- 临时笔记只按本轮 `COMMITTED` operation ID 删除；临时 Profile、会话和 MediaStore PDF 按稳定身份精确清理，原 Profile/会话选择恢复，新 Run/Approval/Tool Ledger 审计保留，最近旧 Run 完整摘要不变。
+- 日志输出 `STAGE239_SHARED_PDF_AGENT ... pdfPersisted=true storeReadBack=true oldRunUnchanged=true cleanupVerified=true`。安装、instrumentation 和日志只对 Redmi 执行，没有向模拟器发送目标命令。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+优先验证 DOCX 等 OpenXML 文档在 `extractedText=null` 时仍能通过同一显式 Agent 链；不扩展多附件、自动发送、后台文档摄取或远程执行。
+
 ## 2026-08-10 第 238 阶段：系统分享文档到显式 Agent 理解闭环
 
 ### 当前结论
