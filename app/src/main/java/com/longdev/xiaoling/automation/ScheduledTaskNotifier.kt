@@ -6,15 +6,15 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import com.longdev.xiaoling.MainActivity
 import com.longdev.xiaoling.R
 
 class ScheduledTaskNotifier(
     private val context: Context,
 ) {
+    private val navigationTokenStore = ScheduledTaskResultNavigationTokenStore(context.applicationContext)
+
     fun notify(workflowName: String, task: ScheduledTaskRecord, detail: String): Boolean {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return false
         createChannel(manager)
@@ -24,22 +24,29 @@ class ScheduledTaskNotifier(
             ScheduledTaskStatus.BLOCKED -> "工作流需要你处理 · $workflowName"
             else -> "工作流执行失败 · $workflowName"
         }
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            task.id.hashCode(),
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val pendingIntent = ScheduledTaskResultNavigationPolicy.targetFor(task)
+            ?.let(navigationTokenStore::issue)
+            ?.let { token ->
+                ScheduledTaskResultNavigationIntent.create(context, token)?.let { intent ->
+                    PendingIntent.getActivity(
+                        context,
+                        token.hashCode(),
+                        intent,
+                        PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE,
+                    )
+                }
+            }
         val notification = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_xiaoling_notification)
             .setContentTitle(title)
             .setContentText(detail.take(180))
             .setStyle(Notification.BigTextStyle().bigText(detail.take(600)))
-            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_STATUS)
+            .apply {
+                // long: 私有令牌无法同步落盘时仍保留结果通知，但不提供可点击跳转；安全失败不能退化为携带裸 workflowId 的外部 Intent。
+                pendingIntent?.let(::setContentIntent)
+            }
             .build()
         manager.notify(task.id.hashCode(), notification)
         return true

@@ -286,6 +286,20 @@ private fun XiaoLingContent(
         viewModel.consumeWorkflowNavigation()
     }
 
+    LaunchedEffect(state.scheduledTaskResultNavigationVersion) {
+        if (state.scheduledTaskResultNavigationVersion <= 0L) return@LaunchedEffect
+        val workflowId = state.scheduledTaskResultWorkflowId ?: return@LaunchedEffect
+        // long: Activity 已完成令牌消费与 Room 身份核对；应用壳只把已校验目标路由到现有 Workflow 页面，不再从 Intent 读取任何业务 ID。
+        viewModel.refreshWorkflows()
+        navigation.openSettingsPane(
+            pane = SettingsPane.WORKFLOW_MANAGEMENT,
+            requestedWorkflowId = workflowId,
+            requestedScheduledTaskId = state.scheduledTaskResultTaskId,
+            requestedWorkflowRunId = state.scheduledTaskResultWorkflowRunId,
+        )
+        viewModel.consumeScheduledTaskResultNavigation()
+    }
+
     LaunchedEffect(state.memorySourceConversationNavigationId) {
         state.memorySourceConversationNavigationId ?: return@LaunchedEffect
         navigation.routeExternal(XiaoLingExternalNavigationTarget.MEMORY_CONVERSATION)
@@ -440,6 +454,8 @@ private fun XiaoLingContent(
                         },
                         requestedKnowledgeDocumentId = navigation.requestedKnowledgeDocumentId,
                         requestedWorkflowId = navigation.requestedWorkflowId,
+                        requestedScheduledTaskId = navigation.requestedScheduledTaskId,
+                        requestedWorkflowRunId = navigation.requestedWorkflowRunId,
                         requestedLocalNoteId = navigation.requestedLocalNoteId,
                         requestedCalendarEventId = navigation.requestedCalendarEventId,
                         agentTaskCenterInitialFilter = agentTaskCenterInitialFilter,
@@ -448,6 +464,8 @@ private fun XiaoLingContent(
                                 pane = SettingsPane.ROOT,
                                 requestedKnowledgeDocumentId = null,
                                 requestedWorkflowId = null,
+                                requestedScheduledTaskId = null,
+                                requestedWorkflowRunId = null,
                                 requestedLocalNoteId = null,
                                 requestedCalendarEventId = null,
                             )
@@ -851,6 +869,8 @@ private fun SettingsPage(
     onRequestNotificationPermission: () -> Unit,
     requestedKnowledgeDocumentId: String?,
     requestedWorkflowId: String?,
+    requestedScheduledTaskId: String?,
+    requestedWorkflowRunId: String?,
     requestedLocalNoteId: String?,
     requestedCalendarEventId: String?,
     agentTaskCenterInitialFilter: AgentTaskFilter,
@@ -964,6 +984,9 @@ private fun SettingsPage(
                 onRequestNotificationPermission = onRequestNotificationPermission,
                 onBack = onBackToSettings,
                 preferredWorkflowId = requestedWorkflowId,
+                preferredScheduledTaskId = requestedScheduledTaskId,
+                preferredWorkflowRunId = requestedWorkflowRunId,
+                preferredNavigationVersion = state.scheduledTaskResultNavigationVersion,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.AGENT_RUN_HISTORY -> AgentTaskCenterPage(

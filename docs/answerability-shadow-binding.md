@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 233 阶段提醒结果导航边界（无变更）
+
+本阶段新增的 token、workflowId、scheduledTaskId、workflowRunId、签发/过期时间、PendingIntent action、Activity 冷/热导航、一次性导航版本和页面高亮只属于应用内结果路由安全状态，不进入知识候选、Judge 输入、Shadow measurement、匿名账本、Provider 请求或答案级知识引用。Shadow 默认关闭、`enforcementApplied=false`、Room v36、生产相关性拒绝和既有候选身份绑定规则保持不变；Redmi 最终组合 `6/6` 已通过，没有产生 Shadow 样本或生产拒绝变化。
+
 ## 第 232 阶段一次性提醒边界（无变更）
 
 本阶段只把已确认的系统分享个人任务接入既有一次性 WorkManager 调度、后台 Workflow、`app.current_time` Tool Ledger、目标级验证和结果通知。分享原文、计划、ScheduledTask、WorkRequest、后台会话、Workflow/Agent Run、通知正文与 runner 参数均不进入知识候选、Judge、Shadow measurement 或匿名账本，也不触发额外 Shadow 模型调用或生产拒绝。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与既有候选绑定规则保持不变。

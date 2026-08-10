@@ -28,6 +28,12 @@ internal class XiaoLingNavigationController(
     val requestedWorkflowId: String?
         get() = state.requestedWorkflowId
 
+    val requestedScheduledTaskId: String?
+        get() = state.requestedScheduledTaskId
+
+    val requestedWorkflowRunId: String?
+        get() = state.requestedWorkflowRunId
+
     val requestedLocalNoteId: String?
         get() = state.requestedLocalNoteId
 
@@ -44,6 +50,8 @@ internal class XiaoLingNavigationController(
         pane: XiaoLingSettingsPane,
         requestedKnowledgeDocumentId: String? = state.requestedKnowledgeDocumentId,
         requestedWorkflowId: String? = null,
+        requestedScheduledTaskId: String? = null,
+        requestedWorkflowRunId: String? = null,
         requestedLocalNoteId: String? = null,
         requestedCalendarEventId: String? = null,
     ) {
@@ -52,6 +60,8 @@ internal class XiaoLingNavigationController(
             pane = pane,
             requestedKnowledgeDocumentId = requestedKnowledgeDocumentId,
             requestedWorkflowId = requestedWorkflowId,
+            requestedScheduledTaskId = requestedScheduledTaskId,
+            requestedWorkflowRunId = requestedWorkflowRunId,
             requestedLocalNoteId = requestedLocalNoteId,
             requestedCalendarEventId = requestedCalendarEventId,
         )
@@ -93,6 +103,8 @@ private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<S
         listOf(
             state.requestedKnowledgeDocumentId.orEmpty(),
             state.requestedWorkflowId.orEmpty(),
+            state.requestedScheduledTaskId.orEmpty(),
+            state.requestedWorkflowRunId.orEmpty(),
             state.requestedLocalNoteId.orEmpty(),
             state.requestedCalendarEventId.orEmpty(),
         )
@@ -101,8 +113,10 @@ private val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<S
         XiaoLingNavigationState(
             requestedKnowledgeDocumentId = savedTargets.getOrNull(0).orEmpty().ifBlank { null },
             requestedWorkflowId = savedTargets.getOrNull(1).orEmpty().ifBlank { null },
-            requestedLocalNoteId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
-            requestedCalendarEventId = savedTargets.getOrNull(3).orEmpty().ifBlank { null },
+            requestedScheduledTaskId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
+            requestedWorkflowRunId = savedTargets.getOrNull(3).orEmpty().ifBlank { null },
+            requestedLocalNoteId = savedTargets.getOrNull(4).orEmpty().ifBlank { null },
+            requestedCalendarEventId = savedTargets.getOrNull(5).orEmpty().ifBlank { null },
         )
     },
 )

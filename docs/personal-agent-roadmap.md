@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 233 阶段：提醒结果一次性安全导航（完成）
+
+- 终态 ScheduledTask 通知不再只打开应用首页。Notifier 为当前 Task 签发 32 字节随机 Base64URL token，应用私有 Store 保存 `token -> workflowId / scheduledTaskId / workflowRunId / expiresAt`，有效期 24 小时；同一 Task 重新通知会撤销旧 token。
+- PendingIntent 显式指向 `MainActivity`，只携带 token，并使用 `FLAG_IMMUTABLE + FLAG_ONE_SHOT`。Activity 冷创建、系统恢复和 `singleTop onNewIntent()` 均走同一消费链；URI grant、data、ClipData、selector、错误 action、格式错误、过期、重放和随机伪造全部拒绝。
+- token 原子消费后，ViewModel 仍从当前 Room 回读 ScheduledTask、Workflow 与 Workflow Run，要求 Task 终态、Workflow 存在、三段稳定 ID 一致，且非空 Run 仍存在并反向绑定同一 Workflow/Task；任何 Room 读取/解析异常只拒绝本次导航。通过后应用壳打开 Workflow 管理页、自动展开目标 Workflow，并以可测试的选中语义和背景高亮对应调度实例及 Workflow Run；一次性导航版本保证同一稳定目标的新通知也能覆盖用户先前的折叠状态。Intent 中没有任何可由外部直接伪造的业务 ID。
+- 聚焦 JVM `19/19`、Debug/AndroidTest APK 构建通过。仅 Redmi `wsvwypiz7xwslvl7` 最终组合运行 `6/6`（`12.46s`）；有效 token 冷启动、真实 PendingIntent 热启动/one-shot、伪造 token、Run 删除后拒绝、目标 Task/Run 精确标记、同目标新导航重新展开和系统分享冷/热回归均通过。
+- 热路径真实证据为 Workflow `workflow-17a65b57-4daf-46eb-b4b0-456260db20d6`、Task `scheduled-task-6e203265-a9c8-477b-9f26-de261211f727`、Workflow Run `workflow-run-stage233-e1faaa72-c891-4fab-92ee-64bc666980a3`、`navigationVersion=1`。测试夹具、通知和私有 token 状态均在 `finally` 清理。
+
+第 233 阶段完成后，下一阶段回到能直接增加个人 Agent 任务覆盖的单一用户场景，不继续为通知入口叠加远程 Channel、任意外部 deep link 或后台设备自动化。
+
 ## 第 232 阶段：系统分享文本到一次性应用内提醒（完成）
 
 - 第 231 阶段的系统分享任务入口已与既有一次性提醒链真正贯通：用户显式转为任务、生成并确认 `ONCE / 1 分钟` 单步计划后，生产 WorkManager 到点创建后台 Workflow/Agent Run；确认前没有调度或执行事实。

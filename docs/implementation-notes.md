@@ -1,5 +1,19 @@
 # 当前实现说明
 
+## 第 233 阶段：提醒结果一次性安全导航（完成）
+
+- 新增 `ScheduledTaskResultNavigationTokenStore`。生产 token 使用 `SecureRandom` 生成 32 字节并编码为 43 字符 Base64URL；私有 SharedPreferences 以单一版本化 JSON 保存映射，进程级锁内通过同步 `commit()` 完成签发和消费。消费只有在删除成功落盘后才返回目标，24 小时过期、同 Task 新 token 撤销旧 token、重复 token/重复记录和损坏状态均 fail-closed。
+- `ScheduledTaskResultNavigationPolicy` 只允许 `BLOCKED / COMPLETED / FAILED / CANCELLED`；`ScheduledTaskResultNavigationIntent` 使用固定内部 action、显式 `MainActivity`，只读 token，拒绝 URI grant、data、ClipData、selector 和 MIME type。业务 workflowId/taskId/runId 从不进入外部 Intent。
+- `ScheduledTaskNotifier` 在通知权限可用且 Task 已终结后签发 token，使用不同 requestCode 的 `FLAG_IMMUTABLE + FLAG_ONE_SHOT` PendingIntent。若私有状态不能同步写入，仍可显示结果通知，但没有点击跳转，不退化为裸 ID。
+- `MainActivity` 保留系统分享的首次创建去重，但通知导航在每次 `onCreate()` 都校验，因此进程恢复后点击新通知不会被 savedInstanceState 错误跳过；`onNewIntent()` 先 `setIntent()`，再执行相同分享/通知分流。Store 消费后由 `XiaoLingViewModel` 回读 Room，精确核对 Workflow、ScheduledTask 和 Workflow Run 身份；Run 非空时还必须仍存在并反向绑定同一 Workflow/Task，悬空、漂移或 Repository 读取/解析异常都只拒绝本次导航，不让外部入口触发崩溃循环。
+- `XiaoLingNavigationState` 新增 ScheduledTask/Workflow Run 一次性目标；应用壳打开既有 Workflow 页面，页面按 Workflow 自动滚动并展开，以独立 testTag、`selected` 语义和背景高亮精确 Task/Run。Workflow 模块同时接收 ViewModel 的一次性导航版本并纳入展开状态 key，因此同一稳定 Task 的新通知也会在用户手动折叠后重新展开。返回设置根页会同时清除全部导航目标。
+- 新增令牌 Store `4` 条、当前身份 Policy `4` 条测试，并扩展 Navigation `9` 条、初始化合并 `2` 条，共 `19/19` 聚焦 JVM 通过；`ScheduledTaskResultNavigationActivityInstrumentedTest` 覆盖有效冷启动、真实通知热启动/one-shot、伪造 token 和 Run 删除后的 fail-closed 共 `4/4`，页面精确定位与系统分享冷/热回归另为 `2/2`。AndroidTest 编译、Debug 与 AndroidTest APK 构建通过。
+- 官方 Android 文档核对确认 PendingIntent 应显式指向自有组件、优先不可变，`FLAG_ONE_SHOT` 首次发送后自动取消；`singleTop` 复用 Activity 时需在 `onNewIntent()` 手动处理新导航。Room v36、Manifest exported 状态、权限、Tool/Skill、WorkManager 和后台审批语义均未改变。
+
+### Redmi 验收
+
+仅 Redmi `wsvwypiz7xwslvl7` 执行定向验收。最终组合运行通知导航四项、Workflow 页面精确高亮/同目标重入和分享冷/热回归共 `OK (6 tests)`、`12.46s`。真实热路径输出 `STAGE233_NOTIFICATION_NAVIGATION workflowId=workflow-17a65b57-4daf-46eb-b4b0-456260db20d6 taskId=scheduled-task-6e203265-a9c8-477b-9f26-de261211f727 workflowRunId=workflow-run-stage233-e1faaa72-c891-4fab-92ee-64bc666980a3 navigationVersion=1`。首轮业务断言已通过但 MIUI 漏报 `ActivityScenario` 的 `DESTROYED` 收尾事件，测试改为真实 Activity 主动结束并等待主线程空闲后稳定通过；生产导航逻辑未因此放宽。未运行完整 JVM、Lint、Release 或全量 instrumentation，模拟器未接收安装或测试命令。
+
 ## 第 232 阶段：系统分享文本到一次性应用内提醒（完成）
 
 - 新增 `Stage232SharedTextOneTimeReminderInstrumentedTest`，显式 `stage232RealRun=true` 才运行。测试从真实 `ACTION_SEND text/plain`、普通草稿、“转为任务”、模型计划和用户确认进入既有 `createConfirmedPersonalReminder()`；没有新增 Debug Runtime 或生产旁路。

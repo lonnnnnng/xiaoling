@@ -65,6 +65,8 @@ import com.longdev.xiaoling.automation.WorkflowStepPromptPolicy
 import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.automation.ScheduledTaskRecord
+import com.longdev.xiaoling.automation.ScheduledTaskResultNavigationPolicy
+import com.longdev.xiaoling.automation.ScheduledTaskResultNavigationTarget
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
 import com.longdev.xiaoling.automation.ScheduledWorkflowProcessExecutionRegistry
 import com.longdev.xiaoling.automation.ScheduledWorkflowStopFallbackCoordinator
@@ -371,6 +373,10 @@ data class XiaoLingUiState(
     val pendingWorkflowRetryConfirmation: WorkflowRetryConfirmationUiState? = null,
     val workflowError: String? = null,
     val workflowNavigationConversationId: String? = null,
+    val scheduledTaskResultWorkflowId: String? = null,
+    val scheduledTaskResultTaskId: String? = null,
+    val scheduledTaskResultWorkflowRunId: String? = null,
+    val scheduledTaskResultNavigationVersion: Long = 0L,
     val backupBusy: Boolean = false,
     val backupRestartRequired: Boolean = false,
     val result: OperationResult? = null,
@@ -384,6 +390,11 @@ internal fun mergeAnswerabilityShadowInitializationState(
     answerabilityShadowSampleSummary = runtimeState.answerabilityShadowSampleSummary,
     // long: 匿名账本可能在 Profile/会话加载完成前已经读回；启动整表状态重建必须保留该结果，不能让默认零值覆盖真实跨进程累计。
     answerabilityShadowPersistentSummary = runtimeState.answerabilityShadowPersistentSummary,
+    // long: 通知令牌可能在冷启动初始化期间先被 Activity 消费；Room 全量状态装载不能覆盖这条已校验但尚未由 Compose 路由的一次性请求。
+    scheduledTaskResultWorkflowId = runtimeState.scheduledTaskResultWorkflowId,
+    scheduledTaskResultTaskId = runtimeState.scheduledTaskResultTaskId,
+    scheduledTaskResultWorkflowRunId = runtimeState.scheduledTaskResultWorkflowRunId,
+    scheduledTaskResultNavigationVersion = runtimeState.scheduledTaskResultNavigationVersion,
 )
 
 private data class WorkflowUiData(
@@ -2346,6 +2357,47 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun consumeWorkflowNavigation() {
         uiState = uiState.copy(workflowNavigationConversationId = null)
+    }
+
+    internal fun acceptScheduledTaskResultNavigation(target: ScheduledTaskResultNavigationTarget) {
+        viewModelScope.launch {
+            val accepted = try {
+                withContext(Dispatchers.IO) {
+                    val task = workflowRepository.getScheduledTask(target.scheduledTaskId)
+                        ?: return@withContext null
+                    val workflowExists = workflowRepository.getWorkflow(target.workflowId) != null
+                    val workflowRun = target.workflowRunId
+                        ?.let { workflowRunId -> workflowRepository.runDetail(workflowRunId)?.run }
+                    target.takeIf {
+                        ScheduledTaskResultNavigationPolicy.matchesCurrentState(
+                            target = it,
+                            task = task,
+                            workflowExists = workflowExists,
+                            workflowRun = workflowRun,
+                        )
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // long: 通知 token 已经一次性消费；Room 读取或损坏记录解析异常时只拒绝本次导航，不能让外部入口把应用带入崩溃循环。
+                null
+            } ?: return@launch
+            uiState = uiState.copy(
+                scheduledTaskResultWorkflowId = accepted.workflowId,
+                scheduledTaskResultTaskId = accepted.scheduledTaskId,
+                scheduledTaskResultWorkflowRunId = accepted.workflowRunId,
+                scheduledTaskResultNavigationVersion = uiState.scheduledTaskResultNavigationVersion + 1L,
+            )
+        }
+    }
+
+    fun consumeScheduledTaskResultNavigation() {
+        uiState = uiState.copy(
+            scheduledTaskResultWorkflowId = null,
+            scheduledTaskResultTaskId = null,
+            scheduledTaskResultWorkflowRunId = null,
+        )
     }
 
     fun importSkill(uri: android.net.Uri) {

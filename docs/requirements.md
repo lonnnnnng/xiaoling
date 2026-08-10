@@ -1,5 +1,16 @@
 # 产品需求
 
+## 提醒结果一次性安全导航（第 233 阶段，完成）
+
+- 只有 `BLOCKED / COMPLETED / FAILED / CANCELLED` ScheduledTask 可以生成点击导航；通知 Intent 不得直接携带或信任 workflowId、scheduledTaskId、workflowRunId、agentRunId 或任意嵌套 Intent。
+- 每枚导航 token 必须由应用使用安全随机数生成，至少 256 bit，限制为严格 Base64URL 格式，保存在 `MODE_PRIVATE` 状态中并绑定 Workflow/Task/Run、签发时间和过期时间。本阶段有效期为 24 小时；同一 Task 新通知必须撤销旧 token。
+- PendingIntent 必须显式指向 `MainActivity`，默认不可变且单次使用；接收 Intent 若 action、token 格式、URI grant、data、ClipData、selector 或 MIME 边界异常，必须拒绝。MainActivity 继续因系统分享而 exported，不能把 exported 状态、action 或普通 extra 当作可信调用方身份。
+- token 必须原子消费且只能成功一次；消费删除未同步落盘时不得返回业务目标。随机伪造、过期、重放、重复持久化身份、损坏状态或旧 token 均不得改变应用导航。
+- Activity 冷启动、进程恢复后的 `onCreate()` 和 `singleTop onNewIntent()` 必须使用同一通知导航校验；`onNewIntent()` 先更新当前 Intent。系统分享仍只在首次创建导入，避免导航修复重新引入分享草稿重复导入。
+- 私有 Store 消费不是最终业务授权。ViewModel 必须从当前 Room 回读目标 ScheduledTask、Workflow 与非空 Workflow Run，要求 Task 仍为终态、Workflow 仍存在、Task ID、Workflow ID 与 Workflow Run ID 全部一致，且 Run 仍存在并反向绑定同一 Workflow/Task；任何读取/解析异常、删除、悬空引用、重建或漂移均 fail-closed，不得因通知入口崩溃。
+- 通过后只能复用既有 Workflow 管理页，自动定位并展开 Workflow，明确高亮当前调度实例与 Workflow Run；同一稳定目标的新一次性导航也必须重新展开，不得被页面先前的本地折叠状态吞掉。不得新建外部 deep link、导出中转 Activity、绕过现有返回栈或从历史通知正文重建结果。
+- 本阶段不得修改 Room Schema、Android 权限、Manifest exported 范围、WorkManager、Tool/Skill、审批或后台执行语义。Android 验收只使用 Redmi；聚焦 JVM `19/19`、Debug/AndroidTest APK 与 Redmi 最终组合 `6/6` 已通过，完整 JVM、Lint、Release 和全量 instrumentation 按分级约束后置。
+
 ## 系统分享文本到一次性应用内提醒（第 232 阶段，完成）
 
 - 系统分享文本必须继续先成为普通草稿，并由用户依次点击“转为任务”、生成计划和确认计划；确认前不得创建 Workflow、ScheduledTask、WorkRequest、Workflow Run 或 Agent Run。

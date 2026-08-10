@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.ui.workflow
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +83,9 @@ internal fun WorkflowManagementPage(
     onRequestNotificationPermission: () -> Unit,
     onBack: () -> Unit,
     preferredWorkflowId: String? = null,
+    preferredScheduledTaskId: String? = null,
+    preferredWorkflowRunId: String? = null,
+    preferredNavigationVersion: Long = 0L,
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -169,6 +175,9 @@ internal fun WorkflowManagementPage(
                         onCancelScheduledTask = actions::cancelScheduledTask,
                         onCancelWorkflowSchedule = actions::cancelWorkflowSchedule,
                         initiallyExpanded = workflow.id == preferredWorkflowId,
+                        preferredScheduledTaskId = preferredScheduledTaskId,
+                        preferredWorkflowRunId = preferredWorkflowRunId,
+                        preferredNavigationVersion = preferredNavigationVersion,
                     )
                 }
             }
@@ -230,8 +239,14 @@ private fun WorkflowItem(
     onCancelScheduledTask: (String) -> Unit,
     onCancelWorkflowSchedule: (String) -> Unit,
     initiallyExpanded: Boolean = false,
+    preferredScheduledTaskId: String? = null,
+    preferredWorkflowRunId: String? = null,
+    preferredNavigationVersion: Long = 0L,
 ) {
-    var expanded by remember(state.id, initiallyExpanded) { mutableStateOf(initiallyExpanded) }
+    // long: 同一 Task 的新通知会保留相同稳定 ID；把一次性导航版本纳入 key，确保用户手动折叠后再次点击新通知仍会重新展开精确结果。
+    var expanded by remember(state.id, initiallyExpanded, preferredNavigationVersion) {
+        mutableStateOf(initiallyExpanded)
+    }
     Surface(
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -342,7 +357,22 @@ private fun WorkflowItem(
                 Text("调度实例", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
                 state.scheduledTasks.forEach { task ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("scheduled-task-result-${task.id}")
+                            .semantics { selected = task.id == preferredScheduledTaskId }
+                            .then(
+                                if (task.id == preferredScheduledTaskId) {
+                                    Modifier
+                                        .background(
+                                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+                                            RoundedCornerShape(6.dp),
+                                        )
+                                        .padding(horizontal = 5.dp, vertical = 4.dp)
+                                } else {
+                                    Modifier
+                                },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -405,7 +435,22 @@ private fun WorkflowItem(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 state.runs.forEachIndexed { index, run ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("workflow-run-result-${run.id}")
+                            .semantics { selected = run.id == preferredWorkflowRunId }
+                            .then(
+                                if (run.id == preferredWorkflowRunId) {
+                                    Modifier
+                                        .background(
+                                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                                            RoundedCornerShape(6.dp),
+                                        )
+                                        .padding(horizontal = 5.dp, vertical = 4.dp)
+                                } else {
+                                    Modifier
+                                },
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {

@@ -25,10 +25,14 @@ class XiaoLingNavigationCoordinatorTest {
             state = XiaoLingNavigationState(),
             pane = XiaoLingSettingsPane.WORKFLOW_MANAGEMENT,
             requestedWorkflowId = "workflow-1",
+            requestedScheduledTaskId = "scheduled-task-1",
+            requestedWorkflowRunId = "workflow-run-1",
         )
 
         assertEquals(XiaoLingSettingsPane.WORKFLOW_MANAGEMENT, result.settingsPane)
         assertEquals("workflow-1", result.requestedWorkflowId)
+        assertEquals("scheduled-task-1", result.requestedScheduledTaskId)
+        assertEquals("workflow-run-1", result.requestedWorkflowRunId)
     }
 
     @Test
@@ -113,6 +117,8 @@ class XiaoLingNavigationCoordinatorTest {
             settingsPane = XiaoLingSettingsPane.KNOWLEDGE_MANAGEMENT,
             requestedKnowledgeDocumentId = "document-1",
             requestedWorkflowId = "workflow-1",
+            requestedScheduledTaskId = "scheduled-task-1",
+            requestedWorkflowRunId = "workflow-run-1",
             requestedLocalNoteId = "note-1",
             requestedCalendarEventId = "calendar-1",
         )
@@ -127,6 +133,8 @@ class XiaoLingNavigationCoordinatorTest {
         assertEquals(XiaoLingSettingsPane.ROOT, result.state.settingsPane)
         assertNull(result.state.requestedKnowledgeDocumentId)
         assertNull(result.state.requestedWorkflowId)
+        assertNull(result.state.requestedScheduledTaskId)
+        assertNull(result.state.requestedWorkflowRunId)
         assertNull(result.state.requestedLocalNoteId)
         assertNull(result.state.requestedCalendarEventId)
         assertNull(result.effect)

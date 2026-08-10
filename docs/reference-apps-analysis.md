@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 233 阶段采用成熟 Agent 的“通知只持有不可伪造的短期内部能力、落点仍由当前权威状态解析”原则：外部可见 PendingIntent 只有 256-bit 随机 token，显式、不可变且一次性；应用私有 Store 原子消费后还要由 Room 二次核对 Workflow/Task/Run，非空 Run 必须仍存在并反向绑定同一 Workflow/Task，再复用既有 Workflow 页面。一次性导航版本只负责让同一稳定目标的新通知重新展开，不形成第二导航栈或长期 bearer 身份。实现没有复制参考项目中直接把业务 ID 暴露为 exported deep link、信任 action/extra、可变隐式 PendingIntent、独立第二导航栈或远程 Channel；Redmi 冷/热通知、伪造与删除边界、同目标重入、精确高亮及分享回归均已通过。
+
 第 232 阶段采用成熟个人 Agent 的“外部入口、计划确认、持久化调度、后台执行和结果通知共享同一审计身份”原则：系统分享不会直接排程，确认后的 `ONCE` Task 由既有 WorkManager 到点 claim，后台 Agent 仍受 Profile 与审批门约束，最终通知只在 Room 终态后出现。实现没有复制参考项目的常驻分享监听、精确闹钟、Foreground Service、后台隐式审批、远程 Channel 或多 Agent 编排；通知点击当前仍只进入应用，精确结果导航留到下一独立安全切片。
 
 第 231 阶段继续采用成熟个人 Agent 的“外部内容默认只是用户草稿、能力升级必须显式选择、计划与执行分离、结果回到持久化账本验证”原则：Android 分享继续遵守草稿冲突确认，打开进入编辑器后不会继承旧个人任务模式，也不会自动请求模型；用户点击“转为任务”后仍需生成并确认计划，才由既有 Workflow 执行单步 `app.current_time` 并形成目标级 `VERIFIED`。实现没有复制参考项目的后台分享监听、Intent 自动执行、Exact Alarm、Foreground Service、任意 App、远程 Channel 或多 Agent 编排。

@@ -1,7 +1,10 @@
 package com.longdev.xiaoling.ui.workflow
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,6 +35,46 @@ class WorkflowManagementPageInstrumentedTest {
 
         composeRule.onNodeWithTag("workflow-item-workflow-1").assertExists()
         composeRule.onNodeWithText("步骤定义").assertExists()
+    }
+
+    @Test
+    fun scheduledResultNavigationExpandsAndMarksExactTaskAndRun() {
+        val navigationVersion = mutableLongStateOf(1L)
+        val baseState = workflowState()
+        val baseItem = baseState.items.single()
+        val stateWithDecoys = baseState.copy(
+            items = listOf(
+                baseItem.copy(
+                    scheduledTasks = baseItem.scheduledTasks + baseItem.scheduledTasks.single().copy(id = "task-2"),
+                    runs = baseItem.runs + baseItem.runs.single().copy(id = "run-2"),
+                ),
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                WorkflowManagementPage(
+                    state = stateWithDecoys,
+                    actions = FakeWorkflowManagementActions(),
+                    onRequestNotificationPermission = {},
+                    onBack = {},
+                    preferredWorkflowId = "workflow-1",
+                    preferredScheduledTaskId = "task-1",
+                    preferredWorkflowRunId = "run-1",
+                    preferredNavigationVersion = navigationVersion.longValue,
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("scheduled-task-result-task-1", useUnmergedTree = true).assertIsSelected()
+        composeRule.onNodeWithTag("scheduled-task-result-task-2", useUnmergedTree = true).assertIsNotSelected()
+        composeRule.onNodeWithTag("workflow-run-result-run-1", useUnmergedTree = true).assertIsSelected()
+        composeRule.onNodeWithTag("workflow-run-result-run-2", useUnmergedTree = true).assertIsNotSelected()
+
+        composeRule.onNodeWithTag("workflow-item-workflow-1").performClick()
+        composeRule.onNodeWithTag("scheduled-task-result-task-1", useUnmergedTree = true).assertDoesNotExist()
+        composeRule.runOnIdle { navigationVersion.longValue = 2L }
+        composeRule.onNodeWithTag("scheduled-task-result-task-1", useUnmergedTree = true).assertIsSelected()
+        composeRule.onNodeWithTag("workflow-run-result-run-1", useUnmergedTree = true).assertIsSelected()
     }
 
     @Test

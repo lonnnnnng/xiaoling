@@ -4,6 +4,34 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 233 阶段：提醒结果一次性安全导航
+
+### 当前结论
+
+- 生产实现已完成：终态 Task 通知只携带 32 字节随机 Base64URL token；应用私有 Store 以 24 小时有效期、同 Task 新旧撤销和同步原子消费绑定 Workflow/Task/Run。外部 Intent 不含业务 ID。
+- PendingIntent 显式指向 `MainActivity`，使用 `FLAG_IMMUTABLE + FLAG_ONE_SHOT`。冷创建、系统恢复和 `onNewIntent()` 共用安全处理；token 消费后仍由当前 Room 核对 Workflow 存在及 Task/Workflow/Run 全链身份，非空 Run 必须仍存在并反向绑定同一 Workflow/Task。
+- Compose 复用 Workflow 管理页，自动定位并展开目标 Workflow，以 `selected` 语义和背景分别高亮对应 ScheduledTask 与 Workflow Run；一次性导航版本会让同一稳定目标的新通知覆盖先前的手动折叠状态。Room 读取异常、随机伪造、过期、重放、URI grant、异常 payload、已删除、悬空 Run 或漂移目标均 fail-closed。
+
+### 已验证证据
+
+- 聚焦 JVM：`ScheduledTaskResultNavigationTokenStoreTest 4/4 + ScheduledTaskResultNavigationPolicyTest 4/4 + XiaoLingNavigationCoordinatorTest 9/9 + XiaoLingInitializationStateTest 2/2`，合计 `19/19`，`BUILD SUCCESSFUL`。
+- `:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 通过。Redmi `ScheduledTaskResultNavigationActivityInstrumentedTest` 覆盖有效 token 冷启动、真实通知 PendingIntent 热启动/one-shot、伪造 token 和删除 Workflow Run 后拒绝，最终为 `OK (4 tests)`、`9.519s`。
+- 最终重新覆盖安装主 Debug/Test APK 后，通知导航类、`WorkflowManagementPageInstrumentedTest#scheduledResultNavigationExpandsAndMarksExactTaskAndRun` 与 `SharedDraftActivityInstrumentedTest#coldAndWarmTextSharesStayEditableAndNeverAutoSend` 合并运行，为 `OK (6 tests)`、`12.46s`；精确目标与干扰 Task/Run 的选中语义相反，用户折叠后导航版本递增会重新展开，系统分享冷/热入口未被通知分流破坏。
+- 真实热路径输出：`STAGE233_NOTIFICATION_NAVIGATION workflowId=workflow-17a65b57-4daf-46eb-b4b0-456260db20d6 taskId=scheduled-task-6e203265-a9c8-477b-9f26-de261211f727 workflowRunId=workflow-run-stage233-e1faaa72-c891-4fab-92ee-64bc666980a3 navigationVersion=1`。
+- 首轮热路径的业务断言和上述证据已完成，但 MIUI 在 `ActivityScenario.close()` 时漏报 `DESTROYED`，导致收尾超时。测试随后改为让真实 `MainActivity` 主动结束并等待主线程空闲，独立热路径 `OK (1 test)`、`3.887s`，完整四项再次通过；没有修改或放宽生产校验。
+- 官方 Android PendingIntent 与 deep link 文档核对了显式组件、不可变、一次性发送和 `singleTop onNewIntent()` 手动处理语义。
+
+### 验证范围
+
+- 安装、instrumentation、日志与功能验收只对 Redmi `wsvwypiz7xwslvl7` 执行；ADB 中同时存在的 `emulator-5554` 未接收任何目标命令。
+- 测试夹具 Workflow、ScheduledTask、Workflow Run、通知和私有 token 状态均在 `finally` 清理；应用原有业务数据与旧 Run 保持不变。
+- 最终文本写回并重建 AndroidTest 资产后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`、`3.067s`。
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+第 233 阶段完成后返回新的个人 Agent 单一用户场景，优先扩大可实际完成的任务覆盖，不继续横向扩张通知协议、外部 deep link、远程 Channel 或后台设备自动化。
+
 ## 2026-08-10 第 232 阶段：系统分享文本到一次性应用内提醒
 
 ### 结论

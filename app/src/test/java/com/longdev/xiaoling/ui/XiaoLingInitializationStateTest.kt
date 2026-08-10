@@ -33,4 +33,22 @@ class XiaoLingInitializationStateTest {
         assertEquals(sampleSummary, merged.answerabilityShadowSampleSummary)
         assertEquals(persistentSummary, merged.answerabilityShadowPersistentSummary)
     }
+
+    @Test
+    fun startupMergePreservesConsumedNotificationNavigationUntilComposeRoutesIt() {
+        val merged = mergeAnswerabilityShadowInitializationState(
+            initializedState = XiaoLingUiState(),
+            runtimeState = XiaoLingUiState(
+                scheduledTaskResultWorkflowId = "workflow-stage233",
+                scheduledTaskResultTaskId = "scheduled-task-stage233",
+                scheduledTaskResultWorkflowRunId = "workflow-run-stage233",
+                scheduledTaskResultNavigationVersion = 1L,
+            ),
+        )
+
+        assertEquals("workflow-stage233", merged.scheduledTaskResultWorkflowId)
+        assertEquals("scheduled-task-stage233", merged.scheduledTaskResultTaskId)
+        assertEquals("workflow-run-stage233", merged.scheduledTaskResultWorkflowRunId)
+        assertEquals(1L, merged.scheduledTaskResultNavigationVersion)
+    }
 }
