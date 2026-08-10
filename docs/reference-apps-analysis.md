@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 247 阶段采用成熟日历 Agent 的“用户明确提醒、Provider 原子写入、提交后逐字段回读”原则。小灵只在现有一次性非全天 `calendar.create_event` 上增加一个受限 ALERT reminder；没有复制参考项目的默认提醒猜测、多个提醒、邮件通知、参与人邀请、重复事件扩张或后台调度。事件和 reminder 通过 Calendar Provider `applyBatch` 一起提交，幂等重放与已提交恢复要求提醒行数、方法和分钟完全一致。Redmi 带提醒、无提醒 Provider 单项与最终文档 corpus 均通过；真实模型与审批链留到下一阶段。
+
 第 246 阶段沿用成熟个人 Agent 的“答案只来自可信结构化事实、点击前重新读取权威源、短生命周期导航身份”原则。联系人详情按钮只由成功且可信的 `contacts.get / PASSED` 单一结果生成；点击时重新读取 Contacts Provider，使用 contact ID + `lookupKey` 构造 `ACTION_VIEW`，拒绝删除/合并、权限撤销、Provider 异常和系统启动失败。小灵没有复制参考项目的联系人深链接猜测、全量索引或后台联系人访问；`lookupKey` 不进入消息、日志、模型上下文或答案投影。Redmi 合成联系人正向/删除竞态与撤权 fail-closed 均通过，最终文档 corpus gate `1/1` 通过。
 
 第 245 阶段采用成熟个人 Agent 的“显式授权、先搜索稳定身份、再读取当前详情、联系人内容按不可信数据处理”原则。小灵没有照搬参考项目的通讯录全量同步、后台索引、关系图谱、自动拨号/发送或联系人写入；`contacts.search` 只返回姓名、匹配类型和稳定 ID，`contacts.get` 才回读姓名、电话和邮箱，其他 Contacts Data 字段不进入应用。真实模型验收只使用临时合成联系人，设备私人通讯录未进入 Provider 或日志；清理与撤权完成。最终文档 corpus gate `1/1` 通过。

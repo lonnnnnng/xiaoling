@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import androidx.test.core.app.ApplicationProvider
@@ -19,6 +20,69 @@ import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 
 class AndroidCalendarEventWriterInstrumentedTest {
+    @Test
+    fun redmiProviderAtomicallyCreatesReplaysAndVerifiesSingleAlertReminder() = runBlocking {
+        assumeTrue("第 247 阶段日历提醒验收只允许 Redmi begonia", Build.DEVICE == "begonia")
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        assumeTrue(
+            "请先在小灵的“日历访问”页面授权日历读写",
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+        val suffix = System.currentTimeMillis().toString()
+        val startAtMillis = System.currentTimeMillis() + TimeUnit.DAYS.toMillis(2)
+        val request = CalendarEventWriteRequest(
+            idempotencyKey = "stage247-reminder-$suffix",
+            title = "__xiaoling_stage247_reminder_${suffix}__",
+            startAtMillis = startAtMillis,
+            endAtMillis = startAtMillis + TimeUnit.HOURS.toMillis(1),
+            timeZoneId = ZoneId.systemDefault().id,
+            reminderMinutesBefore = 30,
+        )
+        val writer = AndroidCalendarEventWriter(context.contentResolver, context.packageName)
+        val hadAppOwnedCalendar = appOwnedCalendarId(context) != null
+        var createdAppOwnedCalendarId: Long? = null
+        var createdEventId: String? = null
+
+        try {
+            val first = writer.createOrReadBack(request)
+            assertTrue("Redmi 必须原子创建并回读事件与提醒：$first", first is CalendarEventWriteResult.Committed)
+            first as CalendarEventWriteResult.Committed
+            createdEventId = first.event.eventId
+            if (!hadAppOwnedCalendar) {
+                val appCalendarId = appOwnedCalendarId(context)
+                if (appCalendarId != null && eventCalendarId(context, first.event.eventId) == appCalendarId) {
+                    createdAppOwnedCalendarId = appCalendarId
+                }
+            }
+
+            val replay = writer.createOrReadBack(request)
+            val recovered = writer.verifyCommitted(first.event.eventId, request)
+            val reminders = eventReminders(context, first.event.eventId)
+
+            assertTrue(first.verified)
+            assertEquals(30, first.event.reminderMinutesBefore)
+            assertEquals(1, first.event.reminderCount)
+            assertEquals(listOf(30 to CalendarContract.Reminders.METHOD_ALERT), reminders)
+            assertTrue(replay is CalendarEventWriteResult.Committed && replay.verified && replay.event.reused)
+            assertTrue(recovered is CalendarEventWriteResult.Committed && recovered.verified && recovered.event.reused)
+        } finally {
+            // long: 提醒测试只按本轮 Provider 返回的事件 ID 清理；关联 reminder 由 Provider 级联删除，不能扫描用户其他日程。
+            createdEventId?.toLongOrNull()?.let { eventId ->
+                val deleted = context.contentResolver.delete(
+                    ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                    null,
+                    null,
+                )
+                assertEquals("真机探针必须精确清理本次带提醒日程", 1, deleted)
+                assertTrue(eventReminders(context, eventId.toString()).isEmpty())
+            }
+            createdAppOwnedCalendarId?.let { deleteAppOwnedCalendar(context, it) }
+        }
+    }
+
     @Test
     fun writableProviderCreatesReplaysAndVerifiesSingleDayAllDayEvent() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -466,6 +530,26 @@ class AndroidCalendarEventWriterInstrumentedTest {
         ) ?: return null
         return cursor.use {
             if (it.moveToFirst()) it.getLong(it.getColumnIndexOrThrow(CalendarContract.Events.CALENDAR_ID)) else null
+        }
+    }
+
+    private fun eventReminders(context: android.content.Context, eventId: String): List<Pair<Int, Int>> {
+        val cursor = context.contentResolver.query(
+            CalendarContract.Reminders.CONTENT_URI,
+            arrayOf(CalendarContract.Reminders.MINUTES, CalendarContract.Reminders.METHOD),
+            "${CalendarContract.Reminders.EVENT_ID}=?",
+            arrayOf(eventId),
+            "${CalendarContract.Reminders._ID} ASC",
+        ) ?: return emptyList()
+        return cursor.use {
+            buildList {
+                while (it.moveToNext()) {
+                    add(
+                        it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.MINUTES)) to
+                            it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.METHOD)),
+                    )
+                }
+            }
         }
     }
 

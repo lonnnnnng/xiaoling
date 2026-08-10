@@ -360,6 +360,7 @@ class XiaoLingToolRegistry(
                 ToolInputField("start_at", "带 UTC 偏移的 ISO-8601 开始时间，例如 2026-08-08T09:00:00+08:00。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
                 ToolInputField("end_at", "带 UTC 偏移的 ISO-8601 结束时间。", true, ToolInputType.STRING, minLength = 20, maxLength = 40),
                 ToolInputField("time_zone", "IANA 时区，例如 Asia/Shanghai。", true, ToolInputType.STRING, minLength = 1, maxLength = 100),
+                ToolInputField("reminder_minutes_before", "可选的单一提醒提前分钟数，0 表示事件开始时，最大 10080（7 天）。", false, ToolInputType.INTEGER, minimum = 0.0, maximum = 10_080.0),
             ),
             businessValidators = listOf(ToolBusinessValidator(::validateCalendarCreateArguments)),
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
@@ -2301,7 +2302,8 @@ class XiaoLingToolRegistry(
                         .toLocalDate()
                     "已创建并验证全天日程：${event.title.toCalendarTitle()} · 日期=$date · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}"
                 } else {
-                    "已创建并验证日程：${event.title.toCalendarTitle()} · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}"
+                    val reminder = event.reminderMinutesBefore?.let { " · 提醒=提前${it}分钟" }.orEmpty()
+                    "已创建并验证日程：${event.title.toCalendarTitle()}$reminder · id=$CALENDAR_EVENT_ID_PREFIX${event.eventId}"
                 }
                 ToolExecutionResult(
                     success = true,
@@ -3281,6 +3283,7 @@ private const val MEMORY_DELETE_TOOL_NAME = "memory.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private const val MAX_CALENDAR_TIME_ZONE_LENGTH = 100
+private const val MAX_CALENDAR_REMINDER_MINUTES = 10_080
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private val CALENDAR_TITLE_WHITESPACE = Regex("\\s+")
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
@@ -3339,6 +3342,12 @@ private fun validateCalendarCreateArguments(arguments: Map<String, String>): Lis
         if (start != null && end != null && !end.toInstant().isAfter(start.toInstant())) add("日程结束时间必须晚于开始时间")
         if (start != null && zone != null && zone.rules.getOffset(start.toInstant()) != start.offset) add("日程开始时间偏移与指定时区不一致")
         if (end != null && zone != null && zone.rules.getOffset(end.toInstant()) != end.offset) add("日程结束时间偏移与指定时区不一致")
+        arguments["reminder_minutes_before"]?.let { rawMinutes ->
+            val minutes = rawMinutes.toIntOrNull()
+            if (minutes == null || rawMinutes != minutes.toString() || minutes !in 0..MAX_CALENDAR_REMINDER_MINUTES) {
+                add("日程提醒必须是 0 至 10080 的规范整数分钟数")
+            }
+        }
     }
 }
 
@@ -3388,6 +3397,7 @@ private fun ToolCall.toCalendarEventWriteRequest(): CalendarEventWriteRequest? {
                 startAtMillis = start.toInstant().toEpochMilli(),
                 endAtMillis = end.toInstant().toEpochMilli(),
                 timeZoneId = arguments.getValue("time_zone"),
+                reminderMinutesBefore = arguments["reminder_minutes_before"]?.toInt(),
             )
         }
 

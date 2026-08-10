@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 247 阶段：一次性非全天系统日程可选单提醒（Provider 能力完成）
+
+- 现有 `calendar.create_event` 增加可选 `reminder_minutes_before`，只接受用户明确要求的 `0..10080` 分钟，并限制为一条 `METHOD_ALERT`；无提醒调用保持兼容。
+- 事件与 reminder 在 Calendar Provider 单次 `applyBatch` 原子提交。ToolCall 标记、首次回读、幂等重放与 COMMITTED 恢复都核对事件字段以及提醒行数、方法和分钟值，任何漂移均 fail-closed。
+- 可信创建结果的答案级“查看日程”同时绑定请求和结果提醒分钟，伪造、缺失或漂移不产生入口。
+- 聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒 Provider `1/1`、无提醒回归 `1/1` 与最终文档 corpus `1/1` 通过，测试事件和关联 reminder 已精确清理。Room v36、权限、Workflow 和后台边界不变。
+
+下一阶段只补这一能力的真实自然语言规划、逐次审批、答案级系统日历查看和清理，不横向扩展全天/重复/多提醒/参与人，也不转向通知读取、联系人写入或后台设备动作。
+
 ## 第 246 阶段：可信联系人答案级系统详情导航（完成）
 
 - 可信 `contacts.get / PASSED` 单一详情结果显示“查看联系人”入口；普通文本、失败结果、伪造/重复 ID 和参数漂移不能产生入口。

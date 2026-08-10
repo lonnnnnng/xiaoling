@@ -1254,7 +1254,7 @@ class XiaoLingToolRegistryTest {
         )
         assertFalse(definition.permissionPolicy.supportsBackground)
         assertEquals(
-            listOf("title", "start_at", "end_at", "time_zone"),
+            listOf("title", "start_at", "end_at", "time_zone", "reminder_minutes_before"),
             definition.inputSchema.map { it.name },
         )
         assertTrue(testRegistry().supportsCommittedEffectVerification("calendar.create_event"))
@@ -1587,6 +1587,51 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolExecutionReceiptStatus.COMMITTED, receipt.status)
         assertEquals(true, recovered?.success)
         assertEquals(true, recovered?.verified)
+    }
+
+    @Test
+    fun calendarCreateEventWritesAndRecoversSingleExplicitReminder() = runTest {
+        val writer = InMemoryCalendarEventWriter()
+        val registry = testRegistry(calendarEventWriter = writer)
+        val call = ToolCall(
+            id = "tool-call-calendar-reminder-1",
+            name = "calendar.create_event",
+            arguments = mapOf(
+                "title" to "复诊",
+                "start_at" to "2026-08-08T09:00:00+08:00",
+                "end_at" to "2026-08-08T10:00:00+08:00",
+                "time_zone" to "Asia/Shanghai",
+                "reminder_minutes_before" to "30",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val result = registry.execute(call)
+        val recovered = registry.verifyCommittedEffect(call, requireNotNull(result.executionReceipt))
+
+        assertTrue(result.success)
+        assertEquals("已创建并验证日程：复诊 · 提醒=提前30分钟 · id=calendar-197", result.content)
+        assertEquals(30, writer.records.single().first.reminderMinutesBefore)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+    }
+
+    @Test
+    fun calendarCreateEventRejectsNonCanonicalOrOutOfRangeReminder() {
+        val definition = testRegistry().definition("calendar.create_event")!!
+        val base = mapOf(
+            "title" to "复诊",
+            "start_at" to "2026-08-08T09:00:00+08:00",
+            "end_at" to "2026-08-08T10:00:00+08:00",
+            "time_zone" to "Asia/Shanghai",
+        )
+
+        listOf("-1", "030", "10081", "30.0").forEach { invalid ->
+            val validation = definition.validateArguments(base + ("reminder_minutes_before" to invalid))
+            assertFalse("提醒值 $invalid 必须被拒绝", validation.isValid)
+        }
+        assertTrue(definition.validateArguments(base + ("reminder_minutes_before" to "0")).isValid)
+        assertTrue(definition.validateArguments(base + ("reminder_minutes_before" to "10080")).isValid)
     }
 
     @Test
@@ -4160,6 +4205,8 @@ private class InMemoryCalendarEventWriter(
             timeZoneId = request.timeZoneId,
             allDay = request.allDay,
             reused = false,
+            reminderMinutesBefore = request.reminderMinutesBefore,
+            reminderCount = if (request.reminderMinutesBefore == null) 0 else 1,
         )
         records += request to record
         return CalendarEventWriteResult.Committed(record, verified = true)

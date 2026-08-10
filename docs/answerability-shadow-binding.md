@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 247 阶段日历提醒写入边界（无变更）
+
+`reminder_minutes_before`、Calendar Provider reminder 行、临时事件、ToolCall/回执和审批状态都只属于当前 Agent Run 与日历写入验证，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。ToolResult 仅在 Provider 回读验证通过后显示受限分钟值；答案级日程入口继续按稳定事件 ID 二次打开系统权威详情，不把 reminder 伪装成知识库引用。Shadow 默认关闭、`enforcementApplied=false`、Room v36 和生产相关性拒绝保持不变。
+
 ## 第 246 阶段联系人导航边界（无变更）
 
 “查看联系人”入口只从可信 `contacts.get / PASSED` 的结构化 Tool Message 投影，不解析模型自由文本。点击产生的 contact ID/lookupKey 仅在当前前台动作内短暂存在，用于重新读取 Contacts Provider 并启动系统详情；二次读取失败时不生成答案事实、引用或 Shadow 样本。联系人姓名、电话、邮箱、lookupKey、系统 Provider 行、权限状态和合成验收数据继续排除在知识候选、Embedding、Judge、Shadow measurement 与匿名账本之外。Shadow 默认关闭、`enforcementApplied=false`、Room v36 和生产相关性拒绝保持不变。

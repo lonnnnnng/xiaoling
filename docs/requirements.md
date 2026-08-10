@@ -1,5 +1,15 @@
 # 产品需求
 
+## 一次性系统日程单提醒 Provider 能力（第 247 阶段，完成）
+
+- `calendar.create_event` 可以接受可选 `reminder_minutes_before`；只有用户明确要求日历提醒时才允许传入，必须是 `0..10080` 的规范十进制整数。缺省表示不创建提醒，不得使用系统默认值猜测用户意图。
+- 当前只支持一次性非全天事件的一条 `CalendarContract.Reminders.METHOD_ALERT`；全天、重复事件、多提醒、参与人、邮件通知和自定义 alarm 不得借此开放。
+- 事件与 reminder 必须在同一次 Calendar Provider `applyBatch` 中原子提交。任一操作失败都不能留下半成品；不能先创建事件再尽力补提醒。
+- 首次写入、同 ToolCall 幂等重放与 COMMITTED 恢复都必须回读当前 Provider，并要求提醒行数恰好为一、方法为 ALERT、分钟数与审批请求一致。提醒缺失、额外提醒、方法变化或分钟漂移必须让验证失败。
+- 答案级“查看日程”只在可信 `VERIFIED` 创建结果中显示，并同时绑定审批参数与应用生成结果的提醒分钟；提醒缺失、额外出现、数值漂移或标题伪造均不得导航。
+- 现有无提醒 `calendar.create_event` 行为、ToolCall 标记、审批、回执和恢复语义保持兼容；不新增 Android 权限，不进入 Workflow 或后台。
+- 聚焦 JVM `137/137`、Debug/AndroidTest APK、仅 Redmi 带提醒原子闭环 `1/1`（`0.271s`）与无提醒回归 `1/1`（`0.288s`）通过。真实模型规划/审批/系统详情点击留到下一阶段。
+
 ## 联系人答案级“查看联系人”入口（第 246 阶段，完成）
 
 - 只有当前 Run 中成功、可信且严格匹配 `contacts.get` 的单一联系人详情 Tool Message 才能投影“查看联系人”按钮；失败、普通文本、伪造 ID、重复 ID、参数漂移或非 `contacts.get` 结果不得显示入口。

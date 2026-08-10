@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 247 阶段：一次性系统日程可选单提醒 Provider 能力（完成）
+
+- `CalendarEventWriteRequest / CalendarEventWriteRecord` 增加可选提醒分钟与实际提醒行数；旧构造保持默认无提醒。
+- `AndroidCalendarEventWriter` 在有提醒时通过 `ContentProviderOperation` + `applyBatch` 原子插入 `Events` 与一条 `Reminders.METHOD_ALERT`，并设置 `HAS_ALARM`。没有提醒时继续走原单事件插入路径。
+- 每次事件回读同时查询 Reminders；只有零提醒匹配无提醒请求，或恰好一条 ALERT 且分钟数匹配提醒请求时，`matches()` 才成立。查询不可用、额外行、方法或分钟漂移都会让首次验证、幂等重放和 COMMITTED 恢复 fail-closed。
+- `calendar.create_event` Schema 增加可选整数 `reminder_minutes_before`，业务校验拒绝负数、前导零、小数和超过 7 天；ToolResult 只在验证通过后展示“提醒=提前 N 分钟”。`calendar-create` Skill 要求用户明确提出提醒才传参，并继续禁止重复、多提醒和参与人。
+- `CalendarNavigation` 接受旧四参数或带单提醒的五参数创建结果，并严格比较请求提醒与固定结果外壳中的提醒；缺失、额外或数值漂移都不投影“查看日程”。
+- `XiaoLingToolRegistryTest 95/95 + AgentSkillsTest 38/38 + CalendarNavigationTest 4/4`，合计聚焦 JVM `137/137`；Debug/AndroidTest APK 构建成功。Redmi 真实 Provider 带提醒原子写入/重放/恢复/清理 `1/1`（`0.271s`），无提醒回归 `1/1`（`0.288s`），最终文档 corpus `1/1`。
+
+### 下一阶段
+
+在 Redmi 使用真实 Provider 完成自然语言“创建带一个提醒的日程”规划、逐次审批、Tool Ledger/回执/typed verification、答案级“查看日程”、系统 Provider 回读与精确清理。当前不扩到全天提醒、重复事件、多提醒、参与人或后台。
+
 ## 第 246 阶段：可信联系人答案级系统详情导航（完成）
 
 - `ContactDetailRecord` 增加 Provider 内部使用的 `lookupKey`；`ContactResultCodec` 明确不输出该字段。

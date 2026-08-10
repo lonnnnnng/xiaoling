@@ -42,10 +42,11 @@ internal fun MessagePart.Tool.calendarEventIdForNavigation(): String? {
 
         CALENDAR_CREATE_TOOL_NAME -> {
             if (verificationStatus != MessageToolVerificationStatus.VERIFIED) return null
-            val requestedTitle = arguments.validCalendarCreateArguments() ?: return null
+            val request = arguments.validCalendarCreateArguments() ?: return null
             val match = CALENDAR_CREATE_RESULT_PATTERN.matchEntire(result) ?: return null
-            if (match.groupValues[1] != requestedTitle) return null
-            val id = CalendarNavigationPolicy.normalizeId(match.groupValues[2]) ?: return null
+            val resultReminder = match.groupValues[2].takeIf(String::isNotEmpty)?.toIntOrNull()
+            if (match.groupValues[1] != request.title || resultReminder != request.reminderMinutesBefore) return null
+            val id = CalendarNavigationPolicy.normalizeId(match.groupValues[3]) ?: return null
             // long: 创建副作用只有在应用回读并给出唯一稳定 ID 后才允许继续查看当前 Provider 事实。
             id.takeIf { result.countStableCalendarIds() == 1 }
         }
@@ -118,19 +119,31 @@ private fun Map<String, String>.validCalendarSearchArguments(): CalendarSearchNa
     return CalendarSearchNavigationArguments(query = query, daysAhead = days)
 }
 
-private fun Map<String, String>.validCalendarCreateArguments(): String? {
-    if (keys != setOf(CALENDAR_TITLE_ARGUMENT, CALENDAR_START_ARGUMENT, CALENDAR_END_ARGUMENT, CALENDAR_TIME_ZONE_ARGUMENT)) {
+private fun Map<String, String>.validCalendarCreateArguments(): CalendarCreateNavigationArguments? {
+    val allowedKeys = setOf(
+        CALENDAR_TITLE_ARGUMENT,
+        CALENDAR_START_ARGUMENT,
+        CALENDAR_END_ARGUMENT,
+        CALENDAR_TIME_ZONE_ARGUMENT,
+        CALENDAR_REMINDER_MINUTES_ARGUMENT,
+    )
+    if (keys.any { it !in allowedKeys } || !keys.containsAll(allowedKeys - CALENDAR_REMINDER_MINUTES_ARGUMENT)) {
         return null
     }
     val title = get(CALENDAR_TITLE_ARGUMENT)
         ?.trim()
         ?.takeIf { value -> value.length in 1..200 && value.none { it == '\n' || it == '\r' } }
         ?.toCalendarTitle()
-        ?.takeIf { value -> value.isNotBlank() && " · id=" !in value }
+        ?.takeIf { value -> value.isNotBlank() && " · id=" !in value && " · 提醒=提前" !in value }
         ?: return null
     if (!hasCalendarTimeArgument(CALENDAR_START_ARGUMENT) || !hasCalendarTimeArgument(CALENDAR_END_ARGUMENT)) return null
     if (!hasCalendarTimeZoneArgument()) return null
-    return title
+    val reminderMinutes = get(CALENDAR_REMINDER_MINUTES_ARGUMENT)?.let { rawMinutes ->
+        rawMinutes.toIntOrNull()
+            ?.takeIf { minutes -> rawMinutes == minutes.toString() && minutes in 0..MAX_CALENDAR_REMINDER_MINUTES }
+            ?: return null
+    }
+    return CalendarCreateNavigationArguments(title = title, reminderMinutesBefore = reminderMinutes)
 }
 
 private fun Map<String, String>.validCalendarCreateAllDayArguments(): CalendarCreateAllDayNavigationArguments? {
@@ -194,6 +207,11 @@ private data class CalendarCreateAllDayNavigationArguments(
     val date: String,
 )
 
+private data class CalendarCreateNavigationArguments(
+    val title: String,
+    val reminderMinutesBefore: Int?,
+)
+
 internal object CalendarNavigationPolicy {
     private const val MAX_ID_LENGTH = 28
 
@@ -227,14 +245,16 @@ private const val CALENDAR_TITLE_ARGUMENT = "title"
 private const val CALENDAR_START_ARGUMENT = "start_at"
 private const val CALENDAR_END_ARGUMENT = "end_at"
 private const val CALENDAR_TIME_ZONE_ARGUMENT = "time_zone"
+private const val CALENDAR_REMINDER_MINUTES_ARGUMENT = "reminder_minutes_before"
 private const val CALENDAR_DATE_ARGUMENT = "date"
 private const val CALENDAR_EVENT_SCOPE = "event"
 private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private const val DEFAULT_CALENDAR_DAYS = 7
+private const val MAX_CALENDAR_REMINDER_MINUTES = 10_080
 private const val CALENDAR_DETAIL_HEADING = "日程详情："
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
 private val CALENDAR_CREATE_RESULT_PATTERN = Regex(
-    "已创建并验证日程：(.+) · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
+    "已创建并验证日程：(.+?)(?: · 提醒=提前([0-9]+)分钟)? · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
 )
 private val CALENDAR_CREATE_ALL_DAY_RESULT_PATTERN = Regex(
     "已创建并验证全天日程：(.+) · 日期=([0-9]{4}-[0-9]{2}-[0-9]{2}) · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",

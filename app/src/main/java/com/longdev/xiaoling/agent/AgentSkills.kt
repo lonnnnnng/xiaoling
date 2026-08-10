@@ -378,15 +378,15 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
         AgentSkillDefinition(
             id = "calendar-create",
             name = "创建系统日程",
-            description = "经逐次确认后，在系统可写日历中创建一次性非全天事件。",
-            instructions = "只有用户明确要求创建日程时才调用；只创建一次性非全天事件，标题、带偏移的起止时间和 IANA 时区必须完整，审批后写入并回读验证，不创建重复事件。",
+            description = "经逐次确认后，在系统可写日历中创建一次性非全天事件，可按用户明确要求附带一个提醒。",
+            instructions = "只有用户明确要求创建日程时才调用；只创建一次性非全天事件，标题、带偏移的起止时间和 IANA 时区必须完整。用户明确要求提醒时才传 reminder_minutes_before，范围 0 至 10080，且只能创建一个提醒；没有明确提醒就省略该参数。审批后原子写入事件与提醒并回读验证，不创建重复事件、多提醒或参与人。",
             toolNames = setOf("calendar.create_event"),
             keywords = setOf("创建日程", "添加日程", "新建日程", "加入日历", "calendar create", "add calendar event"),
             triggerExamples = listOf("创建明天上午九点的项目评审日程", "把这个会议加入系统日历"),
             requiredAndroidPermissions = setOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR),
             declaredRisk = ToolRisk.REQUIRES_APPROVAL,
             failureRecovery = "权限、可写日历或回读验证任一失败时停止；同一调用只按稳定标记恢复，不按标题或时间猜测去重。",
-            completionCriteria = "系统 Provider 返回稳定事件身份，且标题、起止时间和时区回读结果与审批请求完全一致。",
+            completionCriteria = "系统 Provider 返回稳定事件身份，且标题、起止时间、时区与可选单提醒回读结果和审批请求完全一致。",
         ),
         AgentSkillDefinition(
             id = "calendar-create-all-day",

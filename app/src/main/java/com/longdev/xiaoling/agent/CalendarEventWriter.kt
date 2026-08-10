@@ -1,9 +1,12 @@
 package com.longdev.xiaoling.agent
 
+import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.OperationApplicationException
 import android.net.Uri
+import android.os.RemoteException
 import android.provider.BaseColumns
 import android.provider.CalendarContract
 import java.util.TimeZone
@@ -19,6 +22,7 @@ data class CalendarEventWriteRequest(
     val endAtMillis: Long,
     val timeZoneId: String,
     val allDay: Boolean = false,
+    val reminderMinutesBefore: Int? = null,
 )
 
 data class CalendarEventWriteRecord(
@@ -29,6 +33,8 @@ data class CalendarEventWriteRecord(
     val timeZoneId: String,
     val allDay: Boolean,
     val reused: Boolean,
+    val reminderMinutesBefore: Int? = null,
+    val reminderCount: Int = 0,
 )
 
 enum class CalendarEventDeleteScope(val wireName: String) {
@@ -212,8 +218,13 @@ class AndroidCalendarEventWriter(
                         // long: Provider 没有应用侧唯一键；把 ToolCall 身份写入官方可写字段，进程中断后才能精确回读，避免按标题和时间猜测去重。
                         put(CalendarContract.Events.CUSTOM_APP_PACKAGE, packageName)
                         put(CalendarContract.Events.CUSTOM_APP_URI, marker)
+                        if (request.reminderMinutesBefore != null) {
+                            put(CalendarContract.Events.HAS_ALARM, 1)
+                        }
                     }
-                    val insertedUri = contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+                    val insertedUri = request.reminderMinutesBefore?.let { reminderMinutes ->
+                        insertEventWithReminder(values, reminderMinutes)
+                    } ?: contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
                         ?: return@withLock CalendarEventWriteResult.ProviderUnavailable
                     val eventId = ContentUris.parseId(insertedUri).toString()
                     val inserted = readById(eventId)
@@ -223,6 +234,10 @@ class AndroidCalendarEventWriter(
                     )
                 } catch (_: SecurityException) {
                     CalendarEventWriteResult.PermissionDenied
+                } catch (_: OperationApplicationException) {
+                    CalendarEventWriteResult.ProviderUnavailable
+                } catch (_: RemoteException) {
+                    CalendarEventWriteResult.ProviderUnavailable
                 } catch (_: RuntimeException) {
                     CalendarEventWriteResult.Failed
                 }
@@ -544,6 +559,21 @@ class AndroidCalendarEventWriter(
         return cursor.use { if (it.moveToFirst()) it.toWriteRecord(reused = true) else null }
     }
 
+    private fun insertEventWithReminder(values: ContentValues, reminderMinutes: Int): Uri? {
+        // long: 事件和提醒必须由 Calendar Provider 在同一批次提交，避免进程中断后留下“事件已创建但提醒缺失”的半成品。
+        val operations = arrayListOf(
+            ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI)
+                .withValues(values)
+                .build(),
+            ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+                .withValueBackReference(CalendarContract.Reminders.EVENT_ID, 0)
+                .withValue(CalendarContract.Reminders.MINUTES, reminderMinutes)
+                .withValue(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
+                .build(),
+        )
+        return contentResolver.applyBatch(CalendarContract.AUTHORITY, operations).firstOrNull()?.uri
+    }
+
     private fun readById(eventId: String): CalendarEventWriteRecord? {
         val id = eventId.toLongOrNull() ?: return null
         val cursor = contentResolver.query(
@@ -572,16 +602,49 @@ class AndroidCalendarEventWriter(
         }
     }
 
-    private fun android.database.Cursor.toWriteRecord(reused: Boolean): CalendarEventWriteRecord =
-        CalendarEventWriteRecord(
-            eventId = getLong(getColumnIndexOrThrow(BaseColumns._ID)).toString(),
+    private fun android.database.Cursor.toWriteRecord(reused: Boolean): CalendarEventWriteRecord {
+        val eventId = getLong(getColumnIndexOrThrow(BaseColumns._ID)).toString()
+        val reminder = readReminderSnapshot(eventId)
+        return CalendarEventWriteRecord(
+            eventId = eventId,
             title = getString(getColumnIndexOrThrow(CalendarContract.Events.TITLE)).orEmpty(),
             startAtMillis = getLong(getColumnIndexOrThrow(CalendarContract.Events.DTSTART)),
             endAtMillis = getLong(getColumnIndexOrThrow(CalendarContract.Events.DTEND)),
             timeZoneId = getString(getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)).orEmpty(),
             allDay = getInt(getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)) != 0,
             reused = reused,
+            reminderMinutesBefore = reminder.minutesBefore,
+            reminderCount = reminder.count,
         )
+    }
+
+    private fun readReminderSnapshot(eventId: String): CalendarReminderSnapshot {
+        val cursor = contentResolver.query(
+            CalendarContract.Reminders.CONTENT_URI,
+            REMINDER_PROJECTION,
+            "${CalendarContract.Reminders.EVENT_ID}=?",
+            arrayOf(eventId),
+            "${CalendarContract.Reminders._ID} ASC",
+        ) ?: return CalendarReminderSnapshot(minutesBefore = null, count = -1)
+        return cursor.use {
+            var count = 0
+            var singleAlertMinutes: Int? = null
+            while (it.moveToNext()) {
+                count += 1
+                val method = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.METHOD))
+                val minutes = it.getInt(it.getColumnIndexOrThrow(CalendarContract.Reminders.MINUTES))
+                singleAlertMinutes = if (count == 1 && method == CalendarContract.Reminders.METHOD_ALERT && minutes >= 0) {
+                    minutes
+                } else {
+                    null
+                }
+            }
+            CalendarReminderSnapshot(
+                minutesBefore = singleAlertMinutes.takeIf { count == 1 },
+                count = count,
+            )
+        }
+    }
 
     private fun markerUri(idempotencyKey: String): String = Uri.Builder()
         .scheme(MARKER_SCHEME)
@@ -616,6 +679,11 @@ class AndroidCalendarEventWriter(
             CalendarContract.Events.CUSTOM_APP_PACKAGE,
             CalendarContract.Events.CUSTOM_APP_URI,
         )
+        val REMINDER_PROJECTION = arrayOf(
+            CalendarContract.Reminders._ID,
+            CalendarContract.Reminders.MINUTES,
+            CalendarContract.Reminders.METHOD,
+        )
         val DELETE_PROJECTION = arrayOf(
             CalendarContract.Events._ID,
             CalendarContract.Events.TITLE,
@@ -629,6 +697,11 @@ class AndroidCalendarEventWriter(
         )
     }
 }
+
+private data class CalendarReminderSnapshot(
+    val minutesBefore: Int?,
+    val count: Int,
+)
 
 private sealed interface CalendarEventDeleteSnapshot {
     data class Visible(val event: CalendarEventDetailRecord) : CalendarEventDeleteSnapshot
@@ -691,7 +764,9 @@ private fun CalendarEventWriteRecord.matches(request: CalendarEventWriteRequest)
         startAtMillis == request.startAtMillis &&
         endAtMillis == request.endAtMillis &&
         timeZoneId == request.timeZoneId &&
-        allDay == request.allDay
+        allDay == request.allDay &&
+        reminderMinutesBefore == request.reminderMinutesBefore &&
+        reminderCount == if (request.reminderMinutesBefore == null) 0 else 1
 
 private fun CalendarEventDetailRecord.matches(request: CalendarEventUpdateRequest): Boolean =
     eventId == request.eventId &&
@@ -709,4 +784,6 @@ private fun CalendarEventWriteRequest.toRecord(eventId: String, reused: Boolean)
         timeZoneId = timeZoneId,
         allDay = allDay,
         reused = reused,
+        reminderMinutesBefore = reminderMinutesBefore,
+        reminderCount = if (reminderMinutesBefore == null) 0 else 1,
     )

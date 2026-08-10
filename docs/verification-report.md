@@ -4,6 +4,27 @@
 
 ## 当前验证基线
 
+## 2026-08-10 第 247 阶段：一次性系统日程可选单提醒 Provider 能力
+
+### 当前结论
+
+- `calendar.create_event` 新增可选 `reminder_minutes_before`，只接受 `0..10080` 规范整数，并限制为一次性非全天事件的一条 `METHOD_ALERT`；无提醒调用保持原语义。
+- Android 写入器通过 Calendar Provider `applyBatch` 原子提交事件和 reminder。首次写入、同 ToolCall 重放及 COMMITTED 恢复都回读当前 Provider，要求提醒行数、方法和分钟完全一致。
+- Room v36、Android 权限集合、全天/重复事件、多提醒、参与人、Workflow、后台执行与通知读取边界均未变化。
+
+### 已验证证据
+
+- 聚焦 JVM：`XiaoLingToolRegistryTest 95/95 + AgentSkillsTest 38/38 + CalendarNavigationTest 4/4`，合计 `137/137`，失败/错误/跳过均为 `0`。导航回归确认请求与结果提醒一致时保留入口，分钟漂移时 fail-closed。
+- 最新 Debug 与 AndroidTest APK 均构建成功并只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。
+- `redmiProviderAtomicallyCreatesReplaysAndVerifiesSingleAlertReminder` 为 `OK (1 test)`、`0.271s`：真实 Provider 回读恰好一条 `30 / METHOD_ALERT`，幂等重放和已提交恢复均验证成功；事件按返回 ID 删除后关联 reminder 为空。
+- 现有无提醒 `writableProviderCreatesReplaysVerifiesAndCleansExactEvent` 回归为 `OK (1 test)`、`0.288s`，证明可选字段未改变旧路径。
+- 同步第 247 阶段长期文档后，Redmi 文档 corpus gate 为 `OK (1 test)`。
+
+### 验证范围与下一阶段
+
+- 按快速迭代分级约束，未运行完整 JVM、Lint、Release、全量 instrumentation 或真实声音识别；未向模拟器发送目标命令。
+- 当前完成工具契约与 Provider 原子能力。下一阶段在 Redmi 补真实模型规划、人工审批、Tool Ledger/typed verification、答案级“查看日程”、当前 Provider 回读和精确清理。
+
 ## 2026-08-10 第 246 阶段：可信联系人答案级系统详情导航
 
 ### 当前结论
