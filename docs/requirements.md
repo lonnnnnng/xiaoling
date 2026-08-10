@@ -1,5 +1,14 @@
 # 产品需求
 
+## 系统分享 DOCX 到显式 Agent 理解闭环（第 240 阶段，完成）
+
+- DOCX 必须通过既有 `ACTION_SEND` 精确 MIME 和单个小写 `content://` URI 进入草稿，继续复用 8 MB、ZIP/OPC 中央目录、本地头、CRC、展开预算和 `word/document.xml` 根部件校验。应用侧 `extractedText` 与 `pageCount` 必须保持为空，不能把本地伪造文本当作模型理解证据。
+- 导入、编辑和输入 `/agent` 均不得自动发送或创建 Run；只有用户明确发送后，DOCX 原始 BLOB 才能作为单一可信 USER Document 进入 Responses Agent 请求。
+- 动态标题、验收码和结论只能写入 DOCX 的 `word/document.xml`，不得出现在用户 prompt、Profile system prompt、文件名、runner 参数或其他工具结果。唯一 `notes.create` 参数必须准确恢复这些值，证明来源是供应商文件理解。
+- 最终必须满足 Run `COMPLETED`、Approval `APPROVED`、ToolResult `success=true / executorVerified=true / PASSED`、回执 `COMMITTED`；Room DOCX Document、Tool Message、Ledger 参数和当前 Note Store 回读必须一致。
+- 清理只可依据本轮 `COMMITTED` note ID；临时笔记、Profile、会话和 MediaStore DOCX 必须精确删除，原选择恢复，旧 Run 不变而新 Run 审计保留。
+- 仅 Redmi 真实单项 `1/1`（`25.147s`）已通过；文档 corpus 首次为 `1/1`（`3.131s`），写回结果后的最终文本 gate 也为 `1/1`。本阶段不修改生产代码、Room v36、Manifest、权限、Tool/Skill、Workflow、后台或附件协议；完整 JVM、Lint、Release 和全量 instrumentation 后置。
+
 ## 系统分享 PDF 到显式 Agent 理解闭环（第 239 阶段，完成）
 
 - PDF 必须通过既有 `ACTION_SEND application/pdf` 和单个小写 `content://` URI 进入草稿，继续复用 8 MB、PDF 签名和 1–50 页校验。验收文件必须为真实可解析 PDF，且应用侧 `extractedText` 保持为空，不能把本地伪造文本当作模型理解证据。

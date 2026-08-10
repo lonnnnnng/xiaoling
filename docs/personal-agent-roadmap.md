@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 240 阶段：系统分享 DOCX 到显式 Agent 理解闭环（完成）
+
+- 测试生成标准 DOCX/OPC ZIP，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于 `word/document.xml`。统一读取器完成 ZIP 中央目录、本地头、展开预算与 DOCX 根部件校验后，仍保持 `extractedText=null / pageCount=null`。
+- DOCX 继续先进入新会话可编辑附件草稿；导入、用户改写 prompt 和输入 `/agent` 均不自动发送或创建 Run。只有用户明确点击发送后，可信 USER DOCX BLOB 才进入 Responses 规划请求。
+- 验收 prompt、临时 Profile、文件名与 runner 参数均不包含三个动态值，Profile 只开放 `notes.create`。最终 Run `run-9f3618fd-b3a2-460f-853e-04ecd2620bdc` 为 `COMPLETED`，唯一审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；工具参数只能来自模型对 DOCX 正文的理解。
+- Room USER Document 保留 DOCX 原始字节与空提取正文/页数；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 真实单项为 `OK (1 test)`、`25.147s`；文档 corpus 首次为 `1/1`、`3.131s`，写回结果后的最终文本 gate 也为 `1/1`。
+- 临时笔记/Profile/会话/MediaStore DOCX 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
+
+下一阶段优先验证 PPTX 等其余 OpenXML 文档仍能通过同一显式 Agent 链；继续禁止多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+
 ## 第 239 阶段：系统分享 PDF 到显式 Agent 理解闭环（完成）
 
 - 测试使用 Android `PdfDocument` 生成一页真实 PDF，只在页面绘制动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION`。统一文档读取器确认 `%PDF`、`application/pdf` 和 `pageCount=1`，且 `extractedText=null`，因此应用本地没有可供 Agent 直接复用的提取正文。
@@ -8,7 +18,7 @@
 - Room USER Document 保留 PDF 原始字节、页数和空提取正文；Tool Message 与 Ledger 参数一致，回执笔记从当前 Store 回读相同标题、验收码和结论。仅 Redmi 真实单项为 `OK (1 test)`、`31.691s`，文档 corpus gate 为 `1/1`、`2.919s`。
 - 临时笔记/Profile/会话/MediaStore PDF 精确清理，原 Profile/会话选择恢复，最近旧 Run 完整摘要不变，新 Run 审计保留。本阶段只增加真实验收夹具，没有修改生产代码、Room v36、Manifest、权限、Provider/Tool/Skill、Workflow、后台或附件协议。
 
-下一阶段优先验证 DOCX 等 OpenXML 文档仍能通过同一显式 Agent 链；继续禁止多附件、自动发送、后台摄取、远程 Channel、多 Agent 或本地模型。
+第 240 阶段已完成 DOCX/OpenXML 文件理解闭环。
 
 ## 第 238 阶段：系统分享文档到显式 Agent 理解闭环（完成）
 
