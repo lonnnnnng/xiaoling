@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 251 阶段本地笔记导入知识库边界
+
+`notes.search / notes.get` 的搜索词、候选集、原始笔记正文、临时冻结状态、Tool Message、审批、Run/Ledger 和真机验收数据都只属于当前前台 Agent 执行，不直接进入知识候选、Judge、Shadow measurement 或匿名账本。只有用户批准并由当前 Knowledge Store 回读验证成功的知识文档/chunks，才按既有 `knowledge.search` 路径成为后续可检索候选；本次导入结果附带的 `KnowledgeReference` 只绑定已提交文档的当前 revision/chunk，不把审批前笔记或模型文本伪装成知识证据。后台/隐式自动摄取、共享摄取和生产相关性绕过继续关闭，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产拒绝边界保持不变。
+
 ## 第 250 阶段下一条系统日程边界（无变更）
 
 `calendar.next_event` 的执行时刻、30 天窗口、Calendar Provider 行、稳定 event ID、occurrence 开始时刻、Tool Message、答案导航 target 与真机验收结果只属于当前 Agent Run 和前台权威事实查看，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。答案级“查看日程”只从应用生成的固定 ToolResult 外壳投影，并在点击后从当前 Provider 二次回读；它不是知识引用，也不改变 `enforcementApplied=false`。Shadow 默认关闭、Room v36 与生产相关性拒绝保持不变。

@@ -13,6 +13,7 @@ import com.longdev.xiaoling.data.XiaoLingDatabase
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KNOWLEDGE_PREVIEW_CHARACTER_LIMIT
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentImportIdempotencyConflictException
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
@@ -40,6 +41,7 @@ import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import org.json.JSONArray
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import java.security.MessageDigest
 import java.util.UUID
 
 class RoomKnowledgeDocumentStore(
@@ -77,6 +79,63 @@ class RoomKnowledgeDocumentStore(
             database.knowledgeDao().insertChunkIndexes(chunks.map { it.toFtsEntity() })
         }
         rebuildEmbeddings(document.id)
+        return document
+    }
+
+    override suspend fun importUtf8DocumentOnce(
+        idempotencyKey: String,
+        displayName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): KnowledgeDocumentRecord {
+        require(idempotencyKey.isNotBlank()) { "知识导入幂等键不能为空" }
+        require(idempotencyKey.length <= 200) { "知识导入幂等键不能超过 200 个字符" }
+        val payload = prepareImport(displayName, mimeType, bytes)
+        val documentId = idempotentKnowledgeDocumentId(idempotencyKey)
+        val (document, created) = database.withTransaction {
+            val dao = database.knowledgeDao()
+            val existing = dao.getDocument(documentId)?.toRecord()
+            if (existing != null) {
+                val existingChunks = dao.getChunks(documentId).map { it.toRecord() }
+                val payloadMatches = existing.revision == 1 &&
+                    existing.enabled &&
+                    existing.displayName == payload.displayName &&
+                    existing.mimeType == payload.mimeType &&
+                    existing.contentHash == payload.text.contentHash &&
+                    existing.parserVersion == KnowledgeTextPolicy.PARSER_VERSION &&
+                    existing.byteSize == payload.text.byteSize &&
+                    existing.characterCount == payload.text.characterCount &&
+                    existing.normalizedText == payload.text.normalizedText &&
+                    existingChunks == existing.buildChunks()
+                if (!payloadMatches) {
+                    throw KnowledgeDocumentImportIdempotencyConflictException()
+                }
+                existing to false
+            } else {
+                val now = clock()
+                val imported = KnowledgeDocumentRecord(
+                    id = documentId,
+                    displayName = payload.displayName,
+                    mimeType = payload.mimeType,
+                    contentHash = payload.text.contentHash,
+                    revision = 1,
+                    parserVersion = KnowledgeTextPolicy.PARSER_VERSION,
+                    byteSize = payload.text.byteSize,
+                    characterCount = payload.text.characterCount,
+                    normalizedText = payload.text.normalizedText,
+                    enabled = true,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+                val chunks = imported.buildChunks()
+                // long: 同一 ToolCall 必须映射到同一文档主键；文档、chunk 与全文索引仍在一个事务提交，崩溃重放只能回读，不能制造重复知识。
+                dao.insertDocument(imported.toEntity())
+                dao.insertChunks(chunks.map { it.toEntity() })
+                dao.insertChunkIndexes(chunks.map { it.toFtsEntity() })
+                imported to true
+            }
+        }
+        if (created) rebuildEmbeddings(document.id)
         return document
     }
 
@@ -497,6 +556,13 @@ class RoomKnowledgeDocumentStore(
             mimeType = resolveTextMimeType(canonicalName, mimeType, bytes),
             text = KnowledgeTextPolicy.decodeUtf8(bytes),
         )
+    }
+
+    private fun idempotentKnowledgeDocumentId(idempotencyKey: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(idempotencyKey.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "knowledge-import-$digest"
     }
 
     private fun String.canonicalKnowledgeName(): String {

@@ -1,5 +1,7 @@
 # 小灵
 
+第 251 阶段完成“把唯一命中的本地笔记加入知识库”的受控写入实现与 Redmi 定向验收。新增独立 `local-note-knowledge-import` Skill 和仅前台 `DIRECT` 可见、逐次审批的 `knowledge.import_from_note(note_id, expected_revision, expected_content_hash)`；同一 Run 必须严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，搜索会读取至少两个候选，只有最近一次唯一命中且已由 `notes.get` 冻结稳定 ID、revision 与规范小写正文 SHA-256 才能导入。审批恢复和受控同调用重试只复用已持久化的短生命周期候选，Schema 与稳定业务校验仍重跑，执行时继续从当前 Note Store 防漂移回读；知识导入以稳定幂等键复用同一文档，同键载荷漂移、跨 Run、重复消费、多候选或回读不一致均 fail-closed。成功结果携带 `COMMITTED` 回执和当前文档首个 chunk 的稳定 `KnowledgeReference`，可复用现有答案级知识导航。聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；仅 Redmi 的幂等冲突与真实 Room 笔记导入/恢复两项均为 `OK (1 test)`（`0.418s / 0.470s`），最终文档 corpus gate 为 `OK (1 test)`（`3.5s`）。未运行 Lint、Release 或全量 instrumentation，也尚未执行真实模型与屏幕可见审批闭环；下一阶段专门补齐该 Redmi 真实前台验收。
+
 第 250 阶段完成“我下一项安排是什么”的前台只读闭环。新增无参数 `calendar.next_event` 与 `next-calendar-event` Skill，只在 `READ_CALENDAR` 已授权的前台查询未来 30 天，并严格选择 `startAtMillis > now` 的唯一最早 occurrence；无日程、同一最早时刻多条、撤权或 Provider 异常都明确停止，不按标题、结束时间或游标顺序猜测。答案级“查看日程”绑定 `eventId + occurrenceStartAtMillis`，普通事件回读 Events master，重复事件从 Instances 精确回读本次 occurrence，Activity 重建仍保留实例身份。聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi 的下一条选择/occurrence 回读/详情投影/答案导航 `4/4`（`4.035s`）及最终文档 corpus gate `1/1`（`3.090s`）通过；未新增写入、审批、Room Schema、后台或 Workflow，也未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段进入“唯一本地笔记导入知识库”的受控闭环。
 
 第 249 阶段完成答案级知识引用的当前权威原文定位闭环。对话引用点击不再只携带文档 ID，而是传递 retrieval、document revision、chunk、sequence 与 offset 的完整身份；导航 Saver 可跨 Activity 重建恢复完整引用，旧格式、缺字段或非法数值只降级到普通文档落点。知识页仅在当前启用文档的同一 revision/chunk/offset 精确匹配时显示原文和位置，历史 revision、停用、删除或边界漂移均明确拒绝猜测；Room 定位在同一事务内读取文档与 chunk，替换、停用或删除开始时立即清除旧原文卡。聚焦导航 JVM、Debug/AndroidTest APK 和仅 Redmi 的引用/知识页/ViewModel `20/20`（`13.714s`）与最终文档 corpus gate `1/1`（`3.272s`）通过；未新增 Tool、权限、Room Schema、副作用或后台能力，也未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段优先进入“下一条系统日程”的前台只读权威事实闭环。
@@ -62,7 +64,7 @@
 
 当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
 
-当前开发基线已推进至第 250 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 243 阶段已把系统分享接入受控任务与多种附件理解，第 244 至 246 阶段完成语音草稿、联系人查询和系统详情，第 247 至 248 阶段完成单提醒日程写入与真实自然语言闭环，第 249 阶段补齐知识引用原文定位，第 250 阶段完成唯一下一条系统日程及 occurrence 权威回读。下一阶段优先实现“唯一本地笔记导入知识库”的显式审批闭环；TTS、联系人写入、通知读取、多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
+当前开发基线已推进至第 251 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 243 阶段已把系统分享接入受控任务与多种附件理解，第 244 至 246 阶段完成语音草稿、联系人查询和系统详情，第 247 至 248 阶段完成单提醒日程写入与真实自然语言闭环，第 249 阶段补齐知识引用原文定位，第 250 阶段完成唯一下一条系统日程及 occurrence 权威回读，第 251 阶段完成唯一本地笔记受控导入知识库的工具、幂等、恢复与 Redmi Room/Registry 验收。下一阶段只补该能力的 Redmi 真实模型、屏幕可见审批、答案引用与精确清理；TTS、联系人写入、通知读取、多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
 
 第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
 

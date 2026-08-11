@@ -122,6 +122,7 @@ class MinimalAgentRuntime internal constructor(
                 state = state,
                 recordValidationStep = true,
                 approvalAlreadyGranted = false,
+                reusePersistedEphemeralBusinessValidation = true,
             )
             // long: 受控重放只执行用户确认的单个冻结调用；成功后直接进入总结，禁止再次规划出额外工具或重复副作用。
             completeRun(run, goal, state)
@@ -332,6 +333,7 @@ class MinimalAgentRuntime internal constructor(
                 state = state,
                 recordValidationStep = false,
                 approvalAlreadyGranted = true,
+                reusePersistedEphemeralBusinessValidation = true,
             )
             continuePlanning(run, run.goal, executionOrigin, state)
             completeRun(run, run.goal, state)
@@ -662,6 +664,7 @@ class MinimalAgentRuntime internal constructor(
         state: AgentRuntimeExecutionState,
         recordValidationStep: Boolean,
         approvalAlreadyGranted: Boolean,
+        reusePersistedEphemeralBusinessValidation: Boolean = false,
     ) {
         var approvalEvidence: AgentToolApprovalEvidence? = null
         val validation = if (recordValidationStep) {
@@ -675,7 +678,12 @@ class MinimalAgentRuntime internal constructor(
         } else {
             null
         }
-        validateToolArguments(definition, toolCall)
+        // long: 审批恢复和受控关联重试只复用旧 Run 的短生命周期候选；稳定格式、静态业务边界和权限仍在当前进程重新校验。
+        validateToolArguments(
+            definition = definition,
+            toolCall = toolCall,
+            includeEphemeralBusinessValidators = !reusePersistedEphemeralBusinessValidation,
+        )
         if (executionOrigin == AgentExecutionOrigin.BACKGROUND && definition.approvalPolicy != ToolApprovalPolicy.NONE) {
             // long: 后台没有可见审批卡，任何需要确认的工具都在 Executor 之前收敛为 BLOCKED；前台 once/session 授权不会传入这条链路。
             throw AgentBackgroundApprovalRequiredException(toolCall.name)
@@ -1210,8 +1218,12 @@ class MinimalAgentRuntime internal constructor(
     private fun validateToolArguments(
         definition: ToolDefinition,
         toolCall: ToolCall,
+        includeEphemeralBusinessValidators: Boolean = true,
     ) {
-        val validation = definition.validateArguments(toolCall.arguments)
+        val validation = definition.validateArguments(
+            arguments = toolCall.arguments,
+            includeEphemeralBusinessValidators = includeEphemeralBusinessValidators,
+        )
         require(validation.isValid) {
             "工具 ${definition.name} 参数校验失败：${validation.errors.joinToString("；")}"
         }

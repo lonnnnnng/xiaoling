@@ -33,6 +33,9 @@ object ToolDefinitionRecoveryContract {
             add(definition.timeoutMs?.toString().orEmpty())
             add(definition.permissionPolicy.supportsBackground.toString())
             add(definition.businessValidators.size.toString())
+            if (definition.ephemeralBusinessValidators.isNotEmpty()) {
+                add("ephemeral-business-validators:${definition.ephemeralBusinessValidators.size}")
+            }
             definition.permissionPolicy.requiredAndroidPermissions.sorted().forEach { add("permission:$it") }
             definition.inputSchema.forEachIndexed { index, field ->
                 add("field:$index")

@@ -1,12 +1,19 @@
 # 小灵个人 Agent 路线图
 
+## 第 251 阶段：唯一本地笔记受控导入知识库（完成）
+
+- 新增独立 `local-note-knowledge-import` Skill，把主线收敛为 `notes.search -> notes.get -> knowledge.import_from_note`：唯一搜索、稳定详情冻结、用户审批、当前 Store 写入与回读形成一条受控链。
+- 导入使用稳定幂等文档身份，审批恢复和受控同调用重试不会重复创建文档；多候选、跨 Run、重复消费、笔记漂移、同键载荷漂移及文档/chunk 回读不一致全部 fail-closed。
+- 成功结果携带 `COMMITTED` 回执与稳定 `KnowledgeReference`，进入第 249 阶段已完成的答案级知识导航。旧 Skill/Profile 不自动扩权，Room v36、后台、Workflow 和隐式自动摄取保持关闭。
+- 聚焦 JVM `209/209`、Debug/AndroidTest APK、仅 Redmi 两项 Room/Registry 单项与文档 corpus gate 均通过；双轴审查后已收紧恢复校验和规范小写 hash，真实模型自然语言和屏幕可见审批尚未执行。
+
+下一阶段（第 252 阶段）只补第 251 能力的 Redmi 真实前台闭环：使用显式最小 Profile，由模型唯一选择笔记并提出导入，用户在 UI 批准后核对 `APPROVED / PASSED / COMMITTED`、答案级引用、当前知识原文和精确清理。完成前不横向扩展后台摄取、Workflow、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 250 阶段：下一条系统日程前台只读闭环（完成）
 
 - `calendar.next_event / next-calendar-event` 已把“我下一项安排是什么”收敛为无参数、前台、只读、固定 30 天的单事实任务；严格排除已开始事件，同一最早时刻多条明确拒绝。
 - 答案级导航绑定 `eventId + occurrenceStartAtMillis`，重复日程从 Calendar Instances 精确回读本次 occurrence；Activity 重建保留完整 target，旧/损坏存档安全降级。
 - 聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi 下一条选择/occurrence 回读/详情投影/答案点击 `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。日历写入、Room v36、Workflow、后台和审批边界不变。
-
-下一阶段（第 251 阶段）实现“把唯一命中的本地笔记加入知识库”的受控写入：先以现有笔记 Tool 确认唯一稳定笔记，再由新的导入 Tool 冻结 revision/正文哈希并显式审批，导入后回读当前知识文档 revision/chunk。多候选、笔记漂移、覆盖策略不明确或回读失败全部停止；共享自动摄取、后台索引、MCP、远程 Channel、多 Agent 和本地模型继续后置。
 
 ## 第 249 阶段：答案级知识引用当前权威原文定位（完成）
 

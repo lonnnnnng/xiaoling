@@ -427,6 +427,13 @@ class KnowledgeManagementViewModelInstrumentedTest {
             bytes: ByteArray,
         ): KnowledgeDocumentRecord = error("未使用")
 
+        override suspend fun importUtf8DocumentOnce(
+            idempotencyKey: String,
+            displayName: String,
+            mimeType: String,
+            bytes: ByteArray,
+        ): KnowledgeDocumentRecord = error("未使用")
+
         override suspend fun replaceUtf8Document(
             documentId: String,
             displayName: String,

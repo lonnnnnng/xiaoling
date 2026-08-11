@@ -1,8 +1,29 @@
 # 验证报告
 
-验证日期：2026-08-11（北京时间）
+验证日期：2026-08-12（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-12 第 251 阶段：唯一本地笔记受控导入知识库
+
+### 当前结论
+
+- 新增独立 `local-note-knowledge-import` Skill 与仅前台 `DIRECT`、逐次审批的 `knowledge.import_from_note`；同一 Run 严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，只有最近搜索唯一且详情冻结的稳定 ID、revision、正文 SHA-256 全部一致才可写入。
+- 执行前从当前 Note Store 防漂移回读；Knowledge Store 以稳定幂等 document ID 复用同键同载荷结果，同键载荷或文档/chunk 状态漂移时拒绝。成功结果具备 `COMMITTED` 回执、当前 document/chunks 回读和稳定 `KnowledgeReference`。
+- 审批恢复与受控同调用重试复用持久化业务校验，但仍重新验证 Schema、前台权限、当前 Note 与 Knowledge Store；旧 Skill、已持久化 Profile、Room v36、Workflow 与后台路径不自动扩权。
+
+### 验证证据
+
+- 聚焦 JVM `XiaoLingToolRegistryTest + MinimalAgentRuntimeTest + AgentSkillsTest` 合计 `209/209`；`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。覆盖唯一搜索/详情冻结、跨 Run/多候选/审批期间漂移拒绝、一次性消费、规范小写 hash、Skill 工具面、审批恢复和受控同调用恢复。
+- 双轴审查发现并修复两项恢复边界：大写 `expected_content_hash` 不再被静默规范化；Runtime 只允许已持久化恢复跳过显式短生命周期候选，既有工具的稳定业务校验仍重新执行。Standards 轴无硬性违规。
+- Debug 主 APK 与 AndroidTest APK 仅覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`；审查修复后的 `RoomKnowledgeDocumentStoreInstrumentedTest#idempotentImportReusesCommittedDocumentAndRejectsPayloadDrift` 为 `OK (1 test)`、`0.418s`。
+- 同一 Redmi 的 `RoomKnowledgeDocumentStoreInstrumentedTest#uniqueRoomNoteImportsIntoKnowledgeAndRecoversFromCurrentStore` 为 `OK (1 test)`、`0.470s`，真实使用 `RoomAgentNoteStore + RoomKnowledgeDocumentStore + XiaoLingToolRegistry`，并验证导入、document/chunks 回读、COMMITTED recovery 与精确清理。
+- 长期文档写回并重建 AndroidTest 资产后，同一 Redmi 的 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`、`3.5s`；测试包随后卸载，主应用与数据保留。
+- 所有安装与 instrumentation 命令均显式指定 Redmi；已连接的 `emulator-5554` 未接收目标命令。
+
+### 保持关闭的边界
+
+按快速迭代分级策略未运行 Lint、Release 或全量 instrumentation；本阶段也未宣称真实模型自然语言、屏幕可见审批与答案引用 UI 已完成。下一阶段使用显式最小 Profile 补齐该 Redmi 真实前台闭环；后台/隐式自动摄取、共享摄取、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
 
 ## 2026-08-11 第 250 阶段：下一条系统日程前台只读闭环
 

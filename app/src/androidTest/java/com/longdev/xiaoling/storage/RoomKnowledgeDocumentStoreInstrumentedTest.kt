@@ -22,9 +22,11 @@ import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingProvider
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingRebuildStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingStatus
 import com.longdev.xiaoling.knowledge.KnowledgeEmbeddingVectorCodec
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentImportIdempotencyConflictException
 import com.longdev.xiaoling.knowledge.KnowledgeSearchMatchChannel
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityCaseResult
 import com.longdev.xiaoling.knowledge.KnowledgeSearchQualityPolicy
+import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -109,6 +111,117 @@ class RoomKnowledgeDocumentStoreInstrumentedTest {
         assertEquals(document, recreated.getDocument(document.id))
         assertTrue(recreated.search("确定性分块", 3).hits.isNotEmpty())
         assertTrue(recreated.recentRetrievals(10).any { it.id == firstSearch.retrieval.id })
+    }
+
+    @Test
+    fun idempotentImportReusesCommittedDocumentAndRejectsPayloadDrift() = runBlocking {
+        val bytes = "审批后冻结的笔记正文。".toByteArray(Charsets.UTF_8)
+        val imported = store.importUtf8DocumentOnce(
+            idempotencyKey = "tool-call-note-import-1",
+            displayName = "冻结笔记.md",
+            mimeType = "text/markdown",
+            bytes = bytes,
+        )
+        val importedChunks = store.getChunks(imported.id)
+
+        database.close()
+        database = Room.databaseBuilder(context, XiaoLingDatabase::class.java, TEST_DATABASE_NAME)
+            .allowMainThreadQueries()
+            .addMigrations(*XiaoLingDatabase.migrations())
+            .build()
+        store = RoomKnowledgeDocumentStore(context, database)
+
+        val replayed = store.importUtf8DocumentOnce(
+            idempotencyKey = "tool-call-note-import-1",
+            displayName = "冻结笔记.md",
+            mimeType = "text/markdown",
+            bytes = bytes,
+        )
+
+        assertEquals(imported, replayed)
+        assertEquals(importedChunks, store.getChunks(replayed.id))
+        assertEquals(1, store.listDocuments().size)
+        assertThrows(KnowledgeDocumentImportIdempotencyConflictException::class.java) {
+            runBlocking {
+                store.importUtf8DocumentOnce(
+                    idempotencyKey = "tool-call-note-import-1",
+                    displayName = "冻结笔记.md",
+                    mimeType = "text/markdown",
+                    bytes = "审批后发生漂移的正文。".toByteArray(Charsets.UTF_8),
+                )
+            }
+        }
+        assertEquals(imported, store.getDocument(imported.id))
+        assertEquals(importedChunks, store.getChunks(imported.id))
+    }
+
+    @Test
+    fun uniqueRoomNoteImportsIntoKnowledgeAndRecoversFromCurrentStore() = runBlocking {
+        val noteStore = RoomAgentNoteStore(context, database)
+        val note = noteStore.create(
+            title = "Redmi 导入验收",
+            content = "第 251 阶段必须从当前 Room 笔记导入并回读知识 chunks。",
+            idempotencyKey = "android-test-note-import",
+        )
+        val contentHash = KnowledgeTextPolicy.decodeUtf8(note.content.toByteArray(Charsets.UTF_8)).contentHash
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context, database),
+            noteStore = noteStore,
+            memoryStore = RoomAgentMemoryStore(context, database),
+            knowledgeStore = store,
+        )
+        registry.bindRunContext(context("run-note-knowledge-import"))
+
+        assertTrue(
+            registry.execute(
+                ToolCall(
+                    name = "notes.search",
+                    arguments = mapOf("query" to "Redmi 导入验收"),
+                    risk = ToolRisk.SAFE,
+                ),
+            ).success,
+        )
+        val detail = registry.execute(
+            ToolCall(
+                name = "notes.get",
+                arguments = mapOf("note_id" to note.id),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertTrue(detail.content.contains("知识导入正文哈希：$contentHash"))
+
+        val call = ToolCall(
+            id = "tool-call-room-note-import",
+            name = "knowledge.import_from_note",
+            arguments = mapOf(
+                "note_id" to note.id,
+                "expected_revision" to note.revision.toString(),
+                "expected_content_hash" to contentHash,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = requireNotNull(registry.verifyCommittedEffect(call, receipt))
+        val document = requireNotNull(store.getDocument(receipt.operationId))
+        val chunks = store.getChunks(document.id)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals(true, recovered.success)
+        assertEquals(true, recovered.verified)
+        assertEquals(1, document.revision)
+        assertEquals(contentHash, document.contentHash)
+        assertTrue(chunks.isNotEmpty())
+        assertEquals(document.id, result.knowledgeReferences.single().documentId)
+        assertEquals(chunks.first().id, result.knowledgeReferences.single().chunkId)
+        assertEquals(listOf(document.id), store.listDocuments().map { it.id })
+
+        assertTrue(store.delete(document.id))
+        assertTrue(noteStore.delete(note.id))
+        assertNull(store.getDocument(document.id))
+        assertNull(noteStore.get(note.id))
     }
 
     @Test

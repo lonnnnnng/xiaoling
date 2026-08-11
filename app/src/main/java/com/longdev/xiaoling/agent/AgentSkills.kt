@@ -228,6 +228,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "目标笔记经用户批准后 revision 递增且正文回读一致，或明确说明未编辑。",
         ),
         AgentSkillDefinition(
+            id = "local-note-knowledge-import",
+            name = "笔记导入知识库",
+            description = "把唯一命中的本地笔记经用户确认后导入本地知识库。",
+            instructions = "严格执行 notes.search -> notes.get -> knowledge.import_from_note。notes.search 必须确认唯一目标，再由 notes.get 读取稳定 note-UUID、revision 和知识导入正文哈希；导入参数只能原样传递这三项，不得让模型重写标题或正文。多候选、笔记在读取或审批后漂移、已有知识文档覆盖策略不明确、用户未确认或文档 revision/chunks 回读不一致时全部停止。",
+            toolNames = setOf("notes.search", "notes.get", "knowledge.import_from_note"),
+            keywords = setOf("笔记导入知识库", "笔记加入知识库", "本地笔记", "知识库", "import note", "knowledge import"),
+            triggerExamples = listOf("把唯一匹配的本地笔记加入知识库", "将这条笔记导入本地知识库"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "搜索无结果或不唯一时停止；revision、正文哈希、当前笔记或知识文档回读漂移时重新从 notes.search 开始，不覆盖已有文档。",
+            completionCriteria = "用户批准后返回当前 Store 中稳定知识文档 ID、revision、chunk 数和可打开的知识引用，或明确说明未导入。",
+        ),
+        AgentSkillDefinition(
             id = "task-overview",
             name = "任务清单",
             description = "查看小灵中已有的任务、应用内提醒和最近运行状态。",

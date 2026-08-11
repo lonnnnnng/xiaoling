@@ -1,5 +1,15 @@
 # 产品需求
 
+## 唯一本地笔记受控导入知识库（第 251 阶段，完成）
+
+- 新增独立 `knowledge.import_from_note(note_id, expected_revision, expected_content_hash)` 与 `local-note-knowledge-import` Skill；工具只允许前台 `DIRECT` Agent，风险为 `REQUIRES_APPROVAL`，不支持后台或 Workflow。
+- 同一 Run 必须严格执行 `notes.search -> notes.get -> knowledge.import_from_note`。搜索至少读取两个候选以证明唯一性；只有当前 Run 最近一次搜索唯一命中且 `notes.get` 已冻结同一稳定 ID、正整数 revision 与规范小写 64 位正文 SHA-256 时，导入候选才有效。
+- 新搜索、Run 切换或一次导入尝试都会使旧冻结状态失效。跨 Run、零/多候选、未读取详情、ID/revision/hash 不一致、重复消费以及审批期间 Note Store 漂移必须在写入前停止。
+- 导入必须从当前 Note Store 重新读取正文，使用稳定幂等键 `knowledge-import-from-note:<noteId>` 写入新知识文档，不猜测覆盖或替换既有文档。同键同规范载荷复用原文档与 chunks；载荷、revision、启用状态或 chunks 漂移必须冲突拒绝。
+- 成功结果必须具备 `COMMITTED` 回执，并从当前 Knowledge Store 回读 revision、content hash 与非空 chunks；首个 chunk 形成稳定 `KnowledgeReference`，复用现有答案级知识文档导航。回读缺失或不一致不能宣称成功。
+- 旧 `local-note-detail`、`local-knowledge`、Legacy Run 和已持久化 Profile 不自动扩权；需要用户显式启用新 Tool/Skill。Room 继续为 v36，不新增 migration、后台自动摄取、共享摄取或隐式索引。
+- 聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；仅 Redmi 的幂等冲突与真实 Room 笔记导入/恢复单项分别为 `OK (1 test)`、`0.418s / 0.470s`，文档 corpus gate 为 `OK (1 test)`、`3.5s`。真实模型自然语言与屏幕可见审批留到下一阶段。
+
 ## 下一条系统日程前台只读闭环（第 250 阶段，完成）
 
 - 新增无参数 `calendar.next_event` 与 `next-calendar-event` Skill，只允许前台 `DIRECT` Agent 在 `READ_CALENDAR` 已授权时读取，固定窗口为执行时刻后的 30 天，不支持后台或 Workflow。

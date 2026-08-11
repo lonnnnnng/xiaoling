@@ -2,6 +2,10 @@ package com.longdev.xiaoling.knowledge
 
 class KnowledgeDocumentException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
 
+class KnowledgeDocumentImportIdempotencyConflictException : IllegalStateException(
+    "知识导入工具调用已绑定到其他内容",
+)
+
 const val KNOWLEDGE_PREVIEW_CHARACTER_LIMIT = 4_000
 
 data class KnowledgeDocumentRecord(
@@ -253,6 +257,13 @@ fun KnowledgeReference.assessAgainst(
 
 interface KnowledgeDocumentStore {
     suspend fun importUtf8Document(
+        displayName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): KnowledgeDocumentRecord
+
+    suspend fun importUtf8DocumentOnce(
+        idempotencyKey: String,
         displayName: String,
         mimeType: String,
         bytes: ByteArray,

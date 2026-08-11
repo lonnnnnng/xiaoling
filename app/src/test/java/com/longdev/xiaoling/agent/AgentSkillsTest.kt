@@ -179,6 +179,26 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInNoteKnowledgeImportSkillFreezesUniqueReadWithoutExpandingReadOnlySkills() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "把唯一匹配的本地笔记加入知识库",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "local-note-knowledge-import" }
+        assertEquals(
+            setOf("notes.search", "notes.get", "knowledge.import_from_note"),
+            skill.toolNames,
+        )
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("notes.search -> notes.get -> knowledge.import_from_note"))
+        assertTrue(skill.instructions.contains("revision"))
+        assertTrue(skill.instructions.contains("正文哈希"))
+        assertTrue("knowledge.import_from_note" !in BuiltInAgentSkillRegistry.all().single { it.id == "local-note-detail" }.toolNames)
+        assertTrue("knowledge.import_from_note" !in BuiltInAgentSkillRegistry.all().single { it.id == "local-knowledge" }.toolNames)
+    }
+
+    @Test
     fun builtInKnowledgeSkillSelectsOnlyReadOnlyKnowledgeTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "请从知识库检索发布文档中的真机验收要求",

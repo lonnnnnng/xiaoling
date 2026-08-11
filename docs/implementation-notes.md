@@ -1,5 +1,19 @@
 # 当前实现说明
 
+## 第 251 阶段：唯一本地笔记受控导入知识库（完成）
+
+- `XiaoLingToolRegistry` 为笔记搜索维护当前 Run 的最近候选集。`notes.search` 使用至少 `limit=2` 的 Store 查询证明唯一性并清除旧冻结状态；`notes.get` 只有命中该唯一 ID 时才冻结 `noteId + revision + KnowledgeTextPolicy contentHash`，新搜索、Run 切换或导入消费后立即失效。
+- `knowledge.import_from_note` 只接受 `note_id / expected_revision / expected_content_hash`，仅前台 `DIRECT` 可见，风险为 `REQUIRES_APPROVAL`，恢复契约为 `EXECUTOR_VERIFIED + IDEMPOTENT_BY_KEY + CONTROLLED_SAME_CALL`。动态候选校验只绑定该工具，既有 `notes.update` 校验保持不变。
+- `RoomKnowledgeDocumentStore.importUtf8DocumentOnce()` 由幂等键 SHA-256 派生稳定 `knowledge-import-...` 文档 ID，不新增 Room 字段或 migration。同键同规范载荷直接复用当前文档与 chunks；文档载荷、revision、启用状态或 chunk 集合漂移时抛出 `KnowledgeDocumentImportIdempotencyConflictException`，不执行 replace/delete。
+- 执行前重新读取当前 Note Store 并核对 revision/hash，写入后重新读取当前文档和 chunks。成功回执以 document ID 为 operation ID，结果附带首个 chunk 的完整 `KnowledgeReference`；已提交恢复只读核对当前 Store，不再次导入。
+- Runtime 把业务校验拆为始终重跑的稳定规则与显式 `ephemeralBusinessValidators`。初次 ToolCall 审批前两类都执行；已经持久化且验证过的 ToolCall 在审批恢复和受控关联重试时只跳过旧进程一次性候选，仍重新执行 Schema、规范小写 hash 等稳定规则、权限、当前 Note 与 Knowledge Store 校验，避免把本阶段恢复特例扩散到既有写工具。
+- 新 Skill `local-note-knowledge-import` 的工具集精确为 `notes.search / notes.get / knowledge.import_from_note`。旧笔记详情、知识搜索 Skill 和既有 Profile 不扩权；后台自动摄取、覆盖猜测、Workflow 与共享摄取继续关闭。
+- 聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；Redmi `idempotentImportReusesCommittedDocumentAndRejectsPayloadDrift` 为 `OK (1 test)`、`0.418s`，`uniqueRoomNoteImportsIntoKnowledgeAndRecoversFromCurrentStore` 为 `OK (1 test)`、`0.470s`，最终文档 corpus gate 为 `OK (1 test)`、`3.5s`。
+
+### 下一阶段
+
+在 Redmi 使用显式最小 Profile 完成真实模型自然语言 Run：屏幕可见地发送、批准唯一导入调用，核对 Tool Ledger 的 `APPROVED / PASSED / COMMITTED`、答案级知识引用与当前知识页原文，并按回执 document ID 精确清理临时笔记、知识文档、Profile 和会话。该验收不扩展后台、Workflow 或自动摄取。
+
 ## 第 250 阶段：下一条系统日程前台只读闭环（完成）
 
 - `CalendarEventReader.nextEvent()` 把下一条选择收敛在日历 Reader seam 后；Android adapter 以游标单遍扫描选出严格未来的最早 occurrence，只保留候选及同刻计数，不物化并排序 30 天全部实例。
@@ -7,10 +21,6 @@
 - ToolResult 附带 `occurrence-v1-eventId-startAtMillis`。`CalendarEventNavigationTarget` 聚合 event ID 与可选 occurrence 开始时刻；会话按钮、导航 Coordinator、Saver 和详情页统一消费该 target。
 - `AndroidCalendarEventReader.getOccurrence()` 按 event ID 与开始时刻从 Instances 精确回读当前实例；详情页只在 target 不含 occurrence 时调用 `getEvent()`。因此重复事件不会退回 Events master 的 DTSTART/DTEND。
 - 导航 Saver 对旧存档保持 event ID 兼容，非法 occurrence 时间只降级为普通事件 target。聚焦 JVM `157/157`、Debug/AndroidTest APK、Redmi 真实 Provider/UI `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。
-
-### 下一阶段
-
-实现“唯一命中的本地笔记导入知识库”受控闭环：严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，导入前冻结笔记稳定 ID、revision 与正文哈希，写入需要显式审批，完成后从当前知识 Store 回读文档 revision/chunk。多候选、笔记漂移、覆盖策略不明确或回读不一致均停止；后台自动摄取继续关闭。
 
 ## 第 249 阶段：答案级知识引用当前原文定位（完成）
 

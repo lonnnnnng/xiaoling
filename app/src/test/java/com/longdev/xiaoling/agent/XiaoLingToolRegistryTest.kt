@@ -20,6 +20,7 @@ import com.longdev.xiaoling.device.DeviceSwipeVisibleAnchor
 import com.longdev.xiaoling.device.DeviceTypeTextReadBack
 import com.longdev.xiaoling.knowledge.KnowledgeChunkRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentDetail
+import com.longdev.xiaoling.knowledge.KnowledgeDocumentImportIdempotencyConflictException
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentRecord
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentStore
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentSummary
@@ -27,6 +28,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeRetrievalRecord
 import com.longdev.xiaoling.knowledge.KnowledgeSearchHit
 import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
+import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
@@ -2919,6 +2921,227 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun uniqueSearchedNoteCanBeImportedAndRecoveredWithStableKnowledgeReference() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val expectedContentHash = "93fee99b9bc717d668d91a5cbd7ddad13f82a33d79a8fde155678982266cab6d"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(
+                id = noteId,
+                title = "完整笔记",
+                content = "正文必须从当前 Store 回读。",
+                createdAt = 1L,
+                updatedAt = 2L,
+                revision = 3L,
+            )
+        }
+        val knowledgeStore = InMemoryKnowledgeDocumentStore()
+        val registry = testRegistry(noteStore = noteStore, knowledgeStore = knowledgeStore)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-note-import",
+                userMessageId = "message-note-import",
+                runId = "run-note-import",
+                goal = "把完整笔记加入知识库",
+                invocationSource = AgentInvocationSource.DIRECT,
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            ),
+        )
+
+        assertTrue(
+            registry.execute(
+                ToolCall(
+                    name = "notes.search",
+                    arguments = mapOf("query" to "正文必须"),
+                    risk = ToolRisk.SAFE,
+                ),
+            ).success,
+        )
+        val detail = registry.execute(
+            ToolCall(
+                name = "notes.get",
+                arguments = mapOf("note_id" to noteId),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertTrue(detail.content.contains("知识导入正文哈希：$expectedContentHash"))
+
+        val call = ToolCall(
+            id = "tool-call-knowledge-import-note",
+            name = "knowledge.import_from_note",
+            arguments = mapOf(
+                "note_id" to noteId,
+                "expected_revision" to "3",
+                "expected_content_hash" to expectedContentHash,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals(1, result.knowledgeReferences.size)
+        assertEquals(receipt.operationId, result.knowledgeReferences.single().documentId)
+        assertEquals(1, result.knowledgeReferences.single().documentRevision)
+        assertEquals("knowledge-import-from-note:$noteId", receipt.idempotencyKey)
+        assertEquals(true, recovered?.success)
+        assertEquals(true, recovered?.verified)
+        assertEquals(result.knowledgeReferences, recovered?.knowledgeReferences)
+        assertTrue(registry.supportsCommittedEffectVerification("knowledge.import_from_note"))
+
+        val repeatedWithoutFreshRead = registry.execute(call.copy(id = "tool-call-knowledge-import-note-repeat"))
+        assertFalse(repeatedWithoutFreshRead.success)
+        assertTrue(repeatedWithoutFreshRead.content.contains("重新执行读取链"))
+        assertEquals(1, knowledgeStore.listDocuments().size)
+    }
+
+    @Test
+    fun noteKnowledgeImportRejectsNonCanonicalUppercaseContentHash() = runTest {
+        val registry = testRegistry()
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-note-import-hash",
+                userMessageId = "message-note-import-hash",
+                runId = "run-note-import-hash",
+                goal = "拒绝非规范正文哈希",
+            ),
+        )
+        val definition = requireNotNull(registry.definition("knowledge.import_from_note"))
+
+        val validation = definition.validateArguments(
+            mapOf(
+                "note_id" to "note-12345678-1234-1234-1234-123456789abc",
+                "expected_revision" to "1",
+                "expected_content_hash" to "93FEE99B9BC717D668D91A5CBD7DDAD13F82A33D79A8FDE155678982266CAB6D",
+            ),
+        )
+
+        assertFalse(validation.isValid)
+        assertTrue(validation.errors.any { it.contains("正文哈希") })
+    }
+
+    @Test
+    fun noteKnowledgeImportMustValidateReadChainBeforeApprovalButApprovedResumeCanUseFrozenCall() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val expectedContentHash = "93fee99b9bc717d668d91a5cbd7ddad13f82a33d79a8fde155678982266cab6d"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(
+                id = noteId,
+                title = "完整笔记",
+                content = "正文必须从当前 Store 回读。",
+                createdAt = 1L,
+                updatedAt = 2L,
+                revision = 3L,
+            )
+        }
+        val knowledgeStore = InMemoryKnowledgeDocumentStore()
+        val context = AgentToolExecutionContext(
+            conversationId = "conversation-note-import-resume",
+            userMessageId = "message-note-import-resume",
+            runId = "run-note-import-resume",
+            goal = "把完整笔记加入知识库",
+            invocationSource = AgentInvocationSource.DIRECT,
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        )
+        val call = ToolCall(
+            id = "tool-call-knowledge-import-note-resume",
+            name = "knowledge.import_from_note",
+            arguments = mapOf(
+                "note_id" to noteId,
+                "expected_revision" to "3",
+                "expected_content_hash" to expectedContentHash,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val planningRegistry = testRegistry(noteStore = noteStore, knowledgeStore = knowledgeStore)
+        planningRegistry.bindRunContext(context)
+
+        assertFalse(requireNotNull(planningRegistry.definition(call.name)).validateArguments(call.arguments).isValid)
+        planningRegistry.execute(
+            ToolCall(name = "notes.search", arguments = mapOf("query" to "正文必须"), risk = ToolRisk.SAFE),
+        )
+        planningRegistry.execute(
+            ToolCall(name = "notes.get", arguments = mapOf("note_id" to noteId), risk = ToolRisk.SAFE),
+        )
+        assertTrue(requireNotNull(planningRegistry.definition(call.name)).validateArguments(call.arguments).isValid)
+
+        val resumedRegistry = testRegistry(noteStore = noteStore, knowledgeStore = knowledgeStore)
+        resumedRegistry.bindRunContext(context)
+        resumedRegistry.beforeToolExecution(
+            call = call,
+            approval = AgentToolApprovalEvidence(
+                approved = true,
+                decidedAt = 100L,
+                processSessionId = "new-process-session",
+            ),
+        )
+
+        val resumed = resumedRegistry.execute(call)
+        assertTrue(resumed.success)
+        assertEquals(true, resumed.verified)
+        assertEquals(1, knowledgeStore.listDocuments().size)
+    }
+
+    @Test
+    fun noteKnowledgeImportRejectsAmbiguousSearchRunChangeAndApprovalDriftWithoutWriting() = runTest {
+        val firstId = "note-12345678-1234-1234-1234-123456789abc"
+        val secondId = "note-abcdefab-cdef-abcd-efab-cdefabcdefab"
+        val expectedContentHash = "93fee99b9bc717d668d91a5cbd7ddad13f82a33d79a8fde155678982266cab6d"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(firstId, "完整笔记甲", "正文必须从当前 Store 回读。", 1L, 2L, revision = 3L)
+            it.records += AgentNoteRecord(secondId, "完整笔记乙", "正文必须从当前 Store 回读。", 3L, 4L, revision = 1L)
+        }
+        val knowledgeStore = InMemoryKnowledgeDocumentStore()
+        val registry = testRegistry(noteStore = noteStore, knowledgeStore = knowledgeStore)
+        fun context(runId: String) = AgentToolExecutionContext(
+            conversationId = "conversation-note-import-boundary",
+            userMessageId = "message-note-import-boundary",
+            runId = runId,
+            goal = "把完整笔记甲加入知识库",
+            invocationSource = AgentInvocationSource.DIRECT,
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        )
+        val call = ToolCall(
+            id = "tool-call-note-import-boundary",
+            name = "knowledge.import_from_note",
+            arguments = mapOf(
+                "note_id" to firstId,
+                "expected_revision" to "3",
+                "expected_content_hash" to expectedContentHash,
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        registry.bindRunContext(context("run-note-import-ambiguous"))
+        registry.execute(
+            ToolCall(name = "notes.search", arguments = mapOf("query" to "完整笔记"), risk = ToolRisk.SAFE),
+        )
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to firstId), risk = ToolRisk.SAFE))
+        assertFalse(registry.execute(call).success)
+
+        registry.execute(
+            ToolCall(name = "notes.search", arguments = mapOf("query" to "完整笔记甲"), risk = ToolRisk.SAFE),
+        )
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to firstId), risk = ToolRisk.SAFE))
+        registry.bindRunContext(context("run-note-import-changed"))
+        assertFalse(registry.execute(call.copy(id = "tool-call-note-import-new-run")).success)
+
+        registry.execute(
+            ToolCall(name = "notes.search", arguments = mapOf("query" to "完整笔记甲"), risk = ToolRisk.SAFE),
+        )
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to firstId), risk = ToolRisk.SAFE))
+        noteStore.records.replaceAll { note ->
+            if (note.id == firstId) note.copy(content = "审批期间已变化。", revision = 4L) else note
+        }
+        val drifted = registry.execute(call.copy(id = "tool-call-note-import-drifted"))
+
+        assertFalse(drifted.success)
+        assertTrue(drifted.content.contains("已变化"))
+        assertTrue(knowledgeStore.listDocuments().isEmpty())
+    }
+
+    @Test
     fun notesUpdateRequiresCurrentRevisionAndReturnsVerifiableCommittedReceipt() = runTest {
         val noteId = "note-12345678-1234-1234-1234-123456789abc"
         val noteStore = InMemoryAgentNoteStore().also {
@@ -4190,6 +4413,9 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
     var lastLimit: Int? = null
     var lastConversationId: String? = null
     var lastRunId: String? = null
+    private val importedDocuments = linkedMapOf<String, KnowledgeDocumentRecord>()
+    private val importedChunks = linkedMapOf<String, List<KnowledgeChunkRecord>>()
+    private val documentIdsByIdempotencyKey = linkedMapOf<String, String>()
 
     override suspend fun search(
         query: String,
@@ -4229,6 +4455,56 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
     override suspend fun importUtf8Document(displayName: String, mimeType: String, bytes: ByteArray): KnowledgeDocumentRecord =
         error("测试不支持导入")
 
+    override suspend fun importUtf8DocumentOnce(
+        idempotencyKey: String,
+        displayName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): KnowledgeDocumentRecord {
+        val text = KnowledgeTextPolicy.decodeUtf8(bytes)
+        documentIdsByIdempotencyKey[idempotencyKey]?.let { documentId ->
+            val existing = requireNotNull(importedDocuments[documentId])
+            if (
+                existing.displayName != displayName ||
+                existing.mimeType != mimeType ||
+                existing.contentHash != text.contentHash ||
+                existing.normalizedText != text.normalizedText
+            ) {
+                throw KnowledgeDocumentImportIdempotencyConflictException()
+            }
+            return existing
+        }
+        val document = KnowledgeDocumentRecord(
+            id = "knowledge-imported-${importedDocuments.size + 1}",
+            displayName = displayName,
+            mimeType = mimeType,
+            contentHash = text.contentHash,
+            revision = 1,
+            parserVersion = KnowledgeTextPolicy.PARSER_VERSION,
+            byteSize = text.byteSize,
+            characterCount = text.characterCount,
+            normalizedText = text.normalizedText,
+            enabled = true,
+            createdAt = 100L,
+            updatedAt = 100L,
+        )
+        val chunks = KnowledgeTextPolicy.chunk(text.normalizedText).map { chunk ->
+            KnowledgeChunkRecord(
+                id = "${document.id}-r1-${chunk.sequence}",
+                documentId = document.id,
+                documentRevision = document.revision,
+                sequence = chunk.sequence,
+                startOffset = chunk.startOffset,
+                endOffset = chunk.endOffset,
+                text = chunk.text,
+            )
+        }
+        importedDocuments[document.id] = document
+        importedChunks[document.id] = chunks
+        documentIdsByIdempotencyKey[idempotencyKey] = document.id
+        return document
+    }
+
     override suspend fun replaceUtf8Document(
         documentId: String,
         displayName: String,
@@ -4236,14 +4512,59 @@ private class InMemoryKnowledgeDocumentStore : KnowledgeDocumentStore {
         bytes: ByteArray,
     ): KnowledgeDocumentRecord = error("测试不支持替换")
 
-    override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? = null
-    override suspend fun listDocuments(): List<KnowledgeDocumentSummary> = emptyList()
-    override suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail? = null
-    override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = emptyList()
+    override suspend fun getDocument(documentId: String): KnowledgeDocumentRecord? = importedDocuments[documentId]
+
+    override suspend fun listDocuments(): List<KnowledgeDocumentSummary> = importedDocuments.values.map { document ->
+        KnowledgeDocumentSummary(
+            id = document.id,
+            displayName = document.displayName,
+            mimeType = document.mimeType,
+            contentHash = document.contentHash,
+            revision = document.revision,
+            parserVersion = document.parserVersion,
+            byteSize = document.byteSize,
+            characterCount = document.characterCount,
+            enabled = document.enabled,
+            createdAt = document.createdAt,
+            updatedAt = document.updatedAt,
+            chunkCount = importedChunks[document.id].orEmpty().size,
+        )
+    }
+
+    override suspend fun getDocumentDetail(documentId: String): KnowledgeDocumentDetail? =
+        importedDocuments[documentId]?.let { document ->
+            KnowledgeDocumentDetail(
+                id = document.id,
+                displayName = document.displayName,
+                mimeType = document.mimeType,
+                contentHash = document.contentHash,
+                revision = document.revision,
+                parserVersion = document.parserVersion,
+                byteSize = document.byteSize,
+                characterCount = document.characterCount,
+                previewText = document.normalizedText,
+                previewTruncated = false,
+                enabled = document.enabled,
+                createdAt = document.createdAt,
+                updatedAt = document.updatedAt,
+            )
+        }
+
+    override suspend fun getChunks(documentId: String): List<KnowledgeChunkRecord> = importedChunks[documentId].orEmpty()
     override suspend fun retainCurrentReferences(references: List<KnowledgeReference>): List<KnowledgeReference> = references
     override suspend fun recentRetrievals(limit: Int): List<KnowledgeRetrievalRecord> = emptyList()
-    override suspend fun setEnabled(documentId: String, enabled: Boolean): KnowledgeDocumentRecord? = null
-    override suspend fun delete(documentId: String): Boolean = false
+    override suspend fun setEnabled(documentId: String, enabled: Boolean): KnowledgeDocumentRecord? {
+        val updated = importedDocuments[documentId]?.copy(enabled = enabled) ?: return null
+        importedDocuments[documentId] = updated
+        return updated
+    }
+
+    override suspend fun delete(documentId: String): Boolean {
+        val removed = importedDocuments.remove(documentId) ?: return false
+        importedChunks.remove(documentId)
+        documentIdsByIdempotencyKey.entries.removeAll { it.value == removed.id }
+        return true
+    }
 }
 
 private object EmptyTestAgentTaskStore : AgentTaskStore {

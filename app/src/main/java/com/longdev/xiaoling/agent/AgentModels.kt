@@ -357,6 +357,8 @@ data class ToolDefinition(
     val risk: ToolRisk,
     val inputSchema: List<ToolInputField> = emptyList(),
     val businessValidators: List<ToolBusinessValidator> = emptyList(),
+    // long: 只有依赖旧 Run 短生命周期状态的候选校验才允许在已持久化审批恢复时暂缓；稳定格式与权限边界始终重新执行。
+    val ephemeralBusinessValidators: List<ToolBusinessValidator> = emptyList(),
     val permissionPolicy: ToolPermissionPolicy = ToolPermissionPolicy(),
     val approvalPolicy: ToolApprovalPolicy = risk.defaultApprovalPolicy(),
     val verificationPolicy: ToolVerificationPolicy = ToolVerificationPolicy.RESULT_READABLE,
@@ -386,7 +388,10 @@ data class ToolDefinition(
         ) { "尚未提交重放必须绑定逐次用户审批" }
     }
 
-    fun validateArguments(arguments: Map<String, String>): ToolValidationResult {
+    fun validateArguments(
+        arguments: Map<String, String>,
+        includeEphemeralBusinessValidators: Boolean = true,
+    ): ToolValidationResult {
         val errors = mutableListOf<String>()
         val declaredFields = inputSchema.associateBy { it.name }
         arguments.keys
@@ -405,6 +410,9 @@ data class ToolDefinition(
         // long: 业务规则只接收已通过 Schema 的参数，避免每个校验器重复处理缺参、类型错误和未知字段。
         if (errors.isEmpty()) {
             businessValidators.forEach { validator -> errors += validator.validate(arguments) }
+            if (errors.isEmpty() && includeEphemeralBusinessValidators) {
+                ephemeralBusinessValidators.forEach { validator -> errors += validator.validate(arguments) }
+            }
         }
         return ToolValidationResult(errors)
     }

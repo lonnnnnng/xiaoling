@@ -344,6 +344,7 @@ class MinimalAgentRuntimeTest {
 
     @Test
     fun approvedControlledReplayExecutesFrozenCallOnceWithoutModelPlanning() = runTest {
+        var persistentValidatorCalls = 0
         val definition = ToolDefinition(
             name = "notes.create",
             description = "创建笔记",
@@ -352,6 +353,11 @@ class MinimalAgentRuntimeTest {
                 ToolInputField("title", "标题", required = true),
                 ToolInputField("content", "正文", required = true),
             ),
+            businessValidators = listOf(ToolBusinessValidator {
+                persistentValidatorCalls += 1
+                emptyList()
+            }),
+            ephemeralBusinessValidators = listOf(ToolBusinessValidator { listOf("原 Run 的一次性候选已释放") }),
             replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
         )
@@ -428,6 +434,7 @@ class MinimalAgentRuntimeTest {
         val snapshot = ledger.snapshot(summary.runId)
         assertEquals(AgentRunStatus.COMPLETED, summary.status)
         assertEquals(1, approvalCount)
+        assertEquals(1, persistentValidatorCalls)
         assertEquals(1, executedCalls.size)
         assertEquals(0, planningCount)
         assertEquals(sourceCall.name, executedCalls.single().name)
@@ -929,6 +936,88 @@ class MinimalAgentRuntimeTest {
         val firstPlanningSequence = snapshot.steps.first { it.type == "llm.plan" }.sequence
         val firstVerifySequence = snapshot.steps.first { it.type == AgentStepTypes.TOOL_VERIFY }.sequence
         assertTrue(firstPlanningSequence > firstVerifySequence)
+    }
+
+    @Test
+    fun approvedResumeReusesPersistedBusinessValidationButStillExecutesCurrentVerification() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val created = ledger.createRun(
+            conversationId = "conversation-resume-business-validation",
+            userMessageId = "message-resume-business-validation",
+            goal = "恢复已冻结的笔记导入",
+        )
+        ledger.updateRunStatus(created.id, AgentRunStatus.WAITING_APPROVAL)
+        var persistentValidatorCalls = 0
+        val definition = ToolDefinition(
+            name = "fake.dynamic_write",
+            description = "模拟依赖旧进程一次性候选的写工具",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(ToolInputField("target", "冻结目标", required = true)),
+            businessValidators = listOf(ToolBusinessValidator {
+                persistentValidatorCalls += 1
+                emptyList()
+            }),
+            ephemeralBusinessValidators = listOf(ToolBusinessValidator { listOf("旧进程候选已释放") }),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        val call = ToolCall(
+            id = "tool-call-resume-business-validation",
+            name = definition.name,
+            arguments = mapOf("target" to "frozen-note"),
+            risk = definition.risk,
+        )
+        val metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments)
+        ledger.appendEvent(created.id, "tool.call.proposed", "模型提出工具调用", metadata)
+        ledger.appendEvent(created.id, "tool.call.validated", "工具调用已校验", metadata)
+        ledger.appendStep(
+            runId = created.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待应用侧审批 ${call.name}",
+            status = AgentStepStatus.RUNNING,
+        )
+        val approval = ApprovalRequestRecord(
+            id = "approval-resume-business-validation",
+            runId = created.id,
+            conversationId = created.conversationId,
+            toolCallId = call.id,
+            toolName = call.name,
+            toolDescription = definition.description,
+            risk = call.risk,
+            arguments = call.arguments,
+            status = ApprovalRequestStatus.PENDING,
+            decisionReason = null,
+            createdAt = 1L,
+            expiresAt = APPROVAL_REQUEST_NO_EXPIRY_AT,
+            decidedAt = null,
+        )
+        var executed = false
+        val registry = object : ToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executed = true
+                return ToolExecutionResult(success = true, content = "当前 Store 回读一致", verified = true)
+            }
+        }
+
+        val summary = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = FakeAgentLlm(),
+        ).resumeApprovedRun(
+            detail = AgentRunDetailRecord(snapshot = ledger.snapshot(created.id), approvals = listOf(approval)),
+            approval = approval,
+            approvalDecision = ApprovalDecision(approved = true, reason = "用户确认导入"),
+        )
+
+        assertTrue(executed)
+        assertEquals(1, persistentValidatorCalls)
+        assertEquals(AgentRunStatus.COMPLETED, ledger.snapshot(created.id).run.status)
+        assertEquals(
+            AgentVerificationStatus.VERIFIED,
+            summary.verifiedContext.toolExecutions.single().verificationStatus,
+        )
     }
 
     @Test
