@@ -1,13 +1,21 @@
 # 小灵个人 Agent 路线图
 
+## 第 252 阶段：唯一本地笔记导入知识库真实前台闭环（完成）
+
+- 显式最小 Profile、真实 `gpt-5.6-luna / Responses` 规划、屏幕发送与逐次审批已把第 251 阶段生产能力贯通为用户可见闭环；唯一 Ledger 严格为 `notes.search -> notes.get -> knowledge.import_from_note`。
+- `APPROVED / PASSED / COMMITTED`、当前 Room document/chunks、持久化唯一知识引用和 Activity 重建后的当前原文跳转均已在 Redmi 核对；旧 Run 不变，新 Run 审计保留，临时笔记、知识文档、Profile 和会话均精确清理。
+- 最终 Redmi 单项为 `OK (1 test)`、`54.78s`；文档 corpus 首轮为 `OK (1 test)`、`3.632s`，结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。本阶段只新增真实前台 instrumentation，没有新增生产 Tool、权限、Room migration、后台、Workflow 或自动摄取。
+
+下一阶段从个人 Agent 主线重新选择一个新的单一用户任务。候选必须继续满足“自然语言目标 -> 显式用户意图/审批 -> 可验证结果 -> 当前权威事实查看”，先冻结契约再实现；后台自动化、MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 第 251 阶段：唯一本地笔记受控导入知识库（完成）
 
 - 新增独立 `local-note-knowledge-import` Skill，把主线收敛为 `notes.search -> notes.get -> knowledge.import_from_note`：唯一搜索、稳定详情冻结、用户审批、当前 Store 写入与回读形成一条受控链。
 - 导入使用稳定幂等文档身份，审批恢复和受控同调用重试不会重复创建文档；多候选、跨 Run、重复消费、笔记漂移、同键载荷漂移及文档/chunk 回读不一致全部 fail-closed。
 - 成功结果携带 `COMMITTED` 回执与稳定 `KnowledgeReference`，进入第 249 阶段已完成的答案级知识导航。旧 Skill/Profile 不自动扩权，Room v36、后台、Workflow 和隐式自动摄取保持关闭。
-- 聚焦 JVM `209/209`、Debug/AndroidTest APK、仅 Redmi 两项 Room/Registry 单项与文档 corpus gate 均通过；双轴审查后已收紧恢复校验和规范小写 hash，真实模型自然语言和屏幕可见审批尚未执行。
+- 聚焦 JVM `209/209`、Debug/AndroidTest APK、仅 Redmi 两项 Room/Registry 单项与文档 corpus gate 均通过；双轴审查后已收紧恢复校验和规范小写 hash。当时尚未执行的真实模型自然语言和屏幕可见审批已由第 252 阶段完成。
 
-下一阶段（第 252 阶段）只补第 251 能力的 Redmi 真实前台闭环：使用显式最小 Profile，由模型唯一选择笔记并提出导入，用户在 UI 批准后核对 `APPROVED / PASSED / COMMITTED`、答案级引用、当前知识原文和精确清理。完成前不横向扩展后台摄取、Workflow、MCP、远程 Channel、多 Agent 或本地模型。
+后继第 252 阶段已补齐第 251 能力的 Redmi 真实前台闭环：使用显式最小 Profile，由模型唯一选择笔记并提出导入，用户在 UI 批准后核对 `APPROVED / PASSED / COMMITTED`、答案级引用、当前知识原文和精确清理；没有横向扩展后台摄取、Workflow、MCP、远程 Channel、多 Agent 或本地模型。
 
 ## 第 250 阶段：下一条系统日程前台只读闭环（完成）
 

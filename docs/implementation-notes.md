@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 252 阶段：唯一本地笔记导入知识库真实前台闭环（完成）
+
+- 新增 `Stage252NoteKnowledgeImportInstrumentedTest`，在测试开始时保存原 Profile/会话选择与最近旧 Run digest，创建唯一 Room 笔记、只允许三项目标 Tool 的临时 Profile 和独立会话；测试异常与成功都进入同一精确清理路径。
+- 正式 `MainActivity + XiaoLingViewModel` 发送自然语言 `/agent`，等待 Runtime 进入 `WAITING_APPROVAL` 后通过 UiAutomation 点击“批准执行/批准并继续”。完成后从 `RoomAgentRunRepository` 核对严格三步 Ledger、冻结参数、审批、Executor/typed verification、回执与知识引用，不使用 Debug Receiver 或自动批准 Gate。
+- Activity 重建后先等待 Room 消息重新投影，并等待 `knowledgeReferenceStatuses[reference]` 成为 `CURRENT`，再通过可见节点展开引用并打开知识原文。测试滚动 helper 使用 `ACTION_SCROLL_FORWARD` 与从下向上的手势兜底，并对每次推进限频，避免方向反转或 action/手势叠加越过目标。
+- 当前知识页必须显示“当前引用原文”和唯一正文关键词。旧 Run 用稳定 SHA-256 digest 前后核对；临时文档按 `COMMITTED` operation ID 走 `RoomKnowledgeDocumentStore.delete()`，临时笔记走生产 tombstone，消息先于会话删除，最后恢复原选择并删除临时 Profile。清理后 document/chunks、笔记、Profile、会话均不可见，新 Run 审计仍可回读。
+- 定向 AndroidTest Kotlin 编译与 AndroidTest APK 构建通过；仅 Redmi 最终真实用例为 `OK (1 test)`、`54.78s`，文档 corpus 首轮为 `OK (1 test)`、`3.632s`，结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。没有修改生产代码、Room v36、Tool/Skill 契约、权限、Workflow 或后台能力。
+
+### 下一阶段
+
+重新从个人 Agent 主线选择一个新的单一用户任务，先冻结显式意图、最小权限/Profile、权威结果验证和清理边界，再决定实现范围；不把后台自动摄取、Workflow 扩权、MCP、远程 Channel、多 Agent 或本地模型混入同一切片。
+
 ## 第 251 阶段：唯一本地笔记受控导入知识库（完成）
 
 - `XiaoLingToolRegistry` 为笔记搜索维护当前 Run 的最近候选集。`notes.search` 使用至少 `limit=2` 的 Store 查询证明唯一性并清除旧冻结状态；`notes.get` 只有命中该唯一 ID 时才冻结 `noteId + revision + KnowledgeTextPolicy contentHash`，新搜索、Run 切换或导入消费后立即失效。
@@ -10,9 +22,9 @@
 - 新 Skill `local-note-knowledge-import` 的工具集精确为 `notes.search / notes.get / knowledge.import_from_note`。旧笔记详情、知识搜索 Skill 和既有 Profile 不扩权；后台自动摄取、覆盖猜测、Workflow 与共享摄取继续关闭。
 - 聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；Redmi `idempotentImportReusesCommittedDocumentAndRejectsPayloadDrift` 为 `OK (1 test)`、`0.418s`，`uniqueRoomNoteImportsIntoKnowledgeAndRecoversFromCurrentStore` 为 `OK (1 test)`、`0.470s`，最终文档 corpus gate 为 `OK (1 test)`、`3.5s`。
 
-### 下一阶段
+### 后继验收（已由第 252 阶段完成）
 
-在 Redmi 使用显式最小 Profile 完成真实模型自然语言 Run：屏幕可见地发送、批准唯一导入调用，核对 Tool Ledger 的 `APPROVED / PASSED / COMMITTED`、答案级知识引用与当前知识页原文，并按回执 document ID 精确清理临时笔记、知识文档、Profile 和会话。该验收不扩展后台、Workflow 或自动摄取。
+第 252 阶段已在 Redmi 使用显式最小 Profile 完成真实模型自然语言 Run：屏幕可见地发送、批准唯一导入调用，核对 Tool Ledger 的 `APPROVED / PASSED / COMMITTED`、答案级知识引用与当前知识页原文，并按回执 document ID 精确清理临时笔记、知识文档、Profile 和会话。该验收没有扩展后台、Workflow 或自动摄取。
 
 ## 第 250 阶段：下一条系统日程前台只读闭环（完成）
 

@@ -1,5 +1,14 @@
 # 产品需求
 
+## 唯一本地笔记导入知识库真实前台验收（第 252 阶段，完成）
+
+- 真实验收必须创建显式最小 Profile，只开放 `notes.search / notes.get / knowledge.import_from_note` 与 `local-note-knowledge-import`；使用当前可用 Provider 从自然语言目标形成唯一三步调用，不能由测试直接调用 Runtime 或审批 API 冒充用户流程。
+- 消息发送、逐次审批、答案引用展开与原文跳转必须通过 Redmi 屏幕可见节点完成。导入调用的 note ID、revision 和规范小写正文 SHA-256 必须与搜索、详情冻结及审批参数完全一致。
+- 完成态必须同时具备严格 Tool 顺序、审批 `APPROVED`、Executor verification、typed verification `PASSED` 与 `COMMITTED` 回执；当前 Room document/chunks、持久化 Tool Message 的唯一 `KnowledgeReference` 和知识页当前原文必须绑定同一身份。
+- Activity 重建后必须从 Room 恢复答案引用，并且只在引用状态为 `CURRENT` 时允许打开当前原文；状态尚未核验、历史、停用、删除或漂移不得生成可点击的当前原文入口。
+- 清理只信当前 Run 的 `COMMITTED` document ID：临时笔记使用生产 tombstone，知识文档/chunks、Profile 和会话精确移除；原 Profile/会话选择恢复，新 Run 审计保留，最近旧 Run 的稳定 digest 不变。
+- `Stage252NoteKnowledgeImportInstrumentedTest` 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 显式运行，最终为 `OK (1 test)`、`54.78s`；文档 corpus 首轮为 `OK (1 test)`、`3.632s`，结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。本阶段不新增生产 Tool、权限、Room migration、后台、Workflow 或自动摄取。
+
 ## 唯一本地笔记受控导入知识库（第 251 阶段，完成）
 
 - 新增独立 `knowledge.import_from_note(note_id, expected_revision, expected_content_hash)` 与 `local-note-knowledge-import` Skill；工具只允许前台 `DIRECT` Agent，风险为 `REQUIRES_APPROVAL`，不支持后台或 Workflow。
@@ -8,7 +17,7 @@
 - 导入必须从当前 Note Store 重新读取正文，使用稳定幂等键 `knowledge-import-from-note:<noteId>` 写入新知识文档，不猜测覆盖或替换既有文档。同键同规范载荷复用原文档与 chunks；载荷、revision、启用状态或 chunks 漂移必须冲突拒绝。
 - 成功结果必须具备 `COMMITTED` 回执，并从当前 Knowledge Store 回读 revision、content hash 与非空 chunks；首个 chunk 形成稳定 `KnowledgeReference`，复用现有答案级知识文档导航。回读缺失或不一致不能宣称成功。
 - 旧 `local-note-detail`、`local-knowledge`、Legacy Run 和已持久化 Profile 不自动扩权；需要用户显式启用新 Tool/Skill。Room 继续为 v36，不新增 migration、后台自动摄取、共享摄取或隐式索引。
-- 聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；仅 Redmi 的幂等冲突与真实 Room 笔记导入/恢复单项分别为 `OK (1 test)`、`0.418s / 0.470s`，文档 corpus gate 为 `OK (1 test)`、`3.5s`。真实模型自然语言与屏幕可见审批留到下一阶段。
+- 聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；仅 Redmi 的幂等冲突与真实 Room 笔记导入/恢复单项分别为 `OK (1 test)`、`0.418s / 0.470s`，文档 corpus gate 为 `OK (1 test)`、`3.5s`。当时后置的真实模型自然语言与屏幕可见审批已由第 252 阶段完成。
 
 ## 下一条系统日程前台只读闭环（第 250 阶段，完成）
 

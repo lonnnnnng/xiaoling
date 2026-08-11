@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 252 阶段本地笔记真实导入验收边界（无变更）
+
+自然语言目标、临时笔记/Profile/会话、Run/Approval/Tool Ledger、UiAutomation 节点、唯一正文关键词和验收清理状态只属于当前 Redmi 前台执行与测试，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。只有用户可见审批后由当前 Knowledge Store 验证成功的 document/chunks 才按第 251 阶段既有契约成为后续候选；答案引用只绑定该已提交文档的当前 revision/chunk，Activity 重建与知识页跳转不会生成新候选或 Shadow 样本。生产相关性拒绝、Shadow 默认开关、`enforcementApplied=false`、Room v36、后台与 Workflow 边界均保持不变。文档 corpus 首轮为 `OK (1 test)`、`3.632s`，结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。
+
 ## 第 251 阶段本地笔记导入知识库边界
 
 `notes.search / notes.get` 的搜索词、候选集、原始笔记正文、临时冻结状态、Tool Message、审批、Run/Ledger 和真机验收数据都只属于当前前台 Agent 执行，不直接进入知识候选、Judge、Shadow measurement 或匿名账本。只有用户批准并由当前 Knowledge Store 回读验证成功的知识文档/chunks，才按既有 `knowledge.search` 路径成为后续可检索候选；本次导入结果附带的 `KnowledgeReference` 只绑定已提交文档的当前 revision/chunk，不把审批前笔记或模型文本伪装成知识证据。后台/隐式自动摄取、共享摄取和生产相关性绕过继续关闭，Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产拒绝边界保持不变。

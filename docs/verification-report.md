@@ -4,6 +4,26 @@
 
 ## 当前验证基线
 
+## 2026-08-12 第 252 阶段：唯一本地笔记导入知识库真实前台闭环
+
+### 当前结论
+
+- Redmi 显式最小 Profile 只开放 `notes.search / notes.get / knowledge.import_from_note` 与 `local-note-knowledge-import`。当前 `gpt-5.6-luna / Responses` 从自然语言目标形成严格三步链，发送与逐次审批均由屏幕可见节点完成。
+- Tool Ledger 的稳定 note ID、revision 和规范小写正文 SHA-256 原样传递；审批为 `APPROVED`，Executor verification 为 `true`，typed verification 为 `PASSED`，执行回执为 `COMMITTED`。当前 Room document/chunks、Tool Message 唯一 `KnowledgeReference` 与知识页当前原文一致。
+- Activity 重建后答案引用从 Room 恢复，并在状态核验为 `CURRENT` 后通过可见节点打开“当前引用原文”。旧 Run digest 前后不变；临时笔记、知识文档/chunks、Profile 和会话精确清理，新 Run 审计保留。
+
+### 验证证据
+
+- `:app:compileDebugAndroidTestKotlin` 与 `:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`；AndroidTest APK 只覆盖安装到 Redmi `wsvwypiz7xwslvl7 / begonia`。
+- 最终用例 `Stage252NoteKnowledgeImportInstrumentedTest#naturalLanguageNoteImportCompletesThroughVisibleApprovalAndCurrentSourceUi` 为 `OK (1 test)`，耗时 `54.78s`。所有业务、页面、旧 Run 与清理断言均执行完成。
+- 首轮真实执行已证明模型、审批、三步 Ledger、Room 导入和持久化引用成功，但暴露测试 helper 把“向后看新内容”实现为 `ACTION_SCROLL_BACKWARD`；方向修正后又确认引用可点击语义依赖异步状态核验。最终测试改为等待 `CURRENT`，使用限频 `ACTION_SCROLL_FORWARD` 与向上手势兜底后通过。
+- 长期文档首次写回并重建 AndroidTest 资产后，项目文档 corpus gate 为 `OK (1 test)`、`3.632s`；结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。
+- 所有 ADB 安装和 instrumentation 命令均显式指定 Redmi；已连接的 `emulator-5554` 未接收目标命令。
+
+### 保持关闭的边界
+
+按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation。本阶段没有修改生产代码、Room v36、Tool/Skill、权限、Workflow 或后台自动摄取；MCP、远程 Channel、多 Agent 和本地模型继续后置。
+
 ## 2026-08-12 第 251 阶段：唯一本地笔记受控导入知识库
 
 ### 当前结论
@@ -23,7 +43,7 @@
 
 ### 保持关闭的边界
 
-按快速迭代分级策略未运行 Lint、Release 或全量 instrumentation；本阶段也未宣称真实模型自然语言、屏幕可见审批与答案引用 UI 已完成。下一阶段使用显式最小 Profile 补齐该 Redmi 真实前台闭环；后台/隐式自动摄取、共享摄取、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
+按快速迭代分级策略未运行 Lint、Release 或全量 instrumentation；第 251 阶段当时没有宣称真实模型自然语言、屏幕可见审批与答案引用 UI 已完成，该缺口现已由第 252 阶段使用显式最小 Profile 补齐。后台/隐式自动摄取、共享摄取、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
 
 ## 2026-08-11 第 250 阶段：下一条系统日程前台只读闭环
 

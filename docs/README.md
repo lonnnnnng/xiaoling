@@ -1,6 +1,8 @@
 # 文档索引
 
-第 251 阶段完成前台受控 `knowledge.import_from_note / local-note-knowledge-import` 实现：同一 Run 严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，最近搜索必须唯一，详情冻结稳定 note ID、revision 与规范小写正文 SHA-256；导入时从当前 Note Store 防漂移回读，显式审批后以稳定幂等键写入知识库并回读当前 document/chunks。审批恢复只跳过显式标记的短生命周期候选，Schema 与稳定业务校验仍重跑；跨 Run、重复消费、多候选、审批期间笔记漂移、非规范 hash、同键载荷漂移与知识回读不一致全部 fail-closed。旧 `local-note-detail`、`local-knowledge` 和已持久化 Profile 不自动扩权。聚焦 JVM `209/209`、Debug/AndroidTest APK 通过，仅 Redmi 的幂等冲突与真实 Room 导入/恢复两项均为 `OK (1 test)`（`0.418s / 0.470s`），文档 corpus gate 为 `OK (1 test)`（`3.5s`）。Room v36、后台/Workflow 和隐式自动摄取边界不变；下一阶段补真实模型与屏幕可见审批闭环。
+第 252 阶段完成第 251 能力的 Redmi 真实前台验收：显式最小 Profile 仅允许 `notes.search -> notes.get -> knowledge.import_from_note` 与 `local-note-knowledge-import`，`gpt-5.6-luna / Responses` 从自然语言目标形成唯一三步链；发送、审批和答案引用跳转均由屏幕可见节点驱动。Ledger 的稳定 note ID/revision/hash、`APPROVED / PASSED / COMMITTED`、当前 Room document/chunks、持久化唯一引用与知识页“当前引用原文”全部一致。Activity 重建后引用仍可打开，旧 Run 不变；临时笔记、知识文档/chunks、Profile 和会话精确清理，新 Run 审计保留。定向编译与 AndroidTest APK 成功，仅 Redmi 最终 `OK (1 test)`（`54.78s`）；文档 corpus 首轮为 `OK (1 test)`（`3.632s`），结果写回后的最终文本复验为 `OK (1 test)`（`3.279s`）。Room v36、生产 Tool、权限、后台与 Workflow 均未扩张。下一阶段重新选择新的单一个人 Agent 用户任务并先冻结契约。
+
+第 251 阶段完成前台受控 `knowledge.import_from_note / local-note-knowledge-import` 实现：同一 Run 严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，最近搜索必须唯一，详情冻结稳定 note ID、revision 与规范小写正文 SHA-256；导入时从当前 Note Store 防漂移回读，显式审批后以稳定幂等键写入知识库并回读当前 document/chunks。审批恢复只跳过显式标记的短生命周期候选，Schema 与稳定业务校验仍重跑；跨 Run、重复消费、多候选、审批期间笔记漂移、非规范 hash、同键载荷漂移与知识回读不一致全部 fail-closed。旧 `local-note-detail`、`local-knowledge` 和已持久化 Profile 不自动扩权。聚焦 JVM `209/209`、Debug/AndroidTest APK 通过，仅 Redmi 的幂等冲突与真实 Room 导入/恢复两项均为 `OK (1 test)`（`0.418s / 0.470s`），文档 corpus gate 为 `OK (1 test)`（`3.5s`）。Room v36、后台/Workflow 和隐式自动摄取边界不变；当时尚缺的真实模型与屏幕可见审批闭环已由第 252 阶段完成。
 
 第 250 阶段完成前台只读 `calendar.next_event / next-calendar-event`：固定查询未来 30 天，只接受严格晚于当前时刻的唯一最早 occurrence；空结果、同刻歧义、撤权和 Provider 故障全部 fail-closed。答案导航携带 event ID 与 occurrence 开始时刻，重复事件从 Instances 精确二次回读，不把 Events master 冒充本次实例；导航 Saver 跨 Activity 重建保留该身份。聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。Room v36、日历写入、审批、Workflow 和后台边界不变；下一阶段进入唯一本地笔记导入知识库的受控闭环。
 
@@ -116,7 +118,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已完成第 250 阶段、Room v36，尚未形成新 Release。个人 Agent 已覆盖设备观察、系统状态、日程/联系人/笔记/记忆/知识、系统分享附件理解、受控副作用、答案级权威事实查看，以及下一条系统日程的 occurrence 精确回读。发布基线仍为 `v0.1.16`；下一阶段继续建设唯一笔记导入知识库的受控闭环，不以 Release 或全量测试占据日常小阶段。
+当前开发基线已完成第 252 阶段、Room v36，尚未形成新 Release。个人 Agent 已覆盖设备观察、系统状态、日程/联系人/笔记/记忆/知识、系统分享附件理解、受控副作用、答案级权威事实查看，以及唯一本地笔记经真实模型、屏幕审批导入知识库并回看当前原文。发布基线仍为 `v0.1.16`；下一阶段重新选择新的单一用户任务，不以 Release 或全量测试占据日常小阶段。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
