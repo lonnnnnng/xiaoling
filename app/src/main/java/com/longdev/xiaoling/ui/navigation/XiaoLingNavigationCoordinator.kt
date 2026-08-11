@@ -2,6 +2,7 @@ package com.longdev.xiaoling.ui.navigation
 
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
 
 internal enum class XiaoLingAppTab {
     CONVERSATION,
@@ -52,7 +53,7 @@ internal data class XiaoLingNavigationState(
     val requestedScheduledTaskId: String? = null,
     val requestedWorkflowRunId: String? = null,
     val requestedLocalNoteId: String? = null,
-    val requestedCalendarEventId: String? = null,
+    val requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
     val lastRootBackAtMillis: Long = 0L,
 ) {
     val isSettingsSubPage: Boolean
@@ -82,7 +83,7 @@ internal class XiaoLingNavigationCoordinator(
         requestedScheduledTaskId: String? = null,
         requestedWorkflowRunId: String? = null,
         requestedLocalNoteId: String? = null,
-        requestedCalendarEventId: String? = null,
+        requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
@@ -91,7 +92,7 @@ internal class XiaoLingNavigationCoordinator(
         requestedScheduledTaskId = requestedScheduledTaskId,
         requestedWorkflowRunId = requestedWorkflowRunId,
         requestedLocalNoteId = requestedLocalNoteId,
-        requestedCalendarEventId = requestedCalendarEventId,
+        requestedCalendarEventTarget = requestedCalendarEventTarget,
     )
 
     fun openKnowledgeDocument(
@@ -123,11 +124,11 @@ internal class XiaoLingNavigationCoordinator(
 
     fun openCalendarEvent(
         state: XiaoLingNavigationState,
-        eventId: String,
+        target: CalendarEventNavigationTarget,
     ): XiaoLingNavigationState = openSettingsPane(
         state = state,
         pane = XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL,
-        requestedCalendarEventId = eventId,
+        requestedCalendarEventTarget = target,
     )
 
     fun routeExternal(
@@ -171,7 +172,7 @@ internal class XiaoLingNavigationCoordinator(
                     requestedScheduledTaskId = null,
                     requestedWorkflowRunId = null,
                     requestedLocalNoteId = null,
-                    requestedCalendarEventId = null,
+                    requestedCalendarEventTarget = null,
                 ),
             )
         }

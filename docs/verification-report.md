@@ -4,6 +4,25 @@
 
 ## 当前验证基线
 
+## 2026-08-11 第 250 阶段：下一条系统日程前台只读闭环
+
+### 当前结论
+
+- `calendar.next_event` 与 `next-calendar-event` 固定读取未来 30 天，只返回严格晚于执行时刻的唯一最早 occurrence；无结果、同一最早时刻多条、撤权和 Provider 异常均明确停止，不猜测。
+- 答案级“查看日程”绑定 event ID 与 occurrence 开始时刻；重复日程从 Calendar Instances 精确回读本次 occurrence，普通事件才读取 Events master。Activity 重建可恢复完整 target，旧/损坏存档安全降级。
+- 该能力仅前台、`SAFE`、要求 `READ_CALENDAR`，没有新增日历写入、审批、Room Schema、Workflow 或后台路径。
+
+### 验证证据
+
+- 聚焦 JVM：`CalendarNextEventPolicyTest 3/3 + XiaoLingToolRegistryTest 97/97 + AgentSkillsTest 39/39 + CalendarNavigationTest 4/4 + XiaoLingNavigationCoordinatorTest 14/14`，合计 `157/157`，失败/错误/跳过均为 `0`。
+- `:app:compileDebugKotlin`、`:app:compileDebugUnitTestKotlin`、`:app:compileDebugAndroidTestKotlin`、Debug APK 与 AndroidTest APK 均构建成功；`git diff --check` 通过。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 运行下一条选择、真实 occurrence 身份回读、详情最小字段投影与答案按钮完整 target 传递，结果 `OK (4 tests)`，耗时 `4.035s`。
+- 长期文档同步后的 Redmi 文档 corpus gate 首次为 `OK (1 test)`、`3.623s`；回填结果并重建资产后的最终 gate 仍为 `OK (1 test)`、`3.090s`。
+
+### 保持关闭的边界
+
+按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation；日历写入扩张、通知读取、后台日历、自动知识摄取、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
+
 ## 2026-08-11 第 249 阶段：答案级知识引用当前权威原文定位
 
 ### 当前结论

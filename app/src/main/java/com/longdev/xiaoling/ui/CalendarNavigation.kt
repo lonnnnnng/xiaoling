@@ -21,6 +21,8 @@ internal fun MessagePart.Tool.calendarEventIdForNavigation(): String? {
             trustedCalendarListId(result, "未来 $daysAhead 天日程（1）")
         }
 
+        CALENDAR_NEXT_TOOL_NAME -> trustedCalendarNextTarget(arguments, result)?.eventId
+
         CALENDAR_SEARCH_TOOL_NAME -> {
             val search = arguments.validCalendarSearchArguments() ?: return null
             trustedCalendarListId(
@@ -77,6 +79,40 @@ internal fun MessagePart.Tool.calendarEventIdForNavigation(): String? {
 
         else -> null
     }
+}
+
+internal fun MessagePart.Tool.calendarEventTargetForNavigation(): CalendarEventNavigationTarget? {
+    if (!success || verificationStatus == MessageToolVerificationStatus.FAILED) return null
+    return if (toolName == CALENDAR_NEXT_TOOL_NAME) {
+        trustedCalendarNextTarget(arguments, result)
+    } else {
+        calendarEventIdForNavigation()?.let(::CalendarEventNavigationTarget)
+    }
+}
+
+internal data class CalendarEventNavigationTarget(
+    val eventId: String,
+    val occurrenceStartAtMillis: Long? = null,
+) {
+    init {
+        require(CalendarNavigationPolicy.normalizeId(eventId) == eventId) { "日程导航目标 ID 无效" }
+        require(occurrenceStartAtMillis == null || occurrenceStartAtMillis > 0L) { "日程 occurrence 开始时间无效" }
+    }
+}
+
+private fun trustedCalendarNextTarget(
+    arguments: Map<String, String>,
+    result: String,
+): CalendarEventNavigationTarget? {
+    if (arguments.isNotEmpty()) return null
+    if (result.lineSequence().firstOrNull() != CALENDAR_NEXT_HEADING) return null
+    if (result.lineSequence().count { line -> line.startsWith(CALENDAR_OCCURRENCE_PREFIX) } != 1) return null
+    val eventId = trustedCalendarListId(result, CALENDAR_NEXT_HEADING) ?: return null
+    val match = CALENDAR_OCCURRENCE_PATTERN.findAll(result).singleOrNull() ?: return null
+    val occurrenceEventId = "calendar-${match.groupValues[1]}"
+    val startAtMillis = match.groupValues[2].toLongOrNull()?.takeIf { it > 0L } ?: return null
+    if (occurrenceEventId != eventId) return null
+    return CalendarEventNavigationTarget(eventId, startAtMillis)
 }
 
 private fun trustedCalendarListId(result: String, expectedHeading: String): String? {
@@ -230,6 +266,7 @@ internal object CalendarNavigationPolicy {
 }
 
 private const val CALENDAR_LIST_TOOL_NAME = "calendar.list_events"
+private const val CALENDAR_NEXT_TOOL_NAME = "calendar.next_event"
 private const val CALENDAR_SEARCH_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_TOOL_NAME = "calendar.get"
 private const val CALENDAR_CREATE_TOOL_NAME = "calendar.create_event"
@@ -252,6 +289,8 @@ private const val CALENDAR_EVENT_ID_PREFIX = "calendar-"
 private const val DEFAULT_CALENDAR_DAYS = 7
 private const val MAX_CALENDAR_REMINDER_MINUTES = 10_080
 private const val CALENDAR_DETAIL_HEADING = "日程详情："
+private const val CALENDAR_NEXT_HEADING = "下一条系统日程："
+private const val CALENDAR_OCCURRENCE_PREFIX = "实例身份："
 private val CALENDAR_EVENT_ID_PATTERN = Regex("calendar-[1-9][0-9]{0,18}")
 private val CALENDAR_CREATE_RESULT_PATTERN = Regex(
     "已创建并验证日程：(.+?)(?: · 提醒=提前([0-9]+)分钟)? · id=($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})",
@@ -267,4 +306,7 @@ private val CALENDAR_RESULT_ENTRY_PATTERN = Regex(
 )
 private val CALENDAR_DETAIL_ID_PATTERN = Regex(
     pattern = "(?m)^ID：($CALENDAR_EVENT_ID_PREFIX[1-9][0-9]{0,18})$",
+)
+private val CALENDAR_OCCURRENCE_PATTERN = Regex(
+    pattern = "(?m)^实例身份：occurrence-v1-([1-9][0-9]{0,18})-([1-9][0-9]{0,18})$",
 )

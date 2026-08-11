@@ -256,8 +256,8 @@ private fun XiaoLingContent(
                 viewModel.refreshConversationsAndResolveNavigation(conversationId)
             }
 
-            override fun openCalendarEvent(eventId: String) {
-                navigation.openCalendarEvent(eventId)
+            override fun openCalendarEvent(target: CalendarEventNavigationTarget) {
+                navigation.openCalendarEvent(target)
             }
 
             override fun openContact(contactId: String) {
@@ -490,7 +490,7 @@ private fun XiaoLingContent(
                         requestedScheduledTaskId = navigation.requestedScheduledTaskId,
                         requestedWorkflowRunId = navigation.requestedWorkflowRunId,
                         requestedLocalNoteId = navigation.requestedLocalNoteId,
-                        requestedCalendarEventId = navigation.requestedCalendarEventId,
+                        requestedCalendarEventTarget = navigation.requestedCalendarEventTarget,
                         agentTaskCenterInitialFilter = agentTaskCenterInitialFilter,
                         onBackToSettings = {
                             navigation.openSettingsPane(
@@ -500,7 +500,7 @@ private fun XiaoLingContent(
                                 requestedScheduledTaskId = null,
                                 requestedWorkflowRunId = null,
                                 requestedLocalNoteId = null,
-                                requestedCalendarEventId = null,
+                                requestedCalendarEventTarget = null,
                             )
                         },
                         modifier = Modifier.matchParentSize(),
@@ -906,7 +906,7 @@ private fun SettingsPage(
     requestedScheduledTaskId: String?,
     requestedWorkflowRunId: String?,
     requestedLocalNoteId: String?,
-    requestedCalendarEventId: String?,
+    requestedCalendarEventTarget: CalendarEventNavigationTarget?,
     agentTaskCenterInitialFilter: AgentTaskFilter,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -957,7 +957,7 @@ private fun SettingsPage(
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.CALENDAR_EVENT_DETAIL -> CalendarEventDetailPage(
-                eventId = requestedCalendarEventId.orEmpty(),
+                target = requestedCalendarEventTarget,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )

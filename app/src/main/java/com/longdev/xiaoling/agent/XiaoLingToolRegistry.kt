@@ -242,6 +242,17 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = CALENDAR_NEXT_EVENT_TOOL_NAME,
+            description = "只读返回未来 30 天内唯一最早开始的系统日历实例；已开始事件不算下一条，同一开始时刻有多条时明确拒绝猜测。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CALENDAR),
+                supportsBackground = false,
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = CALENDAR_SEARCH_EVENTS_TOOL_NAME,
             description = "只读按标题关键词查找未来一段时间内的系统日历事件；仅返回标题、起止时间和全天标记，不读取地点、描述、参与人或账户。",
             risk = ToolRisk.SAFE,
@@ -1236,6 +1247,7 @@ class XiaoLingToolRegistry(
             "app.search_conversations" -> searchConversations(call)
             APP_GET_CONVERSATION_TOOL_NAME -> getConversation(call)
             CALENDAR_LIST_EVENTS_TOOL_NAME -> listCalendarEvents(call)
+            CALENDAR_NEXT_EVENT_TOOL_NAME -> nextCalendarEvent()
             CALENDAR_SEARCH_EVENTS_TOOL_NAME -> searchCalendarEvents(call)
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
             CONTACT_SEARCH_TOOL_NAME -> searchContacts(call)
@@ -2091,6 +2103,41 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun nextCalendarEvent(): ToolExecutionResult {
+        val nowMillis = clock.nowMillis()
+        return when (
+            val result = calendarEventReader.nextEvent(
+                nowMillis = nowMillis,
+                endAtMillis = nowMillis + NEXT_CALENDAR_EVENT_DAYS * MILLIS_PER_DAY,
+            )
+        ) {
+            is CalendarNextEventReadResult.Success -> ToolExecutionResult(
+                success = true,
+                content = formatNextCalendarEvent(result.event),
+            )
+            CalendarNextEventReadResult.NoUpcomingEvent -> ToolExecutionResult(
+                success = true,
+                content = "未来 $NEXT_CALENDAR_EVENT_DAYS 天没有尚未开始的日程。",
+            )
+            is CalendarNextEventReadResult.AmbiguousStartTime -> ToolExecutionResult(
+                success = true,
+                content = "最早开始时刻有 ${result.occurrenceCount} 条日程，无法唯一确定下一条；已停止，不按标题或结束时间猜测。",
+            )
+            CalendarNextEventReadResult.PermissionDenied -> ToolExecutionResult(
+                success = false,
+                content = "没有日历读取权限，请在设置的“日历访问”页面授权。",
+            )
+            CalendarNextEventReadResult.ProviderUnavailable -> ToolExecutionResult(
+                success = false,
+                content = "系统日历服务不可用。",
+            )
+            CalendarNextEventReadResult.Failed -> ToolExecutionResult(
+                success = false,
+                content = "读取下一条系统日程失败，请稍后重试。",
+            )
+        }
+    }
+
     private suspend fun searchCalendarEvents(call: ToolCall): ToolExecutionResult {
         val query = call.calendarSearchQuery()
         if (query.isBlank()) return ToolExecutionResult(success = false, content = "日程标题关键词不能为空。")
@@ -2229,6 +2276,16 @@ class XiaoLingToolRegistry(
                 }
             }
         }.trimEnd()
+    }
+
+    private fun formatNextCalendarEvent(event: CalendarEventRecord): String {
+        val eventText = formatCalendarEvents(
+            heading = "下一条系统日程：",
+            events = listOf(event),
+        )
+        // long: occurrence 身份把重复事件的本次开始时间绑定到答案；详情页据此重查 Instances，不能退回 Events master 冒充当前实例。
+        return "$eventText\n实例身份：occurrence-v1-${event.eventId}-${event.startAtMillis}\n" +
+            "重复实例：${if (event.recurring) "是" else "否"}"
     }
 
     private fun CalendarEventDetailRecord.toCalendarDetailText(): String {
@@ -3264,6 +3321,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 )
 
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
+private const val CALENDAR_NEXT_EVENT_TOOL_NAME = "calendar.next_event"
 private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
 private const val APP_GET_BATTERY_TOOL_NAME = "app.get_battery"
 private const val APP_GET_CONNECTIVITY_TOOL_NAME = "app.get_connectivity"
@@ -3288,6 +3346,7 @@ private const val NOTES_UPDATE_TOOL_NAME = "notes.update"
 private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
 private const val MEMORY_DELETE_TOOL_NAME = "memory.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
+private const val NEXT_CALENDAR_EVENT_DAYS = 30L
 private const val MAX_CALENDAR_TITLE_LENGTH = 200
 private const val MAX_CALENDAR_TIME_ZONE_LENGTH = 100
 private const val MAX_CALENDAR_REMINDER_MINUTES = 10_080

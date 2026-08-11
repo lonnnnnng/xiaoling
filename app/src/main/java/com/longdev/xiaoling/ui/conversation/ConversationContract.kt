@@ -15,6 +15,7 @@ import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.ConversationSession
+import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
 import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
@@ -79,7 +80,7 @@ internal interface ConversationActions {
 
     fun openConversation(conversationId: String)
 
-    fun openCalendarEvent(eventId: String)
+    fun openCalendarEvent(target: CalendarEventNavigationTarget)
 
     fun openContact(contactId: String)
 

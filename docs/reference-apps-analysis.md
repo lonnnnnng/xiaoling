@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 250 阶段采用成熟日历 Agent 的“明确时间语义、结构化实例身份、点击时回读当前权威源”原则。小灵没有复制按标题、结束时间、event ID 或 Provider 顺序打破同刻歧义，也没有建立日历镜像、后台同步或任意日历查询；唯一结果携带 occurrence 身份，重复事件详情从 Instances 精确回读，避免把 Events master 冒充当前实例。Tool/Skill 仍是前台只读，既有写入、审批和 Workflow 边界没有扩张。
+
 第 249 阶段采用成熟知识 Agent 的“引用身份完整传递、点击时核对当前权威源、历史证据可审计但不能冒充当前事实”原则。小灵没有复制模糊段落跳转、相邻 chunk 猜测或长期可复用的裸 offset deep link；引用导航携带 retrieval/revision/chunk/offset，Room 在单事务中核验当前文档与 chunk，页面只对精确匹配展示原文。Activity 恢复中的损坏字段安全降级，文档变更开始即撤下旧原文卡。该切片没有引入新的检索 Tool、自动知识摄取、后台索引或生产相关性拒绝。
 
 第 248 阶段把参考 Agent 的“自然语言规划、用户可见审批、提交后权威回读、稳定身份清理”组合成一条 Redmi 真实链。测试没有直接调用审批或导航 API，而是点击屏幕节点；页面重建后仍从持久化 Tool Message 恢复答案级入口，再读取当前 Calendar Provider 的唯一 30 分钟 ALERT。实现没有复制默认提醒猜测、后台静默创建、重复/多提醒、参与人邀请或任意深链接；清理只信 COMMITTED event ID，并保留新 Run 审计与旧 Run 不变证据。

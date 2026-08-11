@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 250 阶段：下一条系统日程前台只读闭环（完成）
+
+- `CalendarEventReader.nextEvent()` 把下一条选择收敛在日历 Reader seam 后；Android adapter 以游标单遍扫描选出严格未来的最早 occurrence，只保留候选及同刻计数，不物化并排序 30 天全部实例。
+- `CalendarNextEventReadResult` 显式区分成功、空结果、同刻歧义、撤权、Provider 不可用和失败；`calendar.next_event` 无参数、`SAFE`、仅前台、要求 `READ_CALENDAR`，固定查询 30 天。
+- ToolResult 附带 `occurrence-v1-eventId-startAtMillis`。`CalendarEventNavigationTarget` 聚合 event ID 与可选 occurrence 开始时刻；会话按钮、导航 Coordinator、Saver 和详情页统一消费该 target。
+- `AndroidCalendarEventReader.getOccurrence()` 按 event ID 与开始时刻从 Instances 精确回读当前实例；详情页只在 target 不含 occurrence 时调用 `getEvent()`。因此重复事件不会退回 Events master 的 DTSTART/DTEND。
+- 导航 Saver 对旧存档保持 event ID 兼容，非法 occurrence 时间只降级为普通事件 target。聚焦 JVM `157/157`、Debug/AndroidTest APK、Redmi 真实 Provider/UI `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。
+
+### 下一阶段
+
+实现“唯一命中的本地笔记导入知识库”受控闭环：严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，导入前冻结笔记稳定 ID、revision 与正文哈希，写入需要显式审批，完成后从当前知识 Store 回读文档 revision/chunk。多候选、笔记漂移、覆盖策略不明确或回读不一致均停止；后台自动摄取继续关闭。
+
 ## 第 249 阶段：答案级知识引用当前原文定位（完成）
 
 - `KnowledgeDocumentNavigationTarget` 聚合文档落点与可选完整 `KnowledgeReference`，避免把 revision/chunk/offset 拆成页面参数；会话引用点击、应用导航和知识管理页统一消费该目标。
@@ -7,10 +19,6 @@
 - `KnowledgeDocumentStore.locateReference()` 集中当前性判断。Room 实现用同一事务读取文档摘要与目标 chunk，再核对文档启用状态、名称、revision、chunk ID、sequence 与 offset，避免两次查询之间的并发漂移。
 - `KnowledgeManagementViewModel` 将当前定位投影为精确原文卡；历史、停用、删除或证据变化投影稳定拒绝原因。刷新、选择其他文档以及替换/停用/删除开始时均清除旧卡。
 - 聚焦导航 JVM 与 AndroidTest 编译、Debug/AndroidTest APK 通过；Redmi 引用内容、知识页面与 ViewModel 合计 `20/20`（`13.714s`），最终文档 corpus gate `1/1`（`3.272s`）。未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-### 下一阶段
-
-优先实现“下一条系统日程”的前台只读窄闭环：复用当前 Calendar Provider 与答案级日程详情，只返回唯一未来事件并在无结果、权限撤销、Provider 异常或时间歧义时 fail-closed；不扩展日历写入、后台、重复事件或提醒能力。
 
 ## 第 248 阶段：带单提醒系统日程真实前台闭环（完成）
 

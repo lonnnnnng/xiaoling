@@ -42,22 +42,25 @@ internal sealed interface CalendarEventDetailLoadState {
 
 @Composable
 internal fun CalendarEventDetailPage(
-    eventId: String,
+    target: CalendarEventNavigationTarget?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val loadState by produceState<CalendarEventDetailLoadState>(
         initialValue = CalendarEventDetailLoadState.Loading,
-        key1 = eventId,
+        key1 = target,
     ) {
-        val numericId = CalendarNavigationPolicy.numericId(eventId)
+        val numericId = target?.eventId?.let(CalendarNavigationPolicy::numericId)
         if (numericId == null) {
             value = CalendarEventDetailLoadState.Error("日程目标无效，无法读取当前详情")
             return@produceState
         }
-        // long: 答案卡只携带稳定事件 ID；页面每次进入都重新查询当前 Calendar Provider，删除或撤权后绝不展示历史 Tool 正文。
-        value = when (val result = AndroidCalendarEventReader(context.contentResolver).getEvent(numericId)) {
+        // long: 普通事件按 master ID 回读，重复 occurrence 必须带开始时刻从 Instances 精确回读，不能把 master 时间冒充当前 occurrence。
+        val reader = AndroidCalendarEventReader(context.contentResolver)
+        value = when (val result = target.occurrenceStartAtMillis?.let { startAtMillis ->
+            reader.getOccurrence(numericId, startAtMillis)
+        } ?: reader.getEvent(numericId)) {
             is CalendarEventDetailReadResult.Success -> CalendarEventDetailLoadState.Content(result.event)
             CalendarEventDetailReadResult.NotFound -> CalendarEventDetailLoadState.Error("当前日程已不存在或已被删除")
             CalendarEventDetailReadResult.PermissionDenied -> CalendarEventDetailLoadState.Error("日历读取权限已撤销，请返回日历访问设置重新授权")

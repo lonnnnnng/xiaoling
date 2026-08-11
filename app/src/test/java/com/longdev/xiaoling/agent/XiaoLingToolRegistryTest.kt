@@ -343,6 +343,7 @@ class XiaoLingToolRegistryTest {
                 "app.search_conversations",
                 "app.get_conversation",
                 "calendar.list_events",
+                "calendar.next_event",
                 "calendar.search_events",
                 "calendar.get",
                 "contacts.search",
@@ -392,6 +393,7 @@ class XiaoLingToolRegistryTest {
         assertFalse(tools.getValue("app.get_conversation").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.search_conversations").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.list_events").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("calendar.next_event").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.search_events").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("calendar.get").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("contacts.search").risk)
@@ -427,6 +429,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
         assertFalse(tools.getValue("notes.delete").permissionPolicy.supportsBackground)
         assertNotNull(tools.getValue("calendar.list_events").inputSchema.singleOrNull { it.name == "days_ahead" })
+        assertEquals(emptyList<String>(), tools.getValue("calendar.next_event").inputSchema)
+        assertTrue(tools.getValue("calendar.next_event").validateArguments(emptyMap()).errors.isEmpty())
+        assertTrue(tools.getValue("calendar.next_event").validateArguments(mapOf("limit" to "1")).errors.isNotEmpty())
         assertNotNull(tools.getValue("calendar.search_events").inputSchema.singleOrNull { it.name == "query" && it.required })
         assertEquals(listOf("event_id"), tools.getValue("calendar.get").inputSchema.map { it.name })
         assertTrue(tools.getValue("calendar.get").validateArguments(mapOf("event_id" to "calendar-1")).errors.isEmpty())
@@ -569,6 +574,10 @@ class XiaoLingToolRegistryTest {
         )
         assertEquals(
             setOf(Manifest.permission.READ_CALENDAR),
+            tools.getValue("calendar.next_event").permissionPolicy.requiredAndroidPermissions,
+        )
+        assertEquals(
+            setOf(Manifest.permission.READ_CALENDAR),
             tools.getValue("calendar.search_events").permissionPolicy.requiredAndroidPermissions,
         )
         assertEquals(
@@ -589,6 +598,7 @@ class XiaoLingToolRegistryTest {
                 .all { it.permissionPolicy.requiredAndroidPermissions.isEmpty() },
         )
         assertFalse(tools.getValue("calendar.list_events").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("calendar.next_event").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.search_events").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.get").permissionPolicy.supportsBackground)
         assertFalse(tools.getValue("calendar.create_event").permissionPolicy.supportsBackground)
@@ -1090,6 +1100,72 @@ class XiaoLingToolRegistryTest {
         assertFalse(result.content.contains("地点"))
         assertFalse(result.content.contains("参与人"))
         assertFalse(result.content.contains("描述"))
+    }
+
+    @Test
+    fun calendarNextEventUsesFixedWindowAndReturnsUniqueOccurrence() = runTest {
+        var capturedNow = -1L
+        var capturedEnd = -1L
+        val reader = object : CalendarEventReader {
+            override suspend fun listEvents(
+                startAtMillis: Long,
+                endAtMillis: Long,
+                limit: Int,
+            ): CalendarEventReadResult = CalendarEventReadResult.Success(emptyList())
+
+            override suspend fun nextEvent(nowMillis: Long, endAtMillis: Long): CalendarNextEventReadResult {
+                capturedNow = nowMillis
+                capturedEnd = endAtMillis
+                return CalendarNextEventReadResult.Success(
+                    CalendarEventRecord(42L, "产品评审\n仅为标题", 3_600_000L, 7_200_000L, allDay = false),
+                )
+            }
+        }
+        val registry = testRegistry(
+            calendarEventReader = reader,
+            clock = FakeAgentClock(nowMillis = 1_000L),
+        )
+
+        val result = registry.execute(ToolCall(name = "calendar.next_event", arguments = emptyMap(), risk = ToolRisk.SAFE))
+
+        assertTrue(result.success)
+        assertEquals(1_000L, capturedNow)
+        assertEquals(1_000L + 30L * 24L * 60L * 60L * 1_000L, capturedEnd)
+        assertTrue(result.content.startsWith("下一条系统日程："))
+        assertTrue(result.content.contains("产品评审 仅为标题"))
+        assertTrue(result.content.contains("id=calendar-42"))
+        assertTrue(result.content.contains("实例身份：occurrence-v1-42-3600000"))
+        assertTrue(result.content.endsWith("重复实例：否"))
+    }
+
+    @Test
+    fun calendarNextEventReportsEmptyAmbiguousAndProviderFailuresWithoutGuessing() = runTest {
+        suspend fun execute(next: CalendarNextEventReadResult): ToolExecutionResult {
+            val reader = object : CalendarEventReader {
+                override suspend fun listEvents(
+                    startAtMillis: Long,
+                    endAtMillis: Long,
+                    limit: Int,
+                ): CalendarEventReadResult = CalendarEventReadResult.Success(emptyList())
+
+                override suspend fun nextEvent(nowMillis: Long, endAtMillis: Long): CalendarNextEventReadResult = next
+            }
+            return testRegistry(calendarEventReader = reader).execute(
+                ToolCall(name = "calendar.next_event", arguments = emptyMap(), risk = ToolRisk.SAFE),
+            )
+        }
+
+        val empty = execute(CalendarNextEventReadResult.NoUpcomingEvent)
+        val ambiguous = execute(CalendarNextEventReadResult.AmbiguousStartTime(2))
+        val denied = execute(CalendarNextEventReadResult.PermissionDenied)
+
+        assertTrue(empty.success)
+        assertTrue(empty.content.contains("没有尚未开始"))
+        assertTrue(ambiguous.success)
+        assertTrue(ambiguous.content.contains("无法唯一确定"))
+        assertFalse(ambiguous.content.contains("calendar-"))
+        assertFalse(denied.success)
+        assertTrue(denied.content.contains("权限"))
     }
 
     @Test

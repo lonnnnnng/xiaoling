@@ -1,5 +1,7 @@
 # 文档索引
 
+第 250 阶段完成前台只读 `calendar.next_event / next-calendar-event`：固定查询未来 30 天，只接受严格晚于当前时刻的唯一最早 occurrence；空结果、同刻歧义、撤权和 Provider 故障全部 fail-closed。答案导航携带 event ID 与 occurrence 开始时刻，重复事件从 Instances 精确二次回读，不把 Events master 冒充本次实例；导航 Saver 跨 Activity 重建保留该身份。聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。Room v36、日历写入、审批、Workflow 和后台边界不变；下一阶段进入唯一本地笔记导入知识库的受控闭环。
+
 第 249 阶段完成答案级知识引用的当前权威原文定位：引用点击携带完整 revision/chunk/offset 身份，导航 Saver 跨 Activity 恢复时对旧格式和损坏字段安全降级；知识页只在当前启用文档的精确 chunk 边界匹配时显示原文，历史、停用、删除和漂移均拒绝猜测。Room 在同一事务内核验文档与 chunk，文档变更开始即清除旧定位卡。聚焦导航 JVM、Debug/AndroidTest APK、仅 Redmi `20/20`（`13.714s`）与最终文档 corpus gate `1/1`（`3.272s`）通过；Tool、权限、Room v36、Workflow 和后台边界不变。下一阶段优先进入“下一条系统日程”的前台只读闭环。
 
 第 248 阶段完成带 30 分钟单提醒日程的 Redmi 真实自然语言闭环：真实模型只规划唯一 `calendar.create_event`，发送、审批和答案级“查看日程”都通过屏幕可见节点完成；Ledger、`APPROVED / PASSED / COMMITTED`、Provider 事件/提醒回读和详情页“提前30分钟”一致。页面重建后答案级入口仍可从 Room 恢复；事件按回执 ID 精确删除并确认 reminder 级联清理，原 Profile/会话恢复、新 Run 保留且旧 Run 不变。聚焦构建、Provider/详情前置 `2/2` 和最终真实单项 `1/1`（`31.545s`）通过。下一阶段回到新的个人 Agent 窄任务；全天提醒、重复、多提醒、参与人、Workflow 与后台日历继续后置。
@@ -112,7 +114,7 @@
 
 当前发布基线提升为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段，覆盖完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历、本地笔记，以及启动中断 Run 与答案级任务/笔记导航。发布只执行必要的 `assembleRelease`，结果为 `BUILD SUCCESSFUL in 2m 38s`；没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。Release APK 为 `3,400,350` 字节，SHA-256 为 `971f0c457c3a802d3bb41bd31ac58fda2c1ee0eebbe6f2967ec428299d801126`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16) 已发布并成为 latest。
 
-当前开发基线已完成第 235 阶段、Room v36，尚未形成新 Release。第 235 阶段把 Android `text/plain` 分享接入严格四字段、再次发送、逐次审批和当前 Calendar Provider 回读的一次性非全天日程闭环；第 234 阶段完成分享长期记忆，第 233 阶段收口提醒通知精确导航，第 232/231 阶段完成分享任务与一次性提醒，第 230 阶段完成分享笔记；第 229 至 196 阶段已经覆盖设备观察、健康检查、Skill 试用、日程、任务、笔记、记忆、会话和答案级权威事实查看。发布基线仍为 `v0.1.16`；下一阶段继续优先扩大能真实跑通的个人 Agent 受控能力，不以 Release 或全量测试占据日常小阶段。
+当前开发基线已完成第 250 阶段、Room v36，尚未形成新 Release。个人 Agent 已覆盖设备观察、系统状态、日程/联系人/笔记/记忆/知识、系统分享附件理解、受控副作用、答案级权威事实查看，以及下一条系统日程的 occurrence 精确回读。发布基线仍为 `v0.1.16`；下一阶段继续建设唯一笔记导入知识库的受控闭环，不以 Release 或全量测试占据日常小阶段。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

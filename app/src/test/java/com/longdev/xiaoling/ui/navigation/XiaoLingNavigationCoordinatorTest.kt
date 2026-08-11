@@ -3,6 +3,7 @@ package com.longdev.xiaoling.ui.navigation
 import androidx.compose.runtime.saveable.SaverScope
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -102,14 +103,46 @@ class XiaoLingNavigationCoordinatorTest {
 
     @Test
     fun openCalendarEventRoutesToReadOnlyDetailAndCarriesStableId() {
+        val target = CalendarEventNavigationTarget("calendar-197", occurrenceStartAtMillis = 1_754_626_800_000L)
         val result = coordinator.openCalendarEvent(
             state = XiaoLingNavigationState(),
-            eventId = "calendar-197",
+            target = target,
         )
 
         assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
         assertEquals(XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL, result.settingsPane)
-        assertEquals("calendar-197", result.requestedCalendarEventId)
+        assertEquals(target, result.requestedCalendarEventTarget)
+    }
+
+    @Test
+    fun calendarTargetSaverRestoresOccurrenceAndLegacyEventIdentity() {
+        val target = CalendarEventNavigationTarget("calendar-197", occurrenceStartAtMillis = 1_754_626_800_000L)
+        val saved = requireNotNull(
+            XiaoLingNavigationStateSaver.run {
+                saverScope.save(XiaoLingNavigationState(requestedCalendarEventTarget = target))
+            },
+        )
+
+        assertEquals(target, XiaoLingNavigationStateSaver.restore(saved)?.requestedCalendarEventTarget)
+        assertEquals(
+            CalendarEventNavigationTarget("calendar-197"),
+            XiaoLingNavigationStateSaver.restore(listOf("", "", "", "", "", "calendar-197"))
+                ?.requestedCalendarEventTarget,
+        )
+    }
+
+    @Test
+    fun calendarTargetSaverDropsInvalidOccurrenceTimeWithoutDroppingValidEventId() {
+        listOf("0", "-1", "not-a-number").forEach { invalidOccurrence ->
+            val saved = MutableList(14) { "" }.apply {
+                this[5] = "calendar-197"
+                this[13] = invalidOccurrence
+            }
+            assertEquals(
+                CalendarEventNavigationTarget("calendar-197"),
+                XiaoLingNavigationStateSaver.restore(saved)?.requestedCalendarEventTarget,
+            )
+        }
     }
 
     @Test
@@ -173,7 +206,7 @@ class XiaoLingNavigationCoordinatorTest {
             requestedScheduledTaskId = "scheduled-task-1",
             requestedWorkflowRunId = "workflow-run-1",
             requestedLocalNoteId = "note-1",
-            requestedCalendarEventId = "calendar-1",
+            requestedCalendarEventTarget = CalendarEventNavigationTarget("calendar-1"),
         )
 
         val result = coordinator.back(
@@ -189,7 +222,7 @@ class XiaoLingNavigationCoordinatorTest {
         assertNull(result.state.requestedScheduledTaskId)
         assertNull(result.state.requestedWorkflowRunId)
         assertNull(result.state.requestedLocalNoteId)
-        assertNull(result.state.requestedCalendarEventId)
+        assertNull(result.state.requestedCalendarEventTarget)
         assertNull(result.effect)
     }
 

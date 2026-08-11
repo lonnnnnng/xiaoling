@@ -9,6 +9,7 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
 
 @Stable
 internal class XiaoLingNavigationController(
@@ -39,8 +40,8 @@ internal class XiaoLingNavigationController(
     val requestedLocalNoteId: String?
         get() = state.requestedLocalNoteId
 
-    val requestedCalendarEventId: String?
-        get() = state.requestedCalendarEventId
+    val requestedCalendarEventTarget: CalendarEventNavigationTarget?
+        get() = state.requestedCalendarEventTarget
 
     fun hidesBottomBar(providerEditorOpen: Boolean): Boolean = state.hidesBottomBar(providerEditorOpen)
 
@@ -55,7 +56,7 @@ internal class XiaoLingNavigationController(
         requestedScheduledTaskId: String? = null,
         requestedWorkflowRunId: String? = null,
         requestedLocalNoteId: String? = null,
-        requestedCalendarEventId: String? = null,
+        requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
     ) {
         mutableState.value = coordinator.openSettingsPane(
             state = state,
@@ -65,7 +66,7 @@ internal class XiaoLingNavigationController(
             requestedScheduledTaskId = requestedScheduledTaskId,
             requestedWorkflowRunId = requestedWorkflowRunId,
             requestedLocalNoteId = requestedLocalNoteId,
-            requestedCalendarEventId = requestedCalendarEventId,
+            requestedCalendarEventTarget = requestedCalendarEventTarget,
         )
     }
 
@@ -81,8 +82,8 @@ internal class XiaoLingNavigationController(
         mutableState.value = coordinator.openLocalNote(state, noteId)
     }
 
-    fun openCalendarEvent(eventId: String) {
-        mutableState.value = coordinator.openCalendarEvent(state, eventId)
+    fun openCalendarEvent(target: CalendarEventNavigationTarget) {
+        mutableState.value = coordinator.openCalendarEvent(state, target)
     }
 
     fun routeExternal(target: XiaoLingExternalNavigationTarget) {
@@ -112,7 +113,7 @@ internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<
             state.requestedScheduledTaskId.orEmpty(),
             state.requestedWorkflowRunId.orEmpty(),
             state.requestedLocalNoteId.orEmpty(),
-            state.requestedCalendarEventId.orEmpty(),
+            state.requestedCalendarEventTarget?.eventId.orEmpty(),
             state.requestedKnowledgeTarget?.reference?.retrievalId.orEmpty(),
             state.requestedKnowledgeTarget?.reference?.documentName.orEmpty(),
             state.requestedKnowledgeTarget?.reference?.documentRevision?.toString().orEmpty(),
@@ -120,6 +121,7 @@ internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<
             state.requestedKnowledgeTarget?.reference?.chunkSequence?.toString().orEmpty(),
             state.requestedKnowledgeTarget?.reference?.startOffset?.toString().orEmpty(),
             state.requestedKnowledgeTarget?.reference?.endOffset?.toString().orEmpty(),
+            state.requestedCalendarEventTarget?.occurrenceStartAtMillis?.toString().orEmpty(),
         )
     },
     restore = { savedTargets ->
@@ -149,7 +151,12 @@ internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<
             requestedScheduledTaskId = savedTargets.getOrNull(2).orEmpty().ifBlank { null },
             requestedWorkflowRunId = savedTargets.getOrNull(3).orEmpty().ifBlank { null },
             requestedLocalNoteId = savedTargets.getOrNull(4).orEmpty().ifBlank { null },
-            requestedCalendarEventId = savedTargets.getOrNull(5).orEmpty().ifBlank { null },
+            requestedCalendarEventTarget = savedTargets.getOrNull(5).orEmpty().ifBlank { null }?.let { eventId ->
+                val rawOccurrenceStart = savedTargets.getOrNull(13).orEmpty()
+                val occurrenceStart = rawOccurrenceStart.toLongOrNull()?.takeIf { it > 0L }
+                // long: 恢复数据可能来自旧版本或损坏 Bundle；非法 occurrence 只丢弃实例时间，保留稳定事件 ID 继续读取 master。
+                runCatching { CalendarEventNavigationTarget(eventId, occurrenceStart) }.getOrNull()
+            },
         )
     },
 )

@@ -287,6 +287,21 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInNextCalendarEventUsesOnlyUniqueOccurrenceTool() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "我下一项安排是什么",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "next-calendar-event" }
+        assertEquals(setOf("calendar.next_event"), skill.toolNames)
+        assertEquals(setOf("android.permission.READ_CALENDAR"), skill.requiredAndroidPermissions)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("同一最早开始时刻"))
+        assertTrue(skill.instructions.contains("occurrence"))
+    }
+
+    @Test
     fun builtInCalendarSearchSkillUsesOnlyBoundedReadOnlySearchTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "查日程标题中的评审",

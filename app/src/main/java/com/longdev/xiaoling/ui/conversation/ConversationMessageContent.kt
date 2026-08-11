@@ -71,7 +71,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
-import com.longdev.xiaoling.ui.calendarEventIdForNavigation
+import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.calendarEventTargetForNavigation
 import com.longdev.xiaoling.ui.contactIdForNavigation
 import com.longdev.xiaoling.ui.conversationIdForNavigation
 import com.longdev.xiaoling.ui.KnowledgeReferencesContent
@@ -104,7 +105,7 @@ internal fun ChatBubble(
     onOpenKnowledgeDocument: (KnowledgeReference) -> Unit,
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
-    onOpenCalendarEvent: (String) -> Unit,
+    onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -210,7 +211,7 @@ private fun MessageBodyParts(
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
-    onOpenCalendarEvent: (String) -> Unit,
+    onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -412,7 +413,7 @@ private fun ToolMessagePartContent(
     contentColor: Color,
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
-    onOpenCalendarEvent: (String) -> Unit,
+    onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -492,9 +493,9 @@ private fun ToolMessagePartContent(
             Text("查看会话")
         }
     }
-    part.calendarEventIdForNavigation()?.let { eventId ->
+    part.calendarEventTargetForNavigation()?.let { target ->
         TextButton(
-            onClick = { onOpenCalendarEvent(eventId) },
+            onClick = { onOpenCalendarEvent(target) },
             // long: 答案级导航需要被 TalkBack 与真机自动化稳定识别；显式语义避免按钮文字因 Compose 合并或裁剪而从无障碍树消失。
             modifier = Modifier
                 .padding(top = 2.dp)

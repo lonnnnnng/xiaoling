@@ -1,5 +1,9 @@
 # 答案可回答性 Shadow 绑定、持久化与离线评测契约
 
+## 第 250 阶段下一条系统日程边界（无变更）
+
+`calendar.next_event` 的执行时刻、30 天窗口、Calendar Provider 行、稳定 event ID、occurrence 开始时刻、Tool Message、答案导航 target 与真机验收结果只属于当前 Agent Run 和前台权威事实查看，不进入知识候选、Embedding、Judge、Shadow measurement 或匿名账本。答案级“查看日程”只从应用生成的固定 ToolResult 外壳投影，并在点击后从当前 Provider 二次回读；它不是知识引用，也不改变 `enforcementApplied=false`。Shadow 默认关闭、Room v36 与生产相关性拒绝保持不变。
+
 ## 第 249 阶段知识引用原文定位边界
 
 本阶段只消费既有 `knowledge.search` 已保留的 `KnowledgeReference` 身份，不改变候选生成、Embedding、融合排序、Judge、Shadow measurement、匿名账本或生产拒绝。点击引用后只在当前 Room 文档与 chunk 的同一事务快照中核对 revision、sequence 和 offset；定位成功显示当前原文，历史、停用、删除或漂移不生成新的候选、样本或替代引用。导航 Saver 只保存已有引用身份，不保存额外全文。Shadow 默认关闭、`enforcementApplied=false`、Room v36 与生产相关性边界保持不变。

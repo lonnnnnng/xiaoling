@@ -1,5 +1,14 @@
 # 产品需求
 
+## 下一条系统日程前台只读闭环（第 250 阶段，完成）
+
+- 新增无参数 `calendar.next_event` 与 `next-calendar-event` Skill，只允许前台 `DIRECT` Agent 在 `READ_CALENDAR` 已授权时读取，固定窗口为执行时刻后的 30 天，不支持后台或 Workflow。
+- “下一条”只接受 `startAtMillis > now` 的唯一最早 occurrence；进行中、恰好开始的事件不算下一条。同一最早开始时刻多条不得按标题、结束时间、event ID 或 Provider 顺序猜测，也不得退回第二早事件。
+- 无未来事件、同刻歧义、权限撤销、Provider 不可用和读取异常必须返回明确状态；工具不得创建、修改、删除日程，也不得读取地点、描述、参与人、组织者或账户字段。
+- 可信 ToolResult 必须同时绑定稳定 `calendar-<eventId>` 与 `occurrence-v1-<eventId>-<startAtMillis>`。答案级“查看日程”携带完整 target，普通事件可按 Events master 回读，带 occurrence 的目标必须从 Instances 精确二次读取。
+- Activity 重建后必须恢复 event ID 与 occurrence 开始时刻；旧存档或非法 occurrence 时间安全降级为普通事件 target。重复日程不得把 master 起止时间冒充当前 occurrence。
+- 聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi 的下一条选择/真实 occurrence 回读/详情最小字段/答案导航 `4/4`（`4.035s`）与最终文档 corpus gate `1/1`（`3.090s`）通过。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 ## 答案级知识引用当前原文定位（第 249 阶段，完成）
 
 - 引用入口必须传递完整的 retrieval、document、revision、chunk、sequence 和 offset 身份；Activity 重建后仍可恢复，旧版本存档、缺字段或非法数值只能降级为普通文档导航，不得崩溃或拼凑引用。

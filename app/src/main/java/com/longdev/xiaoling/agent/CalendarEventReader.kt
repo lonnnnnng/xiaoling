@@ -12,6 +12,7 @@ data class CalendarEventRecord(
     val startAtMillis: Long,
     val endAtMillis: Long,
     val allDay: Boolean,
+    val recurring: Boolean = false,
 )
 
 data class CalendarEventDetailRecord(
@@ -43,6 +44,15 @@ sealed interface CalendarEventDetailReadResult {
     data object Failed : CalendarEventDetailReadResult
 }
 
+sealed interface CalendarNextEventReadResult {
+    data class Success(val event: CalendarEventRecord) : CalendarNextEventReadResult
+    data object NoUpcomingEvent : CalendarNextEventReadResult
+    data class AmbiguousStartTime(val occurrenceCount: Int) : CalendarNextEventReadResult
+    data object PermissionDenied : CalendarNextEventReadResult
+    data object ProviderUnavailable : CalendarNextEventReadResult
+    data object Failed : CalendarNextEventReadResult
+}
+
 fun interface CalendarEventReader {
     suspend fun listEvents(
         startAtMillis: Long,
@@ -69,11 +79,29 @@ fun interface CalendarEventReader {
         }
     }
 
+    suspend fun nextEvent(
+        nowMillis: Long,
+        endAtMillis: Long,
+    ): CalendarNextEventReadResult {
+        return when (val result = listEvents(nowMillis, endAtMillis, MAX_NEXT_EVENT_CANDIDATE_COUNT)) {
+            is CalendarEventReadResult.Success -> selectNextCalendarEvent(result.events, nowMillis)
+            CalendarEventReadResult.PermissionDenied -> CalendarNextEventReadResult.PermissionDenied
+            CalendarEventReadResult.ProviderUnavailable -> CalendarNextEventReadResult.ProviderUnavailable
+            CalendarEventReadResult.Failed -> CalendarNextEventReadResult.Failed
+        }
+    }
+
     suspend fun getEvent(eventId: Long): CalendarEventDetailReadResult =
         CalendarEventDetailReadResult.ProviderUnavailable
 
+    suspend fun getOccurrence(
+        eventId: Long,
+        startAtMillis: Long,
+    ): CalendarEventDetailReadResult = CalendarEventDetailReadResult.ProviderUnavailable
+
     companion object {
         const val MAX_SEARCH_CANDIDATE_COUNT: Int = 200
+        const val MAX_NEXT_EVENT_CANDIDATE_COUNT: Int = 200
     }
 }
 
@@ -107,20 +135,86 @@ class AndroidCalendarEventReader(
         endAtMillis: Long,
         limit: Int,
     ): CalendarEventReadResult = withContext(Dispatchers.IO) {
+        readEvents(startAtMillis, endAtMillis, limit)
+    }
+
+    override suspend fun nextEvent(
+        nowMillis: Long,
+        endAtMillis: Long,
+    ): CalendarNextEventReadResult = withContext(Dispatchers.IO) {
+        readNextEvent(nowMillis, endAtMillis)
+    }
+
+    private fun readNextEvent(nowMillis: Long, endAtMillis: Long): CalendarNextEventReadResult =
         try {
-            // long: 日历 Provider 查询只投影标题、起止时间和全天标记；地点、描述、参与人、组织者及账户字段不会离开系统 Provider。
             val cursor = CalendarContract.Instances.query(
                 contentResolver,
                 PROJECTION,
-                startAtMillis,
+                nowMillis,
                 endAtMillis,
-            ) ?: return@withContext CalendarEventReadResult.ProviderUnavailable
+            ) ?: return CalendarNextEventReadResult.ProviderUnavailable
             cursor.use {
                 val eventIdColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
                 val titleColumn = it.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
                 val startColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
                 val endColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.END)
                 val allDayColumn = it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)
+                val recurrenceColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RRULE)
+                val recurrenceDateColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RDATE)
+                var earliest: CalendarEventRecord? = null
+                var earliestCount = 0
+                while (it.moveToNext()) {
+                    val startAtMillis = it.getLong(startColumn)
+                    if (startAtMillis <= nowMillis || startAtMillis > (earliest?.startAtMillis ?: Long.MAX_VALUE)) continue
+                    val candidate = CalendarEventRecord(
+                        eventId = it.getLong(eventIdColumn),
+                        title = it.getString(titleColumn).orEmpty(),
+                        startAtMillis = startAtMillis,
+                        endAtMillis = it.getLong(endColumn),
+                        allDay = it.getInt(allDayColumn) != 0,
+                        recurring = !it.getString(recurrenceColumn).isNullOrBlank() ||
+                            !it.getString(recurrenceDateColumn).isNullOrBlank(),
+                    )
+                    if (earliest == null || startAtMillis < earliest.startAtMillis) {
+                        earliest = candidate
+                        earliestCount = 1
+                    } else {
+                        earliestCount += 1
+                    }
+                }
+                when {
+                    earliest == null -> CalendarNextEventReadResult.NoUpcomingEvent
+                    earliestCount > 1 -> CalendarNextEventReadResult.AmbiguousStartTime(earliestCount)
+                    else -> CalendarNextEventReadResult.Success(earliest)
+                }
+            }
+        } catch (_: SecurityException) {
+            CalendarNextEventReadResult.PermissionDenied
+        } catch (_: RuntimeException) {
+            CalendarNextEventReadResult.Failed
+        }
+
+    private fun readEvents(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        limit: Int?,
+    ): CalendarEventReadResult =
+        try {
+            // long: 日历 Provider 只投影标题、实例起止、全天和重复标记；重复规则仅折叠为布尔值，地点、描述、参与人、组织者及账户字段不会离开系统 Provider。
+            val cursor = CalendarContract.Instances.query(
+                contentResolver,
+                PROJECTION,
+                startAtMillis,
+                endAtMillis,
+            ) ?: return CalendarEventReadResult.ProviderUnavailable
+            cursor.use {
+                val eventIdColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+                val titleColumn = it.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
+                val startColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+                val endColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.END)
+                val allDayColumn = it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)
+                val recurrenceColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RRULE)
+                val recurrenceDateColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RDATE)
                 val events = buildList {
                     while (it.moveToNext()) {
                         add(
@@ -130,12 +224,14 @@ class AndroidCalendarEventReader(
                                 startAtMillis = it.getLong(startColumn),
                                 endAtMillis = it.getLong(endColumn),
                                 allDay = it.getInt(allDayColumn) != 0,
+                                recurring = !it.getString(recurrenceColumn).isNullOrBlank() ||
+                                    !it.getString(recurrenceDateColumn).isNullOrBlank(),
                             ),
                         )
                     }
                 }
                     .sortedWith(compareBy(CalendarEventRecord::startAtMillis, CalendarEventRecord::endAtMillis))
-                    .take(limit)
+                    .let { sorted -> limit?.let(sorted::take) ?: sorted }
                 CalendarEventReadResult.Success(events)
             }
         } catch (_: SecurityException) {
@@ -144,7 +240,6 @@ class AndroidCalendarEventReader(
         } catch (_: RuntimeException) {
             CalendarEventReadResult.Failed
         }
-    }
 
     override suspend fun getEvent(eventId: Long): CalendarEventDetailReadResult = withContext(Dispatchers.IO) {
         try {
@@ -195,6 +290,56 @@ class AndroidCalendarEventReader(
         }
     }
 
+    override suspend fun getOccurrence(
+        eventId: Long,
+        startAtMillis: Long,
+    ): CalendarEventDetailReadResult = withContext(Dispatchers.IO) {
+        try {
+            val cursor = CalendarContract.Instances.query(
+                contentResolver,
+                PROJECTION,
+                startAtMillis,
+                startAtMillis + 1L,
+            ) ?: return@withContext CalendarEventDetailReadResult.ProviderUnavailable
+            cursor.use {
+                val eventIdColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.EVENT_ID)
+                val titleColumn = it.getColumnIndexOrThrow(CalendarContract.Events.TITLE)
+                val startColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.BEGIN)
+                val endColumn = it.getColumnIndexOrThrow(CalendarContract.Instances.END)
+                val allDayColumn = it.getColumnIndexOrThrow(CalendarContract.Events.ALL_DAY)
+                val timeZoneColumn = it.getColumnIndexOrThrow(CalendarContract.Events.EVENT_TIMEZONE)
+                val recurrenceColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RRULE)
+                val recurrenceDateColumn = it.getColumnIndexOrThrow(CalendarContract.Events.RDATE)
+                var match: CalendarEventDetailRecord? = null
+                while (it.moveToNext()) {
+                    if (it.getLong(eventIdColumn) != eventId || it.getLong(startColumn) != startAtMillis) continue
+                    if (match != null) return@withContext CalendarEventDetailReadResult.Failed
+                    val recurrenceRule = it.getString(recurrenceColumn)?.takeIf(String::isNotBlank)
+                    val recurrenceDates = it.getString(recurrenceDateColumn)?.takeIf(String::isNotBlank)
+                    val reminder = readReminderSummary(eventId)
+                    match = CalendarEventDetailRecord(
+                        eventId = eventId,
+                        title = it.getString(titleColumn).orEmpty(),
+                        startAtMillis = startAtMillis,
+                        endAtMillis = it.getLong(endColumn),
+                        allDay = it.getInt(allDayColumn) != 0,
+                        timeZoneId = it.getString(timeZoneColumn)?.takeIf(String::isNotBlank),
+                        recurring = recurrenceRule != null || recurrenceDates != null,
+                        recurrenceRule = recurrenceRule,
+                        recurrenceDates = recurrenceDates,
+                        reminderMinutesBefore = reminder.minutesBefore,
+                        reminderCount = reminder.count,
+                    )
+                }
+                match?.let(CalendarEventDetailReadResult::Success) ?: CalendarEventDetailReadResult.NotFound
+            }
+        } catch (_: SecurityException) {
+            CalendarEventDetailReadResult.PermissionDenied
+        } catch (_: RuntimeException) {
+            CalendarEventDetailReadResult.Failed
+        }
+    }
+
     private fun readReminderSummary(eventId: Long): CalendarEventReminderSummary {
         val cursor = contentResolver.query(
             CalendarContract.Reminders.CONTENT_URI,
@@ -227,6 +372,9 @@ class AndroidCalendarEventReader(
             CalendarContract.Instances.BEGIN,
             CalendarContract.Instances.END,
             CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.RRULE,
+            CalendarContract.Events.RDATE,
         )
         val DETAIL_PROJECTION = arrayOf(
             CalendarContract.Events._ID,
@@ -244,6 +392,22 @@ class AndroidCalendarEventReader(
             CalendarContract.Reminders.MINUTES,
             CalendarContract.Reminders.METHOD,
         )
+    }
+}
+
+internal fun selectNextCalendarEvent(
+    events: List<CalendarEventRecord>,
+    nowMillis: Long,
+): CalendarNextEventReadResult {
+    val future = events.filter { event -> event.startAtMillis > nowMillis }
+    val earliestStart = future.minOfOrNull(CalendarEventRecord::startAtMillis)
+        ?: return CalendarNextEventReadResult.NoUpcomingEvent
+    val earliest = future.filter { event -> event.startAtMillis == earliestStart }
+    // long: “下一条”必须是唯一权威事实；同一最早时刻出现多个 occurrence 时不按标题、结束时间或 Provider 游标顺序猜一个。
+    return if (earliest.size == 1) {
+        CalendarNextEventReadResult.Success(earliest.single())
+    } else {
+        CalendarNextEventReadResult.AmbiguousStartTime(earliest.size)
     }
 }
 
