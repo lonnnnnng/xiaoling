@@ -3,6 +3,7 @@ package com.longdev.xiaoling.agent
 import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
@@ -29,9 +30,13 @@ import java.util.UUID
 class Stage245ContactsAgentInstrumentedTest {
     @Test
     fun foregroundAgentSearchesSyntheticContactThenReadsAuthoritativeDetail() = kotlinx.coroutines.runBlocking {
-        assumeTrue("第 245 阶段 Android 验收只允许 Redmi begonia", Build.DEVICE == "begonia")
+        requireStage245RedmiRun()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
+        assumeTrue(
+            "第 245 阶段真实联系人验收需要目标应用已获 READ_CONTACTS",
+            targetContext.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED,
+        )
         val stored = ProviderRepository(targetContext).load()
         val provider = stored.profiles.firstOrNull { it.id == stored.selectedProfileId }
         val baseUrl = provider?.baseUrl?.trim().orEmpty()
@@ -172,9 +177,21 @@ class Stage245ContactsAgentInstrumentedTest {
         }
     }
 
+    private fun requireStage245RedmiRun() {
+        assumeTrue(
+            "第 245 阶段真实联系人验收只在显式 stage245RealRun=true 下运行",
+            InstrumentationRegistry.getArguments().getString(ARG_REAL_RUN) == "true",
+        )
+        assertEquals("第 245 阶段 Android 验收只允许 Redmi begonia", "begonia", Build.DEVICE)
+    }
+
     private data class SyntheticContact(
         val displayName: String,
         val phone: String,
         val email: String,
     )
+
+    private companion object {
+        const val ARG_REAL_RUN = "stage245RealRun"
+    }
 }

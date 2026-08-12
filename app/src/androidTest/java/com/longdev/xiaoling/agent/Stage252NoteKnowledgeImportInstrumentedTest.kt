@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.ViewModelProvider
@@ -141,7 +142,7 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
         try {
             val scenario = ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java))
             try {
-                scenario.awaitState { current ->
+                val ready = scenario.awaitState { current ->
                     !current.loadingConversationMessages &&
                         current.selectedConversationId == conversationId &&
                         current.selectedAgentProfileId == profileId
@@ -149,10 +150,13 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
                 scenario.onActivity { activity ->
                     ViewModelProvider(activity)[XiaoLingViewModel::class.java].updatePrompt(prompt)
                 }
+                val previousRunId = ready.activeAgentRun?.run?.id
                 clickVisibleNode(description = "发送", timeoutMs = 10_000L)
 
                 val waiting = scenario.awaitState(timeoutMs = 180_000L) { current ->
-                    current.pendingAgentApproval?.toolName == IMPORT_TOOL &&
+                    current.activeAgentRun?.run?.id != previousRunId &&
+                        current.pendingAgentApproval?.conversationId == conversationId &&
+                        current.pendingAgentApproval.toolName == IMPORT_TOOL &&
                         current.activeAgentRun?.run?.status == AgentRunStatus.WAITING_APPROVAL
                 }
                 val pendingArguments = requireNotNull(waiting.pendingAgentApproval).arguments
@@ -235,14 +239,29 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
                             .any { tool -> tool.toolName == IMPORT_TOOL && tool.knowledgeReferences == listOf(reference) } &&
                         current.knowledgeReferenceStatuses[reference]?.availability == KnowledgeReferenceAvailability.CURRENT
                 }
-                clickVisibleNode(text = "知识引用 · 1", timeoutMs = 20_000L, scrollForward = true)
+                // long: 消息气泡本身也可点击；用展开图标的独立语义锁定引用折叠行，并确认状态真正切到“收起”后再寻找原文入口。
+                assertTrue(
+                    "知识引用点击后没有展开",
+                    clickUntilDescriptionVisible(
+                        clickDescription = "展开知识引用",
+                        expectedDescription = "收起知识引用",
+                        timeoutMs = 20_000L,
+                        scrollForward = true,
+                    ),
+                )
                 clickVisibleNode(
                     description = "打开知识原文 ${reference.documentName}",
                     timeoutMs = 20_000L,
                     scrollForward = true,
                 )
-                assertTrue("知识页没有显示当前引用原文", awaitVisibleText("当前引用原文", 20_000L))
-                assertTrue("知识页没有显示第252阶段唯一正文", awaitVisibleText(keyword, 10_000L))
+                assertTrue(
+                    "知识页没有显示当前引用原文",
+                    awaitVisibleText("当前引用原文", 20_000L, scrollForward = true),
+                )
+                assertTrue(
+                    "知识页没有显示第252阶段唯一正文",
+                    awaitVisibleText(keyword, 10_000L, scrollForward = true),
+                )
 
                 val baselineRunId = state.getString(KEY_BASELINE_RUN_ID, null)
                 val baselineDigest = state.getString(KEY_BASELINE_RUN_DIGEST, null)
@@ -384,7 +403,7 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
                 if (root?.scrollForward() == true) {
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 } else {
-                    swipeConversationForward()
+                    swipeContentForward()
                 }
                 nextGestureAt = now + 600L
             }
@@ -394,13 +413,58 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
         throw AssertionError("没有找到或无法点击可见节点：${text ?: description}\n当前可见节点：\n$visibleTree")
     }
 
-    private fun awaitVisibleText(expected: String, timeoutMs: Long): Boolean {
+    private fun awaitVisibleText(
+        expected: String,
+        timeoutMs: Long,
+        scrollForward: Boolean = false,
+    ): Boolean {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var nextGestureAt = 0L
         do {
             val root = automation.rootInActiveWindow
             root?.refresh()
             if (root?.containsText(expected) == true) return true
+            val now = SystemClock.uptimeMillis()
+            if (scrollForward && now >= nextGestureAt) {
+                // long: 知识原文卡位于 LazyColumn 的搜索区之后；等待期间按页推进，直到真实原文节点进入可见语义树。
+                if (root?.scrollForward() == true) {
+                    InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                } else {
+                    swipeContentForward()
+                }
+                nextGestureAt = now + 600L
+            }
+            SystemClock.sleep(100L)
+        } while (SystemClock.uptimeMillis() < deadline)
+        return false
+    }
+
+    private fun clickUntilDescriptionVisible(
+        clickDescription: String,
+        expectedDescription: String,
+        timeoutMs: Long,
+        scrollForward: Boolean,
+    ): Boolean {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val automation = instrumentation.uiAutomation
+        val deadline = SystemClock.uptimeMillis() + timeoutMs
+        var nextActionAt = 0L
+        do {
+            val root = automation.rootInActiveWindow
+            root?.refresh()
+            if (root?.containsDescription(expectedDescription) == true) return true
+            val now = SystemClock.uptimeMillis()
+            if (now >= nextActionAt) {
+                val node = root?.findNode(null, null, clickDescription)
+                if (node?.tapCenter() == true) {
+                    // long: Compose 折叠行在部分系统上不会稳定消费 Accessibility ACTION_CLICK；按可见节点中心注入真实轻触，再观察语义切换确认结果。
+                    instrumentation.waitForIdleSync()
+                } else if (scrollForward) {
+                    if (root?.scrollForward() == true) instrumentation.waitForIdleSync() else swipeContentForward()
+                }
+                nextActionAt = now + 800L
+            }
             SystemClock.sleep(100L)
         } while (SystemClock.uptimeMillis() < deadline)
         return false
@@ -414,9 +478,11 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
         val nodeText = text?.toString()
         val nodeDescription = contentDescription?.toString()
         if (
-            (expectedText != null && nodeText == expectedText) ||
-            (alternateText != null && nodeText == alternateText) ||
-            (expectedDescription != null && nodeDescription == expectedDescription)
+            isVisibleToUser && (
+                (expectedText != null && nodeText == expectedText) ||
+                    (alternateText != null && nodeText == alternateText) ||
+                    (expectedDescription != null && nodeDescription == expectedDescription)
+                )
         ) return this
         repeat(childCount) { index ->
             getChild(index)?.findNode(expectedText, alternateText, expectedDescription)?.let { return it }
@@ -425,9 +491,20 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
     }
 
     private fun AccessibilityNodeInfo.containsText(expected: String): Boolean {
-        if (text?.toString()?.contains(expected) == true || contentDescription?.toString()?.contains(expected) == true) return true
+        if (
+            isVisibleToUser &&
+            (text?.toString()?.contains(expected) == true || contentDescription?.toString()?.contains(expected) == true)
+        ) return true
         repeat(childCount) { index ->
             if (getChild(index)?.containsText(expected) == true) return true
+        }
+        return false
+    }
+
+    private fun AccessibilityNodeInfo.containsDescription(expected: String): Boolean {
+        if (isVisibleToUser && contentDescription?.toString() == expected) return true
+        repeat(childCount) { index ->
+            if (getChild(index)?.containsDescription(expected) == true) return true
         }
         return false
     }
@@ -440,6 +517,19 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
             current = candidate.parent
         }
         return false
+    }
+
+    private fun AccessibilityNodeInfo.tapCenter(): Boolean {
+        val bounds = Rect()
+        getBoundsInScreen(bounds)
+        if (!isVisibleToUser || bounds.isEmpty) return false
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val downTime = SystemClock.uptimeMillis()
+        val x = bounds.exactCenterX()
+        val y = bounds.exactCenterY()
+        automation.injectInputEvent(MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0), true)
+        automation.injectInputEvent(MotionEvent.obtain(downTime, downTime + 80L, MotionEvent.ACTION_UP, x, y, 0), true)
+        return true
     }
 
     private fun AccessibilityNodeInfo.describeVisibleTree(limit: Int = 80): String {
@@ -467,7 +557,7 @@ class Stage252NoteKnowledgeImportInstrumentedTest {
         return false
     }
 
-    private fun swipeConversationForward() {
+    private fun swipeContentForward() {
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         val metrics = context.resources.displayMetrics
         val x = metrics.widthPixels * 0.5f

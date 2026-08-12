@@ -24,6 +24,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -37,6 +38,10 @@ class Stage225SkillTryUiInstrumentedTest {
 
     @Test
     fun currentSafeSkillExampleOnlyPrefillsAgentDraftWithoutCreatingFacts() = runBlocking {
+        assumeTrue(
+            "第 225 阶段只允许显式 stage225Manual=true 运行",
+            InstrumentationRegistry.getArguments().getString(ARG_MANUAL_RUN) == "true",
+        )
         assertEquals("第 225 阶段 Android 验收只允许 Redmi Note 8 Pro", "begonia", Build.DEVICE)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val database = XiaoLingDatabase.getInstance(context)
@@ -136,6 +141,7 @@ class Stage225SkillTryUiInstrumentedTest {
     }
 
     private companion object {
+        const val ARG_MANUAL_RUN = "stage225Manual"
         const val RUN_AUDIT_LIMIT = 100
     }
 }

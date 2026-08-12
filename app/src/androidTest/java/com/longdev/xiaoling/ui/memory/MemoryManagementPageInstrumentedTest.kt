@@ -23,14 +23,19 @@ class MemoryManagementPageInstrumentedTest {
     @Test
     fun pageRoutesMemoryActionsWithoutConcreteViewModel() {
         val selectedMemoryId = mutableStateOf<String?>(null)
+        val searchQuery = mutableStateOf("")
         val actions = FakeMemoryManagementActions(
             onMemorySelected = { memoryId -> selectedMemoryId.value = memoryId },
+            onSearchQueryChanged = { query -> searchQuery.value = query },
         )
         var backCount = 0
         composeRule.setContent {
             MaterialTheme {
                 MemoryManagementPage(
-                    state = memoryManagementState(selectedMemoryId = selectedMemoryId.value),
+                    state = memoryManagementState(
+                        selectedMemoryId = selectedMemoryId.value,
+                        searchQuery = searchQuery.value,
+                    ),
                     actions = actions,
                     onBack = { backCount += 1 },
                 )
@@ -81,7 +86,10 @@ class MemoryManagementPageInstrumentedTest {
         }
     }
 
-    private fun memoryManagementState(selectedMemoryId: String?): MemoryManagementUiState {
+    private fun memoryManagementState(
+        selectedMemoryId: String?,
+        searchQuery: String = "",
+    ): MemoryManagementUiState {
         val memory = AgentMemoryRecord(
             id = "memory-1",
             content = "偏好使用中文回答",
@@ -96,6 +104,7 @@ class MemoryManagementPageInstrumentedTest {
             updatedAt = 2L,
         )
         return MemoryManagementUiState(
+            searchQuery = searchQuery,
             memories = listOf(
                 MemoryManagementItemUiState(
                     record = memory,
@@ -108,6 +117,7 @@ class MemoryManagementPageInstrumentedTest {
 
     private class FakeMemoryManagementActions(
         private val onMemorySelected: (String) -> Unit = {},
+        private val onSearchQueryChanged: (String) -> Unit = {},
     ) : MemoryManagementActions {
         var refreshCount = 0
         val searchQueries = mutableListOf<String>()
@@ -125,6 +135,7 @@ class MemoryManagementPageInstrumentedTest {
 
         override fun updateMemorySearchQuery(query: String) {
             searchQueries += query
+            onSearchQueryChanged(query)
         }
 
         override fun updateMemoryFilter(filter: AgentMemoryFilter) {

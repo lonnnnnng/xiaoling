@@ -25,15 +25,21 @@ class LocalNoteManagementPageInstrumentedTest {
 
     @Test
     fun listSearchRefreshAndBackDelegateActions() {
-        val actions = FakeLocalNoteManagementActions()
+        var state by mutableStateOf(
+            LocalNoteManagementUiState(
+                notes = listOf(note()),
+                searchQuery = "初始",
+            ),
+        )
+        val actions = FakeLocalNoteManagementActions(
+            onSearchQueryChange = { value -> state = state.copy(searchQuery = value) },
+            onClearSearch = { state = state.copy(searchQuery = "") },
+        )
         var backCount = 0
         composeRule.setContent {
             MaterialTheme {
                 LocalNoteManagementContent(
-                    state = LocalNoteManagementUiState(
-                        notes = listOf(note()),
-                        searchQuery = "初始",
-                    ),
+                    state = state,
                     actions = actions,
                     onBack = { backCount += 1 },
                 )
@@ -144,6 +150,8 @@ class LocalNoteManagementPageInstrumentedTest {
     }
 
     private class FakeLocalNoteManagementActions(
+        private val onSearchQueryChange: (String) -> Unit = {},
+        private val onClearSearch: () -> Unit = {},
         private val onEditTitleChange: (String) -> Unit = {},
         private val onEditContentChange: (String) -> Unit = {},
     ) : LocalNoteManagementActions {
@@ -168,6 +176,7 @@ class LocalNoteManagementPageInstrumentedTest {
 
         override fun updateSearchQuery(value: String) {
             latestQuery = value
+            onSearchQueryChange(value)
         }
 
         override fun search() {
@@ -176,6 +185,7 @@ class LocalNoteManagementPageInstrumentedTest {
 
         override fun clearSearch() {
             clearCount += 1
+            onClearSearch()
         }
 
         override fun selectNote(noteId: String) {

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.longdev.xiaoling.MainActivity
 import org.junit.Rule
 import org.junit.Test
@@ -94,8 +95,13 @@ class XiaoLingNavigationInstrumentedTest {
             composeRule.onAllNodesWithText("Agent Skills").fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("Agent Skills").performClick()
-        composeRule.onNodeWithText("导入 JSON").assertExists()
+        // long: Agent Skills 位于设置长列表后段；先滚动到可见区域再点击，避免语义树中的离屏节点吞掉导航动作。
+        composeRule.onNodeWithTag("settings-entry-agent-skills").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodesWithContentDescription("返回设置").fetchSemanticsNodes().isNotEmpty()
+        }
+        // long: 导入按钮在文件导入进行中只显示进度圈；导航验收使用始终存在的宿主返回入口，避免把业务忙状态误判为页面未打开。
+        composeRule.onNodeWithContentDescription("返回设置").assertExists()
         composeRule.onNodeWithTag("bottom_tab_settings").assertDoesNotExist()
 
         // long: Skill 页面只发起管理动作；系统返回和底栏恢复仍由应用壳统一处理，不能被文件选择或列表首刷接管。

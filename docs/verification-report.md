@@ -1,8 +1,80 @@
 # 验证报告
 
-验证日期：2026-08-12（北京时间）
+验证日期：2026-08-13（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-13 小灵 v0.1.17 发布构建
+
+### 当前结论
+
+- 正式版本升级为小灵 `v0.1.17`，`versionCode=18`、`minSdk=26`、`targetSdk=36`、Room v36。
+- Release APK 已由 `:app:assembleRelease` 构建成功，耗时 `2m 45s`。本次发布只包含版本元数据、README、长期发布文档和上一轮已完成的测试/文档回归修复；不改变生产 Tool、权限、Workflow、设备动作或后台边界。
+- GitHub Release 资产使用历史命名：`xiaoling-v0.1.17.apk` 与 `xiaoling-v0.1.17.apk.sha256`。
+
+### 发布资产验证
+
+- APK 文件大小：`3,531,766` 字节。
+- SHA-256：`b0fdfce3d50375bbe98aedba172990cc18e655255a94455966495eb6ada398d2`。
+- `apksigner verify --verbose --print-certs`：通过；使用 APK Signature Scheme v2，单一 RSA 4096 签名者，证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- `zipalign -c -v 4`：通过。
+- Manifest：`com.longdev.xiaoling`、`versionCode=18`、`versionName=0.1.17`、`minSdk=26`、`targetSdk=36`。
+- 发布文档写回后，AndroidTest 资产在 Redmi 上运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果为 `OK (1 test)`；测试包已卸载，主应用数据保留。
+- 资产 SHA sidecar 已按发布文件名生成；未把 Release APK、签名配置或任何 API Key 写入 Git。
+
+### 验证边界
+
+- 本次发版沿用同日已完成的完整 JVM `1118/1118`、Lint、Debug/AndroidTest APK 和 Redmi 默认全量 instrumentation `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`；Stage 252 真实模型闭环为 `OK (1 test)`（`35.529s`）。
+- 由于本次 Release 仅有文档、测试门禁和版本/发布元数据改动，没有把 Release APK 覆盖安装到 Redmi，也没有机械重复整套真机测试；发布资产本身已完成构建、签名、版本、对齐和哈希校验。
+
+### 后续门禁
+
+- 发布完成后回到个人 Agent 主线，继续选择单一用户任务；小阶段按风险做局部验证，下一次里程碑或正式发版前再执行完整矩阵。
+
+## 2026-08-13 Stage 252 后里程碑回归修复：Redmi 默认全量归零
+
+### 当前结论
+
+- 已修复上一轮 7 项失败：Stage 221 四个依赖人工分段与历史夹具的入口改为仅在 `stage221Manual=true` 下运行；Agent Skill 导航先把设置长列表的离屏入口滚动到可见区域；本地笔记与记忆管理测试改为按生产受控输入契约更新 Compose state。
+- Stage 252 真实模型闭环补强新 Run/会话/审批身份绑定，并把答案引用操作改为只命中真实可见节点、按节点中心轻触、观察“展开”切换为“收起”后才继续；知识页等待期间按 LazyColumn 向前滚动，但仍必须看到“当前引用原文”和唯一正文 marker 才通过。
+- 第二轮默认全量又发现 Stage 245 真实联系人和 Stage 225 当前 Skill 夹具依赖设备权限/用户当前 Profile，现分别增加 `stage245RealRun=true` 与 `stage225Manual=true` 显式门禁。真实验收能力不变，默认回归不再隐式调用公网模型、写合成联系人或依赖用户当前配置。
+- 最终 Redmi 默认全量 instrumentation 已归零。开发主干的本轮已知回归完成收敛；这仍不是 Release 构建或正式发版，发布基线保持 `v0.1.16`。
+
+### 验证证据
+
+- 只使用 Redmi `wsvwypiz7xwslvl7 / begonia`；没有启动、使用或向模拟器发送命令。Debug 与 AndroidTest APK 重建并安装成功，未构建 Release。
+- 修复后 Agent Skill 导航单项为 `OK (1 test)`；本地笔记、记忆管理、完整导航类与 Stage 221 默认门禁组合为 `OK (13 tests)`，其中 Stage 221 四项按 assumption 正确跳过；Stage 225/245 默认门禁组合为 `OK (2 tests)`，两项均按 assumption 正确跳过。
+- Stage 252 使用恢复后的真实 `gpt-5.6-luna / Responses` 完整通过，最终直接 runner 为 `OK (1 test)`、`35.529s`。验证覆盖 `notes.search -> notes.get -> knowledge.import_from_note`、屏幕可见审批、`APPROVED / PASSED / COMMITTED`、`CURRENT` 引用、知识原文与唯一 marker、精确夹具清理、旧 Run 不变和新 Run 审计保留。
+- 最终 `ANDROID_SERIAL=wsvwypiz7xwslvl7 :app:connectedDebugAndroidTest --rerun-tasks` 为 `BUILD SUCCESSFUL in 4m 49s`。最终 XML 精确统计 `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`；终端显示的 `Finished 485 tests` 是把 61 个 skipped 再计入进度总数，不作为权威总数。
+- 同日上一轮已完成的完整 JVM `1118/1118`、Lint、Debug APK 与 AndroidTest APK 结果继续有效；本轮只针对 AndroidTest 代码重建测试 APK并完成全量 Redmi 验证，没有机械重复 JVM 与 Lint。
+- 长期文档写回并重建 AndroidTest 资产后，Redmi 文档 corpus gate 首轮为 `OK (1 test)`、`2.998s`，结果写回复验为 `OK (1 test)`、`3.497s`，无占位文本确认仍为 `OK (1 test)`、`2.92s`。
+
+### 后续门禁
+
+- 本轮只修复并收敛已知回归，没有扩展生产 Tool、权限、Room v36、Workflow 或后台能力。文档 corpus gate 通过后回到个人 Agent 主线，重新选择一个满足“自然语言目标 -> 显式意图/审批 -> 可验证结果 -> 当前权威事实查看”的单一用户任务。
+
+## 2026-08-12 Stage 252 后里程碑完整回归：本地门禁通过，Redmi UI 回归待修复
+
+### 当前结论
+
+- 本轮只使用 Redmi 真机 `wsvwypiz7xwslvl7 / begonia` 执行里程碑回归，没有启动或向模拟器发送命令。完整 JVM、Lint、Debug APK 和 AndroidTest APK 均通过；标准 Redmi 全量 instrumentation 未通过，当前不能把开发主干标记为发布候选。
+- 默认全量 instrumentation 声明 `424` 个测试，最终 XML 为 `361 passed / 56 skipped / 7 failed / 0 errors`。其中 4 项来自 `Stage221MemoryDeleteUiInstrumentedTest` 人工分步验收脚本误入默认套件：准备步骤依赖当前真实 Provider，另外三个步骤依赖历史 marker、Run 和固定会话，属于测试隔离/编排问题，不能据此宣称生产记忆删除失败。
+- 另外 3 项 UI 失败均已脱离全量套件单独复现：Agent Skill 页面未找到“导入 JSON”；本地笔记管理页的搜索、刷新或返回动作断言失败；记忆管理页搜索回调从预期 `[偏好]` 变为 `[偏好, 空字符串]`。这些是当前可稳定复现的 UI 契约回归，需要修复后重跑。
+- Stage 252 真实模型闭环单独复跑两次均未通过。第一轮已经严格完成 `notes.search -> notes.get -> knowledge.import_from_note`、屏幕审批、typed `PASSED` 和 `COMMITTED`，但展开答案引用后没有出现“打开知识原文”节点；第二轮测试仍在等待 `knowledge.import_from_note` 的 `WAITING_APPROVAL` 状态时，观测到 Run 已直接进入 `COMPLETED`，因此未能按预期捕获并核验审批节点。第一轮证明模型、审批和知识导入主链本身可完成，但最新完整用户闭环仍不稳定，不能继续标记为全部通过。
+
+### 验证证据
+
+- `:app:testDebugUnitTest --rerun-tasks` 为 `1118/1118`，失败、错误和跳过均为 `0`，Gradle `BUILD SUCCESSFUL in 1m 28s`。
+- `:app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --rerun-tasks` 为 `BUILD SUCCESSFUL in 3m 21s`；Debug APK 和 AndroidTest APK 分别约 `23 MB / 3.5 MB`。只有既有 Android/Compose 弃用警告，没有 Lint 门禁错误。本轮不是发版请求，未构建 Release APK。
+- Redmi 标准全量 `:app:connectedDebugAndroidTest --rerun-tasks` 为 `BUILD FAILED in 5m 10s`；XML 精确统计 `424 tests / 7 failures / 0 errors / 56 skipped / 361 passed`。显式公网、真实模型和需要系统数据/权限的用例按各自 runner 参数或前置条件设计为 skipped。
+- 三项独立 UI 复跑均为 `Tests run: 1, Failures: 1`，排除全量套件顺序污染。Stage 252 第一次直接 runner 复跑耗时 `59.74s`，失败于答案引用展开后的当前原文入口；第二次耗时 `183.859s`，测试在等待 `WAITING_APPROVAL` 时最终观测为 `runStatus=COMPLETED / approval=null / sendingMessage=false`，预期审批状态没有在时限内出现。
+- 全量测试曾使设备端 Provider 配置不完整；随后使用项目未跟踪 `AGENTS.md` 的兜底配置恢复到 Redmi Keystore，密钥未写入源码、提交或测试日志。Stage 252 已越过 Provider 完整性检查并完成真实模型调用。失败用例的 `finally` 继续执行精确夹具清理，Run 审计保留。
+- 本轮结果首次写回长期文档并重建 AndroidTest 资产后，Redmi 文档 corpus gate 为 `OK (1 test)`、`3.32s`；校正诊断表述后的最终复验仍为 `OK (1 test)`、`3.842s`。
+- 收尾时 Redmi 保留 `com.longdev.xiaoling` 与测试包，主应用为 `0.1.16 (17)`，crash buffer 无小灵异常，Accessibility `Crashed services:{}`；全量测试后 Accessibility 当前未授权，未通过 ADB 越权恢复。主应用已重新打开。
+
+### 后续门禁
+
+- 先修复 3 项稳定 UI 契约回归、隔离 Stage 221 人工分步脚本，并修复 Stage 252 完成后引用状态投影/展开交互；随后只复跑对应单项。以上问题收敛后，再执行一次 Redmi 默认全量 instrumentation 和 Stage 252 显式真实闭环。JVM、Lint 与 APK 本轮已经通过，不在每个小修复阶段机械重复。
 
 ## 2026-08-12 第 252 阶段：唯一本地笔记导入知识库真实前台闭环
 

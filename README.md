@@ -1,382 +1,120 @@
 # 小灵
 
-第 252 阶段完成唯一本地笔记导入知识库的 Redmi 真实前台闭环。显式最小 Profile 只开放 `notes.search / notes.get / knowledge.import_from_note` 与 `local-note-knowledge-import`，当前 `gpt-5.6-luna / Responses` 模型从自然语言目标严格规划三步调用；消息发送、逐次审批和答案引用跳转均通过屏幕可见节点完成。Tool Ledger 核对稳定 note ID、revision 与小写正文 SHA-256 原样传递，审批为 `APPROVED`，Executor/typed verification 为 `true / PASSED`，回执为 `COMMITTED`；当前 Room document/chunks、持久化 Tool Message 的唯一 `KnowledgeReference` 与知识页“当前引用原文”一致。Activity 重建后引用仍可展开并打开唯一正文；旧 Run digest 不变，临时笔记、知识文档/chunks、Profile 和会话精确清理，新 Run 审计保留。`:app:compileDebugAndroidTestKotlin` 与 AndroidTest APK 构建成功，仅 Redmi 最终单项为 `OK (1 test)`（`54.78s`）；文档 corpus 首轮为 `OK (1 test)`（`3.632s`），结果写回后的最终文本复验为 `OK (1 test)`（`3.279s`）。未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段重新选择一个新的单一用户任务，继续坚持显式意图、最小 Profile、可验证结果与权威事实回读。
-
-第 251 阶段完成“把唯一命中的本地笔记加入知识库”的受控写入实现与 Redmi 定向验收。新增独立 `local-note-knowledge-import` Skill 和仅前台 `DIRECT` 可见、逐次审批的 `knowledge.import_from_note(note_id, expected_revision, expected_content_hash)`；同一 Run 必须严格执行 `notes.search -> notes.get -> knowledge.import_from_note`，搜索会读取至少两个候选，只有最近一次唯一命中且已由 `notes.get` 冻结稳定 ID、revision 与规范小写正文 SHA-256 才能导入。审批恢复和受控同调用重试只复用已持久化的短生命周期候选，Schema 与稳定业务校验仍重跑，执行时继续从当前 Note Store 防漂移回读；知识导入以稳定幂等键复用同一文档，同键载荷漂移、跨 Run、重复消费、多候选或回读不一致均 fail-closed。成功结果携带 `COMMITTED` 回执和当前文档首个 chunk 的稳定 `KnowledgeReference`，可复用现有答案级知识导航。聚焦 JVM `209/209`、Debug/AndroidTest APK 构建成功；仅 Redmi 的幂等冲突与真实 Room 笔记导入/恢复两项均为 `OK (1 test)`（`0.418s / 0.470s`），最终文档 corpus gate 为 `OK (1 test)`（`3.5s`）。本阶段未运行 Lint、Release 或全量 instrumentation；当时尚缺的真实模型、屏幕可见审批与答案引用闭环已由第 252 阶段完成。
-
-第 250 阶段完成“我下一项安排是什么”的前台只读闭环。新增无参数 `calendar.next_event` 与 `next-calendar-event` Skill，只在 `READ_CALENDAR` 已授权的前台查询未来 30 天，并严格选择 `startAtMillis > now` 的唯一最早 occurrence；无日程、同一最早时刻多条、撤权或 Provider 异常都明确停止，不按标题、结束时间或游标顺序猜测。答案级“查看日程”绑定 `eventId + occurrenceStartAtMillis`，普通事件回读 Events master，重复事件从 Instances 精确回读本次 occurrence，Activity 重建仍保留实例身份。聚焦 JVM `157/157`、Debug/AndroidTest APK、仅 Redmi 的下一条选择/occurrence 回读/详情投影/答案导航 `4/4`（`4.035s`）及最终文档 corpus gate `1/1`（`3.090s`）通过；未新增写入、审批、Room Schema、后台或 Workflow，也未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段进入“唯一本地笔记导入知识库”的受控闭环。
-
-第 249 阶段完成答案级知识引用的当前权威原文定位闭环。对话引用点击不再只携带文档 ID，而是传递 retrieval、document revision、chunk、sequence 与 offset 的完整身份；导航 Saver 可跨 Activity 重建恢复完整引用，旧格式、缺字段或非法数值只降级到普通文档落点。知识页仅在当前启用文档的同一 revision/chunk/offset 精确匹配时显示原文和位置，历史 revision、停用、删除或边界漂移均明确拒绝猜测；Room 定位在同一事务内读取文档与 chunk，替换、停用或删除开始时立即清除旧原文卡。聚焦导航 JVM、Debug/AndroidTest APK 和仅 Redmi 的引用/知识页/ViewModel `20/20`（`13.714s`）与最终文档 corpus gate `1/1`（`3.272s`）通过；未新增 Tool、权限、Room Schema、副作用或后台能力，也未运行完整 JVM、Lint、Release 或全量 instrumentation。下一阶段优先进入“下一条系统日程”的前台只读权威事实闭环。
-
-第 248 阶段完成带单提醒系统日程的真实自然语言闭环。Redmi 上的专用最小 Profile 只允许 `calendar.create_event / calendar-create`；真实模型从用户明确请求规划标题、起止时间、`Asia/Shanghai` 与 `reminder_minutes_before=30`，发送和批准均通过屏幕可见节点完成。最终 Tool Ledger 为唯一调用、审批 `APPROVED`、Executor 与 typed verification `PASSED`、回执 `COMMITTED`；答案级“查看日程”在页面重建后仍可恢复并从当前 Calendar Provider 显示标题与“提前30分钟”。事件按 COMMITTED ID 精确删除，关联 reminder 级联清理，临时 Profile/会话和原选择恢复，新 Run 审计保留且旧 Run 不变。聚焦构建、Redmi Provider/详情前置 `2/2` 与真实闭环 `1/1`（`31.545s`）通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。全天提醒、重复、多提醒、参与人、Workflow 与后台日历仍未开放。
-
-第 247 阶段完成一次性非全天系统日程的单提醒写入能力。现有 `calendar.create_event` 新增可选 `reminder_minutes_before`，只有用户明确要求提醒时才传入，范围为 `0..10080` 分钟且只允许一个 `METHOD_ALERT`；无提醒调用保持原契约。Android 写入器使用 Calendar Provider `applyBatch` 原子提交事件与 reminder，事件继续以 ToolCall ID 标记；首次写入、同调用幂等重放和已提交恢复都要求当前 Provider 恰好回读一条相同提醒，缺失、额外提醒或分钟漂移均不能验证成功。答案级导航还会严格核对审批参数与结果中的提醒分钟，漂移或伪造结果不显示“查看日程”。聚焦 JVM `XiaoLingToolRegistryTest 95/95 + AgentSkillsTest 38/38 + CalendarNavigationTest 4/4`（`137/137`）、Debug/AndroidTest APK、仅 Redmi 的带提醒原子闭环 `1/1`（`0.271s`）、无提醒回归 `1/1`（`0.288s`）和最终文档 corpus `1/1` 通过；临时事件与关联 reminder 已精确清理。Room v36、权限集合、全天/重复事件、多提醒、参与人、Workflow 和后台边界均未扩展；真实模型审批与详情闭环已由第 248 阶段完成。
-
-第 246 阶段完成可信联系人答案级“查看联系人”入口。只有当前 Run 中成功、可信且严格匹配 `contacts.get` 的单一详情结果才显示按钮；点击时重新检查 `READ_CONTACTS`，从当前 Contacts Provider 二次读取联系人 ID 与 `lookupKey`，确认身份未删除、合并或漂移后才通过 `ACTION_VIEW` 跳转系统联系人详情。权限撤销、记录删除、Provider 异常、lookupKey 缺失、无处理 Activity 或启动异常均 fail-closed，联系人字段和 lookupKey 不进入答案投影。聚焦 JVM `ContactNavigationTest 5/5 + ContactResultCodecTest 2/2`（`7/7`）、Debug/AndroidTest APK 构建成功；仅 Redmi 正向详情/删除竞态 `2/2`（`5.891s`）、撤权 fail-closed `1/1`（`2.799s`）和最终文档 corpus `1/1` 通过，READ_CONTACTS 已撤销、crash buffer 为空。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
-
-第 245 阶段完成系统联系人只读精确查询 v1。设置新增独立“联系人访问”页面，只有用户主动点击才申请 `READ_CONTACTS`；前台直接 Agent 新增 `contacts.search / contacts.get` 与 `contacts-lookup` Skill。搜索必须使用用户明确给出的至少 2 个字符姓名、电话号码或邮箱片段，每次最多 10 个候选；摘要只返回姓名、匹配类型和稳定 `contact-<正整数>` ID，不返回具体号码或邮箱。只有当前 Run 最近一次搜索返回的唯一候选才能进入详情，详情工具才从当前 Contacts Provider 回读姓名、最多 10 个电话号码和 10 个邮箱；地址、公司、生日、备注、头像、群组、账户、全量枚举、写入、拨号、短信、邮件和后台访问均未开放。聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi 的设置 UI `3/3`、撤权/授权 Provider `2/2` 及真实模型合成联系人闭环 `1/1`（`26.973s`）通过；Run `run-c8ccb1a2-e657-4aca-a8d1-7f465956e379` 严格执行 `contacts.search -> contacts.get`，零审批、两项 `PASSED`。设备原通讯录为空，测试只创建纯合成记录；验证后 Provider 查询为 `No result found`，权限已撤销。最终文档 corpus gate `1/1` 通过；Room v36、联系人写入、Workflow 与后台边界不变，未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
-
-第 244 阶段完成系统语音输入到可编辑草稿 v1。对话 Composer 新增独立麦克风入口，使用 Android `RecognizerIntent.ACTION_RECOGNIZE_SPEECH` 与 Activity Result 调起设备现有识别服务；应用不新增 `RECORD_AUDIO` 权限、不保存原始音频，也不建立常驻录音链。识别成功时只取首个非空候选并合并到当前输入框，已有手工草稿不会被覆盖；不会自动添加 `/agent`、切换任务模式、发送消息、调用模型或创建 Run。取消、空结果、无处理方和 Activity 启动失败均保持 fail-closed。聚焦 JVM `VoiceInputDraftPolicyTest 4/4 + ConversationProjectionTest 8/8`、Debug/AndroidTest APK 和仅 Redmi 的无声 Compose 路由单项 `1/1`（`2.326s`）通过；Redmi 系统可解析语音识别 Activity，最终文档 corpus gate 为 `1/1`（`3.077s`）。按用户明确要求，真实声音内容识别不作为本阶段正式验收门禁；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。Room v36、Provider、Tool/Skill、Workflow 和后台边界不变。
-
-第 243 阶段完成系统分享单图片到显式个人 Agent 的真实视觉理解闭环。Android `Bitmap + Canvas` 生成 1800×1100 高对比 PNG，动态 `TITLE / ACCEPTANCE_CODE / CONCLUSION` 只存在于图片像素，prompt、Profile、文件名和 runner 参数均不携带实际值。图片分享导入与用户编辑阶段没有消息或 Run，只有用户明确发送 `/agent` 后，既有 Responses `input_image` Data URL 才进入规划请求并形成唯一 `notes.create`。最终 Run `run-308f34b4-f4c8-4bc5-a9f8-5496f65d667b` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room PNG BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore PNG 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实最终单项 `1/1`（`32.886s`）通过，crash buffer 为空；文档 corpus 首次为 `1/1`（`2.979s`），审查后的最终文本 gate 也为 `1/1`（`3.067s`）。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 242 阶段完成系统分享 XLSX 到显式个人 Agent 的真实 OpenXML 工作簿理解闭环。Artifact Tool 生成的完整参考工作簿与 5 部件最小 XLSX 均能正确读取、无公式错误并成功渲染；Android 夹具据此只保留 `[Content_Types].xml`、根关系、`xl/workbook.xml`、工作簿关系和 `xl/worksheets/sheet1.xml`，动态标题、验收码与结论只写入工作表单元格。应用侧仅确认 ZIP/OPC、精确 XLSX MIME，并保持 `extractedText=null / pageCount=null`。分享导入与用户编辑阶段没有消息或 Run，用户明确发送 `/agent` 后模型才形成唯一 `notes.create`。最终 Run `run-568f80c5-9910-4477-a4ec-7f765e446dfd` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room XLSX BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore XLSX 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`28.379s`）通过；文档 corpus 首次为 `1/1`（`3.071s`），写回结果后的最终文本 gate 也为 `1/1`（`3.179s`）。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 241 阶段完成系统分享 PPTX 到显式个人 Agent 的真实 OpenXML 演示文稿理解闭环。先用 Artifact Tool 生成并渲染真实 PPTX，再从失败的 5 部件最简包收敛为经桌面渲染验证的 10 部件 OPC 结构；动态标题、验收码与结论只写入 `ppt/slides/slide1.xml`，应用侧仅确认 ZIP/OPC、精确 PPTX MIME，并保持 `extractedText=null / pageCount=null`。分享导入与用户编辑阶段没有消息或 Run，用户明确发送 `/agent` 后模型才形成唯一 `notes.create`。最终 Run `run-92128f92-cd87-42f0-bcd9-fc149bcfc5ae` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room PPTX BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore PPTX 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`25.217s`）通过；文档 corpus 首次为 `1/1`（`3.251s`），写回结果后的最终文本 gate 也为 `1/1`。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 240 阶段完成系统分享 DOCX 到显式个人 Agent 的真实 OpenXML 文档理解闭环。测试夹具生成标准 OPC ZIP，动态标题、验收码与结论只写入 `word/document.xml`；`DocumentAttachmentReader` 只确认 ZIP/OPC 结构、精确 DOCX MIME，明确保持 `extractedText=null / pageCount=null`。分享导入与用户编辑阶段没有消息或 Run，只有用户明确发送 `/agent` 后才携带原始 DOCX 进入 Responses。最终 Run `run-9f3618fd-b3a2-460f-853e-04ecd2620bdc` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room DOCX BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore DOCX 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`25.147s`）通过；文档 corpus 首次为 `1/1`（`3.131s`），写回结果后的最终文本 gate 也为 `1/1`。生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 239 阶段完成系统分享 PDF 到显式个人 Agent 的真实二进制文档理解闭环。测试用 Android `PdfDocument` 生成一页真实 PDF，`DocumentAttachmentReader` 只确认 `%PDF / application/pdf / pageCount=1`，明确保持 `extractedText=null`；分享导入与用户编辑阶段没有消息或 Run。用户明确发送 `/agent` 后，验收 prompt 不含 PDF 内动态标题、验收码或结论，真实模型仍从文件页面形成唯一 `notes.create`。最终 Run `run-2019d5f6-03fe-4bb5-a59f-b126f4b1f028` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；Room PDF BLOB、Tool Message 和 Note Store 回读一致。临时笔记/Profile/会话/MediaStore PDF 精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`31.691s`）及文档 corpus gate `1/1`（`2.919s`）通过；生产代码、Room v36、权限、工具与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 238 阶段完成系统分享单文档到显式个人 Agent 的真实理解闭环。Markdown 先通过 `ACTION_SEND` 进入可编辑附件草稿，导入和用户编辑阶段均没有消息或 Run；用户明确输入并发送 `/agent` 后，既有 Responses 附件链才把可信 USER Document 交给规划器。验收命令不包含文档标题或验收码，真实模型仍从附件生成唯一 `notes.create`，最终 Run `run-96f7b55a-7741-4fb8-a92c-3fbe7a3a92cc` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`。Room USER 文档 BLOB、Tool Message 和笔记 Store 回读一致；临时笔记/Profile/会话/MediaStore 文档精确清理，原选择恢复，旧 Run 不变而新 Run 审计保留。仅 Redmi 真实单项 `1/1`（`21.901s`）及文档 corpus gate `1/1`（`3.406s`）通过；生产代码、Room v36、工具/权限与后台边界未变化，未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 237 阶段完成 Android 单文档系统分享入口。`ACTION_SEND` 现在只接收 `DocumentAttachmentPolicy` 已支持的 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 和 XLSX 精确 MIME；单个 `content://` URI 先成为可编辑新会话草稿，再复用现有 `DocumentAttachmentReader` 的 8 MB、UTF-8、PDF 页数和 OpenXML 结构校验，不自动发送、调用模型或创建 Run。`text/plain` 无 URI 时仍为普通文本，有 URI 时按 TXT 文档处理；冲突 URI、多项 ClipData、缺失/非 `content://` URI、未知 MIME 和 `ACTION_SEND_MULTIPLE` 均 fail-closed。聚焦 JVM `17/17`、Debug/AndroidTest APK 构建、仅 Redmi 入口/Manifest/文本图片回归 `5/5`（`8.645s`）及文档 corpus gate `1/1`（`3.186s`）通过；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向模拟器发送目标命令。
-
-第 236 阶段完成系统分享文本到受控单日全天日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题和规范 `yyyy-MM-dd` 日期各自唯一且没有开始、结束或时区等定时字段时，“创建全天日程”才生成固定两参数 `/agent calendar.create_all_day_event` 草稿，不自动发送、调用模型、创建 Run 或写入 Calendar Provider。五个分享动作保持分行可达。聚焦 JVM `9/9`、Debug/AndroidTest APK、Redmi 入口 `4/4`（`7.989s`）和真实 Provider `2/2`（`21.034s`）通过；最终 Run `run-b038b22d-5697-4460-96f7-88c8b8588755` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider、消息 Tool part 和答案级导航统一绑定 `calendar-92`，缺字段样本未创建 Run，旧 Run 不变，事件按回执 ID 与 UTC 全天边界精确清理。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未向 `emulator-5554` 发送目标命令。
-
-第 235 阶段完成系统分享文本到受控系统日程闭环。`text/plain ACTION_SEND` 仍先进入普通可编辑草稿；只有标题、带 UTC 偏移的开始/结束时间和 IANA 时区各自唯一、有效且彼此一致时，“创建日程”才生成固定四参数 `/agent calendar.create_event` 草稿，缺字段不会发送或创建 Run。四个分享动作按两行适配 Redmi 窄屏。用户明确发送并批准后，Redmi 真实 Run `run-373fbac0-77a4-4f9c-bc52-134aecbeb550` 的唯一写入为 `APPROVED / PASSED / COMMITTED`，当前 Calendar Provider 四字段回读和答案级入口绑定 `calendar-91`；事件按回执 ID 精确清理，旧 Run 不变。聚焦 JVM `6/6`、Debug/AndroidTest APK、Redmi 入口 `4/4`、真实 Provider `2/2` 和文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 220 阶段完成前台长期记忆安全删除能力：新增 `memory.delete(memory_id)` 与独立 `personal-memory-delete` Skill，只向开启长期记忆召回的前台 `DIRECT` Agent 暴露，强制同一 Run 严格执行唯一 `memory.search -> memory.get -> memory.delete`，并要求三步稳定 `memory-UUID` 一致。删除必须人工审批，执行后由当前 Room 验证目标不可见；ToolCall ID 同时作为幂等键，稳定 memory ID 作为 operation ID，`COMMITTED + IDEMPOTENT_BY_KEY + DENY` 证据可在重启后只读核对，不重放 DELETE。删除、FTS 与 operation ledger 同一事务，Room 仍为 v36。聚焦 JVM `XiaoLingToolRegistryTest 84/84 + AgentSkillsTest 35/35`（`119/119`）、Debug/AndroidTest APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 分别运行生产 Registry 删除链、Room 跨重开删除账本与文档 corpus gate，均为 `OK (1 test)`，测试包已卸载。未运行完整 JVM、Lint、Release 或全量 instrumentation，也未完成真实 Provider 自然语言 Run 与人工审批 UI 验收；旧 Profile/Run、Workflow 和后台边界不变。
-
-第 219 阶段完成真实前台个人 Agent 的存储状态闭环：在 Redmi 当前选中 Provider 下，临时 Profile 只允许 `app.get_storage` 与 `storage-status`，正式 `AgentRunUseCase` 根据自然语言目标完成存储读取。Run 为 `COMPLETED`，唯一 ToolResult 为 `success=true / verificationStatus=PASSED`，审批数为 0；结果和最终回答不包含 Provider URL、API Key、Profile 内部 ID、文件路径、应用数据、设备序列或应用包名。仅使用 Redmi `wsvwypiz7xwslvl7` 定向真实 Provider instrumentation `OK (1 test)`，耗时 `13.46s`，测试包已卸载；ADB 清单中的 `emulator-5554` 未接收目标命令。未运行完整 JVM、Lint、Release 或全量 instrumentation，Room v36、旧 Profile/Run、Workflow 和后台边界不变。
-
-第 218 阶段完成前台只读 `app.get_storage` 存储状态闭环：新增 `storage-status` Skill 与 `AndroidStorageStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前数据分区总容量、可用空间和使用率；不读取文件名、路径、应用数据或设备身份，文件系统统计无效或异常时 fail-closed。聚焦 JVM `XiaoLingToolRegistryTest 82/82 + AgentSkillsTest 34/34`（`116/116`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidStorageStatusInstrumentedTest#foregroundRegistryReadsCurrentStorageFactsOnly`，结果 `OK (1 test)`、耗时 `0.222s`，测试包已卸载且主应用数据保留。ADB 清单虽出现 `emulator-5554`，但所有目标命令均显式指定 Redmi，未向模拟器发送安装或测试命令；未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36、旧 Profile/Run、Workflow 和后台边界不变。
-
-第 217 阶段完成真实前台个人 Agent 的电量/网络双状态闭环：在 Redmi 当前选中 Provider 下，临时 Profile 只允许 `app.get_battery / app.get_connectivity` 与 `battery-status / connectivity-status`，正式 `AgentRunUseCase` 根据自然语言目标完成两项读取。Run 为 `COMPLETED`，两项 ToolResult 均 `success=true / verificationStatus=PASSED`，审批数为 0；最终回答不包含 Provider URL、API Key、Profile 内部 ID、设备序列或应用包名。仅使用 Redmi `wsvwypiz7xwslvl7` 定向真实 Provider instrumentation `OK (1 test)`，耗时 `24.087s`，测试包已卸载；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。Room v36、旧 Profile/Run、Workflow 和后台边界不变。
-
-第 216 阶段完成前台只读 `app.get_connectivity` 网络状态闭环：新增 `connectivity-status` Skill 与 `AndroidConnectivityStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前是否有活动网络、传输类型和系统判定的互联网可达性；不返回 SSID、IP 地址、运营商、Provider URL、API Key 或其他网络配置，读取异常时 fail-closed。聚焦 JVM `XiaoLingToolRegistryTest 81/81 + AgentSkillsTest 33/33`（`114/114`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidConnectivityStatusInstrumentedTest#foregroundRegistryReadsCurrentConnectivityFactsOnly`，结果 `OK (1 test)`、耗时 `0.261s`，测试包已卸载且主应用数据保留。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
-
-第 215 阶段完成前台只读 `app.get_battery` 电池状态闭环：新增 `battery-status` Skill 与 `AndroidBatteryStatusReader`，工具无参数、`SAFE`、不支持后台且不需要 Android 权限，只返回当前电量百分比、是否充电和供电方式；电池广播不可用或异常时 fail-closed，不返回设备标识、应用列表、Provider 配置、电池温度或健康信息。聚焦 JVM `XiaoLingToolRegistryTest 80/80 + AgentSkillsTest 32/32`（`112/112`）、Debug/AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 运行 `AndroidBatteryStatusInstrumentedTest#foregroundRegistryReadsCurrentBatteryFactsOnly`，结果 `OK (1 test)`、耗时 `0.198s`，测试包已卸载且主应用数据保留。未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation；Room v36、旧 Profile/Run、Workflow 和后台边界不变。
-
-第 214 阶段完成 Redmi 当前 Provider 驱动的 `agent.get_profile` 隐私验收：AndroidTest 支持 `agentProfileUseStoredProvider=true`，直接读取 Redmi 当前已选 Provider，Run `run-b9186054-3f0c-405e-ba62-2afd9f4c75f7` 为 `COMPLETED`，唯一结果为 `success=true / verificationStatus=PASSED`。结果只允许 Agent 名称、模型、Responses API 模式和记忆召回状态，Provider URL、API Key、系统提示词、内部 ID 和工具白名单均不可见。仅使用 Redmi 定向 instrumentation `OK (1 test)`，测试包已卸载；未使用 Pixel_9、未运行完整 JVM、Lint、Release 或全量 instrumentation。
-
-第 208 阶段完成 Redmi 真实前台系统日程创建、人工审批、答案级查看与精确清理验收：复用专用 E2E Profile，正式 Run 前临时收窄为仅 `calendar.create_event`、`calendar-create` Skill 和关闭长期记忆。首次遗漏 `/agent` 前缀只产生普通聊天，模型明确拒绝实际写入，没有生成 Run、审批或 Calendar Provider 事件；新会话使用正确命令后，Run `run-0850939c-00dd-497a-b70c-4af0306c2168`、ToolCall `tool-call-a406bf1f-0b83-4810-9d3a-3993c74a0637` 和 Approval `approval-d1841b1a-2e56-40a1-bbd8-8c29a00be93e` 完成真实闭环。事件 `calendar-84` 的标题为 `stage208_calendar_ui_20260808`，时间为 `2026-08-10 10:20–10:50 Asia/Shanghai`；结果为 `success=1 / executorVerified=1 / verificationStatus=PASSED / receiptStatus=COMMITTED / receiptOperationId=84 / replaySafety=IDEMPOTENT_BY_KEY`，审批 `APPROVED`，Run `COMPLETED`。答案级“查看日程”从当前 Calendar Provider 二次读取同一标题、起止、时区、非全天和不重复事实。事件、阶段会话及既有会话中精确四条误入消息已清理，Profile 恢复为 `calendar.list_events / tasks.list`、空 Skill 和关闭长期记忆，原 Run、审批与 Tool Ledger 审计保持不变。仅使用 Redmi；本阶段没有生产代码或能力变更，聚焦清理 instrumentation 与文档 corpus gate 均为 `OK (1 test)`，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
-
-第 207 阶段完成 Redmi 真实前台本地笔记删除、失败边界与清理验收：临时 Profile `stage207notesui` 的正式工具面为 `notes.list / notes.search / notes.get / notes.delete`，Skill 仅为 `local-note-delete`，长期记忆关闭。首次 Run `run-281935cb-a3b5-4661-8be8-264da24ae39b` 已对 `note-124651a0-85d6-4d78-8790-f64029cc746a` 完成搜索、详情、人工审批删除、Executor 回读、typed `PASSED` 和 `COMMITTED` 回执，但删除后模型又提出重复 `notes.search`，重复调用保护将 Run 保留为 `BUDGET_EXHAUSTED`；已提交副作用没有被回滚或伪装为成功终态。中间 Run `run-20b449fe-da68-4718-9eaf-5ac6d691d888` 只完成搜索/详情便停止；最终独立 Run `run-e520f307-96fd-4bc9-b4e8-3b9425c405d4` 严格执行 `notes.search -> notes.get -> notes.delete`，三步绑定 `note-07ab7353-7f75-4d4e-b08c-4f818f454c92`，15 步、3 次工具、1 次审批全部收敛为 `COMPLETED / APPROVED / PASSED`，删除账本为 `proposed / validated / result / verified`，Executor 验证为“是”，回执 `COMMITTED`、重放 `IDEMPOTENT_BY_KEY`，未提交重放策略为 `DENY`。刷新后的当前 Store 为 0 条；两条夹具均 tombstone 到 revision `2`。4 个临时会话和临时 Profile 已删除，5 条阶段 Run 审计仍保留，原 Profile“设备打开应用 E2E”恢复为当前 Agent，且总数为 2。仅使用 Redmi；本阶段没有生产代码或能力变更，聚焦文档 corpus gate `1/1` 通过，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
-
-第 206 阶段完成 Redmi 真实前台本地笔记编辑、版本递增与清理验收：临时 Profile `stage206notesui` 在正式更新 Run 前收窄为 `notes.list / notes.search / notes.get / notes.update` 和 `local-note-update` Skill，长期记忆关闭。Run `run-d7cb01df-d13a-4d43-93df-902c19ed972b` 严格执行 `notes.search -> notes.get -> notes.update`，三步绑定同一稳定 note ID `note-f7519a66-7573-492a-813f-9883b5c947d5`；人工批准 `expected_revision=1` 的更新后，Tool Ledger 显示审批 `APPROVED`、Executor 验证通过、回执 `COMMITTED`、typed verification `PASSED`，结果 revision 递增为 `2`。答案级“查看笔记”和刷新后的本地笔记页均从当前 Store 回读 `stage206_note_v2 / stage206_body_v2 / 版本 2`。测试笔记、两个临时会话和临时 Profile 已精确清理，原 Profile 与旧 Run 审计保持不变。仅使用 Redmi；聚焦文档 corpus gate `1/1` 通过，仅构建 AndroidTest APK，未运行完整 JVM、Lint、主 APK、Release 或全量 instrumentation，也未主动 push。
-
-第 205 阶段完成 Redmi 真实前台本地笔记写入、查看与清理验收：临时 Profile `stage205notesui` 仅开放 `notes.list / notes.search / notes.create` 和 `local-notes` Skill，人工输入并批准 `/agent create a local note titled stage205_notes_ui with body stage205_notes_ui_marker_20260808_153711` 后，Run `run-57f1cd8d-30a2-446b-b022-11819487356b` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`；当前 Room 回读得到标题、正文、revision `1` 和稳定 note ID `note-ed6086ba-7590-4d07-8272-8030226622c9`。随后通过 UI 删除笔记、临时会话和 Profile，原 Profile 与旧 Run 审计保持不变。仅使用 Redmi，未修改生产代码、未执行完整测试矩阵、APK 或 Release，也未主动 push。
-
-第 204 阶段完成 Redmi 真实前台人工记忆写入与答案级 UI 验收：临时 Profile `stage204-memory-ui` 仅开放 `memory.remember`，人工输入并批准后，Run `run-291cc29a-bd05-4829-b7f5-086f1857257d` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`；对话页 Tool Ledger、完成卡和长期记忆页从当前 Room 显示同一 marker、来源 Run 和稳定 ID `memory-2015dbef-dad1-4ce8-b73d-ca35ba61dd28`。测试记忆、临时 Profile 和临时会话随后精确清理，原 Profile 与旧 Run 保持不变；默认 User-Agent 也由 HTTP 日志核对。仅使用 Redmi，未执行完整 JVM、Lint、APK、Release 或全量 instrumentation。
-
-第 203 阶段完成真实长期记忆结果进入普通会话投影的窄切片验收：新增仅 Debug 的 `memory_remember_conversation_real` 操作，复用第 202 阶段正式 `AgentRunUseCase` 和当前 Provider；真实 `memory.remember` 结果短暂写入专属 Room 会话，重新加载后仍保留唯一可信 Tool part、`VERIFIED` 状态、稳定 `memoryIdsUsed` 和“查看记忆”导航 ID，清理断言确认临时会话不存在。Redmi `wsvwypiz7xwslvl7` 最终 Run `run-f9e8b439-5701-4530-a0cd-39095c037bf9` 为 `COMPLETED`，审批 `APPROVED`、Executor/typed verification `PASSED`、会话投影通过，临时 Profile/记忆已清理；聚焦 JVM `5/5 + 78/78`、Redmi instrumentation `3/3`、Debug/AndroidTest APK 构建和文档 corpus gate `1/1` 通过。探针只验证持久化投影，不等同于完整人工 UI 输入和审批点击自动化；未运行完整 JVM、Lint、Release 或全量 instrumentation，也未使用 Pixel_9。没有新增生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
-
-第 202 阶段完成真实 Provider 的长期记忆写入闭环：新增仅 Debug 的 `memory_remember_real` 显式 Receiver，临时 Profile 只开放 `memory.remember`，正式 `AgentRunUseCase` 在 Redmi `wsvwypiz7xwslvl7` 上完成真实模型调用。Room 审批为 `APPROVED`，Executor/typed verification 为 `PASSED`，结果 `memoryIdsUsed` 与提交回执及当前 Room 记录绑定同一稳定 `memory-UUID`，并核对实际 note、类型、标签、启用状态和 Run 来源。测试记忆与临时 Profile 精确清理，用户原 Profile/数据保留。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 78/78`（`83/83`）、Debug/AndroidTest APK 构建和 Redmi 真实 Run `run-b747809a-73f0-4813-9c90-7b6a019c978f` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation、文档 corpus gate 或 Release，也未使用 Pixel_9。没有新增生产 Tool/Skill、Room Schema、权限、Workflow 或后台能力。
-
-当前发布版本为 `v0.1.16`（`versionCode 17`、Room v35）。本版汇总 `v0.1.15` 后第 128 至 169 阶段：完整个人 Agent 主链、目标级验证、应用内提醒、任务恢复/诊断/重试/取消、只读日历与本地笔记，以及启动中断 Run 到任务中心、答案级任务/笔记导航等真实使用闭环。按用户明确要求，本轮只执行发布必需的 `assembleRelease`，没有额外运行 JVM、完整 Lint、Debug/AndroidTest、Redmi 安装或 instrumentation。
-
-当前开发基线已推进至第 252 阶段、Room v36；该状态尚未发布为新 Release，不能与上述 `v0.1.16 / Room v35` 发布基线混淆。第 230 至 243 阶段已把系统分享接入受控任务与多种附件理解，第 244 至 246 阶段完成语音草稿、联系人查询和系统详情，第 247 至 248 阶段完成单提醒日程写入与真实自然语言闭环，第 249 阶段补齐知识引用原文定位，第 250 阶段完成唯一下一条系统日程及 occurrence 权威回读，第 251 至 252 阶段完成唯一本地笔记受控导入知识库的工具、幂等、恢复、真实模型、屏幕审批、答案引用与精确清理闭环。下一阶段重新选择新的单一个人 Agent 用户任务；TTS、联系人写入、通知读取、多图片、自动发送、后台摄取、远程 Channel、多 Agent 和本地模型继续后置。
-
-第 201 阶段补齐已验证长期记忆写入结果导航：`memory.remember` 成功回执现在携带应用生成的 `memory-UUID` 和 `memoryIdsUsed`；只有 `VERIFIED`、参数集合、固定成功外壳、唯一合法 ID 全部一致时才显示“查看记忆”。`READABLE_ONLY`、失败、额外参数、ID 漂移、重复正文身份和旧结果均 fail-closed。点击后复用现有记忆管理页并从当前 Room 二次读取，不把回执正文当成权威事实；不新增记忆写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `MemoryNavigationTest 5/5 + XiaoLingToolRegistryTest 2/2`、Debug/AndroidTest APK 构建、Redmi Room 导航 `1/1` 和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Redmi 全量 instrumentation 或 Release。
-
-第 200 阶段补齐答案级本地笔记详情/编辑结果导航：`notes.get` 只有在唯一 `note_id`、固定详情首行、固定正文警示、单一稳定 ID 和规范 revision 同时成立时才显示“查看笔记”；`notes.update` 只有在 `VERIFIED`、参数集合精确、标题/ID与请求一致且返回 revision 恰为 `expected_revision + 1` 时才显示入口；`notes.create` 的写入结果继续要求 `VERIFIED`。点击后复用现有本地笔记管理页并按当前 Store 二次读取，不回退 Tool 正文；失败、只读写入、版本/标题/ID漂移和正文伪造均 fail-closed。聚焦 JVM `7/7`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
-
-第 199 阶段补齐日程创建/修改后的答案级查看入口：`calendar.create_event` 成功结果新增应用生成的唯一稳定事件 ID；可信创建或修改 Tool 卡只有在 `VERIFIED`、参数契约、固定结果外壳、唯一规范 ID 与当前新指纹同时成立时才复用第 198 阶段“查看日程”入口。修改结果的 ID 必须与请求一致，新指纹必须有效且不同于审批前指纹；失败、只读验证、额外参数、标题漂移、伪造 ID/指纹和删除结果均不导航。点击后仍从当前 Calendar Provider 二次读取，不回退历史 Tool 正文。该切片不新增权限、日程写入范围、审批、Room Schema、Workflow 或后台能力。聚焦 JVM `82/82`、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。
-
-第 198 阶段完成答案级系统日程详情导航：可信 `calendar.list_events / calendar.search_events / calendar.get` Tool 卡只有在参数、应用生成结果外壳和唯一规范 `calendar-<正整数>` ID 同时成立时才显示“查看日程”。点击后进入独立只读详情页，并按当前 Calendar Provider 重新读取标题、起止、全天、时区和重复状态；事件删除、权限撤销、Provider 不可用、参数/标题漂移、多结果或伪造 ID 均 fail-closed，不回退历史 Tool 正文。该切片不新增权限、日程写入、审批、Room Schema、Workflow 或后台能力。聚焦导航 JVM、Debug/AndroidTest APK 构建通过；未运行 Redmi instrumentation、完整 JVM、Lint 或 Release。
-
-第 197 阶段完成答案级历史会话导航：可信的 `app.list_conversations / app.search_conversations / app.get_conversation` Tool 卡只有在应用生成的固定结果外壳、参数契约和唯一稳定会话 ID 同时通过时才显示“查看会话”。点击前重新读取当前 Room，目标不存在、被删除、重复、ID 漂移或结果被模型改写时均不导航；成功后复用既有会话选择与正文加载，不发送消息、不创建 Run、不扩展 Workflow 或后台能力。聚焦会话导航 JVM `17/17`、Debug/AndroidTest APK 构建通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
-
-第 192 阶段完成确认后创建关联新 Run 的 Room 历史保留验收。来源 `FAILED` Run 含已批准的写工具、Step、成功 Tool Result、`COMMITTED` 回执和审计 Event；创建 `retryOfRunId` 关联新 Run 后，来源 Run 的终态、Step、Tool Result、Approval、Event 与 Tool Ledger 均保持不变。两次磁盘 Room 重建后关系仍存在，新 Run 仍是独立 `QUEUED` 账本，不复制来源事实。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和文档 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
-
-第 191 阶段完成任务中心的重新发起边界统一。只要持久化 Recovery 存在 `restartDisposition`，即使工具证据标记为未提交，也必须通过专用确认后才创建关联新 Run。任务卡显示“创建新 Run”，弹窗和确认重新核对 Recovery 处置码；证据或处置漂移会刷新/拒绝，不恢复或重放旧 Run。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复执行、Room v36、Workflow 和后台边界不变。
-
-第 190 阶段完成启动恢复后的可见故障投影。启动提示在回读持久化 Recovery 元数据后，会统计无法原地恢复的 Run，明确提示用户只能在任务中心确认后创建关联新 Run，旧 Run 不会重放；不展示任务目标、错误、Run ID 或其他私密内容。聚焦 JVM 单元测试通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
-
-第 189 阶段完成失败日程修改 Run 的终态恢复验证。Redmi 上的 Room instrumentation 构造无 `COMMITTED` 回执的 `calendar.update_event` 失败事实，重建 `RoomAgentRunRepository` 后恢复策略仍为 `RESTART_REQUIRED / RUN_STATE_NOT_RESUMABLE`；启动收口返回 `0`，Run 保持 `FAILED`，Step、Tool Result 和事件数量不变，且没有新增 `run.recovered`。Debug/AndroidTest APK、Redmi 恢复单项和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，未新增生产恢复、重放、Room Schema 或后台能力。
-
-第 188 阶段完成真实 Provider 的审批后漂移失败验收。Redmi 真实模型 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 严格执行 `calendar.search_events -> calendar.get -> calendar.update_event`；审批落库后由 Debug 夹具修改同一事件，条件 UPDATE 正确拒绝，Run 收敛为 `FAILED`，UPDATE 没有 `COMMITTED` 回执，Provider 保留外部新事实。夹具、临时 Profile 和临时日历均精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 真实失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
-
-第 187 阶段完成日程修改的中断恢复边界加固。`calendar.update_event` 的恢复契约增加显式 JVM 断言，固定为 `RESTART_REQUIRED + DENY`；Redmi 日程写入器测试在更新提交后重建 `AndroidCalendarEventWriter`，只读回查成功，缺少 `COMMITTED` 回执的再次更新仍被指纹门禁拒绝，证明跨进程/Registry 重建不会重放 UPDATE。聚焦 JVM `196/196`、Debug/AndroidTest APK、仅 Redmi 的 `AndroidCalendarEventWriterInstrumentedTest` `4/4` 和文档 corpus gate `1/1` 通过；测试 APK 已卸载，主应用数据保留。未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力、Room v36、旧 Run/Workflow/后台边界不变。下一阶段继续在真实模型链上验证失败/中断处置，不扩大日程修改范围。
-
-第 186 阶段在 Redmi 使用当前真实模型 Provider 完成受控系统日程修改闭环。Debug-only `calendar_update_real` 通过显式 Receiver 创建唯一一次性非全天夹具，临时 Profile 只允许 `calendar.search_events / calendar.get / calendar.update_event` 与 `calendar-update`；最终 Run `run-554e65fa-ca43-461c-8346-034f3a426694` 严格三步完成，搜索关键词、稳定事件 ID、详情指纹、`scope=event` 和完整新标题/起止/时区原样传递，三项结果均 typed `PASSED`。Room 审批为 `APPROVED`，UPDATE 结果具备 Executor 验证和同事件 `COMMITTED` 回执，Provider 回读确认四字段与新指纹一致；事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK 构建成功，文档 corpus gate `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation。下一阶段继续评估真实模型链的失败恢复和跨进程 `COMMITTED` 只读验证，不扩展重复事件、occurrence、Workflow 或后台能力。
-
-第 185 阶段完成受控系统日程修改。新增仅前台 DIRECT、逐次审批的 `calendar.update_event` 与独立 `calendar-update` Skill；模型必须先 `calendar.search_events -> calendar.get`，再原样传递稳定事件 ID、当前版本化指纹和 `scope=event`，只可提交完整的新标题、带偏移起止时间与 IANA 时区。Provider UPDATE 绑定审批前完整快照，外部漂移、无变化、全天、重复系列与 occurrence 均 fail-closed；写后回读四个目标字段并返回新指纹。恢复固定为 `RESTART_REQUIRED + DENY`，只有匹配 `COMMITTED` 回执时只读验证，恢复入口再次限制前台 DIRECT 且不重放 UPDATE。旧 Skill、Profile、Legacy Run、Workflow、后台和 Room v36 均未扩权。聚焦 JVM `101/101`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段验证真实模型 `calendar.search_events -> calendar.get -> calendar.update_event` 审批闭环。
-
-第 184 阶段在 Redmi 完成真实模型 Provider 的受控系统日程删除闭环。Debug-only 探针创建唯一一次性事件，临时 Profile 只允许 `calendar.search_events / calendar.get / calendar.delete_event` 与 `calendar-delete`；最终 Run `run-3981834b-8d4c-4ade-b3ec-23aa138250cd` 严格三步完成，搜索关键词、稳定事件 ID 和版本化指纹原样传递，三项结果均 typed `PASSED`，Room 审批为 `APPROVED`，删除结果具备 Executor 验证和 `COMMITTED` 回执，当前 Provider 已不可见。事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK 与文档 corpus `1/1` 通过；未运行 JVM、Lint、Release APK 或全量 instrumentation，也未扩展生产工具、权限、Room、旧 Profile/Run 或后台能力。下一阶段冻结受控系统日程修改的字段白名单、指纹防漂移、scope、审批、回执与恢复契约。
-
-第 183 阶段完成受控系统日程删除。`calendar.get` 现在返回绑定当前 Provider 事件字段的版本化 SHA-256 指纹；新增仅前台 DIRECT、逐次审批的 `calendar.delete_event(event_id, expected_fingerprint, scope)` 与独立 `calendar-delete` Skill。`event` 只删除一次性事件，`series` 只删除整个重复系列，`occurrence` 明确拒绝且不会降级为系列删除；提交前使用事件 ID、标题、起止时间、全天、时区、RRULE/RDATE 和删除状态执行 Provider 条件删除，审批期间发生漂移即拒绝。恢复契约为 `RESTART_REQUIRED + DENY`，只有已有 `COMMITTED` 回执时允许只读确认目标不可见，绝不再次删除。旧 Skill、Profile、Legacy Run、Workflow、后台和日程修改均未扩权。聚焦 JVM `97/97`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation。下一阶段验证真实模型 `calendar.search_events -> calendar.get -> calendar.delete_event` 审批闭环。
-
-第 182 阶段在 Redmi 完成真实模型 Provider 的系统日程详情闭环。Debug-only 探针在 Agent Run 外用正式 Calendar writer 创建唯一临时事件，临时 Profile 只允许 `calendar.search_events / calendar.get` 与 `calendar-detail`；最终 Run `run-e238ca62-58c5-4c54-a611-e368f2ddace2` 严格两步完成，搜索关键词原样使用、稳定 `calendar-<Events._ID>` 原样传递，两项结果均成功且 typed `PASSED`，权威详情和零审批通过。事件、必要时创建的本地日历及临时 Profile 均精确清理。Debug/AndroidTest APK、Redmi 真实 Provider 与文档 corpus `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，也未扩展生产工具、权限、Room、旧 Profile/Run 或后台能力。
-
-第 181 阶段完成系统日程稳定身份与权威详情读取。`calendar.list_events / calendar.search_events` 现在返回绑定 `CalendarContract.Events._ID` 的稳定 `calendar-<正整数>`，新增前台 SAFE `calendar.get(event_id)` 只按该 ID 从当前 Provider 回读标题、起止时间、全天、时区和 RRULE/RDATE 重复状态；地点、描述、参与人、组织者和账户不进入投影。独立 `calendar-detail` Skill 强制先搜索、唯一匹配后再读取，不允许猜测 ID；旧 Skill、Profile、历史/Legacy Run、日程修改删除、后台和 committed-effect verification 均未扩权。聚焦 JVM `89/89`、Debug/AndroidTest APK、仅 Redmi 的真实 Calendar Provider `1/1` 和文档 corpus `1/1` 通过，临时事件已按 Provider ID 精确清理；未运行真实模型 Provider Run、完整 JVM、Lint、全量 instrumentation 或 Release。
-
-第 180 阶段完成答案级长期记忆导航。可信 `memory.search / memory.get` Tool 卡只有在成功、非失败验证、严格参数、应用生成结果外壳与唯一 `memoryIdsUsed` 稳定 ID 一致时才显示“查看记忆”；点击只传 `memory-UUID`。应用在导航前重新读取当前 Room，记录存在时清空旧筛选、置顶并选中，已删除时阻断导航并移除缓存正文；管理页自动滚动到目标卡。聚焦 JVM 四个相关测试类、Debug/AndroidTest APK、仅 Redmi 的 Tool 卡和真实 Room 导航 `2/2` 及文档 corpus `1/1` 通过，临时记忆已清理；未运行真实 Provider、完整 JVM、Lint、全量 instrumentation 或 Release。
-
-第 179 阶段完成真实 Provider 长期记忆详情闭环。仅在 Redmi 上运行的最终 Run `run-0b54ba01-5fc2-49bc-95dc-92ab5afd80b6` 选择 `personal-memory-detail`，严格执行 `memory.search -> memory.get`；两项 typed verification、稳定 ID 与 `memoryIdsUsed`、详情数据边界和零审批均通过。Debug 夹具和临时 Profile 已清理。聚焦 JVM `87/87`、Debug/AndroidTest APK 与 Redmi 文档 corpus `1/1` 通过；未运行完整 JVM、Lint、全量 instrumentation 或 Release。
-
-第 178 阶段完成按稳定 ID 读取长期记忆详情。新增 SAFE `memory.get(memory_id)` 与独立 `personal-memory-detail` Skill；`memory.search` 保留原全文并补充稳定 `memory-UUID`，详情只回读当前启用且未过期的 Store 记录。不存在、禁用和过期统一不可用；关闭单次召回时搜索/详情同时隐藏并阻断 Store 访问。旧 `personal-memory`、Profile、历史 Run 和 legacy 工具集合不自动扩权。聚焦 JVM `87/87`、Debug APK 与双轴审查通过；真实 Provider 闭环已由第 179 阶段在 Redmi 完成。
-
-第 177 阶段完成周期计划暂停/恢复的真实使用闭环。Redmi 真实 Provider 分别严格执行 `tasks.list -> tasks.inspect -> tasks.pause` 与 `tasks.list -> tasks.inspect -> tasks.resume`，两次 Room 审批和全部 typed verification 均通过；暂停后旧未来 Task/WorkRequest 为 `CANCELLED`，恢复只生成一个当前时间之后的 `ENQUEUED` 实例，不补跑且不改写旧 Task。可信结果现在会生成受限会话终态、刷新 Workflow/ScheduledTask/周期规则快照，并在答案下提供“查看任务”；点击仍按当前 Room 唯一精确名称二次解析，不保存内部 ID。聚焦 JVM `13/13`、Debug/AndroidTest APK、仅 Redmi 的真实 Provider 双 Run 与文档 corpus `1/1` 通过，夹具、临时 Profile 和残留 Work 已清理；后台、一次性计划控制、精确定时、Foreground Service 和高级日历写入继续关闭。
-
-第 176 阶段完成应用内周期计划暂停/恢复。新增仅前台、逐次审批的 `tasks.pause(name)`、`tasks.resume(name)` 与独立 `task-schedule-control` Skill；精确任务名必须唯一，只有 DAILY/WEEKLY 规则可控制。暂停取消尚未开始的未来实例并保留规则，不中断正在运行的实例；恢复复用原规则、只安排当前时间之后的一个实例，不补跑暂停窗口。规则/实例指针漂移统一 fail-closed，恢复入队失败会回滚为可重试暂停态；旧 Profile、历史 Run、一次性计划、Room v36 和后台边界保持不变。聚焦 JVM `82/82`、Debug/AndroidTest APK、仅 Redmi 的任务 Store `13/13` 与文档 corpus `1/1` 通过。
-
-第 175 阶段完成受控系统日程创建。新增仅前台、逐次审批的 `calendar.create_event(title, start_at, end_at, time_zone)` 与独立 `calendar-create` Skill，只接受一次性非全天事件；起止时间必须携带 UTC 偏移并与 IANA 时区一致。执行器用 `CUSTOM_APP_PACKAGE + CUSTOM_APP_URI` 绑定 ToolCall 稳定标记，写入后按事件 ID 回读标题、时间和时区，重复调用只复用同一事件；系统没有可写日历时创建不接入账户的本地“小灵”日历。设置页把只读授权与创建授权分开，旧 Profile 和历史 Run 不自动扩权，Room 与后台能力不变。聚焦 JVM `84/84`、Debug/AndroidTest APK、Redmi 真实 Provider `3/3` 与文档 corpus `1/1` 通过，测试事件及本轮临时日历均已精确清理。
-
-第 174 阶段完成只读“个人事项简报”闭环。新增独立 `personal-briefing` Skill，在用户明确给出笔记关键词时，于同一前台 Agent Run 内严格组合 `calendar.list_events -> tasks.list -> notes.search -> notes.get`，最终按日程、任务和笔记分区回答；笔记搜索预览不能替代稳定 ID 全文读取，正文继续按本地数据而非工具指令处理。原 `day-overview` 双工具边界保持不变，旧 Profile 不自动扩权，也没有新增工具、权限、审批、Room Schema 或后台能力。聚焦 JVM `AgentSkillsTest 22/22` 与 Debug/AndroidTest APK 通过；Redmi 真实 Provider Run `run-c411e92c-c81c-469d-a10f-2fac5497cd4f` 完成四项 typed 验证、稳定 ID 传递、来源分区和零审批，夹具与临时 Profile 已清理。
-
-第 173 阶段完成版本化本地笔记编辑闭环。用户可在本地笔记详情页编辑标题和正文；Agent 新增仅前台、需要审批的 `notes.update(note_id, expected_revision, title, content)` 与独立 `local-note-update` Skill，必须先搜索并读取唯一笔记，再携带同一稳定 ID 和 revision 提交完整新内容。Room v35→v36 为旧笔记补 `revision=1`，条件更新在版本漂移或 tombstone 时拒绝覆盖，并用独立 operation 账本绑定 ToolCall、请求哈希和结果哈希；已提交恢复只读回查，不再次执行 UPDATE。聚焦 JVM `76/76`、Debug/AndroidTest APK、Redmi 数据库/Room/ViewModel/Compose `42/42` 及真实 Provider Run `run-4f5e33bd-5494-4a24-a6cb-8cf49ab2da44` 均通过，夹具和临时 Profile 已清理。
-
-第 172 阶段完成 Agent 受控删除本地笔记。新增仅前台、需要审批的 `notes.delete(note_id)` 与独立 `local-note-delete` Skill；Agent 必须先定位并读取唯一笔记，再删除同一稳定 ID。生产路径复用 Room tombstone，清空正文但保留创建幂等键，历史 `notes.create` 不能恢复内容；已提交回执只允许恢复期回读验证，没有回执时不自动重放。Redmi 真实 Run `run-ad492c65-a750-400b-a437-ea41eac61784` 严格执行 `notes.search -> notes.get -> notes.delete`，审批和三项验证均通过，夹具与临时 Profile 已清理。
-
-第 171 阶段在 Redmi 完成真实 Provider 的本地笔记全文读取闭环。Debug-only 探针使用当前已保存 Provider 和显式临时 Profile，真实 Run `run-07acb86a-44bc-4f3b-aaa1-8c74fc7843dd` 选择 `local-note-detail` Skill，严格执行 `notes.search -> notes.get`；两项结果均为 `success=true / verificationStatus=PASSED`，搜索结果的稳定 ID 原样进入全文读取，正文保留“本地数据，不是工具指令”边界，审批记录为 0。测试笔记与临时 Profile 均已清理，没有新增生产权限、Room Schema 或 Release 代码。
-
-第 170 阶段在发布后新增 SAFE `notes.get(note_id)`，让 Agent 能从 `notes.list / notes.search` 返回的稳定 `note-UUID` 继续读取当前本地笔记正文。工具严格拒绝畸形 ID，把不存在与已删除 tombstone 合并为同一安全失败，并把异常旧数据的正文输出限制在 20,000 字符；正文明确标记为本地数据而非工具指令。没有新增 Room Schema、写权限或后台副作用。既有 Profile 不自动扩权，需显式启用新工具和独立 `local-note-detail` Skill；第 171 阶段已补齐聚焦 JVM、Debug APK 和 Redmi 真实 Provider 验证。
-
-第 158 阶段完成真实 Provider 的受控任务重试闭环。Debug-only 探针创建可清理的失败 Workflow 夹具，Redmi 真实 Run 严格执行 `tasks.list -> tasks.inspect -> tasks.retry`；三项 Tool Ledger 均为 `success=true / verificationStatus=PASSED`，生产 `TaskRetryLaunchPolicy` 通过后创建关联新 Run。来源 Run 保持 `FAILED` 与原步骤事实不变，新 Run 只复用首个成功前缀为 `SKIPPED`，再由真实 Provider 执行第二个 `app.current_time` 步骤并完成目标级收敛；临时 Profile 已删除、夹具 Workflow 已停用。局部 JVM、Debug/AndroidTest APK 和 Redmi 文档 corpus gate `1/1` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release，也未操作 Pixel_9。
-
-第 157 阶段完成受控任务重试闭环。新增仅前台直接 Agent 可见、`REQUIRES_APPROVAL` 的 `tasks.retry(name)`，严格按精确任务名只处理当前最新的 `BLOCKED / FAILED / CANCELLED` Run；ToolCall ID 派生确定性新 Workflow Run，重复调用只回读仍处于 `QUEUED` 的同一提交，任务已启动、被其他运行取代、步骤证据变化或身份漂移时 fail-closed。成功前缀仅标记为 `SKIPPED` 并保留 `reusedFromStepId`，来源 Run、步骤、结果和副作用不变。前台宿主从 Room Tool Ledger、typed `PASSED` 验证和提交回执重新读取新 Run 后才接管执行，模型文本不参与启动判断。聚焦 JVM `XiaoLingToolRegistryTest 44/44 + AgentSkillsTest 17/17 + TaskRetryLaunchPolicyTest 2/2 + MinimalAgentRuntimeTest 67/67`、Debug/AndroidTest APK 和仅 Redmi `RoomAgentTaskStoreInstrumentedTest 8/8` 通过；本阶段未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
-
-第 156 阶段把任务只读诊断接到答案级可操作入口。可信 `tasks.inspect` 工具卡现在显示“查看任务”；点击后只用工具参数中的任务名称与当前 Workflow 做唯一精确匹配，命中则打开并定位 Workflow 管理项，删除、重命名、缺失或同名时降级到通用列表，不猜测内部 ID。入口只接受成功且未验证失败、参数只有非空 `name`、结果首行为“任务最近运行”的真实 Tool part；普通模型文本不能生成入口，点击不会重发消息或修改任务。聚焦 JVM、Debug/AndroidTest APK 与仅 Redmi 的 `ConversationPageInstrumentedTest 9/9` 通过；未新增 Room Schema、工具权限、后台能力或任务写操作。
-
-第 155 阶段补齐任务最近运行的只读诊断闭环。新增前台 SAFE `tasks.inspect`：Agent 先用 `tasks.list` 获取任务名称，再按精确名称读取最近 Run 的状态、触发方式、起止时间、步骤序号/状态和稳定失败分类；不存在时明确返回空结果，同名任务拒绝猜测。工具不返回 Workflow/Run/Step ID、原始错误、步骤输入输出、工具参数或 ToolResult 正文，不修改、取消或重试任务，也不新增 Room Schema。聚焦 JVM `57/57`、Debug/AndroidTest APK、Redmi Room `5/5` 通过；真实 Provider Run `run-91db12f3-7b7d-445f-bf19-3a4ef92be06e` 严格执行 `tasks.list -> tasks.inspect`，两项均 `success=true / PASSED`。
-
-第 154 阶段补齐本地笔记的用户受控删除。用户只能从笔记详情发起并二次确认；生产删除会清空标题和正文，但保留 note ID 与 ToolCall 幂等键作为不可见 tombstone，确保历史 `notes.create` 重放不能恢复已撤回内容。列表、搜索和详情统一过滤 tombstone，不新增 Room Schema、Agent 工具、Profile/Skill 权限或后台能力。聚焦 `XiaoLingToolRegistryTest 40/40`、Debug/AndroidTest APK 通过；仅 Redmi 的 ViewModel `2/2`、页面 `2/2` 和真实 Room tombstone `1/1` 均通过。
-
-第 153 阶段补齐本地笔记的用户可见只读入口。设置页新增“本地笔记”，复用生产 `RoomAgentNoteStore` 展示最近最多 10 条笔记、按标题或正文搜索最多 10 条，并可按稳定 ID 查看完整正文和创建/更新时间；标题与返回入口固定在滚动区之外。页面使用独立 `LocalNoteManagementViewModel`，没有继续扩大主 `XiaoLingViewModel`，也没有新增 Room Schema、编辑、删除、后台写入或新的 Agent 权限。定向 JVM、Debug/AndroidTest APK 通过；仅在 Redmi `wsvwypiz7xwslvl7` 运行 ViewModel `1/1`、页面 `2/2`、设置根 `5/5` 和真实 Room list/search/get `1/1`。
-
-第 152 阶段完成首个可直接体验的本地笔记写入闭环。Redmi `wsvwypiz7xwslvl7` 使用当前 Provider 的真实 Agent Run `run-66b689fb-6ff3-410f-a851-e0f91765047a`，由临时 `local-notes` Profile 规划并执行 `notes.create`；Room 审批为 `APPROVED`，Tool Ledger 为 `success=true / executorVerified=true / PASSED`，写入后按标题搜索回读成功。Debug 探针随后删除测试笔记、删除临时 Profile 并恢复用户原 Profile，Run/审批审计保留。聚焦 Redmi 清理回归为 `OK (1 test)`，Debug/AndroidTest APK 构建成功；本阶段未运行完整 JVM、全量 Lint 或 Release。
-
-第 151 阶段完成真实 WorkManager 长任务、熄屏和受控进程中断边界验证。Redmi 上两条 8 步 `app.current_time` 后台任务分别以 `95816ms / 91915ms` 完成，熄屏样本后半程保持 `Wakefulness=Dozing` 且 PID 未变化；人工 `force-stop` 样本从旧 PID `8228` 切换到新 PID `9134`，恢复后保留 `4 COMPLETED` 前缀并将剩余 `4` 步安全收敛为 `CANCELLED`，没有重放工具或后续步骤。该样本不是自然 LMK；主动断网和 5 至 10 分钟任务仍未验证，因此暂不引入 Foreground Service。
-
-第 150 阶段完成 `day-overview` 只读 Skill，可将 `calendar.list_events` 与 `tasks.list` 在同一 Agent Run 内组合回答“今天有哪些安排和提醒”；结果已验证区分系统日程与小灵任务事实。该能力沿用日历主动授权、Profile/Skill 显式白名单和前台限制，不新增权限、Room、后台执行或写入能力。Redmi 真实 Run `run-535a90af-b45c-4b18-8574-0aa4c91e6268` 两项工具均为 `success=true / PASSED`。
-
-第 149 阶段新增系统日历标题关键词查找：SAFE `calendar.search_events` 可在用户主动授权 `READ_CALENDAR` 后，按标题查找未来 1 至 30 天内最多 20 条日程；仍只返回标题、起止时间和全天标记，不读取地点、描述、参与人或账户。新增独立 `calendar-search` Skill，旧 Profile 不自动扩权，后台 Workflow、日历写入和静默权限请求继续关闭。聚焦 JVM、Debug/AndroidTest APK 和 Redmi 真实 Provider `OK (2 tests)` 已通过；设备没有可安全创建的日程，仅验证了有界读取与不存在标题空结果。
-
-「小灵」是一款 Android 端个人 Agent 应用。当前阶段先把个人 Agent 的基础底座做稳：多模型提供方配置、多会话上下文、Chat Completions / Responses API、Room 本地存储、可审计 Agent Run，以及基于 WorkManager 的一次性非精确定时工作流。
-
-后续方向不是继续停留在“能不能连上模型”，而是逐步扩展成个人可长期使用的移动端 Agent：持续记忆、工具调用、移动端自动化、任务编排和更完整的个人工作流。
-
-第 148 阶段已接入系统日历只读能力：新增 `calendar.list_events` 与 `calendar-overview` Skill，限制为前台、未来 1 至 30 天、最多 20 条，只返回标题、起止时间和全天标记；用户必须在独立“日历访问”页主动授权，且仍需在 Agent Profile 中显式启用工具与 Skill。Redmi 真实验证完成 Provider 读取 `1/1`，真实 Agent 计划 `1/1` 且只执行 `calendar.list_events`，结果为“未来 7 天没有日程”。计划提示词同时收紧为不把整理/展示拆成独立工具步骤，避免额外调用无关工具。系统日历写入、后台 Workflow、地点/描述/参与人/账户字段继续关闭。
-
-“先跑通完整个人 Agent”主线已经完成。第 127 至 132 阶段已贯通自然语言计划、限定 App 多动作执行、目标级本地验证、记忆/知识计划上下文、应用内提醒、任务级恢复/关联重试和 Redmi 完整里程碑验收。第 133 至 156 阶段进入真实使用打磨，已收敛计划/任务/提醒交互、只读日历与今日总览、多级关联重试、前台和 WorkManager 多步任务的 Runtime 可靠性，并形成“任务清单 -> 最近运行诊断 -> 答案级定位任务”的只读闭环。当前仍没有自然 LMK、主动网络失败或 5 至 10 分钟真实任务证据，因此不引入 Foreground Service，也不开放后台设备动作。纯重构、单层 evidence、Shadow 扩样和高级生态不抢占真实任务问题。
-
-GitHub 仓库：[lonnnnnng/xiaoling](https://github.com/lonnnnnng/xiaoling)
-
-最新版本：[小灵 v0.1.16](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.16)
-
-## 当前定位
-
-- 移动端个人 Agent 入口。
-- OpenAI-compatible Provider 优先，不绑定单一服务商。
-- 先保证模型接入、上下文、会话保存和输出渲染稳定，再扩展工具与自动化。
-- 现阶段优先让“目标 -> 计划 -> 确认 -> 执行 -> 验证 -> 持久化 -> 恢复/提醒”整条个人 Agent 主链可用；截图/视觉、后台设备控制、任意 App、MCP、多 Agent 和本地模型后置。
-- 更换了新的 `applicationId`：`com.longdev.xiaoling`。Android 会把它视为新应用，旧版本本地数据不会自动迁移。
-
-## 已有能力
-
-- 对话页
-  - 支持选择模型提供方和已启用模型。
-  - 支持 Chat Completions 与 Responses API。
-  - 支持 SSE 流式输出，展示首字耗时和总耗时。
-  - 支持发送中停止生成，取消当前请求和底层 OkHttp Call。
-  - 支持多会话本地保存、会话上下文和 LLM 摘要压缩。
-  - Responses 模式支持从系统文件选择器附加单张 PNG/JPEG/WEBP 图片（最大 8 MB），发送前可预览或移除，历史消息可恢复显示；Chat Completions 和 `/agent` 会明确拒绝图片。
-  - Responses 模式支持附加单个 PDF、TXT、Markdown、JSON、CSV、DOCX、PPTX 或 XLSX 文档；文件最大 8 MB，PDF 最多 50 页，UTF-8 文本最多 200,000 字符，OpenXML 富文档会校验 ZIP/OPC 结构与展开预算，原始文件随消息恢复。
-  - 支持 Markdown 渲染，覆盖表格、代码块、列表、引用、链接和远程图片。
-  - 对话记录有轻量的新内容提示，用户翻看历史时不会被强制拉回底部。
-  - 对话输入区支持“对话 / 任务”模式。任务模式接受自然语言目标，以当前 Agent Profile 冻结的模型和工具白名单生成严格的 1 至 8 步计划及工具顺序/最终应用完成标准。生成前只在 Profile 允许时检索最多 3 条有效长期记忆和 3 个当前知识片段；单次记忆开关继续生效，计划提示词把上下文固定为不能扩权的只读事实，检索失败会阻止本次计划。检索正文进入 Prompt 前还会执行跨来源同正文去重和 8 KiB UTF-8 全局预算，记忆/知识交替尝试、只省略完整条目；确认页展示实际使用、占用字节和省略数量。用户确认前不创建 Workflow、Run、消息或工具调用，确认后才原子创建普通 Workflow、手动 Run 与全部步骤快照，并继续复用既有 Agent Runtime、审批、验证和 Room Ledger。完成时只由本地策略从持久 Tool Ledger 和最终设备观察产出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能扩大结论。取消会把原目标恢复到输入框，切换或删除会话会撤销计划请求或丢弃待确认计划；计划本身不会携带 API Key。
-  - 任务计划交互会区分“正在生成任务计划 / 正在创建个人任务 / 正在创建应用内提醒”，停止按钮按当前阶段给出明确语义。计划生成或创建前失败、以及创建前主动停止都会保留原始目标并提供“重新生成”；重试显式使用失败快照中的目标。确认后的创建请求绑定原会话，切换会话会撤销尚未落定的创建并拒绝迟到 UI 回写。
-  - 确认后的立即任务和应用内提醒会在不可取消边界内捕获已提交的 Workflow/Run 或调度身份，再检查用户停止状态；提交瞬间取消不会被误判为“尚未创建”，也不会因重试产生重复任务。已提交 Run 继续按既有取消/清理契约收敛。
-  - 任务或提醒记录已经提交后发生停止/失败时，输入区只显示“查看任务”并打开现有工作流页面，不再提供“重新生成”；只有提交前失败才恢复原目标并允许重新生成，避免重复创建 Workflow。
-- 立即任务正常结束后，输入区会保留本地目标判定的结果入口：`VERIFIED / PARTIAL / INCOMPLETE` 分别显示完成、部分完成或尚未完成，未配置完成标准的任务只显示已完成。点击“查看任务”进入既有工作流页面核对步骤与证据；应用内提醒成功后也保留调度创建入口。新的输入、模式切换或下一次计划会清除旧入口，模型总结不能升级本地结论。
-  - 完成结果卡的“查看任务”会携带对应 `workflowId` 进入 Workflow 管理页；列表会自动滚动到目标 Workflow 并展开详情。失败后没有可定位 ID 时仍使用通用入口。返回设置根页会清理一次性目标，避免下次进入复用旧任务。
-  - Activity 重建后仍保留完成卡传入的 Workflow 定位目标；只保存一次性内容目标，不保存暂态 Tab、子页和退出手势状态。
-  - 任务模式可把明确的未来或周期表达映射为应用内提醒：支持一次性 1 至 10080 分钟、每日和每周规则，确认页显示系统时区和“非精确定时”边界。用户确认前不创建任何 Workflow 或调度记录；确认后 Room 原子写入 Workflow 与首个 ScheduledTask/周期规则，再复用现有 WorkManager 和结果通知。定时提醒不允许目标 App、`device.*` 完成标准或设备最终应用，需要审批的其他动作到时只会进入既有待处理通知，不会在后台自动获批。立即任务保持原前台执行路径。
-  - Android 13+ 提醒确认需要通知权限时，确认弹层会等待系统权限结果并禁用重复确认/返回；无论授权或拒绝，只有权限回调返回且原计划仍有效时才提交已确认提醒。通知权限只决定结果通知能否显示，不改变用户已确认的应用内调度语义。
-  - 支持 `/agent <目标>` 顺序多步 Agent 链路：当前模型可在同一 Run 内逐步选择最多 4 个工具或结束任务，应用侧对每一步独立校验、审批和验证，执行结果写入 `AgentRun / AgentStep / RunEvent`。
-  - 已内置第一批应用内工具：`app.current_time`、`app.list_conversations`、`app.search_conversations`、`tasks.list`、`notes.list`、`notes.search`、`notes.get`、`memory.search`、`knowledge.search`，以及需要审批的 `notes.create`、`notes.update`、`notes.delete` 和 `memory.remember`。`notes.get/update/delete` 只接受读取结果中的稳定 `note-UUID`；编辑还必须携带当前 revision，版本漂移时拒绝覆盖。编辑和删除仅允许前台执行，既有 Profile 不会自动扩权，需显式启用新工具与对应 Skill。
-  - Agent Run 关联重试已由独立 `AgentRunRetryCoordinator` 编排：失败 Run 的资格判断、副作用证据确认与漂移复核、原 USER 附件恢复和关联新 Run 请求不再散落在 ViewModel。重试始终保留旧 Run 终态，以 `retryOfRunId` 创建新 Run；会话导航、Profile/Provider 校验和真正执行仍由 ViewModel/Agent Runtime 负责，不扩大工具或后台权限。
-  - `NOT_COMMITTED_REPLAY_ELIGIBLE` 已接入用户控制的受控关联重试：请求与确认都重新读取 Room，使用来源 Profile 和当前 Registry 重核恢复资格；确认后创建带 `retryOfRunId` 的新 Run，冻结来源工具名称、风险、参数与恢复契约，同时生成新的 ToolCall ID。新 Run 不调用模型重新规划，仍重新发起独立工具审批，批准后只执行该调用一次并直接总结；旧 Run、旧 ToolCall、旧审批和旧 Executor 均保持不变，Workflow 与后台入口不开放该路径。
-  - 进程恢复后的链尾审批已由独立 `RecoveredAgentApprovalCoordinator` 编排：每次决定都重新读取 Room detail 并复用 `AgentRunResumePolicy` 核验唯一链尾证据，批准前先恢复原 USER 附件，重复批准/拒绝由一次性互斥门禁拒绝。另一会话的恢复审批占用门禁时返回 `Busy`，当前 `PENDING` 卡片保持可重试；附件或前置能力失败且审批仍为 `PENDING` 时也会恢复卡片。拒绝在一个 Room 事务中原子收敛 Approval、审批 Step 与原 Run，避免半状态。普通前台审批仍由独立 `AgentApprovalDecisionCoordinator` 管理 waiter，两条边界不合并。
-  - 候选记忆的列表、成功回合采集和接受/拒绝已由独立 `AgentMemoryCandidateCoordinator` 编排：普通聊天与 Agent Run 使用稳定来源身份，同一候选 ID 的并发决定返回 `Busy`，不同候选可以并行；失败和取消都会释放 claim。关闭候选开关会取消旧列表读取，避免迟到 Room 结果重新填充界面。敏感过滤、去重、冲突、事务与正式记忆检索继续由既有 Room Store/Manager 负责。
-  - Provider 模型同步已由独立 `ProviderModelSyncCoordinator` 编排：单项与批量同步统一 URL 校验、请求规范化、模型去重与当前模型回退；批量严格按列表顺序执行，普通失败继续下一项，取消立即终止。网络请求可以并行，但完整 Provider 快照通过提交互斥串行落库；保存前后都会拒绝已删除或身份漂移的迟到结果，成功必须以 Room 持久化完成为准。ViewModel 只保留忙碌态、逐项结果和弹窗投影。
-  - Agent 启动前校验已由独立 `AgentLaunchPreflightCoordinator` 编排：普通 `/agent`、Workflow 首次运行、Workflow Run 重试、Agent Run 关联重试和恢复后审批统一执行会话、Profile、工具注册与 Provider 校验。普通 `/agent` 仍可在没有当前会话时创建会话；其余入口要求原会话存在。恢复审批优先使用原 Run 的 Profile 快照，旧 Run 没有有效快照时才回退当前选中 Profile；其他入口继续使用当前 Profile。校验只冻结本次进程内运行配置，不写 UI、Room 或日志；运行配置自身的字符串表示会脱敏 Base URL、API Key 与自定义 Header。
-  - 个人 Agent 主线已重新启动。用户在前台手动运行 Workflow 时，可在设备 Agent 独立开关、Accessibility 授权和 Profile/Skill 白名单均有效时使用 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`。`back / home / swipe` 都是零审批的 SAFE 动作；`open_app` 只接受小灵、系统计算器、时钟、系统设置和 Google 天气的显式包名，并与点击、输入一样逐动作走 Room/Accessibility overlay 审批。所有动作仍要求同 Run 新鲜观察、30 秒 TTL、当前 window generation、Executor/typed 验证和动作后重新观察；`open_app` 的后置包名必须精确等于获批目标，`home` 必须命中系统动态解析的 launcher，`swipe` 必须证明同窗内容变化与共同匿名锚点按请求方向位移。全部后台或定时 Workflow 设备工具继续关闭。审批恢复会从 Room 关联还原原调用来源，不能因进程重建退化成直接对话权限。
-  - Workflow 详情页会按步骤分块关联持久化 Agent Tool Ledger，并把成功、`PASSED` 且快照顶层/逐节点结构都合法的 `device.snapshot` 投影为可复核证据卡：只展示应用包名、节点/脱敏节点数、截断状态、采集时间和耗时。窗口标题、节点正文、ref、bounds、actions 与原始 JSON 不进入 UI state；旧步骤输出、前序输入和 Run 汇总中缺少 ID、camelCase 或转义的 snapshot JSON 变体也会 fail-closed 替换为脱敏提示，历史 ref 明确标记为已过期、不可用于动作。
-  - Workflow 设备观察现在通过 `workflow-device-observation-v1` 形成本地判断：未脱敏且未截断为“可复核”，存在脱敏或截断为“有限可复核”。下一步和关联重试都会重新回查来源 Tool Ledger，并用只含包名、计数、截断和时间的版本化判定替换模型步骤正文；证据缺失、未验证、畸形或漂移时停止后续步骤。该观察判定本身不确认节点正文、目标完成或动作授权；`open_app / tap_ref / type_text` 仍必须逐动作审批，`back / home / swipe` 走 SAFE 零审批，但都受同 Run 当前观察与完整后置验证约束。`swipe` 的答案级判定与 UI 只保留“滚动”、前后包名和后置白名单摘要，不持久化方向、viewport/HMAC、snapshot/ref、节点正文或坐标；全部后台设备工具继续关闭。
-  - 真实多步 Workflow 已证明该判定可跨独立 Agent Run 消费：第一 Run 只执行 `device.snapshot`，第二 Run 只执行 `app.current_time`，两者均为 `SAFE / PASSED`。Workflow 完成事务会重新回查同 Run Tool Ledger，并将 step `result/outputSnapshot` 及后台会话文本统一净化为 169 字符白名单判定；原始节点、ref 与模型转述不再复制到 Workflow 输出。
-  - 第 112 阶段冻结前台 Workflow 有限设备动作的 `workflow-device-action-safety-v1` 纯策略契约；第 113 阶段接入 `tap_ref`，第 115/116 阶段完成 `type_text` 专属安全与精确回读，第 117 阶段完成 Room/overlay、答案级证据和真实 Workflow 生产闭环，第 118 阶段统一跨入口持久化隐私，第 119/120 阶段逐项接入 SAFE `back / home`，第 121 阶段完成逐包审批的 `open_app`，第 122/123/124/125 阶段依次完成 SAFE `swipe` 的专属同窗方向契约、执行期 HMAC evidence、Registry 完成态纯内存交接与 Redmi 限定验收，以及答案级脱敏 Decision/Room/UI 投影；第 126 阶段将其加入生产默认 Registry，并完成 Redmi 真实生产 Workflow `snapshot -> swipe` 验收。恢复、重试、取消、页面漂移、目标包错配和证据缺失继续 fail-closed，当前生产 Workflow 精确开放 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。
-  - `device.type_text` 原文只驻留当前执行进程：Workflow 与直接 `/agent` 的 `tool.call.proposed / validated`、ToolCall ledger、Room Approval、审批事件、`VerifiedAgentContext` 和消息 Tool parts 统一只保存 snapshot/ref、文本 SHA-256 和长度。当前进程的会话审批卡仍显示真实输入供用户核对，但必须与 Room 请求的 ToolCall ID、工具名、风险和安全投影完全一致；进程重建后原文不可恢复，旧 `type_text` 待审批 Run 以 `EPHEMERAL_TOOL_INPUT_UNAVAILABLE` 安全取消，用户需创建新 Run 重新确认。Workflow 答案级判定、下一步、关联重试和管理页继续不保存原文、指纹或节点引用。
-  - 知识质量工程已完成 answerability Shadow 跨进程持久化的首个最小切片：显式开启且身份匹配的前台直接 `/agent` 答案仍在保存后旁路调用 Judge，观测结果改为 `OPTIONAL` 写入 Room v33 匿名账本。账本以 SHA-256 幂等键去重、最多保留 2,000 条，只保存候选摘要、Keystore 密钥生成的 Judge HMAC 匿名桶、状态枚举和数值遥测；不保存消息/Run ID、问题、答案、引用、原始响应、Provider/模型、URL 或凭据。设置页分开展示跨进程累计与当前进程 notice 生命周期；notice 不跨进程恢复，生产 enforcement 继续关闭。
-  - 第 102 阶段已冻结版本化离线评测导出契约：匿名 Shadow 观测与显式授权内容案例使用不能混装的强类型 envelope。匿名证据只携带 v33 不可逆 fingerprint、枚举、失败分桶和可空成本，不能用于 calibration/validation；显式内容案例才允许携带授权、数据集身份、正文、引用与人工评估。本阶段没有增加 JSON/SAF 出口或生产 enforcement。
-  - 第 107 阶段在 Redmi 形成第三条 Room v33 真实 Shadow 记录。一次较宽的请求连续执行 4 次 `knowledge.search` 后以 `BUDGET_EXHAUSTED` 收敛，没有成功答案、没有消费一次性授权，也没有写入匿名账本；随后复用已验证查询模式的前台 `/agent` 只执行 1 次检索并新增 `COMPLETED / BOUND / ACCEPT` 记录。第三条 attempt `1`，耗时/TTFB `7288/7274ms`，Prompt `6664B`，Tokens `1715/314/2029`，全部失败计数为 `0`；累计账本为 `3` 条、Judge 身份桶 `1`、完成/绑定/接受 `3/3/3`。本轮距第二条 `4 小时 38 分 33 秒`，只记为独立同日窗口，仍不解锁 JSON/SAF、校准或生产拒绝。
-  - 第 106 阶段把匿名账本已有的最早/最新记录时间和精确跨度投影到 Shadow 设置页；该阶段当时的两条时间证据对应北京时间 `2026-07-29 07:27:36 -> 08:13:50`、跨度 `46 分钟 13 秒`。该文本只帮助人工判断后续窗口是否真正分隔，不计算通过/拒绝资格，不触发 Judge，也不开放 JSON/SAF、校准或 production enforcement。投影 JVM `3/3` 覆盖正常跨度、单端缺失和时间逆序，AndroidTest APK 编译通过；Stage 105 遗留的 Compose 旧开关语义断言已同步为“授权下一次”。
-  - 第 105 阶段把答案可回答性 Shadow 收紧为单次显式采样窗口：候选存在且答案保存成功后，Publisher 通过原子门禁同时完成开关检查、自动关闭和持久化，再进入观测协调器；并发答案只有一条能消费授权，候选缺失、保存失败或提前撤销不消费窗口。观测开始后的成功、未知、取消或异常都需要下一次重新显式开启。Publisher 与 20 路并发门禁聚焦 JVM 合计 `11/11`，本阶段没有新增 Room 行、真实样本、JSON/SAF 或 production enforcement。
-  - 第 104 阶段在完整清理并重启进程后形成第二条 Room v33 真实 Shadow 记录。该窗口距首条约 46 分钟，只能作为独立短间隔复验，不能冒充长期分隔样本。两条累计均为 `COMPLETED / BOUND / ACCEPT`，Judge 身份桶仍为 `1`，attempt `2`，耗时/TTFB `17308/17287ms`，Prompt `14846B`，Tokens `3706/841/4547`，全部失败计数为 `0`。同时修复冷启动初始化重建状态时把已读取的跨进程摘要覆盖为零的问题；Redmi 冷启动后设置页已显示观测 `2`、Judge 身份 `1`、完成/接受 `2/2`、尝试 `2`、耗时 `17308ms` 和 Tokens `4547`。
-  - 第 103 阶段完成首个 Room v33 间隔真实 Shadow 窗口：Redmi 前台直接 `/agent` 使用词法兜底命中 `Agent Run retryOfRunId` 本地知识，第 103 阶段当时匿名账本只有 `1` 条 `COMPLETED / BOUND / ACCEPT`。Judge 尝试 `1` 次，耗时/TTFB `9663/9655ms`，Prompt `10879B`，Tokens `2801/469/3270`，所有失败计数为 `0`。第 104 阶段随后形成第二条短间隔记录，第 107 阶段又形成第三条独立同日记录；继续等待真正跨日或长期分隔窗口，不提前实现 JSON/SAF 或生产拒绝。
-  - 第 101 项已完成首个间隔真实使用窗口：仅在 Redmi 前台直接 `/agent` 中显式开启 Shadow，使用词法兜底命中的 `Agent Run retryOfRunId` 本地知识候选形成 `1` 条完成样本，Judge 判定为直接回答。删除测试会话和临时知识文档后，notice 有效数由 `1` 归零且裁剪数变为 `1`，Shadow 已恢复关闭；该项继续保持低频观察，不增加 Room Store、跨进程 notice 或 enforcement。
-  - 第 100 阶段新增 Android 系统分享入口 v1：分享面板只接收单项 `text/plain` 或单张 PNG/JPEG/JPG/WEBP 图片，文本最多 20,000 字符，图片必须是 `content://` 且继续复用现有 8 MB、MIME、签名和解码校验。`EXTRA_STREAM` 与 `ClipData` 同时携带同一 URI 时按单图兼容，URI 不同时按多图拒绝。内容只进入可编辑的新会话草稿，永不自动发送；已有草稿、附件或活动操作时必须显式“打开分享/忽略分享”，第二个未决分享不会覆盖第一个。冷启动初始化、热启动 `onNewIntent` 和 Activity 重建均有独立处理；来源统一标为外部分享，不信任可伪造的 referrer 或 Intent extra。
-  - 第 99 阶段完成首批 Redmi 低频 answerability shadow 观察：同一进程新增 `3` 条有效 Judge 样本，直接回答 `2`、部分回答 `1`，Judge 取消、异常和旁路错误均为 `0`；本批累计耗时 `15737ms`、TTFB `15708ms`、Prompt `17930B`、Tokens `4474/638/5112`。首次宽英文检索连续无候选并使 Agent Run 达到工具步数上限，但没有进入 Shadow，不能记作 Judge 失败。
-  - 第 98 阶段已在 Redmi 同一进程内扩充用户显式开启的真实前台 answerability shadow 样本：累计样本 `6`、完成 `4`、无候选跳过 `2`，Judge `4` 次形成 `2` 条直接回答与 `2` 条部分回答；自然 `BUDGET_EXHAUSTED` Run 未进入 Shadow，不能记作 Judge 失败。累计成本为耗时 `23100ms`、TTFB `23067ms`、Prompt `38915B`、Tokens `9970/975/10945`，取消和异常均为 `0`。
-  - 第 97 阶段已为默认关闭的 answerability shadow 增加有界进程内样本摘要：只记录 Judge attempt、延迟/TTFB、Prompt 字节、Tokens、失败分类和 notice 生命周期，不记录问题、答案、候选正文、引用、原始响应或凭据。真实 Redmi 前台 Agent 样本已验证答案先保存、Judge 后置、notice 可见且随会话删除裁剪；普通聊天、Workflow 和后台 Worker 不进入样本分母。
-  - 设备 Agent 已接入 `device.snapshot / open_app / back / home / tap_ref / type_text / swipe`：仅在用户独立开启、系统 Accessibility 已授权且 Profile/Skill 允许时可用。前台直接 `/agent` 与前台手动 Workflow 均可使用这组限定工具；打开应用、点击和输入必须审批，Workflow `back / home / swipe` 明确为 SAFE 零审批。所有动作完成后重新观察并验证，后台或定时 Workflow 不会看到或执行任何设备工具。
-
-- 设置页
-  - 一级入口为「模型提供方管理」。
-  - 提供「提示词设置」二级页，可分别配置普通对话、会话摘要 / 记忆和 Agent 回复总结模板。
-  - 每类模板支持独立启用、恢复默认和预览最终提示词；普通对话的工具边界、摘要事实边界和 Agent 审计边界不可被自定义模板覆盖。
-  - 提供「Agent Skills」管理页，展示内置与本地 Skill，可通过系统文件选择器导入版本化 JSON、启停能力并删除本地 Skill。
-  - 提供「设备 Agent」页，管理默认关闭的独立开关、系统无障碍入口、四态健康检查和有界脱敏快照预览。
-  - 提供「工作流」管理页，可保存、启停、手动运行或创建 1 分钟至 7 天的一次性非精确计划，并查看计划时间、实际启动时间、Workflow Run、步骤结果与脱敏设备观察证据。
-  - 支持新增、编辑、删除模型提供方。
-  - 支持 `Base URL`、`API Key` 和名称配置。
-  - 支持扫码导入、剪切板解析和 Base64 解码辅助。
-  - 支持拉取上游模型列表，并手动勾选允许在对话页使用的模型。
-  - 支持单个同步和批量同步模型列表。
-
-- 请求与安全
-  - 支持 `GET /models`。
-  - 支持 `POST /chat/completions`。
-  - 支持 `POST /responses`。
-  - 固定 `max_tokens` / `max_output_tokens` 为 `32768`。
-  - Provider、会话、消息及 Text/Reasoning/Image/Document/Tool parts、Agent Run、笔记、长期记忆、Skill、Workflow Ledger、ScheduledTask 和匿名 answerability Shadow 观测使用 Room 保存；附件原始字节写入 BLOB 并随数据库备份，旧 SharedPreferences 数据首次启动时迁入。
-  - 后台计划只允许显式声明 `supportsBackground=true` 的 SAFE 只读工具；需要审批的工具在执行前进入 `BLOCKED` 并发送通知，不创建或继承前台临时授权。
-  - API Key 使用 Android Keystore + AES-GCM 加密保存。
-  - 允许明文 HTTP，便于连接 Ollama、LM Studio、局域网服务和 adb reverse。
-  - HTTP 调试日志通过 BuildConfig 开关控制：debug 默认开启，release 默认关闭。
-  - 普通对话不具备工具执行能力，不得声称已经调用工具、操作设备、创建笔记或保存长期记忆；真实工具事实只来自可审计 Agent Run。
-  - AccessibilityService 只执行标准节点动作与系统返回/主页，不具备坐标手势或截图能力；支付窗口与已知密码管理器、Authenticator、钱包/银行应用整窗拒绝，密码、验证码、API Key、Token、手机号、身份证、银行卡和邮箱节点不返回正文、动作或 ref。
-
-## 使用方式
-
-1. 打开「设置」页，进入「模型提供方管理」。
-2. 新增模型提供方，填写：
-   - 名称：可选，不填时根据 URL 兜底。
-   - `Base URL`：例如 `https://api.example.com/v1` 或 `http://127.0.0.1:8765/v1`。
-   - `API Key`：服务需要鉴权时填写。
-3. 点击「获取上游模型」，勾选允许在对话页使用的模型并保存。
-4. 回到「对话」页，选择模型提供方、模型、接口模式和是否流式输出。
-5. 输入消息开始对话；Responses 模式可点击附件图标附加单张图片或一个文档。也可从 Android 分享面板选择「小灵」，把单段文本、单张支持图片或单份受支持文档导入新会话草稿，确认内容后再自行发送。
-6. 输入 `/agent 现在几点`、`/agent 记住我喜欢紧凑的界面` 可运行本地最小 Agent 工具链路；前台直接 `/agent` 在 Responses 模式可携带单张图片或一个文档，仍不支持混合/多附件、Workflow 或后台附件执行。
-7. 如需扩展声明式能力，可在「设置 -> Agent Skills」导入 [每日回顾示例](docs/examples/daily-review.skill.json)；本地 Skill 只能组合应用已注册工具，不能执行脚本或放宽审批边界。
-8. 可在「设置 -> 工作流」保存常用 Agent 目标并手动运行，或点击时钟图标创建一次性计划。WorkManager 只保证在计划时间后尽快运行，不承诺准点；Android 13+ 建议授予通知权限以接收完成、失败和待处理结果。
-9. 如需使用设备 Agent，在「设置 -> 设备 Agent」明确开启应用开关并完成系统无障碍授权，再为 Agent Profile 选择只读的 `device-observation` 或有限动作的 `device-control` Skill。当前只允许小灵、系统计算器、时钟、系统设置、Google 天气和系统桌面等首批验收范围；前台手动 Workflow 可使用 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，全部后台设备工具仍关闭。
-
-## 本地 mock 调试
-
-真机访问电脑本机服务时，可以使用 adb reverse：
-
-```zsh
-adb -s wsvwypiz7xwslvl7 reverse tcp:8765 tcp:8765
-```
-
-App 内填写：
+<p align="center">
+  <strong>Android 端、本地优先、可审计、可恢复的个人 Agent</strong>
+</p>
+
+<p align="center">
+  <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
+  <img alt="Room v36" src="https://img.shields.io/badge/Room-v36-4285F4">
+  <img alt="Release v0.1.17" src="https://img.shields.io/badge/Release-v0.1.17-2E7D32">
+</p>
+
+小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
+
+## 下载
+
+- [GitHub Release v0.1.17](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.17)
+- 安装包：`xiaoling-v0.1.17.apk`
+- 完整性校验：`xiaoling-v0.1.17.apk.sha256`
+- 系统要求：Android 8.0（API 26）及以上
+
+> 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
+
+## 它能做什么
+
+| 能力 | 当前实现 |
+| --- | --- |
+| 模型接入 | 用户自配 OpenAI-compatible Provider；支持 Chat Completions、Responses 与 SSE 流式响应 |
+| 对话 | 多会话本地保存、Markdown、图片与文档附件、系统分享入口、语音草稿输入 |
+| Agent Run | 自然语言目标生成 1 至 8 步计划；确认后才创建 Run；全过程写入本地审计账本 |
+| 个人信息 | 本地笔记、长期记忆、知识库、任务、日历与联系人受控访问 |
+| 知识引用 | 回答可携带文档版本、分块与偏移身份，并跳转当前权威原文；内容漂移时拒绝猜测 |
+| Workflow | 前台手动 Workflow、一次性与非精确定时任务、WorkManager 执行、通知结果导航 |
+| 设备 Agent | 前台观察与受控动作：`snapshot`、`open_app`、`back`、`home`、`tap_ref`、`type_text`、`swipe` |
+| 结果验证 | 以持久化 Tool Ledger 和操作后观察给出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能升级事实结论 |
+
+## 一条任务如何完成
 
 ```text
-Base URL: http://127.0.0.1:8765/v1
-API Key: test-key
+自然语言目标
+    ↓
+显式 Agent 意图与最小 Profile
+    ↓
+生成计划并由用户确认
+    ↓
+逐步执行、按风险审批
+    ↓
+操作后重新观察与强类型验证
+    ↓
+持久化审计证据与答案级事实入口
 ```
 
-## 构建
+关键写入只有在执行器结果、typed verification 和当前数据回读一致时，才会形成 `COMMITTED` 回执。失败、中断或证据不足不会被润色成成功；无法确认提交状态的旧 Run 默认保留不变，并通过关联新 Run 重新开始。
+
+## 安全边界
+
+- 工具必须同时通过应用注册表、当前 Profile、Skill 白名单、运行模式和系统权限检查。
+- 写入、打开应用、点击与文本输入等动作按风险显式审批；`back / home / swipe` 虽为 SAFE，仍要求新鲜观察和操作后验证。
+- API Key 使用 Android Keystore 保护；敏感输入不在审计记录中保存原文，只保留最小指纹与长度。
+- Accessibility 独立授权、独立开关，设备节点引用短生命周期化，并在进入模型前进行隐私过滤。
+- 不提供任意 Shell、Root、ADB、隐藏系统 API，也不执行未经确认的支付、下单、删除、发消息或系统设置修改。
+- 设备动作目前只承诺少量已验收应用与前台场景，不承诺任意 App；后台或定时设备动作、坐标/截图兜底仍关闭。
+- 账号与云同步、开放 Skill 市场、远程代码安装、完整 MCP、多 Agent 和端侧模型管理尚未开放。
+
+## 快速开始
+
+1. 安装并打开小灵。
+2. 进入“设置 → 模型提供方”，添加 Provider，填写 Base URL 与 API Key。
+3. 同步模型列表，启用需要的模型。
+4. 返回对话页，选择模型与 API 模式后开始普通对话。
+5. 需要执行工具时，使用 Agent 任务入口或显式 `/agent` 意图，检查计划后再确认执行。
+
+系统分享的文本、图片和文档只会进入可编辑草稿，不会自动发送、调用模型或创建 Agent Run。
+
+## 本地构建
+
+环境要求：macOS、JDK 21、Android SDK，以及项目所需的 API 36 构建工具。
 
 ```zsh
+# Debug 与 JVM 测试
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew testDebugUnitTest assembleDebug
-```
 
-生成正式签名包：
-
-```zsh
+# Release（需要本地签名配置）
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew assembleRelease
 ```
 
-本机 release 签名配置放在未跟踪目录：
+产物位置：
 
-```text
-local-signing/xiaoling-release.env
-local-signing/xiaoling-release.jks
-```
+- Debug：`app/build/outputs/apk/debug/app-debug.apk`
+- Release：`app/build/outputs/apk/release/app-release.apk`
 
-## 当前验证
+Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。请勿把签名文件、密码、API Key 或设备端 Provider 配置提交到仓库。
 
-- 第 158 阶段 Redmi 真实 Provider 闭环：Debug-only `task_retry_real` 探针最终运行成功，严格完成 `tasks.list -> tasks.inspect -> tasks.retry`，随后通过生产 `TaskRetryLaunchPolicy` 接管关联 Workflow。来源 Run 保持 `FAILED`，新 Run 关联来源，首个步骤为 `SKIPPED`，第二个步骤由真实 Provider 执行 `app.current_time` 后完成，目标级收敛为 `COMPLETED`；清理日志确认临时 Profile 已删除、夹具 Workflow 已停用。定向 JVM、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 与仅 Redmi 文档 corpus gate `OK (1 test)` 通过。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
+## 当前状态
 
-- 第 151 阶段使用正式 `RoomWorkflowRepository + WorkManagerScheduledTaskScheduler + ScheduledWorkflowWorker` 完成三类 Redmi 真实样本：普通后台 Task `scheduled-task-1684ca82-dfb0-45e7-94a7-7a5908094a92` / Run `workflow-run-f20ecc64-e375-47ba-813d-8516297eb920` 为 `8/8 COMPLETED`、耗时 `95816ms`；熄屏 Task `scheduled-task-0d5a2c12-b952-40cf-b236-ab121ac06263` / Run `workflow-run-e9aa7e03-8557-451e-972c-af56de8051e0` 为 `8/8 COMPLETED`、耗时 `91915ms`，后半程持续 Dozing；受控 `force-stop` Task `scheduled-task-0b0b35d7-e705-46f8-b235-71e786ba1bf1` / Run `workflow-run-b2f58179-839a-4687-ac68-2b2d02687089` 恢复为 `4 COMPLETED + 4 CANCELLED`。Debug 状态查询确认终态时恢复原 Profile、删除临时 Profile 并停用探针 Workflow；创建新探针前也会清理上次残留。新增 Room 回归与更新后文档 corpus 在 Redmi 均为 `OK (1 test)`；`testDebugUnitTest / assembleDebug / assembleDebugAndroidTest` 均成功。未运行 Lint、Release、默认完整 instrumentation，也未验证自然 LMK、主动断网或 5 至 10 分钟任务。
-- 第 148 阶段完成系统日历只读能力：`calendar.list_events` 为 SAFE、需要 `READ_CALENDAR`、仅前台执行，参数限制为未来 1 至 30 天和最多 20 条；只读标题、开始时间、结束时间、全天标记，不读取地点、描述、参与人或账户，也不创建/修改/删除日程。用户在独立“日历访问”页主动授权后，默认 Agent 显式启用 `calendar.list_events` 与 `calendar-overview`。Redmi Provider 读取 `1/1`、设置页与根页 instrumentation `7/7`、Debug/AndroidTest APK 和聚焦 `PersonalTaskPlanPolicyTest 12/12` 通过；真实 Agent 计划 `1/1`，唯一工具为 `calendar.list_events`，返回“未来 7 天没有日程”。修复计划提示词禁止把整理/展示拆成独立步骤；系统日历写入、后台 Workflow 和旧 Profile 自动扩权继续关闭。
-- 第 147 阶段完成真实多步 Runtime 可靠性与后台时长评估首轮：相同且已验证的 SAFE 只读工具紧邻重复时复用已有结果完成，设备动作、写工具和普通重复仍拒绝；零工具提前 `complete` 只纠错重试一次，Workflow 前序输出不能替代当前 Agent Run 的工具事实。Redmi 前台 Run `workflow-run-84097511-b21d-4d89-9098-ed439625eba8` 耗时 `104156ms`，熄屏 Run `workflow-run-2153667c-f664-4034-a566-79a114899c27` 耗时 `94155ms`，均 8 步完成且目标级 `VERIFIED / ALL_CRITERIA_VERIFIED`。熄屏后系统保持 `Wakefulness=Dozing`，同一进程继续完成模型请求；`exit-info` 前后无新增退出记录。聚焦 JVM `22/22`、AndroidTest APK 和仅 Redmi 的文档 corpus `OK (1 test)`（`2.468s`）通过。当前没有 5 至 10 分钟生产任务或自然进程回收证据，不引入 Foreground Service，不开放后台设备动作，也不声称已验证长时恢复。
-- 第 144 阶段完成任务/提醒只读总览：新增 SAFE `tasks.list` 和内置 `task-overview` Skill，复用 Room Workflow、Run、ScheduledTask 和 Schedule 事实，按 Workflow 独立取最新 Run，并在一次性/周期计划并存时展示最早下次触发。聚焦 JVM `48/48`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentTaskStoreInstrumentedTest` 为 `OK (3 tests)`（`1.828s`），更新后文档 corpus 单项为 `OK (1 test)`（`2.648s`）。未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
-- 第 130 阶段完成记忆/知识计划上下文与应用内提醒。提醒 Schema 严格区分 `IMMEDIATE / ONCE / DAILY / WEEKLY`，拒绝数字字符串、小数、目标 App、`device.*` 完成标准和设备最终应用；确认后 Room 原子创建 Workflow 与首个调度实例，不产生 Manual Run。聚焦 `PersonalTaskPlanPolicyTest 7/7`、Debug/AndroidTest APK 通过；仅 Redmi 的 Room 与 Compose 单项最终为 `OK (1 test)`（`0.318s / 2.12s`），真实模型返回 `ONCE / delay=30`。未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 131 阶段完成任务级恢复与关联重试。旧 `BLOCKED / FAILED / CANCELLED` Run 从连续成功前缀创建带 `retryOfWorkflowRunId` 的新 Run，成功前缀以 `SKIPPED / reusedFromStepId` 保留来源，首个未完成步骤重新执行；已启动失败步骤需要二次确认，旧 Run 和副作用保持不变。聚焦 `WorkflowStepExecutionPolicyTest 13/13`、Debug/AndroidTest APK 和仅 Redmi 的 `OK (1 test)`（`0.444s`）通过；随后第 132 阶段已完成三条 Redmi 完整任务与统一里程碑门禁。
-- 第 132 阶段完成：完整 JVM `879/879`、Lint `0 error`、Debug/AndroidTest APK 和仅 Redmi 的最终完整 instrumentation `OK (282 tests)`（`139.622s`）通过。三条完整任务分别覆盖“长期记忆+本地知识→ONCE 提醒+WorkManager 入队”、“设置页 `snapshot -> swipe -> snapshot -> back` 且目标级 `VERIFIED`”和“失败任务关联重试且旧 Run 不变”。本阶段还修正 Room v35 常量、动作测试规则版本、知识引用测试选择器，以及 Redmi 当前 Google/AOSP 计算器与时钟包名兼容；未构建 Release。
-- 第 133 阶段完成个人任务计划交互首轮打磨：新增生成/创建专属状态和停止文案，失败或创建前停止会保留原始目标并支持重新生成；提醒确认等待通知权限返回后才提交，并防止重复确认。确认后前台操作增加会话代际保护，旧会话迟到结果不能覆盖当前页面。相关 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (9 tests)`（`12.418s`）。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
-- 第 134 阶段完成计划生成成本可见性：待确认计划弹层显示本次单模型调用的真实耗时、TTFB、Prompt 字节数和可用 Token usage；TTFB 或 usage 缺失时明确显示未知，不估算货币成本。遥测只驻留待确认 UI 状态，不写 Room、RunEvent、Workflow 或历史成本账本，也不把计划请求伪装成 Agent Run。聚焦 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的两个 Compose 类为 `OK (10 tests)`（`13.583s`）。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
-- 第 135 阶段完成常用任务模板快捷入口：任务模式提供“打开计算器”“搜索系统设置”“打开时钟”三个已验收范围内的目标模板。选择模板只回填目标输入，不自动发送、不提前请求模型、不创建 Workflow/Run，也不绕过计划确认；仍统一进入原有 `目标 -> 计划 -> 确认 -> 执行` 链路。聚焦 JVM、Debug/AndroidTest APK 通过；仅 Redmi 的 `ConversationPageInstrumentedTest` 为 `OK (6 tests)`（`9.751s`），更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.459s / 2.616s`）。按快速迭代分级未运行完整 JVM、全量 Lint、默认完整 instrumentation 或 Release。
-- 第 136 阶段完成首个 App 兼容扩展：只新增 Google 天气 `com.google.android.apps.weather` 的 Manifest 可见性、三层包名白名单、工具 Schema 和“查看天气”任务模板。天气模板仍只回填目标；真实 Redmi Workflow 已取得 `APPROVED / executorVerified=true / PASSED / afterPackage=com.google.android.apps.weather / answerDecision=VERIFIED`，且 `open_app` 不产生可复用节点引用。天气页可能包含用户当前选择的粗粒度位置，只允许在用户主动发起的前台观察中处理，不进入后台采集或新的持久化旁路。聚焦 JVM `64/64`、Debug/AndroidTest APK、Redmi 两个定向单项通过；更新后的文档 corpus 首轮/证据写回后复验均为 `OK (1 test)`（`2.409s / 2.606s`）。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 第 137 阶段完成计划上下文请求精简：保持 system 安全规则、用户目标、规划时间、工具/App 边界和计划 Schema 不变，只对检索正文执行 8 KiB UTF-8 预算、跨来源同正文去重和完整条目裁剪；记忆与知识交替尝试，避免单一来源独占预算。确认页显示实际使用条数、上下文字节和省略数量，数据与真正发送的同一请求对象绑定。聚焦 JVM `12/12`、Debug/AndroidTest APK、Redmi Compose `OK (5 tests)` 和真实模型 `OK (1 test)` 通过；真实请求使用记忆 `2/3`、知识 `1/3`，上下文 `7,264B`、Prompt `11,190B`，返回 1 步可解析计划。主应用已恢复前台、Provider 已回读确认、测试包已卸载；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 第 138 阶段补齐计划生成取消闭环：用户主动停止计划请求时，保留原始目标并生成“计划生成已停止”的可重试失败卡；会话切换或删除导致的旧请求取消仍因 request ID 失效而静默丢弃，不污染新会话。聚焦 JVM `1/1`、Debug/AndroidTest APK 和仅 Redmi `ConversationPageInstrumentedTest` `OK (6 tests)` 通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 第 139 阶段收敛确认后任务创建的提交竞态：Room 原子写入和持久化身份捕获处于同一不可取消短边界，外层再响应停止；提交交接处取消会收敛已创建 Run/调度，不会误判为空并重复创建。聚焦 JVM `2/2`、Debug/AndroidTest APK 通过；未运行完整 JVM、Lint、Redmi instrumentation 或 Release。
-- 第 140 阶段补齐已提交任务的失败后续动作：立即任务或提醒已经提交后再停止/失败，输入区只显示“查看任务”并打开现有工作流页面；提交前失败才恢复目标并允许重新生成。聚焦 JVM `9/9`、Debug/AndroidTest APK、仅 Redmi Compose `OK (7 tests)`（`11.939s`）和文档 corpus `OK (1 test)`（`3.568s`）通过；当前 Debug `0.1.15` 已重装并恢复前台。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 第 141 阶段补齐成功后的可见结果闭环：立即任务完成后只从 Repository 已持久化的目标级 Decision 投影“已验证完成 / 仅部分完成 / 尚未完成”，没有完成标准时仅提示任务已完成；提醒成功后保留已创建调度的查看入口。完成卡不会重新发送或重建任务，编辑输入、切换模式或下一次计划会清除旧卡。聚焦 JVM `13/13`、Debug APK、仅 Redmi `ConversationPageInstrumentedTest` `OK (8 tests)`和文档 corpus `OK (1 test)`通过；未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- Redmi 重新连接后的默认套件发现当前 ROM 使用 Google 计算器/时钟包名。首批限定应用白名单现同时兼容 AOSP 与 Google 两套精确包名，并单独增加 Google 天气；仍只覆盖明确列出的 App 和桌面，不开放 Chrome、联系人、短信、文件、日历或任意 App。
-- 第 129 阶段完成目标级本地验证与最终回答约束。计划完成标准冻结到 Workflow 和步骤快照，Room v35 保持旧任务无目标判定，Repository 只从同 Run 已验证 Tool Ledger 和脱敏最终观察生成 `VERIFIED / PARTIAL / INCOMPLETE`；模型总结不能扩大结论。聚焦 JVM `22/22`、Debug/AndroidTest APK、Redmi 定向 `OK (5 tests)`（`3.33s`）和真实多动作 `goalDecision=VERIFIED` tracer 均通过。文档语料黄金查询已移除易过期的历史测试数量，并在失败时输出逐查询排名；更新查询后的 Redmi 首轮/写回后复验均为 `OK (1 test)`（`2.461s / 2.444s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；下一主线进入第 130 阶段。
-- 第 127 阶段完成自然语言个人任务与可确认计划。任务模式使用严格 JSON Schema 生成 1 至 8 步计划，确认前不写消息、Workflow、Run 或工具账本；确认后 Room 单事务创建普通 Workflow、手动 Run 和步骤快照，再复用既有 Runtime、审批和验证。聚焦 JVM `34/34`、Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的计划弹层与 Room 原子创建为 `OK (2 tests)`（`2.03s`）。真实模型生成 `Read Current Time` 单步计划，首个 Runtime 模型规划超时保持失败 Run，随后同一 Workflow 的独立手动 Run 完成 `app.current_time` 六段审计链，旧 Run 未被覆盖。更新后的文档语料首轮为 `OK (1 test)`（`2.453s`），写回本条证据后的最终资产已复验通过。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；记忆/知识计划上下文仍属于第 130 阶段。
-- 第 126 阶段已把 `device.swipe` 加入前台手动 Workflow 的生产默认 Registry，生产工具面现精确为 `snapshot / open_app / back / home / tap_ref / type_text / swipe`。该动作继续固定为 `SAFE_NO_APPROVAL`，并要求同 Run 新鲜 snapshot/ref、30 秒 TTL、当前 window generation、专属同窗方向 evidence、Executor 验证、typed `PASSED`、动作后重新观察和答案级本地判定；方向、viewport/HMAC、snapshot/ref、节点正文和坐标不进入持久层。TDD 先确认生产 Registry 缺少 swipe，转绿后 `XiaoLingToolRegistryTest` 为 `36/36`，六个相邻测试类合计 `101/101`，Debug/AndroidTest APK 构建成功。仅 Redmi `wsvwypiz7xwslvl7` 的真实生产 `snapshot -> swipe` tracer 为 `success=true action=swipe verified=true approvals=0 registryCompletion=PASSED answerDecision=VERIFIED privacySafe=true`，前后包均为 `com.android.settings`；更新后的项目文档语料首轮/最终单项均为 `OK (1 test)`，耗时 `2.307s / 2.3s`。测试包已卸载，主应用最终为 `0.1.14 (15)` 前台，Accessibility `Enabled / Bound / Crashed services:{}`，crash buffer 无小灵异常；本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation，后台/定时设备自动化与任意 App 继续关闭。
-- 第 125 阶段完成 `device.swipe` 的答案级脱敏 Decision、Workflow step output、Room 重建和 Compose 证据卡投影，但生产 Workflow 仍未开放该工具。Decision 只接受同 Run `success=true / executorVerified=true / typed PASSED`、严格 codec 且 `device.swipe -> action=swipe` 一致的通用摘要；方向、viewport、HMAC、snapshot/ref、节点正文和坐标不进入答案层。UI 只显示“滚动”、前后包名与后置计数/时间，并明确历史节点引用不可复用；SAFE swipe 不伪造 Room Approval。聚焦 JVM 与 Debug/AndroidTest APK 通过；仅 Redmi `wsvwypiz7xwslvl7` 的 Room 纵向和 Compose 单项合并为 `OK (2 tests)`（`3.615s`）。覆盖安装后 Accessibility 一度只 Enabled 未 Bound，定向重绑后已恢复 `Enabled / Bound / Crashed services:{}`，crash buffer 无小灵异常。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；生产默认集合继续精确为 `snapshot / open_app / back / home / tap_ref / type_text`。
-- 第 124 阶段完成 `device.swipe` 的 Registry 完成态纯内存交接和 Redmi 限定 App 真实验收，但生产 Workflow 仍未开放该工具。Registry 只把当前 `DeviceActionOutcome.swipeEvidence` 映射为专属完成 evidence，并要求 `beforeSnapshotId`、动作前 viewport 与获批 snapshot、动作后 viewport 与实际后置 snapshot 的包名/window/generation 逐项一致；错串窗口或旧动作证据统一按缺少专属滚动证据 fail-closed。`WorkflowDeviceActionResultCodec` 只新增无节点正文的 `swipe` 通用摘要，完整 viewport/HMAC 仍不进入 Result、Room、日志、Workflow output 或 UI。八组聚焦 JVM 为 `91/91`，Debug APK 构建成功；仅 Redmi `wsvwypiz7xwslvl7` 的真实 `snapshot -> swipe(up)` 在系统设置应用详情页得到 `success=true / verified=true / approvals=0 / registryCompletion=PASSED / privacySafe=true`，前后包均为 `com.android.settings`。测试后小灵 `0.1.14 (15)` 已恢复前台，Accessibility 为 `Enabled / Bound / Crashed services:{}`，crash buffer 无本应用异常。本阶段未运行完整 JVM、Lint、AndroidTest、Release 或默认完整 instrumentation；生产默认集合继续精确为 `snapshot / open_app / back / home / tap_ref / type_text`，答案级 DecisionPolicy、Room/UI 和后台自动化均未扩权。
-- 第 123 阶段完成前台 `device.swipe` 的 Controller/Registry 执行期 HMAC evidence seam，但生产 Workflow 仍未开放该工具。Controller 每实例使用随机 256-bit 密钥，通过长度前缀结构化输入生成不可跨实例关联的目标 HMAC，并将可见锚点 HMAC 绑定到当前滚动目标；只选择目标下未脱敏且带稳定语义的可见后代，重复语义身份全部丢弃。成功 snapshot 与 ref 同生命周期驻留内存，capture 失败、显式清理或 Agent Run 切换会一起撤销；`inspectReference()` 在同一生命周期锁内核对 snapshot/ref 并生成 viewport，随后复读 window generation，页面在证据构造期间变化时返回不匹配。直接滚动不再把 generation 变化当作成功：必须同时证明同应用、同 window、同目标、generation 前进、可见内容集合变化，以及共同锚点按请求方向发生至少 `8px` 的主位移；内容不变、方向相反或矛盾位移均保持 `verified=false`。Registry 仅允许显式测试集合把当前有效 `SWIPE` ref 的匿名 viewport 交给既有 `WorkflowSwipeSafetyPolicy`，SAFE 滚动始终使用真实执行时钟核对 TTL；生产默认集合仍精确为 `snapshot / open_app / back / home / tap_ref / type_text`。完整 evidence 不进入通用 codec、Room、日志、Workflow 输出或 UI。第 122/123 阶段相邻策略、Controller、codec 与 Registry 聚焦 JVM 合计 `89/89`；该阶段按快速迭代分级未运行完整 JVM、Lint、APK、Release、Redmi instrumentation 或真实滚动，第 124 阶段随后完成完成态内存交接与 Redmi 真实滚动验收。
-- 第 122 阶段冻结前台 Workflow `device.swipe` 专属安全与后置验证契约，生产工具面仍精确为 `snapshot / open_app / back / home / tap_ref / type_text`。纯 Kotlin 策略只接受 `snapshot_id / ref / direction` 和 `up / down / left / right`，要求当前目标启用、未脱敏且支持 `SWIPE`；动作前 viewport 必须绑定应用、window、generation、目标指纹和至少两个去重匿名锚点。`swipe` 沿用 ToolDefinition 的 SAFE 语义为 `SAFE_NO_APPROVAL`，但仍受同 Run/ToolCall、新鲜 snapshot/ref、TTL、generation 和专属完成门禁约束。动作后必须属于同一应用、同一 window 和同一目标，generation 前进、可见匿名内容集合变化，且至少一个共同锚点产生不小于 `8px`、与请求方向一致且主方向占优的位移；任一达到阈值的共同锚点若反向或横向占优，则整体拒绝，不能由另一个正确锚点掩盖。专属授权只保存方向和动作前 viewport SHA-256 摘要；完整锚点、节点正文和目标信息不进入该授权。四组策略与相邻通用策略/文本策略/Registry 聚焦 JVM 合计 `55/55`。本阶段当时没有修改生产 Registry、Controller、Result codec、Room、审批、答案级 UI 或 Workflow UI，也没有执行 APK、Lint、Release、Redmi instrumentation 或真实滚动；第 123/124 阶段随后完成执行期匿名锚点 evidence、完成态纯内存交接与 Redmi 限定验收。
-- 第 121 阶段完成前台 Workflow `device.open_app` 生产闭环。生产工具面精确为 `snapshot / open_app / back / home / tap_ref / type_text`；`open_app` 只接受唯一 `package_name`，并在 SafetyPolicy、Workflow ApprovalGate 与 Executor 三层核对白名单。每个目标包都必须经过独立 Room/Accessibility overlay 审批，审批绑定当前 Run、ToolCall、进程 session、30 秒 snapshot TTL 和 window generation；动作后包名还会在完成门禁和答案级 Room 重建时再次与获批包名比较。六组聚焦 JVM 合计 `95/95`，`assembleDebug / assembleDebugAndroidTest` 成功；仅 Redmi 的 Compose 与 Room 纵向单项均为 `OK (1 test)`（`2.681s / 0.628s`），真实 tracer 为 `open_app / verified=true / APPROVED / PASSED / afterPackage=com.android.calculator2 / VERIFIED`。同步后的文档 corpus 首轮为 `OK (1 test)`（`2.783s`），该证据写回后的冻结文本复验同样通过。首次人工审批超过 TTL 时正确拒绝为“device.snapshot 已过期或时间证据不完整”，稳定窗口重试后成功。独立审查发现并修复策略参数白名单与答案级目标包绑定缺口。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；`swipe` 与全部后台/定时设备工具继续关闭。
-- 第 120 阶段完成前台 Workflow `device.home` 生产闭环。生产工具面精确为 `snapshot / back / home / tap_ref / type_text`；`home` 只接受空参数并固定为 `SAFE_NO_APPROVAL`，不会创建 Room Approval 或显示 Accessibility 审批浮层，异常审批时间也不能延长 30 秒 snapshot TTL。动作后验证动态解析系统 `CATEGORY_HOME` launcher，不写死 Redmi 桌面包；答案级 Decision、Workflow step snapshot、Room 投影与 UI 显示“返回桌面”，且不产生可复用节点引用。六组聚焦 JVM 合计 `87/87`、Debug/AndroidTest APK 通过；仅 Redmi 的 Compose 与 Room 纵向单项均为 `OK (1 test)`（`2.472s / 0.605s`），真实 tracer 为 `home / verified=true / approvals=0 / VERIFIED`。同步后的文档 corpus 首轮为 `OK (1 test)`（`2.76s`），该证据写回后的最终复验同样通过。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；`open_app / swipe` 与全部后台/定时设备工具继续关闭。
-- 第 119 阶段完成前台 Workflow `device.back` 生产闭环。生产工具面精确为 `snapshot / back / tap_ref / type_text`；`back` 只接受空参数并固定为 `SAFE_NO_APPROVAL`，不会创建 Room Approval 或显示 Accessibility 审批浮层，但仍要求明确步骤意图、同 Run 新鲜 snapshot、30 秒 TTL、当前 window generation、Executor 验证、typed `PASSED` 和动作后观察。答案级 Decision、Workflow step snapshot、Room 投影与 UI 已显示“返回”，审批投影继续只覆盖 `tap_ref / type_text`。五组聚焦 JVM、Debug/AndroidTest 编译和 APK 通过；仅 Redmi 的 Compose 与 Room 纵向单项均为 `OK (1 test)`，真实 tracer 为 `back / verified=true / approvals=0 / VERIFIED`，同步后的文档 corpus 首轮与最终复验均为 `OK (1 test)`（`2.733s / 2.725s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation；`open_app / home / swipe` 与全部后台/定时设备工具继续关闭。
-- 第 118 阶段完成直接 `/agent` 与 Workflow 的 `device.type_text` 持久化隐私统一。通用 `DeviceTypeTextAuditPolicy` 成为 Runtime、Room Repository、Workflow gate 和可信消息上下文的共同投影；任何持久路径都只能保留 `snapshot_id / ref / text_sha256 / text_length`，当前进程审批卡可显示原文但必须与 Room 安全投影严格绑定。最终复审将投影校验移动到审批 ticket 注册之前，并固定 ID、名称、风险和参数四类漂移反例。应用重启后不再尝试用指纹恢复待输入内容，旧审批和 Run 以 `EPHEMERAL_TOOL_INPUT_UNAVAILABLE` 收敛并要求新 Run。TDD 额外发现并修复 `VerifiedAgentContext`/消息 parts 的原文旁路；最终聚焦 JVM `130/130`、Debug/AndroidTest APK 通过，仅 Redmi 的直接 Room 脱敏、重启收敛和既有 Workflow Room 投影 3 个单项均为 `OK (1 test)`，文档 corpus 三轮写回门禁也均为 `OK (1 test)`（`3.101s / 2.693s / 2.920s`）。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation，也未开放其他 Workflow 或后台设备动作。
-- 第 117 阶段完成前台 Workflow `device.type_text` 生产闭环。Workflow 的 proposed/validated/ToolCall ledger 与独立 Room 审批均只保存 `snapshot_id / ref / text_sha256 / text_length`，Accessibility 浮层和答案级输出不展示原文；该阶段当时没有改变直接 `/agent`，第 118 阶段随后已统一其持久化隐私。生产 Registry 精确开放 `snapshot / tap_ref / type_text`，其他动作及后台/定时设备工具继续拒绝。Redmi 连续 overlay detach 通过 `100ms` settle 收敛，最终活动根或窗口集合漂移仍 fail-closed。聚焦 JVM `75/75`、Debug/AndroidTest APK 通过；仅 Redmi 的 Compose、Room Approval、Room Workflow 纵向单项各为 `OK (1 test)`，真实 tracer 为 `type_text / verified=true / APPROVED / VERIFIED / exactReadBack=true`。本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 112 阶段完成前台 Workflow 有限设备动作安全契约冻结，生产动作保持关闭。新增纯 Kotlin `WorkflowDeviceActionSafetyPolicy`，默认白名单为空，并以 `workflow-device-action-safety-v1` 授权快照绑定前台来源、用户意图、当前 Run/Step/ToolCall、同 Run 观察、window/ref、当前进程独立审批和后置验证；未知动作、后台、旧审批、旧 ref、取消后迟到结果与证据漂移全部拒绝。双轴审查补齐 30 秒最大 TTL，以及后置观察对当前 Agent Run、动作 ToolCall 和动作完成时间的强绑定。聚焦 JVM 中新策略 `11/11`、相邻观察判定 `4/4`、Tool Registry `20/20`，合计 `35/35`。本阶段没有修改 Registry、Room、Accessibility 或 Workflow 生产执行链，没有执行 Lint、APK、Release、Redmi instrumentation 或真实动作。
-- 第 111 阶段完成 Workflow 设备观察本地判定的真实双 Run 闭环。`RoomWorkflowRepository` 现以持久 Tool Ledger 统一净化前台、后台、恢复和单步骤兼容完成路径，`executorVerified=null + verificationStatus=PASSED` 的可读 snapshot 仍能生成 `LIMITED` 判定；未验证证据在完成事务前 fail-closed，Run 汇总只从净化后的 step 重新聚合。聚焦 Debug/AndroidTest 构建通过，仅 Redmi 定向回归为 `OK (5 tests)`，最终项目文档 corpus 为 `OK (1 test)`。真实 Run `workflow-run-0a2cc22f-1212-413c-8026-76576e009dce` 中两个 Agent Run 各只执行一次 `device.snapshot / app.current_time`，均 `success=1 / PASSED / executorVerified=NULL`，审批 `0`；第一步 `result` 与第二步 `previousOutputs[0]` 均为 169 字符，对 `snapshot_id / nodes / ref` 均为 0 命中。真实 Workflow UI 显示“设备观察 · 已验证 / 本地判断 · 有限可复核 / workflow-device-observation-v1 / 节点引用已过期”。设备动作、后台设备工具、截图、坐标、视觉定位与任意 App 仍未开放；本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 110 阶段完成 Workflow 设备观察本地判定最小闭环。纯 Kotlin policy、output snapshot、下一步 Prompt、关联重试来源回查和 UI 卡片共享 `workflow-device-observation-v1`；原始工具结果仅在独立 Agent Tool Ledger 中保留审计，不再进入后续步骤。聚焦 JVM `19/19`、AndroidTest 编译、Debug/AndroidTest APK 通过；仅 Redmi 定向 Room/Compose 为 `OK (3 tests)`、耗时 `3.343s`，更新后文档 corpus 首次/最终均为 `OK (1 test)`、耗时 `2.662s / 2.534s`。证据不足会阻止后续 Agent Run；设备动作、后台工具、截图、坐标、视觉定位和任意 App 均未开放，本阶段未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 109 阶段完成前台 Workflow 的答案级设备观察证据 UI。Workflow step 通过 `agentRunId` 以 `900` 个为一批关联独立 Tool Ledger，只有 `device.snapshot / success / PASSED` 且 JSON 顶层与逐节点结构都合法时才生成白名单摘要；原始 Ledger 在 IO 边界立即收敛为安全 DTO，不进入 Compose 根状态，也不复制到 Workflow 表或升级 Room。审查收尾后投影 JVM `7/7`、快照策略 JVM `9/9`、`compileDebugKotlin`、Debug/AndroidTest APK 均通过；仅 Redmi 的 Workflow 页面单项为 `OK (2 tests)`，同步后的文档 corpus 为 `OK (1 test)`。真实保留的 `stage108_snapshot` 历史 Run 显示 `com.longdev.xiaoling / 38 节点 / 脱敏 2 / 未截断 / 193ms`，并标记 ref 已过期；首次真机复核发现旧“输出/结果”仍显示完整 snapshot JSON，TDD 修复后页面层级对 `snapshot_id / window_title / bounds / actions / ref` 为 0 命中。最终测试包已卸载，`0.1.13 (14)` 主应用前台、进程存活且 crash buffer 为空。设备动作、截图、坐标、视觉定位与后台设备工具仍未开放；本阶段按分级约束未运行完整 JVM、Lint、Release 或默认完整 instrumentation。
-- 第 108 阶段把主线从 Shadow 样本等待切回个人 Agent 能力，并完成前台手动 Workflow 的只读设备观察闭环。双轴审查后，设备控制器以统一 `READY` 健康态同时约束规划清单和 Executor，Accessibility 未授权或服务断连时不再向模型暴露设备工具；聚焦 JVM `88/88`、`compileDebugKotlin`、Debug APK 和 AndroidTest APK 构建成功，仅 Redmi 的 Room 关联单项为 `OK (1 test)`、耗时 `0.476s`。真实 `stage108_snapshot` 手动 Workflow 在前台完成 6 个步骤，总耗时 `18.868s`，唯一工具调用为 `device.snapshot`，结果 `SAFE / success=1 / PASSED / 193ms / 6128B`，快照含 `15` 个节点、`redacted_node_count=2`、ref 有效期 `30000ms`；设备动作调用与审批请求均为 `0`。更新后的文档语料单项在 Redmi 为 `OK (1 test)`。临时会话已删除，临时 Workflow 因当前没有删除入口而禁用保留，设备 Agent 与 Accessibility 均恢复关闭。验收后曾误装 Room v32 固定 Release，启动明确报 `A migration from 33 to 32 was required but not found`；已在不卸载、不清数据的前提下恢复正式证书签署的当前 Debug，最终 `0.1.13 (14)`、`MainActivity` resumed、PID 存活且 crash buffer 为空。该错误属于开发设备向下覆盖，不新增数据库降级迁移。
-- 第 107 阶段只在 Redmi `wsvwypiz7xwslvl7` 执行第三个 Room v33 Shadow 窗口。正式证书签署的当前 Debug 覆盖安装后，导入 `xiaoling-stage107-shadow.md` 为 revision `1`、`8` 个 chunks；Embedding 未建立，真实请求通过词法兜底。首次 Run 因 4 次工具预算耗尽而未消费授权，第二次 Run 只调用 1 次 `knowledge.search` 后完成并新增第三条匿名记录。停进程最终快照为知识文档/chunks/messages `0/0/0`、空壳会话 `1`、Agent Run `4`（完成 `3`、预算耗尽 `1`）、Shadow rows `3`、Provider/Profile `1/1`、Shadow `false`、失败分桶合计 `0`；测试包与临时下载文件不存在。投影真实毫秒夹具同步修正为 `46 分钟 13 秒`，聚焦 JVM `3/3` 与 `assembleDebugAndroidTest` 通过；同步后的 Redmi 文档 corpus 首次/最终单项均为 `OK (1 test)`、耗时 `2.687s / 2.606s`。未运行完整 JVM、Lint、默认完整 instrumentation 或 Release。
-- 第 106 阶段按分级验证完成 Shadow 时间窗口证据投影。`AnswerabilityShadowWindowEvidenceProjectionTest` 使用第 103/104 阶段真实时间固定北京时间范围与 `46 分钟 13 秒` 跨度，并覆盖单端缺失和时间逆序时跨度未知，聚焦 JVM `3/3`；`assembleDebugAndroidTest` 成功并编译更新后的 Compose 设置页测试。没有安装 APK、连接设备、调用真实 Judge 或新增 Room 行，也没有运行完整 JVM、Lint、Redmi instrumentation 或 Release。
-- 第 105 阶段按分级验证完成单次显式 Shadow 采样窗口。首轮 Red 因缺少消费 seam 按预期编译失败；双轴审查发现检查与关闭分离存在并发复用授权风险，第二轮 Red 增加 20 路并发门禁测试。最终 `tryConsumeObservationWindow` 与 `AnswerabilityShadowObservationWindowGate` 原子完成检查和消费，Publisher `10/10`、门禁并发 `1/1`，聚焦 JVM 合计 `11/11` 并完成 Debug 主源码编译。没有调用真实 Judge、没有新增 Room 行，也没有运行完整 JVM、Lint、APK、Redmi instrumentation 或 Release。第 103/104 阶段匿名账本仍为 `2` 条短间隔记录。
-- 第 104 阶段按分级验证完成第二条 Room v33 真实 Shadow 复验和冷启动摘要修复。临时导入 `docs/answerability-shadow-binding.md` 后形成 revision `1`、`5` 个 chunks、`11.4 KB`；Embedding 不可用时，查询 `anonymous shadow calibration validation` 通过词法兜底命中 `1` 个 chunk。真实前台 `/agent` 新增 `1` 条 `COMPLETED / BOUND / ACCEPT`，attempt `1`，耗时/TTFB `7645/7632ms`，Prompt `3967B`，Tokens `905/372/1277`，失败计数为 `0`；与第 103 阶段累计为观测 `2`、Judge 身份桶 `1`、完成/接受 `2/2`、attempt `2`、耗时/TTFB `17308/17287ms`、Prompt `14846B`、Tokens `3706/841/4547`。该窗口距首条约 `46` 分钟，只证明完整清理和进程重启后的独立短间隔链路，不支持 JSON/SAF、显式授权评测集、独立阈值校准或生产拒绝。最终 Room 快照为知识文档/chunks/messages `0/0/0`、空壳会话 `1`、两个旧 Run 均 `COMPLETED`、Shadow rows `2`、Provider/Profile `1/1`；Shadow 关闭、production enforcement 偏好不存在、测试包与临时下载文件不存在。新增聚焦 JVM、Debug/AndroidTest 构建均通过；文档 corpus 前两轮为 `OK (1 test)`、耗时 `2.431s / 2.602s`，补充设备收尾并重新打包后的最终复验同样通过。主应用最终冷启动 `3385ms`，Activity resumed、PID 存活、crash buffer 为空。
-- 第 103 阶段只执行与真实 Room v33 样本直接相关的分级验证：`assembleDebug` 与 `assembleDebugAndroidTest` 分别成功，Redmi Provider 兼容单项为 `OK (1 test)`；随后使用真实 `gpt-5.5` 完成一次前台 `/agent + knowledge.search + Judge`。停进程数据库快照确认 Schema `33`、知识文档/分块均为 `0`、匿名账本恰好 `1` 条完成且接纳记录，Shadow 偏好为 `false`，生产 enforcement 偏好不存在，Provider/Profile 仍可用。Debug APK 为 `23,685,840` 字节、SHA-256 `f0dc66a6300553511771aeb395fbd07d0b57e97f709c1cea566b78130bb89e2f`；同步后的文档 corpus 单项在 Redmi 为 `OK (1 test)`、耗时 `1.988s`，复验后账本与清理状态不变。测试包已卸载，当前源码 Debug 以正式证书保留在 Redmi 上，最终冷启动 `3441ms`、Activity resumed、crash buffer 为空。本阶段没有执行完整 JVM、Lint、默认完整 instrumentation 或 Release 构建，也没有把 Room v32 的已发布 APK 降级覆盖到 v33 数据库。
-- 第 102 阶段冻结 `KnowledgeAnswerabilityExportEnvelope` 强类型契约，并明确匿名 Shadow envelope 固定不能作为 calibration/validation 数据；完整门禁为 JVM `736/736`、Lint `0 error / 51 warnings`、Debug/AndroidTest/Release APK、Redmi 完整 instrumentation XML `248` 条（`236 passed / 12 skipped / 0 failed`）和文档 corpus `1/1`。该阶段没有接入 JSON codec、SAF/UI 出口或生产 enforcement。
-- 知识质量工程的首个切片已完成 answerability Shadow 匿名跨进程账本。Room `v32 -> v33` 只创建空表，不从历史消息、Run、检索或人工阶段合计回填；幂等键重复写入只计一条，数据库关闭重开后摘要仍可读取，未知数值保持 `null`，最终异常没有 Provider telemetry 时仍按稳定 `failureKind` 计数。Store 在落库前强制幂等键与候选摘要为 64 位小写 SHA-256；Judge 配置使用 Android Keystore 内不可导出密钥计算 HMAC-SHA-256，数据库单独泄露时不能按公开 Provider/模型配置枚举或跨安装关联。审查后补充的 Redmi Store `4/4` 同时证明公开 SHA-256 不等于落库 HMAC，以及第 2,001 条写入会裁剪最旧记录。完整本地 `141/141` tasks（`2m 38s`）、JVM `734/734`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；Redmi 保持唤醒后的最终完整 JUnit XML 为 `248` 条（`236 passed / 12 skipped / 0 failed`），runner 最终打印 `260 tests`，耗时 `1m 51s`。Debug/Release APK 为 `23,452,761 / 3,220,018` 字节，SHA-256 为 `f186eecb97d84251e241e4e9f97d2d68a2c8b7ca2a70060f30cab29f9cd5a397 / fd840fca412fdcf0b23aa5f2b43c9b90fd0c714881b4fe6fe294d8e1acb1da16`；Release 通过 zipalign、v2 正式证书和单签名者校验。更新后的 README/docs 首次 Redmi corpus gate 为 `OK (1 test)`（`2.505s`），写回审查修复与设备收尾后的最终复验同样通过；固定正式 `v0.1.13` 已恢复，版本、前台 Activity、主进程、测试包卸载、保持唤醒还原和空 crash buffer 均已核对。
-- 通用执行恢复矩阵已完成“成功 ToolResult 已落库但缺少 typed 验证结论”的持久化窗口审计。`AgentRunResumePolicy` 现在按“工具定义存在性 -> `COMMITTED + IDEMPOTENT_BY_KEY` 提交证据 -> 当前工具是否开放只读恢复验证”依次短路：定义缺失固定返回 `TOOL_DEFINITION_UNAVAILABLE`，回执缺失或损坏固定返回 `COMMITTED_EFFECT_EVIDENCE_INVALID`，前两类都不会调用 support 回调；只有定义和提交证据完整但未开放只读回查时才返回 `COMMITTED_VERIFICATION_UNAVAILABLE`。本轮只提升 fail-closed 处置精度，不新增 resume kind、Repository 写路径或原地恢复资格，也不补造 `PASSED / FAILED`。强制本地 `141/141` tasks（`4m 15s`）、JVM `734/734`、Lint `0 error / 52 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；仅 Redmi 默认完整 instrumentation 为 `OK (243 tests)`、耗时 `95.348s`。Debug/Release APK 为 `23,436,377 / 3,203,634` 字节，SHA-256 为 `954f71d5a90a6f2b63160490eab45ea67486b92f3fe8275ca7cb15498a4de6b5 / 4ecb44ae0a189cd956b9e4f12d5827d5d2477be981ea6ed371c71a0cf6ab3fae`；Release 通过 zipalign、v2 正式证书和单签名者校验。最终 README/docs 已重新打包并通过 Redmi 文档语料 gate；正式 `v0.1.13` 已恢复，版本、前台 Activity、主进程、测试包卸载、保持唤醒还原和 crash buffer 均已核对。
-- 通用执行恢复矩阵新增“持久化失败工具验证原子失败终态结算”。当 `ToolResult success=true`、结果后的执行预算完整、typed `tool.verify=FAILED` 携带稳定原因、完整 v20 Tool Ledger 与 Step/Event 身份一致，且最后一个 `TOOL_VERIFY` Step 仍为 `RUNNING` 时，`closeInterruptedRuns()` 只在单个 Room transaction 内把该验证 Step 与原 Run 结算为 `FAILED`，写入 typed `run.recovered(PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT)`、`run.failed` 和 `run.status`。该路径不重复 Executor、验证器或 LLM，不追加第二条验证事实、不生成成功总结、不继续 Workflow；event-only、预算缺失或未位于结果之后、失败原因缺失、前缀未完整验证、待审批、尾随事件及身份/状态漂移继续 fail-closed。双轴审查补齐了预算必须为 `Available` 的硬门槛，并把 Runtime 验证异常捕获从 `Throwable` 收紧为 `Exception`。强制本地 `141/141` tasks（`3m 35s`）、JVM `732/732`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；仅 Redmi 定向事务/并发/Runtime 组合为 `OK (3 tests)`，默认完整 instrumentation 为 `OK (243 tests)`、耗时 `96.162s`。Debug/Release APK 为 `23,436,377 / 3,203,634` 字节，SHA-256 为 `1d39a89b3bd183253a1e217f3d32f9727cfa957bdcc6b2f884915c6251455fde / ffae97ee1406b667d93c7c9b436bafb50a73f8284d861595380c16415714fb36`；Release 继续通过 zipalign、v2 正式证书和单签名者校验。当前文档 corpus 首轮/中间复验为 `OK (1 test)`（`2.907s / 2.471s`），最终文本 gate 也已通过；正式 `v0.1.13` 已重新覆盖安装，冷启动 `602ms`，版本、前台 Activity、PID、测试包卸载、保持唤醒还原和空 crash buffer 已核对。
-- 通用执行恢复矩阵新增“持久化失败 ToolResult 原子失败终态结算”。只有 v20 完整非空 Tool Ledger 能证明 Run 仍为 `EXECUTING`、前序工具全部成功且 `PASSED`、唯一链尾 ToolResult 为 `success=false` 且错误非空、结果后恰有一份完整预算快照、对应最后一个 `TOOL_EXECUTE` Step 仍为 `RUNNING`，并且没有待审批、`tool.verify`、额外 Step 或业务尾部时，`closeInterruptedRuns()` 才会在单个 Room transaction 内把执行 Step 与原 Run 收敛为 `FAILED`，写入 typed `run.recovered(PERSISTED_TOOL_FAILURE_SETTLEMENT)`、`run.failed` 和 `run.status`。该路径不调用 Executor、验证器或 LLM，不生成成功上下文、不继续 Workflow；重复和双 Repository 并发只允许一次结算，终态审计写入失败会整体回滚。链尾缺少 ToolResult 仍属于 `COMMIT_UNKNOWN`，成功结果待验证、event-only、预算缺失以及身份/步骤/尾部漂移继续 fail-closed。双轴审查补齐了 Step sequence 与 typed 创建/完成事件身份核验，并删去 Repository 不消费的恢复载荷字段。强制本地 `141/141` tasks（`3m 1s`）、JVM `726/726`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；仅 Redmi 默认完整 instrumentation 为 `OK (240 tests)`、测试耗时 `93.258s`。Debug/Release APK 为 `23,419,993 / 3,203,634` 字节，SHA-256 为 `75a62310b023d090eebb89b702f1276fba86b015bbec5a865c660620388a4b14 / 74f546b4f8c77f497ebd5eb5058e4ed850464bdfbbe99aeed14cd8283a655e9a`；Release 继续通过 zipalign、v2 正式证书和单签名者校验。更新后的文档 corpus 首次复验为 `OK (1 test)`（`2.644s`），写回完整门禁与设备收尾后的复验同为 `OK (1 test)`（`2.553s`）；正式 `v0.1.13` 冷启动 `499ms`，版本、前台 Activity、PID、测试包卸载、保持唤醒还原和空 crash buffer 均已核对。
-- 通用执行恢复矩阵的“已提交与已验证控制面幂等收尾”已完成。恢复 marker 现在以 `resumeKind + boundary key + from/to status + reason` 完整绑定恢复边界，同一边界只允许唯一且一致的 marker；合法 marker 后出现第二条、损坏或冲突记录时一律 fail-closed。Step 创建/状态事件新增 typed `stepId / sequence / type / fromStatus / toStatus`，恢复策略不再仅凭事件名接受尾部。`COMMITTED_TOOL_VERIFICATION` 的状态 CAS、`run.status` 与 marker 同事务提交，`closeInterruptedRuns()` 也在一个 Room 事务内原子收敛 Step、Approval、Recovery 与 Run 终态；恢复入口写 marker 后重新读取 Room 并重新评估。全部工具已经 `PASSED` 时仍不调用旧 Executor、LLM 或 Workflow 后续步骤，只允许在三类可达控制面尾部幂等完成：尚未创建恢复总结、总结 Step 为 `RUNNING`（typed 总结事件可尚未写入或已经写入）、总结 Step 与事件已完成但 Run 尚未终态。恢复总结 Step/Event 在 Room 内 get-or-create，双协调器并发只产生一份总结事实；`COMPLETED recovery.summarize` 缺少总结事件、边界后出现业务事件或任一 typed 身份漂移都会拒绝恢复。强制本地 `141/141` tasks（`3m 14s`）、JVM `717/717`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；恢复聚焦 JVM `123/123`、Redmi Room 定向 `OK (36 tests)`（`8.434s`）。解锁并保持唤醒后的 Redmi 默认完整 instrumentation 为 `OK (237 tests)`、耗时 `93.062s`；首轮锁屏产生的 `59` 条 Activity/Compose 前台失败已由失败单项和完整套件复验排除。当前文档语料首次复验为 `OK (1 test)`（`2.447s`），写回并重新打包后的最终复验同为 `OK (1 test)`。Debug/Release APK 为 `23,419,993 / 3,203,634` 字节，SHA-256 为 `09c360e3a8429e72dd82bf32b21f398c6ae77fa7eb8d3e0dde4c979d223dc6ef / 5878510423499f3de1b1764376b24573abcc04c3d9440b94a97f000e48a14da8`；Release 已通过 R8、lintVital、zipalign 和 v2 正式签名，验收后正式 `v0.1.13` 已恢复。
-- “尚未提交”受控关联重试已完成实现和 Redmi 收尾。已收敛 Run 只有在 `run.recovered -> run.status=CANCELLED` 链完整、恢复状态/处置码/证据指纹稳定、当前定义与来源 Profile 都未漂移时才能打开专用确认；确认后 UseCase 在创建新 Run 前再次读取 Room，Runtime 再核恢复契约。新 Run 记录来源 Run、来源 ToolCall、新 ToolCall 与定义指纹，重新审批且只执行一次，不做模型规划；旧 Run 不变。强制本地 `141/141` tasks（`2m 39s`）、JVM `707/707`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK 和 Release lintVital 通过；Debug/Release APK 为 `23,403,609 / 3,187,250` 字节，SHA-256 为 `f8595e8671da28b59b87fbe85b2732d481263f39c1df3b60d17e1df6276764e0 / 7593288da547e95782da1b45d7a7e660dbbcab6d8ffe77102dcf8022636c6a02`。仅 Redmi 的真实磁盘纵向单项为 `OK (1 test)`（`1.573s`），专用 Compose 对话框为 `OK (1 test)`（`2.306s`），默认完整 instrumentation 为 `OK (235 tests)`（`92.954s`）；未向模拟器发送安装或测试命令。当前文档第一次语料复验为 `OK (1 test)`（`2.405s`），写回验收与设备收尾结果后的最终复验同为 `OK (1 test)`（`2.546s`）。正式 Release 已无损恢复，冷启动 `532ms`，版本、前台 Activity、PID、测试包卸载、保持唤醒关闭和空 crash buffer 均已核对。
-- 通用执行恢复矩阵的“尚未提交安全重放资格”切片已完成。`ToolDefinition` 新增默认拒绝的 `ToolNotCommittedReplayPolicy`，只有同时声明 `IDEMPOTENT_BY_KEY + CONTROLLED_SAME_CALL + REQUIRE_CONFIRMATION` 的工具才可能进入资格评估；当前仅 `notes.create` 与 `memory.remember` 显式加入。Runtime 会在 proposed/validated 事件中冻结版本化恢复契约及 SHA-256 定义指纹，审批 requested/decided 事件也冻结同一指纹。资格还必须同时证明原 Profile 白名单一致、Tool Ledger 完整、链尾无 ToolResult/`TOOL_EXECUTE`、前序调用均成功验证、唯一审批已批准且 requested 为 `PENDING`、事件顺序为 validated→requested→decided、审批后没有新步骤。通过时只持久化 `RESTART_REQUIRED / NOT_COMMITTED_REPLAY_ELIGIBLE`，旧 Run 与活动 Step 仍收敛为 `CANCELLED`；本切片不重放工具、不恢复旧模型协程/Executor/Workflow，也不原地继续旧 Run。强制本地 `141/141` tasks（`3m 19s`）、JVM `694/694`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 和 v2 正式单签名通过；Debug/Release APK 为 `23,387,225 / 3,187,250` 字节，SHA-256 为 `9b298babd168842031ad5221b2b1c488d5bc7a2b2ee046efdad101ad9f468c97 / c861055daed1ff8cf3264439c1795ed4085fe17b2220fc1c405e67d963e1cbbe`。仅 Redmi 的 Room 磁盘重开单项为 `OK (2 tests)`（`0.783s`），解锁并保持唤醒后的默认完整 instrumentation 为 `OK (233 tests)`（`90.924s`），最终文档语料单项为 `OK (1 test)`；未使用模拟器。
-- 通用执行恢复矩阵首个“提交状态未知”切片已完成。当前 Tool Ledger 只有同时具备 `tool.call.validated`、对应 `TOOL_EXECUTE` 持久化步骤且链尾缺少 ToolResult 时，才冻结 `COMMIT_UNKNOWN`；仅 proposed、仅 validated 但执行步骤尚未落库，以及账本/步骤不一致继续按 `RECOVERY_EVIDENCE_INVALID` fail-closed。启动收敛会把恢复分类、重试证据和证据边界一起写入 `run.recovered`：真正进入执行边界的旧 Run 需要确认后创建关联新 Run，尚未进入执行步骤的调用保持 `NOT_COMMITTED`，两者都不会重放工具、恢复旧模型协程或伪造 ToolResult。legacy typed event 也只在唯一链尾 validated 调用和执行步骤可同时核对时进入提交未知。强制本地 `141/141` tasks（`3m 11s`）、JVM `683/683`、Lint `0 error / 51 warnings`、Debug/AndroidTest/R8 Release APK、Release lintVital、zipalign 和 v2 正式单签名均通过；Debug/Release APK 为 `23,370,841 / 3,187,250` 字节，SHA-256 为 `d5470aa909bae8a93ff10bcb088ef9ce3b36bbec1da17caaf8ed3c001716b936 / cf0a2cc320bb7ebc6828850e271860ed775a5ebcdc65bc5e9be18e0c5b267dc3`。仅 Redmi `wsvwypiz7xwslvl7` 的两个 Room 恢复单项分别为 `OK (1 test)`（`0.592s / 0.507s`），默认完整 instrumentation 为 `OK (231 tests)`、耗时 `90.302s`；最终文档语料单项为 `OK (1 test)`。在线模拟器未被使用。
-- 发布后有界对话框簇收尾已完成代码、本地门禁与 Redmi 验收：Agent Run 重试、Workflow Run 重试、长期记忆编辑/删除和本地 Skill 删除分别迁入 `ui/agenttask`、`ui/workflow`、`ui/memory`、`ui/agentskill`，状态与动作通过各自 contract 投影，弹层仍由应用根全局挂载。备份恢复、全局通知、Android 文件选择器和跨页面导航继续留在 composition root。`XiaoLingApp.kt` 从 `1,103` 行降到 `817` 行；JVM `678/678`、Lint、Debug/AndroidTest/R8 Release APK 和 Release lintVital 已通过。仅 Redmi `wsvwypiz7xwslvl7` 的新增对话框聚焦测试为 `OK (7 tests)`、测试耗时 `9.247s`；默认完整 instrumentation 为 `OK (229 tests)`、测试耗时 `89.151s`；最终文档重新打包后的项目语料单项为 `OK (1 test)`。未向在线的 `emulator-5554` 发送安装或测试命令。
-- 小灵 `v0.1.13` 发布门禁通过：强制 Gradle `141/141` tasks、JVM `678/678`、Lint `0 error / 51 warnings`，Debug、AndroidTest、R8 Release APK 和 Release lintVital 均成功。Release 为 `0.1.13 (14)`、`3,170,866` 字节，SHA-256 `b6726cd080d0bd604726b5d77259311e855d2403110053fe41d0c851bd328fe8`，zipalign 和 APK Signature Scheme v2 单签名者均验证通过。仅 Redmi `wsvwypiz7xwslvl7` 执行默认完整 instrumentation，结果 `OK (222 tests)`、耗时 `82.798s`；未向 Pixel_9 或其他模拟器发送 ADB 命令。
-- 最终 README/docs 重新打入 AndroidTest APK 后，仅在 Redmi 复跑项目文档语料门禁为 `OK (1 test)`；测试包随后卸载，主应用恢复前台。
-- Agent 启动前校验协调迁出完成聚焦 JVM `10/10`，另有运行配置字符串脱敏 `1/1`；覆盖五类入口错误优先级、当前/历史 Profile 来源、旧 Run 空快照回退、冻结请求配置，以及 Base URL/API Key/自定义 Header 脱敏。强制本地门禁 `140/140` tasks 在 `2m 5s` 内通过：JVM `656/656`，Lint `0 error / 50 warnings / 0 information`，Debug/Release/AndroidTest APK 成功。仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `196` 条（`184 passed / 12 skipped / 0 failed`），最终测试耗时 `48.8s`；最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,190,389` 字节、SHA-256 `1633449fdfe317340da8b72e29e698262fde4cae381c8ccfb5706c4db34ffb52`；Release APK 为 `15,950,806` 字节、SHA-256 `00a0170be4fe2ac8e794340f63319f5429df6c3aa9eacc9dbea6fc21ee832e46`。Room v32、Shadow、第 101/102 项和设备后台门禁不变，未使用 Pixel_9。
-- Provider 模型同步协调迁出完成聚焦 JVM `8/8`，覆盖请求规范化、模型去重、无效 URL、稳定失败分型、取消传播、配置漂移、Provider 删除、批量顺序/失败继续和并发提交串行。完整 JVM `645/645`、Lint `0 error / 50 warnings`、Debug/Release/AndroidTest APK 已通过；仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (196 tests)`、耗时 `49.373s`，最终文档语料单项为 `OK (1 test)`。Room v32、Shadow、第 101/102 项和设备后台门禁不变，未使用 Pixel_9。
-- 候选记忆协调迁出完成聚焦 JVM `7/7`，覆盖有界读取、普通聊天/Agent 来源、无候选与存储失败分型、接受/拒绝路由、同 ID 并发、无关候选并行和取消后可重试。强制本地门禁 `140/140` tasks 在 `2m 23s` 内通过：JVM `637/637`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 成功；仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (196 tests)`、耗时 `49.633s`，最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,174,005` 字节、SHA-256 `4992185a39ae9844b171e51126dfbef2d97d2ce06d55edcf123bd85d5cb2007c`；Release APK 为 `15,934,422` 字节、SHA-256 `0cb3df07f601fe8cde4acb74346fd7c18eb47ffab55276e3cf4fab552fde5aab`。Room v32、Shadow、第 101/102 项和后台门禁不变，未使用 Pixel_9。
-- 恢复后 Agent 审批协调迁出完成聚焦 JVM `6/6`，并发锁忙以 `Busy` 保留另一会话的可重试卡片；Room 原子拒绝契约已进入默认真机套件。强制本地门禁 `140/140` tasks 在 `1m 51s` 内通过：JVM `630/630`、Lint `0 error / 50 warnings / 1 hint`、Debug/Release/AndroidTest APK 成功；仅 Redmi `wsvwypiz7xwslvl7` 默认完整 instrumentation 为 `OK (196 tests)`、耗时 `49.015s`，最终文档语料单项为 `OK (1 test)`。Debug APK 为 `23,157,621` 字节、SHA-256 `4579b5bc821bd721b77a76b3110b0451f852b9c8f84f528fa824efc8cc801e4f`；Release APK 为 `15,918,038` 字节、SHA-256 `8fb7d53170a7bff05218b0d4cced8a47dc550bb29bac7dea8278ec0b7e44c6ef`。本轮未采集 Shadow 样本，未使用 Pixel_9。
-- 第 101 项首个持续观察窗口只采集 `1` 条真实样本：Run 于 `2026-07-26 10:15:53` 开始、`10:16:04` 完成，`knowledge.search` 返回 `3` 个词法兜底候选，答案展示“本地知识包含直接回答”和 `知识引用 · 3`。本进程摘要为样本/完成/Judge `1/1/1`，取消、异常、未知、跳过及旁路错误均为 `0`；耗时 `5009ms`、TTFB `5002ms`、Prompt `10150B`、Tokens `2720/209/2929`。第 97 至 101 项已记录窗口人工合计为样本 `10`、完成 `8`、无候选跳过 `2`，Judge `8` 次、直接回答 `5`、部分回答 `3`，成本 `43846ms / 43777ms / 66995B / 17164+1822=18986 Tokens`；这不是跨进程 tracker 或 Room 数据。八次 Judge 均未出现自然网络、协议或认证失败，继续固定 Room v32、`store=null / persistenceMode=NONE`、`enforcementApplied=false` 和 `productionEnforcementEnabled=false`。本轮强制完整门禁为 JVM `614/614`、Lint `0 error / 50 warnings`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (195 tests)`；Debug APK 为 `23,141,237` 字节，SHA-256 `dc61bbec47e688ea19dea572e9dca5b5d04a4c7ed8a7f0c1efa4b328769f22ca`。
-- Agent Run 关联重试协调迁出新增聚焦 JVM `7/7`：覆盖无需确认、写工具副作用确认、同码证据指纹漂移、原 USER 附件恢复、旧 Run 不变、`retryOfRunId`、附件读取失败、请求/确认失效和取消。完整本地门禁为 JVM `614/614`、Lint `0 error / 50 warnings`、Debug/AndroidTest APK；仅 Redmi 默认完整 instrumentation 为 `OK (195 tests)`、耗时 `48.619s`，最终文档语料单项为 `OK (1 test)`。该横向工程未采集 Shadow 样本，也未扩展 Agent Runtime、工具或后台权限。
-- 第 100 阶段系统分享入口 v1 已完成聚焦 JVM `7/7` 与 Redmi `OK (4 tests)`：验证 Manifest 只暴露五种单项 MIME 且不解析 `ACTION_SEND_MULTIPLE`，双来源不同 URI 按多图拒绝，冷/热启动与 Activity 重建不会自动发送或重复投影，外部伪造“已处理” extra 不能跳过导入，PNG 继续走既有附件读取，草稿冲突需显式确认，导入提示在编辑、移除、图片失败和切换会话后清理。完整门禁为 JVM `607/607`、Lint `0 error`（`50 warnings / 1 hint`）、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `195` 条（`183 passed / 12 skipped`）；该入口不扩展到多附件、文档、任意 MIME、自动发送、Workflow 或后台处理。
-- 第 99 阶段在 Redmi 完成首批低频真实前台观察：导入当前 README 后因 Embedding Provider 在该窗口不可用而使用词法兜底，三条精确查询均形成有效候选和 Judge measurement，判定为直接回答 `2`、部分回答 `1`。关闭开关并删除 `4` 个测试会话后，notice 从有效 `3 / 裁剪 0` 变为有效 `0 / 裁剪 3`；临时知识文档与下载文件已删除，恢复知识文档 `0`、原会话 `ping` `1`。第 97 至 99 阶段记录合计样本 `9`、完成 `7`、无候选跳过 `2`，Judge `7` 次仍未出现自然网络、协议或认证失败；完整 JVM `600/600`、Lint `0 error`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。Room v32、`store=null / persistenceMode=NONE` 与两层 enforcement 关闭不变。
-- 第 98 阶段完成 Redmi 真实前台扩样本：累计 `6` 条 Shadow 样本中完成 `4`、无候选跳过 `2`，Judge `4` 次均无取消或异常，判定分布为直接回答 `2`、部分回答 `2`。关闭开关并删除测试会话后，notice 从有效 `4 / 裁剪 0` 变为有效 `1 / 裁剪 3`；测试知识文档已删除，恢复为知识文档 `0`、保留原会话 `1`。完整 JVM `600/600`、Lint `0 issue`、Debug/AndroidTest APK、Redmi 文档语料 `OK (1 test)` 和默认完整 `OK (191 tests)` 通过。`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
-- 第 97 阶段已完成 answerability shadow 真实前台样本与进程内遥测：统计固定上限且重启清空，重试链保留每次失败分类，设置页展示成本、失败和 notice 生命周期；`store=null / persistenceMode=NONE`、Room v32、`enforcementApplied=false` 和 `productionEnforcementEnabled=false` 均未改变。
-- 本地完整门禁为 JVM `600/600`、Lint `0 issue`、Debug APK 与 AndroidTest APK 构建成功；仅在 Redmi `wsvwypiz7xwslvl7` 执行设置页定向 `OK (1 test)` 和默认完整 instrumentation `OK (191 tests)`。真实前台 `/agent + knowledge.search` 得到 `1` 条完成样本：Judge `1` 次、耗时 `8437ms`、TTFB `8428ms`、Prompt `8952B`、输入/输出/总 Tokens `2340/361/2701`，失败、取消和异常均为 `0`；UI 显示“本地知识包含直接回答”和 `知识引用 · 3`。删除测试会话后 notice 从 `发布 1 / 当前有效 1 / 已裁剪 0` 变为 `发布 1 / 当前有效 0 / 已裁剪 1`；开启状态下普通聊天完成后样本仍为 `1`。验收后开关已恢复关闭，全程未使用 Pixel_9。
-- 第 96 阶段已完成默认关闭的生产接线：`OpenAiKnowledgeAnswerabilityJudge` 固定 Responses 非流式协议，逐请求关闭全部 HTTP Debug 日志；identity 从当前 `providerId / model / Base URL fingerprint` 派生并与冻结的 `redmi-provider-compatibility / gpt-5.5` 身份完全匹配后才请求。前台直接 Agent 先展示并保存答案，保存成功后 sibling Job 才启动 Judge；保存失败、取消、Workflow 来源或 Judge 终败都只跳过旁路，不发布猜测 notice。notice 仅以进程内 `messageId` 映射传给知识引用区域，`store=null / persistenceMode=NONE`，不改写消息、引用或生产拒绝。
-- 第 96 阶段本地门禁为完整 JVM `593/593`、Lint、Debug/AndroidTest APK 通过；仅在 Redmi `wsvwypiz7xwslvl7` 执行默认完整 instrumentation，结果 `OK (191 tests)`，另有真实生产 adapter `OK (1 test)`、设置/偏好/notice 定向组合 `OK (3 tests)`。冻结身份下的真实 calibration/validation 复验各 `12` 条，网络/解析失败均为 `0`；覆盖率特征族仍未通过，`minimumConfidence=0.85` 不变。没有使用 Pixel_9。
-- Redmi 上一正式发布版的收尾基线已复核为 Room `v32`；当前源码与本轮 Debug 验收已升级为 Room `v33`。测试结束后仍需恢复固定正式 `v0.1.13`，因此设备最终发布态与当前开发 Schema 必须分开记录，不能把旧正式版状态误写成新账本已发布。`answerability_shadow_enabled` 偏好文件不存在时继续按代码默认值保持关闭。
-- 第 93 阶段已完成答案可回答性 shadow 呈现的离线实现和 Redmi 真机验收：纯 Kotlin 策略把 `ACCEPT / REJECT / UNKNOWN` 翻译成直接回答、部分回答、未回答、矛盾、证据无法回查、低于冻结门禁和未知等用户提示；`KnowledgeReferencesContent` 的提示与原引用共存，`enforcementApplied=false`。新增 UI 断言 `KnowledgeReferencesContentInstrumentedTest#answerabilityShadowNoticeCoexistsWithRetainedReference` 已在 Redmi 全量回归中通过。
-- 第 92 阶段真实 `gpt-5.5` Judge 探针已在 Redmi `wsvwypiz7xwslvl7` 通过：校准/验证各 `12` 条观测，网络/解析失败均为 `0`；`VERDICT_AND_EXACT_EVIDENCE` 与 `VERDICT_EVIDENCE_AND_CONFIDENCE` 达到预注册标准，覆盖率特征族未通过，生产 enforcement 仍为 `false`。该阶段默认 Redmi instrumentation 为 `OK (188 tests)`（`177 passed / 11 skipped / 0 failed`），收尾基准耗时 `49.641s`；探针耗时 `94.154s`，数字保留为历史基线。
-- 收尾后通过应用设置页恢复未跟踪 `AGENTS.md` 的兜底 Provider 和 6 个可用模型，默认 Agent Profile 绑定 `gpt-5.5`；真实普通消息 `ping` 返回 `pong`，耗时 `2.44s`。`MainActivity` 前台、crash buffer 为空，设备 Agent 保持默认关闭/未授权状态。配置端点与密钥未写入仓库；仅使用 Redmi，没有连接或启动 Pixel_9。
-- 生产 `Room`、检索、答案链路和 answerability enforcement 继续保持隔离；`productionEnforcementEnabled=false`。
-- Debug 请求日志继续脱敏附件、Authorization 和原始/加密推理内容；默认 User-Agent 保持正确。
-- APK 元数据：包名 `com.longdev.xiaoling`，应用展示名「小灵」。
+| 项目 | 状态 |
+| --- | --- |
+| 正式版本 | `v0.1.17`（`versionCode 18`） |
+| 数据库 | Room v36 |
+| 开发里程碑 | 第 252 阶段，本地笔记经显式审批导入知识库并回看当前原文 |
+| JVM | `1118 / 1118` 通过 |
+| Lint | 通过 |
+| Redmi 全量 instrumentation | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
+| 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
+
+以上完整回归完成于 2026-08-13。`v0.1.17` 的 Release APK 另行执行签名、版本、zipalign 与 SHA-256 校验；详细证据和未覆盖边界见验证报告。
 
 ## 文档
 
-- [文档索引](docs/README.md)
-- [产品需求](docs/requirements.md)
-- [个人 Agent 路线图](docs/personal-agent-roadmap.md)
-- [参考项目分析](docs/reference-apps-analysis.md)
-- [当前实现说明](docs/implementation-notes.md)
-- [答案可回答性 shadow 绑定契约](docs/answerability-shadow-binding.md)
-- [当前验证报告](docs/verification-report.md)
-- [验证历史：基线至第 101 阶段](docs/verification-history/verification-baseline-through-stage-101.md)
+- [文档索引](docs/README.md)：长期文档入口与当前项目基线
+- [产品需求](docs/requirements.md)：目标、能力边界、隐私与非目标
+- [个人 Agent 路线图](docs/personal-agent-roadmap.md)：阶段计划、完成度与后续优先级
+- [实现说明](docs/implementation-notes.md)：架构、数据模型和关键实现约束
+- [验证报告](docs/verification-report.md)：构建、真机测试与发布证据
+- [参考项目分析](docs/reference-apps-analysis.md)：外部项目调研与取舍
 
-## 产物
+## 项目原则
 
-- 本地 debug APK：`app/build/outputs/apk/debug/app-debug.apk`
-- 本地 release APK：`app/build/outputs/apk/release/app-release.apk`
-- `outputs/` 目录不纳入版本控制。
+小灵优先保证一条完整个人 Agent 主链真实可用，再扩展更多工具与入口。每项能力都应具备明确意图、最小授权、可审计执行、操作后验证和当前权威事实回读；细节打磨不能取代主线闭环。

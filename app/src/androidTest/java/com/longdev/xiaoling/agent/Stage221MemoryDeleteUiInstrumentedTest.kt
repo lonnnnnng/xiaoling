@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import android.content.Context
+import android.os.Build
 import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -19,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -33,6 +35,7 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     @Test
     fun prepareUniqueMemoryAndMinimalProfile() = runBlocking {
+        requireManualRedmiRun()
         val state = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
         val profileStore = RoomAgentProfileStore(context)
         val roomState = RoomStateStore(context)
@@ -102,6 +105,7 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     @Test
     fun auditCompletedRunAndCurrentAbsence() = runBlocking {
+        requireManualRedmiRun()
         val state = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
         val marker = requireNotNull(state.getString(KEY_MARKER, null)) { "缺少第 221 阶段 marker" }
         val memoryId = requireNotNull(state.getString(KEY_MEMORY_ID, null)) { "缺少第 221 阶段 memory ID" }
@@ -157,6 +161,7 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     @Test
     fun cleanupFixtureProfileAndConversationPreservingRun() = runBlocking {
+        requireManualRedmiRun()
         val state = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
         val marker = requireNotNull(state.getString(KEY_MARKER, null)) { "缺少第 221 阶段 marker" }
         val memoryId = requireNotNull(state.getString(KEY_MEMORY_ID, null)) { "缺少第 221 阶段 memory ID" }
@@ -204,6 +209,7 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     @Test
     fun repairOriginalConversationBoundaryAndVerifyRun() = runBlocking {
+        requireManualRedmiRun()
         val database = XiaoLingDatabase.getInstance(context)
         val originalConversationId = "conversation-1786204146694"
         val runId = "run-73b6e1ca-2b73-4a39-a517-e2461afa5c43"
@@ -239,6 +245,14 @@ class Stage221MemoryDeleteUiInstrumentedTest {
         println("STAGE221_REPAIRED conversationId=$originalConversationId runId=$runId runPreserved=true emptyConversation=true")
     }
 
+    private fun requireManualRedmiRun() {
+        assumeTrue(
+            "第 221 阶段夹具只允许通过显式 stage221Manual=true 分段运行",
+            InstrumentationRegistry.getArguments().getString(ARG_MANUAL_RUN) == "true",
+        )
+        assertEquals("第 221 阶段 Android 验收只允许 Redmi Note 8 Pro", EXPECTED_DEVICE, Build.DEVICE)
+    }
+
     private suspend fun cleanupPreviousFixture(memoryStore: RoomAgentMemoryStore, memoryId: String?) {
         if (memoryId.isNullOrBlank()) return
         memoryStore.delete(memoryId)
@@ -247,6 +261,8 @@ class Stage221MemoryDeleteUiInstrumentedTest {
 
     private companion object {
         const val PROFILE_ID = "stage221-memory-delete-profile"
+        const val EXPECTED_DEVICE = "begonia"
+        const val ARG_MANUAL_RUN = "stage221Manual"
         const val STATE_PREFERENCES = "stage221_memory_delete_ui"
         const val KEY_ORIGINAL_PROFILE_ID = "original_profile_id"
         const val KEY_ORIGINAL_CONVERSATION_ID = "original_conversation_id"
