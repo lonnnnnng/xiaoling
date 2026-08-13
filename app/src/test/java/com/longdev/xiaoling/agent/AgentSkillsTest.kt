@@ -444,6 +444,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInNoteAppendSkillRequiresUniqueCurrentNoteAndOnlyNewContent() {
+        val skill = BuiltInAgentSkillRegistry.select(
+            goal = "在项目计划笔记末尾追加一条进展",
+            limit = 5,
+        ).single { it.id == "local-note-append" }
+
+        assertEquals(setOf("notes.search", "notes.get", "notes.append"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("notes.search -> notes.get -> notes.append"))
+        assertTrue(skill.instructions.contains("不得提交或改写原正文"))
+    }
+
+    @Test
     fun builtInTaskScheduleControlSkillPausesAndResumesOnlyRecurringPlans() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "暂停每日回顾提醒，明天再恢复",

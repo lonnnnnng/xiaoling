@@ -228,6 +228,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "目标笔记经用户批准后 revision 递增且正文回读一致，或明确说明未编辑。",
         ),
         AgentSkillDefinition(
+            id = "local-note-append",
+            name = "笔记追加",
+            description = "定位唯一笔记并在用户确认后向当前正文末尾追加一条新内容。",
+            instructions = "只有用户明确要求向已有笔记追加内容时才执行。严格调用 notes.search -> notes.get -> notes.append；搜索必须唯一命中，最后一步只能原样传递同一稳定 note ID、当前 revision 和本次新增内容，不得提交或改写原正文。目标不唯一、版本漂移、正文超限或用户未确认时停止。",
+            toolNames = setOf("notes.search", "notes.get", "notes.append"),
+            keywords = setOf("追加笔记", "补充笔记", "笔记加上", "append note", "add to note"),
+            triggerExamples = listOf("在项目计划笔记末尾追加一条进展", "给唯一匹配的笔记补充这段内容"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "搜索无结果或不唯一、revision 漂移、追加内容超限或提交未验证时停止；重新从搜索开始，不覆盖当前正文。",
+            completionCriteria = "用户批准后原标题和原正文保持不变、新内容只追加一次、revision 递增且当前 Store 回读一致。",
+        ),
+        AgentSkillDefinition(
             id = "local-note-knowledge-import",
             name = "笔记导入知识库",
             description = "把唯一命中的本地笔记经用户确认后导入本地知识库。",

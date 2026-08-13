@@ -1,5 +1,25 @@
 # 小灵个人 Agent 路线图
 
+## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
+
+- 新增 `Stage257NoteAppendInstrumentedTest`，只在显式 `stage257RealRun=true` 且 `Build.DEVICE=begonia` 时运行。测试预置唯一 Room 笔记、最小 Profile 和独立会话，真实 `gpt-5.5 / Responses` 从自然语言目标严格执行 `notes.search -> notes.get -> notes.append`。
+- 发送、批准和“查看笔记”全部通过 UiAutomation 点击屏幕可见节点，不使用 Debug Receiver、直接 Runtime 调用或 ViewModel 批准方法。审批卡参数精确绑定夹具 note ID、当前 revision 与新增片段。
+- 三项 Tool Ledger 均为 `PASSED`，追加调用为 `executorVerified=true / APPROVED / COMMITTED`，回执 operation ID 与原 note ID 一致。当前 Room 的 title 不变，content 精确为 `原正文 + "\n" + 新内容`，revision 精确 `+1`。
+- Activity 重建后从持久化 `VERIFIED` Tool part 恢复“查看笔记”；点击后本地笔记页重新读取当前 Room，显示同一稳定标题、完整追加正文和新 revision。旧 Run digest 前后不变。
+- 临时笔记只按稳定 ID tombstone，临时 Profile/会话精确删除，成功 Run 审计保留，用户原 Provider 完整恢复。最终仅 Redmi 单项为 `OK (1 test)`、`47.827s`，文档 corpus 首轮/结果写回复验均通过；没有使用模拟器，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+下一阶段重新选择一个尚未贯通的高频个人 Agent 任务，继续沿用“自然语言目标 -> 最小 Profile -> 可见审批或明确零审批 -> typed verification -> 当前权威事实查看 -> 稳定身份清理”。不重复包装笔记追加，也不提前扩展 Workflow、后台、MCP、远程 Channel、多 Agent 或本地模型。
+
+## 第 256 阶段：唯一笔记受控追加 Provider 能力（完成）
+
+- 新增 `notes.append / local-note-append`。同一前台直接 Run 必须严格执行 `notes.search -> notes.get -> notes.append`；搜索至少探测两个候选并且真正唯一，详情冻结稳定 note ID 与当前 revision，追加调用只原样携带 `note_id / expected_revision / content`。
+- `notes.append` 为 `REQUIRES_APPROVAL`、`supportsBackground=false`。执行器内部再次强制前台 `DIRECT`，批准证据只能恢复已验证调用，不能绕过来源门禁；跨 Run、多候选、跳过详情、重复消费、版本漂移、空追加、正文超限、Workflow、后台与无上下文全部 fail-closed。
+- 写入严格生成 `原正文 + "\n" + 新内容`，原标题和原正文逐字符不变；复用 `RoomAgentNoteStore.update()` 的 revision CAS、operation ledger、payload/result hash、幂等重放和 tombstone 防复活。成功结果经当前 Store 回读后签发 `COMMITTED`，已提交恢复只读核对 operation，不再次追加。
+- 答案级“查看笔记”只信 `VERIFIED`、精确三参数、唯一稳定 note ID 和 `resultRevision == expectedRevision + 1`；模型正文或历史结果不能升级为当前权威事实。旧 Profile、旧 Skill、Legacy Run、Workflow 和后台均不自动扩权。
+- 聚焦 JVM `161/161`、Debug/AndroidTest APK、仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的 `RoomAgentNoteStoreInstrumentedTest` `5/5`（`1.238s`）及文档 corpus 首轮/结果写回复验均通过。按快速迭代分级约束未运行完整 JVM、Lint、Release、全量 instrumentation 或真实 Provider UI 测试。
+
+该后继验收已由第 257 阶段完成：Redmi 真实 Provider、最小 Profile、自然语言、可见审批、`APPROVED / PASSED / COMMITTED`、当前 Room 精确追加、旧 Run 不变、Activity 重建后的“查看笔记”和稳定 ID 清理全部贯通。
+
 ## 第 255 阶段：唯一联系人打开系统拨号页真实前台闭环（完成）
 
 - 新增 `contacts.open_dialer / contact-dialer`，同一前台直接 Run 必须严格执行 `contacts.search -> contacts.get -> contacts.open_dialer`；只有搜索唯一、详情回读成功且最后一步原样携带同一稳定 contact ID 和一个完整号码时才进入审批。
@@ -8,7 +28,7 @@
 - Redmi 真实模型、屏幕可见发送/审批、系统拨号页号码观察、返回后 Room 审计均已贯通；最终单项 `OK (1 test)`、`27.532s`，三项 Ledger 均为 `PASSED`，审批为 `APPROVED`，号码预填、电话未拨出、旧终态 Run 不变。
 - Redmi 当时公网路由只有故障中的 VPN `tun0`，直接 Provider 请求在计划前被 SSL/DNS 阻断；最终通过 `adb reverse` 的本机临时 HTTP 转发连接同一 HTTPS 上游。测试结束恢复用户原 Provider，撤销反向端口，精确删除合成联系人、临时 Profile/会话并保留成功 Run 审计。未使用模拟器，未开放联系人写入、短信/邮件、直接呼叫、Workflow 或后台联系人访问。
 
-下一阶段继续从个人 Agent 主线选择一个尚未贯通的高频任务；优先补“用户能从自然语言目标得到可验证结果”的新能力，不横向扩展任意联系人动作、后台设备控制、MCP、远程 Channel、多 Agent 或本地模型。
+后继第 256/257 阶段已完成唯一笔记受控追加的 Provider 能力与 Redmi 真实用户闭环。不横向扩展任意联系人动作、后台设备控制、MCP、远程 Channel、多 Agent 或本地模型。
 
 ## 第 254 阶段：高频个人偏好回忆真实前台闭环（完成）
 

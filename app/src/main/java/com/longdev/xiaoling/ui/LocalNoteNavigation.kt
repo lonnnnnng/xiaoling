@@ -9,6 +9,7 @@ internal fun MessagePart.Tool.localNoteIdForNavigation(): String? {
         NOTE_CREATE_TOOL_NAME -> trustedCreatedNoteId()
         NOTE_GET_TOOL_NAME -> trustedDetailNoteId()
         NOTE_UPDATE_TOOL_NAME -> trustedUpdatedNoteId()
+        NOTE_APPEND_TOOL_NAME -> trustedAppendedNoteId()
         NOTE_LIST_TOOL_NAME, NOTE_SEARCH_TOOL_NAME -> trustedListedNoteId()
         else -> null
     }
@@ -48,6 +49,20 @@ private fun MessagePart.Tool.trustedUpdatedNoteId(): String? {
         resultRevision != update.expectedRevision + 1L
     ) return null
     return result.singleStableNoteId()?.takeIf { it == update.noteId }
+}
+
+private fun MessagePart.Tool.trustedAppendedNoteId(): String? {
+    if (verificationStatus != MessageToolVerificationStatus.VERIFIED) return null
+    if (arguments.keys != setOf(NOTE_ID_ARGUMENT, NOTE_EXPECTED_REVISION_ARGUMENT, NOTE_CONTENT_ARGUMENT)) return null
+    val noteId = arguments[NOTE_ID_ARGUMENT]?.takeIf(NOTE_ID_PATTERN::matches) ?: return null
+    val expectedRevision = arguments[NOTE_EXPECTED_REVISION_ARGUMENT]?.toCanonicalPositiveLong() ?: return null
+    val contentLength = arguments[NOTE_CONTENT_ARGUMENT]?.trim()?.length ?: return null
+    if (contentLength !in 1..10_000 || expectedRevision == Long.MAX_VALUE) return null
+    val match = NOTE_APPEND_RESULT_PATTERN.matchEntire(result) ?: return null
+    val resultRevision = match.groupValues[3].toCanonicalPositiveLong() ?: return null
+    // long: 追加入口只信任应用生成的稳定 ID 和严格 +1 revision；正文不从 ToolResult 回放，点击后仍由当前 Note Store 回读。
+    if (match.groupValues[2] != noteId || resultRevision != expectedRevision + 1L) return null
+    return result.singleStableNoteId()?.takeIf { it == noteId }
 }
 
 private fun MessagePart.Tool.trustedListedNoteId(): String? {
@@ -126,6 +141,7 @@ private const val NOTE_SEARCH_TOOL_NAME = "notes.search"
 private const val NOTE_CREATE_TOOL_NAME = "notes.create"
 private const val NOTE_GET_TOOL_NAME = "notes.get"
 private const val NOTE_UPDATE_TOOL_NAME = "notes.update"
+private const val NOTE_APPEND_TOOL_NAME = "notes.append"
 private const val NOTE_LIMIT_ARGUMENT = "limit"
 private const val NOTE_QUERY_ARGUMENT = "query"
 private const val NOTE_ID_ARGUMENT = "note_id"
@@ -141,6 +157,9 @@ private val NOTE_DETAIL_RESULT_PATTERN = Regex(
 )
 private val NOTE_UPDATE_RESULT_PATTERN = Regex(
     "已编辑并验证笔记：(.+) · id=(note-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}) · revision=([1-9][0-9]*)",
+)
+private val NOTE_APPEND_RESULT_PATTERN = Regex(
+    "已追加并验证笔记：(.+) · id=(note-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}) · revision=([1-9][0-9]*)",
 )
 private val NOTE_ID_PATTERN = Regex("note-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 private val NOTE_RESULT_ENTRY_PATTERN = Regex(

@@ -77,6 +77,9 @@ class XiaoLingToolRegistry(
     private var searchedNoteImportCandidateIds: Set<String> = emptySet()
     private var verifiedNoteImportCandidate: NoteKnowledgeImportCandidate? = null
     private val approvedKnowledgeImportCallIds = mutableSetOf<String>()
+    private var searchedNoteAppendCandidateIds: Set<String> = emptySet()
+    private var verifiedNoteAppendCandidate: NoteAppendIdentity? = null
+    private val approvedNoteAppendCallIds = mutableSetOf<String>()
     // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
@@ -773,6 +776,54 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = NOTES_APPEND_TOOL_NAME,
+            description = "向 notes.get 刚刚回读的唯一笔记末尾追加内容；提交前需要用户确认，版本漂移时拒绝覆盖。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "note_id",
+                    description = "当前 Run 唯一 notes.search 结果经 notes.get 回读的稳定 note-UUID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 41,
+                    maxLength = 41,
+                ),
+                ToolInputField(
+                    name = "expected_revision",
+                    description = "notes.get 返回的当前 revision；版本变化后必须重新搜索和读取。",
+                    required = true,
+                    type = ToolInputType.INTEGER,
+                    minimum = 1.0,
+                ),
+                ToolInputField(
+                    name = "content",
+                    description = "只包含本次需要追加的新内容，不得重复或改写原笔记正文。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = MAX_NOTE_APPEND_CONTENT_LENGTH,
+                ),
+            ),
+            businessValidators = listOf(
+                ToolBusinessValidator { arguments ->
+                    buildList {
+                        if (!NOTE_ID_PATTERN.matches(arguments["note_id"].orEmpty().trim())) add("笔记 ID 格式无效")
+                        if (arguments["expected_revision"]?.trim()?.toLongOrNull()?.let { it > 0L } != true) {
+                            add("笔记版本无效")
+                        }
+                        if (arguments["content"].orEmpty().trim().isEmpty()) add("追加内容不能为空")
+                    }
+                },
+            ),
+            ephemeralBusinessValidators = listOf(ToolBusinessValidator(::validateNoteAppendCandidate)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
+            notCommittedReplayPolicy = ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL,
+            validateBeforeAudit = true,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = NOTES_DELETE_TOOL_NAME,
             description = "按 notes.list、notes.search 或 notes.get 返回的稳定 ID 删除一条本地笔记；删除前需要用户确认，删除后会回读验证。",
             risk = ToolRisk.REQUIRES_APPROVAL,
@@ -1109,6 +1160,9 @@ class XiaoLingToolRegistry(
             searchedNoteImportCandidateIds = emptySet()
             verifiedNoteImportCandidate = null
             approvedKnowledgeImportCallIds.clear()
+            searchedNoteAppendCandidateIds = emptySet()
+            verifiedNoteAppendCandidate = null
+            approvedNoteAppendCallIds.clear()
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
                 deviceController.clearReferences()
@@ -1125,6 +1179,10 @@ class XiaoLingToolRegistry(
         if (call.name == KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME && approval?.approved == true) {
             // long: 审批恢复可能运行在新 Registry；批准只恢复原 Run 已持久化的 validated ToolCall，真正执行仍会重新读取当前 Note 和 Knowledge Store。
             approvedKnowledgeImportCallIds += call.id
+        }
+        if (call.name == NOTES_APPEND_TOOL_NAME && approval?.approved == true) {
+            // long: 审批恢复可以重建 Registry；这里只恢复已持久化调用的批准身份，执行前仍按当前 revision 和正文重新回读。
+            approvedNoteAppendCallIds += call.id
         }
         val context = runContext ?: return
         if (
@@ -1295,6 +1353,10 @@ class XiaoLingToolRegistry(
             // long: 笔记导入会新建持久知识文档，只在当前前台直接 Run 暴露；Workflow 和后台不得借只读知识检索自动扩大为摄取任务。
             available = available.filterNot { it.name == KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME }
         }
+        if (!noteAppendAllowed(context)) {
+            // long: 追加会修改当前笔记，只向前台直接 Run 暴露；后台和 Workflow 不能借只读笔记工具静默累积内容。
+            available = available.filterNot { it.name == NOTES_APPEND_TOOL_NAME }
+        }
         if (!taskCancelAllowed(context)) {
             available = available.filterNot { it.name == TASK_CANCEL_TOOL_NAME }
         }
@@ -1351,6 +1413,7 @@ class XiaoLingToolRegistry(
             (definition.name !in CALENDAR_MUTATION_TOOL_NAMES || calendarMutationAllowed(runContext)) &&
             (definition.name != CONTACT_OPEN_DIALER_TOOL_NAME || contactDialerAllowed(runContext)) &&
             (definition.name != KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME || knowledgeImportAllowed(runContext)) &&
+            (definition.name != NOTES_APPEND_TOOL_NAME || noteAppendAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
             (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext)) &&
@@ -1393,6 +1456,7 @@ class XiaoLingToolRegistry(
             "notes.get" -> getNote(call)
             "notes.create" -> createNote(call)
             NOTES_UPDATE_TOOL_NAME -> updateNote(call)
+            NOTES_APPEND_TOOL_NAME -> appendNote(call)
             NOTES_DELETE_TOOL_NAME -> deleteNote(call)
             "memory.search" -> searchMemory(call)
             "memory.get" -> getMemory(call)
@@ -1434,6 +1498,7 @@ class XiaoLingToolRegistry(
         return when (call.name) {
             "notes.create" -> verifyCommittedNote(call, receipt)
             NOTES_UPDATE_TOOL_NAME -> verifyCommittedNoteUpdate(call, receipt)
+            NOTES_APPEND_TOOL_NAME -> verifyCommittedNoteAppend(call, receipt)
             NOTES_DELETE_TOOL_NAME -> verifyCommittedNoteDeletion(call, receipt)
             "memory.remember" -> verifyCommittedMemory(call, receipt)
             MEMORY_DELETE_TOOL_NAME -> verifyCommittedMemoryDeletion(call, receipt)
@@ -1451,6 +1516,7 @@ class XiaoLingToolRegistry(
         // long: 只有具备 operation 账本和结果快照的写工具才进入验证阶段恢复；能力白名单与幂等声明分离，避免未来仅修改 replaySafety 就扩大恢复范围。
         return toolName == "notes.create" ||
             toolName == NOTES_UPDATE_TOOL_NAME ||
+            toolName == NOTES_APPEND_TOOL_NAME ||
             toolName == NOTES_DELETE_TOOL_NAME ||
             toolName == "memory.remember" ||
             toolName == MEMORY_DELETE_TOOL_NAME ||
@@ -2731,14 +2797,17 @@ class XiaoLingToolRegistry(
         val query = call.arguments["query"].orEmpty().trim()
         searchedNoteImportCandidateIds = emptySet()
         verifiedNoteImportCandidate = null
+        searchedNoteAppendCandidateIds = emptySet()
+        verifiedNoteAppendCandidate = null
         if (query.isBlank()) return ToolExecutionResult(success = false, content = "笔记搜索关键词不能为空")
         val visibleLimit = call.limit()
         // long: 导入链至少读取两个候选才能证明“唯一”；即使模型把 limit 设为 1，也不能把截断后的第一条误当成唯一命中。
         val notes = noteStore.search(query = query, limit = max(visibleLimit, 2))
         searchedNoteImportCandidateIds = notes.mapTo(linkedSetOf(), AgentNoteRecord::id)
+        searchedNoteAppendCandidateIds = searchedNoteImportCandidateIds
         val visibleNotes = notes.take(visibleLimit)
         val ambiguitySuffix = if (notes.size > visibleNotes.size) {
-            "\n[还有其他匹配笔记，当前结果不能用于唯一导入]"
+            "\n[还有其他匹配笔记，当前结果不能用于唯一导入或追加]"
         } else {
             ""
         }
@@ -2751,6 +2820,7 @@ class XiaoLingToolRegistry(
     private suspend fun getNote(call: ToolCall): ToolExecutionResult {
         val noteId = call.arguments["note_id"].orEmpty().trim()
         verifiedNoteImportCandidate = null
+        verifiedNoteAppendCandidate = null
         // long: 读取工具只接受应用生成的 note-UUID，避免把任意数据库主键探测能力暴露给 Agent；不存在和 tombstone 共用同一安全结果。
         if (!NOTE_ID_PATTERN.matches(noteId)) {
             return ToolExecutionResult(success = false, content = "笔记 ID 格式无效")
@@ -2768,6 +2838,10 @@ class XiaoLingToolRegistry(
                 revision = note.revision,
                 contentHash = contentHash,
             )
+        }
+        if (searchedNoteAppendCandidateIds == setOf(note.id)) {
+            // long: 追加授权只绑定最近一次真正唯一的搜索结果和当前 revision；普通详情读取不能单独获得写入资格。
+            verifiedNoteAppendCandidate = NoteAppendIdentity(note.id, note.revision)
         }
         return ToolExecutionResult(
             success = true,
@@ -3043,6 +3117,101 @@ class XiaoLingToolRegistry(
                 content = "未找到笔记或笔记已被删除",
             )
         }
+    }
+
+    private suspend fun appendNote(call: ToolCall): ToolExecutionResult {
+        if (!noteAppendAllowed(runContext)) {
+            return ToolExecutionResult(false, "笔记追加只允许在当前前台直接 Agent Run 中执行。")
+        }
+        val managementStore = noteStore as? AgentNoteManagementStore
+            ?: return ToolExecutionResult(success = false, content = "当前笔记存储不支持追加")
+        val candidate = call.toNoteAppendCandidate()
+            ?: return ToolExecutionResult(success = false, content = "笔记 ID、版本或追加内容无效")
+        val approvedValidatedCall = approvedNoteAppendCallIds.remove(call.id)
+        if (verifiedNoteAppendCandidate != candidate.identity && !approvedValidatedCall) {
+            return ToolExecutionResult(false, "追加前必须在同一 Run 唯一搜索并读取同一笔记的当前 revision。")
+        }
+        // long: 唯一搜索和详情形成一次性追加授权；消费后即清空，第二次追加必须重新读取，不能沿用旧 revision。
+        searchedNoteAppendCandidateIds = emptySet()
+        verifiedNoteAppendCandidate = null
+        val current = noteStore.get(candidate.identity.noteId)
+            ?.takeIf { it.revision == candidate.identity.revision }
+            ?: return ToolExecutionResult(false, "笔记在读取或审批后已变化或删除，请重新搜索并读取。")
+        val appendedContent = current.content.appendNoteContent(candidate.content)
+            ?: return ToolExecutionResult(false, "追加后笔记正文将超过 20000 个字符，未执行写入。")
+        val request = AgentNoteUpdateRequest(
+            noteId = current.id,
+            title = current.title,
+            content = appendedContent,
+            expectedRevision = current.revision,
+        )
+        return when (val result = managementStore.update(request, idempotencyKey = call.id)) {
+            is AgentNoteUpdateResult.Updated -> verifiedNoteAppendResult(call, result.note)
+            is AgentNoteUpdateResult.Unchanged -> ToolExecutionResult(false, "追加内容没有改变笔记正文。")
+            is AgentNoteUpdateResult.RevisionConflict -> ToolExecutionResult(
+                false,
+                "笔记已在其他位置更新，当前 revision=${result.current.revision}；请重新搜索并读取后再追加。",
+            )
+            AgentNoteUpdateResult.NotFound -> ToolExecutionResult(false, "未找到笔记或笔记已被删除。")
+        }
+    }
+
+    private suspend fun verifiedNoteAppendResult(call: ToolCall, note: AgentNoteRecord): ToolExecutionResult {
+        val receipt = ToolExecutionReceipt(
+            toolCallId = call.id,
+            operationId = note.id,
+            idempotencyKey = call.id,
+            status = ToolExecutionReceiptStatus.COMMITTED,
+        )
+        val current = noteStore.get(note.id)
+        return if (current == note) {
+            ToolExecutionResult(
+                success = true,
+                verified = true,
+                content = "已追加并验证笔记：${note.title} · id=${note.id} · revision=${note.revision}",
+                executionReceipt = receipt,
+            )
+        } else {
+            ToolExecutionResult(
+                success = false,
+                content = "笔记追加已提交但当前回读发生变化，不能确认追加成功。",
+                verified = false,
+                executionReceipt = receipt,
+            )
+        }
+    }
+
+    private suspend fun verifyCommittedNoteAppend(
+        call: ToolCall,
+        receipt: ToolExecutionReceipt,
+    ): ToolExecutionResult {
+        val managementStore = noteStore as? AgentNoteManagementStore
+            ?: return ToolExecutionResult(false, "当前笔记存储不支持追加", false, executionReceipt = receipt)
+        val candidate = call.toNoteAppendCandidate()
+            ?: return failedNoteUpdateVerification(receipt, AgentNoteUpdateVerificationFailure.PAYLOAD_MISMATCH)
+        val current = noteStore.get(candidate.identity.noteId)
+            ?.takeIf { it.revision == candidate.identity.revision + 1L }
+            ?: return failedNoteUpdateVerification(receipt, AgentNoteUpdateVerificationFailure.NOTE_CHANGED)
+        val receiptMatches = receipt.toolCallId == call.id &&
+            receipt.operationId == current.id &&
+            receipt.idempotencyKey == call.id &&
+            receipt.status == ToolExecutionReceiptStatus.COMMITTED
+        if (!receiptMatches) return failedNoteUpdateVerification(receipt, AgentNoteUpdateVerificationFailure.OPERATION_MISMATCH)
+        val expectedContent = current.content.removeAppendedNoteContent(candidate.content)
+            ?: return failedNoteUpdateVerification(receipt, AgentNoteUpdateVerificationFailure.PAYLOAD_MISMATCH)
+        val request = AgentNoteUpdateRequest(current.id, current.title, current.content, candidate.identity.revision)
+        if (expectedContent.isBlank()) return failedNoteUpdateVerification(receipt, AgentNoteUpdateVerificationFailure.PAYLOAD_MISMATCH)
+        // long: 恢复阶段从当前结果重建最终更新载荷并核对 operation 账本；不再次追加，也不把仅“包含尾部文字”当成提交证明。
+        return when (val verification = managementStore.verifyUpdateOperation(call.id, current.id, request)) {
+            is AgentNoteUpdateVerification.Verified -> verifiedNoteAppendResult(call, verification.note)
+            is AgentNoteUpdateVerification.Failed -> failedNoteUpdateVerification(receipt, verification.reason)
+        }
+    }
+
+    private fun validateNoteAppendCandidate(arguments: Map<String, String>): List<String> {
+        val candidate = arguments.toNoteAppendCandidate()?.identity
+        return if (candidate != null && candidate == verifiedNoteAppendCandidate) emptyList()
+        else listOf("当前 Run 必须先用 notes.search 唯一定位笔记，再由 notes.get 回读同一 ID 和 revision")
     }
 
     private suspend fun verifyCommittedNoteUpdate(
@@ -3586,6 +3755,7 @@ private val MEMORY_ACCESS_TOOL_NAMES = setOf("memory.search", "memory.get", MEMO
 private val NOTE_TITLE_LINE_BREAKS = Regex("[\\r\\n]+")
 private const val MAX_NOTE_TITLE_OUTPUT_LENGTH = 200
 private const val MAX_NOTE_CONTENT_OUTPUT_LENGTH = 20_000
+private const val MAX_NOTE_APPEND_CONTENT_LENGTH = 10_000
 private val SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES = setOf(
     DEVICE_OPEN_APP_TOOL_NAME,
     DEVICE_BACK_TOOL_NAME,
@@ -3649,6 +3819,10 @@ private fun memoryDeleteAllowed(context: AgentToolExecutionContext?): Boolean =
         context.invocationSource == AgentInvocationSource.DIRECT &&
         context.memoryRecallEnabled != false
 
+private fun noteAppendAllowed(context: AgentToolExecutionContext?): Boolean =
+    context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+        context.invocationSource == AgentInvocationSource.DIRECT
+
 private fun contactDialerAllowed(context: AgentToolExecutionContext?): Boolean =
     context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
         context.invocationSource == AgentInvocationSource.DIRECT
@@ -3687,6 +3861,7 @@ private const val TASK_PAUSE_TOOL_NAME = "tasks.pause"
 private const val TASK_RESUME_TOOL_NAME = "tasks.resume"
 private val TASK_SCHEDULE_CONTROL_TOOL_NAMES = setOf(TASK_PAUSE_TOOL_NAME, TASK_RESUME_TOOL_NAME)
 private const val NOTES_UPDATE_TOOL_NAME = "notes.update"
+private const val NOTES_APPEND_TOOL_NAME = "notes.append"
 private const val NOTES_DELETE_TOOL_NAME = "notes.delete"
 private const val MEMORY_DELETE_TOOL_NAME = "memory.delete"
 private const val MILLIS_PER_DAY = 24L * 60L * 60L * 1_000L
@@ -3888,6 +4063,41 @@ private data class NoteKnowledgeImportCandidate(
     fun idempotencyKey(): String = "knowledge-import-from-note:$noteId"
 
     fun displayName(): String = "本地笔记-$noteId.txt"
+}
+
+private data class NoteAppendIdentity(
+    val noteId: String,
+    val revision: Long,
+)
+
+private data class NoteAppendCandidate(
+    val identity: NoteAppendIdentity,
+    val content: String,
+)
+
+private fun ToolCall.toNoteAppendCandidate(): NoteAppendCandidate? {
+    if (name != NOTES_APPEND_TOOL_NAME) return null
+    return arguments.toNoteAppendCandidate()
+}
+
+private fun Map<String, String>.toNoteAppendCandidate(): NoteAppendCandidate? {
+    val noteId = this["note_id"].orEmpty().trim()
+    val revision = this["expected_revision"]?.trim()?.toLongOrNull()
+    val content = this["content"].orEmpty().trim()
+    if (!NOTE_ID_PATTERN.matches(noteId) || revision == null || revision <= 0L) return null
+    if (content.isEmpty() || content.length > MAX_NOTE_APPEND_CONTENT_LENGTH) return null
+    return NoteAppendCandidate(NoteAppendIdentity(noteId, revision), content)
+}
+
+private fun String.appendNoteContent(content: String): String? {
+    // long: 追加的核心承诺是原正文逐字符保持不变；即使正文以空格或多个换行结尾，也只在其后增加一个分隔换行和新内容。
+    val appended = this + "\n" + content
+    return appended.takeIf { it.length <= MAX_NOTE_CONTENT_OUTPUT_LENGTH }
+}
+
+private fun String.removeAppendedNoteContent(content: String): String? {
+    val suffix = "\n$content"
+    return takeIf { it.endsWith(suffix) }?.dropLast(suffix.length)
 }
 
 private fun ToolCall.toNoteKnowledgeImportCandidate(): NoteKnowledgeImportCandidate? {

@@ -98,13 +98,13 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 | --- | --- |
 | 正式版本 | `v0.1.17`（`versionCode 18`） |
 | 数据库 | Room v36 |
-| 开发里程碑 | 第 255 阶段，唯一联系人经可见审批打开系统拨号页并预填号码 |
+| 开发里程碑 | 第 257 阶段，唯一笔记受控追加真实前台闭环完成 |
 | JVM | `1118 / 1118` 通过 |
 | Lint | 通过 |
 | Redmi 全量 instrumentation | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-Stage 255 Redmi 真实单项为 `OK (1 test)`（`27.532s`）：真实模型严格执行 `contacts.search -> contacts.get -> contacts.open_dialer`，最后一步经屏幕可见审批后只用 Android `ACTION_DIAL` 打开系统拨号页并预填当前 Provider 回读的唯一号码。三项 Tool Ledger 均为 `PASSED`，电话没有拨出，也没有产生持久副作用回执；临时联系人、Profile 和会话精确清理，旧终态 Run 不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+Stage 257 已在 Redmi 完成唯一笔记受控追加的真实用户闭环：`gpt-5.5 / Responses` 从自然语言目标严格规划 `notes.search -> notes.get -> notes.append`，最后一步经屏幕可见审批后达到 `APPROVED / PASSED / COMMITTED`。当前 Room 精确保持原标题和原正文，只追加一次新增片段并将 revision 递增 1；Activity 重建后的“查看笔记”再次读取同一稳定 ID 的当前正文。真实单项 `OK (1 test)`（`47.827s`），临时笔记、Profile、会话和本机转发配置精确清理，成功 Run 审计保留、旧 Run 不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
 以上完整回归完成于 2026-08-13。`v0.1.17` 的 Release APK 另行执行签名、版本、zipalign 与 SHA-256 校验；详细证据和未覆盖边界见验证报告。
 

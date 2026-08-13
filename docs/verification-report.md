@@ -4,6 +4,47 @@
 
 ## 当前验证基线
 
+## 2026-08-13 第 257 阶段：唯一笔记受控追加真实前台闭环
+
+### 当前结论
+
+- 新增仅验收使用的 `Stage257NoteAppendInstrumentedTest`，生产 Tool/Skill、Room v36、权限、Workflow 与后台边界不变。临时最小 Profile 只允许 `local-note-append` 和 `notes.search -> notes.get -> notes.append`。
+- Redmi 真实 `gpt-5.5 / Responses` 从自然语言目标严格规划三步链；发送、批准和“查看笔记”均由屏幕可见节点点击。最后一步参数精确绑定唯一 note ID、当前 revision 与本次新增片段。
+- 三项结果均为 `PASSED`，追加为 `executorVerified=true / APPROVED / COMMITTED`。当前 Room title 不变，正文精确追加一次，revision `+1`；Activity 重建后从持久化可信 Tool part 恢复入口并重新读取当前 Room。
+
+### 验证证据
+
+- `compileDebugAndroidTestKotlin`、Debug APK 与 AndroidTest APK 构建成功。仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行真实单项，最终 `OK (1 test)`、`47.827s`。
+- 七份长期文档同步后重建 AndroidTest 资产，仅 Redmi 的文档 corpus gate 首轮为 `OK (1 test)`、`3.429s`；包含结果的最终文本写回复验同样为 `OK (1 test)`。
+- 首次直连 Provider 在计划前连续出现 `SSL_connect ... error=5`，因此没有创建 Run。临时本机代理第一版未消费 OkHttp chunked body，`POST /v1/responses` 返回 502；修复后测试等待器可立即报告真实 Run 错误。
+- `gpt-5.6-luna` 在该上游的工具请求稳定返回 `HTTP 502 · unknown provider`，尽管 `/models` 和最小无工具 `/responses` 探测可用；最终改用经真实工具链验证的 `gpt-5.5`。API Key 未进入源码、命令输出、代理日志或长期文档。
+- 成功测试断言严格工具序列、参数、三项 typed verification、审批、回执、Room 当前记录、持久化消息导航、Activity 重建、可见详情、旧 Run digest 和清理结果。临时笔记/Profile/会话删除，新 Run 审计保留，用户原 Provider 恢复。
+- 本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release 或全量 instrumentation；没有启动或使用模拟器。
+
+### 后续门禁
+
+- Stage 256/257 的唯一笔记追加已经完成生产能力和真实用户闭环，后续不再以重复验收替代新个人 Agent 能力。下一阶段重新冻结一个未贯通的高频任务，继续保持最小 Profile、稳定身份、当前权威回读和精确清理。
+
+## 2026-08-13 第 256 阶段：唯一笔记受控追加 Provider 能力
+
+### 当前结论
+
+- 新增生产 `notes.append` 与 `local-note-append` Skill。前台直接 Run 严格要求 `notes.search -> notes.get -> notes.append`，搜索必须通过至少两个候选探测证明真正唯一，最后一步只携带稳定 note ID、当前 revision 与本次新增片段；旧 Profile、Skill、Legacy Run、Workflow 和后台不扩权。
+- 逐次批准后执行器仍二次强制前台 `DIRECT`，从当前 Store 回读同一 revision，并以 CAS 写入 `原正文 + "\n" + 新内容`。原标题和原正文逐字符保留；多候选、跨 Run、重复消费、revision 漂移、空追加、正文超限、无上下文和后台全部 fail-closed。
+- 写入复用 `RoomAgentNoteStore` operation ledger、payload/result hash、幂等重放和 tombstone。只有当前 Store 回读一致才返回 `VERIFIED / COMMITTED`；已提交恢复只读核对 operation，不再次追加。答案级导航要求精确三参数、唯一 ID 与结果 revision 精确 `+1`。
+
+### 验证证据
+
+- 聚焦 `AgentSkillsTest + LegacyRunToolBoundaryTest + XiaoLingToolRegistryTest + LocalNoteNavigationTest` 共 `161/161` 通过；Debug APK 与 AndroidTest APK 构建成功。
+- 只在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `RoomAgentNoteStoreInstrumentedTest`，结果 `OK (5 tests)`、`1.238s`，覆盖幂等创建、跨重启重放与载荷冲突、revision CAS、operation verification、删除 tombstone 和不可复活边界。
+- 七份长期文档同步后重建 AndroidTest 资产，仅 Redmi 的文档 corpus gate 首轮为 `OK (1 test)`、`3.323s`；包含该结果的最终文本写回复验同样为 `OK (1 test)`。
+- 独立安全审查发现并修复两项问题：执行器曾缺少前台 `DIRECT` 二次门禁，现已在 `appendNote()` 开头 fail-closed；追加曾使用 `trimEnd()` 破坏原正文末尾空白，现改为精确保留并补充末尾空格/多换行测试。
+- 本阶段按快速迭代分级约束未运行完整 JVM、Lint、Release、全量 instrumentation 或真实 Provider UI 测试；未启动或使用模拟器。
+
+### 后继验收
+
+- Stage 256 只证明生产 Tool/Skill、Room 写入恢复和答案导航能力；Stage 257 已在 Redmi 使用真实 Provider 与最小 Profile，完成可见发送/批准、`APPROVED / PASSED / COMMITTED`、当前 Room 精确追加、旧 Run 不变、重建后“查看笔记”和稳定 ID 精确清理。
+
 ## 2026-08-13 第 255 阶段：唯一联系人打开系统拨号页真实前台闭环
 
 ### 当前结论

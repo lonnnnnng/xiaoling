@@ -12,6 +12,7 @@ class LegacyRunToolBoundaryTest {
         assertTrue("notes.create" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("notes.delete" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("notes.update" in LEGACY_RUN_TOOL_NAMES)
+        assertFalse("notes.append" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("memory.get" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("app.get_conversation" in LEGACY_RUN_TOOL_NAMES)
         assertFalse("knowledge.search" in LEGACY_RUN_TOOL_NAMES)

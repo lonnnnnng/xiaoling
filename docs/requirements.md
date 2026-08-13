@@ -62,6 +62,15 @@
 - `lookupKey` 仅为 Provider 内部导航凭据，不进入 ToolResult、答案文本、消息引用、日志或模型上下文；联系人姓名、电话和邮箱继续按不可信数据投影。
 - 聚焦 JVM `7/7`、Debug/AndroidTest APK 和仅 Redmi 的正向详情/删除竞态 `2/2`、撤权 `1/1` 已通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
 
+## 唯一笔记受控追加（第 256/257 阶段，完成）
+
+- 只允许当前前台 `DIRECT` Agent 使用 `notes.append`，且当前 Profile 必须显式启用 `local-note-append` 与 `notes.search / notes.get / notes.append`；既有 Profile、Skill、历史 Run、Workflow 和后台不得自动获得写入能力。
+- 必须在同一 Run 严格执行 `notes.search -> notes.get -> notes.append`。搜索至少读取两个候选以证明唯一，详情冻结稳定 `note-UUID` 与当前正整数 revision；追加只接受精确 `note_id / expected_revision / content`，不得提交原标题或原正文让模型改写。
+- 每次追加必须逐次审批。执行时必须再次核对前台 `DIRECT` 来源并从当前 Note Store 回读同一 ID/revision；跨 Run、多候选、跳过详情、候选重复消费、批准期间 revision 漂移、记录删除、空白新增内容、单次新增超过 10,000 字符或最终正文超过 20,000 字符时必须停止且不得覆盖。
+- 成功结果必须保持原标题和原正文逐字符不变，只生成 `原正文 + "\n" + 新内容`，revision 精确递增 1。写入必须使用 revision CAS、稳定幂等键与 operation ledger；只有当前 Store 回读、payload/result hash 和 `COMMITTED` 回执一致时才可声明成功。恢复已提交调用时只能只读验账，不能再次追加。
+- 答案级“查看笔记”只接受可信 `VERIFIED` 结果、精确三参数、唯一稳定 note ID 和 `resultRevision == expectedRevision + 1`；伪造 ID、参数漂移、多结果、失败结果或历史模型文本均不得形成导航入口。
+- 第 256 阶段完成生产 Provider 能力与聚焦门禁；第 257 阶段已在 Redmi 验收真实 Provider、自然语言、屏幕可见审批、当前 Room 回读、Activity 重建后的查看入口、旧 Run 不变和夹具精确清理。验收不得通过 Debug Receiver、直接 Runtime 调用或自动批准绕过用户界面。
+
 ## 唯一联系人打开系统拨号页（第 255 阶段，完成）
 
 - `contacts.open_dialer(contact_id, phone_number)` 只允许前台直接 Agent 使用，必须由当前 Profile/`contact-dialer` Skill 显式开放，并在同一 Run 内紧接唯一 `contacts.search -> contacts.get`；稳定 ID 和详情返回的一个完整号码必须原样传递。

@@ -63,6 +63,47 @@ class LocalNoteNavigationTest {
     }
 
     @Test
+    fun verifiedAppendResultReturnsStableIdOnlyForExactRevisionIncrement() {
+        val arguments = mapOf(
+            "note_id" to NOTE_ID,
+            "expected_revision" to "3",
+            "content" to "新增进展",
+        )
+        assertEquals(
+            NOTE_ID,
+            notePart(
+                toolName = "notes.append",
+                arguments = arguments,
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+                result = "已追加并验证笔记：项目计划 · id=$NOTE_ID · revision=4",
+            ).localNoteIdForNavigation(),
+        )
+        assertNull(
+            notePart(
+                toolName = "notes.append",
+                arguments = arguments,
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+                result = "已追加并验证笔记：项目计划 · id=$NOTE_ID · revision=5",
+            ).localNoteIdForNavigation(),
+        )
+        assertNull(
+            notePart(
+                toolName = "notes.append",
+                arguments = arguments + ("title" to "伪造"),
+                verificationStatus = MessageToolVerificationStatus.VERIFIED,
+                result = "已追加并验证笔记：项目计划 · id=$NOTE_ID · revision=4",
+            ).localNoteIdForNavigation(),
+        )
+        assertNull(
+            notePart(
+                toolName = "notes.append",
+                arguments = arguments,
+                result = "已追加并验证笔记：项目计划 · id=$NOTE_ID · revision=4",
+            ).localNoteIdForNavigation(),
+        )
+    }
+
+    @Test
     fun getResultRejectsIdRevisionArgumentAndBodyForgery() {
         val validArguments = mapOf("note_id" to NOTE_ID)
         val validResult = "笔记详情：项目计划 · id=$NOTE_ID · revision=3\n" +

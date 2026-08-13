@@ -362,6 +362,7 @@ class XiaoLingToolRegistryTest {
                 "notes.get",
                 "notes.create",
                 "notes.update",
+                "notes.append",
                 "notes.delete",
                 "memory.search",
                 "memory.get",
@@ -409,6 +410,7 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("tasks.resume").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.create").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.update").risk)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.append").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("notes.delete").risk)
         assertEquals(ToolRisk.REQUIRES_APPROVAL, tools.getValue("memory.remember").risk)
         assertEquals(ToolRisk.SAFE, tools.getValue("memory.get").risk)
@@ -424,9 +426,14 @@ class XiaoLingToolRegistryTest {
             listOf("note_id", "expected_revision", "title", "content"),
             tools.getValue("notes.update").inputSchema.map { it.name },
         )
+        assertEquals(
+            listOf("note_id", "expected_revision", "content"),
+            tools.getValue("notes.append").inputSchema.map { it.name },
+        )
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.update").verificationPolicy)
         assertEquals(ToolNotCommittedReplayPolicy.CONTROLLED_SAME_CALL, tools.getValue("notes.update").notCommittedReplayPolicy)
         assertFalse(tools.getValue("notes.update").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("notes.append").permissionPolicy.supportsBackground)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
         assertFalse(tools.getValue("notes.delete").permissionPolicy.supportsBackground)
@@ -559,7 +566,9 @@ class XiaoLingToolRegistryTest {
 
     @Test
     fun productionToolsDeclareCompleteSchemaAndFailClosedPolicies() {
-        val tools = testRegistry().availableTools().associateBy { it.name }
+        val registry = testRegistry()
+        val tools = registry.availableTools().associateBy { it.name }
+        val appendTool = registry.registeredTools().single { it.name == "notes.append" }
         val limitFields = listOf(
             "app.list_conversations",
             "app.search_conversations",
@@ -636,13 +645,17 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolApprovalPolicy.NONE, tools.getValue("notes.search").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.create").approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.update").approvalPolicy)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, appendTool.approvalPolicy)
         assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, tools.getValue("notes.delete").approvalPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.create").verificationPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.update").verificationPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, appendTool.verificationPolicy)
         assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, tools.getValue("notes.delete").verificationPolicy)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.create").replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.update").replaySafety)
+        assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, appendTool.replaySafety)
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("notes.delete").replaySafety)
+        assertFalse(registry.availableTools().any { it.name == "notes.append" })
         assertEquals(ToolReplaySafety.IDEMPOTENT_BY_KEY, tools.getValue("memory.remember").replaySafety)
         val deviceSnapshot = testRegistry().registeredTools().single { it.name == "device.snapshot" }
         assertEquals(ToolRisk.SAFE, deviceSnapshot.risk)
@@ -3374,6 +3387,109 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun notesAppendRequiresUniqueSearchAndCurrentDetailThenAppendsExactlyOnce() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(noteId, "项目计划", "第一项", 1L, 2L, revision = 3L)
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        registry.bindRunContext(directNoteAppendContext())
+        val call = ToolCall(
+            id = "tool-call-note-append",
+            name = "notes.append",
+            arguments = mapOf("note_id" to noteId, "expected_revision" to "3", "content" to "第二项"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        assertTrue(registry.definition("notes.append") != null)
+        assertFalse(registry.registeredTools().single { it.name == "notes.append" }.validateArguments(call.arguments).errors.isEmpty())
+        registry.execute(ToolCall(name = "notes.search", arguments = mapOf("query" to "项目计划"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to noteId), risk = ToolRisk.SAFE))
+        assertTrue(registry.registeredTools().single { it.name == "notes.append" }.validateArguments(call.arguments).errors.isEmpty())
+        registry.beforeToolExecution(call, AgentToolApprovalEvidence(true, 10L, "process-note-append"))
+        val result = registry.execute(call)
+        val receipt = requireNotNull(result.executionReceipt)
+        val recovered = registry.verifyCommittedEffect(call, receipt)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertEquals("项目计划", noteStore.get(noteId)?.title)
+        assertEquals("第一项\n第二项", noteStore.get(noteId)?.content)
+        assertEquals(4L, noteStore.get(noteId)?.revision)
+        assertEquals(true, recovered?.success)
+        assertEquals(1, noteStore.updateCallCount)
+        assertTrue(registry.supportsCommittedEffectVerification("notes.append"))
+        assertFalse(registry.execute(call.copy(id = "tool-call-note-append-again")).success)
+    }
+
+    @Test
+    fun notesAppendRejectsAmbiguousSearchAndApprovalTimeRevisionDrift() = runTest {
+        val firstId = "note-12345678-1234-1234-1234-123456789abc"
+        val secondId = "note-87654321-4321-4321-4321-cba987654321"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(firstId, "项目计划甲", "正文甲", 1L, 2L, revision = 1L)
+            it.records += AgentNoteRecord(secondId, "项目计划乙", "正文乙", 1L, 2L, revision = 1L)
+        }
+        val registry = testRegistry(noteStore = noteStore)
+        registry.bindRunContext(directNoteAppendContext())
+        val call = ToolCall(
+            id = "tool-call-note-append-drift",
+            name = "notes.append",
+            arguments = mapOf("note_id" to firstId, "expected_revision" to "1", "content" to "新增"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        registry.execute(ToolCall(name = "notes.search", arguments = mapOf("query" to "项目计划"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to firstId), risk = ToolRisk.SAFE))
+        assertFalse(registry.registeredTools().single { it.name == "notes.append" }.validateArguments(call.arguments).errors.isEmpty())
+
+        registry.execute(ToolCall(name = "notes.search", arguments = mapOf("query" to "项目计划甲"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to firstId), risk = ToolRisk.SAFE))
+        registry.beforeToolExecution(call, AgentToolApprovalEvidence(true, 10L, "process-note-append"))
+        noteStore.records.replaceAll { note -> if (note.id == firstId) note.copy(content = "其他修改", revision = 2L) else note }
+        val result = registry.execute(call)
+
+        assertFalse(result.success)
+        assertTrue(result.content.contains("已变化"))
+        assertEquals(0, noteStore.updateCallCount)
+    }
+
+    @Test
+    fun notesAppendPreservesTrailingWhitespaceAndRejectsApprovedNonDirectExecution() = runTest {
+        val noteId = "note-12345678-1234-1234-1234-123456789abc"
+        val original = "正文末尾保留空格  \n\n"
+        val noteStore = InMemoryAgentNoteStore().also {
+            it.records += AgentNoteRecord(noteId, "保真笔记", original, 1L, 2L, revision = 1L)
+        }
+        val call = ToolCall(
+            id = "tool-call-note-append-boundary",
+            name = "notes.append",
+            arguments = mapOf("note_id" to noteId, "expected_revision" to "1", "content" to "新增内容"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val registry = testRegistry(noteStore = noteStore)
+
+        registry.beforeToolExecution(call, AgentToolApprovalEvidence(true, 10L, "process-note-append"))
+        assertFalse(registry.execute(call).success)
+        registry.bindRunContext(
+            directNoteAppendContext().copy(
+                runId = "run-note-append-background",
+                executionOrigin = AgentExecutionOrigin.BACKGROUND,
+            ),
+        )
+        registry.beforeToolExecution(call, AgentToolApprovalEvidence(true, 10L, "process-note-append"))
+        assertFalse(registry.execute(call).success)
+        assertEquals(0, noteStore.updateCallCount)
+
+        registry.bindRunContext(directNoteAppendContext())
+        registry.execute(ToolCall(name = "notes.search", arguments = mapOf("query" to "保真笔记"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "notes.get", arguments = mapOf("note_id" to noteId), risk = ToolRisk.SAFE))
+        registry.beforeToolExecution(call, AgentToolApprovalEvidence(true, 10L, "process-note-append"))
+        assertTrue(registry.execute(call).success)
+        assertEquals(original + "\n新增内容", noteStore.get(noteId)?.content)
+    }
+
+    @Test
     fun notesGetRejectsMalformedAndMissingIdsWithoutProbingStore() = runTest {
         val noteStore = InMemoryAgentNoteStore()
         val registry = testRegistry(noteStore = noteStore)
@@ -4308,6 +4424,16 @@ class XiaoLingToolRegistryTest {
         goal = "给张三打电话",
         executionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource = AgentInvocationSource.DIRECT,
+    )
+
+    private fun directNoteAppendContext(): AgentToolExecutionContext = AgentToolExecutionContext(
+        conversationId = "conversation-note-append",
+        userMessageId = "message-note-append",
+        runId = "run-note-append",
+        goal = "向项目计划笔记追加一条进展",
+        executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource = AgentInvocationSource.DIRECT,
+        processSessionId = "process-note-append",
     )
 
     private fun approvedContactToolEvidence(): AgentToolApprovalEvidence = AgentToolApprovalEvidence(

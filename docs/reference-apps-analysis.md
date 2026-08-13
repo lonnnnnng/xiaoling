@@ -1,5 +1,9 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 257 阶段把成熟个人 Agent 的“真实用户入口、最小能力面、可见审批、提交后权威回读、页面重建恢复与夹具精确清理”组合成 Redmi 真实链。测试没有用 Debug Receiver、直接 Runtime 或自动批准绕过界面，也没有按标题/正文模糊删除；Tool Ledger、消息 Tool part、Room 当前记录和详情页都绑定同一稳定 note ID/revision。小灵没有借验收扩展后台笔记监听、自动整理、批量修改、Workflow、远程 Channel 或多 Agent；Stage 256 的生产边界保持不变。
+
+第 256 阶段采用成熟个人 Agent 的“唯一候选后再写、危险动作逐次审批、写前回读权威源、CAS 防覆盖、提交后验账与稳定身份导航”原则。小灵没有复制后台笔记监听、自动摘要/整理、标题猜测覆盖、批量修改、跨设备同步或旧 Profile 静默扩权；它只在同一前台 Run 的 `notes.search -> notes.get` 唯一链之后接受新增片段，以当前 revision 条件写入，并逐字符保留原标题和原正文。`COMMITTED` 恢复只读核对 operation，答案级入口再次受可信结果和 revision `+1` 约束。第 256 阶段只完成 Provider 能力与 Store 验证；第 257 阶段已在 Redmi 完成真实 Provider、可见审批、Activity 重建与精确清理。
+
 第 255 阶段采用成熟个人 Agent 的“先确定唯一联系人、危险动作前可见审批、执行前重新读取权威源、把系统拨号页与真实呼叫分离”原则。小灵没有复制参考项目的全量通讯录同步、后台关系图谱、号码猜测、`ACTION_CALL`、静默呼叫或短信/邮件发送；它只在同一前台 Run 的 `contacts.search -> contacts.get` 唯一链之后，审批并二次回读当前号码，再用 `ACTION_DIAL` 预填系统拨号页。真实 Redmi 验收确认号码可见但未点击拨号按钮，结果不签发持久副作用回执；联系人写入、直接呼叫、Workflow 与后台访问继续关闭。
 
 第 252 阶段把成熟 Agent 的“自然语言规划、用户可见审批、提交后权威回读、答案引用恢复和夹具精确清理”落实为 Redmi 真实链。测试没有通过 Debug Receiver、直接 Runtime 调用或自动批准 Gate 绕过界面，而是从真实对话发送目标、点击审批、重建 Activity、展开知识引用并打开当前原文；Ledger、Room、回执与页面使用同一稳定身份。实现没有复制后台笔记监听、自动摄取、共享知识同步、旧 Profile 静默扩权或测试后删除 Run 审计，生产能力边界保持第 251 阶段不变。文档 corpus 首轮为 `OK (1 test)`、`3.632s`，结果写回后的最终文本复验为 `OK (1 test)`、`3.279s`。

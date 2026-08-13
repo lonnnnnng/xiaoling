@@ -1,5 +1,31 @@
 # 当前实现说明
 
+## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
+
+- `Stage257NoteAppendInstrumentedTest` 以 Stage 252 的真实前台骨架为基础，保存原 Profile/会话选择和最近旧 Run digest，创建唯一笔记、只允许三项目标 Tool 的临时 Profile 与独立会话；测试开始先清理上次残留，成功和异常共用同一 `finally` 清理。
+- 正式 `MainActivity + XiaoLingViewModel` 只负责填入自然语言 `/agent` 草稿；发送、批准和答案级“查看笔记”都由 UiAutomation 点击可见节点。等待器在 Run 非成功终态时立即报告持久化 `errorMessage`，避免网络失败后继续空等完整超时。
+- 完成后从 `RoomAgentRunRepository` 核对严格工具序列、参数原样传递、三项 `PASSED`、追加 Executor verification、唯一 `APPROVED` 与 `COMMITTED` 回执；再从 `RoomAgentNoteStore` 核对同一 note ID、title 保持、正文精确追加和 revision `+1`。
+- Activity 重建后先等待持久化 `MessagePart.Tool / VERIFIED` 重新投影，再点击“查看笔记”；`LocalNoteManagementViewModel` 按 requested note ID 从当前 Room 读取，测试从可见详情核对标题、完整正文和新版本，不信任历史 Tool 正文。
+- Redmi 直连当前 Provider 首次在计划前出现 SSL 失败；临时本机代理最初因未读取 chunked request 返回 502，修复后又确认 `gpt-5.6-luna` 的工具路由返回 `unknown provider`。最终以同一兜底上游的 `gpt-5.5 / Responses` 通过；测试只临时覆盖 Base URL/模型，API Key 始终留在设备 Keystore，`finally` 恢复完整原 Provider。
+- 最终 Redmi 单项 `OK (1 test)`、`47.827s`，文档 corpus 首轮/结果写回复验均通过。临时笔记按稳定 note ID tombstone，临时 Profile/会话删除，新 Run 审计保留，旧 Run digest 不变；生产 Tool/Skill、Room v36、权限、Workflow 与后台边界未再改变。
+
+### 下一阶段
+
+重新冻结一个尚未贯通的高频个人 Agent 任务；Stage 256/257 的笔记追加契约与真实验收已经闭合，不再通过增加相似断言延长该切片。
+
+## 第 256 阶段：唯一笔记受控追加 Provider 能力（完成）
+
+- `XiaoLingToolRegistry` 为追加链维护独立的最近搜索候选集与 `NoteAppendIdentity(noteId, revision)`。`notes.search` 至少读取两个候选，只有集合真正唯一时，后续 `notes.get` 才冻结追加身份；新搜索、Run 切换或一次消费立即清空，不能复用旧详情或跨 Run 写入。
+- `notes.append` Schema 只有 `note_id / expected_revision / content`，使用稳定 business validator 与短生命周期 candidate validator。工具只向前台 `DIRECT` 暴露，执行器开头再次调用 `noteAppendAllowed(runContext)`；审批恢复只恢复已持久化 ToolCall 的批准身份，不能替代当前来源、revision 与 Store 回读。
+- 执行时读取当前 `AgentNoteRecord`，要求 revision 与冻结值一致，再构造保留原 title、以 `current.content + "\n" + content` 得到的新正文并调用 `AgentNoteManagementStore.update()`。因此末尾空格、多个换行与其他 Unicode 空白均逐字符保留，没有使用 `trimEnd()`。
+- `RoomAgentNoteStore.update()` 继续负责 revision CAS、operation ledger、payload/result hash、幂等重放和 tombstone。首次写后回读完全相等才返回 verified + `COMMITTED`；`verifyCommittedNoteAppend()` 核对回执、revision 精确 `+1`、追加后缀和既有 operation，不再次执行 update。
+- `LocalNoteNavigation` 增加追加结果解析：只接受 `notes.append / VERIFIED / success`、精确三参数、规范 revision、唯一稳定 note ID 与结果 revision 精确 `expected + 1`，再复用当前 Room 的笔记详情页；普通模型回答或不可信 Tool 卡不会产生入口。
+- 聚焦 JVM `161/161`、Debug/AndroidTest APK 成功；仅 Redmi 的 `RoomAgentNoteStoreInstrumentedTest` `5/5`（`1.238s`）与文档 corpus 首轮/结果写回复验均通过。未运行完整 JVM、Lint、Release、全量 instrumentation 或真实 Provider UI 验收。
+
+### 后继验收（已由第 257 阶段完成）
+
+第 257 阶段已使用最小 Profile 和真实 Provider，从自然语言目标经可见发送与批准完成唯一追加，并核对 `APPROVED / PASSED / COMMITTED`、当前 Room、旧 Run 不变、Activity 重建后的“查看笔记”和基于稳定 ID 的精确清理；生产追加契约没有继续扩张。
+
 ## 第 252 阶段：唯一本地笔记导入知识库真实前台闭环（完成）
 
 - 新增 `Stage252NoteKnowledgeImportInstrumentedTest`，在测试开始时保存原 Profile/会话选择与最近旧 Run digest，创建唯一 Room 笔记、只允许三项目标 Tool 的临时 Profile 和独立会话；测试异常与成功都进入同一精确清理路径。
