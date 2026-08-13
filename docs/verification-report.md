@@ -4,6 +4,26 @@
 
 ## 当前验证基线
 
+## 2026-08-13 第 258 阶段：前台通知只读观察能力
+
+### 当前结论
+
+- 新增系统 NotificationListener、独立通知访问设置页、`notifications.list / notifications.get` 和 `notification-overview`。两项工具仅前台 `DIRECT / SAFE`，详情只接受同一 Run 最近列表的稳定匿名 ID；通知动作、后台与历史镜像保持关闭。
+- 通知文本按外部不可信数据处理。私密/消息/来电及疑似验证码或凭据内容整体隐藏；原始 notification key、PendingIntent、action 和 RemoteInput 不进入模型或 Room。
+
+### 验证证据
+
+- 聚焦 `AgentSkillsTest + XiaoLingToolRegistryTest + NotificationPrivacyPolicyTest + LegacyRunToolBoundaryTest` 通过；`compileDebugAndroidTestKotlin`、Debug APK、AndroidTest APK 与合并 Manifest 通过。
+- 只使用 Redmi `wsvwypiz7xwslvl7 / begonia`。真实 listener 首轮测试失败：标题“登录验证码 123456”已隐藏，但正文“请勿向任何人泄露验证码”仍保留；修正为跨字段整体隐藏后为 `OK (1 test)`、`7.727s`。
+- 通知访问设置页未授权与授权连接两态为 `OK (2 tests)`、`3.028s`。测试通知撤销后 `notifications.get` 返回 NotFound，测试 channel 删除，测试包卸载。
+- `cmd notification disallow_listener` 后，`settings get secure enabled_notification_listeners` 确认只剩设备原有 listener，不含小灵组件。主应用保留，未使用模拟器。
+- 七份长期文档同步后重建 AndroidTest 资产，仅 Redmi 的文档 corpus gate 首轮为 `OK (1 test)`、`3.716s`；包含该证据与历史阶段时间边界修正的最终文本以相同步骤复验通过。
+- 按快速迭代分级未运行完整 JVM、Lint、Release 或全量 instrumentation；真实 Provider 自然语言与答案级通知导航尚未执行，不能由本阶段证据替代。
+
+### 后续门禁
+
+- 下一阶段必须用真实 Provider 和最小 Profile 完成可见自然语言 `notifications.list -> notifications.get`，再从可信详情 Tool part 提供当前通知查看；点击时重新读取 listener，消失或撤权必须 fail-closed。
+
 ## 2026-08-13 第 257 阶段：唯一笔记受控追加真实前台闭环
 
 ### 当前结论
@@ -237,7 +257,7 @@
 
 ### 保持关闭的边界
 
-按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation；日历写入扩张、通知读取、后台日历、自动知识摄取、MCP、远程 Channel、多 Agent 和本地模型继续关闭。
+按快速迭代分级策略未运行完整 JVM、Lint、Release 或全量 instrumentation；该阶段当时仍关闭日历写入扩张、通知读取、后台日历、自动知识摄取、MCP、远程 Channel、多 Agent 和本地模型。通知前台只读观察已由第 258 阶段完成，通知动作与后台访问仍关闭。
 
 ## 2026-08-11 第 249 阶段：答案级知识引用当前权威原文定位
 
@@ -284,7 +304,7 @@
 
 - `calendar.create_event` 新增可选 `reminder_minutes_before`，只接受 `0..10080` 规范整数，并限制为一次性非全天事件的一条 `METHOD_ALERT`；无提醒调用保持原语义。
 - Android 写入器通过 Calendar Provider `applyBatch` 原子提交事件和 reminder。首次写入、同 ToolCall 重放及 COMMITTED 恢复都回读当前 Provider，要求提醒行数、方法和分钟完全一致。
-- Room v36、Android 权限集合、全天/重复事件、多提醒、参与人、Workflow、后台执行与通知读取边界均未变化。
+- Room v36、Android 权限集合、全天/重复事件、多提醒、参与人、Workflow、后台执行与通知读取边界在该阶段均未变化；通知前台只读观察随后已由第 258 阶段完成，通知动作与后台访问仍关闭。
 
 ### 已验证证据
 
@@ -318,7 +338,7 @@
 ### 验证范围与下一阶段
 
 - 按快速迭代分级约束，本阶段未运行完整 JVM、Lint、Release 或全量 instrumentation；未进行真实声音识别。
-- 后继第 255 阶段已完成唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件、通知读取、后台设备动作、多 Agent 与远程 Channel继续后置。
+- 后继第 255 阶段已完成唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件、后台设备动作、多 Agent 与远程 Channel 继续后置。当时后置的通知前台只读观察已由第 258 阶段完成，通知动作仍关闭。
 
 ## 2026-08-10 第 245 阶段：系统联系人只读精确查询 v1
 
@@ -327,7 +347,7 @@
 - 独立“联系人访问”设置页只在用户主动点击后申请 `READ_CONTACTS`，并在页面恢复时重新读取系统权限；工具执行与后台任务不能弹出授权。
 - `contacts.search` 仅按用户明确给出的姓名、电话号码或邮箱片段查询，最多 10 个候选；摘要只含姓名、匹配类型和稳定 ID。`contacts.get` 只消费当前 Run 最近一次搜索返回的规范 `contact-<正整数>`，切换 Run 或搜索失败即失效，再从当前 Contacts Provider 回读姓名、电话和邮箱。
 - 地址、公司、生日、备注、头像、群组、账户、任意 Data MIME、全量枚举、写联系人、拨号、短信、邮件、Workflow 和后台读取均未开放。字段统一压平控制字符/换行并标记为非指令数据。
-- Room v36、Provider 配置、联系人写入、通知读取、知识 Shadow 与后台边界均未变化。
+- Room v36、Provider 配置、联系人写入、通知读取、知识 Shadow 与后台边界在该阶段均未变化；通知前台只读观察随后已由第 258 阶段完成，通知动作与后台访问仍关闭。
 
 ### 已验证证据
 
@@ -347,7 +367,7 @@
 
 ### 下一阶段
 
-该项已由第 246 阶段完成；后继第 255 阶段又补齐逐次审批的系统拨号页预填。联系人写入、直接呼叫、短信、邮件和通知读取继续后置。
+该项已由第 246 阶段完成；后继第 255 阶段又补齐逐次审批的系统拨号页预填。联系人写入、直接呼叫、短信和邮件继续后置；通知前台只读观察已由第 258 阶段完成，通知动作仍关闭。
 
 ## 2026-08-10 第 244 阶段：系统语音输入到可编辑草稿 v1
 

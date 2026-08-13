@@ -344,6 +344,8 @@ class XiaoLingToolRegistryTest {
                 "app.list_conversations",
                 "app.search_conversations",
                 "app.get_conversation",
+                "notifications.list",
+                "notifications.get",
                 "calendar.list_events",
                 "calendar.next_event",
                 "calendar.search_events",
@@ -373,6 +375,10 @@ class XiaoLingToolRegistryTest {
             ),
         )
         assertEquals(ToolRisk.SAFE, tools.getValue("app.current_time").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("notifications.list").risk)
+        assertEquals(ToolRisk.SAFE, tools.getValue("notifications.get").risk)
+        assertFalse(tools.getValue("notifications.list").permissionPolicy.supportsBackground)
+        assertFalse(tools.getValue("notifications.get").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_info").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_info").inputSchema)
         assertTrue(tools.getValue("app.get_info").permissionPolicy.supportsBackground)
@@ -3027,6 +3033,101 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun notificationToolsReadCurrentSafeSummaryAndFailClosedAfterRemoval() = runTest {
+        val notificationId = "notification-${"a".repeat(64)}"
+        val reader = FakeNotificationReader(
+            notifications = mutableMapOf(
+                notificationId to AgentNotificationRecord(
+                    id = notificationId,
+                    appName = "日历",
+                    packageName = "com.example.calendar",
+                    postedAt = 1_000L,
+                    title = "项目评审",
+                    content = "今天 14:00 开始",
+                    contentHidden = false,
+                ),
+                "notification-${"b".repeat(64)}" to AgentNotificationRecord(
+                    id = "notification-${"b".repeat(64)}",
+                    appName = "短信",
+                    packageName = "com.example.sms",
+                    postedAt = 900L,
+                    title = null,
+                    content = null,
+                    contentHidden = true,
+                ),
+            ),
+        )
+        val registry = testRegistry(notificationReader = reader).also { it.bindRunContext(directNotificationContext()) }
+
+        val list = registry.execute(ToolCall(name = "notifications.list", arguments = mapOf("limit" to "5"), risk = ToolRisk.SAFE))
+        val detail = registry.execute(
+            ToolCall(name = "notifications.get", arguments = mapOf("notification_id" to notificationId), risk = ToolRisk.SAFE),
+        )
+        reader.notifications.remove(notificationId)
+        val removed = registry.execute(
+            ToolCall(name = "notifications.get", arguments = mapOf("notification_id" to notificationId), risk = ToolRisk.SAFE),
+        )
+
+        assertTrue(list.success)
+        assertTrue(list.content.contains("项目评审"))
+        assertTrue(list.content.contains("已隐藏敏感或私密内容"))
+        assertTrue(detail.success)
+        assertTrue(detail.content.contains("当前通知详情"))
+        assertTrue(detail.content.contains(notificationId))
+        assertFalse(removed.success)
+        assertTrue(removed.content.contains("已消失"))
+    }
+
+    @Test
+    fun notificationToolsRequireGrantedConnectedForegroundDirectContext() = runTest {
+        val denied = testRegistry(notificationReader = FakeNotificationReader(accessGranted = false)).also {
+            it.bindRunContext(directNotificationContext())
+        }
+        val disconnected = testRegistry(notificationReader = FakeNotificationReader(connected = false)).also {
+            it.bindRunContext(directNotificationContext())
+        }
+        val workflow = testRegistry(notificationReader = FakeNotificationReader()).also {
+            it.bindRunContext(workflowDeviceContext(userIntent = "查看最近通知"))
+        }
+
+        assertFalse(denied.execute(notificationListCall()).success)
+        assertFalse(disconnected.execute(notificationListCall()).success)
+        assertNull(workflow.definition("notifications.list"))
+        assertNull(workflow.definition("notifications.get"))
+        assertFalse(workflow.execute(notificationListCall()).success)
+    }
+
+    @Test
+    fun notificationDetailRequiresIdFromLatestListInSameRun() = runTest {
+        val notificationId = "notification-${"c".repeat(64)}"
+        val reader = FakeNotificationReader(
+            notifications = mutableMapOf(
+                notificationId to AgentNotificationRecord(
+                    notificationId,
+                    "时钟",
+                    "com.example.clock",
+                    2_000L,
+                    "计时结束",
+                    "10 分钟计时已结束",
+                    false,
+                ),
+            ),
+        )
+        val registry = testRegistry(notificationReader = reader).also { it.bindRunContext(directNotificationContext()) }
+        val detailCall = ToolCall(
+            name = "notifications.get",
+            arguments = mapOf("notification_id" to notificationId),
+            risk = ToolRisk.SAFE,
+        )
+
+        assertFalse(registry.execute(detailCall).success)
+        assertTrue(registry.execute(notificationListCall()).success)
+        assertTrue(registry.execute(detailCall).success)
+        registry.bindRunContext(directNotificationContext().copy(runId = "run-notification-new"))
+        assertFalse(registry.execute(detailCall).success)
+    }
+
+    @Test
     fun notesCreateWritesAndVerifiesByReadingBack() = runTest {
         val noteStore = InMemoryAgentNoteStore()
         val registry = testRegistry(noteStore = noteStore)
@@ -4384,6 +4485,7 @@ class XiaoLingToolRegistryTest {
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
         storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
+        notificationReader: NotificationReader = UnavailableNotificationReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -4403,6 +4505,7 @@ class XiaoLingToolRegistryTest {
             batteryStatusReader = batteryStatusReader,
             connectivityStatusReader = connectivityStatusReader,
             storageStatusReader = storageStatusReader,
+            notificationReader = notificationReader,
             deviceController = deviceController,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )
@@ -4434,6 +4537,21 @@ class XiaoLingToolRegistryTest {
         executionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource = AgentInvocationSource.DIRECT,
         processSessionId = "process-note-append",
+    )
+
+    private fun directNotificationContext(): AgentToolExecutionContext = AgentToolExecutionContext(
+        conversationId = "conversation-notification",
+        userMessageId = "message-notification",
+        runId = "run-notification",
+        goal = "查看最近通知",
+        executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource = AgentInvocationSource.DIRECT,
+    )
+
+    private fun notificationListCall(): ToolCall = ToolCall(
+        name = "notifications.list",
+        arguments = emptyMap(),
+        risk = ToolRisk.SAFE,
     )
 
     private fun approvedContactToolEvidence(): AgentToolApprovalEvidence = AgentToolApprovalEvidence(
@@ -5072,6 +5190,27 @@ private class InMemoryAgentConversationStore : AgentConversationStore {
                 ),
             ),
         )
+    }
+}
+
+private class FakeNotificationReader(
+    private val accessGranted: Boolean = true,
+    private val connected: Boolean = true,
+    val notifications: MutableMap<String, AgentNotificationRecord> = mutableMapOf(),
+) : NotificationReader {
+    override fun accessGranted(): Boolean = accessGranted
+
+    override fun connected(): Boolean = connected
+
+    override suspend fun list(limit: Int): List<AgentNotificationRecord> =
+        notifications.values.sortedByDescending(AgentNotificationRecord::postedAt).take(limit)
+
+    override suspend fun get(notificationId: String): NotificationReadResult = when {
+        !accessGranted -> NotificationReadResult.AccessNotGranted
+        !connected -> NotificationReadResult.ListenerDisconnected
+        else -> notifications[notificationId]
+            ?.let(NotificationReadResult::Success)
+            ?: NotificationReadResult.NotFound
     }
 }
 

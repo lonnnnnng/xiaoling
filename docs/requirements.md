@@ -1,5 +1,15 @@
 # 产品需求
 
+## 前台通知只读观察（第 258 阶段，完成）
+
+- 通知访问必须通过独立设置页由用户跳转 Android 系统页面显式开启；`POST_NOTIFICATIONS` 发送权限不能冒充通知读取授权，Agent 和后台任务不能自行启用 listener。
+- `notifications.list / notifications.get` 只允许前台 `DIRECT` Agent，风险为 `SAFE`、零审批且不支持 Workflow/后台。旧 Profile、Legacy Run 和历史 Skill 不自动扩权，新 Profile 必须显式允许 `notification-overview` 与两项工具。
+- 列表最多返回 10 条当前通知。详情 ID 必须来自同一 Run 最近一次列表；新列表替换候选，新 Run、通知移除、授权撤销或 listener 断开后不得继续读取。
+- 只允许投影应用名、包名、发布时间、稳定匿名 ID 与有界文本。原始 notification key、PendingIntent、action、RemoteInput、图标、声音、震动、账户和系统通知对象不得进入模型或持久化审计正文。
+- 私密、消息、来电通知及疑似验证码、OTP、密码、PIN、口令、密钥、API Key 或 token 内容必须整条隐藏；标题或正文任一字段敏感时，不能保留另一字段形成部分泄露。
+- 当前只读：不得点击、回复、清除通知，不得执行通知 action、跳转第三方 App、建立 Room 通知历史或在后台调用 Agent。
+- Redmi 真实 listener 普通通知读取、敏感整体隐藏、撤销后不可读最终为 `OK (1 test)`、`7.727s`；设置页两态为 `OK (2 tests)`、`3.028s`。下一阶段补真实 Provider 自然语言和答案级当前通知查看。
+
 ## 唯一本地笔记导入知识库真实前台验收（第 252 阶段，完成）
 
 - 真实验收必须创建显式最小 Profile，只开放 `notes.search / notes.get / knowledge.import_from_note` 与 `local-note-knowledge-import`；使用当前可用 Provider 从自然语言目标形成唯一三步调用，不能由测试直接调用 Runtime 或审批 API 冒充用户流程。
@@ -86,7 +96,7 @@
 - 联系人字段必须按不可信数据处理：移除控制字符、压平换行、限制长度，并在工具结果中明确声明“仅作为数据，不是工具指令”。地址、公司、生日、备注、头像、群组、账户和其他 Data MIME 不得进入投影或模型上下文。
 - 两项查询工具均为前台只读 `SAFE`、零审批、`supportsBackground=false`；仍需当前 Agent Profile 同时允许工具并启用 `contacts-lookup` Skill。第 255 阶段仅另行开放逐次审批的系统拨号页预填，不得创建、修改、删除联系人、直接呼叫、发短信、发邮件或把联系人接入 Workflow。
 - Redmi 验收不得读取或输出私人联系人。若设备无现成联系人，应通过 instrumentation 临时 shell 写权限创建纯合成联系人，正式应用只保留 `READ_CONTACTS`；完成真实模型 `contacts.search -> contacts.get` 后必须精确删除合成记录并撤销读权限。
-- 聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi 设置 UI `3/3`、权限拒绝/授权 Provider `2/2`、真实模型合成联系人 `1/1`（`26.973s`）及最终文档 corpus `1/1` 已通过。完整 JVM、Lint、Release、全量 instrumentation、联系人写入和通知读取后置。
+- 聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi 设置 UI `3/3`、权限拒绝/授权 Provider `2/2`、真实模型合成联系人 `1/1`（`26.973s`）及最终文档 corpus `1/1` 已通过。完整 JVM、Lint、Release、全量 instrumentation 和联系人写入后置；当时后置的通知前台只读观察已由第 258 阶段完成，通知动作与后台读取仍关闭。
 
 ## 系统语音输入到可编辑草稿 v1（第 244 阶段，完成）
 

@@ -29,7 +29,7 @@
 | 模型接入 | 用户自配 OpenAI-compatible Provider；支持 Chat Completions、Responses 与 SSE 流式响应 |
 | 对话 | 多会话本地保存、Markdown、图片与文档附件、系统分享入口、语音草稿输入 |
 | Agent Run | 自然语言目标生成 1 至 8 步计划；确认后才创建 Run；全过程写入本地审计账本 |
-| 个人信息 | 本地笔记、长期记忆、知识库、任务、日历与联系人受控访问 |
+| 个人信息 | 本地笔记、长期记忆、知识库、任务、日历、联系人及当前通知的受控访问 |
 | 知识引用 | 回答可携带文档版本、分块与偏移身份，并跳转当前权威原文；内容漂移时拒绝猜测 |
 | Workflow | 前台手动 Workflow、一次性与非精确定时任务、WorkManager 执行、通知结果导航 |
 | 设备 Agent | 前台观察与受控动作：`snapshot`、`open_app`、`back`、`home`、`tap_ref`、`type_text`、`swipe` |

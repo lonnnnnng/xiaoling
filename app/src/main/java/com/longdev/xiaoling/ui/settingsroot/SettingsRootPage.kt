@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Restore
@@ -132,6 +133,13 @@ internal fun SettingsRootPage(
                 subtitle = "授权前台 Agent 精确查询姓名、电话和邮箱",
                 icon = Icons.Default.Person,
                 onClick = actions::openContactsAccess,
+            )
+
+            SettingsEntryCard(
+                title = "通知访问",
+                subtitle = "授权前台 Agent 读取当前通知的有限摘要",
+                icon = Icons.Default.Notifications,
+                onClick = actions::openNotificationAccess,
             )
 
             SettingsEntryCard(

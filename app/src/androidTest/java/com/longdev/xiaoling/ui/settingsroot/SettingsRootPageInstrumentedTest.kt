@@ -221,6 +221,7 @@ class SettingsRootPageInstrumentedTest {
         override fun openDeviceAgent() = events.add("device-agent").let { Unit }
         override fun openCalendarAccess() = events.add("calendar-access").let { Unit }
         override fun openContactsAccess() = events.add("contacts-access").let { Unit }
+        override fun openNotificationAccess() = events.add("notification-access").let { Unit }
         override fun openAnswerabilityShadow() = events.add("answerability-shadow").let { Unit }
         override fun openMemoryManagement() = events.add("memories").let { Unit }
         override fun openLocalNoteManagement() = events.add("local-notes").let { Unit }

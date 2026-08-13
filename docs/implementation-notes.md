@@ -1,5 +1,17 @@
 # 当前实现说明
 
+## 第 258 阶段：前台通知只读观察能力（完成）
+
+- `XiaoLingNotificationListenerService` 只维护进程内当前通知快照；连接时从 `activeNotifications` 刷新，通知发布/移除增量更新，服务断开立即清空。对外稳定 ID 为原始 notification key 的 SHA-256，原始 key、`Notification`、PendingIntent、action 与 RemoteInput 不进入 Tool、Room 或模型上下文。
+- `NotificationPrivacyPolicy` 规范控制字符和空白、单字段限制 500 字符，并拦截验证码、OTP、密码、PIN、口令、密钥、API Key 与 token。`VISIBILITY_PUBLIC` 以外、消息、来电或任一标题/正文命中敏感规则时，整条通知正文统一隐藏，避免只隐藏标题却泄露关联正文。
+- `AndroidNotificationReader` 同时核对系统 enabled listener package 与当前 service 连接；`notifications.list / notifications.get` 只允许前台 `DIRECT`。Registry 每次列表替换当前 Run 的可读 ID 集合，详情必须属于该集合；切换 Run 会清空，历史消息不能恢复已消失通知。
+- 设置根新增“通知访问”入口和独立页面，使用 `Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS` 交给用户显式授权。Manifest service 为 `exported=false` 并声明 `android.permission.BIND_NOTIFICATION_LISTENER_SERVICE`，合并 Manifest 已核对。
+- 聚焦 JVM、Debug/AndroidTest APK 构建通过。Redmi 真实 listener 首轮暴露跨字段部分泄露并在修复后 `OK (1 test)`、`7.727s`；设置页未授权/已连接两态 `OK (2 tests)`、`3.028s`。验收后撤销小灵 listener 授权、删除测试通知/channel 并卸载测试包。
+
+### 下一阶段
+
+以临时最小 Profile 和真实 Provider 完成屏幕可见自然语言 `notifications.list -> notifications.get`，再为可信详情 Tool part 增加当前通知导航。点击必须重新读取 listener 当前快照；当前阶段不开放任何通知动作。
+
 ## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
 
 - `Stage257NoteAppendInstrumentedTest` 以 Stage 252 的真实前台骨架为基础，保存原 Profile/会话选择和最近旧 Run digest，创建唯一笔记、只允许三项目标 Tool 的临时 Profile 与独立会话；测试开始先清理上次残留，成功和异常共用同一 `finally` 清理。
@@ -104,7 +116,7 @@
 
 ### 下一阶段
 
-该联系人后续已由第 255 阶段完成：唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件、通知读取、Workflow/后台设备动作继续后置。
+该联系人后续已由第 255 阶段完成：唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件和 Workflow/后台设备动作继续后置。当时后置的通知前台只读观察已由第 258 阶段完成，通知动作与后台读取仍关闭。
 
 ## 第 255 阶段：唯一联系人打开系统拨号页（完成）
 
@@ -127,7 +139,7 @@
 
 ### 下一阶段
 
-该后续已由第 246 阶段完成可信“查看联系人”，并由第 255 阶段补齐可见审批后的系统拨号页预填。联系人写入、直接呼叫、短信、邮件和通知读取继续后置。
+该后续已由第 246 阶段完成可信“查看联系人”，并由第 255 阶段补齐可见审批后的系统拨号页预填。联系人写入、直接呼叫、短信和邮件继续后置；通知前台只读观察已由第 258 阶段完成，通知动作与后台读取仍关闭。
 
 ## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
 

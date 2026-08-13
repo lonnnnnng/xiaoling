@@ -63,6 +63,16 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInNotificationOverviewSkillIsReadOnlyAndFrontFacing() {
+        val skill = BuiltInAgentSkillRegistry.all().single { it.id == "notification-overview" }
+
+        assertEquals(setOf("notifications.list", "notifications.get"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得点击通知、回复、清除"))
+        assertTrue(BuiltInAgentSkillRegistry.select("我最近有哪些通知").any { it.id == skill.id })
+    }
+
+    @Test
     fun builtInBatteryStatusSkillExposesOnlyTheReadOnlyBatteryTool() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "当前手机还有多少电，是否正在充电",

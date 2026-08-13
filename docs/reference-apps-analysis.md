@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 258 阶段采用成熟移动 Agent 的“系统特殊授权必须由用户显式开启、当前通知只做短生命周期观察、外部文本按不可信数据处理、详情重新绑定当前身份”原则。小灵没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；listener 只保留进程内当前快照，服务断开立即清空，稳定 ID 只暴露 notification key 的 SHA-256。Redmi 首轮测试发现标题敏感但正文仍保留的跨字段泄露，现已改为整条隐藏并复验通过。真实 Provider 和答案级当前通知导航留给下一独立阶段。
+
 第 257 阶段把成熟个人 Agent 的“真实用户入口、最小能力面、可见审批、提交后权威回读、页面重建恢复与夹具精确清理”组合成 Redmi 真实链。测试没有用 Debug Receiver、直接 Runtime 或自动批准绕过界面，也没有按标题/正文模糊删除；Tool Ledger、消息 Tool part、Room 当前记录和详情页都绑定同一稳定 note ID/revision。小灵没有借验收扩展后台笔记监听、自动整理、批量修改、Workflow、远程 Channel 或多 Agent；Stage 256 的生产边界保持不变。
 
 第 256 阶段采用成熟个人 Agent 的“唯一候选后再写、危险动作逐次审批、写前回读权威源、CAS 防覆盖、提交后验账与稳定身份导航”原则。小灵没有复制后台笔记监听、自动摘要/整理、标题猜测覆盖、批量修改、跨设备同步或旧 Profile 静默扩权；它只在同一前台 Run 的 `notes.search -> notes.get` 唯一链之后接受新增片段，以当前 revision 条件写入，并逐字符保留原标题和原正文。`COMMITTED` 恢复只读核对 operation，答案级入口再次受可信结果和 revision `+1` 约束。第 256 阶段只完成 Provider 能力与 Store 验证；第 257 阶段已在 Redmi 完成真实 Provider、可见审批、Activity 重建与精确清理。

@@ -6,6 +6,7 @@ import com.longdev.xiaoling.model.MessageAttachmentSelection
 import com.longdev.xiaoling.model.ProviderRequestConfig
 import com.longdev.xiaoling.network.OpenAiCompatibleClient
 import com.longdev.xiaoling.network.OpenAiKnowledgeEmbeddingProvider
+import com.longdev.xiaoling.notification.AndroidNotificationReader
 import com.longdev.xiaoling.storage.RoomAgentConversationStore
 import com.longdev.xiaoling.storage.RoomAgentMemoryStore
 import com.longdev.xiaoling.storage.RoomAgentNoteStore
@@ -41,6 +42,7 @@ class AgentRunUseCase(
         batteryStatusReader = AndroidBatteryStatusReader(context.applicationContext),
         connectivityStatusReader = AndroidConnectivityStatusReader(context.applicationContext),
         storageStatusReader = AndroidStorageStatusReader(context.applicationContext),
+        notificationReader = AndroidNotificationReader(context.applicationContext),
         deviceController = DeviceObservationComponents.controller(context.applicationContext),
     )
     private val skillCatalog = AgentSkillCatalog(
