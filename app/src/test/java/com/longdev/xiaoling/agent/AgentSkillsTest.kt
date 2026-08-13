@@ -134,6 +134,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInContactDialerSkillKeepsReadOnlyLookupStable() {
+        val dialer = BuiltInAgentSkillRegistry.all().single { it.id == "contact-dialer" }
+        val lookup = BuiltInAgentSkillRegistry.all().single { it.id == "contacts-lookup" }
+
+        assertEquals(setOf("contacts.search", "contacts.get", "contacts.open_dialer"), dialer.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, dialer.declaredRisk)
+        assertTrue(dialer.instructions.contains("ACTION_DIAL"))
+        assertTrue(dialer.instructions.contains("不直接拨号"))
+        assertEquals(setOf("contacts.search", "contacts.get"), lookup.toolNames)
+        assertEquals(ToolRisk.SAFE, lookup.declaredRisk)
+    }
+
+    @Test
     fun builtInMemoryDeleteSkillRequiresSearchAndDetailWithoutExpandingExistingSkills() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "找到并删除这条长期记忆",

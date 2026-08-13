@@ -1058,6 +1058,156 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun contactDialerIsVisibleOnlyToForegroundDirectRunsAndRequiresApproval() {
+        val registry = testRegistry()
+        val direct = AgentToolExecutionContext(
+            conversationId = "conversation-contact-dialer",
+            userMessageId = "message-contact-dialer",
+            runId = "run-contact-dialer",
+            goal = "给张三打电话",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.DIRECT,
+        )
+        registry.bindRunContext(direct)
+
+        val definition = requireNotNull(registry.definition("contacts.open_dialer"))
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, definition.risk)
+        assertEquals(ToolApprovalPolicy.REQUIRE_CONFIRMATION, definition.approvalPolicy)
+        assertEquals(ToolVerificationPolicy.EXECUTOR_VERIFIED, definition.verificationPolicy)
+        assertEquals(setOf(Manifest.permission.READ_CONTACTS), definition.permissionPolicy.requiredAndroidPermissions)
+        assertFalse(definition.permissionPolicy.supportsBackground)
+
+        registry.bindRunContext(direct.copy(runId = "run-contact-workflow", invocationSource = AgentInvocationSource.WORKFLOW))
+        assertFalse(registry.availableTools().any { it.name == "contacts.open_dialer" })
+        assertNull(registry.definition("contacts.open_dialer"))
+        registry.bindRunContext(direct.copy(runId = "run-contact-background", executionOrigin = AgentExecutionOrigin.BACKGROUND))
+        assertFalse(registry.availableTools().any { it.name == "contacts.open_dialer" })
+    }
+
+    @Test
+    fun contactDialerRequiresSameRunDetailAndCurrentApprovalThenConsumesCandidate() = runTest {
+        val phone = "+8613800138000"
+        var dialCount = 0
+        var dialedPhone: String? = null
+        val reader = stableContactReader(phone)
+        val registry = testRegistry(
+            contactReader = reader,
+            contactDialer = ContactDialer { value ->
+                dialCount += 1
+                dialedPhone = value
+                ContactDialerResult.Opened
+            },
+        )
+        registry.bindRunContext(directContactDialerContext())
+        val call = ToolCall(
+            id = "tool-call-contact-dialer",
+            name = "contacts.open_dialer",
+            arguments = mapOf("contact_id" to "contact-42", "phone_number" to phone),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        assertFalse(requireNotNull(registry.definition(call.name)).validateArguments(call.arguments).isValid)
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE))
+        assertTrue(requireNotNull(registry.definition(call.name)).validateArguments(call.arguments).isValid)
+
+        val withoutApproval = registry.execute(call)
+        assertFalse(withoutApproval.success)
+        assertEquals(0, dialCount)
+
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE))
+        registry.beforeToolExecution(call, approvedContactToolEvidence())
+        val result = registry.execute(call)
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("系统拨号页"))
+        assertTrue(result.content.contains("尚未拨出"))
+        assertFalse(result.content.contains(phone))
+        assertEquals(1, dialCount)
+        assertEquals(phone, dialedPhone)
+
+        registry.beforeToolExecution(call.copy(id = "tool-call-contact-dialer-repeat"), approvedContactToolEvidence())
+        val repeated = registry.execute(call.copy(id = "tool-call-contact-dialer-repeat"))
+        assertFalse(repeated.success)
+        assertEquals(1, dialCount)
+    }
+
+    @Test
+    fun contactDialerRejectsGuessedChangedOrMissingPhoneFailClosed() = runTest {
+        var currentPhones = listOf("13800138000")
+        var dialCount = 0
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+                ContactSearchResult.Success(listOf(ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME))))
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult =
+                ContactDetailReadResult.Success(ContactDetailRecord(contactId, "张三", currentPhones, emptyList()))
+        }
+        val registry = testRegistry(
+            contactReader = reader,
+            contactDialer = ContactDialer {
+                dialCount += 1
+                ContactDialerResult.Opened
+            },
+        )
+        registry.bindRunContext(directContactDialerContext())
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE))
+
+        val guessed = ToolCall(
+            id = "tool-call-contact-guessed",
+            name = "contacts.open_dialer",
+            arguments = mapOf("contact_id" to "contact-42", "phone_number" to "13900139000"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        assertFalse(requireNotNull(registry.definition(guessed.name)).validateArguments(guessed.arguments).isValid)
+
+        val changed = guessed.copy(
+            id = "tool-call-contact-changed",
+            arguments = mapOf("contact_id" to "contact-42", "phone_number" to "13800138000"),
+        )
+        registry.beforeToolExecution(changed, approvedContactToolEvidence())
+        currentPhones = listOf("13700137000")
+        val changedResult = registry.execute(changed)
+        assertFalse(changedResult.success)
+        assertTrue(changedResult.content.contains("审批期间已变化"))
+        assertEquals(0, dialCount)
+
+        currentPhones = emptyList()
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE))
+        val missing = changed.copy(id = "tool-call-contact-missing")
+        assertFalse(requireNotNull(registry.definition(missing.name)).validateArguments(missing.arguments).isValid)
+        assertEquals(0, dialCount)
+    }
+
+    @Test
+    fun contactDialerRejectsModelChosenContactWhenSearchWasNotUnique() = runTest {
+        val phone = "13800138000"
+        val reader = object : ContactReader {
+            override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+                ContactSearchResult.Success(
+                    listOf(
+                        ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME)),
+                        ContactSearchRecord(43L, "张三（公司）", setOf(ContactMatchField.NAME)),
+                    ),
+                )
+
+            override suspend fun getContact(contactId: Long): ContactDetailReadResult =
+                ContactDetailReadResult.Success(ContactDetailRecord(contactId, "张三", listOf(phone), emptyList()))
+        }
+        val registry = testRegistry(contactReader = reader)
+        registry.bindRunContext(directContactDialerContext())
+        registry.execute(ToolCall(name = "contacts.search", arguments = mapOf("query" to "张三"), risk = ToolRisk.SAFE))
+        registry.execute(ToolCall(name = "contacts.get", arguments = mapOf("contact_id" to "contact-42"), risk = ToolRisk.SAFE))
+        val arguments = mapOf("contact_id" to "contact-42", "phone_number" to phone)
+
+        assertFalse(requireNotNull(registry.definition("contacts.open_dialer")).validateArguments(arguments).isValid)
+    }
+
+    @Test
     fun calendarListEventsUsesBoundedWindowAndReturnsOnlyMinimalFields() = runTest {
         var capturedStart = -1L
         var capturedEnd = -1L
@@ -4113,6 +4263,7 @@ class XiaoLingToolRegistryTest {
         calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
         calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
         contactReader: ContactReader = UnavailableContactReader,
+        contactDialer: ContactDialer = UnavailableContactDialer,
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
@@ -4131,6 +4282,7 @@ class XiaoLingToolRegistryTest {
             calendarEventReader = calendarEventReader,
             calendarEventWriter = calendarEventWriter,
             contactReader = contactReader,
+            contactDialer = contactDialer,
             appInfoReader = appInfoReader,
             batteryStatusReader = batteryStatusReader,
             connectivityStatusReader = connectivityStatusReader,
@@ -4148,6 +4300,29 @@ class XiaoLingToolRegistryTest {
         executionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource = AgentInvocationSource.DIRECT,
     )
+
+    private fun directContactDialerContext(): AgentToolExecutionContext = AgentToolExecutionContext(
+        conversationId = "conversation-contact-dialer",
+        userMessageId = "message-contact-dialer",
+        runId = "run-contact-dialer",
+        goal = "给张三打电话",
+        executionOrigin = AgentExecutionOrigin.FOREGROUND,
+        invocationSource = AgentInvocationSource.DIRECT,
+    )
+
+    private fun approvedContactToolEvidence(): AgentToolApprovalEvidence = AgentToolApprovalEvidence(
+        approved = true,
+        decidedAt = 1_000L,
+        processSessionId = "process-contact-dialer",
+    )
+
+    private fun stableContactReader(phone: String): ContactReader = object : ContactReader {
+        override suspend fun searchContacts(query: String, limit: Int): ContactSearchResult =
+            ContactSearchResult.Success(listOf(ContactSearchRecord(42L, "张三", setOf(ContactMatchField.NAME))))
+
+        override suspend fun getContact(contactId: Long): ContactDetailReadResult =
+            ContactDetailReadResult.Success(ContactDetailRecord(contactId, "张三", listOf(phone), emptyList()))
+    }
 
     private fun directCalendarUpdateContext(): AgentToolExecutionContext = AgentToolExecutionContext(
         conversationId = "conversation-calendar-update",

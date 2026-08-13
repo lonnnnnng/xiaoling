@@ -1,5 +1,35 @@
 # 小灵个人 Agent 路线图
 
+## 第 255 阶段：唯一联系人打开系统拨号页真实前台闭环（完成）
+
+- 新增 `contacts.open_dialer / contact-dialer`，同一前台直接 Run 必须严格执行 `contacts.search -> contacts.get -> contacts.open_dialer`；只有搜索唯一、详情回读成功且最后一步原样携带同一稳定 contact ID 和一个完整号码时才进入审批。
+- `contacts.open_dialer` 为 `REQUIRES_APPROVAL`、`supportsBackground=false`。审批后执行器再次从当前 Contacts Provider 回读联系人和号码，权限撤销、候选漂移、号码缺失/变化、非前台 DIRECT、跨 Run 或重复消费全部 fail-closed。
+- Android 只使用 `ACTION_DIAL + tel:` 打开系统拨号页并预填号码，不申请 `CALL_PHONE`，测试不查找、不点击拨号按钮。成功结果明确写明“电话尚未拨出”，typed verification 为 `PASSED`，且不签发 `COMMITTED` 等持久副作用回执。
+- Redmi 真实模型、屏幕可见发送/审批、系统拨号页号码观察、返回后 Room 审计均已贯通；最终单项 `OK (1 test)`、`27.532s`，三项 Ledger 均为 `PASSED`，审批为 `APPROVED`，号码预填、电话未拨出、旧终态 Run 不变。
+- Redmi 当时公网路由只有故障中的 VPN `tun0`，直接 Provider 请求在计划前被 SSL/DNS 阻断；最终通过 `adb reverse` 的本机临时 HTTP 转发连接同一 HTTPS 上游。测试结束恢复用户原 Provider，撤销反向端口，精确删除合成联系人、临时 Profile/会话并保留成功 Run 审计。未使用模拟器，未开放联系人写入、短信/邮件、直接呼叫、Workflow 或后台联系人访问。
+
+下一阶段继续从个人 Agent 主线选择一个尚未贯通的高频任务；优先补“用户能从自然语言目标得到可验证结果”的新能力，不横向扩展任意联系人动作、后台设备控制、MCP、远程 Channel、多 Agent 或本地模型。
+
+## 第 254 阶段：高频个人偏好回忆真实前台闭环（完成）
+
+- 冻结高频只读任务“你还记得我的某项偏好吗”：测试预置带唯一 marker 的当前 `Preference`，真实 Provider 从自然语言目标严格执行 `memory.search -> memory.get`；临时最小 Profile 只开放 `personal-memory-detail` 与这两个 SAFE 工具。
+- Tool Ledger 调用顺序精确为两步，`memory.search` 原样使用唯一 marker，`memory.get` 原样转发搜索结果的稳定 memory ID；两项 ToolResult 均为 `PASSED`、`success=true` 且 `memoryIdsUsed` 绑定同一 ID，结果正文包含当前偏好。SAFE 读取链保持 `approvals=0`。
+- 只读 ToolResult 持久化到消息后按既有安全契约投影为 `READABLE_ONLY`，不能冒充写入工具的独立回读 `VERIFIED`。Activity 重启后从持久化 `memory.get` Tool part 恢复“查看记忆”，点击后 ViewModel 从当前 Room 二次读取并选中同一 ID/正文。
+- 基线旧 Run digest 未变化；测试按预置稳定 ID 精确删除临时记忆，同时移除生产删除产生的夹具撤销快照，删除临时 Profile/会话并恢复原选择，新 Run 审计保留。生产 Tool、Skill、权限、Room migration、Workflow 和后台能力均未改变。
+- 聚焦 JVM `MemoryNavigationTest`、Debug/AndroidTest APK 和仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的真实单项均通过；真机首次成功与清理版复验均为 `OK (1 test)`（`26.708s / 30.905s`），文档 corpus 首轮/写回复验均为 `OK (1 test)`（`2.266s / 3.295s`）。没有启动或使用模拟器。
+
+Stage 254 与 Stage 253 分别冻结了个人长期记忆的写入和读取两条高频主链：写入必须显式审批并达到 `COMMITTED`，读取必须保持零审批并以 typed `PASSED` 和当前 Room 事实回答。后继第 255 阶段已经补齐唯一联系人到系统拨号页的审批闭环；后续不重复已有笔记、日历、知识导入、记忆读写或联系人拨号页验收。
+
+## 第 253 阶段：高频个人偏好记忆真实前台闭环（完成）
+
+- 冻结高频任务“记住一条明确的个人偏好”：用户自然语言目标由真实 Provider 规划为唯一 `memory.remember`，临时最小 Profile 只开放 `personal-memory` 和该写入工具。
+- Redmi 前台通过可见发送与审批节点完成执行；唯一 Tool Ledger 为 `memory.remember`，审批 `APPROVED`，Executor/typed verification 为 `PASSED`，回执为 `COMMITTED`，稳定 `memory-UUID` 同时绑定结果、消息 Tool part 与当前 Room 记录。
+- Activity 重建后从持久化消息恢复“查看记忆”入口，点击后由 ViewModel 二次读取当前 Room 并选中同一稳定 ID；记忆正文、启用状态和规范空白回读一致。旧 Run digest 保持不变。
+- 真实验收夹具按回执稳定 ID 精确删除临时记忆，删除临时 Profile/会话，保留新 Run 审计；Provider 兜底只通过本次显式 instrumentation 参数写入 Redmi Keystore，不进入源码、日志或长期文档。
+- 最终 Redmi 单项 `OK (1 test)`，XML `tests=1 / failures=0 / errors=0 / skipped=0`，测试耗时 `20.648s`；只使用 `wsvwypiz7xwslvl7 / begonia`，没有使用模拟器。
+
+Stage 253 完成后，个人 Agent 已具备一条可重复的高频“自然语言目标 -> 显式审批 -> 可验证长期记忆 -> 当前权威事实查看”主线。下一阶段继续选择一个新的单一高频任务，优先复用同一 Run/审批/回读/导航契约，不扩展后台设备动作、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 第 252 阶段：唯一本地笔记导入知识库真实前台闭环（完成）
 
 - 显式最小 Profile、真实 `gpt-5.6-luna / Responses` 规划、屏幕发送与逐次审批已把第 251 阶段生产能力贯通为用户可见闭环；唯一 Ledger 严格为 `notes.search -> notes.get -> knowledge.import_from_note`。
@@ -61,11 +91,11 @@
 
 - 新增独立“联系人访问”设置页和 `READ_CONTACTS` 显式授权。授权只由用户主动点击触发，返回应用时重新读取真实状态；工具或后台任务不能自行拉起授权。
 - 前台直接 Agent 新增 `contacts.search / contacts.get` 与 `contacts-lookup`。搜索必须基于用户明确给出的至少 2 个字符姓名、电话或邮箱片段，最多 10 个候选；摘要只返回姓名、匹配类型和稳定 ID。详情只接受当前 Run 最近一次搜索返回的唯一候选，切换 Run 即失效，再回读姓名、电话和邮箱详情。
-- Provider 投影不含地址、公司、生日、备注、头像、群组、账户或其他 Data MIME；联系人字段压平控制字符与换行并标记为不可信数据。当前没有全量枚举、联系人写入、拨号、短信、邮件、Workflow 或后台联系人能力。
+- Provider 投影不含地址、公司、生日、备注、头像、群组、账户或其他 Data MIME；联系人字段压平控制字符与换行并标记为不可信数据。当前没有全量枚举、联系人写入、直接呼叫、短信、邮件、Workflow 或后台联系人能力；系统拨号页预填已由第 255 阶段受控开放。
 - 聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi UI `3/3`、权限/Provider `2/2` 和真实模型合成联系人 `1/1`（`26.973s`）通过。最终 Run `run-c8ccb1a2-e657-4aca-a8d1-7f465956e379` 为 `COMPLETED`，严格执行 `contacts.search -> contacts.get`，零审批、两项 `PASSED`。
 - Redmi 原通讯录为空，验收只创建纯合成记录，正式应用仅临时获得读权限；合成联系人已精确删除、权限撤销。最终文档 corpus gate `1/1` 通过；Room v36 与后台边界不变。
 
-第 245 阶段把联系人域接入了“自然语言目标 -> 稳定身份 -> 当前权威详情”的前台只读主链。下一阶段继续完成可信答案上的“查看联系人”入口和系统权威详情跳转；联系人写入、拨号/发送、通知读取、TTS、多图片、远程 Channel、多 Agent 和本地模型继续后置。
+第 245 阶段把联系人域接入了“自然语言目标 -> 稳定身份 -> 当前权威详情”的前台只读主链；第 246 阶段随后完成“查看联系人”，第 255 阶段完成可见审批后的系统拨号页预填。联系人写入、直接呼叫、短信/邮件、通知读取、远程 Channel、多 Agent 和本地模型继续后置。
 
 ## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
 
@@ -1919,7 +1949,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P1 | Workflow Ledger 与后台调度 | 多步骤定义/编辑、前后台顺序执行、步骤快照、新 Run 重试、一次性与 Daily/Weekly WorkManager、SAFE/blocked/通知和规则替换/停用已完成；进程内 Worker 所有权、启动恢复隔离、运行中可见停止、`STOP_REQUESTED` 持久化栅栏和 Workflow/Task 原子结算已完成，执行中断仍按 fail-closed 收敛；已有 229.416 秒八步复合只读成功与 32.6 秒停止样本，仍缺自然 LMK，Foreground Service 暂无引入依据 | 支持持续任务且可追溯 |
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；前台手动 Workflow 精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入、系统语音识别到可编辑草稿 v1，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、TTS、常驻/后台语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
-| P2 | 联系人只读查询 | 显式 `READ_CONTACTS` 设置、`contacts.search -> contacts.get`、稳定 ID、最小字段、权限竞态和 Redmi 合成联系人真实模型闭环已完成；答案级系统详情跳转未完成，写入/拨号/发送/后台继续关闭 | 扩大个人信息查询覆盖，同时保持通讯录最小暴露 |
+| P2 | 联系人受控查询与拨号页 | 显式 `READ_CONTACTS` 设置、`contacts.search -> contacts.get`、稳定 ID、最小字段、答案级系统详情跳转，以及 `contacts.open_dialer` 可见审批、Provider 二次回读和 Redmi 真实号码预填闭环已完成；联系人写入、直接呼叫、短信/邮件、Workflow 与后台继续关闭 | 扩大个人信息查询和受控行动覆盖，同时保持通讯录最小暴露 |
 | P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
 
 ## 明确不照搬的做法

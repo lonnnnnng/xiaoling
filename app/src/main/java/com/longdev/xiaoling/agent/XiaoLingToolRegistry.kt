@@ -56,6 +56,7 @@ class XiaoLingToolRegistry(
     private val calendarEventReader: CalendarEventReader = UnavailableCalendarEventReader,
     private val calendarEventWriter: CalendarEventWriter = UnavailableCalendarEventWriter,
     private val contactReader: ContactReader = UnavailableContactReader,
+    private val contactDialer: ContactDialer = UnavailableContactDialer,
     private val appInfoReader: AppInfoReader = UnavailableAppInfoReader,
     private val batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
     private val connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
@@ -71,6 +72,8 @@ class XiaoLingToolRegistry(
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
     private var searchedContactCandidateIds: Set<Long> = emptySet()
+    private var verifiedContactDialerCandidate: ContactDialerCandidate? = null
+    private val approvedContactDialerCallIds = mutableSetOf<String>()
     private var searchedNoteImportCandidateIds: Set<String> = emptySet()
     private var verifiedNoteImportCandidate: NoteKnowledgeImportCandidate? = null
     private val approvedKnowledgeImportCallIds = mutableSetOf<String>()
@@ -95,6 +98,7 @@ class XiaoLingToolRegistry(
         calendarEventReader = calendarEventReader,
         calendarEventWriter = calendarEventWriter,
         contactReader = contactReader,
+        contactDialer = contactDialer,
         appInfoReader = appInfoReader,
         batteryStatusReader = batteryStatusReader,
         connectivityStatusReader = connectivityStatusReader,
@@ -362,6 +366,38 @@ class XiaoLingToolRegistry(
                 ),
             ),
             businessValidators = listOf(ToolBusinessValidator(::validateContactGetArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = CONTACT_OPEN_DIALER_TOOL_NAME,
+            description = "把同一 Run 已搜索并回读确认的联系人号码预填到系统拨号页；不会直接拨出电话。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            permissionPolicy = ToolPermissionPolicy(
+                requiredAndroidPermissions = setOf(Manifest.permission.READ_CONTACTS),
+                supportsBackground = false,
+            ),
+            inputSchema = listOf(
+                ToolInputField(
+                    name = "contact_id",
+                    description = "当前 Run 的 contacts.get 已回读确认的稳定 contact-<正整数> 联系人 ID。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 9,
+                    maxLength = 27,
+                ),
+                ToolInputField(
+                    name = "phone_number",
+                    description = "contacts.get 为该联系人返回的一个完整电话号码，必须原样传递。",
+                    required = true,
+                    type = ToolInputType.STRING,
+                    minLength = 1,
+                    maxLength = 100,
+                ),
+            ),
+            businessValidators = listOf(ToolBusinessValidator(::validateContactOpenDialerArguments)),
+            ephemeralBusinessValidators = listOf(ToolBusinessValidator(::validateContactOpenDialerCandidate)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            validateBeforeAudit = true,
             timeoutMs = 5_000,
         ),
         ToolDefinition(
@@ -1068,6 +1104,8 @@ class XiaoLingToolRegistry(
             searchedMemoryDeleteCandidateId = null
             confirmedMemoryDeleteCandidateId = null
             searchedContactCandidateIds = emptySet()
+            verifiedContactDialerCandidate = null
+            approvedContactDialerCallIds.clear()
             searchedNoteImportCandidateIds = emptySet()
             verifiedNoteImportCandidate = null
             approvedKnowledgeImportCallIds.clear()
@@ -1080,6 +1118,10 @@ class XiaoLingToolRegistry(
     }
 
     override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+        if (call.name == CONTACT_OPEN_DIALER_TOOL_NAME && approval?.approved == true) {
+            // long: 只记录当前进程已收到的逐次批准；执行函数仍会重新读取 Contacts Provider，审批不能冻结旧号码。
+            approvedContactDialerCallIds += call.id
+        }
         if (call.name == KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME && approval?.approved == true) {
             // long: 审批恢复可能运行在新 Registry；批准只恢复原 Run 已持久化的 validated ToolCall，真正执行仍会重新读取当前 Note 和 Knowledge Store。
             approvedKnowledgeImportCallIds += call.id
@@ -1245,6 +1287,10 @@ class XiaoLingToolRegistry(
             // long: 日程修改和删除可能同步到外部账户；只有当前前台直接 Run 才能向模型暴露这两项逐次审批工具。
             available = available.filterNot { it.name in CALENDAR_MUTATION_TOOL_NAMES }
         }
+        if (!contactDialerAllowed(context)) {
+            // long: 拨号页属于前台出站动作；后台与 Workflow 连工具定义都不可见，不能复用前台审批扩大执行来源。
+            available = available.filterNot { it.name == CONTACT_OPEN_DIALER_TOOL_NAME }
+        }
         if (!knowledgeImportAllowed(context)) {
             // long: 笔记导入会新建持久知识文档，只在当前前台直接 Run 暴露；Workflow 和后台不得借只读知识检索自动扩大为摄取任务。
             available = available.filterNot { it.name == KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME }
@@ -1298,11 +1344,12 @@ class XiaoLingToolRegistry(
     fun registeredTools(): List<ToolDefinition> = tools
 
     override fun definition(name: String): ToolDefinition? = tools.firstOrNull { definition ->
-        definition.name == name && (
+            definition.name == name && (
             definition.name !in workflowDeviceActionToolNames ||
                 workflowDeviceActionAllowedByIntent(runContext, definition.name)
             ) && (definition.name != TASK_RETRY_TOOL_NAME || taskRetryAllowed(runContext)) &&
             (definition.name !in CALENDAR_MUTATION_TOOL_NAMES || calendarMutationAllowed(runContext)) &&
+            (definition.name != CONTACT_OPEN_DIALER_TOOL_NAME || contactDialerAllowed(runContext)) &&
             (definition.name != KNOWLEDGE_IMPORT_FROM_NOTE_TOOL_NAME || knowledgeImportAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
@@ -1330,6 +1377,7 @@ class XiaoLingToolRegistry(
             CALENDAR_GET_EVENT_TOOL_NAME -> getCalendarEvent(call)
             CONTACT_SEARCH_TOOL_NAME -> searchContacts(call)
             CONTACT_GET_TOOL_NAME -> getContact(call)
+            CONTACT_OPEN_DIALER_TOOL_NAME -> openContactDialer(call)
             CALENDAR_CREATE_EVENT_TOOL_NAME -> createCalendarEvent(call)
             CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME -> createCalendarEvent(call)
             CALENDAR_UPDATE_EVENT_TOOL_NAME -> updateCalendarEvent(call)
@@ -2275,6 +2323,7 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun searchContacts(call: ToolCall): ToolExecutionResult {
+        verifiedContactDialerCandidate = null
         val query = call.contactSearchQuery()
         if (query.length < MIN_CONTACT_QUERY_LENGTH) {
             return ToolExecutionResult(success = false, content = "联系人搜索词至少需要 2 个字符。")
@@ -2304,6 +2353,7 @@ class XiaoLingToolRegistry(
     }
 
     private suspend fun getContact(call: ToolCall): ToolExecutionResult {
+        verifiedContactDialerCandidate = null
         val stableId = call.arguments["contact_id"].orEmpty().trim()
         val contactId = stableId.toContactIdOrNull()
             ?: return ToolExecutionResult(success = false, content = "联系人 ID 无效，请先用 contacts.search 获取稳定 ID。")
@@ -2311,10 +2361,20 @@ class XiaoLingToolRegistry(
             return ToolExecutionResult(success = false, content = "联系人 ID 不属于当前 Run 最近一次搜索结果，请先重新调用 contacts.search。")
         }
         return when (val result = contactReader.getContact(contactId)) {
-            is ContactDetailReadResult.Success -> ToolExecutionResult(
-                success = true,
-                content = ContactResultCodec.encodeDetail(result.contact),
-            )
+            is ContactDetailReadResult.Success -> {
+                verifiedContactDialerCandidate = if (searchedContactCandidateIds == setOf(result.contact.contactId)) {
+                    ContactDialerCandidate(
+                        contactId = result.contact.contactId,
+                        phoneNumbers = result.contact.phoneNumbers.toSet(),
+                    )
+                } else {
+                    null
+                }
+                ToolExecutionResult(
+                    success = true,
+                    content = ContactResultCodec.encodeDetail(result.contact),
+                )
+            }
             ContactDetailReadResult.NotFound -> ToolExecutionResult(
                 success = false,
                 content = "当前系统联系人中找不到该记录，可能已被删除或合并。",
@@ -2331,6 +2391,54 @@ class XiaoLingToolRegistry(
                 success = false,
                 content = "读取系统联系人详情失败。",
             )
+        }
+    }
+
+    private suspend fun openContactDialer(call: ToolCall): ToolExecutionResult {
+        val contactId = call.arguments["contact_id"].orEmpty().trim().toContactIdOrNull()
+            ?: return ToolExecutionResult(success = false, content = "联系人 ID 无效，请重新执行联系人搜索与详情读取。")
+        val phoneNumber = call.arguments["phone_number"].orEmpty().trim()
+        val approved = approvedContactDialerCallIds.remove(call.id)
+        val candidate = verifiedContactDialerCandidate
+        verifiedContactDialerCandidate = null
+        if (!contactDialerAllowed(runContext) || !approved) {
+            return ToolExecutionResult(success = false, content = "打开系统拨号页需要当前前台 Run 的逐次用户批准。")
+        }
+        if (candidate?.contactId != contactId || phoneNumber !in candidate.phoneNumbers) {
+            return ToolExecutionResult(success = false, content = "联系人或号码不属于当前 Run 已确认的详情，请重新执行 contacts.search 与 contacts.get。")
+        }
+        // long: 用户可能在审批页停留期间修改联系人；启动拨号页前必须从当前 Provider 重读，旧 ToolResult 不能授权漂移后的号码。
+        return when (val current = contactReader.getContact(contactId)) {
+            is ContactDetailReadResult.Success -> {
+                if (current.contact.contactId != contactId || phoneNumber !in current.contact.phoneNumbers) {
+                    ToolExecutionResult(success = false, content = "联系人号码在审批期间已变化，未打开系统拨号页。")
+                } else {
+                    when (contactDialer.open(phoneNumber)) {
+                        ContactDialerResult.Opened -> ToolExecutionResult(
+                            success = true,
+                            verified = true,
+                            content = "已打开系统拨号页并预填联系人号码，电话尚未拨出。",
+                        )
+                        ContactDialerResult.Unavailable -> ToolExecutionResult(success = false, content = "设备上没有可用的系统拨号应用。")
+                        ContactDialerResult.Failed -> ToolExecutionResult(success = false, content = "打开系统拨号页失败，电话未拨出。")
+                    }
+                }
+            }
+            ContactDetailReadResult.NotFound -> ToolExecutionResult(success = false, content = "联系人已不存在或被合并，未打开系统拨号页。")
+            ContactDetailReadResult.PermissionDenied -> ToolExecutionResult(success = false, content = "联系人读取权限已撤销，未打开系统拨号页。")
+            ContactDetailReadResult.ProviderUnavailable -> ToolExecutionResult(success = false, content = "系统联系人服务不可用，未打开系统拨号页。")
+            ContactDetailReadResult.Failed -> ToolExecutionResult(success = false, content = "重新核对联系人失败，未打开系统拨号页。")
+        }
+    }
+
+    private fun validateContactOpenDialerCandidate(arguments: Map<String, String>): List<String> {
+        val contactId = arguments["contact_id"].orEmpty().trim().toContactIdOrNull()
+        val phoneNumber = arguments["phone_number"].orEmpty().trim()
+        val candidate = verifiedContactDialerCandidate
+        return if (candidate != null && candidate.contactId == contactId && phoneNumber in candidate.phoneNumbers) {
+            emptyList()
+        } else {
+            listOf("当前 Run 必须先用 contacts.search 唯一定位联系人，再由 contacts.get 回读并确认同一号码")
         }
     }
 
@@ -3541,6 +3649,15 @@ private fun memoryDeleteAllowed(context: AgentToolExecutionContext?): Boolean =
         context.invocationSource == AgentInvocationSource.DIRECT &&
         context.memoryRecallEnabled != false
 
+private fun contactDialerAllowed(context: AgentToolExecutionContext?): Boolean =
+    context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+        context.invocationSource == AgentInvocationSource.DIRECT
+
+private data class ContactDialerCandidate(
+    val contactId: Long,
+    val phoneNumbers: Set<String>,
+)
+
 private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
     AgentInvocationSource.DIRECT,
     AgentInvocationSource.WORKFLOW,
@@ -3558,6 +3675,7 @@ private const val CALENDAR_SEARCH_EVENTS_TOOL_NAME = "calendar.search_events"
 private const val CALENDAR_GET_EVENT_TOOL_NAME = "calendar.get"
 private const val CONTACT_SEARCH_TOOL_NAME = "contacts.search"
 private const val CONTACT_GET_TOOL_NAME = "contacts.get"
+private const val CONTACT_OPEN_DIALER_TOOL_NAME = "contacts.open_dialer"
 private const val CALENDAR_CREATE_EVENT_TOOL_NAME = "calendar.create_event"
 private const val CALENDAR_CREATE_ALL_DAY_EVENT_TOOL_NAME = "calendar.create_all_day_event"
 private const val CALENDAR_UPDATE_EVENT_TOOL_NAME = "calendar.update_event"
@@ -3607,6 +3725,16 @@ private fun validateContactGetArguments(arguments: Map<String, String>): List<St
     } else {
         listOf("联系人 ID 必须是 contact-<正整数>，且只能使用 contacts.search 返回的 ID")
     }
+
+private fun validateContactOpenDialerArguments(arguments: Map<String, String>): List<String> = buildList {
+    if (arguments["contact_id"].orEmpty().trim().toContactIdOrNull() == null) {
+        add("联系人 ID 必须是 contacts.get 已确认的 contact-<正整数>")
+    }
+    val phoneNumber = arguments["phone_number"].orEmpty().trim()
+    if (phoneNumber.isBlank() || phoneNumber.any { it.isISOControl() }) {
+        add("电话号码必须是 contacts.get 返回的非空单行原值")
+    }
+}
 
 private fun String.toCalendarEventIdOrNull(): Long? {
     if (!CALENDAR_EVENT_ID_PATTERN.matches(this)) return null

@@ -8,6 +8,11 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
+        <!-- long: 联系人拨号页只需要发现能处理 tel 号码的系统 Activity，不扩大到所有可查询应用。 -->
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
         <!-- long: open_app 只允许首批真机验收应用；显式声明包可见性，避免申请 QUERY_ALL_PACKAGES 扩大隐私面。 -->
         <package android:name="com.android.calculator2" />
         <package android:name="com.google.android.calculator" />

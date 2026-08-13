@@ -36,6 +36,7 @@ class AgentRunUseCase(
             packageName = context.applicationContext.packageName,
         ),
         contactReader = AndroidContactReader(context.applicationContext.contentResolver),
+        contactDialer = AndroidContactDialer(context.applicationContext),
         appInfoReader = AndroidAppInfoReader(context.applicationContext),
         batteryStatusReader = AndroidBatteryStatusReader(context.applicationContext),
         connectivityStatusReader = AndroidConnectivityStatusReader(context.applicationContext),

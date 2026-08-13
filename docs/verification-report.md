@@ -4,6 +4,68 @@
 
 ## 当前验证基线
 
+## 2026-08-13 第 255 阶段：唯一联系人打开系统拨号页真实前台闭环
+
+### 当前结论
+
+- 新增生产 `contacts.open_dialer` 与 `contact-dialer` Skill。前台直接 Run 严格要求 `contacts.search -> contacts.get -> contacts.open_dialer`，搜索必须唯一，稳定 contact ID 和详情中的一个完整号码必须原样传递；既有 Profile/Skill 不自动扩权。
+- 最后一步必须逐次审批，批准后再次从当前 Contacts Provider 回读同一联系人与号码。执行器只发送 `ACTION_DIAL + tel:` 打开系统拨号页，不申请 `CALL_PHONE`、不点击拨号按钮；成功结果明确“电话尚未拨出”，typed verification 为 `PASSED`，无持久化执行回执。
+- Manifest 只增加 `ACTION_DIAL + tel` 的包可见性查询，没有新增权限、Room migration、联系人写入、短信/邮件、Workflow 或后台能力。
+
+### 验证证据
+
+- 聚焦 `AgentSkillsTest + XiaoLingToolRegistryTest` 和 Debug/AndroidTest APK 构建通过。只在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `Stage255ContactDialerInstrumentedTest#naturalLanguageUniqueContactOpensDialerAfterVisibleApprovalWithoutCalling`；最终为 `OK (1 test)`，耗时 `27.532s`。
+- 真实模型调用顺序精确为 `contacts.search -> contacts.get -> contacts.open_dialer`；三项 Tool Result 均为 `success=true / PASSED`，最后一步 `executorVerified=true`，唯一 Approval 为 `APPROVED`。系统拨号页显示合成号码，测试随后返回小灵；没有查找或点击拨号按钮，结果为 `numberPrefilled=true / callPlaced=false / receiptAbsent=true / oldRunUnchanged=true`。
+- 设备当时只有 VPN `tun0` 路由，直连 Provider 连续出现 SSL/DNS 失败，计划前没有创建 Run。主机同一 HTTPS Provider 可达后，使用临时本机反向代理和 `adb reverse tcp:18765 tcp:18765` 让 Redmi 完成同一上游调用；API Key 未进入源码、日志或长期文档。
+- 中间验收先后暴露并修复测试宿主问题：`ActivityScenario.close()` 覆盖原始失败、Redmi 发送后 IME 遮住审批卡、会话时间线滚动方向，以及把待恢复旧 Run 误选为不变基线。修正后仍必须点击屏幕可见审批节点，未直接调用 ViewModel 批准方法，也未放宽生产安全门禁。
+- 测试 `finally` 精确删除合成联系人、临时 Profile/会话并恢复原选择和用户原 Provider；成功 Run 审计保留。结束后撤销 `READ_CONTACTS`、移除 `adb reverse`、卸载测试包，主应用保留；未启动或使用模拟器。
+- 七份长期文档同步后重建 AndroidTest 资产，仅 Redmi 的文档 corpus gate 首轮/结果写回后的最终复验均为 `OK (1 test)`，耗时 `3.223s / 3.501s`。
+
+### 后续门禁
+
+- Stage 255 只完成“唯一联系人 -> 可见审批 -> 系统拨号页预填号码”，不能宣称已经拨出电话。联系人创建/修改/删除、直接呼叫、短信/邮件、批量通讯录、Workflow 和后台联系人访问继续关闭；下一阶段选择新的高频个人 Agent 任务。
+
+## 2026-08-13 第 254 阶段：高频个人偏好回忆真实前台闭环
+
+### 当前结论
+
+- Stage 254 冻结“你还记得我的某项偏好吗”这一高频只读任务，复用生产 `memory.search / memory.get`、Tool Ledger、消息 Tool part 和答案级记忆导航；没有新增生产 Tool、Skill、权限、Room migration、Workflow 或后台能力。
+- 真实 Redmi 前台链路由自然语言目标开始，临时最小 Profile 只允许 `personal-memory-detail` 与 `memory.search -> memory.get`。实际调用顺序精确为两步，搜索唯一 marker，详情调用原样转发唯一结果的稳定 memory ID；两项结果均为 `success=true / PASSED`，`memoryIdsUsed` 指向同一 ID，审批数为 `0`。
+- SAFE 读取结果在 Tool Ledger 中完成 typed `PASSED`，持久化到答案卡后按现有消息安全契约标记为 `READABLE_ONLY`，不冒充写入工具的独立回读 `VERIFIED`。Activity 重启后“查看记忆”入口仍可用，ViewModel 从当前 Room 二次读取并选中同一 ID/正文；基线旧 Run digest 未变化。
+
+### 验证证据
+
+- 只使用 Redmi `wsvwypiz7xwslvl7 / begonia`。`Stage254MemoryRecallInstrumentedTest#naturalLanguageRecallUsesStableMemoryIdAndOpensCurrentRoomFactAfterRestart` 首次成功与补齐撤销快照清理后的最终复验均为 `OK (1 test)`，耗时分别为 `26.708s / 30.905s`。
+- `compileDebugAndroidTestKotlin` 为 `BUILD SUCCESSFUL in 2s`；Debug 与 AndroidTest APK 构建为 `BUILD SUCCESSFUL in 4s`，最终测试包重建为 `BUILD SUCCESSFUL in 3s`。测试包以 `adb install -r -t` 覆盖安装，未清空主应用数据。
+- 聚焦 JVM `MemoryNavigationTest` 为 `BUILD SUCCESSFUL in 9s`；长期文档写回后重建 AndroidTest 资产，Redmi 文档 corpus 首轮/写回复验均为 `OK (1 test)`（`2.266s / 3.295s`）。
+- 初次运行在 `0.338s` 被“Provider 配置不完整”前置门禁阻断，业务链未启动；随后按项目兜底配置经显式 instrumentation 参数恢复到 Redmi Keystore，密钥未进入源码、命令输出或长期文档。两次中间运行分别识别出唯一候选 Skill 不额外写入 `skill.selected` 事件，以及 SAFE 消息投影应为 `READABLE_ONLY`；断言与现有持久化契约对齐后最终通过，未改生产行为。
+- 最终成功 Run 保留审计；临时偏好按预置稳定 ID 精确删除，生产删除产生的夹具撤销快照同步移除，临时 Profile/会话删除并恢复原选择。中间诊断 Run 也仅保留审计，不残留测试记忆、撤销快照、Profile 或会话。
+- 本阶段按快速迭代分级约束只执行局部编译、Debug/AndroidTest APK、Redmi 真实单项及后续聚焦门禁；未重复完整 JVM、Lint、Release 或全量 instrumentation，没有启动或使用模拟器。
+
+### 后续门禁
+
+- Stage 253/254 已分别冻结长期记忆写入与读取，后继 Stage 255 已完成唯一联系人到系统拨号页的可见审批闭环。SAFE 记忆读取仍不得强行增加审批，也不重复已有笔记、日历、知识导入或记忆读写验收。
+
+## 2026-08-13 第 253 阶段：高频个人偏好记忆真实前台闭环
+
+### 当前结论
+
+- Stage 253 冻结“记住一条明确的个人偏好”这一高频任务，复用生产 `memory.remember`、审批、COMMITTED 回执、当前 Room 回读和答案级记忆导航，没有新增 Tool、Skill、权限、Room migration、Workflow 或后台能力。
+- 真实 Redmi 前台链路由自然语言目标开始，模型在临时最小 Profile 中唯一选择 `memory.remember`；发送和审批通过屏幕可见节点完成。最终唯一调用为 `APPROVED / PASSED / COMMITTED`，稳定 memory ID 绑定 Tool Ledger、消息 Tool part 和当前 Room。
+- Activity 重建后答案中的“查看记忆”入口仍可用；点击后 ViewModel 从当前 Room 二次读取并选中同一 ID，正文规范空白、启用状态和来源回读一致。基线旧 Run digest 未变化。
+
+### 验证证据
+
+- 只使用 Redmi `wsvwypiz7xwslvl7 / begonia`。Stage 253 XML 精确结果为 `tests=1 / failures=0 / errors=0 / skipped=0`，测试耗时 `20.648s`；Gradle `connectedDebugAndroidTest` 为 `BUILD SUCCESSFUL in 32s`。
+- Stage 253 长期文档写回后重建 AndroidTest 资产，Redmi 文档 corpus gate 为 `OK (1 test)`；随后本报告写回该结果并完成最终复验，仍为 `OK (1 test)`。聚焦 JVM `MemoryNavigationTest` 通过。
+- 测试按 stable memory ID 精确清理临时记忆，删除临时 Profile/会话，保留 Stage 253 Run 审计；结束后测试 APK 卸载，主应用数据保留。
+- Redmi 当时 Provider 配置为空，测试先在显式 `stage253RestoreProvider=true` 下使用项目 `AGENTS.md` 兜底配置写入 Keystore；真实 API Key 未进入源码、日志、提交或长期文档。
+- 本阶段只构建 Debug/AndroidTest APK 并运行单项真实验收，未重复完整 JVM、Lint、Release 或全量 instrumentation，符合快速迭代分级验证约束；没有启动或使用任何模拟器。
+
+### 后续门禁
+
+- Stage 253 已完成一条高频个人 Agent 主线。下一阶段继续选择新的单一高频任务，优先复用显式意图、最小 Profile、审批、typed verification、当前事实回读和答案级导航，不扩展后台设备动作、MCP、远程 Channel、多 Agent 或本地模型。
+
 ## 2026-08-13 小灵 v0.1.17 发布构建
 
 ### 当前结论
@@ -215,7 +277,7 @@
 ### 验证范围与下一阶段
 
 - 按快速迭代分级约束，本阶段未运行完整 JVM、Lint、Release 或全量 instrumentation；未进行真实声音识别。
-- 下一阶段继续个人 Agent 主线，选择新的窄任务并保留“自然语言目标 -> 可验证结果 -> 当前权威事实查看”闭环；联系人写入、拨号/发送、通知读取、后台设备动作、TTS、多 Agent 与远程 Channel 继续后置。
+- 后继第 255 阶段已完成唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件、通知读取、后台设备动作、多 Agent 与远程 Channel继续后置。
 
 ## 2026-08-10 第 245 阶段：系统联系人只读精确查询 v1
 
@@ -244,7 +306,7 @@
 
 ### 下一阶段
 
-补齐可信 `contacts.get / PASSED` 结果的答案级“查看联系人”入口。点击时重新核对 `READ_CONTACTS` 与当前 Provider 记录，只允许跳转系统权威详情；联系人写入、拨号、短信、邮件和通知读取继续后置。
+该项已由第 246 阶段完成；后继第 255 阶段又补齐逐次审批的系统拨号页预填。联系人写入、直接呼叫、短信、邮件和通知读取继续后置。
 
 ## 2026-08-10 第 244 阶段：系统语音输入到可编辑草稿 v1
 

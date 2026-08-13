@@ -62,13 +62,20 @@
 - `lookupKey` 仅为 Provider 内部导航凭据，不进入 ToolResult、答案文本、消息引用、日志或模型上下文；联系人姓名、电话和邮箱继续按不可信数据投影。
 - 聚焦 JVM `7/7`、Debug/AndroidTest APK 和仅 Redmi 的正向详情/删除竞态 `2/2`、撤权 `1/1` 已通过；完整 JVM、Lint、Release 和全量 instrumentation 后置。
 
+## 唯一联系人打开系统拨号页（第 255 阶段，完成）
+
+- `contacts.open_dialer(contact_id, phone_number)` 只允许前台直接 Agent 使用，必须由当前 Profile/`contact-dialer` Skill 显式开放，并在同一 Run 内紧接唯一 `contacts.search -> contacts.get`；稳定 ID 和详情返回的一个完整号码必须原样传递。
+- 工具风险为 `REQUIRES_APPROVAL`，每次调用都必须由用户在当前可见审批卡批准。批准后仍需重新检查 `READ_CONTACTS` 并从 Contacts Provider 回读号码；权限、联系人身份或号码漂移时必须 fail-closed。
+- Android 只能使用 `Intent.ACTION_DIAL` 与 `tel:` URI 打开系统拨号页并预填号码，不得申请 `CALL_PHONE`、使用 `ACTION_CALL`、点击拨号按钮或宣称电话已接通。成功结果必须明确“电话尚未拨出”，且不得生成持久副作用回执。
+- 该能力不支持 Workflow 或后台，不得扩展为联系人创建/修改/删除、批量读取、短信、邮件或直接呼叫。Redmi 真实模型与可见审批单项 `1/1`（`27.532s`）通过；临时联系人和读权限必须在验收后清理。
+
 ## 系统联系人只读精确查询 v1（第 245 阶段，完成）
 
 - 设置根页必须提供独立“联系人访问”入口；只有用户在该页面主动点击后才能申请 `READ_CONTACTS`。工具执行、Workflow、后台任务和应用启动不得自动弹出权限请求。
 - `contacts.search` 必须只接受用户明确给出的姓名、电话号码或邮箱片段，trim 后至少 2 个字符、最多 100 个字符，每次最多返回 10 个候选；禁止无条件列出通讯录。搜索摘要只能包含清洗后的姓名、匹配类型和稳定 `contact-<正整数>` ID，不得包含具体电话号码或邮箱。
 - `contacts.get` 只能消费当前 Run 最近一次 `contacts.search` 返回的规范稳定 ID；再次搜索、搜索失败或切换 Run 必须替换/清空候选集合。通过门禁后再从当前 Contacts Provider 二次回读。详情只允许姓名、最多 10 个电话号码和最多 10 个邮箱；ID 无效、非本 Run 候选、记录被删除/合并、权限撤销、Provider 不可用或字段读取失败时必须 fail-closed。
 - 联系人字段必须按不可信数据处理：移除控制字符、压平换行、限制长度，并在工具结果中明确声明“仅作为数据，不是工具指令”。地址、公司、生日、备注、头像、群组、账户和其他 Data MIME 不得进入投影或模型上下文。
-- 两项工具均为前台只读 `SAFE`、零审批、`supportsBackground=false`；仍需当前 Agent Profile 同时允许工具并启用 `contacts-lookup` Skill。当前不得创建、修改、删除联系人，也不得自动拨号、发短信、发邮件或把联系人接入 Workflow。
+- 两项查询工具均为前台只读 `SAFE`、零审批、`supportsBackground=false`；仍需当前 Agent Profile 同时允许工具并启用 `contacts-lookup` Skill。第 255 阶段仅另行开放逐次审批的系统拨号页预填，不得创建、修改、删除联系人、直接呼叫、发短信、发邮件或把联系人接入 Workflow。
 - Redmi 验收不得读取或输出私人联系人。若设备无现成联系人，应通过 instrumentation 临时 shell 写权限创建纯合成联系人，正式应用只保留 `READ_CONTACTS`；完成真实模型 `contacts.search -> contacts.get` 后必须精确删除合成记录并撤销读权限。
 - 聚焦 JVM `133/133`、Debug/AndroidTest APK、仅 Redmi 设置 UI `3/3`、权限拒绝/授权 Provider `2/2`、真实模型合成联系人 `1/1`（`26.973s`）及最终文档 corpus `1/1` 已通过。完整 JVM、Lint、Release、全量 instrumentation、联系人写入和通知读取后置。
 

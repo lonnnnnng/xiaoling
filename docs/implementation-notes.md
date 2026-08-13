@@ -78,7 +78,15 @@
 
 ### 下一阶段
 
-继续个人 Agent 主线，优先选择一个能形成“自然语言目标 -> 可验证结果 -> 当前权威事实查看”的窄任务；联系人写入、拨号/发送、通知读取、Workflow/后台设备动作和声音识别继续后置。
+该联系人后续已由第 255 阶段完成：唯一联系人经可见审批打开系统拨号页并预填号码；联系人写入、直接呼叫、短信/邮件、通知读取、Workflow/后台设备动作继续后置。
+
+## 第 255 阶段：唯一联系人打开系统拨号页（完成）
+
+- 新增 `ContactDialer` 边界与 `AndroidContactDialer`：只构造 `Intent.ACTION_DIAL` + `Uri.fromParts("tel", phoneNumber, null)`，使用新任务打开系统拨号页；无处理方、安全异常或运行时异常稳定 fail-closed。Manifest 只声明对应 `<queries>`，不新增 `CALL_PHONE`。
+- `XiaoLingToolRegistry` 为 `contacts.open_dialer` 冻结 `REQUIRES_APPROVAL / READ_CONTACTS / supportsBackground=false / EXECUTOR_VERIFIED`。`contacts.get` 只有在最近搜索候选集合恰好等于当前 ID 时才冻结短生命周期号码候选；新搜索、失败、Run 切换或消费后立即清空。
+- 审批校验只接受当前同一 ToolCall，执行时再次调用 `ContactReader.getContact()`，要求当前 contact ID 和规范号码集合仍包含请求号码；通过后才调用 `ContactDialer`。成功结果不含回执，避免把打开系统 UI 冒充持久业务副作用。
+- `AgentRunUseCase` 在生产 Registry 注入 `AndroidContactDialer`；`contact-dialer` Skill 固定 `contacts.search -> contacts.get -> contacts.open_dialer`。聚焦 JVM、AndroidTest APK 和 Redmi 真实单项 `1/1`（`27.532s`）通过。
+- Stage 255 instrumentation 使用合成联系人、真实 Provider、屏幕可见发送/批准、系统拨号页号码观察和 Room 审计。Redmi 网络故障时只用临时 `adb reverse` 转发同一 HTTPS 上游，结束后恢复 Provider、删除夹具并撤销权限/端口；测试未调用直接批准 API，也未点击系统拨号按钮。
 
 ## 第 245 阶段：系统联系人只读精确查询 v1（完成）
 
@@ -93,7 +101,7 @@
 
 ### 下一阶段
 
-继续同一联系人场景，补齐只有可信 `contacts.get / PASSED` 结果才显示的答案级“查看联系人”入口，并在点击时重新核对当前权限与 Contacts Provider 身份后跳转系统权威详情。联系人写入、拨号、短信、邮件和通知读取继续后置。
+该后续已由第 246 阶段完成可信“查看联系人”，并由第 255 阶段补齐可见审批后的系统拨号页预填。联系人写入、直接呼叫、短信、邮件和通知读取继续后置。
 
 ## 第 244 阶段：系统语音输入到可编辑草稿 v1（完成）
 
