@@ -1,8 +1,10 @@
 # 文档索引
 
-第 259 阶段已完成答案级当前通知回读生产能力：可信 `notifications.get` Tool part 才能显示“查看通知”，点击后二次读取当前 NotificationListener，撤权、断连、移除或身份不一致均 fail-closed；真实 Provider 自然语言验收留在下一阶段。通知动作、后台访问和 Room 历史镜像继续关闭。
+第 260 阶段已完成通知个人 Agent 真实前台闭环：仅 Redmi `wsvwypiz7xwslvl7 / begonia` 由真实 Provider 严格完成 `notifications.list -> notifications.get`，Activity 重建后“查看通知”重新读取当前 listener；通知移除后入口显示 fail-closed。测试通知、channel、临时 Profile/会话均精确清理，通知动作、后台访问和 Room 历史镜像继续关闭。
 
-第 258 阶段完成前台通知只读观察能力：新增用户显式开启的系统 NotificationListener、独立“通知访问”设置页、`notifications.list / notifications.get` 和 `notification-overview`。工具仅前台 `DIRECT / SAFE`，详情只接受同一 Run 最近列表返回的匿名 ID；通知消失、撤权、服务断开或切换 Run 后拒绝。原始 key、PendingIntent、action、RemoteInput 不进入模型/Room；私密、消息、来电及疑似验证码或凭据内容整条隐藏。Redmi 首轮发现标题敏感而正文残留，修复后真实 listener 为 `OK (1 test)`（`7.727s`），设置页为 `OK (2 tests)`（`3.028s`）；测试通知/channel/测试包与小灵 listener 授权已清理。第 259 阶段已补生产答案级当前通知查看，下一阶段只做真实 Provider 自然语言验收，不开放点击、回复或清除。
+第 259 阶段已完成答案级当前通知回读生产能力：可信 `notifications.get` Tool part 才能显示“查看通知”，点击后二次读取当前 NotificationListener，撤权、断连、移除或身份不一致均 fail-closed；第 260 阶段已补齐真实 Provider 自然语言验收。
+
+第 258 阶段完成前台通知只读观察能力：新增用户显式开启的系统 NotificationListener、独立“通知访问”设置页、`notifications.list / notifications.get` 和 `notification-overview`。工具仅前台 `DIRECT / SAFE`，详情只接受同一 Run 最近列表返回的匿名 ID；通知消失、撤权、服务断开或切换 Run 后拒绝。原始 key、PendingIntent、action、RemoteInput 不进入模型/Room；私密、消息、来电及疑似验证码或凭据内容整条隐藏。Redmi 首轮发现标题敏感而正文残留，修复后真实 listener 为 `OK (1 test)`（`7.727s`），设置页为 `OK (2 tests)`（`3.028s`）；测试通知/channel/测试包与小灵 listener 授权已清理。第 259 阶段补生产答案级当前通知查看，第 260 阶段补真实 Provider 自然语言验收，通知动作、回复和清除仍关闭。
 
 第 257 阶段完成唯一笔记受控追加的 Redmi 真实前台闭环：临时最小 Profile 只开放 `local-note-append` 与 `notes.search -> notes.get -> notes.append`，`gpt-5.5 / Responses` 从自然语言目标形成严格三步链；发送、逐次批准和答案级“查看笔记”均通过屏幕可见节点完成。Tool Ledger 与当前 Room 使用同一稳定 note ID/revision，三项结果均为 `PASSED`，最后一步为 `APPROVED / COMMITTED`；原标题和原正文逐字符不变，新片段只追加一次。Activity 重建后从持久化可信 Tool part 恢复入口，详情页重新读取当前 Room 并显示完整正文和 revision `+1`。旧 Run digest 不变，临时笔记按稳定 ID tombstone，临时 Profile/会话精确清理，成功 Run 审计保留，用户原 Provider 恢复。仅 Redmi `wsvwypiz7xwslvl7 / begonia` 最终 `OK (1 test)`（`47.827s`），文档 corpus 首轮/结果写回复验均通过；未使用模拟器，完整 JVM、Lint、Release 和全量 instrumentation未重复运行。
 
@@ -132,7 +134,7 @@
 
 当前发布基线提升为 `v0.1.17`（`versionCode 18`、Room v36）。本版在 `v0.1.16` 后汇总第 170 至 252 阶段的个人 Agent 能力，以及 2026-08-13 收敛的 Redmi 回归修复。Release 使用本机固定证书构建，`assembleRelease` 结果为 `BUILD SUCCESSFUL in 2m 45s`；APK 通过 APK Signature Scheme v2、单一 RSA 4096 签名者和 zipalign 校验，大小 `3,531,766` 字节，SHA-256 为 `b0fdfce3d50375bbe98aedba172990cc18e655255a94455966495eb6ada398d2`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.17) 已发布并成为 latest。
 
-当前开发基线已完成第 258 阶段、Room v36，个人 Agent 已覆盖设备观察、系统状态、日程/联系人/当前通知/笔记/记忆/知识、系统分享附件理解、受控副作用和答案级权威事实查看；通知域目前只完成显式授权后的前台只读 Provider 能力，真实 Provider 与答案级当前通知查看留给下一阶段。2026-08-13 完整基线仍为 Redmi 默认全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`、完整 JVM `1118/1118`、Lint 与 Debug/AndroidTest APK 通过；Stage 256 至 258 的聚焦证据不能替代完整基线。`v0.1.17` Release 资产保持不变。
+当前开发基线已完成第 260 阶段、Room v36，个人 Agent 已覆盖设备观察、系统状态、日程/联系人/当前通知/笔记/记忆/知识、系统分享附件理解、受控副作用和答案级权威事实查看；通知域已完成显式授权后的前台只读 Provider 与真实答案级当前通知查看，通知动作和后台读取仍后置。2026-08-13 完整基线仍为 Redmi 默认全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`、完整 JVM `1118/1118`、Lint 与 Debug/AndroidTest APK 通过；Stage 256 至 260 的聚焦证据不能替代完整基线。`v0.1.17` Release 资产保持不变。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 

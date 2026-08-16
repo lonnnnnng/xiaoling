@@ -1,10 +1,28 @@
 # 验证报告
 
-验证日期：2026-08-13（北京时间）
+验证日期：2026-08-16（北京时间）
 
 ## 当前验证基线
 
-## 2026-08-16 第 259 阶段：答案级当前通知回读入口（生产能力完成，Redmi Provider 待验收）
+## 2026-08-16 第 260 阶段：通知真实 Provider 前台闭环（完成）
+
+### 当前结论
+
+- 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行真实 `MainActivity + XiaoLingViewModel`，临时最小 Profile 只开放 `notification-overview`、`notifications.list` 和 `notifications.get`；真实 Provider 从自然语言目标严格完成 `notifications.list -> notifications.get`。
+- `notifications.get` 的参数原样使用同一 Run 的 `notifications.list` 稳定 ID；可信 Tool part 在 Activity 重建后仍提供“查看通知”，详情页重新读取当前 listener 并显示唯一 marker。
+- 移除测试通知后再次进入详情，当前 listener 不再提供该通知，页面显示“当前通知已消失或不可读取”；没有回放旧 Tool 正文。通知动作、回复、清除、第三方跳转、Room 历史和后台访问继续关闭。
+
+### 已验证证据
+
+- `compileDebugAndroidTestKotlin`、Debug APK 与 AndroidTest APK 构建成功；Redmi 单项 `Stage260NotificationReadInstrumentedTest` 最终为 `OK (1 test)`、`29.049s`。
+- 测试使用 Redmi 当前 Provider；当设备配置缺失时，仅通过本次 instrumentation 参数将 AGENTS.md 兜底配置写入 Keystore，API Key 未进入源码、日志或长期文档。测试通知与 channel、临时 Profile/会话均在 `finally` 中清理，成功 Run 审计保留。
+- 仅使用 Redmi，未向 `emulator-5554`、`emulator-5556` 或其他模拟器发送命令；未运行完整 JVM、全量 Lint、Release 或全量 instrumentation。
+
+### 后续门禁
+
+- 通知只读真实闭环已完成。下一阶段回到个人 Agent 的另一条窄任务，继续遵循“自然语言目标 -> 最小能力面 -> 可验证结果 -> 当前权威事实查看”；通知点击、回复、清除、后台读取与历史镜像仍后置。
+
+## 2026-08-16 第 259 阶段：答案级当前通知回读入口（生产能力完成，真实 Provider 验收见第 260 阶段）
 
 ### 当前结论
 
@@ -15,11 +33,11 @@
 
 - 聚焦 `NotificationNavigationTest` 通过；`compileDebugKotlin`、`compileDebugAndroidTestKotlin` 通过，既有通知隐私与 Tool Registry 测试未回归。
 - 文档同步后重建 Debug/AndroidTest 资产，仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮为 `OK (1 test)`、`3.186s`；最终文本写回后复验为 `OK (1 test)`、`3.482s`。测试 APK 已卸载，主应用保留。
-- 本阶段尚未运行 Redmi 真实 Provider 自然语言 `notifications.list -> notifications.get`，因此不能宣称个人 Agent 通知完整闭环；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 本阶段只完成生产入口；真实 Provider 验收由第 260 阶段完成。未运行完整 JVM、Lint、Release 或全量 instrumentation。
 
 ### 后续门禁
 
-- 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 使用当前可用真实 Provider 和最小 Profile 完成屏幕可见自然语言 `notifications.list -> notifications.get`，点击“查看通知”并核对当前 listener 详情；最后验证撤权/移除后的导航拒绝。旧 Run 保持不变，不增加通知动作。
+- 第 260 阶段已在 Redmi 使用最小 Profile 完成该门禁；本阶段不再追加独立设备动作。
 
 ## 2026-08-13 第 258 阶段：前台通知只读观察能力
 
@@ -39,7 +57,7 @@
 
 ### 后续门禁
 
-- 下一阶段必须用真实 Provider 和最小 Profile 完成可见自然语言 `notifications.list -> notifications.get`，再从可信详情 Tool part 提供当前通知查看；点击时重新读取 listener，消失或撤权必须 fail-closed。
+- 第 259 阶段提出的真实 Provider 门禁已由第 260 阶段完成；通知点击、回复、清除、后台读取和历史镜像继续后置。
 
 ## 2026-08-13 第 257 阶段：唯一笔记受控追加真实前台闭环
 

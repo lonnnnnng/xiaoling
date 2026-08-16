@@ -1,10 +1,17 @@
 # 产品需求
 
-## 答案级当前通知回读（第 259 阶段，生产能力完成，真实 Provider 待验收）
+## 通知真实 Provider 前台闭环（第 260 阶段，完成）
+
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的真实 Provider 可从自然语言目标严格完成 `notifications.list -> notifications.get`；Profile 必须显式限制为 `notification-overview` 和两项只读工具。
+- `notifications.get` 必须原样使用同一 Run 的 list 稳定 ID；成功可信 Tool part 才能生成“查看通知”，Activity 重建后详情页必须重新读取当前 NotificationListener。
+- 通知移除、监听撤权、服务断连或身份漂移必须 fail-closed，不得回放历史通知正文；通知点击、回复、清除、PendingIntent、RemoteInput、第三方跳转、后台读取和 Room 历史镜像仍关闭。
+- Stage260 Redmi 最终 `OK (1 test)`、`29.049s`；临时通知、channel、Profile/会话精确清理，成功 Run 审计保留。快速迭代阶段不运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+## 答案级当前通知回读（第 259 阶段，完成）
 
 - “查看通知”按钮只能由成功 `notifications.get` 的可信结构化 Tool part 生成，必须严格匹配请求 ID、固定详情标题、唯一稳定 ID 和外部数据边界；普通回答、列表多条结果、重复 ID、失败或未验证结果不得生成入口。
 - 点击后必须重新读取当前 NotificationListener；权限撤销、服务断连、通知移除、目标非法或读取异常均 fail-closed。详情页不信任历史 Tool 正文，不保存或恢复通知历史。
-- 当前仍不开放通知点击、回复、清除、PendingIntent、RemoteInput、第三方跳转、后台 Agent 或 Room 镜像。下一阶段只验收 Redmi 真实 Provider 的自然语言 `notifications.list -> notifications.get -> 查看通知`。
+- 当前仍不开放通知点击、回复、清除、PendingIntent、RemoteInput、第三方跳转、后台 Agent 或 Room 镜像；真实 Provider 的自然语言验收由第 260 阶段完成。
 
 ## 前台通知只读观察（第 258 阶段，完成）
 
@@ -14,7 +21,7 @@
 - 只允许投影应用名、包名、发布时间、稳定匿名 ID 与有界文本。原始 notification key、PendingIntent、action、RemoteInput、图标、声音、震动、账户和系统通知对象不得进入模型或持久化审计正文。
 - 私密、消息、来电通知及疑似验证码、OTP、密码、PIN、口令、密钥、API Key 或 token 内容必须整条隐藏；标题或正文任一字段敏感时，不能保留另一字段形成部分泄露。
 - 当前只读：不得点击、回复、清除通知，不得执行通知 action、跳转第三方 App、建立 Room 通知历史或在后台调用 Agent。
-- Redmi 真实 listener 普通通知读取、敏感整体隐藏、撤销后不可读最终为 `OK (1 test)`、`7.727s`；设置页两态为 `OK (2 tests)`、`3.028s`。第 259 阶段已补生产答案级当前通知查看入口，下一阶段补真实 Provider 自然语言验收。
+- Redmi 真实 listener 普通通知读取、敏感整体隐藏、撤销后不可读最终为 `OK (1 test)`、`7.727s`；设置页两态为 `OK (2 tests)`、`3.028s`。第 259 阶段补生产答案级当前通知查看入口，第 260 阶段补真实 Provider 自然语言验收。
 
 ## 唯一本地笔记导入知识库真实前台验收（第 252 阶段，完成）
 

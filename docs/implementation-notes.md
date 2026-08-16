@@ -1,15 +1,27 @@
 # 当前实现说明
 
-## 第 259 阶段：答案级当前通知回读入口（生产能力完成，真实 Provider 待验收）
+## 第 260 阶段：通知真实 Provider 前台闭环（完成）
+
+- `Stage260NotificationReadInstrumentedTest` 只允许 Redmi `begonia`，通过真实 `MainActivity + XiaoLingViewModel` 发送自然语言目标；临时最小 Profile 只开放 `notification-overview` 与 `notifications.list / notifications.get`，不包含通知动作。
+- 测试通知使用唯一 marker。真实 Run 的 Tool part 严格为 `notifications.list -> notifications.get`，`get.notification_id` 必须原样等于 list 回执的稳定 ID；`notifications.get` 为成功只读结果并投影“查看通知”。
+- Activity 重建后点击“查看通知”，页面从当前 NotificationListener 二次读取并显示 marker；移除通知后再次进入同一入口显示“当前通知已消失或不可读取”，证明不回放历史 Tool 正文。
+- 测试进程不把自身 ClassLoader 中的 listener 静态连接状态当作产品前置门禁，实际闭环由生产 Run 和详情页回读验证；通知权限/监听授权仅为 Redmi 验收临时开启，结束后撤销。测试通知、channel、Profile、会话按稳定身份清理，成功 Run 审计保留。
+- `compileDebugAndroidTestKotlin`、Debug/AndroidTest APK 通过；Redmi 最终 `OK (1 test)`、`29.049s`。未运行完整 JVM、Lint、Release 或全量 instrumentation，未使用模拟器。
+
+### 下一阶段
+
+通知只读主线已闭合；下一阶段重新冻结一条新的单一高频个人 Agent 任务，不扩展通知动作、后台读取或 Room 通知历史。
+
+## 第 259 阶段：答案级当前通知回读入口（完成）
 
 - `NotificationNavigation.kt` 只从成功的 `notifications.get` Tool part 投影 `NotificationNavigationTarget`；参数必须只有 `notification_id`，固定详情标题、ID 行、唯一稳定 ID 和“外部数据”边界必须同时成立。
 - `NotificationDetailPage` 不解析或回放历史 Tool 正文，点击入口后直接调用 `AndroidNotificationReader.get()`。权限未授权、监听未连接、通知已移除和非法目标分别映射为不可操作错误；成功内容仍沿用通知隐私过滤后的有限字段。
 - XiaoLing 导航状态、Saver 与 Conversation Actions 增加短生命周期通知目标；返回设置时清除目标。通知详情只读，不执行 PendingIntent、RemoteInput、action、回复、清除或第三方跳转。
-- `NotificationNavigationTest` 覆盖可信唯一详情入口和重复/错误结果 fail-closed；聚焦 Kotlin 编译通过。真实 Provider 及 Redmi UI 验收尚未完成。
+- `NotificationNavigationTest` 覆盖可信唯一详情入口和重复/错误结果 fail-closed；聚焦 Kotlin 编译通过。真实 Provider 及 Redmi UI 验收已由第 260 阶段完成。
 
 ### 下一阶段
 
-在 Redmi 以临时最小 Profile 运行真实自然语言 `notifications.list -> notifications.get`，点击“查看通知”并核对当前 listener；随后撤权或移除通知，确认入口不会展示旧快照。
+第 260 阶段已完成上述 Redmi 真实自然语言、答案入口回读和通知移除 fail-closed 验收。
 
 ## 第 258 阶段：前台通知只读观察能力（完成）
 
@@ -21,7 +33,7 @@
 
 ### 下一阶段
 
-第 259 阶段已完成可信详情 Tool part 和点击后二次读取的生产能力；下一阶段只剩 Redmi 真实 Provider/屏幕可见验收，当前阶段不开放任何通知动作。
+第 259 阶段已完成可信详情 Tool part 和点击后二次读取的生产能力；第 260 阶段已完成 Redmi 真实 Provider/屏幕可见验收，当前阶段不开放任何通知动作。
 
 ## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
 

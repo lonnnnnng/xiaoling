@@ -1,8 +1,10 @@
 # `reference-apps` 个人 Agent 实现分析
 
-第 259 阶段继续采用成熟移动 Agent 的“答案入口只来自可信结构化事实、点击时重新绑定当前权威源”原则。`notifications.get` 只有固定详情外壳、请求 ID 和唯一稳定 ID 完全一致时才生成“查看通知”；详情页点击后重新检查 listener 授权、连接和当前内存快照，撤权、断连或移除均拒绝。小灵仍没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；真实 Provider 自然语言与 Redmi 端到端验收留给下一门禁。
+第 260 阶段继续采用成熟 Agent 的“自然语言规划、最小能力面、工具结果绑定稳定身份、点击时回读当前权威源”原则。真实 Provider 在 Redmi 严格完成 `notifications.list -> notifications.get`，Activity 重建后的“查看通知”再次读取当前 listener，通知移除后拒绝历史快照。小灵没有复制通知全量历史镜像、自动点击/回复/清除、PendingIntent/RemoteInput、后台读取或跨 App 跳转；本阶段只验证前台只读闭环，未扩展通知动作。
 
-第 258 阶段采用成熟移动 Agent 的“系统特殊授权必须由用户显式开启、当前通知只做短生命周期观察、外部文本按不可信数据处理、详情重新绑定当前身份”原则。小灵没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；listener 只保留进程内当前快照，服务断开立即清空，稳定 ID 只暴露 notification key 的 SHA-256。Redmi 首轮测试发现标题敏感但正文仍保留的跨字段泄露，现已改为整条隐藏并复验通过。答案级当前通知导航已由第 259 阶段补齐，真实 Provider 仍待独立验收。
+第 259 阶段继续采用成熟移动 Agent 的“答案入口只来自可信结构化事实、点击时重新绑定当前权威源”原则。`notifications.get` 只有固定详情外壳、请求 ID 和唯一稳定 ID 完全一致时才生成“查看通知”；详情页点击后重新检查 listener 授权、连接和当前内存快照，撤权、断连或移除均拒绝。小灵仍没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；真实 Provider 门禁已由第 260 阶段完成。
+
+第 258 阶段采用成熟移动 Agent 的“系统特殊授权必须由用户显式开启、当前通知只做短生命周期观察、外部文本按不可信数据处理、详情重新绑定当前身份”原则。小灵没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；listener 只保留进程内当前快照，服务断开立即清空，稳定 ID 只暴露 notification key 的 SHA-256。Redmi 首轮测试发现标题敏感但正文仍保留的跨字段泄露，现已改为整条隐藏并复验通过。答案级当前通知导航及真实 Provider 验收已分别由第 259、260 阶段补齐。
 
 第 257 阶段把成熟个人 Agent 的“真实用户入口、最小能力面、可见审批、提交后权威回读、页面重建恢复与夹具精确清理”组合成 Redmi 真实链。测试没有用 Debug Receiver、直接 Runtime 或自动批准绕过界面，也没有按标题/正文模糊删除；Tool Ledger、消息 Tool part、Room 当前记录和详情页都绑定同一稳定 note ID/revision。小灵没有借验收扩展后台笔记监听、自动整理、批量修改、Workflow、远程 Channel 或多 Agent；Stage 256 的生产边界保持不变。
 
