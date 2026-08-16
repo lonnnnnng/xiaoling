@@ -10,6 +10,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 
 @Stable
 internal class XiaoLingNavigationController(
@@ -43,6 +44,9 @@ internal class XiaoLingNavigationController(
     val requestedCalendarEventTarget: CalendarEventNavigationTarget?
         get() = state.requestedCalendarEventTarget
 
+    val requestedNotificationTarget: NotificationNavigationTarget?
+        get() = state.requestedNotificationTarget
+
     fun hidesBottomBar(providerEditorOpen: Boolean): Boolean = state.hidesBottomBar(providerEditorOpen)
 
     fun selectTab(tab: XiaoLingAppTab) {
@@ -57,6 +61,7 @@ internal class XiaoLingNavigationController(
         requestedWorkflowRunId: String? = null,
         requestedLocalNoteId: String? = null,
         requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
+        requestedNotificationTarget: NotificationNavigationTarget? = null,
     ) {
         mutableState.value = coordinator.openSettingsPane(
             state = state,
@@ -67,6 +72,7 @@ internal class XiaoLingNavigationController(
             requestedWorkflowRunId = requestedWorkflowRunId,
             requestedLocalNoteId = requestedLocalNoteId,
             requestedCalendarEventTarget = requestedCalendarEventTarget,
+            requestedNotificationTarget = requestedNotificationTarget,
         )
     }
 
@@ -84,6 +90,10 @@ internal class XiaoLingNavigationController(
 
     fun openCalendarEvent(target: CalendarEventNavigationTarget) {
         mutableState.value = coordinator.openCalendarEvent(state, target)
+    }
+
+    fun openNotification(target: NotificationNavigationTarget) {
+        mutableState.value = coordinator.openNotification(state, target)
     }
 
     fun routeExternal(target: XiaoLingExternalNavigationTarget) {
@@ -122,6 +132,7 @@ internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<
             state.requestedKnowledgeTarget?.reference?.startOffset?.toString().orEmpty(),
             state.requestedKnowledgeTarget?.reference?.endOffset?.toString().orEmpty(),
             state.requestedCalendarEventTarget?.occurrenceStartAtMillis?.toString().orEmpty(),
+            state.requestedNotificationTarget?.notificationId.orEmpty(),
         )
     },
     restore = { savedTargets ->
@@ -156,6 +167,9 @@ internal val XiaoLingNavigationStateSaver = Saver<XiaoLingNavigationState, List<
                 val occurrenceStart = rawOccurrenceStart.toLongOrNull()?.takeIf { it > 0L }
                 // long: 恢复数据可能来自旧版本或损坏 Bundle；非法 occurrence 只丢弃实例时间，保留稳定事件 ID 继续读取 master。
                 runCatching { CalendarEventNavigationTarget(eventId, occurrenceStart) }.getOrNull()
+            },
+            requestedNotificationTarget = savedTargets.getOrNull(14).orEmpty().ifBlank { null }?.let { id ->
+                runCatching { NotificationNavigationTarget(id) }.getOrNull()
             },
         )
     },

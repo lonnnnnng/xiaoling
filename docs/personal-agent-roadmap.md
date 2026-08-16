@@ -1,5 +1,13 @@
 # 小灵个人 Agent 路线图
 
+## 第 259 阶段：答案级当前通知回读入口（生产能力完成，真实 Provider 待验收）
+
+- `notifications.get` 的可信 Tool part 现在可以生成“查看通知”按钮，但只接受固定详情外壳、请求 ID 与唯一稳定 ID完全一致的结果；模型正文和列表摘要不能伪造入口。
+- 通知详情页点击时重新调用当前 `NotificationListener`，再次检查授权、服务连接和进程内快照；撤权、断连、移除和非法目标全部显示 fail-closed 错误，不使用历史通知缓存。
+- 本阶段只增加只读导航，不开放点击、回复、清除、PendingIntent/RemoteInput、第三方 App 跳转、Room 历史或后台 Agent。聚焦 JVM/AndroidTest Kotlin 编译已通过，Redmi 真实 Provider 自然语言验收留到下一道门禁。
+
+下一道门禁：仅 Redmi 使用最小 Profile 和当前 Provider 完成 `notifications.list -> notifications.get -> 查看通知`，再验证通知移除/授权撤销后的入口拒绝；旧 Run 保持不变。
+
 ## 第 258 阶段：前台通知只读观察能力（完成）
 
 - 新增系统 `NotificationListenerService` 与独立“通知访问”设置页。授权只能由用户在 Android 系统通知访问页面显式开启；应用、Agent Tool 和后台任务不能自行授权。页面每次恢复都会重新读取授权与服务连接状态。
@@ -8,7 +16,7 @@
 - Redmi 首轮真实 listener 测试发现标题命中“登录验证码 123456”后正文仍被单独保留；修复为标题/正文整体隐私判定后复验 `OK (1 test)`、`7.727s`。独立设置页状态为 `OK (2 tests)`、`3.028s`，聚焦 JVM、Debug/AndroidTest APK 和 Manifest 合并均通过。
 - 测试通知、channel 与测试包已清理，小灵通知访问授权已撤销，设备原有 listener 保持不变。同步后的文档 corpus 首轮为 `OK (1 test)`、`3.716s`，结果写回后的最终文本复验通过。未使用模拟器，未运行完整 JVM、Lint、Release 或全量 instrumentation；通知点击、回复、清除、第三方 App 跳转、后台 Agent 和 Room 历史镜像仍关闭。
 
-下一阶段完成 Redmi 真实 Provider 的自然语言 `notifications.list -> notifications.get` 前台闭环，并增加答案级“查看通知”入口：入口必须在点击时从当前 listener 二次读取，通知消失、授权撤销或身份漂移时拒绝。旧 Run 保持不变，不扩展通知动作。
+第 259 阶段已完成答案级“查看通知”生产入口；下一阶段只做 Redmi 真实 Provider 的自然语言 `notifications.list -> notifications.get -> 查看通知` 验收，并验证通知消失、授权撤销或身份漂移时拒绝。旧 Run 保持不变，不扩展通知动作。
 
 ## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
 

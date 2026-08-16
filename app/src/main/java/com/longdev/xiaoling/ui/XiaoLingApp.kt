@@ -260,6 +260,10 @@ private fun XiaoLingContent(
                 navigation.openCalendarEvent(target)
             }
 
+            override fun openNotification(target: NotificationNavigationTarget) {
+                navigation.openNotification(target)
+            }
+
             override fun openContact(contactId: String) {
                 contactOpenScope.launch {
                     val result = contactOpenCoordinator.open(contactId)
@@ -492,6 +496,7 @@ private fun XiaoLingContent(
                         requestedWorkflowRunId = navigation.requestedWorkflowRunId,
                         requestedLocalNoteId = navigation.requestedLocalNoteId,
                         requestedCalendarEventTarget = navigation.requestedCalendarEventTarget,
+                        requestedNotificationTarget = navigation.requestedNotificationTarget,
                         agentTaskCenterInitialFilter = agentTaskCenterInitialFilter,
                         onBackToSettings = {
                             navigation.openSettingsPane(
@@ -502,6 +507,7 @@ private fun XiaoLingContent(
                                 requestedWorkflowRunId = null,
                                 requestedLocalNoteId = null,
                                 requestedCalendarEventTarget = null,
+                                requestedNotificationTarget = null,
                             )
                         },
                         modifier = Modifier.matchParentSize(),
@@ -909,6 +915,7 @@ private fun SettingsPage(
     requestedWorkflowRunId: String?,
     requestedLocalNoteId: String?,
     requestedCalendarEventTarget: CalendarEventNavigationTarget?,
+    requestedNotificationTarget: NotificationNavigationTarget?,
     agentTaskCenterInitialFilter: AgentTaskFilter,
     onBackToSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -964,6 +971,11 @@ private fun SettingsPage(
             )
             pane == SettingsPane.CALENDAR_EVENT_DETAIL -> CalendarEventDetailPage(
                 target = requestedCalendarEventTarget,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
+            pane == SettingsPane.NOTIFICATION_DETAIL -> NotificationDetailPage(
+                target = requestedNotificationTarget,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )

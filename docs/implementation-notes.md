@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 259 阶段：答案级当前通知回读入口（生产能力完成，真实 Provider 待验收）
+
+- `NotificationNavigation.kt` 只从成功的 `notifications.get` Tool part 投影 `NotificationNavigationTarget`；参数必须只有 `notification_id`，固定详情标题、ID 行、唯一稳定 ID 和“外部数据”边界必须同时成立。
+- `NotificationDetailPage` 不解析或回放历史 Tool 正文，点击入口后直接调用 `AndroidNotificationReader.get()`。权限未授权、监听未连接、通知已移除和非法目标分别映射为不可操作错误；成功内容仍沿用通知隐私过滤后的有限字段。
+- XiaoLing 导航状态、Saver 与 Conversation Actions 增加短生命周期通知目标；返回设置时清除目标。通知详情只读，不执行 PendingIntent、RemoteInput、action、回复、清除或第三方跳转。
+- `NotificationNavigationTest` 覆盖可信唯一详情入口和重复/错误结果 fail-closed；聚焦 Kotlin 编译通过。真实 Provider 及 Redmi UI 验收尚未完成。
+
+### 下一阶段
+
+在 Redmi 以临时最小 Profile 运行真实自然语言 `notifications.list -> notifications.get`，点击“查看通知”并核对当前 listener；随后撤权或移除通知，确认入口不会展示旧快照。
+
 ## 第 258 阶段：前台通知只读观察能力（完成）
 
 - `XiaoLingNotificationListenerService` 只维护进程内当前通知快照；连接时从 `activeNotifications` 刷新，通知发布/移除增量更新，服务断开立即清空。对外稳定 ID 为原始 notification key 的 SHA-256，原始 key、`Notification`、PendingIntent、action 与 RemoteInput 不进入 Tool、Room 或模型上下文。
@@ -10,7 +21,7 @@
 
 ### 下一阶段
 
-以临时最小 Profile 和真实 Provider 完成屏幕可见自然语言 `notifications.list -> notifications.get`，再为可信详情 Tool part 增加当前通知导航。点击必须重新读取 listener 当前快照；当前阶段不开放任何通知动作。
+第 259 阶段已完成可信详情 Tool part 和点击后二次读取的生产能力；下一阶段只剩 Redmi 真实 Provider/屏幕可见验收，当前阶段不开放任何通知动作。
 
 ## 第 257 阶段：唯一笔记受控追加真实前台闭环（完成）
 

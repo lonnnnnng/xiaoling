@@ -16,6 +16,7 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.ConversationSession
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
@@ -81,6 +82,8 @@ internal interface ConversationActions {
     fun openConversation(conversationId: String)
 
     fun openCalendarEvent(target: CalendarEventNavigationTarget)
+
+    fun openNotification(target: NotificationNavigationTarget)
 
     fun openContact(contactId: String)
 

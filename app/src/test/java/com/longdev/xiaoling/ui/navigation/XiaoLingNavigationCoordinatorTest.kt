@@ -4,6 +4,7 @@ import androidx.compose.runtime.saveable.SaverScope
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -112,6 +113,35 @@ class XiaoLingNavigationCoordinatorTest {
         assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
         assertEquals(XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL, result.settingsPane)
         assertEquals(target, result.requestedCalendarEventTarget)
+    }
+
+    @Test
+    fun openNotificationRoutesToReadOnlyDetailAndCarriesStableId() {
+        val target = NotificationNavigationTarget("notification-${"a".repeat(64)}")
+        val result = coordinator.openNotification(XiaoLingNavigationState(), target)
+
+        assertEquals(XiaoLingAppTab.SETTINGS, result.tab)
+        assertEquals(XiaoLingSettingsPane.NOTIFICATION_DETAIL, result.settingsPane)
+        assertEquals(target, result.requestedNotificationTarget)
+    }
+
+    @Test
+    fun notificationTargetSaverIsAppendedWithoutShiftingLegacyKnowledgeFields() {
+        val reference = knowledgeReference()
+        val original = XiaoLingNavigationState(
+            requestedKnowledgeTarget = KnowledgeDocumentNavigationTarget("document-1", reference),
+            requestedNotificationTarget = NotificationNavigationTarget("notification-${"b".repeat(64)}"),
+        )
+
+        val saved = requireNotNull(XiaoLingNavigationStateSaver.run { saverScope.save(original) })
+        val restored = requireNotNull(XiaoLingNavigationStateSaver.restore(saved))
+
+        assertEquals(original.requestedKnowledgeTarget, restored.requestedKnowledgeTarget)
+        assertEquals(original.requestedNotificationTarget, restored.requestedNotificationTarget)
+        assertEquals(
+            original.requestedKnowledgeTarget,
+            XiaoLingNavigationStateSaver.restore(saved.dropLast(1))?.requestedKnowledgeTarget,
+        )
     }
 
     @Test

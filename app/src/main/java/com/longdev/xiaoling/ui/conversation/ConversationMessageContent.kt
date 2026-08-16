@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.DropdownMenu
@@ -72,6 +73,7 @@ import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 import com.longdev.xiaoling.ui.calendarEventTargetForNavigation
 import com.longdev.xiaoling.ui.contactIdForNavigation
 import com.longdev.xiaoling.ui.conversationIdForNavigation
@@ -81,6 +83,7 @@ import com.longdev.xiaoling.ui.localNoteIdForNavigation
 import com.longdev.xiaoling.ui.memoryIdForNavigation
 import com.longdev.xiaoling.ui.inspectedTaskNameForNavigation
 import com.longdev.xiaoling.ui.normalizeModelMarkdown
+import com.longdev.xiaoling.ui.notificationIdForNavigation
 import com.longdev.xiaoling.ui.parseMarkdownTableBlock
 import com.longdev.xiaoling.ui.theme.LocalChatBubblePalette
 import com.longdev.xiaoling.ui.toPresentation
@@ -106,6 +109,7 @@ internal fun ChatBubble(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
+    onOpenNotification: (NotificationNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -159,6 +163,7 @@ internal fun ChatBubble(
                     onOpenInspectedTask = onOpenInspectedTask,
                     onOpenConversation = onOpenConversation,
                     onOpenCalendarEvent = onOpenCalendarEvent,
+                    onOpenNotification = onOpenNotification,
                     onOpenContact = onOpenContact,
                     onOpenLocalNote = onOpenLocalNote,
                     onOpenMemory = onOpenMemory,
@@ -212,6 +217,7 @@ private fun MessageBodyParts(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
+    onOpenNotification: (NotificationNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -229,6 +235,7 @@ private fun MessageBodyParts(
                 onOpenInspectedTask = onOpenInspectedTask,
                 onOpenConversation = onOpenConversation,
                 onOpenCalendarEvent = onOpenCalendarEvent,
+                onOpenNotification = onOpenNotification,
                 onOpenContact = onOpenContact,
                 onOpenLocalNote = onOpenLocalNote,
                 onOpenMemory = onOpenMemory,
@@ -414,6 +421,7 @@ private fun ToolMessagePartContent(
     onOpenInspectedTask: (String) -> Unit,
     onOpenConversation: (String) -> Unit,
     onOpenCalendarEvent: (CalendarEventNavigationTarget) -> Unit,
+    onOpenNotification: (NotificationNavigationTarget) -> Unit,
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
@@ -507,6 +515,15 @@ private fun ToolMessagePartContent(
                 modifier = Modifier.size(15.dp),
             )
             Text("查看日程")
+        }
+    }
+    part.notificationIdForNavigation()?.let { notificationId ->
+        TextButton(
+            onClick = { onOpenNotification(NotificationNavigationTarget(notificationId)) },
+            modifier = Modifier.padding(top = 2.dp),
+        ) {
+            Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(15.dp))
+            Text("查看通知")
         }
     }
     part.contactIdForNavigation()?.let { contactId ->

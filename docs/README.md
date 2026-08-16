@@ -1,6 +1,8 @@
 # 文档索引
 
-第 258 阶段完成前台通知只读观察能力：新增用户显式开启的系统 NotificationListener、独立“通知访问”设置页、`notifications.list / notifications.get` 和 `notification-overview`。工具仅前台 `DIRECT / SAFE`，详情只接受同一 Run 最近列表返回的匿名 ID；通知消失、撤权、服务断开或切换 Run 后拒绝。原始 key、PendingIntent、action、RemoteInput 不进入模型/Room；私密、消息、来电及疑似验证码或凭据内容整条隐藏。Redmi 首轮发现标题敏感而正文残留，修复后真实 listener 为 `OK (1 test)`（`7.727s`），设置页为 `OK (2 tests)`（`3.028s`）；测试通知/channel/测试包与小灵 listener 授权已清理。下一阶段补真实 Provider 自然语言 `list -> get` 和答案级当前通知查看，不开放点击、回复或清除。
+第 259 阶段已完成答案级当前通知回读生产能力：可信 `notifications.get` Tool part 才能显示“查看通知”，点击后二次读取当前 NotificationListener，撤权、断连、移除或身份不一致均 fail-closed；真实 Provider 自然语言验收留在下一阶段。通知动作、后台访问和 Room 历史镜像继续关闭。
+
+第 258 阶段完成前台通知只读观察能力：新增用户显式开启的系统 NotificationListener、独立“通知访问”设置页、`notifications.list / notifications.get` 和 `notification-overview`。工具仅前台 `DIRECT / SAFE`，详情只接受同一 Run 最近列表返回的匿名 ID；通知消失、撤权、服务断开或切换 Run 后拒绝。原始 key、PendingIntent、action、RemoteInput 不进入模型/Room；私密、消息、来电及疑似验证码或凭据内容整条隐藏。Redmi 首轮发现标题敏感而正文残留，修复后真实 listener 为 `OK (1 test)`（`7.727s`），设置页为 `OK (2 tests)`（`3.028s`）；测试通知/channel/测试包与小灵 listener 授权已清理。第 259 阶段已补生产答案级当前通知查看，下一阶段只做真实 Provider 自然语言验收，不开放点击、回复或清除。
 
 第 257 阶段完成唯一笔记受控追加的 Redmi 真实前台闭环：临时最小 Profile 只开放 `local-note-append` 与 `notes.search -> notes.get -> notes.append`，`gpt-5.5 / Responses` 从自然语言目标形成严格三步链；发送、逐次批准和答案级“查看笔记”均通过屏幕可见节点完成。Tool Ledger 与当前 Room 使用同一稳定 note ID/revision，三项结果均为 `PASSED`，最后一步为 `APPROVED / COMMITTED`；原标题和原正文逐字符不变，新片段只追加一次。Activity 重建后从持久化可信 Tool part 恢复入口，详情页重新读取当前 Room 并显示完整正文和 revision `+1`。旧 Run digest 不变，临时笔记按稳定 ID tombstone，临时 Profile/会话精确清理，成功 Run 审计保留，用户原 Provider 恢复。仅 Redmi `wsvwypiz7xwslvl7 / begonia` 最终 `OK (1 test)`（`47.827s`），文档 corpus 首轮/结果写回复验均通过；未使用模拟器，完整 JVM、Lint、Release 和全量 instrumentation未重复运行。
 

@@ -4,6 +4,23 @@
 
 ## 当前验证基线
 
+## 2026-08-16 第 259 阶段：答案级当前通知回读入口（生产能力完成，Redmi Provider 待验收）
+
+### 当前结论
+
+- 新增 `notifications.get` 的可信答案级“查看通知”入口。入口只接受成功 Tool part 中严格匹配请求 ID、固定详情标题、唯一稳定 ID 和外部数据边界的回执；普通模型文本、列表多条结果、重复 ID 或失败结果不会生成按钮。
+- 新增通知详情页与导航目标。点击后通过当前 `NotificationListener` 重新读取授权、监听连接和内存快照；通知消失、撤权、断连或目标非法均 fail-closed，不回放历史 Tool 正文。通知动作、回复、清除、第三方跳转、Room 历史和后台访问继续关闭。
+
+### 已验证证据
+
+- 聚焦 `NotificationNavigationTest` 通过；`compileDebugKotlin`、`compileDebugAndroidTestKotlin` 通过，既有通知隐私与 Tool Registry 测试未回归。
+- 文档同步后重建 Debug/AndroidTest 资产，仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，首轮为 `OK (1 test)`、`3.186s`；最终文本写回后复验为 `OK (1 test)`、`3.482s`。测试 APK 已卸载，主应用保留。
+- 本阶段尚未运行 Redmi 真实 Provider 自然语言 `notifications.list -> notifications.get`，因此不能宣称个人 Agent 通知完整闭环；未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+### 后续门禁
+
+- 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 使用当前可用真实 Provider 和最小 Profile 完成屏幕可见自然语言 `notifications.list -> notifications.get`，点击“查看通知”并核对当前 listener 详情；最后验证撤权/移除后的导航拒绝。旧 Run 保持不变，不增加通知动作。
+
 ## 2026-08-13 第 258 阶段：前台通知只读观察能力
 
 ### 当前结论

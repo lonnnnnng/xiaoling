@@ -3,6 +3,7 @@ package com.longdev.xiaoling.ui.navigation
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 
 internal enum class XiaoLingAppTab {
     CONVERSATION,
@@ -20,6 +21,7 @@ internal enum class XiaoLingSettingsPane {
     CONTACTS_ACCESS,
     NOTIFICATION_ACCESS,
     CALENDAR_EVENT_DETAIL,
+    NOTIFICATION_DETAIL,
     ANSWERABILITY_SHADOW,
     MEMORY_MANAGEMENT,
     LOCAL_NOTE_MANAGEMENT,
@@ -55,6 +57,7 @@ internal data class XiaoLingNavigationState(
     val requestedWorkflowRunId: String? = null,
     val requestedLocalNoteId: String? = null,
     val requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
+    val requestedNotificationTarget: NotificationNavigationTarget? = null,
     val lastRootBackAtMillis: Long = 0L,
 ) {
     val isSettingsSubPage: Boolean
@@ -85,6 +88,7 @@ internal class XiaoLingNavigationCoordinator(
         requestedWorkflowRunId: String? = null,
         requestedLocalNoteId: String? = null,
         requestedCalendarEventTarget: CalendarEventNavigationTarget? = null,
+        requestedNotificationTarget: NotificationNavigationTarget? = null,
     ): XiaoLingNavigationState = state.copy(
         tab = XiaoLingAppTab.SETTINGS,
         settingsPane = pane,
@@ -94,6 +98,7 @@ internal class XiaoLingNavigationCoordinator(
         requestedWorkflowRunId = requestedWorkflowRunId,
         requestedLocalNoteId = requestedLocalNoteId,
         requestedCalendarEventTarget = requestedCalendarEventTarget,
+        requestedNotificationTarget = requestedNotificationTarget,
     )
 
     fun openKnowledgeDocument(
@@ -130,6 +135,15 @@ internal class XiaoLingNavigationCoordinator(
         state = state,
         pane = XiaoLingSettingsPane.CALENDAR_EVENT_DETAIL,
         requestedCalendarEventTarget = target,
+    )
+
+    fun openNotification(
+        state: XiaoLingNavigationState,
+        target: NotificationNavigationTarget,
+    ): XiaoLingNavigationState = openSettingsPane(
+        state = state,
+        pane = XiaoLingSettingsPane.NOTIFICATION_DETAIL,
+        requestedNotificationTarget = target,
     )
 
     fun routeExternal(
@@ -174,6 +188,7 @@ internal class XiaoLingNavigationCoordinator(
                     requestedWorkflowRunId = null,
                     requestedLocalNoteId = null,
                     requestedCalendarEventTarget = null,
+                    requestedNotificationTarget = null,
                 ),
             )
         }

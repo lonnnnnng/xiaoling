@@ -18,6 +18,7 @@ import com.longdev.xiaoling.ui.PersonalTaskFailureAction
 import com.longdev.xiaoling.ui.PersonalTaskOperationUiPhase
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.NotificationNavigationTarget
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -861,6 +862,8 @@ class ConversationPageInstrumentedTest {
         override fun openCalendarEvent(target: CalendarEventNavigationTarget) {
             lastOpenedCalendarEventTarget = target
         }
+
+        override fun openNotification(target: NotificationNavigationTarget) = Unit
 
         override fun openContact(contactId: String) {
             lastOpenedContactId = contactId
