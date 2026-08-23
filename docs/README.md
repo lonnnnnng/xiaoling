@@ -1,6 +1,8 @@
 # 文档索引
 
-第 260 阶段已完成通知个人 Agent 真实前台闭环：仅 Redmi `wsvwypiz7xwslvl7 / begonia` 由真实 Provider 严格完成 `notifications.list -> notifications.get`，Activity 重建后“查看通知”重新读取当前 listener；通知移除后入口显示 fail-closed。测试通知、channel、临时 Profile/会话均精确清理，通知动作、后台访问和 Room 历史镜像继续关闭。
+第 261 阶段已完成“当前通知 -> 显式转为个人任务 -> 用户确认计划 -> Workflow 执行 -> 当前事实验证”的 Redmi 真实前台闭环：通知详情点击“转为任务”时重新读取当前 listener，只生成可编辑草稿，不创建 Run/Workflow；用户发送后真实 Provider 生成只含 `app.current_time` 的计划，确认后 Workflow 执行并以目标级 `VERIFIED` 完成。通知移除后再次读取为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不会成为设备目标应用。临时通知、channel、Profile/会话精确清理，成功审计保留；通知动作、后台读取和 Room 通知历史仍关闭。
+
+第 260 阶段已完成通知个人 Agent 的真实只读前台基础：仅 Redmi `wsvwypiz7xwslvl7 / begonia` 由真实 Provider 严格完成 `notifications.list -> notifications.get`，Activity 重建后“查看通知”重新读取当前 listener；通知移除后入口显示 fail-closed。测试通知、channel、临时 Profile/会话均精确清理，通知动作、后台访问和 Room 历史镜像继续关闭。
 
 第 259 阶段已完成答案级当前通知回读生产能力：可信 `notifications.get` Tool part 才能显示“查看通知”，点击后二次读取当前 NotificationListener，撤权、断连、移除或身份不一致均 fail-closed；第 260 阶段已补齐真实 Provider 自然语言验收。
 

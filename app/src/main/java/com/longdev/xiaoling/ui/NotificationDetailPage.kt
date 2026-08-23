@@ -11,9 +11,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.agent.AgentNotificationRecord
+import com.longdev.xiaoling.agent.NotificationPersonalTaskPolicy
 import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.notification.AndroidNotificationReader
 import java.time.Instant
@@ -43,6 +47,8 @@ internal sealed interface NotificationDetailLoadState {
 internal fun NotificationDetailPage(
     target: NotificationNavigationTarget?,
     onBack: () -> Unit,
+    taskDraftInProgress: Boolean,
+    onCreatePersonalTask: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -63,13 +69,21 @@ internal fun NotificationDetailPage(
             is NotificationReadResult.Success -> NotificationDetailLoadState.Content(result.notification)
         }
     }
-    NotificationDetailContent(state = loadState, onBack = onBack, modifier = modifier)
+    NotificationDetailContent(
+        state = loadState,
+        onBack = onBack,
+        taskDraftInProgress = taskDraftInProgress,
+        onCreatePersonalTask = onCreatePersonalTask,
+        modifier = modifier,
+    )
 }
 
 @Composable
 internal fun NotificationDetailContent(
     state: NotificationDetailLoadState,
     onBack: () -> Unit,
+    taskDraftInProgress: Boolean = false,
+    onCreatePersonalTask: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -91,7 +105,31 @@ internal fun NotificationDetailContent(
         when (state) {
             NotificationDetailLoadState.Loading -> item { NotificationDetailBoundaryCard("正在从当前通知监听服务重新读取详情…") }
             is NotificationDetailLoadState.Error -> item { NotificationDetailBoundaryCard(state.message) }
-            is NotificationDetailLoadState.Content -> item { NotificationCard(state.notification) }
+            is NotificationDetailLoadState.Content -> {
+                if (NotificationPersonalTaskPolicy.canCreateDraft(state.notification)) {
+                    item {
+                        Button(
+                            onClick = { onCreatePersonalTask(state.notification.id) },
+                            enabled = !taskDraftInProgress,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            if (taskDraftInProgress) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(Icons.Default.AddTask, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                text = if (taskDraftInProgress) "正在准备任务草稿" else "转为任务",
+                                modifier = Modifier.padding(start = 7.dp),
+                            )
+                        }
+                    }
+                }
+                item { NotificationCard(state.notification) }
+            }
         }
     }
 }

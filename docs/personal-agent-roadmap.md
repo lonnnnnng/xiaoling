@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 第 261 阶段：通知转个人任务真实前台闭环（完成）
+
+- 在第 260 阶段当前通知只读入口之上，详情页新增受限“转为任务”动作。点击时重新读取当前通知并通过隐私策略，生成可编辑草稿；通知来源不会自动发送，也不会创建 Run、Workflow 或通知历史。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 使用真实 Provider 完成自然语言目标、用户发送、计划确认、Workflow 执行和当前事实验证。通知来源任务的计划工具严格只有 `app.current_time`，Workflow 结果为 `VERIFIED`；审批前后均重新核对通知稳定 ID、来源摘要和当前内容。
+- 通知移除后再次回读为 `FAIL_CLOSED`；撤权、断连、内容漂移、跨会话和把通知包名绑定为设备目标 App 同样拒绝。旧 Run digest/审计保持不变，测试通知、channel、Profile/会话精确清理，成功 Workflow/Run 审计保留但测试 Workflow 停用。
+- 真实证据日志为 `STAGE261_NOTIFICATION_TASK`，最终 Redmi 单项 `OK (1 test)`；定向 JVM/UI、AndroidTest Kotlin 编译、Debug/AndroidTest APK 均已通过。未使用 Pixel_9 或其他模拟器，未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
+下一阶段：回到个人 Agent 主线，重新冻结另一条单一高频任务，继续遵循“自然语言目标 -> 用户确认 -> 最小能力面 -> 可验证结果 -> 当前权威事实查看”；通知动作、后台读取和 Room 通知历史继续后置。
+
 ## 第 260 阶段：通知真实 Provider 前台闭环（完成）
 
 - 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 使用真实 Provider 和临时最小 Profile，真实自然语言目标严格形成 `notifications.list -> notifications.get`，没有开放任何通知动作。

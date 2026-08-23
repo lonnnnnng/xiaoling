@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 261 阶段继续采用成熟 Agent 的“外部数据先形成可编辑草稿、用户确认后才升级能力、计划与执行分离、执行后回当前权威事实”原则。通知详情点击“转为任务”会重新读取当前 listener，只生成短生命周期草稿；真实 Provider 在 Redmi 由用户发送并确认计划后，Workflow 只执行 `app.current_time`，目标级结论为 `VERIFIED`。通知移除后来源核对为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不进入设备目标应用。小灵没有复制参考项目的通知点击/回复/清除、PendingIntent/RemoteInput、后台通知历史、任意 App 控制或跨 App 跳转。
+
 第 260 阶段继续采用成熟 Agent 的“自然语言规划、最小能力面、工具结果绑定稳定身份、点击时回读当前权威源”原则。真实 Provider 在 Redmi 严格完成 `notifications.list -> notifications.get`，Activity 重建后的“查看通知”再次读取当前 listener，通知移除后拒绝历史快照。小灵没有复制通知全量历史镜像、自动点击/回复/清除、PendingIntent/RemoteInput、后台读取或跨 App 跳转；本阶段只验证前台只读闭环，未扩展通知动作。
 
 第 259 阶段继续采用成熟移动 Agent 的“答案入口只来自可信结构化事实、点击时重新绑定当前权威源”原则。`notifications.get` 只有固定详情外壳、请求 ID 和唯一稳定 ID 完全一致时才生成“查看通知”；详情页点击后重新检查 listener 授权、连接和当前内存快照，撤权、断连或移除均拒绝。小灵仍没有复制通知全量历史镜像、后台语义分析、自动点击/回复/清除、RemoteInput、PendingIntent 执行或跨 App 跳转；真实 Provider 门禁已由第 260 阶段完成。

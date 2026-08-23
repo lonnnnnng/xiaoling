@@ -1416,6 +1416,10 @@ class XiaoLingToolRegistry(
             // long: 历史正文只在前台直接 Agent 的明确回读链中开放，Workflow/后台只能使用会话摘要，避免长正文静默进入自动任务。
             available = available.filterNot { it.name == APP_GET_CONVERSATION_TOOL_NAME }
         }
+        if (!notificationReadAllowed(context)) {
+            // long: 通知正文只允许前台直接 Run 读取；Workflow 使用转任务时冻结的草稿，不能再次探测当前通知或把通知权限带入后台。
+            available = available.filterNot { it.name in NOTIFICATION_TOOL_NAMES }
+        }
         if (!memoryDeleteAllowed(context)) {
             // long: 长期记忆删除只属于当前前台直接 Run；Workflow、后台和未绑定上下文不能把破坏性治理动作带进模型工具面。
             available = available.filterNot { it.name == MEMORY_DELETE_TOOL_NAME }

@@ -1,8 +1,26 @@
 # 验证报告
 
-验证日期：2026-08-16（北京时间）
+验证日期：2026-08-24（北京时间）
 
 ## 当前验证基线
+
+## 2026-08-24 第 261 阶段：通知转个人任务真实前台闭环
+
+### 当前结论
+
+- 仅在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行真实 `MainActivity + XiaoLingViewModel` 和真实 Provider。通知详情点击“转为任务”时从当前 NotificationListener 二次读取，只生成可编辑草稿；用户主动发送并确认模型计划后才创建 Workflow。
+- 通知来源任务的计划工具严格为 `app.current_time`，Workflow 执行结果和当前工具回读均成功，目标级结论为 `VERIFIED`。通知包名没有成为设备目标应用，旧 Run 保持不变。
+- 移除测试通知后再次回读当前 listener，结果为 `FAIL_CLOSED`；通知消失、撤权、断连、内容漂移、跨会话和来源身份不一致都不得继续创建或执行任务。成功 Workflow/Run 审计保留，测试夹具 Workflow 停用。
+
+### 已验证证据
+
+- `Stage260NotificationReadInstrumentedTest#naturalLanguageNotificationReadConvertsToPersonalTaskAndFailsClosedAfterRemoval` 在 Redmi 最终为 `OK (1 test)`；真实证据日志为 `STAGE261_NOTIFICATION_TASK`，仅包含 `app.current_time`，目标级 `goalDecision=VERIFIED`，移除结论 `removal=FAIL_CLOSED`。
+- 定向 JVM、通知详情 Compose/UI 测试、AndroidTest Kotlin 编译、Debug APK 与 AndroidTest APK 均通过。文档写回后的首轮 corpus gate 为 `OK (1 test)`；随后收紧通知来源 Workflow 仅保留 `app.current_time`，重建 APK 后在同一 Redmi 的最终 corpus 复验仍为 `OK (1 test)`。两次都仅在 Redmi 执行，测试包随后卸载，主应用与数据保留。按快速迭代分级约束未运行完整 JVM、全量 Lint、Release 或全量 instrumentation；未使用 Pixel_9 或其他模拟器。
+- 测试只临时使用当前 Redmi Provider 和测试通知/channel，结束后取消通知、删除 channel、删除临时 Profile/会话、恢复原选择并停用夹具 Workflow；成功 Run 审计保留。API Key 未进入源码、日志或长期文档。
+
+### 后续门禁
+
+- 第 261 阶段已完成当前通知到个人任务的窄主线。下一阶段回到个人 Agent 主线选择新的单一高频任务；通知点击、回复、清除、后台读取、Room 通知历史、任意 App 自动化和远期生态能力继续后置。
 
 ## 2026-08-16 第 260 阶段：通知真实 Provider 前台闭环（完成）
 

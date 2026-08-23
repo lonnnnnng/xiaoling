@@ -3094,6 +3094,7 @@ class XiaoLingToolRegistryTest {
         assertFalse(disconnected.execute(notificationListCall()).success)
         assertNull(workflow.definition("notifications.list"))
         assertNull(workflow.definition("notifications.get"))
+        assertFalse(workflow.availableTools().any { it.name in setOf("notifications.list", "notifications.get") })
         assertFalse(workflow.execute(notificationListCall()).success)
     }
 

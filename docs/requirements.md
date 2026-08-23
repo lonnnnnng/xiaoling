@@ -1,5 +1,13 @@
 # 产品需求
 
+## 通知转个人任务真实前台闭环（第 261 阶段，完成）
+
+- 通知详情只能从当前 `notifications.get` 的可信结果进入“转为任务”；点击时必须再次读取当前 NotificationListener。读取失败、通知消失、监听撤权、服务断开、内容漂移或隐私策略拒绝时，不得生成任务草稿。
+- 转换只生成用户可编辑的个人任务草稿，不自动发送、不创建 Run/Workflow、不写通知历史。用户必须主动发送草稿，再查看并确认模型生成的计划。
+- 通知来源任务的 Workflow 工具面严格收敛为 `app.current_time`；通知包名、标题和正文不能被解释为设备目标 App 或执行授权。确认后执行必须回读当前工具结果，并以目标级 `VERIFIED` 结束。
+- 通知移除、授权/连接状态变化、来源身份不一致、任务跨会话或目标绑定漂移必须 fail-closed；旧 Run 不修改，成功审计保留，测试夹具 Workflow 停用并精确清理通知、channel、Profile 与会话。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 真实 Provider 单项为 `OK (1 test)`，证据日志为 `STAGE261_NOTIFICATION_TASK`；未使用 Pixel_9 或其他模拟器。通知点击/回复/清除、PendingIntent/RemoteInput、后台读取、Room 通知历史和任意 App 自动化仍不在范围内。
+
 ## 通知真实 Provider 前台闭环（第 260 阶段，完成）
 
 - 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的真实 Provider 可从自然语言目标严格完成 `notifications.list -> notifications.get`；Profile 必须显式限制为 `notification-overview` 和两项只读工具。

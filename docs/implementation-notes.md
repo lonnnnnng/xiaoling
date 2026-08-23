@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 261 阶段：通知转个人任务真实前台闭环（完成）
+
+- `NotificationDetailPage` 的“转为任务”按钮只在当前通知二次读取成功、正文通过隐私策略且存在可用标题/正文时显示；点击后由 `AndroidNotificationReader` 再次读取当前权威通知，只写入可编辑草稿和短生命周期来源身份，不写消息、Run、Workflow 或通知历史。
+- 用户主动发送草稿后，`XiaoLingViewModel` 在模型规划前和计划确认前都重新读取通知并校验稳定 ID、来源包名、标题/正文摘要与当前内容；通知来源只允许 Workflow 使用 `app.current_time`，不允许把通知包名当作设备目标应用，也不会把 `notifications.list / notifications.get` 带入 Workflow。
+- 用户确认计划后复用既有 Workflow 执行链。Redmi 真实 Run 只执行一次 `app.current_time`，结果回读为成功并形成目标级 `VERIFIED`；通知移除、授权撤销、监听断开、内容漂移、跨会话或目标应用绑定均 fail-closed。成功 Workflow/Run 审计保留，测试夹具 Workflow 停用。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / begonia` 与真实 Provider；证据日志为 `STAGE261_NOTIFICATION_TASK`，工具为 `app.current_time`，通知移除后的结论为 `FAIL_CLOSED`。定向 JVM/UI 测试、AndroidTest Kotlin 编译、Debug APK、AndroidTest APK 和 Redmi 真实闭环均已通过；未运行完整 JVM、全量 Lint、Release 或全量 instrumentation，未使用模拟器。
+
+### 下一阶段
+
+第 261 阶段已闭合当前通知到个人任务的窄主线；下一阶段重新冻结另一条单一高频个人 Agent 任务。通知点击、回复、清除、PendingIntent/RemoteInput、后台通知读取、Room 通知历史和任意 App 自动化继续后置。
+
 ## 第 260 阶段：通知真实 Provider 前台闭环（完成）
 
 - `Stage260NotificationReadInstrumentedTest` 只允许 Redmi `begonia`，通过真实 `MainActivity + XiaoLingViewModel` 发送自然语言目标；临时最小 Profile 只开放 `notification-overview` 与 `notifications.list / notifications.get`，不包含通知动作。

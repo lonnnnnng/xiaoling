@@ -490,6 +490,17 @@ private fun XiaoLingContent(
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
                         },
+                        onCreatePersonalTaskFromNotification = { notificationId ->
+                            viewModel.createPersonalTaskDraftFromNotification(notificationId) {
+                                // long: 只有当前通知二次回读并生成草稿成功后才离开详情页；回到对话根页仍需用户主动生成并确认计划。
+                                navigation.openSettingsPane(
+                                    pane = SettingsPane.ROOT,
+                                    requestedKnowledgeTarget = null,
+                                    requestedNotificationTarget = null,
+                                )
+                                navigation.selectTab(XiaoLingAppTab.CONVERSATION)
+                            }
+                        },
                         requestedKnowledgeTarget = navigation.requestedKnowledgeTarget,
                         requestedWorkflowId = navigation.requestedWorkflowId,
                         requestedScheduledTaskId = navigation.requestedScheduledTaskId,
@@ -909,6 +920,7 @@ private fun SettingsPage(
     onImportBackup: () -> Unit,
     onImportSkill: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
+    onCreatePersonalTaskFromNotification: (String) -> Unit,
     requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget?,
     requestedWorkflowId: String?,
     requestedScheduledTaskId: String?,
@@ -977,6 +989,8 @@ private fun SettingsPage(
             pane == SettingsPane.NOTIFICATION_DETAIL -> NotificationDetailPage(
                 target = requestedNotificationTarget,
                 onBack = onBackToSettings,
+                taskDraftInProgress = state.sendingMessage,
+                onCreatePersonalTask = onCreatePersonalTaskFromNotification,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.ANSWERABILITY_SHADOW -> AnswerabilityShadowSettingsContent(

@@ -24,6 +24,10 @@ import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
 import com.longdev.xiaoling.agent.PersonalTaskPlanContextPreparer
 import com.longdev.xiaoling.agent.PersonalTaskSchedule
 import com.longdev.xiaoling.agent.PersonalTaskScheduleType
+import com.longdev.xiaoling.agent.NotificationPersonalTaskPolicy
+import com.longdev.xiaoling.agent.NotificationPersonalTaskSource
+import com.longdev.xiaoling.agent.NotificationPersonalTaskSourceStatus
+import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
@@ -105,6 +109,7 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleTracker
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.OpenAiKnowledgeAnswerabilityJudge
 import com.longdev.xiaoling.device.DeviceAccessibilityRuntime
+import com.longdev.xiaoling.notification.AndroidNotificationReader
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
 import com.longdev.xiaoling.network.FailureKind
@@ -231,6 +236,7 @@ private data class PendingPersonalTaskExecution(
     val preview: PendingPersonalTaskPlanUiState,
     val runtimeSelection: AgentRuntimeSelection,
     val schedule: PersonalTaskSchedule,
+    val notificationSource: NotificationPersonalTaskSource? = null,
 )
 
 private data class CreatedPersonalReminder(
@@ -801,6 +807,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var personalTaskPlanningRequestId: String? = null
     private var personalTaskOperationRequestId: String? = null
     private var pendingPersonalTaskExecution: PendingPersonalTaskExecution? = null
+    private var pendingNotificationTaskSource: NotificationPersonalTaskSource? = null
+    private var notificationTaskDraftRequestId: String? = null
+    private var notificationTaskVerificationRequestId: String? = null
     private var memoryLoadJob: Job? = null
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
@@ -988,6 +997,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     fun updatePersonalTaskMode(enabled: Boolean) {
         if (uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null) return
+        if (enabled != uiState.personalTaskMode) {
+            // long: 用户手动切换任务模式代表接管目标来源；旧通知身份不能跟随新的手写任务继续通过确认校验。
+            pendingNotificationTaskSource = null
+        }
         uiState = uiState.copy(
             personalTaskMode = enabled,
             personalTaskFailure = null,
@@ -1097,7 +1110,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             showValidation("当前分享没有可创建的任务")
             return
         }
-        // long: “转为任务”只把当前分享交给既有个人任务编辑态；计划生成、确认和执行仍由用户后续动作分别触发。
+        // long: “转为任务”只把当前分享交给既有个人任务编辑态；同时清掉其他外部来源身份，计划生成、确认和执行仍由用户后续动作分别触发。
+        pendingNotificationTaskSource = null
         uiState = uiState.copy(
             prompt = goal,
             sharedDraftImported = false,
@@ -1106,6 +1120,77 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             personalTaskCompletion = null,
             result = null,
         )
+    }
+
+    fun createPersonalTaskDraftFromNotification(
+        notificationId: String,
+        onPrepared: () -> Unit,
+    ) {
+        if (
+            uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null ||
+            uiState.pendingImage != null || uiState.pendingDocument != null ||
+            uiState.attachingImage || uiState.attachingDocument || uiState.loadingConversationMessages
+        ) {
+            showValidation("当前操作结束后再把通知转为任务")
+            return
+        }
+        val requestId = "notification-task-draft-${UUID.randomUUID()}"
+        val conversationId = uiState.selectedConversationId
+        notificationTaskDraftRequestId = requestId
+        pendingNotificationTaskSource = null
+        uiState = uiState.copy(sendingMessage = true, result = null)
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val readResult = AndroidNotificationReader(getApplication()).get(notificationId)
+                if (
+                    notificationTaskDraftRequestId != requestId ||
+                    uiState.selectedConversationId != conversationId
+                ) {
+                    return@launch
+                }
+                val notification = (readResult as? NotificationReadResult.Success)?.notification
+                val draft = notification?.let(NotificationPersonalTaskPolicy::createDraft)
+                if (draft == null) {
+                    showValidation(notificationTaskDraftFailureMessage(readResult))
+                    return@launch
+                }
+                // long: 这里只准备可编辑草稿和短生命周期来源摘要；不会写消息、Run、Workflow 或通知历史，也不会自动请求模型。
+                pendingNotificationTaskSource = draft.source
+                uiState = uiState.copy(
+                    prompt = draft.goal,
+                    sharedDraftImported = false,
+                    personalTaskMode = true,
+                    personalTaskFailure = null,
+                    personalTaskCompletion = null,
+                    result = null,
+                )
+                onPrepared()
+            } catch (_: CancellationException) {
+                // long: 离开当前会话或用户停止时只撤销本次回读，未持久化的通知来源不会残留到下一次任务。
+            } catch (error: Throwable) {
+                if (notificationTaskDraftRequestId == requestId) {
+                    pendingNotificationTaskSource = null
+                    showValidation(error.message ?: "无法重新读取当前通知")
+                }
+            } finally {
+                if (notificationTaskDraftRequestId == requestId) {
+                    notificationTaskDraftRequestId = null
+                    sendMessageJob = null
+                    uiState = uiState.copy(sendingMessage = false)
+                }
+            }
+        }
+    }
+
+    private fun notificationTaskDraftFailureMessage(result: NotificationReadResult): String = when (result) {
+        NotificationReadResult.AccessNotGranted -> "通知访问权限已撤销，无法转为任务"
+        NotificationReadResult.ListenerDisconnected -> "通知监听服务未连接，无法转为任务"
+        NotificationReadResult.NotFound -> "当前通知已消失或不可读取"
+        is NotificationReadResult.Success -> if (result.notification.contentHidden) {
+            "当前通知包含敏感或私密内容，不能转为任务"
+        } else {
+            "当前通知没有可用于任务的标题或正文"
+        }
     }
 
     private fun canTransformImportedSharedText(): Boolean =
@@ -1155,6 +1240,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun openSharedDraft(payload: SharedDraftPayload) {
         // long: 只有空编辑器或用户明确确认替换时才清理原草稿；分享始终进入新会话编辑态，不调用发送入口。
+        pendingNotificationTaskSource = null
         uiState = uiState.copy(
             prompt = "",
             pendingImage = null,
@@ -3545,6 +3631,15 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun handleConversationSelectionEvent(event: ConversationSelectionEvent) {
+        if (notificationTaskDraftRequestId != null || notificationTaskVerificationRequestId != null) {
+            // long: 通知来源只属于发起转换时的会话；会话切换必须让进行中的回读失效，回调不得把旧通知草稿或确认结果投影到新会话。
+            notificationTaskDraftRequestId = null
+            notificationTaskVerificationRequestId = null
+            sendMessageJob?.cancel()
+            sendMessageJob = null
+            uiState = uiState.copy(sendingMessage = false)
+        }
+        pendingNotificationTaskSource = null
         if (personalTaskPlanningRequestId != null) {
             // long: 计划响应只属于发起它的会话；切换或删除会话时立即撤销网络请求，迟到结果不得在新会话弹出确认框。
             personalTaskPlanningRequestId = null
@@ -3938,9 +4033,27 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val conversationId = checkNotNull(preflight.conversationId)
         val runtimeSelection = preflight.runtimeSelection
         val goal = if (AgentCommand.matches(userMessage)) AgentCommand.goal(userMessage) else userMessage.trim()
+        val notificationSource = pendingNotificationTaskSource
         val planningTime = ZonedDateTime.now()
         val requestId = "personal-task-plan-${UUID.randomUUID()}"
-        val allowedToolNames = runtimeSelection.profile.allowedToolNames.distinct().sorted()
+        val allowedToolNames = if (notificationSource == null) {
+            runtimeSelection.profile.allowedToolNames.distinct().sorted()
+        } else {
+            // long: 当前通知已经作为外部数据进入草稿并在确认前二次校验；生成的 Workflow 不得再次获得仅限前台直接 Run 的通知读取能力。
+            NotificationPersonalTaskPolicy.workflowToolNames(runtimeSelection.profile.allowedToolNames)
+        }
+        if (allowedToolNames.isEmpty()) {
+            showValidation("通知来源任务当前只允许使用 app.current_time")
+            return
+        }
+        val executionRuntimeSelection = if (notificationSource == null) {
+            runtimeSelection
+        } else {
+            AgentRuntimeSelection(
+                config = runtimeSelection.config,
+                profile = runtimeSelection.profile.copy(allowedToolNames = allowedToolNames),
+            )
+        }
         val memoryContextAllowed = runtimeSelection.profile.memoryEnabled &&
             uiState.agentMemoryRecallEnabled &&
             "memory.search" in allowedToolNames
@@ -3971,6 +4084,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 val planRequest = PersonalTaskPlanPolicy.prepareRequest(
                     goal = goal,
                     allowedToolNames = allowedToolNames,
+                    // long: 通知来源包只参与确认前当前性校验，不能被模型误解为 Workflow 的设备目标应用。
+                    allowedAppPackages = if (notificationSource == null) {
+                        com.longdev.xiaoling.device.DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted()
+                    } else {
+                        emptyList()
+                    },
                     context = planContext,
                     planningTime = planningTime,
                 )
@@ -3979,7 +4098,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     messages = planRequest.messages,
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
-                val plan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
+                val parsedPlan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
+                val plan = if (notificationSource == null) {
+                    parsedPlan
+                } else {
+                    NotificationPersonalTaskPolicy.validatePlan(parsedPlan)
+                }
                 if (
                     personalTaskPlanningRequestId != requestId ||
                     uiState.selectedConversationId != conversationId
@@ -4010,9 +4134,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 // long: API Key 只留在私有执行快照；Compose 状态只接收可展示字段，确认弹层和状态保存都不能意外打印凭据。
                 pendingPersonalTaskExecution = PendingPersonalTaskExecution(
                     preview = preview,
-                    runtimeSelection = runtimeSelection,
+                    runtimeSelection = executionRuntimeSelection,
                     schedule = plan.schedule,
+                    notificationSource = notificationSource,
                 )
+                // long: 计划生成成功后由私有执行快照独占通知身份，编辑态不再保留第二份可被后续草稿误用的来源。
+                pendingNotificationTaskSource = null
                 uiState = uiState.copy(
                     sendingMessage = false,
                     prompt = "",
@@ -4060,6 +4187,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val visible = uiState.pendingPersonalTaskPlan
         if (pending == null || visible == null || pending.preview.id != visible.id) {
             pendingPersonalTaskExecution = null
+            pendingNotificationTaskSource = null
             uiState = uiState.copy(pendingPersonalTaskPlan = null)
             showValidation("任务计划已失效，请重新生成")
             return
@@ -4067,6 +4195,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (uiState.selectedConversationId != visible.conversationId) {
             cancelPendingPersonalTaskPlan()
             showValidation("会话已切换，请在当前会话重新生成任务计划")
+            return
+        }
+        if (pending.notificationSource != null) {
+            verifyNotificationSourceAndRun(pending)
             return
         }
         pendingPersonalTaskExecution = null
@@ -4077,10 +4209,93 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun cancelPendingPersonalTaskPlan() {
         val goal = uiState.pendingPersonalTaskPlan?.sourceGoal
         pendingPersonalTaskExecution = null
+        pendingNotificationTaskSource = null
         uiState = uiState.copy(
             pendingPersonalTaskPlan = null,
             prompt = goal ?: uiState.prompt,
             result = null,
+        )
+    }
+
+    private fun verifyNotificationSourceAndRun(pending: PendingPersonalTaskExecution) {
+        val source = checkNotNull(pending.notificationSource)
+        val requestId = pending.preview.id
+        notificationTaskVerificationRequestId = requestId
+        uiState = uiState.copy(sendingMessage = true, result = null)
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val readResult = AndroidNotificationReader(getApplication()).get(source.notificationId)
+                if (!isCurrentNotificationTaskVerification(requestId, pending.preview.conversationId)) {
+                    return@launch
+                }
+                val rejection = when (readResult) {
+                    NotificationReadResult.AccessNotGranted -> "通知访问权限已撤销"
+                    NotificationReadResult.ListenerDisconnected -> "通知监听服务已断开"
+                    NotificationReadResult.NotFound -> "当前通知已消失或不可读取"
+                    is NotificationReadResult.Success -> when (
+                        NotificationPersonalTaskPolicy.validateSource(source, readResult.notification)
+                    ) {
+                        NotificationPersonalTaskSourceStatus.MATCHES -> null
+                        NotificationPersonalTaskSourceStatus.CONTENT_UNAVAILABLE -> "当前通知已变为敏感、私密或空内容"
+                        NotificationPersonalTaskSourceStatus.IDENTITY_CHANGED -> "当前通知的来源、时间或内容已经变化"
+                    }
+                }
+                if (rejection != null) {
+                    rejectNotificationPersonalTask(rejection)
+                    return@launch
+                }
+                // long: 只有确认瞬间的 NotificationListener 快照仍与草稿身份完全一致，才允许进入既有 Workflow/WorkManager 创建链。
+                notificationTaskVerificationRequestId = null
+                pendingPersonalTaskExecution = null
+                pendingNotificationTaskSource = null
+                sendMessageJob = null
+                uiState = uiState.copy(
+                    sendingMessage = false,
+                    pendingPersonalTaskPlan = null,
+                    result = null,
+                )
+                runConfirmedPersonalTask(pending)
+            } catch (_: CancellationException) {
+                if (isCurrentNotificationTaskVerification(requestId, pending.preview.conversationId)) {
+                    // long: 用户停止只中断确认前回读，计划仍留在确认框中；再次确认会重新读取通知，不复用本次结果。
+                    uiState = uiState.copy(sendingMessage = false)
+                }
+            } catch (error: Throwable) {
+                if (isCurrentNotificationTaskVerification(requestId, pending.preview.conversationId)) {
+                    rejectNotificationPersonalTask(error.message ?: "无法核对当前通知")
+                }
+            } finally {
+                if (notificationTaskVerificationRequestId == requestId) {
+                    notificationTaskVerificationRequestId = null
+                    sendMessageJob = null
+                    uiState = uiState.copy(sendingMessage = false)
+                }
+            }
+        }
+    }
+
+    private fun isCurrentNotificationTaskVerification(requestId: String, conversationId: String): Boolean =
+        notificationTaskVerificationRequestId == requestId &&
+            pendingPersonalTaskExecution?.preview?.id == requestId &&
+            uiState.pendingPersonalTaskPlan?.id == requestId &&
+            uiState.selectedConversationId == conversationId
+
+    private fun rejectNotificationPersonalTask(reason: String) {
+        notificationTaskVerificationRequestId = null
+        pendingPersonalTaskExecution = null
+        pendingNotificationTaskSource = null
+        sendMessageJob = null
+        // long: 来源失效后同时丢弃预览和旧通知草稿，禁止用户通过“重新生成”把已经消失或漂移的通知继续变成副作用任务。
+        uiState = uiState.copy(
+            sendingMessage = false,
+            prompt = "",
+            pendingPersonalTaskPlan = null,
+            personalTaskFailure = null,
+            result = OperationResult(
+                success = false,
+                title = "通知任务已失效",
+                message = "$reason，未创建个人任务或提醒",
+            ),
         )
     }
 
