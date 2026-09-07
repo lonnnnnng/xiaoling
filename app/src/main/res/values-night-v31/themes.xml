@@ -6,8 +6,8 @@
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:navigationBarColor">#070B14</item>
         <item name="android:statusBarColor">#070B14</item>
+        <!-- long: Android 12+ 必然存在系统启动画面；背景与窗口背景同色、图标全透明且不设置图标底色，使启动画面在视觉上不可见。 -->
         <item name="android:windowSplashScreenBackground">@color/xiaoling_splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_xiaoling_splash_mark</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/xiaoling_splash_icon_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_xiaoling_splash_transparent</item>
     </style>
 </resources>

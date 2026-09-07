@@ -24,8 +24,8 @@ android {
         applicationId = "com.longdev.xiaoling"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.1.17"
+        versionCode = 19
+        versionName = "0.1.18"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,8 +47,9 @@ android {
             buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "true")
         }
         release {
-            // long: Release 通过 R8 重写 Baseline/Startup Profile 并按启动热路径布局 DEX；Debug 保持不压缩，便于日常诊断。
+            // long: Release 通过 R8 重写 Baseline/Startup Profile 并按启动热路径布局 DEX，同时做资源收缩，产物只保留可达代码与资源；Debug 保持不压缩，便于日常诊断。
             isMinifyEnabled = true
+            isShrinkResources = true
             // long: release 包默认关闭 HTTP 日志，避免用户的请求内容和模型返回进入生产日志。
             buildConfigField("boolean", "XIAOLING_HTTP_LOGS_ENABLED", "false")
             signingConfig = signingConfigs.getByName("releaseLocal")

@@ -4,6 +4,28 @@
 
 ## 当前验证基线
 
+## 2026-09-07 小灵 v0.1.18 发布构建
+
+### 当前结论
+
+- 正式版本升级为小灵 `v0.1.18`，`versionCode=19`、`minSdk=26`、`targetSdk=36`、Room v36。本版汇总 `v0.1.17` 后第 253 至 262 阶段，并加入第 263 阶段的启动图移除与 R8 资源收缩配置。
+- Release APK 已由 `:app:assembleRelease` 构建成功，耗时 `1m 4s`。不改变生产 Tool、权限、Workflow、设备动作或后台边界。
+- 按用户“不要测试，直接发版”的明确要求，本轮只执行必要的 `assembleRelease` 和发布资产校验；没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation。
+- GitHub Release 资产沿用既有命名：`xiaoling-v0.1.18.apk` 与 `xiaoling-v0.1.18.apk.sha256`。
+
+### 发布资产验证
+
+- APK 文件大小：`3,247,642` 字节。
+- SHA-256：`b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`。
+- `apksigner verify`：通过；使用 APK Signature Scheme v2，单一 RSA 4096 签名者，证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`。
+- `zipalign -c 4`：通过。
+- Manifest：`com.longdev.xiaoling`、`versionCode=19`、`versionName=0.1.18`、`minSdk=26`、`targetSdk=36`。
+- 资产 SHA sidecar 已按发布文件名生成；未把 Release APK、签名配置或任何 API Key 写入 Git。
+
+### 后续门禁
+
+- 发布完成后回到个人 Agent 主线；下一次里程碑或正式发版前再执行完整矩阵。
+
 ## 2026-09-07 第 262 阶段：通知保存为本地笔记真实竖屏闭环（完成）
 
 ### 当前结论

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- long: 全透明占位图标，用于系统 Splash Screen 不展示任何品牌图；空路径向量在部分 AGP 版本会被资源合并丢弃，因此保留一个不可见像素路径。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="1dp"
+    android:height="1dp"
+    android:viewportWidth="1"
+    android:viewportHeight="1">
+
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,0h1v1h-1z" />
+</vector>
