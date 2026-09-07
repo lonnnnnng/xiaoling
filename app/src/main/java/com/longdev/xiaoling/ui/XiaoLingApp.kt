@@ -501,6 +501,17 @@ private fun XiaoLingContent(
                                 navigation.selectTab(XiaoLingAppTab.CONVERSATION)
                             }
                         },
+                        onCreateNoteFromNotification = { notificationId ->
+                            viewModel.createAgentNoteDraftFromNotification(notificationId) {
+                                // long: 只有通知二次回读成功后才返回对话页；笔记发送和审批仍由用户主动触发。
+                                navigation.openSettingsPane(
+                                    pane = SettingsPane.ROOT,
+                                    requestedKnowledgeTarget = null,
+                                    requestedNotificationTarget = null,
+                                )
+                                navigation.selectTab(XiaoLingAppTab.CONVERSATION)
+                            }
+                        },
                         requestedKnowledgeTarget = navigation.requestedKnowledgeTarget,
                         requestedWorkflowId = navigation.requestedWorkflowId,
                         requestedScheduledTaskId = navigation.requestedScheduledTaskId,
@@ -921,6 +932,7 @@ private fun SettingsPage(
     onImportSkill: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onCreatePersonalTaskFromNotification: (String) -> Unit,
+    onCreateNoteFromNotification: (String) -> Unit,
     requestedKnowledgeTarget: KnowledgeDocumentNavigationTarget?,
     requestedWorkflowId: String?,
     requestedScheduledTaskId: String?,
@@ -991,6 +1003,7 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 taskDraftInProgress = state.sendingMessage,
                 onCreatePersonalTask = onCreatePersonalTaskFromNotification,
+                onCreateNote = onCreateNoteFromNotification,
                 modifier = Modifier.matchParentSize(),
             )
             pane == SettingsPane.ANSWERABILITY_SHADOW -> AnswerabilityShadowSettingsContent(

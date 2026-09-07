@@ -81,6 +81,9 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // long: Compose v2 的测试调度器与应用协程实现分别提供 ServiceLoader 条目；合并条目后，Debug 应用 classloader 才能同时发现 Android 与测试实现。
+        resources.merges += "/META-INF/services/kotlinx.coroutines.CoroutineExceptionHandler"
+        resources.merges += "/META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory"
     }
 
     testOptions {
@@ -129,6 +132,8 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // long: 仅 Debug 应用承载 Compose v2 的异常收集器，避免将测试运行时带入 Release 产物。
+    debugImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
@@ -141,6 +146,9 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // long: Compose v2 测试在 AndroidTest 进程内通过 ServiceLoader 注册异常收集器；显式声明同版本协程运行时，避免应用 APK 与测试 APK 的服务资源隔离导致测试环境初始化失败。
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 
     ksp("androidx.room:room-compiler:2.8.4")
 }

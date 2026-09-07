@@ -1,5 +1,7 @@
 # 文档索引
 
+第 262 阶段已完成“当前通知 -> 用户选择保存为笔记 -> 可编辑 `notes.create` 草稿 -> 可见审批 -> 当前笔记详情”的 Redmi 真实竖屏闭环。通知详情点击“保存为笔记”时重新读取当前 NotificationListener，只投影应用、标题和正文为外部不可信数据，不自动发送、不创建 Run/Workflow、不写通知历史；敏感、空内容、撤权、断连和通知消失均拒绝。真实 `gpt-5.6-luna` 最终 `OK (1 test)`（`57.861s`），写入为 `APPROVED / PASSED / COMMITTED`，Room 与 Activity 重建后的笔记详情弹窗绑定同一稳定 ID、正文和 revision。临时笔记、Profile、会话、通知与 channel 已清理，旧 Run 不变；横屏会话区过矮仍为已知限制，不纳入本轮通过范围。未执行 Release 或完整测试矩阵。
+
 第 261 阶段已完成“当前通知 -> 显式转为个人任务 -> 用户确认计划 -> Workflow 执行 -> 当前事实验证”的 Redmi 真实前台闭环：通知详情点击“转为任务”时重新读取当前 listener，只生成可编辑草稿，不创建 Run/Workflow；用户发送后真实 Provider 生成只含 `app.current_time` 的计划，确认后 Workflow 执行并以目标级 `VERIFIED` 完成。通知移除后再次读取为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不会成为设备目标应用。临时通知、channel、Profile/会话精确清理，成功审计保留；通知动作、后台读取和 Room 通知历史仍关闭。
 
 第 260 阶段已完成通知个人 Agent 的真实只读前台基础：仅 Redmi `wsvwypiz7xwslvl7 / begonia` 由真实 Provider 严格完成 `notifications.list -> notifications.get`，Activity 重建后“查看通知”重新读取当前 listener；通知移除后入口显示 fail-closed。测试通知、channel、临时 Profile/会话均精确清理，通知动作、后台访问和 Room 历史镜像继续关闭。

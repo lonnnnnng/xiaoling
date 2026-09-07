@@ -33,6 +33,24 @@ class NotificationDetailPageInstrumentedTest {
     }
 
     @Test
+    fun readableNotificationShowsExplicitNoteAction() {
+        var selectedId: String? = null
+        val notification = notification()
+        composeRule.setContent {
+            XiaoLingTheme {
+                NotificationDetailContent(
+                    state = NotificationDetailLoadState.Content(notification),
+                    onBack = {},
+                    onCreateNote = { selectedId = it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("保存为笔记").performClick()
+        composeRule.runOnIdle { assertEquals(notification.id, selectedId) }
+    }
+
+    @Test
     fun hiddenNotificationDoesNotExposePersonalTaskAction() {
         composeRule.setContent {
             XiaoLingTheme {
@@ -70,7 +88,7 @@ class NotificationDetailPageInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("正在准备任务草稿").assertIsNotEnabled()
+        composeRule.onNodeWithText("正在准备草稿").assertIsNotEnabled()
     }
 
     private fun notification(

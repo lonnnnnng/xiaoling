@@ -1,5 +1,18 @@
 # 当前实现说明
 
+## 第 262 阶段：通知保存为本地笔记真实竖屏闭环（完成）
+
+- 新增 `NotificationPersonalNotePolicy`，把当前通知详情安全投影为可编辑 `/agent notes.create` 草稿。标题、正文、应用名均按外部不可信数据转义，不进入工具授权；隐藏、空内容、撤权、断连和通知消失均拒绝。
+- `NotificationDetailPage` 新增“保存为笔记”按钮；ViewModel 通过 `AndroidNotificationReader.get()` 二次读取后才返回对话页，未发送前不创建消息、Run、Workflow 或通知历史。后续发送、审批、提交回读和答案级笔记导航完全复用既有 `notes.create` 生产链。
+- `NotificationPersonalNotePolicyTest` 覆盖草稿字段、隐私边界和来源身份/内容漂移，定向 JVM 与 Debug/AndroidTest APK 已通过。Redmi 真实 `gpt-5.6-luna` 竖屏最终 `OK (1 test)`（`57.861s`），Run `run-0ed13576-a161-44c4-bfb5-1f0693d04ba4` 完成，笔记写入为 `APPROVED / PASSED / COMMITTED`。
+- 验收从屏幕可见控件发送、批准和打开笔记；Activity 重建后，先断言笔记详情弹窗独有控件，再核对 `LocalNoteManagementViewModel.selectedNote` 的稳定 ID、正文和 revision 与当前 Room 一致，避免把聊天中的同一原文误当成详情。最终 note ID 为 `note-b32de2ba-dfb8-4bfe-b31f-20b5b860f332`，测试结束后按 ID 清理；临时 Profile、会话、通知/channel 清理，旧 Run digest 不变，成功审计保留。
+- Compose 测试的协程 ServiceLoader 条目已合并，并补充 Debug/AndroidTest 对应运行时依赖。真实测试 Profile 保留 `local-notes` 声明的完整工具面，避免 Skill 选择被错误限制为 `notification-overview`；这只修正验收夹具，不扩张生产授权。
+- 测试每次定位清除 UiAutomation 节点缓存，并支持列表双向滚动；最终点击使用重新读取的可见控件语义，结果由独立 UI/Store 断言确认。固定竖屏后恢复原旋转策略，诊断截图通过同一 instrumentation 的 shell 通道保存。横屏会话区过矮尚未修复，不把竖屏通过扩展为横屏通过。
+
+### 下一步
+
+第 262 阶段的竖屏主线门禁已闭合；后续继续冻结单一高频个人 Agent 任务，横屏输入区与消息区的高度分配保留为独立 UI 待办。通知动作、后台访问与 Room 历史镜像不在本阶段范围内。
+
 ## 第 261 阶段：通知转个人任务真实前台闭环（完成）
 
 - `NotificationDetailPage` 的“转为任务”按钮只在当前通知二次读取成功、正文通过隐私策略且存在可用标题/正文时显示；点击后由 `AndroidNotificationReader` 再次读取当前权威通知，只写入可编辑草稿和短生命周期来源身份，不写消息、Run、Workflow 或通知历史。

@@ -1,8 +1,40 @@
 # 验证报告
 
-验证日期：2026-08-24（北京时间）
+验证日期：2026-09-07（北京时间）
 
 ## 当前验证基线
+
+## 2026-09-07 第 262 阶段：通知保存为本地笔记真实竖屏闭环（完成）
+
+### 当前结论
+
+- 通知详情新增“保存为笔记”。点击时从当前 NotificationListener 二次读取，敏感、空内容、撤权、断连或通知消失均不生成草稿；成功只返回可编辑 `/agent notes.create` 草稿。
+- 草稿不会自动发送、创建 Agent Run/Workflow、写通知历史或执行通知动作；后续笔记发送、审批、提交回读和答案级“查看笔记”复用现有生产链。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia / Android 16`，按用户确认完成竖屏真实 `gpt-5.6-luna` 验收，最终 `OK (1 test)`（`57.861s`）。通知读取、可编辑草稿、可见审批、写入、当前 Store 回读和重建后详情弹窗均已通过。
+
+### 已验证证据
+
+- `NotificationPersonalNotePolicyTest` 覆盖普通通知字段投影、敏感/空内容拒绝和来源身份/内容漂移拒绝。
+- 串行 `./gradlew --no-daemon -Dkotlin.incremental=false :app:compileDebugKotlin :app:testDebugUnitTest --tests com.longdev.xiaoling.agent.NotificationPersonalNotePolicyTest` 最终 `BUILD SUCCESSFUL`。首次并行/增量命中遗留 Kotlin cache 注册冲突，未作为代码失败计数。
+- Debug/AndroidTest APK 重建成功，本轮 `:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL in 23s`；收紧详情断言后的最终 `:app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL in 4s`。
+- 最终命令通过 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.agent.Stage262NotificationPersonalNoteInstrumentedTest#notificationCanBecomeApprovedPersonalNoteAndReadBackCurrentFact com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner` 执行单项；Provider 参数由本地未跟踪 `AGENTS.md` 动态读取，模型严格为 `gpt-5.6-luna`，密钥不进入源码或文档。
+- 通知读取 Run 为 `run-144fee73-1179-4f75-96b7-5e10cace153a`，严格完成 `notifications.list -> notifications.get`。笔记 Run 为 `run-0ed13576-a161-44c4-bfb5-1f0693d04ba4`，`notes.create` 审批 `APPROVED`、Executor/typed verification `PASSED`、回执 `COMMITTED`；稳定 note ID 为 `note-b32de2ba-dfb8-4bfe-b31f-20b5b860f332`。
+- Activity 重建后从可见“查看笔记”进入本地笔记详情弹窗，独立断言“编辑笔记/关闭”控件可见，且 `LocalNoteManagementViewModel.selectedNote` 的 ID、正文和 revision 与当前 Room 完全一致。最终截图确认实际详情弹窗，revision 为 `1`，不是聊天中的通知正文。
+- `STAGE262_NOTIFICATION_NOTE_CLEANUP` 确认临时笔记、Profile、通知和 channel 均已移除；临时会话及其消息在事务中删除，原 Profile/会话选择恢复。旧 Run digest 保持不变，新成功 Run/审批/Tool Ledger 审计保留。
+
+### 失败定位与修正
+
+- 测试 Profile 最初缺少 `local-notes` Skill 声明的列表/搜索工具，已补齐合法工具面；Compose ServiceLoader 条目合并并补齐 Debug/AndroidTest 协程运行时，未扩展生产权限。
+- `UiAutomationService ... already registered!` 来自其他任务的 android-cli 交互服务。按用户授权协调暂停后释放连接，只运行小灵单项，不把此错误归因于 Provider 或 ADB 失效。
+- `run-as` 被当前 ROM 的 SELinux 拒绝，应用外部缓存也不可写；诊断截图改由同一 instrumentation 的 shell 通道保存到 `/data/local/tmp`，未修改系统安全策略。
+- 测试刷新根节点不足以排除子节点缓存，已改为定位前 `clearCache()`，按列表可滚动方向折返，并通过刚读取的屏幕可见控件执行点击。横屏截图证明会话区被固定输入区压至很窄，单向滚动会错过入口；用户确认竖屏后固定竖屏基线并在结束时恢复原旋转策略。
+- 首轮竖屏曾报告 `1/1`（`57.558s`），但截图仍在对话页，原正文匹配断言存在假阳性，因此该轮不计为完整导航验收。补充详情弹窗独立控件及稳定身份断言后，最终 `1/1`（`57.861s`）才作为完整闭环证据。
+
+### 边界与收尾
+
+- 横屏会话区过矮尚未修复，本阶段仅确认竖屏。通知动作、后台读取和 Room 通知历史继续关闭；未使用 Pixel_9/模拟器，未构建 Release，未运行完整 JVM、Lint 或全量 instrumentation。
+- 文档 corpus gate 首轮为 `OK (1 test)`（`3.367s`），结果写回后的最终文本复验同样为 `OK (1 test)`（`3.485s`）。`com.longdev.xiaoling.test` 已卸载，主应用、Room 和 Provider 数据保留；小灵已释放 UiAutomation，并通知其他任务恢复设备使用。
+- 2026-09-07 按用户后续要求提交并推送本阶段代码与六份长期文档，连同此前 Stage 257 至 261 的五个本地提交同步到 `main`。本次交付仅补齐进展记录和 Git 检查，不重新占用 Redmi、不扩展验证矩阵，也不构建或发布 Release。
 
 ## 2026-08-24 第 261 阶段：通知转个人任务真实前台闭环
 

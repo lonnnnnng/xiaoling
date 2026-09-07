@@ -27,6 +27,9 @@ import com.longdev.xiaoling.agent.PersonalTaskScheduleType
 import com.longdev.xiaoling.agent.NotificationPersonalTaskPolicy
 import com.longdev.xiaoling.agent.NotificationPersonalTaskSource
 import com.longdev.xiaoling.agent.NotificationPersonalTaskSourceStatus
+import com.longdev.xiaoling.agent.NotificationPersonalNotePolicy
+import com.longdev.xiaoling.agent.NotificationPersonalNoteSource
+import com.longdev.xiaoling.agent.NotificationPersonalNoteSourceStatus
 import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
@@ -808,6 +811,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var personalTaskOperationRequestId: String? = null
     private var pendingPersonalTaskExecution: PendingPersonalTaskExecution? = null
     private var pendingNotificationTaskSource: NotificationPersonalTaskSource? = null
+    private var pendingNotificationNoteSource: NotificationPersonalNoteSource? = null
     private var notificationTaskDraftRequestId: String? = null
     private var notificationTaskVerificationRequestId: String? = null
     private var memoryLoadJob: Job? = null
@@ -986,6 +990,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updatePrompt(value: String) {
+        // long: 用户编辑通知生成的笔记草稿后，原通知只保留为来源提示，不再把编辑后的内容误绑定为通知原文。
+        pendingNotificationNoteSource = null
         uiState = uiState.copy(
             prompt = value,
             sharedDraftImported = false,
@@ -1000,6 +1006,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         if (enabled != uiState.personalTaskMode) {
             // long: 用户手动切换任务模式代表接管目标来源；旧通知身份不能跟随新的手写任务继续通过确认校验。
             pendingNotificationTaskSource = null
+            pendingNotificationNoteSource = null
         }
         uiState = uiState.copy(
             personalTaskMode = enabled,
@@ -1112,6 +1119,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
         // long: “转为任务”只把当前分享交给既有个人任务编辑态；同时清掉其他外部来源身份，计划生成、确认和执行仍由用户后续动作分别触发。
         pendingNotificationTaskSource = null
+        pendingNotificationNoteSource = null
         uiState = uiState.copy(
             prompt = goal,
             sharedDraftImported = false,
@@ -1138,6 +1146,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         val conversationId = uiState.selectedConversationId
         notificationTaskDraftRequestId = requestId
         pendingNotificationTaskSource = null
+        pendingNotificationNoteSource = null
         uiState = uiState.copy(sendingMessage = true, result = null)
         sendMessageJob = viewModelScope.launch {
             try {
@@ -1182,6 +1191,66 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun createAgentNoteDraftFromNotification(
+        notificationId: String,
+        onPrepared: () -> Unit,
+    ) {
+        if (
+            uiState.sendingMessage || uiState.pendingPersonalTaskPlan != null ||
+            uiState.pendingImage != null || uiState.pendingDocument != null ||
+            uiState.attachingImage || uiState.attachingDocument || uiState.loadingConversationMessages
+        ) {
+            showValidation("当前操作结束后再保存通知")
+            return
+        }
+        val requestId = "notification-note-draft-${UUID.randomUUID()}"
+        val conversationId = uiState.selectedConversationId
+        notificationTaskDraftRequestId = requestId
+        pendingNotificationTaskSource = null
+        pendingNotificationNoteSource = null
+        uiState = uiState.copy(sendingMessage = true, result = null)
+        sendMessageJob = viewModelScope.launch {
+            try {
+                val readResult = AndroidNotificationReader(getApplication()).get(notificationId)
+                if (
+                    notificationTaskDraftRequestId != requestId ||
+                    uiState.selectedConversationId != conversationId
+                ) {
+                    return@launch
+                }
+                val notification = (readResult as? NotificationReadResult.Success)?.notification
+                val draft = notification?.let(NotificationPersonalNotePolicy::createDraft)
+                if (draft == null) {
+                    showValidation(notificationNoteDraftFailureMessage(readResult))
+                    return@launch
+                }
+                // long: 只把当前通知投影为可编辑 notes.create 草稿；用户仍需主动发送、审批和从当前笔记回读。
+                pendingNotificationNoteSource = draft.source
+                uiState = uiState.copy(
+                    prompt = draft.prompt,
+                    sharedDraftImported = false,
+                    personalTaskMode = false,
+                    personalTaskFailure = null,
+                    personalTaskCompletion = null,
+                    result = null,
+                )
+                onPrepared()
+            } catch (_: CancellationException) {
+                // long: 离开会话时撤销瞬时通知读取，不把未发送的来源投影到下一次编辑。
+            } catch (error: Throwable) {
+                if (notificationTaskDraftRequestId == requestId) {
+                    showValidation(error.message ?: "无法重新读取当前通知")
+                }
+            } finally {
+                if (notificationTaskDraftRequestId == requestId) {
+                    notificationTaskDraftRequestId = null
+                    sendMessageJob = null
+                    uiState = uiState.copy(sendingMessage = false)
+                }
+            }
+        }
+    }
+
     private fun notificationTaskDraftFailureMessage(result: NotificationReadResult): String = when (result) {
         NotificationReadResult.AccessNotGranted -> "通知访问权限已撤销，无法转为任务"
         NotificationReadResult.ListenerDisconnected -> "通知监听服务未连接，无法转为任务"
@@ -1190,6 +1259,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             "当前通知包含敏感或私密内容，不能转为任务"
         } else {
             "当前通知没有可用于任务的标题或正文"
+        }
+    }
+
+    private fun notificationNoteDraftFailureMessage(result: NotificationReadResult): String = when (result) {
+        NotificationReadResult.AccessNotGranted -> "通知访问权限已撤销，无法保存为笔记"
+        NotificationReadResult.ListenerDisconnected -> "通知监听服务未连接，无法保存为笔记"
+        NotificationReadResult.NotFound -> "当前通知已消失或不可读取"
+        is NotificationReadResult.Success -> if (result.notification.contentHidden) {
+            "当前通知包含敏感或私密内容，不能保存为笔记"
+        } else {
+            "当前通知没有可保存的标题或正文"
         }
     }
 
@@ -3640,6 +3720,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             uiState = uiState.copy(sendingMessage = false)
         }
         pendingNotificationTaskSource = null
+        pendingNotificationNoteSource = null
         if (personalTaskPlanningRequestId != null) {
             // long: 计划响应只属于发起它的会话；切换或删除会话时立即撤销网络请求，迟到结果不得在新会话弹出确认框。
             personalTaskPlanningRequestId = null
@@ -4787,12 +4868,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             selectedConversationId = uiState.selectedConversationId,
         )
         val goal = AgentCommand.goal(userMessage)
+        val notificationNoteSource = pendingNotificationNoteSource
+        pendingNotificationNoteSource = null
         sendMessageJob = viewModelScope.launch {
             try {
                 conversationPersistenceCoordinator.cancelPendingSaveAndJoin()
                 // long: 附件 BLOB 必须在 Run 建立前完整提交；否则进程在审批等待期间退出时，恢复链只有 userMessageId，却可能读不到原始 Image/Document。
                 conversationPersistenceCoordinator.persist(preRunPersistenceSnapshot)
-                val approvalGate = interactiveAgentApprovalGate(conversationId)
+                val approvalGate = interactiveAgentApprovalGate(
+                    conversationId = conversationId,
+                    notificationNoteSource = notificationNoteSource,
+                )
                 val summary = if (controlledReplayQualification == null) agentRunUseCase.run(
                     conversationId = conversationId,
                     userMessageId = userChatMessage.id,
@@ -5107,13 +5193,30 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    private fun interactiveAgentApprovalGate(conversationId: String): ApprovalGate {
+    private fun interactiveAgentApprovalGate(
+        conversationId: String,
+        notificationNoteSource: NotificationPersonalNoteSource? = null,
+    ): ApprovalGate {
         return object : ApprovalGate {
             override suspend fun requestApproval(
                 runId: String,
                 toolCall: ToolCall,
                 definition: ToolDefinition,
             ): ApprovalDecision {
+                if (toolCall.name == "notes.create" && notificationNoteSource != null) {
+                    val current = (AndroidNotificationReader(getApplication()).get(notificationNoteSource.notificationId)
+                        as? NotificationReadResult.Success)?.notification
+                    val sourceStatus = current?.let {
+                        NotificationPersonalNotePolicy.validateSource(notificationNoteSource, it)
+                    }
+                    if (sourceStatus != NotificationPersonalNoteSourceStatus.MATCHES) {
+                        // long: 笔记写入审批前再次核对当前通知；来源消失或漂移时不创建审批卡，也不允许 notes.create 产生副作用。
+                        return ApprovalDecision(
+                            approved = false,
+                            reason = "当前通知已变化或不可读取，未保存为笔记",
+                        )
+                    }
+                }
                 return awaitAgentApproval(
                     conversationId = conversationId,
                     runId = runId,

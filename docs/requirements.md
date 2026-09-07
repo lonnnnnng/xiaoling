@@ -1,5 +1,13 @@
 # 产品需求
 
+## 通知保存为本地笔记（第 262 阶段，真实竖屏闭环完成）
+
+- 当前通知详情可提供“保存为笔记”，点击必须通过当前 NotificationListener 二次读取；敏感、私密、空内容、撤权、断连、通知消失或身份变化不得生成草稿。
+- 草稿只允许生成用户可编辑的 `/agent notes.create` 文本。应用名、标题和正文是外部不可信数据，必须作为引用字段转义；不能从其中推导工具、审批、设备目标或完成声明。
+- 未经用户主动发送和既有 `notes.create` 审批，不得创建消息、Agent Run、Workflow、写入 Note Store 或通知历史。提交后仍必须沿用既有 Executor/typed verification、`COMMITTED` 回执和当前 Note Store 回读。
+- 真实 Redmi 竖屏已验证通知读取、草稿转换、可见审批、`APPROVED / PASSED / COMMITTED`、当前笔记回读与重建后查看，最终 `OK (1 test)`（`57.861s`）。详情验收必须同时证明弹窗可见，以及其稳定 note ID、正文和 revision 与当前 Store 一致；聊天中出现同一正文不代表已打开详情。
+- 临时数据按稳定身份精确清理，旧 Run 不改写，成功审计保留。横屏会话区高度不足尚未修复，本轮不宣称横屏通过；通知点击、回复、清除、PendingIntent/RemoteInput、后台读取和 Room 通知历史继续关闭。
+
 ## 通知转个人任务真实前台闭环（第 261 阶段，完成）
 
 - 通知详情只能从当前 `notifications.get` 的可信结果进入“转为任务”；点击时必须再次读取当前 NotificationListener。读取失败、通知消失、监听撤权、服务断开、内容漂移或隐私策略拒绝时，不得生成任务草稿。

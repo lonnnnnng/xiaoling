@@ -1,5 +1,7 @@
 # `reference-apps` 个人 Agent 实现分析
 
+第 262 阶段沿用成熟移动 Agent 的“当前系统数据先形成可编辑草稿，用户主动发送和审批后才产生副作用，提交后回到权威本地事实”原则。通知详情的“保存为笔记”只二次读取当前 listener 并生成 `/agent notes.create` 草稿，通知字段按外部不可信数据处理，不复制通知点击/回复/清除、PendingIntent/RemoteInput、后台通知历史或跨 App 跳转。Redmi 真实 `gpt-5.6-luna` 竖屏已完成可见审批、`APPROVED / PASSED / COMMITTED`、Room 回读及重建后详情弹窗验证；稳定 note ID、正文和 revision 一致，临时数据精确清理，旧 Run 不变。横屏会话区过矮仍为未解决限制，不属于本轮通过范围。
+
 第 261 阶段继续采用成熟 Agent 的“外部数据先形成可编辑草稿、用户确认后才升级能力、计划与执行分离、执行后回当前权威事实”原则。通知详情点击“转为任务”会重新读取当前 listener，只生成短生命周期草稿；真实 Provider 在 Redmi 由用户发送并确认计划后，Workflow 只执行 `app.current_time`，目标级结论为 `VERIFIED`。通知移除后来源核对为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不进入设备目标应用。小灵没有复制参考项目的通知点击/回复/清除、PendingIntent/RemoteInput、后台通知历史、任意 App 控制或跨 App 跳转。
 
 第 260 阶段继续采用成熟 Agent 的“自然语言规划、最小能力面、工具结果绑定稳定身份、点击时回读当前权威源”原则。真实 Provider 在 Redmi 严格完成 `notifications.list -> notifications.get`，Activity 重建后的“查看通知”再次读取当前 listener，通知移除后拒绝历史快照。小灵没有复制通知全量历史镜像、自动点击/回复/清除、PendingIntent/RemoteInput、后台读取或跨 App 跳转；本阶段只验证前台只读闭环，未扩展通知动作。

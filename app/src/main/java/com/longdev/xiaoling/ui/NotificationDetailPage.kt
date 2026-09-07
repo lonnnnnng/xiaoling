@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
 import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
@@ -49,6 +50,7 @@ internal fun NotificationDetailPage(
     onBack: () -> Unit,
     taskDraftInProgress: Boolean,
     onCreatePersonalTask: (String) -> Unit,
+    onCreateNote: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -74,6 +76,7 @@ internal fun NotificationDetailPage(
         onBack = onBack,
         taskDraftInProgress = taskDraftInProgress,
         onCreatePersonalTask = onCreatePersonalTask,
+        onCreateNote = onCreateNote,
         modifier = modifier,
     )
 }
@@ -84,6 +87,7 @@ internal fun NotificationDetailContent(
     onBack: () -> Unit,
     taskDraftInProgress: Boolean = false,
     onCreatePersonalTask: (String) -> Unit = {},
+    onCreateNote: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -108,23 +112,33 @@ internal fun NotificationDetailContent(
             is NotificationDetailLoadState.Content -> {
                 if (NotificationPersonalTaskPolicy.canCreateDraft(state.notification)) {
                     item {
-                        Button(
-                            onClick = { onCreatePersonalTask(state.notification.id) },
-                            enabled = !taskDraftInProgress,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            if (taskDraftInProgress) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = { onCreatePersonalTask(state.notification.id) },
+                                enabled = !taskDraftInProgress,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (taskDraftInProgress) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    Icon(Icons.Default.AddTask, contentDescription = null, modifier = Modifier.size(18.dp))
+                                }
+                                Text(
+                                    text = if (taskDraftInProgress) "正在准备草稿" else "转为任务",
+                                    modifier = Modifier.padding(start = 7.dp),
                                 )
-                            } else {
-                                Icon(Icons.Default.AddTask, contentDescription = null, modifier = Modifier.size(18.dp))
                             }
-                            Text(
-                                text = if (taskDraftInProgress) "正在准备任务草稿" else "转为任务",
-                                modifier = Modifier.padding(start = 7.dp),
-                            )
+                            Button(
+                                onClick = { onCreateNote(state.notification.id) },
+                                enabled = !taskDraftInProgress,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text("保存为笔记", modifier = Modifier.padding(start = 7.dp))
+                            }
                         }
                     }
                 }
@@ -152,7 +166,7 @@ private fun NotificationCard(notification: AgentNotificationRecord) {
             NotificationField("标题", notification.title ?: if (notification.contentHidden) "已隐藏敏感或私密内容" else "无")
             NotificationField("正文", notification.content ?: if (notification.contentHidden) "已隐藏敏感或私密内容" else "无可读取文本")
             Text(
-                "以上内容来自当前 NotificationListener 的只读回读；通知动作、回复和历史镜像均未开放。",
+                "以上内容来自当前 NotificationListener 的只读回读；保存为笔记只生成可编辑草稿，通知动作、回复和历史镜像均未开放。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
