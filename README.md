@@ -99,12 +99,12 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 | 正式版本 | `v0.1.18`（`versionCode 19`） |
 | 数据库 | Room v36 |
 | 开发里程碑 | 第 263 阶段；第 262 阶段通知保存为笔记主线已闭环 |
-| JVM | `1118 / 1118` 通过 |
-| Lint | 通过 |
-| Redmi 全量 instrumentation | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
+| JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
+| Lint 历史基线（2026-08-13） | 通过 |
+| Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-第 263 阶段发布了 `v0.1.18`：移除应用内第二张启动图，并启用 Release 资源收缩；`assembleRelease`、签名、`zipalign` 和 SHA-256 资产校验均已完成。本轮按用户要求没有重复运行 JVM、Lint、Debug/AndroidTest 或 Redmi instrumentation。第 262 阶段已在 Redmi 完成“当前通知 → 用户选择保存为笔记 → 可见审批 → 当前笔记详情”的真实竖屏闭环，最终 `OK (1 test)`（`57.861s`），旧 Run 保持不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+第 263 阶段发布了 `v0.1.18`：将 Android 12+ 系统 Splash 图标改为透明占位、背景与应用窗口同色，并启用 Release 资源收缩；`assembleRelease`、签名、`zipalign` 和 SHA-256 资产校验均已完成。本次发布按用户要求没有重复运行 JVM、Lint、Debug/AndroidTest 或 Redmi instrumentation。第 262 阶段已在 Redmi 完成“当前通知 → 用户选择保存为笔记 → 可见审批 → 当前笔记详情”的真实竖屏闭环，最终 `OK (1 test)`（`57.861s`），旧 Run 保持不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
 完整回归基线完成于 2026-08-13；它与后续第 260 至 262 阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.18`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
 
