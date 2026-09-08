@@ -2,6 +2,15 @@
 
 第 263 阶段按用户要求移除启动图并固化 R8 精简打包配置。`values-v31` 与 `values-night-v31` 主题把 `windowSplashScreenAnimatedIcon` 换成全透明占位向量、移除 `windowSplashScreenIconBackgroundColor`，`windowSplashScreenBackground` 保持与窗口背景同色，使 Android 12+ 必然存在的系统启动画面在视觉上不可见（Android 12 以下本来没有系统启动图）；`ic_xiaoling_splash_mark` 与 `xiaoling_splash_icon_background` 已删除。`release` 构建 `isMinifyEnabled = true` 本就启用，本轮补上 `isShrinkResources = true` 资源收缩，`optimizeReleaseResources` 生效，aapt2 复核 `Theme.XiaoLing` 正常引用透明图标与同色背景。随后按用户“不要测试，直接发版”的要求发布 `v0.1.18`（`versionCode 19`、Room v36）：正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 1m 4s`，APK 为 `3,247,642` 字节，SHA-256 为 `b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`；`apksigner` 确认 APK Signature Scheme v2 单一 RSA 4096 签名者（证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`），`zipalign` 通过；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18) 已发布并成为 latest。本轮没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation，生产 Tool、权限、Workflow、后台与 Room 边界均未改动。
 
+## 当前路线（第 263 阶段之后）
+
+1. 先冻结一条新的高频个人 Agent 任务，贯通“自然语言目标 → 用户确认 → 最小能力面 → 可验证结果 → 当前权威事实查看”。
+2. 设备 Agent 继续限定 Redmi 前台和少量指定 App，逐步扩大已验收覆盖，不承诺任意 App。
+3. 在扩大设备能力前，补齐通用执行恢复、长任务以及网络/进程异常下的可靠性。
+4. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
+5. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
+6. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
+
 第 262 阶段已完成“当前通知 -> 用户选择保存为笔记 -> 可编辑 `notes.create` 草稿 -> 可见审批 -> 当前笔记详情”的 Redmi 真实竖屏闭环。通知详情点击“保存为笔记”时重新读取当前 NotificationListener，只投影应用、标题和正文为外部不可信数据，不自动发送、不创建 Run/Workflow、不写通知历史；敏感、空内容、撤权、断连、通知消失均拒绝。真实 `gpt-5.6-luna` 最终 `OK (1 test)`（`57.861s`），写入为 `APPROVED / PASSED / COMMITTED`，Room 与 Activity 重建后的笔记详情弹窗绑定同一稳定 ID、正文和 revision。临时笔记、Profile、会话、通知与 channel 已清理，旧 Run 不变；横屏会话区过矮仍为已知限制，不纳入本轮通过范围。未执行 Release 或完整测试矩阵。
 
 第 261 阶段已完成“当前通知 -> 显式转为个人任务 -> 用户确认计划 -> Workflow 执行 -> 当前事实验证”的 Redmi 真实前台闭环：通知详情点击“转为任务”时重新读取当前 listener，只生成可编辑草稿，不创建 Run/Workflow；用户发送后真实 Provider 生成只含 `app.current_time` 的计划，确认后 Workflow 执行并以目标级 `VERIFIED` 完成。通知移除后再次读取为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不会成为设备目标应用。临时通知、channel、Profile/会话精确清理，成功审计保留；通知动作、后台读取和 Room 通知历史仍关闭。
@@ -140,11 +149,11 @@
 
 `v0.1.17` 历史发布基线使用 `versionCode 18`、Room v36。本版在 `v0.1.16` 后汇总第 170 至 252 阶段的个人 Agent 能力，以及 2026-08-13 收敛的 Redmi 回归修复。Release 使用本机固定证书构建，`assembleRelease` 结果为 `BUILD SUCCESSFUL in 2m 45s`；APK 通过 APK Signature Scheme v2、单一 RSA 4096 签名者和 zipalign 校验，大小 `3,531,766` 字节，SHA-256 为 `b0fdfce3d50375bbe98aedba172990cc18e655255a94455966495eb6ada398d2`；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.17) 已发布。
 
-当前开发基线已完成第 260 阶段、Room v36，个人 Agent 已覆盖设备观察、系统状态、日程/联系人/当前通知/笔记/记忆/知识、系统分享附件理解、受控副作用和答案级权威事实查看；通知域已完成显式授权后的前台只读 Provider 与真实答案级当前通知查看，通知动作和后台读取仍后置。2026-08-13 完整基线仍为 Redmi 默认全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`、完整 JVM `1118/1118`、Lint 与 Debug/AndroidTest APK 通过；Stage 256 至 260 的聚焦证据不能替代完整基线。`v0.1.17` Release 资产保持不变。
+当前开发基线已完成第 263 阶段、Room v36，正式版本为 `v0.1.18`。个人 Agent 已覆盖设备观察、系统状态、日程/联系人/当前通知/笔记/记忆/知识、系统分享附件理解、受控副作用和答案级权威事实查看；通知域已完成前台只读、任务转换和保存为笔记的 Redmi 真实竖屏闭环，通知动作和后台读取仍后置。2026-08-13 的完整基线仍为 Redmi 默认全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors`、完整 JVM `1118/1118`、Lint 与 Debug/AndroidTest APK 通过；第 260 至 262 阶段的聚焦证据不能替代完整基线。第 263 阶段只完成 Release 构建与资产校验，未重复执行完整验证矩阵。
 
 第 192 阶段在 Room 层交叉验收确认后创建关联新 Run：来源 `FAILED` Run 的终态、Step、Approval、Tool Result、`COMMITTED` 回执、Event 与 Tool Ledger 在创建新 Run 前后及两次磁盘 Repository 重建后均保持不变；新 Run 的 `retryOfRunId` 正确指向来源，且拥有独立的 `QUEUED` 空账本。聚焦 Redmi `RoomAgentRunRepositoryInstrumentedTest` `4/4`、Debug/AndroidTest APK 构建和 corpus gate 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产恢复、Room v36、Workflow 和后台边界不变。
 
-当前开发基线已到第 191 阶段、Room v36，尚未形成新 Release。第 191 阶段将任意带有 `restartDisposition` 的恢复 Run 统一投影为专用“创建关联新 Run”确认；确认时重读最新 Room，处置码或证据漂移就刷新/拒绝，旧 Run 不恢复、不重放。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
+历史基线（第 191 阶段）：当时将任意带有 `restartDisposition` 的恢复 Run 统一投影为专用“创建关联新 Run”确认；确认时重读最新 Room，处置码或证据漂移就刷新/拒绝，旧 Run 不恢复、不重放。聚焦 JVM `47/47`、Redmi 确认弹窗 `3/3`、任务中心页 `2/2` 通过；当时尚未形成新 Release，未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 
 第 188 阶段新增 Debug-only `calendar_update_conflict_real`，在 Redmi 真实模型三步链的审批落库后制造同事件外部漂移。最终 Run `run-05831fda-73c9-460a-a8e5-a3c52debdfca` 为 `FAILED`，审批 `APPROVED`，条件 UPDATE 被拒绝且没有 `COMMITTED` 回执，Provider 保留外部新事实；夹具、临时 Profile 和临时日历精确清理。聚焦 JVM `196/196`、Debug/AndroidTest APK、Redmi 失败探针和文档 corpus gate `1/1` 通过；未运行完整 JVM、Lint、Release APK 或全量 instrumentation，生产能力边界不变。
 

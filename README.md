@@ -8,16 +8,16 @@
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
   <img alt="Room v36" src="https://img.shields.io/badge/Room-v36-4285F4">
-  <img alt="Release v0.1.17" src="https://img.shields.io/badge/Release-v0.1.17-2E7D32">
+  <img alt="Release v0.1.18" src="https://img.shields.io/badge/Release-v0.1.18-2E7D32">
 </p>
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
 ## 下载
 
-- [GitHub Release v0.1.17](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.17)
-- 安装包：`xiaoling-v0.1.17.apk`
-- 完整性校验：`xiaoling-v0.1.17.apk.sha256`
+- [GitHub Release v0.1.18](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18)
+- 安装包：`xiaoling-v0.1.18.apk`
+- 完整性校验：`xiaoling-v0.1.18.apk.sha256`
 - 系统要求：Android 8.0（API 26）及以上
 
 > 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
@@ -96,17 +96,17 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 | 项目 | 状态 |
 | --- | --- |
-| 正式版本 | `v0.1.17`（`versionCode 18`） |
+| 正式版本 | `v0.1.18`（`versionCode 19`） |
 | 数据库 | Room v36 |
-| 开发里程碑 | 第 257 阶段，唯一笔记受控追加真实前台闭环完成 |
+| 开发里程碑 | 第 263 阶段；第 262 阶段通知保存为笔记主线已闭环 |
 | JVM | `1118 / 1118` 通过 |
 | Lint | 通过 |
 | Redmi 全量 instrumentation | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-Stage 257 已在 Redmi 完成唯一笔记受控追加的真实用户闭环：`gpt-5.5 / Responses` 从自然语言目标严格规划 `notes.search -> notes.get -> notes.append`，最后一步经屏幕可见审批后达到 `APPROVED / PASSED / COMMITTED`。当前 Room 精确保持原标题和原正文，只追加一次新增片段并将 revision 递增 1；Activity 重建后的“查看笔记”再次读取同一稳定 ID 的当前正文。真实单项 `OK (1 test)`（`47.827s`），临时笔记、Profile、会话和本机转发配置精确清理，成功 Run 审计保留、旧 Run 不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+第 263 阶段发布了 `v0.1.18`：移除应用内第二张启动图，并启用 Release 资源收缩；`assembleRelease`、签名、`zipalign` 和 SHA-256 资产校验均已完成。本轮按用户要求没有重复运行 JVM、Lint、Debug/AndroidTest 或 Redmi instrumentation。第 262 阶段已在 Redmi 完成“当前通知 → 用户选择保存为笔记 → 可见审批 → 当前笔记详情”的真实竖屏闭环，最终 `OK (1 test)`（`57.861s`），旧 Run 保持不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
-以上完整回归完成于 2026-08-13。`v0.1.17` 的 Release APK 另行执行签名、版本、zipalign 与 SHA-256 校验；详细证据和未覆盖边界见验证报告。
+完整回归基线完成于 2026-08-13；它与后续第 260 至 262 阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.18`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
 
 ## 文档
 
