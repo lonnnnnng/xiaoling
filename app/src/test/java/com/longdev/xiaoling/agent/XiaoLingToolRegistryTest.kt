@@ -359,6 +359,7 @@ class XiaoLingToolRegistryTest {
                 "tasks.retry",
                 "tasks.pause",
                 "tasks.resume",
+                "tasks.reschedule",
                 "notes.list",
                 "notes.search",
                 "notes.get",
@@ -550,12 +551,14 @@ class XiaoLingToolRegistryTest {
         )
         assertNotNull(registry.definition("tasks.pause"))
         assertNotNull(registry.definition("tasks.resume"))
+        assertNotNull(registry.definition("tasks.reschedule"))
         assertTrue(registry.availableTools().any { tool -> tool.name == "tasks.pause" })
         assertTrue(registry.availableTools().any { tool -> tool.name == "tasks.resume" })
 
         registry.bindRunContext(workflowDeviceContext(userIntent = "暂停每日回顾提醒"))
         assertNull(registry.definition("tasks.pause"))
         assertNull(registry.definition("tasks.resume"))
+        assertNull(registry.definition("tasks.reschedule"))
 
         registry.bindRunContext(
             AgentToolExecutionContext(
@@ -567,7 +570,7 @@ class XiaoLingToolRegistryTest {
                 invocationSource = AgentInvocationSource.DIRECT,
             ),
         )
-        assertFalse(registry.availableTools().any { tool -> tool.name in setOf("tasks.pause", "tasks.resume") })
+        assertFalse(registry.availableTools().any { tool -> tool.name in setOf("tasks.pause", "tasks.resume", "tasks.reschedule") })
     }
 
     @Test
@@ -2043,6 +2046,45 @@ class XiaoLingToolRegistryTest {
         assertTrue(backgroundActionResult.content.contains("前台"))
         assertEquals(2, provider.captureCount)
         assertEquals(listOf("tap:snapshot-direct:r1"), provider.actions)
+    }
+
+    @Test
+    fun expiredWorkflowSnapshotProducesStructuredRecoveryAndDoesNotExecuteAction() = runTest {
+        val provider = FakeDeviceController(enabled = true)
+        val registry = testRegistry(
+            deviceController = provider,
+            workflowDeviceActionToolNames = setOf("device.tap_ref"),
+        )
+        registry.bindRunContext(workflowDeviceContext(userIntent = "点击当前页面的继续按钮"))
+        val snapshotCall = ToolCall(
+            id = "tool-call-expired-snapshot",
+            name = "device.snapshot",
+            arguments = emptyMap(),
+            risk = ToolRisk.SAFE,
+        )
+        val snapshotResult = registry.execute(snapshotCall)
+        registry.afterToolVerification(snapshotCall, snapshotResult)
+        val tapCall = ToolCall(
+            id = "tool-call-expired-tap",
+            name = "device.tap_ref",
+            arguments = mapOf("snapshot_id" to "snapshot-direct", "ref" to "r1"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val error = assertThrows(AgentToolRecoveryRequiredException::class.java) {
+            registry.beforeToolExecution(
+                tapCall,
+                AgentToolApprovalEvidence(
+                    approved = true,
+                    decidedAt = 31_000L,
+                    processSessionId = "process-workflow",
+                ),
+            )
+        }
+
+        assertEquals("DEVICE_OBSERVATION_EXPIRED", error.failure.code)
+        assertTrue(error.failure.suggestedAction.contains("重新 snapshot"))
+        assertTrue(provider.actions.isEmpty())
     }
 
     @Test

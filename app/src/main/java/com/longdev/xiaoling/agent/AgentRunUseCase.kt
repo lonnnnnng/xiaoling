@@ -92,7 +92,8 @@ class AgentRunUseCase(
             .filterTo(linkedSetOf(), availableToolNames::contains)
         require(scopedToolNames.isNotEmpty()) { "当前执行上下文没有可用的 Profile 工具" }
         // long: 任务重试等直接 Agent 专属工具在 Workflow context 会从 Registry 隐藏；先裁剪冻结白名单，再创建 scoped registry，避免把“当前不可见”误判为 Profile 配置损坏。
-        val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, scopedToolNames)
+        // long: Profile 白名单需要保留完整静态能力，Workflow 的步骤门禁会在动态工具面隐藏暂不可用动作；若只传 scopedToolNames，会把隐藏动作错误地变成 Skill 未注册。
+        val profileToolRegistry = ProfileScopedToolRegistry(runToolRegistry, agentProfile.allowedToolNames)
         val skillSelectionToolNames = if (
             invocationSource == AgentInvocationSource.WORKFLOW &&
             executionOrigin == AgentExecutionOrigin.FOREGROUND &&

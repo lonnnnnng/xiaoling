@@ -1,12 +1,91 @@
 # 验证报告
 
-验证日期：2026-09-07（北京时间）
+验证日期：2026-09-16（北京时间）
 
 ## 当前验证基线
 
-- 当前代码与发布基线为 `v0.1.18`（`versionCode=19`、Room v36），最近一次功能级 Redmi 真实闭环为第 262 阶段的通知保存为笔记；第 263 阶段仅完成发布收尾。
-- 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 262 阶段的单项结果只证明对应功能，不替代完整矩阵。
-- 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；本轮不因文档同步重复占用 Redmi。
+- 当前正式发布为 `v0.1.18`（`versionCode=19`、Room v36），第264、265阶段真实前台闭环均已完成；第265阶段改动仍未提交发布。
+- 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
+- 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
+
+## 2026-09-16 第 266 阶段第二切片：模型请求失败的可审计重试边界（完成，阶段继续）
+
+### 实现与安全边界
+
+- `RunEventMetadata.LlmFailure` 新增 `retryDisposition`：规划阶段根据稳定失败码和已完成工具数量区分 `RETRY_WITHOUT_CONFIRMATION`、`RETRY_WITH_CONFIRMATION`、`CONFIGURATION_REQUIRED`；总结阶段统一为 `LOCAL_FALLBACK_COMPLETED`。
+- 该处置只用于审计和任务中心展示，不会自动重新发起模型请求，不会恢复旧模型协程，也不会重放已经进入 Executor 的工具。关联新 Run 仍由现有重试证据策略与用户确认控制。
+- 旧事件缺少 `retryDisposition` 或包含未知未来枚举时，Codec 保守回退为 `RETRY_WITH_CONFIRMATION`，避免历史数据绕过确认边界。
+
+### 分级验证
+
+- JDK 21 + Gradle wrapper：受影响 JVM `156/156`，`AgentLlmRetryDispositionPolicyTest 4`、`RunEventMetadataCodecTest 21`、`MinimalAgentRuntimeTest 69`、`AgentRunEventPresentationTest 11`、`AgentTaskRetryPolicyTest 30`、`AgentRunRetryCoordinatorTest 14`、`AgentTaskFilterPolicyTest 5`、`AgentRetryConfirmationPresentationTest 2`，`0 failures / 0 errors / 0 skipped`。
+- `:app:assembleDebug` 为 `BUILD SUCCESSFUL`，`git diff --check` 通过；本切片未执行 Redmi、全量 JVM、Lint、AndroidTest/Release APK、全量 instrumentation、发版或推送。
+
+## 2026-09-16 第 266 阶段首个切片：设备观察证据受限恢复（完成，阶段继续）
+
+### 实现与安全边界
+
+- 第265阶段真实 Redmi 前台链路中，审批等待可能超过设备 snapshot 的约 30 秒短生命周期；页面代次或节点 ref 也可能在审批期间变化。本切片没有自动刷新 snapshot 或复用旧审批继续动作。
+- `OBSERVATION_EXPIRED` 结构化为 `DEVICE_OBSERVATION_EXPIRED`；`REFERENCE_MISMATCH / WINDOW_CHANGED` 结构化为 `DEVICE_OBSERVATION_INVALIDATED`。Runtime 在 Executor 前保留失败 ToolResult、预算快照、typed `recovery.failed` 与 `run.failed`，动作控制器没有被调用。
+- 恢复建议固定为重新 `device.snapshot`、重新取得用户确认并创建关联新 Run。旧 Run、旧审批、旧 Tool Ledger、历史事件和设备外部状态保持不变；没有原地重放未知副作用、后台设备动作、Foreground Service 或新 Room Schema。
+- `AgentTaskRetryPolicy` 看到该 typed recovery failure 后强制要求重试确认，即使当前结果分类为 `NOT_COMMITTED`；这是“需要重新观察”的控制面边界，不是副作用已提交的结论。
+
+### 分级验证
+
+- JDK 21 + Gradle wrapper：受影响四个 JVM 类 `229/229`，其中 `MinimalAgentRuntimeTest 69`、`XiaoLingToolRegistryTest 112`、`AgentTaskRetryPolicyTest 29`、`WorkflowDeviceActionSafetyPolicyTest 19`，`0 failures / 0 errors / 0 skipped`。
+- 新增回归覆盖：过期 snapshot 生成稳定恢复码、窗口/ref 失效不执行设备动作、Runtime 持久化 typed recovery.failed、旧 Run 重试需确认。`:app:assembleDebug` 与 `:app:compileDebugAndroidTestKotlin` 均为 `BUILD SUCCESSFUL`。
+- 按当前分级验证约束，本切片未执行 Redmi、全量 JVM、Lint、AndroidTest/Release APK、全量 instrumentation、发版或推送；第266阶段剩余进程/审批等待/长任务切片仍未完成。
+
+## 2026-09-12 第 265 阶段：系统计算器前台计算任务（完成）
+
+### 计划门禁
+
+- 新增 `Stage265CalculatorTaskInstrumentedTest`，仅接受显式 `stage265RealRun=true` 且 `Build.DEVICE=begonia`；Profile 只开放完整 `device-control` 工具面，目标包固定为 `com.android.calculator2`。
+- 真实 Provider 计划只读结果：`OK (1 test)`，`22.72s`。模型返回6个独立步骤，必需动作顺序为 `device.open_app -> device.tap_ref -> device.tap_ref -> device.tap_ref -> device.tap_ref -> device.tap_ref`；确认前未创建 Workflow，未执行计算器动作。
+- 首轮测试夹具曾错误地按4次 `tap_ref` 断言，真实计划返回5次（清空、7、乘号、8、等号）；已修正夹具与目标为始终清空一次，定向 JVM 和 Debug/AndroidTest 构建复验通过。
+
+### 完整动作前置条件
+
+- 已验证 Redmi `wsvwypiz7xwslvl7 / begonia` 在线、`com.android.calculator2/.Calculator` 可启动，计算器 UI 暴露清空、数字7、乘法、数字8、等号及 `formula/result` 节点。
+- 系统设置页重新授权“小灵设备观察”后，采用独立前台验收通道，未启动同包 instrumentation。真实执行链为 `device.snapshot -> device.open_app -> device.tap_ref × 5 -> device.snapshot`；5 次动作审批均通过，动作后均重新观察并通过 Executor/typed 验证，空白计算器按条件跳过清空动作。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 当前计算器截图显示结果 `56`，包名为 `com.android.calculator2`；随后回到小灵，任务卡显示“任务目标已验证完成”、`7/7` 步骤完成，目标应用与实际最终应用均为 `com.android.calculator2`，结论依据为全部标准步骤和最终观察满足。没有使用坐标、截图点击或模拟器，旧 Run 保持不变。
+- 先前同包 instrumentation 触发 `ACCESSIBILITY_NOT_AUTHORIZED` 的记录保留为历史前置失败，说明的是测试通道隔离限制，不是否定生产 Accessibility 授权或本次前台闭环。
+
+### 独立前台验收证据
+
+- 屏幕可见审批 watcher 记录 5 次批准：`13:00:06`、`13:00:44`、`13:01:13`、`13:01:41`、`13:02:09`。
+- 计算器最终截图已拉回本机 `/tmp/xiaoling-stage265.png`，显示 `56`；小灵恢复截图 `/tmp/xiaoling-after-stage265.png` 显示“任务目标已验证完成”和 `7/7`。
+- ADB 前台回读确认最终计算器 Activity 为 `com.android.calculator2/.Calculator`；恢复小灵后未清数据、未卸载主应用。
+
+## 2026-09-08 第 264 阶段：一次性提醒改期（完成）
+
+### 当前实现
+
+- 新增前台 DIRECT 的 `tasks.reschedule / task-reschedule`，要求同 Run 唯一列表/详情、原计划指纹与逐次审批。审批完整展示任务、原时间、新时间和时区，新时间提交时仍需在 1 分钟至 7 天内。
+- 新系统工作项先准备，Room 事务再核对并替换旧待执行实例。入队失败原计划不变，审批漂移、Worker 抢占、同名、多实例、周期和运行中任务均拒绝；旧 Run 和已执行实例不改写。
+- 可信结果、当前 Workflow 刷新和“查看任务”共用精确参数/结果解析。Room v36 与正式版本不变，未引入 Exact Alarm、Foreground Service 或后台改期。
+
+### 分级验证
+
+- JDK 21 + Gradle wrapper 定向 JVM `180/180`，7 个测试类、`failures=0 / errors=0 / skipped=0`。最终 JVM 与 `:app:compileDebugAndroidTestKotlin` 命令为 `BUILD SUCCESSFUL in 13s`。
+- 测试类为 `AgentTaskRescheduleTest`、`XiaoLingToolRegistryTest`、`AgentSkillsTest`、`TaskReschedulePresentationTest`、`TaskScheduleControlCompletionPresentationTest`、`TaskScheduleControlWorkflowRefreshPolicyTest` 与 `TaskInspectionNavigationTest`。
+- 初轮编译发现新增 when 分支逗号、MessagePart 测试夹具缺参和断言缺少 import，均已修正；不把编译未执行的轮次计为测试通过。`git diff --check` 通过。
+- `:app:assembleDebug :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL in 12s`，Debug 主应用与测试包已分别安装到 Redmi。当前安装包为 `versionCode=19 / versionName=0.1.18 / DEBUGGABLE`，不是新 Release。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 的 `RoomTaskRescheduleInstrumentedTest` 为 `OK (6 tests)`、`1.571s`。覆盖成功替换与旧 Run 不变、入队失败原记录不变、审批期间计划漂移、Worker 先抢占、多实例/同名/周期拒绝、提交前协程取消。测试使用独立内存 Room 和可注入 scheduler，不写用户提醒或调用真实 Provider，也不证明真实 WorkManager 到期执行。
+- 存储单项命令：`adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.storage.RoomTaskRescheduleInstrumentedTest -e disableAnalytics true com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`。这一子项没有停止设备上已有的 Android CLI 交互服务。
+- Android CLI 首次把两个独立 APK 按 split APK 一起安装，返回 `INSTALL_FAILED_INVALID_APK: Split null was defined multiple times`；分两次单包安装后成功。安装使用普通全量模式，远端 DUMP 优化不可用不影响安装结果。
+- 第 264 阶段不执行完整 JVM、Lint、Release、全量 instrumentation 或语音验收；当时第 265/266 阶段尚未启动。
+- 六份长期文档已同步。没有提交、推送或修改发布版本；`AGENTS.md` 仍被 Git 忽略，未修改其中 Provider 配置。
+
+### Redmi 真实前台闭环
+
+- 新增 `Stage264TaskRescheduleInstrumentedTest`，只允许 `begonia`；使用临时最小 Profile、唯一提醒、真实 WorkManager 和 `gpt-5.6-luna / Responses`。首轮无可用选中 Provider 时，从未跟踪 `AGENTS.md` 动态读取兜底并写入 Redmi Keystore；后续复验直接使用该配置，凭据没有写入源码或文档。
+- Android CLI `layout` 返回 `Unrecognized response from instrumentation server`。确认没有其他任务正在操作 Redmi 后，仅停止故障的 `com.android.cli.interact.instrumentation` 常驻服务，随后由本次 instrumentation 独占 UiAutomation；ADB 始终在线，没有卸载小灵或修改系统安全策略。
+- 测试 APK 局部构建最终为 `BUILD SUCCESSFUL in 4s`。真实单项首轮 `OK (1 test)`（`43.27s`），收紧“查看任务”的工具标题归属后复验 `OK (1 test)`（`39.449s`）；最终命令为 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.agent.Stage264TaskRescheduleInstrumentedTest -e disableAnalytics true com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`。
+- 最终 Run `run-bc212200-7202-4747-8976-1bedf2114ef3` 为 `COMPLETED`，工具严格为 `app.current_time -> tasks.list -> tasks.inspect -> tasks.reschedule`。屏幕完整展示任务、原时间 `2026-09-08T22:00:38.41+08:00`、新时间 `2026-09-08T23:30:00+08:00` 与 `Asia/Shanghai`；批准前原 Task 和系统工作不变，批准后为 `APPROVED / PASSED / COMMITTED`。
+- Workflow 为 `workflow-9ae6e251-a8e7-4c78-bc90-fa891c633b61`，旧 Task `scheduled-task-f1472915-b733-482c-af5c-f0010791fde0` 保留原时间并变为 `CANCELLED`；唯一新 Task `scheduled-task-91d93ff7-8a34-4198-b627-048dff949897` 与新时间、COMMITTED 回执及 `ENQUEUED` WorkRequest 一致。旧 WorkRequest 为 `CANCELLED`，历史 Workflow Run 与已有 Agent Run 均未变化。
+- Activity 重建后只点击 `tasks.reschedule` 结果下的“查看任务”；页面独立显示“工作流/步骤定义/调度实例”，展开同一任务，当前时间与新旧 Task 完全等于 Room 回读。不能仅凭聊天正文命中报告导航成功。证据截图为 `/data/local/tmp/stage264-approval.png` 与 `/data/local/tmp/stage264-current-task.png`，已拉回本机并目视核对。
+- `STAGE264_CLEANUP` 确认本次全部系统工作取消、夹具 Workflow 停用、临时 Profile/会话移除、原选择恢复，成功 Run 审计保留。验收未等待新计划到点执行，不能视为精确触发、后台长期可靠性或横屏通过；本轮不再因文档同步重建 APK 或运行 Redmi corpus。
 
 ## 2026-09-07 小灵 v0.1.18 发布构建
 

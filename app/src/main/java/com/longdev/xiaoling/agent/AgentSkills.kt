@@ -312,6 +312,18 @@ object BuiltInAgentSkillRegistry : AgentSkillRegistry {
             completionCriteria = "周期计划已暂停并停止生成未来实例，或已恢复且只生成一个未来实例；否则明确说明状态未改变。",
         ),
         AgentSkillDefinition(
+            id = "task-reschedule",
+            name = "一次性提醒改期",
+            description = "把尚未开始的唯一一次性提醒改到用户指定的新时间。",
+            instructions = "用户明确要求改期时，先用 app.current_time 读取当前时间和时区，再严格执行 tasks.list -> tasks.inspect -> tasks.reschedule。精确任务名必须唯一；原时间、时区和计划指纹必须来自当前详情并原样传递，新时间必须带时区偏移，距当前至少 1 分钟且最多 7 天。审批需展示原时间、新时间和时区；成功后只按工具的回读结果回答并提供查看任务。不要修改周期规则、运行中任务或旧 Run。",
+            toolNames = setOf("app.current_time", "tasks.list", "tasks.inspect", "tasks.reschedule"),
+            keywords = setOf("提醒改期", "修改提醒", "改提醒时间", "推迟提醒", "提前提醒", "reschedule", "改到", "提醒时间"),
+            triggerExamples = listOf("把喝水提醒改到明天上午九点", "推迟这个一次性提醒"),
+            declaredRisk = ToolRisk.REQUIRES_APPROVAL,
+            failureRecovery = "没有唯一待执行的一次性实例、审批后计划变化或新时间过近时停止并重新读取；不重放未知提交的旧调用。",
+            completionCriteria = "新系统工作项与当前 Room 时间回读一致、旧待执行实例已取消，且旧 Run 和已执行实例保持不变。",
+        ),
+        AgentSkillDefinition(
             id = "personal-memory",
             name = "长期记忆",
             description = "检索或保存用户明确授权的长期记忆。",
@@ -708,7 +720,8 @@ class SkillScopedToolRegistry(
     private val allowedToolNames = selectedSkills.flatMapTo(linkedSetOf()) { it.toolNames }
 
     init {
-        val unregisteredToolNames = allowedToolNames.filter { delegate.definition(it) == null }
+        // long: Workflow 会按当前步骤临时隐藏 back/home/type_text 等动作；这里必须核对静态注册表，不能把“本步骤暂不可用”误判成 Skill 引用了不存在的工具。
+        val unregisteredToolNames = allowedToolNames.filter { delegate.registeredDefinition(it) == null }
         require(unregisteredToolNames.isEmpty()) {
             "Skill 引用了未注册工具：${unregisteredToolNames.sorted().joinToString()}"
         }

@@ -12,6 +12,18 @@ import java.time.ZonedDateTime
 
 class PersonalTaskPlanPolicyTest {
     @Test
+    fun `calculator plan preserves repeated required taps and six independent goals`() {
+        val plan = PersonalTaskPlanPolicy.parse(
+            """{"name":"计算7乘8","target_app_package":"com.android.calculator2","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app","device.tap_ref","device.tap_ref","device.tap_ref","device.tap_ref","device.tap_ref"],"expected_final_package":"com.android.calculator2"},"steps":[{"goal":"打开系统计算器"},{"goal":"始终点击一次清空键确保当前算式为空"},{"goal":"点击7"},{"goal":"点击乘号"},{"goal":"点击8"},{"goal":"点击等号并读取实际结果"}]}""",
+            allowedToolNames = setOf("device.snapshot", "device.open_app", "device.tap_ref"),
+        )
+
+        assertEquals(6, plan.steps.size)
+        assertEquals(listOf("device.open_app") + List(5) { "device.tap_ref" }, plan.verification.requiredToolNames)
+        assertEquals("com.android.calculator2", plan.verification.expectedFinalPackageName)
+    }
+
+    @Test
     fun `planning prompt keeps presentation in the final response instead of a tool step`() {
         val systemPrompt = PersonalTaskPlanPolicy.requestMessages(
             goal = "查询未来7天日历事件并展示",

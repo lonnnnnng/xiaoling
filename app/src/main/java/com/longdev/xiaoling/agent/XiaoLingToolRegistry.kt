@@ -82,6 +82,7 @@ class XiaoLingToolRegistry(
     private var verifiedNoteAppendCandidate: NoteAppendIdentity? = null
     private val approvedNoteAppendCallIds = mutableSetOf<String>()
     private var listedNotificationIds: Set<String> = emptySet()
+    private val taskRescheduleTools = AgentTaskRescheduleTools(clock, taskStore)
     // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
         val unsupported = toolNames - SUPPORTED_WORKFLOW_DEVICE_ACTION_TOOL_NAMES
@@ -677,6 +678,7 @@ class XiaoLingToolRegistry(
             replaySafety = ToolReplaySafety.IDEMPOTENT_BY_KEY,
             timeoutMs = 5_000,
         ),
+        taskRescheduleTools.definition,
         ToolDefinition(
             name = "notes.list",
             description = "列出最近创建的本地笔记。",
@@ -1207,6 +1209,7 @@ class XiaoLingToolRegistry(
             verifiedNoteAppendCandidate = null
             approvedNoteAppendCallIds.clear()
             listedNotificationIds = emptySet()
+            taskRescheduleTools.clear()
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
                 deviceController.clearReferences()
@@ -1216,6 +1219,9 @@ class XiaoLingToolRegistry(
     }
 
     override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+        if (call.name == TASK_RESCHEDULE_TOOL_NAME && approval?.approved == true) {
+            taskRescheduleTools.approved(call)
+        }
         if (call.name == CONTACT_OPEN_DIALER_TOOL_NAME && approval?.approved == true) {
             // long: 只记录当前进程已收到的逐次批准；执行函数仍会重新读取 Contacts Provider，审批不能冻结旧号码。
             approvedContactDialerCallIds += call.id
@@ -1336,7 +1342,34 @@ class XiaoLingToolRegistry(
             ),
         )
         val authorization = (decision as? WorkflowDeviceActionSafetyDecision.Allowed)?.authorization
-            ?: throw IllegalStateException((decision as WorkflowDeviceActionSafetyDecision.Denied).message)
+            ?: run {
+                val denied = decision as WorkflowDeviceActionSafetyDecision.Denied
+                val recoveryFailure = when (denied.reason) {
+                    // long: snapshot/ref 过期或窗口代次变化时不能在本地自动刷新后继续执行；结构化建议要求重新观察并创建关联新 Run，保留旧 Run 的审批和账本。
+                    com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyFailure.OBSERVATION_EXPIRED ->
+                        ToolRecoveryFailure(
+                            code = "DEVICE_OBSERVATION_EXPIRED",
+                            reason = "设备 snapshot 已过期并超过短生命周期，原审批不能继续授权该动作",
+                            suggestedAction = "请重新 snapshot 观察当前页面，并确认后创建关联新 Run；不要原地重放旧设备动作。",
+                        )
+                    com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyFailure.REFERENCE_MISMATCH,
+                    com.longdev.xiaoling.automation.WorkflowDeviceActionSafetyFailure.WINDOW_CHANGED ->
+                        ToolRecoveryFailure(
+                            code = "DEVICE_OBSERVATION_INVALIDATED",
+                            reason = "设备页面或节点引用已变化，原 snapshot/ref 不再能证明目标身份",
+                            suggestedAction = "请重新 snapshot 获取当前节点引用，并确认后创建关联新 Run；不要自动刷新后重放。",
+                        )
+                    else -> null
+                }
+                if (recoveryFailure != null) {
+                    throw AgentToolRecoveryRequiredException(
+                        toolName = call.name,
+                        toolCall = call,
+                        failure = recoveryFailure,
+                    )
+                }
+                throw IllegalStateException(denied.message)
+            }
         pendingWorkflowAction = WorkflowActionAuthorizationState(
             call = call.copy(arguments = call.arguments.toMap()),
             identity = identity,
@@ -1406,7 +1439,7 @@ class XiaoLingToolRegistry(
         }
         if (!taskScheduleControlAllowed(context)) {
             // long: 暂停和恢复会改写未来调度事实；未绑定前台直接 Run 时两项能力必须一起隐藏，避免后台或 Workflow 递归控制计划。
-            available = available.filterNot { it.name in TASK_SCHEDULE_CONTROL_TOOL_NAMES }
+            available = available.filterNot { it.name in TASK_SCHEDULE_CONTROL_TOOL_NAMES || it.name == TASK_RESCHEDULE_TOOL_NAME }
         }
         if (!agentProfileInfoAllowed(context)) {
             // long: Profile 状态只描述当前直接 Agent 的冻结身份；Workflow、后台和未绑定上下文不能把它当成可用工具发现出来。
@@ -1464,12 +1497,17 @@ class XiaoLingToolRegistry(
             (definition.name != NOTES_APPEND_TOOL_NAME || noteAppendAllowed(runContext)) &&
             (definition.name != TASK_CANCEL_TOOL_NAME || taskCancelAllowed(runContext)) &&
             (definition.name !in TASK_SCHEDULE_CONTROL_TOOL_NAMES || taskScheduleControlAllowed(runContext)) &&
+            (definition.name != TASK_RESCHEDULE_TOOL_NAME || taskScheduleControlAllowed(runContext)) &&
             (definition.name != AGENT_GET_PROFILE_TOOL_NAME || agentProfileInfoAllowed(runContext)) &&
             (definition.name != APP_GET_CONVERSATION_TOOL_NAME || conversationDetailAllowed(runContext)) &&
             (definition.name !in NOTIFICATION_TOOL_NAMES || notificationReadAllowed(runContext)) &&
             (definition.name != MEMORY_DELETE_TOOL_NAME || memoryDeleteAllowed(runContext))
             && (definition.name != APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME || deviceHealthAllowed(runContext))
     }
+
+    override fun registeredDefinition(name: String): ToolDefinition? =
+        // long: Skill 声明校验只确认工具属于生产 Registry；来源、Workflow 步骤和设备健康仍由 definition 在执行上下文中收紧。
+        tools.firstOrNull { it.name == name }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
         return when (call.name) {
@@ -1502,6 +1540,7 @@ class XiaoLingToolRegistry(
             TASK_CANCEL_TOOL_NAME -> cancelTask(call)
             TASK_PAUSE_TOOL_NAME -> mutateTaskSchedule(call, pause = true)
             TASK_RESUME_TOOL_NAME -> mutateTaskSchedule(call, pause = false)
+            TASK_RESCHEDULE_TOOL_NAME -> taskRescheduleTools.execute(call, runContext)
             "notes.list" -> listNotes(call)
             "notes.search" -> searchNotes(call)
             "notes.get" -> getNote(call)
@@ -2083,6 +2122,7 @@ class XiaoLingToolRegistry(
 
     private suspend fun listTasks(call: ToolCall): ToolExecutionResult {
         val tasks = taskStore.list(call.limit())
+        taskRescheduleTools.listed(tasks)
         if (tasks.isEmpty()) return ToolExecutionResult(success = true, content = "任务清单为空")
         val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
@@ -2109,6 +2149,7 @@ class XiaoLingToolRegistry(
 
     private suspend fun inspectTask(call: ToolCall): ToolExecutionResult {
         val name = call.arguments["name"].orEmpty().trim()
+        taskRescheduleTools.inspected(name, null)
         if (name.isBlank()) return ToolExecutionResult(success = false, content = "任务名称不能为空")
         return when (val result = taskStore.inspect(name)) {
             AgentTaskInspectionResult.NotFound -> ToolExecutionResult(
@@ -2121,12 +2162,19 @@ class XiaoLingToolRegistry(
             )
             is AgentTaskInspectionResult.Found -> {
                 val task = result.task
+                taskRescheduleTools.inspected(task.name, task.oneTimeSchedule)
                 val zone = runCatching { ZoneId.of(clock.zoneId()) }.getOrDefault(ZoneId.systemDefault())
                 val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
                 val content = buildString {
                     appendLine("任务最近运行")
                     appendLine("任务：${task.name} · ${if (task.enabled) "已启用" else "已停用"}")
                     appendLine("目标：${task.goal}")
+                    task.oneTimeSchedule?.let { schedule ->
+                        appendLine("可改期的一次性提醒")
+                        appendLine("原时间（expected_planned_at）：${Instant.ofEpochMilli(schedule.plannedAt).atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)}")
+                        appendLine("时区（time_zone）：${zone.id}")
+                        appendLine("计划指纹（expected_schedule_token）：${schedule.token}")
+                    }
                     task.recurringScheduleEnabled?.let { enabled ->
                         val type = task.recurringScheduleType?.let(::taskScheduleTypeLabel) ?: "周期计划"
                         append("$type：${if (enabled) "已启用" else "已暂停"}")

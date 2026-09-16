@@ -383,6 +383,12 @@ object PersonalTaskPlanPolicy {
             .joinToString()
             .ifBlank { "无" }
         val contextSelection = PersonalTaskPlanContextPolicy.compactForPrompt(context)
+        // long: 每个步骤会开启独立且有工具预算的 Run；设备动作要为观察和审批留出预算，连续按键不能挤进一个步骤。
+        val deviceStepGuidance = if (allowedToolNames.any { it.trim().startsWith("device.") }) {
+            "设备任务每一步最多包含一个改变界面的动作（打开、点击、输入、返回或滚动），动作前观察和动作后核对留在同一步；连续按键必须拆为多个步骤。计算器的算式显示区域不能假定可编辑，数字、运算符和等号均按独立点击规划，不用 type_text 一次输入整条算式。对于清空键等初始化动作，目标明确要求始终点击时才列为必需动作；条件满足时才执行的可选动作不能算作必需动作。只执行当前步骤，不提前执行后续步骤。最后一步必须读取实际屏幕结果，不能用心算或前序文字替代当前观察。required_tool_names 必须保留重复必需动作的次数。"
+        } else {
+            ""
+        }
         val messages = listOf(
             RequestMessage(
                 role = "system",
@@ -394,6 +400,7 @@ object PersonalTaskPlanPolicy {
                     提醒使用 WorkManager 非精确定时，系统可能延迟执行。ONCE、DAILY、WEEKLY 的 target_app_package 必须为空，完成标准不能包含 device.*；你不能承诺精确触发，也不能把需要审批的动作写成已获批或可在后台自动完成。
                     verification.required_tool_names 是确认任务完成不可缺少的工具名，按预期先后顺序填写且只能来自给定工具边界；普通观察或辅助工具可以不列入。verification.expected_final_package 是完成时必须位于的应用，不要求最终应用时返回空字符串。
                     每一步只描述可验证的业务目标，不写工具调用 JSON，不包含审批已通过或结果已产生等虚假事实。整理、展示、总结或回复用户属于最终回复工作，不能作为独立步骤；请把它们合并到最后一个需要工具验证的业务步骤之后，由 Agent 根据已验证结果统一输出。
+                    $deviceStepGuidance
                 """.trimIndent(),
             ),
             RequestMessage(

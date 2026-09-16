@@ -76,6 +76,9 @@ internal class AgentRunRetryCoordinator(
         val detail = loadRunDetailSafely(runId, "找不到要重试的 Agent Run，请刷新任务中心", onEvent)
             ?: return@launch
         when (val eligibility = AgentTaskRetryPolicy.evaluate(detail)) {
+            is AgentTaskRetryEligibility.ConfigurationRequired -> onEvent(
+                AgentRunRetryEvent.Failed(runId, eligibility.reason),
+            )
             AgentTaskRetryEligibility.NotRetryable -> onEvent(
                 AgentRunRetryEvent.Failed(runId, "当前状态不支持重试"),
             )
@@ -153,7 +156,7 @@ internal class AgentRunRetryCoordinator(
             "来源 Agent Run 已不存在，请刷新任务中心",
             onEvent,
         ) ?: return@launch
-        if (AgentTaskRetryPolicy.evaluate(detail) is AgentTaskRetryEligibility.NotRetryable) {
+        if (AgentTaskRetryPolicy.evaluate(detail) !is AgentTaskRetryEligibility.Retryable) {
             onEvent(AgentRunRetryEvent.Failed(pending.runId, "当前状态已变化，请刷新任务中心"))
             return@launch
         }

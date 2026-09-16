@@ -2,6 +2,7 @@ package com.longdev.xiaoling.agent
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -484,6 +485,16 @@ class AgentSkillsTest {
         assertTrue(skill.instructions.contains("不中断正在运行"))
         val cancelSkill = BuiltInAgentSkillRegistry.all().single { candidate -> candidate.id == "task-cancel" }
         assertEquals(setOf("tasks.list", "tasks.inspect", "tasks.cancel"), cancelSkill.toolNames)
+    }
+
+    @Test
+    fun rescheduleSkillRequiresCurrentTimeAndAnExplicitOneTimeMutation() {
+        val skill = BuiltInAgentSkillRegistry.select("把喝水提醒改到明天上午九点", limit = 5).single { it.id == "task-reschedule" }
+        assertEquals(setOf("app.current_time", "tasks.list", "tasks.inspect", "tasks.reschedule"), skill.toolNames)
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("原时间"))
+        assertTrue(skill.instructions.contains("周期规则"))
+        assertFalse(BuiltInAgentSkillRegistry.all().single { it.id == "task-overview" }.toolNames.contains("tasks.reschedule"))
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.AgentRunRestartDisposition
 import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentLlmFailureKind
+import com.longdev.xiaoling.agent.AgentLlmRetryDisposition
 import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
@@ -138,6 +139,7 @@ class AgentRunEventPresentationTest {
                 phase = com.longdev.xiaoling.agent.AgentLlmPhase.PLAN,
                 kind = AgentLlmFailureKind.CONNECTION,
                 reason = "连接意外中断",
+                retryDisposition = AgentLlmRetryDisposition.RETRY_WITHOUT_CONFIRMATION,
             ),
         )
 
@@ -145,6 +147,10 @@ class AgentRunEventPresentationTest {
         assertEquals("PLAN", presentation.fields.single { it.label == "阶段" }.value)
         assertEquals("CONNECTION", presentation.fields.single { it.label == "错误码" }.value)
         assertEquals("连接意外中断", presentation.fields.single { it.label == "原因" }.value)
+        assertEquals(
+            "RETRY_WITHOUT_CONFIRMATION",
+            presentation.fields.single { it.label == "重试处置" }.value,
+        )
         assertNull(presentation.rawFallback)
     }
 

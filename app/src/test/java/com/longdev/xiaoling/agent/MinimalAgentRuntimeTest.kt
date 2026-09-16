@@ -608,6 +608,10 @@ class MinimalAgentRuntimeTest {
             (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).kind,
         )
         assertEquals(
+            AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION,
+            (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).retryDisposition,
+        )
+        assertEquals(
             AgentExecutionBudgetSnapshot(totalTimeoutMs = 120_000, consumedMs = 37),
             (budgetAfterTelemetry.metadata as RunEventMetadata.ExecutionBudget).let {
                 AgentExecutionBudgetSnapshot(it.totalTimeoutMs, it.consumedMs)
@@ -650,6 +654,10 @@ class MinimalAgentRuntimeTest {
         assertEquals(
             AgentLlmFailureKind.UNKNOWN,
             (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).kind,
+        )
+        assertEquals(
+            AgentLlmRetryDisposition.LOCAL_FALLBACK_COMPLETED,
+            (snapshot.events.single { it.type == AgentEventTypes.LLM_REQUEST_FAILED }.metadata as RunEventMetadata.LlmFailure).retryDisposition,
         )
         assertEquals("fake.echo", summary.verifiedContext.toolName)
         assertTrue(summary.responseText.contains("总结网络中断"))
@@ -2117,6 +2125,74 @@ class MinimalAgentRuntimeTest {
         assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
         assertTrue(snapshot.run.errorMessage.orEmpty().contains("工具执行失败"))
         assertTrue(snapshot.steps.any { it.status == AgentStepStatus.FAILED })
+    }
+
+    @Test
+    fun deviceObservationRecoveryFailurePersistsTypedEvidenceAndKeepsActionUnexecuted() = runTest {
+        val ledger = InMemoryAgentRunLedger()
+        val definition = ToolDefinition(
+            name = "device.tap_ref",
+            description = "点击当前观察中的节点",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("snapshot_id", "snapshot", required = true),
+                ToolInputField("ref", "节点引用", required = true),
+            ),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+        )
+        var executeCount = 0
+        val call = ToolCall(
+            id = "tool-call-device-expired",
+            name = definition.name,
+            arguments = mapOf("snapshot_id" to "snapshot-old", "ref" to "r1"),
+            risk = definition.risk,
+        )
+        val registry = object : ToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
+            override fun availableTools(): List<ToolDefinition> = listOf(definition)
+            override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+            override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
+                throw AgentToolRecoveryRequiredException(
+                    toolName = call.name,
+                    toolCall = call,
+                    failure = ToolRecoveryFailure(
+                        code = "DEVICE_OBSERVATION_EXPIRED",
+                        reason = "设备 snapshot 已过期",
+                        suggestedAction = "请重新 snapshot 并创建关联新 Run",
+                    ),
+                )
+            }
+            override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) = Unit
+            override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                executeCount += 1
+                return ToolExecutionResult(success = true, content = "不应执行", verified = true)
+            }
+        }
+        val runtime = MinimalAgentRuntime(
+            ledger = ledger,
+            toolRegistry = registry,
+            llm = object : AgentLlm {
+                override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = call
+                override suspend fun summarize(goal: String, toolCall: ToolCall, toolResult: ToolExecutionResult): String =
+                    "{\"style\":\"compact\",\"tone\":\"neutral\"}"
+            },
+        )
+
+        assertThrows(AgentToolRecoveryRequiredException::class.java) {
+            runBlocking { runtime.run("conversation-device-expired", "message-device-expired", "点击当前页面") }
+        }
+
+        val snapshot = ledger.snapshot(requireNotNull(ledger.lastRunId))
+        val recovery = snapshot.events.single { it.type == AgentEventTypes.RECOVERY_FAILED }.metadata
+            as RunEventMetadata.RecoveryFailure
+        assertEquals(AgentRunStatus.FAILED, snapshot.run.status)
+        assertEquals("DEVICE_OBSERVATION_EXPIRED", recovery.code)
+        assertTrue(recovery.suggestedAction.contains("重新 snapshot"))
+        assertEquals(0, executeCount)
+        assertEquals(1, snapshot.events.count { it.type == "tool.result" })
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(AgentRunDetailRecord(snapshot = snapshot, approvals = emptyList())),
+        )
     }
 
     @Test

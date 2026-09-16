@@ -1,5 +1,39 @@
 # 当前实现说明
 
+## 第 266 阶段第二切片：模型请求失败的可审计重试边界（已完成，阶段继续）
+
+- `RunEventMetadata.LlmFailure` 新增稳定 `retryDisposition`：规划阶段会区分瞬态网络且尚未进入工具副作用边界的 `RETRY_WITHOUT_CONFIRMATION`、已有工具事实或证据不足的 `RETRY_WITH_CONFIRMATION`、鉴权/地址/模型问题的 `CONFIGURATION_REQUIRED`；总结阶段统一标记 `LOCAL_FALLBACK_COMPLETED`。
+- `AgentLlmRetryDispositionPolicy` 只决定控制面处置，不自动重试、不原地恢复旧模型协程，也不重放已经进入 Executor 的工具。`AgentTaskRetryPolicy` 会消费该处置：配置类失败不再进入重试准备，其他关联新 Run 仍按 Tool Ledger、验证和恢复证据重新判断。
+- `RunEventMetadataCodec` 对旧事件缺少字段、未来处置码均保守回退到 `RETRY_WITH_CONFIRMATION`；任务中心展示阶段、错误码、原因和处置快照，避免把网络异常解释藏在可变文案里。
+- 受影响 JVM `156/156`（另含 `AgentTaskRetryPolicyTest 30`、`AgentRunRetryCoordinatorTest 14`、`AgentTaskFilterPolicyTest 5`、`AgentRetryConfirmationPresentationTest 2`）通过，`:app:assembleDebug` 成功；本切片未执行 Redmi、全量 JVM、Lint、Release 或推送。
+
+## 第 266 阶段首个切片：设备观察证据受限恢复（已完成，阶段继续）
+
+- `WorkflowDeviceActionSafetyPolicy` 仍对 snapshot 生命周期、window generation、短期 ref 和审批会话做 fail-closed 核对；本切片没有放宽任何动作白名单，也没有把 SAFE 导航改成可免观察执行。
+- `XiaoLingToolRegistry.beforeToolExecution()` 对观察过期、页面代次变化和 ref 不匹配抛出 `AgentToolRecoveryRequiredException`。该异常只在 Executor 前产生，因而不会调用 `DeviceController.openApp/back/home/tap/typeText/swipe`。
+- `MinimalAgentRuntime` 在该异常边界写入失败 `tool.result`、最新执行预算、typed `recovery.failed` 和 `run.failed`，再将活动执行 Step 收敛为失败。`RunEventMetadata.RecoveryFailure` 保留稳定 code/reason/suggestedAction，不把恢复依据藏在异常字符串里。
+- `AgentTaskRetryPolicy` 将 `recovery.failed` 视为需要确认的恢复边界；用户后续只能在证据重新确认后创建关联新 Run，旧 Run、旧审批和旧 Tool Ledger 不变。没有自动刷新 snapshot、原地重放、后台执行或新 Room Schema。
+- 本切片局部验证为四个受影响 JVM 类 `229/229`，Debug APK 与 AndroidTest Kotlin 编译成功；未执行 Redmi、全量 JVM、Lint、Release 或推送。
+
+## 第 265 阶段：系统计算器前台任务（完成）
+
+- `PersonalTaskPlanPolicy` 在存在 `device.*` 工具时约束单步只包含一个改变界面的动作，并要求保留重复必需动作次数；计算器数字、运算符、等号必须逐个通过 `tap_ref` 规划，结果只能由最后的当前 snapshot 与计算器结果控件核对。
+- `Stage265CalculatorTaskInstrumentedTest` 用临时最小 Profile 和独立会话走真实计划确认链。`stage265PlanOnly=true` 只检查模型计划，不确认、不创建 Workflow；完整模式逐次点击可见“批准执行”，检查每个 Agent Run 的 `snapshot -> tap_ref -> after_snapshot`、审批和 `PASSED`，并从当前 UI 独立读取 `56`。
+- 计划门禁已在 Redmi 真实 `gpt-5.6-luna` 下通过 `OK (1 test)`（`22.72s`）。随后采用独立前台验收通道完成真实动作链：`device.snapshot -> device.open_app -> device.tap_ref × 5 -> device.snapshot`；每个动作均经屏幕可见审批，操作后重新观察并通过 Executor/typed 验证。空白计算器按条件跳过清空动作，但计划与验收标准仍保留完整的 5 次动作位；最终计算器 UI 独立显示 `56`，小灵恢复后显示“任务目标已验证完成”、`7/7` 步骤完成，目标级结论为已验证。
+- 先前同包 instrumentation 触发 `ACCESSIBILITY_NOT_AUTHORIZED` 的失败仍保留为验收通道边界记录，不代表生产设备 Agent 权限失败；本次没有使用坐标、截图点击或模拟器，也没有改写旧 Run。
+
+
+## 第 264 阶段：一次性提醒改期（完成）
+
+- `AgentTaskRescheduleTools` 管理同 Run 唯一列表/详情候选、严格时间与时区参数、逐次批准和一次性消费；`tasks.reschedule` 独立注册为前台 DIRECT 的审批工具，不进入 Workflow 或后台。
+- `RoomWorkflowRepository.oneTimeScheduleForReschedule()` 在事务内读取唯一可操作实例，指纹绑定 Workflow ID/name/updatedAt、Task ID/plannedAt/updatedAt/WorkRequest。`prepareOneTimeReschedule()` 只生成未写 Room 的独立新 ID；`RoomAgentTaskStore` 先入队，再由 `commitOneTimeReschedule()` 重新读取并 CAS 旧计划。
+- 提交事务只把旧待执行 Task 写为 CANCELLED，原 plannedAt 和历史 Run 均保留；新 Task 携带已经入队的 WorkRequest。提交时再次保证新时间至少一分钟以后，避免已到期的准备工作被激活。提交前失败或取消只撤销新工作项；提交标记与事务结果处于同一不可取消小区间，避免撤销已生效计划。
+- 提交后取消旧系统工作项并回读当前 Task/时间/WorkRequest。只有回读一致才返回 `success=true / verified=true`；已提交但回读漂移仍保留 COMMITTED 回执并拒绝成功总结。恢复保持 `RESTART_REQUIRED + DENY`，不推断幂等重放或恢复未知执行栈。
+- `TaskScheduleControlCompletionPresentation` 与 `TaskInspectionNavigation` 复用同一精确改期结果解析，驱动当前 Workflow 刷新和答案级“查看任务”。`ConversationPage` 只为改期审批完整展示四个可读字段，其他工具审批保持原样。
+- `Stage264TaskRescheduleInstrumentedTest` 使用当前真实 Provider、最小 Profile、唯一提醒和真实 WorkManager。发送与批准只点击可见节点；批准前核对原 Task 未变，批准后从 Tool Ledger 与 Room/WorkManager 共同确认 `APPROVED / PASSED / COMMITTED`、旧取消、新实例唯一入队和历史 Run 不变。
+- Activity 重建后按工具标题归属定位 `tasks.reschedule` 下的“查看任务”，避免误点 inspect 的同名入口；任务页独有标题、展开步骤、当前调度文案及 ViewModel 中同一 Workflow/Task 的 Room 记录共同证明导航与回读。验收固定竖屏并恢复原旋转策略，finally 取消本次所有系统工作、停用夹具 Workflow、移除临时 Profile/会话，保留 Run 审计。
+- Room v36、正式版本 `v0.1.18` 不变。定向 JVM `180/180`、AndroidTest 编译、Debug/AndroidTest APK、Redmi 内存 Room `6/6`（`1.571s`）和真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。新计划没有等待到点执行，不扩大为后台可靠性证明；代码未提交推送，未发版。
+
 ## 第 263 阶段：发布收尾与主线边界（完成）
 
 - `v0.1.18`（`versionCode 19`、Room v36）已发布。Android 12+ 系统 Splash 使用透明占位图标和与应用窗口同色的背景，Release 资源收缩已启用，正式 APK 已完成构建、签名、`zipalign` 与 SHA-256 资产校验；系统启动阶段本身没有被取消。
@@ -8,9 +42,9 @@
 
 ## 下一阶段实施顺序
 
-1. 冻结新的高频前台个人 Agent 任务，并完成自然语言目标到当前权威事实查看的完整链路。
-2. 在 Redmi 上扩展少量指定 App 的设备观察/动作覆盖；所有动作继续要求新鲜 snapshot、短生命周期节点引用、隐私过滤、风险审批和操作后验证。
-3. 在复杂长链或后台/定时设备自动化前，围绕新任务补齐剩余网络/进程异常与长任务处理；复用既有受限恢复，不原地重放未知副作用，必要时创建关联新 Run。
+1. 第 264 阶段“一次性提醒改期”的自然语言、可见审批、当前调度回读与查看任务闭环已完成。
+2. 第 265 阶段已完成一个指定 App 的 Redmi 前台任务；所有动作继续要求新鲜 snapshot、短生命周期节点引用、隐私过滤、风险审批和操作后验证。
+3. 第 266 阶段设备观察恢复与模型请求失败重试边界两个切片已完成；阶段继续围绕前两项真实任务暴露的进程异常、审批等待与长任务缺口补可靠性，复用既有受限恢复，不原地重放未知副作用，必要时创建关联新 Run。
 4. 根据真实耗时与系统停止证据再评估精确定时和 Foreground Service。
 5. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步保持后置。
 

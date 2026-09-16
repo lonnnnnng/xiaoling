@@ -1,5 +1,50 @@
 # 小灵个人 Agent 路线图
 
+## 第 266 阶段第二切片：模型请求失败的可审计重试边界（已完成，阶段继续）
+
+- 规划阶段的模型请求失败现在写入 typed `retryDisposition`，按错误类别与已完成工具事实区分：瞬态网络且没有工具副作用可直接创建独立新 Run；已有已验证工具事实或无法证明瞬态网络时必须确认关联新 Run；鉴权、地址和模型错误先修配置。
+- 总结阶段网络/模型失败继续使用本地可信兜底，不把已经验证的工具事实改判为 FAILED，并在事件中标记 `LOCAL_FALLBACK_COMPLETED`。
+- 旧 Run、旧审批、Tool Ledger 和已进入 Executor 的工具均不被原地重放。旧事件缺字段与未来处置码保守回退为需要确认。
+- 定向 JVM `156/156` 与 Debug 编译通过；按分级验证未运行 Redmi、全量 JVM、Lint、Release 或推送。
+
+## 第 266 阶段首个切片：设备观察证据受限恢复（已完成，阶段继续）
+
+- 第265阶段真实链路暴露出一个明确缺口：用户在审批页停留超过 snapshot 短生命周期，或页面 window generation/ref 发生变化时，旧实现只留下普通失败文案，不能审计“为什么必须重新观察”。
+- `XiaoLingToolRegistry` 现在把 `OBSERVATION_EXPIRED` 映射为 `DEVICE_OBSERVATION_EXPIRED`，把 `REFERENCE_MISMATCH / WINDOW_CHANGED` 映射为 `DEVICE_OBSERVATION_INVALIDATED`；在 Executor 前抛出结构化恢复异常，保证 `device.*` 动作不会执行。
+- Runtime 为该边界保留失败 ToolResult、执行预算、typed `recovery.failed` 和 `run.failed`；建议动作固定为重新 `device.snapshot`、重新确认并创建关联新 Run，不自动刷新后重放。旧 Run、旧审批、旧 Tool Ledger 和设备外部状态保持不变。
+- `AgentTaskRetryPolicy` 识别 `recovery.failed` 后，即使副作用分类为 `NOT_COMMITTED`，也要求用户重新确认关联重试；没有恢复旧模型协程、旧 Executor 或 Workflow 后续步骤。
+- 定向 JVM 共 `229/229`（`MinimalAgentRuntimeTest 69`、`XiaoLingToolRegistryTest 112`、`AgentTaskRetryPolicyTest 29`、`WorkflowDeviceActionSafetyPolicyTest 19`，0 失败/错误/跳过），`:app:assembleDebug` 成功。本切片未做 Redmi、完整 JVM、Lint、Release 或远端推送。
+
+### 第 266 阶段后续切片
+
+- 继续围绕进程异常、审批等待和长任务中断补齐可审计恢复；网络请求失败处置已完成首个结构化切片，保持未知副作用不原地重放，必要时创建关联新 Run。
+- 不自动刷新设备 snapshot 规避审批，不把本切片误写成后台设备自动化或 Foreground Service 依据；精确定时和 Foreground Service 仍等待真实耗时/系统停止证据。
+
+## 第 265 阶段：系统计算器前台计算任务（完成）
+
+- 冻结指定 App 任务：打开系统计算器，始终点击一次清空键，再依次点击 7、乘法运算符、8 和等号，停留在计算器并读取实际结果。目标包为 `com.android.calculator2`，不承诺任意 App。
+- 计划提示要求每个设备步骤最多一个改变界面的动作；计算器算式区按只读显示处理，数字、运算符和等号逐个使用短生命周期 `tap_ref`。条件动作不得进入必需工具契约，重复必需动作保留次数。
+- 新增 `Stage265CalculatorTaskInstrumentedTest`，支持显式 `stage265PlanOnly=true` 的计划门禁和 `stage265RealRun=true` 的完整 Redmi 闭环。完整模式会逐次处理可见审批，并独立读取计算器结果控件 `56`。
+- 已验证：定向 `PersonalTaskPlanPolicyTest`、Debug/AndroidTest APK 构建通过；Redmi 真实 `gpt-5.6-luna` 计划只读单项 `OK (1 test)`（`22.72s`），返回 6 步、`device.open_app + 5×device.tap_ref`，确认前没有 Workflow 或设备动作。
+- 已完成：独立前台验收通道在 Redmi `wsvwypiz7xwslvl7 / begonia` 完成 `device.snapshot -> device.open_app -> device.tap_ref × 5 -> device.snapshot`。5 次动作审批均为用户可见并获批准，每步操作后重新观察与验证通过；空白计算器按条件跳过清空动作，最终当前 UI 独立显示 `56`，小灵恢复后显示 `7/7` 步骤完成、目标级结论为已验证。旧 Run 未被改写，不使用模拟器。
+
+## 第 264 阶段：一次性提醒改期（真实前台闭环完成）
+
+- 冻结任务“把尚未开始的一次性提醒改到指定时间”。新增 `tasks.reschedule / task-reschedule`，沿用 `app.current_time -> tasks.list -> tasks.inspect -> 用户审批 -> 当前调度回读 -> 查看任务`，只允许前台 DIRECT。
+- 审批完整展示任务名、原时间、新时间和 IANA 时区；原时间和计划指纹必须来自同一 Run 的唯一当前详情。新时间在提交时仍须距当前至少 1 分钟、最多 7 天，系统调度仍非精确。
+- 系统先为独立新 Task ID 入队，再由 Room 事务重新核对唯一任务、原计划版本和未开始状态，并原子取消旧待执行实例、插入已绑定 WorkRequest 的新实例。入队失败原计划不变；审批漂移、同名、多活动实例、周期规则、运行中任务和 Worker 抢占均拒绝。
+- 旧待执行实例保留原时间与取消记录，旧 Run 和已执行实例不变；旧系统工作项取消失败也不能启动已取消实例。未知提交不重放，`RESTART_REQUIRED + DENY`，不新增 Room Schema、Exact Alarm 或 Foreground Service。
+- 定向 JVM `180/180`、AndroidTest Kotlin 编译、Debug/AndroidTest APK 和 Redmi 内存 Room 存储测试 `6/6`（`1.571s`）通过。随后仅 Redmi 使用真实 `gpt-5.6-luna` 完成严格四工具链，可见审批为 `APPROVED`、执行为 `PASSED / COMMITTED`，最终单项 `1/1`（`39.449s`）。
+- Run `run-bc212200-7202-4747-8976-1bedf2114ef3` 验证批准前原计划不变、批准后旧 WorkRequest `CANCELLED`、唯一新实例 `ENQUEUED`、旧 Run 不变。Activity 重建后只点击 `tasks.reschedule` 结果下的“查看任务”，当前任务页展开同一 Workflow，显示与 Room 一致的新时间和旧取消实例。夹具全部待执行工作已取消、Workflow 停用，临时 Profile/会话移除，成功 Run 审计保留。
+- 本阶段没有等待新计划到点执行，不把入队证明当作精确触发或后台长任务可靠性证明。代码未提交推送，未发版。
+
+### 已确认的后续顺序
+
+1. 第 264 阶段真实前台用户闭环已结项；不把一次性改期扩成周期规则编辑。
+2. 第 265 阶段：冻结一个指定 App 的完整前台设备任务，在 Redmi 验收，不承诺任意 App。
+3. 第 266 阶段：设备观察恢复与模型请求失败重试边界两个切片已完成，继续仅针对前两阶段暴露的进程、审批等待和长任务问题补可靠性，复用现有恢复、停止和关联新 Run 基座。
+4. 形成里程碑后再执行完整验证矩阵。Release 构建、发布和远端推送需要对应的明确授权，不随小阶段自动执行。
+
 ## 第 263 阶段：发布收尾与下一阶段路线（完成）
 
 - 发布 `v0.1.18`（`versionCode 19`、Room v36），将 Android 12+ 系统 Splash 图标改为透明占位、背景与应用窗口同色，并启用 Release 资源收缩；`assembleRelease`、签名、`zipalign` 和 SHA-256 资产校验均已完成。
@@ -8,7 +53,7 @@
 
 ### 后续路线（待实施）
 
-第 264 阶段尚未开始。本次只同步文档，不新增功能阶段；下一阶段先明确一个未贯通的用户任务、最小工具面、成功结果和权威回读入口，再进入实现。
+以下为第 263 阶段结束时的路线，现已按用户确认收敛为上方第 264 至 266 阶段顺序；第 264、265 阶段真实前台闭环已完成，下一项为第 266 阶段。
 
 1. 冻结一条新的高频个人 Agent 任务，先完成可体验的前台闭环，再决定是否扩展能力面。
 2. 设备 Agent 继续只在 Redmi 前台、少量指定 App 上推进，扩大已验收覆盖但不承诺任意 App。

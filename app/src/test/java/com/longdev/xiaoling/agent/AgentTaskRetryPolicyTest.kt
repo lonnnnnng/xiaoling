@@ -109,6 +109,52 @@ class AgentTaskRetryPolicyTest {
     }
 
     @Test
+    fun deviceObservationRecoveryFailureRequiresConfirmationForLinkedRetry() {
+        val detail = detail(
+            status = AgentRunStatus.FAILED,
+            events = listOf(
+                event(
+                    type = AgentEventTypes.RECOVERY_FAILED,
+                    metadata = RunEventMetadata.RecoveryFailure(
+                        toolName = "device.tap_ref",
+                        code = "DEVICE_OBSERVATION_EXPIRED",
+                        reason = "设备 snapshot 已过期",
+                        suggestedAction = "重新 snapshot 并创建关联新 Run",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
+    @Test
+    fun planningModelFailureDispositionPreventsDirectRetry() {
+        val detail = detail(
+            status = AgentRunStatus.FAILED,
+            events = listOf(
+                event(
+                    type = AgentEventTypes.LLM_REQUEST_FAILED,
+                    metadata = RunEventMetadata.LlmFailure(
+                        phase = AgentLlmPhase.PLAN,
+                        kind = AgentLlmFailureKind.AUTHENTICATION,
+                        reason = "Provider 鉴权失败",
+                        retryDisposition = AgentLlmRetryDisposition.CONFIGURATION_REQUIRED,
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            AgentTaskRetryEligibility.ConfigurationRequired("模型请求失败，需要先修复 Provider、地址或模型配置"),
+            AgentTaskRetryPolicy.evaluate(detail),
+        )
+    }
+
+    @Test
     fun recoveryMetadataOnAnotherEventTypeDoesNotGrantControlledReplayConfirmation() {
         val detail = detail(
             status = AgentRunStatus.CANCELLED,

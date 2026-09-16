@@ -151,6 +151,7 @@ internal fun presentAgentRunEvent(
                 "阶段" to metadata.phase.name,
                 "错误码" to metadata.kind.name,
                 "原因" to metadata.reason,
+                "重试处置" to metadata.retryDisposition.name,
             ),
         )
         is RunEventMetadata.ExecutionBudget -> AgentRunEventPresentation(

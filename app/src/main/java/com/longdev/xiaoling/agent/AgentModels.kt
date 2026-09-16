@@ -86,6 +86,13 @@ enum class AgentLlmFailureKind {
     UNKNOWN,
 }
 
+enum class AgentLlmRetryDisposition {
+    RETRY_WITHOUT_CONFIRMATION,
+    RETRY_WITH_CONFIRMATION,
+    CONFIGURATION_REQUIRED,
+    LOCAL_FALLBACK_COMPLETED,
+}
+
 data class AgentRunRecord(
     val id: String,
     val conversationId: String,
@@ -162,6 +169,7 @@ sealed interface RunEventMetadata {
         val phase: AgentLlmPhase,
         val kind: AgentLlmFailureKind,
         val reason: String,
+        val retryDisposition: AgentLlmRetryDisposition = AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION,
     ) : RunEventMetadata
 
     data class ExecutionBudget(
@@ -615,6 +623,15 @@ data class ToolRecoveryFailure(
     }
 }
 
+/**
+ * long: 设备动作在真正进入 Executor 前如果发现观察证据已失效，必须把“重新观察/新 Run”作为结构化控制面事实交给 Runtime，不能让上层只看到易变异常文案。
+ */
+class AgentToolRecoveryRequiredException(
+    val toolName: String,
+    val toolCall: ToolCall,
+    val failure: ToolRecoveryFailure,
+) : IllegalStateException(failure.reason)
+
 interface AgentRuntimeFaultInjector {
     // long: ToolResult、预算快照和 tool.verify 是独立持久化事实；测试必须能在每个边界模拟进程消失，避免把半份证据误判为可原地恢复。
     fun afterToolResultEventPersisted(runId: String, call: ToolCall, result: ToolExecutionResult) = Unit
@@ -872,6 +889,7 @@ data class AgentTaskInspectionRecord(
     val recurringScheduleType: String? = null,
     val recurringScheduleEnabled: Boolean? = null,
     val recurringNextPlannedAt: Long? = null,
+    val oneTimeSchedule: AgentTaskOneTimeScheduleRecord? = null,
 )
 
 sealed interface AgentTaskInspectionResult {
@@ -948,6 +966,8 @@ sealed interface AgentTaskScheduleMutationResult {
 interface AgentTaskStore {
     suspend fun list(limit: Int): List<AgentTaskRecord>
     suspend fun inspect(name: String): AgentTaskInspectionResult
+    suspend fun reschedule(request: AgentTaskRescheduleRequest, operationId: String): AgentTaskRescheduleResult =
+        AgentTaskRescheduleResult.Rejected("一次性提醒改期存储不可用")
     suspend fun retry(name: String, conversationId: String, idempotencyKey: String): AgentTaskRetryResult =
         AgentTaskRetryResult.Rejected("任务重试存储不可用")
     suspend fun verifyRetry(

@@ -167,7 +167,8 @@ class ProfileScopedToolRegistry(
 
     init {
         require(this.allowedToolNames.isNotEmpty()) { "Agent Profile 至少需要允许一个工具" }
-        val unknown = this.allowedToolNames.filter { delegate.definition(it) == null }
+        // long: 当前 Workflow/设备步骤会动态隐藏部分工具，但 Profile 的静态白名单仍需完整冻结；执行面再由 definition/availableTools 收紧。
+        val unknown = this.allowedToolNames.filter { delegate.registeredDefinition(it) == null }
         require(unknown.isEmpty()) { "Agent Profile 引用了未注册工具：${unknown.sorted().joinToString()}" }
     }
 
@@ -188,6 +189,9 @@ class ProfileScopedToolRegistry(
 
     override fun definition(name: String): ToolDefinition? =
         delegate.definition(name)?.takeIf { name in allowedToolNames }
+
+    override fun registeredDefinition(name: String): ToolDefinition? =
+        delegate.registeredDefinition(name)?.takeIf { name in allowedToolNames }
 
     override suspend fun execute(call: ToolCall): ToolExecutionResult {
         // long: Profile 工具白名单是用户配置的硬边界；模型、Skill 或恢复入口都只能继续缩小，不能在执行时重新扩大。

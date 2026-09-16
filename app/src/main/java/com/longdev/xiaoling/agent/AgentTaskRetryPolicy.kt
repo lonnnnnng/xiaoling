@@ -5,6 +5,10 @@ sealed interface AgentTaskRetryEligibility {
         val requiresConfirmation: Boolean,
     ) : AgentTaskRetryEligibility
 
+    data class ConfigurationRequired(
+        val reason: String,
+    ) : AgentTaskRetryEligibility
+
     data object NotRetryable : AgentTaskRetryEligibility
 }
 
@@ -32,18 +36,52 @@ object AgentTaskRetryPolicy {
     fun evaluate(detail: AgentRunDetailRecord): AgentTaskRetryEligibility {
         // long: 只有已明确结束且没有成功结果的 Run 才能重新运行；处理中或已完成 Run 禁止重试，避免同一目标被并发执行或重复产生结果。
         return if (detail.snapshot.run.status in retryableStatuses) {
+            if (hasConfigurationRequired(detail)) {
+                return AgentTaskRetryEligibility.ConfigurationRequired("模型请求失败，需要先修复 Provider、地址或模型配置")
+            }
             AgentTaskRetryEligibility.Retryable(
                 requiresConfirmation = assessEvidence(detail).requiresConfirmation ||
-                    hasRestartDisposition(detail),
+                    hasRestartDisposition(detail) ||
+                    hasRecoveryFailure(detail) ||
+                    hasLlmRetryConfirmation(detail),
             )
         } else {
             AgentTaskRetryEligibility.NotRetryable
         }
     }
 
+    private fun hasConfigurationRequired(detail: AgentRunDetailRecord): Boolean {
+        // long: 配置错误不会因重复提交而消失；任务中心隐藏重试入口，避免用户在同一错误配置下反复创建新 Run。
+        return latestPlanningLlmFailure(detail)?.retryDisposition == AgentLlmRetryDisposition.CONFIGURATION_REQUIRED
+    }
+
+    internal fun latestPlanningLlmFailure(detail: AgentRunDetailRecord): RunEventMetadata.LlmFailure? {
+        return detail.snapshot.events.asReversed().firstNotNullOfOrNull { event ->
+            if (event.type != AgentEventTypes.LLM_REQUEST_FAILED) return@firstNotNullOfOrNull null
+            (event.metadata as? RunEventMetadata.LlmFailure)
+                ?.takeIf { it.phase == AgentLlmPhase.PLAN }
+        }
+    }
+
     private fun hasRestartDisposition(detail: AgentRunDetailRecord): Boolean {
         // long: 只要启动恢复已冻结结构化处置，后续就必须再经一次用户确认创建关联新 Run；“明确未提交”只能降低副作用风险，不能把旧 Run 的启动处置变成直接续跑授权。
         return detail.latestRecoveryMetadata()?.restartDisposition != null
+    }
+
+    private fun hasRecoveryFailure(detail: AgentRunDetailRecord): Boolean {
+        // long: 设备观察过期、引用失效等失败没有外部副作用，但旧审批也不能继续使用；任务中心必须要求用户重新观察并确认后创建关联新 Run。
+        return detail.snapshot.events.any { event ->
+            event.type == AgentEventTypes.RECOVERY_FAILED &&
+                event.metadata is RunEventMetadata.RecoveryFailure
+        }
+    }
+
+    private fun hasLlmRetryConfirmation(detail: AgentRunDetailRecord): Boolean {
+        // long: 规划阶段的模型失败处置是独立审计证据；响应歧义和配置问题不能因为没有 ToolResult 就自动进入新 Run。
+        return latestPlanningLlmFailure(detail)?.retryDisposition in setOf(
+            AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION,
+            AgentLlmRetryDisposition.CONFIGURATION_REQUIRED,
+        )
     }
 
     fun assessEvidence(detail: AgentRunDetailRecord): AgentTaskRetryEvidence {

@@ -16,6 +16,8 @@ import com.longdev.xiaoling.agent.AgentTaskScheduleState
 import com.longdev.xiaoling.agent.AgentTaskRunDiagnosis
 import com.longdev.xiaoling.agent.AgentTaskRunStepRecord
 import com.longdev.xiaoling.agent.AgentTaskStore
+import com.longdev.xiaoling.agent.AgentTaskRescheduleRequest
+import com.longdev.xiaoling.agent.AgentTaskRescheduleResult
 import com.longdev.xiaoling.automation.ScheduledTaskPolicy
 import com.longdev.xiaoling.automation.ScheduledTaskScheduler
 import com.longdev.xiaoling.automation.ScheduledTaskStatus
@@ -29,6 +31,11 @@ import com.longdev.xiaoling.automation.WorkflowScheduleRecord
 import com.longdev.xiaoling.automation.WorkflowStepRecord
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 private sealed interface RecurringScheduleLookup {
     data class Found(
@@ -106,6 +113,7 @@ internal class RoomAgentTaskStore(
         if (matches.size > 1) return AgentTaskInspectionResult.Ambiguous(matches.size)
 
         val workflow = matches.single()
+        val oneTimeSchedule = repository.oneTimeScheduleForReschedule(normalizedName)
         val recurringSchedule = repository.listWorkflowSchedules().singleOrNull { schedule ->
             schedule.workflowId == workflow.id
         }
@@ -125,6 +133,7 @@ internal class RoomAgentTaskStore(
                     recurringScheduleType = recurringSchedule?.type?.name,
                     recurringScheduleEnabled = recurringSchedule?.enabled,
                     recurringNextPlannedAt = recurringSchedule?.nextPlannedAt,
+                    oneTimeSchedule = oneTimeSchedule,
                 ),
             )
         }
@@ -147,6 +156,7 @@ internal class RoomAgentTaskStore(
                 recurringScheduleType = recurringSchedule?.type?.name,
                 recurringScheduleEnabled = recurringSchedule?.enabled,
                 recurringNextPlannedAt = recurringSchedule?.nextPlannedAt,
+                oneTimeSchedule = oneTimeSchedule,
             ),
         )
     }
@@ -176,6 +186,41 @@ internal class RoomAgentTaskStore(
                 ),
             )
         }
+    }
+
+    override suspend fun reschedule(request: AgentTaskRescheduleRequest, operationId: String): AgentTaskRescheduleResult {
+        require(operationId.isNotBlank()) { "改期调用身份不能为空" }
+        val preparation = repository.prepareOneTimeReschedule(request)
+            ?: return AgentTaskRescheduleResult.Rejected("任务不唯一、已开始、非一次性计划或已在审批后变化，请重新读取任务。")
+        val replacement = preparation.replacement
+        var committed = false
+        var workRequestId: String? = null
+        try {
+            val enqueuedWorkRequestId = scheduler.enqueue(replacement)
+            workRequestId = enqueuedWorkRequestId
+            currentCoroutineContext().ensureActive()
+            // long: Room 提交结果与本地 committed 标记一起越过取消边界，避免取消信号误把已经生效的新计划当作孤立工作项撤销。
+            withContext(NonCancellable) {
+                committed = repository.commitOneTimeReschedule(request, preparation, enqueuedWorkRequestId)
+            }
+            if (!committed) return AgentTaskRescheduleResult.Rejected("系统准备期间任务或时间已变化，未改期；请重新查看任务。")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return AgentTaskRescheduleResult.Rejected("新计划入队或提交失败，未确认改期成功；请查看任务当前状态。")
+        } finally {
+            if (!committed) withContext(NonCancellable) { runCatching { scheduler.cancel(replacement.id) } }
+        }
+        val cancellationFailed = withContext(NonCancellable) {
+            runCatching { scheduler.cancel(preparation.originalTaskId) }.isFailure
+        }
+        val current = repository.getScheduledTask(replacement.id)
+        val original = repository.getScheduledTask(preparation.originalTaskId)
+        val identity = repository.oneTimeScheduleForReschedule(request.name)
+        val verified = current?.status == ScheduledTaskStatus.SCHEDULED && current.plannedAt == request.plannedAtMillis &&
+            current.workRequestId == workRequestId && original?.status == ScheduledTaskStatus.CANCELLED &&
+            identity?.plannedAt == request.plannedAtMillis
+        return AgentTaskRescheduleResult.Committed(replacement.id, verified, cancellationFailed)
     }
 
     override suspend fun verifyRetry(

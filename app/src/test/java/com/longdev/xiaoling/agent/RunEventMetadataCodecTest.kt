@@ -92,6 +92,7 @@ class RunEventMetadataCodecTest {
             phase = AgentLlmPhase.PLAN,
             kind = AgentLlmFailureKind.CONNECTION,
             reason = "连接意外中断",
+            retryDisposition = AgentLlmRetryDisposition.RETRY_WITHOUT_CONFIRMATION,
         )
 
         assertEquals(
@@ -106,6 +107,17 @@ class RunEventMetadataCodecTest {
             "{\"phase\":\"SUMMARIZE\",\"kind\":\"FUTURE_KIND\",\"reason\":\"future\"}",
         ) as RunEventMetadata.LlmFailure
         assertEquals(AgentLlmFailureKind.UNKNOWN, unknown.kind)
+        assertEquals(AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION, unknown.retryDisposition)
+    }
+
+    @Test
+    fun unknownRetryDispositionFailsClosedToConfirmation() {
+        val decoded = RunEventMetadataCodec.decode(
+            AgentEventTypes.LLM_REQUEST_FAILED,
+            "{\"phase\":\"PLAN\",\"kind\":\"CONNECTION\",\"reason\":\"连接中断\",\"retryDisposition\":\"FUTURE\"}",
+        ) as RunEventMetadata.LlmFailure
+
+        assertEquals(AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION, decoded.retryDisposition)
     }
 
     @Test

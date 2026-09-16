@@ -48,6 +48,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
             eventType = event.eventType,
             activeRootWindowId = activeRootWindowId,
             windows = windowSnapshots,
+            eventBelongsToOverlayHost = event.packageName?.toString() == packageName,
         )
         DeviceAccessibilityRuntime.onAccessibilityEvent(
             windowId = event.windowId,

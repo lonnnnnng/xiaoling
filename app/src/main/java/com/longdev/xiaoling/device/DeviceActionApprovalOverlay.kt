@@ -152,6 +152,7 @@ internal class DeviceActionApprovalOverlayCoordinator {
         eventType: Int,
         activeRootWindowId: Int,
         windows: Set<DeviceAccessibilityWindowSnapshot>,
+        eventBelongsToOverlayHost: Boolean = false,
     ): DeviceActionApprovalOverlayObservation {
         val current = active ?: return DeviceActionApprovalOverlayObservation()
         if (activeRootWindowId != current.targetWindowId) {
@@ -159,7 +160,12 @@ internal class DeviceActionApprovalOverlayCoordinator {
         }
         if (
             eventWindowId == current.targetWindowId &&
-            eventType in TARGET_CONTENT_INVALIDATING_EVENTS
+            eventType in TARGET_CONTENT_INVALIDATING_EVENTS &&
+            // long: 审批浮层显示后，小灵自身会刷新运行卡、审批状态和进度；这些宿主页面事件不是外部目标漂移。
+            // 用户已经批准后，目标应用自身的内容事件也不能取消审批；generation 仍会照常失效，
+            // 让后续引用动作通过窗口与节点指纹重新校验，避免把过期 ref 当成可执行授权。
+            !(eventBelongsToOverlayHost && current.overlayViewAdded) &&
+            current.pendingDecision == null
         ) {
             return finishWindowChanged("审批期间目标页面内容已经变化")
         }

@@ -10,8 +10,13 @@ import com.longdev.xiaoling.agent.AgentRunRestartDisposition
 import com.longdev.xiaoling.agent.AgentRunRestartDispositionCode
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentEventTypes
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
 import com.longdev.xiaoling.agent.AgentTaskRetryPolicy
+import com.longdev.xiaoling.agent.AgentTaskRetryEligibility
+import com.longdev.xiaoling.agent.AgentLlmFailureKind
+import com.longdev.xiaoling.agent.AgentLlmPhase
+import com.longdev.xiaoling.agent.AgentLlmRetryDisposition
 import com.longdev.xiaoling.agent.RunEventMetadata
 import com.longdev.xiaoling.agent.RunEventRecord
 import com.longdev.xiaoling.agent.ToolCall
@@ -225,6 +230,41 @@ class AgentRunRetryCoordinatorTest {
 
         assertEquals(
             listOf(AgentRunRetryEvent.PreparationRequired(detail)),
+            events,
+        )
+    }
+
+    @Test
+    fun configurationFailureDoesNotOpenRetryPreparation() = runTest {
+        val detail = detail(
+            status = AgentRunStatus.FAILED,
+            events = listOf(
+                event(
+                    type = AgentEventTypes.LLM_REQUEST_FAILED,
+                    metadata = RunEventMetadata.LlmFailure(
+                        phase = AgentLlmPhase.PLAN,
+                        kind = AgentLlmFailureKind.AUTHENTICATION,
+                        reason = "Provider 鉴权失败",
+                        retryDisposition = AgentLlmRetryDisposition.CONFIGURATION_REQUIRED,
+                    ),
+                ),
+            ),
+        )
+        val events = mutableListOf<AgentRunRetryEvent>()
+
+        coordinator(this, detail).request(
+            runId = detail.snapshot.run.id,
+            busy = false,
+            onEvent = events::add,
+        ).join()
+
+        assertEquals(
+            listOf(
+                AgentRunRetryEvent.Failed(
+                    "run-source",
+                    "模型请求失败，需要先修复 Provider、地址或模型配置",
+                ),
+            ),
             events,
         )
     }

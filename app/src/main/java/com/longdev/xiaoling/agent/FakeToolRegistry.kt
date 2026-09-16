@@ -3,6 +3,10 @@ package com.longdev.xiaoling.agent
 interface ToolRegistry {
     fun availableTools(): List<ToolDefinition>
     fun definition(name: String): ToolDefinition?
+    /**
+     * long: Skill 声明校验只读取静态注册表；实际执行仍必须经过当前 Run 的动态 definition 门禁。
+     */
+    fun registeredDefinition(name: String): ToolDefinition? = definition(name)
     suspend fun execute(call: ToolCall): ToolExecutionResult
     suspend fun verifyCommittedEffect(
         call: ToolCall,

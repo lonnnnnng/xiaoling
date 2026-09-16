@@ -350,6 +350,60 @@ class DeviceActionApprovalOverlayCoordinatorTest {
     }
 
     @Test
+    fun overlayHostContentRefreshDoesNotCancelApprovalAfterOverlayIsAdded() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val baseline = baselineWindows()
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        coordinator.recordOverlayAdded(started.token)
+
+        val refreshed = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline + DeviceAccessibilityWindowSnapshot(OVERLAY_WINDOW_ID, ownedApprovalOverlay = true),
+            eventBelongsToOverlayHost = true,
+        )
+
+        assertFalse(refreshed.removeOverlay)
+        assertNull(refreshed.completion)
+    }
+
+    @Test
+    fun approvedTargetContentChangeKeepsApprovalPendingUntilOverlayDetaches() {
+        val coordinator = DeviceActionApprovalOverlayCoordinator()
+        val tracker = DeviceWindowGenerationTracker()
+        val baseline = baselineWindows()
+        val capturedGeneration = tracker.markCapturedWindow(TARGET_WINDOW_ID)
+        val started = coordinator.begin(TARGET_WINDOW_ID, baseline)
+            as DeviceActionApprovalOverlayStart.Started
+        coordinator.recordOverlayAdded(started.token)
+        assertTrue(coordinator.recordUserDecision(started.token, approved = true))
+
+        val changed = coordinator.observeWindows(
+            eventWindowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            windows = baseline,
+        )
+        tracker.onAccessibilityEvent(
+            windowId = TARGET_WINDOW_ID,
+            eventType = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            activeRootWindowId = TARGET_WINDOW_ID,
+            suppressInvalidation = changed.suppressGenerationInvalidation,
+        )
+
+        assertFalse(changed.removeOverlay)
+        assertNull(changed.completion)
+        assertEquals(started.token, changed.settleToken)
+        assertNotEquals(capturedGeneration, tracker.currentGeneration())
+        assertEquals(
+            DeviceActionApprovalOverlayDecisionKind.APPROVED,
+            coordinator.settleDetachedOverlay(started.token, TARGET_WINDOW_ID, baseline)?.kind,
+        )
+    }
+
+    @Test
     fun disconnectAndDetachTimeoutNeverApproveRequest() {
         val coordinator = DeviceActionApprovalOverlayCoordinator()
         val started = coordinator.begin(TARGET_WINDOW_ID, baselineWindows())

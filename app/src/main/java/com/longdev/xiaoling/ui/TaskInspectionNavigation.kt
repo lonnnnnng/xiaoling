@@ -3,10 +3,16 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.automation.WorkflowRecord
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.model.MessageToolVerificationStatus
+import com.longdev.xiaoling.agent.TASK_RESCHEDULE_TOOL_NAME
 
 internal fun MessagePart.Tool.inspectedTaskNameForNavigation(): String? {
     if (!success) return null
     if (verificationStatus == MessageToolVerificationStatus.FAILED) return null
+    if (toolName == TASK_RESCHEDULE_TOOL_NAME) {
+        return parseTrustedTaskScheduleControlResult(toolName, arguments, result)
+            ?.takeIf { verificationStatus == MessageToolVerificationStatus.VERIFIED }
+            ?.taskName
+    }
     if (arguments.keys != setOf(TASK_NAME_ARGUMENT)) return null
     val taskName = arguments[TASK_NAME_ARGUMENT]
         ?.trim()

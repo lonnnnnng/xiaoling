@@ -3,6 +3,8 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.AgentVerificationStatus
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.agent.VerifiedToolExecution
+import com.longdev.xiaoling.agent.AgentTaskRescheduleRequest
+import com.longdev.xiaoling.agent.TASK_RESCHEDULE_TOOL_NAME
 
 internal data class TaskScheduleControlCompletionPresentation(
     val role: String,
@@ -19,6 +21,14 @@ internal enum class TaskScheduleControlState {
     ALREADY_PAUSED,
     RESUMED,
     ALREADY_RESUMED,
+    RESCHEDULED,
+}
+
+internal fun taskRescheduleApprovalText(toolName: String, arguments: Map<String, String>): String? {
+    if (toolName != TASK_RESCHEDULE_TOOL_NAME) return null
+    val request = AgentTaskRescheduleRequest.parse(arguments) ?: return null
+    // long: 用户批准的是具体时间变化；可读字段逐行完整展示，内部指纹留在审计参数中，不能挤掉原时间或新时间。
+    return "任务：${request.name}\n原时间：${request.expectedPlannedAt}\n新时间：${request.plannedAt}\n时区：${request.timeZone}"
 }
 
 internal fun presentTaskScheduleControlCompletion(
@@ -55,6 +65,7 @@ internal fun presentTaskScheduleControlCompletion(
             "周期计划已恢复：$taskName\n只安排当前时间之后的一个实例，不补跑暂停期间的周期。旧运行记录保持不变。"
         TaskScheduleControlState.ALREADY_RESUMED ->
             "周期计划已处于恢复状态：$taskName\n无需重复操作，也不会补跑暂停期间的周期。旧运行记录保持不变。"
+        TaskScheduleControlState.RESCHEDULED -> execution.rawResult
     }
     // long: 暂停/恢复终态只消费应用执行器的稳定首行，不把模型总结、内部 ID 或原始调度回执提升为任务事实。
     return TaskScheduleControlCompletionPresentation(role = "assistant", text = text)
@@ -65,6 +76,12 @@ internal fun parseTrustedTaskScheduleControlResult(
     arguments: Map<String, String>,
     rawResult: String,
 ): TrustedTaskScheduleControlResult? {
+    if (toolName == TASK_RESCHEDULE_TOOL_NAME) {
+        val request = AgentTaskRescheduleRequest.parse(arguments) ?: return null
+        // long: 改期答案必须逐字段对应审批参数；模型补充的时间或仅含成功关键词的正文不能生成可信终态。
+        if (rawResult != request.resultText() && rawResult != request.resultText(systemCancellationFailed = true)) return null
+        return TrustedTaskScheduleControlResult(request.name, TaskScheduleControlState.RESCHEDULED)
+    }
     if (arguments.keys != setOf(TASK_NAME_ARGUMENT)) return null
     val taskName = arguments[TASK_NAME_ARGUMENT]
         ?.trim()
@@ -104,4 +121,4 @@ private const val PAUSE_CHANGED_RESULT = "周期计划已暂停，后续不会�
 private const val PAUSE_UNCHANGED_RESULT = "周期计划已经暂停，无需重复操作"
 private const val RESUME_CHANGED_RESULT = "周期计划已恢复"
 private const val RESUME_UNCHANGED_RESULT = "周期计划已经处于恢复状态，无需重复操作"
-private val TASK_SCHEDULE_CONTROL_TOOL_NAMES = setOf(TASK_PAUSE_TOOL_NAME, TASK_RESUME_TOOL_NAME)
+private val TASK_SCHEDULE_CONTROL_TOOL_NAMES = setOf(TASK_PAUSE_TOOL_NAME, TASK_RESUME_TOOL_NAME, TASK_RESCHEDULE_TOOL_NAME)

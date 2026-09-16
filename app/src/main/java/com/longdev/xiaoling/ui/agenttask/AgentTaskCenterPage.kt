@@ -498,6 +498,13 @@ private fun AgentRunHistoryItemCard(
                     },
                 )
             }
+            if (retryEligibility is AgentTaskRetryEligibility.ConfigurationRequired) {
+                Text(
+                    text = retryEligibility.reason,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             restartDisposition?.let { disposition ->
                 AgentRunRestartDispositionGuidance(disposition)
             }

@@ -47,6 +47,7 @@ internal object RunEventMetadataCodec {
                 .put("phase", metadata.phase.name)
                 .put("kind", metadata.kind.name)
                 .put("reason", metadata.reason)
+                .put("retryDisposition", metadata.retryDisposition.name)
             is RunEventMetadata.ExecutionBudget -> JSONObject()
                 .put("totalTimeoutMs", metadata.totalTimeoutMs)
                 .put("consumedMs", metadata.consumedMs)
@@ -169,6 +170,11 @@ internal object RunEventMetadataCodec {
                             .getOrElse { AgentLlmFailureKind.UNKNOWN }
                     } ?: AgentLlmFailureKind.UNKNOWN,
                     reason = json.requiredString("reason"),
+                    retryDisposition = json.stringOrNull("retryDisposition")?.let { value ->
+                        // long: 未来版本新增处置码时必须回退到需要确认，不能把未知网络边界误当成可直接重试。
+                        runCatching { AgentLlmRetryDisposition.valueOf(value) }
+                            .getOrElse { AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION }
+                    } ?: AgentLlmRetryDisposition.RETRY_WITH_CONFIRMATION,
                 )
                 AgentEventTypes.EXECUTION_BUDGET_UPDATED -> RunEventMetadata.ExecutionBudget(
                     totalTimeoutMs = json.getLong("totalTimeoutMs"),

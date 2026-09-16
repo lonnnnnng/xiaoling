@@ -82,6 +82,7 @@ import com.longdev.xiaoling.model.DocumentAttachment
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.share.SharedDraftPayload
 import com.longdev.xiaoling.ui.AgentApprovalUiState
+import com.longdev.xiaoling.ui.taskRescheduleApprovalText
 import com.longdev.xiaoling.ui.AgentStatusChip
 import com.longdev.xiaoling.ui.AgentStepRow
 import com.longdev.xiaoling.ui.PageTitle
@@ -1222,13 +1223,14 @@ private fun AgentApprovalCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (approval.arguments.isNotEmpty()) {
+                val rescheduleText = taskRescheduleApprovalText(approval.toolName, approval.arguments)
                 Text(
-                    text = approval.arguments.entries.joinToString(" · ") { entry ->
+                    text = rescheduleText ?: approval.arguments.entries.joinToString(" · ") { entry ->
                         "${entry.key}=${entry.value}"
                     },
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
-                    maxLines = 2,
+                    style = if (rescheduleText != null) MaterialTheme.typography.bodySmall else MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = if (rescheduleText != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+                    maxLines = if (rescheduleText != null) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

@@ -149,11 +149,15 @@ class MinimalAgentRuntime internal constructor(
             settleCancelledRun(run.id, state, "用户取消受控关联重试")
             throw error
         } catch (error: Throwable) {
-            withContext(NonCancellable) {
-                val reason = error.message ?: "受控关联重试失败"
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            if (error is AgentToolRecoveryRequiredException) {
+                settleDeviceRecoveryRequired(run.id, state, error)
+            } else {
+                withContext(NonCancellable) {
+                    val reason = error.message ?: "受控关联重试失败"
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                }
             }
             throw error
         }
@@ -255,12 +259,16 @@ class MinimalAgentRuntime internal constructor(
             settleCancelledRun(run.id, state, "用户取消 Agent 任务")
             throw error
         } catch (error: Throwable) {
-            withContext(NonCancellable) {
-                // long: 失败终态是后续审计和恢复任务的依据，即使上游异常叠加协程取消，也要尽量把当前 step 和 run 写成可追踪的 FAILED。
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
-                val reason = error.message ?: "Agent 任务失败"
-                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = error.message ?: "Agent 任务失败")
+            if (error is AgentToolRecoveryRequiredException) {
+                settleDeviceRecoveryRequired(run.id, state, error)
+            } else {
+                withContext(NonCancellable) {
+                    // long: 失败终态是后续审计和恢复任务的依据，即使上游异常叠加协程取消，也要尽量把当前 step 和 run 写成可追踪的 FAILED。
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
+                    val reason = error.message ?: "Agent 任务失败"
+                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = error.message ?: "Agent 任务失败")
+                }
             }
             throw error
         }
@@ -360,11 +368,15 @@ class MinimalAgentRuntime internal constructor(
             settleCancelledRun(run.id, state, "用户取消 Agent 任务")
             throw error
         } catch (error: Throwable) {
-            withContext(NonCancellable) {
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
-                val reason = error.message ?: "Agent 任务失败"
-                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            if (error is AgentToolRecoveryRequiredException) {
+                settleDeviceRecoveryRequired(run.id, state, error)
+            } else {
+                withContext(NonCancellable) {
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.message ?: "Agent 任务失败") }
+                    val reason = error.message ?: "Agent 任务失败"
+                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                }
             }
             throw error
         }
@@ -534,11 +546,15 @@ class MinimalAgentRuntime internal constructor(
             settleCancelledRun(run.id, state, "用户取消已验证结果恢复")
             throw error
         } catch (error: Throwable) {
-            withContext(NonCancellable) {
-                val reason = error.message ?: "已验证工具结果恢复失败"
-                state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
-                ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
-                ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+            if (error is AgentToolRecoveryRequiredException) {
+                settleDeviceRecoveryRequired(run.id, state, error)
+            } else {
+                withContext(NonCancellable) {
+                    val reason = error.message ?: "已验证工具结果恢复失败"
+                    state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, reason) }
+                    ledger.appendEvent(run.id, "run.failed", reason, RunEventMetadata.Reason(reason))
+                    ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
+                }
             }
             throw error
         }
@@ -579,14 +595,14 @@ class MinimalAgentRuntime internal constructor(
                 appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, error.telemetry)
                 // long: 模型已消耗的单调预算必须和失败遥测一起落库；否则进程重建或任务重试会看见过期预算快照，误以为这段网络等待从未发生。
                 persistExecutionBudget(run.id, "模型规划失败后的执行预算", state.executionBudget)
-                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error)
+                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error, state.completedTools.size)
                 throw error
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 // long: 网络、解析和网关异常没有统一 telemetry 时仍要冻结已消耗预算，再由外层写入失败终态，不能留下只写 Step 的半份审计。
                 persistExecutionBudget(run.id, "模型规划异常后的执行预算", state.executionBudget)
-                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error)
+                appendLlmFailureEvent(run.id, AgentLlmPhase.PLAN, error, state.completedTools.size)
                 throw error
             }
             appendLlmRequestEvent(run.id, AgentLlmPhase.PLAN, planCall.telemetry)
@@ -880,14 +896,14 @@ class MinimalAgentRuntime internal constructor(
         } catch (error: AgentLlmResponseException) {
             appendLlmRequestEvent(run.id, AgentLlmPhase.SUMMARIZE, error.telemetry)
             persistExecutionBudget(run.id, "模型总结失败后的执行预算", state.executionBudget)
-            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error)
+            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error, state.completedTools.size)
             summaryFallbackReason = error.message ?: "模型总结失败"
             null
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             persistExecutionBudget(run.id, "模型总结异常后的执行预算", state.executionBudget)
-            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error)
+            appendLlmFailureEvent(run.id, AgentLlmPhase.SUMMARIZE, error, state.completedTools.size)
             summaryFallbackReason = error.message ?: "模型总结异常"
             null
         }
@@ -996,16 +1012,20 @@ class MinimalAgentRuntime internal constructor(
         runId: String,
         phase: AgentLlmPhase,
         error: Throwable,
+        completedToolCount: Int,
     ) {
-        // long: 失败分类只保存稳定枚举和可读原因，不把网络异常对象或请求正文写入 Room；流式断流、HTTP 错误和解析失败因此共享同一审计入口。
+        val kind = error.toAgentLlmFailureKind()
+        val retryDisposition = AgentLlmRetryDispositionPolicy.classify(phase, kind, completedToolCount)
+        // long: 失败分类和重试处置只保存稳定枚举与可读原因，不把网络异常对象或请求正文写入 Room；任务中心因此能区分直接新 Run、确认关联新 Run 与先修配置。
         ledger.appendEvent(
             runId = runId,
             type = AgentEventTypes.LLM_REQUEST_FAILED,
             message = "模型请求失败：${phase.name.lowercase()}",
             metadata = RunEventMetadata.LlmFailure(
                 phase = phase,
-                kind = error.toAgentLlmFailureKind(),
+                kind = kind,
                 reason = error.message ?: "未知模型请求错误",
+                retryDisposition = retryDisposition,
             ),
         )
     }
@@ -1021,6 +1041,51 @@ class MinimalAgentRuntime internal constructor(
             state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.CANCELLED, reason) }
             ledger.appendEvent(runId, "run.cancelled", reason, RunEventMetadata.Reason(reason))
             ledger.updateRunStatus(runId, AgentRunStatus.CANCELLED, errorMessage = reason)
+        }
+    }
+
+    private suspend fun settleDeviceRecoveryRequired(
+        runId: String,
+        state: AgentRuntimeExecutionState,
+        error: AgentToolRecoveryRequiredException,
+    ) {
+        withContext(NonCancellable) {
+            // long: 观察证据在 Executor 前失效时，动作没有启动；仍写入失败 ToolResult 和 typed recovery.failed，令重试分类、任务中心和旧 Run 审计共享同一边界。
+            val definition = toolRegistry.definition(error.toolName)
+            ledger.appendEvent(
+                runId = runId,
+                type = "tool.result",
+                message = "设备动作未执行：${error.toolName}",
+                metadata = RunEventMetadata.ToolResult(
+                    toolName = error.toolName,
+                    content = error.failure.reason,
+                    durationMs = 0L,
+                    success = false,
+                    verified = false,
+                    toolCallId = error.toolCall.id,
+                    replaySafety = definition?.replaySafety ?: ToolReplaySafety.RESTART_REQUIRED,
+                ),
+            )
+            persistExecutionBudget(runId, "设备动作恢复失败后的执行预算", state.executionBudget)
+            state.activeStepId?.let { ledger.updateStep(it, AgentStepStatus.FAILED, error.failure.reason) }
+            ledger.appendEvent(
+                runId = runId,
+                type = AgentEventTypes.RECOVERY_FAILED,
+                message = "设备动作需要重新观察：${error.toolName}",
+                metadata = RunEventMetadata.RecoveryFailure(
+                    toolName = error.toolName,
+                    code = error.failure.code,
+                    reason = error.failure.reason,
+                    suggestedAction = error.failure.suggestedAction,
+                ),
+            )
+            ledger.appendEvent(
+                runId = runId,
+                type = "run.failed",
+                message = error.failure.reason,
+                metadata = RunEventMetadata.Reason(error.failure.reason),
+            )
+            ledger.updateRunStatus(runId, AgentRunStatus.FAILED, errorMessage = error.failure.reason)
         }
     }
 

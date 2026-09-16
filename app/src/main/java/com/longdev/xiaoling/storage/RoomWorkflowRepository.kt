@@ -3,6 +3,8 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import androidx.room.withTransaction
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.AgentTaskOneTimeScheduleRecord
+import com.longdev.xiaoling.agent.AgentTaskRescheduleRequest
 import com.longdev.xiaoling.automation.WorkflowDefinitionPolicy
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationContractCodec
@@ -60,9 +62,11 @@ import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceCodec
 import com.longdev.xiaoling.model.MessageOrigin
 import java.time.ZoneId
+import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
+import org.json.JSONArray
 
 internal sealed interface WorkflowTaskRetryCommitResult {
     data class Queued(
@@ -81,6 +85,8 @@ internal data class WorkflowTaskRetryVerification(
     val detail: WorkflowRunDetail,
     val reusedStepCount: Int,
 )
+
+internal data class OneTimeReschedulePreparation(val originalTaskId: String, val replacement: ScheduledTaskRecord)
 
 private fun workflowTaskRetryRunId(idempotencyKey: String): String {
     val stableId = UUID.nameUUIDFromBytes("tasks.retry:$idempotencyKey".toByteArray(Charsets.UTF_8))
@@ -451,6 +457,83 @@ class RoomWorkflowRepository(
             dao.upsertScheduledTask(task)
             task.toRecord()
         }
+    }
+
+    internal suspend fun oneTimeScheduleForReschedule(name: String): AgentTaskOneTimeScheduleRecord? = database.withTransaction {
+        reschedulableOneTimeTask(name)?.let { (workflow, task) -> oneTimeScheduleIdentity(workflow, task) }
+    }
+
+    internal suspend fun prepareOneTimeReschedule(request: AgentTaskRescheduleRequest): OneTimeReschedulePreparation? = database.withTransaction {
+        val now = System.currentTimeMillis()
+        if (!request.isFutureTimeAllowed(now)) return@withTransaction null
+        val (workflow, task) = reschedulableOneTimeTask(request.name) ?: return@withTransaction null
+        if (!request.matches(oneTimeScheduleIdentity(workflow, task))) return@withTransaction null
+        // long: 新系统工作项先使用独立 ID 准备，原计划此时完全不变；进程在提交前退出也只留下查不到 Room 实例的无效工作项。
+        OneTimeReschedulePreparation(
+            originalTaskId = task.id,
+            replacement = task.copy(
+                id = "scheduled-task-${UUID.randomUUID()}",
+                plannedAt = request.plannedAtMillis,
+                workRequestId = null,
+                createdAt = now,
+                updatedAt = now,
+            ).toRecord(),
+        )
+    }
+
+    internal suspend fun commitOneTimeReschedule(
+        request: AgentTaskRescheduleRequest,
+        preparation: OneTimeReschedulePreparation,
+        workRequestId: String,
+    ): Boolean = database.withTransaction {
+        val dao = database.workflowDao()
+        val now = System.currentTimeMillis()
+        // long: 系统入队期间旧 Worker 可能抢占；事务内重新比较唯一任务、原时间与指纹，且新时间仍留至少一分钟，过期准备不得激活。
+        if (!request.isFutureTimeAllowed(now) || workRequestId.isBlank()) return@withTransaction false
+        val (workflow, task) = reschedulableOneTimeTask(request.name) ?: return@withTransaction false
+        if (task.id != preparation.originalTaskId || !request.matches(oneTimeScheduleIdentity(workflow, task))) return@withTransaction false
+        val replacement = preparation.replacement
+        if (replacement.workflowId != task.workflowId || replacement.plannedAt != request.plannedAtMillis || dao.getScheduledTask(replacement.id) != null) {
+            return@withTransaction false
+        }
+        dao.upsertScheduledTask(task.copy(
+            status = ScheduledTaskStatus.CANCELLED.name,
+            completedAt = now,
+            updatedAt = now,
+            errorMessage = "用户将尚未开始的一次性提醒改期",
+        ))
+        dao.upsertScheduledTask(task.copy(
+            id = replacement.id,
+            plannedAt = replacement.plannedAt,
+            workRequestId = workRequestId,
+            createdAt = now,
+            updatedAt = now,
+        ))
+        true
+    }
+
+    private suspend fun reschedulableOneTimeTask(name: String): Pair<WorkflowEntity, ScheduledTaskEntity>? {
+        val dao = database.workflowDao()
+        val workflow = dao.listWorkflows().filter { it.name == name }.singleOrNull() ?: return null
+        if (!workflow.enabled || dao.getActiveRun(workflow.id) != null) return null
+        if (dao.listWorkflowSchedules().any { it.workflowId == workflow.id }) return null
+        val task = dao.listScheduledTasks().filter {
+            it.workflowId == workflow.id && it.status in setOf(
+                ScheduledTaskStatus.SCHEDULED.name, ScheduledTaskStatus.RUNNING.name, ScheduledTaskStatus.STOP_REQUESTED.name,
+            )
+        }.singleOrNull() ?: return null
+        if (task.type != ScheduledTaskType.ONE_TIME.name || task.scheduleId != null || task.status != ScheduledTaskStatus.SCHEDULED.name ||
+            task.workflowRunId != null || task.actualStartedAt != null || task.completedAt != null || task.workRequestId.isNullOrBlank() ||
+            task.plannedAt <= System.currentTimeMillis()
+        ) return null
+        return workflow to task
+    }
+
+    private fun oneTimeScheduleIdentity(workflow: WorkflowEntity, task: ScheduledTaskEntity): AgentTaskOneTimeScheduleRecord {
+        // long: 指纹绑定稳定身份和当前调度版本；同名替换、改期再改回、重新绑定工作项都不能复用旧审批。
+        val payload = JSONArray(listOf(workflow.id, workflow.name, workflow.updatedAt, task.id, task.plannedAt, task.updatedAt, task.workRequestId)).toString()
+        val hash = MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        return AgentTaskOneTimeScheduleRecord(task.plannedAt, "one-time-v1-$hash")
     }
 
     suspend fun createOrReplaceWorkflowSchedule(
