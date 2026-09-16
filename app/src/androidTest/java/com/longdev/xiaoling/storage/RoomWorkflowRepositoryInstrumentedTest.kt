@@ -1278,6 +1278,25 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun reconcileQueuedWorkflowWithoutAgentRunFailsOnceWithoutCreatingAgentRun() = runBlocking {
+        val workflow = repository.createWorkflow("排队时未关联 Agent", "等待进程启动")
+        val created = repository.createManualRun(workflow.id, "conversation-queued-workflow")
+        val agentRepository = RoomAgentRunRepository(context, database)
+        val agentRunCountBefore = agentRepository.recentRunDetails(limit = 20).size
+
+        // long: Workflow 已持久化但 Agent 尚未关联时不能猜测执行结果；启动对账只收敛当前 Workflow，不补造 Agent Run。
+        assertEquals(1, repository.reconcileInterruptedRuns(workflowRunIds = setOf(created.run.id)))
+        assertEquals(0, repository.reconcileInterruptedRuns(workflowRunIds = setOf(created.run.id)))
+
+        val failed = repository.runDetail(created.run.id)!!
+        assertEquals(WorkflowRunStatus.FAILED, failed.run.status)
+        assertEquals("应用重启前未能恢复关联的 Agent Run", failed.run.errorMessage)
+        assertTrue(failed.steps.all { it.status == WorkflowStepStatus.CANCELLED })
+        assertNull(failed.run.agentRunId)
+        assertEquals(agentRunCountBefore, agentRepository.recentRunDetails(limit = 20).size)
+    }
+
+    @Test
     fun reconcileKeepsCommittedToolRecoveryCandidateRunning() = runBlocking {
         val workflow = repository.createWorkflow("恢复笔记验证", "创建并验证笔记")
         val created = repository.createManualRun(workflow.id, "conversation-tool-recovery")

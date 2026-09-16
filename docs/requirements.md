@@ -1,5 +1,11 @@
 # 产品需求
 
+## 第 266 阶段排队进程对账边界（组合回归完成）
+
+- `QUEUED` Agent Run 没有可恢复的旧执行协程，进程重建必须 fail-closed 收敛为 `CANCELLED / RUN_STATE_NOT_RESUMABLE`，不得伪造步骤、审批、工具事实或复制 Run。
+- Workflow 已进入排队但在进程边界前尚未关联 Agent Run 时，必须收敛为关联缺失的 `FAILED`；对账重复执行应幂等返回，不得补造 Agent Run。
+- 这两类边界只处理持久化事实，不推断模型结果或外部副作用；长任务预算和系统停止证据仍需独立评估。
+
 ## 第 266 阶段审批等待恢复边界（组合回归完成）
 
 - 进程重建后保留的 `WAITING_APPROVAL` Run，若用户取消，必须在同一持久化边界内关闭活动审批 Step、审批请求和 Run；迟到的批准或拒绝不得覆盖 `CANCELLED`。

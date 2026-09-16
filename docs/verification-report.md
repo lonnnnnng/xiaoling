@@ -8,6 +8,21 @@
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
+## 2026-09-16 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（完成，阶段继续）
+
+### 覆盖边界
+
+- `queuedRunRecoveryClosesWithoutStepsOrDuplicateRecovery` 验证新建 `QUEUED` Agent Run 在进程边界只进入 `CANCELLED`，写入 `RUN_STATE_NOT_RESUMABLE`，没有步骤、审批、Tool Ledger，第二次关闭返回零。
+- `reconcileQueuedWorkflowWithoutAgentRunFailsOnceWithoutCreatingAgentRun` 验证 Workflow 已排队但没有关联 Agent Run 时进入 `FAILED`，保留关联缺失错误，所有步骤取消，第二次对账返回零，Agent Run 数量不变。
+- 两个测试都不执行外部工具、不创建真实 Workflow/Agent 副作用，不新增 Room migration；它们锁定现有 fail-closed 对账语义。
+
+### 分级验证
+
+- 设备：仅 Redmi `wsvwypiz7xwslvl7 / begonia`，没有使用或启动 `Pixel_9` 模拟器。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过，Debug 与 AndroidTest APK 已安装到 Redmi。
+- Redmi 定向 instrumentation：Agent Run 单项 `OK (1 test)`、`0.385s`；Workflow 单项 `OK (1 test)`、`0.376s`；两项均 `0 failures / 0 errors / 0 skipped`。
+- 本切片未运行完整 JVM、Lint、全量 instrumentation、Release APK 或发版；第266阶段下一步转向长任务中断分类。
+
 ## 2026-09-16 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（完成，阶段继续）
 
 ### 覆盖边界

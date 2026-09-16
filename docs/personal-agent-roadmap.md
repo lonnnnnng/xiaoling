@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（已完成，阶段继续）
+
+- `QUEUED` Agent Run 在进程恢复边界统一进入 `CANCELLED`，恢复处置为 `RUN_STATE_NOT_RESUMABLE`；没有步骤、审批、Tool Ledger 或重复恢复事件。
+- Workflow 已持久化但尚未关联 Agent Run 时统一进入 `FAILED`，保留关联缺失错误，不补造 Agent Run；第二次对账不再追加状态。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 两个定向单项通过（`0.385s`、`0.376s`），只验证持久化对账，不扩大到全量矩阵或发版。
+
+### 第 266 阶段下一切片
+
+- 继续整理长任务中断的预算、系统停止和可恢复/不可恢复分类证据；没有自然系统回收证据时不引入 Foreground Service。
+
 ## 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（已完成，阶段继续）
 
 - 组合回归覆盖“恢复待审批 → 用户取消旧 Run → 迟到审批决定被拒绝 → 创建关联新 Run”完整边界。

@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（已完成，阶段继续）
+
+- 新增 `QUEUED` Agent Run 启动恢复回归：进程边界只把它收敛为 `CANCELLED`，写入 `RUN_STATE_NOT_RESUMABLE`，不追加步骤、审批或 Tool Ledger，也不会重复写恢复事件。
+- 新增已排队但尚未关联 Agent Run 的 Workflow 对账回归：只把 Workflow 收敛为 `FAILED`，保留“应用重启前未能恢复关联的 Agent Run”错误，不补造 Agent Run，重复对账幂等返回零。
+- 本切片只锁定已有 fail-closed 生产语义，不恢复旧模型协程、不猜测排队任务结果、不创建复制 Run，不新增 Room Schema。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 两个定向单项分别为 `OK (1 test)`（`0.385s`、`0.376s`）；AndroidTest Kotlin 编译、Debug/AndroidTest APK 构建和差异检查通过。
+- 第 266 阶段仍剩长任务中断预算与系统停止证据的独立切片；本轮未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（已完成，阶段继续）
 
 - 新增 Room 组合回归：进程重建后重新发现 `WAITING_APPROVAL`，用户取消旧 Run 后，旧审批与活动审批 Step 一起进入 `CANCELLED`；迟到的 `APPROVED` 决定返回空，不得覆盖取消终态。

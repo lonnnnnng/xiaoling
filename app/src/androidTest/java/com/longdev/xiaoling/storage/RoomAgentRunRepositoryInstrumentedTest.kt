@@ -1042,6 +1042,31 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun queuedRunRecoveryClosesWithoutStepsOrDuplicateRecovery() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-queued-recovery",
+            userMessageId = "message-queued-recovery",
+            goal = "收敛尚未启动的排队任务",
+        )
+
+        // long: QUEUED 只代表执行尚未开始，进程重建不能把它误当成可恢复协程，也不能创建第二个 Run。
+        assertEquals(1, repository.closeInterruptedRuns(runIds = setOf(run.id)))
+        assertEquals(0, repository.closeInterruptedRuns(runIds = setOf(run.id)))
+
+        val closed = repository.runDetail(run.id)!!
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertTrue(closed.snapshot.steps.isEmpty())
+        assertTrue(closed.approvals.isEmpty())
+        assertTrue(closed.toolLedger.calls.isEmpty())
+        assertTrue(closed.toolLedger.results.isEmpty())
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(AgentRunStatus.QUEUED, recovery.fromStatus)
+        assertEquals(AgentRunStatus.CANCELLED, recovery.toStatus)
+        assertEquals(AgentRunRestartDispositionCode.RUN_STATE_NOT_RESUMABLE, recovery.restartDisposition?.code)
+    }
+
+    @Test
     fun interruptedExecutingToolWithoutResultPersistsCommitUnknownDisposition() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-commit-unknown",
