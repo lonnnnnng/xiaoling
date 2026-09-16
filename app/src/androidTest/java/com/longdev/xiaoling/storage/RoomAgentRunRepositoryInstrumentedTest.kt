@@ -2670,6 +2670,100 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun recoveredPendingApprovalCancellationRejectsLateDecisionAndLinksFreshRetry() = runBlocking {
+        val sourceRun = repository.createRun(
+            conversationId = "conversation-stage266-approval-cancel",
+            userMessageId = "message-stage266-approval-cancel",
+            goal = "恢复后取消待审批任务并重新开始",
+        )
+        repository.updateRunStatus(sourceRun.id, AgentRunStatus.WAITING_APPROVAL)
+        val call = ToolCall(
+            id = "tool-call-stage266-approval-cancel",
+            name = "memory.remember",
+            arguments = mapOf("content" to "只允许新 Run 重新确认"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val definition = ToolDefinition(
+            name = call.name,
+            description = "写入长期记忆",
+            risk = call.risk,
+        )
+        repository.appendEvent(
+            runId = sourceRun.id,
+            type = "tool.call.proposed",
+            message = "模型提出工具调用：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            runId = sourceRun.id,
+            type = "tool.call.validated",
+            message = "工具调用已校验：${call.name}",
+            metadata = RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        val approvalStep = repository.appendStep(
+            runId = sourceRun.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待用户确认 ${call.name}",
+            status = AgentStepStatus.RUNNING,
+        )
+        val request = repository.createApprovalRequest(
+            conversationId = sourceRun.conversationId,
+            runId = sourceRun.id,
+            toolCall = call,
+            definition = definition,
+        )
+
+        // long: 新 Repository 代表进程重建；先恢复原审批边界，再通过用户停止收敛旧链，不能让旧审批继续改变终态。
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        assertEquals(
+            listOf(sourceRun.id),
+            restartedRepository.recoverPendingApprovalRuns().map { it.snapshot.run.id },
+        )
+        assertTrue(restartedRepository.cancelActiveRun(sourceRun.id, "用户取消恢复后的审批"))
+
+        val closedSource = checkNotNull(restartedRepository.runDetail(sourceRun.id))
+        assertEquals(AgentRunStatus.CANCELLED, closedSource.snapshot.run.status)
+        assertEquals(
+            AgentStepStatus.CANCELLED,
+            closedSource.snapshot.steps.single { it.id == approvalStep.id }.status,
+        )
+        assertEquals(
+            ApprovalRequestStatus.CANCELLED,
+            closedSource.approvals.single { it.id == request.id }.status,
+        )
+
+        // long: 迟到的 UI 决定只能被一次性审批门禁拒绝；重试必须另建空账本 Run，不能复用旧审批或旧 Tool Ledger。
+        assertNull(
+            restartedRepository.decideApprovalRequest(
+                requestId = request.id,
+                status = ApprovalRequestStatus.APPROVED,
+                reason = "迟到的批准不应生效",
+            ),
+        )
+        assertEquals(closedSource, restartedRepository.runDetail(sourceRun.id))
+
+        val retryRun = restartedRepository.createRun(
+            conversationId = sourceRun.conversationId,
+            userMessageId = "retry-${sourceRun.userMessageId}",
+            goal = sourceRun.goal,
+            retryOfRunId = sourceRun.id,
+        )
+        val retryDetail = checkNotNull(restartedRepository.runDetail(retryRun.id))
+        assertEquals(sourceRun.id, retryDetail.snapshot.run.retryOfRunId)
+        assertEquals(AgentRunStatus.QUEUED, retryDetail.snapshot.run.status)
+        assertTrue(retryDetail.snapshot.steps.isEmpty())
+        assertTrue(retryDetail.toolLedger.calls.isEmpty())
+        assertTrue(retryDetail.toolLedger.results.isEmpty())
+        assertTrue(retryDetail.approvals.isEmpty())
+        assertEquals(listOf("run.created"), retryDetail.snapshot.events.map { it.type })
+        assertEquals(closedSource, restartedRepository.runDetail(sourceRun.id))
+    }
+
+    @Test
     fun pendingApprovalRecoveryRejectsConflictAfterValidBoundaryMarker() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-pending-marker-drift",

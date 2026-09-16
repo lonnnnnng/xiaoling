@@ -1,5 +1,7 @@
 # 文档索引
 
+第266阶段第三个可靠性切片已完成：新增 Room 组合回归，证明进程重建后待审批 Run 被用户取消时，旧审批和活动 Step 原子取消，迟到批准被拒绝，关联新 Run 使用 `retryOfRunId` 以空账本重新开始，旧 Run 详情保持不变。Redmi `wsvwypiz7xwslvl7 / begonia` 定向单项 `OK (1 test)`（`0.819s`），AndroidTest Kotlin 编译、Debug/AndroidTest APK 构建和差异检查通过。本切片只补证据，不改变生产行为；第266阶段仍剩 `QUEUED`/Workflow 进程对账和长任务中断分类。
+
 第266阶段第二个可靠性切片已完成：模型请求失败事件新增 typed `retryDisposition`，规划阶段区分瞬态网络且无工具副作用可直接创建新 Run、已有工具事实需确认关联新 Run、鉴权/地址/模型问题先修配置；总结失败明确使用本地兜底完成。任务重试策略已消费该处置，响应歧义和配置类失败不会直接无确认重跑，配置类失败会隐藏重试准备入口并提示先修 Provider/地址/模型。旧事件和未来枚举 fail-closed 到需确认，不自动重放工具。受影响 JVM `156/156`、Debug 编译和 `git diff --check` 通过；本轮未执行 Redmi、全量 JVM、Lint、Release 或推送。第266阶段仍在继续，下一切片回到进程异常、审批等待和长任务中断。
 
 第266阶段首个可靠性切片已完成：设备 Workflow 在 snapshot/ref 过期、窗口代次变化时不再只留下普通失败文案，而是保留失败 ToolResult、typed `recovery.failed`（`DEVICE_OBSERVATION_EXPIRED` / `DEVICE_OBSERVATION_INVALIDATED`）和“重新 snapshot、确认后创建关联新 Run”的建议；动作不会进入 Executor，旧 Run、旧审批和旧 Tool Ledger 不变。重试策略会要求用户重新确认。受影响 JVM 定向 `229/229`（`69 + 112 + 29 + 19`，0 失败/错误/跳过）、Debug APK 与 AndroidTest Kotlin 编译通过。第266阶段仍在继续，后续再补网络/进程/长任务的独立切片；本轮未执行 Redmi、全量 JVM、Lint、Release 或推送。

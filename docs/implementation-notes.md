@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（已完成，阶段继续）
+
+- 新增 Room 组合回归：进程重建后重新发现 `WAITING_APPROVAL`，用户取消旧 Run 后，旧审批与活动审批 Step 一起进入 `CANCELLED`；迟到的 `APPROVED` 决定返回空，不得覆盖取消终态。
+- 回归随后创建带 `retryOfRunId` 的独立新 Run，并确认新 Run 只有 `run.created`、没有旧审批、步骤或 Tool Ledger；旧 Run 的完整 Room 详情在迟到决定和新 Run 创建后保持不变。
+- 该切片只补跨边界证据，不改变生产恢复、取消、审批或重试实现，不新增 Room Schema，不恢复旧模型协程，也不重放旧工具副作用。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 定向 `RoomAgentRunRepositoryInstrumentedTest#recoveredPendingApprovalCancellationRejectsLateDecisionAndLinksFreshRetry` 为 `OK (1 test)`（`0.819s`）；AndroidTest Kotlin 编译、Debug/AndroidTest APK 构建和 `git diff --check` 通过。
+- 第 266 阶段仍剩进程异常 `QUEUED`/Workflow 对账和长任务中断分类等独立切片；本轮未运行完整 JVM、Lint、Release 或全量 instrumentation。
+
 ## 第 266 阶段第二切片：模型请求失败的可审计重试边界（已完成，阶段继续）
 
 - `RunEventMetadata.LlmFailure` 新增稳定 `retryDisposition`：规划阶段会区分瞬态网络且尚未进入工具副作用边界的 `RETRY_WITHOUT_CONFIRMATION`、已有工具事实或证据不足的 `RETRY_WITH_CONFIRMATION`、鉴权/地址/模型问题的 `CONFIGURATION_REQUIRED`；总结阶段统一标记 `LOCAL_FALLBACK_COMPLETED`。

@@ -8,6 +8,21 @@
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
+## 2026-09-16 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（完成，阶段继续）
+
+### 覆盖边界
+
+- `recoveredPendingApprovalCancellationRejectsLateDecisionAndLinksFreshRetry` 串联新 Repository 恢复 `WAITING_APPROVAL`、用户取消旧 Run、迟到 `APPROVED` 决定拒绝和 `retryOfRunId` 关联新 Run 创建。
+- 旧 Run 最终保持 `CANCELLED`；原审批请求和审批 Step 为 `CANCELLED`；迟到决定返回空且不追加成功事件；新 Run 为 `QUEUED`，没有旧审批、Step 或 Tool Ledger，旧 Run 详情在重试后保持相同。
+- 该测试不执行真实外部工具，不改变生产数据，不新增 Room migration；它只证明审批、取消和关联重试跨边界的持久化契约。
+
+### 分级验证
+
+- 设备：仅 Redmi `wsvwypiz7xwslvl7 / begonia`，没有使用或启动 `Pixel_9` 模拟器。
+- `:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 通过；Debug 与 AndroidTest APK 已安装到 Redmi。
+- Redmi 定向 instrumentation：`RoomAgentRunRepositoryInstrumentedTest#recoveredPendingApprovalCancellationRejectsLateDecisionAndLinksFreshRetry`，`OK (1 test)`，`0.819s`，`0 failures / 0 errors / 0 skipped`。
+- 本切片未运行完整 JVM、Lint、全量 instrumentation、Release APK 或发版；第266阶段仍需补 `QUEUED` 进程对账和长任务中断切片。
+
 ## 2026-09-16 第 266 阶段第二切片：模型请求失败的可审计重试边界（完成，阶段继续）
 
 ### 实现与安全边界

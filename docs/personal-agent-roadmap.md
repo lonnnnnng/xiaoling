@@ -1,5 +1,16 @@
 # 小灵个人 Agent 路线图
 
+## 第 266 阶段第三切片：审批等待取消与迟到决定组合回归（已完成，阶段继续）
+
+- 组合回归覆盖“恢复待审批 → 用户取消旧 Run → 迟到审批决定被拒绝 → 创建关联新 Run”完整边界。
+- 旧 Run 保持 `CANCELLED`，审批和活动 Step 保持 `CANCELLED`，旧事件与 Tool Ledger 不被迟到决定改写；关联新 Run 以 `QUEUED` 空账本启动，`retryOfRunId` 正确指向旧 Run。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 定向单项 `OK (1 test)`（`0.819s`），AndroidTest Kotlin 编译、Debug/AndroidTest APK 构建通过；没有扩大到完整矩阵或发版。
+
+### 第 266 阶段剩余切片
+
+- 继续补进程异常的 `QUEUED` Agent/Workflow 无关联对账和长任务中断分类；只有在真实证据支持时才评估更长后台存活或 Foreground Service。
+- 审批等待的核心生产语义已经具备组合证据，后续不重复改写旧 Run、不恢复旧模型协程、不重放未知副作用。
+
 ## 第 266 阶段第二切片：模型请求失败的可审计重试边界（已完成，阶段继续）
 
 - 规划阶段的模型请求失败现在写入 typed `retryDisposition`，按错误类别与已完成工具事实区分：瞬态网络且没有工具副作用可直接创建独立新 Run；已有已验证工具事实或无法证明瞬态网络时必须确认关联新 Run；鉴权、地址和模型错误先修配置。
