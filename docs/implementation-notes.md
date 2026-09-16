@@ -1,5 +1,16 @@
 # 当前实现说明
 
+## 第 267 阶段：目标级等价应用包族验证（已完成）
+
+- `WorkflowGoalVerificationPolicy` 的最终应用判定不再对已登记的 AOSP/Google 计算器、时钟实现做严格包名相等，而是复用 `DeviceActionPolicy.areEquivalentAppPackages`；这只兼容已验收的同族实现，不改变三层白名单、审批或 Executor 安全边界。
+- `WorkflowGoalVerificationDecisionCodec` 的 Room 决定解码使用同一等价包族规则；合法同族实现可以恢复为 `VERIFIED`，未登记包仍按 `FINAL_PACKAGE_MISMATCH` fail-closed。
+- 新增 JVM 回归覆盖 Google 计算器作为 AOSP 计算器目标的最终观察，以及 Google 时钟同族的持久化决定；受影响 `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过。
+- 本阶段没有新增工具、权限、Room migration、后台能力或任意 App 白名单；未运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+在 Redmi 当前 Provider 下，选择一个已有白名单且实际包名可能为同族实现的前台个人任务，完成一次自然语言目标、确认、目标级 `VERIFIED` 与当前权威事实回读验收；不扩展新的 App 家族。
+
 ## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成，阶段继续）
 
 - 新增 Room 组合回归，模拟长任务在 `EXECUTING`、ToolCall 已校验但尚未得到 ToolResult 时发生进程中断；恢复后最后一条执行预算快照（`0ms -> 37ms`）完整保留，活动执行 Step 收敛为 `CANCELLED`。

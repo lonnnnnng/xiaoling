@@ -115,8 +115,9 @@ object WorkflowGoalVerificationDecisionCodec {
         if (requiredToolNames.isEmpty()) return false
         val allStepsCompleted = completedStepCount == totalStepCount
         val allRequiredToolsMatched = matchedRequiredToolNames.size == requiredToolNames.size
+        // long: 目标冻结的是已验收的应用能力；同一能力在 Redmi 上可能由 AOSP 或 Google 包承载，不能让合法同族实现被严格包名比较误判为失败。
         val finalPackageMatches = expectedFinalPackageName == null ||
-            actualFinalPackageName == expectedFinalPackageName
+            DeviceActionPolicy.areEquivalentAppPackages(expectedFinalPackageName, actualFinalPackageName)
         val hasProgress = completedStepCount > 0 ||
             matchedRequiredToolNames.isNotEmpty() ||
             actualFinalPackageName != null
@@ -237,8 +238,9 @@ object WorkflowGoalVerificationPolicy {
         val actualFinalPackageName = latestObservedPackage(steps)
         val allStepsCompleted = completedStepCount == steps.size
         val allRequiredToolsMatched = matchedTools.size == spec.requiredToolNames.size
+        // long: 最终观察必须仍属于获批应用及其已登记的等价实现，不能借“包族兼容”放宽到未登记应用。
         val finalPackageMatches = spec.expectedFinalPackageName == null ||
-            actualFinalPackageName == spec.expectedFinalPackageName
+            DeviceActionPolicy.areEquivalentAppPackages(spec.expectedFinalPackageName, actualFinalPackageName)
 
         val reason = when {
             !allStepsCompleted -> WorkflowGoalVerificationReason.STEP_INCOMPLETE

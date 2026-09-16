@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 267 阶段：目标级等价应用包族验证（已完成）
+
+- 设备动作层原本已经把 AOSP/Google 计算器和时钟登记为等价应用族，但 Workflow 目标级完成判定及持久化决定解码仍要求包名逐字符相等，可能把 Redmi 上合法的同族实现误判为 `FINAL_PACKAGE_MISMATCH`。
+- `WorkflowGoalVerificationPolicy` 与 `WorkflowGoalVerificationDecisionCodec` 现在统一复用 `DeviceActionPolicy.areEquivalentAppPackages`；只有显式登记的同族包可以互相验证，设置、天气、小灵和所有未登记包仍保持严格边界。
+- 受影响 JVM `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过；本阶段没有新增工具、权限、App 白名单、Room Schema、后台能力，也没有运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation。
+
+### 下一阶段
+
+- 在 Redmi 当前 Provider 下，选择一个已有白名单且存在 AOSP/Google 实现差异的前台个人任务，完成“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 VERIFIED -> 当前权威事实查看”真实闭环；不扩展新 App 家族或任意 App 控制。
+
 ## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成）
 
 - 持久化回归证明长任务在执行中断时保留最新预算快照，活动 Tool Step 进入 `CANCELLED`，恢复事件冻结原始 `COMMIT_UNKNOWN`。

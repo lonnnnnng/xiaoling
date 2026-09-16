@@ -4,6 +4,8 @@
 
 当前正式版本为 `v0.1.18`（`versionCode 19`、Room v36）。第 263 阶段只将 Android 12+ 系统 Splash 调整为透明占位图标和同色背景、启用 Release 资源收缩并完成发布资产校验，没有扩展生产 Tool、Skill、权限、Workflow 或后台能力。
 
+第 267 阶段把“应用能力”与“ROM 包名”分开：目标级完成判定和持久化恢复复用已登记的等价包族，允许 AOSP/Google 计算器、时钟实现互相验证，同时继续要求默认白名单、逐包审批和动作后观察。它没有复制任意 App 的模糊匹配，也没有扩大设备控制范围；下一步只对已有白名单包族做 Redmi 真实个人任务验收。
+
 第 262 阶段沿用成熟移动 Agent 的“当前系统数据先形成可编辑草稿，用户主动发送和审批后才产生副作用，提交后回到权威本地事实”原则。通知详情的“保存为笔记”只二次读取当前 listener 并生成 `/agent notes.create` 草稿，通知字段按外部不可信数据处理，不复制通知点击/回复/清除、PendingIntent/RemoteInput、后台通知历史或跨 App 跳转。Redmi 真实 `gpt-5.6-luna` 竖屏已完成可见审批、`APPROVED / PASSED / COMMITTED`、Room 回读及重建后详情弹窗验证；稳定 note ID、正文和 revision 一致，临时数据精确清理，旧 Run 不变。横屏会话区过矮仍为未解决限制，不属于本轮通过范围。
 
 第 261 阶段继续采用成熟 Agent 的“外部数据先形成可编辑草稿、用户确认后才升级能力、计划与执行分离、执行后回当前权威事实”原则。通知详情点击“转为任务”会重新读取当前 listener，只生成短生命周期草稿；真实 Provider 在 Redmi 由用户发送并确认计划后，Workflow 只执行 `app.current_time`，目标级结论为 `VERIFIED`。通知移除后来源核对为 `FAIL_CLOSED`，旧 Run 保持不变，通知包名不进入设备目标应用。小灵没有复制参考项目的通知点击/回复/清除、PendingIntent/RemoteInput、后台通知历史、任意 App 控制或跨 App 跳转。

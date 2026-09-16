@@ -1,5 +1,7 @@
 # 文档索引
 
+第267阶段已完成目标级等价应用包族验证：`WorkflowGoalVerificationPolicy` 与持久化决定解码统一复用 `DeviceActionPolicy.areEquivalentAppPackages`，已登记的 AOSP/Google 计算器、时钟实现可以互相验证，未登记包仍 fail-closed。受影响 JVM `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过；本阶段未运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation，也没有扩大设备白名单。下一阶段在 Redmi 对已有白名单包族做一次真实个人任务闭环验收。
+
 第266阶段第五个可靠性切片已完成：长任务在 `EXECUTING` 中断时保留最后执行预算快照，活动 Tool Step 收敛为 `CANCELLED`，恢复事件冻结 `COMMIT_UNKNOWN`；重试前动态证据仍需用户确认，证据链不完整时升级为 `EVIDENCE_INCOMPLETE`。Redmi 定向单项 `OK (1 test)`（`0.46s`），没有引入 Foreground Service、精确定时或系统回收模拟。第266阶段代码级可靠性切片收口，后续回到个人 Agent 主线。
 
 第266阶段第四个可靠性切片已完成：补齐 `QUEUED` Agent Run 与“已排队但尚未关联 Agent Run”的 Workflow 进程对账回归。前者只收敛为 `CANCELLED / RUN_STATE_NOT_RESUMABLE`，后者只收敛为关联缺失的 `FAILED`，均幂等且不补造或复制 Run。Redmi 两个定向单项分别为 `OK (1 test)`（`0.385s`、`0.376s`），AndroidTest 编译和 Debug/AndroidTest APK 构建通过；第266阶段下一步转向长任务中断分类。
@@ -16,16 +18,17 @@
 
 第 263 阶段按用户要求移除启动图并固化 R8 精简打包配置。`values-v31` 与 `values-night-v31` 主题把 `windowSplashScreenAnimatedIcon` 换成全透明占位向量、移除 `windowSplashScreenIconBackgroundColor`，`windowSplashScreenBackground` 保持与窗口背景同色，使 Android 12+ 必然存在的系统启动画面在视觉上不可见（Android 12 以下本来没有系统启动图）；`ic_xiaoling_splash_mark` 与 `xiaoling_splash_icon_background` 已删除。`release` 构建 `isMinifyEnabled = true` 本就启用，本轮补上 `isShrinkResources = true` 资源收缩，`optimizeReleaseResources` 生效，aapt2 复核 `Theme.XiaoLing` 正常引用透明图标与同色背景。随后按用户“不要测试，直接发版”的要求发布 `v0.1.18`（`versionCode 19`、Room v36）：正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 1m 4s`，APK 为 `3,247,642` 字节，SHA-256 为 `b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`；`apksigner` 确认 APK Signature Scheme v2 单一 RSA 4096 签名者（证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`），`zipalign` 通过；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18) 已发布并成为 latest。本轮没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation，生产 Tool、权限、Workflow、后台与 Room 边界均未改动。
 
-## 当前路线（第 264 至 266 阶段）
+## 当前路线（第 264 至 267 阶段）
 
 1. 第 264 阶段“一次性提醒改期”已完成：自然语言目标、唯一当前计划、可见时间审批、可验证改期和查看任务。
 2. 第 265 阶段完成一个指定 App 的 Redmi 前台设备任务，不承诺任意 App。
-3. 第 266 阶段设备观察恢复与模型请求失败重试边界两个切片已完成；阶段继续围绕进程、审批等待和长任务中断补可靠性，复用既有基座，不重放提交状态未知的副作用。
-4. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
-5. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
-6. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
+3. 第 266 阶段设备观察恢复与模型请求失败重试边界等五个可靠性切片已完成；不再为没有自然系统证据的长任务堆叠模拟恢复代码。
+4. 第 267 阶段修正已登记等价应用包族的目标级完成判定；下一步只在 Redmi 对已有白名单包族做真实闭环验收，不扩大任意 App。
+5. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
+6. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
+7. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
 
-第 264、265 阶段已结项，第 266 阶段已完成首个设备观察恢复切片，剩余可靠性切片继续推进。具体交付标准以[个人 Agent 路线图](personal-agent-roadmap.md)为准；Release 构建与发布需要单独明确授权。
+第 264、265 阶段已结项，第 266 阶段五个代码级可靠性切片已经收口，第 267 阶段完成已登记等价应用包族的目标级验证修正。下一步在 Redmi 对已有白名单包族做真实个人任务闭环验收。具体交付标准以[个人 Agent 路线图](personal-agent-roadmap.md)为准；Release 构建与发布需要单独明确授权。
 
 第 262 阶段已完成“当前通知 -> 用户选择保存为笔记 -> 可编辑 `notes.create` 草稿 -> 可见审批 -> 当前笔记详情”的 Redmi 真实竖屏闭环。通知详情点击“保存为笔记”时重新读取当前 NotificationListener，只投影应用、标题和正文为外部不可信数据，不自动发送、不创建 Run/Workflow、不写通知历史；敏感、空内容、撤权、断连、通知消失均拒绝。真实 `gpt-5.6-luna` 最终 `OK (1 test)`（`57.861s`），写入为 `APPROVED / PASSED / COMMITTED`，Room 与 Activity 重建后的笔记详情弹窗绑定同一稳定 ID、正文和 revision。临时笔记、Profile、会话、通知与 channel 已清理，旧 Run 不变；横屏会话区过矮仍为已知限制，不纳入本轮通过范围。未执行 Release 或完整测试矩阵。
 

@@ -31,6 +31,48 @@ class WorkflowGoalVerificationPolicyTest {
     }
 
     @Test
+    fun equivalentCalculatorPackageStillVerifiesTheUserGoal() {
+        val decision = WorkflowGoalVerificationPolicy.evaluate(
+            sourceGoal = "打开系统计算器并完成计算",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("device.open_app", "device.tap_ref"),
+                expectedFinalPackageName = "com.android.calculator2",
+            ),
+            steps = listOf(
+                step(
+                    verifiedToolNames = listOf("device.open_app", "device.snapshot", "device.tap_ref"),
+                    finalPackageName = "com.google.android.calculator",
+                ),
+            ),
+        )
+
+        assertEquals(WorkflowGoalVerificationStatus.VERIFIED, decision.status)
+        assertEquals(WorkflowGoalVerificationReason.ALL_CRITERIA_VERIFIED, decision.reason)
+        assertEquals("com.google.android.calculator", decision.actualFinalPackageName)
+    }
+
+    @Test
+    fun persistedDecisionAcceptsRegisteredEquivalentPackageButNotArbitraryPackage() {
+        val equivalent = WorkflowGoalVerificationDecisionCodec.encode(
+            WorkflowGoalVerificationDecision(
+                sourceGoal = "打开系统时钟",
+                status = WorkflowGoalVerificationStatus.VERIFIED,
+                reason = WorkflowGoalVerificationReason.ALL_CRITERIA_VERIFIED,
+                requiredToolNames = listOf("device.open_app"),
+                matchedRequiredToolNames = listOf("device.open_app"),
+                expectedFinalPackageName = "com.android.deskclock",
+                actualFinalPackageName = "com.google.android.deskclock",
+                completedStepCount = 1,
+                totalStepCount = 1,
+            ),
+        )
+        assertTrue(WorkflowGoalVerificationDecisionCodec.decode(equivalent) != null)
+
+        val arbitrary = equivalent.replace("com.google.android.deskclock", "com.example.untrusted")
+        assertNull(WorkflowGoalVerificationDecisionCodec.decode(arbitrary))
+    }
+
+    @Test
     fun missingOrOutOfOrderRequiredToolsOnlyProducePartialProgress() {
         val decision = WorkflowGoalVerificationPolicy.evaluate(
             sourceGoal = "先滚动再返回",

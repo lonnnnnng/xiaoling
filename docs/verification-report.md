@@ -8,6 +8,20 @@
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
+## 2026-09-16 第 267 阶段：目标级等价应用包族验证（完成）
+
+### 覆盖边界
+
+- 目标级完成判定和 `WorkflowGoalVerificationDecisionCodec` 统一调用 `DeviceActionPolicy.areEquivalentAppPackages`；AOSP/Google 计算器、时钟等已登记同族实现可以验证为同一应用能力，未登记包仍拒绝。
+- 新增 `WorkflowGoalVerificationPolicyTest#equivalentCalculatorPackageStillVerifiesTheUserGoal`，验证实际 `com.google.android.calculator` 满足期望 `com.android.calculator2` 时返回 `VERIFIED`。
+- 新增 `WorkflowGoalVerificationPolicyTest#persistedDecisionAcceptsRegisteredEquivalentPackageButNotArbitraryPackage`，验证时钟同族决定可恢复、替换为 `com.example.untrusted` 后解码失败。
+
+### 分级验证
+
+- 受影响 JVM：`./gradlew testDebugUnitTest --tests com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicyTest --no-daemon`，`BUILD SUCCESSFUL in 18s`。
+- `git diff --check` 通过。
+- 本阶段未运行 Redmi、全量 JVM、Lint、Release APK 或全量 instrumentation；没有使用或启动 Pixel_9，也没有修改设备白名单。
+
 ## 2026-09-16 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（完成）
 
 ### 覆盖边界
