@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成）
+
+- 持久化回归证明长任务在执行中断时保留最新预算快照，活动 Tool Step 进入 `CANCELLED`，恢复事件冻结原始 `COMMIT_UNKNOWN`。
+- 重试前动态证据仍要求确认；ToolCall 证据不完整时只会升级为 `EVIDENCE_INCOMPLETE`，不会自动重放未知副作用。
+- Redmi 定向单项 `OK (1 test)`（`0.46s`），没有引入 Foreground Service、精确定时或受控系统回收模拟。
+
+### 第 266 阶段收口边界
+
+- 观察恢复、模型失败处置、审批等待、排队进程对账和预算/未知提交五个代码级切片已完成；后续回到个人 Agent 主线，不为没有自然系统证据的长任务继续堆模拟恢复代码。
+
 ## 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（已完成，阶段继续）
 
 - `QUEUED` Agent Run 在进程恢复边界统一进入 `CANCELLED`，恢复处置为 `RUN_STATE_NOT_RESUMABLE`；没有步骤、审批、Tool Ledger 或重复恢复事件。

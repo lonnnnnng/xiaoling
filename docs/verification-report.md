@@ -8,6 +8,21 @@
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
+## 2026-09-16 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（完成）
+
+### 覆盖边界
+
+- `interruptedLongTaskPreservesLatestBudgetAndRequiresConfirmedRetry` 构造真实 Runtime 事件顺序：初始预算 `0ms`、ToolCall proposed/validated、执行中预算 `37ms`，随后模拟进程边界。
+- Room 恢复后预算事件仍为 `0ms -> 37ms`，活动执行 Step 为 `CANCELLED`，`run.recovered.retryEvidenceCode=COMMIT_UNKNOWN`；`AgentTaskRetryPolicy` 要求确认，证据链不完整时动态分类为 `EVIDENCE_INCOMPLETE`。
+- 本测试不执行外部工具、不等待长时间、不模拟 LMK/Doze/trim-memory，也不改变 Foreground Service 或后台设备动作边界。
+
+### 分级验证
+
+- 设备：仅 Redmi `wsvwypiz7xwslvl7 / begonia`，没有使用或启动 `Pixel_9` 模拟器。
+- `:app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL in 15s`，测试 APK 已安装到 Redmi。
+- Redmi 定向 instrumentation：`RoomAgentRunRepositoryInstrumentedTest#interruptedLongTaskPreservesLatestBudgetAndRequiresConfirmedRetry`，`OK (1 test)`，`0.46s`，`0 failures / 0 errors / 0 skipped`。
+- 本阶段未运行完整 JVM、Lint、全量 instrumentation、Release APK 或发版；第266阶段代码级可靠性切片收口，后续回到个人 Agent 主线。
+
 ## 2026-09-16 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（完成，阶段继续）
 
 ### 覆盖边界

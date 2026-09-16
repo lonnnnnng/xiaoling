@@ -1,5 +1,11 @@
 # 产品需求
 
+## 第 266 阶段长任务预算与未知提交边界（完成）
+
+- 长任务在执行中断时必须保留最后一条单调执行预算快照；活动 Tool Step 只能收敛为取消或失败，不能回到可执行中间态。
+- ToolCall 已进入执行边界但没有 ToolResult 时，恢复必须冻结 `COMMIT_UNKNOWN` 并要求关联重试确认；任何证据链缺口都只能升级为 `EVIDENCE_INCOMPLETE`，不得自动重放。
+- 该边界不构成 Foreground Service 或精确定时依据；没有自然 Android 系统回收证据时，继续沿用普通 WorkManager 与 fail-closed 终态。
+
 ## 第 266 阶段排队进程对账边界（组合回归完成）
 
 - `QUEUED` Agent Run 没有可恢复的旧执行协程，进程重建必须 fail-closed 收敛为 `CANCELLED / RUN_STATE_NOT_RESUMABLE`，不得伪造步骤、审批、工具事实或复制 Run。

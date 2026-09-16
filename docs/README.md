@@ -1,5 +1,7 @@
 # 文档索引
 
+第266阶段第五个可靠性切片已完成：长任务在 `EXECUTING` 中断时保留最后执行预算快照，活动 Tool Step 收敛为 `CANCELLED`，恢复事件冻结 `COMMIT_UNKNOWN`；重试前动态证据仍需用户确认，证据链不完整时升级为 `EVIDENCE_INCOMPLETE`。Redmi 定向单项 `OK (1 test)`（`0.46s`），没有引入 Foreground Service、精确定时或系统回收模拟。第266阶段代码级可靠性切片收口，后续回到个人 Agent 主线。
+
 第266阶段第四个可靠性切片已完成：补齐 `QUEUED` Agent Run 与“已排队但尚未关联 Agent Run”的 Workflow 进程对账回归。前者只收敛为 `CANCELLED / RUN_STATE_NOT_RESUMABLE`，后者只收敛为关联缺失的 `FAILED`，均幂等且不补造或复制 Run。Redmi 两个定向单项分别为 `OK (1 test)`（`0.385s`、`0.376s`），AndroidTest 编译和 Debug/AndroidTest APK 构建通过；第266阶段下一步转向长任务中断分类。
 
 第266阶段第三个可靠性切片已完成：新增 Room 组合回归，证明进程重建后待审批 Run 被用户取消时，旧审批和活动 Step 原子取消，迟到批准被拒绝，关联新 Run 使用 `retryOfRunId` 以空账本重新开始，旧 Run 详情保持不变。Redmi `wsvwypiz7xwslvl7 / begonia` 定向单项 `OK (1 test)`（`0.819s`），AndroidTest Kotlin 编译、Debug/AndroidTest APK 构建和差异检查通过。本切片只补证据，不改变生产行为；第266阶段仍剩 `QUEUED`/Workflow 进程对账和长任务中断分类。

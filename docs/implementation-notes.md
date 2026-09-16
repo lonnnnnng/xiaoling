@@ -1,5 +1,13 @@
 # 当前实现说明
 
+## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成，阶段继续）
+
+- 新增 Room 组合回归，模拟长任务在 `EXECUTING`、ToolCall 已校验但尚未得到 ToolResult 时发生进程中断；恢复后最后一条执行预算快照（`0ms -> 37ms`）完整保留，活动执行 Step 收敛为 `CANCELLED`。
+- `run.recovered` 保留原始 `COMMIT_UNKNOWN`，重试前动态证据仍要求确认；事件链不完整时会进一步保守升级为 `EVIDENCE_INCOMPLETE`，不会降级为免确认重试。
+- 本切片只证明预算与副作用边界，不引入 Foreground Service、精确定时、系统回收模拟或旧执行栈续跑。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 定向单项 `OK (1 test)`（`0.46s`）；AndroidTest APK 构建和安装通过。
+- 第 266 阶段的代码级可靠性切片暂告一段落；后续如无新的真实失败证据，不继续堆叠模拟长任务代码，转回个人 Agent 主线功能闭环。
+
 ## 第 266 阶段第四切片：排队 Run 与未关联 Workflow 的进程对账（已完成，阶段继续）
 
 - 新增 `QUEUED` Agent Run 启动恢复回归：进程边界只把它收敛为 `CANCELLED`，写入 `RUN_STATE_NOT_RESUMABLE`，不追加步骤、审批或 Tool Ledger，也不会重复写恢复事件。

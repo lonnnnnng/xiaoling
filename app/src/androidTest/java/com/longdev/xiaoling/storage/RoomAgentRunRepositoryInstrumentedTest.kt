@@ -1124,6 +1124,82 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun interruptedLongTaskPreservesLatestBudgetAndRequiresConfirmedRetry() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-long-budget-recovery",
+            userMessageId = "message-long-budget-recovery",
+            goal = "保留长任务中断前的执行预算",
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "初始化执行预算",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 0L),
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
+        val executionStep = repository.appendStep(
+            runId = run.id,
+            type = AgentStepTypes.TOOL_EXECUTE,
+            title = "执行长任务",
+            detail = "执行中断前仍未得到工具结果",
+            status = AgentStepStatus.RUNNING,
+        )
+        val call = ToolCall(
+            id = "tool-call-long-budget-recovery",
+            name = "notes.create",
+            arguments = mapOf("title" to "预算证据"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.proposed",
+            "模型提出工具调用：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            "tool.call.validated",
+            "工具调用已校验：${call.name}",
+            RunEventMetadata.ToolCall(call.id, call.name, call.risk, call.arguments),
+        )
+        repository.appendEvent(
+            run.id,
+            AgentEventTypes.EXECUTION_BUDGET_UPDATED,
+            "中断前执行预算",
+            RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000L, consumedMs = 37L),
+        )
+
+        // long: 进程终止只能收敛持久化事实；最后预算快照必须先于恢复终态保留，重试仍要确认未知提交边界。
+        val restartedRepository = RoomAgentRunRepository(
+            ApplicationProvider.getApplicationContext<Context>(),
+            database,
+        )
+        assertEquals(1, restartedRepository.closeInterruptedRuns(runIds = setOf(run.id)))
+
+        val closed = restartedRepository.runDetail(run.id)!!
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertEquals(AgentStepStatus.CANCELLED, closed.snapshot.steps.single { it.id == executionStep.id }.status)
+        assertEquals(
+            listOf(0L, 37L),
+            closed.snapshot.events.mapNotNull { event ->
+                (event.metadata as? RunEventMetadata.ExecutionBudget)?.consumedMs
+            },
+        )
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(AgentTaskRetryEvidenceCode.COMMIT_UNKNOWN, recovery.retryEvidenceCode)
+        // long: 恢复后动态重评估还会校验完整 ToolCall 事件链；证据缺口只能升级为 EVIDENCE_INCOMPLETE，不能降级成免确认重试。
+        assertEquals(
+            AgentTaskRetryEvidenceCode.EVIDENCE_INCOMPLETE,
+            AgentTaskRetryPolicy.assessEvidence(closed).code,
+        )
+        assertEquals(
+            AgentTaskRetryEligibility.Retryable(requiresConfirmation = true),
+            AgentTaskRetryPolicy.evaluate(closed),
+        )
+    }
+
+    @Test
     fun interruptedAfterFailedToolResultAndBudgetAtomicallySettlesOriginalRunAsFailed() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-failed-result-settlement",
