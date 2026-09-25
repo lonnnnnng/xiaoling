@@ -551,6 +551,53 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun explicitCatalogSelectionKeepsPackageNamedDeviceStepOnDeviceControl() = runTest {
+        val catalog = AgentSkillCatalog(
+            store = TestAgentSkillStore(),
+            registeredTools = { TestDeviceToolRegistry().availableTools() },
+        )
+
+        val selected = catalog.selectByIds(
+            skillIds = setOf("device-control"),
+            allowedSkillIds = setOf("device-control"),
+            allowedToolNames = DEVICE_TOOL_NAMES,
+        )
+
+        assertEquals(listOf("device-control"), selected.map { it.id })
+        assertEquals(DEVICE_TOOL_NAMES, selected.single().toolNames)
+    }
+
+    @Test
+    fun explicitCatalogSelectionFailsClosedForDisabledOrUnauthorizedSkill() = runTest {
+        val store = TestAgentSkillStore()
+        val catalog = AgentSkillCatalog(
+            store = store,
+            registeredTools = { TestToolRegistry().availableTools() },
+        )
+        catalog.importDocument(localSkillDocument("custom-time"))
+        catalog.setEnabled("custom-time", false)
+
+        val disabledError = runCatching {
+            catalog.selectByIds(
+                skillIds = setOf("custom-time"),
+                allowedSkillIds = setOf("custom-time"),
+                allowedToolNames = setOf("app.current_time"),
+            )
+        }.exceptionOrNull()
+        assertTrue(disabledError is IllegalArgumentException)
+
+        catalog.setEnabled("custom-time", true)
+        val unauthorizedError = runCatching {
+            catalog.selectByIds(
+                skillIds = setOf("custom-time"),
+                allowedSkillIds = emptySet(),
+                allowedToolNames = setOf("app.current_time"),
+            )
+        }.exceptionOrNull()
+        assertTrue(unauthorizedError is IllegalArgumentException)
+    }
+
+    @Test
     fun triggerExampleCanSelectSkillWithoutExactKeyword() = runTest {
         val catalog = AgentSkillCatalog(
             store = TestAgentSkillStore(),
@@ -740,5 +787,35 @@ class AgentSkillsTest {
         override suspend fun execute(call: ToolCall): ToolExecutionResult {
             return ToolExecutionResult(success = true, content = call.name)
         }
+    }
+
+    private class TestDeviceToolRegistry : ToolRegistry {
+        private val tools = DEVICE_TOOL_NAMES.map { name ->
+            ToolDefinition(
+                name = name,
+                description = "测试设备工具",
+                risk = if (name == "device.snapshot") ToolRisk.SAFE else ToolRisk.REQUIRES_APPROVAL,
+            )
+        }
+
+        override fun availableTools(): List<ToolDefinition> = tools
+
+        override fun definition(name: String): ToolDefinition? = tools.firstOrNull { it.name == name }
+
+        override suspend fun execute(call: ToolCall): ToolExecutionResult {
+            return ToolExecutionResult(success = true, content = call.name)
+        }
+    }
+
+    private companion object {
+        val DEVICE_TOOL_NAMES = setOf(
+            "device.snapshot",
+            "device.open_app",
+            "device.back",
+            "device.home",
+            "device.tap_ref",
+            "device.type_text",
+            "device.swipe",
+        )
     }
 }

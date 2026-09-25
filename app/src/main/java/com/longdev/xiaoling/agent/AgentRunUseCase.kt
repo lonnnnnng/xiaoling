@@ -55,6 +55,7 @@ class AgentRunUseCase(
         userMessageId: String,
         goal: String,
         skillSelectionGoal: String = goal,
+        requiredSkillIds: Set<String> = emptySet(),
         config: ProviderRequestConfig,
         summarySystemPrompt: String,
         agentProfile: AgentProfileSnapshot,
@@ -104,11 +105,20 @@ class AgentRunUseCase(
         } else {
             agentProfile.allowedToolNames.filterTo(linkedSetOf(), availableToolNames::contains)
         }
-        val selectedSkills = skillCatalog.select(
-            goal = skillSelectionGoal,
-            allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
-            allowedToolNames = skillSelectionToolNames,
-        )
+        val selectedSkills = if (requiredSkillIds.isNotEmpty()) {
+            // long: Workflow 的目标应用步骤已经由规划器确定能力类型，必须使用显式 Skill，避免“包名”等普通词把设备动作误路由到 app-info。
+            skillCatalog.selectByIds(
+                skillIds = requiredSkillIds,
+                allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
+                allowedToolNames = skillSelectionToolNames,
+            )
+        } else {
+            skillCatalog.select(
+                goal = skillSelectionGoal,
+                allowedSkillIds = agentProfile.allowedSkillIds.toSet(),
+                allowedToolNames = skillSelectionToolNames,
+            )
+        }
         val scopedToolRegistry = SkillScopedToolRegistry(profileToolRegistry, selectedSkills)
         val ledger = ReportingAgentRunLedger(
             delegate = baseLedger,

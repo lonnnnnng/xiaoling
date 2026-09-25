@@ -1,15 +1,29 @@
 # 当前实现说明
 
+## 第 268 阶段：一次性闹钟前台任务（已完成）
+
+- 本阶段冻结的窄任务是“在系统时钟中设置一个 10 分钟后响铃的一次性闹钟，并回读当前闹钟页面的时间、启用状态和一次性状态”。目标继续限定在已登记的 Google/AOSP 时钟包族，不扩展新 App 白名单。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 使用真实 Provider `gpt-5.6-luna` 完成独立前台闭环。最终 Workflow `workflow-run-e8ae2097-28e4-4ea9-9d29-53e317165e37`、Agent Run `run-ee7edbbb-245a-4626-ab5b-a399dacda035` 均完成；目标时间 `14:18`，7 次动作审批，15 个 ToolResult，目标级结论 `VERIFIED`。
+- 真实动作链严格为 `device.snapshot -> device.tap_ref -> device.snapshot -> device.tap_ref -> device.snapshot -> device.type_text -> device.snapshot -> device.type_text -> device.snapshot -> device.tap_ref -> device.snapshot -> device.tap_ref -> device.snapshot -> device.tap_ref -> device.snapshot`。每个动作使用短生命周期 `snapshot_id + ref`，通过后置观察和 typed verification；最终临时闹钟已删除，原有 `08:30`、`09:00` 保持不变。
+- 首轮独立通道暴露并已修正三类验收问题：时钟切入后的连续窗口事件导致第一条 ref 代次失效，改为等待三个相同 generation 样本；目标闹钟容器重复暴露子节点时间，改为按“HH:mm 闹钟”容器描述切分；“振动”复选框混入星期框集合，改为限定七个 `星期*` 描述。一次性日期文案按执行时区动态判断“今天/明天”。
+- `device.snapshot` 的 ToolResult 只要求 `success=true / verificationStatus=PASSED`，不强制 `executorVerified`；写动作继续要求 `executorVerified=true`，与既有 typed 结果语义一致。
+- 重新安装 Debug APK 会清空 Redmi 的 Accessibility 授权；本轮恢复 `XiaoLingAccessibilityService` 后再验收。该恢复只影响测试设备授权，不改变生产权限边界。未使用 Pixel_9，不执行全量 JVM/Lint/Release 或全量 instrumentation。
+
+### 下一步
+
+继续在 Redmi 与已登记 App 白名单内选择一条新的高频前台个人任务，沿用“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 `VERIFIED` -> 当前权威事实查看”。不把本阶段一次性闹钟闭环扩展为精确定时、AlarmManager、Foreground Service 或后台自动化。
+
 ## 第 267 阶段：目标级等价应用包族验证（已完成）
 
 - `WorkflowGoalVerificationPolicy` 的最终应用判定不再对已登记的 AOSP/Google 计算器、时钟实现做严格包名相等，而是复用 `DeviceActionPolicy.areEquivalentAppPackages`；这只兼容已验收的同族实现，不改变三层白名单、审批或 Executor 安全边界。
 - `WorkflowGoalVerificationDecisionCodec` 的 Room 决定解码使用同一等价包族规则；合法同族实现可以恢复为 `VERIFIED`，未登记包仍按 `FINAL_PACKAGE_MISMATCH` fail-closed。
 - 新增 JVM 回归覆盖 Google 计算器作为 AOSP 计算器目标的最终观察，以及 Google 时钟同族的持久化决定；受影响 `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过。
-- 本阶段没有新增工具、权限、Room migration、后台能力或任意 App 白名单；未运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation。
+- Stage267 真实验收在 Redmi `wsvwypiz7xwslvl7 / begonia` 完成：Provider 模型为 `gpt-5.6-luna`，请求目标 `com.google.android.deskclock`，设备实际前台包为已登记同族 `com.android.deskclock`；`device.open_app` 获得 1 次用户审批，动作后观察与 Executor/typed 验证通过，目标级决定为 `VERIFIED`，Instrumentation `OK (1 test)`（`71.617s`）。测试内部通过不抑制 Accessibility 的 UiAutomation 重绑定服务后完成，未依赖外部并行 ADB。
+- 本阶段没有新增工具、权限、Room migration、后台能力或任意 App 白名单；未运行全量 JVM、Lint、Release 或全量 instrumentation。生产 Registry 无需因上次测试时序失败改变。
 
 ### 下一阶段
 
-在 Redmi 当前 Provider 下，选择一个已有白名单且实际包名可能为同族实现的前台个人任务，完成一次自然语言目标、确认、目标级 `VERIFIED` 与当前权威事实回读验收；不扩展新的 App 家族。
+继续在 Redmi 当前 Provider 下选择已有白名单包族中的下一条窄前台个人任务，完成自然语言目标、确认、目标级 `VERIFIED` 与当前权威事实回读；不扩展新的 App 家族。
 
 ## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成，阶段继续）
 

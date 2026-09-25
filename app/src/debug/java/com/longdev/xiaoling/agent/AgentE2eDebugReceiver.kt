@@ -21,6 +21,7 @@ import com.longdev.xiaoling.automation.WorkflowDeviceObservationDecisionPolicy
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationEvidenceInput
 import com.longdev.xiaoling.automation.WorkflowDeviceObservationResolution
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicy
+import com.longdev.xiaoling.automation.WorkflowGoalVerificationContract
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationSpec
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStatus
 import com.longdev.xiaoling.automation.WorkflowGoalVerificationStepEvidence
@@ -33,6 +34,7 @@ import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
+import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceObservationController
 import com.longdev.xiaoling.device.DevicePrivacyProbeActivity
@@ -73,6 +75,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -89,6 +92,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             operation == OPERATION_WORKFLOW_HOME ||
             operation == OPERATION_WORKFLOW_SWIPE ||
             operation == OPERATION_WORKFLOW_SETTINGS_MULTI
+                || operation == OPERATION_WORKFLOW_CLOCK_ALARM
         ) {
             // long: 人工审批可能超过 BroadcastReceiver 的十秒窗口；Debug 验收任务由进程级 scope 承载，Receiver 立即返回以避免系统 ANR。
             debugScope.launch {
@@ -112,6 +116,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                         OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
                         OPERATION_WORKFLOW_SWIPE -> runWorkflowSwipe(context.applicationContext)
                         OPERATION_WORKFLOW_SETTINGS_MULTI -> runWorkflowSettingsMulti(context.applicationContext)
+                        OPERATION_WORKFLOW_CLOCK_ALARM -> runWorkflowClockAlarm(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
                     }
                 }
@@ -2925,6 +2930,190 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         state.edit().clear().apply()
     }
 
+    private suspend fun runWorkflowClockAlarm(context: Context) {
+        val preferences = UiPreferenceStore(context)
+        val previousAgentEnabled = preferences.loadDeviceAgentEnabled()
+        val now = ZonedDateTime.now(ZoneId.systemDefault())
+        val target = now.plusMinutes(10)
+        val targetHour = target.hour.toString().padStart(2, '0')
+        val targetMinute = target.minute.toString().padStart(2, '0')
+        val targetTime = "$targetHour:$targetMinute"
+        val targetDayLabel = if (target.toLocalDate() == now.toLocalDate()) "今天" else "明天"
+        val goal = "设置一个 10 分钟后响铃的一次性闹钟，并从当前闹钟页面回读时间与一次性状态；不要修改或删除其他闹钟。"
+        val conversationId = "conversation-redmi-workflow-stage268-clock-alarm-${System.currentTimeMillis()}"
+        val workflowRepository = RoomWorkflowRepository(context)
+        val runRepository = RoomAgentRunRepository(context)
+        val requiredToolNames = listOf(
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TYPE_TEXT_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TYPE_TEXT_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+        )
+        val fixture = workflowRepository.createWorkflowAndManualRun(
+            name = "第268阶段一次性闹钟前台任务",
+            steps = listOf(WorkflowStepDefinitionInput(goal)),
+            conversationId = conversationId,
+            targetAppPackage = GOOGLE_CLOCK_PACKAGE,
+            goalVerificationContract = WorkflowGoalVerificationContract(
+                sourceGoal = goal,
+                spec = WorkflowGoalVerificationSpec(
+                    requiredToolNames = requiredToolNames,
+                    expectedFinalPackageName = GOOGLE_CLOCK_PACKAGE,
+                ),
+            ),
+        )
+        val preparedStep = workflowRepository.prepareWorkflowStep(
+            workflowRunId = fixture.second.run.id,
+            workflowStepId = fixture.second.steps.single().id,
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { preferences.loadDeviceAgentEnabled() },
+            gateway = AndroidDeviceAccessibilityGateway(context),
+        )
+        val scriptedLlm = WorkflowClockAlarmE2eLlm(
+            targetTime = targetTime,
+            targetHour = targetHour,
+            targetMinute = targetMinute,
+            targetDayLabel = targetDayLabel,
+        )
+        try {
+            // long: Debug 前台通道只临时打开应用内 Device Agent 开关；系统 Accessibility 授权仍由用户/设备保留，结束后恢复原偏好。
+            preferences.saveDeviceAgentEnabled(true)
+            context.startActivity(
+                Intent(context, DevicePrivacyProbeActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
+            awaitDeviceReady(controller)
+            awaitProbeWindow(controller)
+            context.startActivity(
+                Intent().setClassName(CLOCK_IMPLEMENTATION_PACKAGE, CLOCK_ACTIVITY)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
+            awaitStableClockPackageWindow(controller)
+            val registry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context),
+                noteStore = RoomAgentNoteStore(context),
+                memoryStore = RoomAgentMemoryStore(context),
+                knowledgeStore = RoomKnowledgeDocumentStore(context),
+                deviceController = controller,
+            )
+            val runtime = MinimalAgentRuntime(
+                ledger = runRepository,
+                toolRegistry = registry,
+                llm = scriptedLlm,
+                // long: 一次性闹钟 Workflow 需要多轮观察、审批、输入和回读；预算必须覆盖冻结的工具序列，不能沿用普通直接对话的 4 次默认上限。
+                options = AgentRuntimeOptions(maxToolCalls = requiredToolNames.size + 2),
+                // long: Stage268 的逐动作批准事实沿用 DebugRoomApprovalGate，真实可见浮层审批已在 Stage265/267 验收；本轮重点补齐多步骤 Workflow、工具账本和目标级验证。
+                approvalGate = DebugRoomApprovalGate(
+                    conversationId = conversationId,
+                    repository = runRepository,
+                    reason = "第268阶段 Redmi 一次性闹钟前台任务批准",
+                ),
+                permissionChecker = AndroidToolPermissionChecker(context),
+                processSessionId = "process-redmi-workflow-stage268-clock-alarm",
+            )
+            val summary = runtime.run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-workflow-stage268-clock-alarm-${System.currentTimeMillis()}",
+                goal = goal,
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.WORKFLOW,
+                memoryRecallEnabled = false,
+                workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                    workflowRunId = fixture.second.run.id,
+                    workflowStepId = preparedStep.id,
+                    userIntent = goal,
+                    targetAppPackage = GOOGLE_CLOCK_PACKAGE,
+                ),
+            )
+            workflowRepository.markAgentRunStarted(
+                workflowRunId = fixture.second.run.id,
+                workflowStepId = preparedStep.id,
+                agentRunId = summary.runId,
+            )
+            workflowRepository.completeByAgentRunId(
+                agentRunId = summary.runId,
+                status = WorkflowRunStatus.COMPLETED,
+                result = summary.responseText,
+            )
+            val workflow = checkNotNull(workflowRepository.runDetail(fixture.second.run.id)) {
+                "Stage268 闹钟 Workflow Run 未写入 Room"
+            }
+            check(workflow.run.status == WorkflowRunStatus.COMPLETED) {
+                "Stage268 闹钟 Workflow 未完成：${workflow.run.status}"
+            }
+            check(workflow.run.goalVerificationDecision?.status == WorkflowGoalVerificationStatus.VERIFIED) {
+                "Stage268 闹钟目标级结论不是 VERIFIED：${workflow.run.goalVerificationDecision}"
+            }
+            check(workflow.steps.single().status == WorkflowStepStatus.COMPLETED)
+            val agentDetail = checkNotNull(runRepository.runDetail(summary.runId)) {
+                "Stage268 闹钟 Agent Run 未写入 Room"
+            }
+            check(agentDetail.snapshot.run.status == AgentRunStatus.COMPLETED)
+            check(agentDetail.toolLedger.results.size == requiredToolNames.size)
+            check(agentDetail.toolLedger.results.all { result ->
+                result.success &&
+                    result.verificationStatus == ToolVerificationStatus.PASSED &&
+                    (result.toolName == DEVICE_SNAPSHOT_E2E_TOOL_NAME || result.executorVerified == true)
+            }) { "Stage268 闹钟 Tool Ledger 存在未通过结果" }
+            scriptedLlm.assertCompleted()
+            Log.i(
+                TAG,
+                "workflow-stage268-clock-alarm-e2e success=true workflowRun=${workflow.run.id} " +
+                    "agentRun=${summary.runId} targetTime=$targetTime approvals=${agentDetail.approvals.size} " +
+                    "toolResults=${agentDetail.toolLedger.results.size} goalDecision=${workflow.run.goalVerificationDecision?.status} " +
+                    "oneShot=true originalAlarmsUnchanged=true temporaryAlarmDeleted=true",
+            )
+        } finally {
+            controller.clearReferences()
+            preferences.saveDeviceAgentEnabled(previousAgentEnabled)
+            workflowRepository.setEnabled(fixture.first.id, false)
+        }
+    }
+
+    private suspend fun awaitStableClockPackageWindow(controller: DeviceObservationController) {
+        var lastGeneration: Long? = null
+        var stableSamples = 0
+        repeat(40) {
+            when (val capture = controller.capture()) {
+                is DeviceSnapshotCapture.Success -> {
+                    if (DeviceActionPolicy.areEquivalentAppPackages(GOOGLE_CLOCK_PACKAGE, capture.snapshot.packageName)) {
+                        stableSamples = if (lastGeneration == capture.snapshot.windowGeneration) {
+                            stableSamples + 1
+                        } else {
+                            1
+                        }
+                        lastGeneration = capture.snapshot.windowGeneration
+                        // long: 时钟页面切入后仍可能连续发送窗口内容事件；至少观察到三个相同代次样本，才把页面交给 Workflow 的第一条 snapshot。
+                        if (stableSamples >= 3) return
+                    } else {
+                        lastGeneration = null
+                        stableSamples = 0
+                    }
+                }
+                is DeviceSnapshotCapture.Failed -> {
+                    if (capture.reason !in TRANSIENT_SNAPSHOT_FAILURES) error(capture.message)
+                    lastGeneration = null
+                    stableSamples = 0
+                }
+            }
+            delay(200)
+        }
+        error("限定时间内没有稳定的时钟窗口")
+    }
+
     private suspend fun runWorkflowTapRef(context: Context) {
         context.startActivity(
             Intent(context, DevicePrivacyProbeActivity::class.java)
@@ -3944,6 +4133,232 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         error("Workflow 设备动作后无法再次获取真实 Accessibility snapshot")
     }
 
+    private class WorkflowClockAlarmE2eLlm(
+        private val targetTime: String,
+        private val targetHour: String,
+        private val targetMinute: String,
+        private val targetDayLabel: String,
+    ) : AgentLlm {
+        private var initialAlarmTimes: Set<String> = emptySet()
+        private var createdAlarmObserved = false
+        private var expandedAlarmObserved = false
+        private var deletedAlarmObserved = false
+        private var finalAlarmTimes: Set<String> = emptySet()
+
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            return when (completedTools.size) {
+                0 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                1 -> {
+                    val json = snapshotJson(completedTools.last())
+                    initialAlarmTimes = clockTimes(json)
+                    check(targetTime !in initialAlarmTimes) { "临时目标时间已存在，拒绝覆盖现有闹钟：$targetTime" }
+                    tapFromSnapshot(completedTools.last(), tools, text = "添加闹钟")
+                }
+                2 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                3 -> tapFromSnapshot(completedTools.last(), tools, descriptionContains = "切换到文字输入模式")
+                4 -> {
+                    // long: Redmi 在切换到文字输入模式后会异步创建输入法窗口；先让焦点/IME 事件收敛，再获取输入框 snapshot，避免批准期间旧代次被安全地判为失效。
+                    delay(800)
+                    AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                }
+                5 -> typeTextFromSnapshot(completedTools.last(), tools, fieldIndex = 0, text = targetHour)
+                6 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                7 -> typeTextFromSnapshot(completedTools.last(), tools, fieldIndex = 1, text = targetMinute)
+                8 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                9 -> tapFromSnapshot(completedTools.last(), tools, text = "确定")
+                10 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                11 -> {
+                    val json = snapshotJson(completedTools.last())
+                    check(targetTime in clockTimes(json)) { "保存后没有观察到临时闹钟 $targetTime：${clockTimes(json)}" }
+                    createdAlarmObserved = true
+                    tapTargetAlarmExpander(json, tools)
+                }
+                12 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                13 -> {
+                    val json = snapshotJson(completedTools.last())
+                    validateExpandedTarget(json)
+                    expandedAlarmObserved = true
+                    tapTargetDelete(json, tools)
+                }
+                14 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                15 -> {
+                    val json = snapshotJson(completedTools.last())
+                    finalAlarmTimes = clockTimes(json)
+                    check(targetTime !in finalAlarmTimes) { "临时闹钟 $targetTime 清理后仍存在：$finalAlarmTimes" }
+                    check(finalAlarmTimes == initialAlarmTimes - targetTime) {
+                        "清理后原有闹钟事实发生变化：before=$initialAlarmTimes after=$finalAlarmTimes"
+                    }
+                    deletedAlarmObserved = true
+                    AgentPlanDecision.Complete
+                }
+                else -> error("Stage268 闹钟脚本出现未预期的工具步骤：${completedTools.size}")
+            }
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "已设置并精确清理一次性闹钟，完成当前闹钟事实回读"
+
+        fun assertCompleted() {
+            check(createdAlarmObserved) { "Stage268 未观察到保存后的临时闹钟" }
+            check(expandedAlarmObserved) { "Stage268 未观察到目标闹钟展开事实" }
+            check(deletedAlarmObserved) { "Stage268 未观察到临时闹钟删除后的最终事实" }
+        }
+
+        private fun tapFromSnapshot(
+            execution: AgentToolExecution,
+            tools: List<ToolDefinition>,
+            text: String? = null,
+            descriptionContains: String? = null,
+        ): AgentPlanDecision {
+            val json = snapshotJson(execution)
+            val node = nodes(json).firstOrNull { candidate ->
+                hasTap(candidate) && (
+                    text == null || candidate.optString("text") == text || candidate.optString("description") == text || candidate.optString("hint") == text
+                    ) && (
+                    descriptionContains == null || candidate.optString("description").contains(descriptionContains)
+                    )
+            } ?: error("当前时钟 snapshot 没有目标节点：text=$text description=$descriptionContains")
+            return callTap(json, node, tools)
+        }
+
+        private fun tapTextField(
+            execution: AgentToolExecution,
+            tools: List<ToolDefinition>,
+            fieldIndex: Int,
+        ): AgentPlanDecision {
+            val json = snapshotJson(execution)
+            val fields = nodes(json).filter { node ->
+                node.optString("role") == "text_field" && hasTap(node)
+            }
+            val node = fields.getOrNull(fieldIndex) ?: error("文字输入模式缺少第 ${fieldIndex + 1} 个输入框")
+            return callTap(json, node, tools)
+        }
+
+        private fun typeTextFromSnapshot(
+            execution: AgentToolExecution,
+            tools: List<ToolDefinition>,
+            fieldIndex: Int,
+            text: String,
+        ): AgentPlanDecision {
+            val json = snapshotJson(execution)
+            val fields = nodes(json).filter { node ->
+                node.optString("role") == "text_field" && hasTypeText(node)
+            }
+            val node = fields.getOrNull(fieldIndex) ?: error("文字输入模式缺少第 ${fieldIndex + 1} 个可输入框")
+            val typeText = tools.single { it.name == DEVICE_TYPE_TEXT_TOOL_NAME }
+            return AgentPlanDecision.CallTool(
+                ToolCall(
+                    name = typeText.name,
+                    arguments = mapOf(
+                        "snapshot_id" to json.getString("snapshot_id"),
+                        "ref" to node.getString("ref"),
+                        "text" to text,
+                    ),
+                    risk = typeText.risk,
+                ),
+            )
+        }
+
+        private fun tapTargetAlarmExpander(json: JSONObject, tools: List<ToolDefinition>): AgentPlanDecision {
+            val targetIndex = targetTimeIndex(json)
+            val node = nodes(json).drop(targetIndex + 1).firstOrNull { candidate ->
+                hasTap(candidate) && candidate.optString("description") in setOf("展开闹钟", "收起闹钟")
+            } ?: error("保存后没有找到临时闹钟 $targetTime 的展开节点")
+            check(node.optString("description") == "展开闹钟") { "临时闹钟已处于非预期展开状态" }
+            return callTap(json, node, tools)
+        }
+
+        private fun tapTargetDelete(json: JSONObject, tools: List<ToolDefinition>): AgentPlanDecision {
+            val targetIndex = targetTimeIndex(json)
+            val node = nodes(json).drop(targetIndex + 1).firstOrNull { candidate ->
+                hasTap(candidate) && candidate.optString("text") == "删除"
+            } ?: error("展开后的临时闹钟没有删除节点")
+            return callTap(json, node, tools)
+        }
+
+        private fun validateExpandedTarget(json: JSONObject) {
+            val targetIndex = targetTimeIndex(json)
+            val following = nodes(json).drop(targetIndex + 1)
+            val nextAlarmIndex = following.indexOfFirst { candidate ->
+                // long: 一个闹钟容器还会重复暴露子节点时间文本；只有带“闹钟”描述的容器才代表下一条闹钟，避免提前截断当前目标区域。
+                candidate.optString("description").matches(ALARM_DESCRIPTION_PATTERN)
+            }
+            val targetSegment = if (nextAlarmIndex >= 0) following.take(nextAlarmIndex) else following
+            check(targetSegment.any { candidate -> candidate.optString("text") == targetDayLabel }) {
+                "临时闹钟没有回读为一次性${targetDayLabel}事实"
+            }
+            val weekdayCheckboxes = targetSegment.filter { candidate ->
+                candidate.optString("role") == "checkbox" && candidate.optString("description").startsWith("星期")
+            }
+            check(weekdayCheckboxes.size == 7 && weekdayCheckboxes.all { !it.optBoolean("checked", true) }) {
+                "临时闹钟的星期选择没有全部保持未选中：$weekdayCheckboxes"
+            }
+            check(targetSegment.any { candidate -> candidate.optString("text") == "删除" && hasTap(candidate) }) {
+                "临时闹钟展开区域没有稳定删除节点"
+            }
+        }
+
+        private fun targetTimeIndex(json: JSONObject): Int {
+            return nodes(json).indexOfFirst { candidate ->
+                candidate.optString("text") == targetTime || candidate.optString("description") == "$targetTime 闹钟"
+            }.also { index -> check(index >= 0) { "时钟 snapshot 没有目标闹钟 $targetTime" } }
+        }
+
+        private fun clockTimes(json: JSONObject): Set<String> = nodes(json)
+            .mapNotNull { candidate -> candidate.optString("text").takeIf { it.matches(ALARM_TIME_PATTERN) } }
+            .toSet()
+
+        private fun callTap(json: JSONObject, node: JSONObject, tools: List<ToolDefinition>): AgentPlanDecision {
+            val tap = tools.single { it.name == DEVICE_TAP_REF_TOOL_NAME }
+            return AgentPlanDecision.CallTool(
+                ToolCall(
+                    name = tap.name,
+                    arguments = mapOf(
+                        "snapshot_id" to json.getString("snapshot_id"),
+                        "ref" to node.getString("ref"),
+                    ),
+                    risk = tap.risk,
+                ),
+            )
+        }
+
+        private fun snapshotJson(execution: AgentToolExecution): JSONObject {
+            check(execution.toolResult.success) { execution.toolResult.content }
+            return JSONObject(execution.toolResult.content)
+        }
+
+        private fun nodes(json: JSONObject): List<JSONObject> {
+            val array = json.getJSONArray("nodes")
+            return (0 until array.length()).map(array::getJSONObject)
+        }
+
+        private fun hasTap(node: JSONObject): Boolean = hasAction(node, "tap") && node.optString("ref").isNotBlank()
+
+        private fun hasTypeText(node: JSONObject): Boolean = hasAction(node, "type_text") && node.optString("ref").isNotBlank()
+
+        private fun hasAction(node: JSONObject, action: String): Boolean {
+            val actions = node.optJSONArray("actions") ?: return false
+            return (0 until actions.length()).any { index -> actions.optString(index) == action }
+        }
+
+        private companion object {
+            val ALARM_TIME_PATTERN = Regex("^\\d{2}:\\d{2}$")
+            val ALARM_DESCRIPTION_PATTERN = Regex("^\\d{2}:\\d{2} 闹钟$")
+        }
+    }
+
     private class WorkflowTapRefE2eLlm : AgentLlm {
         lateinit var snapshotId: String
             private set
@@ -4350,6 +4765,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_HOME = "workflow_home"
         const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
         const val OPERATION_WORKFLOW_SETTINGS_MULTI = "workflow_settings_multi"
+        const val OPERATION_WORKFLOW_CLOCK_ALARM = "workflow_clock_alarm"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val STAGE179_MEMORY_FIXTURE_SOURCE = "第179阶段 Redmi Debug 夹具"
         private const val STAGE202_MEMORY_PROFILE_ID = "stage202-memory-remember-profile"
@@ -4382,6 +4798,9 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
         private const val SYSTEM_CALCULATOR_PACKAGE = "com.android.calculator2"
         private const val GOOGLE_WEATHER_PACKAGE = "com.google.android.apps.weather"
+        private const val GOOGLE_CLOCK_PACKAGE = "com.google.android.deskclock"
+        private const val CLOCK_IMPLEMENTATION_PACKAGE = "com.android.deskclock"
+        private const val CLOCK_ACTIVITY = "com.android.deskclock.DeskClock"
         private const val WORKFLOW_TYPE_TEXT_HINT = "Workflow 安全文本输入框"
         private const val WORKFLOW_TYPE_TEXT_INPUT = "stage117_safe_text"
         private const val WORKFLOW_SWIPE_DIRECTION = "up"

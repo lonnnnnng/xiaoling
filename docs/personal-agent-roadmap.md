@@ -1,14 +1,28 @@
 # 小灵个人 Agent 路线图
 
+## 第 268 阶段：一次性闹钟前台任务（已完成）
+
+- 继续沿用“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 `VERIFIED` -> 当前权威事实查看”，任务冻结为系统时钟中设置一个 10 分钟后的一次性闹钟；目标包限制在已登记的 Google/AOSP 时钟包族。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 的真实 Provider 前台闭环已通过（`gpt-5.6-luna`）：Workflow/Agent Run 完成，15 个 ToolResult 均为 `PASSED`，7 次动作审批，目标级结论为 `VERIFIED`。
+- 真实动作完成创建、时间/日期/星期回读和临时闹钟删除；最终页面只剩原有 `08:30`、`09:00`，证明旧事实未被修改。实现保留短生命周期 ref、代次检查、动作后重新观察和 typed Executor 验证。
+- 过程修正包括等待三个相同 window generation 样本、按闹钟容器描述切分目标区域、只统计星期复选框，以及按执行时区判断“今天/明天”；未放宽设备安全策略。
+- 本阶段不引入 AlarmManager、精确定时、Foreground Service、后台调度或任意 App 控制；仅完成前台一次性闹钟闭环。
+
+### 第 268 阶段下一步
+
+1. 继续在 Redmi 与已登记白名单 App 内选择新的高频前台个人任务。
+2. 沿用“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 `VERIFIED` -> 当前权威事实查看”。
+3. 不把一次性闹钟前台闭环扩展为精确定时、AlarmManager、Foreground Service 或后台自动化。
+
 ## 第 267 阶段：目标级等价应用包族验证（已完成）
 
 - 设备动作层原本已经把 AOSP/Google 计算器和时钟登记为等价应用族，但 Workflow 目标级完成判定及持久化决定解码仍要求包名逐字符相等，可能把 Redmi 上合法的同族实现误判为 `FINAL_PACKAGE_MISMATCH`。
 - `WorkflowGoalVerificationPolicy` 与 `WorkflowGoalVerificationDecisionCodec` 现在统一复用 `DeviceActionPolicy.areEquivalentAppPackages`；只有显式登记的同族包可以互相验证，设置、天气、小灵和所有未登记包仍保持严格边界。
-- 受影响 JVM `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过；本阶段没有新增工具、权限、App 白名单、Room Schema、后台能力，也没有运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation。
+- 受影响 JVM `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过；随后在 Redmi `wsvwypiz7xwslvl7 / begonia` 完成真实闭环：`gpt-5.6-luna` 生成目标级计划，用户批准 `device.open_app`，请求包 `com.google.android.deskclock` 实际落到已登记同族 `com.android.deskclock`，动作后观察与持久化目标判定均为 `VERIFIED`，Instrumentation `OK (1 test)`（`71.617s`）。本阶段没有新增工具、权限、App 白名单、Room Schema 或后台能力。
 
 ### 下一阶段
 
-- 在 Redmi 当前 Provider 下，选择一个已有白名单且存在 AOSP/Google 实现差异的前台个人任务，完成“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 VERIFIED -> 当前权威事实查看”真实闭环；不扩展新 App 家族或任意 App 控制。
+- 继续在 Redmi 当前 Provider 下选择已有白名单且存在 AOSP/Google 实现差异的下一条窄前台个人任务，完成“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 VERIFIED -> 当前权威事实查看”真实闭环；不扩展新 App 家族或任意 App 控制。
 
 ## 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（已完成）
 

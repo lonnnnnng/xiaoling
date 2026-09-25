@@ -55,10 +55,10 @@ class DeviceActionDebugReceiver : BroadcastReceiver() {
             ACTION_OPEN_APP -> controller.openApp(intent.getStringExtra(EXTRA_PACKAGE_NAME).orEmpty())
             ACTION_BACK -> controller.back()
             ACTION_HOME -> controller.home()
-            ACTION_TAP -> withTarget(controller, intent, DeviceNodeAction.TAP) { snapshotId, ref ->
+            ACTION_TAP -> withExplicitOrTarget(controller, intent, DeviceNodeAction.TAP) { snapshotId, ref ->
                 controller.tap(snapshotId, ref)
             }
-            ACTION_TYPE_TEXT -> withTarget(controller, intent, DeviceNodeAction.TYPE_TEXT) { snapshotId, ref ->
+            ACTION_TYPE_TEXT -> withExplicitOrTarget(controller, intent, DeviceNodeAction.TYPE_TEXT) { snapshotId, ref ->
                 val text = intent.getStringExtra(EXTRA_TEXT_BASE64)?.let { encoded ->
                     String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8)
                 } ?: intent.getStringExtra(EXTRA_TEXT).orEmpty()
@@ -71,7 +71,7 @@ class DeviceActionDebugReceiver : BroadcastReceiver() {
                     DeviceActionFailure.ACTION_NOT_SUPPORTED,
                     "滚动方向必须是 up、down、left 或 right",
                 )
-                withTarget(controller, intent, DeviceNodeAction.SWIPE) { snapshotId, ref ->
+                withExplicitOrTarget(controller, intent, DeviceNodeAction.SWIPE) { snapshotId, ref ->
                     controller.swipe(snapshotId, ref, direction)
                 }
             }
@@ -118,6 +118,42 @@ class DeviceActionDebugReceiver : BroadcastReceiver() {
         return block(capture.snapshot.snapshotId, requireNotNull(node.ref))
     }
 
+    private suspend fun withExplicitOrTarget(
+        controller: DeviceObservationController,
+        intent: Intent,
+        requiredAction: DeviceNodeAction,
+        block: suspend (snapshotId: String, ref: String) -> DeviceActionCapture,
+    ): DeviceActionCapture {
+        val snapshotId = intent.getStringExtra(EXTRA_SNAPSHOT_ID).orEmpty().trim()
+        val ref = intent.getStringExtra(EXTRA_REF).orEmpty().trim()
+        if (snapshotId.isBlank() && ref.isNotBlank()) {
+            val capture = controller.capture()
+            if (capture is DeviceSnapshotCapture.Failed) {
+                return DeviceActionCapture.Failed(DeviceActionFailure.POST_ACTION_OBSERVATION_FAILED, capture.message)
+            }
+            capture as DeviceSnapshotCapture.Success
+            val currentNode = capture.snapshot.nodes.firstOrNull { node ->
+                node.ref == ref && requiredAction in node.actions
+            } ?: return DeviceActionCapture.Failed(
+                DeviceActionFailure.REFERENCE_NOT_FOUND,
+                "当前 snapshot 没有带有显式 ref 的可执行节点",
+            )
+            // long: 诊断调用只携带稳定短 ref 时，仍以本次 capture 的 snapshot 身份交给生产 Controller 做完整生命周期校验。
+            return block(capture.snapshot.snapshotId, requireNotNull(currentNode.ref))
+        }
+        if (snapshotId.isNotBlank() || ref.isNotBlank()) {
+            if (snapshotId.isBlank() || ref.isBlank()) {
+                return DeviceActionCapture.Failed(
+                    DeviceActionFailure.REFERENCE_NOT_FOUND,
+                    "显式设备引用必须同时提供 snapshot_id 和 ref",
+                )
+            }
+            // long: Debug 清理允许复用日志中刚刚取得的精确短期引用，但仍由生产 Controller 校验 snapshot 生命周期、窗口代次和动作类型。
+            return block(snapshotId, ref)
+        }
+        return withTarget(controller, intent, requiredAction, block)
+    }
+
     companion object {
         const val ACTION_EXECUTE = "com.longdev.xiaoling.debug.EXECUTE_DEVICE_ACTION"
         const val EXTRA_REQUEST_ID = "request_id"
@@ -127,6 +163,8 @@ class DeviceActionDebugReceiver : BroadcastReceiver() {
         const val EXTRA_TEXT = "text"
         const val EXTRA_TEXT_BASE64 = "text_base64"
         const val EXTRA_DIRECTION = "direction"
+        const val EXTRA_SNAPSHOT_ID = "snapshot_id"
+        const val EXTRA_REF = "ref"
         const val ACTION_OPEN_APP = "open_app"
         const val ACTION_BACK = "back"
         const val ACTION_HOME = "home"

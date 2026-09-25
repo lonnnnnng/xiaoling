@@ -1,6 +1,26 @@
 # 验证报告
 
-验证日期：2026-09-16（北京时间）
+验证日期：2026-09-25（北京时间）
+
+## 2026-09-25 第 268 阶段：一次性闹钟前台真实闭环（完成）
+
+### 已验证
+
+- 设备仅使用 Redmi `wsvwypiz7xwslvl7 / begonia`（Redmi Note 8 Pro）；Provider 模型为 `gpt-5.6-luna`。未使用或启动 Pixel_9。
+- `./gradlew :app:assembleDebug`：`BUILD SUCCESSFUL`，Debug APK 安装到 Redmi 成功；按分级验证约束，本轮没有运行完整 JVM、全量 Lint、Release APK 或全量 instrumentation。
+- 文档同步后的 `./gradlew :app:assembleDebugAndroidTest` 为 `BUILD SUCCESSFUL`；仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，最终 `OK (1 test)`。耗时不固化到长期文档，避免文档写回导致验证墙钟递归变化；测试 APK 已卸载，主应用数据未清理。
+- 独立前台 Debug 通道触发 `workflow_clock_alarm` 成功：Workflow Run `workflow-run-e8ae2097-28e4-4ea9-9d29-53e317165e37`，Agent Run `run-ee7edbbb-245a-4626-ab5b-a399dacda035`，目标时间 `14:18`，`approvals=7`，`toolResults=15`，`goalDecision=VERIFIED`，`oneShot=true`，`originalAlarmsUnchanged=true`，`temporaryAlarmDeleted=true`。
+- 真实动作链为 15 个工具步骤：7 个 `device.tap_ref`、2 个 `device.type_text` 和 6 个 `device.snapshot`。所有 ToolResult `success=true / verificationStatus=PASSED`；14 个设备动作均 `executorVerified=true`。末次快照只剩原有 `08:30`、`09:00` 两条闹钟。
+
+### 过程修正与边界
+
+- 首次独立前台尝试发现 Debug APK 重装会清空 Accessibility 授权；恢复 `XiaoLingAccessibilityService` 后继续。随后发现时钟窗口连续内容事件导致 `snapshotGeneration=7`、`currentGeneration=8` 的 fail-closed 恢复错误，增加三个相同 generation 样本的稳定等待，未放宽 Executor 代次检查。
+- 目标闹钟展开快照同时包含容器描述和重复的子节点时间文本，断言改为按下一个“HH:mm 闹钟”容器切分；星期验证只统计七个 `星期*` 描述，排除“振动”复选框；日期文案按执行时区动态接受“今天/明天”。
+- `device.snapshot` 结果的 `executorVerified` 按既有 typed 语义保持为空；验收只对 snapshot 要求 `success + PASSED`，写动作额外要求 `executorVerified=true`。旧 Run、旧审批、旧 Tool Ledger 未被改写；一次性前台闹钟闭环不构成 AlarmManager、精确定时、Foreground Service、后台调度或任意 App 控制依据。
+
+### 历史通道边界
+
+- `Stage268ClockAlarmObservationInstrumentedTest` 在同包 `am instrument` 通道曾得到 `ACCESSIBILITY_NOT_AUTHORIZED`；设备 `dumpsys accessibility` 显示 Runner 停止应用内 AccessibilityService。该历史失败证明的是测试通道隔离，不是否定生产服务授权；因此真实验收改用独立前台 Debug 通道。
 
 ## 当前验证基线
 
@@ -8,19 +28,23 @@
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
-## 2026-09-16 第 267 阶段：目标级等价应用包族验证（完成）
+## 2026-09-16 第 267 阶段：目标级等价应用包族验证与 Redmi 真实闭环（完成）
 
 ### 覆盖边界
 
 - 目标级完成判定和 `WorkflowGoalVerificationDecisionCodec` 统一调用 `DeviceActionPolicy.areEquivalentAppPackages`；AOSP/Google 计算器、时钟等已登记同族实现可以验证为同一应用能力，未登记包仍拒绝。
 - 新增 `WorkflowGoalVerificationPolicyTest#equivalentCalculatorPackageStillVerifiesTheUserGoal`，验证实际 `com.google.android.calculator` 满足期望 `com.android.calculator2` 时返回 `VERIFIED`。
 - 新增 `WorkflowGoalVerificationPolicyTest#persistedDecisionAcceptsRegisteredEquivalentPackageButNotArbitraryPackage`，验证时钟同族决定可恢复、替换为 `com.example.untrusted` 后解码失败。
+- Redmi 真实 Provider 闭环使用临时最小 Profile：自然语言目标要求打开 `com.google.android.deskclock`，规划阶段只暴露 `device-control`；用户确认后 `device.open_app` 产生 1 次可见审批，动作后重新观察，实际前台包为已登记同族 `com.android.deskclock`，最终 Workflow 与持久化目标决定均为 `VERIFIED`。
 
 ### 分级验证
 
 - 受影响 JVM：`./gradlew testDebugUnitTest --tests com.longdev.xiaoling.automation.WorkflowGoalVerificationPolicyTest --no-daemon`，`BUILD SUCCESSFUL in 18s`。
+- Skill 显式绑定回归：`./gradlew :app:testDebugUnitTest --tests com.longdev.xiaoling.agent.AgentSkillsTest --rerun-tasks`，`46/46` 通过；`./gradlew :app:assembleDebug :app:assembleDebugAndroidTest` 成功。
 - `git diff --check` 通过。
-- 本阶段未运行 Redmi、全量 JVM、Lint、Release APK 或全量 instrumentation；没有使用或启动 Pixel_9，也没有修改设备白名单。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 定向 instrumentation：`Stage267EquivalentPackageInstrumentedTest#googleClockTargetVerifiesAospClockImplementation`，`OK (1 test)`，耗时 `71.617s`，`0 failures / 0 errors / 0 skipped`；日志证据为 `requestedPackage=com.google.android.deskclock actualPackage=com.android.deskclock goalDecision=VERIFIED equivalentPackage=true`。
+- 文档同步后的 corpus gate：`RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，仅 Redmi 首轮 `OK (1 test)`（`3.57s`），写回本阶段证据后的后续最终复验均为 `OK (1 test)`；仅重装测试 APK，主应用数据未清理。
+- 测试通过不抑制 Accessibility 的 UiAutomation 在测试内部重绑定服务；本次没有使用或启动 Pixel_9，也没有修改设备白名单。未运行全量 JVM、Lint、Release APK 或全量 instrumentation。
 
 ## 2026-09-16 第 266 阶段第五切片：长任务预算快照与未知提交重试边界（完成）
 

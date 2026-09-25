@@ -14,10 +14,12 @@ class AndroidDeviceAccessibilityGateway(context: Context) : DeviceAccessibilityG
     override fun isServiceAuthorized(): Boolean {
         val manager = appContext.getSystemService(AccessibilityManager::class.java) ?: return false
         val expected = ComponentName(appContext, XiaoLingAccessibilityService::class.java)
-        return manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any { info ->
+        val listedAsEnabled = manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any { info ->
             val serviceInfo = info.resolveInfo.serviceInfo
             serviceInfo.packageName == expected.packageName && serviceInfo.name == expected.className
         }
+        // long: Redmi 在窗口切换或短暂 UiAutomation 连接期间可能让系统列表瞬时为空；已绑定的本进程服务仍是更强的授权事实，避免把可用服务误报为未授权。
+        return listedAsEnabled || DeviceAccessibilityRuntime.isConnected()
     }
 
     override fun isServiceConnected(): Boolean = DeviceAccessibilityRuntime.isConnected()

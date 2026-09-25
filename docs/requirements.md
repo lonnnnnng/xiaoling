@@ -1,10 +1,19 @@
 # 产品需求
 
+## 第 268 阶段一次性闹钟前台任务（已完成）
+
+- 个人 Agent 只允许在已登记 Google/AOSP 时钟包族内规划“一次性、10 分钟后响铃”的前台目标；不得规划周期规则、修改或删除其他闹钟、后台调度或隐式跨 App 执行。
+- 计划必须拆成可观察的单步设备动作，每一步使用新鲜 snapshot、短生命周期节点引用、风险审批和操作后重新观察；最终必须从当前时钟页面回读时间、启用状态和一次性状态，才能给出目标级 `VERIFIED`。
+- 计划门禁和独立前台真实闭环均已在 Redmi `wsvwypiz7xwslvl7 / begonia` 的真实 Provider `gpt-5.6-luna` 下通过：Workflow/Agent Run 完成，15 个 ToolResult 为 `PASSED`，7 次动作审批，目标级结论为 `VERIFIED`。
+- 最终当前闹钟页面只剩原有 `08:30`、`09:00`；临时闹钟已精确删除且原有闹钟未改变。时钟窗口代次、日期文案、目标容器和星期复选框均有真实节点证据。
+- 本阶段不引入 AlarmManager、精确定时、Foreground Service、后台 Worker 或新的 App 白名单；一次性闹钟闭环不等于后台定时能力，也不承诺任意 App。
+
 ## 第 267 阶段目标级等价应用包族验证（完成）
 
 - 目标级最终应用验证必须同时满足“期望包属于默认白名单”和“实际包属于该期望包已登记的等价应用族”；不能因为 AOSP/Google 同族实现差异误判已完成，也不能因此放宽到未登记包。
 - 持久化 `WorkflowGoalVerificationDecision` 在恢复解码时必须复用同一等价包族规则；合法同族决定可恢复，任意包名、缺失目标或损坏摘要仍 fail-closed。
 - 本阶段不改变 `open_app` 的逐包审批、Accessibility 观察、Executor 后置验证、旧 Run、Profile、Room Schema 或后台设备边界。
+- Redmi 真实闭环已验证：请求 `com.google.android.deskclock`、实际 `com.android.deskclock` 时，必须在 `device.open_app` 用户批准、动作后观察和 typed Executor 验证完成后给出 `VERIFIED`；本次单项耗时 `71.617s`，不把同族规则扩大为任意包模糊匹配。
 
 ## 第 266 阶段长任务预算与未知提交边界（完成）
 

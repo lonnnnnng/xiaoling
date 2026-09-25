@@ -1,6 +1,8 @@
 # 文档索引
 
-第267阶段已完成目标级等价应用包族验证：`WorkflowGoalVerificationPolicy` 与持久化决定解码统一复用 `DeviceActionPolicy.areEquivalentAppPackages`，已登记的 AOSP/Google 计算器、时钟实现可以互相验证，未登记包仍 fail-closed。受影响 JVM `WorkflowGoalVerificationPolicyTest` 通过，`git diff --check` 通过；本阶段未运行 Redmi、全量 JVM、Lint、Release 或全量 instrumentation，也没有扩大设备白名单。下一阶段在 Redmi 对已有白名单包族做一次真实个人任务闭环验收。
+第268阶段已完成一条窄个人 Agent 前台闭环：在已登记的 Google/AOSP 时钟包族内设置一个 10 分钟后的一次性闹钟，回读当前闹钟页面的时间、一次性日期和星期选择，再精确删除临时闹钟。仅使用 Redmi `wsvwypiz7xwslvl7 / begonia` 与真实 Provider `gpt-5.6-luna`；最终 Workflow/Agent Run 均完成，15 个 ToolResult 全部 `PASSED`，7 次动作审批，目标级结论 `VERIFIED`。最终快照只剩原有 `08:30`、`09:00`，原有闹钟未改变。未引入 AlarmManager、精确定时、Foreground Service、后台调度或任意 App 控制；本轮只做 Debug 构建和 Redmi 定向真实验收，未运行全量 JVM/Lint/Release。
+
+第267阶段已完成目标级等价应用包族的 Redmi 真实闭环：`WorkflowGoalVerificationPolicy` 与持久化决定解码统一复用 `DeviceActionPolicy.areEquivalentAppPackages`，已登记的 AOSP/Google 时钟实现可以互相验证，未登记包仍 fail-closed。Redmi `wsvwypiz7xwslvl7 / begonia` 使用 `gpt-5.6-luna` 完成自然语言目标、用户确认、`device.open_app` 单次审批、动作后观察和目标级 `VERIFIED`；请求包 `com.google.android.deskclock`，实际前台包 `com.android.deskclock`，Instrumentation `OK (1 test)`（`71.617s`）。本阶段未扩大设备白名单、未运行全量 JVM/Lint/Release 或全量 instrumentation；下一阶段继续选择已有白名单包族中的下一条窄个人任务。
 
 第266阶段第五个可靠性切片已完成：长任务在 `EXECUTING` 中断时保留最后执行预算快照，活动 Tool Step 收敛为 `CANCELLED`，恢复事件冻结 `COMMIT_UNKNOWN`；重试前动态证据仍需用户确认，证据链不完整时升级为 `EVIDENCE_INCOMPLETE`。Redmi 定向单项 `OK (1 test)`（`0.46s`），没有引入 Foreground Service、精确定时或系统回收模拟。第266阶段代码级可靠性切片收口，后续回到个人 Agent 主线。
 
@@ -18,17 +20,18 @@
 
 第 263 阶段按用户要求移除启动图并固化 R8 精简打包配置。`values-v31` 与 `values-night-v31` 主题把 `windowSplashScreenAnimatedIcon` 换成全透明占位向量、移除 `windowSplashScreenIconBackgroundColor`，`windowSplashScreenBackground` 保持与窗口背景同色，使 Android 12+ 必然存在的系统启动画面在视觉上不可见（Android 12 以下本来没有系统启动图）；`ic_xiaoling_splash_mark` 与 `xiaoling_splash_icon_background` 已删除。`release` 构建 `isMinifyEnabled = true` 本就启用，本轮补上 `isShrinkResources = true` 资源收缩，`optimizeReleaseResources` 生效，aapt2 复核 `Theme.XiaoLing` 正常引用透明图标与同色背景。随后按用户“不要测试，直接发版”的要求发布 `v0.1.18`（`versionCode 19`、Room v36）：正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 1m 4s`，APK 为 `3,247,642` 字节，SHA-256 为 `b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`；`apksigner` 确认 APK Signature Scheme v2 单一 RSA 4096 签名者（证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`），`zipalign` 通过；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18) 已发布并成为 latest。本轮没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation，生产 Tool、权限、Workflow、后台与 Room 边界均未改动。
 
-## 当前路线（第 264 至 267 阶段）
+## 当前路线（第 264 至 268 阶段）
 
 1. 第 264 阶段“一次性提醒改期”已完成：自然语言目标、唯一当前计划、可见时间审批、可验证改期和查看任务。
 2. 第 265 阶段完成一个指定 App 的 Redmi 前台设备任务，不承诺任意 App。
 3. 第 266 阶段设备观察恢复与模型请求失败重试边界等五个可靠性切片已完成；不再为没有自然系统证据的长任务堆叠模拟恢复代码。
-4. 第 267 阶段修正已登记等价应用包族的目标级完成判定；下一步只在 Redmi 对已有白名单包族做真实闭环验收，不扩大任意 App。
-5. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
-6. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
-7. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
+4. 第 267 阶段已完成已登记等价应用包族的目标级判定与 Redmi 真实闭环；下一步继续在已有白名单包族内选择窄个人任务，不扩大任意 App。
+5. 第 268 阶段已完成一次性闹钟的自然语言目标、逐动作审批、操作后观察、当前事实回读、目标级验证和临时资源清理；下一阶段继续选择新的高频前台任务，不扩展为精确定时或后台调度。
+6. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
+7. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
+8. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
 
-第 264、265 阶段已结项，第 266 阶段五个代码级可靠性切片已经收口，第 267 阶段完成已登记等价应用包族的目标级验证修正。下一步在 Redmi 对已有白名单包族做真实个人任务闭环验收。具体交付标准以[个人 Agent 路线图](personal-agent-roadmap.md)为准；Release 构建与发布需要单独明确授权。
+第 264、265 阶段已结项，第 266 阶段五个代码级可靠性切片已经收口，第 267、268 阶段已完成等价包族判定修正与一次性闹钟真实个人任务闭环。下一步仍沿“自然语言目标 -> 用户确认 -> 最小能力面 -> 可验证结果 -> 当前权威事实查看”推进，只使用 Redmi 和已登记白名单包族；Release 构建与发布需要单独明确授权。
 
 第 262 阶段已完成“当前通知 -> 用户选择保存为笔记 -> 可编辑 `notes.create` 草稿 -> 可见审批 -> 当前笔记详情”的 Redmi 真实竖屏闭环。通知详情点击“保存为笔记”时重新读取当前 NotificationListener，只投影应用、标题和正文为外部不可信数据，不自动发送、不创建 Run/Workflow、不写通知历史；敏感、空内容、撤权、断连、通知消失均拒绝。真实 `gpt-5.6-luna` 最终 `OK (1 test)`（`57.861s`），写入为 `APPROVED / PASSED / COMMITTED`，Room 与 Activity 重建后的笔记详情弹窗绑定同一稳定 ID、正文和 revision。临时笔记、Profile、会话、通知与 channel 已清理，旧 Run 不变；横屏会话区过矮仍为已知限制，不纳入本轮通过范围。未执行 Release 或完整测试矩阵。
 

@@ -640,6 +640,38 @@ class AgentSkillCatalog(
         return selectAgentSkills(goal, enabled, limit)
     }
 
+    suspend fun selectByIds(
+        skillIds: Set<String>,
+        allowedSkillIds: Set<String>? = null,
+        allowedToolNames: Set<String>? = null,
+    ): List<AgentSkillDefinition> {
+        require(skillIds.isNotEmpty()) { "显式 Skill 绑定不能为空" }
+        val recordsById = list().associateBy { it.definition.id }
+        val missing = skillIds.filter { it !in recordsById }
+        require(missing.isEmpty()) {
+            "显式绑定的 Skill 不存在：${missing.sorted().joinToString()}"
+        }
+        val registeredToolNames = registeredTools().mapTo(linkedSetOf(), ToolDefinition::name)
+        return skillIds
+            .sorted()
+            .map { skillId ->
+                val record = recordsById.getValue(skillId)
+                require(record.enabled) { "显式绑定的 Skill 已停用：$skillId" }
+                val definition = record.definition
+                require(allowedSkillIds == null || definition.id in allowedSkillIds) {
+                    "显式绑定的 Skill 不在 Agent Profile 白名单中：$skillId"
+                }
+                require(allowedToolNames == null || definition.toolNames.all(allowedToolNames::contains)) {
+                    "显式绑定的 Skill 工具超出 Agent Profile 白名单：$skillId"
+                }
+                val unregisteredTools = definition.toolNames.filterNot(registeredToolNames::contains)
+                require(unregisteredTools.isEmpty()) {
+                    "显式绑定的 Skill 引用了未注册工具：$skillId (${unregisteredTools.sorted().joinToString()})"
+                }
+                definition
+            }
+    }
+
     suspend fun resolveSelection(references: List<AgentSkillReference>): List<AgentSkillDefinition> {
         val recordsById = list().associateBy { it.definition.id }
         return references.map { reference ->
