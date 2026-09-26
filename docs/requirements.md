@@ -1,5 +1,12 @@
 # 产品需求
 
+## 2026-09-27 设备动作免逐次审批授权（已实现，完整任务待复验）
+
+- 设备 Agent 页提供独立开关，默认关闭，且必须先启用设备 Agent；关闭设备 Agent 时撤销免逐次审批授权。用户在此显式授权后，前台手动 Workflow 的已登记、已确认目标应用可连续执行 `device.open_app / device.tap_ref / device.type_text`，无需对每个动作再次人工点击批准。
+- 该开关不改变计划确认、Profile/Skill 工具白名单、默认应用白名单、前台来源、Android 无障碍权限、快照有效期、节点引用/敏感输入过滤、窗口守护、每次动作独立 Room 审计或执行后验证；窗口漂移和证据不足仍 fail-closed。
+- 后台/定时 Workflow、直接 Agent 的其他写入工具、日历/笔记/记忆等副作用及恢复后的旧 Run 不继承该授权。设置授权不是模型指令，也不能作为目标已完成的证据。
+- Redmi 已验证设置持久化/撤销和页面开关；无人工点击的真实窗口守护曾单次通过，最终版 Debug-only 探针确认授权通过与撤销取消。最终版 instrumentation 仍受 Runner 服务断连影响未稳定复验。完整计算器模型任务仍需复验，不以单项通过宣称整条任务闭环。
+
 ## 第274阶段动态应用候选的真实 Provider 计划验收（已完成）
 
 - 真实 Provider 生成设备个人任务时，`target_app_package` 和 `expected_final_package` 必须来自当前 Launcher 发现与已登记白名单交集；本阶段 Redmi 实际选择 `com.android.calculator2`。

@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 
 data class DeviceAgentSettingsUiState(
     val enabled: Boolean = false,
+    val autoApproveActions: Boolean = false,
     val health: DeviceAgentHealthState = DeviceAgentHealthState.AGENT_DISABLED,
     val refreshing: Boolean = false,
     val capturing: Boolean = false,
@@ -45,6 +46,7 @@ class DeviceAgentSettingsViewModel internal constructor(
     fun refresh() {
         uiState = uiState.copy(
             enabled = preferences.loadDeviceAgentEnabled(),
+            autoApproveActions = preferences.loadDeviceActionAutoApprovalEnabled(),
             health = controller.health(),
             refreshing = false,
         )
@@ -57,6 +59,11 @@ class DeviceAgentSettingsViewModel internal constructor(
             controller.clearReferences()
         }
         uiState = uiState.copy(enabled = enabled, snapshot = null, error = null)
+        refresh()
+    }
+
+    fun setAutoApproveActions(enabled: Boolean) {
+        preferences.saveDeviceActionAutoApprovalEnabled(enabled)
         refresh()
     }
 

@@ -67,6 +67,7 @@ internal fun DeviceAgentSettingsPage(
     DeviceAgentSettingsContent(
         state = viewModel.uiState,
         onEnabledChanged = viewModel::setEnabled,
+        onAutoApproveActionsChanged = viewModel::setAutoApproveActions,
         onOpenAccessibilitySettings = {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         },
@@ -81,6 +82,7 @@ internal fun DeviceAgentSettingsPage(
 internal fun DeviceAgentSettingsContent(
     state: DeviceAgentSettingsUiState,
     onEnabledChanged: (Boolean) -> Unit,
+    onAutoApproveActionsChanged: (Boolean) -> Unit = {},
     onOpenAccessibilitySettings: () -> Unit,
     onRefresh: () -> Unit,
     onCaptureSnapshot: () -> Unit,
@@ -131,7 +133,7 @@ internal fun DeviceAgentSettingsContent(
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("启用设备 Agent", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             Text(
-                                "系统无障碍授权和本应用开关必须同时有效；有限动作仅由前台 Agent 按审批和后置验证执行。",
+                                "系统无障碍授权和本应用开关必须同时有效；有限动作仅由前台 Agent 执行并后置验证。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -161,6 +163,34 @@ internal fun DeviceAgentSettingsContent(
                             Text("读取当前界面", modifier = Modifier.padding(start = 6.dp))
                         }
                     }
+                }
+            }
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("设备动作免逐次审批", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "开启后，前台工作流在已确认的限定应用内可连续执行打开、点击和普通文本输入，不再等待每步手动批准。仍保留动作审计、隐私过滤和执行后验证；后台任务及其他写入工具不受此授权影响。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = state.autoApproveActions,
+                        onCheckedChange = onAutoApproveActionsChanged,
+                        enabled = state.enabled,
+                        modifier = Modifier.semantics { contentDescription = "设备动作免逐次审批" },
+                    )
                 }
             }
         }

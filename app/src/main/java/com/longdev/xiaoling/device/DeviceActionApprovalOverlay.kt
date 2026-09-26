@@ -12,6 +12,7 @@ data class DeviceActionApprovalOverlayRequest(
     val userIntent: String,
     val toolDescription: String,
     val actionSummary: String,
+    val autoApprove: Boolean = false,
 ) {
     init {
         require(approvalRequestId.isNotBlank()) { "设备动作审批请求 ID 不能为空" }
@@ -129,10 +130,13 @@ internal class DeviceActionApprovalOverlayCoordinator {
     }
 
     @Synchronized
-    fun recordUserDecision(token: Long, approved: Boolean): Boolean {
+    fun recordUserDecision(token: Long, approved: Boolean, autoApproved: Boolean = false): Boolean {
         val current = active?.takeIf { it.token == token && it.pendingDecision == null } ?: return false
         current.pendingDecision = if (approved) {
-            decision(DeviceActionApprovalOverlayDecisionKind.APPROVED, "用户已在设备动作审批浮层批准")
+            decision(
+                DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                if (autoApproved) "用户已在设置中授权前台设备动作免逐次审批" else "用户已在设备动作审批浮层批准",
+            )
         } else {
             decision(DeviceActionApprovalOverlayDecisionKind.DENIED, "用户已在设备动作审批浮层拒绝")
         }

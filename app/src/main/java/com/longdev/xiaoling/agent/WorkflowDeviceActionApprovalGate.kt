@@ -31,6 +31,7 @@ class WorkflowDeviceActionApprovalGate(
     private val fallback: ApprovalGate,
     private val persistence: WorkflowDeviceActionApprovalPersistence,
     private val overlayRequester: DeviceActionApprovalOverlayRequester,
+    private val autoApproveEnabled: () -> Boolean = { false },
 ) : ApprovalGate {
     override suspend fun requestApproval(
         runId: String,
@@ -71,6 +72,8 @@ class WorkflowDeviceActionApprovalGate(
                     userIntent = userIntent,
                     toolDescription = definition.description,
                     actionSummary = approvalInput.actionSummary,
+                    // long: 持久授权只替代人工逐次点击；请求仍走同一窗口守护、Room 决定与后置验证链，且只覆盖当前限定应用的前台设备动作。
+                    autoApprove = autoApproveEnabled(),
                 ),
             )
             val status = when (overlayDecision.kind) {
@@ -116,7 +119,7 @@ class WorkflowDeviceActionApprovalGate(
         status: ApprovalRequestStatus,
         reason: String,
     ): ApprovalRequestRecord? {
-        // long: 用户在系统浮层做出决定后，Room 必须先落下同一请求的终态，Runtime 才能收到批准；取消也在不可取消区收敛，避免留下永久 PENDING。
+        // long: 人工点击或设置授权经窗口守护作出决定后，Room 必须先落下同一请求的终态，Runtime 才能收到批准；取消也在不可取消区收敛。
         return withContext(NonCancellable + Dispatchers.IO) {
             persistence.decideApprovalRequest(request.id, status, reason)
         }

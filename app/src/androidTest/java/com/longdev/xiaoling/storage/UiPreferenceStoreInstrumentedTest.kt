@@ -55,6 +55,22 @@ class UiPreferenceStoreInstrumentedTest {
     }
 
     @Test
+    fun deviceActionAutoApprovalRequiresExplicitGrantAndRevokesWithDeviceAgent() {
+        val store = UiPreferenceStore(isolatedContext)
+        assertFalse(store.loadDeviceActionAutoApprovalEnabled())
+        store.saveDeviceActionAutoApprovalEnabled(true)
+        assertFalse(store.loadDeviceActionAutoApprovalEnabled())
+
+        store.saveDeviceAgentEnabled(true)
+        store.saveDeviceActionAutoApprovalEnabled(true)
+        assertTrue(UiPreferenceStore(isolatedContext).loadDeviceActionAutoApprovalEnabled())
+
+        store.saveDeviceAgentEnabled(false)
+        store.saveDeviceAgentEnabled(true)
+        assertFalse(store.loadDeviceActionAutoApprovalEnabled())
+    }
+
+    @Test
     fun answerabilityShadowIsOptInAndRestoredAcrossStoreInstances() {
         assertFalse(UiPreferenceStore(isolatedContext).loadAnswerabilityShadowEnabled())
 

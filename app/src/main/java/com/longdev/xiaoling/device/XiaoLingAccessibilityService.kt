@@ -19,6 +19,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.longdev.xiaoling.storage.UiPreferenceStore
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellableContinuation
@@ -30,6 +31,7 @@ import kotlinx.coroutines.withContext
 class XiaoLingAccessibilityService : AccessibilityService() {
     private val approvalCoordinator = DeviceActionApprovalOverlayCoordinator()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val approvalPreferences by lazy { UiPreferenceStore(this) }
     private var activeApprovalOverlay: ActiveApprovalOverlay? = null
 
     override fun onServiceConnected() {
@@ -57,6 +59,18 @@ class XiaoLingAccessibilityService : AccessibilityService() {
             suppressInvalidation = observation.suppressGenerationInvalidation,
         )
         handleApprovalObservation(observation)
+        val automatic = activeApprovalOverlay?.takeIf { it.autoApprove }
+        if (automatic != null && windowSnapshots.any { it.ownedApprovalOverlay }) {
+            if (approvalPreferences.loadDeviceActionAutoApprovalEnabled()) {
+                // long: 仅在系统已确认自有浮层附着于稳定目标窗口后代替用户点击；随后仍等待浮层安全移除，窗口漂移继续拒绝动作。
+                recordApprovalDecision(automatic.token, approved = true, autoApproved = true)
+            } else {
+                // long: 用户在待执行期间撤销授权时立即取消本次请求，不能让隐藏守护窗口无限等待或沿用旧开关状态。
+                val cancelled = approvalCoordinator.cancel(automatic.token)
+                removeApprovalView(automatic.token)
+                if (cancelled != null) completeApproval(automatic.token, cancelled)
+            }
+        }
     }
 
     override fun onInterrupt() {
@@ -109,6 +123,12 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         request: DeviceActionApprovalOverlayRequest,
     ): DeviceActionApprovalOverlayDecision {
         return withContext(Dispatchers.Main.immediate) {
+            if (request.autoApprove && !approvalPreferences.loadDeviceActionAutoApprovalEnabled()) {
+                return@withContext overlayDecision(
+                    DeviceActionApprovalOverlayDecisionKind.CANCELLED,
+                    "设备动作免逐次审批授权已撤销",
+                )
+            }
             // long: Room 写入 PENDING 审批后，Compose 会刷新运行卡；先等窗口与 generation 连续稳定，避免把应用自身的一次性刷新误判成审批期间的外来页面漂移。
             val baseline = awaitStableApprovalTarget()
                 ?: return@withContext overlayDecision(
@@ -125,10 +145,15 @@ class XiaoLingAccessibilityService : AccessibilityService() {
             val token = (started as DeviceActionApprovalOverlayStart.Started).token
             suspendCancellableCoroutine { continuation ->
                 val windowManager = getSystemService(WindowManager::class.java)
-                val root = createApprovalOverlayView(request, token)
+                // long: 已显式授权时仍创建由 Accessibility 追踪的极小守护窗口，但不显示逐次批准按钮；窗口变化会沿用同一 fail-closed 结算。
+                val root = if (request.autoApprove) {
+                    View(this@XiaoLingAccessibilityService)
+                } else {
+                    createApprovalOverlayView(request, token)
+                }
                 val params = WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.MATCH_PARENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    if (request.autoApprove) 1 else WindowManager.LayoutParams.MATCH_PARENT,
+                    if (request.autoApprove) 1 else WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -144,6 +169,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
                     windowManager = windowManager,
                     view = root,
                     continuation = continuation,
+                    autoApprove = request.autoApprove,
                 )
                 runCatching {
                     windowManager.addView(root, params)
@@ -246,9 +272,9 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         return root
     }
 
-    private fun recordApprovalDecision(token: Long, approved: Boolean) {
-        if (!approvalCoordinator.recordUserDecision(token, approved)) return
-        // long: 用户点击按钮后先移除 overlay，再等待 TYPE_WINDOWS_CHANGED 确认窗口集合恢复；批准不能抢跑到旧 ref 的 generation 校验之前。
+    private fun recordApprovalDecision(token: Long, approved: Boolean, autoApproved: Boolean = false) {
+        if (!approvalCoordinator.recordUserDecision(token, approved, autoApproved)) return
+        // long: 人工点击或显式设置授权作出决定后都先移除 overlay，再等待窗口集合恢复；批准不能抢跑到旧 ref 的 generation 校验之前。
         removeApprovalView(token)
         scheduleOverlayDetachTimeout(token)
     }
@@ -511,6 +537,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
         val windowManager: WindowManager,
         val view: View,
         val continuation: CancellableContinuation<DeviceActionApprovalOverlayDecision>,
+        val autoApprove: Boolean,
         var viewAttached: Boolean = true,
         var pendingCompletion: DeviceActionApprovalOverlayDecision? = null,
         var detachTimeout: Runnable? = null,

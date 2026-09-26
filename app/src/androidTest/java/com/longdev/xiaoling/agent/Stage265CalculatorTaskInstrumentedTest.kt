@@ -41,7 +41,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** long: 指定计算器任务必须由正式 Workflow 执行动作，验收只操作计划确认和审批控件，并独立核对当前计算结果。 */
+/** long: 测试先用计算器真实节点预置非空算式；正式任务动作仍由 Workflow 执行，验收只操作计划确认和审批控件并独立核对结果。 */
 @RunWith(AndroidJUnit4::class)
 class Stage265CalculatorTaskInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -61,7 +61,10 @@ class Stage265CalculatorTaskInstrumentedTest {
         val planOnly = args.getString("stage265PlanOnly") == "true"
         automation.clearCache()
         if (!planOnly) {
-            assertEquals("请在系统中授权小灵无障碍，并启用设备 Agent", DeviceAgentHealthState.READY, DeviceObservationComponents.controller(context).health())
+            // long: Runner 启动可能暂时断开无障碍服务；等待原授权自然恢复，不改写手机上其他服务的启用列表。
+            val controller = DeviceObservationComponents.controller(context)
+            val health = awaitDeviceHealth(controller)
+            assertEquals("请在系统中授权小灵无障碍，并启用设备 Agent（当前=$health）", DeviceAgentHealthState.READY, health)
         }
         val providers = ProviderRepository(context).load()
         val provider = requireNotNull(providers.profiles.singleOrNull { it.id == providers.selectedProfileId })
@@ -94,6 +97,7 @@ class Stage265CalculatorTaskInstrumentedTest {
             database.conversationDao().insertConversations(listOf(ConversationEntity(conversationId, "新会话", "", null, null, null, now, now)))
             stateStore.saveSelectedAgentProfileId(profileId)
             stateStore.saveSelectedConversationId(conversationId)
+            if (!planOnly) prepareNonEmptyCalculator()
             scenario = ActivityScenario.launch(Intent(context, MainActivity::class.java))
             awaitState(scenario, "会话加载") { it.selectedConversationId == conversationId && it.selectedAgentProfileId == profileId && !it.loadingConversationMessages }
             scenario.onActivity {
@@ -129,7 +133,15 @@ class Stage265CalculatorTaskInstrumentedTest {
             var completed = false
             while (SystemClock.uptimeMillis() < deadline) {
                 val current = readState(scenario)
-                current.personalTaskFailure?.let { error("个人任务失败：${it.message}") }
+                current.personalTaskFailure?.let { failure ->
+                    val latest = runs.recentRunDetails(20).firstOrNull { it.snapshot.run.conversationId == conversationId }
+                    val result = latest?.toolLedger?.results?.lastOrNull()
+                    error(
+                        "个人任务失败：${failure.message}；最近工具=${result?.toolName} " +
+                            "success=${result?.success} executorVerified=${result?.executorVerified} " +
+                            "verification=${result?.verificationStatus} content=${result?.content?.take(500)}",
+                    )
+                }
                 val details = runs.recentRunDetails(20).filter { it.snapshot.run.conversationId == conversationId }
                 val pending = details.flatMap { it.approvals }.singleOrNull { it.status == ApprovalRequestStatus.PENDING }
                 if (pending != null && pending.id !in approvedIds) {
@@ -240,6 +252,32 @@ class Stage265CalculatorTaskInstrumentedTest {
     private fun currentRoots(): List<AccessibilityNodeInfo> {
         automation.clearCache()
         return (automation.windows.mapNotNull { it.root } + listOfNotNull(automation.rootInActiveWindow)).distinct()
+    }
+
+    private fun prepareNonEmptyCalculator() {
+        val launchIntent = requireNotNull(context.packageManager.getLaunchIntentForPackage(PACKAGE))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        context.startActivity(launchIntent)
+        // long: 本轮目标明确要求清空键每次都点击；先用测试夹具留下非空算式，才能把后续清空判定与真实页面变化绑定。
+        clickVisible("7")
+        val dirty = currentRoots().any { root ->
+            root.find {
+                it.isVisibleToUser && it.viewIdResourceName in setOf("$PACKAGE:id/formula", "$PACKAGE:id/result") &&
+                    !it.text.isNullOrBlank()
+            } != null
+        }
+        assertTrue("计算器前置算式没有变为非空，无法验收清空动作", dirty)
+        println("STAGE265_FIXTURE calculatorDirty=true action=click_visible_digit_7")
+    }
+
+    private fun awaitDeviceHealth(controller: com.longdev.xiaoling.device.DeviceObservationController): DeviceAgentHealthState {
+        var health = controller.health()
+        repeat(60) {
+            if (health == DeviceAgentHealthState.READY) return health
+            SystemClock.sleep(250L)
+            health = controller.health()
+        }
+        return health
     }
 
     private fun awaitVisible(text: String): AccessibilityNodeInfo {

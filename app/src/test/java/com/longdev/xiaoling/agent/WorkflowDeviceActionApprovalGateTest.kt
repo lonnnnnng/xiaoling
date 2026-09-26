@@ -13,6 +13,30 @@ import org.junit.Test
 
 class WorkflowDeviceActionApprovalGateTest {
     @Test
+    fun explicitSettingAutomaticallyApprovesOnlyDeviceActionThroughGuardedOverlay() = runTest {
+        val persistence = FakeApprovalPersistence()
+        var overlayRequest: DeviceActionApprovalOverlayRequest? = null
+        val gate = gate(
+            persistence = persistence,
+            requester = DeviceActionApprovalOverlayRequester { request ->
+                overlayRequest = request
+                DeviceActionApprovalOverlayDecision(
+                    DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                    "用户已在设置中授权前台设备动作免逐次审批",
+                )
+            },
+            autoApproveEnabled = { true },
+        )
+
+        val decision = gate.requestApproval(RUN_ID, openAppCall(), openAppDefinition())
+
+        assertTrue(overlayRequest?.autoApprove == true)
+        assertTrue(decision.approved)
+        assertTrue(decision.windowGuarded)
+        assertEquals(ApprovalRequestStatus.APPROVED, persistence.decisions.single().status)
+    }
+
+    @Test
     fun openAppUsesOverlayAndPersistsPackageBoundApproval() = runTest {
         val persistence = FakeApprovalPersistence()
         var overlayRequest: DeviceActionApprovalOverlayRequest? = null
@@ -223,6 +247,7 @@ class WorkflowDeviceActionApprovalGateTest {
         persistence: FakeApprovalPersistence,
         fallback: ApprovalGate = AutoApprovalGate(),
         requester: DeviceActionApprovalOverlayRequester,
+        autoApproveEnabled: () -> Boolean = { false },
     ) = WorkflowDeviceActionApprovalGate(
         conversationId = "conversation-1",
         userIntent = "点击当前页面的安全按钮",
@@ -230,6 +255,7 @@ class WorkflowDeviceActionApprovalGateTest {
         fallback = fallback,
         persistence = persistence,
         overlayRequester = requester,
+        autoApproveEnabled = autoApproveEnabled,
     )
 
     private fun tapCall() = ToolCall(

@@ -1,5 +1,7 @@
 # 文档索引
 
+2026-09-27：设备 Agent 设置新增“设备动作免逐次审批”显式授权，默认关闭。开启后仅前台手动 Workflow 中已登记、已确认目标应用的 `device.open_app / device.tap_ref / device.type_text` 无需人工逐次点击；每次动作仍保留 Room 决定、Accessibility 窗口守护、新鲜快照/节点引用和执行后验证。关闭设备 Agent 同时撤销授权；后台任务及日历、笔记等其他写入工具仍按原审批。聚焦 JVM、Debug/AndroidTest APK 和 Redmi 设置/存储 `8/8` 通过；真实窗口守护免点击曾单次 `1/1` 通过，最终版另以 Debug-only 真机探针确认 `APPROVED`，授权撤销后 `CANCELLED`。最终版 instrumentation 单项受 Runner 启动时服务断连影响，尚未稳定复验；上一轮 Stage265 重跑的目标级 `PARTIAL` 仍待定位。未运行全量矩阵、Lint 或 Release。
+
 第274阶段完成动态应用候选的真实 Provider 计划验收：Redmi 通过现有前台计划模式，模型从当前“已发现且已登记”候选中选择系统计算器，计划目标和最终包均为 `com.android.calculator2`；确认前没有创建 Workflow、Run 或设备动作。首次模型输出少规划一步时测试按既有契约 fail-closed，重跑得到完整计划并 `OK (1 test)`。本阶段未扩大白名单、未运行全量矩阵、Lint、Release 或推送。
 
 第273阶段已完成应用能力候选进入个人任务规划上下文：模型不再只看到一串静态包名，而是从当前 Launcher 发现且已登记白名单的脱敏“名称 | 包名 | 能力候选”中选择目标；未登记包不会进入提示，发现结果仍不能扩大执行白名单、审批或任意 App 能力。聚焦 JVM `179/179`、Debug/AndroidTest APK 与 Redmi `InstalledAppDirectoryInstrumentedTest OK (2 tests)` 通过；本轮未运行完整矩阵、Lint、Release 或全量 instrumentation。

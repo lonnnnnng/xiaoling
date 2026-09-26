@@ -75,6 +75,18 @@ class UiPreferenceStore(context: Context) {
         preferences.edit()
             .putBoolean(KEY_DEVICE_AGENT_ENABLED, enabled)
             .apply()
+        if (!enabled) saveDeviceActionAutoApprovalEnabled(false)
+    }
+
+    fun loadDeviceActionAutoApprovalEnabled(): Boolean {
+        return loadDeviceAgentEnabled() && preferences.getBoolean(KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED, false)
+    }
+
+    fun saveDeviceActionAutoApprovalEnabled(enabled: Boolean) {
+        // long: 免逐次审批只由设备 Agent 页显式授予；关闭设备 Agent 时同步撤销，旧版本和首次安装均保持逐次确认。
+        preferences.edit()
+            .putBoolean(KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED, enabled && loadDeviceAgentEnabled())
+            .apply()
     }
 
     fun loadAnswerabilityShadowEnabled(): Boolean {
@@ -231,6 +243,7 @@ class UiPreferenceStore(context: Context) {
         private const val KEY_USER_AGENT = "user_agent"
         private const val KEY_REASONING_SUMMARY_ENABLED = "reasoning_summary_enabled"
         private const val KEY_DEVICE_AGENT_ENABLED = "device_agent_enabled"
+        private const val KEY_DEVICE_ACTION_AUTO_APPROVAL_ENABLED = "device_action_auto_approval_enabled"
         private const val KEY_ANSWERABILITY_SHADOW_ENABLED = "answerability_shadow_enabled"
         private const val KEY_KNOWLEDGE_RELEVANCE_ENFORCEMENT_ENABLED = "knowledge_relevance_enforcement_enabled"
         private const val KEY_KNOWLEDGE_RELEVANCE_GATE_VERSION = "knowledge_relevance_gate_version"

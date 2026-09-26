@@ -26,6 +26,7 @@ class DeviceAgentSettingsContentInstrumentedTest {
     @Test
     fun disabledAndReadyStatesExposeOnlyReadOnlyObservationControls() {
         var enabledChange: Boolean? = null
+        var autoApprovalChange: Boolean? = null
         val state = mutableStateOf(
             DeviceAgentSettingsUiState(
                 enabled = false,
@@ -37,6 +38,7 @@ class DeviceAgentSettingsContentInstrumentedTest {
                 DeviceAgentSettingsContent(
                     state = state.value,
                     onEnabledChanged = { enabledChange = it },
+                    onAutoApproveActionsChanged = { autoApprovalChange = it },
                     onOpenAccessibilitySettings = {},
                     onRefresh = {},
                     onCaptureSnapshot = {},
@@ -47,6 +49,7 @@ class DeviceAgentSettingsContentInstrumentedTest {
 
         composeRule.onNodeWithText("设备 Agent 已关闭").assertExists()
         composeRule.onNodeWithContentDescription("启用设备 Agent").assertIsOff().performClick()
+        composeRule.onNodeWithContentDescription("设备动作免逐次审批").assertIsNotEnabled()
         composeRule.runOnIdle { assertEquals(true, enabledChange) }
         composeRule.onNodeWithText("读取当前界面").assertIsNotEnabled()
         composeRule.onNodeWithText("点击").assertDoesNotExist()
@@ -61,6 +64,8 @@ class DeviceAgentSettingsContentInstrumentedTest {
         }
         composeRule.onNodeWithText("服务正常，可读取当前界面").assertExists()
         composeRule.onNodeWithContentDescription("启用设备 Agent").assertIsOn()
+        composeRule.onNodeWithContentDescription("设备动作免逐次审批").assertIsOff().assertIsEnabled().performClick()
+        composeRule.runOnIdle { assertEquals(true, autoApprovalChange) }
         composeRule.onNodeWithText("读取当前界面").assertIsEnabled()
     }
 

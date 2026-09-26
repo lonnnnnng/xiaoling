@@ -1,6 +1,20 @@
 # 验证报告
 
-验证日期：2026-09-25（北京时间）
+验证日期：2026-09-27（北京时间）
+
+## 2026-09-27 设备动作免逐次审批授权（局部通过，完整任务待复验）
+
+### 已验证
+
+- `./gradlew :app:testDebugUnitTest --tests '*WorkflowDeviceActionApprovalGateTest*' :app:compileDebugAndroidTestKotlin` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 通过，`git diff --check` 通过。
+- 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 安装 Debug/AndroidTest APK，`UiPreferenceStoreInstrumentedTest` 与 `DeviceAgentSettingsContentInstrumentedTest` 合计 `8/8` 通过：默认关闭、显式授权、关闭设备 Agent 后撤销、页面开关状态均符合预期。
+- 服务预先绑定后，`DeviceActionAutoApprovalInstrumentedTest` 在真实 Accessibility 守护窗口上曾 `OK (1 test)`（`4.582s`）；没有测试代码点击批准按钮，系统确认自有窗口附着并安全移除后返回带“设置中授权”原因的批准决定。此证据对应加入撤销期间即时检查之前的实现。
+- 最终版 Debug APK 安装到 Redmi 后，经仅 Debug 可用、`android.permission.DUMP` 保护的广播探针触发真实 Accessibility 守护窗口，日志为 `approved=APPROVED source=用户已在设置中授权前台设备动作免逐次审批 revoked=CANCELLED revokeReason=设备动作免逐次审批授权已撤销`。探针只核对窗口决定，不执行设备动作，也不替代完整 Workflow 验收。
+
+### 失败记录与边界
+
+- 同包 instrumentation 首次运行时无障碍服务处于 `Crashed services`/未连接，8 项非服务测试通过，自动授权用例在入口处失败；第二次在测试内尝试重绑定仍未连接。退出 instrumentation 后经 Redmi `settings` 恢复原授权并确认 `Bound services`，第三次单项通过。最终修改加入“授权撤销时即时取消”后，三次复跑均在入口处遇到相同的服务断连，未到达授权逻辑；最终版已由 Debug 探针验证真实服务的批准与撤销，但 Runner 内的单项仍待稳定复验。该测试只有显式传入 `deviceAutoApprovalRealRun=true` 才执行，默认套件跳过。Stage265 测试现仅等待既有无障碍授权恢复，不再改写系统已启用服务列表。
+- 上轮完整 Stage265 真实模型重跑的 Workflow 目标级状态为 `PARTIAL`，尚未定位具体缺口；本轮没有把设置/守护窗口单项冒充完整个人任务闭环。未执行全量 JVM、Lint、Release 或全量 instrumentation，未使用 Pixel_9。
 
 ## 2026-09-26 第274阶段：动态应用候选的真实 Provider 计划验收（完成）
 

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-09-27：设备动作免逐次审批设置
+
+- `UiPreferenceStore` 保存独立 opt-in，设备 Agent 关闭时同步清除；`DeviceAgentSettingsViewModel/Page` 展示范围与可随时撤销的开关，默认关闭。
+- 前台手动 Workflow 构造 `WorkflowDeviceActionApprovalGate` 时注入实时设置读取。Gate 仅对 `open_app/tap_ref/type_text` 传递自动授权标志；仍先写 Room PENDING、核对 ToolCall 与脱敏参数，再等 Accessibility 窗口守护决定落盘。其他工具退回原交互 Gate，后台仍由 `RejectingBackgroundApprovalGate` 拒绝。
+- 已授权动作使用 1×1 自有 Accessibility 守护窗口，不展示批准按钮；只有系统确认守护窗口已附着、设置仍有效且窗口未漂移时自动作出决定。守护窗口安全移除后才返回批准，现有 Runtime `approval.granted`、SafetyPolicy、Executor 回读和 Tool Ledger `PASSED` 链不变。测试直接复用真实 Redmi 无障碍服务，未伪造 `windowGuarded`。
+- 定向 JVM、Debug/AndroidTest APK 和 Redmi 存储/设置 `8/8` 通过；守护窗口自动决定曾单次 `1/1` 通过。最终版 Debug-only `DUMP` 权限探针在 Redmi 返回 `approved=APPROVED`、`revoked=CANCELLED`，无需人工逐次点击；最终版显式 instrumentation 因 Runner 启动时服务断连未稳定复验。完整真实模型 Workflow 与目标级 `VERIFIED` 尚待复验。当前未扩大 Room Schema、应用白名单或后台设备动作。
+
 ## 第274阶段：动态应用候选的真实 Provider 计划验收（已完成）
 
 - 复用 `Stage265CalculatorTaskInstrumentedTest` 的 `stage265RealRun=true / stage265PlanOnly=true` 入口，在 Redmi 只验证计划生成和确认前边界。

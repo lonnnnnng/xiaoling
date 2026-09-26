@@ -2461,6 +2461,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 fallback = interactiveAgentApprovalGate(conversationId),
                 persistence = workflowDeviceActionApprovalPersistence,
                 overlayRequester = DeviceAccessibilityRuntime,
+                autoApproveEnabled = uiPreferenceStore::loadDeviceActionAutoApprovalEnabled,
             )
             val executionGoal = WorkflowStepPromptPolicy.build(
                 input.goal,

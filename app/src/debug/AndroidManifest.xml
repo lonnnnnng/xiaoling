@@ -16,6 +16,15 @@
                 <action android:name="com.longdev.xiaoling.debug.EXECUTE_DEVICE_ACTION" />
             </intent-filter>
         </receiver>
+        <!-- long: 自动授权探针只允许具备系统 DUMP 权限的调试端触发，Release 不合并此接收器。 -->
+        <receiver
+            android:name=".device.DeviceAutoApprovalDebugReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.longdev.xiaoling.debug.PROBE_DEVICE_AUTO_APPROVAL" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".agent.AgentE2eDebugReceiver"
             android:exported="true">

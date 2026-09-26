@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 当前切片：设备动作免逐次审批（2026-09-27）
+
+- 已落地默认关闭的设备 Agent 独立授权：用户主动开启后，已确认目标应用的前台手动 Workflow 可自动完成单步设备动作的守护式决定，不再逐步等待人工按钮。持久审计、限定 App、快照/节点安全和动作后验证继续执行；后台及其他写入工具不扩权。
+- Redmi 已通过设置/存储单项；真实无人工点击窗口守护曾单次通过，最终版 Debug-only 探针又确认授权时 `APPROVED`、撤销后 `CANCELLED`。最终版显式 instrumentation 仍受 Runner 服务断连影响待稳定复验。下一步先把第265阶段最近一次 `PARTIAL` 的目标验证缺口定位清楚，再用开启授权的完整计算器任务检验“自然语言目标 → 一次计划确认 → 连续动作 → 当前结果 `VERIFIED`”。如失败保留旧 Run，不以模型口头完成代替目标证据。
+- 该端到端验收之后再决定是否扩展至其他已登记 App；天气包缺失、任意 App、后台设备动作、精确定时、Foreground Service、MCP/远程 Channel/多 Agent 等仍保持后置。
+
 ## 第274阶段：动态应用候选的真实 Provider 计划验收（已完成）
 
 - Redmi 真实 Provider 通过现有前台计划模式生成系统计算器任务；模型选择的 `target_app_package` 与 `expected_final_package` 均为当前已发现且已登记的 `com.android.calculator2`。
