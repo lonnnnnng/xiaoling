@@ -34,6 +34,9 @@ import com.longdev.xiaoling.automation.WorkflowStepSnapshotCodec
 import com.longdev.xiaoling.automation.WorkflowStepStatus
 import com.longdev.xiaoling.device.AndroidDeviceAccessibilityGateway
 import com.longdev.xiaoling.device.DeviceAgentHealthState
+import com.longdev.xiaoling.device.DeviceActionApprovalOverlayDecision
+import com.longdev.xiaoling.device.DeviceActionApprovalOverlayDecisionKind
+import com.longdev.xiaoling.device.DeviceActionApprovalOverlayRequester
 import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.device.DeviceNodeAction
 import com.longdev.xiaoling.device.DeviceObservationController
@@ -92,6 +95,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             operation == OPERATION_WORKFLOW_HOME ||
             operation == OPERATION_WORKFLOW_SWIPE ||
             operation == OPERATION_WORKFLOW_SETTINGS_MULTI
+                || operation == OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH
                 || operation == OPERATION_WORKFLOW_CLOCK_ALARM
         ) {
             // long: 人工审批可能超过 BroadcastReceiver 的十秒窗口；Debug 验收任务由进程级 scope 承载，Receiver 立即返回以避免系统 ANR。
@@ -116,6 +120,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                         OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
                         OPERATION_WORKFLOW_SWIPE -> runWorkflowSwipe(context.applicationContext)
                         OPERATION_WORKFLOW_SETTINGS_MULTI -> runWorkflowSettingsMulti(context.applicationContext)
+                        OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH -> runWorkflowSettingsWifiSearch(context.applicationContext)
                         OPERATION_WORKFLOW_CLOCK_ALARM -> runWorkflowClockAlarm(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
                     }
@@ -3656,6 +3661,213 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         )
     }
 
+    private suspend fun runWorkflowSettingsWifiSearch(context: Context) {
+        context.startActivity(
+            Intent(context, DevicePrivacyProbeActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        val controller = DeviceObservationController(
+            agentEnabled = { true },
+            gateway = AndroidDeviceAccessibilityGateway(context),
+        )
+        awaitDeviceReady(controller)
+        awaitProbeWindow(controller)
+        // long: 每轮验收都从系统设置根页开始，避免沿用上一次搜索页的查询文本或旧窗口代次，保证自然语言目标的动作链从真实当前状态起步。
+        context.startActivity(
+            Intent(Settings.ACTION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+        )
+        awaitStablePackageWindow(controller, SYSTEM_SETTINGS_PACKAGE)
+
+        val registry = XiaoLingToolRegistry(
+            clock = SystemAgentClock(),
+            conversationStore = RoomAgentConversationStore(context),
+            noteStore = RoomAgentNoteStore(context),
+            memoryStore = RoomAgentMemoryStore(context),
+            knowledgeStore = RoomKnowledgeDocumentStore(context),
+            deviceController = controller,
+        )
+        val runRepository = RoomAgentRunRepository(context)
+        val scriptedLlm = WorkflowSettingsWifiSearchE2eLlm()
+        val conversationId = E2E_SETTINGS_WIFI_CONVERSATION_ID
+        val runtime = MinimalAgentRuntime(
+            ledger = runRepository,
+            toolRegistry = registry,
+            llm = scriptedLlm,
+            // long: 搜索任务需要三次观察和两次设备动作；显式提高本次 Debug 运行预算，不能让默认四步预算把完整闭环误判为失败。
+            options = AgentRuntimeOptions(maxToolCalls = 8),
+            // long: 独立前台 Debug 通道仍走生产审批 Gate 的脱敏投影与 Room 身份绑定，只把浮层决定替换为立即批准，避免验收线程等待人工触摸导致快照过期。
+            approvalGate = WorkflowDeviceActionApprovalGate(
+                conversationId = conversationId,
+                userIntent = "打开系统设置并搜索 Wi-Fi，回读当前搜索结果",
+                targetAppPackage = SYSTEM_SETTINGS_PACKAGE,
+                fallback = AutoApprovalGate(),
+                persistence = RoomWorkflowDeviceActionApprovalPersistence(runRepository),
+                overlayRequester = DeviceActionApprovalOverlayRequester {
+                    DeviceActionApprovalOverlayDecision(
+                        kind = DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                        reason = "第272阶段 Debug 真实动作验收批准",
+                    )
+                },
+            ),
+            permissionChecker = AndroidToolPermissionChecker(context),
+            processSessionId = "process-redmi-workflow-settings-wifi-search",
+        )
+        Log.i(TAG, "workflow-settings-wifi-search-overlay waiting=true")
+        val summary = runtime.run(
+            conversationId = conversationId,
+            userMessageId = "message-redmi-workflow-settings-wifi-search-${System.currentTimeMillis()}",
+            goal = "打开系统设置并搜索 Wi-Fi，回读当前搜索结果",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.WORKFLOW,
+            memoryRecallEnabled = false,
+            workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                workflowRunId = "workflow-run-redmi-settings-wifi-search",
+                workflowStepId = "workflow-step-redmi-settings-wifi-search",
+                userIntent = "打开系统设置并搜索 Wi-Fi，回读当前搜索结果",
+                targetAppPackage = SYSTEM_SETTINGS_PACKAGE,
+            ),
+        )
+        val detail = checkNotNull(runRepository.runDetail(summary.runId)) {
+            "系统设置 Wi-Fi 搜索 Run 未写入 Room"
+        }
+        check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+            "系统设置 Wi-Fi 搜索 Run 未完成：${detail.snapshot.run.status}"
+        }
+        check(
+            detail.toolLedger.calls.map { it.toolName } == listOf(
+                DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+                DEVICE_TAP_REF_TOOL_NAME,
+                DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+                DEVICE_TYPE_TEXT_TOOL_NAME,
+                DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+            ),
+        ) { "系统设置 Wi-Fi 搜索 ToolCall 顺序错误：${detail.toolLedger.calls.map { it.toolName }}" }
+        val approvals = detail.approvals.filter { it.toolName in setOf(DEVICE_TAP_REF_TOOL_NAME, DEVICE_TYPE_TEXT_TOOL_NAME) }
+        check(approvals.size == 2 && approvals.all { it.status == ApprovalRequestStatus.APPROVED }) {
+            "系统设置 Wi-Fi 搜索审批未逐动作批准：$approvals"
+        }
+        val typeApproval = approvals.single { it.toolName == DEVICE_TYPE_TEXT_TOOL_NAME }
+        check(
+            typeApproval.arguments["text_length"] == WIFI_SEARCH_QUERY.length.toString() &&
+                typeApproval.arguments["text_sha256"]?.length == 64 &&
+                "text" !in typeApproval.arguments &&
+                !typeApproval.toString().contains(WIFI_SEARCH_QUERY),
+        ) { "系统设置 Wi-Fi 搜索审批泄露输入原文或缺少脱敏指纹" }
+
+        val results = detail.toolLedger.results
+        check(results.size == 5 && results.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED }) {
+            "系统设置 Wi-Fi 搜索 ToolResult 未全部通过验证：$results"
+        }
+        val actionResults = results.filter { it.toolName == DEVICE_TAP_REF_TOOL_NAME || it.toolName == DEVICE_TYPE_TEXT_TOOL_NAME }
+        check(actionResults.all { it.executorVerified == true }) {
+            "系统设置 Wi-Fi 搜索动作缺少 Executor 验证：$actionResults"
+        }
+        val actionEvidence = actionResults.map { result ->
+            checkNotNull(WorkflowDeviceActionResultCodec.decode(result.content)) {
+                "系统设置 Wi-Fi 搜索动作结果不符合严格白名单 codec：${result.toolName}"
+            }
+        }
+        check(
+            actionEvidence[0].action == DEVICE_TAP_REF_TOOL_NAME.removePrefix("device.") &&
+                actionEvidence[0].beforePackageName == SYSTEM_SETTINGS_PACKAGE &&
+                actionEvidence[0].afterPackageName == SETTINGS_INTELLIGENCE_PACKAGE &&
+                actionEvidence[0].verified &&
+                actionEvidence[1].action == "type_text" &&
+                actionEvidence[1].beforePackageName == SETTINGS_INTELLIGENCE_PACKAGE &&
+                actionEvidence[1].afterPackageName == SETTINGS_INTELLIGENCE_PACKAGE &&
+                actionEvidence[1].verified,
+        ) { "系统设置 Wi-Fi 搜索跨包动作证据不符合受控伴随关系：$actionEvidence" }
+
+        val observationResolution = WorkflowDeviceObservationDecisionPolicy.evaluate(
+            expectedAgentRunId = summary.runId,
+            results = results.map { result ->
+                WorkflowDeviceObservationEvidenceInput(
+                    runId = result.runId,
+                    toolName = result.toolName,
+                    content = result.content,
+                    success = result.success,
+                    verified = result.verificationStatus == ToolVerificationStatus.PASSED,
+                    durationMs = result.durationMs,
+                )
+            },
+        )
+        val observations = (observationResolution as? WorkflowDeviceObservationResolution.Decided)
+            ?.decisions
+            ?.takeIf { it.size == 3 }
+            ?: error("系统设置 Wi-Fi 搜索没有形成三次独立观察判定：$observationResolution")
+        val goalDecision = WorkflowGoalVerificationPolicy.evaluate(
+            sourceGoal = "打开系统设置并搜索 Wi-Fi，回读当前搜索结果",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf(
+                    DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+                    DEVICE_TAP_REF_TOOL_NAME,
+                    DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+                    DEVICE_TYPE_TEXT_TOOL_NAME,
+                    DEVICE_SNAPSHOT_E2E_TOOL_NAME,
+                ),
+                expectedFinalPackageName = SYSTEM_SETTINGS_PACKAGE,
+            ),
+            steps = listOf(
+                WorkflowGoalVerificationStepEvidence(
+                    status = WorkflowStepStatus.COMPLETED,
+                    verifiedToolNames = results.map { it.toolName },
+                    deviceObservationDecisions = observations,
+                    deviceActionDecisions = WorkflowDeviceActionDecisionPolicy.evaluate(
+                        expectedAgentRunId = summary.runId,
+                        results = actionResults.map { result ->
+                            WorkflowDeviceActionEvidenceInput(
+                                runId = result.runId,
+                                toolName = result.toolName,
+                                content = result.content,
+                                success = result.success,
+                                executorVerified = result.executorVerified,
+                                verified = result.verificationStatus == ToolVerificationStatus.PASSED,
+                            )
+                        },
+                    ).let { resolution ->
+                        (resolution as? WorkflowDeviceActionResolution.Decided)?.decisions
+                            ?: error("系统设置 Wi-Fi 搜索没有形成动作级本地判定：$resolution")
+                    },
+                ),
+            ),
+        )
+        check(goalDecision.status == WorkflowGoalVerificationStatus.VERIFIED) {
+            "系统设置 Wi-Fi 搜索目标级结论不是 VERIFIED：$goalDecision"
+        }
+
+        val finalResult = results.last()
+        val finalJson = JSONObject(finalResult.content)
+        check(finalJson.getString("package") == SETTINGS_INTELLIGENCE_PACKAGE) {
+            "系统设置 Wi-Fi 搜索最终观察不在 Settings Intelligence：${finalJson.getString("package")}"
+        }
+        val finalNodes = finalJson.getJSONArray("nodes")
+        val visibleTexts = (0 until finalNodes.length()).mapNotNull { index ->
+            finalNodes.getJSONObject(index).optString("text").takeIf(String::isNotBlank)
+        }
+        check(visibleTexts.any { it != WIFI_SEARCH_QUERY && it.contains(WIFI_SEARCH_QUERY, ignoreCase = true) }) {
+            "系统设置 Wi-Fi 搜索没有回读到除搜索框外的 Wi-Fi 结果：$visibleTexts"
+        }
+        check(actionResults.joinToString { it.content }.let { persisted ->
+            !persisted.contains(scriptedLlm.firstSnapshotId) &&
+                !persisted.contains(scriptedLlm.secondSnapshotId) &&
+                !persisted.contains(scriptedLlm.finalSnapshotId) &&
+                !persisted.contains(scriptedLlm.tapRef) &&
+                !persisted.contains(scriptedLlm.typeTextRef) &&
+                !HMAC_HEX_PATTERN.containsMatchIn(persisted) &&
+                !persisted.contains(WIFI_SEARCH_QUERY)
+        }) { "系统设置 Wi-Fi 搜索持久结果泄露 snapshot/ref、HMAC 或输入原文" }
+
+        Log.i(
+            TAG,
+            "workflow-settings-wifi-search-e2e success=true actions=${actionEvidence.joinToString { it.action }} " +
+                "verified=${actionResults.size}/2 approvals=${approvals.size} freshSnapshots=${observations.size} " +
+                "targetPackage=$SYSTEM_SETTINGS_PACKAGE finalPackage=${finalJson.getString("package")} " +
+                "resultCount=${visibleTexts.count { it != WIFI_SEARCH_QUERY && it.contains(WIFI_SEARCH_QUERY, ignoreCase = true) }} " +
+                "goalDecision=${goalDecision.status} privacySafe=true",
+        )
+    }
+
     private suspend fun runWorkflowOpenApp(
         context: Context,
         scenarioId: String,
@@ -4615,6 +4827,148 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         ): String = "Workflow 已在限定系统设置应用中连续完成滚动、重新观察与返回"
     }
 
+    private class WorkflowSettingsWifiSearchE2eLlm : AgentLlm {
+        lateinit var firstSnapshotId: String
+            private set
+        lateinit var secondSnapshotId: String
+            private set
+        lateinit var finalSnapshotId: String
+            private set
+        lateinit var tapRef: String
+            private set
+        lateinit var typeTextRef: String
+            private set
+
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            if (completedTools.isEmpty()) return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            if (completedTools.size == 1) {
+                val snapshot = successfulSnapshot(completedTools.single())
+                check(snapshot.getString("package") == SYSTEM_SETTINGS_PACKAGE) {
+                    "系统设置 Wi-Fi 搜索首帧不属于 com.android.settings"
+                }
+                firstSnapshotId = snapshot.getString("snapshot_id")
+                val search = findActionableNode(snapshot, "tap") { node ->
+                    textFields(node).any { it.contains("搜索", ignoreCase = true) }
+                }
+                tapRef = search.getString("ref")
+                val tap = tools.single { it.name == DEVICE_TAP_REF_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = tap.name,
+                        arguments = mapOf(
+                            "snapshot_id" to firstSnapshotId,
+                            "ref" to tapRef,
+                        ),
+                        risk = tap.risk,
+                    ),
+                )
+            }
+            if (completedTools.size == 2) {
+                return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            }
+            if (completedTools.size == 3) {
+                val snapshot = successfulSnapshot(completedTools.last())
+                check(snapshot.getString("package") == SETTINGS_INTELLIGENCE_PACKAGE) {
+                    "系统设置搜索输入页没有进入受控 Settings Intelligence"
+                }
+                secondSnapshotId = snapshot.getString("snapshot_id")
+                val input = findActionableNode(snapshot, "type_text") { node ->
+                    textFields(node).any { it.contains("搜索", ignoreCase = true) }
+                }
+                typeTextRef = input.getString("ref")
+                val typeText = tools.single { it.name == DEVICE_TYPE_TEXT_TOOL_NAME }
+                return AgentPlanDecision.CallTool(
+                    ToolCall(
+                        name = typeText.name,
+                        arguments = mapOf(
+                            "snapshot_id" to secondSnapshotId,
+                            "ref" to typeTextRef,
+                            "text" to WIFI_SEARCH_QUERY,
+                        ),
+                        risk = typeText.risk,
+                    ),
+                )
+            }
+            if (completedTools.size == 4) {
+                return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+            }
+            if (completedTools.size == 5) {
+                val snapshot = successfulSnapshot(completedTools.last())
+                check(snapshot.getString("package") == SETTINGS_INTELLIGENCE_PACKAGE) {
+                    "系统设置 Wi-Fi 搜索结果页离开了受控 Settings Intelligence"
+                }
+                finalSnapshotId = snapshot.getString("snapshot_id")
+                val texts = (0 until snapshot.getJSONArray("nodes").length()).mapNotNull { index ->
+                    snapshot.getJSONArray("nodes").getJSONObject(index).optString("text")
+                        .takeIf(String::isNotBlank)
+                }
+                check(texts.any { it != WIFI_SEARCH_QUERY && it.contains(WIFI_SEARCH_QUERY, ignoreCase = true) }) {
+                    "系统设置 Wi-Fi 搜索结果页没有可回读的 Wi-Fi 结果：$texts"
+                }
+                return AgentPlanDecision.Complete
+            }
+            error("系统设置 Wi-Fi 搜索出现未预期的工具步数：${completedTools.size}")
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "系统设置已搜索 Wi-Fi，并从当前 Settings Intelligence 页面回读结果"
+
+        private fun successfulSnapshot(execution: AgentToolExecution): JSONObject {
+            check(execution.toolResult.success) { execution.toolResult.content }
+            check(execution.toolCall.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME) {
+                "系统设置 Wi-Fi 搜索动作前必须先获得 device.snapshot：${execution.toolCall.name}"
+            }
+            return JSONObject(execution.toolResult.content)
+        }
+
+        private fun findActionableNode(
+            snapshot: JSONObject,
+            action: String,
+            matches: (JSONObject) -> Boolean,
+        ): JSONObject {
+            val nodes = snapshot.getJSONArray("nodes")
+            fun hasAction(node: JSONObject): Boolean {
+                val actions = node.optJSONArray("actions") ?: return false
+                return (0 until actions.length()).any { index -> actions.optString(index) == action }
+            }
+            fun ancestorsOf(index: Int): Sequence<JSONObject> = sequence {
+                var currentIndex = nodes.getJSONObject(index).optInt("parent_index", -1)
+                while (currentIndex >= 0) {
+                    val current = nodes.getJSONObject(currentIndex)
+                    yield(current)
+                    currentIndex = current.optInt("parent_index", -1)
+                }
+            }
+
+            for (index in 0 until nodes.length()) {
+                val node = nodes.getJSONObject(index)
+                if (hasAction(node) && matches(node)) return node
+                if (matches(node)) {
+                    ancestorsOf(index).firstOrNull(::hasAction)?.let { return it }
+                }
+            }
+            error("当前 snapshot 没有匹配搜索语义且支持 $action 的节点")
+        }
+
+        private fun textFields(node: JSONObject): List<String> = listOf(
+            node.optString("text"),
+            node.optString("description"),
+            node.optString("hint"),
+        ).filter(String::isNotBlank)
+    }
+
     private class WorkflowOpenAppE2eLlm(
         private val expectedBeforePackageName: String,
         private val targetPackageName: String,
@@ -4765,6 +5119,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_HOME = "workflow_home"
         const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
         const val OPERATION_WORKFLOW_SETTINGS_MULTI = "workflow_settings_multi"
+        const val OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH = "workflow_settings_wifi_search"
         const val OPERATION_WORKFLOW_CLOCK_ALARM = "workflow_clock_alarm"
         private const val DEFAULT_ALLOWED_TOOL = "device.open_app"
         private const val STAGE179_MEMORY_FIXTURE_SOURCE = "第179阶段 Redmi Debug 夹具"
@@ -4790,12 +5145,15 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         private const val E2E_HOME_CONVERSATION_ID = "conversation-redmi-workflow-home"
         private const val E2E_SWIPE_CONVERSATION_ID = "conversation-redmi-workflow-swipe"
         private const val E2E_SETTINGS_MULTI_CONVERSATION_ID = "conversation-redmi-workflow-settings-multi"
+        private const val E2E_SETTINGS_WIFI_CONVERSATION_ID = "conversation-redmi-workflow-settings-wifi-search"
         private const val DEVICE_SNAPSHOT_E2E_TOOL_NAME = "device.snapshot"
         private const val DEVICE_BACK_TOOL_NAME = "device.back"
         private const val DEVICE_HOME_TOOL_NAME = "device.home"
         private const val DEVICE_TYPE_TEXT_TOOL_NAME = "device.type_text"
         private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
         private const val SYSTEM_SETTINGS_PACKAGE = "com.android.settings"
+        private const val SETTINGS_INTELLIGENCE_PACKAGE = "com.android.settings.intelligence"
+        private const val WIFI_SEARCH_QUERY = "Wi-Fi"
         private const val SYSTEM_CALCULATOR_PACKAGE = "com.android.calculator2"
         private const val GOOGLE_WEATHER_PACKAGE = "com.google.android.apps.weather"
         private const val GOOGLE_CLOCK_PACKAGE = "com.google.android.deskclock"

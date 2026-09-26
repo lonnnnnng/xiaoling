@@ -63,6 +63,16 @@ class DeviceActionPolicy(
             return actualPackageName in launchPackageCandidates(expectedPackageName)
         }
 
+        fun areAllowedInAppFlow(expectedPackageName: String?, actualPackageName: String?): Boolean {
+            if (areEquivalentAppPackages(expectedPackageName, actualPackageName)) return true
+            // long: 系统设置搜索会把输入控件交给受控的 Settings Intelligence 伴随包；它只能作为已确认设置任务的后置窗口，不能成为可打开的目标应用。
+            return actualPackageName in COMPANION_PACKAGES[expectedPackageName].orEmpty()
+        }
+
+        private val COMPANION_PACKAGES = mapOf(
+            "com.android.settings" to setOf("com.android.settings.intelligence"),
+        )
+
         private val SENSITIVE_MARKERS = setOf(
             "密码",
             "验证码",

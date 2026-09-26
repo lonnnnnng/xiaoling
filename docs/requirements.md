@@ -1,5 +1,52 @@
 # 产品需求
 
+## 第274阶段动态应用候选的真实 Provider 计划验收（已完成）
+
+- 真实 Provider 生成设备个人任务时，`target_app_package` 和 `expected_final_package` 必须来自当前 Launcher 发现与已登记白名单交集；本阶段 Redmi 实际选择 `com.android.calculator2`。
+- 计划模式只验证模型选择和确认前安全边界，不创建 Workflow、Agent Run 或设备动作；完整计算器动作仍由既有第265阶段证据覆盖。
+- 模型输出步骤不完整时必须 fail-closed；本阶段首次少规划一步，测试拒绝且未执行，重跑完整计划后 `OK (1 test)`。
+- 不扩大 `device.open_app` 白名单，不申请 `QUERY_ALL_PACKAGES`，不接入 Workflow/WorkManager/后台，不执行 Release 或全量矩阵。
+
+## 第273阶段应用能力候选进入规划上下文（已完成）
+
+## 第273阶段应用能力候选进入规划上下文（已完成）
+
+- 个人任务包含 `device.*` 时，规划模型必须同时接收当前 Launcher 目录中已登记应用的脱敏名称、包名和有限能力候选；候选只来自“当前发现 ∩ 默认执行白名单”，不得只依赖静态包名猜测。
+- 候选名称、包名和能力分类是非授权目录事实，不得被解释成工具指令、审批结果或任意 App 能力；目录外包名、未登记包和能力分类误报都必须在计划解析阶段拒绝。
+- 非设备任务、通知来源任务、Workflow、WorkManager 和后台不接收动态目录；`device.open_app` 三层白名单、用户确认、逐动作审批、Accessibility 后置观察和目标级验证保持不变。
+- 聚焦 JVM `179/179`、Debug/AndroidTest APK 与 Redmi `InstalledAppDirectoryInstrumentedTest OK (2 tests)` 已通过；未执行完整矩阵、Lint、Release 或全量 instrumentation。
+
+## 第272阶段系统设置搜索跨包安全门禁（已完成）
+
+## 第272阶段系统设置搜索跨包安全门禁（已完成）
+
+- “打开系统设置并搜索 Wi-Fi”仍以 `com.android.settings` 为用户确认的目标应用；系统实际把搜索输入交给 `com.android.settings.intelligence` 时，只把后者视为受控伴随窗口。
+- 伴随窗口只允许参与当前设置任务的引用动作和最终观察，不得被单独启动、加入应用发现有效交集或扩大默认白名单。
+- 定向 JVM `33/33`、Debug/AndroidTest APK 已通过；Redmi `wsvwypiz7xwslvl7 / begonia` 独立前台验收完成两次动作审批、三次新鲜 snapshot、跨包后置观察和当前结果回读，最终目标级 `VERIFIED`，读到 3 条 Wi-Fi 相关结果。
+- 本阶段仍不把 `com.android.settings.intelligence` 作为可启动目标，不扩大 Launcher 发现交集、默认白名单、任意 App、后台设备动作或精确定时边界；未执行全量矩阵或 Release。
+
+## 第271阶段规划前置的应用可用性门禁（已完成，真实 Provider 规划已补验）
+
+- 个人任务规划涉及 `device.*` 时，必须先读取当前 Launcher 目录，并把可选目标限制为“当前发现且已登记”的应用交集；目录结果不能改变默认设备白名单。
+- 计划 JSON 的目标应用和最终应用必须再次通过同一有效集合校验；目录不可用、无交集、未登记或未发现目标必须在生成执行预览前拒绝，不能让模型猜测应用可用性。
+- 该门禁只影响前台个人任务规划，不接入 Workflow/WorkManager/后台，也不改变用户确认、逐动作审批、Accessibility、动作后验证和旧 Run 不变约束。
+- 本阶段 JVM `180/180`、Debug/AndroidTest APK 和 Redmi `OK (2 tests)` 已通过；真实 Provider 计划模式在 Redmi `OK (1 test)`，目标仍受已发现/已登记交集约束，确认前无 Workflow 或动作副作用。设备动作闭环继续复用第265阶段独立前台证据。
+
+## 第270阶段应用发现目录与能力候选（已完成）
+
+- 小灵可以在用户前台直接询问时读取当前用户可启动的 Launcher 应用目录；本阶段不承诺枚举所有隐藏或不可启动安装包，不申请 `QUERY_ALL_PACKAGES`。
+- 目录只允许输出应用名称、包名和有限能力候选；版本、签名、权限、安装来源、Provider、账号和应用内数据属于禁止输出字段。最多返回 200 项，并进行去重、控制字符过滤和稳定排序。
+- `app.list_installed_apps` 是 SAFE、无参数、仅前台 DIRECT 的发现工具；目录结果不能改变 `device.open_app` 白名单、审批、Accessibility、动作后验证或目标级完成判定。
+- `WEATHER / CLOCK / CALCULATOR / SETTINGS` 只是候选分类，不表示对应应用能力已经可用；必须在已登记应用上完成真实页面验收后，才能规划具体动作。目录读取失败必须明确返回不可用或失败，不允许模型猜测。
+- 本阶段已完成受影响 JVM `163/163`、Debug/AndroidTest APK 构建和差异检查；Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 真实目录读取 `OK (1 test)`，返回 30 项、未截断、包含小灵自身入口；暂不接入 Workflow 或后台。
+
+## 第269阶段当前天气只读事实切片（实现完成，Redmi 验收待天气包可用）
+
+- `app.get_weather` 仅允许前台 DIRECT/WORKFLOW、设备 Agent 已启用且 Accessibility READY，并且当前快照包名必须精确为 `com.google.android.apps.weather`；后台、无上下文、服务断连或其他前台包一律拒绝。
+- 结果只能包含当前快照身份、采集时间、唯一当前温度和唯一天气状况。位置文本、原始节点、ref、预测高低温、天气历史和 Provider 配置不得进入 ToolResult；字段不完整或多候选时必须 `success=false / verified=false`。
+- Google Weather 不新增定位权限、后台采集、Room 字段、跨 Run 缓存或任意 App 能力；Skill 必须先经现有 `device.open_app` 审批，再读取当前事实。
+- 真实 Redmi 验收尚未完成：当前设备在线但没有该包；在天气包可用前不得把 JVM 或假快照测试写成产品级 `VERIFIED`。
+
 ## 第 268 阶段一次性闹钟前台任务（已完成）
 
 - 个人 Agent 只允许在已登记 Google/AOSP 时钟包族内规划“一次性、10 分钟后响铃”的前台目标；不得规划周期规则、修改或删除其他闹钟、后台调度或隐式跨 App 执行。

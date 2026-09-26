@@ -13,6 +13,11 @@
             <action android:name="android.intent.action.DIAL" />
             <data android:scheme="tel" />
         </intent>
+        <!-- long: 应用发现只查询当前用户可启动的 Launcher 入口；不申请 QUERY_ALL_PACKAGES，也不读取隐藏或不可启动包。 -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <!-- long: open_app 只允许首批真机验收应用；显式声明包可见性，避免申请 QUERY_ALL_PACKAGES 扩大隐私面。 -->
         <package android:name="com.android.calculator2" />
         <package android:name="com.google.android.calculator" />

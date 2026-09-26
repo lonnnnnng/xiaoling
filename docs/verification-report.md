@@ -2,6 +2,106 @@
 
 验证日期：2026-09-25（北京时间）
 
+## 2026-09-26 第274阶段：动态应用候选的真实 Provider 计划验收（完成）
+
+### 已验证
+
+- 设备仅使用 Redmi `wsvwypiz7xwslvl7 / begonia`；未使用或启动 Pixel_9。
+- 复用 `Stage265CalculatorTaskInstrumentedTest` 的计划模式参数 `stage265RealRun=true / stage265PlanOnly=true`，真实 Provider 从动态候选中选择系统计算器；`target_app_package` 与 `expected_final_package` 均为 `com.android.calculator2`。
+- 计划确认前没有创建 Workflow、Agent Run 或设备动作；动态目录只参与规划，未改变执行白名单、审批、Accessibility 或目标验证。
+- 首次模型响应缺少“清空键”步骤，测试按既有计划契约 fail-closed，未进入确认执行；第二次重跑得到完整计划，Redmi instrumentation `OK (1 test)`，耗时 `16.9s`。
+
+### 尚未验证与边界
+
+- 本阶段只验收动态候选进入真实 Provider 计划，不重复计算器完整动作闭环；完整动作证据仍沿第265阶段。
+- 未执行完整 JVM、全量 Lint、Release 或全量 instrumentation；不扩大 `device.open_app` 白名单，不申请 `QUERY_ALL_PACKAGES`，不接入 Workflow/后台。
+- 下一阶段继续在 Redmi 当前已发现且已登记的窄前台任务中推进；天气仍受 `com.google.android.apps.weather` 缺失约束。
+
+## 2026-09-26 第273阶段：应用能力候选进入规划上下文（完成）
+
+### 已验证
+
+- `AppCapabilityPlanningPreflight` 在当前 Launcher 目录与 `DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES` 的交集上返回稳定候选记录；规划提示同时包含脱敏“名称 | 包名 | 能力候选”，未登记包不会进入模型上下文。
+- `PersonalTaskPlanPolicy` 的 system prompt 明确目录字段是非授权事实；候选只帮助选择已给出的目标，不能扩大工具、审批、Accessibility 或任意 App 边界。`XiaoLingViewModel` 仅在前台 `device.*` 计划中注入动态候选。
+- 聚焦 JVM：`AppCapabilityPlanningPreflightTest 3/3`、`PersonalTaskPlanPolicyTest 15/15`、`AgentSkillsTest 47/47`、`XiaoLingToolRegistryTest 114/114`，合计 `179/179`，0 失败/错误/跳过。
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`；此前 `git diff --check` 仍通过。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 运行 `InstalledAppDirectoryInstrumentedTest`，结果 `OK (2 tests)`；真实 Launcher 目录和规划前置交集均通过，未使用 Pixel_9。
+
+### 尚未验证与边界
+
+- 本阶段未运行完整 JVM、全量 Lint、Release 或全量 instrumentation；动态候选仍不代表对应页面能力已验收。
+- 不申请 `QUERY_ALL_PACKAGES`，不把目录接入 Workflow/WorkManager/后台，不扩大 `device.open_app` 白名单，不把未知包或能力分类误报转成可执行目标。
+- 下一阶段继续在当前 Redmi 已发现且已登记的包族内选择窄前台个人任务；天气真实闭环仍受 `com.google.android.apps.weather` 缺失约束。
+
+## 2026-09-26 第272阶段：系统设置搜索跨包安全门禁（完成）
+
+### 已验证
+
+- `DeviceActionPolicy` 新增受控的 Settings Intelligence 伴随包判定：`com.android.settings.intelligence` 只能作为已确认 `com.android.settings` 任务的动作前/后观察窗口，不能作为 `device.open_app` 目标，也不进入默认应用白名单或应用发现结果。
+- `WorkflowDeviceActionSafetyPolicy` 的引用动作前置与动作后置验证、`WorkflowGoalVerificationPolicy` 的最终包判定均复用该受控伴随关系；其他目标包和未知跨 App 仍 fail-closed。
+- 定向 JVM `DeviceActionPolicyTest 4/4`、`WorkflowGoalVerificationPolicyTest 9/9`、`WorkflowDeviceActionSafetyPolicyTest 20/20`，合计 `33/33`，0 失败/错误/跳过。
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`；`git diff --check` 通过。
+- 文档同步后重新构建 AndroidTest APK，并仅在 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`；结果 `OK (1 test)`。
+- 独立前台 Debug 通道在 Redmi `wsvwypiz7xwslvl7 / begonia` 完成真实闭环：三次 `device.snapshot`、两次逐动作审批、`device.tap_ref -> device.type_text`，所有 ToolResult 均为 `success=true / verificationStatus=PASSED`，两项动作 `executorVerified=true`，目标级结论为 `VERIFIED`。
+- 搜索动作前窗口为 `com.android.settings`，点击搜索后和输入后窗口为受控伴随包 `com.android.settings.intelligence`；最终快照读取到 3 条除搜索框外的 Wi-Fi 相关结果。输入原文没有进入 type_text Room 审批和动作结果，快照只作为当前页面事实保留可见结果。
+
+### 尚未验证与边界
+
+- 本阶段未执行完整 JVM、全量 Lint、Release 或全量 instrumentation；Debug 构建和 Redmi 单项真实验收足以覆盖本次跨包策略与结果回读改动。
+- 不把 `com.android.settings.intelligence` 加入 `device.open_app`、Launcher 目录有效交集或任意 App 白名单；天气、后台设备动作、Workflow 扩权和精确定时边界不变。
+- 独立通道为避免浮层等待造成节点过期，只替换 Debug 验收的决定来源，仍复用生产安全策略、Room 脱敏审批投影和 Executor/typed 验证；不把该 Debug 自动批准实现暴露到 Release 或生产入口。
+
+## 2026-09-25 第271阶段：规划前置的应用可用性门禁（完成，真实 Provider 规划已补验）
+
+### 已验证
+
+- 新增 `AppCapabilityPlanningPreflight`；涉及 `device.*` 的个人任务规划只使用当前 Launcher 目录与 `DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES` 的交集，解析阶段再次校验目标应用和最终应用。
+- 受影响 JVM：`AppCapabilityPlanningPreflightTest 3/3`、`PersonalTaskPlanPolicyTest 14/14`、`InstalledAppDirectoryPolicyTest 2/2`、`XiaoLingToolRegistryTest 114/114`、`AgentSkillsTest 47/47`，合计 `180/180`，0 失败/错误/跳过。
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`；`git diff --check` 通过。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro`，真实 `InstalledAppDirectoryInstrumentedTest` 为 `OK (2 tests)`；目录 `count=30 / truncated=false / selfFound=true / privacySafe=true`，规划前置 `allowedPackages=4 / whitelistIntersection=true`。
+- 从项目未跟踪的 `AGENTS.md` 读取兜底 Provider 后，`RealProviderPersonalTaskPlanContextInstrumentedTest` 在 Redmi 为 `OK (1 test)`；配置恢复到设备本地 Keystore，模型为 `gpt-5.6-luna`，API Key 未进入输出、源码或文档。
+- `Stage265CalculatorTaskInstrumentedTest#calculatorTaskPlansAndExecutesWithVisibleApprovals` 以 `stage265RealRun=true / stage265PlanOnly=true` 在 Redmi 为 `OK (1 test)`（`26.604s`）：真实模型生成计算器计划，目标仍通过“已发现且已登记”交集校验，确认前没有创建 Workflow，也没有执行设备动作。
+- 文档同步后重新构建 AndroidTest APK，并仅在 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`；结果 `OK (1 test)`。
+
+### 尚未验证与边界
+
+- 本阶段没有在该规划门禁切片中执行用户确认、设备动作或目标级 `VERIFIED`；真实 Provider 计划已经补验。计算器的完整动作闭环沿用第265阶段既有独立前台 Debug 通道证据，不把本次同包 instrumentation 的 Accessibility 通道失败计为生产能力失败。
+- 不申请 `QUERY_ALL_PACKAGES`，不扩大 `device.open_app` 白名单，不把候选分类直接当作已验证能力，也不接入 Workflow、WorkManager 或后台。
+- 未执行完整 JVM、全量 Lint、Release 或全量 instrumentation；下一阶段继续选择已发现且已登记的窄任务，沿用独立前台验收通道完成动作闭环。
+
+## 2026-09-25 第270阶段：应用发现目录与能力候选（完成）
+
+### 已验证
+
+- 新增前台 SAFE `app.list_installed_apps`，只查询 `ACTION_MAIN + CATEGORY_LAUNCHER`；Manifest 未申请 `QUERY_ALL_PACKAGES`，不读取隐藏或不可启动包。
+- 目录策略已验证控制字符过滤、包名去重、最多 200 项截断、稳定中文排序和有限能力候选分类；结果编码只包含应用名称、包名和候选能力，不包含版本、签名、权限、安装来源、Provider 或应用内数据。
+- `app-launcher-directory` Skill、Registry 前台 DIRECT 可见性门控和 Fake Reader 注入已验证；发现结果不会直接扩大 `device.open_app` 白名单，也不支持 Workflow/后台。
+- 受影响 JVM：`InstalledAppDirectoryPolicyTest`、`XiaoLingToolRegistryTest`、`AgentSkillsTest` 合计 `163/163`，0 失败/错误/跳过。
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`；`git diff --check` 通过。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 手动覆盖安装 Debug/AndroidTest APK，并执行 `InstalledAppDirectoryInstrumentedTest`；结果 `OK (1 test)`，实际目录 `count=30 / truncated=false / selfFound=true / privacySafe=true`。
+- 文档同步后重新构建 AndroidTest APK，并仅在 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`；结果 `OK (1 test)`，耗时 `3.435s`。
+- 验收后只卸载测试包 `com.longdev.xiaoling.test`，主包 `com.longdev.xiaoling` 保留并恢复启动；本轮未新增小灵崩溃。
+
+### 尚未验证与边界
+
+- 本轮未使用或启动 Pixel_9；没有申请 `QUERY_ALL_PACKAGES`，也未将目录接入 Workflow、WorkManager 或后台自动化；能力分类仍是候选信号，不是已验证能力。
+- 本轮未执行完整 JVM、全量 Lint、Release 或全量 instrumentation，符合快速迭代阶段的分级验证约束；Instrumentation 只覆盖本阶段单项。
+
+## 2026-09-25 第269阶段：当前天气只读事实切片（实现完成，Redmi 验收阻塞）
+
+### 已验证
+
+- 新增 `app.get_weather` 与 `weather-current` Skill；读取前台 Google Weather 的新鲜脱敏快照，只输出唯一当前温度和天气状况，不输出位置或原始节点。
+- 受影响 JVM：`AgentSkillsTest 46/46`、`XiaoLingToolRegistryTest 113/113`、`WeatherObservationPolicyTest 3/3`，合计 `162/162`，0 失败/错误/跳过。
+- `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`。
+- 纯策略覆盖唯一事实、歧义温度拒绝、非天气前台拒绝；Registry 覆盖前台 READY 工具可见和 `verified=true` 结果。
+
+### 尚未验证与阻塞
+
+- Redmi `wsvwypiz7xwslvl7 / begonia` 在线，但 `adb shell pm list packages -u` 未发现 `com.google.android.apps.weather`，`resolve-activity` 也返回 `No activity found`；因此本轮没有启动、安装或伪造天气页面，也没有把其他 App 页面当作天气证据。
+- 尚未执行真实 Provider 计划、用户确认、`device.open_app`、天气页面 Accessibility 字段回读和目标级 `VERIFIED`；完整 JVM、全量 Lint、Release、全量 instrumentation 仍不执行。
+- 下一步是天气包在 Redmi 可用后补单项真实验收；若真实页面字段无法唯一识别，保持 `INCOMPLETE` 并记录实际节点形状。
+
 ## 2026-09-25 第 268 阶段：一次性闹钟前台真实闭环（完成）
 
 ### 已验证

@@ -1,5 +1,64 @@
 # 当前实现说明
 
+## 第274阶段：动态应用候选的真实 Provider 计划验收（已完成）
+
+- 复用 `Stage265CalculatorTaskInstrumentedTest` 的 `stage265RealRun=true / stage265PlanOnly=true` 入口，在 Redmi 只验证计划生成和确认前边界。
+- 真实 Provider 返回的目标包与最终包均为 `com.android.calculator2`，符合当前 Launcher 目录与登记白名单交集；确认前没有 Workflow、Agent Run 或设备动作。
+- 首次返回缺少“清空键”步骤时，已有测试契约拒绝该不完整计划；重跑后完整计划通过 `OK (1 test)`。这证明模型波动不会被降级为可执行计划。
+- 本阶段不修改执行白名单，不新增权限、Room Schema、后台能力或 Release 资产。
+
+## 第273阶段：应用能力候选进入规划上下文（已完成）
+
+- `AppCapabilityPlanningPreflightResult.Available` 现在同时返回有效包名和筛选后的 `InstalledAppRecord`；记录先与 `DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES` 求交，再按能力、名称和包名稳定排序。
+- `PersonalTaskPlanPolicy.prepareRequest()` 只在允许 `device.*` 的前台规划中渲染候选，名称和字段做控制字符、长度和白名单过滤；System prompt 明确目录是非授权事实，模型不得把它当指令或猜测其他包。
+- `XiaoLingViewModel.preparePersonalTaskPlan()` 将候选上下文与原有 `allowedAppPackages` 一并传入，解析阶段仍用有效包集合二次校验目标应用和最终应用；通知来源和非设备任务不接收动态目录。
+- 新增候选记录与规划提示 JVM 回归；聚焦 JVM `179/179`，Debug/AndroidTest APK 构建通过；Redmi 真实 Launcher 目录/规划前置 `InstalledAppDirectoryInstrumentedTest` 为 `OK (2 tests)`。
+
+### 后续边界
+
+- 候选分类只帮助规划选择，不等同真实页面能力；天气、时钟、计算器和设置仍须分别沿当前事实回读链验收。
+- 发现层继续只读前台，执行层继续使用已登记白名单、审批、Accessibility 和动作后验证；不申请 `QUERY_ALL_PACKAGES`，不开放任意 App 或后台设备操作。
+
+## 第272阶段：系统设置搜索跨包安全门禁（已完成）
+
+- `DeviceActionPolicy.areAllowedInAppFlow()` 只登记 `com.android.settings -> com.android.settings.intelligence` 这一条受控伴随关系；伴随包不能被 `open_app` 启动，也不能成为应用发现或规划目标。
+- Workflow 引用动作的前置窗口、后置窗口和最终目标判定统一使用该关系，避免设置搜索输入框切换到 Intelligence 后被误判为任意跨 App；未知包仍拒绝。
+- 定向 JVM `33/33` 通过，Debug/AndroidTest APK 构建通过；真实 Redmi 搜索闭环尚未执行。
+- 独立前台 Debug 通道在 Redmi `wsvwypiz7xwslvl7 / begonia` 完成 `device.snapshot -> device.tap_ref -> device.snapshot -> device.type_text -> device.snapshot`；两次动作审批均为 `APPROVED`，所有 ToolResult 为 `PASSED`，三次观察均通过，目标级结论为 `VERIFIED`。
+- 实际窗口从 `com.android.settings` 切换到受控伴随包 `com.android.settings.intelligence`；最终快照回读 3 条 Wi-Fi 相关结果。输入原文不进入 type_text 审批/动作结果，snapshot 只保留当前页面可见结果；未把 Intelligence 加入可启动白名单。
+- 仅执行受影响 Debug 编译、APK 安装和 Redmi 单项真实验收；未运行全量 JVM、Lint、Release 或全量 instrumentation。
+
+## 第271阶段：规划前置的应用可用性门禁（已完成，真实 Provider 规划已补验）
+
+- `AppCapabilityPlanningPreflight.resolve()` 只接受当前目录与 `DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES` 的交集；注册集合先与默认白名单求交，无法借调用参数扩权。
+- `XiaoLingViewModel.preparePersonalTaskPlan()` 在允许 `device.*` 的个人任务进入模型前读取真实 Launcher 目录，将交集包写入规划提示；`PersonalTaskPlanPolicy.parse()` 再以同一集合校验 `target_app_package` 和 `expected_final_package`，防止模型返回目录外目标。
+- 目录不可用、读取失败、没有已发现且已登记的包和目标不在有效集合时均直接失败，不创建计划预览，不执行设备动作；非设备任务、通知来源任务和现有静态非设备规划保持原行为。
+- 新增 `AppCapabilityPlanningPreflightTest` 3 项与计划解析回归；受影响 JVM `180/180` 通过。Redmi 定向 `InstalledAppDirectoryInstrumentedTest` `OK (2 tests)`，实际 `count=30`，规划交集 `allowedPackages=4`；Debug/AndroidTest APK 构建和 `git diff --check` 通过。
+- Redmi 真实 Provider 规划探针已通过，计算器计划模式也通过；目标只来自“当前 Launcher 目录 ∩ 已登记白名单”，确认前不创建 Workflow、不执行动作。完整动作继续由第265阶段独立前台 Debug 通道验收；同包 instrumentation 的 Accessibility 连接隔离不作为生产能力证据。
+
+## 第270阶段：应用发现目录与能力候选（已完成）
+
+- `AndroidInstalledAppDirectoryReader` 在 IO 线程查询 `ACTION_MAIN + CATEGORY_LAUNCHER`，只得到当前用户可启动的应用入口；Manifest 只声明 Launcher 查询，不申请 `QUERY_ALL_PACKAGES`。
+- `InstalledAppDirectoryPolicy` 负责控制字符过滤、包名去重、最多 200 项截断、稳定中文排序和基于名称/包名的有限能力候选分类。`InstalledAppDirectoryResultCodec` 只编码 `source/count/truncated/apps(name/package/capability)`，不编码版本、签名、权限、安装来源、Provider 或应用内数据。
+- `XiaoLingToolRegistry` 新增前台 DIRECT/SAFE 的 `app.list_installed_apps`，不可用于 Workflow/后台；Reader 失败和不可用均保持 fail-closed。`AgentRunUseCase` 透传 Android Reader，测试 Registry 使用 Fake Reader 验证注入边界。
+- `app-launcher-directory` Skill 只负责发现，不改变 `device.open_app` 白名单和审批策略；目录包名不能直接成为设备动作目标。
+- 受影响 JVM `InstalledAppDirectoryPolicyTest`、`XiaoLingToolRegistryTest`、`AgentSkillsTest` 共 `163/163` 通过；Debug/AndroidTest APK 构建通过，`git diff --check` 通过。Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 真实 `InstalledAppDirectoryInstrumentedTest` 为 `OK (1 test)`，读取 30 项、未截断、包含自身入口，隐私字段断言通过；文档 corpus gate `OK (1 test)`；测试包已卸载，主包恢复运行。
+
+### 后续实现边界
+
+- 当前“已安装应用”语义限定为 Launcher 可启动目录，而不是系统全部隐藏安装包；若未来确有全部包清单需求，必须单独评估 Android 包可见性、隐私披露和最小权限，不直接加入 `QUERY_ALL_PACKAGES`。
+- 能力分类只是候选信号，不能代替真实页面/Provider 验收；天气、时钟和计算器仍沿现有已登记包族与目标级验证链逐项确认。
+- 目录只对前台直接 Agent 可见，不进入 Workflow、WorkManager 或后台自动化，避免把应用枚举变成无确认的长期侦测能力。
+- Redmi 真实结果只证明当前设备的 Launcher 目录读取契约，不证明所有 Android/OEM 都暴露相同数量或相同标签；目录为空、包可见性变化或 PackageManager 异常仍按现有 fail-closed 结果处理。
+
+## 第269阶段：当前天气只读事实切片（实现完成，Redmi 验收待天气包可用）
+
+- `XiaoLingToolRegistry` 新增 `app.get_weather`，复用 `DeviceController.capture()`，但不把它加入 `device.*` 动作集合；因此不会改变现有 Workflow 动作白名单、审批规则或 snapshot 前置门禁。
+- `WeatherObservationPolicy` 先核对前台包名，再从脱敏 `DeviceSnapshotNode` 的有限文本中识别当前温度和天气状况。当前标记附近只有一个温度时才接受；温度或状况多候选、脱敏、窗口不匹配或快照失败时 fail-closed。输出只包含固定字段，不含位置、原始节点或 ref。
+- `weather-current` Skill 只适用于前台“打开天气并查看当前天气”，工具边界为 `device.open_app + app.get_weather`；不申请定位权限、不读取后台数据、不写入 Room 或跨 Run 缓存。
+- 新增 JVM `WeatherObservationPolicyTest` 三项与 `XiaoLingToolRegistryTest#foregroundWeatherReaderReturnsOnlyVerifiedCurrentFacts`；受影响聚焦集合 `AgentSkillsTest 46 + XiaoLingToolRegistryTest 113 + WeatherObservationPolicyTest 3 = 162` 全部通过，Debug/AndroidTest APK 构建通过。
+- Redmi 当前没有 `com.google.android.apps.weather`，因此尚未运行真实天气页闭环；不能用计算器/时钟页面替代天气事实验收。天气包可用后必须证明自然语言计划、用户确认、`device.open_app` 后置包名、`app.get_weather` `verified=true`、当前温度/状况回读和目标级 `VERIFIED`。
+
 ## 第 268 阶段：一次性闹钟前台任务（已完成）
 
 - 本阶段冻结的窄任务是“在系统时钟中设置一个 10 分钟后响铃的一次性闹钟，并回读当前闹钟页面的时间、启用状态和一次性状态”。目标继续限定在已登记的 Google/AOSP 时钟包族，不扩展新 App 白名单。
@@ -11,7 +70,7 @@
 
 ### 下一步
 
-继续在 Redmi 与已登记 App 白名单内选择一条新的高频前台个人任务，沿用“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 `VERIFIED` -> 当前权威事实查看”。不把本阶段一次性闹钟闭环扩展为精确定时、AlarmManager、Foreground Service 或后台自动化。
+继续在 Redmi 与已登记 App 白名单内选择一条新的高频前台个人任务，沿用“自然语言目标 -> 用户确认 -> 当前观察/动作 -> 目标级 `VERIFIED` -> 当前权威事实查看”。第269阶段已落地天气只读事实能力，真实天气页验收受 Redmi 包可用性约束；不把本阶段一次性闹钟闭环扩展为精确定时、AlarmManager、Foreground Service 或后台自动化。
 
 ## 第 267 阶段：目标级等价应用包族验证（已完成）
 

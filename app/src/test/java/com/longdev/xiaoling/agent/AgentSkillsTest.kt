@@ -36,6 +36,19 @@ class AgentSkillsTest {
     }
 
     @Test
+    fun builtInAppDirectorySkillDoesNotGrantDeviceActions() {
+        val selected = BuiltInAgentSkillRegistry.select(
+            goal = "看看手机上有哪些可用应用",
+            limit = 3,
+        )
+
+        val skill = selected.single { it.id == "app-launcher-directory" }
+        assertEquals(setOf("app.list_installed_apps"), skill.toolNames)
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("不得因为目录中出现某个包就调用 device.open_app"))
+    }
+
+    @Test
     fun builtInAgentProfileInfoSkillStaysDirectAndNonSensitive() {
         val selected = BuiltInAgentSkillRegistry.select(
             goal = "当前使用的是哪个 Agent 和模型",

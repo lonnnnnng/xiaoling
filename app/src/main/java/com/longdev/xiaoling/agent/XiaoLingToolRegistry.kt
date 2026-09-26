@@ -58,6 +58,7 @@ class XiaoLingToolRegistry(
     private val contactReader: ContactReader = UnavailableContactReader,
     private val contactDialer: ContactDialer = UnavailableContactDialer,
     private val appInfoReader: AppInfoReader = UnavailableAppInfoReader,
+    private val installedAppDirectoryReader: InstalledAppDirectoryReader = UnavailableInstalledAppDirectoryReader,
     private val batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
     private val connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
     private val storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
@@ -106,6 +107,7 @@ class XiaoLingToolRegistry(
         contactReader = contactReader,
         contactDialer = contactDialer,
         appInfoReader = appInfoReader,
+        installedAppDirectoryReader = installedAppDirectoryReader,
         batteryStatusReader = batteryStatusReader,
         connectivityStatusReader = connectivityStatusReader,
         storageStatusReader = storageStatusReader,
@@ -126,6 +128,14 @@ class XiaoLingToolRegistry(
             description = "读取当前小灵应用的名称、包名、版本名和版本号；不返回 Provider、API Key、设备标识或其他配置。",
             risk = ToolRisk.SAFE,
             permissionPolicy = ToolPermissionPolicy(supportsBackground = true),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
+            name = APP_LIST_INSTALLED_APPS_TOOL_NAME,
+            description = "列出当前用户可启动的应用名称、包名和本地能力候选；不读取版本、签名、权限、安装来源或 Provider 配置，也不会因此获得设备操作权限。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
             timeoutMs = 5_000,
         ),
@@ -1116,6 +1126,15 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = APP_GET_WEATHER_TOOL_NAME,
+            description = "从当前前台 Google Weather 的新鲜脱敏快照读取唯一可识别的当前温度和天气状况；不读取或保存位置，不支持后台。",
+            risk = ToolRisk.SAFE,
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            businessValidators = listOf(ToolBusinessValidator(::validateNoArguments)),
+            verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
+            timeoutMs = 5_000,
+        ),
+        ToolDefinition(
             name = DEVICE_OPEN_APP_TOOL_NAME,
             description = "打开首批允许列表中的 Android 应用；需要用户确认，打开后重新观察并核对前台包名。",
             risk = ToolRisk.REQUIRES_APPROVAL,
@@ -1461,6 +1480,14 @@ class XiaoLingToolRegistry(
             // long: 前台 Workflow 只获得脱敏观察能力；后台、未启用或缺少 Run Context 时连 snapshot 也不进入模型工具面。
             available = available.filterNot { it.name == DEVICE_SNAPSHOT_TOOL_NAME }
         }
+        if (!weatherObservationAllowed(context)) {
+            // long: 天气事实只能在用户可见前台读取当前天气窗口，后台或无障碍不可用时连工具定义也隐藏，避免模型把历史天气当成当前事实。
+            available = available.filterNot { it.name == APP_GET_WEATHER_TOOL_NAME }
+        }
+        if (!installedAppDirectoryAllowed(context)) {
+            // long: 已安装应用目录属于用户设备隐私，只在前台直接 Agent 由用户明确询问时可见，不进入 Workflow/后台上下文。
+            available = available.filterNot { it.name == APP_LIST_INSTALLED_APPS_TOOL_NAME }
+        }
         if (!deviceHealthAllowed(context)) {
             available = available.filterNot { it.name == APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME }
         }
@@ -1503,6 +1530,8 @@ class XiaoLingToolRegistry(
             (definition.name !in NOTIFICATION_TOOL_NAMES || notificationReadAllowed(runContext)) &&
             (definition.name != MEMORY_DELETE_TOOL_NAME || memoryDeleteAllowed(runContext))
             && (definition.name != APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME || deviceHealthAllowed(runContext))
+            && (definition.name != APP_GET_WEATHER_TOOL_NAME || weatherObservationAllowed(runContext))
+            && (definition.name != APP_LIST_INSTALLED_APPS_TOOL_NAME || installedAppDirectoryAllowed(runContext))
     }
 
     override fun registeredDefinition(name: String): ToolDefinition? =
@@ -1513,11 +1542,13 @@ class XiaoLingToolRegistry(
         return when (call.name) {
             "app.current_time" -> currentTime()
             APP_GET_INFO_TOOL_NAME -> getAppInfo(call)
+            APP_LIST_INSTALLED_APPS_TOOL_NAME -> listInstalledApps(call)
             APP_GET_BATTERY_TOOL_NAME -> getBatteryStatus(call)
             APP_GET_CONNECTIVITY_TOOL_NAME -> getConnectivityStatus(call)
             APP_GET_STORAGE_TOOL_NAME -> getStorageStatus(call)
             AGENT_GET_PROFILE_TOOL_NAME -> getAgentProfile(call)
             APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME -> getDeviceAgentHealth(call)
+            APP_GET_WEATHER_TOOL_NAME -> getCurrentWeather(call)
             "app.list_conversations" -> listConversations(call)
             "app.search_conversations" -> searchConversations(call)
             APP_GET_CONVERSATION_TOOL_NAME -> getConversation(call)
@@ -1645,6 +1676,27 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun listInstalledApps(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "$APP_LIST_INSTALLED_APPS_TOOL_NAME 不接受参数")
+        }
+        installedAppDirectoryContextError()?.let { return it }
+        return when (val result = installedAppDirectoryReader.read()) {
+            is InstalledAppDirectoryReadResult.Success -> ToolExecutionResult(
+                success = true,
+                content = InstalledAppDirectoryResultCodec.encode(result.directory),
+            )
+            InstalledAppDirectoryReadResult.Unavailable -> ToolExecutionResult(
+                success = false,
+                content = "当前可启动应用目录不可用",
+            )
+            InstalledAppDirectoryReadResult.Failed -> ToolExecutionResult(
+                success = false,
+                content = "读取当前可启动应用目录失败",
+            )
+        }
+    }
+
     private suspend fun getBatteryStatus(call: ToolCall): ToolExecutionResult {
         if (call.arguments.isNotEmpty()) {
             return ToolExecutionResult(success = false, content = "app.get_battery 不接受参数")
@@ -1754,6 +1806,34 @@ class XiaoLingToolRegistry(
         }
     }
 
+    private suspend fun getCurrentWeather(call: ToolCall): ToolExecutionResult {
+        if (call.arguments.isNotEmpty()) {
+            return ToolExecutionResult(success = false, content = "$APP_GET_WEATHER_TOOL_NAME 不接受参数")
+        }
+        weatherObservationContextError()?.let { return it }
+        return when (val capture = deviceController.capture()) {
+            is DeviceSnapshotCapture.Failed -> ToolExecutionResult(
+                success = false,
+                content = capture.message,
+            )
+            is DeviceSnapshotCapture.Success -> when (val result = WeatherObservationPolicy.read(capture.snapshot)) {
+                is WeatherObservationReadResult.Success -> ToolExecutionResult(
+                    success = true,
+                    verified = true,
+                    content = WeatherObservationPolicy.encode(result.observation),
+                )
+                is WeatherObservationReadResult.Incomplete -> ToolExecutionResult(
+                    success = false,
+                    content = "当前天气事实不完整：${result.reason}",
+                )
+                WeatherObservationReadResult.WrongForegroundPackage -> ToolExecutionResult(
+                    success = false,
+                    content = "当前前台不是允许的 Google Weather 页面，已停止读取天气事实",
+                )
+            }
+        }
+    }
+
     private suspend fun executeDeviceAction(
         call: ToolCall,
         block: suspend () -> DeviceActionCapture,
@@ -1817,6 +1897,31 @@ class XiaoLingToolRegistry(
         return null
     }
 
+    private fun weatherObservationContextError(): ToolExecutionResult? {
+        val context = runContext
+            ?: return ToolExecutionResult(success = false, content = "$APP_GET_WEATHER_TOOL_NAME 缺少当前 Agent Run 上下文")
+        if (context.invocationSource !in DEVICE_SNAPSHOT_INVOCATION_SOURCES) {
+            return ToolExecutionResult(success = false, content = "$APP_GET_WEATHER_TOOL_NAME 不允许当前调用来源")
+        }
+        if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
+            return ToolExecutionResult(success = false, content = "$APP_GET_WEATHER_TOOL_NAME 仅允许用户在前台执行")
+        }
+        deviceHealthContextError()?.let { return it }
+        return null
+    }
+
+    private fun installedAppDirectoryContextError(): ToolExecutionResult? {
+        val context = runContext
+            ?: return ToolExecutionResult(success = false, content = "$APP_LIST_INSTALLED_APPS_TOOL_NAME 缺少当前 Agent Run 上下文")
+        if (context.invocationSource != AgentInvocationSource.DIRECT) {
+            return ToolExecutionResult(success = false, content = "$APP_LIST_INSTALLED_APPS_TOOL_NAME 仅允许前台直接 Agent")
+        }
+        if (context.executionOrigin != AgentExecutionOrigin.FOREGROUND) {
+            return ToolExecutionResult(success = false, content = "$APP_LIST_INSTALLED_APPS_TOOL_NAME 仅允许用户在前台执行")
+        }
+        return null
+    }
+
     private fun deviceActionContextError(toolName: String): ToolExecutionResult? {
         val context = runContext
             ?: return ToolExecutionResult(success = false, content = "设备工具缺少当前 Agent Run 上下文")
@@ -1837,6 +1942,17 @@ class XiaoLingToolRegistry(
         return context?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
             context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
             deviceController.health() == DeviceAgentHealthState.READY
+    }
+
+    private fun weatherObservationAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource in DEVICE_SNAPSHOT_INVOCATION_SOURCES &&
+            context?.executionOrigin == AgentExecutionOrigin.FOREGROUND &&
+            deviceController.health() == DeviceAgentHealthState.READY
+    }
+
+    private fun installedAppDirectoryAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource == AgentInvocationSource.DIRECT &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND
     }
 
     private fun deviceHealthAllowed(context: AgentToolExecutionContext?): Boolean {
@@ -3890,6 +4006,7 @@ private object DisabledDeviceController : DeviceController {
 }
 
 private const val DEVICE_SNAPSHOT_TOOL_NAME = "device.snapshot"
+internal const val APP_GET_WEATHER_TOOL_NAME = "app.get_weather"
 private const val APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME = "app.get_device_agent_health"
 internal const val DEVICE_OPEN_APP_TOOL_NAME = "device.open_app"
 private const val DEVICE_BACK_TOOL_NAME = "device.back"
@@ -4011,6 +4128,7 @@ private val DEVICE_SNAPSHOT_INVOCATION_SOURCES = setOf(
 private const val CALENDAR_LIST_EVENTS_TOOL_NAME = "calendar.list_events"
 private const val CALENDAR_NEXT_EVENT_TOOL_NAME = "calendar.next_event"
 private const val APP_GET_INFO_TOOL_NAME = "app.get_info"
+internal const val APP_LIST_INSTALLED_APPS_TOOL_NAME = "app.list_installed_apps"
 private const val APP_GET_BATTERY_TOOL_NAME = "app.get_battery"
 private const val APP_GET_CONNECTIVITY_TOOL_NAME = "app.get_connectivity"
 private const val APP_GET_STORAGE_TOOL_NAME = "app.get_storage"

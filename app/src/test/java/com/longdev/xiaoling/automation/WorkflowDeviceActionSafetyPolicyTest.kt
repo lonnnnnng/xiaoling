@@ -326,6 +326,39 @@ class WorkflowDeviceActionSafetyPolicyTest {
     }
 
     @Test
+    fun settingsSearchAllowsOnlyTheKnownCompanionWindowForBoundReferenceActions() {
+        val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.tap_ref"))
+        val base = validExecutionEvidence()
+        val identity = base.identity.copy(
+            toolName = "device.tap_ref",
+            arguments = mapOf("snapshot_id" to "snapshot-settings", "ref" to "r-search"),
+        )
+        val approval = requireNotNull(base.approval).copy(
+            toolName = identity.toolName,
+            arguments = identity.arguments,
+        )
+        val execution = base.copy(
+            identity = identity,
+            targetAppPackage = "com.android.settings",
+            beforePackageName = "com.android.settings.intelligence",
+            userIntent = "在系统设置中打开 Wi-Fi 搜索",
+            observation = requireNotNull(base.observation).copy(snapshotId = "snapshot-settings"),
+            approval = approval,
+        )
+
+        val allowed = policy.assessExecution(execution) as WorkflowDeviceActionSafetyDecision.Allowed
+        val completion = validCompletionEvidence(allowed.authorization).copy(
+            identity = identity,
+            targetAppPackage = "com.android.settings",
+            afterPackageName = "com.android.settings.intelligence",
+        )
+        assertEquals(
+            WorkflowDeviceActionSafetyDecision.Allowed(allowed.authorization),
+            policy.assessCompletion(completion),
+        )
+    }
+
+    @Test
     fun enabledActionRequiresCompleteStableIdentityBeforeItCanBeAllowed() {
         val policy = WorkflowDeviceActionSafetyPolicy(enabledToolNames = setOf("device.tap_ref"))
         val valid = validExecutionEvidence()

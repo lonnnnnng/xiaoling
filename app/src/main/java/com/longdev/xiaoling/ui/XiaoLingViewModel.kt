@@ -22,6 +22,9 @@ import com.longdev.xiaoling.agent.AgentProfileRecord
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.PersonalTaskPlanPolicy
 import com.longdev.xiaoling.agent.PersonalTaskPlanContextPreparer
+import com.longdev.xiaoling.agent.AppCapabilityPlanningPreflight
+import com.longdev.xiaoling.agent.AppCapabilityPlanningPreflightResult
+import com.longdev.xiaoling.agent.AndroidInstalledAppDirectoryReader
 import com.longdev.xiaoling.agent.PersonalTaskSchedule
 import com.longdev.xiaoling.agent.PersonalTaskScheduleType
 import com.longdev.xiaoling.agent.NotificationPersonalTaskPolicy
@@ -693,6 +696,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         },
     )
     private val agentRunUseCase by lazy { AgentRunUseCase(application, client) }
+    private val installedAppDirectoryReader by lazy { AndroidInstalledAppDirectoryReader(application) }
     private val agentProfileStore by lazy { RoomAgentProfileStore(application) }
     private val agentRunRepository by lazy { RoomAgentRunRepository(application) }
     private val workflowDeviceActionApprovalPersistence by lazy {
@@ -4167,15 +4171,28 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     memoryAllowed = memoryContextAllowed,
                     knowledgeAllowed = knowledgeContextAllowed,
                 )
+                val devicePlanningPreflight = if (
+                    notificationSource == null && allowedToolNames.any { it.startsWith("device.") }
+                ) {
+                    when (val preflight = AppCapabilityPlanningPreflight.resolve(installedAppDirectoryReader.read())) {
+                        is AppCapabilityPlanningPreflightResult.Available -> preflight
+                        is AppCapabilityPlanningPreflightResult.Unavailable -> error(preflight.reason)
+                    }
+                } else {
+                    null
+                }
+                val allowedAppPackages = when {
+                    devicePlanningPreflight != null -> devicePlanningPreflight.allowedAppPackages
+                    notificationSource == null ->
+                        com.longdev.xiaoling.device.DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted()
+                    else -> emptyList()
+                }
                 val planRequest = PersonalTaskPlanPolicy.prepareRequest(
                     goal = goal,
                     allowedToolNames = allowedToolNames,
-                    // long: 通知来源包只参与确认前当前性校验，不能被模型误解为 Workflow 的设备目标应用。
-                    allowedAppPackages = if (notificationSource == null) {
-                        com.longdev.xiaoling.device.DeviceActionPolicy.DEFAULT_ALLOWED_PACKAGES.sorted()
-                    } else {
-                        emptyList()
-                    },
+                    // long: 通知来源包只参与确认前当前性校验，不能被模型误解为 Workflow 的设备目标应用；设备计划则只展示当前已发现且已登记的交集。
+                    allowedAppPackages = allowedAppPackages,
+                    availableApps = devicePlanningPreflight?.availableApps.orEmpty(),
                     context = planContext,
                     planningTime = planningTime,
                 )
@@ -4184,7 +4201,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     messages = planRequest.messages,
                     outputFormat = PersonalTaskPlanPolicy.outputFormat,
                 )
-                val parsedPlan = PersonalTaskPlanPolicy.parse(response.responseText, allowedToolNames.toSet())
+                val parsedPlan = PersonalTaskPlanPolicy.parse(
+                    raw = response.responseText,
+                    allowedToolNames = allowedToolNames.toSet(),
+                    allowedAppPackages = allowedAppPackages.toSet(),
+                )
                 val plan = if (notificationSource == null) {
                     parsedPlan
                 } else {

@@ -1,5 +1,17 @@
 # 文档索引
 
+第274阶段完成动态应用候选的真实 Provider 计划验收：Redmi 通过现有前台计划模式，模型从当前“已发现且已登记”候选中选择系统计算器，计划目标和最终包均为 `com.android.calculator2`；确认前没有创建 Workflow、Run 或设备动作。首次模型输出少规划一步时测试按既有契约 fail-closed，重跑得到完整计划并 `OK (1 test)`。本阶段未扩大白名单、未运行全量矩阵、Lint、Release 或推送。
+
+第273阶段已完成应用能力候选进入个人任务规划上下文：模型不再只看到一串静态包名，而是从当前 Launcher 发现且已登记白名单的脱敏“名称 | 包名 | 能力候选”中选择目标；未登记包不会进入提示，发现结果仍不能扩大执行白名单、审批或任意 App 能力。聚焦 JVM `179/179`、Debug/AndroidTest APK 与 Redmi `InstalledAppDirectoryInstrumentedTest OK (2 tests)` 通过；本轮未运行完整矩阵、Lint、Release 或全量 instrumentation。
+
+第272阶段已完成系统设置搜索的跨包安全门禁与 Redmi 真实闭环：`com.android.settings.intelligence` 只作为已确认 `com.android.settings` 任务的受控伴随窗口，用于引用动作前后观察和最终目标判定；它不会进入 Launcher 发现交集、`device.open_app` 或默认白名单。独立前台 Redmi 验收完成三次新鲜 snapshot、两次逐动作审批、`tap_ref -> type_text` 和当前结果回读，最终 `goalDecision=VERIFIED`，读到 3 条 Wi-Fi 相关结果。定向 JVM `33/33`、Debug APK 构建通过；本轮不执行全量矩阵、Release 或推送。
+
+第271阶段已完成规划前置可用性切片：个人任务计划在包含 `device.*` 时，先读取当前 Launcher 目录，只把“已发现且已登记”的包交集注入规划提示，并在 JSON 解析阶段再次拒绝未发现或未登记目标；目录不可用、无交集和候选不匹配均 fail-closed，不扩大 `device.open_app` 白名单。受影响 JVM `180/180`、Debug/AndroidTest APK 构建通过；Redmi 定向 `OK (2 tests)`，真实目录 30 项、规划前置得到 4 个白名单交集包；真实 Provider 计划探针与第265阶段计划模式均通过，确认前没有 Workflow 或设备动作。完整动作继续沿用第265阶段独立前台 Debug 通道证据。
+
+第270阶段已完成应用发现层首个生产切片：新增前台 SAFE `app.list_installed_apps`，从当前用户可启动的 Launcher 入口读取应用名称和包名，并只给出 `WEATHER / CLOCK / CALCULATOR / SETTINGS / UNKNOWN` 能力候选。结果最多 200 项、稳定中文排序、按包名去重并过滤控制字符；不申请 `QUERY_ALL_PACKAGES`，不返回版本/签名/权限/安装来源/Provider/应用内数据，也不会因为目录出现某个包就扩大 `device.open_app` 白名单。受影响 JVM `163/163`、Debug/AndroidTest APK 构建和 `git diff --check` 通过；Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 真实目录验收 `OK (1 test)`，返回 30 项、`truncated=false`、包含小灵自身入口且隐私断言通过；文档 corpus gate `OK (1 test)`。
+
+第269阶段已落地 Google Weather 当前天气只读能力的生产切片：新增前台 `app.get_weather`，仅在 Redmi/前台无障碍 READY 且当前窗口确为 `com.google.android.apps.weather` 时读取新鲜脱敏快照；只有当前温度和天气状况都能唯一识别时才返回 `verified=true`，不返回位置、不申请定位权限、不持久化天气、不支持后台。受影响 JVM `162/162`、Debug/AndroidTest APK 构建通过。当前 Redmi `wsvwypiz7xwslvl7` 未安装该天气包，无法执行真实天气页面验收；因此第269阶段尚未宣称完整 Redmi 闭环，天气包可用后再沿“自然语言目标 → 用户确认 → 打开天气 → 当前权威事实查看 → VERIFIED”补验收。
+
 第268阶段已完成一条窄个人 Agent 前台闭环：在已登记的 Google/AOSP 时钟包族内设置一个 10 分钟后的一次性闹钟，回读当前闹钟页面的时间、一次性日期和星期选择，再精确删除临时闹钟。仅使用 Redmi `wsvwypiz7xwslvl7 / begonia` 与真实 Provider `gpt-5.6-luna`；最终 Workflow/Agent Run 均完成，15 个 ToolResult 全部 `PASSED`，7 次动作审批，目标级结论 `VERIFIED`。最终快照只剩原有 `08:30`、`09:00`，原有闹钟未改变。未引入 AlarmManager、精确定时、Foreground Service、后台调度或任意 App 控制；本轮只做 Debug 构建和 Redmi 定向真实验收，未运行全量 JVM/Lint/Release。
 
 第267阶段已完成目标级等价应用包族的 Redmi 真实闭环：`WorkflowGoalVerificationPolicy` 与持久化决定解码统一复用 `DeviceActionPolicy.areEquivalentAppPackages`，已登记的 AOSP/Google 时钟实现可以互相验证，未登记包仍 fail-closed。Redmi `wsvwypiz7xwslvl7 / begonia` 使用 `gpt-5.6-luna` 完成自然语言目标、用户确认、`device.open_app` 单次审批、动作后观察和目标级 `VERIFIED`；请求包 `com.google.android.deskclock`，实际前台包 `com.android.deskclock`，Instrumentation `OK (1 test)`（`71.617s`）。本阶段未扩大设备白名单、未运行全量 JVM/Lint/Release 或全量 instrumentation；下一阶段继续选择已有白名单包族中的下一条窄个人任务。
@@ -20,18 +32,18 @@
 
 第 263 阶段按用户要求移除启动图并固化 R8 精简打包配置。`values-v31` 与 `values-night-v31` 主题把 `windowSplashScreenAnimatedIcon` 换成全透明占位向量、移除 `windowSplashScreenIconBackgroundColor`，`windowSplashScreenBackground` 保持与窗口背景同色，使 Android 12+ 必然存在的系统启动画面在视觉上不可见（Android 12 以下本来没有系统启动图）；`ic_xiaoling_splash_mark` 与 `xiaoling_splash_icon_background` 已删除。`release` 构建 `isMinifyEnabled = true` 本就启用，本轮补上 `isShrinkResources = true` 资源收缩，`optimizeReleaseResources` 生效，aapt2 复核 `Theme.XiaoLing` 正常引用透明图标与同色背景。随后按用户“不要测试，直接发版”的要求发布 `v0.1.18`（`versionCode 19`、Room v36）：正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 1m 4s`，APK 为 `3,247,642` 字节，SHA-256 为 `b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`；`apksigner` 确认 APK Signature Scheme v2 单一 RSA 4096 签名者（证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`），`zipalign` 通过；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18) 已发布并成为 latest。本轮没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation，生产 Tool、权限、Workflow、后台与 Room 边界均未改动。
 
-## 当前路线（第 264 至 268 阶段）
+## 当前路线（第 264 至 269 阶段）
 
 1. 第 264 阶段“一次性提醒改期”已完成：自然语言目标、唯一当前计划、可见时间审批、可验证改期和查看任务。
 2. 第 265 阶段完成一个指定 App 的 Redmi 前台设备任务，不承诺任意 App。
 3. 第 266 阶段设备观察恢复与模型请求失败重试边界等五个可靠性切片已完成；不再为没有自然系统证据的长任务堆叠模拟恢复代码。
 4. 第 267 阶段已完成已登记等价应用包族的目标级判定与 Redmi 真实闭环；下一步继续在已有白名单包族内选择窄个人任务，不扩大任意 App。
-5. 第 268 阶段已完成一次性闹钟的自然语言目标、逐动作审批、操作后观察、当前事实回读、目标级验证和临时资源清理；下一阶段继续选择新的高频前台任务，不扩展为精确定时或后台调度。
+5. 第 268 阶段已完成一次性闹钟的自然语言目标、逐动作审批、操作后观察、当前事实回读、目标级验证和临时资源清理；第269阶段已落地天气只读事实能力，但 Redmi 缺少天气包，真实闭环待补；第270阶段完成应用发现目录，第271阶段完成规划前置交集门禁，但仍不扩展为任意 App 控制、精确定时或后台调度。
 6. 精确定时和 Foreground Service 只根据真实任务耗时与系统停止证据决定，不预先引入。
 7. MCP、日历/通知扩展动作、远程 Channel、多 Agent、本地模型和云同步继续后置。
 8. 遵守分级验证：小阶段只做受影响的局部验证，里程碑或正式发版前再执行完整矩阵。
 
-第 264、265 阶段已结项，第 266 阶段五个代码级可靠性切片已经收口，第 267、268 阶段已完成等价包族判定修正与一次性闹钟真实个人任务闭环。下一步仍沿“自然语言目标 -> 用户确认 -> 最小能力面 -> 可验证结果 -> 当前权威事实查看”推进，只使用 Redmi 和已登记白名单包族；Release 构建与发布需要单独明确授权。
+第 264、265 阶段已结项，第 266 阶段五个代码级可靠性切片已经收口，第 267、268 阶段已完成等价包族判定修正与一次性闹钟真实个人任务闭环，第269阶段完成天气只读生产切片但等待 Redmi 天气包可用，第270阶段完成应用发现层实现与 Redmi 目录读取验收，第271阶段完成规划前置交集门禁。下一步仍沿“自然语言目标 -> 用户确认 -> 最小能力面 -> 可验证结果 -> 当前权威事实查看”推进；发现结果只作为候选，不自动授予设备动作权限，Release 构建与发布需要单独明确授权。
 
 第 262 阶段已完成“当前通知 -> 用户选择保存为笔记 -> 可编辑 `notes.create` 草稿 -> 可见审批 -> 当前笔记详情”的 Redmi 真实竖屏闭环。通知详情点击“保存为笔记”时重新读取当前 NotificationListener，只投影应用、标题和正文为外部不可信数据，不自动发送、不创建 Run/Workflow、不写通知历史；敏感、空内容、撤权、断连、通知消失均拒绝。真实 `gpt-5.6-luna` 最终 `OK (1 test)`（`57.861s`），写入为 `APPROVED / PASSED / COMMITTED`，Room 与 Activity 重建后的笔记详情弹窗绑定同一稳定 ID、正文和 revision。临时笔记、Profile、会话、通知与 channel 已清理，旧 Run 不变；横屏会话区过矮仍为已知限制，不纳入本轮通过范围。未执行 Release 或完整测试矩阵。
 

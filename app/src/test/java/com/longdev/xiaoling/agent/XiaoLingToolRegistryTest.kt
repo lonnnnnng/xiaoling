@@ -42,6 +42,140 @@ import org.junit.Test
 
 class XiaoLingToolRegistryTest {
     @Test
+    fun foregroundWeatherReaderReturnsOnlyVerifiedCurrentFacts() = runTest {
+        val registry = testRegistry(
+            deviceController = FakeDeviceController(
+                enabled = true,
+                snapshotPackageName = WeatherObservationPolicy.WEATHER_PACKAGE,
+                snapshotNodes = listOf(
+                    DeviceSnapshotNode(
+                        index = 0,
+                        parentIndex = null,
+                        depth = 0,
+                        role = "text",
+                        text = "当前天气",
+                        description = null,
+                        hint = null,
+                        bounds = DeviceBounds(0, 0, 100, 60),
+                        enabled = true,
+                        checked = null,
+                        selected = false,
+                        redacted = false,
+                        ref = null,
+                        actions = emptySet(),
+                    ),
+                    DeviceSnapshotNode(
+                        index = 1,
+                        parentIndex = null,
+                        depth = 0,
+                        role = "text",
+                        text = "27°",
+                        description = null,
+                        hint = null,
+                        bounds = DeviceBounds(0, 60, 100, 120),
+                        enabled = true,
+                        checked = null,
+                        selected = false,
+                        redacted = false,
+                        ref = null,
+                        actions = emptySet(),
+                    ),
+                    DeviceSnapshotNode(
+                        index = 2,
+                        parentIndex = null,
+                        depth = 0,
+                        role = "text",
+                        text = "晴",
+                        description = null,
+                        hint = null,
+                        bounds = DeviceBounds(0, 120, 100, 180),
+                        enabled = true,
+                        checked = null,
+                        selected = false,
+                        redacted = false,
+                        ref = null,
+                        actions = emptySet(),
+                    ),
+                ),
+            ),
+        )
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-weather",
+                userMessageId = "message-weather",
+                runId = "run-weather",
+                goal = "查看当前天气",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        assertTrue(registry.availableTools().any { it.name == APP_GET_WEATHER_TOOL_NAME })
+        val result = registry.execute(
+            ToolCall(
+                id = "tool-call-weather",
+                name = APP_GET_WEATHER_TOOL_NAME,
+                arguments = emptyMap(),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+
+        assertTrue(result.success)
+        assertEquals(true, result.verified)
+        assertTrue(result.content.contains("27°"))
+        assertTrue(result.content.contains("晴"))
+    }
+
+    @Test
+    fun installedAppDirectoryIsFrontOnlyAndDoesNotChangeDeviceActionPolicy() = runTest {
+        val registry = testRegistry(
+            installedAppDirectoryReader = InstalledAppDirectoryReader {
+                InstalledAppDirectoryReadResult.Success(
+                    InstalledAppDirectory(
+                        apps = listOf(
+                            InstalledAppRecord(
+                                appName = "天气",
+                                packageName = "com.example.weather",
+                                capability = InstalledAppCapability.WEATHER,
+                            ),
+                        ),
+                        truncated = false,
+                    ),
+                )
+            },
+            deviceController = FakeDeviceController(enabled = true),
+        )
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-app-directory",
+                userMessageId = "message-app-directory",
+                runId = "run-app-directory",
+                goal = "查看可用应用",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        assertTrue(registry.availableTools().any { it.name == APP_LIST_INSTALLED_APPS_TOOL_NAME })
+        assertEquals(
+            setOf("device.open_app", "device.back", "device.home", "device.tap_ref", "device.type_text", "device.swipe"),
+            registry.availableTools().filter { it.name.startsWith("device.") && it.name != "device.snapshot" }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+        val result = registry.execute(
+            ToolCall(
+                id = "tool-call-app-directory",
+                name = APP_LIST_INSTALLED_APPS_TOOL_NAME,
+                arguments = emptyMap(),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertTrue(result.success)
+        assertTrue(result.content.contains("com.example.weather"))
+        assertTrue(result.content.contains("weather"))
+    }
+
+    @Test
     fun productionForegroundWorkflowExposesActionsOnlyAfterVerifiedSnapshot() = runTest {
         val registry = productionRegistry(deviceController = FakeDeviceController(enabled = true))
         registry.bindRunContext(workflowDeviceContext(userIntent = "在当前安全输入框输入普通文本"))
@@ -337,6 +471,7 @@ class XiaoLingToolRegistryTest {
                 setOf(
                 "app.current_time",
                 "app.get_info",
+                "app.list_installed_apps",
                 "app.get_battery",
                 "app.get_connectivity",
                 "app.get_storage",
@@ -383,6 +518,9 @@ class XiaoLingToolRegistryTest {
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_info").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_info").inputSchema)
         assertTrue(tools.getValue("app.get_info").permissionPolicy.supportsBackground)
+        assertEquals(ToolRisk.SAFE, tools.getValue("app.list_installed_apps").risk)
+        assertEquals(emptyList<String>(), tools.getValue("app.list_installed_apps").inputSchema)
+        assertFalse(tools.getValue("app.list_installed_apps").permissionPolicy.supportsBackground)
         assertEquals(ToolRisk.SAFE, tools.getValue("app.get_battery").risk)
         assertEquals(emptyList<String>(), tools.getValue("app.get_battery").inputSchema)
         assertFalse(tools.getValue("app.get_battery").permissionPolicy.supportsBackground)
@@ -4525,6 +4663,7 @@ class XiaoLingToolRegistryTest {
         contactReader: ContactReader = UnavailableContactReader,
         contactDialer: ContactDialer = UnavailableContactDialer,
         appInfoReader: AppInfoReader = UnavailableAppInfoReader,
+        installedAppDirectoryReader: InstalledAppDirectoryReader = UnavailableInstalledAppDirectoryReader,
         batteryStatusReader: BatteryStatusReader = UnavailableBatteryStatusReader,
         connectivityStatusReader: ConnectivityStatusReader = UnavailableConnectivityStatusReader,
         storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
@@ -4545,6 +4684,7 @@ class XiaoLingToolRegistryTest {
             contactReader = contactReader,
             contactDialer = contactDialer,
             appInfoReader = appInfoReader,
+            installedAppDirectoryReader = installedAppDirectoryReader,
             batteryStatusReader = batteryStatusReader,
             connectivityStatusReader = connectivityStatusReader,
             storageStatusReader = storageStatusReader,
@@ -4722,6 +4862,8 @@ private class FakeDeviceController(
     private val swipeViewport: DeviceSwipeViewportEvidence? = null,
     private val swipeOutcomeEvidence: DeviceSwipeVerificationEvidence? = null,
     private val swipeAfterSnapshotWindowId: Int? = null,
+    private val snapshotPackageName: String = "com.android.settings",
+    private val snapshotNodes: List<DeviceSnapshotNode>? = null,
 ) : DeviceController {
     var captureCount: Int = 0
     var referenceInspectionCount: Int = 0
@@ -4751,13 +4893,13 @@ private class FakeDeviceController(
         return DeviceSnapshotCapture.Success(
             snapshot = DeviceSnapshot(
                 snapshotId = "snapshot-direct",
-                packageName = "com.android.settings",
+                packageName = snapshotPackageName,
                 windowTitle = "首页",
                 windowId = 1,
                 windowGeneration = 2L,
                 capturedAt = 1_000L,
                 expiresAt = 31_000L,
-                nodes = listOf(
+                nodes = snapshotNodes ?: listOf(
                     DeviceSnapshotNode(
                         index = 0,
                         parentIndex = null,

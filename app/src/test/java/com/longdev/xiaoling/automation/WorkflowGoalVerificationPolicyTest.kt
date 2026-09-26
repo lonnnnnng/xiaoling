@@ -52,6 +52,27 @@ class WorkflowGoalVerificationPolicyTest {
     }
 
     @Test
+    fun settingsSearchCompanionPackageStillVerifiesTheBoundSettingsGoal() {
+        val decision = WorkflowGoalVerificationPolicy.evaluate(
+            sourceGoal = "打开系统设置并搜索 Wi-Fi",
+            spec = WorkflowGoalVerificationSpec(
+                requiredToolNames = listOf("device.tap_ref", "device.type_text"),
+                expectedFinalPackageName = "com.android.settings",
+            ),
+            steps = listOf(
+                step(
+                    verifiedToolNames = listOf("device.snapshot", "device.tap_ref", "device.snapshot", "device.type_text"),
+                    finalPackageName = "com.android.settings.intelligence",
+                ),
+            ),
+        )
+
+        assertEquals(WorkflowGoalVerificationStatus.VERIFIED, decision.status)
+        assertEquals(WorkflowGoalVerificationReason.ALL_CRITERIA_VERIFIED, decision.reason)
+        assertEquals("com.android.settings.intelligence", decision.actualFinalPackageName)
+    }
+
+    @Test
     fun persistedDecisionAcceptsRegisteredEquivalentPackageButNotArbitraryPackage() {
         val equivalent = WorkflowGoalVerificationDecisionCodec.encode(
             WorkflowGoalVerificationDecision(

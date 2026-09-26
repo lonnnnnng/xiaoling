@@ -84,6 +84,25 @@ class PersonalTaskPlanPolicyTest {
     }
 
     @Test
+    fun `strict plan rejects a target that was not discovered by the planning preflight`() {
+        val raw = """{"name":"打开天气","target_app_package":"com.google.android.apps.weather","schedule":{"type":"IMMEDIATE","delay_minutes":0,"hour":0,"minute":0,"day_of_week":0},"verification":{"required_tool_names":["device.open_app"],"expected_final_package":"com.google.android.apps.weather"},"steps":[{"goal":"打开天气"}]}"""
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PersonalTaskPlanPolicy.parse(
+                raw = raw,
+                allowedToolNames = setOf("device.open_app"),
+                allowedAppPackages = setOf("com.android.settings"),
+            )
+        }
+        val plan = PersonalTaskPlanPolicy.parse(
+            raw = raw,
+            allowedToolNames = setOf("device.open_app"),
+            allowedAppPackages = setOf("com.google.android.apps.weather"),
+        )
+        assertEquals("com.google.android.apps.weather", plan.targetAppPackage)
+    }
+
+    @Test
     fun `strict plan parses one time daily and weekly reminder schedules`() {
         val schedules = listOf(
             """{"type":"ONCE","delay_minutes":30,"hour":0,"minute":0,"day_of_week":0}""" to
@@ -195,6 +214,32 @@ class PersonalTaskPlanPolicyTest {
         assertTrue(messages.last().content.contains("2026-08-04 15:20"))
         assertTrue(messages.last().content.contains("Asia/Shanghai"))
         assertTrue(messages.first().content.contains("非精确定时"))
+    }
+
+    @Test
+    fun `planning prompt exposes only discovered registered app capabilities`() {
+        val messages = PersonalTaskPlanPolicy.requestMessages(
+            goal = "打开可用的计算器",
+            allowedToolNames = listOf("device.open_app", "device.snapshot"),
+            allowedAppPackages = listOf("com.android.calculator2", "com.android.settings"),
+            availableApps = listOf(
+                InstalledAppRecord(
+                    appName = "计算器",
+                    packageName = "com.android.calculator2",
+                    capability = InstalledAppCapability.CALCULATOR,
+                ),
+                InstalledAppRecord(
+                    appName = "不应进入候选",
+                    packageName = "com.example.unregistered",
+                    capability = InstalledAppCapability.UNKNOWN,
+                ),
+            ),
+        )
+
+        val userPrompt = messages.last().content
+        assertTrue(userPrompt.contains("计算器 | com.android.calculator2 | calculator"))
+        assertFalse(userPrompt.contains("com.example.unregistered"))
+        assertTrue(messages.first().content.contains("非授权目录事实"))
     }
 
     @Test

@@ -217,7 +217,7 @@ class WorkflowDeviceActionSafetyPolicy(
                     "device.open_app 请求应用与本任务限定应用不一致",
                 )
             }
-        } else if (!DeviceActionPolicy.areEquivalentAppPackages(targetAppPackage, evidence.beforePackageName)) {
+        } else if (!DeviceActionPolicy.areAllowedInAppFlow(targetAppPackage, evidence.beforePackageName)) {
             // long: 除首次打开目标应用外，每个设备动作都必须从已确认应用内部开始；跨步骤旧页面或其他 App 的新快照不能扩大本任务权限。
             return WorkflowDeviceActionSafetyDecision.Denied(
                 WorkflowDeviceActionSafetyFailure.TARGET_APP_MISMATCH,
@@ -462,7 +462,7 @@ class WorkflowDeviceActionSafetyPolicy(
         }
         if (
             evidence.identity.toolName in TARGET_BOUND_COMPLETION_TOOL_NAMES &&
-            !DeviceActionPolicy.areEquivalentAppPackages(targetAppPackage, evidence.afterPackageName)
+            !DeviceActionPolicy.areAllowedInAppFlow(targetAppPackage, evidence.afterPackageName)
         ) {
             // long: Executor/typed 验证只证明动作自身完成；后置窗口必须仍属于冻结的应用族，不能借 OEM 包名兼容跨到其他应用。
             return WorkflowDeviceActionSafetyDecision.Denied(

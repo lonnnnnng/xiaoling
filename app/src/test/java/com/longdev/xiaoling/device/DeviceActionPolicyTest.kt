@@ -42,6 +42,23 @@ class DeviceActionPolicyTest {
     }
 
     @Test
+    fun settingsIntelligenceIsOnlyAllowedAsTheBoundSettingsFlowCompanion() {
+        assertTrue(
+            DeviceActionPolicy.areAllowedInAppFlow(
+                "com.android.settings",
+                "com.android.settings.intelligence",
+            ),
+        )
+        assertFalse(policy.isAppAllowed("com.android.settings.intelligence"))
+        assertFalse(
+            DeviceActionPolicy.areAllowedInAppFlow(
+                "com.android.calculator2",
+                "com.android.settings.intelligence",
+            ),
+        )
+    }
+
+    @Test
     fun safeTextIsAllowedButIdentityAndCredentialValuesAreRejected() {
         assertNull(policy.validateTextInput("hello stage3"))
         assertTrue(policy.validateTextInput("sk-abcdefghijklmnop123456") != null)
