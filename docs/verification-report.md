@@ -9,6 +9,7 @@
 - 正式 APK：`outputs/release/xiaoling-v0.1.19.apk`，大小 `3,280,434` 字节，SHA-256 `a0f413524e71f180d6aafbcd37e2b584e0bfd7a185efc6b379b21ba8fae0720a`；对应 `.sha256` 文件已生成。
 - `aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.19`、`versionCode=20`；`apksigner` 确认单一 RSA 4096 签名者、APK Signature Scheme v2 有效，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`；`zipalign -c -P 16 -v 4` 通过。
 - 本次发布只执行 Release 构建及签名/资产校验，没有重复运行完整 JVM、全量 Lint、Debug/AndroidTest APK、Redmi 全量 instrumentation 或 Pixel_9；Stage281 定向 JVM 与 Redmi 真实 Provider 证据见下方当前阶段条目。
+- 提交 `469a63244492a4b2cbce8ff234024a931a8a4534` 已推送到 `main`；annotated tag `v0.1.19`（tag object `7eb928f5bfce79063cfa1971f988b0bf4b2f6874`）已推送并解引用到该提交。[GitHub Release v0.1.19](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.19) 为非草稿、非预发布，APK 与 `.sha256` 两项资产均为 `uploaded`；GitHub APK digest 与本地校验值一致。
 
 ## 2026-09-27 第281阶段：目标级结果事实边界收敛（Redmi 真实 Provider 已通过）
 
