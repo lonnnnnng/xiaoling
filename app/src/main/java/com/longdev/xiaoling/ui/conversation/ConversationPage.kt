@@ -71,11 +71,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.DirectAgentGoalVerificationDecision
+import com.longdev.xiaoling.agent.DirectAgentGoalVerificationPolicy
+import com.longdev.xiaoling.agent.DirectAgentGoalVerificationStatus
 import com.longdev.xiaoling.model.ApiMode
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachment
@@ -85,6 +90,7 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.taskRescheduleApprovalText
 import com.longdev.xiaoling.ui.AgentStatusChip
 import com.longdev.xiaoling.ui.AgentStepRow
+import com.longdev.xiaoling.ui.DirectAgentCurrentFactUiState
 import com.longdev.xiaoling.ui.PageTitle
 import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureAction
@@ -156,7 +162,18 @@ internal fun ConversationPage(
     val chatScrollState = remember(chatListState) { ChatScrollState(chatListState) }
     val scrollScope = rememberCoroutineScope()
     val messages = state.messages
-    val lastChatItemIndex = messages.chatMessages.size
+    val goalDecisionsByMessageId = messages.chatMessages.mapNotNull { message ->
+        message.verifiedAgentContext?.let { context ->
+            DirectAgentGoalVerificationPolicy.evaluate(context)?.let { decision -> message.id to decision }
+        }
+    }.toMap()
+    val messageListItemCount = messages.chatMessages.sumOf { message ->
+        1 +
+            (if (goalDecisionsByMessageId.containsKey(message.id)) 1 else 0) +
+            (if (messages.activeAgentRun?.run?.userMessageId == message.id) 1 else 0)
+    }
+    // long: 目标卡片和运行时间线各自占一个 LazyColumn item，尾部 spacer 的索引必须按实际条目数计算，才能让重建后的当前结果稳定落入可视区。
+    val lastChatItemIndex = messageListItemCount
     val lastChatMessage = messages.chatMessages.lastOrNull()
     val autoScrollKey = state.chatAutoScrollKey()
     val isAtChatTail by remember(lastChatItemIndex) {
@@ -293,33 +310,48 @@ internal fun ConversationPage(
                                 )
                             }
                         }
-                        items(count = messages.chatMessages.size) { index ->
-                            val message = messages.chatMessages[index]
-                            ChatBubble(
-                                message = message,
-                                knowledgeReferenceStatuses = messages.knowledgeReferenceStatuses,
-                                failedKnowledgeReferenceStatuses = messages.failedKnowledgeReferenceStatuses,
-                                answerabilityNotice = messages.answerabilityNotices[message.id],
-                                onOpenKnowledgeDocument = actions::openKnowledgeReference,
-                                onOpenInspectedTask = actions::openInspectedTask,
-                                onOpenConversation = actions::openConversation,
-                                onOpenCalendarEvent = actions::openCalendarEvent,
-                                onOpenNotification = actions::openNotification,
-                                onOpenContact = actions::openContact,
-                                onOpenLocalNote = actions::openLocalNote,
-                                onOpenMemory = actions::openMemory,
-                                onReuseUserMessage = actions::updatePrompt,
-                            )
-                            if (messages.activeAgentRun?.run?.userMessageId == message.id) {
-                                Spacer(modifier = Modifier.height(7.dp))
-                                AgentRunTimelineCard(
-                                    snapshot = messages.activeAgentRun,
-                                    approval = messages.pendingAgentApproval?.takeIf { approval ->
-                                        approval.runId == messages.activeAgentRun.run.id
-                                    },
-                                    onApprove = actions::approvePendingAgentTool,
-                                    onReject = actions::rejectPendingAgentTool,
+                        messages.chatMessages.forEach { message ->
+                            item(key = "message-${message.id}") {
+                                ChatBubble(
+                                    message = message,
+                                    knowledgeReferenceStatuses = messages.knowledgeReferenceStatuses,
+                                    failedKnowledgeReferenceStatuses = messages.failedKnowledgeReferenceStatuses,
+                                    answerabilityNotice = messages.answerabilityNotices[message.id],
+                                    onOpenKnowledgeDocument = actions::openKnowledgeReference,
+                                    onOpenInspectedTask = actions::openInspectedTask,
+                                    onOpenConversation = actions::openConversation,
+                                    onOpenCalendarEvent = actions::openCalendarEvent,
+                                    onOpenNotification = actions::openNotification,
+                                    onOpenContact = actions::openContact,
+                                    onOpenLocalNote = actions::openLocalNote,
+                                    onOpenMemory = actions::openMemory,
+                                    onReuseUserMessage = actions::updatePrompt,
                                 )
+                            }
+                            goalDecisionsByMessageId[message.id]?.let { decision ->
+                                item(key = "goal-${message.id}") {
+                                    Spacer(modifier = Modifier.height(7.dp))
+                                    DirectAgentGoalResultCard(
+                                        decision = decision,
+                                        currentFact = messages.directAgentCurrentFact
+                                            ?.takeIf { fact -> fact.runId == decision.runId },
+                                        refreshingCurrentFact = messages.refreshingDirectAgentCurrentFact,
+                                        onRefreshCurrentFact = { actions.refreshDirectAgentCurrentFact(decision.runId) },
+                                    )
+                                }
+                            }
+                            if (messages.activeAgentRun?.run?.userMessageId == message.id) {
+                                item(key = "timeline-${message.id}") {
+                                    Spacer(modifier = Modifier.height(7.dp))
+                                    AgentRunTimelineCard(
+                                        snapshot = messages.activeAgentRun,
+                                        approval = messages.pendingAgentApproval?.takeIf { approval ->
+                                            approval.runId == messages.activeAgentRun.run.id
+                                        },
+                                        onApprove = actions::approvePendingAgentTool,
+                                        onReject = actions::rejectPendingAgentTool,
+                                    )
+                                }
                             }
                         }
                         item { Spacer(modifier = Modifier.height(1.dp)) }
@@ -383,6 +415,130 @@ internal fun ConversationPage(
             )
         } else if (messages.waitingForModelStart) {
             ModelWaitingIndicator(modifier = Modifier.align(Alignment.Center))
+        }
+    }
+}
+
+@Composable
+private fun DirectAgentGoalResultCard(
+    decision: DirectAgentGoalVerificationDecision,
+    currentFact: DirectAgentCurrentFactUiState?,
+    refreshingCurrentFact: Boolean,
+    onRefreshCurrentFact: () -> Unit,
+) {
+    val statusLabel = when (decision.status) {
+        DirectAgentGoalVerificationStatus.VERIFIED -> "目标已验证"
+        DirectAgentGoalVerificationStatus.PARTIAL -> "目标部分验证"
+        DirectAgentGoalVerificationStatus.INCOMPLETE -> "目标未完成"
+    }
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.34f),
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // long: 目标卡片是直接 Agent 的答案级结果入口；明确暴露摘要语义，便于真机 UiAutomation 在 LazyColumn 滚动后定位当前 Run。
+            .semantics {
+                contentDescription = "目标级结果"
+            }
+            .border(
+                1.dp,
+                MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f),
+                RoundedCornerShape(10.dp),
+            ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = "目标级结果",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                TextButton(
+                    onClick = onRefreshCurrentFact,
+                    enabled = !refreshingCurrentFact,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .height(28.dp)
+                        // long: 刷新入口与目标状态同处首行，目标卡片进入可视区时用户和无障碍树都能立即访问当前事实操作。
+                        .semantics { contentDescription = "重新读取当前事实" },
+                ) {
+                    if (refreshingCurrentFact) {
+                        CircularProgressIndicator(modifier = Modifier.size(13.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                    }
+                    Spacer(Modifier.width(3.dp))
+                    Text("刷新", fontSize = 10.sp)
+                }
+            }
+            Text(
+                text = "已验证动作：${decision.verifiedToolNames.joinToString(" → ").ifBlank { "无" }}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (decision.failedToolNames.isNotEmpty()) {
+                Text(
+                    text = "未通过动作：${decision.failedToolNames.joinToString("、")}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            decision.latestObservedPackageName?.let { packageName ->
+                Text(
+                    text = "最后一次已验证观察：$packageName",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            currentFact?.let { fact ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                    shape = RoundedCornerShape(7.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "当前权威事实 · ${fact.packageName}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "节点 ${fact.nodeCount} · 已过滤 ${fact.redactedNodeCount} · ${fact.capturedAt.toFullTimeLabel()}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 12.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } ?: Text(
+                text = "当前事实尚未重新观察；上面的观察属于本次 Run 的历史证据。",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

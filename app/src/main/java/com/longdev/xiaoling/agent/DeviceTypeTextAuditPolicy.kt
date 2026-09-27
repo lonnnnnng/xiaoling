@@ -10,6 +10,9 @@ internal data class DeviceTypeTextAuditProjection(
 internal object DeviceTypeTextAuditPolicy {
     const val TOOL_NAME = "device.type_text"
 
+    // long: 输入原文只在当前执行链短暂存在；统一复用持久审计使用的 UTF-8 SHA-256，供下一次 snapshot 做内存级隐私投影。
+    fun fingerprint(text: String): String = text.sha256()
+
     fun project(toolCall: ToolCall): DeviceTypeTextAuditProjection? {
         if (toolCall.name != TOOL_NAME || toolCall.arguments.keys != REQUIRED_ARGUMENT_NAMES) return null
         val snapshotId = toolCall.arguments[SNAPSHOT_ARGUMENT_NAME]?.takeIf(String::isNotBlank) ?: return null
@@ -21,7 +24,7 @@ internal object DeviceTypeTextAuditPolicy {
                 arguments = mapOf(
                     SNAPSHOT_ARGUMENT_NAME to snapshotId,
                     REFERENCE_ARGUMENT_NAME to ref,
-                    TEXT_FINGERPRINT_ARGUMENT_NAME to text.sha256(),
+                    TEXT_FINGERPRINT_ARGUMENT_NAME to fingerprint(text),
                     TEXT_LENGTH_ARGUMENT_NAME to text.length.toString(),
                 ),
             ),

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.agent.AgentVerificationStatus
+import com.longdev.xiaoling.agent.VerifiedToolExecution
 import com.longdev.xiaoling.agent.VerifiedAgentContext
 import com.longdev.xiaoling.model.MessageOrigin
 import com.longdev.xiaoling.model.AppThemeMode
@@ -79,6 +80,136 @@ class ConversationPageInstrumentedTest {
             assertEquals(1, actions.voiceInputRequestCount)
             assertEquals(0, actions.sendCount)
         }
+    }
+
+    @Test
+    fun directAgentGoalCardSummarizesVerifiedDeviceActionsAndRefreshesCurrentFact() {
+        val actions = FakeConversationActions()
+        val context = VerifiedAgentContext(
+            runId = "run-stage280-ui",
+            toolName = "device.type_text",
+            arguments = emptyMap(),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "type_text 已验证",
+            toolExecutions = listOf(
+                verifiedExecution("device.open_app"),
+                verifiedExecution("device.tap_ref"),
+                verifiedExecution("device.type_text"),
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                role = "assistant",
+                                text = "已完成设备动作。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = context,
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("目标级结果").assertExists()
+        composeRule.onNodeWithContentDescription("目标级结果").assertExists()
+        composeRule.onNodeWithText("已验证动作：device.open_app", substring = true).assertExists()
+        composeRule.onNodeWithContentDescription("重新读取当前事实").assertExists()
+        composeRule.onNodeWithText("重新读取当前事实").performClick()
+        assertEquals("run-stage280-ui", actions.lastRefreshedDirectAgentRunId)
+    }
+
+    @Test
+    fun directAgentGoalCardDoesNotReuseCurrentFactFromAnotherRun() {
+        val actions = FakeConversationActions()
+        val context = VerifiedAgentContext(
+            runId = "run-stage280-current",
+            toolName = "device.open_app",
+            arguments = emptyMap(),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已验证",
+            toolExecutions = listOf(verifiedExecution("device.open_app")),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                role = "assistant",
+                                text = "已完成设备动作。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = context,
+                            ),
+                        ),
+                        directAgentCurrentFact = com.longdev.xiaoling.ui.DirectAgentCurrentFactUiState(
+                            runId = "run-stage280-old",
+                            packageName = "com.android.calculator2",
+                            nodeCount = 8,
+                            redactedNodeCount = 0,
+                            truncated = false,
+                            capturedAt = 12_000L,
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("当前事实尚未重新观察；上面的观察属于本次 Run 的历史证据。").assertExists()
+        composeRule.onNodeWithText("当前权威事实 · com.android.calculator2").assertDoesNotExist()
+    }
+
+    @Test
+    fun directAgentGoalCardShowsCurrentFactForTheSameRun() {
+        val actions = FakeConversationActions()
+        val runId = "run-stage281-current-fact"
+        val context = VerifiedAgentContext(
+            runId = runId,
+            toolName = "device.open_app",
+            arguments = emptyMap(),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已验证",
+            toolExecutions = listOf(verifiedExecution("device.open_app")),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                role = "assistant",
+                                text = "已完成设备动作。",
+                                origin = MessageOrigin.AGENT_RESULT,
+                                verifiedAgentContext = context,
+                            ),
+                        ),
+                        directAgentCurrentFact = com.longdev.xiaoling.ui.DirectAgentCurrentFactUiState(
+                            runId = runId,
+                            packageName = "com.android.calculator2",
+                            nodeCount = 8,
+                            redactedNodeCount = 1,
+                            truncated = false,
+                            capturedAt = 12_000L,
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("当前权威事实 · com.android.calculator2").assertExists()
+        composeRule.onNodeWithText("节点 8 · 已过滤 1", substring = true).assertExists()
     }
 
     @Test
@@ -745,6 +876,14 @@ class ConversationPageInstrumentedTest {
         }
     }
 
+    private fun verifiedExecution(toolName: String) = VerifiedToolExecution(
+        toolName = toolName,
+        arguments = emptyMap(),
+        success = true,
+        verificationStatus = AgentVerificationStatus.VERIFIED,
+        rawResult = "已验证",
+    )
+
     private class FakeConversationActions : ConversationActions {
         var newConversationCount = 0
         var deleteConversationCount = 0
@@ -768,6 +907,7 @@ class ConversationPageInstrumentedTest {
         var lastOpenedConversationId: String? = null
         var lastOpenedCalendarEventTarget: CalendarEventNavigationTarget? = null
         var lastOpenedContactId: String? = null
+        var lastRefreshedDirectAgentRunId: String? = null
         var lastPrompt: String? = null
 
         override fun selectConversation(conversationId: String) = Unit
@@ -875,6 +1015,10 @@ class ConversationPageInstrumentedTest {
 
         override fun openMemory(memoryId: String) {
             lastOpenedMemoryId = memoryId
+        }
+
+        override fun refreshDirectAgentCurrentFact(runId: String) {
+            lastRefreshedDirectAgentRunId = runId
         }
 
         override fun approvePendingAgentTool() = Unit

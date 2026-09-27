@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.ViewModelProvider
 import androidx.room.withTransaction
@@ -29,6 +30,7 @@ import com.longdev.xiaoling.storage.RoomAgentProfileStore
 import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomStateStore
 import com.longdev.xiaoling.storage.RoomWorkflowRepository
+import com.longdev.xiaoling.storage.UiPreferenceStore
 import com.longdev.xiaoling.ui.XiaoLingUiState
 import com.longdev.xiaoling.ui.XiaoLingViewModel
 import kotlinx.coroutines.delay
@@ -37,6 +39,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,11 +49,19 @@ import org.junit.runner.RunWith
 class Stage265CalculatorTaskInstrumentedTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context: Context get() = instrumentation.targetContext
+    private var accessibilityServicesBeforeInstrumentation: String? = null
+    private var accessibilityEnabledBeforeInstrumentation: String? = null
     // long: 默认 UiAutomation 会停用被测无障碍服务；整条链始终复用保留服务的连接，避免验收自身取消设备审批。
     private val automation: UiAutomation by lazy {
         instrumentation.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES).also {
             it.serviceInfo = it.serviceInfo.apply { flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
         }
+    }
+
+    @After
+    fun restoreAccessibilityStateAfterTest() {
+        // long: 即使 Provider 配置或前置断言在主 try 之前失败，也必须恢复测试临时重绑的无障碍环境。
+        restoreAccessibilityBindingAfterInstrumentation()
     }
 
     @Test
@@ -59,11 +70,26 @@ class Stage265CalculatorTaskInstrumentedTest {
         assumeTrue("仅显式 stage265RealRun=true 运行真实模型", args.getString("stage265RealRun") == "true")
         assertEquals("仅允许 Redmi 真机", "begonia", Build.DEVICE)
         val planOnly = args.getString("stage265PlanOnly") == "true"
+        val autoApprove = args.getString("stage265AutoApprove") == "true"
+        val preferences = UiPreferenceStore(context)
+        val originalAgentEnabled = preferences.loadDeviceAgentEnabled()
+        val originalAutoApproval = preferences.loadDeviceActionAutoApprovalEnabled()
+        if (autoApprove) {
+            // long: 仅在显式真实验收参数下临时复现用户已授予的设置授权，生产 Gate 仍实时读取同一开关，结束后恢复原偏好。
+            preferences.saveDeviceAgentEnabled(true)
+            preferences.saveDeviceActionAutoApprovalEnabled(true)
+        }
         automation.clearCache()
         if (!planOnly) {
-            // long: Runner 启动可能暂时断开无障碍服务；等待原授权自然恢复，不改写手机上其他服务的启用列表。
+            // long: Runner 启动可能暂时断开无障碍服务；只重绑用户此前已授权的小灵服务，不改写其他服务，随后再读取健康状态。
+            refreshAccessibilityBindingForInstrumentation()
             val controller = DeviceObservationComponents.controller(context)
-            val health = awaitDeviceHealth(controller)
+            var health = awaitDeviceHealth(controller)
+            if (health != DeviceAgentHealthState.READY) {
+                // long: Redmi 可能接受 secure setting 写入但不重新拉起服务；通过系统无障碍页做一次真实关闭/开启，恢复绑定而不伪造 Runtime 连接。
+                refreshAccessibilityBindingThroughSettings()
+                health = awaitDeviceHealth(controller)
+            }
             assertEquals("请在系统中授权小灵无障碍，并启用设备 Agent（当前=$health）", DeviceAgentHealthState.READY, health)
         }
         val providers = ProviderRepository(context).load()
@@ -147,18 +173,33 @@ class Stage265CalculatorTaskInstrumentedTest {
                 if (pending != null && pending.id !in approvedIds) {
                     assertTrue(pending.toolName in setOf("device.open_app", "device.tap_ref"))
                     if (pending.toolName == "device.open_app") assertEquals(mapOf("package_name" to PACKAGE), pending.arguments)
-                    awaitVisible("小灵设备动作审批")
-                    screenshot("stage265-approval-${approvedIds.size + 1}.png")
-                    clickVisible("批准执行")
-                    approvedIds += pending.id
-                    println("STAGE265_APPROVED tool=${pending.toolName} runId=${pending.runId}")
+                    if (autoApprove) {
+                        // long: 自动授权由生产 Accessibility 守护窗口完成，测试不点击批准按钮，只等待 Room 决定落盘。
+                        println("STAGE265_AUTO_APPROVAL_PENDING tool=${pending.toolName} runId=${pending.runId}")
+                    } else {
+                        awaitVisible("小灵设备动作审批")
+                        screenshot("stage265-approval-${approvedIds.size + 1}.png")
+                        clickVisible("批准执行")
+                        approvedIds += pending.id
+                        println("STAGE265_APPROVED tool=${pending.toolName} runId=${pending.runId}")
+                    }
+                }
+                if (autoApprove) {
+                    details.flatMap { it.approvals }
+                        .filter { it.status == ApprovalRequestStatus.APPROVED }
+                        .forEach { approvedIds += it.id }
                 }
                 if (!current.sendingMessage && current.personalTaskCompletion != null) {
                     completed = true
                     break
                 }
                 details.firstOrNull { it.snapshot.run.status.isTerminal && it.snapshot.run.status != AgentRunStatus.COMPLETED }?.let {
-                    error("Agent 提前终止：${it.snapshot.run.status} ${it.snapshot.run.errorMessage}")
+                    val evidence = details.flatMap { detail ->
+                        detail.toolLedger.results.map { result ->
+                            "${result.toolName}:success=${result.success},executorVerified=${result.executorVerified},verification=${result.verificationStatus}"
+                        }
+                    }.joinToString(";")
+                    error("Agent 提前终止：${it.snapshot.run.status} ${it.snapshot.run.errorMessage}；工具证据=$evidence")
                 }
                 delay(150L)
             }
@@ -191,8 +232,15 @@ class Stage265CalculatorTaskInstrumentedTest {
                     }
                     if (call.toolName != "device.snapshot") {
                         assertEquals(true, result.executorVerified)
-                        assertEquals(ApprovalRequestStatus.APPROVED, detail.approvals.single { it.toolCallId == call.id }.status)
-                        finalSnapshot = JSONObject(result.content).getJSONObject("after_snapshot")
+                        val approval = detail.approvals.single { it.toolCallId == call.id }
+                        assertEquals(ApprovalRequestStatus.APPROVED, approval.status)
+                        if (autoApprove) {
+                            assertTrue(
+                                "自动授权审批必须记录设置来源：$approval",
+                                approval.decisionReason?.contains("设置中授权") == true,
+                            )
+                        }
+                        // long: Workflow 生产动作结果只持久化脱敏摘要；完整 after snapshot 由动作后的独立 device.snapshot ToolResult 提供，避免测试依赖旧版 DeviceActionCodec。
                     } else {
                         finalSnapshot = JSONObject(result.content)
                     }
@@ -218,10 +266,16 @@ class Stage265CalculatorTaskInstrumentedTest {
                     active.close()
                 }
             }
+            restoreAccessibilityBindingAfterInstrumentation()
             workflows.recentRunDetails(20).filter { it.run.conversationId == conversationId }.forEach { workflows.setEnabled(it.run.workflowId, false) }
             originalProfile?.let { profiles.select(it) }
             stateStore.saveSelectedAgentProfileId(originalProfile.orEmpty())
             stateStore.saveSelectedConversationId(originalConversation.orEmpty())
+            preferences.saveDeviceActionAutoApprovalEnabled(false)
+            preferences.saveDeviceAgentEnabled(originalAgentEnabled)
+            if (originalAgentEnabled && originalAutoApproval) {
+                preferences.saveDeviceActionAutoApprovalEnabled(true)
+            }
             database.withTransaction {
                 MessageRepository(database).deleteByConversationIds(listOf(conversationId))
                 database.conversationDao().deleteConversations(listOf(conversationId))
@@ -251,15 +305,121 @@ class Stage265CalculatorTaskInstrumentedTest {
 
     private fun currentRoots(): List<AccessibilityNodeInfo> {
         automation.clearCache()
-        return (automation.windows.mapNotNull { it.root } + listOfNotNull(automation.rootInActiveWindow)).distinct()
+        // long: Redmi 的 UiAutomation 可能保留计算器切页前的节点快照；逐根 refresh 后再查找，避免把当前可点击按键误判为不可点击。
+        return (automation.windows.mapNotNull { it.root } + listOfNotNull(automation.rootInActiveWindow))
+            .distinct()
+            .onEach { it.refresh() }
     }
+
+    private fun refreshAccessibilityBindingForInstrumentation() {
+        // long: Android Runner 进入被测包时可能会停止已授权服务；保留用户已有服务，只把小灵组件放回原列表，避免验收破坏其他无障碍能力。
+        accessibilityServicesBeforeInstrumentation = readSecureSetting("enabled_accessibility_services")
+        accessibilityEnabledBeforeInstrumentation = readSecureSetting("accessibility_enabled")
+        val xiaolingComponent = "com.longdev.xiaoling/.device.XiaoLingAccessibilityService"
+        val preservedServices = accessibilityServicesBeforeInstrumentation.orEmpty()
+            .split(':')
+            .map(String::trim)
+            .filter { it.isNotEmpty() && it != "null" }
+            .toMutableList()
+        if (xiaolingComponent !in preservedServices) preservedServices += xiaolingComponent
+        val reboundServices = preservedServices.distinct().joinToString(":")
+        listOf(
+            "settings put secure accessibility_enabled 1",
+            "settings delete secure enabled_accessibility_services",
+            "settings put secure enabled_accessibility_services ${shellQuote(reboundServices)}",
+        ).forEach { command ->
+            runCatching { automation.executeShellCommand(command).close() }
+        }
+        SystemClock.sleep(2_000L)
+    }
+
+    private fun refreshAccessibilityBindingThroughSettings() {
+        context.startActivity(
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        if (findVisible("小灵设备观察", 2_000L) != null) {
+            clickVisible("小灵设备观察")
+        }
+        // long: Redmi 首次启用服务显示的是系统权限确认页，不是带“启用”文案的开关；必须点击系统“允许”才能触发 onServiceConnected。
+        if (findVisible("允许", 2_000L) != null) {
+            clickVisible("允许")
+            SystemClock.sleep(1_500L)
+            return
+        }
+        val switch = findVisibleNode(2_000L) { node ->
+            node.className?.toString() == "android.widget.Switch" &&
+                node.viewIdResourceName == "android:id/switch_widget"
+        }
+        if (switch?.isChecked == true) {
+            clickNodeOrAncestor(switch, "关闭小灵无障碍服务")
+            if (findVisible("关闭", 2_000L) != null) clickVisible("关闭")
+            SystemClock.sleep(1_000L)
+        } else if (switch != null) {
+            clickNodeOrAncestor(switch, "开启小灵无障碍服务")
+            if (findVisible("允许", 2_000L) != null) clickVisible("允许")
+            SystemClock.sleep(1_500L)
+        }
+    }
+
+    private fun clickNodeOrAncestor(node: AccessibilityNodeInfo, failureMessage: String) {
+        var current: AccessibilityNodeInfo? = node
+        repeat(6) {
+            val candidate = current ?: return@repeat
+            if (candidate.isClickable && candidate.isEnabled && candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            current = candidate.parent
+        }
+        throw AssertionError(failureMessage)
+    }
+
+    private fun findVisible(text: String, timeout: Long): AccessibilityNodeInfo? {
+        val deadline = SystemClock.uptimeMillis() + timeout
+        while (SystemClock.uptimeMillis() < deadline) {
+            findVisibleNode(100L) { node ->
+                node.isVisibleToUser && (node.text?.toString() == text || node.contentDescription?.toString() == text)
+            }?.let { return it }
+        }
+        return null
+    }
+
+    private fun findVisibleNode(timeout: Long, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        val deadline = SystemClock.uptimeMillis() + timeout
+        while (SystemClock.uptimeMillis() < deadline) {
+            currentRoots().firstNotNullOfOrNull { root -> root.find { predicate(it) } }?.let { return it }
+            SystemClock.sleep(100L)
+        }
+        return null
+    }
+
+    private fun restoreAccessibilityBindingAfterInstrumentation() {
+        val originalServices = accessibilityServicesBeforeInstrumentation ?: return
+        // long: 测试只临时重绑服务；收尾时恢复进入测试前的无障碍列表和开关，避免验收改变用户设备环境。
+        buildList {
+            add("settings delete secure enabled_accessibility_services")
+            originalServices.takeUnless { it == "null" }.orEmpty().takeIf(String::isNotBlank)?.let { services ->
+                add("settings put secure enabled_accessibility_services ${shellQuote(services)}")
+            }
+            add("settings put secure accessibility_enabled ${accessibilityEnabledBeforeInstrumentation.takeUnless { it == "null" }.orEmpty().ifBlank { "0" }}")
+        }.forEach { command ->
+            runCatching { automation.executeShellCommand(command).close() }
+        }
+        accessibilityServicesBeforeInstrumentation = null
+        accessibilityEnabledBeforeInstrumentation = null
+    }
+
+    private fun readSecureSetting(name: String): String = runCatching {
+        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("settings get secure $name"))
+            .bufferedReader()
+            .use { it.readText().trim() }
+    }.getOrDefault("")
+
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\\"'\\\"'")}'"
 
     private fun prepareNonEmptyCalculator() {
         val launchIntent = requireNotNull(context.packageManager.getLaunchIntentForPackage(PACKAGE))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         context.startActivity(launchIntent)
         // long: 本轮目标明确要求清空键每次都点击；先用测试夹具留下非空算式，才能把后续清空判定与真实页面变化绑定。
-        clickVisible("7")
+        clickVisibleNode("数字7按钮") { node -> node.viewIdResourceName == "$PACKAGE:id/digit_7" }
         val dirty = currentRoots().any { root ->
             root.find {
                 it.isVisibleToUser && it.viewIdResourceName in setOf("$PACKAGE:id/formula", "$PACKAGE:id/result") &&
@@ -300,6 +460,20 @@ class Stage265CalculatorTaskInstrumentedTest {
             node = current.parent
         }
         error("控件不可点击：$text")
+    }
+
+    private fun clickVisibleNode(description: String, predicate: (AccessibilityNodeInfo) -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + 15_000L
+        while (SystemClock.uptimeMillis() < deadline) {
+            currentRoots().firstNotNullOfOrNull { root ->
+                root.find { it.isVisibleToUser && predicate(it) }
+            }?.let { node ->
+                clickNodeOrAncestor(node, "控件不可点击：$description")
+                return
+            }
+            SystemClock.sleep(100L)
+        }
+        error("缺少可见控件：$description")
     }
 
     private fun AccessibilityNodeInfo.find(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {

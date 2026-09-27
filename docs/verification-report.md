@@ -2,19 +2,127 @@
 
 验证日期：2026-09-27（北京时间）
 
-## 2026-09-27 设备动作免逐次审批授权（局部通过，完整任务待复验）
+## 2026-09-27 发布 v0.1.19（versionCode 20）
+
+- 发布范围：第281阶段真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看切片，以及对应的隐私、跨 Run 隔离和当前事实失败清除实现。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease --no-daemon --console=plain`：`BUILD SUCCESSFUL in 2m 1s`；Release 内置 `lintVitalRelease`、R8 和资源收缩均通过。
+- 正式 APK：`outputs/release/xiaoling-v0.1.19.apk`，大小 `3,280,434` 字节，SHA-256 `a0f413524e71f180d6aafbcd37e2b584e0bfd7a185efc6b379b21ba8fae0720a`；对应 `.sha256` 文件已生成。
+- `aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.19`、`versionCode=20`；`apksigner` 确认单一 RSA 4096 签名者、APK Signature Scheme v2 有效，证书 SHA-256 为 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`；`zipalign -c -P 16 -v 4` 通过。
+- 本次发布只执行 Release 构建及签名/资产校验，没有重复运行完整 JVM、全量 Lint、Debug/AndroidTest APK、Redmi 全量 instrumentation 或 Pixel_9；Stage281 定向 JVM 与 Redmi 真实 Provider 证据见下方当前阶段条目。
+
+## 2026-09-27 第281阶段：目标级结果事实边界收敛（Redmi 真实 Provider 已通过）
+
+### 已验证
+
+- `DirectAgentGoalVerificationPolicy` 只从设备动作自己的执行记录提取最后观察；后续 `app.*` 等普通工具的同形 JSON 不会覆盖设备目标摘要。
+- `XiaoLingViewModel.refreshDirectAgentCurrentFact()` 在新一轮观察开始时清除旧摘要，Accessibility 捕获失败或异常时也清除当前事实，只保留失败结果提示。
+- 受影响 JVM `DirectAgentGoalVerificationPolicyTest` 为 `4/4`，`compileDebugKotlin`、`compileDebugAndroidTestKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 和 `git diff --check` 通过。
+- Redmi `wsvwypiz7xwslvl7 / begonia` 使用真实 Provider `gpt-5.6-luna` 通过直接 `/agent` 短前台链：`open_app → snapshot → tap_ref → snapshot → type_text → snapshot`。设置授权来源为 `APPROVED`，Executor/typed 验证均为 `PASSED`，目标级结论为 `VERIFIED`；Run 为 `run-d1c5ef43-69a4-4da8-a07b-f17cfe51889f`，Instrumentation `OK (1 test)`，Gradle 用时约 `79.874s`。
+- 真实验收在 Activity 重建后从可见目标卡片点击“刷新”入口，重新捕获当前 Accessibility snapshot；刷新后的当前事实对应小灵前台窗口 `com.longdev.xiaoling`。设置动作完成后的精确输入回读在切回宿主前单独验证，避免把宿主窗口误当作设置历史事实。
+- 独立 `Stage281GoalResultUiProbeInstrumentedTest#persistedGoalResultIsVisibleAfterActivityLaunch` 同一 Redmi 通过，确认持久化目标结果在 Activity 启动/重建后仍能被 UiAutomation 读取；同一 Run 正向呈现和跨 Run 隔离契约均保留。
+- 未使用或启动 Pixel_9；本阶段没有运行完整 JVM、全量 Lint、Release 或全量 instrumentation。
+
+### 边界
+
+- 本阶段以前曾有 Provider 凭据为空和 Redmi 断连的失败尝试；这些入口未创建 Run，不能与本次成功证据混写。历史失败 Run、旧 Run 与旧 Tool Ledger 均保持不变。
+- 本阶段只收敛目标级结果的事实隔离和失败清除语义，并补齐真实 Run 到卡片、Activity 重建和当前事实查看链；不扩大设备白名单、审批范围、后台/定时设备自动化或任意 App。完整 JVM、全量 Lint、Release 和全量 instrumentation 仍未运行。
+
+## 2026-09-27 第280阶段：直接 Agent 目标级结果查看（实现完成，真实短链由第281阶段补验）
+
+### 已验证
+
+- 新增 `DirectAgentGoalVerificationPolicy`，只消费 `VerifiedAgentContext.toolExecutions` 中已通过 Executor 的 `device.open_app / device.tap_ref / device.type_text`；普通 Agent、模型总结、失败动作不会生成设备目标卡片。
+- 目标卡片展示已验证动作顺序、部分失败动作和最后一次已验证观察到的包名；`type_text` 继续只使用隐私后的后置摘要，不展示输入原文、节点正文、snapshot/ref 或坐标。
+- “重新读取当前事实”走 `DeviceObservationComponents.controller().capture()` 获取新的 Accessibility snapshot，只把当前包名、节点数、脱敏节点数、截断状态和时间投影到 UI，不复用历史 snapshot 或节点引用。
+- 新增 JVM `DirectAgentGoalVerificationPolicyTest`（3 个用例）与 Compose `ConversationPageInstrumentedTest#directAgentGoalCardSummarizesVerifiedDeviceActionsAndRefreshesCurrentFact`；受影响 JVM 测试、Debug Kotlin 编译和 AndroidTest Kotlin 编译均通过。该 Compose 单项在 Redmi `wsvwypiz7xwslvl7 / begonia` 运行 `OK (1 test)`，耗时 `2.711s`；测试 APK 已卸载。
+
+### 边界
+
+- 本阶段完成目标级结果查看的生产实现和 Redmi UI 单项验证；首次真实 Provider 入口曾因设备当前 Provider 凭据为空而 fail-closed（`当前 Provider 凭据不可用`，约 `0.391s`），没有创建 Run 或执行设备动作。该短前台复验已在第281阶段恢复配置后完成，仍限制在 `begonia` 与 `gpt-5.6-luna`。
+- 当前事实刷新失败时保持 fail-closed，不把历史成功证据升级为当前事实；不扩展任意 App、后台/定时设备自动化、MCP、远程 Channel、多 Agent 或本地模型。
+- 按分级验证，本阶段未运行完整 JVM、全量 Lint、Release 或全量 instrumentation。
+
+## 2026-09-27 第279阶段：直接 Agent 非敏感 `device.type_text` 免逐次审批 Redmi 闭环通过
+
+### 已验证
+
+- 受影响的三个 JVM 测试类合计 `126/126` 通过；Debug APK 与 AndroidTest APK 构建成功。本阶段没有运行完整 JVM、Lint、Release 或全量 instrumentation。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / begonia`，未使用或启动 Pixel_9；真实 Provider 模型为 `gpt-5.6-luna`。`Stage277DirectAgentDeviceAutoApprovalInstrumentedTest#directAgentTypeTextUsesPersistentDeviceActionGrant` 最终 `OK (1 test)`，JUnit time `95.672s`，Gradle `BUILD SUCCESSFUL`。
+- 直接 `/agent` 的真实动作链为 `device.open_app -> device.snapshot -> device.tap_ref -> device.snapshot -> device.type_text -> device.snapshot`。`device.type_text` 的 Room 审批来源为设置授权 `APPROVED`，ToolResult 为 `success=true`、`executorVerified=true`、typed `PASSED`；最终窗口为受控的 `com.android.settings.intelligence`，输入后的当前页面精确回读成功，Run 为 `COMPLETED`。
+- 持久审计只保留 `snapshot_id / ref / text_sha256 / text_length`。ToolCall Ledger 与 Room Approval 保留受控的 `snapshot_id/ref` 身份，但不含输入原文或节点正文；ToolResult 不含输入原文、节点正文或 `ref`，`tool.call.proposed/validated` 与答案级证据不含输入原文。Controller 内存仍保留精确回读所需的短生命周期原文。失败 Run、旧 Run 与旧 Tool Ledger 保持不变。
+- 直接 Agent 的下一次 `device.snapshot` 会对命中的输入节点应用一次性隐私投影，只隐藏节点文本而保留结构、`ref` 与动作集合；切换 Run 时清理投影，不影响当前 Controller 的精确回读。
+
+### 边界
+
+- 本阶段只证明非敏感 `device.type_text` 在直接 Agent 真实 Provider 链路中的单项闭环，不扩展任意 App、后台/定时设备自动化或完整多动作长任务；天气包、精确定时、Foreground Service、MCP、远程 Channel、多 Agent 和本地模型仍按路线图后置。
+- 文档写回后的完整文档语料门禁、本轮全量 JVM、全量 Lint、Release 和全量 instrumentation 未执行；后续若补语料门禁仍只使用 Redmi。测试结束后的设备状态以既有收尾为准，不恢复或写入 Provider/API Key。
+
+## 2026-09-27 第278阶段：直接 Agent `device.tap_ref` 免逐次审批 Redmi 闭环通过
+
+### 已验证
+
+- 聚焦 JVM：`DeviceActionControllerTest 9/9`、`DeviceActionApprovalOverlayCoordinatorTest 13/13`、`WorkflowDeviceActionApprovalGateTest 9/9`，均为 `0 failures / 0 errors / 0 skipped`；`compileDebugAndroidTestKotlin`、`assembleDebug`、`assembleDebugAndroidTest` 和 `git diff --check` 通过。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / begonia`，未使用或启动 Pixel_9。真实 Provider 模型为 `gpt-5.6-luna`；`Stage277DirectAgentDeviceAutoApprovalInstrumentedTest#directAgentTapRefUsesPersistentDeviceActionGrant` 最终 `OK (1 test)`，耗时 `68.657s`。
+- 真实 Run 中 `device.tap_ref` 使用当前快照的 `snapshot_id/ref`，Room 审批为设置授权来源 `APPROVED`，动作结果 `success=true`、`executorVerified=true`、typed `PASSED`；最终前台仍为 `com.android.calculator2`，Run 完成，旧 Run 与旧 Tool Ledger 保持不变。
+- 文档写回后的 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 仅在同一 Redmi 执行，结果 `OK (1 test)`；测试 APK 已卸载，`enabled_accessibility_services=null / accessibility_enabled=0`。
+- 失败重跑曾定位到两个独立的 Redmi 时序问题：Accessibility 服务主线程读取 `rootInActiveWindow` 会长时间等待；Controller 的观察状态锁会与 UI `inspectReference` 竞争。生产实现已分别改为工作线程节点动作和引用存储自同步/`volatile` 快照发布，随后同一 Redmi 单项通过。
+
+### 边界
+
+- 本阶段只新增直接 Agent `tap_ref` 的真实证据；第279阶段已另行补齐非敏感 `type_text`，但本阶段本身不覆盖任意 App、后台/定时设备自动化或完整三动作长任务。
+- 测试仅覆盖局部 JVM、Debug/AndroidTest APK 和一条 Redmi 单项；全量 JVM、Lint、Release、全量 instrumentation 和 Pixel_9 均未执行。失败 Run 保留为审计事实，不被成功 Run 覆盖。
+
+## 2026-09-27 第277阶段：直接 Agent 设备动作免逐次审批（`device.open_app` Redmi 闭环通过）
+
+### 已验证
+
+- `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --tests com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGateTest --no-daemon`：`BUILD SUCCESSFUL`。
+- `./gradlew :app:compileDebugAndroidTestKotlin :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon`：`BUILD SUCCESSFUL`；本轮只做受影响编译和单项真机验收，没有运行全量 JVM、Lint、Release 或全量 instrumentation。
+- 直接 Agent 的 `device.open_app / device.tap_ref / device.type_text` 在设置授权开启时复用现有设备动作审批 Gate；授权关闭、非设备工具和后台路径仍走原有拒绝/人工审批边界。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / begonia` 执行 `Stage277DirectAgentDeviceAutoApprovalInstrumentedTest#directAgentOpenAppUsesPersistentDeviceActionGrant`，结果 `OK (1 test)`。Provider 模型为 `gpt-5.6-luna`；直接 `/agent` 只执行 `device.snapshot -> device.open_app`，Room 审批为 `APPROVED`，决定原因来自设置授权，Executor `executorVerified=true`、typed `PASSED`，最终前台为 `com.android.calculator2`，目标级 Run 为 `COMPLETED`。
+- 本次真实 Run 标识为 `run-ac1dc863-c53d-4c26-b805-b60d6cf6995a`，日志摘要为 `STAGE277_DIRECT_COMPLETED ... tool=device.open_app approval=APPROVED reason=setting_grant executorVerified=true verification=PASSED afterPackage=com.android.calculator2`；测试结束已卸载 AndroidTest APK，Redmi 的 Accessibility 开关和服务列表恢复为验收前状态。
+- 本轮文档写回后的 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 在同一 Redmi 为 `OK (1 test)`；最终复验后测试 APK 已卸载，主应用与用户数据保留。
+
+## 2026-09-27 第276阶段：系统设置搜索的授权后生产体验收敛（完成）
+
+### 已验证
+
+- `./gradlew :app:assembleDebug --no-daemon`：`BUILD SUCCESSFUL in 32s`；仅向 Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 覆盖安装 Debug APK，未使用 Pixel_9。
+- 通过 `adb -s wsvwypiz7xwslvl7 shell am broadcast -n com.longdev.xiaoling/.agent.AgentE2eDebugReceiver -a com.longdev.xiaoling.debug.AGENT_E2E --es operation workflow_settings_wifi_search --ez auto_approve true` 触发 Debug-only 前台脚本；脚本临时开启第275阶段授权，随后恢复原偏好。
+- Redmi 日志为 `workflow-settings-wifi-search-e2e success=true actions=tap_ref, type_text verified=2/2 approvals=2 freshSnapshots=3 targetPackage=com.android.settings finalPackage=com.android.settings.intelligence resultCount=3 goalDecision=VERIFIED privacySafe=true autoApprove=true`。两次审批决定均来自设置授权，输入原文未进入审批参数或 ToolResult，三次 snapshot 与跨包后置观察均来自当前窗口。
+- 运行期间 `dumpsys accessibility` 显示小灵服务在 `Bound services` 且 `Crashed services:{}`；收尾后删除本轮手动开启的 `enabled_accessibility_services` 并恢复 `accessibility_enabled=0`。未运行全量 JVM、Lint、Release 或全量 instrumentation。
+- 文档写回后的最终 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 仅在 Redmi 执行，结果为 `OK (1 test)`；测试 APK 已卸载，主应用与用户数据保留。
+
+### 边界
+
+- 本阶段只证明直接 Agent 的 `device.open_app` 单动作授权、守护和后置验证闭环；`device.tap_ref`、`device.type_text` 尚未在直接 Agent 的真实 Provider 链路中验收，不能扩展为三类动作或完整多动作结论。
+- 失败尝试、旧 Run 和旧 Tool Ledger 保持原样；成功 Run 不覆盖历史事实。下一小切片再选择一个直接 Agent 的 `tap_ref` 或非敏感 `type_text`，仍需保持原文不进入 Room/ToolResult 的边界。
+
+- 本阶段复用既有脚本 LLM，不宣称新的真实 Provider 计划证据；第272阶段的真实 Provider 设置搜索闭环和第275阶段的真实 Provider 计算器闭环继续作为独立证据。
+- `com.android.settings.intelligence` 仍只是设置搜索受控伴随包，不进入应用发现交集、默认白名单或 `device.open_app`；天气包缺失和任意 App/后台动作边界保持不变。
+
+## 2026-09-27 第275阶段：设备动作免逐次审批授权（真实 Provider 计算器闭环通过）
 
 ### 已验证
 
 - `./gradlew :app:testDebugUnitTest --tests '*WorkflowDeviceActionApprovalGateTest*' :app:compileDebugAndroidTestKotlin` 通过；`:app:assembleDebug :app:assembleDebugAndroidTest` 通过，`git diff --check` 通过。
+- 本轮收尾修正后，局部 JVM `DeviceActionControllerTest` 为 `9/9`（`0 failures / 0 errors / 0 skipped`），`:app:compileDebugAndroidTestKotlin` 和 `:app:assembleDebug :app:assembleDebugAndroidTest` 均为 `BUILD SUCCESSFUL`；仅新增验证服务列表保留/恢复逻辑，没有运行全量矩阵。
+- 本轮长期文档同步后，仅在 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`；不固化耗时，避免文档写回造成语料门禁递归变化。
 - 仅 Redmi `wsvwypiz7xwslvl7 / begonia` 安装 Debug/AndroidTest APK，`UiPreferenceStoreInstrumentedTest` 与 `DeviceAgentSettingsContentInstrumentedTest` 合计 `8/8` 通过：默认关闭、显式授权、关闭设备 Agent 后撤销、页面开关状态均符合预期。
 - 服务预先绑定后，`DeviceActionAutoApprovalInstrumentedTest` 在真实 Accessibility 守护窗口上曾 `OK (1 test)`（`4.582s`）；没有测试代码点击批准按钮，系统确认自有窗口附着并安全移除后返回带“设置中授权”原因的批准决定。此证据对应加入撤销期间即时检查之前的实现。
 - 最终版 Debug APK 安装到 Redmi 后，经仅 Debug 可用、`android.permission.DUMP` 保护的广播探针触发真实 Accessibility 守护窗口，日志为 `approved=APPROVED source=用户已在设置中授权前台设备动作免逐次审批 revoked=CANCELLED revokeReason=设备动作免逐次审批授权已撤销`。探针只核对窗口决定，不执行设备动作，也不替代完整 Workflow 验收。
+- 最终版 Debug APK 安装到 Redmi 后，使用 `com.longdev.xiaoling.debug.AGENT_E2E / operation=workflow_open_app / auto_approve=true` 运行前台真实 Workflow；Debug 入口只在本次运行临时开启设置授权并在 finally 恢复原偏好，生产 Gate 仍读取同一设置。日志为 `workflow-open-app-e2e success=true action=open_app verified=true approval=APPROVED executorVerified=true verification=PASSED beforePackage=com.longdev.xiaoling afterPackage=com.android.calculator2 answerDecision=VERIFIED autoApprove=true`，Room 审批原因包含“用户已在设置中授权前台设备动作免逐次审批”，无人工按钮点击。该证据只覆盖真实 `open_app` 单动作，不等同完整计算器多动作或自然语言 Provider 计划闭环。
+- 本轮 `./gradlew :app:assembleDebug` 为 `BUILD SUCCESSFUL`（首次 19s，日志脱敏改动后增量构建 4s）；仅向 Redmi `wsvwypiz7xwslvl7 / Redmi Note 8 Pro` 覆盖安装，`dumpsys accessibility` 显示小灵服务在 `Bound services` 且 `Crashed services:{}`。通过 `adb -s wsvwypiz7xwslvl7 shell am broadcast -n com.longdev.xiaoling/.agent.AgentE2eDebugReceiver -a com.longdev.xiaoling.debug.AGENT_E2E --es operation workflow_calculator_auto_approval` 触发 Debug-only 前台脚本，日志脱敏改动后再次成功：`workflow-calculator-auto-e2e success=true run=run-4e912b57-535e-43d6-80e0-603d3bc9bf53 actions=6 approvals=6 freshSnapshots=7 taps=AC,7,×,8,= result=56 executorVerified=true verification=PASSED autoApprove=true`。代码断言六次 Room 审批均为 `APPROVED` 且原因为设置授权，六次动作均通过 Executor 回读，七次 snapshot 均成功、`PASSED`、ID 互不相同；最终 snapshot 与独立后置观察均来自当前计算器并显示 `56`，全程未人工逐次批准。临时授权在 `finally` 恢复原偏好。
+- 修正 `DeviceObservationController` 的 `tap_ref` 后置验证：除窗口代次变化外，同一窗口的脱敏节点状态变化也可作为可观察后置事实；没有任何节点状态变化仍 `verified=false`。新增 JVM 用例 `tapAcceptsSameWindowGenerationWhenSnapshotNodeStateChanges`，并保留“无变化点击不验证”的回归。
+- 仅使用 Redmi `wsvwypiz7xwslvl7 / begonia` 执行 `stage265RealRun=true + stage265AutoApprove=true` 的真实 Provider 单项；定向 `DeviceActionControllerTest`、Debug/AndroidTest APK 先通过。最终 instrumentation `OK (1 test)`，耗时 `224.665s`，日志为 `STAGE265_COMPLETED workflowRunId=workflow-run-15daaf58-9e61-481d-a15c-0d679ad43ea4 steps=6 approvals=6 taps=[AC, 7, ×, 8, =] formula=7x8 result=56 currentScreenVerified=true`。测试先让真实模型生成 6 步计划，用户点击一次“确认并执行”，随后 6 次审批均由“设置中授权”自动完成；每个动作 `executorVerified=true / verification=PASSED`，Workflow 目标级 `VERIFIED`，当前计算器结果控件独立显示 `56`。测试结束收尾时 Runner 仍可能显示 `Crashed services:{XiaoLingAccessibilityService}`，这是 instrumentation 生命周期边界，不改变运行期间的通过证据。
+- 本轮用更新后的 Debug/AndroidTest APK 在同一 Redmi 显式重跑该单项，命令为 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e stage265RealRun true -e stage265AutoApprove true -e disableAnalytics true -e class com.longdev.xiaoling.agent.Stage265CalculatorTaskInstrumentedTest com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`；结果在入口处以 `ACCESSIBILITY_NOT_AUTHORIZED` 失败，耗时 `17.433s`，没有创建 Provider Run、Workflow 或设备动作。`dumpsys accessibility` 显示 `Bound services:{}`，说明这是 Runner 启动后服务隔离/断连的测试通道问题，不否定上一条独立成功证据；退出后已把 Redmi 的 `enabled_accessibility_services` 恢复为小灵原值、`accessibility_enabled=0`。
+- 修正测试内服务列表保留/系统设置页真实启用流程后，在同一 Redmi 再次执行上述显式单项，Instrumentation 输出 `Time: 254.87`、`OK (1 test)`；成功证据与前一条 Run 语义一致，旧失败 Run、旧 `PARTIAL` Run 和 Tool Ledger 均保留。测试收尾再次恢复 `enabled_accessibility_services=null`、`accessibility_enabled=0`，未使用 Pixel_9。
 
 ### 失败记录与边界
 
-- 同包 instrumentation 首次运行时无障碍服务处于 `Crashed services`/未连接，8 项非服务测试通过，自动授权用例在入口处失败；第二次在测试内尝试重绑定仍未连接。退出 instrumentation 后经 Redmi `settings` 恢复原授权并确认 `Bound services`，第三次单项通过。最终修改加入“授权撤销时即时取消”后，三次复跑均在入口处遇到相同的服务断连，未到达授权逻辑；最终版已由 Debug 探针验证真实服务的批准与撤销，但 Runner 内的单项仍待稳定复验。该测试只有显式传入 `deviceAutoApprovalRealRun=true` 才执行，默认套件跳过。Stage265 测试现仅等待既有无障碍授权恢复，不再改写系统已启用服务列表。
-- 上轮完整 Stage265 真实模型重跑的 Workflow 目标级状态为 `PARTIAL`，尚未定位具体缺口；本轮没有把设置/守护窗口单项冒充完整个人任务闭环。未执行全量 JVM、Lint、Release 或全量 instrumentation，未使用 Pixel_9。
+- 同包 instrumentation 首次运行时无障碍服务处于 `Crashed services`/未连接，8 项非服务测试通过，自动授权用例在入口处失败；第二次在测试内尝试重绑定仍未连接。退出 instrumentation 后经 Redmi `settings` 恢复原授权并确认 `Bound services`，第三次单项通过。最终修改加入“授权撤销时即时取消”后，三次复跑均在入口处遇到相同的服务断连，未到达授权逻辑；最终版已由 Debug 探针验证真实服务的批准与撤销，但 Runner 内的单项仍待稳定复验。该测试只有显式传入 `deviceAutoApprovalRealRun=true` 才执行，默认套件跳过。Stage265 测试的重绑定现在保留进入测试前的无障碍服务列表，并在收尾恢复原列表与开关，不再清空或覆盖其他服务。
+- 上轮完整 Stage265 真实模型重跑的 Workflow 目标级状态为 `PARTIAL`；已定位到某个动作后的 Executor 回读验证事实缺失（`toolResult.verified != true`，随后 Runtime 抛出“工具未通过 Executor 回读验证”），但失败证据不足以确定是 `open_app` 还是第几次 `tap_ref`。该失败 Run 与 `run-d30e1d91-3234-41c8-8f41-1a94c6b27e4a` 原样保留：前者不覆盖历史目标状态，后者在 `AC` 前因快照代次变化按 fail-closed 结束。随后 `stage265RealRun=true + stage265AutoApprove=true` 已在 Redmi 完成真实 Provider 计划、用户一次确认、6 个 Workflow 步骤和 6 次设置来源审批；每个动作均 `executorVerified=true / PASSED`，目标级 `VERIFIED`，当前结果 `56`。因此 `PARTIAL` 现在是保留的历史审计事实，不再是待复验事项；本轮未执行全量 JVM、Lint、Release 或全量 instrumentation，也未使用 Pixel_9。
+- 历史 Stage265 `PARTIAL` Run、首次同窗口代次误判失败和 Debug 脚本过期 ref 失败均原样保留；本次成功 Run 通过新的脱敏节点状态变化验证，不覆盖或改写旧审计事实。没有运行全量 JVM、Lint、Release 或全量 instrumentation，也没有使用 Pixel_9。
 
 ## 2026-09-26 第274阶段：动态应用候选的真实 Provider 计划验收（完成）
 
@@ -138,7 +246,7 @@
 
 ## 当前验证基线
 
-- 当前正式发布为 `v0.1.18`（`versionCode=19`、Room v36），第264、265阶段真实前台闭环均已完成；第265阶段改动仍未提交发布。
+- 该阶段记录的正式发布为 `v0.1.18`（`versionCode=19`、Room v36），第264、265阶段真实前台闭环均已完成；当前正式版本已在本报告顶部升级为 `v0.1.19`。
 - 完整回归基线仍以 2026-08-13 的 `1118/1118` JVM、Lint、Debug/AndroidTest APK 和 Redmi 全量 XML `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` 为准；第 260 至 264 阶段的单项结果只证明对应功能，不替代完整矩阵。
 - 后续遵守分级验证：功能快速迭代阶段优先执行受影响的局部检查，里程碑或正式发版前再执行完整矩阵；不因文档同步重复占用 Redmi。
 
@@ -233,7 +341,7 @@
 - 新增回归覆盖：过期 snapshot 生成稳定恢复码、窗口/ref 失效不执行设备动作、Runtime 持久化 typed recovery.failed、旧 Run 重试需确认。`:app:assembleDebug` 与 `:app:compileDebugAndroidTestKotlin` 均为 `BUILD SUCCESSFUL`。
 - 按当前分级验证约束，本切片未执行 Redmi、全量 JVM、Lint、AndroidTest/Release APK、全量 instrumentation、发版或推送；第266阶段剩余进程/审批等待/长任务切片仍未完成。
 
-## 2026-09-12 第 265 阶段：系统计算器前台计算任务（完成）
+## 2026-09-12 第 265 阶段：系统计算器前台计算任务（历史闭环；后续免审批重跑已在 2026-09-27 补验）
 
 ### 计划门禁
 

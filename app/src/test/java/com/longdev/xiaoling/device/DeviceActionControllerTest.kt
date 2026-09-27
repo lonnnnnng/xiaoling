@@ -164,6 +164,22 @@ class DeviceActionControllerTest {
         assertTrue(result.outcome.message.contains("不足以证明"))
     }
 
+    @Test
+    fun tapAcceptsSameWindowGenerationWhenSnapshotNodeStateChanges() = runTest {
+        val gateway = ActionGateway(window = window(generation = 13L, node = node(text = "7", clickable = true)))
+        val controller = controller(gateway)
+        val snapshot = (controller.capture() as DeviceSnapshotCapture.Success).snapshot
+        gateway.nodeActionResult = RawDeviceActionResult.Performed
+        gateway.onNodeAction = {
+            // long: 同一计算器窗口内按键只更新算式文本，窗口代次不一定变化；节点状态变化仍是可审计的后置事实。
+            gateway.window = window(generation = 13L, node = node(text = "7×", clickable = true))
+        }
+
+        val result = controller.tap(snapshot.snapshotId, "r1") as DeviceActionCapture.Success
+
+        assertTrue(result.outcome.verified)
+    }
+
     private fun controller(gateway: ActionGateway): DeviceObservationController {
         var snapshotIndex = 0
         return DeviceObservationController(

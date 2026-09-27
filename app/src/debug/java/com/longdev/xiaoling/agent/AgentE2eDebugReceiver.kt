@@ -94,6 +94,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             operation == OPERATION_WORKFLOW_BACK ||
             operation == OPERATION_WORKFLOW_HOME ||
             operation == OPERATION_WORKFLOW_SWIPE ||
+            operation == OPERATION_WORKFLOW_CALCULATOR_AUTO_APPROVAL ||
             operation == OPERATION_WORKFLOW_SETTINGS_MULTI
                 || operation == OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH
                 || operation == OPERATION_WORKFLOW_CLOCK_ALARM
@@ -103,11 +104,12 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 runCatching {
                     when (operation) {
                         OPERATION_WORKFLOW_TYPE_TEXT -> runWorkflowTypeText(context.applicationContext)
-                        OPERATION_WORKFLOW_OPEN_APP -> runWorkflowOpenApp(
+                        OPERATION_WORKFLOW_OPEN_APP -> runWorkflowOpenAppWithAutoApproval(
                             context = context.applicationContext,
                             scenarioId = "open-app",
                             targetLabel = "系统计算器",
                             targetPackageName = SYSTEM_CALCULATOR_PACKAGE,
+                            autoApprove = intent.getBooleanExtra(EXTRA_AUTO_APPROVE, false),
                         )
                         // long: 天气使用独立验收标识，但复用同一审批与结果验证链，避免新增 App 时产生宽松的旁路实现。
                         OPERATION_WORKFLOW_WEATHER_OPEN_APP -> runWorkflowOpenApp(
@@ -119,8 +121,12 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                         OPERATION_WORKFLOW_BACK -> runWorkflowBack(context.applicationContext)
                         OPERATION_WORKFLOW_HOME -> runWorkflowHome(context.applicationContext)
                         OPERATION_WORKFLOW_SWIPE -> runWorkflowSwipe(context.applicationContext)
+                        OPERATION_WORKFLOW_CALCULATOR_AUTO_APPROVAL -> runWorkflowCalculatorAutoApproval(context.applicationContext)
                         OPERATION_WORKFLOW_SETTINGS_MULTI -> runWorkflowSettingsMulti(context.applicationContext)
-                        OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH -> runWorkflowSettingsWifiSearch(context.applicationContext)
+                        OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH -> runWorkflowSettingsWifiSearchWithAutoApproval(
+                            context = context.applicationContext,
+                            autoApprove = intent.getBooleanExtra(EXTRA_AUTO_APPROVE, false),
+                        )
                         OPERATION_WORKFLOW_CLOCK_ALARM -> runWorkflowClockAlarm(context.applicationContext)
                         else -> runWorkflowTapRef(context.applicationContext)
                     }
@@ -253,6 +259,16 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "approval=${approval?.status} tool=${result?.toolName} success=${result?.success} " +
                 "executorVerified=${result?.executorVerified} verification=${result?.verificationStatus}",
         )
+        if (detail.snapshot.run.conversationId.startsWith("conversation-redmi-workflow-calculator-auto-")) {
+            // long: 计算器免审批失败只记录工具序号与 typed 结果；错误正文可能夹带页面内容，不能为了排障写入 logcat。
+            detail.toolLedger.results.forEachIndexed { index, item ->
+                Log.i(
+                    TAG,
+                    "calculator-auto-ledger index=$index tool=${item.toolName} success=${item.success} " +
+                        "executorVerified=${item.executorVerified} verification=${item.verificationStatus}",
+                )
+            }
+        }
     }
 
     private suspend fun runDayOverviewReal(context: Context) {
@@ -3661,7 +3677,38 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         )
     }
 
-    private suspend fun runWorkflowSettingsWifiSearch(context: Context) {
+    private suspend fun runWorkflowSettingsWifiSearchWithAutoApproval(
+        context: Context,
+        autoApprove: Boolean,
+    ) {
+        if (!autoApprove) {
+            runWorkflowSettingsWifiSearch(context)
+            return
+        }
+        val preferences = UiPreferenceStore(context)
+        val previousAgentEnabled = preferences.loadDeviceAgentEnabled()
+        val previousAutoApproval = preferences.loadDeviceActionAutoApprovalEnabled()
+        // long: 只在 Debug 验收入口临时复现用户已授予的授权；真实 Gate 仍读取同一设置，结束后恢复原偏好，避免探针改变用户环境。
+        preferences.saveDeviceAgentEnabled(true)
+        preferences.saveDeviceActionAutoApprovalEnabled(true)
+        try {
+            runWorkflowSettingsWifiSearch(
+                context = context,
+                autoApproveEnabled = preferences::loadDeviceActionAutoApprovalEnabled,
+            )
+        } finally {
+            preferences.saveDeviceActionAutoApprovalEnabled(false)
+            preferences.saveDeviceAgentEnabled(previousAgentEnabled)
+            if (previousAgentEnabled && previousAutoApproval) {
+                preferences.saveDeviceActionAutoApprovalEnabled(true)
+            }
+        }
+    }
+
+    private suspend fun runWorkflowSettingsWifiSearch(
+        context: Context,
+        autoApproveEnabled: () -> Boolean = { false },
+    ) {
         context.startActivity(
             Intent(context, DevicePrivacyProbeActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
@@ -3690,25 +3737,31 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val runRepository = RoomAgentRunRepository(context)
         val scriptedLlm = WorkflowSettingsWifiSearchE2eLlm()
         val conversationId = E2E_SETTINGS_WIFI_CONVERSATION_ID
+        val autoApprove = autoApproveEnabled()
         val runtime = MinimalAgentRuntime(
             ledger = runRepository,
             toolRegistry = registry,
             llm = scriptedLlm,
             // long: 搜索任务需要三次观察和两次设备动作；显式提高本次 Debug 运行预算，不能让默认四步预算把完整闭环误判为失败。
             options = AgentRuntimeOptions(maxToolCalls = 8),
-            // long: 独立前台 Debug 通道仍走生产审批 Gate 的脱敏投影与 Room 身份绑定，只把浮层决定替换为立即批准，避免验收线程等待人工触摸导致快照过期。
+            // long: 普通 Debug 复验沿用立即批准夹具；授权模式改用真实 Accessibility 守护窗口，证明设置授权只替代逐次点击而不旁路生产 Gate。
             approvalGate = WorkflowDeviceActionApprovalGate(
                 conversationId = conversationId,
                 userIntent = "打开系统设置并搜索 Wi-Fi，回读当前搜索结果",
                 targetAppPackage = SYSTEM_SETTINGS_PACKAGE,
                 fallback = AutoApprovalGate(),
                 persistence = RoomWorkflowDeviceActionApprovalPersistence(runRepository),
-                overlayRequester = DeviceActionApprovalOverlayRequester {
-                    DeviceActionApprovalOverlayDecision(
-                        kind = DeviceActionApprovalOverlayDecisionKind.APPROVED,
-                        reason = "第272阶段 Debug 真实动作验收批准",
-                    )
+                overlayRequester = if (autoApprove) {
+                    DeviceAccessibilityRuntime
+                } else {
+                    DeviceActionApprovalOverlayRequester {
+                        DeviceActionApprovalOverlayDecision(
+                            kind = DeviceActionApprovalOverlayDecisionKind.APPROVED,
+                            reason = "第272阶段 Debug 真实动作验收批准",
+                        )
+                    }
                 },
+                autoApproveEnabled = autoApproveEnabled,
             ),
             permissionChecker = AndroidToolPermissionChecker(context),
             processSessionId = "process-redmi-workflow-settings-wifi-search",
@@ -3746,6 +3799,11 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         val approvals = detail.approvals.filter { it.toolName in setOf(DEVICE_TAP_REF_TOOL_NAME, DEVICE_TYPE_TEXT_TOOL_NAME) }
         check(approvals.size == 2 && approvals.all { it.status == ApprovalRequestStatus.APPROVED }) {
             "系统设置 Wi-Fi 搜索审批未逐动作批准：$approvals"
+        }
+        if (autoApprove) {
+            check(approvals.all { it.decisionReason?.contains("设置中授权") == true }) {
+                "系统设置 Wi-Fi 搜索免逐次审批没有记录设置授权来源：$approvals"
+            }
         }
         val typeApproval = approvals.single { it.toolName == DEVICE_TYPE_TEXT_TOOL_NAME }
         check(
@@ -3864,8 +3922,166 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "verified=${actionResults.size}/2 approvals=${approvals.size} freshSnapshots=${observations.size} " +
                 "targetPackage=$SYSTEM_SETTINGS_PACKAGE finalPackage=${finalJson.getString("package")} " +
                 "resultCount=${visibleTexts.count { it != WIFI_SEARCH_QUERY && it.contains(WIFI_SEARCH_QUERY, ignoreCase = true) }} " +
-                "goalDecision=${goalDecision.status} privacySafe=true",
+                "goalDecision=${goalDecision.status} privacySafe=true autoApprove=$autoApprove",
         )
+    }
+
+    private suspend fun runWorkflowOpenAppWithAutoApproval(
+        context: Context,
+        scenarioId: String,
+        targetLabel: String,
+        targetPackageName: String,
+        autoApprove: Boolean,
+    ) {
+        if (!autoApprove) {
+            runWorkflowOpenApp(context, scenarioId, targetLabel, targetPackageName)
+            return
+        }
+        val preferences = UiPreferenceStore(context)
+        val previousAgentEnabled = preferences.loadDeviceAgentEnabled()
+        val previousAutoApproval = preferences.loadDeviceActionAutoApprovalEnabled()
+        // long: 仅 Debug 验收入口临时复现用户已授权状态；生产 Gate 仍实时读取设置，验收结束后恢复原开关，避免探针改变用户偏好。
+        preferences.saveDeviceAgentEnabled(true)
+        preferences.saveDeviceActionAutoApprovalEnabled(true)
+        try {
+            runWorkflowOpenApp(
+                context = context,
+                scenarioId = scenarioId,
+                targetLabel = targetLabel,
+                targetPackageName = targetPackageName,
+                autoApproveEnabled = preferences::loadDeviceActionAutoApprovalEnabled,
+            )
+        } finally {
+            preferences.saveDeviceActionAutoApprovalEnabled(false)
+            preferences.saveDeviceAgentEnabled(previousAgentEnabled)
+            if (previousAgentEnabled && previousAutoApproval) {
+                preferences.saveDeviceActionAutoApprovalEnabled(true)
+            }
+        }
+    }
+
+    private suspend fun runWorkflowCalculatorAutoApproval(context: Context) {
+        val preferences = UiPreferenceStore(context)
+        val previousAgentEnabled = preferences.loadDeviceAgentEnabled()
+        val previousAutoApproval = preferences.loadDeviceActionAutoApprovalEnabled()
+        val now = System.currentTimeMillis()
+        val scenarioId = "calculator-auto-$now"
+        val conversationId = "conversation-redmi-workflow-$scenarioId"
+        preferences.saveDeviceAgentEnabled(true)
+        preferences.saveDeviceActionAutoApprovalEnabled(true)
+        try {
+            context.startActivity(
+                Intent(context, DevicePrivacyProbeActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            )
+            val controller = DeviceObservationController(
+                agentEnabled = { true },
+                gateway = AndroidDeviceAccessibilityGateway(context),
+            )
+            awaitDeviceReady(controller)
+            awaitProbeWindow(controller)
+            awaitStablePackageWindow(controller, context.packageName)
+            val registry = XiaoLingToolRegistry(
+                clock = SystemAgentClock(),
+                conversationStore = RoomAgentConversationStore(context),
+                noteStore = RoomAgentNoteStore(context),
+                memoryStore = RoomAgentMemoryStore(context),
+                knowledgeStore = RoomKnowledgeDocumentStore(context),
+                deviceController = controller,
+            )
+            val repository = RoomAgentRunRepository(context)
+            val scriptedLlm = WorkflowCalculatorAutoApprovalE2eLlm()
+            val runtime = MinimalAgentRuntime(
+                ledger = repository,
+                toolRegistry = registry,
+                llm = scriptedLlm,
+                options = AgentRuntimeOptions(maxToolCalls = 13),
+                approvalGate = WorkflowDeviceActionApprovalGate(
+                    conversationId = conversationId,
+                    userIntent = "在系统计算器中清空并计算 7×8",
+                    targetAppPackage = SYSTEM_CALCULATOR_PACKAGE,
+                    fallback = AutoApprovalGate(),
+                    persistence = RoomWorkflowDeviceActionApprovalPersistence(repository),
+                    overlayRequester = DeviceActionApprovalOverlayRequester { request ->
+                        val before = DeviceAccessibilityRuntime.currentGeneration()
+                        val decision = DeviceAccessibilityRuntime.request(request)
+                        Log.i(
+                            TAG,
+                            "calculator-auto-guard tool=${request.toolName} decision=${decision.kind} " +
+                                "generationBefore=$before generationAfter=${DeviceAccessibilityRuntime.currentGeneration()}",
+                        )
+                        decision
+                    },
+                    autoApproveEnabled = preferences::loadDeviceActionAutoApprovalEnabled,
+                ),
+                permissionChecker = AndroidToolPermissionChecker(context),
+                processSessionId = "process-redmi-$scenarioId",
+            )
+            val summary = runtime.run(
+                conversationId = conversationId,
+                userMessageId = "message-redmi-$scenarioId",
+                goal = "打开系统计算器，始终点击一次清空键，再依次点击 7、乘法运算符、8 和等号，最后读取当前屏幕结果 56。",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.WORKFLOW,
+                memoryRecallEnabled = false,
+                workflowDeviceActionContext = WorkflowDeviceActionRunContext(
+                    workflowRunId = "workflow-run-redmi-$scenarioId",
+                    workflowStepId = "workflow-step-redmi-$scenarioId",
+                    userIntent = "在系统计算器中清空并计算 7×8",
+                    targetAppPackage = SYSTEM_CALCULATOR_PACKAGE,
+                ),
+            )
+            val detail = checkNotNull(repository.runDetail(summary.runId)) { "计算器免审批 Workflow 未写入 Room" }
+            check(detail.snapshot.run.status == AgentRunStatus.COMPLETED) {
+                "计算器免审批 Workflow 未完成：${detail.snapshot.run.status}"
+            }
+            val actionResults = detail.toolLedger.results.filter { it.toolName != DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            val observationResults = detail.toolLedger.results.filter { it.toolName == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            val observationIds = observationResults.map { result -> JSONObject(result.content).getString("snapshot_id") }
+            check(observationResults.size == 7 && observationResults.all { it.success && it.verificationStatus == ToolVerificationStatus.PASSED } && observationIds.distinct().size == 7) {
+                "计算器免审批没有取得 7 次独立的新鲜观察"
+            }
+            check(actionResults.map { it.toolName } == listOf(DEVICE_OPEN_APP_TOOL_NAME) + List(5) { DEVICE_TAP_REF_TOOL_NAME }) {
+                "计算器免审批动作顺序不符合预期：${actionResults.map { it.toolName }}"
+            }
+            check(detail.approvals.size == actionResults.size && detail.approvals.all { approval ->
+                approval.status == ApprovalRequestStatus.APPROVED &&
+                    approval.decisionReason?.contains("设置中授权") == true
+            }) { "计算器免审批审批来源或数量不符合预期：${detail.approvals}" }
+            check(actionResults.all { result ->
+                result.success && result.executorVerified == true && result.verificationStatus == ToolVerificationStatus.PASSED
+            }) { "计算器免审批动作没有全部通过 Executor 回读：$actionResults" }
+            check(scriptedLlm.tappedLabels == listOf("AC", "7", "×", "8", "=")) {
+                "计算器免审批点击序列不符合预期：${scriptedLlm.tappedLabels}"
+            }
+            val finalSnapshot = checkNotNull(scriptedLlm.finalSnapshot) { "计算器免审批没有最终 snapshot" }
+            val finalNodes = finalSnapshot.getJSONArray("nodes")
+            val finalResultVisible = (0 until finalNodes.length()).any { index ->
+                finalNodes.getJSONObject(index).let { node ->
+                    !node.optBoolean("redacted", true) && node.optString("text") == "56"
+                }
+            }
+            check(finalSnapshot.getString("package") == SYSTEM_CALCULATOR_PACKAGE && finalResultVisible) {
+                "计算器免审批最终 snapshot 没有当前结果 56"
+            }
+            val postSnapshot = captureWhenReady(controller).snapshot
+            check(postSnapshot.packageName == SYSTEM_CALCULATOR_PACKAGE && postSnapshot.nodes.any { it.text == "56" }) {
+                "计算器免审批动作后没有在当前页面观察到结果 56"
+            }
+            Log.i(
+                TAG,
+                "workflow-calculator-auto-e2e success=true run=${summary.runId} " +
+                    "actions=${actionResults.size} approvals=${detail.approvals.size} freshSnapshots=${observationIds.size} " +
+                    "taps=${scriptedLlm.tappedLabels.joinToString(",")} result=56 " +
+                    "executorVerified=true verification=PASSED autoApprove=true",
+            )
+        } finally {
+            preferences.saveDeviceActionAutoApprovalEnabled(false)
+            preferences.saveDeviceAgentEnabled(previousAgentEnabled)
+            if (previousAgentEnabled && previousAutoApproval) {
+                preferences.saveDeviceActionAutoApprovalEnabled(true)
+            }
+        }
     }
 
     private suspend fun runWorkflowOpenApp(
@@ -3873,6 +4089,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         scenarioId: String,
         targetLabel: String,
         targetPackageName: String,
+        autoApproveEnabled: () -> Boolean = { false },
     ) {
         context.startActivity(
             Intent(context, DevicePrivacyProbeActivity::class.java)
@@ -3909,11 +4126,13 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 fallback = AutoApprovalGate(),
                 persistence = RoomWorkflowDeviceActionApprovalPersistence(runRepository),
                 overlayRequester = DeviceAccessibilityRuntime,
+                autoApproveEnabled = autoApproveEnabled,
             ),
             permissionChecker = AndroidToolPermissionChecker(context),
             processSessionId = "process-redmi-workflow-$scenarioId",
         )
-        Log.i(TAG, "workflow-$scenarioId-overlay waiting=true")
+        val autoApprove = autoApproveEnabled()
+        Log.i(TAG, "workflow-$scenarioId-overlay waiting=true autoApprove=$autoApprove")
         val summary = runtime.run(
             conversationId = "conversation-redmi-workflow-$scenarioId",
             userMessageId = "message-redmi-workflow-$scenarioId-${System.currentTimeMillis()}",
@@ -3937,6 +4156,11 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
             approval.status == ApprovalRequestStatus.APPROVED &&
                 approval.arguments == mapOf("package_name" to targetPackageName)
         ) { "Room open_app 审批未绑定目标包名或未批准：$approval" }
+        if (autoApprove) {
+            check(approval.decisionReason?.contains("设置中授权") == true) {
+                "免逐次审批真实 Run 没有记录设置授权来源：${approval.decisionReason}"
+            }
+        }
         val openAppCall = detail.toolLedger.calls.single { it.toolName == DEVICE_OPEN_APP_TOOL_NAME }
         check(
             openAppCall.arguments == approval.arguments &&
@@ -3990,7 +4214,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
                 "verified=${actionEvidence.verified} approval=${approval.status} " +
                 "executorVerified=${openAppResult.executorVerified} verification=${openAppResult.verificationStatus} " +
                 "beforePackage=${actionEvidence.beforePackageName} afterPackage=${actionEvidence.afterPackageName} " +
-                "answerDecision=${decision.status}",
+                "answerDecision=${decision.status} autoApprove=$autoApprove",
         )
     }
 
@@ -5009,6 +5233,145 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         ): String = "Workflow 打开应用动作已完成真实执行与目标包验证"
     }
 
+    private class WorkflowCalculatorAutoApprovalE2eLlm : AgentLlm {
+        val tappedLabels = mutableListOf<String>()
+        var finalSnapshot: JSONObject? = null
+
+        override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
+            val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
+            return ToolCall(name = snapshot.name, arguments = emptyMap(), risk = snapshot.risk)
+        }
+
+        override suspend fun proposeNextAction(
+            goal: String,
+            tools: List<ToolDefinition>,
+            completedTools: List<AgentToolExecution>,
+        ): AgentPlanDecision {
+            return when (completedTools.size) {
+                0 -> AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                1 -> {
+                    val before = snapshotJson(completedTools.last())
+                    check(before.getString("package") == "com.longdev.xiaoling") {
+                        "计算器免审批 open_app 前 snapshot 不属于小灵页面"
+                    }
+                    val openApp = tools.single { it.name == DEVICE_OPEN_APP_TOOL_NAME }
+                    AgentPlanDecision.CallTool(
+                        ToolCall(
+                            name = openApp.name,
+                            arguments = mapOf("package_name" to SYSTEM_CALCULATOR_PACKAGE),
+                            risk = openApp.risk,
+                        ),
+                    )
+                }
+                2 -> stableCalculatorSnapshot(goal, tools)
+                3 -> tapFromSnapshot(completedTools.last(), tools, "AC")
+                4 -> stableCalculatorSnapshot(goal, tools)
+                5 -> tapFromSnapshot(completedTools.last(), tools, "7")
+                6 -> stableCalculatorSnapshot(goal, tools)
+                7 -> tapFromSnapshot(completedTools.last(), tools, "×")
+                8 -> stableCalculatorSnapshot(goal, tools)
+                9 -> tapFromSnapshot(completedTools.last(), tools, "8")
+                10 -> stableCalculatorSnapshot(goal, tools)
+                11 -> tapFromSnapshot(completedTools.last(), tools, "=")
+                12 -> stableCalculatorSnapshot(goal, tools)
+                13 -> {
+                    finalSnapshot = snapshotJson(completedTools.last())
+                    check(finalSnapshot?.getString("package") == SYSTEM_CALCULATOR_PACKAGE) {
+                        "计算器免审批最终 snapshot 已离开系统计算器"
+                    }
+                    check(finalSnapshot?.hasVisibleText("56") == true) {
+                        "计算器免审批最终 snapshot 没有当前结果 56"
+                    }
+                    AgentPlanDecision.Complete
+                }
+                else -> error("计算器免审批脚本出现未预期的工具步骤：${completedTools.size}")
+            }
+        }
+
+        override suspend fun summarize(
+            goal: String,
+            toolCall: ToolCall,
+            toolResult: ToolExecutionResult,
+        ): String = "计算器已在免逐次审批状态下完成 7×8，并读取当前结果 56"
+
+        private suspend fun stableCalculatorSnapshot(goal: String, tools: List<ToolDefinition>): AgentPlanDecision {
+            // long: 计算器切入和按键后的窗口事件可能晚于动作 ToolResult；等三个相同代次再取新 snapshot，避免把启动动画中的 ref 送入审批。
+            var previous = DeviceAccessibilityRuntime.currentGeneration()
+            var stableSamples = 1
+            repeat(20) {
+                delay(150)
+                val current = DeviceAccessibilityRuntime.currentGeneration()
+                stableSamples = if (current == previous) stableSamples + 1 else 1
+                previous = current
+                if (stableSamples >= 3) {
+                    return AgentPlanDecision.CallTool(proposeToolCall(goal, tools))
+                }
+            }
+            error("计算器窗口代次持续变化，不能创建可执行节点引用")
+        }
+
+        private fun tapFromSnapshot(
+            execution: AgentToolExecution,
+            tools: List<ToolDefinition>,
+            label: String,
+        ): AgentPlanDecision {
+            val snapshot = snapshotJson(execution)
+            check(snapshot.getString("package") == SYSTEM_CALCULATOR_PACKAGE) {
+                "计算器免审批 tap_ref 前 snapshot 不属于系统计算器"
+            }
+            val node = nodes(snapshot).singleOrNull { candidate ->
+                !candidate.optBoolean("redacted", true) &&
+                    candidate.optString("ref").isNotBlank() &&
+                    candidate.optString("text") == label &&
+                    hasTap(candidate)
+            } ?: error("计算器 snapshot 没有可点击的目标按钮：$label")
+            Log.i(
+                TAG,
+                "calculator-auto-ref label=$label snapshotGeneration=${snapshot.getLong("window_generation")} " +
+                    "currentGeneration=${DeviceAccessibilityRuntime.currentGeneration()}",
+            )
+            check(snapshot.getLong("window_generation") == DeviceAccessibilityRuntime.currentGeneration()) {
+                "计算器 snapshot 在审批前已经失效：$label"
+            }
+            tappedLabels += label
+            val tap = tools.single { it.name == DEVICE_TAP_REF_TOOL_NAME }
+            return AgentPlanDecision.CallTool(
+                ToolCall(
+                    name = tap.name,
+                    arguments = mapOf(
+                        "snapshot_id" to snapshot.getString("snapshot_id"),
+                        "ref" to node.getString("ref"),
+                    ),
+                    risk = tap.risk,
+                ),
+            )
+        }
+
+        private fun snapshotJson(execution: AgentToolExecution): JSONObject {
+            check(execution.toolCall.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME) {
+                "计算器免审批动作前必须先取得 device.snapshot：${execution.toolCall.name}"
+            }
+            check(execution.toolResult.success) { execution.toolResult.content }
+            return JSONObject(execution.toolResult.content)
+        }
+
+        private fun nodes(snapshot: JSONObject): List<JSONObject> {
+            val nodes = snapshot.getJSONArray("nodes")
+            return (0 until nodes.length()).map(nodes::getJSONObject)
+        }
+
+        private fun hasTap(node: JSONObject): Boolean {
+            val actions = node.optJSONArray("actions") ?: return false
+            return (0 until actions.length()).any { actions.optString(it) == "tap" }
+        }
+
+        private fun JSONObject.hasVisibleText(expected: String): Boolean {
+            return nodes(this).any { node ->
+                !node.optBoolean("redacted", true) && node.optString("text") == expected
+            }
+        }
+    }
+
     private class WorkflowBackE2eLlm : AgentLlm {
         override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall {
             val snapshot = tools.single { it.name == DEVICE_SNAPSHOT_E2E_TOOL_NAME }
@@ -5090,6 +5453,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val EXTRA_API_KEY = "api_key"
         const val EXTRA_MODEL = "model"
         const val EXTRA_ALLOWED_TOOL = "allowed_tool"
+        const val EXTRA_AUTO_APPROVE = "auto_approve"
         const val OPERATION_SETUP = "setup"
         const val OPERATION_STATUS = "status"
         const val OPERATION_DAY_OVERVIEW_REAL = "day_overview_real"
@@ -5118,6 +5482,7 @@ class AgentE2eDebugReceiver : BroadcastReceiver() {
         const val OPERATION_WORKFLOW_BACK = "workflow_back"
         const val OPERATION_WORKFLOW_HOME = "workflow_home"
         const val OPERATION_WORKFLOW_SWIPE = "workflow_swipe"
+        const val OPERATION_WORKFLOW_CALCULATOR_AUTO_APPROVAL = "workflow_calculator_auto_approval"
         const val OPERATION_WORKFLOW_SETTINGS_MULTI = "workflow_settings_multi"
         const val OPERATION_WORKFLOW_SETTINGS_WIFI_SEARCH = "workflow_settings_wifi_search"
         const val OPERATION_WORKFLOW_CLOCK_ALARM = "workflow_clock_alarm"

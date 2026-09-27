@@ -37,8 +37,8 @@ class DeviceObservationController(
     private val snapshotIdFactory: () -> String = { "device-snapshot-${UUID.randomUUID()}" },
     swipeEvidenceKey: ByteArray = ByteArray(32).also(SecureRandom()::nextBytes),
 ) : DeviceController {
-    private val observationStateLock = Any()
     private val swipeEvidencePolicy = DeviceSwipeEvidencePolicy(swipeEvidenceKey)
+    @Volatile
     private var currentSnapshotCapture: DeviceSnapshotCapture.Success? = null
 
     override fun health(): DeviceAgentHealthState {
@@ -51,21 +51,18 @@ class DeviceObservationController(
 
     override fun inspectReference(snapshotId: String, ref: String): DeviceReferenceInspection {
         val observedGeneration = gateway.currentWindowGeneration()
-        val (current, swipeViewport) = synchronized(observationStateLock) {
-            val resolution = referenceStore.resolve(snapshotId, ref, observedGeneration, clock())
-                as? DeviceNodeReferenceResolution.Current
-            val snapshotCapture = currentSnapshotCapture
-                ?.takeIf { it.snapshot.snapshotId == snapshotId }
-            val viewport = if (
-                resolution != null &&
-                snapshotCapture != null &&
-                DeviceNodeAction.SWIPE in resolution.actions
-            ) {
-                swipeEvidencePolicy.viewport(snapshotCapture, resolution.nodePath)
-            } else {
-                null
-            }
-            resolution to viewport
+        val current = referenceStore.resolve(snapshotId, ref, observedGeneration, clock())
+            as? DeviceNodeReferenceResolution.Current
+        val snapshotCapture = currentSnapshotCapture
+            ?.takeIf { it.snapshot.snapshotId == snapshotId }
+        val swipeViewport = if (
+            current != null &&
+            snapshotCapture != null &&
+            DeviceNodeAction.SWIPE in current.actions
+        ) {
+            swipeEvidencePolicy.viewport(snapshotCapture, current.nodePath)
+        } else {
+            null
         }
         val currentGeneration = gateway.currentWindowGeneration()
         if (currentGeneration != observedGeneration) {
@@ -128,25 +125,22 @@ class DeviceObservationController(
             }
             is DeviceSnapshotAssessment.Available -> {
                 val capture = DeviceSnapshotCapture.Success(assessment.snapshot, assessment.references)
-                synchronized(observationStateLock) {
-                    referenceStore.replace(
-                        snapshotId = assessment.snapshot.snapshotId,
-                        windowGeneration = assessment.snapshot.windowGeneration,
-                        expiresAt = assessment.snapshot.expiresAt,
-                        references = assessment.references,
-                    )
-                    currentSnapshotCapture = capture
-                }
+                referenceStore.replace(
+                    snapshotId = assessment.snapshot.snapshotId,
+                    windowGeneration = assessment.snapshot.windowGeneration,
+                    expiresAt = assessment.snapshot.expiresAt,
+                    references = assessment.references,
+                )
+                // long: 引用存储自身负责同步，当前快照用 volatile 发布；避免 UI 的 inspectReference 长时间占住动作执行路径。
+                currentSnapshotCapture = capture
                 capture
             }
         }
     }
 
     override fun clearReferences() {
-        synchronized(observationStateLock) {
-            currentSnapshotCapture = null
-            referenceStore.clear()
-        }
+        referenceStore.clear()
+        currentSnapshotCapture = null
     }
 
     override suspend fun openApp(packageName: String): DeviceActionCapture {
@@ -233,9 +227,8 @@ class DeviceObservationController(
     ): DeviceActionCapture {
         healthFailureOrNull()?.let { return it }
         val beforeGeneration = gateway.currentWindowGeneration()
-        val (resolution, beforeSnapshotCapture) = synchronized(observationStateLock) {
-            referenceStore.resolve(snapshotId, ref, beforeGeneration, clock()) to currentSnapshotCapture
-        }
+        val resolution = referenceStore.resolve(snapshotId, ref, beforeGeneration, clock())
+        val beforeSnapshotCapture = currentSnapshotCapture
         val current = when (resolution) {
             is DeviceNodeReferenceResolution.Current -> resolution
             DeviceNodeReferenceResolution.SnapshotNotFound ->
@@ -306,7 +299,13 @@ class DeviceObservationController(
                         )
                     }
                     DeviceNodeAction.TAP,
-                    -> PostActionVerification(verified = after.windowGeneration != beforeGeneration)
+                    -> PostActionVerification(
+                        verified = hasObservableTapChange(
+                            beforeSnapshot = beforeSnapshotCapture?.snapshot,
+                            afterSnapshot = after,
+                            beforeGeneration = beforeGeneration,
+                        ),
+                    )
                     DeviceNodeAction.SWIPE -> {
                         val afterViewport = swipeEvidencePolicy.viewport(capture, current.nodePath)
                         val evidence = if (beforeSwipeViewport != null && afterViewport != null) {
@@ -328,6 +327,23 @@ class DeviceObservationController(
             },
             successMessage = "节点动作已执行，并完成后置界面观察",
         )
+    }
+
+    private fun hasObservableTapChange(
+        beforeSnapshot: DeviceSnapshot?,
+        afterSnapshot: DeviceSnapshot,
+        beforeGeneration: Long,
+    ): Boolean {
+        if (afterSnapshot.windowGeneration != beforeGeneration) return true
+        if (beforeSnapshot == null) return false
+        if (
+            beforeSnapshot.packageName != afterSnapshot.packageName ||
+            beforeSnapshot.windowId != afterSnapshot.windowId
+        ) {
+            return true
+        }
+        // long: 计算器按键可能不触发新窗口代次，但会更新脱敏算式节点；比较去掉短生命周期 ref 的节点状态，避免把完全无变化的点击误报成已验证。
+        return beforeSnapshot.nodes.map { it.copy(ref = null) } != afterSnapshot.nodes.map { it.copy(ref = null) }
     }
 
     private suspend fun captureAfterAction(

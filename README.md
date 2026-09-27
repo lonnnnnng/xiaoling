@@ -8,16 +8,16 @@
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
   <img alt="Room v36" src="https://img.shields.io/badge/Room-v36-4285F4">
-  <img alt="Release v0.1.18" src="https://img.shields.io/badge/Release-v0.1.18-2E7D32">
+  <img alt="Release v0.1.19" src="https://img.shields.io/badge/Release-v0.1.19-2E7D32">
 </p>
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
 ## 下载
 
-- [GitHub Release v0.1.18](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18)
-- 安装包：`xiaoling-v0.1.18.apk`
-- 完整性校验：`xiaoling-v0.1.18.apk.sha256`
+- [GitHub Release v0.1.19](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.19)
+- 安装包：`xiaoling-v0.1.19.apk`
+- 完整性校验：`xiaoling-v0.1.19.apk.sha256`
 - 系统要求：Android 8.0（API 26）及以上
 
 > 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
@@ -96,17 +96,17 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 | 项目 | 状态 |
 | --- | --- |
-| 正式版本 | `v0.1.18`（`versionCode 19`） |
+| 正式版本 | `v0.1.19`（`versionCode 20`） |
 | 数据库 | Room v36 |
-| 开发里程碑 | 第 267 阶段目标级等价应用包族验证完成；继续回到个人 Agent 主线 |
+| 开发里程碑 | 第 281 阶段目标级结果与当前权威事实查看闭环完成；继续推进下一条窄前台个人任务 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |
 | Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-第 263 阶段发布了 `v0.1.18`：将 Android 12+ 系统 Splash 图标改为透明占位、背景与应用窗口同色，并启用 Release 资源收缩；`assembleRelease`、签名、`zipalign` 和 SHA-256 资产校验均已完成。本次发布按用户要求没有重复运行 JVM、Lint、Debug/AndroidTest 或 Redmi instrumentation。第 262 阶段已在 Redmi 完成“当前通知 → 用户选择保存为笔记 → 可见审批 → 当前笔记详情”的真实竖屏闭环，最终 `OK (1 test)`（`57.861s`），旧 Run 保持不变。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+第 281 阶段发布了 `v0.1.19`：完成真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看闭环。正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 2m 1s`；APK 大小 `3,280,434` 字节，SHA-256 为 `a0f413524e71f180d6aafbcd37e2b584e0bfd7a185efc6b379b21ba8fae0720a`。APK 使用固定正式 RSA 4096 证书，APK Signature Scheme v2 与 `zipalign` 校验通过。本次发布未重复运行完整 JVM、全量 Lint、Redmi 全量 instrumentation；第 281 阶段定向 JVM 与 Redmi 真实 Provider 证据仍按验证报告单独记录。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
-完整回归基线完成于 2026-08-13；它与后续第 260 至 264 阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.18`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
+完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.19`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
 
 第 264 阶段一次性提醒改期已完成：精确唯一任务、完整时间审批、当前计划指纹核对、系统入队与 Room 原子替换、答案级查看任务均已通过 Redmi 聚焦验收，旧 Run 保持不变。第 265 阶段已在 Redmi 真机完成指定系统计算器闭环：自然语言目标生成计划、用户确认、5 次逐动作审批、每步操作后重新观察与验证，最终读取 `56`；小灵恢复后显示 `7/7` 步骤完成，目标级结论为已验证。第 266 阶段五个可靠性切片已完成：设备观察恢复、模型失败处置、审批取消组合、排队进程对账及长任务预算/未知提交边界均已用局部证据锁定；不恢复旧协程、不重放未知副作用、不因模拟回收引入后台服务。第 267 阶段修正目标级验证对 AOSP/Google 计算器与时钟等已登记等价包族的兼容，未扩大白名单；下一步在 Redmi 用已有白名单包族做一次真实个人任务闭环验收。
 

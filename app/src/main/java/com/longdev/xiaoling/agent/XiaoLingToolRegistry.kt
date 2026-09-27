@@ -71,6 +71,7 @@ class XiaoLingToolRegistry(
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var pendingWorkflowAction: WorkflowActionAuthorizationState? = null
     private var executedWorkflowAction: WorkflowExecutedActionState? = null
+    private var pendingDirectTypeTextPrivacy: DirectAgentDeviceSnapshotPrivacyProjection? = null
     private var searchedMemoryDeleteCandidateId: String? = null
     private var confirmedMemoryDeleteCandidateId: String? = null
     private var searchedContactCandidateIds: Set<Long> = emptySet()
@@ -1216,6 +1217,7 @@ class XiaoLingToolRegistry(
         if (runContext?.runId != context.runId) {
             // long: Workflow 的短期 snapshot、逐动作审批和执行结果只属于当前 Agent Run；切换 Run 时必须全部作废，关联重试不能继承旧 ref。
             clearWorkflowDeviceActionState()
+            pendingDirectTypeTextPrivacy = null
             searchedMemoryDeleteCandidateId = null
             confirmedMemoryDeleteCandidateId = null
             searchedContactCandidateIds = emptySet()
@@ -1794,9 +1796,19 @@ class XiaoLingToolRegistry(
                     pendingWorkflowAction = null
                     executedWorkflowAction = null
                 }
+                val directPrivacyProjection = pendingDirectTypeTextPrivacy
+                    ?.takeIf {
+                        runContext?.invocationSource == AgentInvocationSource.DIRECT &&
+                            runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
+                    }
+                if (directPrivacyProjection != null) {
+                    pendingDirectTypeTextPrivacy = null
+                }
                 ToolExecutionResult(
                     success = true,
-                    content = DeviceSnapshotCodec.encode(capture.snapshot),
+                    content = DeviceSnapshotCodec.encode(
+                        directPrivacyProjection?.redact(capture.snapshot) ?: capture.snapshot,
+                    ),
                 )
             }
             is DeviceSnapshotCapture.Failed -> ToolExecutionResult(
@@ -1851,6 +1863,16 @@ class XiaoLingToolRegistry(
         val capture = block()
         return when (capture) {
             is DeviceActionCapture.Success -> {
+                if (
+                    call.name == DEVICE_TYPE_TEXT_TOOL_NAME &&
+                    runContext?.invocationSource == AgentInvocationSource.DIRECT &&
+                    runContext?.executionOrigin == AgentExecutionOrigin.FOREGROUND
+                ) {
+                    // long: 原文只用于当前 Executor；成功发出 type_text 后仅留下哈希和长度，下一次 snapshot 序列化时一次性隐藏匹配文本。
+                    call.arguments["text"]?.takeIf(String::isNotEmpty)?.let { text ->
+                        pendingDirectTypeTextPrivacy = DirectAgentDeviceSnapshotPrivacyProjection.fromText(text)
+                    }
+                }
                 if (workflowState != null) {
                     executedWorkflowAction = WorkflowExecutedActionState(
                         call = call.copy(arguments = call.arguments.toMap()),

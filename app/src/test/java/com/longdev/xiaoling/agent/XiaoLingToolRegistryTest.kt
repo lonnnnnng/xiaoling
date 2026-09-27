@@ -2187,6 +2187,81 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun directTypeTextProjectsOnlyTheNextSnapshotWhileKeepingControllerReadBack() = runTest {
+        val inputText = "stage279_exact_readback"
+        val provider = FakeDeviceController(
+            enabled = true,
+            typedTextSnapshotFactory = { text ->
+                listOf(
+                    DeviceSnapshotNode(
+                        index = 0,
+                        parentIndex = null,
+                        depth = 0,
+                        role = "text_field",
+                        text = text,
+                        description = null,
+                        hint = null,
+                        bounds = DeviceBounds(0, 0, 400, 80),
+                        enabled = true,
+                        checked = null,
+                        selected = false,
+                        redacted = false,
+                        ref = "r1",
+                        actions = setOf(DeviceNodeAction.TYPE_TEXT),
+                    ),
+                )
+            },
+        )
+        val registry = testRegistry(deviceController = provider)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-direct-type-text-privacy",
+                userMessageId = "message-direct-type-text-privacy",
+                runId = "run-direct-type-text-privacy",
+                goal = "在当前文本框输入普通文本",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+
+        val initialSnapshot = registry.execute(
+            ToolCall(id = "tool-call-direct-privacy-initial", name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        assertTrue(initialSnapshot.success)
+        assertFalse(initialSnapshot.content.contains(inputText))
+
+        val typeResult = registry.execute(
+            ToolCall(
+                id = "tool-call-direct-privacy-type-text",
+                name = "device.type_text",
+                arguments = mapOf(
+                    "snapshot_id" to "snapshot-direct",
+                    "ref" to "r1",
+                    "text" to inputText,
+                ),
+                risk = ToolRisk.REQUIRES_APPROVAL,
+            ),
+        )
+        assertTrue(typeResult.success)
+        assertFalse(typeResult.content.contains(inputText))
+
+        val projectedSnapshot = registry.execute(
+            ToolCall(id = "tool-call-direct-privacy-projected", name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        assertTrue(projectedSnapshot.success)
+        assertFalse("直接 Agent 的下一次 snapshot 不得回显输入原文", projectedSnapshot.content.contains(inputText))
+        assertTrue("隐私投影不得删除节点 ref", projectedSnapshot.content.contains("\"ref\":\"r1\""))
+        assertTrue("隐私投影不得删除节点动作", projectedSnapshot.content.contains("type_text"))
+        assertEquals(inputText, provider.lastCapturedSnapshot?.nodes?.single()?.text)
+
+        val laterSnapshot = registry.execute(
+            ToolCall(id = "tool-call-direct-privacy-later", name = "device.snapshot", arguments = emptyMap(), risk = ToolRisk.SAFE),
+        )
+        assertTrue(laterSnapshot.success)
+        assertTrue("一次性投影消费后，后续 snapshot 仍应反映 Controller 的当前内存事实", laterSnapshot.content.contains(inputText))
+    }
+
+    @Test
     fun expiredWorkflowSnapshotProducesStructuredRecoveryAndDoesNotExecuteAction() = runTest {
         val provider = FakeDeviceController(enabled = true)
         val registry = testRegistry(
@@ -4864,11 +4939,14 @@ private class FakeDeviceController(
     private val swipeAfterSnapshotWindowId: Int? = null,
     private val snapshotPackageName: String = "com.android.settings",
     private val snapshotNodes: List<DeviceSnapshotNode>? = null,
+    private val typedTextSnapshotFactory: ((String) -> List<DeviceSnapshotNode>)? = null,
 ) : DeviceController {
     var captureCount: Int = 0
     var referenceInspectionCount: Int = 0
     var clearReferencesCount: Int = 0
+    var lastCapturedSnapshot: DeviceSnapshot? = null
     val actions = mutableListOf<String>()
+    private var pendingCaptureNodes: List<DeviceSnapshotNode>? = null
 
     override fun health(): DeviceAgentHealthState = healthState
 
@@ -4890,8 +4968,7 @@ private class FakeDeviceController(
 
     override suspend fun capture(): DeviceSnapshotCapture {
         captureCount += 1
-        return DeviceSnapshotCapture.Success(
-            snapshot = DeviceSnapshot(
+        val captured = DeviceSnapshot(
                 snapshotId = "snapshot-direct",
                 packageName = snapshotPackageName,
                 windowTitle = "首页",
@@ -4899,7 +4976,7 @@ private class FakeDeviceController(
                 windowGeneration = 2L,
                 capturedAt = 1_000L,
                 expiresAt = 31_000L,
-                nodes = snapshotNodes ?: listOf(
+                nodes = pendingCaptureNodes ?: snapshotNodes ?: listOf(
                     DeviceSnapshotNode(
                         index = 0,
                         parentIndex = null,
@@ -4919,7 +4996,10 @@ private class FakeDeviceController(
                 ),
                 redactedNodeCount = 0,
                 truncated = false,
-            ),
+            )
+        lastCapturedSnapshot = captured
+        return DeviceSnapshotCapture.Success(
+            snapshot = captured,
             references = emptyList(),
         )
     }
@@ -4946,6 +5026,7 @@ private class FakeDeviceController(
 
     override suspend fun typeText(snapshotId: String, ref: String, text: String): DeviceActionCapture {
         actions += "type_text:$snapshotId:$ref"
+        pendingCaptureNodes = typedTextSnapshotFactory?.invoke(text)
         return successfulAction(
             action = "type_text",
             typeTextReadBack = DeviceTypeTextReadBack(nodePath = listOf(0), text = text),

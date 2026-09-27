@@ -16,6 +16,7 @@ import com.longdev.xiaoling.ui.AgentApprovalUiState
 import com.longdev.xiaoling.ui.ChatMessage
 import com.longdev.xiaoling.ui.ConversationSession
 import com.longdev.xiaoling.ui.CalendarEventNavigationTarget
+import com.longdev.xiaoling.ui.DirectAgentCurrentFactUiState
 import com.longdev.xiaoling.ui.NotificationNavigationTarget
 import com.longdev.xiaoling.ui.PersonalTaskCompletionUiState
 import com.longdev.xiaoling.ui.PersonalTaskFailureUiState
@@ -91,6 +92,8 @@ internal interface ConversationActions {
 
     fun openMemory(memoryId: String)
 
+    fun refreshDirectAgentCurrentFact(runId: String)
+
     fun approvePendingAgentTool()
 
     fun rejectPendingAgentTool()
@@ -134,6 +137,8 @@ internal data class ConversationMessagesUiState(
     val displayedKnowledgeReferences: List<KnowledgeReference> = emptyList(),
     val activeAgentRun: AgentRunSnapshot? = null,
     val pendingAgentApproval: AgentApprovalUiState? = null,
+    val directAgentCurrentFact: DirectAgentCurrentFactUiState? = null,
+    val refreshingDirectAgentCurrentFact: Boolean = false,
     val waitingForModelStart: Boolean = false,
 )
 
@@ -200,6 +205,8 @@ internal object ConversationProjection {
         conversationTitle: String = "",
         activeAgentRun: AgentRunSnapshot? = null,
         pendingAgentApproval: AgentApprovalUiState? = null,
+        directAgentCurrentFact: DirectAgentCurrentFactUiState? = null,
+        refreshingDirectAgentCurrentFact: Boolean = false,
         personalTaskMode: Boolean = false,
         awaitingPersonalTaskPlanConfirmation: Boolean = false,
         personalTaskOperationPhase: PersonalTaskOperationUiPhase? = null,
@@ -242,6 +249,8 @@ internal object ConversationProjection {
                 displayedKnowledgeReferences = displayedReferences,
                 activeAgentRun = activeAgentRun,
                 pendingAgentApproval = pendingAgentApproval,
+                directAgentCurrentFact = directAgentCurrentFact,
+                refreshingDirectAgentCurrentFact = refreshingDirectAgentCurrentFact,
                 waitingForModelStart = waitingForModelStart,
             ),
             composer = ConversationComposerUiState(

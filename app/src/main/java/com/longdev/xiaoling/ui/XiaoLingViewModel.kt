@@ -36,6 +36,9 @@ import com.longdev.xiaoling.agent.NotificationPersonalNoteSourceStatus
 import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
+import com.longdev.xiaoling.agent.DEVICE_OPEN_APP_TOOL_NAME
+import com.longdev.xiaoling.agent.DEVICE_TAP_REF_TOOL_NAME
+import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
 import com.longdev.xiaoling.agent.WorkflowDeviceActionRunContext
 import com.longdev.xiaoling.agent.AgentSkillRecord
@@ -50,7 +53,6 @@ import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
 import com.longdev.xiaoling.agent.ApprovalDecision
 import com.longdev.xiaoling.agent.ApprovalGate
-import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.ToolCall
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
@@ -115,6 +117,8 @@ import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityShadowSampleTracker
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.OpenAiKnowledgeAnswerabilityJudge
 import com.longdev.xiaoling.device.DeviceAccessibilityRuntime
+import com.longdev.xiaoling.device.DeviceObservationComponents
+import com.longdev.xiaoling.device.DeviceSnapshotCapture
 import com.longdev.xiaoling.notification.AndroidNotificationReader
 import com.longdev.xiaoling.network.ApiFailure
 import com.longdev.xiaoling.network.ProviderApiUrlBuilder
@@ -326,6 +330,8 @@ data class XiaoLingUiState(
     val syncingAllProfiles: Boolean = false,
     val batchSyncResults: Map<String, String> = emptyMap(),
     val activeAgentRun: AgentRunSnapshot? = null,
+    val directAgentCurrentFact: DirectAgentCurrentFactUiState? = null,
+    val refreshingDirectAgentCurrentFact: Boolean = false,
     val agentMemoryRecallEnabled: Boolean = true,
     val answerabilityShadowEnabled: Boolean = false,
     val answerabilityShadowSampleSummary: KnowledgeAnswerabilityShadowSampleSummary =
@@ -2986,6 +2992,73 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun refreshDirectAgentCurrentFact(runId: String) {
+        if (runId.isBlank() || uiState.refreshingDirectAgentCurrentFact) return
+        val conversationId = uiState.selectedConversationId
+        // long: 新一轮观察开始后先撤掉旧摘要；如果当前窗口读取失败，卡片必须明确回到“尚未观察”，不能把历史事实冒充为当前事实。
+        uiState = uiState.copy(
+            refreshingDirectAgentCurrentFact = true,
+            directAgentCurrentFact = null,
+            result = null,
+        )
+        viewModelScope.launch {
+            val capture = runCatching {
+                withContext(Dispatchers.IO) {
+                    // long: 当前事实按钮必须重新读取无障碍窗口，不能复用 Agent Run 里的历史 snapshot 或节点引用。
+                    DeviceObservationComponents.controller(getApplication<Application>()).capture()
+                }
+            }
+            if (uiState.selectedConversationId != conversationId) {
+                uiState = uiState.copy(refreshingDirectAgentCurrentFact = false)
+                return@launch
+            }
+            capture.onSuccess { result ->
+                when (result) {
+                    is DeviceSnapshotCapture.Success -> {
+                        val snapshot = result.snapshot
+                        uiState = uiState.copy(
+                            refreshingDirectAgentCurrentFact = false,
+                            directAgentCurrentFact = DirectAgentCurrentFactUiState(
+                                runId = runId,
+                                packageName = snapshot.packageName,
+                                nodeCount = snapshot.nodes.size,
+                                redactedNodeCount = snapshot.redactedNodeCount,
+                                truncated = snapshot.truncated,
+                                capturedAt = snapshot.capturedAt,
+                            ),
+                            result = OperationResult(
+                                success = true,
+                                title = "当前事实已刷新",
+                                message = "已重新观察当前前台窗口，未复用历史节点引用",
+                            ),
+                        )
+                    }
+                    is DeviceSnapshotCapture.Failed -> {
+                        uiState = uiState.copy(
+                            refreshingDirectAgentCurrentFact = false,
+                            directAgentCurrentFact = null,
+                            result = OperationResult(
+                                success = false,
+                                title = "当前事实读取失败",
+                                message = result.message,
+                            ),
+                        )
+                    }
+                }
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    refreshingDirectAgentCurrentFact = false,
+                    directAgentCurrentFact = null,
+                    result = OperationResult(
+                        success = false,
+                        title = "当前事实读取失败",
+                        message = error.message ?: "无法重新观察当前窗口",
+                    ),
+                )
+            }
+        }
+    }
+
     fun consumeMemorySourceConversationNavigation() {
         uiState = uiState.copy(memorySourceConversationNavigationId = null)
     }
@@ -4992,7 +5065,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         summaryUpdatedAt = preparedContext.summaryUpdatedAt,
                         summaryModel = preparedContext.summaryModel,
                     )
-                    .copy(sendingMessage = false, result = null)
+                    // long: 先把最终答案放进当前会话，等同一份快照完成 Room 保存后再宣告发送结束，避免重建 Activity 读到旧会话而丢失目标级结果卡片。
+                    .copy(sendingMessage = true, result = null)
                 createMemoryCandidateAfterTurn(
                     userText = goal,
                     conversationId = conversationId,
@@ -5021,6 +5095,9 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         conversationId = conversationId,
                     )
                 }
+                // long: UI 的“完成”状态必须晚于答案快照落库；这样重新打开小灵时，目标级结果和刷新入口一定来自当前 Run 的权威会话事实。
+                answerPersistenceJob.join()
+                uiState = uiState.copy(sendingMessage = false, result = null)
             } catch (error: CancellationException) {
                 settleWorkflowLedger(
                     workflowRunId = workflowRunId,
@@ -5224,7 +5301,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         conversationId: String,
         notificationNoteSource: NotificationPersonalNoteSource? = null,
     ): ApprovalGate {
-        return object : ApprovalGate {
+        val regularGate = object : ApprovalGate {
             override suspend fun requestApproval(
                 runId: String,
                 toolCall: ToolCall,
@@ -5250,6 +5327,33 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     toolCall = toolCall,
                     definition = definition,
                 )
+            }
+        }
+        return object : ApprovalGate {
+            override suspend fun requestApproval(
+                runId: String,
+                toolCall: ToolCall,
+                definition: ToolDefinition,
+            ): ApprovalDecision {
+                val autoApprovalEnabled = uiPreferenceStore.loadDeviceActionAutoApprovalEnabled()
+                if (autoApprovalEnabled && toolCall.name in DIRECT_DEVICE_ACTION_APPROVAL_TOOL_NAMES) {
+                    val targetAppPackage = toolCall.arguments["package_name"]
+                        ?.takeIf {
+                            toolCall.name == DEVICE_OPEN_APP_TOOL_NAME &&
+                                toolCall.arguments.keys == setOf("package_name")
+                        }
+                    // long: 直接 Agent 也只能在用户显式开启设置授权后省略逐次点击；Room 决定、Accessibility 守护、输入脱敏和 Executor 验证仍复用同一设备动作闸门，避免模型响应绕过审计链。
+                    return WorkflowDeviceActionApprovalGate(
+                        conversationId = conversationId,
+                        userIntent = "前台 Agent 设备动作",
+                        targetAppPackage = targetAppPackage,
+                        fallback = regularGate,
+                        persistence = workflowDeviceActionApprovalPersistence,
+                        overlayRequester = DeviceAccessibilityRuntime,
+                        autoApproveEnabled = uiPreferenceStore::loadDeviceActionAutoApprovalEnabled,
+                    ).requestApproval(runId, toolCall, definition)
+                }
+                return regularGate.requestApproval(runId, toolCall, definition)
             }
         }
     }
@@ -6226,5 +6330,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         private const val MEMORY_MANAGEMENT_LIMIT = 200
         private const val MEMORY_CANDIDATE_LIMIT = 100
         private const val MEMORY_SEARCH_DEBOUNCE_MS = 250L
+        private val DIRECT_DEVICE_ACTION_APPROVAL_TOOL_NAMES = setOf(
+            DEVICE_OPEN_APP_TOOL_NAME,
+            DEVICE_TAP_REF_TOOL_NAME,
+            DeviceTypeTextAuditPolicy.TOOL_NAME,
+        )
     }
 }

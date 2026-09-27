@@ -138,6 +138,8 @@ class AgentRunUseCase(
             ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
+            // long: 直接 Agent 的设备动作闭环需要“打开/观察/动作/观察/收尾观察”等多个事实；只对 Profile 明确授权设备动作的前台直接 Run 提高上限，通用 Agent 与 Workflow 仍保持默认有界预算。
+            options = runtimeOptionsFor(agentProfile, invocationSource),
         )
         return runtime.run(
             conversationId = conversationId,
@@ -202,6 +204,7 @@ class AgentRunUseCase(
             ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
+            options = runtimeOptionsFor(agentProfile, AgentInvocationSource.DIRECT),
         )
         // long: UseCase 在创建新 Run 前重新读取 Room 并复核生产 Registry；任务中心确认只授权进入这条路径，工具本身仍由 Runtime 创建新审批。
         return runtime.runControlledReplay(
@@ -282,6 +285,7 @@ class AgentRunUseCase(
             ),
             approvalGate = approvalGate,
             permissionChecker = permissionChecker,
+            options = agentProfile?.let { runtimeOptionsFor(it, invocationSource) } ?: AgentRuntimeOptions(),
         )
         return runtime.resumeApprovedRun(
             detail = detail,
@@ -302,6 +306,19 @@ class AgentRunUseCase(
                 embeddingProvider = provider,
             ),
         )
+    }
+
+    private fun runtimeOptionsFor(
+        profile: AgentProfileSnapshot,
+        invocationSource: AgentInvocationSource,
+    ): AgentRuntimeOptions {
+        val directDeviceRun = invocationSource == AgentInvocationSource.DIRECT &&
+            profile.allowedToolNames.any { it in DIRECT_DEVICE_ACTION_TOOL_NAMES }
+        return if (directDeviceRun) {
+            AgentRuntimeOptions(maxToolCalls = DIRECT_DEVICE_MAX_TOOL_CALLS)
+        } else {
+            AgentRuntimeOptions()
+        }
     }
 
     suspend fun recoverCommittedToolRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
@@ -418,6 +435,16 @@ internal val LEGACY_RUN_TOOL_NAMES = setOf(
     "notes.create",
     "memory.search",
     "memory.remember",
+)
+
+private const val DIRECT_DEVICE_MAX_TOOL_CALLS = 8
+private val DIRECT_DEVICE_ACTION_TOOL_NAMES = setOf(
+    "device.open_app",
+    "device.back",
+    "device.home",
+    "device.tap_ref",
+    "device.type_text",
+    "device.swipe",
 )
 
 internal fun legacyRunToolRegistry(delegate: ToolRegistry): ToolRegistry =

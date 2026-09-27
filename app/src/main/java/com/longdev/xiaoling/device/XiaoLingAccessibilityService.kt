@@ -131,7 +131,7 @@ class XiaoLingAccessibilityService : AccessibilityService() {
             }
             // long: Room 写入 PENDING 审批后，Compose 会刷新运行卡；先等窗口与 generation 连续稳定，避免把应用自身的一次性刷新误判成审批期间的外来页面漂移。
             val baseline = awaitStableApprovalTarget()
-                ?: return@withContext overlayDecision(
+            if (baseline == null) return@withContext overlayDecision(
                     DeviceActionApprovalOverlayDecisionKind.WINDOW_CHANGED,
                     "审批前目标页面持续变化，无法建立安全基线",
                 )
@@ -175,6 +175,18 @@ class XiaoLingAccessibilityService : AccessibilityService() {
                     windowManager.addView(root, params)
                 }.onSuccess {
                     approvalCoordinator.recordOverlayAdded(token)
+                    if (request.autoApprove) {
+                        // long: Redmi 对 1×1 的隐藏守护浮层不一定再发送 Accessibility 事件；附着成功后直接排队批准，仍由统一的移除确认和窗口集合守护决定最终结果。
+                        mainHandler.post {
+                            if (approvalPreferences.loadDeviceActionAutoApprovalEnabled()) {
+                                recordApprovalDecision(token, approved = true, autoApproved = true)
+                            } else {
+                                val cancelled = approvalCoordinator.cancel(token)
+                                removeApprovalView(token)
+                                if (cancelled != null) completeApproval(token, cancelled)
+                            }
+                        }
+                    }
                 }.onFailure {
                     val decision = approvalCoordinator.overlayAddFailed(token)
                         ?: overlayDecision(
@@ -323,13 +335,18 @@ class XiaoLingAccessibilityService : AccessibilityService() {
     }
 
     private fun captureAccessibilityWindows(): Set<DeviceAccessibilityWindowSnapshot> {
-        return windows.mapTo(linkedSetOf()) { window ->
-            DeviceAccessibilityWindowSnapshot(
-                id = window.id,
-                ownedApprovalOverlay = window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY &&
-                    window.title?.toString() == DEVICE_ACTION_APPROVAL_OVERLAY_TITLE,
-            )
-        }
+        return windows
+            .asSequence()
+            // long: Redmi 在搜索输入框获得焦点后会让输入法窗口参与多轮动画和内容刷新；它不是用户切换目标应用，纳入审批基线会让免逐次授权长期等不到稳定窗口。
+            // 目标应用窗口、系统权限窗口以及小灵自有 overlay 仍保留在守护集合中，真正的前台页面漂移继续 fail-closed。
+            .filter { it.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            .mapTo(linkedSetOf()) { window ->
+                DeviceAccessibilityWindowSnapshot(
+                    id = window.id,
+                    ownedApprovalOverlay = window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY &&
+                        window.title?.toString() == DEVICE_ACTION_APPROVAL_OVERLAY_TITLE,
+                )
+            }
     }
 
     private fun navigationBarInset(windowManager: WindowManager): Int {
@@ -459,7 +476,8 @@ class XiaoLingAccessibilityService : AccessibilityService() {
                 node.performAction(scrollAction)
             }
         }
-        return if (performed) RawDeviceActionResult.Performed else RawDeviceActionResult.Failed
+        val result = if (performed) RawDeviceActionResult.Performed else RawDeviceActionResult.Failed
+        return result
     }
 
     private fun AccessibilityNodeInfo.toRawNode(

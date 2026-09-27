@@ -64,7 +64,8 @@ class AndroidDeviceAccessibilityGateway(context: Context) : DeviceAccessibilityG
         text: String?,
         direction: DeviceScrollDirection?,
     ): RawDeviceActionResult {
-        return withContext(Dispatchers.Main.immediate) {
+        return withContext(Dispatchers.Default) {
+            // long: Redmi 的 Accessibility root 查询在服务主线程上可能与系统窗口回调互相等待；节点路径校验和 performAction 放到工作线程，避免 tap_ref 把 Agent Run 永久卡在 rootInActiveWindow。
             DeviceAccessibilityRuntime.performNodeAction(
                 expectedWindowGeneration = expectedWindowGeneration,
                 nodePath = nodePath,

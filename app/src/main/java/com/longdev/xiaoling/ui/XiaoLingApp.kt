@@ -283,6 +283,10 @@ private fun XiaoLingContent(
                 }
             }
 
+            override fun refreshDirectAgentCurrentFact(runId: String) {
+                viewModel.refreshDirectAgentCurrentFact(runId)
+            }
+
             override fun approvePendingAgentTool() = viewModel.approvePendingAgentTool()
 
             override fun rejectPendingAgentTool() = viewModel.rejectPendingAgentTool()
@@ -771,6 +775,8 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         conversationTitle = conversationTitle,
         activeAgentRun = activeAgentRun,
         pendingAgentApproval = pendingAgentApproval,
+        directAgentCurrentFact = directAgentCurrentFact,
+        refreshingDirectAgentCurrentFact = refreshingDirectAgentCurrentFact,
         personalTaskMode = personalTaskMode,
         awaitingPersonalTaskPlanConfirmation = pendingPersonalTaskPlan != null,
         personalTaskOperationPhase = personalTaskOperationPhase,
