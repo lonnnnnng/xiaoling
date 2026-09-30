@@ -74,3 +74,7 @@ adb -s wsvwypiz7xwslvl7 shell am instrument -w -r \
 - 最新 Debug APK：`app/build/outputs/apk/debug/app-debug.apk`，SHA-256 `5ab688940dafca2d68a50e1a9c7ae3acaa9878a9b56c527ca479454532fb6a6c`。
 - 最新 AndroidTest APK：`app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`，SHA-256 `30d785edd3746b615801622f2a9cd3d8162b08a019f7b0220c6376d14e7d7914`。
 - 仅向 Redmi `wsvwypiz7xwslvl7` 覆盖安装后，Remote Channel 存储、ACI 页面与设置根页合并定向回归为 `8/8`，无失败；JVM、Lint、Debug/AndroidTest 构建均成功，Lint `0 errors`、`81 warnings`。
+
+## 最终固定门禁回归（2026-09-30）
+
+- 在插件来源指纹和去重账本同步提交后的最新 APK 上，固定 Redmi 门禁重新执行为 `OK (14 tests)`，`0 failures`、`0 skipped`；设备仍为 `wsvwypiz7xwslvl7`，没有向模拟器发送命令。
