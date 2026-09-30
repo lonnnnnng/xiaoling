@@ -553,6 +553,34 @@ class AgentRunUseCase(
         return mcpClient.listTools(server)
     }
 
+    suspend fun listMcpResources(serverId: String): List<McpResourceDescriptor> {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        require(server.enabled) { "MCP Server 已停用" }
+        return mcpClient.listResources(server)
+    }
+
+    suspend fun readMcpResource(serverId: String, uri: String): List<McpResourceContent> {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        require(server.enabled) { "MCP Server 已停用" }
+        return mcpClient.readResource(server, uri)
+    }
+
+    suspend fun listMcpPrompts(serverId: String): List<McpPromptDescriptor> {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        require(server.enabled) { "MCP Server 已停用" }
+        return mcpClient.listPrompts(server)
+    }
+
+    suspend fun getMcpPrompt(
+        serverId: String,
+        name: String,
+        arguments: Map<String, String> = emptyMap(),
+    ): McpPromptResult {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        require(server.enabled) { "MCP Server 已停用" }
+        return mcpClient.getPrompt(server, name, arguments)
+    }
+
     suspend fun setMcpToolEnabled(
         serverId: String,
         toolName: String,

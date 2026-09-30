@@ -44,6 +44,42 @@ data class McpToolDescriptor(
     val destructiveHint: Boolean = false,
 )
 
+data class McpResourceDescriptor(
+    val uri: String,
+    val name: String,
+    val description: String,
+    val mimeType: String?,
+)
+
+data class McpResourceContent(
+    val uri: String,
+    val mimeType: String?,
+    val text: String?,
+    val blobBase64: String?,
+)
+
+data class McpPromptArgument(
+    val name: String,
+    val description: String,
+    val required: Boolean,
+)
+
+data class McpPromptDescriptor(
+    val name: String,
+    val description: String,
+    val arguments: List<McpPromptArgument>,
+)
+
+data class McpPromptMessage(
+    val role: String,
+    val contentJson: String,
+)
+
+data class McpPromptResult(
+    val description: String?,
+    val messages: List<McpPromptMessage>,
+)
+
 interface McpServerStore {
     fun list(): List<McpServerConfig>
     fun get(id: String): McpServerConfig?
@@ -246,6 +282,123 @@ class StreamableHttpMcpClient(
         }
     }
 
+    suspend fun listResources(server: McpServerConfig): List<McpResourceDescriptor> {
+        requireCapability(server, McpServerCapability.RESOURCES)
+        val resources = listPages(server, "resources/list", ::parseResourcePage)
+        require(resources.map { it.uri }.distinct().size == resources.size) { "MCP 资源目录包含重复 URI" }
+        return resources
+    }
+
+    suspend fun readResource(server: McpServerConfig, uri: String): List<McpResourceContent> {
+        requireCapability(server, McpServerCapability.RESOURCES)
+        McpPolicy.validateResourceUri(uri)
+        return request(server, "resources/read", JSONObject().put("uri", uri)) { result ->
+            val contents = result.optJSONArray("contents") ?: JSONArray()
+            require(contents.length() <= McpPolicy.MAX_CATALOG_ITEMS) { "MCP 资源内容数量超过限制" }
+            buildList(contents.length()) {
+                for (index in 0 until contents.length()) {
+                    val item = contents.getJSONObject(index)
+                    val itemUri = item.optString("uri").trim()
+                    McpPolicy.validateResourceUri(itemUri)
+                    val mimeType = item.optString("mimeType").takeIf(String::isNotBlank)
+                    val text = item.opt("text")
+                    val blob = item.opt("blob")
+                    require((text == null || text === JSONObject.NULL) xor (blob == null || blob === JSONObject.NULL)) {
+                        "MCP 资源内容必须且只能包含 text 或 blob"
+                    }
+                    val textValue = text?.takeUnless { it === JSONObject.NULL }?.let {
+                        require(it is String) { "MCP 资源 text 必须是字符串" }
+                        require(it.length <= McpPolicy.MAX_RESOURCE_CONTENT_CHARS) { "MCP 资源 text 超过大小限制" }
+                        it
+                    }
+                    val blobValue = blob?.takeUnless { it === JSONObject.NULL }?.let {
+                        require(it is String) { "MCP 资源 blob 必须是 Base64 字符串" }
+                        require(it.length <= McpPolicy.MAX_RESOURCE_CONTENT_CHARS) { "MCP 资源 blob 超过大小限制" }
+                        runCatching { java.util.Base64.getDecoder().decode(it) }
+                            .getOrElse { throw IllegalArgumentException("MCP 资源 blob 不是有效 Base64", it) }
+                        it
+                    }
+                    add(McpResourceContent(itemUri, mimeType, textValue, blobValue))
+                }
+            }
+        }
+    }
+
+    suspend fun listPrompts(server: McpServerConfig): List<McpPromptDescriptor> {
+        requireCapability(server, McpServerCapability.PROMPTS)
+        val prompts = listPages(server, "prompts/list", ::parsePromptPage)
+        require(prompts.map { it.name }.distinct().size == prompts.size) { "MCP Prompt 目录包含重复名称" }
+        return prompts
+    }
+
+    suspend fun getPrompt(
+        server: McpServerConfig,
+        name: String,
+        arguments: Map<String, String> = emptyMap(),
+    ): McpPromptResult {
+        requireCapability(server, McpServerCapability.PROMPTS)
+        McpPolicy.validatePromptName(name)
+        require(arguments.size <= McpPolicy.MAX_PROMPT_ARGUMENTS) { "MCP Prompt 参数数量超过限制" }
+        val params = JSONObject().put("name", name)
+        if (arguments.isNotEmpty()) {
+            params.put("arguments", JSONObject().apply {
+                arguments.toSortedMap().forEach { (key, value) ->
+                    McpPolicy.validatePromptArgument(key, value)
+                    put(key, value)
+                }
+            })
+        }
+        return request(server, "prompts/get", params) { result ->
+            val messages = result.optJSONArray("messages") ?: JSONArray()
+            require(messages.length() <= McpPolicy.MAX_CATALOG_ITEMS) { "MCP Prompt 消息数量超过限制" }
+            McpPromptResult(
+                description = result.optString("description").takeIf(String::isNotBlank),
+                messages = buildList(messages.length()) {
+                    for (index in 0 until messages.length()) {
+                        val item = messages.getJSONObject(index)
+                        val role = item.optString("role").trim()
+                        require(role == "user" || role == "assistant") { "MCP Prompt role 无效" }
+                        val content = item.opt("content")
+                        require(content != null && content !== JSONObject.NULL) { "MCP Prompt 消息缺少 content" }
+                        val contentJson = content.toString()
+                        require(contentJson.toByteArray(Charsets.UTF_8).size <= McpPolicy.MAX_PROMPT_CONTENT_BYTES) {
+                            "MCP Prompt content 超过大小限制"
+                        }
+                        add(McpPromptMessage(role, contentJson))
+                    }
+                },
+            )
+        }
+    }
+
+    private suspend fun <T> listPages(
+        server: McpServerConfig,
+        method: String,
+        parse: (JSONObject) -> McpPage<T>,
+    ): List<T> {
+        val result = ArrayList<T>()
+        var cursor: String? = null
+        var pageCount = 0
+        while (true) {
+            require(++pageCount <= McpPolicy.MAX_CATALOG_PAGES) { "MCP $method 分页超过限制" }
+            val params = JSONObject()
+            cursor?.let { params.put("cursor", it) }
+            val page = request(server, method, params, parse)
+            result += page.items
+            require(result.size <= McpPolicy.MAX_CATALOG_ITEMS) { "MCP $method 返回条目超过限制" }
+            cursor = page.nextCursor?.takeIf(String::isNotBlank)
+            if (cursor == null) return result
+        }
+    }
+
+    private suspend fun requireCapability(server: McpServerConfig, capability: McpServerCapability) {
+        ensureInitialized(server)
+        val session = sessions[sessionKey(server)]
+        require(session?.capabilities?.contains(capability) == true) {
+            "MCP Server 未声明 ${capability.protocolName} 能力"
+        }
+    }
+
     private fun parseToolPage(result: JSONObject): McpToolPage {
         val tools = result.optJSONArray("tools") ?: JSONArray()
         val descriptors = buildList {
@@ -268,6 +421,64 @@ class StreamableHttpMcpClient(
             }
         }
         return McpToolPage(tools = descriptors, nextCursor = result.optString("nextCursor").takeIf(String::isNotBlank))
+    }
+
+    private fun parseResourcePage(result: JSONObject): McpPage<McpResourceDescriptor> {
+        val resources = result.optJSONArray("resources") ?: JSONArray()
+        return McpPage(
+            items = buildList(resources.length()) {
+                for (index in 0 until resources.length()) {
+                    val resource = resources.getJSONObject(index)
+                    val uri = resource.optString("uri").trim()
+                    McpPolicy.validateResourceUri(uri)
+                    val name = resource.optString("name").trim()
+                    require(name.isNotBlank() && name.length <= McpPolicy.MAX_PROMPT_NAME_CHARS) {
+                        "MCP 资源名称无效"
+                    }
+                    add(McpResourceDescriptor(
+                        uri = uri,
+                        name = name,
+                        description = resource.optString("description").take(McpPolicy.MAX_DESCRIPTION_CHARS),
+                        mimeType = resource.optString("mimeType").takeIf(String::isNotBlank),
+                    ))
+                }
+            },
+            nextCursor = result.optString("nextCursor").takeIf(String::isNotBlank),
+        )
+    }
+
+    private fun parsePromptPage(result: JSONObject): McpPage<McpPromptDescriptor> {
+        val prompts = result.optJSONArray("prompts") ?: JSONArray()
+        return McpPage(
+            items = buildList(prompts.length()) {
+                for (index in 0 until prompts.length()) {
+                    val prompt = prompts.getJSONObject(index)
+                    val name = prompt.optString("name").trim()
+                    McpPolicy.validatePromptName(name)
+                    val arguments = prompt.optJSONArray("arguments") ?: JSONArray()
+                    require(arguments.length() <= McpPolicy.MAX_PROMPT_ARGUMENTS) { "MCP Prompt 参数数量超过限制" }
+                    val argumentNames = linkedSetOf<String>()
+                    add(McpPromptDescriptor(
+                        name = name,
+                        description = prompt.optString("description").take(McpPolicy.MAX_DESCRIPTION_CHARS),
+                        arguments = buildList(arguments.length()) {
+                            for (argumentIndex in 0 until arguments.length()) {
+                                val argument = arguments.getJSONObject(argumentIndex)
+                                val argumentName = argument.optString("name").trim()
+                                McpPolicy.validatePromptArgument(argumentName, "")
+                                require(argumentNames.add(argumentName)) { "MCP Prompt 参数名称重复：$argumentName" }
+                                add(McpPromptArgument(
+                                    name = argumentName,
+                                    description = argument.optString("description").take(McpPolicy.MAX_DESCRIPTION_CHARS),
+                                    required = argument.optBoolean("required", false),
+                                ))
+                            }
+                        },
+                    ))
+                }
+            },
+            nextCursor = result.optString("nextCursor").takeIf(String::isNotBlank),
+        )
     }
 
     private suspend fun <T> request(
@@ -306,6 +517,12 @@ class StreamableHttpMcpClient(
             }
             val result = response.payload.optJSONObject("result") ?: throw IllegalStateException("MCP 初始化缺少 result")
             val negotiatedVersion = result.optString("protocolVersion").ifBlank { McpPolicy.PROTOCOL_VERSION }
+            val capabilities = buildSet {
+                val capabilityObject = result.optJSONObject("capabilities") ?: JSONObject()
+                if (capabilityObject.has("tools")) add(McpServerCapability.TOOLS)
+                if (capabilityObject.has("resources")) add(McpServerCapability.RESOURCES)
+                if (capabilityObject.has("prompts")) add(McpServerCapability.PROMPTS)
+            }
             postRpc(
                 server = server,
                 method = "notifications/initialized",
@@ -315,7 +532,7 @@ class StreamableHttpMcpClient(
                 protocolVersion = negotiatedVersion,
                 allowEmptyResponse = true,
             )
-            sessions[key] = McpSession(response.sessionId, negotiatedVersion)
+            sessions[key] = McpSession(response.sessionId, negotiatedVersion, capabilities)
         }
     }
 
@@ -398,8 +615,13 @@ class StreamableHttpMcpClient(
     }
 
     private data class RpcResponse(val payload: JSONObject, val sessionId: String?)
-    private data class McpSession(val sessionId: String?, val protocolVersion: String)
+    private data class McpSession(
+        val sessionId: String?,
+        val protocolVersion: String,
+        val capabilities: Set<McpServerCapability>,
+    )
     private data class McpToolPage(val tools: List<McpToolDescriptor>, val nextCursor: String?)
+    private data class McpPage<T>(val items: List<T>, val nextCursor: String?)
     private data class CachedTools(val tools: List<McpToolDescriptor>, val expiresAtMillis: Long)
 
     private fun readLimited(source: BufferedSource, maxBytes: Int): ByteArray {
@@ -414,6 +636,12 @@ class StreamableHttpMcpClient(
     }
 }
 
+private enum class McpServerCapability(val protocolName: String) {
+    TOOLS("tools"),
+    RESOURCES("resources"),
+    PROMPTS("prompts"),
+}
+
 object McpPolicy {
     // long: 与当前主流 Streamable HTTP MCP Server 的握手版本保持一致，避免把较新的版本号误当成服务器能力声明。
     const val PROTOCOL_VERSION = "2025-03-26"
@@ -421,8 +649,32 @@ object McpPolicy {
     const val MAX_ARGUMENT_BYTES = 32 * 1024
     const val MAX_RESPONSE_BYTES = 512 * 1024
     const val MAX_TOOL_LIST_PAGES = 20
+    const val MAX_CATALOG_PAGES = 20
+    const val MAX_CATALOG_ITEMS = 1_000
+    const val MAX_RESOURCE_CONTENT_CHARS = 200_000
+    const val MAX_PROMPT_CONTENT_BYTES = 128 * 1024
+    const val MAX_PROMPT_ARGUMENTS = 100
+    const val MAX_PROMPT_NAME_CHARS = 120
+    const val MAX_PROMPT_ARGUMENT_CHARS = 4_096
+    const val MAX_DESCRIPTION_CHARS = 2_000
     const val TOOL_CACHE_TTL_MILLIS = 5 * 60 * 1_000L
     const val RUN_CATALOG_TTL_MILLIS = 5 * 60 * 1_000L
+
+    fun validateResourceUri(uri: String) {
+        require(uri.isNotBlank() && uri.length <= 2_048) { "MCP 资源 URI 无效" }
+        require(uri.none { it == '\r' || it == '\n' }) { "MCP 资源 URI 不能包含换行" }
+    }
+
+    fun validatePromptName(name: String) {
+        require(name.isNotBlank() && name.length <= MAX_PROMPT_NAME_CHARS) { "MCP Prompt 名称无效" }
+        require(name.none { it == '\r' || it == '\n' }) { "MCP Prompt 名称不能包含换行" }
+    }
+
+    fun validatePromptArgument(name: String, value: String) {
+        require(name.isNotBlank() && name.length <= MAX_PROMPT_NAME_CHARS) { "MCP Prompt 参数名无效" }
+        require(name.none { it == '\r' || it == '\n' }) { "MCP Prompt 参数名不能包含换行" }
+        require(value.length <= MAX_PROMPT_ARGUMENT_CHARS) { "MCP Prompt 参数过长" }
+    }
 }
 
 /**

@@ -26,6 +26,7 @@ class McpE2eInstrumentedTest {
 
     @Before
     fun setUp() {
+        requestBodies.clear()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -39,7 +40,10 @@ class McpE2eInstrumentedTest {
                             rpc.optString("id"),
                             JSONObject()
                                 .put("protocolVersion", McpPolicy.PROTOCOL_VERSION)
-                                .put("capabilities", JSONObject().put("tools", JSONObject()))
+                                .put("capabilities", JSONObject()
+                                    .put("tools", JSONObject())
+                                    .put("resources", JSONObject())
+                                    .put("prompts", JSONObject()))
                                 .put("serverInfo", JSONObject().put("name", "device-mock").put("version", "1.0")),
                         ).setHeader("Mcp-Session-Id", SESSION_ID)
 
@@ -76,6 +80,38 @@ class McpE2eInstrumentedTest {
                                     .put("isError", false),
                             ).setHeader("Mcp-Session-Id", SESSION_ID)
                         }
+
+                        "resources/list" -> jsonRpcResponse(
+                            rpc.optString("id"),
+                            JSONObject().put("resources", JSONArray().put(JSONObject()
+                                .put("uri", "memo://device")
+                                .put("name", "设备测试资源")
+                                .put("mimeType", "text/plain"))),
+                        ).setHeader("Mcp-Session-Id", SESSION_ID)
+
+                        "resources/read" -> jsonRpcResponse(
+                            rpc.optString("id"),
+                            JSONObject().put("contents", JSONArray().put(JSONObject()
+                                .put("uri", "memo://device")
+                                .put("mimeType", "text/plain")
+                                .put("text", "device-resource-ok"))),
+                        ).setHeader("Mcp-Session-Id", SESSION_ID)
+
+                        "prompts/list" -> jsonRpcResponse(
+                            rpc.optString("id"),
+                            JSONObject().put("prompts", JSONArray().put(JSONObject()
+                                .put("name", "device-summary")
+                                .put("arguments", JSONArray().put(JSONObject()
+                                    .put("name", "topic")
+                                    .put("required", true))))),
+                        ).setHeader("Mcp-Session-Id", SESSION_ID)
+
+                        "prompts/get" -> jsonRpcResponse(
+                            rpc.optString("id"),
+                            JSONObject().put("messages", JSONArray().put(JSONObject()
+                                .put("role", "user")
+                                .put("content", JSONObject().put("type", "text").put("text", "device-prompt-ok")))),
+                        ).setHeader("Mcp-Session-Id", SESSION_ID)
 
                         else -> jsonRpcError(rpc.optString("id"), -32601, "unknown method: $method")
                     }
@@ -124,6 +160,32 @@ class McpE2eInstrumentedTest {
         assertEquals(SESSION_ID, list.getHeader("Mcp-Session-Id"))
         assertEquals(SESSION_ID, call.getHeader("Mcp-Session-Id"))
         println("DEVICE_MCP_E2E initialize=true tools_list=true tools_call=true session=true bearer=true")
+    }
+
+    @Test
+    fun resourcesAndPromptsWorkOnRealDeviceLoopback() = runBlocking {
+        val client = StreamableHttpMcpClient()
+        val config = McpServerConfig(
+            id = "device-mcp-resources",
+            name = "Device MCP Resources",
+            url = server.url("/mcp").toString(),
+        )
+
+        val resources = client.listResources(config)
+        assertEquals(listOf("memo://device"), resources.map(McpResourceDescriptor::uri))
+        assertEquals("device-resource-ok", client.readResource(config, "memo://device").single().text)
+        val prompts = client.listPrompts(config)
+        assertEquals(listOf("device-summary"), prompts.map(McpPromptDescriptor::name))
+        val result = client.getPrompt(config, "device-summary", mapOf("topic" to "device"))
+        assertTrue(result.messages.single().contentJson.contains("device-prompt-ok"))
+
+        val requests = (1..6).map { server.takeRequest(5, TimeUnit.SECONDS)!! }
+        assertTrue(requests.drop(2).all { it.getHeader("Mcp-Session-Id") == SESSION_ID })
+        assertEquals(
+            listOf("initialize", "notifications/initialized", "resources/list", "resources/read", "prompts/list", "prompts/get"),
+            requestBodies.map { JSONObject(it).getString("method") },
+        )
+        println("DEVICE_MCP_CONTENT resources_list=true resources_read=true prompts_list=true prompts_get=true session=true")
     }
 
     private fun jsonRpcResponse(id: String, result: JSONObject): MockResponse = MockResponse()

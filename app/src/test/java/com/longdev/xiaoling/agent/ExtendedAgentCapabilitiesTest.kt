@@ -243,6 +243,10 @@ class ExtendedAgentCapabilitiesTest {
         assertTrue("terminal.close" in declaredTools)
         assertTrue("mcp.list_tools" in declaredTools)
         assertTrue("mcp.call" in declaredTools)
+        assertTrue("mcp.list_resources" in declaredTools)
+        assertTrue("mcp.read_resource" in declaredTools)
+        assertTrue("mcp.list_prompts" in declaredTools)
+        assertTrue("mcp.get_prompt" in declaredTools)
     }
 
     @Test

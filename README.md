@@ -64,10 +64,10 @@
 - Accessibility 独立授权、独立开关，设备节点引用短生命周期化，并在进入模型前进行隐私过滤。
 - 不提供任意 Shell、Root、ADB、隐藏系统 API，也不执行未经确认的支付、下单、删除、发消息或系统设置修改。
 - 浏览器只读取公开 HTTP(S) 页面，拒绝私网/回环解析、账号密码 URL、脚本、Cookie、表单和自动重定向；工作区写入与终端操作逐次确认，并限制路径、会话、输入、输出和超时。
-- MCP 当前只接入 Streamable HTTP 的 `tools/list` / `tools/call`，要求 HTTPS（本机调试只允许 loopback），Token 使用 Keystore 加密；设置页可发现并逐项启用/停用远端工具，每次 Run 冻结工具目录并按远端 JSON Schema 校验参数。
+- MCP 当前接入 Streamable HTTP 的 `tools/list` / `tools/call`、`resources/list` / `resources/read` 和 `prompts/list` / `prompts/get`，要求 HTTPS（本机调试只允许 loopback），Token 使用 Keystore 加密；工具、资源和 Prompt 目录均在当前 Run 内冻结，资源与 Prompt 只能读取已发现的 URI/名称，远端工具仍按设置页白名单和逐次确认执行。
 - 设备动作目前只承诺少量已验收应用与前台场景，不承诺任意 App；后台或定时设备动作、坐标/截图兜底仍关闭。
 - 后台计划使用 WorkManager 非精确定时语义；已补齐 `KEEP` 实际 Work ID 回读和孤立计划补队，但不承诺自然 LMK 后原地续跑，也未引入 Foreground Service。TTS 仅由用户在前台点击 assistant 消息触发，使用音频焦点和长文本分片；设备无可用系统引擎时保持不可播放。系统助手入口只打开对话页，不读取屏幕、不自动录音或发送。
-- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 和端侧模型管理仍未开放。
+- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；声明式插件状态会持久化安装版本、启停状态和来源指纹，损坏状态 fail-closed；账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 和端侧模型管理仍未开放。
 
 ## 快速开始
 

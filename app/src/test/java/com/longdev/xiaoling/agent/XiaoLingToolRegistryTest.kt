@@ -32,6 +32,12 @@ import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
 import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -41,6 +47,137 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XiaoLingToolRegistryTest {
+    @Test
+    fun mcpExtendedToolsAreFrontDirectOnly() = runTest {
+        val registry = testRegistry(
+            mcpServerStore = InMemoryMcpServerStore(
+                McpServerConfig(
+                    id = "registry-mcp",
+                    name = "Registry MCP",
+                    url = "http://127.0.0.1:1/mcp",
+                ),
+            ),
+        )
+
+        assertEquals(
+            setOf("mcp.list_resources", "mcp.read_resource", "mcp.list_prompts", "mcp.get_prompt"),
+            registry.registeredTools()
+                .filter { it.name.startsWith("mcp.") && it.name != "mcp.list_tools" && it.name != "mcp.call" }
+                .mapTo(linkedSetOf(), ToolDefinition::name),
+        )
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "读取 MCP 资源"))
+        assertTrue(registry.availableTools().none { it.name == "mcp.list_resources" })
+        val denied = registry.execute(
+            ToolCall(
+                name = "mcp.list_resources",
+                arguments = mapOf("server_id" to "registry-mcp"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(denied.success)
+        assertTrue(denied.content.contains("前台直接 Agent"))
+
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-mcp-direct",
+                userMessageId = "message-mcp-direct",
+                runId = "run-mcp-direct",
+                goal = "读取 MCP 资源",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        assertNotNull(registry.definition("mcp.list_resources"))
+        assertNotNull(registry.definition("mcp.read_resource"))
+        assertNotNull(registry.definition("mcp.list_prompts"))
+        assertNotNull(registry.definition("mcp.get_prompt"))
+    }
+
+    @Test
+    fun mcpResourceReadRequiresUriFromCurrentRunCatalog() = runTest {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val payload = JSONObject(request.body.readUtf8())
+                return when (payload.optString("method")) {
+                    "initialize" -> rpcResponse(payload, JSONObject()
+                        .put("protocolVersion", McpPolicy.PROTOCOL_VERSION)
+                        .put("capabilities", JSONObject().put("resources", JSONObject())))
+                        .setHeader("Mcp-Session-Id", "registry-session")
+                    "notifications/initialized" -> MockResponse().setResponseCode(202)
+                    "resources/list" -> rpcResponse(payload, JSONObject().put(
+                        "resources", JSONArray().put(JSONObject()
+                            .put("uri", "memo://known")
+                            .put("name", "Known")
+                            .put("mimeType", "text/plain")),
+                    ))
+                    "resources/read" -> rpcResponse(payload, JSONObject().put(
+                        "contents", JSONArray().put(JSONObject()
+                            .put("uri", "memo://known")
+                            .put("mimeType", "text/plain")
+                            .put("text", "registry-resource-ok")),
+                    ))
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        try {
+            val registry = testRegistry(
+                mcpServerStore = InMemoryMcpServerStore(
+                    McpServerConfig(
+                        id = "registry-mcp",
+                        name = "Registry MCP",
+                        url = server.url("/mcp").toString(),
+                    ),
+                ),
+            )
+            registry.bindRunContext(
+                AgentToolExecutionContext(
+                    conversationId = "conversation-mcp-catalog",
+                    userMessageId = "message-mcp-catalog",
+                    runId = "run-mcp-catalog",
+                    goal = "读取 MCP 资源",
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                ),
+            )
+
+            val listed = registry.execute(
+                ToolCall(
+                    name = "mcp.list_resources",
+                    arguments = mapOf("server_id" to "registry-mcp"),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+            assertTrue(listed.success)
+            assertTrue(listed.content.contains("memo://known"))
+
+            val unknown = registry.execute(
+                ToolCall(
+                    name = "mcp.read_resource",
+                    arguments = mapOf("server_id" to "registry-mcp", "uri" to "memo://unknown"),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+            assertFalse(unknown.success)
+            assertTrue(unknown.content.contains("未在当前 Run 的 MCP 目录中发现"))
+
+            val known = registry.execute(
+                ToolCall(
+                    name = "mcp.read_resource",
+                    arguments = mapOf("server_id" to "registry-mcp", "uri" to "memo://known"),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+            assertTrue(known.success)
+            assertTrue(known.content.contains("registry-resource-ok"))
+        } finally {
+            server.shutdown()
+        }
+    }
+
     @Test
     fun foregroundWeatherReaderReturnsOnlyVerifiedCurrentFacts() = runTest {
         val registry = testRegistry(
@@ -4744,6 +4881,7 @@ class XiaoLingToolRegistryTest {
         storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
         notificationReader: NotificationReader = UnavailableNotificationReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
+        mcpServerStore: McpServerStore = DisabledMcpServerStore,
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
     ): XiaoLingToolRegistry {
@@ -4765,8 +4903,33 @@ class XiaoLingToolRegistryTest {
             storageStatusReader = storageStatusReader,
             notificationReader = notificationReader,
             deviceController = deviceController,
+            mcpServerStore = mcpServerStore,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )
+    }
+
+    private fun rpcResponse(request: JSONObject, result: JSONObject): MockResponse = MockResponse()
+        .setBody(JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("id", request.getString("id"))
+            .put("result", result)
+            .toString())
+
+    private class InMemoryMcpServerStore(
+        initial: McpServerConfig,
+    ) : McpServerStore {
+        private val configs = linkedMapOf(initial.id to initial)
+
+        override fun list(): List<McpServerConfig> = configs.values.toList()
+
+        override fun get(id: String): McpServerConfig? = configs[id]
+
+        override fun upsert(config: McpServerConfig): McpServerConfig {
+            configs[config.id] = config
+            return config
+        }
+
+        override fun delete(id: String): Boolean = configs.remove(id) != null
     }
 
     private fun directCalendarDeleteContext(): AgentToolExecutionContext = AgentToolExecutionContext(
