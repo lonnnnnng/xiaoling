@@ -64,6 +64,10 @@ class XiaoLingToolRegistry(
     private val storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
     private val notificationReader: NotificationReader = UnavailableNotificationReader,
     private val deviceController: DeviceController = DisabledDeviceController,
+    private val browserPageReader: BrowserPageReader = DisabledBrowserPageReader,
+    private val workspaceSandbox: WorkspaceSandbox = DisabledWorkspaceSandbox,
+    private val mcpServerStore: McpServerStore = DisabledMcpServerStore,
+    private val mcpClient: StreamableHttpMcpClient = StreamableHttpMcpClient(),
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
@@ -84,6 +88,7 @@ class XiaoLingToolRegistry(
     private var verifiedNoteAppendCandidate: NoteAppendIdentity? = null
     private val approvedNoteAppendCallIds = mutableSetOf<String>()
     private var listedNotificationIds: Set<String> = emptySet()
+    private val mcpCatalogs = mutableMapOf<String, McpCatalogSnapshot>()
     private val taskRescheduleTools = AgentTaskRescheduleTools(clock, taskStore)
     // long: Workflow 生产动作面只包含逐项完成安全证据和 Redmi 限定验收的 open_app/back/home/tap_ref/type_text/swipe；其他已注册动作不能借构造注入扩大权限。
     private val workflowDeviceActionToolNames = workflowDeviceActionToolNames.toSet().also { toolNames ->
@@ -94,6 +99,12 @@ class XiaoLingToolRegistry(
     }
     private val workflowDeviceActionSafetyPolicy = WorkflowDeviceActionSafetyPolicy(
         enabledToolNames = this.workflowDeviceActionToolNames,
+    )
+
+    private data class McpCatalogSnapshot(
+        val serverFingerprint: String,
+        val tools: List<McpToolDescriptor>,
+        val fetchedAtMillis: Long,
     )
 
     internal fun withKnowledgeStore(store: KnowledgeDocumentStore): XiaoLingToolRegistry = XiaoLingToolRegistry(
@@ -113,6 +124,10 @@ class XiaoLingToolRegistry(
         connectivityStatusReader = connectivityStatusReader,
         storageStatusReader = storageStatusReader,
         deviceController = deviceController,
+        browserPageReader = browserPageReader,
+        workspaceSandbox = workspaceSandbox,
+        mcpServerStore = mcpServerStore,
+        mcpClient = mcpClient,
         workflowDeviceActionToolNames = workflowDeviceActionToolNames,
     )
 
@@ -1127,6 +1142,159 @@ class XiaoLingToolRegistry(
             timeoutMs = 5_000,
         ),
         ToolDefinition(
+            name = BROWSER_FETCH_TOOL_NAME,
+            description = "读取公开网页的标题、正文和少量链接；不执行页面脚本、不使用 Cookie、不提交表单。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("url", "公开 HTTP(S) 网页地址。", required = true, maxLength = 2_048),
+                ToolInputField("max_chars", "正文最大字符数。", required = false, type = ToolInputType.INTEGER, minimum = 500.0, maximum = 50_000.0),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 60_000,
+        ),
+        ToolDefinition(
+            name = BROWSER_OPEN_TOOL_NAME,
+            description = "打开一个无脚本、无 Cookie 的只读浏览器会话并读取公开网页；最多同时保留 4 个会话。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("url", "公开 HTTP(S) 网页地址。", required = true, maxLength = 2_048),
+                ToolInputField("max_chars", "正文最大字符数。", required = false, type = ToolInputType.INTEGER, minimum = 500.0, maximum = 50_000.0),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 60_000,
+        ),
+        ToolDefinition(
+            name = BROWSER_READ_TOOL_NAME,
+            description = "读取浏览器会话当前页面的最近快照，不重新执行页面脚本或携带 Cookie。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("session_id", "browser.open 返回的会话 ID。", required = true, maxLength = 32)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = BROWSER_NAVIGATE_TOOL_NAME,
+            description = "在只读浏览器会话中打开另一个公开网页；仍执行 URL、私网和重定向安全限制。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("session_id", "browser.open 返回的会话 ID。", required = true, maxLength = 32),
+                ToolInputField("url", "公开 HTTP(S) 网页地址。", required = true, maxLength = 2_048),
+                ToolInputField("max_chars", "正文最大字符数。", required = false, type = ToolInputType.INTEGER, minimum = 500.0, maximum = 50_000.0),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 60_000,
+        ),
+        ToolDefinition(
+            name = BROWSER_CLOSE_TOOL_NAME,
+            description = "关闭只读浏览器会话并清除其页面快照。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("session_id", "browser.open 返回的会话 ID。", required = true, maxLength = 32)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = WORKSPACE_LIST_TOOL_NAME,
+            description = "列出应用私有 Agent 工作区中的文件和目录。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("path", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = WORKSPACE_READ_TOOL_NAME,
+            description = "读取应用私有 Agent 工作区中的 UTF-8 文本文件。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(
+                ToolInputField("path", "工作区相对文件路径。", required = true, maxLength = 512),
+                ToolInputField("max_chars", "返回最大字符数。", required = false, type = ToolInputType.INTEGER, minimum = 1.0, maximum = 100_000.0),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = WORKSPACE_WRITE_TOOL_NAME,
+            description = "在应用私有 Agent 工作区写入 UTF-8 文本文件；需要逐次用户确认。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("path", "工作区相对文件路径。", required = true, maxLength = 512),
+                ToolInputField("content", "要写入的 UTF-8 文本。", required = true, maxLength = WorkspacePolicy.MAX_FILE_BYTES.toInt()),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = 15_000,
+        ),
+        ToolDefinition(
+            name = TERMINAL_EXECUTE_TOOL_NAME,
+            description = "在应用私有 Agent 工作区中执行受限终端命令；需要逐次用户确认，默认最多 30 秒。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("command", "要执行的 shell 命令。", required = true, maxLength = WorkspacePolicy.MAX_COMMAND_LENGTH),
+                ToolInputField("cwd", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512),
+                ToolInputField("timeout_ms", "命令最长执行时间。", required = false, type = ToolInputType.INTEGER, minimum = 1.0, maximum = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS.toDouble()),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS,
+        ),
+        ToolDefinition(
+            name = TERMINAL_OPEN_TOOL_NAME,
+            description = "打开一个绑定到应用私有工作区的持久终端会话；需要逐次用户确认，最多同时保留 4 个会话。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(ToolInputField("cwd", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = TERMINAL_WRITE_TOOL_NAME,
+            description = "向已打开的持久终端写入 stdin；需要逐次用户确认，单次最多 4,000 个字符。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32),
+                ToolInputField("input", "写入终端 stdin 的文本，通常应包含换行。", required = true, maxLength = WorkspacePolicy.MAX_SESSION_INPUT_CHARS),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = TERMINAL_READ_TOOL_NAME,
+            description = "读取持久终端会话当前积累的有限 stdout/stderr。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = TERMINAL_CLOSE_TOOL_NAME,
+            description = "关闭持久终端会话并终止其中的 shell；需要逐次用户确认。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = 10_000,
+        ),
+        ToolDefinition(
+            name = MCP_LIST_TOOLS_TOOL_NAME,
+            description = "从已配置的远程 MCP Server 发现工具目录。",
+            risk = ToolRisk.SAFE,
+            inputSchema = listOf(ToolInputField("server_id", "已配置 MCP Server 的稳定 ID。", required = true, maxLength = 64)),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 75_000,
+        ),
+        ToolDefinition(
+            name = MCP_CALL_TOOL_NAME,
+            description = "调用已配置 MCP Server 的一个工具；默认需要逐次用户确认，参数必须是 JSON object。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("server_id", "已配置 MCP Server 的稳定 ID。", required = true, maxLength = 64),
+                ToolInputField("tool_name", "MCP 工具名称。", required = true, maxLength = 120),
+                ToolInputField("arguments_json", "MCP 工具参数 JSON object。", required = false, maxLength = McpPolicy.MAX_ARGUMENT_BYTES),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            validateBeforeAudit = true,
+            timeoutMs = 75_000,
+        ),
+        ToolDefinition(
             name = APP_GET_WEATHER_TOOL_NAME,
             description = "从当前前台 Google Weather 的新鲜脱敏快照读取唯一可识别的当前温度和天气状况；不读取或保存位置，不支持后台。",
             risk = ToolRisk.SAFE,
@@ -1230,6 +1398,7 @@ class XiaoLingToolRegistry(
             verifiedNoteAppendCandidate = null
             approvedNoteAppendCallIds.clear()
             listedNotificationIds = emptySet()
+            mcpCatalogs.clear()
             taskRescheduleTools.clear()
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
@@ -1493,6 +1662,9 @@ class XiaoLingToolRegistry(
         if (!deviceHealthAllowed(context)) {
             available = available.filterNot { it.name == APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME }
         }
+        if (!extendedCapabilityAllowed(context)) {
+            available = available.filterNot { it.name in EXTENDED_AGENT_TOOL_NAMES }
+        }
         if (!directDeviceActionsAllowed(context)) {
             // long: 生产 Workflow 只放行已闭环的 open_app/back/home/tap_ref/type_text/swipe；其他已注册设备工具仍必须从规划器清单移除，不能因直接 `/agent` 已可用而连带扩权。
             available = available.filterNot { definition ->
@@ -1534,6 +1706,7 @@ class XiaoLingToolRegistry(
             && (definition.name != APP_GET_DEVICE_AGENT_HEALTH_TOOL_NAME || deviceHealthAllowed(runContext))
             && (definition.name != APP_GET_WEATHER_TOOL_NAME || weatherObservationAllowed(runContext))
             && (definition.name != APP_LIST_INSTALLED_APPS_TOOL_NAME || installedAppDirectoryAllowed(runContext))
+            && (definition.name !in EXTENDED_AGENT_TOOL_NAMES || extendedCapabilityAllowed(runContext))
     }
 
     override fun registeredDefinition(name: String): ToolDefinition? =
@@ -1610,6 +1783,21 @@ class XiaoLingToolRegistry(
                     direction = DeviceScrollDirection.valueOf(call.arguments["direction"].orEmpty().uppercase()),
                 )
             }
+            BROWSER_FETCH_TOOL_NAME -> fetchBrowserPage(call)
+            BROWSER_OPEN_TOOL_NAME -> openBrowserSession(call)
+            BROWSER_READ_TOOL_NAME -> readBrowserSession(call)
+            BROWSER_NAVIGATE_TOOL_NAME -> navigateBrowserSession(call)
+            BROWSER_CLOSE_TOOL_NAME -> closeBrowserSession(call)
+            WORKSPACE_LIST_TOOL_NAME -> listWorkspace(call)
+            WORKSPACE_READ_TOOL_NAME -> readWorkspace(call)
+            WORKSPACE_WRITE_TOOL_NAME -> writeWorkspace(call)
+            TERMINAL_EXECUTE_TOOL_NAME -> executeTerminal(call)
+            TERMINAL_OPEN_TOOL_NAME -> openTerminal(call)
+            TERMINAL_WRITE_TOOL_NAME -> writeTerminal(call)
+            TERMINAL_READ_TOOL_NAME -> readTerminal(call)
+            TERMINAL_CLOSE_TOOL_NAME -> closeTerminal(call)
+            MCP_LIST_TOOLS_TOOL_NAME -> listMcpTools(call)
+            MCP_CALL_TOOL_NAME -> callMcpTool(call)
             else -> ToolExecutionResult(success = false, content = "未知工具：${call.name}")
         }
     }
@@ -1657,6 +1845,297 @@ class XiaoLingToolRegistry(
             content = "当前时间：${clock.formattedNow()} · 时区：${clock.zoneId()}",
         )
     }
+
+    private suspend fun fetchBrowserPage(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "网页读取只允许在前台直接 Agent 中执行")
+        }
+        val url = call.arguments["url"].orEmpty()
+        val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
+        return runCatching { browserPageReader.read(url, maxChars) }
+            .fold(
+                onSuccess = { page ->
+                    val title = page.title?.let { "标题：$it\n" }.orEmpty()
+                    val links = page.links.takeIf { it.isNotEmpty() }?.joinToString("\n") { "- $it" }.orEmpty()
+                    ToolExecutionResult(
+                        success = true,
+                        content = buildString {
+                            append("URL：${page.url}\n")
+                            append(title)
+                            append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
+                            if (page.truncated) append("）")
+                            if (links.isNotBlank()) append("\n链接：\n$links")
+                        },
+                    )
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "网页读取失败") },
+            )
+    }
+
+    private suspend fun openBrowserSession(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        }
+        val url = call.arguments["url"].orEmpty()
+        val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
+        return runCatching { browserPageReader.openSession(url, maxChars) }
+            .fold(
+                onSuccess = { session ->
+                    ToolExecutionResult(success = true, verified = true, content = "浏览器会话已打开：${session.id}\n${formatBrowserPage(session.page)}")
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话打开失败") },
+            )
+    }
+
+    private suspend fun readBrowserSession(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        }
+        return runCatching { browserPageReader.readSession(call.arguments["session_id"].orEmpty()) }
+            .fold(
+                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n${formatBrowserPage(session.page)}") },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话读取失败") },
+            )
+    }
+
+    private suspend fun navigateBrowserSession(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        val url = call.arguments["url"].orEmpty()
+        val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
+        return runCatching { browserPageReader.navigateSession(sessionId, url, maxChars) }
+            .fold(
+                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n${formatBrowserPage(session.page)}") },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话导航失败") },
+            )
+    }
+
+    private suspend fun closeBrowserSession(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        return runCatching { browserPageReader.closeSession(sessionId) }
+            .fold(
+                onSuccess = { closed -> ToolExecutionResult(success = closed, verified = closed, content = if (closed) "浏览器会话已关闭：$sessionId" else "浏览器会话不存在：$sessionId") },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话关闭失败") },
+            )
+    }
+
+    private fun formatBrowserPage(page: BrowserPage): String = buildString {
+        append("URL：${page.url}\n")
+        page.title?.let { append("标题：$it\n") }
+        append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
+        if (page.truncated) append("）")
+        if (page.links.isNotEmpty()) append("\n链接：\n${page.links.joinToString("\n") { "- $it" }}")
+    }
+
+    private suspend fun listWorkspace(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "工作区只允许在前台直接 Agent 中执行")
+        }
+        val path = call.arguments["path"].orEmpty()
+        return runCatching { workspaceSandbox.list(path) }
+            .fold(
+                onSuccess = { entries ->
+                    ToolExecutionResult(
+                        success = true,
+                        content = entries.joinToString("\n") { entry ->
+                            "${if (entry.directory) "DIR" else "FILE"}\t${entry.path}\t${entry.sizeBytes}B"
+                        }.ifBlank { "工作区目录为空：${path.ifBlank { "." }}" },
+                    )
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区目录读取失败") },
+            )
+    }
+
+    private suspend fun readWorkspace(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "工作区只允许在前台直接 Agent 中执行")
+        }
+        val path = call.arguments["path"].orEmpty()
+        val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: WorkspacePolicy.DEFAULT_MAX_CHARS
+        return runCatching { workspaceSandbox.read(path, maxChars) }
+            .fold(
+                onSuccess = { content -> ToolExecutionResult(success = true, content = "路径：$path\n$content") },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区文件读取失败") },
+            )
+    }
+
+    private suspend fun writeWorkspace(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "工作区只允许在前台直接 Agent 中执行")
+        }
+        val path = call.arguments["path"].orEmpty()
+        val content = call.arguments["content"].orEmpty()
+        return runCatching { workspaceSandbox.write(path, content) }
+            .fold(
+                onSuccess = { entry -> ToolExecutionResult(success = true, verified = true, content = "已写入工作区文件：${entry.path} · ${entry.sizeBytes}B") },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "工作区文件写入失败") },
+            )
+    }
+
+    private suspend fun executeTerminal(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
+        }
+        val command = call.arguments["command"].orEmpty()
+        val cwd = call.arguments["cwd"].orEmpty()
+        val timeoutMs = call.arguments["timeout_ms"]?.toLongOrNull() ?: WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS
+        return runCatching { workspaceSandbox.execute(command, cwd, timeoutMs) }
+            .fold(
+                onSuccess = { result ->
+                    ToolExecutionResult(
+                        success = !result.timedOut && result.exitCode == 0,
+                        verified = !result.timedOut && result.exitCode == 0,
+                        content = buildString {
+                            append("退出码：${result.exitCode}${if (result.timedOut) "（超时）" else ""}\n")
+                            if (result.stdout.isNotBlank()) append("stdout${if (result.stdoutTruncated) "（已截断）" else ""}:\n${result.stdout}\n")
+                            if (result.stderr.isNotBlank()) append("stderr${if (result.stderrTruncated) "（已截断）" else ""}:\n${result.stderr}")
+                        }.trim(),
+                    )
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端执行失败") },
+            )
+    }
+
+    private suspend fun openTerminal(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
+        }
+        val cwd = call.arguments["cwd"].orEmpty()
+        return runCatching { workspaceSandbox.openTerminal(cwd) }
+            .fold(
+                onSuccess = { session ->
+                    ToolExecutionResult(success = true, verified = true, content = "终端会话已打开：${session.id}\n工作目录：${session.cwd}")
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端会话打开失败") },
+            )
+    }
+
+    private suspend fun writeTerminal(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        val input = call.arguments["input"].orEmpty()
+        return runCatching { workspaceSandbox.writeTerminal(sessionId, input) }
+            .fold(
+                onSuccess = { output -> ToolExecutionResult(success = true, content = formatTerminalOutput(output)) },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端写入失败") },
+            )
+    }
+
+    private suspend fun readTerminal(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        return runCatching { workspaceSandbox.readTerminal(sessionId) }
+            .fold(
+                onSuccess = { output -> ToolExecutionResult(success = true, content = formatTerminalOutput(output)) },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端读取失败") },
+            )
+    }
+
+    private suspend fun closeTerminal(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        return runCatching { workspaceSandbox.closeTerminal(sessionId) }
+            .fold(
+                onSuccess = { closed ->
+                    ToolExecutionResult(success = closed, verified = closed, content = if (closed) "终端会话已关闭：$sessionId" else "终端会话不存在：$sessionId")
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端关闭失败") },
+            )
+    }
+
+    private fun formatTerminalOutput(output: WorkspaceTerminalOutput): String {
+        val text = buildString {
+        if (output.stdout.isNotBlank()) append("stdout${if (output.stdoutTruncated) "（已截断）" else ""}：\n${output.stdout}\n")
+        if (output.stderr.isNotBlank()) append("stderr${if (output.stderrTruncated) "（已截断）" else ""}：\n${output.stderr}")
+        }
+        return text.trim().ifBlank { "终端当前没有新的输出" }
+    }
+
+    private suspend fun listMcpTools(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "MCP 只允许在前台直接 Agent 中执行")
+        }
+        val server = mcpServerStore.get(call.arguments["server_id"].orEmpty())
+            ?: return ToolExecutionResult(success = false, content = "未找到已配置的 MCP Server")
+        if (!server.enabled) return ToolExecutionResult(success = false, content = "MCP Server 已停用")
+        return runCatching { mcpClient.listTools(server) }
+            .fold(
+                onSuccess = { tools ->
+                    val enabledTools = tools.filter { tool -> McpToolAccessPolicy.isEnabled(server, tool.name) }
+                    mcpCatalogs[server.id] = McpCatalogSnapshot(
+                        serverFingerprint = mcpServerFingerprint(server),
+                        tools = tools,
+                        fetchedAtMillis = System.currentTimeMillis(),
+                    )
+                    ToolExecutionResult(
+                        success = true,
+                        content = enabledTools.joinToString("\n") { tool ->
+                            val hints = buildList {
+                                if (tool.readOnlyHint) add("只读")
+                                if (tool.destructiveHint) add("有副作用")
+                            }.joinToString(", ").ifBlank { "未声明" }
+                            "${tool.name}\t[$hints]\t${tool.description}"
+                        }.ifBlank { "MCP Server 没有返回已启用工具" },
+                    )
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 工具发现失败") },
+            )
+    }
+
+    private suspend fun callMcpTool(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "MCP 只允许在前台直接 Agent 中执行")
+        }
+        val server = mcpServerStore.get(call.arguments["server_id"].orEmpty())
+            ?: return ToolExecutionResult(success = false, content = "未找到已配置的 MCP Server")
+        if (!server.enabled) return ToolExecutionResult(success = false, content = "MCP Server 已停用")
+        val toolName = call.arguments["tool_name"].orEmpty().trim()
+        if (!toolName.matches(Regex("[A-Za-z0-9._:-]{1,120}"))) {
+            return ToolExecutionResult(success = false, content = "MCP 工具名称无效")
+        }
+        val rawArguments = call.arguments["arguments_json"].orEmpty().ifBlank { "{}" }
+        if (rawArguments.toByteArray(Charsets.UTF_8).size > McpPolicy.MAX_ARGUMENT_BYTES) {
+            return ToolExecutionResult(success = false, content = "MCP 参数超过大小限制")
+        }
+        val arguments = runCatching { org.json.JSONObject(rawArguments) }.getOrElse {
+            return ToolExecutionResult(success = false, content = "MCP 参数必须是 JSON object")
+        }
+        val catalog = mcpCatalogs[server.id]
+            ?: return ToolExecutionResult(success = false, content = "请先使用 mcp.list_tools 发现当前 Run 的 MCP 工具目录")
+        if (catalog.serverFingerprint != mcpServerFingerprint(server)) {
+            mcpCatalogs.remove(server.id)
+            return ToolExecutionResult(success = false, content = "MCP Server 配置已变化，请重新使用 mcp.list_tools")
+        }
+        if (System.currentTimeMillis() - catalog.fetchedAtMillis > McpPolicy.RUN_CATALOG_TTL_MILLIS) {
+            mcpCatalogs.remove(server.id)
+            return ToolExecutionResult(success = false, content = "MCP 工具目录已过期，请重新使用 mcp.list_tools")
+        }
+        if (catalog.tools.none { it.name == toolName }) {
+            return ToolExecutionResult(success = false, content = "工具未在当前 Run 的 MCP 目录中发现：$toolName")
+        }
+        if (!McpToolAccessPolicy.isEnabled(server, toolName)) {
+            return ToolExecutionResult(success = false, content = "MCP 工具未启用：$toolName，请先在 MCP 设置中启用")
+        }
+        return runCatching { mcpClient.callTool(server, toolName, arguments, knownTools = catalog.tools) }
+            .fold(
+                onSuccess = { result -> ToolExecutionResult(success = true, content = result) },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 工具调用失败") },
+            )
+    }
+
+    private fun mcpServerFingerprint(server: McpServerConfig): String =
+        "${server.id}|${server.url}|${server.bearerToken.hashCode()}|${server.enabled}|${server.enabledToolNames?.sorted()?.joinToString(",") ?: "<legacy>"}"
 
     private suspend fun getAppInfo(call: ToolCall): ToolExecutionResult {
         if (call.arguments.isNotEmpty()) {
@@ -1978,6 +2457,11 @@ class XiaoLingToolRegistry(
     }
 
     private fun deviceHealthAllowed(context: AgentToolExecutionContext?): Boolean {
+        return context?.invocationSource == AgentInvocationSource.DIRECT &&
+            context.executionOrigin == AgentExecutionOrigin.FOREGROUND
+    }
+
+    private fun extendedCapabilityAllowed(context: AgentToolExecutionContext?): Boolean {
         return context?.invocationSource == AgentInvocationSource.DIRECT &&
             context.executionOrigin == AgentExecutionOrigin.FOREGROUND
     }
@@ -4073,6 +4557,39 @@ private val WORKFLOW_REFERENCE_ACTION_TOOL_NAMES = setOf(
     DEVICE_SWIPE_TOOL_NAME,
 )
 private const val DEVICE_SWIPE_TOOL_NAME = "device.swipe"
+private const val BROWSER_FETCH_TOOL_NAME = "browser.fetch"
+private const val BROWSER_OPEN_TOOL_NAME = "browser.open"
+private const val BROWSER_READ_TOOL_NAME = "browser.read"
+private const val BROWSER_NAVIGATE_TOOL_NAME = "browser.navigate"
+private const val BROWSER_CLOSE_TOOL_NAME = "browser.close"
+private const val WORKSPACE_LIST_TOOL_NAME = "workspace.list"
+private const val WORKSPACE_READ_TOOL_NAME = "workspace.read_file"
+private const val WORKSPACE_WRITE_TOOL_NAME = "workspace.write_file"
+private const val TERMINAL_EXECUTE_TOOL_NAME = "terminal.execute"
+private const val TERMINAL_OPEN_TOOL_NAME = "terminal.open"
+private const val TERMINAL_WRITE_TOOL_NAME = "terminal.write"
+private const val TERMINAL_READ_TOOL_NAME = "terminal.read"
+private const val TERMINAL_CLOSE_TOOL_NAME = "terminal.close"
+private const val MCP_LIST_TOOLS_TOOL_NAME = "mcp.list_tools"
+private const val MCP_CALL_TOOL_NAME = "mcp.call"
+
+private val EXTENDED_AGENT_TOOL_NAMES = setOf(
+    BROWSER_FETCH_TOOL_NAME,
+    BROWSER_OPEN_TOOL_NAME,
+    BROWSER_READ_TOOL_NAME,
+    BROWSER_NAVIGATE_TOOL_NAME,
+    BROWSER_CLOSE_TOOL_NAME,
+    WORKSPACE_LIST_TOOL_NAME,
+    WORKSPACE_READ_TOOL_NAME,
+    WORKSPACE_WRITE_TOOL_NAME,
+    TERMINAL_EXECUTE_TOOL_NAME,
+    TERMINAL_OPEN_TOOL_NAME,
+    TERMINAL_WRITE_TOOL_NAME,
+    TERMINAL_READ_TOOL_NAME,
+    TERMINAL_CLOSE_TOOL_NAME,
+    MCP_LIST_TOOLS_TOOL_NAME,
+    MCP_CALL_TOOL_NAME,
+)
 
 private val DEVICE_TOOL_NAMES = setOf(
     DEVICE_SNAPSHOT_TOOL_NAME,

@@ -1,5 +1,15 @@
 # 小灵个人 Agent 路线图
 
+## 2026-09-30：浏览器、工作区/终端、MCP 与 GitHub Skill 补齐
+
+- 已接入公开网页只读浏览器 Agent、应用私有工作区和有界终端会话，工具权限按前台直接 Agent 门控，写入/终端操作逐次确认。
+- 已接入 Streamable HTTP MCP 客户端及设置页，完成初始化握手、session/protocol headers、工具分页、Schema 校验、Token 加密和每 Run 目录冻结；stdio、OAuth、Resources、Prompts、Tasks 仍后置。
+- MCP 设置页现在支持发现远端工具并逐项启用/停用；旧配置缺少白名单字段时保持全部已发现工具兼容可用，显式空集合表示全部停用，工具开关会让当前 Run 目录指纹失效并要求重新发现。
+- 已接入 GitHub Skill 导入，支持 `SKILL.json` 与标准 `SKILL.md`，分支/HEAD 自动固定到 commit 并保存来源 SHA-256；仓库根目录或 `tree` 目录会递归发现多个 Skill 并要求用户选择；Markdown 不授予本地工具权限。
+- 新增 `McpE2eInstrumentedTest`，在真机 instrumentation 进程内启动 loopback Mock MCP Server，验证 `initialize -> notifications/initialized -> tools/list -> tools/call`、Bearer Token、会话头和工具参数 Schema；Redmi `wsvwypiz7xwslvl7` 组合真机测试 `5/5` 通过。
+- GitHub 递归 Tree API 超过安全读取上限或返回 `truncated=true` 时，改用官方建议的非递归子树遍历，并限制子树、目录条目和候选数量；JVM 回归与 Redmi `Eta/tree/.../skill-installer` 真实目录发现均通过。
+- Room Schema 已升级到 v37。最新验证：`testDebugUnitTest`、`lintDebug`、`assembleDebugAndroidTest`、组合真机 instrumentation 通过；Debug APK `0.1.19` 已在 Redmi 安装并启动，无应用崩溃。stdio、OAuth、Resources、Prompts、Tasks 仍后置。
+
 ## 2026-09-27 发布 v0.1.19（versionCode 20）
 
 - 本版包含第281阶段目标级结果与当前权威事实查看闭环，以及对应的跨 Run 隔离、隐私投影和失败清除边界。
@@ -2300,7 +2310,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 | P2 | Accessibility 设备工具 | 观察、有限动作、审批、操作后验证和少量指定 App Redmi E2E 已完成；前台手动 Workflow 精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`，后台与任意 App 继续关闭 | 扩展到真正移动端执行，风险较高 |
 | P2 | 附件、视觉、语音和 RAG | 单张用户 Image、PDF/UTF-8 Document 与 DOCX/PPTX/XLSX 直传、`/agent` Responses 附件输入、系统语音识别到可编辑草稿 v1，以及 RAG 数据、管理 UI、`knowledge.search`、引用审计、模型上下文投影、答案引用 UI、Embedding v1、显式索引重建、相关性扩样校准、answerability shadow 协调、生产 adapter、保存后 caller、设置开关、进程内 notice、Room 匿名 Shadow Store、强类型离线评测契约和首个 v33 间隔真实样本已完成；notice 跨进程恢复、JSON/SAF 出口、生产拒绝、TTS、常驻/后台语音、ANN 与自动后台批量重建未完成 | 提升输入输出能力 |
 | P2 | 联系人受控查询与拨号页 | 显式 `READ_CONTACTS` 设置、`contacts.search -> contacts.get`、稳定 ID、最小字段、答案级系统详情跳转，以及 `contacts.open_dialer` 可见审批、Provider 二次回读和 Redmi 真实号码预填闭环已完成；联系人写入、直接呼叫、短信/邮件、Workflow 与后台继续关闭 | 扩大个人信息查询和受控行动覆盖，同时保持通讯录最小暴露 |
-| P3 | MCP、远程 Channel、多 Agent、本地模型 | 暂缓 | 生态价值高，但复杂度和攻击面更大 |
+| P3 | MCP、远程 Channel、多 Agent、本地模型 | MCP Streamable HTTP 客户端已完成最小闭环；远程 Channel、多 Agent、本地模型暂缓 | MCP 仍限制在受控远程工具、逐次确认和每 Run 冻结目录 |
 
 ## 明确不照搬的做法
 

@@ -321,6 +321,28 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate36To37AddsSkillSourceAuditColumns() {
+        migrationHelper.createDatabase(SKILL_SOURCE_AUDIT_MIGRATION_DATABASE_NAME, 36).close()
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            SKILL_SOURCE_AUDIT_MIGRATION_DATABASE_NAME,
+            37,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("PRAGMA table_info(agent_skills)").use { cursor ->
+            val columns = buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+            assertTrue("sourceUri" in columns)
+            assertTrue("sourceRef" in columns)
+            assertTrue("sourceSha256" in columns)
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate12To17CreatesWorkflowAndScheduledTaskLedgerTables() {
         migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
 
@@ -1409,6 +1431,7 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val MEMORY_FTS_MIGRATION_DATABASE_NAME = "xiaoling-memory-fts-migration-test"
         private const val MEMORY_CANDIDATE_MIGRATION_DATABASE_NAME = "xiaoling-memory-candidate-migration-test"
         private const val SKILL_MIGRATION_DATABASE_NAME = "xiaoling-skill-migration-test"
+        private const val SKILL_SOURCE_AUDIT_MIGRATION_DATABASE_NAME = "xiaoling-skill-source-audit-migration-test"
         private const val WORKFLOW_MIGRATION_DATABASE_NAME = "xiaoling-workflow-migration-test"
         private const val SCHEDULED_TASK_MIGRATION_DATABASE_NAME = "xiaoling-scheduled-task-migration-test"
         private const val RECURRING_SCHEDULE_MIGRATION_DATABASE_NAME = "xiaoling-recurring-schedule-migration-test"

@@ -1,5 +1,15 @@
 # 当前实现说明
 
+## 2026-09-30：浏览器、工作区/终端、MCP 与 GitHub Skill 补齐
+
+- 浏览器 Agent 新增 `browser.fetch / open / read / navigate / close`，只读取公开 HTTP(S) 页面；脚本、Cookie、表单、自动重定向、账号密码 URL、回环/私网解析和超大响应均拒绝，会话最多 4 个且 10 分钟空闲回收。
+- 工作区与终端新增 `workspace.list / read_file / write_file`、`terminal.execute / open / write / read / close`。工作区固定在应用私有目录，路径穿越、文件/输入/输出超限和命令超时 fail-closed；写入及终端操作逐次确认，持久会话最多 4 个。
+- MCP 新增设置页、Keystore 加密 Bearer Token、Streamable HTTP `initialize` / `notifications/initialized`、session/protocol headers、JSON/SSE 响应校验、工具分页与 TTL 缓存、远端 JSON Schema 校验和每 Run 工具目录冻结。设置页可发现远端工具并逐项启用/停用；旧配置缺少 `enabled_tools` 时保持全部工具兼容可用，显式白名单参与 Server 指纹，变更后旧 Run 必须重新发现目录。缓存命中也会重新执行地址解析，URL 用户信息被拒绝。
+- GitHub Skill 支持仓库根目录、`blob` / `tree` 和 raw URL 的 `SKILL.json` / 标准 `SKILL.md`；仓库根目录或子目录通过 Git tree API 递归发现候选，多个候选交给设置页选择；分支或 `HEAD` 会先解析最新 commit，再下载固定内容并保存来源 ref 与 SHA-256。Markdown 只导入自然语言指令，不自动授予工具权限。
+- 新增 `McpE2eInstrumentedTest`，在 instrumentation 进程内启动 loopback Mock MCP Server，真机验证 `initialize -> notifications/initialized -> tools/list -> tools/call`、Bearer Token、session header 和远端 Schema 参数链路；首轮修正 Android `RecordedRequest` body 只能读取一次的测试桩问题后，Redmi `wsvwypiz7xwslvl7` 组合 instrumentation 为 `5/5` 通过。
+- GitHub 递归 Tree API 返回 `truncated=true` 或超过安全读取上限时，现在按官方建议改用非递归子树逐棵遍历；每棵子树仍有响应、条目和请求预算，无法完整读取时 fail-closed。JVM 回归覆盖该回退，Redmi 目录发现实测 `Mangi-11/Eta/tree/main/app/src/main/assets/builtin_skills/skill-installer` 成功固定到 commit 并得到唯一 `SKILL.md`。
+- Room 已从 v36 升到 v37，Skill 记录新增来源 URL、ref 和 SHA-256；本轮 `testDebugUnitTest`、`lintDebug`、`assembleDebugAndroidTest`、组合真机 instrumentation 均通过，并安装启动 `0.1.19` Debug APK 验证无应用崩溃。真机边界仍是 Redmi `wsvwypiz7xwslvl7`；`stdio / OAuth / Resources / Prompts / Tasks` 仍未开放。
+
 ## 2026-09-27 发布 v0.1.19（versionCode 20）
 
 - 正式 Release 使用现有 `releaseLocal` 配置构建，R8、资源收缩、`lintVitalRelease`、APK Signature Scheme v2、RSA 4096 签名和 `zipalign` 均通过。
@@ -2515,7 +2525,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 尚未内置 MCP 和外部远程工具。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置、Google 天气和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe` 及答案级动作证据 UI。文本输入具备专属策略、当前 ref 节点证据、绑定原路径的精确回读和跨入口无原文持久化；`open_app` 逐包审批并绑定后置包名，`back / home / swipe` 为零审批 SAFE 动作，但都要求当前观察和完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求同窗匿名锚点方向证据。全部后台自动化仍不进入 Workflow 生产。
+- 当前已内置受限 MCP 和 GitHub Skill 导入：MCP 仅支持 Streamable HTTP 的 `tools/list / tools/call`，不支持 stdio、OAuth、Resources、Prompts、Tasks 或远程 Channel；GitHub 导入只接受 `SKILL.json / SKILL.md`，固定来源 commit 并保存 SHA-256，不执行脚本或自动授予工具权限。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置、Google 天气和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe` 及答案级动作证据 UI。文本输入具备专属策略、当前 ref 节点证据、绑定原路径的精确回读和跨入口无原文持久化；`open_app` 逐包审批并绑定后置包名，`back / home / swipe` 为零审批 SAFE 动作，但都要求当前观察和完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求同窗匿名锚点方向证据。全部后台自动化仍不进入 Workflow 生产。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。

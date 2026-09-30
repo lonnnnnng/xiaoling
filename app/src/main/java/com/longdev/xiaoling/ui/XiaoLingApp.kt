@@ -74,6 +74,9 @@ import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementPage
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementProjection
 import com.longdev.xiaoling.ui.agentskill.AgentSkillManagementUiState
 import com.longdev.xiaoling.ui.agentskill.AgentSkillTryPolicy
+import com.longdev.xiaoling.ui.mcp.McpServerManagementActions
+import com.longdev.xiaoling.ui.mcp.McpServerManagementPage
+import com.longdev.xiaoling.ui.mcp.McpServerManagementUiState
 import com.longdev.xiaoling.ui.conversation.ConversationActions
 import com.longdev.xiaoling.ui.conversation.ConversationPage
 import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
@@ -445,6 +448,9 @@ private fun XiaoLingContent(
                         },
                         onOpenSkillManagement = {
                             navigation.openSettingsPane(SettingsPane.SKILL_MANAGEMENT)
+                        },
+                        onOpenMcpServerManagement = {
+                            navigation.openSettingsPane(SettingsPane.MCP_SERVER_MANAGEMENT)
                         },
                         onTrySkill = { skillId, example ->
                             if (state.sendingMessage || state.pendingPersonalTaskPlan != null) {
@@ -878,6 +884,21 @@ private fun XiaoLingUiState.toAgentSkillManagementUiState(): AgentSkillManagemen
         error = skillError,
         pendingLocalSkillDelete = pendingLocalSkillDelete,
         selectedProfile = agentProfiles.firstOrNull { profile -> profile.id == selectedAgentProfileId },
+        githubCandidates = githubSkillCandidates,
+    )
+}
+
+private fun XiaoLingUiState.toMcpServerManagementUiState(): McpServerManagementUiState {
+    return McpServerManagementUiState(
+        servers = mcpServers,
+        loading = loadingMcpServers,
+        saving = savingMcpServer,
+        mutatingIds = mutatingMcpServerIds,
+        toolsByServer = mcpToolsByServer,
+        loadingToolServerIds = loadingMcpToolServerIds,
+        mutatingToolKeys = mutatingMcpToolKeys,
+        error = mcpError,
+        pendingDelete = pendingMcpServerDelete,
     )
 }
 
@@ -929,6 +950,7 @@ private fun SettingsPage(
     onOpenKnowledgeManagement: () -> Unit,
     onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
+    onOpenMcpServerManagement: () -> Unit,
     onTrySkill: (String, String) -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -1052,6 +1074,22 @@ private fun SettingsPage(
                         onImportSkill()
                     }
 
+                    override fun importSkillFromGitHub(url: String) {
+                        viewModel.importSkillFromGitHub(url)
+                    }
+
+                    override fun discoverGitHubSkills(url: String) {
+                        viewModel.discoverGitHubSkills(url)
+                    }
+
+                    override fun importGitHubSkillCandidate(candidate: com.longdev.xiaoling.agent.GitHubSkillCandidate) {
+                        viewModel.importGitHubSkillCandidate(candidate)
+                    }
+
+                    override fun cancelGitHubSkillSelection() {
+                        viewModel.cancelGitHubSkillSelection()
+                    }
+
                     override fun setSkillEnabled(skillId: String, enabled: Boolean) {
                         viewModel.setSkillEnabled(skillId, enabled)
                     }
@@ -1063,6 +1101,21 @@ private fun SettingsPage(
                     override fun trySkill(skillId: String, triggerExample: String) {
                         onTrySkill(skillId, triggerExample)
                     }
+                },
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
+            pane == SettingsPane.MCP_SERVER_MANAGEMENT -> McpServerManagementPage(
+                state = state.toMcpServerManagementUiState(),
+                actions = object : McpServerManagementActions {
+                    override fun refreshServers() = viewModel.refreshMcpServers()
+                    override fun discoverTools(serverId: String) = viewModel.discoverMcpTools(serverId)
+                    override fun setToolEnabled(serverId: String, toolName: String, enabled: Boolean) = viewModel.setMcpToolEnabled(serverId, toolName, enabled)
+                    override fun saveServer(config: com.longdev.xiaoling.agent.McpServerConfig) = viewModel.saveMcpServer(config)
+                    override fun setServerEnabled(id: String, enabled: Boolean) = viewModel.setMcpServerEnabled(id, enabled)
+                    override fun requestDelete(id: String) = viewModel.requestMcpServerDelete(id)
+                    override fun cancelDelete() = viewModel.cancelMcpServerDelete()
+                    override fun confirmDelete() = viewModel.confirmMcpServerDelete()
                 },
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
@@ -1110,6 +1163,7 @@ private fun SettingsPage(
                     override fun openKnowledgeManagement() = onOpenKnowledgeManagement()
                     override fun openKnowledgeRelevanceRollout() = onOpenKnowledgeRelevanceRollout()
                     override fun openSkillManagement() = onOpenSkillManagement()
+                    override fun openMcpServerManagement() = onOpenMcpServerManagement()
                     override fun openWorkflowManagement() = onOpenWorkflowManagement(null)
                     override fun openAgentRunHistory() = onOpenAgentRunHistory()
                     override fun openProcessExitObservations() = onOpenProcessExitObservations()

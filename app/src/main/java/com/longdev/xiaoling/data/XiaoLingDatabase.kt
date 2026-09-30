@@ -42,7 +42,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 36,
+    version = 37,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -59,7 +59,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 36
+        const val CURRENT_VERSION = 37
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -910,6 +910,15 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: Skill 来源审计必须随定义一起恢复；历史记录没有远程来源，统一保留空值，不能从当前网络内容倒推来源。
+                db.execSQL("ALTER TABLE `agent_skills` ADD COLUMN `sourceUri` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `agent_skills` ADD COLUMN `sourceRef` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `agent_skills` ADD COLUMN `sourceSha256` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -946,6 +955,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_33_34,
             MIGRATION_34_35,
             MIGRATION_35_36,
+            MIGRATION_36_37,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

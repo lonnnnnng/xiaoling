@@ -147,6 +147,7 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     // long: Compose v2 测试在 AndroidTest 进程内通过 ServiceLoader 注册异常收集器；显式声明同版本协程运行时，避免应用 APK 与测试 APK 的服务资源隔离导致测试环境初始化失败。
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

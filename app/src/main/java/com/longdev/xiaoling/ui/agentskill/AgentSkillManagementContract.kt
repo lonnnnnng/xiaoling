@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.ui.agentskill
 
 import com.longdev.xiaoling.agent.AgentSkillRecord
+import com.longdev.xiaoling.agent.GitHubSkillCandidate
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentProfileRecord
@@ -15,6 +16,14 @@ interface AgentSkillManagementActions {
     fun refreshSkillAudits()
 
     fun requestSkillImport()
+
+    fun importSkillFromGitHub(url: String) = Unit
+
+    fun discoverGitHubSkills(url: String) = Unit
+
+    fun importGitHubSkillCandidate(candidate: GitHubSkillCandidate) = Unit
+
+    fun cancelGitHubSkillSelection() = Unit
 
     fun setSkillEnabled(skillId: String, enabled: Boolean)
 
@@ -32,6 +41,7 @@ internal data class AgentSkillManagementUiState(
     val auditError: String? = null,
     val pendingLocalSkillDelete: AgentSkillRecord? = null,
     val deletingLocalSkill: Boolean = false,
+    val githubCandidates: List<GitHubSkillCandidate> = emptyList(),
 )
 
 internal data class AgentSkillManagementItemUiState(
@@ -69,6 +79,7 @@ internal object AgentSkillManagementProjection {
         error: String?,
         pendingLocalSkillDelete: AgentSkillRecord? = null,
         selectedProfile: AgentProfileRecord? = null,
+        githubCandidates: List<GitHubSkillCandidate> = emptyList(),
     ): AgentSkillManagementUiState {
         val toolsByName = registeredTools.associateBy(ToolDefinition::name)
         val registeredToolNames = toolsByName.keys
@@ -108,6 +119,7 @@ internal object AgentSkillManagementProjection {
             pendingLocalSkillDelete = pendingLocalSkillDelete,
             deletingLocalSkill = pendingLocalSkillDelete?.definition?.id
                 ?.let(mutatingSkillIds::contains) == true,
+            githubCandidates = githubCandidates,
         )
     }
 

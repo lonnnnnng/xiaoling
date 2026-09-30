@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v36" src="https://img.shields.io/badge/Room-v36-4285F4">
+  <img alt="Room v37" src="https://img.shields.io/badge/Room-v37-4285F4">
   <img alt="Release v0.1.19" src="https://img.shields.io/badge/Release-v0.1.19-2E7D32">
 </p>
 
@@ -33,6 +33,8 @@
 | 知识引用 | 回答可携带文档版本、分块与偏移身份，并跳转当前权威原文；内容漂移时拒绝猜测 |
 | Workflow | 前台手动 Workflow、一次性与非精确定时任务、WorkManager 执行、通知结果导航 |
 | 设备 Agent | 前台观察与受控动作：`snapshot`、`open_app`、`back`、`home`、`tap_ref`、`type_text`、`swipe` |
+| 浏览器与工作区 | 公开网页只读浏览器 Agent；应用私有工作区、文件读写和有界终端会话 |
+| MCP 与 Skill | Streamable HTTP MCP 客户端；GitHub `SKILL.json` / `SKILL.md` 导入并固定到 commit |
 | 结果验证 | 以持久化 Tool Ledger 和操作后观察给出 `VERIFIED / PARTIAL / INCOMPLETE`，模型总结不能升级事实结论 |
 
 ## 一条任务如何完成
@@ -60,8 +62,10 @@
 - API Key 使用 Android Keystore 保护；敏感输入不在审计记录中保存原文，只保留最小指纹与长度。
 - Accessibility 独立授权、独立开关，设备节点引用短生命周期化，并在进入模型前进行隐私过滤。
 - 不提供任意 Shell、Root、ADB、隐藏系统 API，也不执行未经确认的支付、下单、删除、发消息或系统设置修改。
+- 浏览器只读取公开 HTTP(S) 页面，拒绝私网/回环解析、账号密码 URL、脚本、Cookie、表单和自动重定向；工作区写入与终端操作逐次确认，并限制路径、会话、输入、输出和超时。
+- MCP 当前只接入 Streamable HTTP 的 `tools/list` / `tools/call`，要求 HTTPS（本机调试只允许 loopback），Token 使用 Keystore 加密；设置页可发现并逐项启用/停用远端工具，每次 Run 冻结工具目录并按远端 JSON Schema 校验参数。
 - 设备动作目前只承诺少量已验收应用与前台场景，不承诺任意 App；后台或定时设备动作、坐标/截图兜底仍关闭。
-- 账号与云同步、开放 Skill 市场、远程代码安装、完整 MCP、多 Agent 和端侧模型管理尚未开放。
+- GitHub Skill 导入只保存校验后的指令和来源摘要；仓库目录可发现多个 `SKILL.json` / `SKILL.md` 并要求选择，不执行仓库脚本、不自动授予工具权限；账号与云同步、开放 Skill 市场、远程代码安装、stdio/OAuth MCP、多 Agent 和端侧模型管理仍未开放。
 
 ## 快速开始
 
@@ -70,6 +74,7 @@
 3. 同步模型列表，启用需要的模型。
 4. 返回对话页，选择模型与 API 模式后开始普通对话。
 5. 需要执行工具时，使用 Agent 任务入口或显式 `/agent` 意图，检查计划后再确认执行。
+6. 需要远程工具时，在“设置 → MCP Servers”配置服务器；需要扩展任务指令时，在“设置 → Agent Skills”导入 GitHub 的 `SKILL.json` 或 `SKILL.md`。
 
 系统分享的文本、图片和文档只会进入可编辑草稿，不会自动发送、调用模型或创建 Agent Run。
 
@@ -97,8 +102,8 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 | 项目 | 状态 |
 | --- | --- |
 | 正式版本 | `v0.1.19`（`versionCode 20`） |
-| 数据库 | Room v36 |
-| 开发里程碑 | 第 281 阶段目标级结果与当前权威事实查看闭环完成；继续推进下一条窄前台个人任务 |
+| 数据库 | Room v37 |
+| 开发里程碑 | 第 281 阶段发布基线之上，工作树已补齐浏览器、工作区/终端、受限 MCP 和 GitHub Skill 导入 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |
 | Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
@@ -107,6 +112,8 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 第 281 阶段发布了 `v0.1.19`：完成真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看闭环。正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 2m 1s`；APK 大小 `3,280,434` 字节，SHA-256 为 `a0f413524e71f180d6aafbcd37e2b584e0bfd7a185efc6b379b21ba8fae0720a`。APK 使用固定正式 RSA 4096 证书，APK Signature Scheme v2 与 `zipalign` 校验通过。本次发布未重复运行完整 JVM、全量 Lint、Redmi 全量 instrumentation；第 281 阶段定向 JVM 与 Redmi 真实 Provider 证据仍按验证报告单独记录。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
 完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.19`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
+
+当前工作树的新增能力已通过 JVM 单测、Debug lint、Debug APK 和 AndroidTest APK 构建；这部分尚未发布为新的 Release，也未安装到 Redmi 或运行 instrumentation。
 
 第 264 阶段一次性提醒改期已完成：精确唯一任务、完整时间审批、当前计划指纹核对、系统入队与 Room 原子替换、答案级查看任务均已通过 Redmi 聚焦验收，旧 Run 保持不变。第 265 阶段已在 Redmi 真机完成指定系统计算器闭环：自然语言目标生成计划、用户确认、5 次逐动作审批、每步操作后重新观察与验证，最终读取 `56`；小灵恢复后显示 `7/7` 步骤完成，目标级结论为已验证。第 266 阶段五个可靠性切片已完成：设备观察恢复、模型失败处置、审批取消组合、排队进程对账及长任务预算/未知提交边界均已用局部证据锁定；不恢复旧协程、不重放未知副作用、不因模拟回收引入后台服务。第 267 阶段修正目标级验证对 AOSP/Google 计算器与时钟等已登记等价包族的兼容，未扩大白名单；下一步在 Redmi 用已有白名单包族做一次真实个人任务闭环验收。
 

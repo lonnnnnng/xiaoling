@@ -26,6 +26,7 @@ internal interface SettingsRootActions {
     fun openKnowledgeManagement()
     fun openKnowledgeRelevanceRollout()
     fun openSkillManagement()
+    fun openMcpServerManagement() = Unit
     fun openWorkflowManagement()
     fun openAgentRunHistory()
     fun openProcessExitObservations()

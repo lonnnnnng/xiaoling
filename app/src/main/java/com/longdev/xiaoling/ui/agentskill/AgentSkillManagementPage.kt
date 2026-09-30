@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +32,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +63,8 @@ internal fun AgentSkillManagementPage(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var githubDialogVisible by remember { mutableStateOf(false) }
+    var githubUrl by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         // long: 页面拥有首次加载，设置入口只负责导航；重组不能重复触发 Room 刷新或覆盖正在进行的导入结果。
         if (state.skills.isEmpty() && !state.loading) actions.refreshSkills()
@@ -81,6 +86,7 @@ internal fun AgentSkillManagementPage(
                 actions.refreshSkillAudits()
             },
             onImportSkill = actions::requestSkillImport,
+            onImportGitHubSkill = { githubDialogVisible = true },
             onBack = onBack,
         )
 
@@ -132,6 +138,72 @@ internal fun AgentSkillManagementPage(
             }
         }
     }
+    if (githubDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { if (!state.importing) githubDialogVisible = false },
+            title = { Text("从 GitHub 导入 Skill") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("仓库内优先读取 SKILL.json，再读取 SKILL.md。Markdown 只导入指令，不授予工具权限；导入前请核对来源。", style = MaterialTheme.typography.bodySmall)
+                    TextField(
+                        value = githubUrl,
+                        onValueChange = { githubUrl = it },
+                        label = { Text("仓库或 raw Skill URL") },
+                        singleLine = true,
+                        enabled = !state.importing,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        githubDialogVisible = false
+                        actions.discoverGitHubSkills(githubUrl)
+                    },
+                    enabled = githubUrl.isNotBlank() && !state.importing,
+                ) { Text("导入") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { githubDialogVisible = false }, enabled = !state.importing) { Text("取消") }
+            },
+        )
+    }
+    if (state.githubCandidates.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { if (!state.importing) actions.cancelGitHubSkillSelection() },
+            title = { Text("选择要导入的 Skill") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "仓库发现了多个 SKILL 文件。选择后会固定到下面显示的 commit。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    state.githubCandidates.forEach { candidate ->
+                        OutlinedButton(
+                            onClick = { actions.importGitHubSkillCandidate(candidate) },
+                            enabled = !state.importing,
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                                Text(candidate.path, style = MaterialTheme.typography.labelMedium)
+                                Text(
+                                    "commit ${candidate.sourceRef}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                OutlinedButton(onClick = actions::cancelGitHubSkillSelection, enabled = !state.importing) {
+                    Text("取消")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -140,6 +212,7 @@ private fun AgentSkillManagementHeader(
     importing: Boolean,
     onRefresh: () -> Unit,
     onImportSkill: () -> Unit,
+    onImportGitHubSkill: () -> Unit,
     onBack: () -> Unit,
 ) {
     Row(
@@ -180,6 +253,16 @@ private fun AgentSkillManagementHeader(
                 Spacer(Modifier.width(4.dp))
                 Text("导入 JSON", style = MaterialTheme.typography.labelSmall)
             }
+        }
+        OutlinedButton(
+            onClick = onImportGitHubSkill,
+            enabled = !importing,
+            modifier = Modifier.height(30.dp),
+            contentPadding = PaddingValues(horizontal = 9.dp),
+        ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("GitHub", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -240,6 +323,13 @@ private fun AgentSkillItem(
                 )
             }
             Text(definition.description, style = MaterialTheme.typography.bodySmall)
+            if (definition.sourceUri.isNotBlank()) {
+                Text(
+                    "来源：${definition.sourceRef.ifBlank { "未固定 ref" }} · SHA-256：${definition.sourceSha256.take(12)}…",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             val availableDependencyCount = item.dependencies.count(AgentSkillDependencyUiState::available)
             Text(
                 "工具依赖：$availableDependencyCount/${item.dependencies.size} 已注册",

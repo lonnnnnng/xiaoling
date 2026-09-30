@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -192,6 +193,14 @@ internal fun SettingsRootPage(
                 icon = Icons.Default.Settings,
                 onClick = actions::openSkillManagement,
                 testTag = "settings-entry-agent-skills",
+            )
+
+            SettingsEntryCard(
+                title = "MCP Servers",
+                subtitle = "配置远程工具服务器、Bearer Token 和启停状态",
+                icon = Icons.Default.Link,
+                onClick = actions::openMcpServerManagement,
+                testTag = "settings-entry-mcp-servers",
             )
 
             SettingsEntryCard(

@@ -1,0 +1,294 @@
+package com.longdev.xiaoling.agent
+
+import kotlinx.coroutines.test.runTest
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
+import org.json.JSONObject
+import org.json.JSONArray
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.nio.file.Files
+import java.util.concurrent.TimeUnit
+
+class ExtendedAgentCapabilitiesTest {
+    @Test
+    fun htmlExtractorRemovesExecutableContentAndResolvesLinks() {
+        val extracted = HtmlTextExtractor.extract(
+            """
+            <html><head><title>示例 &amp; 页面</title><script>alert(1)</script></head>
+            <body><h1>Hello</h1><a href="/next">下一页</a><style>.x{}</style></body></html>
+            """.trimIndent(),
+            "https://example.com/start",
+            200,
+        )
+
+        assertEquals("示例 & 页面", extracted.title)
+        assertEquals("示例 & 页面 Hello 下一页", extracted.text)
+        assertEquals(listOf("https://example.com/next"), extracted.links)
+        assertTrue("alert" !in extracted.text)
+    }
+
+    @Test
+    fun browserPolicyRejectsLoopbackAndCredentials() {
+        assertThrows(IllegalArgumentException::class.java) { BrowserUrlPolicy.validate("http://localhost/test") }
+        assertThrows(IllegalArgumentException::class.java) { BrowserUrlPolicy.validate("https://user:pass@example.com/test") }
+    }
+
+    @Test
+    fun workspaceSandboxKeepsFilesInsideRoot() = runTest {
+        val root = Files.createTempDirectory("xiaoling-workspace-test").toFile()
+        val sandbox = AndroidWorkspaceSandbox(root)
+        val entry = sandbox.write("notes/a.txt", "hello")
+
+        assertEquals("notes/a.txt", entry.path)
+        assertEquals("hello", sandbox.read("notes/a.txt"))
+        assertTrue(sandbox.list("notes").single().path == "notes/a.txt")
+        val traversalError = runCatching { sandbox.read("../outside.txt") }.exceptionOrNull()
+        assertTrue(traversalError is IllegalArgumentException)
+    }
+
+    @Test
+    fun mcpRpcParserSelectsMatchingSseEvent() {
+        val client = StreamableHttpMcpClient()
+        val json = client.parseRpcBody(
+            "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n" +
+                "data: {\"jsonrpc\":\"2.0\",\"id\":\"wanted\",\"result\":{\"ok\":true}}\n",
+            expectedId = "wanted",
+        )
+
+        assertEquals("wanted", json.getString("id"))
+        assertTrue(json.getJSONObject("result").getBoolean("ok"))
+    }
+
+    @Test
+    fun mcpSchemaValidatorRejectsMissingAndUnknownArguments() {
+        val schema = JSONObject()
+            .put("type", "object")
+            .put("required", JSONArray().put("query"))
+            .put("additionalProperties", false)
+            .put("properties", JSONObject().put("query", JSONObject().put("type", "string").put("minLength", 3)))
+
+        McpJsonSchemaValidator.validate(schema.toString(), JSONObject().put("query", "hello"))
+        assertThrows(IllegalArgumentException::class.java) {
+            McpJsonSchemaValidator.validate(schema.toString(), JSONObject())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpJsonSchemaValidator.validate(schema.toString(), JSONObject().put("query", "ok"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpJsonSchemaValidator.validate(schema.toString(), JSONObject().put("query", "hello").put("extra", true))
+        }
+    }
+
+    @Test
+    fun mcpPolicyAcceptsIpv6LoopbackOnlyForPlainHttp() {
+        McpServerPolicy.validate(McpServerConfig("local-mcp", "Local", "http://[::1]:8080/mcp"))
+        assertThrows(IllegalArgumentException::class.java) {
+            McpServerPolicy.validate(McpServerConfig("bad", "Bad", "http://192.168.1.2:8080/mcp"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpServerPolicy.validate(McpServerConfig("userinfo", "Userinfo", "https://user:pass@example.com/mcp"))
+        }
+    }
+
+    @Test
+    fun mcpToolAllowlistKeepsLegacyConfigsCompatibleAndSupportsExplicitDisable() {
+        val legacy = McpServerConfig("legacy-mcp", "Legacy", "https://example.com/mcp")
+        assertTrue(McpToolAccessPolicy.isEnabled(legacy, "demo.read"))
+
+        val explicit = legacy.copy(enabledToolNames = setOf("demo.read", "demo.write"))
+        val next = McpToolAccessPolicy.updatedEnabledToolNames(
+            server = explicit,
+            discoveredToolNames = setOf("demo.read", "demo.write"),
+            toolName = "demo.write",
+            enabled = false,
+        )
+        assertEquals(setOf("demo.read"), next)
+        assertFalse(McpToolAccessPolicy.isEnabled(explicit.copy(enabledToolNames = next), "demo.write"))
+        assertThrows(IllegalArgumentException::class.java) {
+            McpServerPolicy.validateToolNames(setOf("bad name"))
+        }
+    }
+
+    @Test
+    fun githubDiscoveryWalksNonRecursiveTreesWhenRecursiveTreeIsTruncated() = runTest {
+        val server = MockWebServer()
+        val subtree = "abcdef0123456789abcdef0123456789abcdef01"
+        server.enqueue(MockResponse().setBody("""{"truncated":true,"tree":[]}"""))
+        server.enqueue(MockResponse().setBody("""{"truncated":false,"tree":[
+            {"type":"tree","path":"nested","sha":"$subtree"},
+            {"type":"blob","path":"SKILL.md"}
+        ]}""".trimIndent()))
+        server.enqueue(MockResponse().setBody("""{"truncated":false,"tree":[{"type":"blob","path":"SKILL.md"}]}"""))
+        server.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val original = chain.request()
+                    val rewritten = server.url(original.url.encodedPath).newBuilder().apply {
+                        original.url.queryParameterNames.forEach { name ->
+                            original.url.queryParameterValues(name).forEach { value ->
+                                addQueryParameter(name, value)
+                            }
+                        }
+                    }.build()
+                    chain.proceed(original.newBuilder().url(rewritten).build())
+                }
+                .build()
+            val commit = "0123456789abcdef0123456789abcdef01234567"
+            val candidates = GitHubSkillImporter(client).discover("https://github.com/acme/repo/tree/$commit")
+
+            assertEquals(listOf("SKILL.md", "nested/SKILL.md"), candidates.map(GitHubSkillCandidate::path))
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS)!!.path!!.contains("/git/trees/$commit"))
+            assertEquals("/repos/acme/repo/git/trees/$commit", server.takeRequest(2, TimeUnit.SECONDS)!!.path)
+            assertEquals("/repos/acme/repo/git/trees/$subtree", server.takeRequest(2, TimeUnit.SECONDS)!!.path)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun githubPolicyNormalizesRepositorySubdirectory() {
+        assertEquals(
+            "https://raw.githubusercontent.com/acme/tools/main/skills/research/SKILL.json",
+            GitHubSkillUrlPolicy.normalize("https://github.com/acme/tools/tree/main/skills/research"),
+        )
+        assertEquals(
+            "https://raw.githubusercontent.com/acme/tools/main/skills/research/SKILL.json",
+            GitHubSkillUrlPolicy.normalize("https://github.com/acme/tools/blob/main/skills/research/SKILL.json"),
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubSkillUrlPolicy.normalize("http://github.com/acme/tools")
+        }
+        assertEquals(
+            listOf(
+                "https://raw.githubusercontent.com/acme/tools/HEAD/SKILL.json",
+                "https://raw.githubusercontent.com/acme/tools/HEAD/SKILL.md",
+            ),
+            GitHubSkillUrlPolicy.candidates("https://github.com/acme/tools"),
+        )
+        assertEquals(
+            "main",
+            GitHubSkillUrlPolicy.sourceRef("https://raw.githubusercontent.com/acme/tools/main/SKILL.md"),
+        )
+        assertEquals(
+            GitHubSkillLocation("acme", "tools", "main", "skills/research/SKILL.md"),
+            GitHubSkillUrlPolicy.location("https://raw.githubusercontent.com/acme/tools/main/skills/research/SKILL.md"),
+        )
+        assertEquals(
+            "https://raw.githubusercontent.com/acme/tools/0123456789abcdef0123456789abcdef01234567/skills/research/SKILL.md",
+            GitHubSkillUrlPolicy.withRef(
+                "https://raw.githubusercontent.com/acme/tools/main/skills/research/SKILL.md",
+                "0123456789abcdef0123456789abcdef01234567",
+            ),
+        )
+    }
+
+    @Test
+    fun githubRepositoryTargetSupportsRootAndSubdirectoryDiscovery() {
+        assertEquals(
+            GitHubSkillRepositoryTarget("acme", "tools", "HEAD", ""),
+            GitHubSkillUrlPolicy.repositoryTarget("https://github.com/acme/tools"),
+        )
+        assertEquals(
+            GitHubSkillRepositoryTarget("acme", "tools", "main", "skills/research"),
+            GitHubSkillUrlPolicy.repositoryTarget("https://github.com/acme/tools/tree/main/skills/research"),
+        )
+        assertEquals(
+            "https://raw.githubusercontent.com/acme/tools/0123456789abcdef0123456789abcdef01234567/skills/research/SKILL.md",
+            GitHubSkillUrlPolicy.rawUrl("acme", "tools", "0123456789abcdef0123456789abcdef01234567", "skills/research/SKILL.md"),
+        )
+    }
+
+    @Test
+    fun githubMarkdownSkillImportsInstructionsWithoutGrantingTools() {
+        val skill = GitHubSkillMarkdownCodec.decode(
+            """
+            ---
+            name: repo-review
+            description: Review the current repository.
+            ---
+            Read the README and summarize the project.
+            """.trimIndent(),
+        )
+
+        assertEquals("repo-review", skill.id)
+        assertTrue(skill.toolNames.isEmpty())
+        assertEquals(ToolRisk.SAFE, skill.declaredRisk)
+        assertTrue(skill.instructions.contains("Read the README"))
+    }
+
+    @Test
+    fun builtInSkillsCoverTheNewAgentCapabilities() {
+        val declaredTools = BuiltInAgentSkillRegistry.all().flatMap { it.toolNames }.toSet()
+
+        assertTrue("browser.fetch" in declaredTools)
+        assertTrue("browser.open" in declaredTools)
+        assertTrue("browser.read" in declaredTools)
+        assertTrue("browser.navigate" in declaredTools)
+        assertTrue("browser.close" in declaredTools)
+        assertTrue("workspace.list" in declaredTools)
+        assertTrue("workspace.read_file" in declaredTools)
+        assertTrue("workspace.write_file" in declaredTools)
+        assertTrue("terminal.execute" in declaredTools)
+        assertTrue("terminal.open" in declaredTools)
+        assertTrue("terminal.write" in declaredTools)
+        assertTrue("terminal.read" in declaredTools)
+        assertTrue("terminal.close" in declaredTools)
+        assertTrue("mcp.list_tools" in declaredTools)
+        assertTrue("mcp.call" in declaredTools)
+    }
+
+    @Test
+    fun mcpClientPerformsHandshakeAndCarriesSessionHeaders() = runTest {
+        val server = MockWebServer()
+        val bodies = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val body = request.body.readUtf8()
+                bodies += body
+                val payload = JSONObject(body)
+                return when (payload.optString("method")) {
+                    "initialize" -> MockResponse()
+                        .setHeader("Mcp-Session-Id", "session-1")
+                        .setBody(JSONObject()
+                            .put("jsonrpc", "2.0")
+                            .put("id", payload.getString("id"))
+                            .put("result", JSONObject().put("protocolVersion", "2025-03-26"))
+                            .toString())
+                    "notifications/initialized" -> MockResponse().setResponseCode(202)
+                    "tools/list" -> MockResponse().setBody(JSONObject()
+                        .put("jsonrpc", "2.0")
+                        .put("id", payload.getString("id"))
+                        .put("result", JSONObject().put("tools", JSONArray().put(JSONObject().put("name", "demo").put("description", "Demo"))))
+                        .toString())
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        try {
+            val tools = StreamableHttpMcpClient().listTools(
+                McpServerConfig("local-mcp", "Local", server.url("/mcp").toString()),
+            )
+
+            assertEquals("demo", tools.single().name)
+            val initialize = server.takeRequest()
+            assertTrue(bodies[0].contains("\"method\":\"initialize\""))
+            val initialized = server.takeRequest()
+            assertTrue(bodies[1].contains("\"method\":\"notifications/initialized\""))
+            val list = server.takeRequest()
+            assertEquals("session-1", list.getHeader("Mcp-Session-Id"))
+            assertEquals("2025-03-26", list.getHeader("Mcp-Protocol-Version"))
+            assertTrue(bodies[2].contains("\"method\":\"tools/list\""))
+        } finally {
+            server.shutdown()
+        }
+    }
+}

@@ -20,6 +20,8 @@ class AgentRunUseCase(
     private val client: OpenAiCompatibleClient,
 ) {
     private val appContext = context.applicationContext
+    private val mcpServerStore = AndroidMcpServerStore(appContext)
+    private val mcpClient = StreamableHttpMcpClient()
     // long: 无 Profile 审计的历史 Run 只能继续使用知识工具上线前的集合，避免恢复时因新注册工具扩大旧能力面。
     private val legacyRunToolNames = LEGACY_RUN_TOOL_NAMES
     private val baseLedger = RoomAgentRunRepository(context)
@@ -45,6 +47,12 @@ class AgentRunUseCase(
         storageStatusReader = AndroidStorageStatusReader(context.applicationContext),
         notificationReader = AndroidNotificationReader(context.applicationContext),
         deviceController = DeviceObservationComponents.controller(context.applicationContext),
+        browserPageReader = OkHttpBrowserPageReader(),
+        workspaceSandbox = AndroidWorkspaceSandbox(
+            context.applicationContext.filesDir.resolve("agent-workspace"),
+        ),
+        mcpServerStore = mcpServerStore,
+        mcpClient = mcpClient,
     )
     private val skillCatalog = AgentSkillCatalog(
         store = RoomAgentSkillStore(context.applicationContext),
@@ -418,11 +426,49 @@ class AgentRunUseCase(
 
     suspend fun importSkill(raw: String): AgentSkillRecord = skillCatalog.importDocument(raw)
 
+    suspend fun importSkillFromGitHub(url: String): AgentSkillRecord = skillCatalog.importGitHub(url)
+
+    suspend fun discoverGitHubSkills(url: String): List<GitHubSkillCandidate> = skillCatalog.discoverGitHub(url)
+
     suspend fun setSkillEnabled(skillId: String, enabled: Boolean): AgentSkillRecord? {
         return skillCatalog.setEnabled(skillId, enabled)
     }
 
     suspend fun deleteLocalSkill(skillId: String): Boolean = skillCatalog.deleteLocal(skillId)
+
+    suspend fun listMcpServers(): List<McpServerConfig> = mcpServerStore.list()
+
+    suspend fun upsertMcpServer(config: McpServerConfig): McpServerConfig {
+        // long: 编辑 Server 时空 Token 表示保留已有密文，避免页面回显凭据，也避免用户只改名称或开关时意外清空认证。
+        val existing = mcpServerStore.get(config.id)
+        return mcpServerStore.upsert(
+            config.copy(bearerToken = config.bearerToken.ifBlank { existing?.bearerToken.orEmpty() }),
+        )
+    }
+
+    suspend fun discoverMcpTools(serverId: String): List<McpToolDescriptor> {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        return mcpClient.listTools(server)
+    }
+
+    suspend fun setMcpToolEnabled(
+        serverId: String,
+        toolName: String,
+        enabled: Boolean,
+        discoveredTools: List<McpToolDescriptor>,
+    ): McpServerConfig {
+        val server = mcpServerStore.get(serverId) ?: throw IllegalArgumentException("未找到已配置的 MCP Server")
+        val discoveredNames = discoveredTools.mapTo(linkedSetOf(), McpToolDescriptor::name)
+        val nextNames = McpToolAccessPolicy.updatedEnabledToolNames(
+            server = server,
+            discoveredToolNames = discoveredNames,
+            toolName = toolName,
+            enabled = enabled,
+        )
+        return upsertMcpServer(server.copy(enabledToolNames = nextNames))
+    }
+
+    suspend fun deleteMcpServer(id: String): Boolean = mcpServerStore.delete(id)
 }
 
 internal val LEGACY_RUN_TOOL_NAMES = setOf(

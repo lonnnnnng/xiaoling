@@ -43,6 +43,9 @@ import com.longdev.xiaoling.agent.WorkflowDeviceActionApprovalGate
 import com.longdev.xiaoling.agent.WorkflowDeviceActionRunContext
 import com.longdev.xiaoling.agent.AgentSkillRecord
 import com.longdev.xiaoling.agent.AgentSkillSource
+import com.longdev.xiaoling.agent.McpServerConfig
+import com.longdev.xiaoling.agent.McpToolDescriptor
+import com.longdev.xiaoling.agent.GitHubSkillCandidate
 import com.longdev.xiaoling.agent.ApprovalRequestRecord
 import com.longdev.xiaoling.agent.ApprovalRequestStatus
 import com.longdev.xiaoling.agent.AgentRunDetailRecord
@@ -368,9 +371,19 @@ data class XiaoLingUiState(
     val loadingSkills: Boolean = false,
     val importingSkill: Boolean = false,
     val skills: List<AgentSkillRecord> = emptyList(),
+    val githubSkillCandidates: List<GitHubSkillCandidate> = emptyList(),
     val mutatingSkillIds: Set<String> = emptySet(),
     val skillError: String? = null,
     val pendingLocalSkillDelete: AgentSkillRecord? = null,
+    val loadingMcpServers: Boolean = false,
+    val savingMcpServer: Boolean = false,
+    val mcpServers: List<McpServerConfig> = emptyList(),
+    val mutatingMcpServerIds: Set<String> = emptySet(),
+    val mcpToolsByServer: Map<String, List<McpToolDescriptor>> = emptyMap(),
+    val loadingMcpToolServerIds: Set<String> = emptySet(),
+    val mutatingMcpToolKeys: Set<String> = emptySet(),
+    val mcpError: String? = null,
+    val pendingMcpServerDelete: McpServerConfig? = null,
     val agentProfiles: List<AgentProfileRecord> = emptyList(),
     val selectedAgentProfileId: String = "",
     val registeredAgentTools: List<ToolDefinition> = emptyList(),
@@ -921,6 +934,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             val storedConversations = conversationStore.load()
             val availableAgentTools = agentRunUseCase.registeredTools()
             val availableSkills = withContext(Dispatchers.IO) { agentRunUseCase.listSkills() }
+            val mcpServers = withContext(Dispatchers.IO) { agentRunUseCase.listMcpServers() }
             val defaultProvider = storedProfiles.profiles
                 .firstOrNull { it.id == storedProfiles.selectedProfileId }
                 ?: storedProfiles.profiles.first()
@@ -959,6 +973,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         selectedAgentProfileId = storedAgentProfiles.selectedProfileId,
                         registeredAgentTools = availableAgentTools,
                         skills = availableSkills,
+                        mcpServers = mcpServers,
                         agentMemoryRecallEnabled = storedAgentProfiles.profiles
                             .first { it.id == storedAgentProfiles.selectedProfileId }
                             .memoryEnabled,
@@ -1869,6 +1884,125 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun refreshMcpServers() {
+        if (uiState.loadingMcpServers) return
+        uiState = uiState.copy(loadingMcpServers = true, mcpError = null)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.listMcpServers() } }
+                .onSuccess { servers ->
+                    val existingIds = servers.mapTo(linkedSetOf(), McpServerConfig::id)
+                    uiState = uiState.copy(
+                        loadingMcpServers = false,
+                        mcpServers = servers,
+                        mcpToolsByServer = uiState.mcpToolsByServer.filterKeys(existingIds::contains),
+                        mcpError = null,
+                    )
+                }
+                .onFailure { error -> uiState = uiState.copy(loadingMcpServers = false, mcpError = error.message ?: "无法读取 MCP Server") }
+        }
+    }
+
+    fun discoverMcpTools(serverId: String) {
+        if (serverId in uiState.loadingMcpToolServerIds) return
+        uiState = uiState.copy(
+            loadingMcpToolServerIds = uiState.loadingMcpToolServerIds + serverId,
+            mcpError = null,
+        )
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.discoverMcpTools(serverId) } }
+                .onSuccess { tools ->
+                    uiState = uiState.copy(
+                        loadingMcpToolServerIds = uiState.loadingMcpToolServerIds - serverId,
+                        mcpToolsByServer = uiState.mcpToolsByServer + (serverId to tools),
+                        mcpError = null,
+                    )
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        loadingMcpToolServerIds = uiState.loadingMcpToolServerIds - serverId,
+                        mcpError = error.message ?: "MCP 工具发现失败",
+                    )
+                }
+        }
+    }
+
+    fun setMcpToolEnabled(serverId: String, toolName: String, enabled: Boolean) {
+        val tools = uiState.mcpToolsByServer[serverId] ?: return
+        val key = "$serverId::$toolName"
+        if (key in uiState.mutatingMcpToolKeys) return
+        uiState = uiState.copy(mutatingMcpToolKeys = uiState.mutatingMcpToolKeys + key, mcpError = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    agentRunUseCase.setMcpToolEnabled(serverId, toolName, enabled, tools)
+                }
+            }.onSuccess { saved ->
+                uiState = uiState.copy(
+                    mutatingMcpToolKeys = uiState.mutatingMcpToolKeys - key,
+                    mcpServers = uiState.mcpServers.map { server -> if (server.id == saved.id) saved else server },
+                    result = OperationResult(true, if (enabled) "MCP 工具已启用" else "MCP 工具已停用", toolName),
+                    mcpError = null,
+                )
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    mutatingMcpToolKeys = uiState.mutatingMcpToolKeys - key,
+                    mcpError = error.message ?: "MCP 工具状态更新失败",
+                )
+            }
+        }
+    }
+
+    fun saveMcpServer(config: McpServerConfig) {
+        if (uiState.savingMcpServer) return
+        uiState = uiState.copy(savingMcpServer = true, mcpError = null)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.upsertMcpServer(config) } }
+                .onSuccess { saved ->
+                    uiState = uiState.copy(savingMcpServer = false, result = OperationResult(true, "MCP Server 已保存", saved.name))
+                    refreshMcpServers()
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(savingMcpServer = false, mcpError = error.message ?: "MCP Server 保存失败")
+                }
+        }
+    }
+
+    fun setMcpServerEnabled(id: String, enabled: Boolean) {
+        val server = uiState.mcpServers.firstOrNull { it.id == id } ?: return
+        if (id in uiState.mutatingMcpServerIds) return
+        uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds + id, mcpError = null)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.upsertMcpServer(server.copy(enabled = enabled)) } }
+                .onSuccess {
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id, result = OperationResult(true, if (enabled) "MCP Server 已启用" else "MCP Server 已停用", server.name))
+                    refreshMcpServers()
+                }
+                .onFailure { error -> uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id, mcpError = error.message ?: "MCP Server 状态更新失败") }
+        }
+    }
+
+    fun requestMcpServerDelete(id: String) {
+        uiState = uiState.copy(pendingMcpServerDelete = uiState.mcpServers.firstOrNull { it.id == id })
+    }
+
+    fun cancelMcpServerDelete() {
+        uiState = uiState.copy(pendingMcpServerDelete = null)
+    }
+
+    fun confirmMcpServerDelete() {
+        val server = uiState.pendingMcpServerDelete ?: return
+        if (server.id in uiState.mutatingMcpServerIds) return
+        uiState = uiState.copy(pendingMcpServerDelete = null, mutatingMcpServerIds = uiState.mutatingMcpServerIds + server.id, mcpError = null)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.deleteMcpServer(server.id) } }
+                .onSuccess { deleted ->
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id, result = OperationResult(deleted, if (deleted) "MCP Server 已删除" else "删除失败", server.name))
+                    refreshMcpServers()
+                }
+                .onFailure { error -> uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id, mcpError = error.message ?: "MCP Server 删除失败") }
+        }
+    }
+
     private suspend fun loadWorkflowUiData(): WorkflowUiData {
         val runs = workflowRepository.allRunDetails()
         val agentRunIds = runs.flatMap { detail -> detail.steps.mapNotNull { it.agentRunId } }.distinct()
@@ -2664,6 +2798,62 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     importingSkill = false,
                     skillError = error.message ?: "Skill 导入失败",
                     result = OperationResult(false, "Skill 导入失败", error.message ?: "文件校验未通过"),
+                )
+            }
+        }
+    }
+
+    fun discoverGitHubSkills(url: String) {
+        if (uiState.importingSkill) return
+        uiState = uiState.copy(importingSkill = true, githubSkillCandidates = emptyList(), skillError = null)
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.discoverGitHubSkills(url) } }
+                .onSuccess { candidates ->
+                    uiState = uiState.copy(importingSkill = false)
+                    when (candidates.size) {
+                        0 -> uiState = uiState.copy(skillError = "GitHub 地址下没有找到 SKILL.json 或 SKILL.md")
+                        1 -> importSkillFromGitHub(candidates.single().sourceUrl)
+                        else -> uiState = uiState.copy(githubSkillCandidates = candidates)
+                    }
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(importingSkill = false, skillError = error.message ?: "GitHub Skill 发现失败")
+                }
+        }
+    }
+
+    fun importGitHubSkillCandidate(candidate: GitHubSkillCandidate) {
+        if (candidate !in uiState.githubSkillCandidates) return
+        uiState = uiState.copy(githubSkillCandidates = emptyList())
+        importSkillFromGitHub(candidate.sourceUrl)
+    }
+
+    fun cancelGitHubSkillSelection() {
+        if (uiState.importingSkill) return
+        uiState = uiState.copy(githubSkillCandidates = emptyList())
+    }
+
+    fun importSkillFromGitHub(url: String) {
+        if (uiState.importingSkill) return
+        uiState = uiState.copy(importingSkill = true, githubSkillCandidates = emptyList(), skillError = null, result = null)
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { agentRunUseCase.importSkillFromGitHub(url) }
+            }.onSuccess { record ->
+                uiState = uiState.copy(
+                    importingSkill = false,
+                    result = OperationResult(
+                        true,
+                        "GitHub Skill 已导入",
+                        "${record.definition.name} v${record.definition.version} 已${if (record.enabled) "启用" else "保持停用"}",
+                    ),
+                )
+                refreshSkills()
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    importingSkill = false,
+                    skillError = error.message ?: "GitHub Skill 导入失败",
+                    result = OperationResult(false, "GitHub Skill 导入失败", error.message ?: "远程文件校验未通过"),
                 )
             }
         }
