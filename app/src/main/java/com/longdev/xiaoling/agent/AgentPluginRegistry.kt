@@ -91,11 +91,57 @@ object AgentPluginPolicy {
         ?.map { it.toIntOrNull() ?: return null }
 }
 
-class AgentPluginRegistry {
+class AgentPluginRegistry(
+    private val stateStore: AgentPluginStateStore? = null,
+) {
     private val plugins = linkedMapOf<String, InstalledAgentPlugin>()
+    private var persistenceFailureReason: String? = null
+    private var restoreBlocked = false
+
+    init {
+        restore()
+    }
+
+    @Synchronized
+    fun persistenceFailureReason(): String? = persistenceFailureReason
+
+    private fun restore() {
+        val store = stateStore ?: return
+        val loaded = runCatching { store.loadState() }
+        if (loaded.isFailure) {
+            restoreBlocked = true
+            persistenceFailureReason = loaded.exceptionOrNull()?.message ?: "插件状态读取失败"
+            return
+        }
+        val raw = loaded.getOrNull() ?: return
+        runCatching { AgentPluginJsonCodec.decode(raw) }
+            .onSuccess { restored ->
+                synchronized(this) {
+                    plugins.clear()
+                    restored.forEach { plugins[it.manifest.id] = it }
+                    persistenceFailureReason = null
+                }
+            }
+            .onFailure {
+                // long: 损坏的旧账本可能藏有更高版本或不同来源；冻结变更，避免新安装覆盖它后绕过回退与指纹校验。
+                restoreBlocked = true
+                persistenceFailureReason = it.message ?: "插件状态校验失败"
+            }
+    }
+
+    private fun persist(candidate: Collection<InstalledAgentPlugin>): Boolean {
+        val store = stateStore ?: return true
+        return runCatching {
+            store.saveState(AgentPluginJsonCodec.encode(candidate))
+            persistenceFailureReason = null
+        }.onFailure {
+            persistenceFailureReason = it.message ?: "插件状态写入失败"
+        }.isSuccess
+    }
 
     @Synchronized
     fun install(manifest: AgentPluginManifest): AgentPluginInstallResult {
+        if (restoreBlocked) return AgentPluginInstallResult.Rejected("插件历史状态损坏，安装已冻结")
         runCatching { AgentPluginPolicy.validate(manifest) }
             .onFailure { return AgentPluginInstallResult.Rejected(it.message ?: "插件 manifest 无效") }
         val existing = plugins[manifest.id]
@@ -112,6 +158,10 @@ class AgentPluginRegistry {
         }
         // long: 安装或升级默认保持停用，避免新 manifest 在没有用户确认时改变可用能力面。
         val installed = InstalledAgentPlugin(manifest = manifest, enabled = false)
+        val candidate = plugins.toMutableMap().apply { put(manifest.id, installed) }
+        if (!persist(candidate.values)) {
+            return AgentPluginInstallResult.Rejected("插件状态无法持久化")
+        }
         plugins[manifest.id] = installed
         return AgentPluginInstallResult.Installed(installed)
     }
@@ -124,10 +174,21 @@ class AgentPluginRegistry {
 
     @Synchronized
     fun setEnabled(id: String, enabled: Boolean): InstalledAgentPlugin? {
+        if (restoreBlocked) return null
         val current = plugins[id] ?: return null
-        return current.copy(enabled = enabled).also { plugins[id] = it }
+        val updated = current.copy(enabled = enabled)
+        val candidate = plugins.toMutableMap().apply { put(id, updated) }
+        if (!persist(candidate.values)) return null
+        return updated.also { plugins[id] = it }
     }
 
     @Synchronized
-    fun uninstall(id: String): Boolean = plugins.remove(id) != null
+    fun uninstall(id: String): Boolean {
+        if (restoreBlocked) return false
+        if (id !in plugins) return false
+        val candidate = plugins.toMutableMap().apply { remove(id) }
+        if (!persist(candidate.values)) return false
+        plugins.remove(id)
+        return true
+    }
 }
