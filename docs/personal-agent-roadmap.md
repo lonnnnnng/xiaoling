@@ -1,5 +1,35 @@
 # 小灵个人 Agent 路线图
 
+## 2026-09-30：第二组多 Agent 第一片（只读前台子 Run）
+
+- 新增 `MultiAgentCoordinator`，只允许前台 Direct 父 Run、深度为 0 的一次派生；单次最多 2 个子目标，并发信号量上限为 2，结果按输入顺序返回。
+- `AgentRunUseCase.runReadOnlyChildAgents()` 为每个子 Run 创建独立 UseCase/Tool Registry，避免共享 Registry 的短期运行上下文互相覆盖；子 Run 只继承父 Profile 中明确允许的基础 `SAFE` 读取工具，不继承 Skill、长期记忆、设备动作、写工具、MCP 或递归派生。
+- 父子关系通过 Room Run 事件写入：子 Run 在进入终态前记录 `multi_agent.child.linked`，父 Run 记录 `multi_agent.child.started/completed/failed`；子 Run 仍使用现有 Run Ledger、预算、工具验证和终态冻结。
+- JVM `MultiAgentCoordinatorTest` `3/3`、既有 `MultiStepAgentRuntimeTest` `8/8` 通过。
+
+### 第二组当前边界
+
+1. 这片只提供可复用的只读前台子 Run 调度入口，尚未接入对话 UI 的 `spawn_agent` 工具、并行任务中心或跨进程 Agent Registry。
+2. 远程 Channel、ACI、插件系统仍保持现有 fail-closed 边界；它们不能调用这片入口，也不能借此获得后台、设备动作或写入权限。
+3. 子 Run 的父子关系目前以事件审计表达，尚未新增 `parentRunId/rootRunId/depth` Room 列；待并发切片完成真机验证后再决定是否升级持久模型。
+
+## 2026-09-30：第一组后台可靠性、前台 TTS 与系统助手入口
+
+- 修复 WorkManager `ExistingWorkPolicy.KEEP` 的实际工作项绑定：调度器现在回读同名 unique work 的真实未完成 Work ID，不再把本次未入队的 request UUID 写入 Room。
+- 启动恢复除了物化周期计划，还会补队所有 `SCHEDULED + workRequestId=null` 的孤立计划，覆盖进程在系统入队与 Room 绑定之间退出的窗口；仍不使用 `Result.retry()`，避免复制已进入 Agent/工具边界的副作用。
+- 新增 Redmi `ScheduledTaskSchedulerInstrumentedTest#keepReusesExistingWorkRequestId`，真实 `KEEP` 复用测试 `1/1` 通过；聚焦 JVM、Debug/AndroidTest 编译、Lint 和 APK 构建均通过。
+- 启动恢复新增 Room 交叉验证：只补队 `SCHEDULED + workRequestId=null` 的计划，已绑定或已取消的任务不会重复调度。
+- 前台 assistant 已支持系统 `TextToSpeech`：仅已完成且非空的 assistant 消息显示“朗读消息”，使用 `USAGE_ASSISTANT` 音频焦点和 `getMaxSpeechInputLength()` 长文本分片，同一时刻只播放一条，切后台/页面释放时停止并 shutdown；不新增录音权限，不把后台任务结果自动播报。
+- Redmi `ConversationPageInstrumentedTest#exposesSpeakingActionOnlyForCompletedAssistantMessage` `1/1` 通过。直接系统 TTS smoke 因设备 `tts_default_synth=null` 且未发现可用 TTS 包而 `SKIPPED`，因此本阶段只确认接线和生命周期，不宣称中文发音质量或后台播报已验收。
+- 新增标准 Android `ASSIST` Activity、受 `BIND_VOICE_INTERACTION` 保护的 `VoiceInteractionService`/SessionService，以及设置页“系统助手入口”角色请求；会话只显式打开 `MainActivity`，不读取 Assist 数据、不自动录音或发送。Redmi `XiaoLingAssistantEntryInstrumentedTest` `1/1` 通过。
+- AndroidX AppFunctions 仍不接入主线：官方 `appfunctions:1.0.0-alpha10` 的 AAR 要求 AGP `>=9.1.0` 与 compileSdk `>=37`，当前项目 AGP `8.13.1` / compileSdk `36`；它属于后续独立工具链迁移切片。
+
+### 第一组当前边界
+
+1. 后台任务已补齐 Work ID 绑定和孤立计划恢复，但仍使用 WorkManager 的非精确定时语义，不承诺自然 LMK 后原地续跑，也不引入 Foreground Service。
+2. TTS 目前是前台、用户点击触发的系统 Provider；设备没有 TTS 引擎时保持不可播放，不伪造成功证据。
+3. 系统助手标准入口已具备，但当前只打开对话页；Assist 数据、语音识别、全局浮窗和 AppFunctions 任务导入仍未开放。
+
 ## 2026-09-30：浏览器、工作区/终端、MCP 与 GitHub Skill 补齐
 
 - 已接入公开网页只读浏览器 Agent、应用私有工作区和有界终端会话，工具权限按前台直接 Agent 门控，写入/终端操作逐次确认。
@@ -2540,6 +2570,20 @@ idle -> deciding -> waiting_model -> waiting_approval
 128. 已完成：把首批允许包的 `target_app_package` 冻结到 Workflow/Run/步骤快照，Room 升级至 v34 且旧记录保持空目标包；`workflow-device-action-safety-v2` 约束 open、引用动作与受控导航，Runtime 只在已验证动作后允许刷新 snapshot。聚焦 JVM `92/92`、三个 Redmi Room/Compose 单项和真实 `snapshot -> swipe -> snapshot -> back` 同 Run tracer 通过，日志为 `verified=2/2 / approvals=0 / freshSnapshots=true / privacySafe=true`；目标级验证当时留给第 129 阶段。
 129. 已完成：计划增加严格完成标准并冻结到 Workflow/步骤快照，Room 升级至 v35；Repository 从持久 Tool Ledger 和脱敏设备观察重建目标判定，本地输出 `VERIFIED / PARTIAL / INCOMPLETE`，旧 Workflow 保持无 Decision，损坏 Contract fail-closed。聚焦 JVM `22/22`、Redmi 定向 `OK (5 tests)` 和真实多动作 `goalDecision=VERIFIED` tracer 通过。
 
+130. 已完成：第二组 ACI 第一版只读发现入口。设置根页新增独立子页，只投影当前 Agent Profile 已授权且已注册的固定 SAFE 白名单能力，不持有或执行 `ToolRegistry`；页面明确前台 direct 约束，并拒绝把发现结果扩展为后台、Workflow 或远程权限。JVM 投影、ACI 页面 Redmi `2/2` 与设置根页 Redmi `5/5` 通过；Debug/AndroidTest 构建与 Lint `0 errors` 通过。下一阶段补远程草稿持久化去重和插件来源/签名指纹，Telegram/Webhook、远程执行和插件代码加载继续后置。
+
+131. 已完成：Remote Channel 去重持久化与草稿投影第一片。`InMemoryRemoteChannelInbox` 支持持久化去重键恢复，账本写失败 fail-closed；Android 使用 SharedPreferences 只保存有界 `channel/sender/messageId` 键，不保存消息正文或权限。`RemoteChannelDraft` 复用现有 Shared Draft 接收管线，仍要求前台确认，不自动发送、不自动启动 Agent。JVM、Redmi `RemoteChannelDedupeStoreInstrumentedTest 1/1` 与 ACI/设置合并回归 `7/7` 通过；下一阶段补插件来源/签名指纹，Telegram/Webhook、远程执行和插件代码加载继续后置。
+
+132. 已完成：插件 manifest 来源指纹第一片。manifest 可选携带 HTTPS 来源 URL、固定 commit 和内容 SHA-256；同版本来源/内容漂移会拒绝，版本回退、外部代码执行模式和默认启用仍被禁止。该片只提供声明完整性，不等同签名验证或代码沙箱；JVM 第二组测试通过，最新 Debug/AndroidTest APK 已在 Redmi 覆盖安装，ACI、设置与 Remote Channel 存储合并真机回归 `8/8` 通过。
+
 横向结构工程补充记录：应用导航、Workflow 管理、Agent 任务中心、长期记忆管理、Provider 管理、Agent Profile 管理、Agent Skill 管理、会话主界面、提示词设置、进程退出观察、网络请求设置和设置根页均已迁入独立 UI module；发布后的有界对话框簇又将 Agent/Workflow 重试、长期记忆编辑/删除和本地 Skill 删除归入对应模块。宿主当前 `817` 行并达到停止条件，通用执行恢复矩阵闭环审计也已完成。第 10 项知识质量工程已完成匿名跨进程持久化、第 102 阶段导出契约、第 103/104/107 阶段三条 v33 同日样本、第 105 阶段单次显式采样窗口和第 106 阶段时间证据投影；第 108 至 128 阶段已切回个人 Agent，并依次完成 Workflow 只读 snapshot、答案级观察证据 UI、版本化本地判定、真实双 Run 消费与输出净化、有限设备动作安全契约冻结、`tap_ref` 首个生产切片、答案级动作证据 UI、`type_text` 专属安全/evidence seam/生产闭环、跨直接 `/agent` 的持久化隐私统一、SAFE `back / home`、逐包审批 `open_app`、`swipe` 完整生产链、自然语言个人任务与可确认计划，以及限定 App 多动作连续执行。Shadow 后续只做低频并行观察，不机械搬运 `SettingsPage` composition root，也不阻塞个人 Agent 功能。
 
 后续若继续相关性工作，必须先重新注册能够区分“同主题”和“文档真正回答问题”的 answerability/重排设计，不能用第 90 或 91 阶段 validation 回调阈值或降低标准；在新的独立证据达到预注册标准前，生产拒绝与答案路径继续关闭。第 97 至 101 项已记录窗口人工合计 Shadow 样本 `10`、其中有效 Judge `8`：直接回答 `5`、部分回答 `3`，另有两条无候选跳过；没有自然 Judge 网络/协议/认证失败。无候选跳过、没有成功答案且未进入 Shadow 的预算耗尽或工具步数耗尽不得用来扩权。该人工合计早于 v33 匿名账本且不会回填；第 103/104/107 阶段的新账本当前有 `3` 条完成且接纳记录，最早到最新跨度 `5 小时 24 分 46.689 秒`，仍属于同日窗口，不足以作为长期分隔或 calibration/validation 证据。第 105 阶段已把每次显式开启收紧为最多一轮观测，第 106 阶段只把时间证据展示到设置页，第 107 阶段真实确认预算耗尽但没有成功答案时不消费授权、不增加账本；后续继续在真正跨日或长期分隔的真实使用窗口低频观察。同时只在真实使用中继续积累 Android 自主 LMK、系统配额、超时或自然回收记录，并以 Room v33 中自 v29 延续的进程退出独立账本及只读诊断页核对。没有新自然样本时不再增加模拟回收代码，不把 `force-stop`、应用取消、安装、instrumentation、Doze、trim-memory 或 `kill -9` 包装成自然系统证据。不尝试恢复无法证明的旧执行栈。Daily/Weekly 继续使用非精确定时语义并记录计划/实际时间。Foreground Service 只提高系统存活概率，不代表旧执行栈可以安全恢复；当前熄屏 244.236 秒样本和受控取消仍不支持预先引入。前台 Workflow 当前精确开放 `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe`；第 126 阶段已完成 swipe 的生产默认接线和仅 Redmi 真实生产 Workflow 验收，全部后台设备自动化继续关闭。第 127 至 130 阶段的自然语言计划、限定 App 多动作连续执行、目标级本地验证、记忆/知识计划上下文和应用内提醒均已完成；下一主线是第 131 阶段任务级恢复与关联重试，再进行 Redmi 完整里程碑验收。精确定时、MCP、系统日历、远程 Channel、多 Agent 和本地模型继续后置。
+
+## 第二组启动：多 Agent、远程 Channel、ACI 与插件声明
+
+- 第 132 阶段已完成：多 Agent 第一片只读前台子 Run。父 Run 只能在 `FOREGROUND + DIRECT + depth=0` 派生，单次最多两个子 Agent，并发上限为 2；子 Run 使用独立 UseCase/ToolRegistry，只继承 SAFE 只读工具，不继承 Skill、长期记忆、设备动作、写工具、MCP 或递归派生。父子关联写入 `multi_agent.child.*` 事件。
+- 第 133 阶段已完成第一版远程 Channel envelope：显式 channel/sender allowlist、消息长度与时间校验、`channel + sender + messageId` 去重，以及只生成前台草稿；远程入口不自动发送、不自动启动 Agent、不携带附件或工具授权。当前是进程内 loopback，尚未接 Telegram、Webhook、持久化收件箱或 OAuth。
+- 第 133 阶段已完成第一版 ACI 只读桥：能力必须显式白名单，发现结果只包含 SAFE 工具；调用只接受 `FOREGROUND + DIRECT`，重新执行工具参数校验，不改变 Profile、Skill、MCP 或设备动作权限。
+- 第 133 阶段已完成插件声明层：版本化 manifest、权限枚举、安装/升级/启停/卸载状态机；安装和升级默认停用，版本不能回退，当前只允许 `DECLARATIVE_MANIFEST_ONLY`，不加载外部代码。
+- 下一切片：为远程草稿接入已有会话草稿投影与持久化去重；为 ACI 接入设置页只读能力发现；为插件 manifest 增加签名/来源指纹和 Room 持久化。网络 Channel、远程执行、插件代码沙箱和设备动作继续保持关闭。

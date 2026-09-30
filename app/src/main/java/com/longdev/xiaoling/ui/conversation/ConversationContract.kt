@@ -106,6 +106,10 @@ internal interface ConversationActions {
 
     fun requestVoiceInput()
 
+    fun speakMessage(messageId: String, text: String)
+
+    fun stopSpeaking()
+
     fun openKnowledgeReference(reference: KnowledgeReference)
 }
 

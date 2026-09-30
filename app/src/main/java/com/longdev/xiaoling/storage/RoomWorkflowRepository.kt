@@ -807,6 +807,16 @@ class RoomWorkflowRepository(
         return tasksToEnqueue
     }
 
+    suspend fun listUnboundScheduledTasks(): List<ScheduledTaskRecord> {
+        return database.workflowDao().listScheduledTasks()
+            .asSequence()
+            .filter { task ->
+                task.status == ScheduledTaskStatus.SCHEDULED.name && task.workRequestId.isNullOrBlank()
+            }
+            .map { it.toRecord() }
+            .toList()
+    }
+
     suspend fun reconcileInterruptedScheduledTasks(taskIds: Set<String>? = null): Int {
         val dao = database.workflowDao()
         var reconciled = 0

@@ -1382,6 +1382,21 @@ class RoomWorkflowRepositoryInstrumentedTest {
     }
 
     @Test
+    fun startupRecoveryFindsOnlyUnboundScheduledTasks() = runBlocking {
+        val workflow = repository.createWorkflow("启动补队", "读取当前时间")
+        val unbound = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 10)
+        val bound = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 20)
+        val cancelled = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 30)
+        repository.attachWorkRequest(bound.id, "work-request-existing")
+        repository.cancelScheduledTask(cancelled.id)
+
+        // long: 重启时只把仍处于 SCHEDULED 且没有 Work ID 的任务补回系统队列；已经绑定或取消的任务不能重复调度。
+        assertEquals(listOf(unbound.id), repository.listUnboundScheduledTasks().map { it.id })
+        repository.attachWorkRequest(unbound.id, "work-request-recovered")
+        assertTrue(repository.listUnboundScheduledTasks().isEmpty())
+    }
+
+    @Test
     fun systemCancellationPersistsSameTypedStopReasonOnTaskAndWorkflowRun() = runBlocking {
         val workflow = repository.createWorkflow("系统停止审计", "读取当前时间")
         val task = repository.createOneTimeScheduledTask(workflow.id, delayMinutes = 1)

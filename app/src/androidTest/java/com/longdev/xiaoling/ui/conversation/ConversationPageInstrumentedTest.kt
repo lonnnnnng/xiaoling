@@ -83,6 +83,31 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun exposesSpeakingActionOnlyForCompletedAssistantMessage() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(role = "assistant", text = "可以朗读这段内容。"),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("朗读消息").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(1, actions.speakMessageCount)
+            assertEquals(0, actions.stopSpeakingCount)
+        }
+    }
+
+    @Test
     fun directAgentGoalCardSummarizesVerifiedDeviceActionsAndRefreshesCurrentFact() {
         val actions = FakeConversationActions()
         val context = VerifiedAgentContext(
@@ -890,6 +915,8 @@ class ConversationPageInstrumentedTest {
         var imageAttachmentRequestCount = 0
         var documentAttachmentRequestCount = 0
         var voiceInputRequestCount = 0
+        var speakMessageCount = 0
+        var stopSpeakingCount = 0
         var openSharedDraftCount = 0
         var discardSharedDraftCount = 0
         var createAgentNoteDraftCount = 0
@@ -1037,6 +1064,14 @@ class ConversationPageInstrumentedTest {
 
         override fun requestVoiceInput() {
             voiceInputRequestCount += 1
+        }
+
+        override fun speakMessage(messageId: String, text: String) {
+            speakMessageCount += 1
+        }
+
+        override fun stopSpeaking() {
+            stopSpeakingCount += 1
         }
 
         override fun openKnowledgeReference(reference: KnowledgeReference) = Unit

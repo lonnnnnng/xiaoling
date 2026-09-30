@@ -2,6 +2,7 @@ package com.longdev.xiaoling.ui
 
 import android.Manifest
 import android.app.Activity
+import android.app.role.RoleManager
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -35,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +53,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
@@ -65,6 +70,7 @@ import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterPage
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterDialogs
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterProjection
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterUiState
+import com.longdev.xiaoling.ui.aci.AciReadOnlyCapabilitiesPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementProjection
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementUiState
@@ -83,6 +89,7 @@ import com.longdev.xiaoling.ui.conversation.PersonalTaskPlanDialog
 import com.longdev.xiaoling.ui.conversation.ConversationProjection
 import com.longdev.xiaoling.ui.conversation.ConversationUiState
 import com.longdev.xiaoling.ui.conversation.rememberSystemVoiceInputRequest
+import com.longdev.xiaoling.ui.conversation.SystemTextToSpeechController
 import com.longdev.xiaoling.ui.memory.MemoryManagementPage
 import com.longdev.xiaoling.ui.memory.MemoryManagementDialogs
 import com.longdev.xiaoling.ui.memory.MemoryManagementProjection
@@ -133,9 +140,36 @@ private fun XiaoLingContent(
 ) {
     val navigation = rememberXiaoLingNavigationController()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val contactOpenScope = rememberCoroutineScope()
     val contactOpenCoordinator = remember(context) { createAndroidContactOpenCoordinator(context) }
     var centerNotice by remember { mutableStateOf<CenterNotice?>(null) }
+    val assistantRoleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        centerNotice = CenterNotice(
+            if (result.resultCode == Activity.RESULT_OK) "已提交系统助手选择" else "未更改系统助手设置",
+            success = result.resultCode == Activity.RESULT_OK,
+        )
+    }
+    var speakingMessageId by remember { mutableStateOf<String?>(null) }
+    val textToSpeech = remember(context) {
+        SystemTextToSpeechController(context) { speakingMessageId = null }
+    }
+    DisposableEffect(textToSpeech, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                textToSpeech.stop()
+                speakingMessageId = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            textToSpeech.shutdown()
+            speakingMessageId = null
+        }
+    }
     var pendingBackupRestoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip"),
@@ -146,6 +180,18 @@ private fun XiaoLingContent(
     val importSkillLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::importSkill) }
+    val requestAssistantRole = {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            centerNotice = CenterNotice("Android 10 及以下不提供系统助手角色设置", success = false)
+        } else {
+            val roleManager = context.getSystemService(RoleManager::class.java)
+            if (!roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+                centerNotice = CenterNotice("当前系统没有可用的默认数字助理角色", success = false)
+            } else {
+                assistantRoleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT))
+            }
+        }
+    }
     val attachImageLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::attachImage) }
@@ -177,6 +223,7 @@ private fun XiaoLingContent(
         attachImageLauncher,
         attachDocumentLauncher,
         requestVoiceInput,
+        textToSpeech,
         navigation,
         contactOpenCoordinator,
         contactOpenScope,
@@ -310,6 +357,19 @@ private fun XiaoLingContent(
                 requestVoiceInput()
             }
 
+            override fun speakMessage(messageId: String, text: String) {
+                if (textToSpeech.speak(text)) {
+                    speakingMessageId = messageId
+                } else {
+                    centerNotice = CenterNotice("系统语音引擎不可用；请检查系统文字转语音设置", success = false)
+                }
+            }
+
+            override fun stopSpeaking() {
+                textToSpeech.stop()
+                speakingMessageId = null
+            }
+
             override fun openKnowledgeReference(reference: KnowledgeReference) {
                 navigation.openKnowledgeReference(reference)
             }
@@ -414,6 +474,7 @@ private fun XiaoLingContent(
                     state = state.toConversationUiState(),
                     actions = conversationActions,
                     visible = navigation.tab == XiaoLingAppTab.CONVERSATION,
+                    speakingMessageId = speakingMessageId,
                     modifier = Modifier.matchParentSize(),
                 )
 
@@ -452,6 +513,10 @@ private fun XiaoLingContent(
                         onOpenMcpServerManagement = {
                             navigation.openSettingsPane(SettingsPane.MCP_SERVER_MANAGEMENT)
                         },
+                        onOpenAciReadOnlyCapabilities = {
+                            navigation.openSettingsPane(SettingsPane.ACI_READ_ONLY_CAPABILITIES)
+                        },
+                        onOpenAssistantRole = requestAssistantRole,
                         onTrySkill = { skillId, example ->
                             if (state.sendingMessage || state.pendingPersonalTaskPlan != null) {
                                 centerNotice = CenterNotice("当前 Agent 操作结束后再试用 Skill", success = false)
@@ -951,6 +1016,8 @@ private fun SettingsPage(
     onOpenKnowledgeRelevanceRollout: () -> Unit,
     onOpenSkillManagement: () -> Unit,
     onOpenMcpServerManagement: () -> Unit,
+    onOpenAciReadOnlyCapabilities: () -> Unit,
+    onOpenAssistantRole: () -> Unit,
     onTrySkill: (String, String) -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
     onOpenAgentRunHistory: () -> Unit,
@@ -1120,6 +1187,19 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.ACI_READ_ONLY_CAPABILITIES -> AciReadOnlyCapabilitiesPage(
+                selectedProfileName = state.agentProfiles
+                    .firstOrNull { it.id == state.selectedAgentProfileId }
+                    ?.name,
+                registeredTools = state.registeredAgentTools,
+                allowedToolNames = state.agentProfiles
+                    .firstOrNull { it.id == state.selectedAgentProfileId }
+                    ?.allowedToolNames
+                    ?.toSet()
+                    .orEmpty(),
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
                 state = state.toWorkflowManagementUiState(),
                 actions = viewModel,
@@ -1164,6 +1244,8 @@ private fun SettingsPage(
                     override fun openKnowledgeRelevanceRollout() = onOpenKnowledgeRelevanceRollout()
                     override fun openSkillManagement() = onOpenSkillManagement()
                     override fun openMcpServerManagement() = onOpenMcpServerManagement()
+                    override fun openAciReadOnlyCapabilities() = onOpenAciReadOnlyCapabilities()
+                    override fun openAssistantRole() = onOpenAssistantRole()
                     override fun openWorkflowManagement() = onOpenWorkflowManagement(null)
                     override fun openAgentRunHistory() = onOpenAgentRunHistory()
                     override fun openProcessExitObservations() = onOpenProcessExitObservations()

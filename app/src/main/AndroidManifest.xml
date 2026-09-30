@@ -8,6 +8,10 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
+        <!-- long: Android 11 以后只有声明 TTS_SERVICE 查询，前台朗读控制器才能发现系统语音引擎；不扩大到其他服务类型。 -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
         <!-- long: 联系人拨号页只需要发现能处理 tel 号码的系统 Activity，不扩大到所有可查询应用。 -->
         <intent>
             <action android:name="android.intent.action.DIAL" />
@@ -76,6 +80,11 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- long: 这是系统 ASSIST 角色的标准资格入口；处理逻辑仍只打开本应用对话页，不读取或转发外部 extra。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- long: 系统分享只暴露现有附件链能完整校验的精确 MIME；不使用通配符，避免把 GIF、ZIP 或其他未知文件先接入应用再拒绝。 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -119,6 +128,25 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- long: 系统数字助理只通过受保护的 BIND_VOICE_INTERACTION 绑定；会话服务不接收普通应用的隐式调用。 -->
+        <service
+            android:name=".assistant.XiaoLingVoiceInteractionService"
+            android:exported="true"
+            android:label="@string/voice_interaction_service_label"
+            android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction_service" />
+        </service>
+
+        <service
+            android:name=".assistant.XiaoLingVoiceInteractionSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
     </application>
 
 </manifest>

@@ -33,7 +33,10 @@ class WorkManagerScheduledTaskScheduler(
             .build()
         // long: 一个 ScheduledTask 只允许存在一个系统工作项；KEEP 配合 Room 状态检查，防止页面重复点击或进程重建导致同一计划执行两次。
         workManager.enqueueUniqueWork(uniqueWorkName(task.id), ExistingWorkPolicy.KEEP, request).result.get()
-        return request.id.toString()
+        // long: KEEP 可能复用已经存在的 Work；此时新建 request.id 没有入队，必须回读 unique work 的真实 ID，避免 Room 绑定到不存在的工作项。
+        val actualWork = workManager.getWorkInfosForUniqueWork(uniqueWorkName(task.id)).get()
+            .map { info -> ScheduledWorkInfo(info.id.toString(), info.state.isFinished) }
+        return selectEnqueuedWorkRequestId(actualWork, request.id.toString())
     }
 
     override suspend fun cancel(taskId: String) {
@@ -47,4 +50,18 @@ class WorkManagerScheduledTaskScheduler(
 
         private fun taskTag(taskId: String): String = "xiaoling-scheduled-task-tag-$taskId"
     }
+}
+
+internal data class ScheduledWorkInfo(
+    val id: String,
+    val isFinished: Boolean,
+)
+
+internal fun selectEnqueuedWorkRequestId(
+    workInfos: List<ScheduledWorkInfo>,
+    requestedId: String,
+): String {
+    return workInfos.firstOrNull { !it.isFinished }?.id
+        ?: workInfos.firstOrNull()?.id
+        ?: requestedId
 }

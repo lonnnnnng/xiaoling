@@ -36,6 +36,7 @@ import com.longdev.xiaoling.agent.NotificationPersonalNoteSourceStatus
 import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
+import com.longdev.xiaoling.agent.RemoteChannelDraft
 import com.longdev.xiaoling.agent.DEVICE_OPEN_APP_TOOL_NAME
 import com.longdev.xiaoling.agent.DEVICE_TAP_REF_TOOL_NAME
 import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
@@ -915,7 +916,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                     workflowRunIds = recoveryCandidates.workflowRunIds,
                 )
                 workflowRepository.reconcileInterruptedScheduledTasks(recoveryCandidates.scheduledTaskIds)
-                workflowRepository.reconcileWorkflowSchedules().forEach { task ->
+                val tasksToEnqueue = (
+                    workflowRepository.reconcileWorkflowSchedules() +
+                        workflowRepository.listUnboundScheduledTasks()
+                    ).distinctBy { task -> task.id }
+                tasksToEnqueue.forEach { task ->
                     try {
                         val workRequestId = scheduledTaskScheduler.enqueue(task)
                         workflowRepository.attachWorkRequest(task.id, workRequestId)
@@ -1048,6 +1053,11 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             return
         }
         handleSharedDraftImport(result)
+    }
+
+    fun acceptRemoteChannelDraft(draft: RemoteChannelDraft) {
+        // long: Channel 只把已通过 allowlist/去重校验的文本交给现有前台草稿投影，不自动发送，也不改变 Agent 工具边界。
+        acceptSharedDraft(draft.toSharedDraftImport())
     }
 
     fun openPendingSharedDraft() {

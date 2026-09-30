@@ -156,6 +156,7 @@ internal fun ConversationPage(
     state: ConversationUiState,
     actions: ConversationActions,
     visible: Boolean,
+    speakingMessageId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val chatListState = rememberLazyListState()
@@ -326,6 +327,9 @@ internal fun ConversationPage(
                                     onOpenLocalNote = actions::openLocalNote,
                                     onOpenMemory = actions::openMemory,
                                     onReuseUserMessage = actions::updatePrompt,
+                                    speaking = message.id == speakingMessageId,
+                                    onSpeak = { actions.speakMessage(message.id, message.text) },
+                                    onStopSpeaking = actions::stopSpeaking,
                                 )
                             }
                             goalDecisionsByMessageId[message.id]?.let { decision ->

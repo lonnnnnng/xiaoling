@@ -204,6 +204,22 @@ internal fun SettingsRootPage(
             )
 
             SettingsEntryCard(
+                title = "ACI 只读能力",
+                subtitle = "查看当前 Profile 可发现的 SAFE 能力；此页不会执行工具",
+                icon = Icons.Default.Visibility,
+                onClick = actions::openAciReadOnlyCapabilities,
+                testTag = "settings-entry-aci-read-only-capabilities",
+            )
+
+            SettingsEntryCard(
+                title = "系统助手入口",
+                subtitle = "请求将小灵设为 Android 默认数字助理；入口只打开对话页",
+                icon = Icons.Default.PlayArrow,
+                onClick = actions::openAssistantRole,
+                testTag = "settings-entry-assistant-role",
+            )
+
+            SettingsEntryCard(
                 title = "工作流",
                 subtitle = if (state.workflowCount == 0) {
                     "保存可重复的 Agent 目标并查看执行记录"

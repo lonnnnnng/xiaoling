@@ -1,5 +1,23 @@
 # 当前实现说明
 
+## 2026-09-30 第二组：只读前台多 Agent 子 Run
+
+- `MultiAgentCoordinator` 将一次派生限制为最多两个子目标，并用 `Semaphore(2)` 控制同时运行数量；父上下文必须是 `FOREGROUND + DIRECT + depth=0`，不接受后台、Workflow、远程入口或递归派生。
+- `AgentRunUseCase.runReadOnlyChildAgents()` 为每个子 Agent 创建独立 `AgentRunUseCase`，从父 Profile 白名单中交集得到基础只读 SAFE 工具，清空 Skill 和长期记忆配置；这样不会复用 `XiaoLingToolRegistry` 的可变 Run context，也不会把设备、写入或 MCP 工具带入子 Run。
+- 子 Run 仍通过现有 `MinimalAgentRuntime`、`RoomAgentRunRepository`、预算和终态冻结；第一次快照落库时写入 `multi_agent.child.linked`，父 Run 记录 `multi_agent.child.started`，完成或失败后记录对应父事件。终态子 Run 不再追加迟到关联事件。
+- `MultiAgentCoordinatorTest` 覆盖并发上限、输入顺序、背景/Workflow/递归拒绝和单个子 Run 失败隔离；聚焦 JVM `3/3`，既有 `MultiStepAgentRuntimeTest` `8/8`。
+
+## 2026-09-30 第一组：后台可靠性与前台 TTS
+
+- `WorkManagerScheduledTaskScheduler.enqueue()` 在 `KEEP` 复用场景回读 `getWorkInfosForUniqueWork()`，选择真实未完成 Work ID；之前返回新建但未入队的 request ID，会在进程于 enqueue 与 `attachWorkRequest()` 之间退出时把伪 ID 写入 Room。
+- `RoomWorkflowRepository.listUnboundScheduledTasks()` 返回所有 `SCHEDULED + workRequestId=null` 计划；启动恢复将它与周期计划补队结果合并去重，再执行真实 WorkManager 入队与 Room 绑定。该修复不调用 `Result.retry()`，不重放 Agent/工具副作用。
+- Redmi `ScheduledTaskSchedulerInstrumentedTest#keepReusesExistingWorkRequestId` 为 `OK (1 test)`：同一 unique work 第二次 `KEEP` 返回首个实际 Work ID，WorkManager 只有一个工作项；测试结束取消临时 Work。
+- `SystemTextToSpeechController` 在 Compose 内容层级持有系统 `TextToSpeech`；assistant 消息仅在非流式、非空时出现朗读入口，`QUEUE_FLUSH` 保证单条播放，`ON_STOP` 和 `onDispose` 停止并释放引擎。系统 TTS smoke 只在有可用引擎时执行。
+- Redmi `ConversationPageInstrumentedTest#exposesSpeakingActionOnlyForCompletedAssistantMessage` 为 `OK (1 test)`。当前设备 `settings get secure tts_default_synth` 返回 `null`，未发现 TTS/speech 包，直接引擎测试 `SKIPPED`；没有把跳过写成声音质量或后台播报通过。
+- 系统助手入口采用平台标准切片：`MainActivity` 声明 `android.intent.action.ASSIST`，另有受 `BIND_VOICE_INTERACTION` 保护的 `XiaoLingVoiceInteractionService` 与 `XiaoLingVoiceInteractionSessionService`。会话只用显式 Intent 打开 `MainActivity`，不请求 Assist 数据/截图、不自动录音、不自动发送；设置页通过 `RoleManager.ROLE_ASSISTANT` 交给用户确认。Redmi `XiaoLingAssistantEntryInstrumentedTest` 验证 Activity 与服务均可解析。
+- `SystemTextToSpeechController` 现在声明 `TTS_SERVICE` 查询，初始化后设置 `USAGE_ASSISTANT` 语音属性并申请短时可 duck 音频焦点；回答按系统最大输入长度在句末或空格处分片后以 `QUEUE_FLUSH/QUEUE_ADD` 顺序播放，失去焦点、切后台、页面释放和引擎错误都会停止并释放焦点。当前设备 `tts_default_synth=null`，直接语音 smoke 仍按 `SKIPPED` 记录。
+- AppFunctions 探针未进入生产代码。`androidx.appfunctions:appfunctions:1.0.0-alpha10` 的 AAR metadata 要求 AGP `9.1.0+`、compileSdk `37+`，当前 `AGP 8.13.1 / compileSdk 36` 不满足；AppFunctions 任务导入保留为后续独立工具链迁移切片。
+
 ## 2026-09-30：浏览器、工作区/终端、MCP 与 GitHub Skill 补齐
 
 - 浏览器 Agent 新增 `browser.fetch / open / read / navigate / close`，只读取公开 HTTP(S) 页面；脚本、Cookie、表单、自动重定向、账号密码 URL、回环/私网解析和超大响应均拒绝，会话最多 4 个且 10 分钟空闲回收。
@@ -2608,3 +2626,34 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 第 59 阶段已取得约 229 秒复合只读后台成功链；下一恢复证据切片继续观察更长真实任务中的预算快照与系统回收组合行为、以及 Android 自主 LMK，仍不恢复无法证明的旧执行栈。
 
 未来架构与迁移顺序见 [个人 Agent 路线图](personal-agent-roadmap.md)。
+
+## 第二组第一切片：远程 Channel、ACI 与插件声明（2026-09-30）
+
+- 新增 `RemoteChannelEnvelope` 与 `InMemoryRemoteChannelInbox`。入站消息必须通过 channel/sender allowlist、空值、时间戳和 20,000 字符上限校验；`channel + sender + messageId` 在有界 LRU 窗口内去重。
+- 接收成功只返回 `RemoteChannelDraft`，复用 `SharedDraftPayload` 的纯文本字段并强制 `requiresForegroundConfirmation=true`。没有网络轮询、Webhook、附件、自动发送、自动 Agent Run 或工具授权。
+- 新增 `ReadOnlyAciCapabilityBridge`。能力以显式 SAFE 工具集合构造，发现时排序稳定；调用前重新校验前台直连来源、工具参数和 SAFE 风险，失败内容和结果均有长度上限。Workflow、后台和远程入口被拒绝。
+- 新增 `AgentPluginManifest`、`AgentPluginRegistry`。manifest 仅支持 `x.y.z` 版本、声明权限和 `DECLARATIVE_MANIFEST_ONLY` 执行模式；安装/升级默认停用，禁止降级，未实现外部代码加载。
+- JVM `SecondGroupFoundationTest` 覆盖远程消息去重/allowlist、ACI 发现/调用来源门禁、插件升级停用和版本回退/执行模式拒绝；同时回归 `MultiAgentCoordinatorTest`。当前完整 JVM 门禁为 `1230/1230`，无失败、无错误、无跳过。
+- 这一步是第二组的声明和本地协议基线，不等同远程服务或插件运行时完成。当前 APK 已在 Redmi `wsvwypiz7xwslvl7` 覆盖安装并通过固定 `OK (14 tests)` 回归；下一步接入会话草稿持久化和 manifest 来源指纹。
+
+## 第二组 ACI 只读发现入口（2026-09-30）
+
+- 设置根页新增“ACI 只读能力”入口和独立子页。页面只从当前 Profile 的 `allowedToolNames` 与已注册 `ToolDefinition` 做纯投影，保留 `AciPolicy.DEFAULT_READ_ONLY_CAPABILITY_NAMES` 与 `SAFE` 交集，不持有 `ToolRegistry`，不在设置页执行工具。
+- ACI 页面明确显示当前 Profile、可发现能力和“前台 direct / SAFE / 不授予后台、Workflow、远程入口”的边界；没有把只读发现误写成 App Capability 执行接口。
+- JVM 投影测试通过；Redmi `wsvwypiz7xwslvl7` 上 `AciReadOnlyCapabilitiesPageInstrumentedTest` 为 `2/2`、`SettingsRootPageInstrumentedTest` 为 `5/5`，均无失败。
+- 本轮全量门禁：`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest` 成功；Lint `0 errors`（80 warnings）。Debug APK SHA-256 为 `0bd794bcbeb33482e580aa18477936e418cee1558a5c75ebe0da6ff6590f6048`，AndroidTest APK SHA-256 为 `6ca36803b4a8e9a959510b694af4ffbeb115426407c2d0a7ae95402be7c7fe09`。
+- 下一步仍是插件 manifest 来源/签名指纹；Telegram/Webhook、远程执行、插件代码加载和设备动作继续关闭。
+
+## 第二组 Remote Channel 去重持久化（2026-09-30）
+
+- `InMemoryRemoteChannelInbox` 现在可注入 `RemoteChannelDedupeStore`，初始化恢复有序去重键，接受消息前先持久化，写入失败时回滚内存占位并返回 `DEDUPE_PERSISTENCE_FAILURE`，避免进程重启后重复生成前台草稿。
+- 新增 `SharedPreferencesRemoteChannelDedupeStore`，只保存有界的 `channel/sender/messageId` 去重键，不保存正文、附件、sender 资料或工具权限；有序 JSON 数组保留 LRU 顺序。
+- `RemoteChannelDraft` 增加到现有 `SharedDraftImport.Accepted` 的纯投影入口，ViewModel 可复用当前会话替换确认、附件清理和“只草稿不发送”规则；当前没有网络接收器或自动执行入口。
+- JVM 第二组基础测试和 Remote Draft 投影测试通过；Redmi `RemoteChannelDedupeStoreInstrumentedTest` 为 `1/1`，ACI 页面与设置根页合并回归为 `7/7`，均无失败。
+- 本轮 Debug APK SHA-256 为 `4e431c0d39d210808f86f753244e49aa0cfed4a5003c681d704adf241f913d9d`，AndroidTest APK SHA-256 为 `b217083f893c4073dad4d87eaefd6778a49f51b534bde39593bb3a2a25f9bf88`。
+
+## 第二组插件来源指纹（2026-09-30）
+
+- `AgentPluginManifest` 新增可选来源描述：HTTPS URL、固定 commit（7 至 64 位小写提交指纹）和 64 位小写内容 SHA-256；同一插件同一版本的来源或内容指纹变化会被拒绝。
+- 这只是声明完整性和来源可审计性边界，不是签名验证，也不加载外部代码；插件仍必须是 `DECLARATIVE_MANIFEST_ONLY`，安装/升级继续默认停用。
+- JVM 第二组基础测试新增来源 URL、commit、内容指纹和同版本漂移拒绝覆盖；本轮 APK 已重新构建，Debug SHA-256 为 `5ab688940dafca2d68a50e1a9c7ae3acaa9878a9b56c527ca479454532fb6a6c`，AndroidTest SHA-256 为 `30d785edd3746b615801622f2a9cd3d8162b08a019f7b0220c6376d14e7d7914`。

@@ -55,6 +55,8 @@ class SettingsRootPageInstrumentedTest {
             "知识库",
             "相关性灰度控制面",
             "Agent Skills",
+            "ACI 只读能力",
+            "系统助手入口",
             "工作流",
             "Agent 任务中心",
             "进程退出观察",
@@ -80,6 +82,8 @@ class SettingsRootPageInstrumentedTest {
                     "knowledge",
                     "knowledge-relevance",
                     "skills",
+                    "aci-read-only-capabilities",
+                    "assistant-role",
                     "workflows",
                     "agent-runs",
                     "process-exits",
@@ -228,6 +232,8 @@ class SettingsRootPageInstrumentedTest {
         override fun openKnowledgeManagement() = events.add("knowledge").let { Unit }
         override fun openKnowledgeRelevanceRollout() = events.add("knowledge-relevance").let { Unit }
         override fun openSkillManagement() = events.add("skills").let { Unit }
+        override fun openAciReadOnlyCapabilities() = events.add("aci-read-only-capabilities").let { Unit }
+        override fun openAssistantRole() = events.add("assistant-role").let { Unit }
         override fun openWorkflowManagement() = events.add("workflows").let { Unit }
         override fun openAgentRunHistory() = events.add("agent-runs").let { Unit }
         override fun openProcessExitObservations() = events.add("process-exits").let { Unit }

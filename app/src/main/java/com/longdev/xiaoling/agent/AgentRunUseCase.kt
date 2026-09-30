@@ -14,6 +14,7 @@ import com.longdev.xiaoling.storage.RoomAgentRunRepository
 import com.longdev.xiaoling.storage.RoomAgentSkillStore
 import com.longdev.xiaoling.storage.RoomAgentTaskStore
 import com.longdev.xiaoling.storage.RoomKnowledgeDocumentStore
+import kotlinx.coroutines.CancellationException
 
 class AgentRunUseCase(
     context: Context,
@@ -161,6 +162,107 @@ class AgentRunUseCase(
             agentProfile = agentProfile,
             workflowDeviceActionContext = workflowDeviceActionContext,
         )
+    }
+
+    suspend fun runReadOnlyChildAgents(
+        parentRunId: String,
+        conversationId: String,
+        userMessageId: String,
+        goals: List<String>,
+        config: ProviderRequestConfig,
+        summarySystemPrompt: String,
+        agentProfile: AgentProfileSnapshot,
+    ): List<ReadOnlyChildAgentResult> {
+        val allowedChildTools = agentProfile.allowedToolNames
+            .filter { it in READ_ONLY_CHILD_AGENT_TOOL_NAMES }
+            .filter { toolRegistry.registeredDefinition(it)?.risk == ToolRisk.SAFE }
+            .distinct()
+        require(allowedChildTools.isNotEmpty()) {
+            "当前 Agent Profile 没有可供只读子 Agent 使用的 SAFE 工具"
+        }
+        val childProfile = agentProfile.copy(
+            allowedToolNames = allowedChildTools,
+            // long: 子 Agent 不继承 Skill 选择和长期记忆写入面，只读取父 Profile 已授权的基础事实工具。
+            allowedSkillIds = emptyList(),
+            memoryEnabled = false,
+        )
+        val coordinator = MultiAgentCoordinator()
+        return coordinator.run(
+            parent = MultiAgentParentContext(
+                parentRunId = parentRunId,
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+            children = goals.mapIndexed { index, goal ->
+                ReadOnlyChildAgentSpec(id = "child-${index + 1}", goal = goal)
+            },
+        ) { child ->
+            val childUseCase = AgentRunUseCase(appContext, client)
+            var childRunId: String? = null
+            var childLinkRecorded = false
+            try {
+                val summary = childUseCase.run(
+                    conversationId = conversationId,
+                    userMessageId = "$userMessageId.${child.id}",
+                    goal = child.goal,
+                    skillSelectionGoal = child.goal,
+                    config = config,
+                    summarySystemPrompt = summarySystemPrompt,
+                    agentProfile = childProfile,
+                    memoryRecallEnabled = false,
+                    executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                    invocationSource = AgentInvocationSource.DIRECT,
+                    approvalGate = AutoApprovalGate(),
+                    onSnapshot = { snapshot ->
+                        childRunId = snapshot.run.id
+                        if (!childLinkRecorded) {
+                            childLinkRecorded = true
+                            // long: 关联事件必须写在子 Run 进入终态前；Room 对终态 Run 拒绝迟到事件，避免父子关系出现半条审计链。
+                            baseLedger.appendEvent(
+                                runId = snapshot.run.id,
+                                type = "multi_agent.child.linked",
+                                message = "只读子 Agent 已关联父 Run",
+                                metadata = RunEventMetadata.Reason(parentRunId),
+                            )
+                            baseLedger.appendEvent(
+                                runId = parentRunId,
+                                type = "multi_agent.child.started",
+                                message = "已启动只读子 Agent：${child.id}",
+                                metadata = RunEventMetadata.Reason(snapshot.run.id),
+                            )
+                        }
+                    },
+                )
+                baseLedger.appendEvent(
+                    runId = parentRunId,
+                    type = "multi_agent.child.completed",
+                    message = "只读子 Agent 已完成：${child.id}",
+                    metadata = RunEventMetadata.Reason(childRunId ?: summary.runId),
+                )
+                ReadOnlyChildAgentResult(
+                    childId = child.id,
+                    childRunId = childRunId ?: summary.runId,
+                    status = summary.status,
+                    responseText = summary.responseText,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                baseLedger.appendEvent(
+                    runId = parentRunId,
+                    type = "multi_agent.child.failed",
+                    message = "只读子 Agent 失败：${child.id}",
+                    metadata = RunEventMetadata.Reason(error.message ?: "子 Agent 执行失败"),
+                )
+                ReadOnlyChildAgentResult(
+                    childId = child.id,
+                    childRunId = childRunId,
+                    status = AgentRunStatus.FAILED,
+                    responseText = null,
+                    errorMessage = error.message ?: "子 Agent 执行失败",
+                )
+            }
+        }
     }
 
     suspend fun runControlledReplay(
@@ -484,6 +586,21 @@ internal val LEGACY_RUN_TOOL_NAMES = setOf(
 )
 
 private const val DIRECT_DEVICE_MAX_TOOL_CALLS = 8
+private val READ_ONLY_CHILD_AGENT_TOOL_NAMES = setOf(
+    "app.current_time",
+    "app.get_info",
+    "app.get_battery",
+    "app.get_connectivity",
+    "app.get_storage",
+    "app.list_conversations",
+    "app.search_conversations",
+    "notes.list",
+    "notes.search",
+    "notes.get",
+    "memory.search",
+    "memory.get",
+    "knowledge.search",
+)
 private val DIRECT_DEVICE_ACTION_TOOL_NAMES = setOf(
     "device.open_app",
     "device.back",

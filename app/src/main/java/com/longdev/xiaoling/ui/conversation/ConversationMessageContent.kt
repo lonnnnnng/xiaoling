@@ -31,11 +31,14 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -114,6 +117,9 @@ internal fun ChatBubble(
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
     onReuseUserMessage: (String) -> Unit,
+    speaking: Boolean = false,
+    onSpeak: () -> Unit = {},
+    onStopSpeaking: () -> Unit = {},
 ) {
     val isUser = message.role == "user"
     val isError = message.role == "error"
@@ -177,14 +183,45 @@ internal fun ChatBubble(
                     contentColor = contentColor,
                     onOpenDocument = onOpenKnowledgeDocument,
                 )
-                message.footerLabel()?.let { footer ->
+                if (message.role == "assistant" && message.text.isNotBlank() && !message.isStreamingInProgress()) {
                     Spacer(Modifier.height(5.dp))
-                    Text(
-                        text = footer,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
-                        color = metaColor,
-                        modifier = Modifier.align(Alignment.End),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        message.footerLabel()?.let { footer ->
+                            Text(
+                                text = footer,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                                color = metaColor,
+                            )
+                        }
+                        IconButton(
+                            onClick = if (speaking) onStopSpeaking else onSpeak,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .semantics {
+                                    contentDescription = if (speaking) "停止朗读" else "朗读消息"
+                                },
+                        ) {
+                            Icon(
+                                imageVector = if (speaking) Icons.Default.Stop else Icons.Default.VolumeUp,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                            )
+                        }
+                    }
+                } else {
+                    message.footerLabel()?.let { footer ->
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = footer,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                            color = metaColor,
+                            modifier = Modifier.align(Alignment.End),
+                        )
+                    }
                 }
             }
         }
