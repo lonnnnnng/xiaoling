@@ -95,6 +95,72 @@ class XiaoLingToolRegistryTest {
     }
 
     @Test
+    fun profileSkillMcpIntersectionTracksDirectAndWorkflowContext() = runTest {
+        val registry = testRegistry(
+            mcpServerStore = InMemoryMcpServerStore(
+                McpServerConfig(
+                    id = "matrix-mcp",
+                    name = "Matrix MCP",
+                    url = "http://127.0.0.1:1/mcp",
+                ),
+            ),
+        )
+        val skill = AgentSkillDefinition(
+            id = "mcp-read",
+            name = "MCP 读取",
+            description = "读取 MCP 资源目录",
+            instructions = "只读取资源目录",
+            toolNames = setOf("mcp.list_resources"),
+            keywords = setOf("mcp"),
+        )
+        val directContext = AgentToolExecutionContext(
+            conversationId = "conversation-matrix",
+            userMessageId = "message-matrix",
+            runId = "run-matrix",
+            goal = "读取 MCP 资源",
+            executionOrigin = AgentExecutionOrigin.FOREGROUND,
+            invocationSource = AgentInvocationSource.DIRECT,
+        )
+        registry.bindRunContext(directContext)
+        val profile = ProfileScopedToolRegistry(registry, setOf("mcp.list_resources"))
+        val scoped = SkillScopedToolRegistry(profile, listOf(skill))
+
+        assertNotNull(scoped.definition("mcp.list_resources"))
+        assertTrue(scoped.toolCatalog().contains("mcp.list_resources"))
+
+        registry.bindRunContext(workflowDeviceContext(userIntent = "读取 MCP 资源"))
+        assertNull(scoped.definition("mcp.list_resources"))
+        assertTrue(scoped.toolCatalog().entries.none { it.definition.name == "mcp.list_resources" })
+        val denied = scoped.execute(
+            ToolCall(
+                name = "mcp.list_resources",
+                arguments = mapOf("server_id" to "matrix-mcp"),
+                risk = ToolRisk.SAFE,
+            ),
+        )
+        assertFalse(denied.success)
+        assertTrue(denied.content.contains("前台直接 Agent"))
+    }
+
+    @Test
+    fun skillMcpIntersectionRejectsProfileMismatchBeforeExecution() {
+        val registry = testRegistry()
+        val profile = ProfileScopedToolRegistry(registry, setOf("app.current_time"))
+        val mcpSkill = AgentSkillDefinition(
+            id = "mcp-read",
+            name = "MCP 读取",
+            description = "读取 MCP 资源目录",
+            instructions = "只读取资源目录",
+            toolNames = setOf("mcp.list_resources"),
+            keywords = setOf("mcp"),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            SkillScopedToolRegistry(profile, listOf(mcpSkill))
+        }
+    }
+
+    @Test
     fun mcpResourceReadRequiresUriFromCurrentRunCatalog() = runTest {
         val server = MockWebServer()
         server.dispatcher = object : Dispatcher() {

@@ -5,8 +5,12 @@ import com.longdev.xiaoling.shared.agent.SharedApprovalGate
 import com.longdev.xiaoling.shared.agent.SharedAgentLlm
 import com.longdev.xiaoling.shared.agent.SharedToolCall
 import com.longdev.xiaoling.shared.agent.SharedToolDefinition
+import com.longdev.xiaoling.shared.agent.SharedToolExecutionReceipt
 import com.longdev.xiaoling.shared.agent.SharedToolExecutionResult
 import com.longdev.xiaoling.shared.agent.SharedToolExecutor
+import com.longdev.xiaoling.shared.agent.SharedToolReceiptStatus
+import com.longdev.xiaoling.shared.agent.SharedToolVerificationEvidence
+import com.longdev.xiaoling.shared.agent.SharedToolVerificationStatus
 
 fun ToolDefinition.toSharedAgentDefinition(): SharedToolDefinition = SharedToolDefinition(
     name = name,
@@ -41,10 +45,59 @@ fun SharedAgentPlanDecision.toAndroidPlanDecision(
     }
 }
 
-fun ToolExecutionResult.toSharedAgentResult(): SharedToolExecutionResult = SharedToolExecutionResult(
-    success = success,
-    content = content,
-)
+fun ToolExecutionResult.toSharedAgentResult(
+    expectedToolCallId: String? = null,
+): SharedToolExecutionResult {
+    val evidence = verificationEvidence
+    val receipt = executionReceipt
+    val evidenceToolCallId = evidence?.toolCallId
+    val receiptToolCallId = receipt?.toolCallId
+    if (
+        expectedToolCallId != null &&
+        (
+            evidenceToolCallId != null && evidenceToolCallId != expectedToolCallId ||
+                receiptToolCallId != null && receiptToolCallId != expectedToolCallId
+            )
+    ) {
+        // long: typed 验证和执行回执都必须绑定当前 ToolCall；ID 错配时拒绝整条结果，不能把别的调用的事实当成本次结果。
+        return SharedToolExecutionResult(
+            success = false,
+            content = "工具验证证据与当前调用不匹配",
+            verified = false,
+            verification = SharedToolVerificationEvidence(
+                status = SharedToolVerificationStatus.FAILED,
+                toolCallId = evidenceToolCallId ?: receiptToolCallId,
+                reasonCode = "VERIFICATION_TOOL_CALL_MISMATCH",
+            ),
+        )
+    }
+    return SharedToolExecutionResult(
+        success = success,
+        content = content,
+        verified = verified,
+        executionReceipt = receipt?.let { receipt ->
+            SharedToolExecutionReceipt(
+                toolCallId = receipt.toolCallId,
+                operationId = receipt.operationId,
+                status = when (receipt.status) {
+                    ToolExecutionReceiptStatus.COMMITTED -> SharedToolReceiptStatus.COMMITTED
+                    ToolExecutionReceiptStatus.NOT_COMMITTED -> SharedToolReceiptStatus.NOT_COMMITTED
+                    ToolExecutionReceiptStatus.UNKNOWN -> SharedToolReceiptStatus.UNKNOWN
+                },
+            )
+        },
+        verification = evidence?.let {
+            SharedToolVerificationEvidence(
+                status = when (it.status) {
+                    ToolVerificationStatus.PASSED -> SharedToolVerificationStatus.PASSED
+                    ToolVerificationStatus.FAILED -> SharedToolVerificationStatus.FAILED
+                },
+                toolCallId = it.toolCallId,
+                reasonCode = it.reasonCode,
+            )
+        },
+    )
+}
 
 /**
  * long: shared runtime 的审批必须重新查 Android 当前工具定义，避免共享层快照绕过 Profile、Skill 或当前 Run 的动态门禁。
@@ -78,7 +131,8 @@ class AndroidSharedToolExecutor(
         val definition = registry.definition(toolCall.name)
             ?: return SharedToolExecutionResult(false, "共享 Agent 工具未注册：${toolCall.name}")
         // long: 独立 Executor 只负责调用当前 Registry 的执行端口；definition 仍在这里重新读取，避免目录快照变成权限授权。
-        return registry.executor().execute(toolCall.toAndroidToolCall(definition)).toSharedAgentResult()
+        return registry.executor().execute(toolCall.toAndroidToolCall(definition))
+            .toSharedAgentResult(expectedToolCallId = toolCall.id)
     }
 }
 

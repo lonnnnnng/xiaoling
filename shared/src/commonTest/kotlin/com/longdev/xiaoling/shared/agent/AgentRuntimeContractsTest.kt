@@ -20,11 +20,35 @@ class AgentRuntimeContractsTest {
             ),
         )
 
-        assertEquals(2, AgentRuntimeContract.VERSION)
+        assertEquals(3, AgentRuntimeContract.VERSION)
         assertEquals("workspace.list", call.name)
         assertTrue(command.args.single() == "hello")
         assertEquals("workspace.list", catalog.definition("workspace.list")?.name)
         assertTrue(catalog.fingerprint.isNotBlank())
+    }
+
+    @Test
+    fun executionEvidenceKeepsReceiptAndTypedVerificationBoundaries() {
+        val result = SharedToolExecutionResult(
+            success = true,
+            content = "完成",
+            verified = true,
+            executionReceipt = SharedToolExecutionReceipt(
+                toolCallId = "call-1",
+                operationId = "operation-1",
+                status = SharedToolReceiptStatus.COMMITTED,
+            ),
+            verification = SharedToolVerificationEvidence(
+                status = SharedToolVerificationStatus.PASSED,
+                toolCallId = "call-1",
+                reasonCode = "READ_BACK_MATCHED",
+            ),
+        )
+
+        assertEquals("operation-1", result.executionReceipt?.operationId)
+        assertEquals(SharedToolReceiptStatus.COMMITTED, result.executionReceipt?.status)
+        assertEquals(SharedToolVerificationStatus.PASSED, result.verification?.status)
+        assertEquals("READ_BACK_MATCHED", result.verification?.reasonCode)
     }
 
     @Test

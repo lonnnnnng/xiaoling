@@ -2620,7 +2620,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 1. **P0-a（已完成）**：在 `:shared` 增加平台无关的 Run Session Contract，冻结 `runId / rootRunId / parentRunId`、状态转移、单终态、递增事件序号、取消请求和 snapshot/restore 语义；只增加纯 Kotlin 测试，不改变现有 Android 生产执行路径。`shared:allTests` 已覆盖 Android JVM 与 iOS Simulator，当前实现见 `shared/src/commonMain/kotlin/com/longdev/xiaoling/shared/agent/SharedAgentRunSession.kt`。
 2. **P0-b（已完成，2026-10-01）**：将 Android `AgentRunLedger` 的 Room 记录映射到该契约，补齐 Activity 重建、进程恢复、attach/replay 和取消边界；Room 已升级到 v39，取消请求先持久化再收敛 `CANCELLED`，旧数据库记录保持可读取，失败和终态事件不能被迟到回调覆盖。shared/Android 单元测试、Debug/AndroidTest 构建、Lint，以及 Redmi `wsvwypiz7xwslvl7` 上 v38→v39 迁移和迟到完成阻断测试均通过。Provider 真实模型 E2E 仍因设备无 Provider 配置未验证。
-3. **P1（第一切片已完成，2026-10-01）**：已把现有 ToolRegistry 与 shared adapter 接入来源感知的 Tool Catalog 和独立 Executor 端口，目录具备稳定排序、版本/指纹和定义漂移拒绝，执行前继续重查当前 Registry。Profile、审批、后台和敏感字段门禁保持原路径。MCP 仍通过 per-Run wrapper，GitHub Skill 仍只导入声明和来源审计；下一切片补齐 receipt/verified/typed verification 投影和 Profile→Skill→MCP 交集矩阵测试。
+3. **P1（两片已完成，2026-10-01）**：已把现有 ToolRegistry 与 shared adapter 接入来源感知的 Tool Catalog 和独立 Executor 端口，目录具备稳定排序、版本/指纹和定义漂移拒绝；shared 结果已投影 `verified`、脱敏回执和 typed verification，并拒绝错配 ToolCall ID。Profile→Skill→MCP 已覆盖 direct 可见、Workflow 隐藏和 Profile 不交集拒绝。Profile、审批、后台和敏感字段门禁保持原路径。MCP 仍通过 per-Run wrapper，GitHub Skill 仍只导入声明和来源审计；下一步评估 receipt/verification 是否需要进入可信上下文与跨平台持久化。
 4. **P1**：在任务中心展示父子 Run，支持取消、超时、部分失败和重建恢复；Workflow、Remote Channel、ACI 暂不获得派生或写入权限。
 5. **P2**：接入一个签名远程入站 Channel，只落持久收件箱和前台草稿；再升级只读 BrowserSession 的 snapshot/ref、取消和结果证据。
 6. **P3**：最后再做声明式插件 ABI、MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。

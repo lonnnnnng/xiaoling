@@ -4,7 +4,7 @@ package com.longdev.xiaoling.shared.agent
  * long: 共享层只描述 Agent 的稳定输入输出和平台能力端口，避免把 Android Context、Room、Keystore、Accessibility 或 Compose 带进跨平台核心。
  */
 object AgentRuntimeContract {
-    const val VERSION = 2
+    const val VERSION = 3
 }
 
 data class SharedToolCall(
@@ -156,9 +156,45 @@ interface SharedWorkspaceRuntime {
     ): SharedWorkspaceCommandResult
 }
 
+enum class SharedToolReceiptStatus {
+    COMMITTED,
+    NOT_COMMITTED,
+    UNKNOWN,
+}
+
+data class SharedToolExecutionReceipt(
+    val toolCallId: String,
+    val operationId: String,
+    val status: SharedToolReceiptStatus,
+) {
+    init {
+        require(toolCallId.isNotBlank()) { "共享执行回执的工具调用 ID 不能为空" }
+        require(operationId.isNotBlank()) { "共享执行回执的操作 ID 不能为空" }
+    }
+}
+
+enum class SharedToolVerificationStatus {
+    PASSED,
+    FAILED,
+}
+
+data class SharedToolVerificationEvidence(
+    val status: SharedToolVerificationStatus,
+    val toolCallId: String?,
+    val reasonCode: String?,
+) {
+    init {
+        require(toolCallId == null || toolCallId.isNotBlank()) { "共享验证证据的工具调用 ID 不能为空白" }
+        require(reasonCode == null || reasonCode.isNotBlank()) { "共享验证证据的原因码不能为空白" }
+    }
+}
+
 data class SharedToolExecutionResult(
     val success: Boolean,
     val content: String,
+    val verified: Boolean? = null,
+    val executionReceipt: SharedToolExecutionReceipt? = null,
+    val verification: SharedToolVerificationEvidence? = null,
 )
 
 data class SharedAgentExecution(

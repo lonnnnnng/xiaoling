@@ -2686,3 +2686,11 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - shared runtime 新增基于 `SharedToolCatalog` 的运行入口；Android adapter 将当前 Registry 目录投影到 shared，同时 Executor 执行前重新读取当前 definition，再调用 Registry 的真实执行端口。审批、Profile、Skill、Workflow、敏感参数和后台限制仍由现有 Android 链路负责。
 - 已验证：shared Android/iOS Simulator tests、`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug`、`./gradlew :app:assembleDebug`；新增 Catalog 稳定排序/来源合并/定义漂移拒绝、Registry Executor 和 shared projection 测试均通过。Redmi `wsvwypiz7xwslvl7` 安装最新 APK 后，`RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
 - 当前仍未完成：MCP 远程工具不直接注入模型目录，继续通过 per-Run `mcp.call` wrapper；GitHub Skill 仍是声明导入和来源审计，未加载外部代码；尚未把 ToolResult 的 receipt/verified/typed verification 全量投影到 shared Catalog/Executor。下一切片应补齐执行结果证据投影和 Profile→Skill→MCP 的交集矩阵测试。
+
+## 第四组 P1 第二切片：执行证据投影与工具交集矩阵（2026-10-01）
+
+- shared `SharedToolExecutionResult` 现在保留 `verified`、脱敏后的 `toolCallId / operationId / status` 回执和 typed verification 状态/原因码；Android `idempotencyKey`、原始参数和 Provider/设备敏感文本不进入 shared 结果。
+- Android adapter 在投影前重新核对 typed verification 的 `toolCallId`；与当前调用不匹配时 fail-closed，返回失败结果和 `VERIFICATION_TOOL_CALL_MISMATCH`，不把错误调用的 PASSED 事实交给 shared runtime。shared contract 版本升为 3。
+- 新增 Profile→Skill→MCP 矩阵：前台 direct 交集可见；Workflow 上下文中 MCP wrapper 被动态隐藏并拒绝执行；Profile 不包含 MCP 工具时，Skill 在构造阶段即拒绝。
+- 已验证：shared Android/iOS Simulator tests、`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug :app:assembleDebug` 均成功；Redmi `wsvwypiz7xwslvl7` 最新 APK 安装成功，`RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
+- 仍未把 receipt/verification 写入 MessagePart 或可信上下文历史；这些路径继续只消费现有 Room Tool Ledger/typed event，下一步再决定是否需要跨平台持久化，避免重复存储和扩大敏感字段面。

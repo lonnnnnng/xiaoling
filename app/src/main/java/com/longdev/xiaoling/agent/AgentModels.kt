@@ -624,6 +624,17 @@ enum class ToolExecutionReceiptStatus {
     UNKNOWN,
 }
 
+data class ToolVerificationEvidence(
+    val status: ToolVerificationStatus,
+    val toolCallId: String? = null,
+    val reasonCode: String? = null,
+) {
+    init {
+        require(toolCallId == null || toolCallId.isNotBlank()) { "工具验证证据的工具调用 ID 不能为空白" }
+        require(reasonCode == null || reasonCode.isNotBlank()) { "工具验证证据的原因码不能为空白" }
+    }
+}
+
 enum class ToolReplaySafety {
     RESTART_REQUIRED,
     IDEMPOTENT_BY_KEY,
@@ -661,6 +672,7 @@ data class ToolExecutionResult(
     val memoryIdsUsed: List<String> = emptyList(),
     val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val executionReceipt: ToolExecutionReceipt? = null,
+    val verificationEvidence: ToolVerificationEvidence? = null,
     val recoveryFailure: ToolRecoveryFailure? = null,
 )
 
