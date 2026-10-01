@@ -31,6 +31,7 @@
 1. 已完成 Run lineage 持久化和保守 attach/replay 投影；真实 Provider 审批等待期间的 Activity 重建 E2E 已加入 Stage264，但因 Redmi 当前没有选中 Provider，本轮未形成真实业务通过证据。
 2. `processSessionId` 仍只作为短生命周期内存上下文，不写入 Room；跨进程执行所有权、远程 Channel、插件运行时和完整浏览器自动化继续沿各自 fail-closed 边界运行。
 3. 下一窄切片是在有有效 Provider 配置的 Redmi 上补跑审批等待重建 E2E；取消请求持久化、恢复收敛和迟到终态阻断已在 P0-b 完成，当前只缺真实 Provider 业务链路验收。
+4. Stage264 已把缺少 Provider 的前置从异常失败收敛为明确 `SKIPPED`；这不会替代真实 Provider 验收，也不会创建夹具或写入测试数据。
 
 ## 2026-09-30：第二组多 Agent 第一片（只读前台子 Run）
 

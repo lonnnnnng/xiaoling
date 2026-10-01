@@ -14,6 +14,12 @@
 - JVM `RunEventMetadataCodecTest`、Redmi `RoomAgentRunRepositoryInstrumentedTest` 全类 `55/55`、Redmi `XiaoLingDatabaseMigrationInstrumentedTest` 全类 `35/35` 通过；新增证据重建测试和 39→40 迁移测试均为 `OK (1 test)`。
 - 本切片只完成只读浏览器证据的跨事件、Room 和恢复链；网页脚本、Cookie、登录态、多 Tab、截图、下载及后台浏览器执行边界保持不变。完整门禁和提交推送在本轮收尾执行。
 
+## 2026-10-02：Provider 真机门禁前置收敛
+
+- `Stage264TaskRescheduleInstrumentedTest` 在 Redmi 没有完整选中 Provider、且未提供临时 instrumentation 参数时，现在在创建提醒夹具和启动 Activity 前明确记录 `AssumptionViolatedException` 并以 `SKIPPED` 结束，不再把缺少凭据误报为改期业务失败。
+- 该前置只改变测试门禁的失败分类，不放宽真实 Provider 要求；一旦设备已有有效 Provider，或通过安全运行参数提供临时 Provider，测试仍执行可见审批、Activity 重建、WorkManager 改期、Room 账本和当前任务回读全链路。
+- 本轮 Redmi `wsvwypiz7xwslvl7` 结果为 `OK (1 test)`，实际为 Provider 前置跳过；没有创建临时任务、Run、审批或读取/输出凭据。完整 Gradle 门禁继续通过。
+
 ## 2026-10-01 第四组：Run/Task Runtime v2 P0-b（Run lineage 持久化）
 
 - 对照 RikkaHub、Operit、OmniBot、Eta、Aether 和 ZorvAI 后，先冻结跨入口 Run Session 契约，再扩展远程 Channel、浏览器动作和插件执行；避免各入口各自定义取消、恢复和完成语义。

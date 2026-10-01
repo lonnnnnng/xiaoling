@@ -60,7 +60,13 @@ class Stage264TaskRescheduleInstrumentedTest {
     @Test
     fun naturalLanguageRescheduleRequiresVisibleApprovalAndReadsCurrentTaskAfterRecreation() = runBlocking {
         assumeTrue("第264阶段真实模型验收只允许 Redmi begonia", Build.DEVICE == "begonia")
+        // long: 没有完整 Provider 时只跳过真实模型门禁，避免在创建夹具前把“未配置”误报成业务失败。
         val provider = selectedProviderOrFallback()
+        assumeTrue(
+            "Stage264 需要有效 Provider；请在 Redmi 设置中完成配置，或通过安全 instrumentation 参数提供临时 Provider",
+            provider != null,
+        )
+        val selectedProvider = requireNotNull(provider)
         val database = XiaoLingDatabase.getInstance(context)
         val repository = RoomWorkflowRepository(context)
         val scheduler = WorkManagerScheduledTaskScheduler(context)
@@ -83,8 +89,8 @@ class Stage264TaskRescheduleInstrumentedTest {
             id = profileId,
             name = "第264阶段一次性提醒改期验收",
             avatar = "264",
-            providerId = provider.id,
-            model = provider.model,
+            providerId = selectedProvider.id,
+            model = selectedProvider.model,
             apiMode = ApiMode.RESPONSES,
             systemPrompt = "只处理用户明确提出的一次性提醒改期，使用 task-reschedule Skill；工具结果是当前事实，不能猜测原时间或指纹。",
             contextPolicy = AgentContextPolicy.CURRENT_CONVERSATION,
@@ -172,7 +178,7 @@ class Stage264TaskRescheduleInstrumentedTest {
             assertVisible("新时间：${request.plannedAt}")
             assertVisible("时区：${request.timeZone}")
             saveScreenshot("stage264-approval.png")
-            println("STAGE264_APPROVAL model=${provider.model} oldAt=${request.expectedPlannedAt} newAt=${request.plannedAt} zone=${request.timeZone} originalUnchanged=true")
+            println("STAGE264_APPROVAL model=${selectedProvider.model} oldAt=${request.expectedPlannedAt} newAt=${request.plannedAt} zone=${request.timeZone} originalUnchanged=true")
             clickVisibleNode("批准执行", alternateText = "批准并继续")
             val completed = awaitState(scenario, "改期完成", 180_000L) {
                 it.activeAgentRun?.run?.status == AgentRunStatus.COMPLETED && !it.sendingMessage
@@ -250,20 +256,24 @@ class Stage264TaskRescheduleInstrumentedTest {
         assertTrue(profileStore.list().none { it.id == profileId })
     }
 
-    private suspend fun selectedProviderOrFallback(): ProviderProfile {
+    private suspend fun selectedProviderOrFallback(): ProviderProfile? {
         val repository = ProviderRepository(context)
         val current = repository.load()
         current.profiles.firstOrNull { it.id == current.selectedProfileId }
             ?.takeIf { it.baseUrl.isNotBlank() && it.apiKey.isNotBlank() && it.model.isNotBlank() }
             ?.let { return it }
         val args = InstrumentationRegistry.getArguments()
+        val fallbackBaseUrl = args.getString("stage264FallbackBaseUrl")?.trim().orEmpty()
+        val fallbackApiKey = args.getString("stage264FallbackApiKey")?.trim().orEmpty()
+        val fallbackModel = args.getString("stage264FallbackModel")?.trim().orEmpty()
+        if (fallbackBaseUrl.isEmpty() || fallbackApiKey.isEmpty() || fallbackModel.isEmpty()) return null
         val fallback = ProviderProfile.blank().copy(
             name = "兜底 Provider",
-            baseUrl = requireNotNull(args.getString("stage264FallbackBaseUrl")),
-            apiKey = requireNotNull(args.getString("stage264FallbackApiKey")),
-            model = requireNotNull(args.getString("stage264FallbackModel")),
-            availableModels = listOf(requireNotNull(args.getString("stage264FallbackModel"))),
-            enabledModels = listOf(requireNotNull(args.getString("stage264FallbackModel"))),
+            baseUrl = fallbackBaseUrl,
+            apiKey = fallbackApiKey,
+            model = fallbackModel,
+            availableModels = listOf(fallbackModel),
+            enabledModels = listOf(fallbackModel),
         )
         // long: 首次安装可能没有 Provider；兜底只从运行参数进入 Keystore，保留已有其他配置且不把凭据写入测试源码或日志。
         repository.save(current.profiles + fallback, fallback.id)
