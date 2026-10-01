@@ -61,7 +61,9 @@ class Stage264TaskRescheduleInstrumentedTest {
     fun naturalLanguageRescheduleRequiresVisibleApprovalAndReadsCurrentTaskAfterRecreation() = runBlocking {
         assumeTrue("第264阶段真实模型验收只允许 Redmi begonia", Build.DEVICE == "begonia")
         // long: 没有完整 Provider 时只跳过真实模型门禁，避免在创建夹具前把“未配置”误报成业务失败。
-        val provider = selectedProviderOrFallback()
+        val providerRepository = ProviderRepository(context)
+        val originalProviderState = providerRepository.load()
+        val provider = selectedProviderOrFallback(providerRepository, originalProviderState)
         assumeTrue(
             "Stage264 需要有效 Provider；请在 Redmi 设置中完成配置，或通过安全 instrumentation 参数提供临时 Provider",
             provider != null,
@@ -249,6 +251,10 @@ class Stage264TaskRescheduleInstrumentedTest {
                 database.conversationDao().deleteConversations(listOf(conversationId))
             }
             profileStore.delete(profileId)
+            // long: 临时 instrumentation Provider 只能服务本轮真机闭环；结束后恢复原配置，避免 Mock 地址或测试模型成为用户的默认 Provider。
+            if (selectedProvider.id !in originalProviderState.profiles.map { it.id }) {
+                providerRepository.save(originalProviderState.profiles, originalProviderState.selectedProfileId)
+            }
             println("STAGE264_CLEANUP workflowId=$workflowId pendingWorkCancelled=true workflowDisabled=true temporaryConversationRemoved=true temporaryProfileRemoved=true")
         }
         assertNotNull("保留本次 Run 审计", runRepository.runDetail(requireNotNull(completedRunId)))
@@ -256,9 +262,10 @@ class Stage264TaskRescheduleInstrumentedTest {
         assertTrue(profileStore.list().none { it.id == profileId })
     }
 
-    private suspend fun selectedProviderOrFallback(): ProviderProfile? {
-        val repository = ProviderRepository(context)
-        val current = repository.load()
+    private suspend fun selectedProviderOrFallback(
+        repository: ProviderRepository,
+        current: com.longdev.xiaoling.storage.StoredProfiles,
+    ): ProviderProfile? {
         current.profiles.firstOrNull { it.id == current.selectedProfileId }
             ?.takeIf { it.baseUrl.isNotBlank() && it.apiKey.isNotBlank() && it.model.isNotBlank() }
             ?.let { return it }
@@ -302,7 +309,17 @@ class Stage264TaskRescheduleInstrumentedTest {
             }
             delay(100L)
         }
-        error("Stage264 $phase 超时：status=${latest.activeAgentRun?.run?.status} approval=${latest.pendingAgentApproval?.toolName}")
+        val approval = latest.pendingAgentApproval
+        val result = latest.result
+        error(
+            "Stage264 $phase 超时：" +
+                "status=${latest.activeAgentRun?.run?.status} " +
+                "approval=${approval?.toolName} " +
+                "restored=${approval?.restoredFromProcess} " +
+                "deciding=${approval?.deciding} " +
+                "sending=${latest.sendingMessage} " +
+                "result=${result?.title}:${result?.message}",
+        )
     }
 
     private fun clickVisibleNode(text: String, alternateText: String? = null, scroll: Boolean = false, requiredToolName: String? = null) {

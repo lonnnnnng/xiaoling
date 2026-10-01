@@ -9,6 +9,14 @@
 - Redmi `wsvwypiz7xwslvl7` 执行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.agent.Stage264TaskRescheduleInstrumentedTest -e disableAnalytics true com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果为 `OK (1 test)`，但堆栈明确为 `AssumptionViolatedException`：当前没有有效 Provider，因此是前置 `SKIPPED`，没有创建提醒、Run、审批或测试数据。
 - 本节只记录发行候选门禁，不代表新 Release；`outputs/release/xiaoling-v0.1.20.apk` 与其 `.sha256` 未被覆盖。真实 Provider 改期审批、Activity 重建恢复和批准后 WorkManager 闭环仍待在 Redmi 配置有效 Provider 后验收。
 
+# 2026-10-02 Stage264 Mock Provider 真机回归（通过）
+
+- 为验证审批恢复代码而临时启动本机 `127.0.0.1:18765` Responses Mock，并仅对 Redmi `wsvwypiz7xwslvl7` 建立 `adb reverse tcp:18765`；测试参数中的临时 Provider 不写入源码、日志或正式配置，测试结束已恢复 Provider、删除夹具 Profile/会话/Workflow，并移除 reverse。
+- 修复 Activity 重建后 Room detail 未回填 `agentRunHistory` 导致批准入口找不到完整 Run 审计的问题；恢复执行路径现在与普通前台路径共用已验证的任务改期结果消息。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`、`:app:testDebugUnitTest`、`:app:lintDebug` 均 `BUILD SUCCESSFUL`。
+- 单项 instrumentation 使用临时 `stage264FallbackBaseUrl`、`stage264FallbackApiKey=[REDACTED_SECRET]` 和 `stage264FallbackModel=mock-stage264` 参数，在 Redmi 返回 `OK (1 test)`，Instrumentation 用时 `19.679s`；完整认证参数不写入报告。
+- 本次验证覆盖 Activity 重建后的可见“批准并继续”、`app.current_time -> tasks.list -> tasks.inspect -> tasks.reschedule`、`APPROVED / PASSED / COMMITTED`、旧 WorkRequest 取消、新 WorkRequest 入队、旧 Run 不变、改期事实回显和重建后的任务导航。它证明了应用恢复与投影契约，不替代真实 Provider/模型兼容性验收；真实 Provider 门禁仍按单独证据记录。
+
 ## 2026-10-02 发布 v0.1.20（versionCode 21）
 
 - 发布范围：Run/Task Runtime v2 P0-b、Room v39、取消与恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。

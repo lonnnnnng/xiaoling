@@ -29,6 +29,10 @@ class MainActivity : ComponentActivity() {
             // long: Android 已提供系统启动画面，首帧直接进入应用，避免重复品牌页额外阻塞启动流程。
             XiaoLingApp(viewModel)
         }
+        if (savedInstanceState != null) {
+            // long: 配置重建可能复用同一个 ViewModel；显式从 Room 重新绑定待审批 Run，避免旧内存状态掩盖持久化审批事实。
+            viewModel.onActivityRecreated()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

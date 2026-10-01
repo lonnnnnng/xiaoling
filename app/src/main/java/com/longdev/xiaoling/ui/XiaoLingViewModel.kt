@@ -1003,6 +1003,35 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun onActivityRecreated() {
+        val pending = uiState.pendingAgentApproval ?: return
+        if (!initializationComplete) return
+        viewModelScope.launch {
+            val detail = withContext(Dispatchers.IO) {
+                agentRunRepository.runDetail(pending.runId)
+            } ?: return@launch
+            val request = detail.approvals.singleOrNull { approval ->
+                approval.id == pending.requestId && approval.status == ApprovalRequestStatus.PENDING
+            } ?: return@launch
+            if (!agentConversationRuntimeStateStore.attachRecoveredRun(detail.snapshot)) return@launch
+            val restored = AgentApprovalUiState.from(request).copy(restoredFromProcess = true)
+            if (uiState.selectedConversationId != restored.conversationId) return@launch
+            if (uiState.activeAgentRun?.run?.id != restored.runId) return@launch
+            // long: 配置变更重建会复用 ViewModel；重新从 Room 绑定当前审批后才允许继续，不能把旧内存审批当成最新事实。
+            agentConversationRuntimeStateStore.rememberApproval(restored)
+            val updatedHistory = listOf(detail) + uiState.agentRunHistory.filterNot {
+                it.snapshot.run.id == detail.snapshot.run.id
+            }
+            uiState = uiState.copy(
+                activeAgentRun = detail.snapshot,
+                pendingAgentApproval = restored,
+                // long: 恢复审批入口随后需要完整 Run/Skill/Profile 审计；仅投影卡片会让批准按钮找不到可恢复的历史 detail。
+                agentRunHistory = updatedHistory,
+                selectedAgentRunId = detail.snapshot.run.id,
+            )
+        }
+    }
+
     fun selectProfile(profileId: String) {
         val profile = uiState.profiles.firstOrNull { it.id == profileId } ?: return
         uiState = uiState.fromProfile(profile, profileId)
@@ -3737,13 +3766,29 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                                 ?.let { workflowRepository.runDetail(it.id) }
                         }
                         workflowRunIdToSettle = workflowContinuation?.run?.id
+                        val taskCompletionMessages = if (workflowContinuation == null) {
+                            listOfNotNull(
+                                presentTaskCancelCompletion(summary.verifiedContext)?.let { it.role to it.text },
+                                presentTaskScheduleControlCompletion(summary.verifiedContext)?.let { it.role to it.text },
+                            )
+                        } else {
+                            emptyList()
+                        }
                         val finalMessages = conversation.messages + ChatMessage(
                             role = "assistant",
                             text = summary.responseText,
                             createdAt = System.currentTimeMillis(),
                             origin = MessageOrigin.AGENT_RESULT,
                             verifiedAgentContext = summary.verifiedContext,
-                        )
+                        ) + taskCompletionMessages.map { (role, text) ->
+                            // long: 恢复路径与普通前台 Agent 共用已验证工具事实；改期结果不能只留在 Room 而缺少会话内可读回执。
+                            ChatMessage(
+                                role = role,
+                                text = text,
+                                createdAt = System.currentTimeMillis(),
+                                origin = MessageOrigin.AGENT_RESULT,
+                            )
+                        }
                         uiState = uiState
                             .withUpdatedConversation(
                                 conversationId = source.conversationId,
