@@ -23,6 +23,101 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
+enum class McpTransportKind(val wireName: String) {
+    STREAMABLE_HTTP("streamable_http"),
+    SSE("sse"),
+    STDIO("stdio"),
+    ;
+
+    companion object {
+        fun parse(raw: String): McpTransportKind = entries.firstOrNull { it.wireName == raw.trim().lowercase() }
+            ?: throw IllegalArgumentException("未知 MCP transport：$raw")
+    }
+}
+
+data class McpTransportSpec(
+    val kind: McpTransportKind,
+    val command: String? = null,
+    val args: List<String> = emptyList(),
+)
+
+/**
+ * long: 先把远程、SSE 和 stdio 的声明分类，再由执行层决定是否支持，避免把 command 字段
+ * 悄悄拼进远程 URL 或在尚未建立权限边界时启动本地进程。
+ */
+object McpTransportConfigParser {
+    private const val MAX_COMMAND_CHARS = 512
+    private const val MAX_ARGUMENTS = 64
+    private const val MAX_ARGUMENT_CHARS = 1_024
+
+    fun parse(json: JSONObject): McpTransportSpec {
+        val transportValue = json.optString("transport").trim()
+        val typeValue = json.optString("type").trim()
+        if (transportValue.isNotBlank() && typeValue.isNotBlank()) {
+            require(transportValue.equals(typeValue, ignoreCase = true)) {
+                "MCP transport 与 type 不一致"
+            }
+        }
+        val rawKind = transportValue.ifBlank { typeValue }
+        val kind = if (rawKind.isBlank()) McpTransportKind.STREAMABLE_HTTP else McpTransportKind.parse(rawKind)
+        val command = if (json.has("command")) json.optString("command") else null
+        val args = json.optJSONArray("args")?.let(::parseArgs) ?: emptyList()
+        val spec = McpTransportSpec(kind = kind, command = command, args = args)
+        validate(spec)
+        return spec
+    }
+
+    fun fromConfig(config: McpServerConfig): McpTransportSpec = McpTransportSpec(
+        kind = config.transport,
+        command = config.command,
+        args = config.args,
+    ).also(::validate)
+
+    fun writeTo(json: JSONObject, spec: McpTransportSpec) {
+        validate(spec)
+        json.put("transport", spec.kind.wireName)
+        if (spec.kind == McpTransportKind.STDIO) {
+            json.put("command", spec.command)
+            json.put("args", JSONArray(spec.args))
+        }
+    }
+
+    fun validate(spec: McpTransportSpec) {
+        when (spec.kind) {
+            McpTransportKind.STREAMABLE_HTTP,
+            McpTransportKind.SSE,
+            -> require(spec.command == null && spec.args.isEmpty()) {
+                "MCP 远程 transport 不能配置 command 或 args"
+            }
+
+            McpTransportKind.STDIO -> {
+                val command = spec.command?.trim()
+                require(!command.isNullOrBlank()) { "MCP stdio 必须配置 command" }
+                require(command.length <= MAX_COMMAND_CHARS) { "MCP stdio command 过长" }
+                require(command.none { it == '\u0000' || it == '\r' || it == '\n' }) {
+                    "MCP stdio command 包含非法控制字符"
+                }
+                require(spec.args.size <= MAX_ARGUMENTS) { "MCP stdio args 过多" }
+                require(spec.args.all { it.length <= MAX_ARGUMENT_CHARS }) { "MCP stdio 参数过长" }
+                require(spec.args.none { arg -> arg.any { it == '\u0000' || it == '\r' || it == '\n' } }) {
+                    "MCP stdio 参数包含非法控制字符"
+                }
+            }
+        }
+    }
+
+    private fun parseArgs(array: JSONArray): List<String> {
+        require(array.length() <= MAX_ARGUMENTS) { "MCP stdio args 过多" }
+        return buildList(array.length()) {
+            for (index in 0 until array.length()) {
+                val value = array.opt(index)
+                require(value is String) { "MCP stdio args 必须是字符串" }
+                add(value)
+            }
+        }
+    }
+}
+
 data class McpServerConfig(
     val id: String,
     val name: String,
@@ -34,6 +129,9 @@ data class McpServerConfig(
      * 非 null 表示用户已经保存过明确的工具级允许集合，空集合代表全部停用。
      */
     val enabledToolNames: Set<String>? = null,
+    val transport: McpTransportKind = McpTransportKind.STREAMABLE_HTTP,
+    val command: String? = null,
+    val args: List<String> = emptyList(),
 )
 
 data class McpToolDescriptor(
@@ -129,6 +227,7 @@ class AndroidMcpServerStore(
                 .put("token_ciphertext", encrypted.ciphertext)
                 .put("enabled", config.enabled)
                 .apply {
+                    McpTransportConfigParser.writeTo(this, McpTransportConfigParser.fromConfig(config))
                     config.enabledToolNames?.let { names ->
                         put("enabled_tools", JSONArray(names.sorted()))
                     }
@@ -141,12 +240,16 @@ class AndroidMcpServerStore(
         buildList {
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
+                val transport = McpTransportConfigParser.parse(item)
                 add(McpServerConfig(
                     id = item.getString("id"),
                     name = item.getString("name"),
                     url = item.getString("url"),
                     bearerToken = cipher.decrypt(item.optString("token_iv"), item.optString("token_ciphertext")),
                     enabled = item.optBoolean("enabled", true),
+                    transport = transport.kind,
+                    command = transport.command,
+                    args = transport.args,
                     enabledToolNames = item.optJSONArray("enabled_tools")?.let { tools ->
                         buildSet {
                             for (toolIndex in 0 until tools.length()) {
@@ -168,15 +271,28 @@ object McpServerPolicy {
     fun validate(config: McpServerConfig) {
         require(config.id.matches(Regex("[a-z0-9][a-z0-9._-]{2,63}"))) { "MCP server id 无效" }
         require(config.name.trim().length in 1..100) { "MCP server 名称无效" }
-        val url = config.url.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
+        McpTransportConfigParser.fromConfig(config)
+        when (config.transport) {
+            McpTransportKind.STREAMABLE_HTTP,
+            McpTransportKind.SSE,
+            -> validateRemoteUrl(config.url)
+
+            McpTransportKind.STDIO -> require(config.url.isBlank()) {
+                "MCP stdio 不接受远程 URL"
+            }
+        }
+        require(config.bearerToken.length <= 4_096) { "MCP Token 过长" }
+        config.enabledToolNames?.let(::validateToolNames)
+    }
+
+    private fun validateRemoteUrl(raw: String) {
+        val url = raw.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
         require(url.scheme == "https" || isLoopbackHost(url.host)) {
             "MCP 默认要求 HTTPS；本机调试只允许 loopback"
         }
         require(url.username.isEmpty() && url.password.isEmpty()) {
             "MCP 地址不能包含账号或密码"
         }
-        require(config.bearerToken.length <= 4_096) { "MCP Token 过长" }
-        config.enabledToolNames?.let(::validateToolNames)
     }
 
     fun validateToolNames(names: Set<String>) {
@@ -246,6 +362,7 @@ class StreamableHttpMcpClient(
     suspend fun listTools(server: McpServerConfig): List<McpToolDescriptor> = withContext(Dispatchers.IO) {
         // long: 工具目录缓存不能绕过最新的地址解析检查；DNS 变化后即使目录仍在 TTL 内，也必须重新确认目标不是私网或回环地址。
         McpServerPolicy.validate(server)
+        requireStreamableHttp(server)
         val serverUrl = server.url.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
         McpServerPolicy.validateResolvedHost(serverUrl)
         val key = sessionKey(server)
@@ -497,6 +614,8 @@ class StreamableHttpMcpClient(
     }
 
     private suspend fun ensureInitialized(server: McpServerConfig) {
+        McpServerPolicy.validate(server)
+        requireStreamableHttp(server)
         val key = sessionKey(server)
         if (sessions.containsKey(key)) return
         val lock = sessionLocks.getOrPut(key) { Mutex() }
@@ -536,7 +655,14 @@ class StreamableHttpMcpClient(
         }
     }
 
-    private fun sessionKey(server: McpServerConfig): String = "${server.id}|${server.url}|${server.bearerToken.hashCode()}"
+    private fun requireStreamableHttp(server: McpServerConfig) {
+        require(server.transport == McpTransportKind.STREAMABLE_HTTP) {
+            "MCP transport ${server.transport.wireName} 已识别，当前客户端仅支持 streamable_http"
+        }
+    }
+
+    private fun sessionKey(server: McpServerConfig): String =
+        "${server.id}|${server.transport.wireName}|${server.url}|${server.command.orEmpty()}|${server.args.joinToString("\u0000")}|${server.bearerToken.hashCode()}"
 
     private fun invalidate(server: McpServerConfig) {
         val key = sessionKey(server)
@@ -553,6 +679,8 @@ class StreamableHttpMcpClient(
         protocolVersion: String? = sessions[sessionKey(server)]?.protocolVersion,
         allowEmptyResponse: Boolean = false,
     ): RpcResponse {
+        McpServerPolicy.validate(server)
+        requireStreamableHttp(server)
         val requestId = UUID.randomUUID().toString().takeIf { includeId }
         val payload = JSONObject()
             .put("jsonrpc", "2.0")

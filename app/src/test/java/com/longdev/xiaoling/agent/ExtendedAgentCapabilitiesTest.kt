@@ -171,6 +171,74 @@ class ExtendedAgentCapabilitiesTest {
     }
 
     @Test
+    fun mcpTransportParserDefaultsLegacyAndRoundTripsKnownKinds() {
+        val legacy = McpTransportConfigParser.parse(JSONObject())
+        assertEquals(McpTransportKind.STREAMABLE_HTTP, legacy.kind)
+
+        val stdio = McpTransportConfigParser.parse(JSONObject()
+            .put("type", "stdio")
+            .put("command", "uvx")
+            .put("args", JSONArray().put("mcp-server")))
+        assertEquals(McpTransportKind.STDIO, stdio.kind)
+        assertEquals("uvx", stdio.command)
+        assertEquals(listOf("mcp-server"), stdio.args)
+
+        val encoded = JSONObject()
+        McpTransportConfigParser.writeTo(encoded, stdio)
+        assertEquals("stdio", encoded.getString("transport"))
+        assertEquals(stdio, McpTransportConfigParser.parse(encoded))
+    }
+
+    @Test
+    fun mcpTransportParserRejectsUnknownAndAmbiguousDeclarations() {
+        assertThrows(IllegalArgumentException::class.java) {
+            McpTransportConfigParser.parse(JSONObject().put("type", "websocket"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpTransportConfigParser.parse(JSONObject()
+                .put("type", "sse")
+                .put("transport", "streamable_http"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpTransportConfigParser.parse(JSONObject()
+                .put("type", "stdio")
+                .put("args", JSONArray().put("missing-command")))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            McpTransportConfigParser.parse(JSONObject()
+                .put("type", "sse")
+                .put("command", "local-server"))
+        }
+    }
+
+    @Test
+    fun mcpPolicyValidatesSseAndStdioButClientFailsClosedBeforeExecution() = runTest {
+        val sse = McpServerConfig(
+            id = "sse-mcp",
+            name = "SSE MCP",
+            url = "https://example.com/mcp",
+            transport = McpTransportKind.SSE,
+        )
+        McpServerPolicy.validate(sse)
+        assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking { StreamableHttpMcpClient().listTools(sse) }
+        }
+
+        val stdio = McpServerConfig(
+            id = "stdio-mcp",
+            name = "stdio MCP",
+            url = "",
+            transport = McpTransportKind.STDIO,
+            command = "uvx",
+            args = listOf("mcp-server"),
+        )
+        McpServerPolicy.validate(stdio)
+        assertThrows(IllegalArgumentException::class.java) {
+            kotlinx.coroutines.runBlocking { StreamableHttpMcpClient().listTools(stdio) }
+        }
+    }
+
+    @Test
     fun mcpToolAllowlistKeepsLegacyConfigsCompatibleAndSupportsExplicitDisable() {
         val legacy = McpServerConfig("legacy-mcp", "Legacy", "https://example.com/mcp")
         assertTrue(McpToolAccessPolicy.isEnabled(legacy, "demo.read"))

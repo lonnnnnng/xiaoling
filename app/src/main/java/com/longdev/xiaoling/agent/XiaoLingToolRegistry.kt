@@ -2373,7 +2373,7 @@ class XiaoLingToolRegistry(
     }
 
     private fun mcpServerFingerprint(server: McpServerConfig): String =
-        "${server.id}|${server.url}|${server.bearerToken.hashCode()}|${server.enabled}|${server.enabledToolNames?.sorted()?.joinToString(",") ?: "<legacy>"}"
+        "${server.id}|${server.transport.wireName}|${server.url}|${server.command.orEmpty()}|${server.args.joinToString("\u0000")}|${server.bearerToken.hashCode()}|${server.enabled}|${server.enabledToolNames?.sorted()?.joinToString(",") ?: "<legacy>"}"
 
     private suspend fun getAppInfo(call: ToolCall): ToolExecutionResult {
         if (call.arguments.isNotEmpty()) {

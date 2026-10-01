@@ -2561,7 +2561,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 ## 当前限制
 
 - 暂不提供云同步和账号体系。
-- 当前已内置受限 MCP 和 GitHub Skill 导入：MCP 仅支持 Streamable HTTP 的 `tools/list / tools/call`，不支持 stdio、OAuth、Resources、Prompts、Tasks 或远程 Channel；GitHub 导入只接受 `SKILL.json / SKILL.md`，固定来源 commit 并保存 SHA-256，不执行脚本或自动授予工具权限。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置、Google 天气和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe` 及答案级动作证据 UI。文本输入具备专属策略、当前 ref 节点证据、绑定原路径的精确回读和跨入口无原文持久化；`open_app` 逐包审批并绑定后置包名，`back / home / swipe` 为零审批 SAFE 动作，但都要求当前观察和完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求同窗匿名锚点方向证据。全部后台自动化仍不进入 Workflow 生产。
+- 当前已内置受限 MCP 和 GitHub Skill 导入：MCP 配置可识别 `streamable_http / sse / stdio`，旧配置缺少 transport 时默认 `streamable_http`；当前执行后端仍只有 Streamable HTTP，已支持 `tools / resources / prompts` 的既有会话与能力门控，SSE 只做识别和持久化，stdio 只保存 command/args 声明，均不启动进程或自动接入执行目录，也不支持 OAuth、Tasks 或远程 Channel。GitHub 导入只接受 `SKILL.json / SKILL.md`，固定来源 commit 并保存 SHA-256，不执行脚本或自动授予工具权限。动作型手机自动化已向前台直接 `/agent` 交付限定范围的 `device.open_app / back / home / tap_ref / type_text / swipe`，仅承诺小灵、系统计算器、时钟、设置、Google 天气和桌面的首批 Redmi 验收，不承诺任意 App；前台手动 Workflow 当前交付同 Run `device.snapshot / device.open_app / device.back / device.home / device.tap_ref / device.type_text / device.swipe` 及答案级动作证据 UI。文本输入具备专属策略、当前 ref 节点证据、绑定原路径的精确回读和跨入口无原文持久化；`open_app` 逐包审批并绑定后置包名，`back / home / swipe` 为零审批 SAFE 动作，但都要求当前观察和完整后置验证，`home` 还要求动态 launcher 匹配，`swipe` 还要求同窗匿名锚点方向证据。全部后台自动化仍不进入 Workflow 生产。
 - 暂不提供 Provider 模板市场。
 - 更换 `applicationId` 后，旧版本本地数据不会自动迁移。
 - Responses Adapter 已支持文本、用户图片/文档、`function_call / function_call_output` typed Items 和可选 Reasoning summary；Room/Compose 已完成 Text/Reasoning/Image/Document/Tool parts 垂直切片，DOCX/PPTX/XLSX 已完成结构校验与真实模型直传。当前 Agent Runtime 仍使用提示词 JSON 做最多 4 步的顺序工具规划，尚未直接使用上游原生函数调用循环；第 75 阶段起附件已进入前台 `/agent` 的 Responses 规划请求，但总结、可信执行事实和 Agent 输出继续隔离，持久化重复/混合附件直接拒绝。超过 8 MB 或跨文档资料已经具备严格文本全文、分块、FTS/中文兜底、管理 UI、`knowledge.search`、结构化引用、答案级引用呈现和模型上下文失效过滤；Embedding 已完成有限规模 cosine+RRF、显式重建和固定语料质量门禁，剩余差距是具备 Embedding 模型的真实 Provider 兼容验收、ANN 与更大真实资料集的规模化召回/性能验证。
@@ -2750,3 +2750,11 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 任务中心投影父子关系时只信任当前历史中唯一的 Run ID：子 Run 显示父级加载状态和层级，父 Run 显示当前可见的子 Run，并提供父/子 Run 导航；父级缺失、重复或循环 lineage 均不猜测跳转。
 - 已验证：`app:testDebugUnitTest`、Debug/AndroidTest 构建、Lint；Redmi `wsvwypiz7xwslvl7` 上父子 lineage、取消栅栏、恢复后关联重试分别 `OK (1 test)`，任务中心页面 `OK (4 tests)`、对话框 `OK (3 tests)`、重启引导 `OK (1 test)`、筛选栏 `OK (1 test)`。
 - 当前未扩展新的超时/部分失败状态枚举；现有超时仍按 `BUDGET_EXHAUSTED` 和 `run.timeout` 事件收敛，取消与关联重试继续沿既有 fail-closed 账本。下一片补齐任务中心对超时、部分完成和子 Run 汇总状态的明确投影。
+
+## 2026-10-02 P3：MCP transport 契约扩展
+
+- `McpTransportKind` 统一识别 `streamable_http / sse / stdio`；`McpTransportConfigParser` 支持 `type` 与 `transport` 两种声明键，未知类型、两键冲突、远程 transport 携带 `command/args` 和缺少 stdio command 均 fail-closed。
+- `McpServerConfig` 增加 transport、command 和 args；Android SharedPreferences 持久化保留 stdio 声明，旧配置缺少 transport 时按 `streamable_http` 恢复。transport、command、args 已纳入 MCP session key 和 Tool Catalog server fingerprint，配置变化不会复用旧会话或旧目录。
+- `StreamableHttpMcpClient` 在初始化、目录发现和 RPC 请求前重新校验 transport；SSE 与 stdio 当前只识别/保存，不启动本地进程、不建立第二执行后端、不把远程工具自动加入 allowlist。
+- 已验证：`ExtendedAgentCapabilitiesTest` 与 `McpResourcesPromptsTest` 定向 JVM 通过；`./gradlew :app:assembleDebugAndroidTest :app:testDebugUnitTest` 和 `./gradlew :app:assembleDebug` 成功；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#mcpTransportPersistenceKeepsStdioDeclarationAndLegacyDefaults` 为 `OK (1 test)`。首次真机尝试因主 APK 未随 AndroidTest 重编而暴露安装包不同步，重编安装后已通过。
+- 下一步是受控浏览器动作的独立契约；SSE 真正执行后端、stdio 进程监督、OAuth、远程自动执行和动态插件代码加载继续后置，需分别建立审批、资源上限和回收证据后再立项。

@@ -2634,6 +2634,13 @@ idle -> deciding -> waiting_model -> waiting_approval
 8. **P2（Browser typed readable evidence，2026-10-02）**：`browser.open/read/navigate` 现在返回独立的 `ToolReadableEvidence`，绑定当前 `toolCallId + snapshotId`，携带页面规范化内容 SHA-256 和去掉 query/fragment/账号信息的 `sourceRef`。Runtime 对成功状态、调用绑定和 `verified == null` 做 fail-closed 校验，证据只进入可信上下文及其兼容编解码，不伪造成 `PASSED / COMMITTED`，也暂不扩展 MessagePart、Room 或 RunEvent schema。Redmi `wsvwypiz7xwslvl7` 已补真机 kind、调用绑定、哈希格式和来源脱敏断言。下一步再处理跨入口取消/attach 的统一证据边界。
 9. **P2（跨入口取消请求与 attach 统一投影，2026-10-02）**：Room 活动 Run 已写入 `cancelRequestedAt / cancelRequestedReason` 时，Android adapter 现在统一投影 shared `CANCEL_REQUESTED`，而不是把 `cancelRequested=true` 搭配 `RUNNING/WAITING_APPROVAL`；attach restore 失败 fail-closed，取消中间态会清除旧审批入口。该片复用既有 Room 取消字段和终态事件，不新增 schema、不改变前台或后台结算顺序；JVM 与 Redmi Room attach 回归已覆盖。
 10. **P3（声明式插件 manifest API 版本门禁，2026-10-02）**：插件 manifest 新增 `apiVersion=1` ABI 字段，未知/非整数版本在安装和 SharedPreferences 恢复时 fail-closed；旧 schema 1 缺字段按版本 1 兼容。该片仍不加载外部代码、不把权限扩大到 ToolRegistry/ACI/MCP/后台，升级默认停用和来源指纹校验保持不变。
-11. **P3**：继续做 MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
+11. **P3（MCP transport 契约已完成，2026-10-02）**：配置层现在能识别 `streamable_http / sse / stdio`，旧 JSON 默认 `streamable_http`；SSE 和 stdio 只保存声明，当前执行层只允许既有 Streamable HTTP，不启动进程、不自动扩充 allowlist。下一步进入受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。
+
+## 2026-10-02 P3：MCP transport 契约切片验收
+
+- 新增 `McpTransportKind` 与纯配置解析器，统一 `streamable_http / sse / stdio` 的 wire name；旧配置缺少 transport 时保持 Streamable HTTP 兼容，未知类型、歧义声明、远程 command/args 和缺失 stdio command 均拒绝。
+- `McpServerConfig`、Android MCP Store、session key 和 Tool Catalog server fingerprint 已带 transport/command/args；这只扩展配置与身份边界，不改变当前远程执行权限。
+- 当前真正执行的仍是 Streamable HTTP；SSE 只识别和持久化，stdio 只识别和持久化 command/args，不启动 `ProcessBuilder`，不把任何新 transport 的工具自动加入 allowlist。
+- JVM 定向 MCP 测试、Debug/AndroidTest 构建、Debug APK 构建通过；Redmi `wsvwypiz7xwslvl7` 真机 `mcpTransportPersistenceKeepsStdioDeclarationAndLegacyDefaults` 为 `OK (1 test)`。下一阶段优先做浏览器动作的可观察引用、逐次审批和后置验证。

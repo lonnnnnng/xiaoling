@@ -12,6 +12,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONArray
 import java.io.File
 import com.longdev.xiaoling.shared.agent.SharedWorkspaceCommand
 import com.longdev.xiaoling.shared.agent.SharedWorkspaceRuntime
@@ -27,7 +28,10 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
     @After
     fun tearDown() {
         workspaceRoot.deleteRecursively()
-        AndroidMcpServerStore(context).delete("device-mcp-test")
+        val store = AndroidMcpServerStore(context)
+        store.delete("device-mcp-test")
+        store.delete("device-mcp-stdio")
+        store.delete("device-mcp-legacy")
     }
 
     @Test
@@ -148,6 +152,40 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
         assertFalse(raw.contains("API Key"))
         assertTrue(store.delete(config.id))
         println("DEVICE_MCP keystore_round_trip=true plaintext_absent=true delete=true")
+    }
+
+    @Test
+    fun mcpTransportPersistenceKeepsStdioDeclarationAndLegacyDefaults() {
+        val store = AndroidMcpServerStore(context)
+        val stdio = McpServerConfig(
+            id = "device-mcp-stdio",
+            name = "Device MCP stdio",
+            url = "",
+            transport = McpTransportKind.STDIO,
+            command = "uvx",
+            args = listOf("mcp-server", "--readonly"),
+        )
+        store.upsert(stdio)
+        assertEquals(stdio, store.get(stdio.id))
+
+        val remote = McpServerConfig(
+            id = "device-mcp-legacy",
+            name = "Device MCP legacy",
+            url = "http://127.0.0.1:9/mcp",
+        )
+        store.upsert(remote)
+        val preferences = context.getSharedPreferences("xiaoling_mcp", Context.MODE_PRIVATE)
+        val raw = JSONArray(preferences.getString("servers", "[]").orEmpty())
+        for (index in 0 until raw.length()) {
+            val item = raw.getJSONObject(index)
+            if (item.getString("id") == remote.id) item.remove("transport")
+        }
+        preferences.edit().putString("servers", raw.toString()).commit()
+        assertEquals(McpTransportKind.STREAMABLE_HTTP, store.get(remote.id)?.transport)
+
+        assertTrue(store.delete(stdio.id))
+        assertTrue(store.delete(remote.id))
+        println("DEVICE_MCP_TRANSPORT stdio_round_trip=true legacy_default=true")
     }
 
     @Test
