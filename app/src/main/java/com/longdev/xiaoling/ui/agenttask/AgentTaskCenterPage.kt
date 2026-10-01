@@ -421,7 +421,11 @@ private fun AgentRunHistoryItemCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 )
             }
-            if (item.parentRunNavigationId != null || item.detail.snapshot.run.parentRunId != null || item.childRunNavigationIds.isNotEmpty()) {
+            if (
+                item.parentRunNavigationId != null ||
+                item.detail.snapshot.run.parentRunId != null ||
+                item.childSummary.state != AgentChildSummaryState.NONE
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -431,7 +435,7 @@ private fun AgentRunHistoryItemCard(
                         text = when {
                             item.parentRunNavigationId != null -> "子 Run · 父级已载入"
                             item.detail.snapshot.run.parentRunId != null -> "子 Run · 父级不在当前历史"
-                            else -> "父 Run · ${item.childRunNavigationIds.size} 个子 Run"
+                            else -> "父 Run · ${item.childSummary.label}"
                         },
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
                         color = MaterialTheme.colorScheme.tertiary,
@@ -443,6 +447,15 @@ private fun AgentRunHistoryItemCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            item.timeoutReason?.let { reason ->
+                Text(
+                    text = "超时：$reason",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -608,6 +621,26 @@ private fun AgentRunDetailPanel(
                     actionLabel = "查看来源 Run",
                     navigationRunId = item.sourceRunNavigationId,
                     onNavigateToRun = onNavigateToRun,
+                )
+            }
+            if (item.childSummary.state != AgentChildSummaryState.NONE) {
+                Text(
+                    text = "子 Run 汇总：${item.childSummary.label} · 完成 ${item.childSummary.completedCount} · 失败 ${item.childSummary.failedCount} · 进行中 ${item.childSummary.activeCount} · 未知 ${item.childSummary.unknownCount}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = when (item.childSummary.state) {
+                        AgentChildSummaryState.COMPLETE -> MaterialTheme.colorScheme.primary
+                        AgentChildSummaryState.FAILED -> MaterialTheme.colorScheme.error
+                        AgentChildSummaryState.PARTIAL,
+                        AgentChildSummaryState.UNKNOWN,
+                        AgentChildSummaryState.NONE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            item.timeoutReason?.let { reason ->
+                Text(
+                    text = "超时：$reason",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp),
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
             item.linkedRetryRunNavigationId?.let { linkedRunId ->

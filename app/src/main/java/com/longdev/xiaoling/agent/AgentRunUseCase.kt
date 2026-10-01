@@ -188,6 +188,17 @@ class AgentRunUseCase(
             allowedSkillIds = emptyList(),
             memoryEnabled = false,
         )
+        val childSpecs = goals.mapIndexed { index, goal ->
+            ReadOnlyChildAgentSpec(id = "child-${index + 1}", goal = goal)
+        }
+        MultiAgentPolicy.validateChildren(childSpecs)
+        // long: 父 Run 先冻结期望子任务数量；任务中心只有拿到这条结构化证据，才允许把子 Run 汇总标为完整成功或完整失败。
+        baseLedger.appendEvent(
+            runId = parentRunId,
+            type = AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
+            message = "已冻结只读子 Agent 数量：${childSpecs.size}",
+            metadata = RunEventMetadata.ChildRunExpectation(childSpecs.size),
+        )
         val coordinator = MultiAgentCoordinator()
         return coordinator.run(
             parent = MultiAgentParentContext(
@@ -195,9 +206,7 @@ class AgentRunUseCase(
                 executionOrigin = AgentExecutionOrigin.FOREGROUND,
                 invocationSource = AgentInvocationSource.DIRECT,
             ),
-            children = goals.mapIndexed { index, goal ->
-                ReadOnlyChildAgentSpec(id = "child-${index + 1}", goal = goal)
-            },
+            children = childSpecs,
         ) { child ->
             val childUseCase = AgentRunUseCase(appContext, client)
             var childRunId: String? = null
@@ -236,10 +245,19 @@ class AgentRunUseCase(
                         }
                     },
                 )
+                val childSettledType = if (summary.status == AgentRunStatus.COMPLETED) {
+                    "multi_agent.child.completed"
+                } else {
+                    "multi_agent.child.failed"
+                }
                 baseLedger.appendEvent(
                     runId = parentRunId,
-                    type = "multi_agent.child.completed",
-                    message = "只读子 Agent 已完成：${child.id}",
+                    type = childSettledType,
+                    message = if (summary.status == AgentRunStatus.COMPLETED) {
+                        "只读子 Agent 已完成：${child.id}"
+                    } else {
+                        "只读子 Agent 未成功完成：${child.id}"
+                    },
                     metadata = RunEventMetadata.Reason(childRunId ?: summary.runId),
                 )
                 ReadOnlyChildAgentResult(

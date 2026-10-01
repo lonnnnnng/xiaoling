@@ -91,6 +91,8 @@ internal object RunEventMetadataCodec {
                 .put("reason", metadata.reason)
             is RunEventMetadata.Reason -> JSONObject()
                 .put("reason", metadata.reason)
+            is RunEventMetadata.ChildRunExpectation -> JSONObject()
+                .put("count", metadata.count)
             is RunEventMetadata.Recovery -> JSONObject()
                 .put("fromStatus", metadata.fromStatus.name)
                 .put("toStatus", metadata.toStatus.name)
@@ -240,6 +242,9 @@ internal object RunEventMetadataCodec {
                 "run.timeout",
                 "run.cancelled",
                 "run.budget_exhausted" -> RunEventMetadata.Reason(json.requiredString("reason"))
+                AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED -> RunEventMetadata.ChildRunExpectation(
+                    count = json.getInt("count"),
+                )
                 "run.recovered" -> RunEventMetadata.Recovery(
                     fromStatus = AgentRunStatus.valueOf(json.requiredString("fromStatus")),
                     toStatus = AgentRunStatus.valueOf(json.requiredString("toStatus")),

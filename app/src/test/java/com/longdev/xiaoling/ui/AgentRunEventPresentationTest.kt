@@ -40,6 +40,19 @@ class AgentRunEventPresentationTest {
     }
 
     @Test
+    fun childRunExpectationShowsStructuredCount() {
+        val presentation = presentAgentRunEvent(
+            type = "multi_agent.children.expected",
+            message = "已冻结只读子 Agent 数量：3",
+            metadata = RunEventMetadata.ChildRunExpectation(count = 3),
+        )
+
+        assertEquals("子 Agent 数量已冻结", presentation.summary)
+        assertEquals("3", presentation.fields.single { it.label == "期望子 Run" }.value)
+        assertNull(presentation.rawFallback)
+    }
+
+    @Test
     fun recoveryFailureShowsStableReasonAndSuggestedAction() {
         val presentation = presentAgentRunEvent(
             type = "run.recovery_failed",

@@ -74,6 +74,7 @@ private val eventTitles = mapOf(
     "llm.request.completed" to "模型请求完成",
     "llm.request.failed" to "模型请求失败",
     "run.execution_budget.updated" to "执行预算更新",
+    "multi_agent.children.expected" to "子 Agent 数量已冻结",
 )
 
 internal fun presentAgentRunEvent(
@@ -227,6 +228,10 @@ internal fun presentAgentRunEvent(
         is RunEventMetadata.Reason -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),
             fields = fields("原因" to metadata.reason),
+        )
+        is RunEventMetadata.ChildRunExpectation -> AgentRunEventPresentation(
+            summary = type.toReadableEventTitle(),
+            fields = fields("期望子 Run" to metadata.count.toString()),
         )
         is RunEventMetadata.Recovery -> AgentRunEventPresentation(
             summary = type.toReadableEventTitle(),

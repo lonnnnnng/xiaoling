@@ -67,10 +67,12 @@ object AgentEventTypes {
     const val LLM_PREMATURE_COMPLETE_RETRIED = "llm.premature_complete_retried"
     const val LLM_REPEAT_COMPLETED = "llm.repeat_completed"
     const val EXECUTION_BUDGET_UPDATED = "run.execution_budget.updated"
+    const val RUN_TIMEOUT = "run.timeout"
     const val PROFILE_SELECTED = "agent.profile.selected"
     const val CONTROLLED_REPLAY_LINKED = "run.controlled_replay.linked"
     const val RECOVERY_SUMMARY = "run.recovery_summary"
     const val RECOVERY_FAILED = "run.recovery_failed"
+    const val MULTI_AGENT_CHILDREN_EXPECTED = "multi_agent.children.expected"
 }
 
 enum class AgentLlmPhase {
@@ -262,6 +264,14 @@ sealed interface RunEventMetadata {
     data class Reason(
         val reason: String,
     ) : RunEventMetadata
+
+    data class ChildRunExpectation(
+        val count: Int,
+    ) : RunEventMetadata {
+        init {
+            require(count > 0) { "子 Agent 期望数量必须大于零" }
+        }
+    }
 
     data class Recovery(
         val fromStatus: AgentRunStatus,

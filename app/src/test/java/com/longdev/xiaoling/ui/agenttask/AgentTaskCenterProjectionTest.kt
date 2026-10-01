@@ -5,6 +5,9 @@ import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
 import com.longdev.xiaoling.agent.AgentTaskRetryEvidenceCode
+import com.longdev.xiaoling.agent.AgentEventTypes
+import com.longdev.xiaoling.agent.RunEventMetadata
+import com.longdev.xiaoling.agent.RunEventRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -145,6 +148,163 @@ class AgentTaskCenterProjectionTest {
         assertEquals(0, projectedOrphan.lineageDepth)
     }
 
+    @Test
+    fun projectDistinguishesTimeoutFromBudgetExhaustion() {
+        val timeout = runDetail(
+            id = "run-timeout",
+            status = AgentRunStatus.BUDGET_EXHAUSTED,
+            events = listOf(
+                event(
+                    runId = "run-timeout",
+                    type = AgentEventTypes.RUN_TIMEOUT,
+                    message = "执行预算已耗尽：工具调用超时",
+                    metadata = RunEventMetadata.Reason("工具调用超时"),
+                ),
+            ),
+        )
+        val budgetExhausted = runDetail(
+            id = "run-budget",
+            status = AgentRunStatus.BUDGET_EXHAUSTED,
+        )
+
+        val result = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(timeout, budgetExhausted),
+            selectedRunId = null,
+            retryingRunId = null,
+        )
+
+        val timeoutUi = result.runs.first { it.detail.snapshot.run.id == "run-timeout" }
+        val budgetUi = result.runs.first { it.detail.snapshot.run.id == "run-budget" }
+        assertEquals(AgentTaskCenterTerminalReason.TIMEOUT, timeoutUi.terminalReason)
+        assertEquals("执行预算已耗尽：工具调用超时", timeoutUi.timeoutReason)
+        assertEquals(AgentTaskCenterTerminalReason.BUDGET_EXHAUSTED, budgetUi.terminalReason)
+        assertEquals(null, budgetUi.timeoutReason)
+    }
+
+    @Test
+    fun projectSummarizesCompleteChildrenOnlyWhenExpectedCountIsSatisfied() {
+        val parent = runDetail(
+            id = "run-parent-complete",
+            status = AgentRunStatus.COMPLETED,
+            events = listOf(
+                event(
+                    runId = "run-parent-complete",
+                    type = AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
+                    message = "已冻结只读子 Agent 数量：1",
+                    metadata = RunEventMetadata.ChildRunExpectation(1),
+                ),
+            ),
+        )
+        val child = runDetail(
+            id = "run-child-complete",
+            status = AgentRunStatus.COMPLETED,
+            rootRunId = parent.snapshot.run.id,
+            parentRunId = parent.snapshot.run.id,
+        )
+
+        val projected = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(child, parent),
+            selectedRunId = null,
+            retryingRunId = null,
+        ).runs.single { it.detail.snapshot.run.id == parent.snapshot.run.id }
+
+        assertEquals(AgentChildSummaryState.COMPLETE, projected.childSummary.state)
+        assertEquals(1, projected.childSummary.expectedCount)
+        assertEquals(1, projected.childSummary.completedCount)
+        assertEquals(0, projected.childSummary.unknownCount)
+    }
+
+    @Test
+    fun projectMarksMixedChildOutcomesAsPartial() {
+        val parent = runDetail(
+            id = "run-parent-partial",
+            status = AgentRunStatus.COMPLETED,
+            events = listOf(
+                event(
+                    runId = "run-parent-partial",
+                    type = AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
+                    message = "已冻结只读子 Agent 数量：2",
+                    metadata = RunEventMetadata.ChildRunExpectation(2),
+                ),
+            ),
+        )
+        val completed = runDetail(
+            id = "run-child-success",
+            status = AgentRunStatus.COMPLETED,
+            rootRunId = parent.snapshot.run.id,
+            parentRunId = parent.snapshot.run.id,
+        )
+        val failed = runDetail(
+            id = "run-child-failed",
+            status = AgentRunStatus.FAILED,
+            rootRunId = parent.snapshot.run.id,
+            parentRunId = parent.snapshot.run.id,
+        )
+
+        val projected = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(failed, completed, parent),
+            selectedRunId = null,
+            retryingRunId = null,
+        ).runs.single { it.detail.snapshot.run.id == parent.snapshot.run.id }
+
+        assertEquals(AgentChildSummaryState.PARTIAL, projected.childSummary.state)
+        assertEquals(1, projected.childSummary.completedCount)
+        assertEquals(1, projected.childSummary.failedCount)
+        assertEquals(0, projected.childSummary.activeCount)
+    }
+
+    @Test
+    fun projectKeepsChildSummaryUnknownWhenExpectationOrHistoryIsIncomplete() {
+        val withoutExpectation = runDetail(
+            id = "run-parent-no-expectation",
+            status = AgentRunStatus.COMPLETED,
+        )
+        val visibleChild = runDetail(
+            id = "run-child-visible",
+            status = AgentRunStatus.COMPLETED,
+            rootRunId = withoutExpectation.snapshot.run.id,
+            parentRunId = withoutExpectation.snapshot.run.id,
+        )
+        val truncatedParent = runDetail(
+            id = "run-parent-truncated",
+            status = AgentRunStatus.COMPLETED,
+            events = listOf(
+                event(
+                    runId = "run-parent-truncated",
+                    type = AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
+                    message = "已冻结只读子 Agent 数量：2",
+                    metadata = RunEventMetadata.ChildRunExpectation(2),
+                ),
+            ),
+        )
+        val oneChild = runDetail(
+            id = "run-child-one-of-two",
+            status = AgentRunStatus.COMPLETED,
+            rootRunId = truncatedParent.snapshot.run.id,
+            parentRunId = truncatedParent.snapshot.run.id,
+        )
+
+        val result = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(oneChild, truncatedParent, visibleChild, withoutExpectation),
+            selectedRunId = null,
+            retryingRunId = null,
+        )
+
+        val noExpectationUi = result.runs.single { it.detail.snapshot.run.id == withoutExpectation.snapshot.run.id }
+        val truncatedUi = result.runs.single { it.detail.snapshot.run.id == truncatedParent.snapshot.run.id }
+        assertEquals(AgentChildSummaryState.UNKNOWN, noExpectationUi.childSummary.state)
+        assertEquals(AgentChildSummaryState.UNKNOWN, truncatedUi.childSummary.state)
+        assertEquals(1, truncatedUi.childSummary.unknownCount)
+    }
+
     private fun runDetail(
         id: String,
         status: AgentRunStatus,
@@ -152,6 +312,7 @@ class AgentTaskCenterProjectionTest {
         retryOfRunId: String? = null,
         rootRunId: String? = null,
         parentRunId: String? = null,
+        events: List<RunEventRecord> = emptyList(),
     ): AgentRunDetailRecord {
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
@@ -171,9 +332,23 @@ class AgentTaskCenterProjectionTest {
                     parentRunId = parentRunId,
                 ),
                 steps = emptyList(),
-                events = emptyList(),
+                events = events,
             ),
             approvals = emptyList(),
         )
     }
+
+    private fun event(
+        runId: String,
+        type: String,
+        message: String,
+        metadata: RunEventMetadata,
+    ) = RunEventRecord(
+        id = "$runId-$type",
+        runId = runId,
+        type = type,
+        message = message,
+        createdAt = 4L,
+        metadata = metadata,
+    )
 }

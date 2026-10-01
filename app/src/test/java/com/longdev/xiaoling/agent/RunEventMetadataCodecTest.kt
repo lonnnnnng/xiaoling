@@ -257,6 +257,19 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun childRunExpectationRoundTripsWithPositiveCount() {
+        val metadata = RunEventMetadata.ChildRunExpectation(count = 3)
+
+        assertEquals(
+            metadata,
+            RunEventMetadataCodec.decode(
+                AgentEventTypes.MULTI_AGENT_CHILDREN_EXPECTED,
+                RunEventMetadataCodec.encode(metadata),
+            ),
+        )
+    }
+
+    @Test
     fun llmRequestTelemetryRoundTripsWithoutInventingMissingUsage() {
         val metadata = RunEventMetadata.LlmRequest(
             phase = AgentLlmPhase.PLAN,
