@@ -15,6 +15,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceCommand
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceRuntime
 
 class ExtendedAgentCapabilitiesTest {
     @Test
@@ -62,6 +64,19 @@ class ExtendedAgentCapabilitiesTest {
             WorkspaceCommandSpec("printf", listOf("hello\nworld"))
         }
         assertEquals("printf hello", WorkspaceCommandSpec("printf", listOf("hello")).displayCommand())
+    }
+
+    @Test
+    fun workspaceSandboxImplementsSharedRuntimePort() = runTest {
+        val sandbox = AndroidWorkspaceSandbox(Files.createTempDirectory("xiaoling-shared-runtime-test").toFile())
+        val runtime: SharedWorkspaceRuntime = sandbox
+
+        val result = runtime.execute(SharedWorkspaceCommand("printf", listOf("shared-ok")), ".", 5_000)
+
+        assertEquals("printf", result.commandId)
+        assertEquals(listOf("shared-ok"), result.args)
+        assertEquals(0, result.exitCode)
+        assertEquals("shared-ok", result.stdout)
     }
 
     @Test

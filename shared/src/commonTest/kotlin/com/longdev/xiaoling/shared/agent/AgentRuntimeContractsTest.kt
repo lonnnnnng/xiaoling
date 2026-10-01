@@ -96,6 +96,65 @@ class AgentRuntimeContractsTest {
         assertTrue(result.summary.contains("unknown"))
     }
 
+    @Test
+    fun runtimeStopsOnFailedExecution() = kotlinx.coroutines.test.runTest {
+        val call = SharedToolCall("call-1", "failing", emptyMap())
+        val runtime = SharedAgentRuntime(
+            llm = scriptedLlm(ArrayDeque(listOf(SharedAgentPlanDecision.CallTool(call))), ""),
+            approvalGate = object : SharedApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: SharedToolCall,
+                    definition: SharedToolDefinition,
+                ): Boolean = true
+            },
+            executor = SharedToolExecutor { SharedToolExecutionResult(false, "failed") },
+        )
+
+        val result = runtime.run(
+            runId = "run-4",
+            goal = "失败动作",
+            tools = listOf(SharedToolDefinition("failing", "失败", requiresApproval = false, supportsBackground = false)),
+        )
+
+        assertEquals(SharedAgentRunStatus.EXECUTION_FAILED, result.status)
+        assertEquals(1, result.executions.size)
+    }
+
+    @Test
+    fun runtimeFailsClosedAtStepLimit() = kotlinx.coroutines.test.runTest {
+        val call = SharedToolCall("call-1", "safe", emptyMap())
+        val runtime = SharedAgentRuntime(
+            llm = scriptedLlm(
+                ArrayDeque(
+                    listOf(
+                        SharedAgentPlanDecision.CallTool(call),
+                        SharedAgentPlanDecision.CallTool(call),
+                    ),
+                ),
+                "",
+            ),
+            approvalGate = object : SharedApprovalGate {
+                override suspend fun requestApproval(
+                    runId: String,
+                    toolCall: SharedToolCall,
+                    definition: SharedToolDefinition,
+                ): Boolean = true
+            },
+            executor = SharedToolExecutor { SharedToolExecutionResult(true, "ok") },
+            maxSteps = 2,
+        )
+
+        val result = runtime.run(
+            runId = "run-5",
+            goal = "循环动作",
+            tools = listOf(SharedToolDefinition("safe", "安全", requiresApproval = false, supportsBackground = false)),
+        )
+
+        assertEquals(SharedAgentRunStatus.STEP_LIMIT_EXCEEDED, result.status)
+        assertEquals(2, result.executions.size)
+    }
+
     private fun scriptedLlm(
         decisions: ArrayDeque<SharedAgentPlanDecision>,
         summary: String,

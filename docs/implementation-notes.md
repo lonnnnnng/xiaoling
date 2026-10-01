@@ -22,7 +22,7 @@
 
 - 浏览器 Agent 新增 `browser.fetch / open / read / navigate / close`，只读取公开 HTTP(S) 页面；脚本、Cookie、表单、自动重定向、账号密码 URL、回环/私网解析和超大响应均拒绝，会话最多 4 个且 10 分钟空闲回收。
 - 工作区与终端新增 `workspace.list / read_file / write_file`、`terminal.execute / open / write / read / close`。工作区固定在应用私有目录，路径穿越、文件/输入/输出超限和命令超时 fail-closed；`terminal.execute` 只接受固定白名单 `command_id + args` 并用 argv 直传，禁止 `sh -c`、管道、重定向和子 Shell；写入及终端操作逐次确认，持久会话最多 4 个。
-- `:shared` 的第一版 Agent runtime 只依赖纯 Kotlin：对冻结工具目录重新校验模型提出的工具，按工具声明请求审批，记录执行结果，达到步骤上限时 fail-closed；Android 现有 `MinimalAgentRuntime` 继续作为生产实现，shared runtime 先承担跨 Android/iOS 的契约回归。
+- `:shared` 的第一版 Agent runtime 只依赖纯 Kotlin：对冻结工具目录重新校验模型提出的工具，按工具声明请求审批，记录执行结果，工具失败或达到步骤上限时 fail-closed；Android `WorkspaceSandbox` 已实现 shared workspace port，现有 `MinimalAgentRuntime` 与 ToolRegistry 继续作为生产实现，shared runtime 先承担跨 Android/iOS 的契约回归。
 - MCP 新增设置页、Keystore 加密 Bearer Token、Streamable HTTP `initialize` / `notifications/initialized`、session/protocol headers、JSON/SSE 响应校验、工具分页与 TTL 缓存、远端 JSON Schema 校验和每 Run 工具目录冻结。设置页可发现远端工具并逐项启用/停用；旧配置缺少 `enabled_tools` 时保持全部工具兼容可用，显式白名单参与 Server 指纹，变更后旧 Run 必须重新发现目录。缓存命中也会重新执行地址解析，URL 用户信息被拒绝。
 - GitHub Skill 支持仓库根目录、`blob` / `tree` 和 raw URL 的 `SKILL.json` / 标准 `SKILL.md`；仓库根目录或子目录通过 Git tree API 递归发现候选，多个候选交给设置页选择；分支或 `HEAD` 会先解析最新 commit，再下载固定内容并保存来源 ref 与 SHA-256。Markdown 只导入自然语言指令，不自动授予工具权限。
 - 新增 `McpE2eInstrumentedTest`，在 instrumentation 进程内启动 loopback Mock MCP Server，真机验证 `initialize -> notifications/initialized -> tools/list -> tools/call`、Bearer Token、session header 和远端 Schema 参数链路；首轮修正 Android `RecordedRequest` body 只能读取一次的测试桩问题后，Redmi `wsvwypiz7xwslvl7` 组合 instrumentation 为 `5/5` 通过。

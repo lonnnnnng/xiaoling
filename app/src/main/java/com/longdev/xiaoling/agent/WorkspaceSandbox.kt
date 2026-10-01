@@ -9,6 +9,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceCommand
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceCommandResult
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceRuntime
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -90,11 +93,26 @@ data class WorkspaceTerminalOutput(
     val stderrTruncated: Boolean,
 )
 
-interface WorkspaceSandbox {
+interface WorkspaceSandbox : SharedWorkspaceRuntime {
     suspend fun list(path: String): List<WorkspaceEntry>
     suspend fun read(path: String, maxChars: Int = WorkspacePolicy.DEFAULT_MAX_CHARS): String
     suspend fun write(path: String, content: String): WorkspaceEntry
     suspend fun execute(commandId: String, args: List<String>, cwd: String, timeoutMs: Long): WorkspaceCommandResult
+    override suspend fun execute(
+        command: SharedWorkspaceCommand,
+        cwd: String,
+        timeoutMs: Long,
+    ): SharedWorkspaceCommandResult {
+        val result = execute(command.commandId, command.args, cwd, timeoutMs)
+        return SharedWorkspaceCommandResult(
+            commandId = command.commandId,
+            args = command.args,
+            exitCode = result.exitCode,
+            stdout = result.stdout,
+            stderr = result.stderr,
+            timedOut = result.timedOut,
+        )
+    }
     suspend fun openTerminal(cwd: String): WorkspaceTerminalSession
     suspend fun writeTerminal(sessionId: String, input: String): WorkspaceTerminalOutput
     suspend fun readTerminal(sessionId: String): WorkspaceTerminalOutput

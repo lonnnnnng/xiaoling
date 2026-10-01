@@ -82,6 +82,7 @@ enum class SharedAgentRunStatus {
     COMPLETED,
     APPROVAL_REJECTED,
     INVALID_TOOL,
+    EXECUTION_FAILED,
     STEP_LIMIT_EXCEEDED,
 }
 
@@ -140,6 +141,13 @@ class SharedAgentRuntime(
                     }
                     val result = executor.execute(decision.toolCall)
                     executions += SharedAgentExecution(decision.toolCall, result)
+                    if (!result.success) {
+                        return SharedAgentRunResult(
+                            status = SharedAgentRunStatus.EXECUTION_FAILED,
+                            executions = executions.toList(),
+                            summary = "工具执行失败：${decision.toolCall.name}",
+                        )
+                    }
                 }
             }
         }

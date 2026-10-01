@@ -12,6 +12,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceCommand
+import com.longdev.xiaoling.shared.agent.SharedWorkspaceRuntime
 
 /**
  * long: 在真实 Redmi 设备上直接调用生产能力实现，验证网络、私有工作区、Keystore 和 GitHub 导入链路。
@@ -51,6 +53,9 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
         assertEquals(0, exec.exitCode)
         assertEquals("exec-ok", exec.stdout)
         assertTrue(runCatching { sandbox.execute("sh", listOf("-c", "id"), ".", 5_000) }.isFailure)
+        val sharedRuntime: SharedWorkspaceRuntime = sandbox
+        val sharedExec = sharedRuntime.execute(SharedWorkspaceCommand("printf", listOf("shared-device-ok")), ".", 5_000)
+        assertEquals("shared-device-ok", sharedExec.stdout)
 
         val session = sandbox.openTerminal(".")
         try {
