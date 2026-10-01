@@ -11,10 +11,32 @@ class AgentRuntimeContractsTest {
     fun contractKeepsPlatformIndependentToolAndWorkspaceData() {
         val call = SharedToolCall("call-1", "workspace.list", mapOf("path" to "."))
         val command = SharedWorkspaceCommand("printf", listOf("hello"))
+        val catalog = SharedToolCatalog.fromEntries(
+            listOf(
+                SharedToolCatalogEntry(
+                    SharedToolDefinition("workspace.list", "列出工作区", false, true),
+                    sources = setOf("native", "skill"),
+                ),
+            ),
+        )
 
         assertEquals(2, AgentRuntimeContract.VERSION)
         assertEquals("workspace.list", call.name)
         assertTrue(command.args.single() == "hello")
+        assertEquals("workspace.list", catalog.definition("workspace.list")?.name)
+        assertTrue(catalog.fingerprint.isNotBlank())
+    }
+
+    @Test
+    fun catalogRejectsDuplicateNamesAfterStableSort() {
+        assertFailsWith<IllegalArgumentException> {
+            SharedToolCatalog.fromEntries(
+                listOf(
+                    SharedToolCatalogEntry(SharedToolDefinition("duplicate", "a", false, true)),
+                    SharedToolCatalogEntry(SharedToolDefinition("duplicate", "b", false, true)),
+                ),
+            )
+        }
     }
 
     @Test
@@ -39,7 +61,9 @@ class AgentRuntimeContractsTest {
         val result = runtime.run(
             runId = "run-1",
             goal = "问候",
-            tools = listOf(SharedToolDefinition("echo", "回显", requiresApproval = true, supportsBackground = false)),
+            catalog = SharedToolCatalog.from(
+                listOf(SharedToolDefinition("echo", "回显", requiresApproval = true, supportsBackground = false)),
+            ),
         )
 
         assertEquals(SharedAgentRunStatus.COMPLETED, result.status)

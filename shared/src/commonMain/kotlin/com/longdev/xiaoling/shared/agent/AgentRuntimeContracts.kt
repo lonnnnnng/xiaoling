@@ -20,6 +20,94 @@ data class SharedToolDefinition(
     val supportsBackground: Boolean,
 )
 
+data class SharedToolCatalogEntry(
+    val definition: SharedToolDefinition,
+    val sources: Set<String> = setOf("native"),
+) {
+    init {
+        require(sources.isNotEmpty()) { "共享工具目录来源不能为空" }
+        require(sources.none { it.isBlank() }) { "共享工具目录来源不能包含空值" }
+    }
+}
+
+/**
+ * long: 共享目录只冻结模型可见工具和来源指纹；权限、审批和副作用仍由各平台 adapter 在执行前重新核查。
+ */
+data class SharedToolCatalog(
+    val version: Int,
+    val entries: List<SharedToolCatalogEntry>,
+    val fingerprint: String,
+) {
+    init {
+        require(version > 0) { "共享工具目录版本必须大于 0" }
+        require(entries.map { it.definition.name }.distinct().size == entries.size) {
+            "共享工具目录不能包含重复工具名"
+        }
+        require(entries == entries.sortedBy { it.definition.name }) {
+            "共享工具目录必须按工具名稳定排序"
+        }
+        require(fingerprint == fingerprintFor(version, entries)) {
+            "共享工具目录指纹与内容不一致"
+        }
+    }
+
+    val definitions: List<SharedToolDefinition>
+        get() = entries.map { it.definition }
+
+    fun definition(name: String): SharedToolDefinition? =
+        entries.firstOrNull { it.definition.name == name }?.definition
+
+    companion object {
+        const val CURRENT_VERSION: Int = 1
+
+        fun from(
+            definitions: List<SharedToolDefinition>,
+            version: Int = CURRENT_VERSION,
+        ): SharedToolCatalog = fromEntries(
+            entries = definitions.map { SharedToolCatalogEntry(it) },
+            version = version,
+        )
+
+        fun fromEntries(
+            entries: List<SharedToolCatalogEntry>,
+            version: Int = CURRENT_VERSION,
+        ): SharedToolCatalog {
+            val sorted = entries.sortedBy { it.definition.name }
+            require(sorted.map { it.definition.name }.distinct().size == sorted.size) {
+                "共享工具目录不能包含重复工具名：${sorted.groupingBy { it.definition.name }.eachCount().filterValues { it > 1 }.keys.sorted().joinToString() }"
+            }
+            return SharedToolCatalog(
+                version = version,
+                entries = sorted,
+                fingerprint = fingerprintFor(version, sorted),
+            )
+        }
+
+        private fun fingerprintFor(
+            version: Int,
+            entries: List<SharedToolCatalogEntry>,
+        ): String {
+            val canonical = buildString {
+                append(version).append('|')
+                entries.forEach { entry ->
+                    append(entry.definition.name.length).append(':').append(entry.definition.name)
+                    append(entry.definition.description.length).append(':').append(entry.definition.description)
+                    append(entry.definition.requiresApproval).append('|')
+                    append(entry.definition.supportsBackground).append('|')
+                    entry.sources.sorted().forEach { source ->
+                        append(source.length).append(':').append(source)
+                    }
+                    append(';')
+                }
+            }
+            // long: shared 不能依赖 Android/JVM 加密库，使用确定性的 64 位摘要保证跨平台排序和快照漂移可见；敏感权限仍不进入 shared 目录。
+            var hash = 1125899906842597L
+            canonical.forEach { character -> hash = 31L * hash + character.code }
+            return hash.toString(16)
+        }
+    }
+}
+
 sealed interface SharedAgentPlanDecision {
     data class CallTool(val toolCall: SharedToolCall) : SharedAgentPlanDecision
     data object Complete : SharedAgentPlanDecision
@@ -108,6 +196,16 @@ class SharedAgentRuntime(
     init {
         require(maxSteps > 0) { "共享 Agent 步骤上限必须大于 0" }
     }
+
+    suspend fun run(
+        runId: String,
+        goal: String,
+        catalog: SharedToolCatalog,
+    ): SharedAgentRunResult = run(
+        runId = runId,
+        goal = goal,
+        tools = catalog.definitions,
+    )
 
     suspend fun run(
         runId: String,

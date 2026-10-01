@@ -15,6 +15,8 @@ fun ToolDefinition.toSharedAgentDefinition(): SharedToolDefinition = SharedToolD
     supportsBackground = permissionPolicy.supportsBackground,
 )
 
+fun ToolRegistry.toSharedToolCatalog() = toolCatalog().toSharedCatalog()
+
 fun ToolCall.toSharedAgentCall(): SharedToolCall = SharedToolCall(
     id = id,
     name = name,
@@ -75,7 +77,8 @@ class AndroidSharedToolExecutor(
     override suspend fun execute(toolCall: SharedToolCall): SharedToolExecutionResult {
         val definition = registry.definition(toolCall.name)
             ?: return SharedToolExecutionResult(false, "共享 Agent 工具未注册：${toolCall.name}")
-        return registry.execute(toolCall.toAndroidToolCall(definition)).toSharedAgentResult()
+        // long: 独立 Executor 只负责调用当前 Registry 的执行端口；definition 仍在这里重新读取，避免目录快照变成权限授权。
+        return registry.executor().execute(toolCall.toAndroidToolCall(definition)).toSharedAgentResult()
     }
 }
 

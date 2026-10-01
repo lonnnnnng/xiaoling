@@ -526,6 +526,10 @@ class AgentRunUseCase(
 
     fun registeredTools(): List<ToolDefinition> = toolRegistry.registeredTools()
 
+    fun toolCatalog(): AgentToolCatalog = toolRegistry.toolCatalog()
+
+    fun registeredToolCatalog(): AgentToolCatalog = toolRegistry.registeredToolCatalog()
+
     suspend fun importSkill(raw: String): AgentSkillRecord = skillCatalog.importDocument(raw)
 
     suspend fun importSkillFromGitHub(url: String): AgentSkillRecord = skillCatalog.importGitHub(url)

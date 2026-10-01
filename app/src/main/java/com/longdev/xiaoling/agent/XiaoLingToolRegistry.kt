@@ -1732,7 +1732,7 @@ class XiaoLingToolRegistry(
         return available
     }
 
-    fun registeredTools(): List<ToolDefinition> = tools
+    override fun registeredTools(): List<ToolDefinition> = tools
 
     override fun definition(name: String): ToolDefinition? = tools.firstOrNull { definition ->
             definition.name == name && (

@@ -4,6 +4,17 @@ interface ToolRegistry {
     fun availableTools(): List<ToolDefinition>
     fun definition(name: String): ToolDefinition?
     /**
+     * long: 当前上下文目录是模型可见能力快照；静态注册表读取仍由具体 Registry 覆盖，不能反向放宽动态门禁。
+     */
+    fun toolCatalog(): AgentToolCatalog = AgentToolCatalog.fromDefinitions(availableTools())
+
+    fun registeredTools(): List<ToolDefinition> = availableTools()
+
+    fun registeredToolCatalog(): AgentToolCatalog = AgentToolCatalog.fromDefinitions(registeredTools())
+
+    fun executor(): AgentToolExecutor = AgentToolExecutor { call -> execute(call) }
+
+    /**
      * long: Skill 声明校验只读取静态注册表；实际执行仍必须经过当前 Run 的动态 definition 门禁。
      */
     fun registeredDefinition(name: String): ToolDefinition? = definition(name)

@@ -45,6 +45,15 @@ class SharedAgentAdaptersTest {
     }
 
     @Test
+    fun registryCatalogProjectsToSharedSnapshotWithoutGrantingExecution() {
+        val sharedCatalog = FakeToolRegistry().toSharedToolCatalog()
+
+        assertEquals(listOf("fake.echo"), sharedCatalog.entries.map { it.definition.name })
+        assertEquals(setOf("native"), sharedCatalog.entries.single().sources)
+        assertTrue(sharedCatalog.fingerprint.isNotBlank())
+    }
+
+    @Test
     fun approvalAdapterRejectsDriftedSharedDefinitionAndMapsPlanDecision() = runTest {
         val registry = FakeToolRegistry()
         val definition = checkNotNull(registry.definition("fake.echo"))

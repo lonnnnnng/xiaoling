@@ -2678,3 +2678,11 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 已验证：`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug` 和 `./gradlew :app:assembleDebug` 均成功；schema `app/schemas/com.longdev.xiaoling.data.XiaoLingDatabase/39.json` 已生成。目标 Redmi `wsvwypiz7xwslvl7` 安装最新主 APK 与 instrumentation APK 后，迁移测试 `OK (1 test)`，取消请求/迟到完成测试 `OK (1 test)`。
 - 当前 Provider 真实 E2E 仍未验证：Redmi 当前没有可用 Provider，Stage264 在 `selectedProviderOrFallback()` 前置检查处结束，未进入模型业务链路；本轮没有读取、输出或提交任何 Provider 密钥、Token 或其他凭据。
 - 这一切片完成 Room→shared 的可回放取消边界，但没有开放旧模型协程恢复、未知提交重放、后台远程执行或新的工具权限；下一步仍按路线图推进 Tool Catalog/Executor 统一投影。
+
+## 第四组 P1 第一切片：Tool Catalog 与 Executor 边界（2026-10-01）
+
+- 新增 `AgentToolCatalog` 与 `SharedToolCatalog`：目录按工具名稳定排序，合并 Native/Skill/MCP/Plugin 来源；同名定义的恢复契约指纹不一致时拒绝合并，目录快照携带版本和内容指纹。
+- `ToolRegistry` 新增 `toolCatalog()`、`registeredToolCatalog()` 和独立 `AgentToolExecutor` 端口。生产 `XiaoLingToolRegistry` 仍保留动态 `availableTools()/definition()` 门禁，`ProfileScopedToolRegistry`、`SkillScopedToolRegistry` 和 MCP wrapper 不会因为目录快照获得额外权限。
+- shared runtime 新增基于 `SharedToolCatalog` 的运行入口；Android adapter 将当前 Registry 目录投影到 shared，同时 Executor 执行前重新读取当前 definition，再调用 Registry 的真实执行端口。审批、Profile、Skill、Workflow、敏感参数和后台限制仍由现有 Android 链路负责。
+- 已验证：shared Android/iOS Simulator tests、`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug`、`./gradlew :app:assembleDebug`；新增 Catalog 稳定排序/来源合并/定义漂移拒绝、Registry Executor 和 shared projection 测试均通过。Redmi `wsvwypiz7xwslvl7` 安装最新 APK 后，`RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
+- 当前仍未完成：MCP 远程工具不直接注入模型目录，继续通过 per-Run `mcp.call` wrapper；GitHub Skill 仍是声明导入和来源审计，未加载外部代码；尚未把 ToolResult 的 receipt/verified/typed verification 全量投影到 shared Catalog/Executor。下一切片应补齐执行结果证据投影和 Profile→Skill→MCP 的交集矩阵测试。
