@@ -22,6 +22,7 @@ enum class AgentPluginExecutionMode {
 data class AgentPluginManifest(
     val id: String,
     val version: String,
+    val apiVersion: Int = AgentPluginPolicy.SUPPORTED_API_VERSION,
     val name: String,
     val description: String,
     val publisher: String,
@@ -49,6 +50,7 @@ sealed interface AgentPluginInstallResult {
 }
 
 object AgentPluginPolicy {
+    const val SUPPORTED_API_VERSION: Int = 1
     private val VERSION = Regex("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$")
     private val ID = Regex("^[a-z][a-z0-9._-]{0,99}$")
     private const val MAX_ID_LENGTH = 100
@@ -58,6 +60,9 @@ object AgentPluginPolicy {
     private val SHA256 = Regex("^[0-9a-f]{64}$")
 
     fun validate(manifest: AgentPluginManifest) {
+        require(manifest.apiVersion == SUPPORTED_API_VERSION) {
+            "插件 API 版本不受支持：${manifest.apiVersion}，当前仅支持 $SUPPORTED_API_VERSION"
+        }
         require(manifest.id.length in 1..MAX_ID_LENGTH && ID.matches(manifest.id)) { "插件 ID 格式无效" }
         require(VERSION.matches(manifest.version) && versionParts(manifest.version) != null) { "插件版本必须是 x.y.z" }
         require(manifest.name.trim().length in 1..MAX_NAME_LENGTH) { "插件名称长度无效" }

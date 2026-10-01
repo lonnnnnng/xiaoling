@@ -9,6 +9,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.json.JSONObject
 
 class AgentPluginPersistenceInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -46,6 +47,23 @@ class AgentPluginPersistenceInstrumentedTest {
         assertTrue(registry.list().isEmpty())
         assertNotNull(registry.persistenceFailureReason())
         assertTrue(registry.install(manifest()) is AgentPluginInstallResult.Rejected)
+    }
+
+    @Test
+    fun unsupportedApiVersionDoesNotEnablePluginAfterDeviceRestore() {
+        val encoded = AgentPluginJsonCodec.encode(listOf(InstalledAgentPlugin(manifest())))
+        val root = JSONObject(encoded)
+        root.getJSONArray("plugins")
+            .getJSONObject(0)
+            .getJSONObject("manifest")
+            .put("apiVersion", AgentPluginPolicy.SUPPORTED_API_VERSION + 1)
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit()
+            .putString("state", root.toString())
+            .commit()
+
+        val registry = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context))
+        assertTrue(registry.list().isEmpty())
+        assertNotNull(registry.persistenceFailureReason())
     }
 
     private fun manifest() = AgentPluginManifest(

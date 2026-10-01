@@ -79,6 +79,25 @@ class AgentPluginPersistenceTest {
         assertEquals(installed, AgentPluginRegistry(store).get(installed.id)?.manifest)
     }
 
+    @Test
+    fun unsupportedApiVersionFailsClosedWithoutReplacingPersistedState() {
+        val store = FakeStateStore()
+        val encoded = AgentPluginJsonCodec.encode(listOf(InstalledAgentPlugin(manifest())))
+        val root = JSONObject(encoded)
+        root.getJSONArray("plugins")
+            .getJSONObject(0)
+            .getJSONObject("manifest")
+            .put("apiVersion", AgentPluginPolicy.SUPPORTED_API_VERSION + 1)
+        store.state = root.toString()
+
+        val restored = AgentPluginRegistry(store)
+
+        assertTrue(restored.list().isEmpty())
+        assertNotNull(restored.persistenceFailureReason())
+        assertTrue(restored.install(manifest()) is AgentPluginInstallResult.Rejected)
+        assertEquals(root.toString(), store.state)
+    }
+
     private fun manifest() = AgentPluginManifest(
         id = "demo",
         version = "1.0.0",

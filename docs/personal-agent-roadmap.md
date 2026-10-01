@@ -2633,6 +2633,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 7. **P2（BrowserSession snapshot 第一片，2026-10-02）**：只读浏览器会话现在为每个页面生成随机 `snapshotId`；同一会话的 `read` 保持快照不变，`navigate` 生成新快照，`close` 后旧会话不可读取，`browser.open/read/navigate` 结果显示当前快照引用。该片没有开放脚本、Cookie、表单、DOM 动作或外部回执，取消仍沿现有 OkHttp `Call.cancel()` 接缝；下一片再接 typed readable result evidence。
 8. **P2（Browser typed readable evidence，2026-10-02）**：`browser.open/read/navigate` 现在返回独立的 `ToolReadableEvidence`，绑定当前 `toolCallId + snapshotId`，携带页面规范化内容 SHA-256 和去掉 query/fragment/账号信息的 `sourceRef`。Runtime 对成功状态、调用绑定和 `verified == null` 做 fail-closed 校验，证据只进入可信上下文及其兼容编解码，不伪造成 `PASSED / COMMITTED`，也暂不扩展 MessagePart、Room 或 RunEvent schema。Redmi `wsvwypiz7xwslvl7` 已补真机 kind、调用绑定、哈希格式和来源脱敏断言。下一步再处理跨入口取消/attach 的统一证据边界。
 9. **P2（跨入口取消请求与 attach 统一投影，2026-10-02）**：Room 活动 Run 已写入 `cancelRequestedAt / cancelRequestedReason` 时，Android adapter 现在统一投影 shared `CANCEL_REQUESTED`，而不是把 `cancelRequested=true` 搭配 `RUNNING/WAITING_APPROVAL`；attach restore 失败 fail-closed，取消中间态会清除旧审批入口。该片复用既有 Room 取消字段和终态事件，不新增 schema、不改变前台或后台结算顺序；JVM 与 Redmi Room attach 回归已覆盖。
-10. **P3**：最后再做声明式插件 ABI、MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
+10. **P3（声明式插件 manifest API 版本门禁，2026-10-02）**：插件 manifest 新增 `apiVersion=1` ABI 字段，未知/非整数版本在安装和 SharedPreferences 恢复时 fail-closed；旧 schema 1 缺字段按版本 1 兼容。该片仍不加载外部代码、不把权限扩大到 ToolRegistry/ACI/MCP/后台，升级默认停用和来源指纹校验保持不变。
+11. **P3**：继续做 MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。

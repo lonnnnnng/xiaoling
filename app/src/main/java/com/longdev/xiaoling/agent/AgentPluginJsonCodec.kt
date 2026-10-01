@@ -73,6 +73,7 @@ object AgentPluginJsonCodec {
             .put("manifest", JSONObject()
                 .put("id", plugin.manifest.id)
                 .put("version", plugin.manifest.version)
+                .put("apiVersion", plugin.manifest.apiVersion)
                 .put("name", plugin.manifest.name)
                 .put("description", plugin.manifest.description)
                 .put("publisher", plugin.manifest.publisher)
@@ -88,8 +89,17 @@ object AgentPluginJsonCodec {
         val manifestJson = json.getJSONObject("manifest")
         manifestJson.requireOnlyKeys(
             "插件 manifest",
-            setOf("id", "version", "name", "description", "publisher", "capabilities", "permissions", "executionMode", "source"),
+            setOf("id", "version", "apiVersion", "name", "description", "publisher", "capabilities", "permissions", "executionMode", "source"),
         )
+        val apiVersion = manifestJson.opt("apiVersion").let { value ->
+            when (value) {
+                null, JSONObject.NULL -> AgentPluginPolicy.SUPPORTED_API_VERSION
+                is Number -> value.toInt().also { parsed ->
+                    require(value.toDouble() == parsed.toDouble()) { "插件 API 版本必须是整数" }
+                }
+                else -> throw IllegalArgumentException("插件 API 版本必须是整数")
+            }
+        }
         val capabilities = manifestJson.getJSONArray("capabilities")
             .toStringSet("插件能力", MAX_CAPABILITIES, MAX_CAPABILITY_LENGTH)
         val permissions = manifestJson.getJSONArray("permissions")
@@ -115,6 +125,7 @@ object AgentPluginJsonCodec {
         val manifest = AgentPluginManifest(
             id = manifestJson.requiredString("id", 100),
             version = manifestJson.requiredString("version", 32),
+            apiVersion = apiVersion,
             name = manifestJson.requiredString("name", 200),
             description = manifestJson.requiredString("description", 2_000),
             publisher = manifestJson.requiredString("publisher", MAX_PUBLISHER_LENGTH),

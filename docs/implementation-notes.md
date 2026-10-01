@@ -2721,6 +2721,13 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 该片复用既有 Room 字段、`run.cancel_requested` / `run.cancelled` 事件和终态事务，不新增 schema，也不改变前台 request→协程 finally 或后台 `cancelActiveRun()` 的结算顺序；它只统一跨入口 attach 的中间态证据。
 - 已验证：`AgentRunSessionAdapterTest`、`AgentConversationRuntimeStateStoreTest` 和 Redmi `RoomAgentRunRepositoryInstrumentedTest#activeCancelRequestAttachesAsSharedCancellationStateBeforeTerminalSettlement` 覆盖活动审批 Run 的取消请求、shared restore、审批清除和取消事件保留。
 
+## 2026-10-02 P3：声明式插件 manifest API 版本门禁
+
+- `AgentPluginManifest` 增加 `apiVersion`，当前宿主只支持版本 `1`；`AgentPluginPolicy.validate()` 在 ID、权限和来源校验前拒绝未知 API 版本，插件仍只能使用 `DECLARATIVE_MANIFEST_ONLY`，不加载外部代码。
+- JSON 编解码保存 `apiVersion`；读取旧 schema 1 且缺少该字段的状态按当前版本 `1` 兼容，未来版本或非整数版本导致整个插件状态恢复 fail-closed，SharedPreferences 原文不被覆盖。
+- 该片只冻结声明 ABI，不把插件权限接入 ToolRegistry、ACI、MCP 或后台执行；升级默认停用和来源指纹漂移拒绝保持不变，后续再单独设计权限到能力的交集投影。
+- 已验证：插件持久化/损坏/版本回退 JVM 测试、新增未知 API 版本 fail-closed 测试，以及 Redmi `AgentPluginPersistenceInstrumentedTest#unsupportedApiVersionDoesNotEnablePluginAfterDeviceRestore`。
+
 ## 第四组 P1 第一切片：Tool Catalog 与 Executor 边界（2026-10-01）
 
 - 新增 `AgentToolCatalog` 与 `SharedToolCatalog`：目录按工具名稳定排序，合并 Native/Skill/MCP/Plugin 来源；同名定义的恢复契约指纹不一致时拒绝合并，目录快照携带版本和内容指纹。

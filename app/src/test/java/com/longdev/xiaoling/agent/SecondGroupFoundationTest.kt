@@ -239,6 +239,8 @@ class SecondGroupFoundationTest {
         assertTrue(registry.install(manifest("2.0.0").copy(name = "篡改名称")) is AgentPluginInstallResult.Rejected)
         val invalid = manifest("2.1.0").copy(executionMode = AgentPluginExecutionMode.EXTERNAL_CODE)
         assertTrue(registry.install(invalid) is AgentPluginInstallResult.Rejected)
+        val unsupportedApi = manifest("2.1.0").copy(apiVersion = AgentPluginPolicy.SUPPORTED_API_VERSION + 1)
+        assertTrue(registry.install(unsupportedApi) is AgentPluginInstallResult.Rejected)
     }
 
     @Test
