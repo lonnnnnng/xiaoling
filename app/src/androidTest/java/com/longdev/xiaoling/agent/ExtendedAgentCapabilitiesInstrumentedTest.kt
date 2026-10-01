@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +40,22 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
         assertTrue(runCatching { BrowserUrlPolicy.validate("http://127.0.0.1/") }.isFailure)
         assertTrue(runCatching { BrowserUrlPolicy.validate("https://user:pass@example.com/") }.isFailure)
         println("DEVICE_BROWSER public_page=true private_target_rejected=true")
+    }
+
+    @Test
+    fun browserSessionKeepsAndRotatesSnapshotReferences() = runBlocking {
+        val reader = OkHttpBrowserPageReader()
+        val opened = reader.openSession("https://example.com/")
+        val reread = reader.readSession(opened.id)
+
+        assertEquals(opened.id, reread.id)
+        assertEquals(opened.snapshotId, reread.snapshotId)
+
+        val navigated = reader.navigateSession(opened.id, "https://example.com/")
+        assertEquals(opened.id, navigated.id)
+        assertNotEquals(opened.snapshotId, navigated.snapshotId)
+        assertTrue(reader.closeSession(opened.id))
+        println("DEVICE_BROWSER_SESSION stable_snapshot=true navigation_rotates_snapshot=true close=true")
     }
 
     @Test

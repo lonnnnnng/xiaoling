@@ -14,7 +14,7 @@
 - Android ↔ shared 适配器已固定终态投影：`BLOCKED` 属于不可恢复终态，映射为 shared `FAILED`，不会错误映射为可继续等待的 `WAITING_INPUT`；对应适配器回归已补齐。
 - Activity 重建 attach 已接入会话运行态 Store：恢复路径先把 Room 快照按已读取事件顺序投影为连续 shared snapshot，并通过 `SharedAgentRunSession.restore()` 校验身份、序号和终态；事件混链或校验失败时不恢复审批入口。Redmi Room attach/终态迟到事件探针 `1/1` 通过。
 - `shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均通过；Redmi `wsvwypiz7xwslvl7` 的 `XiaoLingDatabaseMigrationInstrumentedTest` 为 `33/33`，`ExtendedAgentCapabilitiesInstrumentedTest` 为 `5/5`。
-- 本切片完成的是 Run lineage 持久化、Room 到 shared Session 的保守 attach 和终态迟到事件边界；真实 Provider 审批等待期间的 Activity 重建 E2E 已加入 Stage264，但本机 Redmi 当前没有选中 Provider，测试在 Provider 前置检查处未执行到业务链路。取消请求持久化/恢复和跨进程执行所有权仍未完成。`processSessionId` 仍不持久化，旧 Run 的终态和权限门禁保持不变。
+- 本切片完成的是 Run lineage 持久化、Room 到 shared Session 的保守 attach、取消请求持久化/恢复收敛和终态迟到事件边界；真实 Provider 审批等待期间的 Activity 重建 E2E 已加入 Stage264，但本机 Redmi 当前没有选中 Provider，测试在 Provider 前置检查处未执行到业务链路。跨进程执行所有权仍未完成。`processSessionId` 仍不持久化，旧 Run 的终态和权限门禁保持不变。
 
 ## 2026-09-30 第二组：只读前台多 Agent 子 Run
 
@@ -2684,6 +2684,28 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 已验证：`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug` 和 `./gradlew :app:assembleDebug` 均成功；schema `app/schemas/com.longdev.xiaoling.data.XiaoLingDatabase/39.json` 已生成。目标 Redmi `wsvwypiz7xwslvl7` 安装最新主 APK 与 instrumentation APK 后，迁移测试 `OK (1 test)`，取消请求/迟到完成测试 `OK (1 test)`。
 - 当前 Provider 真实 E2E 仍未验证：Redmi 当前没有可用 Provider，Stage264 在 `selectedProviderOrFallback()` 前置检查处结束，未进入模型业务链路；本轮没有读取、输出或提交任何 Provider 密钥、Token 或其他凭据。
 - 这一切片完成 Room→shared 的可回放取消边界，但没有开放旧模型协程恢复、未知提交重放、后台远程执行或新的工具权限；下一步仍按路线图推进 Tool Catalog/Executor 统一投影。
+
+## 2026-10-02 P1：可信回执进入 Android 可信上下文第一片
+
+- `VerifiedToolExecution` 与 `VerifiedAgentContext` 现在保留脱敏的 `operationId / receipt status / typed verification reasonCode / ToolCall ID`，普通 Agent、Workflow 和只读子 Agent 的结果都通过同一结构进入消息历史和任务结果投影。
+- `AgentRunSummary.sharedExecutions` 同步投影 shared ToolCall/receipt/verification；正常完成和已提交结果恢复都把 typed `reasonCode` 写回 `tool.verify` 事件，Room 仍是唯一原子账本。
+- 编解码对旧消息保持兼容，可信上下文不保存 `idempotencyKey`、Provider 凭据或工具原文之外的新敏感字段；Runtime 发现 verification evidence 与当前 ToolCall 错配时直接失败，不生成可信结果。
+- 这一片没有替换 Android 生产 `MinimalAgentRuntime` 为 shared runtime，也没有把 Room 的全部 typed evidence 扩成新的 schema；Browser/MCP 继续只提供 readable-only 结果，不伪造 `PASSED / COMMITTED`。
+
+## 2026-10-02 P2：签名 Remote Channel 入站第一片
+
+- `RemoteChannelEnvelope` 增加可选 `nonce / keyId / signature`；`HmacRemoteChannelAuthenticator` 使用 HMAC-SHA256、Base64URL 无 padding、长度前缀 canonical serialization 和常量时间比较，支持 current/previous key 同时存在的轮换过渡。
+- 签名模式要求 nonce 长度在 `16..256` 字符、消息时间处于最大年龄和未来偏差窗口内、`keyId` 已配置且签名有效；拒绝原因稳定区分 `TIMESTAMP_OUT_OF_WINDOW`、`INVALID_NONCE`、`MISSING_SIGNATURE`、`UNKNOWN_KEY_ID` 和 `INVALID_SIGNATURE`。
+- 启用 authenticator 后，nonce 会加入 `channel/sender/nonce` 有界去重账本；同 nonce 的不同 `messageId` 也会被拒绝，持久化失败会回滚本次内存占位。旧的无签名 loopback 调用保持兼容。
+- 该片只强化入站真实性和重放边界，成功结果仍是前台草稿；不自动发送、不自动启动 Agent、不远程执行工具、不携带附件、插件权限或 Provider 凭据。Android 真实密钥仍需接入 Keystore，当前没有把 HMAC 密钥写入 SharedPreferences。
+- 验证通过：`SecondGroupFoundationTest` 签名/轮换/篡改/缺签名/未知 key/时间窗用例；完整 `shared:allTests`、App 单测、Debug/AndroidTest 构建和 `lintDebug`；Redmi `wsvwypiz7xwslvl7` 覆盖安装后 `RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
+
+## 2026-10-02 P2：BrowserSession snapshot 第一片
+
+- `BrowserSession` 增加随机 `snapshotId`。`openSession` 首次页面生成快照，`readSession` 只刷新 TTL 并返回同一快照，`navigateSession` 在读取成功后替换页面并生成新快照；关闭后原 session ID 不能再次读取。
+- `browser.open / browser.read / browser.navigate` 的只读结果现在显示当前 `sessionId + snapshotId`，为后续结果证据和前台回读提供稳定引用；`browser.fetch` 不创建 session，仍只返回网页正文。
+- 当前边界保持不变：无脚本、无 Cookie、无登录态、无表单提交、无 DOM/鼠标键盘动作；取消仍由现有协程完成回调调用 OkHttp `Call.cancel()`，本片没有扩展跨 Run 取消账本。
+- `ExtendedAgentCapabilitiesTest#browserSessionKeepsSnapshotAcrossReadsAndRotatesItOnNavigation` 已通过；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionKeepsAndRotatesSnapshotReferences` 也为 `OK (1 test)`。下一步再把 snapshot 引用映射到 typed readable evidence，不把可读页面伪造成 `PASSED / COMMITTED`。
 
 ## 第四组 P1 第一切片：Tool Catalog 与 Executor 边界（2026-10-01）
 

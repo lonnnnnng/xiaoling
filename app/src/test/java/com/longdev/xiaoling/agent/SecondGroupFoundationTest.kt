@@ -81,6 +81,89 @@ class SecondGroupFoundationTest {
     }
 
     @Test
+    fun signedRemoteChannelAcceptsRotatedKeysAndRejectsNonceReplay() {
+        val now = 1_000_000L
+        val authenticator = HmacRemoteChannelAuthenticator(
+            keys = mapOf(
+                "current" to ByteArray(RemoteChannelPolicy.MIN_HMAC_KEY_BYTES) { 1 },
+                "previous" to ByteArray(RemoteChannelPolicy.MIN_HMAC_KEY_BYTES) { 2 },
+            ),
+            maxAgeMillis = 1_000L,
+            maxFutureSkewMillis = 100L,
+        )
+        val unsigned = RemoteChannelEnvelope(
+            channelId = "telegram",
+            messageId = "signed-1",
+            senderId = "user-1",
+            conversationKey = "chat",
+            text = "签名消息",
+            receivedAtMillis = now,
+            nonce = "n".repeat(RemoteChannelPolicy.MIN_NONCE_CHARS),
+            keyId = "previous",
+        )
+        val signed = unsigned.copy(signature = authenticator.sign(unsigned, "previous"))
+        val inbox = InMemoryRemoteChannelInbox(
+            allowlist = RemoteChannelAllowlist("telegram", setOf("user-1")),
+            authenticator = authenticator,
+            clock = { now },
+        )
+
+        assertTrue(inbox.receive(signed) is RemoteChannelReceiveResult.Accepted)
+        val sameNonceDifferentMessage = signed.copy(
+            messageId = "signed-2",
+            signature = authenticator.sign(signed.copy(messageId = "signed-2"), "previous"),
+        )
+        assertEquals(
+            RemoteChannelRejectionReason.DUPLICATE_MESSAGE,
+            (inbox.receive(sameNonceDifferentMessage) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+    }
+
+    @Test
+    fun signedRemoteChannelRejectsMutationMissingSignatureUnknownKeyAndTimeOutsideWindow() {
+        val now = 2_000_000L
+        val authenticator = HmacRemoteChannelAuthenticator(
+            keys = mapOf("current" to ByteArray(RemoteChannelPolicy.MIN_HMAC_KEY_BYTES) { 3 }),
+            maxAgeMillis = 1_000L,
+            maxFutureSkewMillis = 100L,
+        )
+        val unsigned = RemoteChannelEnvelope(
+            channelId = "loopback",
+            messageId = "signed-1",
+            senderId = "known",
+            conversationKey = "chat",
+            text = "原文",
+            receivedAtMillis = now,
+            nonce = "x".repeat(RemoteChannelPolicy.MIN_NONCE_CHARS),
+            keyId = "current",
+        )
+        val signed = unsigned.copy(signature = authenticator.sign(unsigned, "current"))
+        fun inbox() = InMemoryRemoteChannelInbox(
+            allowlist = RemoteChannelAllowlist("loopback", setOf("known")),
+            authenticator = authenticator,
+            clock = { now },
+        )
+
+        assertEquals(
+            RemoteChannelRejectionReason.INVALID_SIGNATURE,
+            (inbox().receive(signed.copy(text = "篡改")) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+        assertEquals(
+            RemoteChannelRejectionReason.MISSING_SIGNATURE,
+            (inbox().receive(signed.copy(signature = null)) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+        assertEquals(
+            RemoteChannelRejectionReason.UNKNOWN_KEY_ID,
+            (inbox().receive(signed.copy(keyId = "retired")) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+        val future = signed.copy(receivedAtMillis = now + 101L)
+        assertEquals(
+            RemoteChannelRejectionReason.TIMESTAMP_OUT_OF_WINDOW,
+            (inbox().receive(future) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+    }
+
+    @Test
     fun aciDiscoversAndCallsOnlyExplicitSafeCapabilities() = runTest {
         val registry = SafeTestToolRegistry()
         val bridge = ReadOnlyAciCapabilityBridge(registry, setOf("safe.read"))

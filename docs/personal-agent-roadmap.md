@@ -18,7 +18,7 @@
 
 1. 已完成 Run lineage 持久化和保守 attach/replay 投影；真实 Provider 审批等待期间的 Activity 重建 E2E 已加入 Stage264，但因 Redmi 当前没有选中 Provider，本轮未形成真实业务通过证据。
 2. `processSessionId` 仍只作为短生命周期内存上下文，不写入 Room；跨进程执行所有权、远程 Channel、插件运行时和完整浏览器自动化继续沿各自 fail-closed 边界运行。
-3. 下一窄切片是在有有效 Provider 配置的 Redmi 上补跑审批等待重建 E2E，随后再决定是否进入取消请求持久化/恢复。
+3. 下一窄切片是在有有效 Provider 配置的 Redmi 上补跑审批等待重建 E2E；取消请求持久化、恢复收敛和迟到终态阻断已在 P0-b 完成，当前只缺真实 Provider 业务链路验收。
 
 ## 2026-09-30：第二组多 Agent 第一片（只读前台子 Run）
 
@@ -31,7 +31,7 @@
 
 1. 这片只提供可复用的只读前台子 Run 调度入口，尚未接入对话 UI 的 `spawn_agent` 工具、并行任务中心或跨进程 Agent Registry。
 2. 远程 Channel、ACI、插件系统仍保持现有 fail-closed 边界；它们不能调用这片入口，也不能借此获得后台、设备动作或写入权限。
-3. 子 Run 的父子关系目前以事件审计表达，尚未新增 `parentRunId/rootRunId/depth` Room 列；待并发切片完成真机验证后再决定是否升级持久模型。
+3. 当时子 Run 的父子关系以事件审计表达，尚未新增 `parentRunId/rootRunId/depth` Room 列；后续 P0-b 已将 `rootRunId / parentRunId` 接入 Room 账本。
 
 ## 2026-09-30：第一组后台可靠性、前台 TTS 与系统助手入口
 
@@ -2620,15 +2620,17 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 ## 第四组：Run/Task Runtime v2（2026-10-01 启动）
 
-六个参考项目的共同成熟点是统一任务运行时，而不是单独堆叠浏览器、插件或远程协议：OmniBot / Eta 将 round、tool batch、cancel、attach、replay 和单终态放在同一运行时；RikkaHub 将工具目录、审批、执行和结果证据统一编排；Aether 以 session signature 管理复用、steer 和 MCP 状态；Operit 的 Workflow、浏览器和 ToolPkg 都有独立生命周期；ZorvAI 用能力注册表承载插件、ACI 与 GenUI。小灵当前已有 Room Agent Run Ledger、恢复判定、shared runtime 和只读多 Agent，但不同入口仍未共享同一套 session identity 与可恢复状态机。
+六个参考项目的共同成熟点是统一任务运行时，而不是单独堆叠浏览器、插件或远程协议：OmniBot / Eta 将 round、tool batch、cancel、attach、replay 和单终态放在同一运行时；RikkaHub 将工具目录、审批、执行和结果证据统一编排；Aether 以 session signature 管理复用、steer 和 MCP 状态；Operit 的 Workflow、浏览器和 ToolPkg 都有独立生命周期；ZorvAI 用能力注册表承载插件、ACI 与 GenUI。小灵在本组启动时尚未共享同一套 session identity 与可恢复状态机，当前已完成 Run Session、Room Ledger 和只读多 Agent 的基础统一。
 
 本组按以下顺序推进：
 
 1. **P0-a（已完成）**：在 `:shared` 增加平台无关的 Run Session Contract，冻结 `runId / rootRunId / parentRunId`、状态转移、单终态、递增事件序号、取消请求和 snapshot/restore 语义；只增加纯 Kotlin 测试，不改变现有 Android 生产执行路径。`shared:allTests` 已覆盖 Android JVM 与 iOS Simulator，当前实现见 `shared/src/commonMain/kotlin/com/longdev/xiaoling/shared/agent/SharedAgentRunSession.kt`。
 2. **P0-b（已完成，2026-10-01）**：将 Android `AgentRunLedger` 的 Room 记录映射到该契约，补齐 Activity 重建、进程恢复、attach/replay 和取消边界；Room 已升级到 v39，取消请求先持久化再收敛 `CANCELLED`，旧数据库记录保持可读取，失败和终态事件不能被迟到回调覆盖。shared/Android 单元测试、Debug/AndroidTest 构建、Lint，以及 Redmi `wsvwypiz7xwslvl7` 上 v38→v39 迁移和迟到完成阻断测试均通过。Provider 真实模型 E2E 仍因设备无 Provider 配置未验证。
-3. **P1（两片已完成，2026-10-01）**：已把现有 ToolRegistry 与 shared adapter 接入来源感知的 Tool Catalog 和独立 Executor 端口，目录具备稳定排序、版本/指纹和定义漂移拒绝；shared 结果已投影 `verified`、脱敏回执和 typed verification，并拒绝错配 ToolCall ID。Profile→Skill→MCP 已覆盖 direct 可见、Workflow 隐藏和 Profile 不交集拒绝。Profile、审批、后台和敏感字段门禁保持原路径。MCP 仍通过 per-Run wrapper，GitHub Skill 仍只导入声明和来源审计；下一步评估 receipt/verification 是否需要进入可信上下文与跨平台持久化。
-4. **P1（父子 Run 第一片已完成，2026-10-01）**：只读子 Agent 已将 `parentRunId/rootRunId` 写入现有 Run 账本，任务中心已投影层级、父/子导航并对缺失或歧义 lineage fail-closed；取消、关联重试和重建恢复继续复用既有持久化边界。下一片补齐超时、部分完成和子 Run 汇总状态的明确投影。Workflow、Remote Channel、ACI 暂不获得派生或写入权限。
-5. **P2**：接入一个签名远程入站 Channel，只落持久收件箱和前台草稿；再升级只读 BrowserSession 的 snapshot/ref、取消和结果证据。
-6. **P3**：最后再做声明式插件 ABI、MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
+3. **P1（两片已完成，2026-10-01）**：已把现有 ToolRegistry 与 shared adapter 接入来源感知的 Tool Catalog 和独立 Executor 端口，目录具备稳定排序、版本/指纹和定义漂移拒绝；shared 结果已投影 `verified`、脱敏回执和 typed verification，并拒绝错配 ToolCall ID。Profile→Skill→MCP 已覆盖 direct 可见、Workflow 隐藏和 Profile 不交集拒绝。Profile、审批、后台和敏感字段门禁保持原路径。MCP 仍通过 per-Run wrapper，GitHub Skill 仍只导入声明和来源审计；可信回执已开始接入可信上下文，后续继续补齐 shared ledger 和跨入口持久化。
+4. **P1（父子 Run 第一片已完成，2026-10-01）**：只读子 Agent 已将 `parentRunId/rootRunId` 写入现有 Run 账本，任务中心已投影层级、父/子导航、超时、部分完成和子 Run 汇总，并对缺失或歧义 lineage fail-closed；取消、关联重试和重建恢复继续复用既有持久化边界。Workflow、Remote Channel、ACI 暂不获得派生或写入权限。
+5. **P1（可信回执第一片，2026-10-02）**：Android `VerifiedToolExecution`、`VerifiedAgentContext` 和 `AgentRunSummary.sharedExecutions` 已保留脱敏 `operationId/status` 与 typed `reasonCode/toolCallId`，普通 Agent、Workflow、恢复路径和只读子 Agent 共用同一结果投影；`tool.verify` 事件会回读 reasonCode，编解码兼容旧消息且不写入 `idempotencyKey`，Runtime 对错配验证证据 fail-closed。shared runtime 的完整生产替换、Room 完整 typed evidence 列和 Browser/MCP 的外部回执仍后置。
+6. **P2（签名远程入站第一片，2026-10-02）**：`HmacRemoteChannelAuthenticator` 已为受控入站 envelope 增加 HMAC-SHA256、`keyId` 轮换、nonce 重放阻断、时间窗和 fail-closed 拒绝码；签名消息仍只进入现有持久化去重账本和前台草稿投影，不自动发送、不启动 Agent、不携带附件或工具授权。当前 authenticator 仅是纯内存/测试接缝，Android Keystore 密钥托管、Telegram/Webhook 收件器、OAuth、远程执行和 BrowserSession 外部回执仍后置。继续升级只读 BrowserSession 的 snapshot/ref、取消和结果证据。
+7. **P2（BrowserSession snapshot 第一片，2026-10-02）**：只读浏览器会话现在为每个页面生成随机 `snapshotId`；同一会话的 `read` 保持快照不变，`navigate` 生成新快照，`close` 后旧会话不可读取，`browser.open/read/navigate` 结果显示当前快照引用。该片没有开放脚本、Cookie、表单、DOM 动作或外部回执，取消仍沿现有 OkHttp `Call.cancel()` 接缝；下一片再接 typed readable result evidence。
+8. **P3**：最后再做声明式插件 ABI、MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。

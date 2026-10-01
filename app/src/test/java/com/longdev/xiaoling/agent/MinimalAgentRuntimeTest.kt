@@ -103,6 +103,11 @@ class MinimalAgentRuntimeTest {
         }
         assertEquals(expectedArguments, workflowSummary.verifiedContext.arguments)
         assertEquals(expectedArguments, workflowSummary.verifiedContext.toolExecutions.single().arguments)
+        assertEquals(workflowSummary.verifiedContext.toolExecutions.size, workflowSummary.sharedExecutions.size)
+        assertEquals(
+            workflowSummary.verifiedContext.toolExecutions.single().toolName,
+            workflowSummary.sharedExecutions.single().toolCall.name,
+        )
         assertFalse(workflowSummary.verifiedContext.toString().contains(inputText))
         assertEquals(inputText, executedText)
 
@@ -150,6 +155,7 @@ class MinimalAgentRuntimeTest {
                 assertFalse(auditedCall.toString().contains(inputText))
             }
         assertEquals(expectedDirectArguments, directSummary.verifiedContext.arguments)
+        assertEquals(directSummary.verifiedContext.toolExecutions.size, directSummary.sharedExecutions.size)
         assertEquals(expectedDirectArguments, directSummary.verifiedContext.toolExecutions.single().arguments)
         assertFalse(directSummary.verifiedContext.toString().contains(inputText))
         assertEquals(inputText, executedText)
@@ -1144,6 +1150,11 @@ class MinimalAgentRuntimeTest {
             verified = true,
             content = "已创建并验证笔记：恢复笔记",
             executionReceipt = receipt,
+            verificationEvidence = ToolVerificationEvidence(
+                status = ToolVerificationStatus.PASSED,
+                toolCallId = call.id,
+                reasonCode = "NOTE_READ_BACK_MATCHED",
+            ),
         )
         ledger.updateRunStatus(run.id, AgentRunStatus.EXECUTING)
         ledger.appendEvent(
@@ -1214,11 +1225,23 @@ class MinimalAgentRuntimeTest {
         assertEquals(1, recovered.events.count { it.type == "tool.result" })
         assertEquals(1, recovered.events.count { it.type == "tool.verify" })
         assertEquals(
+            "NOTE_READ_BACK_MATCHED",
+            (recovered.events.single { it.type == "tool.verify" }.metadata as RunEventMetadata.ToolVerification).reason,
+        )
+        assertEquals(
             RunEventMetadata.ExecutionBudget(totalTimeoutMs = 120_000, consumedMs = 0),
             recovered.events.single { it.type == AgentEventTypes.EXECUTION_BUDGET_UPDATED }.metadata,
         )
         assertEquals(0, recovered.steps.count { it.type == AgentStepTypes.LLM_PLAN })
         assertTrue(summary.responseText.contains("恢复笔记"))
+        assertEquals(receipt.operationId, summary.verifiedContext.executionReceipt?.operationId)
+        assertEquals(ToolExecutionReceiptStatus.COMMITTED, summary.verifiedContext.executionReceipt?.status)
+        assertEquals("NOTE_READ_BACK_MATCHED", summary.verifiedContext.verificationEvidence?.reasonCode)
+        assertEquals(call.id, summary.verifiedContext.verificationEvidence?.toolCallId)
+        assertEquals(1, summary.sharedExecutions.size)
+        assertEquals(call.id, summary.sharedExecutions.single().toolCall.id)
+        assertEquals("note-committed-recovery", summary.sharedExecutions.single().result.executionReceipt?.operationId)
+        assertEquals("NOTE_READ_BACK_MATCHED", summary.sharedExecutions.single().result.verification?.reasonCode)
     }
 
     @Test
@@ -1743,6 +1766,53 @@ class MinimalAgentRuntimeTest {
 
         val restored = VerifiedAgentContextCodec.decode(VerifiedAgentContextCodec.encode(context))
 
+        assertEquals(context, restored)
+    }
+
+    @Test
+    fun verifiedContextCodecPreservesTypedReceiptWithoutIdempotencyKey() {
+        val context = VerifiedAgentContext(
+            runId = "run-trusted-receipt",
+            toolName = "notes.create",
+            arguments = mapOf("title" to "可信回执"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.VERIFIED,
+            rawResult = "已创建可信回执",
+            executionReceipt = TrustedToolExecutionReceipt(
+                toolCallId = "tool-call-trusted-receipt",
+                operationId = "operation-trusted-receipt",
+                status = ToolExecutionReceiptStatus.COMMITTED,
+            ),
+            verificationEvidence = TrustedToolVerificationEvidence(
+                status = ToolVerificationStatus.PASSED,
+                toolCallId = "tool-call-trusted-receipt",
+                reasonCode = "NOTE_READ_BACK_MATCHED",
+            ),
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "notes.create",
+                    arguments = mapOf("title" to "可信回执"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.VERIFIED,
+                    rawResult = "已创建可信回执",
+                    executionReceipt = TrustedToolExecutionReceipt(
+                        toolCallId = "tool-call-trusted-receipt",
+                        operationId = "operation-trusted-receipt",
+                        status = ToolExecutionReceiptStatus.COMMITTED,
+                    ),
+                    verificationEvidence = TrustedToolVerificationEvidence(
+                        status = ToolVerificationStatus.PASSED,
+                        toolCallId = "tool-call-trusted-receipt",
+                        reasonCode = "NOTE_READ_BACK_MATCHED",
+                    ),
+                ),
+            ),
+        )
+
+        val encoded = VerifiedAgentContextCodec.encode(context)
+        val restored = VerifiedAgentContextCodec.decode(encoded)
+
+        assertFalse(encoded.contains("idempotency"))
         assertEquals(context, restored)
     }
 

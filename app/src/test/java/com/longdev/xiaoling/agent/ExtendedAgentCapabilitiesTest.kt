@@ -10,6 +10,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,6 +41,46 @@ class ExtendedAgentCapabilitiesTest {
     fun browserPolicyRejectsLoopbackAndCredentials() {
         assertThrows(IllegalArgumentException::class.java) { BrowserUrlPolicy.validate("http://localhost/test") }
         assertThrows(IllegalArgumentException::class.java) { BrowserUrlPolicy.validate("https://user:pass@example.com/test") }
+    }
+
+    @Test
+    fun browserSessionKeepsSnapshotAcrossReadsAndRotatesItOnNavigation() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("<title>One</title><p>first page</p>"))
+        server.enqueue(MockResponse().setBody("<title>Two</title><p>second page</p>"))
+        server.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val original = chain.request()
+                    chain.proceed(original.newBuilder().url(server.url("/page")).build())
+                }
+                .build()
+            val reader = OkHttpBrowserPageReader(client)
+
+            val opened = reader.openSession("https://example.com/one")
+            val reread = reader.readSession(opened.id)
+            assertEquals(opened.id, reread.id)
+            assertEquals(opened.snapshotId, reread.snapshotId)
+            assertEquals("One", reread.page.title)
+
+            val navigated = reader.navigateSession(opened.id, "https://example.com/two")
+            assertEquals(opened.id, navigated.id)
+            assertNotEquals(opened.snapshotId, navigated.snapshotId)
+            assertEquals("Two", navigated.page.title)
+
+            assertTrue(reader.closeSession(opened.id))
+            var readAfterCloseFailed = false
+            try {
+                reader.readSession(opened.id)
+            } catch (_: IllegalArgumentException) {
+                readAfterCloseFailed = true
+            }
+            assertTrue(readAfterCloseFailed)
+            assertFalse(reader.closeSession(opened.id))
+        } finally {
+            server.shutdown()
+        }
     }
 
     @Test

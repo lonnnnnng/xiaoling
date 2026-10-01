@@ -1,7 +1,13 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.share.SharedDraftPayload
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.security.MessageDigest
+import java.util.Base64
 import java.util.LinkedHashMap
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * 远程 Channel 的第一版只定义受控入站协议，不直接启动 Agent Run。
@@ -15,6 +21,9 @@ data class RemoteChannelEnvelope(
     val conversationKey: String,
     val text: String,
     val receivedAtMillis: Long,
+    val nonce: String? = null,
+    val keyId: String? = null,
+    val signature: String? = null,
 )
 
 data class RemoteChannelDraft(
@@ -34,6 +43,11 @@ enum class RemoteChannelRejectionReason {
     EMPTY_TEXT,
     TEXT_TOO_LONG,
     INVALID_TIMESTAMP,
+    TIMESTAMP_OUT_OF_WINDOW,
+    INVALID_NONCE,
+    MISSING_SIGNATURE,
+    UNKNOWN_KEY_ID,
+    INVALID_SIGNATURE,
     SENDER_NOT_ALLOWED,
     DUPLICATE_MESSAGE,
     DEDUPE_PERSISTENCE_FAILURE,
@@ -58,6 +72,11 @@ data class RemoteChannelAllowlist(
 object RemoteChannelPolicy {
     const val MAX_TEXT_CHARS = 20_000
     const val MAX_DEDUPE_ENTRIES = 256
+    const val MIN_HMAC_KEY_BYTES = 32
+    const val MIN_NONCE_CHARS = 16
+    const val MAX_NONCE_CHARS = 256
+    const val DEFAULT_MAX_AGE_MILLIS = 5 * 60 * 1000L
+    const val DEFAULT_MAX_FUTURE_SKEW_MILLIS = 30 * 1000L
 
     fun normalizeText(text: String): String = text
         .replace("\r\n", "\n")
@@ -66,6 +85,11 @@ object RemoteChannelPolicy {
 
     fun dedupeKey(envelope: RemoteChannelEnvelope): String =
         "${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000${envelope.messageId.trim()}"
+
+    fun nonceDedupeKey(envelope: RemoteChannelEnvelope): String? = envelope.nonce
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let { nonce -> "nonce\u0000${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000$nonce" }
 
     fun validate(envelope: RemoteChannelEnvelope): RemoteChannelRejectionReason? {
         val channelId = envelope.channelId.trim()
@@ -81,6 +105,90 @@ object RemoteChannelPolicy {
     }
 }
 
+interface RemoteChannelAuthenticator {
+    fun verify(envelope: RemoteChannelEnvelope, nowMillis: Long): RemoteChannelRejectionReason?
+}
+
+/**
+ * long: 入站签名只证明 envelope 来自配置的 key，不能替代前台确认、Agent 执行或外部业务成功回执；同时传入 current/previous key 即可完成轮换过渡。
+ */
+class HmacRemoteChannelAuthenticator(
+    keys: Map<String, ByteArray>,
+    private val maxAgeMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_AGE_MILLIS,
+    private val maxFutureSkewMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_FUTURE_SKEW_MILLIS,
+) : RemoteChannelAuthenticator {
+    private val keys = keys
+        .mapValues { (_, secret) -> secret.copyOf() }
+        .also { entries ->
+            require(entries.isNotEmpty()) { "远程 Channel 至少需要一个签名密钥" }
+            require(entries.keys.none(String::isBlank)) { "远程 Channel keyId 不能为空" }
+            require(entries.values.all { it.size >= RemoteChannelPolicy.MIN_HMAC_KEY_BYTES }) {
+                "远程 Channel HMAC 密钥长度不足"
+            }
+        }
+
+    init {
+        require(maxAgeMillis > 0L) { "远程 Channel 签名时间窗必须大于零" }
+        require(maxFutureSkewMillis >= 0L) { "远程 Channel 未来时间容忍值不能小于零" }
+    }
+
+    override fun verify(envelope: RemoteChannelEnvelope, nowMillis: Long): RemoteChannelRejectionReason? {
+        val nonce = envelope.nonce?.trim().orEmpty()
+        if (nonce.length !in RemoteChannelPolicy.MIN_NONCE_CHARS..RemoteChannelPolicy.MAX_NONCE_CHARS) {
+            return RemoteChannelRejectionReason.INVALID_NONCE
+        }
+        if (envelope.receivedAtMillis < nowMillis - maxAgeMillis ||
+            envelope.receivedAtMillis > nowMillis + maxFutureSkewMillis
+        ) {
+            return RemoteChannelRejectionReason.TIMESTAMP_OUT_OF_WINDOW
+        }
+        val keyId = envelope.keyId?.trim().orEmpty()
+        if (keyId.isBlank()) return RemoteChannelRejectionReason.UNKNOWN_KEY_ID
+        val secret = keys[keyId] ?: return RemoteChannelRejectionReason.UNKNOWN_KEY_ID
+        val signature = envelope.signature?.trim().orEmpty()
+        if (signature.isBlank()) return RemoteChannelRejectionReason.MISSING_SIGNATURE
+        val expected = sign(envelope.copy(keyId = keyId), secret)
+        val actual = runCatching { Base64.getUrlDecoder().decode(signature) }.getOrNull()
+            ?: return RemoteChannelRejectionReason.INVALID_SIGNATURE
+        return if (MessageDigest.isEqual(expected, actual)) null else RemoteChannelRejectionReason.INVALID_SIGNATURE
+    }
+
+    fun sign(envelope: RemoteChannelEnvelope, keyId: String): String {
+        val secret = keys[keyId] ?: error("未知远程 Channel keyId：$keyId")
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(sign(envelope.copy(keyId = keyId), secret))
+    }
+
+    private fun sign(envelope: RemoteChannelEnvelope, secret: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret, "HmacSHA256"))
+        return mac.doFinal(canonicalBytes(envelope))
+    }
+
+    private fun canonicalBytes(envelope: RemoteChannelEnvelope): ByteArray {
+        val fields = listOf(
+            envelope.channelId.trim(),
+            envelope.messageId.trim(),
+            envelope.senderId.trim(),
+            envelope.conversationKey.trim(),
+            RemoteChannelPolicy.normalizeText(envelope.text),
+            envelope.receivedAtMillis.toString(),
+            envelope.nonce?.trim().orEmpty(),
+            envelope.keyId?.trim().orEmpty(),
+        )
+        return ByteArrayOutputStream().use { buffer ->
+            DataOutputStream(buffer).use { output ->
+                output.writeInt(fields.size)
+                fields.forEach { field ->
+                    val bytes = field.toByteArray(Charsets.UTF_8)
+                    output.writeInt(bytes.size)
+                    output.write(bytes)
+                }
+            }
+            buffer.toByteArray()
+        }
+    }
+}
+
 interface RemoteChannelDedupeStore {
     fun loadKeys(): List<String>
 
@@ -91,6 +199,8 @@ class InMemoryRemoteChannelInbox(
     private val allowlist: RemoteChannelAllowlist,
     private val maxDedupeEntries: Int = RemoteChannelPolicy.MAX_DEDUPE_ENTRIES,
     private val dedupeStore: RemoteChannelDedupeStore? = null,
+    private val authenticator: RemoteChannelAuthenticator? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val seen = object : LinkedHashMap<String, Unit>(maxDedupeEntries, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>): Boolean =
@@ -112,6 +222,7 @@ class InMemoryRemoteChannelInbox(
     @Synchronized
     fun receive(envelope: RemoteChannelEnvelope): RemoteChannelReceiveResult {
         RemoteChannelPolicy.validate(envelope)?.let { return RemoteChannelReceiveResult.Rejected(it) }
+        authenticator?.verify(envelope, clock())?.let { return RemoteChannelReceiveResult.Rejected(it) }
         if (envelope.channelId.trim() != allowlist.channelId) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.SENDER_NOT_ALLOWED)
         }
@@ -119,16 +230,19 @@ class InMemoryRemoteChannelInbox(
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.SENDER_NOT_ALLOWED)
         }
         val key = RemoteChannelPolicy.dedupeKey(envelope)
-        if (seen.containsKey(key)) {
+        val nonceKey = if (authenticator != null) RemoteChannelPolicy.nonceDedupeKey(envelope) else null
+        if (seen.containsKey(key) || nonceKey?.let(seen::containsKey) == true) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DUPLICATE_MESSAGE)
         }
         seen[key] = Unit
+        nonceKey?.let { seen[it] = Unit }
         val store = dedupeStore
         if (store != null) {
             val persisted = runCatching { store.saveKeys(seen.keys.toList()) }.isSuccess
             if (!persisted) {
                 // long: 去重账本写失败时不能先把消息交给前台，否则进程重启后可能再次生成同一草稿；回滚本次内存占位并明确拒绝。
                 seen.remove(key)
+                nonceKey?.let(seen::remove)
                 return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE)
             }
         }

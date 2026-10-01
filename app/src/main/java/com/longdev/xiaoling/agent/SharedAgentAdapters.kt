@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.shared.agent.SharedAgentPlanDecision
+import com.longdev.xiaoling.shared.agent.SharedAgentExecution
 import com.longdev.xiaoling.shared.agent.SharedApprovalGate
 import com.longdev.xiaoling.shared.agent.SharedAgentLlm
 import com.longdev.xiaoling.shared.agent.SharedToolCall
@@ -96,6 +97,16 @@ fun ToolExecutionResult.toSharedAgentResult(
                 reasonCode = it.reasonCode,
             )
         },
+    )
+}
+
+/**
+ * long: direct、Workflow 和子 Agent 都从同一组已完成工具生成 shared execution；shared 结果只做跨入口投影，Room 账本仍由 Android Ledger 原子写入。
+ */
+fun List<AgentToolExecution>.toSharedAgentExecutions(): List<SharedAgentExecution> = map { execution ->
+    SharedAgentExecution(
+        toolCall = execution.toolCall.toSharedAgentCall(),
+        result = execution.toolResult.toSharedAgentResult(expectedToolCallId = execution.toolCall.id),
     )
 }
 

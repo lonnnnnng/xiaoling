@@ -446,6 +446,7 @@ class MinimalAgentRuntime internal constructor(
             val recoveredResult = toolRegistry.verifyCommittedEffect(recovery.toolCall, receipt)
                 ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
             validateExecutionReceipt(recovery.toolCall, recoveredResult)
+            validateVerificationEvidence(recovery.toolCall, recoveredResult)
             require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
             if (!recoveredResult.success) {
                 recoveredResult.recoveryFailure?.let { failure ->
@@ -469,6 +470,7 @@ class MinimalAgentRuntime internal constructor(
                     toolName = recovery.toolCall.name,
                     status = ToolVerificationStatus.PASSED,
                     toolCallId = recovery.toolCall.id,
+                    reason = recoveredResult.verificationEvidence?.reasonCode,
                 ),
             )
             ledger.updateStep(verifyStep.id, AgentStepStatus.COMPLETED, "已只读回读 operation ${receipt.operationId} 并验证通过")
@@ -792,6 +794,7 @@ class MinimalAgentRuntime internal constructor(
             toolRegistry.execute(toolCall)
         }
         validateExecutionReceipt(toolCall, toolResult)
+        validateVerificationEvidence(toolCall, toolResult)
         state.executedToolCalls += 1
         // long: 工具耗时与 Run 执行预算必须使用同一单调时钟；系统时间校准不能制造负耗时或虚增剩余预算。
         val toolDurationMs = (monotonicClock.nowMs() - toolStartedAtMs).coerceAtLeast(0)
@@ -848,7 +851,7 @@ class MinimalAgentRuntime internal constructor(
                     toolName = toolCall.name,
                     status = ToolVerificationStatus.FAILED,
                     toolCallId = toolCall.id,
-                    reason = reason,
+                    reason = toolResult.verificationEvidence?.reasonCode ?: reason,
                 ),
             )
             faultInjector.afterToolVerificationPersisted(runId, toolCall, toolResult)
@@ -862,6 +865,7 @@ class MinimalAgentRuntime internal constructor(
                 toolName = toolCall.name,
                 status = ToolVerificationStatus.PASSED,
                 toolCallId = toolCall.id,
+                reason = toolResult.verificationEvidence?.reasonCode,
             ),
         )
         faultInjector.afterToolVerificationPersisted(runId, toolCall, toolResult)
@@ -939,6 +943,7 @@ class MinimalAgentRuntime internal constructor(
             status = AgentRunStatus.COMPLETED,
             responseText = response,
             verifiedContext = buildVerifiedContext(run.id, state.completedTools),
+            sharedExecutions = state.completedTools.toSharedAgentExecutions(),
         )
     }
 
@@ -982,6 +987,7 @@ class MinimalAgentRuntime internal constructor(
             status = AgentRunStatus.COMPLETED,
             responseText = response,
             verifiedContext = buildVerifiedContext(run.id, state.completedTools),
+            sharedExecutions = state.completedTools.toSharedAgentExecutions(),
         )
     }
 
@@ -1195,6 +1201,8 @@ class MinimalAgentRuntime internal constructor(
             memoryIdsUsed = executions.flatMap { it.memoryIdsUsed }.distinct(),
             knowledgeReferences = executions.flatMap { it.knowledgeReferences }.distinct(),
             toolExecutions = executions,
+            executionReceipt = finalExecution.executionReceipt,
+            verificationEvidence = finalExecution.verificationEvidence,
         )
     }
 
@@ -1214,6 +1222,20 @@ class MinimalAgentRuntime internal constructor(
             rawResult = toolResult.content,
             memoryIdsUsed = toolResult.memoryIdsUsed,
             knowledgeReferences = toolResult.knowledgeReferences,
+            executionReceipt = toolResult.executionReceipt?.let { receipt ->
+                TrustedToolExecutionReceipt(
+                    toolCallId = receipt.toolCallId,
+                    operationId = receipt.operationId,
+                    status = receipt.status,
+                )
+            },
+            verificationEvidence = toolResult.verificationEvidence?.let { evidence ->
+                TrustedToolVerificationEvidence(
+                    status = evidence.status,
+                    toolCallId = evidence.toolCallId,
+                    reasonCode = evidence.reasonCode,
+                )
+            },
         )
     }
 
@@ -1327,6 +1349,17 @@ class MinimalAgentRuntime internal constructor(
         // long: Executor 可以不提供回执，但提供后必须绑定本次 ToolCall；错配回执不能作为当前副作用证据写入审计或驱动后续恢复判断。
         check(receipt.toolCallId == toolCall.id) {
             "执行回执不属于当前工具调用：expected=${toolCall.id}, actual=${receipt.toolCallId}"
+        }
+    }
+
+    private fun validateVerificationEvidence(
+        toolCall: ToolCall,
+        result: ToolExecutionResult,
+    ) {
+        val evidence = result.verificationEvidence ?: return
+        // long: typed 验证如果携带调用身份，必须与本次执行一致；错配时整步失败，不能把其他工具的 PASSED 证据带入可信上下文。
+        check(evidence.toolCallId == null || evidence.toolCallId == toolCall.id) {
+            "验证证据不属于当前工具调用：expected=${toolCall.id}, actual=${evidence.toolCallId}"
         }
     }
 

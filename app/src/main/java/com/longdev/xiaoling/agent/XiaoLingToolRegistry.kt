@@ -1932,7 +1932,7 @@ class XiaoLingToolRegistry(
         return runCatching { browserPageReader.openSession(url, maxChars) }
             .fold(
                 onSuccess = { session ->
-                    ToolExecutionResult(success = true, verified = true, content = "浏览器会话已打开：${session.id}\n${formatBrowserPage(session.page)}")
+                    ToolExecutionResult(success = true, verified = true, content = "浏览器会话已打开：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}")
                 },
                 onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话打开失败") },
             )
@@ -1944,7 +1944,7 @@ class XiaoLingToolRegistry(
         }
         return runCatching { browserPageReader.readSession(call.arguments["session_id"].orEmpty()) }
             .fold(
-                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n${formatBrowserPage(session.page)}") },
+                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}") },
                 onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话读取失败") },
             )
     }
@@ -1958,7 +1958,7 @@ class XiaoLingToolRegistry(
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
         return runCatching { browserPageReader.navigateSession(sessionId, url, maxChars) }
             .fold(
-                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n${formatBrowserPage(session.page)}") },
+                onSuccess = { session -> ToolExecutionResult(success = true, content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}") },
                 onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话导航失败") },
             )
     }

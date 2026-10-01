@@ -26,6 +26,7 @@ data class BrowserPage(
 
 data class BrowserSession(
     val id: String,
+    val snapshotId: String,
     val page: BrowserPage,
 )
 
@@ -107,6 +108,7 @@ class OkHttpBrowserPageReader(
         }
         val session = BrowserSession(
             id = UUID.randomUUID().toString().replace("-", "").take(16),
+            snapshotId = newSnapshotId(),
             page = read(url, maxChars),
         )
         sessions[session.id] = ManagedBrowserSession(session)
@@ -123,7 +125,7 @@ class OkHttpBrowserPageReader(
     override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession {
         cleanupExpiredSessions()
         require(sessions.containsKey(sessionId)) { "浏览器会话不存在或已关闭" }
-        val session = BrowserSession(sessionId, read(url, maxChars))
+        val session = BrowserSession(sessionId, newSnapshotId(), read(url, maxChars))
         sessions[sessionId] = ManagedBrowserSession(session)
         return session
     }
@@ -136,6 +138,9 @@ class OkHttpBrowserPageReader(
             if (session.lastAccessAt < cutoff) sessions.remove(id, session)
         }
     }
+
+    // long: 页面导航会替换可读事实，必须生成新快照引用，避免上层把旧页面结果当成当前页面继续使用。
+    private fun newSnapshotId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
 
     private data class ManagedBrowserSession(
         val session: BrowserSession,

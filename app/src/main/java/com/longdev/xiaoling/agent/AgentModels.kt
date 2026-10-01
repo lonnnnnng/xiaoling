@@ -6,6 +6,7 @@ import com.longdev.xiaoling.shared.agent.SharedAgentRunIdentity
 import com.longdev.xiaoling.shared.agent.SharedAgentRunEvent
 import com.longdev.xiaoling.shared.agent.SharedAgentRunSnapshot
 import com.longdev.xiaoling.shared.agent.SharedAgentRunState
+import com.longdev.xiaoling.shared.agent.SharedAgentExecution
 import java.util.UUID
 
 enum class AgentRunStatus {
@@ -1200,6 +1201,8 @@ data class AgentRunSummary(
     val status: AgentRunStatus,
     val responseText: String,
     val verifiedContext: VerifiedAgentContext,
+    // long: 同一份工具结果同时投影为 Android 可信上下文和 shared contract，入口层只能读取这份统一结果，不能各自猜测 receipt/verification。
+    val sharedExecutions: List<SharedAgentExecution> = emptyList(),
 )
 
 data class AgentRuntimeOptions(

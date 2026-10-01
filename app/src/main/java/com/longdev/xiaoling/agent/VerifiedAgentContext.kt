@@ -12,6 +12,34 @@ enum class AgentVerificationStatus {
     READABLE_ONLY,
 }
 
+/**
+ * long: 可信上下文只保留可验证的执行身份和结果状态，不把幂等键或原始凭据带入消息、提示词或跨进程投影。
+ */
+data class TrustedToolExecutionReceipt(
+    val toolCallId: String,
+    val operationId: String,
+    val status: ToolExecutionReceiptStatus,
+) {
+    init {
+        require(toolCallId.isNotBlank()) { "可信执行回执的工具调用 ID 不能为空" }
+        require(operationId.isNotBlank()) { "可信执行回执的操作 ID 不能为空" }
+    }
+}
+
+/**
+ * long: typed 验证保留原因码和可用的 ToolCall 绑定，供恢复、审计和跨入口投影复核；缺失绑定不自动补造。
+ */
+data class TrustedToolVerificationEvidence(
+    val status: ToolVerificationStatus,
+    val toolCallId: String?,
+    val reasonCode: String?,
+) {
+    init {
+        require(toolCallId == null || toolCallId.isNotBlank()) { "可信验证证据的工具调用 ID 不能为空白" }
+        require(reasonCode == null || reasonCode.isNotBlank()) { "可信验证证据的原因码不能为空白" }
+    }
+}
+
 data class VerifiedToolExecution(
     val toolName: String,
     val arguments: Map<String, String>,
@@ -20,6 +48,8 @@ data class VerifiedToolExecution(
     val rawResult: String,
     val memoryIdsUsed: List<String> = emptyList(),
     val knowledgeReferences: List<KnowledgeReference> = emptyList(),
+    val executionReceipt: TrustedToolExecutionReceipt? = null,
+    val verificationEvidence: TrustedToolVerificationEvidence? = null,
 )
 
 data class VerifiedAgentContext(
@@ -32,6 +62,8 @@ data class VerifiedAgentContext(
     val memoryIdsUsed: List<String> = emptyList(),
     val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val toolExecutions: List<VerifiedToolExecution> = emptyList(),
+    val executionReceipt: TrustedToolExecutionReceipt? = null,
+    val verificationEvidence: TrustedToolVerificationEvidence? = null,
 )
 
 /**
@@ -87,6 +119,8 @@ internal fun VerifiedAgentContext.retainCurrentKnowledgeReferences(
         memoryIdsUsed = retainedExecutions.flatMap { it.memoryIdsUsed }.distinct(),
         knowledgeReferences = retainedExecutions.flatMap { it.knowledgeReferences }.distinct(),
         toolExecutions = if (toolExecutions.isNotEmpty()) retainedExecutions else emptyList(),
+        executionReceipt = finalExecution.executionReceipt,
+        verificationEvidence = finalExecution.verificationEvidence,
     )
 }
 
@@ -104,6 +138,8 @@ private fun VerifiedAgentContext.toolExecutionsOrLegacyProjection(): List<Verifi
                 rawResult = rawResult,
                 memoryIdsUsed = memoryIdsUsed,
                 knowledgeReferences = knowledgeReferences,
+                executionReceipt = executionReceipt,
+                verificationEvidence = verificationEvidence,
             ),
         )
     }
@@ -120,6 +156,8 @@ object VerifiedAgentContextCodec {
             .put("memoryIdsUsed", context.memoryIdsUsed.toStringJsonArray())
             .put("knowledgeReferences", KnowledgeReferenceCodec.encode(context.knowledgeReferences))
             .put("toolExecutions", context.toolExecutions.toJsonArray())
+            .put("executionReceipt", context.executionReceipt?.toJson())
+            .put("verificationEvidence", context.verificationEvidence?.toJson())
             .toString()
     }
 
@@ -147,6 +185,8 @@ object VerifiedAgentContextCodec {
                         }
                     }
                 }.orEmpty(),
+                executionReceipt = json.optJSONObject("executionReceipt")?.toTrustedToolExecutionReceipt(),
+                verificationEvidence = json.optJSONObject("verificationEvidence")?.toTrustedToolVerificationEvidence(),
             )
         }.getOrNull()
     }
@@ -162,7 +202,9 @@ object VerifiedAgentContextCodec {
                         .put("verificationStatus", execution.verificationStatus.name)
                         .put("rawResult", execution.rawResult)
                         .put("memoryIdsUsed", execution.memoryIdsUsed.toStringJsonArray())
-                        .put("knowledgeReferences", KnowledgeReferenceCodec.encode(execution.knowledgeReferences)),
+                        .put("knowledgeReferences", KnowledgeReferenceCodec.encode(execution.knowledgeReferences))
+                        .put("executionReceipt", execution.executionReceipt?.toJson())
+                        .put("verificationEvidence", execution.verificationEvidence?.toJson()),
                 )
             }
         }
@@ -181,7 +223,37 @@ object VerifiedAgentContextCodec {
             rawResult = getString("rawResult"),
             memoryIdsUsed = readStringList("memoryIdsUsed"),
             knowledgeReferences = KnowledgeReferenceCodec.decode(optJSONArray("knowledgeReferences")),
+            executionReceipt = optJSONObject("executionReceipt")?.toTrustedToolExecutionReceipt(),
+            verificationEvidence = optJSONObject("verificationEvidence")?.toTrustedToolVerificationEvidence(),
         )
+    }
+
+    private fun TrustedToolExecutionReceipt.toJson(): JSONObject = JSONObject()
+        .put("toolCallId", toolCallId)
+        .put("operationId", operationId)
+        .put("status", status.name)
+
+    private fun TrustedToolVerificationEvidence.toJson(): JSONObject = JSONObject()
+        .put("status", status.name)
+        .put("toolCallId", toolCallId)
+        .put("reasonCode", reasonCode)
+
+    private fun JSONObject.toTrustedToolExecutionReceipt(): TrustedToolExecutionReceipt? {
+        val toolCallId = optString("toolCallId").takeIf { it.isNotBlank() } ?: return null
+        val operationId = optString("operationId").takeIf { it.isNotBlank() } ?: return null
+        val status = optString("status").takeIf { it.isNotBlank() }
+            ?.let { raw -> runCatching { ToolExecutionReceiptStatus.valueOf(raw) }.getOrNull() }
+            ?: return null
+        return TrustedToolExecutionReceipt(toolCallId = toolCallId, operationId = operationId, status = status)
+    }
+
+    private fun JSONObject.toTrustedToolVerificationEvidence(): TrustedToolVerificationEvidence? {
+        val status = optString("status").takeIf { it.isNotBlank() }
+            ?.let { raw -> runCatching { ToolVerificationStatus.valueOf(raw) }.getOrNull() }
+            ?: return null
+        val toolCallId = optString("toolCallId").takeIf { it.isNotBlank() }
+        val reasonCode = optString("reasonCode").takeIf { it.isNotBlank() }
+        return TrustedToolVerificationEvidence(status = status, toolCallId = toolCallId, reasonCode = reasonCode)
     }
 
     private fun List<String>.toStringJsonArray(): JSONArray {
