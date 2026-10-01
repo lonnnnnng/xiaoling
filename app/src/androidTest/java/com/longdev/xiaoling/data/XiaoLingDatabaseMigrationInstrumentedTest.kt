@@ -343,6 +343,43 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate37To38AddsRunLineageColumnsAndPreservesLegacyRows() {
+        migrationHelper.createDatabase(RUN_SESSION_MIGRATION_DATABASE_NAME, 37).apply {
+            execSQL(
+                """
+                INSERT INTO agent_runs(
+                    id, retryOfRunId, conversationId, userMessageId, goal, status,
+                    result, errorMessage, createdAt, updatedAt, completedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>("run-legacy", null, "conversation-1", "message-1", "读取当前时间", "THINKING", null, null, 1L, 2L, null),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            RUN_SESSION_MIGRATION_DATABASE_NAME,
+            38,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("PRAGMA table_info(agent_runs)").use { cursor ->
+            val columns = buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+            assertTrue("rootRunId" in columns)
+            assertTrue("parentRunId" in columns)
+        }
+        migrated.query("SELECT rootRunId, parentRunId FROM agent_runs WHERE id = 'run-legacy'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("rootRunId")))
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("parentRunId")))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate12To17CreatesWorkflowAndScheduledTaskLedgerTables() {
         migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
 
@@ -1456,5 +1493,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val WORKFLOW_TARGET_APP_MIGRATION_DATABASE_NAME = "xiaoling-workflow-target-app-migration-test"
         private const val GOAL_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-goal-verification-migration-test"
         private const val NOTE_EDIT_MIGRATION_DATABASE_NAME = "xiaoling-note-edit-migration-test"
+        private const val RUN_SESSION_MIGRATION_DATABASE_NAME = "xiaoling-run-session-migration-test"
     }
 }

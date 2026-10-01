@@ -1,5 +1,18 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-01：第四组 Run/Task Runtime v2 P0-b（Run lineage 持久化已完成）
+
+- `AgentRunRecord`、Room `agent_runs` 和 DAO 已增加可空 `rootRunId / parentRunId` 及查询索引；普通 Run 以自身为 root，retry Run 继承来源 root 并把来源 Run 记录为 parent。
+- Room 已从 v37 升到 v38。37→38 Migration 只增加 lineage 列和索引，历史 Run 保持 `null`，不根据旧 retry 文本臆造父子关系；Redmi 迁移回归 `33/33` 通过。
+- Android ↔ shared 状态适配已固定：`BLOCKED` 是 Android 终态，投影为 shared `FAILED`；适配器单测覆盖旧 Run、retry lineage 和 BLOCKED 终态。
+- 本轮 `:shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 全部通过；Redmi `ExtendedAgentCapabilitiesInstrumentedTest` `5/5` 通过。
+
+### P0-b 当前边界与下一步
+
+1. 已完成 Run lineage 持久化；尚未完成 Activity 重建后的 Session attach/replay、进程恢复的完整 snapshot/restore，以及取消请求的持久化和恢复。
+2. `processSessionId` 仍只作为短生命周期内存上下文，不写入 Room；跨进程执行所有权、远程 Channel、插件运行时和完整浏览器自动化继续沿各自 fail-closed 边界运行。
+3. 下一窄切片先补 Android Activity 重建后的 attach/replay：从 Room 事件序列恢复 shared Session，验证终态后拒绝迟到事件，再决定是否进入取消请求持久化。
+
 ## 2026-09-30：第二组多 Agent 第一片（只读前台子 Run）
 
 - 新增 `MultiAgentCoordinator`，只允许前台 Direct 父 Run、深度为 0 的一次派生；单次最多 2 个子目标，并发信号量上限为 2，结果按输入顺序返回。

@@ -2,6 +2,8 @@ package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeReference
+import com.longdev.xiaoling.shared.agent.SharedAgentRunIdentity
+import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 import java.util.UUID
 
 enum class AgentRunStatus {
@@ -105,7 +107,32 @@ data class AgentRunRecord(
     val updatedAt: Long,
     val completedAt: Long?,
     val retryOfRunId: String? = null,
+    val rootRunId: String? = null,
+    val parentRunId: String? = null,
 )
+
+/**
+ * long: Android 旧 Run 可能没有 lineage 字段，读取时把自身 ID 作为 root；这样恢复旧数据不会伪造跨 Run 关系，也能与 shared Session Contract 对齐。
+ */
+fun AgentRunRecord.toSharedRunIdentity(): SharedAgentRunIdentity = SharedAgentRunIdentity(
+    runId = id,
+    rootRunId = rootRunId ?: id,
+    parentRunId = parentRunId,
+)
+
+fun AgentRunStatus.toSharedRunState(): SharedAgentRunState = when (this) {
+    AgentRunStatus.QUEUED -> SharedAgentRunState.CREATED
+    AgentRunStatus.THINKING,
+    AgentRunStatus.EXECUTING,
+    AgentRunStatus.VERIFYING -> SharedAgentRunState.RUNNING
+    AgentRunStatus.WAITING_APPROVAL -> SharedAgentRunState.WAITING_APPROVAL
+    // long: Android 的 BLOCKED 表示后台审批缺失等不可自动恢复的终态，不能投影为 shared 的可继续等待状态。
+    AgentRunStatus.BLOCKED -> SharedAgentRunState.FAILED
+    AgentRunStatus.COMPLETED -> SharedAgentRunState.COMPLETED
+    AgentRunStatus.CANCELLED -> SharedAgentRunState.CANCELLED
+    AgentRunStatus.FAILED,
+    AgentRunStatus.BUDGET_EXHAUSTED -> SharedAgentRunState.FAILED
+}
 
 data class AgentStepRecord(
     val id: String,

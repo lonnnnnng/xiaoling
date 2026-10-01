@@ -1,11 +1,13 @@
 # 当前实现说明
 
-## 2026-10-01 第四组：Run/Task Runtime v2 启动
+## 2026-10-01 第四组：Run/Task Runtime v2 P0-b（Run lineage 持久化）
 
 - 对照 RikkaHub、Operit、OmniBot、Eta、Aether 和 ZorvAI 后，先冻结跨入口 Run Session 契约，再扩展远程 Channel、浏览器动作和插件执行；避免各入口各自定义取消、恢复和完成语义。
 - `:shared` 新增 `SharedAgentRunSession`：固定 `runId / rootRunId / parentRunId`、`CREATED / WAITING_APPROVAL / RUNNING / WAITING_INPUT / CANCEL_REQUESTED / COMPLETED / FAILED / CANCELLED` 状态、递增事件序号、取消请求和 snapshot/restore 校验；终态后拒绝迟到事件。
-- 本切片只改变 shared contract version `2`，不改变 Android Room AgentRun 生产路径；`shared:allTests` 已通过 Android JVM 与 iOS Simulator，App 单测、Debug/AndroidTest 构建、Lint 和 Redmi `ExtendedAgentCapabilitiesInstrumentedTest` `5/5` 通过。
-- 下一切片为 P0-b：把 Android `AgentRunLedger` / Room `agent_runs` 映射到 Session Contract，新增 37→38 Migration 前先完成 Activity 重建、进程恢复、attach/replay 和取消边界设计；不持久化短生命周期 `processSessionId`，不改变旧 Run 的终态和权限门禁。
+- Android `AgentRunLedger` / Room `agent_runs` 已映射到 Session Contract：`AgentRunRecord`、`AgentRunEntity` 和 DAO 持久化可空 `rootRunId / parentRunId`，普通 Run 自身作为 root，retry Run 继承来源 root 并把来源 Run 记录为 parent；旧数据库迁移到 v38 时保留历史 lineage 为 `null`，不会臆造跨 Run 关系。
+- Android ↔ shared 适配器已固定终态投影：`BLOCKED` 属于不可恢复终态，映射为 shared `FAILED`，不会错误映射为可继续等待的 `WAITING_INPUT`；对应适配器回归已补齐。
+- `shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均通过；Redmi `wsvwypiz7xwslvl7` 的 `XiaoLingDatabaseMigrationInstrumentedTest` 为 `33/33`，`ExtendedAgentCapabilitiesInstrumentedTest` 为 `5/5`。
+- 本切片完成的是 Run lineage 持久化和投影边界；Activity 重建后的 Session attach/replay、进程恢复时的完整 Session snapshot、取消请求持久化/恢复和跨进程执行所有权仍未完成。`processSessionId` 仍不持久化，旧 Run 的终态和权限门禁保持不变。
 
 ## 2026-09-30 第二组：只读前台多 Agent 子 Run
 

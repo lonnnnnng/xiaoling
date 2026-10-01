@@ -174,6 +174,12 @@ interface AgentRunDao {
     @Query("SELECT * FROM agent_runs WHERE status IN (:statuses) ORDER BY createdAt ASC")
     suspend fun getRunsByStatuses(statuses: List<String>): List<AgentRunEntity>
 
+    @Query("SELECT * FROM agent_runs WHERE rootRunId = :rootRunId ORDER BY createdAt ASC")
+    suspend fun getRunsByRootRunId(rootRunId: String): List<AgentRunEntity>
+
+    @Query("SELECT * FROM agent_runs WHERE parentRunId = :parentRunId ORDER BY createdAt ASC")
+    suspend fun getRunsByParentRunId(parentRunId: String): List<AgentRunEntity>
+
     @Query("SELECT * FROM agent_steps WHERE runId = :runId ORDER BY sequence ASC")
     suspend fun getSteps(runId: String): List<AgentStepEntity>
 

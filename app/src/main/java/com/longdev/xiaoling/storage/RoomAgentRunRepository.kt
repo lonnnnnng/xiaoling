@@ -82,8 +82,14 @@ class RoomAgentRunRepository(
         retryOfRunId: String?,
     ): AgentRunRecord {
         val now = System.currentTimeMillis()
+        val runId = "run-${UUID.randomUUID()}"
+        val lineage = retryOfRunId?.let { sourceRunId ->
+            val source = database.agentRunDao().getRun(sourceRunId)
+            val rootRunId = source?.rootRunId ?: source?.id ?: sourceRunId
+            rootRunId to sourceRunId
+        }
         val run = AgentRunRecord(
-            id = "run-${UUID.randomUUID()}",
+            id = runId,
             retryOfRunId = retryOfRunId,
             conversationId = conversationId,
             userMessageId = userMessageId,
@@ -94,6 +100,8 @@ class RoomAgentRunRepository(
             createdAt = now,
             updatedAt = now,
             completedAt = null,
+            rootRunId = lineage?.first ?: runId,
+            parentRunId = lineage?.second,
         )
         database.agentRunDao().upsertRun(run.toEntity())
         appendEvent(run.id, "run.created", "Agent Run 已创建")
@@ -1216,6 +1224,8 @@ class RoomAgentRunRepository(
         createdAt = createdAt,
         updatedAt = updatedAt,
         completedAt = completedAt,
+        rootRunId = rootRunId,
+        parentRunId = parentRunId,
     )
 
     private fun AgentStepRecord.toEntity() = AgentStepEntity(
@@ -1258,6 +1268,8 @@ class RoomAgentRunRepository(
         createdAt = createdAt,
         updatedAt = updatedAt,
         completedAt = completedAt,
+        rootRunId = rootRunId,
+        parentRunId = parentRunId,
     )
 
     private fun AgentStepEntity.toRecord() = AgentStepRecord(

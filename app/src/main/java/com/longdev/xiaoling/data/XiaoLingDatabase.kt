@@ -42,7 +42,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 37,
+    version = 38,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -59,7 +59,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 37
+        const val CURRENT_VERSION = 38
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -919,6 +919,20 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 旧 Run 没有跨入口 lineage；历史记录保留 null，不能根据时间或 retry 文案猜造父子关系。
+                db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `rootRunId` TEXT")
+                db.execSQL("ALTER TABLE `agent_runs` ADD COLUMN `parentRunId` TEXT")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_runs_rootRunId_createdAt` ON `agent_runs` (`rootRunId`, `createdAt`)",
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_runs_parentRunId_createdAt` ON `agent_runs` (`parentRunId`, `createdAt`)",
+                )
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -956,6 +970,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_34_35,
             MIGRATION_35_36,
             MIGRATION_36_37,
+            MIGRATION_37_38,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

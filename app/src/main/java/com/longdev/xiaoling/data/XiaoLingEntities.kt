@@ -94,7 +94,11 @@ data class MessagePartEntity(
 
 @Entity(
     tableName = "agent_runs",
-    indices = [Index(value = ["conversationId", "createdAt"])],
+    indices = [
+        Index(value = ["conversationId", "createdAt"]),
+        Index(value = ["rootRunId", "createdAt"]),
+        Index(value = ["parentRunId", "createdAt"]),
+    ],
 )
 data class AgentRunEntity(
     @PrimaryKey val id: String,
@@ -108,6 +112,8 @@ data class AgentRunEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val completedAt: Long?,
+    val rootRunId: String? = null,
+    val parentRunId: String? = null,
 )
 
 @Entity(
