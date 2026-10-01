@@ -25,6 +25,12 @@ data class BrowserPage(
     val text: String,
     val links: List<String>,
     val truncated: Boolean,
+    val linkRefs: List<BrowserLinkReference> = emptyList(),
+)
+
+data class BrowserLinkReference(
+    val ref: String,
+    val href: String,
 )
 
 data class BrowserSession(
@@ -69,6 +75,7 @@ interface BrowserPageReader {
     suspend fun openSession(url: String, maxChars: Int = BrowserUrlPolicy.DEFAULT_MAX_CHARS): BrowserSession
     suspend fun readSession(sessionId: String): BrowserSession
     suspend fun navigateSession(sessionId: String, url: String, maxChars: Int = BrowserUrlPolicy.DEFAULT_MAX_CHARS): BrowserSession
+    suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession
     suspend fun closeSession(sessionId: String): Boolean
 }
 
@@ -78,6 +85,7 @@ object DisabledBrowserPageReader : BrowserPageReader {
     override suspend fun openSession(url: String, maxChars: Int): BrowserSession = error("浏览器尚未初始化")
     override suspend fun readSession(sessionId: String): BrowserSession = error("浏览器尚未初始化")
     override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession = error("浏览器尚未初始化")
+    override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession = error("浏览器尚未初始化")
     override suspend fun closeSession(sessionId: String): Boolean = error("浏览器尚未初始化")
 }
 
@@ -145,8 +153,9 @@ class OkHttpBrowserPageReader(
             snapshotId = newSnapshotId(),
             page = read(url, maxChars),
         )
-        sessions[session.id] = ManagedBrowserSession(session)
-        return session
+        val withRefs = session.copy(page = session.page.withLinkRefs(session.snapshotId))
+        sessions[withRefs.id] = ManagedBrowserSession(withRefs)
+        return withRefs
     }
 
     override suspend fun readSession(sessionId: String): BrowserSession {
@@ -160,8 +169,24 @@ class OkHttpBrowserPageReader(
         cleanupExpiredSessions()
         require(sessions.containsKey(sessionId)) { "浏览器会话不存在或已关闭" }
         val session = BrowserSession(sessionId, newSnapshotId(), read(url, maxChars))
-        sessions[sessionId] = ManagedBrowserSession(session)
-        return session
+        val withRefs = session.copy(page = session.page.withLinkRefs(session.snapshotId))
+        sessions[sessionId] = ManagedBrowserSession(withRefs)
+        return withRefs
+    }
+
+    override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession {
+        cleanupExpiredSessions()
+        val current = sessions[sessionId] ?: throw IllegalArgumentException("浏览器会话不存在或已关闭")
+        require(current.session.snapshotId == snapshotId) { "浏览器快照已过期，请先重新读取当前页面" }
+        val link = current.session.page.linkRefs.firstOrNull { it.ref == ref }
+            ?: throw IllegalArgumentException("浏览器链接引用不存在或已失效")
+        // long: click 只消费当前快照已公开的 HTTP(S) 链接，再走同一 URL、私网和重定向校验，不能把模型传入的 ref 变成任意导航地址。
+        val targetUrl = BrowserUrlPolicy.validate(link.href)
+        val nextSnapshotId = newSnapshotId()
+        val loaded = read(targetUrl)
+        val next = BrowserSession(sessionId, nextSnapshotId, loaded.withLinkRefs(nextSnapshotId))
+        sessions[sessionId] = ManagedBrowserSession(next)
+        return next
     }
 
     override suspend fun closeSession(sessionId: String): Boolean = sessions.remove(sessionId) != null
@@ -175,6 +200,15 @@ class OkHttpBrowserPageReader(
 
     // long: 页面导航会替换可读事实，必须生成新快照引用，避免上层把旧页面结果当成当前页面继续使用。
     private fun newSnapshotId(): String = UUID.randomUUID().toString().replace("-", "").take(16)
+
+    private fun BrowserPage.withLinkRefs(snapshotId: String): BrowserPage = copy(
+        linkRefs = links.mapIndexed { index, href ->
+            BrowserLinkReference(
+                ref = "link-${snapshotId}-${index.toString(36)}",
+                href = href,
+            )
+        },
+    )
 
     private data class ManagedBrowserSession(
         val session: BrowserSession,

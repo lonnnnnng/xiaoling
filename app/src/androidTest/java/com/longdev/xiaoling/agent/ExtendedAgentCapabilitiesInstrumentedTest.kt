@@ -74,6 +74,23 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
     }
 
     @Test
+    fun browserSessionClicksCurrentPublicLinkAndRotatesSnapshot() = runBlocking {
+        val reader = OkHttpBrowserPageReader()
+        val opened = reader.openSession("https://httpbin.org/links/2/1")
+        val link = opened.page.linkRefs.firstOrNull()
+        requireNotNull(link) { "public fixture must expose at least one link reference" }
+
+        val clicked = reader.clickLink(opened.id, opened.snapshotId, link.ref)
+
+        assertEquals(opened.id, clicked.id)
+        assertNotEquals(opened.snapshotId, clicked.snapshotId)
+        assertTrue(clicked.page.url.startsWith("https://httpbin.org/links/2/0"))
+        assertTrue(clicked.page.linkRefs.all { it.ref.startsWith("link-${clicked.snapshotId}-") })
+        assertTrue(runCatching { reader.clickLink(opened.id, opened.snapshotId, link.ref) }.isFailure)
+        println("DEVICE_BROWSER_CLICK public_ref=true stale_snapshot_rejected=true navigation_rotates_snapshot=true")
+    }
+
+    @Test
     fun remoteChannelUsesAndroidKeystoreWithoutExportingHmacKey() {
         val keyStore = AndroidKeystoreRemoteChannelKeyStore()
         val keyId = "device-current"

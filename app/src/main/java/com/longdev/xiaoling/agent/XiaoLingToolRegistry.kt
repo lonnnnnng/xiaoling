@@ -1189,6 +1189,18 @@ class XiaoLingToolRegistry(
             timeoutMs = 60_000,
         ),
         ToolDefinition(
+            name = BROWSER_CLICK_TOOL_NAME,
+            description = "在当前浏览器快照中点击已观察到的公开链接；只导航并重新读取，不提交表单或执行脚本。",
+            risk = ToolRisk.REQUIRES_APPROVAL,
+            inputSchema = listOf(
+                ToolInputField("session_id", "browser.open 返回的会话 ID。", required = true, maxLength = 32),
+                ToolInputField("snapshot_id", "当前 browser.read/open 返回的快照 ID。", required = true, maxLength = 32),
+                ToolInputField("ref", "当前快照链接列表中的引用。", required = true, maxLength = 64),
+            ),
+            permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
+            timeoutMs = 60_000,
+        ),
+        ToolDefinition(
             name = BROWSER_CLOSE_TOOL_NAME,
             description = "关闭只读浏览器会话并清除其页面快照。",
             risk = ToolRisk.SAFE,
@@ -1834,6 +1846,7 @@ class XiaoLingToolRegistry(
             BROWSER_OPEN_TOOL_NAME -> openBrowserSession(call)
             BROWSER_READ_TOOL_NAME -> readBrowserSession(call)
             BROWSER_NAVIGATE_TOOL_NAME -> navigateBrowserSession(call)
+            BROWSER_CLICK_TOOL_NAME -> clickBrowserLink(call)
             BROWSER_CLOSE_TOOL_NAME -> closeBrowserSession(call)
             WORKSPACE_LIST_TOOL_NAME -> listWorkspace(call)
             WORKSPACE_READ_TOOL_NAME -> readWorkspace(call)
@@ -1979,6 +1992,26 @@ class XiaoLingToolRegistry(
             )
     }
 
+    private suspend fun clickBrowserLink(call: ToolCall): ToolExecutionResult {
+        if (!extendedCapabilityAllowed(runContext)) {
+            return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
+        }
+        val sessionId = call.arguments["session_id"].orEmpty()
+        val snapshotId = call.arguments["snapshot_id"].orEmpty()
+        val ref = call.arguments["ref"].orEmpty()
+        return runCatching { browserPageReader.clickLink(sessionId, snapshotId, ref) }
+            .fold(
+                onSuccess = { session ->
+                    ToolExecutionResult(
+                        success = true,
+                        content = "已点击链接引用：$ref\n会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+                        readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
+                    )
+                },
+                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器链接点击失败") },
+            )
+    }
+
     private suspend fun closeBrowserSession(call: ToolCall): ToolExecutionResult {
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
@@ -1996,7 +2029,11 @@ class XiaoLingToolRegistry(
         page.title?.let { append("标题：$it\n") }
         append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
         if (page.truncated) append("）")
-        if (page.links.isNotEmpty()) append("\n链接：\n${page.links.joinToString("\n") { "- $it" }}")
+        if (page.linkRefs.isNotEmpty()) {
+            append("\n链接引用：\n${page.linkRefs.joinToString("\n") { "- ${it.ref}: ${it.href}" }}")
+        } else if (page.links.isNotEmpty()) {
+            append("\n链接：\n${page.links.joinToString("\n") { "- $it" }}")
+        }
     }
 
     private suspend fun listWorkspace(call: ToolCall): ToolExecutionResult {
@@ -4799,6 +4836,7 @@ private const val BROWSER_FETCH_TOOL_NAME = "browser.fetch"
 private const val BROWSER_OPEN_TOOL_NAME = "browser.open"
 private const val BROWSER_READ_TOOL_NAME = "browser.read"
 private const val BROWSER_NAVIGATE_TOOL_NAME = "browser.navigate"
+private const val BROWSER_CLICK_TOOL_NAME = "browser.click"
 private const val BROWSER_CLOSE_TOOL_NAME = "browser.close"
 private const val WORKSPACE_LIST_TOOL_NAME = "workspace.list"
 private const val WORKSPACE_READ_TOOL_NAME = "workspace.read_file"
@@ -4820,6 +4858,7 @@ private val EXTENDED_AGENT_TOOL_NAMES = setOf(
     BROWSER_OPEN_TOOL_NAME,
     BROWSER_READ_TOOL_NAME,
     BROWSER_NAVIGATE_TOOL_NAME,
+    BROWSER_CLICK_TOOL_NAME,
     BROWSER_CLOSE_TOOL_NAME,
     WORKSPACE_LIST_TOOL_NAME,
     WORKSPACE_READ_TOOL_NAME,

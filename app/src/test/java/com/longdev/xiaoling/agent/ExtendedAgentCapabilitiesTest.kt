@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -84,6 +85,45 @@ class ExtendedAgentCapabilitiesTest {
             }
             assertTrue(readAfterCloseFailed)
             assertFalse(reader.closeSession(opened.id))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun browserClickConsumesCurrentSnapshotRefAndRejectsStaleOrUnsafeRefs() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("<title>One</title><a href=\"https://example.com/next\">Next</a>"))
+        server.enqueue(MockResponse().setBody("<title>Two</title><p>second page</p>"))
+        server.enqueue(MockResponse().setBody("<title>Private</title><a href=\"http://127.0.0.1/secret\">Private</a>"))
+        server.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
+                }
+                .build()
+            val reader = OkHttpBrowserPageReader(client)
+
+            val opened = reader.openSession("https://example.com/one")
+            val ref = opened.page.linkRefs.single()
+            assertTrue(ref.ref.startsWith("link-${opened.snapshotId}-"))
+            val clicked = reader.clickLink(opened.id, opened.snapshotId, ref.ref)
+            assertNotEquals(opened.snapshotId, clicked.snapshotId)
+            assertEquals("Two", clicked.page.title)
+
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { reader.clickLink(opened.id, opened.snapshotId, ref.ref) }
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { reader.clickLink(clicked.id, clicked.snapshotId, "link-${clicked.snapshotId}-forged") }
+            }
+
+            val privatePage = reader.navigateSession(clicked.id, "https://example.com/private")
+            val privateRef = privatePage.page.linkRefs.single()
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { reader.clickLink(privatePage.id, privatePage.snapshotId, privateRef.ref) }
+            }
         } finally {
             server.shutdown()
         }
@@ -373,7 +413,11 @@ class ExtendedAgentCapabilitiesTest {
         assertTrue("browser.open" in declaredTools)
         assertTrue("browser.read" in declaredTools)
         assertTrue("browser.navigate" in declaredTools)
+        assertTrue("browser.click" in declaredTools)
         assertTrue("browser.close" in declaredTools)
+        val browserSkill = BuiltInAgentSkillRegistry.all().single { it.id == "browser-research" }
+        assertEquals(ToolRisk.REQUIRES_APPROVAL, browserSkill.declaredRisk)
+        assertTrue("browser.click" in browserSkill.toolNames)
         assertTrue("workspace.list" in declaredTools)
         assertTrue("workspace.read_file" in declaredTools)
         assertTrue("workspace.write_file" in declaredTools)

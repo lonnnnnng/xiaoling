@@ -2644,3 +2644,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 - `McpServerConfig`、Android MCP Store、session key 和 Tool Catalog server fingerprint 已带 transport/command/args；这只扩展配置与身份边界，不改变当前远程执行权限。
 - 当前真正执行的仍是 Streamable HTTP；SSE 只识别和持久化，stdio 只识别和持久化 command/args，不启动 `ProcessBuilder`，不把任何新 transport 的工具自动加入 allowlist。
 - JVM 定向 MCP 测试、Debug/AndroidTest 构建、Debug APK 构建通过；Redmi `wsvwypiz7xwslvl7` 真机 `mcpTransportPersistenceKeepsStdioDeclarationAndLegacyDefaults` 为 `OK (1 test)`。下一阶段优先做浏览器动作的可观察引用、逐次审批和后置验证。
+
+## 2026-10-02 P2：受控浏览器动作第一片
+
+- 当前页面公开链接生成绑定 `snapshotId` 的 `link-{snapshotId}-{index}` 引用；`browser.click` 只允许用户明确意图下消费当前 `sessionId + snapshotId + ref`，并声明 `REQUIRES_APPROVAL`、禁止后台执行。
+- 点击目标仍经同一 `BrowserUrlPolicy` 校验，成功后只做无脚本、无 Cookie 的 GET 并轮换新 snapshot；旧快照、伪造 ref、私网链接和任意模型拼接 URL 均拒绝。表单、脚本、Cookie、登录态、上传下载、截图、坐标注入、多 Tab 和后台动作继续关闭。
+- JVM 覆盖链接引用、成功轮换、旧快照、伪造 ref 和私网目标；Redmi `wsvwypiz7xwslvl7` 覆盖真实公开页面 `open -> click -> 新 snapshot`。下一步再评估跨入口取消与浏览器结果证据的持久化边界，不扩大浏览器权限面。

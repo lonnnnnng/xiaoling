@@ -2714,6 +2714,13 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - evidence 暂不扩展 `MessagePart`、Room entity、RunEvent metadata 或数据库 schema，避免在 UI 尚未消费前重复保存页面指纹；后续若需要任务中心审计，再单独设计持久化迁移。
 - 已验证：`ExtendedAgentCapabilitiesTest`、`MinimalAgentRuntimeTest` 与 `VerifiedAgentContextAnswerabilityCandidateTest` 定向 JVM 测试通过；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionKeepsAndRotatesSnapshotReferences` 增加 typed evidence 的 kind、调用绑定、SHA-256 和脱敏来源断言；最终门禁 `./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`。
 
+## 2026-10-02 P2：Browser 当前快照链接引用动作
+
+- `BrowserPage` 为当前页面公开链接生成绑定当前 `snapshotId` 的 `link-{snapshotId}-{index}` 引用；`browser.open/read/navigate` 结果会显示这些引用，`browser.click` 只接受同一 `sessionId + snapshotId + ref` 三元组。
+- `clickLink` 重新通过现有 `BrowserUrlPolicy` 校验链接目标，再执行一次无 Cookie、无脚本的 GET 并轮换到新 snapshot；旧 snapshot、伪造 ref、私网目标和任意模型拼接 URL 均 fail-closed。动作声明 `REQUIRES_APPROVAL`，且不支持后台执行。
+- 本片只开放导航型点击，不开放 DOM selector、JavaScript、表单提交、Cookie/登录态、上传下载、截图、坐标注入、多 Tab 或后台浏览器动作；点击结果继续只携带 `ToolReadableEvidence`，不伪造成 `PASSED / COMMITTED`。
+- `ExtendedAgentCapabilitiesTest#browserClickConsumesCurrentSnapshotRefAndRejectsStaleOrUnsafeRefs` 覆盖引用生成、成功轮换、旧快照、伪造 ref 和私网目标拒绝；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionClicksCurrentPublicLinkAndRotatesSnapshot` 覆盖真实公开页面 `open -> click -> 新 snapshot`。
+
 ## 2026-10-02 P2：跨入口取消请求与 attach 统一投影
 
 - Android Room 的 `cancelRequestedAt / cancelRequestedReason` 先于协程终态落库时，`AgentRunRecord.toSharedRunState()` 现在把所有非终态 Run 投影为 shared `CANCEL_REQUESTED`；只有真正的 `CANCELLED`、`FAILED` 或其他终态继续沿原状态映射，避免 shared snapshot 同时出现活动状态和 `cancelRequested=true` 的矛盾组合。
