@@ -1,10 +1,14 @@
 package com.longdev.xiaoling.ui
 
 import com.longdev.xiaoling.agent.AgentRunSnapshot
+import com.longdev.xiaoling.agent.toSharedRunSnapshot
+import com.longdev.xiaoling.shared.agent.SharedAgentRunSession
+import com.longdev.xiaoling.shared.agent.SharedAgentRunSnapshot
 
 internal data class AgentConversationRuntimeState(
     val activeRun: AgentRunSnapshot? = null,
     val pendingApproval: AgentApprovalUiState? = null,
+    val sharedSessionSnapshot: SharedAgentRunSnapshot? = null,
 )
 
 internal class AgentConversationRuntimeStateStore {
@@ -13,7 +17,22 @@ internal class AgentConversationRuntimeStateStore {
     fun rememberRun(snapshot: AgentRunSnapshot) {
         val conversationId = snapshot.run.conversationId
         // long: Run 卡片属于创建它的会话；按会话替换可避免后台 Run 更新时覆盖用户正在查看的另一个会话。
-        states[conversationId] = stateFor(conversationId).copy(activeRun = snapshot)
+        states[conversationId] = stateFor(conversationId).copy(
+            activeRun = snapshot,
+            sharedSessionSnapshot = snapshot.toSharedRunSnapshotOrNull(),
+        )
+    }
+
+    fun attachRecoveredRun(snapshot: AgentRunSnapshot): Boolean {
+        val sharedSnapshot = snapshot.toSharedRunSnapshotOrNull() ?: return false
+        // long: Activity 重建只接受能按 Room 账本恢复为连续 shared Session 的 Run；事件混链或序号投影失败时不展示审批入口。
+        SharedAgentRunSession.restore(sharedSnapshot)
+        val conversationId = snapshot.run.conversationId
+        states[conversationId] = stateFor(conversationId).copy(
+            activeRun = snapshot,
+            sharedSessionSnapshot = sharedSnapshot,
+        )
+        return true
     }
 
     fun rememberApproval(approval: AgentApprovalUiState) {
@@ -46,4 +65,7 @@ internal class AgentConversationRuntimeStateStore {
     fun stateFor(conversationId: String): AgentConversationRuntimeState {
         return states[conversationId] ?: AgentConversationRuntimeState()
     }
+
+    private fun AgentRunSnapshot.toSharedRunSnapshotOrNull(): SharedAgentRunSnapshot? =
+        runCatching { toSharedRunSnapshot() }.getOrNull()
 }

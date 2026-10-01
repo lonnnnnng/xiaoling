@@ -44,8 +44,11 @@ import com.longdev.xiaoling.agent.ToolRegistry
 import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
 import com.longdev.xiaoling.agent.agentProfileSnapshotOrNull
+import com.longdev.xiaoling.agent.toSharedRunSnapshot
 import com.longdev.xiaoling.data.ApprovalRequestEntity
 import com.longdev.xiaoling.data.XiaoLingDatabase
+import com.longdev.xiaoling.shared.agent.SharedAgentRunSession
+import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -108,6 +111,36 @@ class RoomAgentRunRepositoryInstrumentedTest {
             listOf("THINKING", "CANCELLED"),
             snapshot.events.filter { it.type == "run.status" }.map { it.message },
         )
+    }
+
+    @Test
+    fun roomSnapshotAttachesSharedSessionAndRejectsLateEventsAfterTerminalState() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-shared-attach",
+            userMessageId = "message-shared-attach",
+            goal = "验证 Room 到 shared Session 的 attach",
+        )
+        repository.appendEvent(run.id, "approval.requested", "等待用户确认")
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+
+        val waitingSnapshot = repository.snapshot(run.id)
+        val waitingSharedSnapshot = waitingSnapshot.toSharedRunSnapshot()
+        val waitingSession = SharedAgentRunSession.restore(waitingSharedSnapshot)
+        assertEquals(SharedAgentRunState.WAITING_APPROVAL, waitingSession.state)
+        assertEquals(waitingSnapshot.events.size.toLong(), waitingSharedSnapshot.eventSequence)
+        assertEquals(
+            (1L..waitingSharedSnapshot.eventSequence).toList(),
+            waitingSharedSnapshot.events.map { it.sequence },
+        )
+
+        repository.updateRunStatus(run.id, AgentRunStatus.CANCELLED, errorMessage = "真机 attach 后取消")
+        repository.appendEvent(run.id, "late.event", "迟到事件不能追加")
+
+        val terminalSnapshot = repository.snapshot(run.id)
+        val terminalSession = SharedAgentRunSession.restore(terminalSnapshot.toSharedRunSnapshot())
+        assertEquals(AgentRunStatus.CANCELLED, terminalSnapshot.run.status)
+        assertEquals(SharedAgentRunState.CANCELLED, terminalSession.state)
+        assertFalse(terminalSnapshot.events.any { it.type == "late.event" })
     }
 
     @Test

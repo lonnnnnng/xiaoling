@@ -1,6 +1,7 @@
 package com.longdev.xiaoling.agent
 
 import com.longdev.xiaoling.shared.agent.SharedAgentRunState
+import com.longdev.xiaoling.shared.agent.SharedAgentRunSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -52,5 +53,41 @@ class AgentRunSessionAdapterTest {
     @Test
     fun blockedRunMapsToTerminalFailureState() {
         assertEquals(SharedAgentRunState.FAILED, AgentRunStatus.BLOCKED.toSharedRunState())
+    }
+
+    @Test
+    fun roomSnapshotProjectsOrderedEventsIntoRestorableSharedSnapshot() {
+        val roomSnapshot = AgentRunSnapshot(
+            run = AgentRunRecord(
+                id = "run-attach",
+                conversationId = "conversation-attach",
+                userMessageId = "message-attach",
+                goal = "恢复审批后的运行上下文",
+                status = AgentRunStatus.COMPLETED,
+                result = "已完成",
+                errorMessage = null,
+                createdAt = 1L,
+                updatedAt = 4L,
+                completedAt = 4L,
+                rootRunId = "run-root",
+                parentRunId = "run-parent",
+            ),
+            steps = emptyList(),
+            events = listOf(
+                RunEventRecord("event-1", "run-attach", "run.created", "Run 已创建", 1L),
+                RunEventRecord("event-2", "run-attach", "approval.requested", "等待用户确认", 2L),
+                RunEventRecord("event-3", "run-attach", "run.status", "COMPLETED", 4L),
+            ),
+        )
+
+        val sharedSnapshot = roomSnapshot.toSharedRunSnapshot()
+        val restored = SharedAgentRunSession.restore(sharedSnapshot)
+
+        assertEquals("run-root", sharedSnapshot.identity.rootRunId)
+        assertEquals("run-parent", sharedSnapshot.identity.parentRunId)
+        assertEquals(3L, sharedSnapshot.eventSequence)
+        assertEquals(listOf(1L, 2L, 3L), sharedSnapshot.events.map { it.sequence })
+        assertEquals(SharedAgentRunState.COMPLETED, restored.state)
+        assertEquals(sharedSnapshot.events, restored.snapshot().events)
     }
 }

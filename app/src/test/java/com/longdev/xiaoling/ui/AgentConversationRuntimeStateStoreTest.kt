@@ -3,8 +3,12 @@ package com.longdev.xiaoling.ui
 import com.longdev.xiaoling.agent.AgentRunRecord
 import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.AgentRunStatus
+import com.longdev.xiaoling.agent.RunEventRecord
+import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentConversationRuntimeStateStoreTest {
@@ -87,13 +91,54 @@ class AgentConversationRuntimeStateStoreTest {
         assertEquals(otherRun, store.stateFor("conversation-2").activeRun)
     }
 
-    private fun snapshot(runId: String, conversationId: String) = AgentRunSnapshot(
+    @Test
+    fun attachingRecoveredRunRestoresSharedSessionProjection() {
+        val store = AgentConversationRuntimeStateStore()
+        val run = snapshot(
+            runId = "run-recovered",
+            conversationId = "conversation-recovered",
+            status = AgentRunStatus.WAITING_APPROVAL,
+            events = listOf(
+                RunEventRecord("event-1", "run-recovered", "run.created", "Run 已创建", 1L),
+                RunEventRecord("event-2", "run-recovered", "approval.requested", "等待用户确认", 2L),
+            ),
+        )
+
+        assertTrue(store.attachRecoveredRun(run))
+
+        val attached = store.stateFor("conversation-recovered")
+        assertEquals(run, attached.activeRun)
+        assertEquals(SharedAgentRunState.WAITING_APPROVAL, attached.sharedSessionSnapshot?.state)
+        assertEquals(2L, attached.sharedSessionSnapshot?.eventSequence)
+    }
+
+    @Test
+    fun attachingRunWithMixedEventChainFailsClosed() {
+        val store = AgentConversationRuntimeStateStore()
+        val run = snapshot(
+            runId = "run-invalid",
+            conversationId = "conversation-invalid",
+            events = listOf(
+                RunEventRecord("event-1", "other-run", "run.created", "错误事件", 1L),
+            ),
+        )
+
+        assertFalse(store.attachRecoveredRun(run))
+        assertEquals(AgentConversationRuntimeState(), store.stateFor("conversation-invalid"))
+    }
+
+    private fun snapshot(
+        runId: String,
+        conversationId: String,
+        status: AgentRunStatus = AgentRunStatus.EXECUTING,
+        events: List<RunEventRecord> = emptyList(),
+    ) = AgentRunSnapshot(
         run = AgentRunRecord(
             id = runId,
             conversationId = conversationId,
             userMessageId = "message-$runId",
             goal = "goal-$runId",
-            status = AgentRunStatus.EXECUTING,
+            status = status,
             result = null,
             errorMessage = null,
             createdAt = 1L,
@@ -101,7 +146,7 @@ class AgentConversationRuntimeStateStoreTest {
             completedAt = null,
         ),
         steps = emptyList(),
-        events = emptyList(),
+        events = events,
     )
 
     private fun approval(requestId: String, conversationId: String) = AgentApprovalUiState(

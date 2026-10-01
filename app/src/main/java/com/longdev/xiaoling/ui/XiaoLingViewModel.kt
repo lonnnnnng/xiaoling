@@ -5672,7 +5672,10 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                         restoredMissingUserMessage = true
                     }
                 }
-            agentConversationRuntimeStateStore.rememberRun(detail.snapshot)
+            if (!agentConversationRuntimeStateStore.attachRecoveredRun(detail.snapshot)) {
+                // long: 共享 Session 无法从 Room 事件账本恢复时拒绝审批 attach，避免 Activity 重建后继续一个缺失前序事实的 Run。
+                return@forEach
+            }
             detail.approvals
                 .firstOrNull { it.status == ApprovalRequestStatus.PENDING }
                 ?.let { request ->

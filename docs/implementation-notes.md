@@ -6,8 +6,9 @@
 - `:shared` 新增 `SharedAgentRunSession`：固定 `runId / rootRunId / parentRunId`、`CREATED / WAITING_APPROVAL / RUNNING / WAITING_INPUT / CANCEL_REQUESTED / COMPLETED / FAILED / CANCELLED` 状态、递增事件序号、取消请求和 snapshot/restore 校验；终态后拒绝迟到事件。
 - Android `AgentRunLedger` / Room `agent_runs` 已映射到 Session Contract：`AgentRunRecord`、`AgentRunEntity` 和 DAO 持久化可空 `rootRunId / parentRunId`，普通 Run 自身作为 root，retry Run 继承来源 root 并把来源 Run 记录为 parent；旧数据库迁移到 v38 时保留历史 lineage 为 `null`，不会臆造跨 Run 关系。
 - Android ↔ shared 适配器已固定终态投影：`BLOCKED` 属于不可恢复终态，映射为 shared `FAILED`，不会错误映射为可继续等待的 `WAITING_INPUT`；对应适配器回归已补齐。
+- Activity 重建 attach 已接入会话运行态 Store：恢复路径先把 Room 快照按已读取事件顺序投影为连续 shared snapshot，并通过 `SharedAgentRunSession.restore()` 校验身份、序号和终态；事件混链或校验失败时不恢复审批入口。Redmi Room attach/终态迟到事件探针 `1/1` 通过。
 - `shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均通过；Redmi `wsvwypiz7xwslvl7` 的 `XiaoLingDatabaseMigrationInstrumentedTest` 为 `33/33`，`ExtendedAgentCapabilitiesInstrumentedTest` 为 `5/5`。
-- 本切片完成的是 Run lineage 持久化和投影边界；Activity 重建后的 Session attach/replay、进程恢复时的完整 Session snapshot、取消请求持久化/恢复和跨进程执行所有权仍未完成。`processSessionId` 仍不持久化，旧 Run 的终态和权限门禁保持不变。
+- 本切片完成的是 Run lineage 持久化、Room 到 shared Session 的保守 attach 和终态迟到事件边界；真实 Provider 审批等待期间的 Activity 重建 E2E 已加入 Stage264，但本机 Redmi 当前没有选中 Provider，测试在 Provider 前置检查处未执行到业务链路。取消请求持久化/恢复和跨进程执行所有权仍未完成。`processSessionId` 仍不持久化，旧 Run 的终态和权限门禁保持不变。
 
 ## 2026-09-30 第二组：只读前台多 Agent 子 Run
 

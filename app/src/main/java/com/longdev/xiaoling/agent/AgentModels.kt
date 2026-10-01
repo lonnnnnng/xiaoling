@@ -3,6 +3,8 @@ package com.longdev.xiaoling.agent
 import com.longdev.xiaoling.device.DeviceActionPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.shared.agent.SharedAgentRunIdentity
+import com.longdev.xiaoling.shared.agent.SharedAgentRunEvent
+import com.longdev.xiaoling.shared.agent.SharedAgentRunSnapshot
 import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 import java.util.UUID
 
@@ -287,6 +289,28 @@ data class AgentRunSnapshot(
     val steps: List<AgentStepRecord>,
     val events: List<RunEventRecord>,
 )
+
+/**
+ * long: Room 事件没有持久序号；attach 时只按 Repository 已读取的账本顺序生成临时连续序号，不把时间戳或 UUID 冒充稳定游标。
+ */
+fun AgentRunSnapshot.toSharedRunSnapshot(): SharedAgentRunSnapshot {
+    require(events.all { it.runId == run.id }) { "Run Session 事件不能混入其他 Run" }
+    val projectedEvents = events.mapIndexed { index, event ->
+        SharedAgentRunEvent(
+            sequence = index + 1L,
+            type = event.type,
+            message = event.message,
+        )
+    }
+    val sharedState = run.status.toSharedRunState()
+    return SharedAgentRunSnapshot(
+        identity = run.toSharedRunIdentity(),
+        state = sharedState,
+        eventSequence = projectedEvents.size.toLong(),
+        cancelRequested = sharedState == SharedAgentRunState.CANCEL_REQUESTED,
+        events = projectedEvents,
+    )
+}
 
 enum class ApprovalRequestStatus {
     PENDING,

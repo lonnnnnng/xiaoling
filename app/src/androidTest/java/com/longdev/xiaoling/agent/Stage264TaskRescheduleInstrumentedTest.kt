@@ -148,6 +148,23 @@ class Stage264TaskRescheduleInstrumentedTest {
             assertEquals(1, repository.listScheduledTasks().count { it.workflowId == workflowId })
             assertEquals(WorkInfo.State.ENQUEUED, workState(initialWorkId))
 
+            val waitingRunId = requireNotNull(waiting.activeAgentRun).run.id
+            val waitingApprovalId = requireNotNull(waiting.pendingAgentApproval).requestId
+            // long: 审批等待期间重建 Activity 必须从 Room 重新 attach 同一 Run/Request；恢复失败时不得把新审批或新 Run 展示给用户。
+            scenario.recreate()
+            val reattached = awaitState(scenario, "重建后恢复审批") {
+                it.activeAgentRun?.let { run ->
+                    run.run.id == waitingRunId && run.run.status == AgentRunStatus.WAITING_APPROVAL
+                } == true &&
+                    it.pendingAgentApproval?.let { approval ->
+                        approval.requestId == waitingApprovalId &&
+                            approval.runId == waitingRunId &&
+                            approval.restoredFromProcess
+                    } == true
+            }
+            assertEquals(waitingRunId, reattached.activeAgentRun?.run?.id)
+            assertEquals(waitingApprovalId, reattached.pendingAgentApproval?.requestId)
+
             // long: 先定位可见审批控件，再逐项核对同一屏幕上的完整时间；不能直接调用 ViewModel 的批准方法跳过用户界面。
             awaitVisibleNode("批准执行", alternateText = "批准并继续", scroll = true)
             assertVisible("任务：$taskName")
