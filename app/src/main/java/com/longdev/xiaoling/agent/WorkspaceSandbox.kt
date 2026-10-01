@@ -31,6 +31,53 @@ data class WorkspaceCommandResult(
     val stderrTruncated: Boolean = false,
 )
 
+data class WorkspaceCommandSpec(
+    val commandId: String,
+    val args: List<String> = emptyList(),
+) {
+    init {
+        WorkspaceCommandPolicy.validate(commandId, args)
+    }
+
+    fun displayCommand(): String = buildString {
+        append(commandId)
+        args.forEach { arg ->
+            append(' ')
+            append(arg)
+        }
+    }
+}
+
+object WorkspaceCommandPolicy {
+    const val MAX_ARGUMENTS = 8
+    const val MAX_ARGUMENT_LENGTH = 512
+
+    private val argumentCounts = mapOf(
+        "pwd" to 0..0,
+        "date" to 0..0,
+        "true" to 0..0,
+        "false" to 0..0,
+        "echo" to 1..8,
+        "printf" to 1..1,
+        "uname" to 0..1,
+    )
+
+    fun validate(commandId: String, args: List<String>) {
+        require(commandId.matches(Regex("[a-z][a-z0-9._-]{0,31}"))) { "命令 ID 格式无效" }
+        val allowedCount = argumentCounts[commandId]
+            ?: throw IllegalArgumentException("命令未在固定白名单中：$commandId")
+        require(args.size in allowedCount) { "命令 $commandId 的参数数量不符合限制" }
+        require(args.size <= MAX_ARGUMENTS) { "命令参数数量超过限制" }
+        args.forEach { arg ->
+            require(arg.isNotEmpty() && arg.length <= MAX_ARGUMENT_LENGTH) { "命令参数为空或过长" }
+            require(arg.none { it == '\u0000' || it == '\n' || it == '\r' }) { "命令参数包含控制字符" }
+        }
+        if (commandId == "uname") {
+            require(args.isEmpty() || args.single() in setOf("-s", "-a")) { "uname 只允许 -s 或 -a" }
+        }
+    }
+}
+
 data class WorkspaceTerminalSession(
     val id: String,
     val cwd: String,
@@ -47,7 +94,7 @@ interface WorkspaceSandbox {
     suspend fun list(path: String): List<WorkspaceEntry>
     suspend fun read(path: String, maxChars: Int = WorkspacePolicy.DEFAULT_MAX_CHARS): String
     suspend fun write(path: String, content: String): WorkspaceEntry
-    suspend fun execute(command: String, cwd: String, timeoutMs: Long): WorkspaceCommandResult
+    suspend fun execute(commandId: String, args: List<String>, cwd: String, timeoutMs: Long): WorkspaceCommandResult
     suspend fun openTerminal(cwd: String): WorkspaceTerminalSession
     suspend fun writeTerminal(sessionId: String, input: String): WorkspaceTerminalOutput
     suspend fun readTerminal(sessionId: String): WorkspaceTerminalOutput
@@ -82,11 +129,12 @@ class AndroidWorkspaceSandbox(rootDirectory: File) : WorkspaceSandbox {
         WorkspaceEntry(relative(file), directory = false, sizeBytes = bytes.size.toLong())
     }
 
-    override suspend fun execute(command: String, cwd: String, timeoutMs: Long): WorkspaceCommandResult = withContext(Dispatchers.IO) {
-        require(command.isNotBlank() && command.length <= WorkspacePolicy.MAX_COMMAND_LENGTH) { "终端命令为空或过长" }
+    override suspend fun execute(commandId: String, args: List<String>, cwd: String, timeoutMs: Long): WorkspaceCommandResult = withContext(Dispatchers.IO) {
+        val command = WorkspaceCommandSpec(commandId, args)
         require(timeoutMs in 1..WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS) { "终端超时时间超出限制" }
         val workingDirectory = resolveDirectory(cwd)
-        val process = ProcessBuilder("/system/bin/sh", "-c", command)
+        // long: 这里直接传 argv，避免 shell 解析管道、重定向、子 Shell 和命令替换；可执行命令必须先进入固定白名单。
+        val process = ProcessBuilder(listOf(command.commandId) + command.args)
             .directory(workingDirectory)
             .redirectErrorStream(false)
             .start()
@@ -101,12 +149,12 @@ class AndroidWorkspaceSandbox(rootDirectory: File) : WorkspaceSandbox {
                 process.destroyForcibly()
                 stdout.cancel()
                 stderr.cancel()
-                return@withContext WorkspaceCommandResult(command, -1, "", "命令执行超时", timedOut = true)
+                return@withContext WorkspaceCommandResult(command.displayCommand(), -1, "", "命令执行超时", timedOut = true)
             }
             val stdoutResult = stdout.await()
             val stderrResult = stderr.await()
             WorkspaceCommandResult(
-                command = command,
+                command = command.displayCommand(),
                 exitCode = process.exitValue(),
                 stdout = stdoutResult.text,
                 stderr = stderrResult.text,
@@ -270,7 +318,7 @@ object DisabledWorkspaceSandbox : WorkspaceSandbox {
     override suspend fun list(path: String): List<WorkspaceEntry> = unavailable()
     override suspend fun read(path: String, maxChars: Int): String = unavailable()
     override suspend fun write(path: String, content: String): WorkspaceEntry = unavailable()
-    override suspend fun execute(command: String, cwd: String, timeoutMs: Long): WorkspaceCommandResult = unavailable()
+    override suspend fun execute(commandId: String, args: List<String>, cwd: String, timeoutMs: Long): WorkspaceCommandResult = unavailable()
     override suspend fun openTerminal(cwd: String): WorkspaceTerminalSession = unavailable()
     override suspend fun writeTerminal(sessionId: String, input: String): WorkspaceTerminalOutput = unavailable()
     override suspend fun readTerminal(sessionId: String): WorkspaceTerminalOutput = unavailable()
@@ -281,7 +329,6 @@ object WorkspacePolicy {
     const val MAX_FILE_BYTES = 512 * 1024L
     const val DEFAULT_MAX_CHARS = 20_000
     const val MAX_MAX_CHARS = 100_000
-    const val MAX_COMMAND_LENGTH = 4_000
     const val MAX_COMMAND_TIMEOUT_MS = 30_000L
     const val MAX_OUTPUT_CHARS = 20_000
     const val MAX_TERMINAL_SESSIONS = 4

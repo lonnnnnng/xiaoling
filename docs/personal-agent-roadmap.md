@@ -2592,5 +2592,5 @@ idle -> deciding -> waiting_model -> waiting_approval
 
 - 第三组首个 GenUI 切片已完成：assistant 文本中的 `xiaoling-ui` fenced JSON 只允许单层 `card / text / button`，严格限制版本、节点数量、文本长度、控制字符和 action 内容；解析失败回退普通 Markdown。
 - GenUI 按钮只把 action 回填到当前输入框，不自动发送、不调用网络、不执行代码或系统动作；该切片不改 Room Schema，保留既有消息历史兼容性。
-- 代码执行仍沿用当前工作区/终端的受限 `/system/bin/sh` 能力，尚未开放独立 Python/JavaScript 运行时、任意脚本执行或 PTY；下一切片先冻结语言、文件范围、审批和资源上限契约。
-- 多平台仍保持 Android 生产实现不变；下一切片先建立不依赖 Context、Room、Keystore、Accessibility 和 Compose 的 shared Agent contract/runtime 骨架，再分别增加 Android/iOS target 编译门禁，不把 Android 真机结果当作其他平台验收。
+- 代码执行第一片已收紧 `terminal.execute`：只接受固定白名单 `command_id + args`，通过 argv 直传，拒绝 `sh -c`、管道、重定向、命令替换和未知命令；持久 `terminal.open/write` 仍是单独的交互会话，尚未开放独立 Python/JavaScript 运行时、任意脚本执行或 PTY。后续若开放语言运行时，必须先冻结语言、文件范围、审批和资源上限契约。
+- 多平台第一片已建立不依赖 Context、Room、Keystore、Accessibility 和 Compose 的 `:shared` Agent contract/runtime 骨架，已接入 Android app 依赖并完成 Android 与 iOS Simulator target 编译/测试门禁；Android 生产实现仍保持不变，Android 真机结果不作为其他平台验收。

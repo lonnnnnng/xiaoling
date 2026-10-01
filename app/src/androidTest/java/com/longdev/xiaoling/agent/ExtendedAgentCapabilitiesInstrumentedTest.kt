@@ -47,9 +47,10 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
         assertEquals("hello-device", sandbox.read("device/hello.txt"))
         assertTrue(runCatching { sandbox.read("../outside.txt") }.isFailure)
 
-        val exec = sandbox.execute("printf exec-ok", ".", 5_000)
+        val exec = sandbox.execute("printf", listOf("exec-ok"), ".", 5_000)
         assertEquals(0, exec.exitCode)
         assertEquals("exec-ok", exec.stdout)
+        assertTrue(runCatching { sandbox.execute("sh", listOf("-c", "id"), ".", 5_000) }.isFailure)
 
         val session = sandbox.openTerminal(".")
         try {
@@ -64,7 +65,7 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
         } finally {
             assertTrue(sandbox.closeTerminal(session.id))
         }
-        println("DEVICE_WORKSPACE file_io=true shell_exec=true terminal_session=true traversal_rejected=true")
+        println("DEVICE_WORKSPACE file_io=true argv_exec=true shell_syntax_rejected=true terminal_session=true traversal_rejected=true")
     }
 
     @Test

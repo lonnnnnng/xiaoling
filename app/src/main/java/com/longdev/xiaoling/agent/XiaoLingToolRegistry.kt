@@ -45,6 +45,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
 import kotlin.math.min
+import org.json.JSONArray
 
 class XiaoLingToolRegistry(
     private val clock: AgentClock,
@@ -1228,10 +1229,11 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_EXECUTE_TOOL_NAME,
-            description = "在应用私有 Agent 工作区中执行受限终端命令；需要逐次用户确认，默认最多 30 秒。",
+            description = "在应用私有 Agent 工作区中执行固定白名单命令；通过 argv 传参，不执行 shell 语法；需要逐次用户确认，默认最多 30 秒。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(
-                ToolInputField("command", "要执行的 shell 命令。", required = true, maxLength = WorkspacePolicy.MAX_COMMAND_LENGTH),
+                ToolInputField("command_id", "固定白名单中的命令 ID，例如 printf、echo、pwd。", required = true, maxLength = 32),
+                ToolInputField("args", "JSON 字符串数组，例如 [hello]；禁止 shell 语法。", required = false, maxLength = 4_096),
                 ToolInputField("cwd", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512),
                 ToolInputField("timeout_ms", "命令最长执行时间。", required = false, type = ToolInputType.INTEGER, minimum = 1.0, maximum = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS.toDouble()),
             ),
@@ -2028,10 +2030,13 @@ class XiaoLingToolRegistry(
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
-        val command = call.arguments["command"].orEmpty()
+        val commandId = call.arguments["command_id"].orEmpty()
         val cwd = call.arguments["cwd"].orEmpty()
         val timeoutMs = call.arguments["timeout_ms"]?.toLongOrNull() ?: WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS
-        return runCatching { workspaceSandbox.execute(command, cwd, timeoutMs) }
+        return runCatching {
+            val args = parseTerminalArgs(call.arguments["args"])
+            workspaceSandbox.execute(commandId, args, cwd, timeoutMs)
+        }
             .fold(
                 onSuccess = { result ->
                     ToolExecutionResult(
@@ -2046,6 +2051,17 @@ class XiaoLingToolRegistry(
                 },
                 onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端执行失败") },
             )
+    }
+
+    private fun parseTerminalArgs(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        val json = JSONArray(raw)
+        return List(json.length()) { index ->
+            require(json.opt(index) is String) { "终端 args 必须是字符串数组" }
+            json.getString(index)
+        }.also { args ->
+            require(args.size <= WorkspaceCommandPolicy.MAX_ARGUMENTS) { "终端 args 数量超过限制" }
+        }
     }
 
     private suspend fun openTerminal(call: ToolCall): ToolExecutionResult {

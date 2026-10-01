@@ -54,6 +54,17 @@ class ExtendedAgentCapabilitiesTest {
     }
 
     @Test
+    fun workspaceCommandPolicyRejectsShellSyntaxAndUnknownCommands() {
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkspaceCommandSpec("sh", listOf("-c", "id"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkspaceCommandSpec("printf", listOf("hello\nworld"))
+        }
+        assertEquals("printf hello", WorkspaceCommandSpec("printf", listOf("hello")).displayCommand())
+    }
+
+    @Test
     fun mcpRpcParserSelectsMatchingSseEvent() {
         val client = StreamableHttpMcpClient()
         val json = client.parseRpcBody(
