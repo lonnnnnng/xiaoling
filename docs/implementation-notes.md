@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-01 第四组：Run/Task Runtime v2 启动
+
+- 对照 RikkaHub、Operit、OmniBot、Eta、Aether 和 ZorvAI 后，先冻结跨入口 Run Session 契约，再扩展远程 Channel、浏览器动作和插件执行；避免各入口各自定义取消、恢复和完成语义。
+- `:shared` 新增 `SharedAgentRunSession`：固定 `runId / rootRunId / parentRunId`、`CREATED / WAITING_APPROVAL / RUNNING / WAITING_INPUT / CANCEL_REQUESTED / COMPLETED / FAILED / CANCELLED` 状态、递增事件序号、取消请求和 snapshot/restore 校验；终态后拒绝迟到事件。
+- 本切片只改变 shared contract version `2`，不改变 Android Room AgentRun 生产路径；`shared:allTests` 已通过 Android JVM 与 iOS Simulator，App 单测、Debug/AndroidTest 构建、Lint 和 Redmi `ExtendedAgentCapabilitiesInstrumentedTest` `5/5` 通过。
+- 下一切片为 P0-b：把 Android `AgentRunLedger` / Room `agent_runs` 映射到 Session Contract，新增 37→38 Migration 前先完成 Activity 重建、进程恢复、attach/replay 和取消边界设计；不持久化短生命周期 `processSessionId`，不改变旧 Run 的终态和权限门禁。
+
 ## 2026-09-30 第二组：只读前台多 Agent 子 Run
 
 - `MultiAgentCoordinator` 将一次派生限制为最多两个子目标，并用 `Semaphore(2)` 控制同时运行数量；父上下文必须是 `FOREGROUND + DIRECT + depth=0`，不接受后台、Workflow、远程入口或递归派生。

@@ -4,7 +4,7 @@ package com.longdev.xiaoling.shared.agent
  * long: 共享层只描述 Agent 的稳定输入输出和平台能力端口，避免把 Android Context、Room、Keystore、Accessibility 或 Compose 带进跨平台核心。
  */
 object AgentRuntimeContract {
-    const val VERSION = 1
+    const val VERSION = 2
 }
 
 data class SharedToolCall(

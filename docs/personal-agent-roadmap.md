@@ -2597,3 +2597,18 @@ idle -> deciding -> waiting_model -> waiting_approval
 - `:shared` 已补充平台无关的最小执行循环：冻结工具目录校验、逐次审批、执行结果账本、步骤上限和 `COMPLETED / APPROVAL_REJECTED / INVALID_TOOL / STEP_LIMIT_EXCEEDED` 终态；Android 现有 Runtime 尚未替换，跨平台 adapter 仍需后续逐步接入。
 - Android `WorkspaceSandbox` 已实现 shared 的 `SharedWorkspaceRuntime` 端口，argv 命令结果可通过同一纯 Kotlin 契约映射；执行失败新增 `EXECUTION_FAILED` fail-closed 终态，Android 生产 ToolRegistry 调用链保持不变。
 - Android 已增加 shared Agent contract adapters：ToolDefinition、ToolCall、PlanDecision、审批和执行结果可双向投影；审批与执行每次都重新查询当前 Android ToolRegistry，不能用 shared 快照绕过 Profile、Skill 或 Run 动态门禁。
+
+## 第四组：Run/Task Runtime v2（2026-10-01 启动）
+
+六个参考项目的共同成熟点是统一任务运行时，而不是单独堆叠浏览器、插件或远程协议：OmniBot / Eta 将 round、tool batch、cancel、attach、replay 和单终态放在同一运行时；RikkaHub 将工具目录、审批、执行和结果证据统一编排；Aether 以 session signature 管理复用、steer 和 MCP 状态；Operit 的 Workflow、浏览器和 ToolPkg 都有独立生命周期；ZorvAI 用能力注册表承载插件、ACI 与 GenUI。小灵当前已有 Room Agent Run Ledger、恢复判定、shared runtime 和只读多 Agent，但不同入口仍未共享同一套 session identity 与可恢复状态机。
+
+本组按以下顺序推进：
+
+1. **P0-a（已完成）**：在 `:shared` 增加平台无关的 Run Session Contract，冻结 `runId / rootRunId / parentRunId`、状态转移、单终态、递增事件序号、取消请求和 snapshot/restore 语义；只增加纯 Kotlin 测试，不改变现有 Android 生产执行路径。`shared:allTests` 已覆盖 Android JVM 与 iOS Simulator，当前实现见 `shared/src/commonMain/kotlin/com/longdev/xiaoling/shared/agent/SharedAgentRunSession.kt`。
+2. **P0-b**：将 Android `AgentRunLedger` 的 Room 记录映射到该契约，补齐 Activity 重建、进程恢复、attach/replay 和取消边界；旧数据库记录必须保持可读取，失败和终态事件不能被迟到回调覆盖。
+3. **P1**：把现有 ToolRegistry、shared adapter、MCP 和 Skill 统一投影为 Tool Catalog + Executor，保留当前 Profile、审批、后台和敏感字段门禁。
+4. **P1**：在任务中心展示父子 Run，支持取消、超时、部分失败和重建恢复；Workflow、Remote Channel、ACI 暂不获得派生或写入权限。
+5. **P2**：接入一个签名远程入站 Channel，只落持久收件箱和前台草稿；再升级只读 BrowserSession 的 snapshot/ref、取消和结果证据。
+6. **P3**：最后再做声明式插件 ABI、MCP transport 扩展和受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
+
+本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。

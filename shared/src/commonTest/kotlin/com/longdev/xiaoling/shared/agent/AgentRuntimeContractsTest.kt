@@ -2,6 +2,7 @@ package com.longdev.xiaoling.shared.agent
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -11,7 +12,7 @@ class AgentRuntimeContractsTest {
         val call = SharedToolCall("call-1", "workspace.list", mapOf("path" to "."))
         val command = SharedWorkspaceCommand("printf", listOf("hello"))
 
-        assertEquals(1, AgentRuntimeContract.VERSION)
+        assertEquals(2, AgentRuntimeContract.VERSION)
         assertEquals("workspace.list", call.name)
         assertTrue(command.args.single() == "hello")
     }
@@ -153,6 +154,50 @@ class AgentRuntimeContractsTest {
 
         assertEquals(SharedAgentRunStatus.STEP_LIMIT_EXCEEDED, result.status)
         assertEquals(2, result.executions.size)
+    }
+
+    @Test
+    fun sessionTransitionsAndRestoresWithMonotonicEventSequence() {
+        val session = SharedAgentRunSession.create(SharedAgentRunIdentity("run-1"))
+        session.transition(SharedAgentRunState.WAITING_APPROVAL, "等待用户确认")
+        session.transition(SharedAgentRunState.RUNNING, "用户已确认")
+        session.appendEvent("tool.completed", "只读工具完成")
+        session.transition(SharedAgentRunState.COMPLETED, "已生成总结")
+
+        val snapshot = session.snapshot()
+        val restored = SharedAgentRunSession.restore(snapshot)
+
+        assertEquals(SharedAgentRunState.COMPLETED, restored.state)
+        assertEquals(snapshot, restored.snapshot())
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), snapshot.events.map { it.sequence })
+    }
+
+    @Test
+    fun sessionRejectsLateEventsAndInvalidTransitionsAfterTerminalState() {
+        val session = SharedAgentRunSession.create(SharedAgentRunIdentity("run-2"))
+        session.transition(SharedAgentRunState.RUNNING, "开始执行")
+        session.transition(SharedAgentRunState.FAILED, "工具失败")
+
+        assertFalse(session.requestCancel("迟到取消"))
+        assertFailsWith<IllegalArgumentException> { session.appendEvent("late", "迟到事件") }
+        assertFailsWith<IllegalArgumentException> {
+            session.transition(SharedAgentRunState.RUNNING, "恢复执行")
+        }
+    }
+
+    @Test
+    fun sessionCancellationRequiresExplicitTerminalSettlement() {
+        val session = SharedAgentRunSession.create(
+            SharedAgentRunIdentity(runId = "child-1", rootRunId = "root-1", parentRunId = "parent-1"),
+        )
+
+        assertTrue(session.requestCancel("用户主动停止"))
+        assertTrue(session.cancelRequested)
+        assertEquals(SharedAgentRunState.CANCEL_REQUESTED, session.state)
+        session.transition(SharedAgentRunState.CANCELLED, "执行器已停止")
+
+        assertEquals(SharedAgentRunState.CANCELLED, session.state)
+        assertFalse(session.requestCancel("重复停止"))
     }
 
     private fun scriptedLlm(
