@@ -2596,3 +2596,4 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 多平台第一片已建立不依赖 Context、Room、Keystore、Accessibility 和 Compose 的 `:shared` Agent contract/runtime 骨架，已接入 Android app 依赖并完成 Android 与 iOS Simulator target 编译/测试门禁；Android 生产实现仍保持不变，Android 真机结果不作为其他平台验收。
 - `:shared` 已补充平台无关的最小执行循环：冻结工具目录校验、逐次审批、执行结果账本、步骤上限和 `COMPLETED / APPROVAL_REJECTED / INVALID_TOOL / STEP_LIMIT_EXCEEDED` 终态；Android 现有 Runtime 尚未替换，跨平台 adapter 仍需后续逐步接入。
 - Android `WorkspaceSandbox` 已实现 shared 的 `SharedWorkspaceRuntime` 端口，argv 命令结果可通过同一纯 Kotlin 契约映射；执行失败新增 `EXECUTION_FAILED` fail-closed 终态，Android 生产 ToolRegistry 调用链保持不变。
+- Android 已增加 shared Agent contract adapters：ToolDefinition、ToolCall、PlanDecision、审批和执行结果可双向投影；审批与执行每次都重新查询当前 Android ToolRegistry，不能用 shared 快照绕过 Profile、Skill 或 Run 动态门禁。
