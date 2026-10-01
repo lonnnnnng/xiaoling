@@ -32,6 +32,7 @@ import com.longdev.xiaoling.agent.ToolExecutionReceipt
 import com.longdev.xiaoling.agent.ToolExecutionReceiptStatus
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.ToolReadableEvidenceCodec
 import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
 import com.longdev.xiaoling.agent.isWaitingForInteractiveApprovalDecision
@@ -1194,6 +1195,7 @@ class RoomAgentRunRepository(
                 receiptStatus = receipt?.status?.name,
                 createdAt = event.createdAt,
                 verifiedAt = null,
+                readableEvidenceJson = metadata.readableEvidence?.let { ToolReadableEvidenceCodec.encodeToString(it) },
             ),
         )
     }
@@ -1404,6 +1406,7 @@ class RoomAgentRunRepository(
         replaySafety = runCatching { ToolReplaySafety.valueOf(replaySafety) }
             .getOrDefault(ToolReplaySafety.RESTART_REQUIRED),
         executionReceipt = toExecutionReceipt(),
+        readableEvidence = ToolReadableEvidenceCodec.decode(readableEvidenceJson),
         createdAt = createdAt,
         verifiedAt = verifiedAt,
     )

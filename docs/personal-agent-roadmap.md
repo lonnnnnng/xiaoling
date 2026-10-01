@@ -6,6 +6,18 @@
 - 正式 APK `outputs/release/xiaoling-v0.1.20.apk`：`3,379,922` 字节，SHA-256 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；APK v2/RSA 4096 签名和 `zipalign` 通过。
 - 本版使用新生成的正式证书，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；旧 `v0.1.19` 不能直接覆盖升级，需先卸载旧版。
 
+## 2026-10-02：浏览器只读证据持久化（已完成代码切片，待下一版发布）
+
+- 浏览器读取结果现在沿 `ToolExecutionResult → RunEventMetadata.ToolResult → Room agent_tool_results → AgentRunRecoveryEvidencePolicy` 完整传递，进程重建后仍能恢复 `snapshotId / contentHash / sourceRef` 证据。
+- 证据字段由统一 `ToolReadableEvidenceCodec` 编解码，Room v40 新增 nullable `readableEvidenceJson`；旧 v39 数据迁移后保持 `null`，不会从正文或 URL 反推证据。
+- 证据持久化只保留 `kind / toolCallId / snapshotId / contentHash / sourceRef`，来源引用拒绝 query、fragment 和账号信息；网页正文、Cookie、Token、脚本和登录态仍不进入 Tool Ledger。
+- 验证已通过：JVM codec 回归；Redmi `wsvwypiz7xwslvl7` 的 Room Tool Ledger 全类 `55/55`；Room migration 全类 `35/35`；新增重建与 39→40 迁移单项均 `OK (1 test)`。
+
+### 当前收口边界
+
+1. 浏览器证据已经跨 RunEvent、Room 和恢复策略闭环，但尚未以新版本正式 APK 发布；发布前仍需完成完整 Gradle 门禁、提交、推送和正式资产回验。
+2. 只读浏览器仍是公开 HTTP(S) 读取链，不开放脚本、Cookie、登录态、表单、上传下载、截图、多 Tab 或后台执行。
+
 ## 2026-10-01：第四组 Run/Task Runtime v2 P0-b（Run lineage 持久化已完成）
 
 - `AgentRunRecord`、Room `agent_runs` 和 DAO 已增加可空 `rootRunId / parentRunId` 及查询索引；普通 Run 以自身为 root，retry Run 继承来源 root 并把来源 Run 记录为 parent。

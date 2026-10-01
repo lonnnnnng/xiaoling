@@ -165,6 +165,36 @@ class RunEventMetadataCodecTest {
     }
 
     @Test
+    fun toolResultCodecPreservesReadableBrowserEvidenceAndLegacyPayloadRemainsCompatible() {
+        val evidence = ToolReadableEvidence(
+            kind = ToolReadableEvidenceKind.BROWSER_PAGE,
+            toolCallId = "tool-call-browser-ledger",
+            snapshotId = "snapshot-browser-ledger",
+            contentHash = "b".repeat(64),
+            sourceRef = "https://example.com/docs/page",
+        )
+        val metadata = RunEventMetadata.ToolResult(
+            toolName = "browser.read",
+            content = "页面正文不应进入 evidence JSON",
+            durationMs = 12L,
+            success = true,
+            verified = null,
+            toolCallId = evidence.toolCallId,
+            readableEvidence = evidence,
+        )
+
+        val encoded = RunEventMetadataCodec.encode(metadata)
+        assertEquals(metadata, RunEventMetadataCodec.decode("tool.result", encoded))
+        assertEquals(
+            null,
+            (RunEventMetadataCodec.decode(
+                "tool.result",
+                """{"toolName":"browser.read","content":"legacy","durationMs":1,"success":true,"verified":null,"toolCallId":"legacy-call"}""",
+            ) as RunEventMetadata.ToolResult).readableEvidence,
+        )
+    }
+
+    @Test
     fun recoveryEvidenceCodeRoundTripsAndLegacyEventRemainsReadable() {
         val metadata = RunEventMetadata.Recovery(
             fromStatus = AgentRunStatus.EXECUTING,

@@ -1445,6 +1445,60 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         migrated.close()
     }
 
+    @Test
+    fun migrate39To40AddsNullableReadableEvidenceWithoutInventingLegacyEvidence() {
+        migrationHelper.createDatabase(READABLE_EVIDENCE_MIGRATION_DATABASE_NAME, 39).apply {
+            execSQL(
+                """
+                INSERT INTO agent_tool_results (
+                    toolCallId, runId, eventId, toolName, content, success, errorMessage,
+                    durationMs, executorVerified, verificationStatus, verifiedEventId,
+                    memoryIdsJson, knowledgeReferencesJson, replaySafety,
+                    receiptToolCallId, receiptOperationId, receiptIdempotencyKey, receiptStatus,
+                    createdAt, verifiedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>(
+                    "tool-call-v39",
+                    "run-v39",
+                    "event-v39",
+                    "browser.read",
+                    "历史网页正文",
+                    1,
+                    null,
+                    7L,
+                    null,
+                    null,
+                    null,
+                    "[]",
+                    "[]",
+                    "RESTART_REQUIRED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    100L,
+                    null,
+                ),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            READABLE_EVIDENCE_MIGRATION_DATABASE_NAME,
+            40,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+        migrated.query(
+            "SELECT readableEvidenceJson FROM agent_tool_results WHERE toolCallId = 'tool-call-v39'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(0))
+        }
+        migrated.close()
+    }
+
     private fun SupportSQLiteDatabase.insertVersion4Fixture() {
         // long: 迁移夹具覆盖用户可持续积累的全部 v4 数据，避免只验证表结构却漏掉真实会话、审批、笔记或记忆的保留语义。
         execSQL(
@@ -1534,5 +1588,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val NOTE_EDIT_MIGRATION_DATABASE_NAME = "xiaoling-note-edit-migration-test"
         private const val RUN_SESSION_MIGRATION_DATABASE_NAME = "xiaoling-run-session-migration-test"
         private const val CANCEL_REQUEST_MIGRATION_DATABASE_NAME = "xiaoling-cancel-request-migration-test"
+        private const val READABLE_EVIDENCE_MIGRATION_DATABASE_NAME = "xiaoling-readable-evidence-migration-test"
     }
 }

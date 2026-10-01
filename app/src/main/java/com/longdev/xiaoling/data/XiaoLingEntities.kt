@@ -218,6 +218,8 @@ data class AgentToolResultEntity(
     val receiptStatus: String?,
     val createdAt: Long,
     val verifiedAt: Long?,
+    // long: 只读页面证据只保留快照、摘要指纹和无参数来源引用；正文继续留在事件/消息边界之外，避免 Tool Ledger 复制网页内容。
+    val readableEvidenceJson: String? = null,
 )
 
 @Entity(

@@ -328,6 +328,7 @@ object AgentRunRecoveryEvidencePolicy {
         memoryIdsUsed = memoryIdsUsed,
         knowledgeReferences = knowledgeReferences,
         executionReceipt = executionReceipt,
+        readableEvidence = readableEvidence,
     )
 
     private fun AgentToolResultRecord.toEventMetadata() = RunEventMetadata.ToolResult(
@@ -341,6 +342,7 @@ object AgentRunRecoveryEvidencePolicy {
         toolCallId = toolCallId,
         replaySafety = replaySafety,
         executionReceipt = executionReceipt,
+        readableEvidence = readableEvidence,
     )
 
     private data class MutableRecoveryEvidence(

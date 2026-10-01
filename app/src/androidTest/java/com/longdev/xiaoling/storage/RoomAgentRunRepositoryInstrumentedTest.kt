@@ -40,6 +40,8 @@ import com.longdev.xiaoling.agent.ToolExecutionResult
 import com.longdev.xiaoling.agent.ToolNotCommittedReplayPolicy
 import com.longdev.xiaoling.agent.ToolReplaySafety
 import com.longdev.xiaoling.agent.ToolRisk
+import com.longdev.xiaoling.agent.ToolReadableEvidence
+import com.longdev.xiaoling.agent.ToolReadableEvidenceKind
 import com.longdev.xiaoling.agent.ToolRegistry
 import com.longdev.xiaoling.agent.ToolVerificationStatus
 import com.longdev.xiaoling.agent.XiaoLingToolRegistry
@@ -670,6 +672,94 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertTrue(failure.isFailure)
         assertFalse(repository.snapshot(run.id).events.any { it.type == "tool.result" })
         assertEquals(0, repository.toolLedger(run.id).results.size)
+    }
+
+    @Test
+    fun readableBrowserEvidenceSurvivesRepositoryRestartAndKeepsOnlyStableReferenceFields() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val databaseName = "xiaoling-readable-browser-evidence.db"
+        context.deleteDatabase(databaseName)
+        var firstDatabase: XiaoLingDatabase? = null
+        var reopenedDatabase: XiaoLingDatabase? = null
+        try {
+            firstDatabase = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+            val firstRepository = RoomAgentRunRepository(context, firstDatabase)
+            val run = firstRepository.createRun(
+                conversationId = "conversation-readable-evidence",
+                userMessageId = "message-readable-evidence",
+                goal = "跨 Repository 重建保留浏览器只读证据",
+            )
+            val call = RunEventMetadata.ToolCall(
+                id = "tool-call-readable-browser",
+                toolName = "browser.read",
+                risk = ToolRisk.SAFE,
+                arguments = mapOf("session_id" to "session-readable"),
+            )
+            firstRepository.appendEvent(run.id, "tool.call.proposed", "模型提出网页读取", call)
+            firstRepository.appendEvent(run.id, "tool.call.validated", "网页读取参数已校验", call)
+            val evidence = ToolReadableEvidence(
+                kind = ToolReadableEvidenceKind.BROWSER_PAGE,
+                toolCallId = call.id,
+                snapshotId = "snapshot-readable-browser",
+                contentHash = "c".repeat(64),
+                sourceRef = "https://example.com/docs/page",
+            )
+            firstRepository.appendEvent(
+                run.id,
+                "tool.result",
+                "网页读取成功",
+                RunEventMetadata.ToolResult(
+                    toolName = call.toolName,
+                    content = "网页正文只保留在结果正文，不复制到 evidence JSON",
+                    durationMs = 8L,
+                    success = true,
+                    verified = null,
+                    toolCallId = call.id,
+                    readableEvidence = evidence,
+                ),
+            )
+
+            assertEquals(evidence, firstRepository.toolLedger(run.id).results.single().readableEvidence)
+            firstDatabase.close()
+            firstDatabase = null
+
+            reopenedDatabase = Room.databaseBuilder(context, XiaoLingDatabase::class.java, databaseName)
+                .addMigrations(*XiaoLingDatabase.migrations())
+                .allowMainThreadQueries()
+                .build()
+            val restartedRepository = RoomAgentRunRepository(context, reopenedDatabase)
+            assertEquals(evidence, restartedRepository.toolLedger(run.id).results.single().readableEvidence)
+            assertEquals(
+                evidence,
+                checkNotNull(restartedRepository.runDetail(run.id)).snapshot.events
+                    .single { it.type == "tool.result" }
+                    .metadata
+                    ?.let { it as RunEventMetadata.ToolResult }
+                    ?.readableEvidence,
+            )
+            val rawEvidence = reopenedDatabase.openHelper.writableDatabase.query(
+                "SELECT readableEvidenceJson FROM agent_tool_results WHERE toolCallId = ?",
+                arrayOf(call.id),
+            )
+            rawEvidence.use {
+                assertTrue(it.moveToFirst())
+                val encoded = it.getString(0)
+                assertTrue(encoded.contains("snapshot-readable-browser"))
+                // long: org.json 可能对 URL 斜杠做 JSON 转义；检查来源的稳定域名和路径即可，不把序列化细节当成证据语义。
+                assertTrue(encoded.contains("example.com"))
+                assertTrue(encoded.contains("docs"))
+                assertFalse(encoded.contains("网页正文"))
+                assertFalse(encoded.contains("?"))
+                assertFalse(encoded.contains("#"))
+            }
+        } finally {
+            firstDatabase?.close()
+            reopenedDatabase?.close()
+            context.deleteDatabase(databaseName)
+        }
     }
 
     @Test

@@ -241,6 +241,7 @@ sealed interface RunEventMetadata {
         val toolCallId: String? = null,
         val replaySafety: ToolReplaySafety = ToolReplaySafety.RESTART_REQUIRED,
         val executionReceipt: ToolExecutionReceipt? = null,
+        val readableEvidence: ToolReadableEvidence? = null,
     ) : RunEventMetadata
 
     data class ApprovalRequest(
@@ -418,6 +419,7 @@ data class AgentToolResultRecord(
     val knowledgeReferences: List<KnowledgeReference> = emptyList(),
     val replaySafety: ToolReplaySafety,
     val executionReceipt: ToolExecutionReceipt?,
+    val readableEvidence: ToolReadableEvidence? = null,
     val createdAt: Long,
     val verifiedAt: Long?,
 )

@@ -1586,6 +1586,7 @@ private object AgentEventMetadata {
             toolCallId = call.id,
             replaySafety = definition.replaySafety,
             executionReceipt = result.executionReceipt,
+            readableEvidence = result.readableEvidence,
         )
     }
 }

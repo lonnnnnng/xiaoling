@@ -68,6 +68,7 @@ internal object RunEventMetadataCodec {
                 .put("toolCallId", metadata.toolCallId)
                 .put("replaySafety", metadata.replaySafety.name)
                 .put("executionReceipt", metadata.executionReceipt?.toJson())
+                .put("readableEvidence", metadata.readableEvidence?.let(ToolReadableEvidenceCodec::encode))
             is RunEventMetadata.ApprovalRequest -> JSONObject()
                 .put("id", metadata.id)
                 .put("toolName", metadata.toolName)
@@ -204,6 +205,7 @@ internal object RunEventMetadataCodec {
                         ?.let(ToolReplaySafety::valueOf)
                         ?: ToolReplaySafety.RESTART_REQUIRED,
                     executionReceipt = json.executionReceiptOrNull(),
+                    readableEvidence = ToolReadableEvidenceCodec.decode(json.optJSONObject("readableEvidence")),
                 )
                 "approval.requested",
                 "approval.request_decided" -> RunEventMetadata.ApprovalRequest(

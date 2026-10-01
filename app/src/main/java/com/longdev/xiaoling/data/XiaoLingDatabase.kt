@@ -42,7 +42,7 @@ import org.json.JSONObject
         ProcessExitObservationEntity::class,
         KnowledgeAnswerabilityShadowObservationEntity::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = true,
 )
 abstract class XiaoLingDatabase : RoomDatabase() {
@@ -59,7 +59,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
     abstract fun knowledgeAnswerabilityShadowObservationDao(): KnowledgeAnswerabilityShadowObservationDao
 
     companion object {
-        const val CURRENT_VERSION = 39
+        const val CURRENT_VERSION = 40
         const val DATABASE_NAME = "xiaoling.db"
 
         @Volatile
@@ -941,6 +941,13 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // long: 只读浏览器证据必须能跨进程重建继续参与审计；旧结果没有快照证据时保持 null，不能从历史正文或 URL 猜造。
+                db.execSQL("ALTER TABLE `agent_tool_results` ADD COLUMN `readableEvidenceJson` TEXT")
+            }
+        }
+
         fun migrations(): Array<Migration> = arrayOf(
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -980,6 +987,7 @@ abstract class XiaoLingDatabase : RoomDatabase() {
             MIGRATION_36_37,
             MIGRATION_37_38,
             MIGRATION_38_39,
+            MIGRATION_39_40,
         )
 
         private fun createAgentNotesTable(db: SupportSQLiteDatabase) {

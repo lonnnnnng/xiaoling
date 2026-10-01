@@ -6,6 +6,14 @@
 - 正式 APK：`outputs/release/xiaoling-v0.1.20.apk`，大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`。
 - 因正式签名证书更换，`v0.1.19` 安装包不能无损覆盖本版；本版发布说明要求用户先卸载旧版再安装。
 
+## 2026-10-02：只读浏览器证据进入 Tool Ledger（代码已完成，未单独发版）
+
+- `ToolReadableEvidenceCodec` 统一可信上下文、RunEvent 和 Room 的只读证据格式，只保存 `kind / toolCallId / snapshotId / contentHash / sourceRef`；不保存网页正文、完整带参数 URL、Cookie、Token 或账号信息。
+- `MinimalAgentRuntime` 将浏览器读取结果中的 evidence 写入 `tool.result`；`RoomAgentRunRepository` 与 `AgentToolResultEntity` 持久化 `readableEvidenceJson`，恢复策略会把它重新投影为 `ToolExecutionResult`，进程重建后仍可参与审计。
+- Room 从 v39 升到 v40。39→40 只新增 nullable 列，旧 ToolResult 的证据保持 `null`，不从历史正文或 URL 猜造；schema `app/schemas/.../40.json` 已生成。
+- JVM `RunEventMetadataCodecTest`、Redmi `RoomAgentRunRepositoryInstrumentedTest` 全类 `55/55`、Redmi `XiaoLingDatabaseMigrationInstrumentedTest` 全类 `35/35` 通过；新增证据重建测试和 39→40 迁移测试均为 `OK (1 test)`。
+- 本切片只完成只读浏览器证据的跨事件、Room 和恢复链；网页脚本、Cookie、登录态、多 Tab、截图、下载及后台浏览器执行边界保持不变。完整门禁和提交推送在本轮收尾执行。
+
 ## 2026-10-01 第四组：Run/Task Runtime v2 P0-b（Run lineage 持久化）
 
 - 对照 RikkaHub、Operit、OmniBot、Eta、Aether 和 ZorvAI 后，先冻结跨入口 Run Session 契约，再扩展远程 Channel、浏览器动作和插件执行；避免各入口各自定义取消、恢复和完成语义。

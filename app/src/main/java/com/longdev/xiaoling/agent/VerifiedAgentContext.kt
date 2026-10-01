@@ -162,7 +162,7 @@ object VerifiedAgentContextCodec {
             .put("toolExecutions", context.toolExecutions.toJsonArray())
             .put("executionReceipt", context.executionReceipt?.toJson())
             .put("verificationEvidence", context.verificationEvidence?.toJson())
-            .put("readableEvidence", context.readableEvidence?.toJson())
+            .put("readableEvidence", context.readableEvidence?.let(ToolReadableEvidenceCodec::encode))
             .toString()
     }
 
@@ -192,7 +192,7 @@ object VerifiedAgentContextCodec {
                 }.orEmpty(),
                 executionReceipt = json.optJSONObject("executionReceipt")?.toTrustedToolExecutionReceipt(),
                 verificationEvidence = json.optJSONObject("verificationEvidence")?.toTrustedToolVerificationEvidence(),
-                readableEvidence = json.optJSONObject("readableEvidence")?.toToolReadableEvidence(),
+                readableEvidence = ToolReadableEvidenceCodec.decode(json.optJSONObject("readableEvidence")),
             )
         }.getOrNull()
     }
@@ -211,7 +211,7 @@ object VerifiedAgentContextCodec {
                         .put("knowledgeReferences", KnowledgeReferenceCodec.encode(execution.knowledgeReferences))
                         .put("executionReceipt", execution.executionReceipt?.toJson())
                         .put("verificationEvidence", execution.verificationEvidence?.toJson())
-                        .put("readableEvidence", execution.readableEvidence?.toJson()),
+                        .put("readableEvidence", execution.readableEvidence?.let(ToolReadableEvidenceCodec::encode)),
                 )
             }
         }
@@ -232,7 +232,7 @@ object VerifiedAgentContextCodec {
             knowledgeReferences = KnowledgeReferenceCodec.decode(optJSONArray("knowledgeReferences")),
             executionReceipt = optJSONObject("executionReceipt")?.toTrustedToolExecutionReceipt(),
             verificationEvidence = optJSONObject("verificationEvidence")?.toTrustedToolVerificationEvidence(),
-            readableEvidence = optJSONObject("readableEvidence")?.toToolReadableEvidence(),
+            readableEvidence = ToolReadableEvidenceCodec.decode(optJSONObject("readableEvidence")),
         )
     }
 
@@ -245,13 +245,6 @@ object VerifiedAgentContextCodec {
         .put("status", status.name)
         .put("toolCallId", toolCallId)
         .put("reasonCode", reasonCode)
-
-    private fun ToolReadableEvidence.toJson(): JSONObject = JSONObject()
-        .put("kind", kind.name)
-        .put("toolCallId", toolCallId)
-        .put("snapshotId", snapshotId)
-        .put("contentHash", contentHash)
-        .put("sourceRef", sourceRef)
 
     private fun JSONObject.toTrustedToolExecutionReceipt(): TrustedToolExecutionReceipt? {
         val toolCallId = optString("toolCallId").takeIf { it.isNotBlank() } ?: return null
@@ -269,19 +262,6 @@ object VerifiedAgentContextCodec {
         val toolCallId = optString("toolCallId").takeIf { it.isNotBlank() }
         val reasonCode = optString("reasonCode").takeIf { it.isNotBlank() }
         return TrustedToolVerificationEvidence(status = status, toolCallId = toolCallId, reasonCode = reasonCode)
-    }
-
-    private fun JSONObject.toToolReadableEvidence(): ToolReadableEvidence? {
-        val kind = optString("kind").takeIf { it.isNotBlank() }
-            ?.let { raw -> runCatching { ToolReadableEvidenceKind.valueOf(raw) }.getOrNull() }
-            ?: return null
-        val toolCallId = optString("toolCallId").takeIf { it.isNotBlank() } ?: return null
-        val snapshotId = optString("snapshotId").takeIf { it.isNotBlank() } ?: return null
-        val contentHash = optString("contentHash").takeIf { it.isNotBlank() } ?: return null
-        val sourceRef = optString("sourceRef").takeIf { it.isNotBlank() } ?: return null
-        return runCatching {
-            ToolReadableEvidence(kind, toolCallId, snapshotId, contentHash, sourceRef)
-        }.getOrNull()
     }
 
     private fun List<String>.toStringJsonArray(): JSONArray {
