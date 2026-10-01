@@ -109,11 +109,49 @@ class AgentTaskCenterProjectionTest {
         assertEquals(null, result.runs.last().linkedRetryRunNavigationId)
     }
 
+    @Test
+    fun projectExposesParentChildLineageWithoutGuessingMissingParents() {
+        val parent = runDetail("run-parent", AgentRunStatus.THINKING, createdAt = 1L)
+        val child = runDetail(
+            id = "run-child",
+            status = AgentRunStatus.COMPLETED,
+            createdAt = 2L,
+            rootRunId = parent.snapshot.run.id,
+            parentRunId = parent.snapshot.run.id,
+        )
+        val orphanChild = runDetail(
+            id = "run-orphan-child",
+            status = AgentRunStatus.FAILED,
+            createdAt = 3L,
+            rootRunId = "run-missing-parent",
+            parentRunId = "run-missing-parent",
+        )
+
+        val result = AgentTaskCenterProjection.project(
+            loading = false,
+            error = null,
+            history = listOf(orphanChild, child, parent),
+            selectedRunId = null,
+            retryingRunId = null,
+        )
+
+        val projectedParent = result.runs.single { it.detail.snapshot.run.id == parent.snapshot.run.id }
+        val projectedChild = result.runs.single { it.detail.snapshot.run.id == child.snapshot.run.id }
+        val projectedOrphan = result.runs.single { it.detail.snapshot.run.id == orphanChild.snapshot.run.id }
+        assertEquals(listOf(child.snapshot.run.id), projectedParent.childRunNavigationIds)
+        assertEquals(parent.snapshot.run.id, projectedChild.parentRunNavigationId)
+        assertEquals(1, projectedChild.lineageDepth)
+        assertTrue(projectedOrphan.parentRunNavigationId == null)
+        assertEquals(0, projectedOrphan.lineageDepth)
+    }
+
     private fun runDetail(
         id: String,
         status: AgentRunStatus,
         createdAt: Long = 1L,
         retryOfRunId: String? = null,
+        rootRunId: String? = null,
+        parentRunId: String? = null,
     ): AgentRunDetailRecord {
         return AgentRunDetailRecord(
             snapshot = AgentRunSnapshot(
@@ -129,6 +167,8 @@ class AgentTaskCenterProjectionTest {
                     updatedAt = 2L,
                     completedAt = if (status == AgentRunStatus.COMPLETED) 3L else null,
                     retryOfRunId = retryOfRunId,
+                    rootRunId = rootRunId,
+                    parentRunId = parentRunId,
                 ),
                 steps = emptyList(),
                 events = emptyList(),

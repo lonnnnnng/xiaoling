@@ -80,10 +80,25 @@ class RoomAgentRunRepository(
         userMessageId: String,
         goal: String,
         retryOfRunId: String?,
+    ): AgentRunRecord = createRun(
+        conversationId = conversationId,
+        userMessageId = userMessageId,
+        goal = goal,
+        retryOfRunId = retryOfRunId,
+        parentRunId = null,
+    )
+
+    override suspend fun createRun(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String?,
+        parentRunId: String?,
     ): AgentRunRecord {
         val now = System.currentTimeMillis()
         val runId = "run-${UUID.randomUUID()}"
-        val lineage = retryOfRunId?.let { sourceRunId ->
+        val storedParentRunId = parentRunId ?: retryOfRunId
+        val lineage = storedParentRunId?.let { sourceRunId ->
             val source = database.agentRunDao().getRun(sourceRunId)
             val rootRunId = source?.rootRunId ?: source?.id ?: sourceRunId
             rootRunId to sourceRunId

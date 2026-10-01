@@ -2694,3 +2694,10 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 新增 Profile→Skill→MCP 矩阵：前台 direct 交集可见；Workflow 上下文中 MCP wrapper 被动态隐藏并拒绝执行；Profile 不包含 MCP 工具时，Skill 在构造阶段即拒绝。
 - 已验证：shared Android/iOS Simulator tests、`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug :app:assembleDebug` 均成功；Redmi `wsvwypiz7xwslvl7` 最新 APK 安装成功，`RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
 - 仍未把 receipt/verification 写入 MessagePart 或可信上下文历史；这些路径继续只消费现有 Room Tool Ledger/typed event，下一步再决定是否需要跨平台持久化，避免重复存储和扩大敏感字段面。
+
+## 第四组 P1 第三切片：父子 Run 账本与任务中心投影（2026-10-01）
+
+- 只读子 Agent 创建 Run 时现在显式传递 `parentRunId`；Room 沿父 Run 计算并保存 `rootRunId`，不新增数据库列或迁移，旧 Run 的空 lineage 兼容保持不变。
+- 任务中心投影父子关系时只信任当前历史中唯一的 Run ID：子 Run 显示父级加载状态和层级，父 Run 显示当前可见的子 Run，并提供父/子 Run 导航；父级缺失、重复或循环 lineage 均不猜测跳转。
+- 已验证：`app:testDebugUnitTest`、Debug/AndroidTest 构建、Lint；Redmi `wsvwypiz7xwslvl7` 上父子 lineage、取消栅栏、恢复后关联重试分别 `OK (1 test)`，任务中心页面 `OK (4 tests)`、对话框 `OK (3 tests)`、重启引导 `OK (1 test)`、筛选栏 `OK (1 test)`。
+- 当前未扩展新的超时/部分失败状态枚举；现有超时仍按 `BUDGET_EXHAUSTED` 和 `run.timeout` 事件收敛，取消与关联重试继续沿既有 fail-closed 账本。下一片补齐任务中心对超时、部分完成和子 Run 汇总状态的明确投影。

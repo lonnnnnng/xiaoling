@@ -220,6 +220,7 @@ internal fun AgentTaskCenterPage(
                         val item = filteredRuns[index]
                         val runId = item.detail.snapshot.run.id
                         AgentRunHistoryItemCard(
+                            item = item,
                             detail = item.detail,
                             selected = item.selected,
                             retrying = item.retrying,
@@ -360,6 +361,7 @@ private fun AgentRunHistoryHeader(
 
 @Composable
 private fun AgentRunHistoryItemCard(
+    item: AgentTaskCenterRunUiState,
     detail: AgentRunDetailRecord,
     selected: Boolean,
     retrying: Boolean,
@@ -396,7 +398,7 @@ private fun AgentRunHistoryItemCard(
             .clickable(onClick = onClick),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            modifier = Modifier.padding(start = (10 + item.lineageDepth * 14).dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Row(
@@ -418,6 +420,29 @@ private fun AgentRunHistoryItemCard(
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 )
+            }
+            if (item.parentRunNavigationId != null || item.detail.snapshot.run.parentRunId != null || item.childRunNavigationIds.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = when {
+                            item.parentRunNavigationId != null -> "子 Run · 父级已载入"
+                            item.detail.snapshot.run.parentRunId != null -> "子 Run · 父级不在当前历史"
+                            else -> "父 Run · ${item.childRunNavigationIds.size} 个子 Run"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "层级 ${item.lineageDepth}",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -558,6 +583,24 @@ private fun AgentRunDetailPanel(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            snapshot.run.parentRunId?.let { parentRunId ->
+                AgentRelatedRunLink(
+                    prefix = "父 Run",
+                    runId = parentRunId,
+                    actionLabel = "查看父 Run",
+                    navigationRunId = item.parentRunNavigationId,
+                    onNavigateToRun = onNavigateToRun,
+                )
+            }
+            item.childRunNavigationIds.forEach { childRunId ->
+                AgentRelatedRunLink(
+                    prefix = "子 Run",
+                    runId = childRunId,
+                    actionLabel = "查看子 Run",
+                    navigationRunId = childRunId,
+                    onNavigateToRun = onNavigateToRun,
+                )
+            }
             snapshot.run.retryOfRunId?.let { sourceRunId ->
                 AgentRelatedRunLink(
                     prefix = "来源 Run",

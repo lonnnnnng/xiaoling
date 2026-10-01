@@ -70,6 +70,7 @@ class AgentRunUseCase(
         summarySystemPrompt: String,
         agentProfile: AgentProfileSnapshot,
         retryOfRunId: String? = null,
+        parentRunId: String? = null,
         memoryRecallEnabled: Boolean = true,
         executionOrigin: AgentExecutionOrigin = AgentExecutionOrigin.FOREGROUND,
         invocationSource: AgentInvocationSource = AgentInvocationSource.DIRECT,
@@ -161,6 +162,7 @@ class AgentRunUseCase(
             selectedSkills = selectedSkills,
             agentProfile = agentProfile,
             workflowDeviceActionContext = workflowDeviceActionContext,
+            parentRunId = parentRunId,
         )
     }
 
@@ -212,6 +214,7 @@ class AgentRunUseCase(
                     memoryRecallEnabled = false,
                     executionOrigin = AgentExecutionOrigin.FOREGROUND,
                     invocationSource = AgentInvocationSource.DIRECT,
+                    parentRunId = parentRunId,
                     approvalGate = AutoApprovalGate(),
                     onSnapshot = { snapshot ->
                         childRunId = snapshot.run.id
@@ -670,6 +673,18 @@ private class ReportingAgentRunLedger(
         retryOfRunId: String?,
     ): AgentRunRecord {
         val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId)
+        emit(run.id)
+        return run
+    }
+
+    override suspend fun createRun(
+        conversationId: String,
+        userMessageId: String,
+        goal: String,
+        retryOfRunId: String?,
+        parentRunId: String?,
+    ): AgentRunRecord {
+        val run = delegate.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
         emit(run.id)
         return run
     }

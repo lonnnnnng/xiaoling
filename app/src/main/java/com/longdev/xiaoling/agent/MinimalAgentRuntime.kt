@@ -174,8 +174,9 @@ class MinimalAgentRuntime internal constructor(
         selectedSkills: List<AgentSkillDefinition> = emptyList(),
         agentProfile: AgentProfileSnapshot? = null,
         workflowDeviceActionContext: WorkflowDeviceActionRunContext? = null,
+        parentRunId: String? = null,
     ): AgentRunSummary {
-        val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId)
+        val run = ledger.createRun(conversationId, userMessageId, goal, retryOfRunId, parentRunId)
         (toolRegistry as? AgentRunContextAwareToolRegistry)?.bindRunContext(
             AgentToolExecutionContext(
                 conversationId = conversationId,

@@ -3315,6 +3315,33 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(sourceBeforeRetry, repository.snapshot(sourceRun.id))
     }
 
+    @Test
+    fun childRunPersistsParentAndRootLineageForTaskCenterProjection() = runBlocking {
+        val parentRun = repository.createRun(
+            conversationId = "conversation-child-lineage",
+            userMessageId = "message-parent",
+            goal = "父 Run",
+        )
+
+        val childRun = repository.createRun(
+            conversationId = parentRun.conversationId,
+            userMessageId = "message-child",
+            goal = "子 Run",
+            retryOfRunId = null,
+            parentRunId = parentRun.id,
+        )
+
+        assertEquals(parentRun.id, childRun.parentRunId)
+        assertEquals(parentRun.id, childRun.rootRunId)
+        assertEquals(parentRun.id, repository.snapshot(childRun.id).run.parentRunId)
+        assertEquals(
+            listOf(childRun.id),
+            repository.recentRunDetails(limit = 10)
+                .filter { it.snapshot.run.parentRunId == parentRun.id }
+                .map { it.snapshot.run.id },
+        )
+    }
+
     private data class PersistedFailureSettlementCandidate(
         val runId: String,
         val executionStepId: String,
