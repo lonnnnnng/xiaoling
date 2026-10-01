@@ -2,6 +2,13 @@
 
 验证日期：2026-10-02（北京时间）
 
+# 2026-10-02 Room v40 浏览器证据发行候选门禁（未发布）
+
+- 正式构建命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease :app:lintVitalRelease`，结果为 `BUILD SUCCESSFUL in 2m 16s`；R8 有工具 warning，无构建错误。
+- 候选 APK：`app/build/outputs/apk/release/app-release.apk`，大小 `3,396,306` 字节，SHA-256 `677ba3911a5c6876b70ab2732b1de44f868cd6bf9f5be45e0924a8e74431c0c3`。`aapt` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.20`、`versionCode=21`；`apksigner` 确认单一正式 RSA 4096 签名者、APK Signature Scheme v2 有效，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；`zipalign -c -P 16 -v 4` 通过。
+- Redmi `wsvwypiz7xwslvl7` 执行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.agent.Stage264TaskRescheduleInstrumentedTest -e disableAnalytics true com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果为 `OK (1 test)`，但堆栈明确为 `AssumptionViolatedException`：当前没有有效 Provider，因此是前置 `SKIPPED`，没有创建提醒、Run、审批或测试数据。
+- 本节只记录发行候选门禁，不代表新 Release；`outputs/release/xiaoling-v0.1.20.apk` 与其 `.sha256` 未被覆盖。真实 Provider 改期审批、Activity 重建恢复和批准后 WorkManager 闭环仍待在 Redmi 配置有效 Provider 后验收。
+
 ## 2026-10-02 发布 v0.1.20（versionCode 21）
 
 - 发布范围：Run/Task Runtime v2 P0-b、Room v39、取消与恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。
