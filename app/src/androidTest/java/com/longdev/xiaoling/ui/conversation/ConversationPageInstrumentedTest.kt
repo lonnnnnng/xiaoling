@@ -108,6 +108,38 @@ class ConversationPageInstrumentedTest {
     }
 
     @Test
+    fun rendersBoundedGenUiAndOnlyFillsPromptWhenButtonIsPressed() {
+        val actions = FakeConversationActions()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationPage(
+                    state = ConversationProjection.project(
+                        chatMessages = listOf(
+                            ChatMessage(
+                                role = "assistant",
+                                text = "可选操作：\n```xiaoling-ui\n" +
+                                    "{\"type\":\"card\",\"version\":1,\"title\":\"下一步\",\"items\":[" +
+                                    "{\"type\":\"button\",\"id\":\"settings\",\"label\":\"打开设置\",\"action\":\"打开设置\"}" +
+                                    "]}\n```",
+                            ),
+                        ),
+                    ),
+                    actions = actions,
+                    visible = true,
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("下一步").assertExists()
+        composeRule.onNodeWithText("打开设置").performClick()
+
+        composeRule.runOnIdle {
+            assertEquals("打开设置", actions.lastPrompt)
+            assertEquals(0, actions.sendCount)
+        }
+    }
+
+    @Test
     fun directAgentGoalCardSummarizesVerifiedDeviceActionsAndRefreshesCurrentFact() {
         val actions = FakeConversationActions()
         val context = VerifiedAgentContext(

@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import com.longdev.xiaoling.knowledge.KnowledgeAnswerabilityUserNotice
 import com.longdev.xiaoling.knowledge.KnowledgeReference
 import com.longdev.xiaoling.knowledge.KnowledgeReferenceStatus
+import com.longdev.xiaoling.genui.GenUiPolicy
 import com.longdev.xiaoling.model.ImageAttachment
 import com.longdev.xiaoling.model.MessagePart
 import com.longdev.xiaoling.ui.ChatMessage
@@ -173,6 +174,7 @@ internal fun ChatBubble(
                     onOpenContact = onOpenContact,
                     onOpenLocalNote = onOpenLocalNote,
                     onOpenMemory = onOpenMemory,
+                    onReuseUserMessage = onReuseUserMessage,
                 )
                 KnowledgeReferencesContent(
                     messageId = message.id,
@@ -258,11 +260,29 @@ private fun MessageBodyParts(
     onOpenContact: (String) -> Unit,
     onOpenLocalNote: (String) -> Unit,
     onOpenMemory: (String) -> Unit,
+    onReuseUserMessage: (String) -> Unit,
 ) {
+    val genUiProjection = message
+        .takeIf { it.role == "assistant" }
+        ?.let { GenUiPolicy.projectAssistantText(it.text) }
     message.effectiveParts().forEachIndexed { index, part ->
         if (index > 0) Spacer(Modifier.height(7.dp))
         when (part) {
-            is MessagePart.Text -> MessageTextPart(message, part.text, contentColor)
+            is MessagePart.Text -> {
+                if (genUiProjection != null && part.text == message.text) {
+                    if (genUiProjection.textWithoutSpec.isNotBlank()) {
+                        MessageTextPart(message, genUiProjection.textWithoutSpec, contentColor)
+                    }
+                    GenUiMessageContent(
+                        document = genUiProjection.document,
+                        contentColor = contentColor,
+                        // long：按钮只回填用户输入，不自动发送或调用工具，保留现有确认边界。
+                        onAction = onReuseUserMessage,
+                    )
+                } else {
+                    MessageTextPart(message, part.text, contentColor)
+                }
+            }
             is MessagePart.Reasoning -> ReasoningMessagePartContent(part, contentColor)
             is MessagePart.Image -> ImageMessagePartContent(part)
             is MessagePart.Document -> DocumentMessagePartContent(part, contentColor)

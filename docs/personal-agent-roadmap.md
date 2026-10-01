@@ -2587,3 +2587,10 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 第 133 阶段已完成第一版 ACI 只读桥：能力必须显式白名单，发现结果只包含 SAFE 工具；调用只接受 `FOREGROUND + DIRECT`，重新执行工具参数校验，不改变 Profile、Skill、MCP 或设备动作权限。
 - 第 133 阶段已完成插件声明层：版本化 manifest、权限枚举、安装/升级/启停/卸载状态机；安装和升级默认停用，版本不能回退，当前只允许 `DECLARATIVE_MANIFEST_ONLY`，不加载外部代码。
 - 下一切片：为远程草稿接入已有会话草稿投影与持久化去重；为 ACI 接入设置页只读能力发现；为插件 manifest 增加签名/来源指纹和 Room 持久化。网络 Channel、远程执行、插件代码沙箱和设备动作继续保持关闭。
+
+## 第三组启动：GenUI、代码执行与多平台
+
+- 第三组首个 GenUI 切片已完成：assistant 文本中的 `xiaoling-ui` fenced JSON 只允许单层 `card / text / button`，严格限制版本、节点数量、文本长度、控制字符和 action 内容；解析失败回退普通 Markdown。
+- GenUI 按钮只把 action 回填到当前输入框，不自动发送、不调用网络、不执行代码或系统动作；该切片不改 Room Schema，保留既有消息历史兼容性。
+- 代码执行仍沿用当前工作区/终端的受限 `/system/bin/sh` 能力，尚未开放独立 Python/JavaScript 运行时、任意脚本执行或 PTY；下一切片先冻结语言、文件范围、审批和资源上限契约。
+- 多平台仍保持 Android 生产实现不变；下一切片先建立不依赖 Context、Room、Keystore、Accessibility 和 Compose 的 shared Agent contract/runtime 骨架，再分别增加 Android/iOS target 编译门禁，不把 Android 真机结果当作其他平台验收。
