@@ -1745,9 +1745,23 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun stopGenerating() {
-        // long: 停止生成是用户接管当前 Run 的入口，必须取消真实网络请求，而不是只隐藏 loading。
-        agentApprovalDecisionCoordinator.cancelActive()
-        sendMessageJob?.cancel()
+        val runId = uiState.activeAgentRun?.run?.id
+        val reason = "用户停止 Agent 任务"
+        if (runId == null) {
+            agentApprovalDecisionCoordinator.cancelActive()
+            sendMessageJob?.cancel()
+            return
+        }
+        viewModelScope.launch {
+            // long: 先把用户停止意图写入 Room，再取消网络协程；进程若在 Runtime finally 前退出，启动恢复仍能识别这是用户取消而不是普通崩溃。
+            runCatching {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    agentRunRepository.requestCancel(runId, reason)
+                }
+            }
+            agentApprovalDecisionCoordinator.cancelActive()
+            sendMessageJob?.cancel()
+        }
     }
 
     override fun refreshAgentRunHistory() {

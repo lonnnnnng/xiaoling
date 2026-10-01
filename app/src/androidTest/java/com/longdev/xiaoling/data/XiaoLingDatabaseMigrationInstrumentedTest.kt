@@ -380,6 +380,45 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
     }
 
     @Test
+    fun migrate38To39AddsDurableCancelRequestFieldsWithoutInventingHistory() {
+        migrationHelper.createDatabase(CANCEL_REQUEST_MIGRATION_DATABASE_NAME, 38).apply {
+            execSQL(
+                """
+                INSERT INTO agent_runs(
+                    id, retryOfRunId, conversationId, userMessageId, goal, status,
+                    result, errorMessage, createdAt, updatedAt, completedAt, rootRunId, parentRunId
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any?>("run-legacy-cancel", null, "conversation-1", "message-1", "读取当前时间", "THINKING", null, null, 1L, 2L, null, null, null),
+            )
+            close()
+        }
+
+        val migrated = migrationHelper.runMigrationsAndValidate(
+            CANCEL_REQUEST_MIGRATION_DATABASE_NAME,
+            39,
+            true,
+            *XiaoLingDatabase.migrations(),
+        )
+
+        migrated.query("PRAGMA table_info(agent_runs)").use { cursor ->
+            val columns = buildSet {
+                while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+            assertTrue("cancelRequestedAt" in columns)
+            assertTrue("cancelRequestedReason" in columns)
+        }
+        migrated.query(
+            "SELECT cancelRequestedAt, cancelRequestedReason FROM agent_runs WHERE id = 'run-legacy-cancel'",
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("cancelRequestedAt")))
+            assertTrue(cursor.isNull(cursor.getColumnIndexOrThrow("cancelRequestedReason")))
+        }
+        migrated.close()
+    }
+
+    @Test
     fun migrate12To17CreatesWorkflowAndScheduledTaskLedgerTables() {
         migrationHelper.createDatabase(WORKFLOW_MIGRATION_DATABASE_NAME, 12).close()
 
@@ -1494,5 +1533,6 @@ class XiaoLingDatabaseMigrationInstrumentedTest {
         private const val GOAL_VERIFICATION_MIGRATION_DATABASE_NAME = "xiaoling-goal-verification-migration-test"
         private const val NOTE_EDIT_MIGRATION_DATABASE_NAME = "xiaoling-note-edit-migration-test"
         private const val RUN_SESSION_MIGRATION_DATABASE_NAME = "xiaoling-run-session-migration-test"
+        private const val CANCEL_REQUEST_MIGRATION_DATABASE_NAME = "xiaoling-cancel-request-migration-test"
     }
 }

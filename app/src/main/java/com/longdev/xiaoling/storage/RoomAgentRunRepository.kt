@@ -388,13 +388,59 @@ class RoomAgentRunRepository(
         )
     }
 
+    suspend fun requestCancel(runId: String, reason: String): Boolean {
+        require(reason.isNotBlank()) { "取消原因不能为空" }
+        return database.withTransaction {
+            val dao = database.agentRunDao()
+            val run = dao.getRun(runId) ?: return@withTransaction false
+            if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction false
+            val now = System.currentTimeMillis()
+            val updatedRows = dao.requestCancelIfActive(
+                runId = runId,
+                reason = reason,
+                requestedAt = now,
+                terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
+            )
+            val freshRun = dao.getRun(runId) ?: return@withTransaction false
+            if (freshRun.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction false
+            if (updatedRows == 1) {
+                appendEventInternal(
+                    runId = runId,
+                    type = AgentEventTypes.RUN_CANCEL_REQUESTED,
+                    message = reason,
+                    metadata = RunEventMetadata.Reason(reason),
+                )
+            }
+            freshRun.cancelRequestedAt != null
+        }
+    }
+
     suspend fun cancelActiveRun(runId: String, reason: String): Boolean {
         require(reason.isNotBlank()) { "取消原因不能为空" }
         return database.withTransaction {
             val dao = database.agentRunDao()
             val run = dao.getRun(runId) ?: return@withTransaction false
             if (run.status in TERMINAL_RUN_STATUS_NAMES) return@withTransaction false
-            val detail = loadDetail(run)
+            val now = System.currentTimeMillis()
+            val requestRows = dao.requestCancelIfActive(
+                runId = runId,
+                reason = reason,
+                requestedAt = now,
+                terminalStatuses = TERMINAL_RUN_STATUS_NAMES,
+            )
+            val requestedRun = dao.getRun(runId) ?: return@withTransaction false
+            if (requestedRun.status in TERMINAL_RUN_STATUS_NAMES || requestedRun.cancelRequestedAt == null) {
+                return@withTransaction false
+            }
+            if (requestRows == 1) {
+                appendEventInternal(
+                    runId = runId,
+                    type = AgentEventTypes.RUN_CANCEL_REQUESTED,
+                    message = reason,
+                    metadata = RunEventMetadata.Reason(reason),
+                )
+            }
+            val detail = loadDetail(requestedRun)
             // long: 用户停止必须同时关闭当前活动步骤和审批；只改 Run 会让任务中心继续显示可执行的中间态，后续重试也会误判副作用边界。
             detail.snapshot.steps
                 .filter { it.status == AgentStepStatus.PENDING || it.status == AgentStepStatus.RUNNING }
@@ -404,7 +450,6 @@ class RoomAgentRunRepository(
                 .forEach { request ->
                     decideApprovalRequest(request.id, ApprovalRequestStatus.CANCELLED, reason)
                 }
-            val now = System.currentTimeMillis()
             val updatedRows = dao.updateRunStatusIfActive(
                 runId = runId,
                 status = AgentRunStatus.CANCELLED.name,
@@ -432,6 +477,7 @@ class RoomAgentRunRepository(
         val resumable = dao.getRunsByStatuses(ACTIVE_RUN_STATUS_NAMES)
             .filter { runIds == null || it.id in runIds }
             .mapNotNull { run ->
+                if (run.cancelRequestedAt != null) return@mapNotNull null
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail)
                 if (assessment.kind != AgentRunResumeKind.APPROVAL_WAIT) {
@@ -476,7 +522,7 @@ class RoomAgentRunRepository(
             listOf(AgentRunStatus.EXECUTING.name, AgentRunStatus.VERIFYING.name),
         )
         return candidates
-            .filter { runIds == null || it.id in runIds }
+            .filter { (runIds == null || it.id in runIds) && it.cancelRequestedAt == null }
             .mapNotNull { run ->
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail, definitionLookup, committedVerificationSupport)
@@ -518,7 +564,7 @@ class RoomAgentRunRepository(
     suspend fun recoverVerifiedToolRuns(runIds: Set<String>? = null): List<AgentRunDetailRecord> {
         val dao = database.agentRunDao()
         return dao.getRunsByStatuses(listOf(AgentRunStatus.VERIFYING.name))
-            .filter { runIds == null || it.id in runIds }
+            .filter { (runIds == null || it.id in runIds) && it.cancelRequestedAt == null }
             .mapNotNull { run ->
                 val detail = loadDetail(run)
                 val assessment = AgentRunResumePolicy.assess(detail)
@@ -698,13 +744,14 @@ class RoomAgentRunRepository(
                     definitionLookup,
                     committedVerificationSupport,
                 )
-                if (resumeAssessment.kind == AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT) {
+                if (freshRun.cancelRequestedAt == null && resumeAssessment.kind == AgentRunResumeKind.PERSISTED_TOOL_FAILURE_SETTLEMENT) {
                     val recovery = checkNotNull(resumeAssessment.persistedToolFailure) {
                         "恢复策略缺少失败 ToolResult 收敛边界"
                     }
                     return@withTransaction settlePersistedToolFailure(detail, recovery, resumeAssessment.reason)
                 }
                 if (
+                    freshRun.cancelRequestedAt == null &&
                     resumeAssessment.kind ==
                     AgentRunResumeKind.PERSISTED_TOOL_VERIFICATION_FAILURE_SETTLEMENT
                 ) {
@@ -717,7 +764,7 @@ class RoomAgentRunRepository(
                         resumeAssessment.reason,
                     )
                 }
-                if (preserveResumableCandidates && resumeAssessment.canResumeInPlace) {
+                if (freshRun.cancelRequestedAt == null && preserveResumableCandidates && resumeAssessment.canResumeInPlace) {
                     return@withTransaction false
                 }
                 val fromStatus = AgentRunStatus.valueOf(freshRun.status)
@@ -1226,6 +1273,8 @@ class RoomAgentRunRepository(
         completedAt = completedAt,
         rootRunId = rootRunId,
         parentRunId = parentRunId,
+        cancelRequestedAt = cancelRequestedAt,
+        cancelRequestedReason = cancelRequestedReason,
     )
 
     private fun AgentStepRecord.toEntity() = AgentStepEntity(
@@ -1270,6 +1319,8 @@ class RoomAgentRunRepository(
         completedAt = completedAt,
         rootRunId = rootRunId,
         parentRunId = parentRunId,
+        cancelRequestedAt = cancelRequestedAt,
+        cancelRequestedReason = cancelRequestedReason,
     )
 
     private fun AgentStepEntity.toRecord() = AgentStepRecord(

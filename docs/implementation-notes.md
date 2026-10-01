@@ -2504,7 +2504,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、独立 ProcessExitObservation、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v32，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v32 的关键增量和全新 v32 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表；v29→v30 增加按 Provider/模型隔离的 Embedding 索引与检索身份；v30→v31 增加 top1/top2/margin/候选数 shadow 字段；v31→v32 增加候选均值、总体标准差和 top1 z-score，所有迁移都不从旧正文、历史 JSON、当前向量或退出时间邻近关系猜造事实。
+- 数据库当前版本为 v39，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v39 的关键增量和全新 v39 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表；v29→v30 增加按 Provider/模型隔离的 Embedding 索引与检索身份；v30→v31 增加 top1/top2/margin/候选数 shadow 字段；v31→v32 增加候选均值、总体标准差和 top1 z-score；v32→v33 创建匿名 answerability shadow 账本；v33→v34 为 Workflow 增加目标包；v34→v35 增加完成标准和目标级判定；v35→v36 增加笔记 revision 与编辑幂等账本；v36→v37 增加 Skill 来源审计字段；v37→v38 增加 Run lineage；v38→v39 增加持久化取消请求时间与原因。所有迁移都不从旧正文、历史 JSON、当前向量、退出时间邻近关系或旧 Run 文案猜造事实。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。
@@ -2669,3 +2669,12 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - `AgentPluginManifest` 新增可选来源描述：HTTPS URL、固定 commit（7 至 64 位小写提交指纹）和 64 位小写内容 SHA-256；同一插件同一版本的来源或内容指纹变化会被拒绝。
 - 这只是声明完整性和来源可审计性边界，不是签名验证，也不加载外部代码；插件仍必须是 `DECLARATIVE_MANIFEST_ONLY`，安装/升级继续默认停用。
 - JVM 第二组基础测试新增来源 URL、commit、内容指纹和同版本漂移拒绝覆盖；本轮 APK 已重新构建，Debug SHA-256 为 `5ab688940dafca2d68a50e1a9c7ae3acaa9878a9b56c527ca479454532fb6a6c`，AndroidTest SHA-256 为 `30d785edd3746b615801622f2a9cd3d8162b08a019f7b0220c6376d14e7d7914`。
+
+## 第四组 P0-b：Run Session 映射、取消请求持久化与真机基线（2026-10-01）
+
+- Android `AgentRunRecord`、Room `AgentRunEntity` 与 shared `SharedAgentRunSession` 已统一投影 `rootRunId / parentRunId`、状态、事件序号和取消请求事实；Room 数据库升级到 v39，旧 v38 Run 的 `cancelRequestedAt / cancelRequestedReason` 保持 `null`，不从历史状态臆造用户意图。
+- `requestCancel()` 在 Room transaction 中原子写入取消请求时间、首次原因和 `run.cancel_requested` 事件；重复请求幂等并保留首次原因。`cancelActiveRun()` 先持久化请求，再关闭活动 Step/Approval，最后进入 `CANCELLED`。带取消请求的 Run 禁止迟到 `COMPLETED / FAILED` 覆盖，但允许唯一的 `CANCELLED` 收敛。
+- 启动恢复跳过已请求取消的活动 Run，并在恢复收敛中固定关闭为取消；`CANCELLED` 的 shared snapshot 仍保留 `cancelRequested=true`，因此 Activity 重建、进程恢复和 attach/replay 不会丢失用户停止事实。
+- 已验证：`./gradlew :shared:allTests :app:testDebugUnitTest`、`./gradlew :app:assembleDebugAndroidTest :app:lintDebug` 和 `./gradlew :app:assembleDebug` 均成功；schema `app/schemas/com.longdev.xiaoling.data.XiaoLingDatabase/39.json` 已生成。目标 Redmi `wsvwypiz7xwslvl7` 安装最新主 APK 与 instrumentation APK 后，迁移测试 `OK (1 test)`，取消请求/迟到完成测试 `OK (1 test)`。
+- 当前 Provider 真实 E2E 仍未验证：Redmi 当前没有可用 Provider，Stage264 在 `selectedProviderOrFallback()` 前置检查处结束，未进入模型业务链路；本轮没有读取、输出或提交任何 Provider 密钥、Token 或其他凭据。
+- 这一切片完成 Room→shared 的可回放取消边界，但没有开放旧模型协程恢复、未知提交重放、后台远程执行或新的工具权限；下一步仍按路线图推进 Tool Catalog/Executor 统一投影。

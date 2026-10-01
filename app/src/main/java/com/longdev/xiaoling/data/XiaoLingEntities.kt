@@ -114,6 +114,8 @@ data class AgentRunEntity(
     val completedAt: Long?,
     val rootRunId: String? = null,
     val parentRunId: String? = null,
+    val cancelRequestedAt: Long? = null,
+    val cancelRequestedReason: String? = null,
 )
 
 @Entity(

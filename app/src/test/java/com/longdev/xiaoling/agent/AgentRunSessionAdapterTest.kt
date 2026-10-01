@@ -4,6 +4,7 @@ import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 import com.longdev.xiaoling.shared.agent.SharedAgentRunSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunSessionAdapterTest {
@@ -89,5 +90,32 @@ class AgentRunSessionAdapterTest {
         assertEquals(listOf(1L, 2L, 3L), sharedSnapshot.events.map { it.sequence })
         assertEquals(SharedAgentRunState.COMPLETED, restored.state)
         assertEquals(sharedSnapshot.events, restored.snapshot().events)
+    }
+
+    @Test
+    fun cancelledRoomRunKeepsDurableCancelRequestInSharedSnapshot() {
+        val roomSnapshot = AgentRunSnapshot(
+            run = AgentRunRecord(
+                id = "run-cancelled",
+                conversationId = "conversation-cancelled",
+                userMessageId = "message-cancelled",
+                goal = "保留取消意图",
+                status = AgentRunStatus.CANCELLED,
+                result = null,
+                errorMessage = "用户停止 Agent 任务",
+                createdAt = 1L,
+                updatedAt = 3L,
+                completedAt = 3L,
+                cancelRequestedAt = 2L,
+                cancelRequestedReason = "用户停止 Agent 任务",
+            ),
+            steps = emptyList(),
+            events = emptyList(),
+        )
+
+        val sharedSnapshot = roomSnapshot.toSharedRunSnapshot()
+
+        assertTrue(sharedSnapshot.cancelRequested)
+        assertEquals(SharedAgentRunState.CANCELLED, SharedAgentRunSession.restore(sharedSnapshot).state)
     }
 }

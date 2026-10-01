@@ -116,7 +116,9 @@ interface AgentRunDao {
             errorMessage = COALESCE(:errorMessage, errorMessage),
             updatedAt = :updatedAt,
             completedAt = COALESCE(:completedAt, completedAt)
-        WHERE id = :runId AND status NOT IN (:terminalStatuses)
+        WHERE id = :runId
+          AND status NOT IN (:terminalStatuses)
+          AND (cancelRequestedAt IS NULL OR :status = 'CANCELLED')
         """,
     )
     suspend fun updateRunStatusIfActive(
@@ -132,12 +134,32 @@ interface AgentRunDao {
     @Query(
         """
         UPDATE agent_runs
+        SET cancelRequestedAt = :requestedAt,
+            cancelRequestedReason = :reason,
+            updatedAt = :requestedAt
+        WHERE id = :runId
+          AND status NOT IN (:terminalStatuses)
+          AND cancelRequestedAt IS NULL
+        """,
+    )
+    suspend fun requestCancelIfActive(
+        runId: String,
+        reason: String,
+        requestedAt: Long,
+        terminalStatuses: List<String>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE agent_runs
         SET status = :status,
             result = COALESCE(:result, result),
             errorMessage = COALESCE(:errorMessage, errorMessage),
             updatedAt = :updatedAt,
             completedAt = COALESCE(:completedAt, completedAt)
-        WHERE id = :runId AND status = :expectedStatus
+        WHERE id = :runId
+          AND status = :expectedStatus
+          AND (cancelRequestedAt IS NULL OR :status = 'CANCELLED')
         """,
     )
     suspend fun updateRunStatusIfExpected(

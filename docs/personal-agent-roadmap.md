@@ -2619,7 +2619,7 @@ idle -> deciding -> waiting_model -> waiting_approval
 本组按以下顺序推进：
 
 1. **P0-a（已完成）**：在 `:shared` 增加平台无关的 Run Session Contract，冻结 `runId / rootRunId / parentRunId`、状态转移、单终态、递增事件序号、取消请求和 snapshot/restore 语义；只增加纯 Kotlin 测试，不改变现有 Android 生产执行路径。`shared:allTests` 已覆盖 Android JVM 与 iOS Simulator，当前实现见 `shared/src/commonMain/kotlin/com/longdev/xiaoling/shared/agent/SharedAgentRunSession.kt`。
-2. **P0-b**：将 Android `AgentRunLedger` 的 Room 记录映射到该契约，补齐 Activity 重建、进程恢复、attach/replay 和取消边界；旧数据库记录必须保持可读取，失败和终态事件不能被迟到回调覆盖。
+2. **P0-b（已完成，2026-10-01）**：将 Android `AgentRunLedger` 的 Room 记录映射到该契约，补齐 Activity 重建、进程恢复、attach/replay 和取消边界；Room 已升级到 v39，取消请求先持久化再收敛 `CANCELLED`，旧数据库记录保持可读取，失败和终态事件不能被迟到回调覆盖。shared/Android 单元测试、Debug/AndroidTest 构建、Lint，以及 Redmi `wsvwypiz7xwslvl7` 上 v38→v39 迁移和迟到完成阻断测试均通过。Provider 真实模型 E2E 仍因设备无 Provider 配置未验证。
 3. **P1**：把现有 ToolRegistry、shared adapter、MCP 和 Skill 统一投影为 Tool Catalog + Executor，保留当前 Profile、审批、后台和敏感字段门禁。
 4. **P1**：在任务中心展示父子 Run，支持取消、超时、部分失败和重建恢复；Workflow、Remote Channel、ACI 暂不获得派生或写入权限。
 5. **P2**：接入一个签名远程入站 Channel，只落持久收件箱和前台草稿；再升级只读 BrowserSession 的 snapshot/ref、取消和结果证据。

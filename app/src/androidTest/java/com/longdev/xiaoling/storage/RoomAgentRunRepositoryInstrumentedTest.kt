@@ -57,6 +57,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -111,6 +112,37 @@ class RoomAgentRunRepositoryInstrumentedTest {
             listOf("THINKING", "CANCELLED"),
             snapshot.events.filter { it.type == "run.status" }.map { it.message },
         )
+    }
+
+    @Test
+    fun cancelRequestPersistsBeforeTerminalCancellationAndBlocksLateCompletion() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-cancel-request",
+            userMessageId = "message-cancel-request",
+            goal = "验证取消请求持久化",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.THINKING)
+
+        assertTrue(repository.requestCancel(run.id, "用户停止 Agent 任务"))
+        assertTrue(repository.requestCancel(run.id, "重复停止不覆盖首次原因"))
+        val requested = repository.snapshot(run.id)
+        assertEquals(AgentRunStatus.THINKING, requested.run.status)
+        assertNotNull(requested.run.cancelRequestedAt)
+        assertEquals("用户停止 Agent 任务", requested.run.cancelRequestedReason)
+        assertEquals(
+            1,
+            requested.events.count { it.type == AgentEventTypes.RUN_CANCEL_REQUESTED },
+        )
+
+        repository.updateRunStatus(run.id, AgentRunStatus.COMPLETED, result = "迟到完成")
+        assertEquals(AgentRunStatus.THINKING, repository.snapshot(run.id).run.status)
+
+        assertTrue(repository.cancelActiveRun(run.id, "用户停止 Agent 任务"))
+        val cancelled = repository.snapshot(run.id)
+        assertEquals(AgentRunStatus.CANCELLED, cancelled.run.status)
+        assertNotNull(cancelled.run.cancelRequestedAt)
+        assertEquals("用户停止 Agent 任务", cancelled.run.cancelRequestedReason)
+        assertFalse(repository.cancelActiveRun(run.id, "重复停止"))
     }
 
     @Test

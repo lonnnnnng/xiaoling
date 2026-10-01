@@ -59,6 +59,7 @@ object AgentStepTypes {
 }
 
 object AgentEventTypes {
+    const val RUN_CANCEL_REQUESTED = "run.cancel_requested"
     const val STEP_CREATED = "step.created"
     const val STEP_STATUS = "step.status"
     const val LLM_REQUEST_COMPLETED = "llm.request.completed"
@@ -111,6 +112,8 @@ data class AgentRunRecord(
     val retryOfRunId: String? = null,
     val rootRunId: String? = null,
     val parentRunId: String? = null,
+    val cancelRequestedAt: Long? = null,
+    val cancelRequestedReason: String? = null,
 )
 
 /**
@@ -307,7 +310,7 @@ fun AgentRunSnapshot.toSharedRunSnapshot(): SharedAgentRunSnapshot {
         identity = run.toSharedRunIdentity(),
         state = sharedState,
         eventSequence = projectedEvents.size.toLong(),
-        cancelRequested = sharedState == SharedAgentRunState.CANCEL_REQUESTED,
+        cancelRequested = run.cancelRequestedAt != null,
         events = projectedEvents,
     )
 }

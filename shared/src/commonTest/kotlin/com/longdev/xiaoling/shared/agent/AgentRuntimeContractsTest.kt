@@ -197,6 +197,8 @@ class AgentRuntimeContractsTest {
         session.transition(SharedAgentRunState.CANCELLED, "执行器已停止")
 
         assertEquals(SharedAgentRunState.CANCELLED, session.state)
+        assertTrue(session.cancelRequested)
+        assertEquals(session.snapshot(), SharedAgentRunSession.restore(session.snapshot()).snapshot())
         assertFalse(session.requestCancel("重复停止"))
     }
 

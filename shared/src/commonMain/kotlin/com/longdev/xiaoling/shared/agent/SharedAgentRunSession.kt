@@ -58,16 +58,18 @@ class SharedAgentRunSession private constructor(
     initialState: SharedAgentRunState,
     initialEventSequence: Long,
     initialEvents: List<SharedAgentRunEvent>,
+    initialCancelRequested: Boolean,
 ) {
     private var currentState = initialState
     private var currentEventSequence = initialEventSequence
     private val eventLog = initialEvents.toMutableList()
+    private var currentCancelRequested = initialCancelRequested
 
     val state: SharedAgentRunState
         get() = currentState
 
     val cancelRequested: Boolean
-        get() = currentState == SharedAgentRunState.CANCEL_REQUESTED
+        get() = currentCancelRequested
 
     fun transition(next: SharedAgentRunState, message: String) {
         require(message.isNotBlank()) { "状态事件说明不能为空" }
@@ -88,6 +90,7 @@ class SharedAgentRunSession private constructor(
         if (currentState == SharedAgentRunState.CANCEL_REQUESTED) return true
         require(reason.isNotBlank()) { "取消原因不能为空" }
         val previous = currentState
+        currentCancelRequested = true
         currentState = SharedAgentRunState.CANCEL_REQUESTED
         appendEvent(
             type = SharedAgentRunEventTypes.CANCEL_REQUESTED,
@@ -119,6 +122,7 @@ class SharedAgentRunSession private constructor(
                 initialState = SharedAgentRunState.CREATED,
                 initialEventSequence = 0L,
                 initialEvents = emptyList(),
+                initialCancelRequested = false,
             ).also {
                 it.appendEvent(SharedAgentRunEventTypes.CREATED, "Run Session 已创建")
             }
@@ -137,7 +141,13 @@ class SharedAgentRunSession private constructor(
             require(snapshot.events.mapIndexed { index, event -> event.sequence == index + 1L }.all { it }) {
                 "Run Session 事件序号存在缺口"
             }
-            require(snapshot.cancelRequested == (snapshot.state == SharedAgentRunState.CANCEL_REQUESTED)) {
+            require(
+                when (snapshot.state) {
+                    SharedAgentRunState.CANCEL_REQUESTED -> snapshot.cancelRequested
+                    SharedAgentRunState.CANCELLED -> true
+                    else -> !snapshot.cancelRequested
+                },
+            ) {
                 "Run Session 的取消标记与状态不一致"
             }
             return SharedAgentRunSession(
@@ -145,6 +155,7 @@ class SharedAgentRunSession private constructor(
                 initialState = snapshot.state,
                 initialEventSequence = snapshot.eventSequence,
                 initialEvents = snapshot.events,
+                initialCancelRequested = snapshot.cancelRequested,
             )
         }
     }
