@@ -7,17 +7,17 @@
 <p align="center">
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v37" src="https://img.shields.io/badge/Room-v37-4285F4">
-  <img alt="Release v0.1.19" src="https://img.shields.io/badge/Release-v0.1.19-2E7D32">
+  <img alt="Room v39" src="https://img.shields.io/badge/Room-v39-4285F4">
+  <img alt="Release v0.1.20" src="https://img.shields.io/badge/Release-v0.1.20-2E7D32">
 </p>
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
 ## 下载
 
-- [GitHub Release v0.1.19](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.19)
-- 安装包：`xiaoling-v0.1.19.apk`
-- 完整性校验：`xiaoling-v0.1.19.apk.sha256`
+- [GitHub Release v0.1.20](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.20)
+- 安装包：`xiaoling-v0.1.20.apk`
+- 完整性校验：`xiaoling-v0.1.20.apk.sha256`
 - 系统要求：Android 8.0（API 26）及以上
 
 > 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
@@ -104,19 +104,19 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 | 项目 | 状态 |
 | --- | --- |
-| 正式版本 | `v0.1.19`（`versionCode 20`） |
-| 数据库 | Room v37 |
-| 开发里程碑 | 第 281 阶段发布基线之上，工作树已补齐浏览器、工作区/终端、受限 MCP 和 GitHub Skill 导入 |
+| 正式版本 | `v0.1.20`（`versionCode 21`） |
+| 数据库 | Room v39 |
+| 开发里程碑 | 第四组 Run/Task Runtime v2 P0-b 已完成，包含浏览器、工作区/终端、受限 MCP、GitHub Skill、后台可靠性、TTS、系统助手、插件/ACI/GenUI 与任务中心汇总投影 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |
 | Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-第 281 阶段发布了 `v0.1.19`：完成真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看闭环。正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 2m 1s`；APK 大小 `3,280,434` 字节，SHA-256 为 `a0f413524e71f180d6aafbcd37e2b584e0bfd7a185efc6b379b21ba8fae0720a`。APK 使用固定正式 RSA 4096 证书，APK Signature Scheme v2 与 `zipalign` 校验通过。本次发布未重复运行完整 JVM、全量 Lint、Redmi 全量 instrumentation；第 281 阶段定向 JVM 与 Redmi 真实 Provider 证据仍按验证报告单独记录。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+`v0.1.20` 已发布：完成 Run/Task Runtime v2 的 Room v39 持久化与恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心的超时、部分完成和子 Run 汇总投影。正式 `assembleRelease` 成功；APK 大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`。本版使用新生成的 RSA 4096 正式证书，APK Signature Scheme v2 与 `zipalign` 校验通过。由于证书已更换，不能从 `v0.1.19` 无损覆盖升级，需要先卸载旧版。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
-完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.19`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
+完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.20`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
 
-当前工作树的新增能力已通过 JVM 单测、Debug lint、Debug APK 和 AndroidTest APK 构建；这部分尚未发布为新的 Release，也未安装到 Redmi 或运行 instrumentation。
+本版发布前已通过 shared 全测试、app Debug JVM 单测、Debug/AndroidTest APK 构建和 Debug lint；Redmi 聚焦真机回归通过。未把历史全量 AndroidJUnitRunner 结果冒充本版 Release 全量 instrumentation。
 
 第 264 阶段一次性提醒改期已完成：精确唯一任务、完整时间审批、当前计划指纹核对、系统入队与 Room 原子替换、答案级查看任务均已通过 Redmi 聚焦验收，旧 Run 保持不变。第 265 阶段已在 Redmi 真机完成指定系统计算器闭环：自然语言目标生成计划、用户确认、5 次逐动作审批、每步操作后重新观察与验证，最终读取 `56`；小灵恢复后显示 `7/7` 步骤完成，目标级结论为已验证。第 266 阶段五个可靠性切片已完成：设备观察恢复、模型失败处置、审批取消组合、排队进程对账及长任务预算/未知提交边界均已用局部证据锁定；不恢复旧协程、不重放未知副作用、不因模拟回收引入后台服务。第 267 阶段修正目标级验证对 AOSP/Google 计算器与时钟等已登记等价包族的兼容，未扩大白名单；下一步在 Redmi 用已有白名单包族做一次真实个人任务闭环验收。
 

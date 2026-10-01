@@ -1,6 +1,10 @@
 # 文档索引
 
-## 当前阶段：第281阶段（已完成）
+## 当前阶段：第四组 Run/Task Runtime v2 P0-b（已完成，v0.1.20 已发布）
+
+- `v0.1.20` 已发布，正式 APK `xiaoling-v0.1.20.apk` 大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。
+- 本版包含 Room v39 的 Run Session/lineage/取消恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。
+- 本版重新生成了正式签名证书，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；因此不能从 `v0.1.19` 无损覆盖升级，安装前需卸载旧版。
 
 - 直接 Agent 已具备 `open_app / tap_ref / type_text` 三类设备动作的目标级结果查看实现；结果卡片只消费这些动作自身的已验证后置事实。
 - “重新读取当前事实”从对话页可见按钮触发新的 Accessibility snapshot；开始读取、捕获失败或异常时会清除旧摘要，不把历史 Run 当作当前权威事实。

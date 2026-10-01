@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-02 发布 v0.1.20（versionCode 21）
+
+- Release 使用新生成的本地 `releaseLocal` RSA 4096 证书构建，R8、资源收缩、`lintVitalRelease`、APK Signature Scheme v2 和 `zipalign` 均通过。
+- 正式 APK：`outputs/release/xiaoling-v0.1.20.apk`，大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`。
+- 因正式签名证书更换，`v0.1.19` 安装包不能无损覆盖本版；本版发布说明要求用户先卸载旧版再安装。
+
 ## 2026-10-01 第四组：Run/Task Runtime v2 P0-b（Run lineage 持久化）
 
 - 对照 RikkaHub、Operit、OmniBot、Eta、Aether 和 ZorvAI 后，先冻结跨入口 Run Session 契约，再扩展远程 Channel、浏览器动作和插件执行；避免各入口各自定义取消、恢复和完成语义。

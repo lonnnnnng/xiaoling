@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-02 发布 v0.1.20（versionCode 21）
+
+- 发布包含第四组 Run/Task Runtime v2 P0-b、Room v39、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。
+- 正式 APK `outputs/release/xiaoling-v0.1.20.apk`：`3,379,922` 字节，SHA-256 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；APK v2/RSA 4096 签名和 `zipalign` 通过。
+- 本版使用新生成的正式证书，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；旧 `v0.1.19` 不能直接覆盖升级，需先卸载旧版。
+
 ## 2026-10-01：第四组 Run/Task Runtime v2 P0-b（Run lineage 持久化已完成）
 
 - `AgentRunRecord`、Room `agent_runs` 和 DAO 已增加可空 `rootRunId / parentRunId` 及查询索引；普通 Run 以自身为 root，retry Run 继承来源 root 并把来源 Run 记录为 parent。

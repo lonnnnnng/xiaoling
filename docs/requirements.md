@@ -1,5 +1,11 @@
 # 产品需求
 
+## 2026-10-02 发布 v0.1.20（versionCode 21）
+
+- 发布范围包括 Run/Task Runtime v2 P0-b、Room v39、取消与恢复边界、后台任务可靠性、前台 TTS、系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。
+- 正式 APK `outputs/release/xiaoling-v0.1.20.apk` 大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`，已通过 APK v2/RSA 4096 签名和 `zipalign` 校验。
+- 本版使用新生成的正式签名证书，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；旧 `v0.1.19` 无法直接覆盖升级，需先卸载旧版。
+
 ## 2026-09-27 发布 v0.1.19（versionCode 20）
 
 - 发布版本包含第281阶段的目标级结果、Activity 重建后恢复和当前权威事实查看能力；不改变任意 App、后台/定时设备自动化、MCP、远程 Channel、多 Agent 或本地模型边界。
