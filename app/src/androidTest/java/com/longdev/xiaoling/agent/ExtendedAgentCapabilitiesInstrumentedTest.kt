@@ -76,7 +76,8 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
     @Test
     fun browserSessionClicksCurrentPublicLinkAndRotatesSnapshot() = runBlocking {
         val reader = OkHttpBrowserPageReader()
-        val opened = reader.openSession("https://httpbin.org/links/2/1")
+        // long: 使用 IANA 的固定公开页面，避免依赖 httpbin 动态夹具导致真机验收被偶发 5xx 阻断。
+        val opened = reader.openSession("https://www.iana.org/help/example-domains")
         val link = opened.page.linkRefs.firstOrNull()
         requireNotNull(link) { "public fixture must expose at least one link reference" }
 
@@ -84,7 +85,7 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
 
         assertEquals(opened.id, clicked.id)
         assertNotEquals(opened.snapshotId, clicked.snapshotId)
-        assertTrue(clicked.page.url.startsWith("https://httpbin.org/links/2/0"))
+        assertTrue(clicked.page.url.startsWith("https://www.iana.org/"))
         assertTrue(clicked.page.linkRefs.all { it.ref.startsWith("link-${clicked.snapshotId}-") })
         assertTrue(runCatching { reader.clickLink(opened.id, opened.snapshotId, link.ref) }.isFailure)
         println("DEVICE_BROWSER_CLICK public_ref=true stale_snapshot_rejected=true navigation_rotates_snapshot=true")

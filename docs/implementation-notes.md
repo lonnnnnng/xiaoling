@@ -13,6 +13,7 @@
 - Room 从 v39 升到 v40。39→40 只新增 nullable 列，旧 ToolResult 的证据保持 `null`，不从历史正文或 URL 猜造；schema `app/schemas/.../40.json` 已生成。
 - JVM `RunEventMetadataCodecTest`、Redmi `RoomAgentRunRepositoryInstrumentedTest` 全类 `55/55`、Redmi `XiaoLingDatabaseMigrationInstrumentedTest` 全类 `35/35` 通过；新增证据重建测试和 39→40 迁移测试均为 `OK (1 test)`。
 - 本切片只完成只读浏览器证据的跨事件、Room 和恢复链；网页脚本、Cookie、登录态、多 Tab、截图、下载及后台浏览器执行边界保持不变。完整门禁和提交推送在本轮收尾执行。
+- Redmi 扩展能力回归的公开链接夹具改用 `www.iana.org/help/example-domains`，不再依赖偶发返回 5xx 的 `httpbin.org`；该调整只稳定真机测试样本，不改变生产浏览器的 URL、重定向或私网拒绝策略。
 
 ## 2026-10-02：Provider 真机门禁前置收敛
 
