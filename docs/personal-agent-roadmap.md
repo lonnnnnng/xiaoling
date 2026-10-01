@@ -2594,3 +2594,4 @@ idle -> deciding -> waiting_model -> waiting_approval
 - GenUI 按钮只把 action 回填到当前输入框，不自动发送、不调用网络、不执行代码或系统动作；该切片不改 Room Schema，保留既有消息历史兼容性。
 - 代码执行第一片已收紧 `terminal.execute`：只接受固定白名单 `command_id + args`，通过 argv 直传，拒绝 `sh -c`、管道、重定向、命令替换和未知命令；持久 `terminal.open/write` 仍是单独的交互会话，尚未开放独立 Python/JavaScript 运行时、任意脚本执行或 PTY。后续若开放语言运行时，必须先冻结语言、文件范围、审批和资源上限契约。
 - 多平台第一片已建立不依赖 Context、Room、Keystore、Accessibility 和 Compose 的 `:shared` Agent contract/runtime 骨架，已接入 Android app 依赖并完成 Android 与 iOS Simulator target 编译/测试门禁；Android 生产实现仍保持不变，Android 真机结果不作为其他平台验收。
+- `:shared` 已补充平台无关的最小执行循环：冻结工具目录校验、逐次审批、执行结果账本、步骤上限和 `COMPLETED / APPROVAL_REJECTED / INVALID_TOOL / STEP_LIMIT_EXCEEDED` 终态；Android 现有 Runtime 尚未替换，跨平台 adapter 仍需后续逐步接入。
