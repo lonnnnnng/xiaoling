@@ -4,6 +4,7 @@ import com.longdev.xiaoling.agent.AgentRunSnapshot
 import com.longdev.xiaoling.agent.toSharedRunSnapshot
 import com.longdev.xiaoling.shared.agent.SharedAgentRunSession
 import com.longdev.xiaoling.shared.agent.SharedAgentRunSnapshot
+import com.longdev.xiaoling.shared.agent.SharedAgentRunState
 
 internal data class AgentConversationRuntimeState(
     val activeRun: AgentRunSnapshot? = null,
@@ -17,20 +18,25 @@ internal class AgentConversationRuntimeStateStore {
     fun rememberRun(snapshot: AgentRunSnapshot) {
         val conversationId = snapshot.run.conversationId
         // long: Run 卡片属于创建它的会话；按会话替换可避免后台 Run 更新时覆盖用户正在查看的另一个会话。
-        states[conversationId] = stateFor(conversationId).copy(
+        val current = stateFor(conversationId)
+        val sharedSessionSnapshot = snapshot.toSharedRunSnapshotOrNull()
+        states[conversationId] = current.copy(
             activeRun = snapshot,
-            sharedSessionSnapshot = snapshot.toSharedRunSnapshotOrNull(),
+            sharedSessionSnapshot = sharedSessionSnapshot,
+            pendingApproval = current.pendingApproval.takeUnless { sharedSessionSnapshot?.isCancellationState() == true },
         )
     }
 
     fun attachRecoveredRun(snapshot: AgentRunSnapshot): Boolean {
         val sharedSnapshot = snapshot.toSharedRunSnapshotOrNull() ?: return false
         // long: Activity 重建只接受能按 Room 账本恢复为连续 shared Session 的 Run；事件混链或序号投影失败时不展示审批入口。
-        SharedAgentRunSession.restore(sharedSnapshot)
+        runCatching { SharedAgentRunSession.restore(sharedSnapshot) }.getOrNull() ?: return false
         val conversationId = snapshot.run.conversationId
-        states[conversationId] = stateFor(conversationId).copy(
+        val current = stateFor(conversationId)
+        states[conversationId] = current.copy(
             activeRun = snapshot,
             sharedSessionSnapshot = sharedSnapshot,
+            pendingApproval = current.pendingApproval.takeUnless { sharedSnapshot.isCancellationState() },
         )
         return true
     }
@@ -68,4 +74,8 @@ internal class AgentConversationRuntimeStateStore {
 
     private fun AgentRunSnapshot.toSharedRunSnapshotOrNull(): SharedAgentRunSnapshot? =
         runCatching { toSharedRunSnapshot() }.getOrNull()
+
+    private fun SharedAgentRunSnapshot.isCancellationState(): Boolean =
+        state == SharedAgentRunState.CANCEL_REQUESTED ||
+            state == SharedAgentRunState.CANCELLED
 }

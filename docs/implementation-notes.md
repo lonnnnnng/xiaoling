@@ -2714,6 +2714,13 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - evidence 暂不扩展 `MessagePart`、Room entity、RunEvent metadata 或数据库 schema，避免在 UI 尚未消费前重复保存页面指纹；后续若需要任务中心审计，再单独设计持久化迁移。
 - 已验证：`ExtendedAgentCapabilitiesTest`、`MinimalAgentRuntimeTest` 与 `VerifiedAgentContextAnswerabilityCandidateTest` 定向 JVM 测试通过；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionKeepsAndRotatesSnapshotReferences` 增加 typed evidence 的 kind、调用绑定、SHA-256 和脱敏来源断言；最终门禁 `./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`。
 
+## 2026-10-02 P2：跨入口取消请求与 attach 统一投影
+
+- Android Room 的 `cancelRequestedAt / cancelRequestedReason` 先于协程终态落库时，`AgentRunRecord.toSharedRunState()` 现在把所有非终态 Run 投影为 shared `CANCEL_REQUESTED`；只有真正的 `CANCELLED`、`FAILED` 或其他终态继续沿原状态映射，避免 shared snapshot 同时出现活动状态和 `cancelRequested=true` 的矛盾组合。
+- `AgentConversationRuntimeStateStore.attachRecoveredRun()` 对 shared restore 失败统一 fail-closed，并在 `CANCEL_REQUESTED / CANCELLED` attach 或实时 Run 更新时清除旧审批卡；Activity 重建不会重新展示已经持久化取消的审批或执行入口。
+- 该片复用既有 Room 字段、`run.cancel_requested` / `run.cancelled` 事件和终态事务，不新增 schema，也不改变前台 request→协程 finally 或后台 `cancelActiveRun()` 的结算顺序；它只统一跨入口 attach 的中间态证据。
+- 已验证：`AgentRunSessionAdapterTest`、`AgentConversationRuntimeStateStoreTest` 和 Redmi `RoomAgentRunRepositoryInstrumentedTest#activeCancelRequestAttachesAsSharedCancellationStateBeforeTerminalSettlement` 覆盖活动审批 Run 的取消请求、shared restore、审批清除和取消事件保留。
+
 ## 第四组 P1 第一切片：Tool Catalog 与 Executor 边界（2026-10-01）
 
 - 新增 `AgentToolCatalog` 与 `SharedToolCatalog`：目录按工具名稳定排序，合并 Native/Skill/MCP/Plugin 来源；同名定义的恢复契约指纹不一致时拒绝合并，目录快照携带版本和内容指纹。

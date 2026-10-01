@@ -57,6 +57,32 @@ class AgentRunSessionAdapterTest {
     }
 
     @Test
+    fun activeCancelRequestMapsToSharedCancellationStateBeforeRoomTerminalStatus() {
+        val record = AgentRunRecord(
+            id = "run-cancel-requested",
+            conversationId = "conversation-cancel-requested",
+            userMessageId = "message-cancel-requested",
+            goal = "保留取消请求",
+            status = AgentRunStatus.WAITING_APPROVAL,
+            result = null,
+            errorMessage = null,
+            createdAt = 1L,
+            updatedAt = 2L,
+            completedAt = null,
+            cancelRequestedAt = 2L,
+            cancelRequestedReason = "用户停止 Agent 任务",
+        )
+
+        assertEquals(SharedAgentRunState.CANCEL_REQUESTED, record.toSharedRunState())
+        assertEquals(
+            SharedAgentRunState.CANCEL_REQUESTED,
+            SharedAgentRunSession.restore(
+                AgentRunSnapshot(record, emptyList(), emptyList()).toSharedRunSnapshot(),
+            ).state,
+        )
+    }
+
+    @Test
     fun roomSnapshotProjectsOrderedEventsIntoRestorableSharedSnapshot() {
         val roomSnapshot = AgentRunSnapshot(
             run = AgentRunRecord(

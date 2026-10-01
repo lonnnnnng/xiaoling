@@ -146,6 +146,30 @@ class RoomAgentRunRepositoryInstrumentedTest {
     }
 
     @Test
+    fun activeCancelRequestAttachesAsSharedCancellationStateBeforeTerminalSettlement() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-active-cancel-attach",
+            userMessageId = "message-active-cancel-attach",
+            goal = "验证活动取消请求的 attach 投影",
+        )
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        assertTrue(repository.requestCancel(run.id, "用户停止 Agent 任务"))
+
+        val requested = repository.snapshot(run.id)
+        val sharedSnapshot = requested.toSharedRunSnapshot()
+        val restored = SharedAgentRunSession.restore(sharedSnapshot)
+
+        assertEquals(AgentRunStatus.WAITING_APPROVAL, requested.run.status)
+        assertEquals(SharedAgentRunState.CANCEL_REQUESTED, sharedSnapshot.state)
+        assertTrue(sharedSnapshot.cancelRequested)
+        assertEquals(SharedAgentRunState.CANCEL_REQUESTED, restored.state)
+        assertEquals(
+            1,
+            requested.events.count { it.type == AgentEventTypes.RUN_CANCEL_REQUESTED },
+        )
+    }
+
+    @Test
     fun roomSnapshotAttachesSharedSessionAndRejectsLateEventsAfterTerminalState() = runBlocking {
         val run = repository.createRun(
             conversationId = "conversation-shared-attach",

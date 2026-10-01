@@ -142,6 +142,16 @@ fun AgentRunStatus.toSharedRunState(): SharedAgentRunState = when (this) {
     AgentRunStatus.BUDGET_EXHAUSTED -> SharedAgentRunState.FAILED
 }
 
+/**
+ * long: 取消请求先于协程终态落库时，attach 必须把活动 Run 投影为 shared 的取消中间态，避免恢复入口继续显示审批或执行入口。
+ */
+fun AgentRunRecord.toSharedRunState(): SharedAgentRunState =
+    if (cancelRequestedAt != null && !status.isTerminal) {
+        SharedAgentRunState.CANCEL_REQUESTED
+    } else {
+        status.toSharedRunState()
+    }
+
 data class AgentStepRecord(
     val id: String,
     val runId: String,
@@ -316,7 +326,7 @@ fun AgentRunSnapshot.toSharedRunSnapshot(): SharedAgentRunSnapshot {
             message = event.message,
         )
     }
-    val sharedState = run.status.toSharedRunState()
+    val sharedState = run.toSharedRunState()
     return SharedAgentRunSnapshot(
         identity = run.toSharedRunIdentity(),
         state = sharedState,

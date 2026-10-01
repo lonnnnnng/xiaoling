@@ -113,6 +113,31 @@ class AgentConversationRuntimeStateStoreTest {
     }
 
     @Test
+    fun attachingActiveCancelRequestRestoresCancellationStateAndClearsApproval() {
+        val store = AgentConversationRuntimeStateStore()
+        val conversationId = "conversation-cancel-requested"
+        store.rememberApproval(approval(requestId = "approval-cancel-requested", conversationId = conversationId))
+        val run = snapshot(
+            runId = "run-cancel-requested",
+            conversationId = conversationId,
+            status = AgentRunStatus.WAITING_APPROVAL,
+            cancelRequestedAt = 2L,
+            cancelRequestedReason = "用户停止 Agent 任务",
+            events = listOf(
+                RunEventRecord("event-1", "run-cancel-requested", "run.created", "Run 已创建", 1L),
+                RunEventRecord("event-2", "run-cancel-requested", "run.cancel_requested", "用户停止 Agent 任务", 2L),
+            ),
+        )
+
+        assertTrue(store.attachRecoveredRun(run))
+
+        val attached = store.stateFor(conversationId)
+        assertEquals(SharedAgentRunState.CANCEL_REQUESTED, attached.sharedSessionSnapshot?.state)
+        assertEquals(run, attached.activeRun)
+        assertNull(attached.pendingApproval)
+    }
+
+    @Test
     fun attachingRunWithMixedEventChainFailsClosed() {
         val store = AgentConversationRuntimeStateStore()
         val run = snapshot(
@@ -131,6 +156,8 @@ class AgentConversationRuntimeStateStoreTest {
         runId: String,
         conversationId: String,
         status: AgentRunStatus = AgentRunStatus.EXECUTING,
+        cancelRequestedAt: Long? = null,
+        cancelRequestedReason: String? = null,
         events: List<RunEventRecord> = emptyList(),
     ) = AgentRunSnapshot(
         run = AgentRunRecord(
@@ -144,6 +171,8 @@ class AgentConversationRuntimeStateStoreTest {
             createdAt = 1L,
             updatedAt = 1L,
             completedAt = null,
+            cancelRequestedAt = cancelRequestedAt,
+            cancelRequestedReason = cancelRequestedReason,
         ),
         steps = emptyList(),
         events = events,
