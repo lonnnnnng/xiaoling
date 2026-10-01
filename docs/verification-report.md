@@ -9,7 +9,7 @@
 - 正式 APK：`outputs/release/xiaoling-v0.1.20.apk`，大小 `3,379,922` 字节，SHA-256 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；对应 `.sha256` 文件已生成。
 - `aapt dump badging` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.20`、`versionCode=21`；`apksigner` 确认单一 RSA 4096 签名者、APK Signature Scheme v2 有效，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；`zipalign -c -P 16 -v 4` 通过。
 - 发布前 shared 全测试、app Debug JVM 单测、Debug/AndroidTest APK 构建、Debug lint 和 Redmi 聚焦真机回归均通过；本次没有把历史全量 AndroidJUnitRunner 结果冒充本版 Release 全量 instrumentation，也未向模拟器发送发布命令。
-- 因本版重新生成正式签名证书，`v0.1.19` 无法直接覆盖升级；用户需先卸载旧版。GitHub Release、Tag 和资产校验结果将在发布完成后补写。
+- 因本版重新生成正式签名证书，`v0.1.19` 无法直接覆盖升级；用户需先卸载旧版。提交 `ef4800ee37ebb13c487d63040039af7780c70a1e` 已推送到 `main`，annotated tag `v0.1.20` 已推送并指向该提交。[GitHub Release v0.1.20](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.20) 为非草稿、非预发布；APK 与 `.sha256` 两项资产均为 `uploaded`，远端 APK digest 与本地 SHA-256 一致，下载回验 `shasum -a 256 -c` 为 `OK`。
 
 ## 2026-09-27 发布 v0.1.19（versionCode 20）
 
