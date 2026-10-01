@@ -1243,7 +1243,7 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_OPEN_TOOL_NAME,
-            description = "打开一个绑定到应用私有工作区的持久终端会话；需要逐次用户确认，最多同时保留 4 个会话。",
+            description = "打开一个绑定到应用私有工作区的结构化终端会话；会话只保存最近一次命令结果，需要逐次用户确认，最多同时保留 4 个会话。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(ToolInputField("cwd", "工作区相对目录，省略表示根目录。", required = false, maxLength = 512)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
@@ -1252,11 +1252,13 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_WRITE_TOOL_NAME,
-            description = "向已打开的持久终端写入 stdin；需要逐次用户确认，单次最多 4,000 个字符。",
+            description = "向已打开的工作区终端会话提交一次固定白名单命令；通过 argv 执行，不写入 shell stdin，需要逐次用户确认。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(
                 ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32),
-                ToolInputField("input", "写入终端 stdin 的文本，通常应包含换行。", required = true, maxLength = WorkspacePolicy.MAX_SESSION_INPUT_CHARS),
+                ToolInputField("command_id", "固定白名单中的命令 ID，例如 printf、echo、pwd。", required = true, maxLength = 32),
+                ToolInputField("args", "JSON 字符串数组，例如 [hello]；禁止 shell 语法。", required = false, maxLength = 4_096),
+                ToolInputField("timeout_ms", "命令最长执行时间。", required = false, type = ToolInputType.INTEGER, minimum = 1.0, maximum = WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS.toDouble()),
             ),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
             validateBeforeAudit = true,
@@ -1264,7 +1266,7 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_READ_TOOL_NAME,
-            description = "读取持久终端会话当前积累的有限 stdout/stderr。",
+            description = "读取工作区终端会话最近一次固定命令的有限 stdout/stderr。",
             risk = ToolRisk.SAFE,
             inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
@@ -1272,7 +1274,7 @@ class XiaoLingToolRegistry(
         ),
         ToolDefinition(
             name = TERMINAL_CLOSE_TOOL_NAME,
-            description = "关闭持久终端会话并终止其中的 shell；需要逐次用户确认。",
+            description = "关闭工作区终端会话并清除最近命令结果；需要逐次用户确认。",
             risk = ToolRisk.REQUIRES_APPROVAL,
             inputSchema = listOf(ToolInputField("session_id", "terminal.open 返回的会话 ID。", required = true, maxLength = 32)),
             permissionPolicy = ToolPermissionPolicy(supportsBackground = false),
@@ -2083,8 +2085,16 @@ class XiaoLingToolRegistry(
             return ToolExecutionResult(success = false, content = "终端只允许在前台直接 Agent 中执行")
         }
         val sessionId = call.arguments["session_id"].orEmpty()
-        val input = call.arguments["input"].orEmpty()
-        return runCatching { workspaceSandbox.writeTerminal(sessionId, input) }
+        val commandId = call.arguments["command_id"].orEmpty()
+        val timeoutMs = call.arguments["timeout_ms"]?.toLongOrNull() ?: WorkspacePolicy.MAX_COMMAND_TIMEOUT_MS
+        return runCatching {
+            workspaceSandbox.writeTerminal(
+                sessionId = sessionId,
+                commandId = commandId,
+                args = parseTerminalArgs(call.arguments["args"]),
+                timeoutMs = timeoutMs,
+            )
+        }
             .fold(
                 onSuccess = { output -> ToolExecutionResult(success = true, content = formatTerminalOutput(output)) },
                 onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "终端写入失败") },
@@ -2119,8 +2129,9 @@ class XiaoLingToolRegistry(
 
     private fun formatTerminalOutput(output: WorkspaceTerminalOutput): String {
         val text = buildString {
-        if (output.stdout.isNotBlank()) append("stdout${if (output.stdoutTruncated) "（已截断）" else ""}：\n${output.stdout}\n")
-        if (output.stderr.isNotBlank()) append("stderr${if (output.stderrTruncated) "（已截断）" else ""}：\n${output.stderr}")
+            if (output.exitCode != null) append("退出码：${output.exitCode}${if (output.timedOut) "（超时）" else ""}\n")
+            if (output.stdout.isNotBlank()) append("stdout${if (output.stdoutTruncated) "（已截断）" else ""}：\n${output.stdout}\n")
+            if (output.stderr.isNotBlank()) append("stderr${if (output.stderrTruncated) "（已截断）" else ""}：\n${output.stderr}")
         }
         return text.trim().ifBlank { "终端当前没有新的输出" }
     }

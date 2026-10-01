@@ -59,7 +59,7 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
 
         val session = sandbox.openTerminal(".")
         try {
-            sandbox.writeTerminal(session.id, "printf 'terminal-ok\\n'\n")
+            sandbox.writeTerminal(session.id, "printf", listOf("terminal-ok"), 5_000)
             var output = sandbox.readTerminal(session.id)
             repeat(10) {
                 if (output.stdout.contains("terminal-ok")) return@repeat

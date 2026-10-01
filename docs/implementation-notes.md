@@ -21,7 +21,7 @@
 ## 2026-09-30：浏览器、工作区/终端、MCP 与 GitHub Skill 补齐
 
 - 浏览器 Agent 新增 `browser.fetch / open / read / navigate / close`，只读取公开 HTTP(S) 页面；脚本、Cookie、表单、自动重定向、账号密码 URL、回环/私网解析和超大响应均拒绝，会话最多 4 个且 10 分钟空闲回收。
-- 工作区与终端新增 `workspace.list / read_file / write_file`、`terminal.execute / open / write / read / close`。工作区固定在应用私有目录，路径穿越、文件/输入/输出超限和命令超时 fail-closed；`terminal.execute` 只接受固定白名单 `command_id + args` 并用 argv 直传，禁止 `sh -c`、管道、重定向和子 Shell；写入及终端操作逐次确认，持久会话最多 4 个。
+- 工作区与终端新增 `workspace.list / read_file / write_file`、`terminal.execute / open / write / read / close`。工作区固定在应用私有目录，路径穿越、文件/输入/输出超限和命令超时 fail-closed；`terminal.execute` 与 `terminal.write` 都只接受固定白名单 `command_id + args` 并用 argv 直传，禁止 `sh -c`、管道、重定向、子 Shell 和持久 stdin；会话只保存最近命令结果，写入及终端操作逐次确认，最多 4 个会话。
 - `:shared` 的第一版 Agent runtime 只依赖纯 Kotlin：对冻结工具目录重新校验模型提出的工具，按工具声明请求审批，记录执行结果，工具失败或达到步骤上限时 fail-closed；Android `WorkspaceSandbox` 已实现 shared workspace port，现有 `MinimalAgentRuntime` 与 ToolRegistry 继续作为生产实现，shared runtime 先承担跨 Android/iOS 的契约回归。
 - Android shared adapters 只做类型投影，不复制权限；审批 adapter 和执行 adapter 都从当前 Android ToolRegistry 重新取得 ToolDefinition，再构造原生 ToolCall，shared 层的旧快照或伪造风险字段会被拒绝。
 - MCP 新增设置页、Keystore 加密 Bearer Token、Streamable HTTP `initialize` / `notifications/initialized`、session/protocol headers、JSON/SSE 响应校验、工具分页与 TTL 缓存、远端 JSON Schema 校验和每 Run 工具目录冻结。设置页可发现远端工具并逐项启用/停用；旧配置缺少 `enabled_tools` 时保持全部工具兼容可用，显式白名单参与 Server 指纹，变更后旧 Run 必须重新发现目录。缓存命中也会重新执行地址解析，URL 用户信息被拒绝。
