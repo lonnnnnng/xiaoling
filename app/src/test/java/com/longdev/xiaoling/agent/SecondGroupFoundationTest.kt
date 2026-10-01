@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import javax.crypto.spec.SecretKeySpec
 
 class SecondGroupFoundationTest {
     @Test
@@ -161,6 +162,30 @@ class SecondGroupFoundationTest {
             RemoteChannelRejectionReason.TIMESTAMP_OUT_OF_WINDOW,
             (inbox().receive(future) as RemoteChannelReceiveResult.Rejected).reason,
         )
+    }
+
+    @Test
+    fun signedRemoteChannelCanUseNonExportedKeyHandle() {
+        val now = 3_000_000L
+        val authenticator = HmacRemoteChannelAuthenticator.fromKeystore(
+            keys = mapOf("current" to SecretKeySpec(ByteArray(RemoteChannelPolicy.MIN_HMAC_KEY_BYTES) { 4 }, "HmacSHA256")),
+            maxAgeMillis = 1_000L,
+            maxFutureSkewMillis = 100L,
+        )
+        val unsigned = RemoteChannelEnvelope(
+            channelId = "loopback",
+            messageId = "handle-1",
+            senderId = "known",
+            conversationKey = "chat",
+            text = "handle",
+            receivedAtMillis = now,
+            nonce = "h".repeat(RemoteChannelPolicy.MIN_NONCE_CHARS),
+            keyId = "current",
+        )
+
+        val signed = unsigned.copy(signature = authenticator.sign(unsigned, "current"))
+
+        assertEquals(null, authenticator.verify(signed, now))
     }
 
     @Test

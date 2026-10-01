@@ -59,6 +59,33 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
     }
 
     @Test
+    fun remoteChannelUsesAndroidKeystoreWithoutExportingHmacKey() {
+        val keyStore = AndroidKeystoreRemoteChannelKeyStore()
+        val keyId = "device-current"
+        try {
+            val authenticator = keyStore.authenticator(setOf(keyId))
+            val now = System.currentTimeMillis()
+            val unsigned = RemoteChannelEnvelope(
+                channelId = "loopback",
+                messageId = "device-signed-1",
+                senderId = "device-user",
+                conversationKey = "device-chat",
+                text = "设备签名验收",
+                receivedAtMillis = now,
+                nonce = "d".repeat(RemoteChannelPolicy.MIN_NONCE_CHARS),
+                keyId = keyId,
+            )
+            val signed = unsigned.copy(signature = authenticator.sign(unsigned, keyId))
+
+            assertTrue(keyStore.isNonExportable(keyId))
+            assertEquals(null, authenticator.verify(signed, now))
+            println("DEVICE_REMOTE_CHANNEL keystore_hmac=true non_exportable=true signature_verified=true")
+        } finally {
+            keyStore.delete(keyId)
+        }
+    }
+
+    @Test
     fun workspaceExecutesAndMaintainsSessionInsidePrivateRoot() = runBlocking {
         val sandbox = AndroidWorkspaceSandbox(workspaceRoot)
         val entry = sandbox.write("device/hello.txt", "hello-device")

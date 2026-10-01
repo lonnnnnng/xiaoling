@@ -7,6 +7,7 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.LinkedHashMap
 import javax.crypto.Mac
+import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
 
 /**
@@ -112,22 +113,29 @@ interface RemoteChannelAuthenticator {
 /**
  * long: 入站签名只证明 envelope 来自配置的 key，不能替代前台确认、Agent 执行或外部业务成功回执；同时传入 current/previous key 即可完成轮换过渡。
  */
-class HmacRemoteChannelAuthenticator(
-    keys: Map<String, ByteArray>,
+class HmacRemoteChannelAuthenticator private constructor(
+    private val keys: Map<String, HmacSigningKey>,
     private val maxAgeMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_AGE_MILLIS,
     private val maxFutureSkewMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_FUTURE_SKEW_MILLIS,
+    @Suppress("UNUSED_PARAMETER") marker: Unit,
 ) : RemoteChannelAuthenticator {
-    private val keys = keys
-        .mapValues { (_, secret) -> secret.copyOf() }
-        .also { entries ->
-            require(entries.isNotEmpty()) { "远程 Channel 至少需要一个签名密钥" }
-            require(entries.keys.none(String::isBlank)) { "远程 Channel keyId 不能为空" }
-            require(entries.values.all { it.size >= RemoteChannelPolicy.MIN_HMAC_KEY_BYTES }) {
-                "远程 Channel HMAC 密钥长度不足"
-            }
-        }
+    constructor(
+        keys: Map<String, ByteArray>,
+        maxAgeMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_AGE_MILLIS,
+        maxFutureSkewMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_FUTURE_SKEW_MILLIS,
+    ) : this(
+        keys = keys.mapValues { (_, secret) -> ByteArrayHmacSigningKey(secret) },
+        maxAgeMillis = maxAgeMillis,
+        maxFutureSkewMillis = maxFutureSkewMillis,
+        marker = Unit,
+    )
 
     init {
+        require(keys.isNotEmpty()) { "远程 Channel 至少需要一个签名密钥" }
+        require(keys.keys.none(String::isBlank)) { "远程 Channel keyId 不能为空" }
+        require(keys.values.all(HmacSigningKey::meetsMinimumLength)) {
+            "远程 Channel HMAC 密钥长度不足"
+        }
         require(maxAgeMillis > 0L) { "远程 Channel 签名时间窗必须大于零" }
         require(maxFutureSkewMillis >= 0L) { "远程 Channel 未来时间容忍值不能小于零" }
     }
@@ -153,14 +161,30 @@ class HmacRemoteChannelAuthenticator(
         return if (MessageDigest.isEqual(expected, actual)) null else RemoteChannelRejectionReason.INVALID_SIGNATURE
     }
 
+    /**
+     * long: AndroidKeyStore 的 HMAC SecretKey 不可导出，Authenticator 只持有 Key 接口并让 JCA Mac 直接使用它。
+     */
+    companion object {
+        fun fromKeystore(
+            keys: Map<String, SecretKey>,
+            maxAgeMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_AGE_MILLIS,
+            maxFutureSkewMillis: Long = RemoteChannelPolicy.DEFAULT_MAX_FUTURE_SKEW_MILLIS,
+        ): HmacRemoteChannelAuthenticator = HmacRemoteChannelAuthenticator(
+            keys = keys.mapValues { (_, secret) -> KeystoreHmacSigningKey(secret) },
+            maxAgeMillis = maxAgeMillis,
+            maxFutureSkewMillis = maxFutureSkewMillis,
+            marker = Unit,
+        )
+    }
+
     fun sign(envelope: RemoteChannelEnvelope, keyId: String): String {
         val secret = keys[keyId] ?: error("未知远程 Channel keyId：$keyId")
         return Base64.getUrlEncoder().withoutPadding().encodeToString(sign(envelope.copy(keyId = keyId), secret))
     }
 
-    private fun sign(envelope: RemoteChannelEnvelope, secret: ByteArray): ByteArray {
+    private fun sign(envelope: RemoteChannelEnvelope, secret: HmacSigningKey): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
-        mac.init(SecretKeySpec(secret, "HmacSHA256"))
+        secret.init(mac)
         return mac.doFinal(canonicalBytes(envelope))
     }
 
@@ -185,6 +209,37 @@ class HmacRemoteChannelAuthenticator(
                 }
             }
             buffer.toByteArray()
+        }
+    }
+
+    private interface HmacSigningKey {
+        val meetsMinimumLength: Boolean
+
+        fun init(mac: Mac)
+    }
+
+    private class ByteArrayHmacSigningKey(secret: ByteArray) : HmacSigningKey {
+        private val secret = secret.copyOf()
+
+        override val meetsMinimumLength: Boolean
+            get() = secret.size >= RemoteChannelPolicy.MIN_HMAC_KEY_BYTES
+
+        override fun init(mac: Mac) {
+            mac.init(SecretKeySpec(secret, "HmacSHA256"))
+        }
+    }
+
+    private class KeystoreHmacSigningKey(private val secret: SecretKey) : HmacSigningKey {
+        init {
+            require(secret.algorithm.equals("HmacSHA256", ignoreCase = true)) {
+                "远程 Channel Keystore 密钥必须使用 HmacSHA256"
+            }
+        }
+
+        override val meetsMinimumLength: Boolean = true
+
+        override fun init(mac: Mac) {
+            mac.init(secret)
         }
     }
 }

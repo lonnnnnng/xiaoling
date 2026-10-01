@@ -2697,8 +2697,8 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - `RemoteChannelEnvelope` 增加可选 `nonce / keyId / signature`；`HmacRemoteChannelAuthenticator` 使用 HMAC-SHA256、Base64URL 无 padding、长度前缀 canonical serialization 和常量时间比较，支持 current/previous key 同时存在的轮换过渡。
 - 签名模式要求 nonce 长度在 `16..256` 字符、消息时间处于最大年龄和未来偏差窗口内、`keyId` 已配置且签名有效；拒绝原因稳定区分 `TIMESTAMP_OUT_OF_WINDOW`、`INVALID_NONCE`、`MISSING_SIGNATURE`、`UNKNOWN_KEY_ID` 和 `INVALID_SIGNATURE`。
 - 启用 authenticator 后，nonce 会加入 `channel/sender/nonce` 有界去重账本；同 nonce 的不同 `messageId` 也会被拒绝，持久化失败会回滚本次内存占位。旧的无签名 loopback 调用保持兼容。
-- 该片只强化入站真实性和重放边界，成功结果仍是前台草稿；不自动发送、不自动启动 Agent、不远程执行工具、不携带附件、插件权限或 Provider 凭据。Android 真实密钥仍需接入 Keystore，当前没有把 HMAC 密钥写入 SharedPreferences。
-- 验证通过：`SecondGroupFoundationTest` 签名/轮换/篡改/缺签名/未知 key/时间窗用例；完整 `shared:allTests`、App 单测、Debug/AndroidTest 构建和 `lintDebug`；Redmi `wsvwypiz7xwslvl7` 覆盖安装后 `RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`。
+- 该片只强化入站真实性和重放边界，成功结果仍是前台草稿；不自动发送、不自动启动 Agent、不远程执行工具、不携带附件、插件权限或 Provider 凭据。`AndroidKeystoreRemoteChannelKeyStore` 只返回不可导出的 HMAC `SecretKey` 句柄，测试不会输出或持久化密钥原文；当前没有把 HMAC 密钥写入 SharedPreferences。
+- 验证通过：`SecondGroupFoundationTest` 签名/轮换/篡改/缺签名/未知 key/时间窗/Keystore 句柄用例；完整 `shared:allTests`、App 单测、Debug/AndroidTest 构建和 `lintDebug`；Redmi `wsvwypiz7xwslvl7` 覆盖安装后 `RemoteChannelDedupeStoreInstrumentedTest` 为 `OK (1 test)`，`ExtendedAgentCapabilitiesInstrumentedTest#remoteChannelUsesAndroidKeystoreWithoutExportingHmacKey` 为 `OK (1 test)`。
 
 ## 2026-10-02 P2：BrowserSession snapshot 第一片
 
