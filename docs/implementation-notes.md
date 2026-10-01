@@ -2707,6 +2707,13 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 当前边界保持不变：无脚本、无 Cookie、无登录态、无表单提交、无 DOM/鼠标键盘动作；取消仍由现有协程完成回调调用 OkHttp `Call.cancel()`，本片没有扩展跨 Run 取消账本。
 - `ExtendedAgentCapabilitiesTest#browserSessionKeepsSnapshotAcrossReadsAndRotatesItOnNavigation` 已通过；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionKeepsAndRotatesSnapshotReferences` 也为 `OK (1 test)`。下一步再把 snapshot 引用映射到 typed readable evidence，不把可读页面伪造成 `PASSED / COMMITTED`。
 
+## 2026-10-02 P2：Browser typed readable evidence
+
+- `ToolReadableEvidence` 只描述只读工具读到的事实版本：`kind=BROWSER_PAGE`、当前 `toolCallId`、`snapshotId`、页面规范化内容的 SHA-256 和去掉 query/fragment/账号信息的 `sourceRef`。它不保存网页原文、Cookie、完整带参数 URL，也不复用写工具的 `verified` 或执行回执。
+- `browser.open / browser.read / browser.navigate` 将 evidence 放入 `ToolExecutionResult`，由 `MinimalAgentRuntime` 校验调用 ID 绑定、成功状态和 `verified == null`，再投影到 `VerifiedToolExecution` / `VerifiedAgentContext`；编解码兼容旧上下文。`browser.fetch` 仍保持正文读取接口，不创建会话证据。
+- evidence 暂不扩展 `MessagePart`、Room entity、RunEvent metadata 或数据库 schema，避免在 UI 尚未消费前重复保存页面指纹；后续若需要任务中心审计，再单独设计持久化迁移。
+- 已验证：`ExtendedAgentCapabilitiesTest`、`MinimalAgentRuntimeTest` 与 `VerifiedAgentContextAnswerabilityCandidateTest` 定向 JVM 测试通过；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionKeepsAndRotatesSnapshotReferences` 增加 typed evidence 的 kind、调用绑定、SHA-256 和脱敏来源断言；最终门禁 `./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`。
+
 ## 第四组 P1 第一切片：Tool Catalog 与 Executor 边界（2026-10-01）
 
 - 新增 `AgentToolCatalog` 与 `SharedToolCatalog`：目录按工具名稳定排序，合并 Native/Skill/MCP/Plugin 来源；同名定义的恢复契约指纹不一致时拒绝合并，目录快照携带版本和内容指纹。

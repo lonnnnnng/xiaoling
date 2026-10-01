@@ -447,6 +447,7 @@ class MinimalAgentRuntime internal constructor(
                 ?: error("工具不支持已提交结果的只读恢复验证：${recovery.toolCall.name}")
             validateExecutionReceipt(recovery.toolCall, recoveredResult)
             validateVerificationEvidence(recovery.toolCall, recoveredResult)
+            validateReadableEvidence(recovery.toolCall, recoveredResult)
             require(recoveredResult.executionReceipt == receipt) { "恢复回读的执行回执与历史证据不一致" }
             if (!recoveredResult.success) {
                 recoveredResult.recoveryFailure?.let { failure ->
@@ -795,6 +796,7 @@ class MinimalAgentRuntime internal constructor(
         }
         validateExecutionReceipt(toolCall, toolResult)
         validateVerificationEvidence(toolCall, toolResult)
+        validateReadableEvidence(toolCall, toolResult)
         state.executedToolCalls += 1
         // long: 工具耗时与 Run 执行预算必须使用同一单调时钟；系统时间校准不能制造负耗时或虚增剩余预算。
         val toolDurationMs = (monotonicClock.nowMs() - toolStartedAtMs).coerceAtLeast(0)
@@ -1203,6 +1205,7 @@ class MinimalAgentRuntime internal constructor(
             toolExecutions = executions,
             executionReceipt = finalExecution.executionReceipt,
             verificationEvidence = finalExecution.verificationEvidence,
+            readableEvidence = finalExecution.readableEvidence,
         )
     }
 
@@ -1236,6 +1239,7 @@ class MinimalAgentRuntime internal constructor(
                     reasonCode = evidence.reasonCode,
                 )
             },
+            readableEvidence = toolResult.readableEvidence,
         )
     }
 
@@ -1360,6 +1364,19 @@ class MinimalAgentRuntime internal constructor(
         // long: typed 验证如果携带调用身份，必须与本次执行一致；错配时整步失败，不能把其他工具的 PASSED 证据带入可信上下文。
         check(evidence.toolCallId == null || evidence.toolCallId == toolCall.id) {
             "验证证据不属于当前工具调用：expected=${toolCall.id}, actual=${evidence.toolCallId}"
+        }
+    }
+
+    private fun validateReadableEvidence(
+        toolCall: ToolCall,
+        result: ToolExecutionResult,
+    ) {
+        val evidence = result.readableEvidence ?: return
+        // long: 只读证据必须属于当前调用且保持 READABLE_ONLY；任何把页面快照标成已提交副作用的结果都在写入账本前拒绝。
+        check(result.success) { "失败工具不能携带只读成功证据" }
+        check(result.verified == null) { "只读证据不能升级为已验证副作用" }
+        check(evidence.toolCallId == toolCall.id) {
+            "只读证据不属于当前工具调用：expected=${toolCall.id}, actual=${evidence.toolCallId}"
         }
     }
 

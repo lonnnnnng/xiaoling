@@ -63,11 +63,17 @@ class ExtendedAgentCapabilitiesTest {
             assertEquals(opened.id, reread.id)
             assertEquals(opened.snapshotId, reread.snapshotId)
             assertEquals("One", reread.page.title)
+            val firstEvidence = reread.page.toReadableEvidence("tool-browser", reread.snapshotId)
+            assertEquals(reread.snapshotId, firstEvidence.snapshotId)
+            assertFalse(firstEvidence.sourceRef.contains("?"))
+            assertFalse(firstEvidence.sourceRef.contains("#"))
 
             val navigated = reader.navigateSession(opened.id, "https://example.com/two")
             assertEquals(opened.id, navigated.id)
             assertNotEquals(opened.snapshotId, navigated.snapshotId)
             assertEquals("Two", navigated.page.title)
+            val secondEvidence = navigated.page.toReadableEvidence("tool-browser", navigated.snapshotId)
+            assertNotEquals(firstEvidence.contentHash, secondEvidence.contentHash)
 
             assertTrue(reader.closeSession(opened.id))
             var readAfterCloseFailed = false

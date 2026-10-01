@@ -50,10 +50,21 @@ class ExtendedAgentCapabilitiesInstrumentedTest {
 
         assertEquals(opened.id, reread.id)
         assertEquals(opened.snapshotId, reread.snapshotId)
+        val openedEvidence = opened.page.toReadableEvidence("device-browser-open", opened.snapshotId)
+        assertEquals(ToolReadableEvidenceKind.BROWSER_PAGE, openedEvidence.kind)
+        assertEquals("device-browser-open", openedEvidence.toolCallId)
+        assertEquals(opened.snapshotId, openedEvidence.snapshotId)
+        assertTrue(openedEvidence.contentHash.matches(Regex("[0-9a-f]{64}")))
+        assertTrue(openedEvidence.sourceRef.startsWith("https://example.com/"))
+        assertFalse(openedEvidence.sourceRef.contains("?"))
+        assertFalse(openedEvidence.sourceRef.contains("#"))
 
         val navigated = reader.navigateSession(opened.id, "https://example.com/")
         assertEquals(opened.id, navigated.id)
         assertNotEquals(opened.snapshotId, navigated.snapshotId)
+        val navigatedEvidence = navigated.page.toReadableEvidence("device-browser-navigate", navigated.snapshotId)
+        assertEquals(navigated.snapshotId, navigatedEvidence.snapshotId)
+        assertTrue(navigatedEvidence.contentHash.matches(Regex("[0-9a-f]{64}")))
         assertTrue(reader.closeSession(opened.id))
         println("DEVICE_BROWSER_SESSION stable_snapshot=true navigation_rotates_snapshot=true close=true")
     }

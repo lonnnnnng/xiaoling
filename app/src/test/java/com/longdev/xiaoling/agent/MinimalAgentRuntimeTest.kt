@@ -1817,6 +1817,42 @@ class MinimalAgentRuntimeTest {
     }
 
     @Test
+    fun verifiedContextCodecPreservesReadableBrowserEvidenceWithoutQueryString() {
+        val evidence = ToolReadableEvidence(
+            kind = ToolReadableEvidenceKind.BROWSER_PAGE,
+            toolCallId = "tool-call-browser",
+            snapshotId = "snapshot-browser",
+            contentHash = "a".repeat(64),
+            sourceRef = "https://example.com/docs/page",
+        )
+        val context = VerifiedAgentContext(
+            runId = "run-browser-readable",
+            toolName = "browser.read",
+            arguments = mapOf("session_id" to "session-browser"),
+            success = true,
+            verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+            rawResult = "页面正文",
+            readableEvidence = evidence,
+            toolExecutions = listOf(
+                VerifiedToolExecution(
+                    toolName = "browser.read",
+                    arguments = mapOf("session_id" to "session-browser"),
+                    success = true,
+                    verificationStatus = AgentVerificationStatus.READABLE_ONLY,
+                    rawResult = "页面正文",
+                    readableEvidence = evidence,
+                ),
+            ),
+        )
+
+        val encoded = VerifiedAgentContextCodec.encode(context)
+        val restored = VerifiedAgentContextCodec.decode(encoded)
+
+        assertFalse(encoded.contains("token=secret"))
+        assertEquals(context, restored)
+    }
+
+    @Test
     fun structuredRunEventMetadataPreservesSpecialCharactersWithoutEncodingJsonInMessage() = runTest {
         val ledger = InMemoryAgentRunLedger()
         val runtime = MinimalAgentRuntime(

@@ -676,6 +676,31 @@ data class ToolExecutionReceipt(
     }
 }
 
+enum class ToolReadableEvidenceKind {
+    BROWSER_PAGE,
+}
+
+/**
+ * long: 只读工具的证据只描述“哪次调用读到了哪一版事实”，不宣称业务副作用已提交，也不保存网页原文、Cookie 或完整带参数 URL。
+ */
+data class ToolReadableEvidence(
+    val kind: ToolReadableEvidenceKind,
+    val toolCallId: String,
+    val snapshotId: String,
+    val contentHash: String,
+    val sourceRef: String,
+) {
+    init {
+        require(toolCallId.isNotBlank()) { "只读证据的工具调用 ID 不能为空" }
+        require(snapshotId.length in 1..64) { "只读证据的快照引用长度无效" }
+        require(contentHash.matches(Regex("[0-9a-f]{64}"))) { "只读证据的内容指纹必须是 64 位小写 SHA-256" }
+        require(sourceRef.length in 1..512) { "只读证据的来源引用长度无效" }
+        require('?' !in sourceRef && '#' !in sourceRef && '@' !in sourceRef) {
+            "只读证据的来源引用不能包含查询参数、片段或账号信息"
+        }
+    }
+}
+
 data class ToolExecutionResult(
     val success: Boolean,
     val content: String,
@@ -685,6 +710,7 @@ data class ToolExecutionResult(
     val executionReceipt: ToolExecutionReceipt? = null,
     val verificationEvidence: ToolVerificationEvidence? = null,
     val recoveryFailure: ToolRecoveryFailure? = null,
+    val readableEvidence: ToolReadableEvidence? = null,
 )
 
 

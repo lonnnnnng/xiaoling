@@ -9,9 +9,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSource
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.IOException
 import java.net.InetAddress
 import java.net.URI
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -29,6 +32,37 @@ data class BrowserSession(
     val snapshotId: String,
     val page: BrowserPage,
 )
+
+internal fun BrowserPage.toReadableEvidence(toolCallId: String, snapshotId: String): ToolReadableEvidence {
+    val fields = listOf(
+        url,
+        title.orEmpty(),
+        text,
+        links.joinToString("\u0000"),
+        truncated.toString(),
+    )
+    val canonical = ByteArrayOutputStream().use { buffer ->
+        DataOutputStream(buffer).use { output ->
+            output.writeInt(fields.size)
+            fields.forEach { field ->
+                val bytes = field.toByteArray(Charsets.UTF_8)
+                output.writeInt(bytes.size)
+                output.write(bytes)
+            }
+        }
+        buffer.toByteArray()
+    }
+    val contentHash = MessageDigest.getInstance("SHA-256").digest(canonical).joinToString("") { byte ->
+        "%02x".format(byte)
+    }
+    return ToolReadableEvidence(
+        kind = ToolReadableEvidenceKind.BROWSER_PAGE,
+        toolCallId = toolCallId,
+        snapshotId = snapshotId,
+        contentHash = contentHash,
+        sourceRef = BrowserUrlPolicy.readableSourceRef(url),
+    )
+}
 
 interface BrowserPageReader {
     suspend fun read(url: String, maxChars: Int = BrowserUrlPolicy.DEFAULT_MAX_CHARS): BrowserPage
@@ -181,6 +215,14 @@ object BrowserUrlPolicy {
         require(addresses.isNotEmpty()) { "网页域名无法解析" }
         require(addresses.none(::isPrivateAddress)) { "网页地址解析到了本机或私有网络地址" }
         return parsed.toString()
+    }
+
+    fun readableSourceRef(raw: String): String {
+        val parsed = raw.toHttpUrlOrNull() ?: throw IllegalArgumentException("网页来源引用无效")
+        val defaultPort = (parsed.scheme == "http" && parsed.port == 80) ||
+            (parsed.scheme == "https" && parsed.port == 443)
+        val port = if (defaultPort) "" else ":${parsed.port}"
+        return "${parsed.scheme}://${parsed.host}$port${parsed.encodedPath.ifBlank { "/" }}"
     }
 
     private fun isPrivateAddress(address: InetAddress): Boolean {

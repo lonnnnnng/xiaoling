@@ -246,6 +246,7 @@ object PromptPolicy {
                 rawResult = rawResult,
                 memoryIdsUsed = memoryIdsUsed,
                 knowledgeReferences = knowledgeReferences,
+                readableEvidence = readableEvidence,
             ),
         )
     }
