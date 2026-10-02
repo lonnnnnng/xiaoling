@@ -2751,6 +2751,12 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - JVM 回归新增取消导航、内存会话清理、Registry 取消传播和 Run 切换清理用例；没有新增 Room schema，也没有把页面正文、Cookie、完整 URL 参数或 link refs 写入持久层。
 - 验证完成：聚焦 JVM `ExtendedAgentCapabilitiesTest 22/22`、`XiaoLingToolRegistryTest 121/121`；`:shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均成功。Redmi `wsvwypiz7xwslvl7` 最终 APK 重装后，浏览器 instrumentation `9/9`、Room Run/attach instrumentation `55/55` 通过；未新增 Room v41。
 
+## 2026-10-02 P2：Browser click 进程重建审批 fail-closed
+
+- `AgentRunResumePolicy.assessApprovalWait()` 在 `device.type_text` 的旧进程输入边界旁增加 Browser click 特判。因为 `session_id`、`snapshot_id` 和当前页面 `ref` 只存在旧进程内，重建后不能继续原审批；返回稳定 `EPHEMERAL_TOOL_INPUT_UNAVAILABLE`，要求重新 `browser.open` 并创建新 Run。
+- `RoomAgentRunRepository.recoverPendingApprovalRuns()` 复用该策略，因此旧 Browser click 不进入 Activity 的 pending approval attach；`closeInterruptedRuns()` 仍保留取消终态和 `run.recovered` 拒绝证据。
+- 已验证：`AgentRunResumePolicyTest 58/58`；Redmi `wsvwypiz7xwslvl7` 的 `RoomAgentRunRepositoryInstrumentedTest 56/56` 通过。该片没有新增 Room schema，也没有扩展 Browser 权限。
+
 ## 2026-10-02 P2：跨入口取消请求与 attach 统一投影
 
 - Android Room 的 `cancelRequestedAt / cancelRequestedReason` 先于协程终态落库时，`AgentRunRecord.toSharedRunState()` 现在把所有非终态 Run 投影为 shared `CANCEL_REQUESTED`；只有真正的 `CANCELLED`、`FAILED` 或其他终态继续沿原状态映射，避免 shared snapshot 同时出现活动状态和 `cancelRequested=true` 的矛盾组合。

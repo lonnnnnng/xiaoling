@@ -588,6 +588,38 @@ class AgentRunResumePolicyTest {
     }
 
     @Test
+    fun browserClickApprovalAfterProcessRecreationRequiresRestart() {
+        val firstCall = ToolCall(
+            id = "tool-call-first",
+            name = "notes.create",
+            arguments = mapOf("title" to "第一步"),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val pendingCall = ToolCall(
+            id = "tool-call-browser-click",
+            name = BROWSER_CLICK_TOOL_NAME,
+            arguments = mapOf(
+                "session_id" to "session-old",
+                "snapshot_id" to "snapshot-old",
+                "ref" to "link-snapshot-old-0",
+            ),
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+
+        val assessment = AgentRunResumePolicy.assess(
+            pendingApprovalAfterVerifiedPrefix(firstCall, pendingCall),
+        )
+
+        assertEquals(AgentRunResumeKind.RESTART_REQUIRED, assessment.kind)
+        assertEquals(
+            AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+            checkNotNull(assessment.restartDisposition).code,
+        )
+        assertTrue(assessment.reason.contains("浏览器会话和快照"))
+        assertFalse(assessment.canResumeInPlace)
+    }
+
+    @Test
     fun secondApprovalWithMismatchedRequestRequiresRestart() {
         val firstCall = ToolCall(
             id = "tool-call-first",

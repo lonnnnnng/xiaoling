@@ -9,6 +9,7 @@ import com.longdev.xiaoling.agent.AgentLlm
 import com.longdev.xiaoling.agent.AgentNotCommittedReplayQualificationAssessment
 import com.longdev.xiaoling.agent.AgentNotCommittedReplayQualificationPolicy
 import com.longdev.xiaoling.agent.AgentContextPolicy
+import com.longdev.xiaoling.agent.BROWSER_CLICK_TOOL_NAME
 import com.longdev.xiaoling.agent.AgentProfileSnapshot
 import com.longdev.xiaoling.agent.AgentProcessTerminationSimulation
 import com.longdev.xiaoling.agent.AgentRuntimeFaultInjector
@@ -1178,6 +1179,67 @@ class RoomAgentRunRepositoryInstrumentedTest {
         assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
         assertEquals(ApprovalRequestStatus.CANCELLED, closed.approvals.single().status)
         assertFalse(closed.toString().contains(inputText))
+        val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
+            .metadata as RunEventMetadata.Recovery
+        assertEquals(
+            AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+            recovery.restartDisposition?.code,
+        )
+    }
+
+    @Test
+    fun browserClickPendingApprovalClosesAfterProcessRecoveryWithoutSession() = runBlocking {
+        val run = repository.createRun(
+            conversationId = "conversation-browser-click-recovery",
+            userMessageId = "message-browser-click-recovery",
+            goal = "等待确认浏览器链接点击",
+        )
+        val persistedArguments = mapOf(
+            "session_id" to "session-old",
+            "snapshot_id" to "snapshot-old",
+            "ref" to "link-snapshot-old-0",
+        )
+        val call = ToolCall(
+            id = "tool-call-browser-click-recovery",
+            name = BROWSER_CLICK_TOOL_NAME,
+            arguments = persistedArguments,
+            risk = ToolRisk.REQUIRES_APPROVAL,
+        )
+        val definition = ToolDefinition(
+            name = call.name,
+            description = "点击当前浏览器快照中的公开链接",
+            risk = call.risk,
+        )
+        val callMetadata = RunEventMetadata.ToolCall(
+            id = call.id,
+            toolName = call.name,
+            risk = call.risk,
+            arguments = persistedArguments,
+            recoveryContract = ToolDefinitionRecoveryContract.snapshot(definition),
+        )
+        repository.appendEvent(run.id, "tool.call.proposed", "模型提出浏览器链接点击", callMetadata)
+        repository.appendEvent(run.id, "tool.call.validated", "浏览器链接点击参数已校验", callMetadata)
+        repository.updateRunStatus(run.id, AgentRunStatus.WAITING_APPROVAL)
+        repository.appendStep(
+            runId = run.id,
+            type = "approval",
+            title = "应用侧审批",
+            detail = "等待用户确认浏览器链接点击",
+            status = AgentStepStatus.RUNNING,
+        )
+        repository.createApprovalRequest(
+            conversationId = run.conversationId,
+            runId = run.id,
+            toolCall = call,
+            definition = definition,
+        )
+
+        assertTrue(repository.recoverPendingApprovalRuns(setOf(run.id)).isEmpty())
+        assertEquals(1, repository.closeInterruptedRuns(runIds = setOf(run.id)))
+
+        val closed = checkNotNull(repository.runDetail(run.id))
+        assertEquals(AgentRunStatus.CANCELLED, closed.snapshot.run.status)
+        assertEquals(ApprovalRequestStatus.CANCELLED, closed.approvals.single().status)
         val recovery = closed.snapshot.events.single { it.type == "run.recovered" }
             .metadata as RunEventMetadata.Recovery
         assertEquals(

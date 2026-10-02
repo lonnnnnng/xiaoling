@@ -768,6 +768,12 @@ object AgentRunResumePolicy {
                 "设备文本输入原文未持久化，应用重启后不能继续旧审批，请创建新 Run 重新确认",
             )
         }
+        if (pendingToolCall.name == BROWSER_CLICK_TOOL_NAME) {
+            return restartRequired(
+                AgentRunRestartDispositionCode.EPHEMERAL_TOOL_INPUT_UNAVAILABLE,
+                "浏览器会话和快照只存在旧进程内，应用重启后不能继续旧点击，请重新 browser.open 后创建新 Run 重新确认",
+            )
+        }
         val executionSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_EXECUTE }
         val verificationSteps = snapshot.steps.filter { it.type == AgentStepTypes.TOOL_VERIFY }
         if (

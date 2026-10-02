@@ -39,6 +39,8 @@ data class BrowserSession(
     val page: BrowserPage,
 )
 
+internal const val BROWSER_CLICK_TOOL_NAME = "browser.click"
+
 internal fun BrowserPage.toReadableEvidence(toolCallId: String, snapshotId: String): ToolReadableEvidence {
     val fields = listOf(
         url,

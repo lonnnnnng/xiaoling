@@ -2686,3 +2686,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 六个 Browser handler 显式重新抛出 `CancellationException`，取消继续交给 `MinimalAgentRuntime` 的正式取消收敛，不再被 `runCatching` 转换为普通失败工具结果。
 - 新增 JVM 回归：取消中的导航保留旧 snapshot、清理后旧会话不可读取、Browser handler 取消保持协程取消态、Run context 切换触发会话清理。该片不新增 Room v41，也不保存网页正文、Cookie 或 link refs。
 - 已验证：聚焦 JVM `ExtendedAgentCapabilitiesTest 22/22`、`XiaoLingToolRegistryTest 121/121`；`:shared:allTests`、`:app:testDebugUnitTest`、Debug/AndroidTest APK 和 `lintDebug` 均成功。Redmi `wsvwypiz7xwslvl7` 重新安装最终 APK 后，`ExtendedAgentCapabilitiesInstrumentedTest 9/9`、`RoomAgentRunRepositoryInstrumentedTest 55/55` 均通过；APK SHA-256 分别为 `af1d47a4e56bdcebdb27199f1919504e67722ecbdf17f0896ba07dc1df446214` 和 `dd0393ec0a5b53de4d8adda9e8106f7ed76717e775e165ab1f5f00979cd9b62e`。真机仍只验证公开页面读取、snapshot/click/evidence 和取消/隔离相关回归，不扩大浏览器权限面。
+
+## 2026-10-02 P2：Browser click 进程重建审批 fail-closed
+
+- 修复 Activity/进程重建后的旧 `browser.click` 审批误 attach：`AgentRunResumePolicy` 现在把依赖旧进程 `session_id + snapshot_id + ref` 的待审批点击判为 `RESTART_REQUIRED / EPHEMERAL_TOOL_INPUT_UNAVAILABLE`，不会展示为可继续审批，也不会在批准后才暴露“会话不存在”。
+- 该策略只阻断旧会话动作；Room 中已完成的 Browser readable evidence 仍可作为只读审计/历史证据恢复，不恢复 BrowserSession、不写正文或 link refs。
+- 新增 JVM `AgentRunResumePolicyTest#browserClickApprovalAfterProcessRecreationRequiresRestart`；Redmi `RoomAgentRunRepositoryInstrumentedTest` 新增同边界回归，证明恢复列表为空并在中断收敛时保留稳定拒绝码。
