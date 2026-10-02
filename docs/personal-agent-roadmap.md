@@ -4,10 +4,10 @@
 
 - `StreamableHttpMcpClient` 已把阻塞式 RPC 改为可取消的 OkHttp `enqueue` 桥接；Runtime Job 开始取消时立即取消底层 Call，避免网络请求阻塞 Run 终态收敛。
 - JVM 回归覆盖只取消 Runtime Job、Run/Step 进入 `CANCELLED`、无迟到 `tool.result`；本地 `:shared:allTests`、`:app:testDebugUnitTest`、Debug/AndroidTest 构建和 `lintDebug` 全部通过。
-- Redmi `wsvwypiz7xwslvl7` 的 `McpE2eInstrumentedTest` 已扩展为 `3/3`，新增 stalled MCP 请求取消真机证据；扩展能力回归中其余 8 项通过。
-- `githubSkillDownloadPinsCommitAndHashesDocument` 当前因设备连接 `raw.githubusercontent.com:443` 超时而失败，属于外部网络前置未满足；GitHub Skill 目录发现、来源 commit 固定和本地导入边界仍已通过。
+- Redmi `wsvwypiz7xwslvl7` 的 `McpE2eInstrumentedTest` 已扩展为 `3/3`，新增 stalled MCP 请求取消真机证据；启动 FLClash VPN 后，`ExtendedAgentCapabilitiesInstrumentedTest` 恢复为 `9/9`，GitHub Skill 下载与目录发现均通过。
+- VPN 真机证据包括界面计时运行、`tun0=172.19.0.1/30` 和 `com.follow.clash/.service.VpnService` 前台服务；该网络动作只用于本次已授权的 GitHub Skill 下载验收。
 
-本切片不开放 SSE/stdio 实际执行、OAuth、MCP Tasks、远程自动执行或动态插件代码；待设备外网恢复后只重跑 GitHub Skill 下载单项，不改变生产权限边界。
+本切片不开放 SSE/stdio 实际执行、OAuth、MCP Tasks、远程自动执行或动态插件代码；VPN 只解决真机外网验收前置，不改变生产权限边界。
 
 ## 2026-10-02：MCP Streamable HTTP 生命周期监督（已完成当前切片）
 

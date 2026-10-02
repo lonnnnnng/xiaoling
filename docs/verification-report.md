@@ -7,8 +7,9 @@
 - 生产实现：`StreamableHttpMcpClient.postRpc()` 使用 `suspendCancellableCoroutine + OkHttp enqueue`；取消会立即调用 `Call.cancel()`，取消/响应竞态下未交付响应会关闭，`MinimalAgentRuntime` 继续通过 Run 生命周期回调清理 MCP session/目录/active Call。
 - 本地门禁：`:shared:allTests`、`:app:testDebugUnitTest`（`1297/1297`）、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均 `BUILD SUCCESSFUL`。Debug APK `d7595418e1c79b92ec95d8cd7ee4c5d93e9e1de56775afbd6fc82b5a183c2978`；最终 AndroidTest APK `486a4d635e07339f56cc75b4e0c27dc5477646f7d78292cade0e3975e92e7fd4`。
 - Redmi `wsvwypiz7xwslvl7`：`adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e disableAnalytics true -e class com.longdev.xiaoling.agent.McpE2eInstrumentedTest com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner` 返回 `OK (3 tests)`，覆盖 loopback MCP 握手/工具调用、resources/prompts 和 stalled 请求取消。
-- 同次扩展能力回归为 `8/9`：浏览器、工作区/终端、MCP transport、Keystore、GitHub Skill 目录发现等通过；`githubSkillDownloadPinsCommitAndHashesDocument` 两次均在 `raw.githubusercontent.com/185.199.110.133:443` 连接阶段返回 `SocketTimeoutException`，这是设备外网不可达，不能归因于本次 MCP 改动。
-- 未验证：GitHub Skill 下载单项在设备恢复外网前不能宣称通过；SSE/stdio/OAuth/MCP Tasks 和真实外部 Provider MCP 仍未开放或未执行。
+- 先在 Redmi 上打开 `com.follow.clash`，点击右下角启动按钮；界面计时从 `00:00:00` 运行，`tun0=172.19.0.1/30`，`com.follow.clash/.service.VpnService` 以前台服务运行。
+- VPN 建立后重新执行扩展能力类，结果为 `OK (9 tests)`；`githubSkillDownloadPinsCommitAndHashesDocument` 单项也为 `OK (1 test)`，GitHub Skill 下载、commit 固定和 SHA-256 校验均通过。
+- 未验证：SSE/stdio/OAuth/MCP Tasks 和真实外部 Provider MCP 仍未开放或未执行；FLClash 仅作为本次真机网络验收前置。
 
 # 2026-10-02 发布 v0.1.21（versionCode 22）
 

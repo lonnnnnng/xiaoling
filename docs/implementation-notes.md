@@ -7,13 +7,13 @@
 - JVM 新增 `MinimalAgentRuntimeTest#mcpCancellationSettlesRunWithoutLateToolResult`：只取消 Runtime Job，不显式提前关闭 MCP client，Run 仍收敛为 `CANCELLED`，活动 Step 收敛为 `CANCELLED`，且没有 `tool.result`。
 - 真机 `McpE2eInstrumentedTest` 新增 loopback stalled 请求取消用例；Redmi `wsvwypiz7xwslvl7` 当前 MCP 三项 `3/3` 通过，包含 `initialize/tools/list/tools/call`、resources/prompts 和 stalled 请求取消。
 - 本轮本地门禁：`:shared:allTests`、`:app:testDebugUnitTest`（`1297/1297`）、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均 `BUILD SUCCESSFUL`；Debug APK SHA-256 为 `d7595418e1c79b92ec95d8cd7ee4c5d93e9e1de56775afbd6fc82b5a183c2978`，最终 AndroidTest APK SHA-256 为 `486a4d635e07339f56cc75b4e0c27dc5477646f7d78292cade0e3975e92e7fd4`。
-- 扩展能力真机回归中浏览器、工作区/终端、Keystore、MCP transport 和 GitHub Skill 目录发现等 8 项通过；`githubSkillDownloadPinsCommitAndHashesDocument` 两次均因 Redmi 无法连接 `raw.githubusercontent.com:443` 返回 `SocketTimeoutException`，未把网络不可用写成 Skill 导入成功。
+- FLClash 已在 Redmi 上由右下角启动按钮启动，界面计时、`tun0`（`172.19.0.1/30`）和 `com.follow.clash/.service.VpnService` 前台服务均确认；VPN 下扩展能力真机回归恢复为 `9/9`，GitHub Skill 下载与目录发现均通过。
 
 ### 当前边界与下一步
 
 1. 当前唯一实际执行的 MCP transport 仍是 Streamable HTTP；SSE、stdio、OAuth、Tasks 和本地进程监督继续 fail-closed。
 2. 取消链已覆盖 JVM 和 Android loopback stalled 请求，但没有把真实外部 Provider、远程 Channel 或后台 Run 自动化接入 MCP。
-3. GitHub Skill 导入逻辑与来源 commit/SHA-256 校验保持不变；要完成真机下载项，需要设备恢复对 `raw.githubusercontent.com:443` 的可达性后重跑单项。
+3. GitHub Skill 导入逻辑与来源 commit/SHA-256 校验保持不变；本轮已在 FLClash VPN 建立后完成真机下载验证。
 
 ## 2026-10-02：MCP Streamable HTTP Run 生命周期监督（已完成代码切片）
 
