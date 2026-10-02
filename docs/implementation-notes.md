@@ -13,13 +13,13 @@
 - 正式 APK：`outputs/release/xiaoling-v0.1.20.apk`，大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`。
 - 因正式签名证书更换，`v0.1.19` 安装包不能无损覆盖本版；本版发布说明要求用户先卸载旧版再安装。
 
-## 2026-10-02：只读浏览器证据进入 Tool Ledger（代码已完成，未单独发版）
+## 2026-10-02：只读浏览器证据进入 Tool Ledger（已随 v0.1.21 发布）
 
 - `ToolReadableEvidenceCodec` 统一可信上下文、RunEvent 和 Room 的只读证据格式，只保存 `kind / toolCallId / snapshotId / contentHash / sourceRef`；不保存网页正文、完整带参数 URL、Cookie、Token 或账号信息。
 - `MinimalAgentRuntime` 将浏览器读取结果中的 evidence 写入 `tool.result`；`RoomAgentRunRepository` 与 `AgentToolResultEntity` 持久化 `readableEvidenceJson`，恢复策略会把它重新投影为 `ToolExecutionResult`，进程重建后仍可参与审计。
 - Room 从 v39 升到 v40。39→40 只新增 nullable 列，旧 ToolResult 的证据保持 `null`，不从历史正文或 URL 猜造；schema `app/schemas/.../40.json` 已生成。
 - JVM `RunEventMetadataCodecTest`、Redmi `RoomAgentRunRepositoryInstrumentedTest` 全类 `55/55`、Redmi `XiaoLingDatabaseMigrationInstrumentedTest` 全类 `35/35` 通过；新增证据重建测试和 39→40 迁移测试均为 `OK (1 test)`。
-- 本切片只完成只读浏览器证据的跨事件、Room 和恢复链；网页脚本、Cookie、登录态、多 Tab、截图、下载及后台浏览器执行边界保持不变。完整门禁和提交推送在本轮收尾执行。
+- 本切片完成只读浏览器证据的跨事件、Room 和恢复链，并已随 `v0.1.21` 完成完整门禁、提交、推送和正式资产回验；网页脚本、Cookie、登录态、多 Tab、截图、下载及后台浏览器执行边界保持不变。
 - Redmi 扩展能力回归的公开链接夹具改用 `www.iana.org/help/example-domains`，不再依赖偶发返回 5xx 的 `httpbin.org`；该调整只稳定真机测试样本，不改变生产浏览器的 URL、重定向或私网拒绝策略。
 
 ## 2026-10-02：Provider 真机门禁前置收敛
@@ -2184,7 +2184,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.16`（`versionCode 17`，Room v35）
+当前发布版本：`v0.1.21`（`versionCode 22`，Room v40）
 
 ## 第 75 阶段实现与验证边界
 
@@ -2532,7 +2532,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 ## 本地存储
 
 - Provider、会话、消息、AgentRun、AgentStep、ApprovalRequest、RunEvent、AgentNote、AgentMemory、AgentSkill、AgentProfile、ToolCall/ToolResult、Workflow、WorkflowStepDefinition、WorkflowRun、WorkflowStep、WorkflowSchedule、ScheduledTask、独立 ProcessExitObservation、KnowledgeDocument/Chunk 和检索审计保存在 Room 数据库 `xiaoling.db`。
-- 数据库当前版本为 v39，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v39 的关键增量和全新 v39 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表；v29→v30 增加按 Provider/模型隔离的 Embedding 索引与检索身份；v30→v31 增加 top1/top2/margin/候选数 shadow 字段；v31→v32 增加候选均值、总体标准差和 top1 z-score；v32→v33 创建匿名 answerability shadow 账本；v33→v34 为 Workflow 增加目标包；v34→v35 增加完成标准和目标级判定；v35→v36 增加笔记 revision 与编辑幂等账本；v36→v37 增加 Skill 来源审计字段；v37→v38 增加 Run lineage；v38→v39 增加持久化取消请求时间与原因。所有迁移都不从旧正文、历史 JSON、当前向量、退出时间邻近关系或旧 Run 文案猜造事实。
+- 数据库当前版本为 v40，启用 `exportSchema`；`XiaoLingDatabaseMigrationInstrumentedTest` 覆盖正式 v4→v40 的关键增量和全新 v40 建库。v25→v26 只创建空知识库表；v26→v27 为 ToolResult 与 MessagePart 增加默认 `[]` 的知识引用列；v28→v29 只创建空进程退出观察表；v29→v30 增加按 Provider/模型隔离的 Embedding 索引与检索身份；v30→v31 增加 top1/top2/margin/候选数 shadow 字段；v31→v32 增加候选均值、总体标准差和 top1 z-score；v32→v33 创建匿名 answerability shadow 账本；v33→v34 为 Workflow 增加目标包；v34→v35 增加完成标准和目标级判定；v35→v36 增加笔记 revision 与编辑幂等账本；v36→v37 增加 Skill 来源审计字段；v37→v38 增加 Run lineage；v38→v39 增加持久化取消请求时间与原因；v39→v40 为 `agent_tool_results` 增加可空 `readableEvidenceJson`，旧 ToolResult 保持 `null`，不从历史正文或 URL 猜造证据。所有迁移都不从旧正文、历史 JSON、当前向量、退出时间邻近关系或旧 Run 文案猜造事实。
 - 旧消息迁移后统一得到 `origin=LEGACY`，`verifiedAgentContext` 默认为 `null`；v7 旧 Run 的 `retryOfRunId` 初始化为 `null`，v8 旧记忆的 `pinned=false` 并在迁移时回填 FTS，v9 正式记忆不会被倒推成候选，v10 旧记忆的生命周期字段保持空值，v11 升级后 Skill 表为空并由应用启动同步内置定义。
 - AgentMemory 保存内容、标签、类型、来源会话、来源 Run、来源摘要、置信度、启用/置顶状态、可空过期时间、最近引用时间和时间戳；`AgentMemoryStore` 只向工具暴露写入与检索，`AgentMemoryManager` 独立提供 UI 管理能力。
 - 记忆检索优先使用 Room FTS4 `unicode61` 做英文/标签前缀召回，并用 `LIKE` 兜底中文和任意子串；启用记忆会排除明确过期项，命中后回写 `lastReferencedAt`。结果按置顶、置信度和按类型配置的半衰期排序，衰减只影响排序，不修改正文或删除记录。

@@ -12,14 +12,16 @@
 - 正式 APK `outputs/release/xiaoling-v0.1.20.apk`：`3,379,922` 字节，SHA-256 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；APK v2/RSA 4096 签名和 `zipalign` 通过。
 - 本版使用新生成的正式证书，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；旧 `v0.1.19` 不能直接覆盖升级，需先卸载旧版。
 
-## 2026-10-02：Room v40 浏览器证据发行候选门禁（已验证，未发布）
+## 2026-10-02：Room v40 浏览器证据发行候选门禁（历史记录，已由 v0.1.21 正式发布取代）
+
+本节保留发行候选阶段的构建、真机前置和资产证据；后续已由上方 `v0.1.21` 正式发布条目取代。
 
 - `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease :app:lintVitalRelease` 已通过，耗时 `2m 16s`；R8 仅输出工具 warning，没有构建错误。
 - 当前候选产物为 `app/build/outputs/apk/release/app-release.apk`，`3,396,306` 字节，SHA-256 为 `677ba3911a5c6876b70ab2732b1de44f868cd6bf9f5be45e0924a8e74431c0c3`；`aapt` 确认 `0.1.20 / versionCode 21`，正式 RSA 4096 证书和 APK v2 签名、`zipalign` 均通过。
 - Redmi `wsvwypiz7xwslvl7` 重跑 `Stage264TaskRescheduleInstrumentedTest` 得到 `OK (1 test)`，但测试在 Provider 前置以 `AssumptionViolatedException` 明确 `SKIPPED`；没有创建提醒、Run、审批或临时数据。真实 Provider 改期链路仍未验收。
-- `outputs/release/xiaoling-v0.1.20.apk` 保持不变；该目录中的同版本资产仍是上一份发布资产。下一次正式发布前必须先决定版本号和发布资产替换策略，不能把本候选直接标为新 Release。
+- `outputs/release/xiaoling-v0.1.20.apk` 在当时保持不变；该候选随后已由 `v0.1.21` 正式 Release 取代，当前发布资产与远端回验见上方发布条目和验证报告。
 
-## 2026-10-02：浏览器只读证据持久化（已完成代码切片，待下一版发布）
+## 2026-10-02：浏览器只读证据持久化（已随 v0.1.21 发布）
 
 - 浏览器读取结果现在沿 `ToolExecutionResult → RunEventMetadata.ToolResult → Room agent_tool_results → AgentRunRecoveryEvidencePolicy` 完整传递，进程重建后仍能恢复 `snapshotId / contentHash / sourceRef` 证据。
 - 证据字段由统一 `ToolReadableEvidenceCodec` 编解码，Room v40 新增 nullable `readableEvidenceJson`；旧 v39 数据迁移后保持 `null`，不会从正文或 URL 反推证据。
@@ -28,7 +30,7 @@
 
 ### 当前收口边界
 
-1. 浏览器证据已经跨 RunEvent、Room 和恢复策略闭环，但尚未以新版本正式 APK 发布；发布前仍需完成完整 Gradle 门禁、提交、推送和正式资产回验。
+1. 浏览器证据已随 `v0.1.21` 正式 APK 发布；完整 Gradle 门禁、提交、推送和正式资产回验已完成，详见[验证报告](verification-report.md)。
 2. 只读浏览器仍是公开 HTTP(S) 读取链，不开放脚本、Cookie、登录态、表单、上传下载、截图、多 Tab 或后台执行。
 
 ## 2026-10-01：第四组 Run/Task Runtime v2 P0-b（Run lineage 持久化已完成）

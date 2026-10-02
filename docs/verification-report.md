@@ -11,12 +11,12 @@
 - Redmi `wsvwypiz7xwslvl7` 使用临时 Mock Provider 完成 Stage264 `OK (1 test)` 真机回归，覆盖 Activity 重建、审批恢复、改期回执和当前任务导航；Mock 回归不替代真实 Provider/模型兼容性验收。
 - [GitHub Release v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21) 已创建，非草稿、非预发布；APK 与 `.sha256` 资产均为 `uploaded`。下载回验的 APK SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`，与 GitHub asset digest 和本地值一致；校验文件远端 digest 为 `c6b03a8c8161f0599b68770bc663410f1c818831c28f77bb91f2fe403ae2c052`。
 
-# 2026-10-02 Room v40 浏览器证据发行候选门禁（未发布）
+# 2026-10-02 Room v40 浏览器证据发行候选门禁（历史记录，已由 v0.1.21 正式发布取代）
 
 - 正式构建命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease :app:lintVitalRelease`，结果为 `BUILD SUCCESSFUL in 2m 16s`；R8 有工具 warning，无构建错误。
 - 候选 APK：`app/build/outputs/apk/release/app-release.apk`，大小 `3,396,306` 字节，SHA-256 `677ba3911a5c6876b70ab2732b1de44f868cd6bf9f5be45e0924a8e74431c0c3`。`aapt` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.20`、`versionCode=21`；`apksigner` 确认单一正式 RSA 4096 签名者、APK Signature Scheme v2 有效，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；`zipalign -c -P 16 -v 4` 通过。
 - Redmi `wsvwypiz7xwslvl7` 执行 `adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e class com.longdev.xiaoling.agent.Stage264TaskRescheduleInstrumentedTest -e disableAnalytics true com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果为 `OK (1 test)`，但堆栈明确为 `AssumptionViolatedException`：当前没有有效 Provider，因此是前置 `SKIPPED`，没有创建提醒、Run、审批或测试数据。
-- 本节只记录发行候选门禁，不代表新 Release；`outputs/release/xiaoling-v0.1.20.apk` 与其 `.sha256` 未被覆盖。真实 Provider 改期审批、Activity 重建恢复和批准后 WorkManager 闭环仍待在 Redmi 配置有效 Provider 后验收。
+- 本节只保留发行候选阶段的审计证据；当时的 `outputs/release/xiaoling-v0.1.20.apk` 与其 `.sha256` 未被覆盖，随后已由 `v0.1.21` 正式 Release 取代。真实 Provider 改期审批、Activity 重建恢复和批准后 WorkManager 闭环的当前边界见上方 `v0.1.21` 与 Stage264 条目。
 
 # 2026-10-02 Stage264 Mock Provider 真机回归（通过）
 
