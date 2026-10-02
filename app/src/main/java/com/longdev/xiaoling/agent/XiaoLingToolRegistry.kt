@@ -71,7 +71,8 @@ class XiaoLingToolRegistry(
     private val mcpServerStore: McpServerStore = DisabledMcpServerStore,
     private val mcpClient: StreamableHttpMcpClient = StreamableHttpMcpClient(),
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
-) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
+) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry,
+    AgentRunLifecycleAwareToolRegistry {
     private var runContext: AgentToolExecutionContext? = null
     private var pendingWorkflowSnapshot: WorkflowSnapshotCandidate? = null
     private var verifiedWorkflowSnapshot: WorkflowSnapshotCandidate? = null
@@ -1470,6 +1471,32 @@ class XiaoLingToolRegistry(
         runContext = context
     }
 
+    override fun onRunFinished(runId: String) {
+        if (runContext?.runId != runId) return
+        // long: Run 结束后立即撤销所有只存在当前进程的引用；MCP session/目录与 BrowserSession 都不能
+        // 因为下一次恢复或新 Run 复用，Room 中已经落库的 readable evidence 不受影响。
+        clearWorkflowDeviceActionState()
+        pendingDirectTypeTextPrivacy = null
+        searchedMemoryDeleteCandidateId = null
+        confirmedMemoryDeleteCandidateId = null
+        searchedContactCandidateIds = emptySet()
+        verifiedContactDialerCandidate = null
+        approvedContactDialerCallIds.clear()
+        searchedNoteImportCandidateIds = emptySet()
+        verifiedNoteImportCandidate = null
+        approvedKnowledgeImportCallIds.clear()
+        searchedNoteAppendCandidateIds = emptySet()
+        verifiedNoteAppendCandidate = null
+        approvedNoteAppendCallIds.clear()
+        listedNotificationIds = emptySet()
+        mcpCatalogs.clear()
+        taskRescheduleTools.clear()
+        deviceController.clearReferences()
+        browserPageReader.clearSessions()
+        mcpClient.close()
+        runContext = null
+    }
+
     override fun beforeToolExecution(call: ToolCall, approval: AgentToolApprovalEvidence?) {
         if (call.name == TASK_RESCHEDULE_TOOL_NAME && approval?.approved == true) {
             taskRescheduleTools.approved(call)
@@ -2213,7 +2240,10 @@ class XiaoLingToolRegistry(
                         }.ifBlank { "MCP Server 没有返回已启用工具" },
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 工具发现失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP 工具发现失败")
+                },
             )
     }
 
@@ -2254,7 +2284,10 @@ class XiaoLingToolRegistry(
         return runCatching { mcpClient.callTool(server, toolName, arguments, knownTools = catalog.tools) }
             .fold(
                 onSuccess = { result -> ToolExecutionResult(success = true, content = result) },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 工具调用失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP 工具调用失败")
+                },
             )
     }
 
@@ -2281,7 +2314,10 @@ class XiaoLingToolRegistry(
                         }.ifBlank { "MCP Server 没有返回资源" },
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 资源发现失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP 资源发现失败")
+                },
             )
     }
 
@@ -2317,7 +2353,10 @@ class XiaoLingToolRegistry(
                         }.take(McpPolicy.MAX_RESULT_CHARS),
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP 资源读取失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP 资源读取失败")
+                },
             )
     }
 
@@ -2347,7 +2386,10 @@ class XiaoLingToolRegistry(
                         }.ifBlank { "MCP Server 没有返回 Prompt" },
                     )
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP Prompt 发现失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP Prompt 发现失败")
+                },
             )
     }
 
@@ -2401,7 +2443,10 @@ class XiaoLingToolRegistry(
                     }
                     ToolExecutionResult(success = true, content = "${result.description.orEmpty()}\n$messages".trim())
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "MCP Prompt 获取失败") },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    ToolExecutionResult(success = false, content = error.message ?: "MCP Prompt 获取失败")
+                },
             )
     }
 

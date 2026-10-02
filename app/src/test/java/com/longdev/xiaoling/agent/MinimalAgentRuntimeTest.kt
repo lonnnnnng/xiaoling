@@ -175,9 +175,11 @@ class MinimalAgentRuntimeTest {
             verificationPolicy = ToolVerificationPolicy.EXECUTOR_VERIFIED,
         )
         val lifecycle = mutableListOf<String>()
+        var finishedRunId: String? = null
         var boundContext: AgentToolExecutionContext? = null
         var authorization: AgentToolApprovalEvidence? = null
-        val registry = object : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
+        val registry = object : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry,
+            AgentRunLifecycleAwareToolRegistry {
             override fun bindRunContext(context: AgentToolExecutionContext) {
                 boundContext = context
             }
@@ -189,6 +191,10 @@ class MinimalAgentRuntimeTest {
 
             override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) {
                 lifecycle += "verified:${call.id}:${result.verified}"
+            }
+
+            override fun onRunFinished(runId: String) {
+                finishedRunId = runId
             }
 
             override fun availableTools(): List<ToolDefinition> = listOf(definition)
@@ -246,6 +252,7 @@ class MinimalAgentRuntimeTest {
             ),
             authorization,
         )
+        assertEquals(ledger.lastRunId, finishedRunId)
     }
 
     @Test

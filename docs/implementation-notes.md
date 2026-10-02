@@ -1,5 +1,19 @@
 # 当前实现说明
 
+## 2026-10-02：MCP Streamable HTTP Run 生命周期监督（已完成代码切片）
+
+- `StreamableHttpMcpClient` 现在跟踪当前请求中的 OkHttp `Call`；`close/reset` 会幂等取消 active Call，并清理 session、session lock、工具目录缓存。生命周期代次校验会阻止 close 竞态下的旧响应重新写入 session。
+- `MinimalAgentRuntime` 的普通 Run、受控重放和三个恢复入口都在 `finally` 通知 `AgentRunLifecycleAwareToolRegistry`；Profile/Skill scoped registry 透传该通知，`XiaoLingToolRegistry` 同时清除当前 Run 的 MCP 目录、BrowserSession、设备引用、审批候选和其他短期状态。
+- MCP 工具入口继续保持 `streamable_http` 唯一执行 transport；SSE/stdio 仍只解析配置并在执行层 fail-closed。MCP 的 `CancellationException` 不再被 `runCatching` 转成普通 ToolResult，取消会回到 Runtime 的 Run 收敛路径。
+- 回归覆盖 stalled HTTP 请求被 close 取消、重复 close、下一次 Run 重新 initialize/session，以及 Runtime Run 结束生命周期通知；完整 JVM `1296/1296`、`lintDebug`、`assembleDebugAndroidTest` 通过。
+- Redmi `wsvwypiz7xwslvl7` 真机 `McpE2eInstrumentedTest` `2/2`、`ExtendedAgentCapabilitiesInstrumentedTest` `9/9` 通过。该真机证据覆盖现有 loopback MCP、浏览器、工作区/终端和 GitHub Skill 基线，不把单元 stalled 请求测试写成真机网络中断证据。
+
+### 当前边界与下一步
+
+1. 当前只收口 Streamable HTTP 的 Run 级取消和清理，不引入 SSE 长连接、stdio `ProcessBuilder`、OAuth、MCP Tasks 或本地进程监督。
+2. Room 仍只恢复可读证据和持久化 Run 事实，不恢复 BrowserSession、MCP session 或 active 协程；恢复入口需要重新发现当前 Run 的 MCP 目录。
+3. 下一片优先补真实 Provider 下的 MCP 取消/Run 终态投影，随后再评估远程 Channel、ACI 和声明式插件的独立权限边界；不把本切片扩展成后台自动化或任意代码执行。
+
 ## 2026-10-02 发布 v0.1.21（versionCode 22）
 
 - 修复 Activity 重建后仅恢复审批卡片、未回填完整 Run detail 到 `agentRunHistory`，导致“批准并继续”无法进入恢复执行的问题。

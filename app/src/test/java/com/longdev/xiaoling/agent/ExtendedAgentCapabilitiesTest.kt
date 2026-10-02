@@ -5,15 +5,19 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -535,6 +539,75 @@ class ExtendedAgentCapabilitiesTest {
             assertEquals("session-1", list.getHeader("Mcp-Session-Id"))
             assertEquals("2025-03-26", list.getHeader("Mcp-Protocol-Version"))
             assertTrue(bodies[2].contains("\"method\":\"tools/list\""))
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun mcpClientCloseCancelsStalledRequestAndFreshRunRehandshakes() = runTest {
+        val server = MockWebServer()
+        var handshakeCount = 0
+        var toolListCount = 0
+        val methods = mutableListOf<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val payload = JSONObject(request.body.readUtf8())
+                methods += payload.optString("method")
+                return when (payload.optString("method")) {
+                    "initialize" -> {
+                        handshakeCount += 1
+                        MockResponse()
+                            .setHeader("Mcp-Session-Id", "session-$handshakeCount")
+                            .setBody(JSONObject()
+                                .put("jsonrpc", "2.0")
+                                .put("id", payload.getString("id"))
+                                .put("result", JSONObject().put("protocolVersion", McpPolicy.PROTOCOL_VERSION))
+                                .toString())
+                    }
+                    "notifications/initialized" -> MockResponse().setResponseCode(202)
+                    "tools/list" -> {
+                        toolListCount += 1
+                        if (toolListCount == 1) {
+                            MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                        } else {
+                            MockResponse().setBody(JSONObject()
+                                .put("jsonrpc", "2.0")
+                                .put("id", payload.getString("id"))
+                                .put("result", JSONObject().put("tools", JSONArray().put(
+                                    JSONObject().put("name", "fresh-tool").put("description", "Fresh"),
+                                )))
+                                .toString())
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        try {
+            val client = StreamableHttpMcpClient()
+            val config = McpServerConfig("close-mcp", "Close MCP", server.url("/mcp").toString())
+            val stalled = launch(Dispatchers.IO) { runCatching { client.listTools(config) } }
+
+            repeat(3) { assertNotNull(server.takeRequest(5, TimeUnit.SECONDS)) }
+            client.close()
+            client.close()
+            withContext(Dispatchers.IO) { withTimeout(5_000) { stalled.join() } }
+            assertFalse(stalled.isActive)
+
+            val freshTools = client.listTools(config)
+            assertEquals("fresh-tool", freshTools.single().name)
+            assertEquals(2, handshakeCount)
+            assertEquals(2, toolListCount)
+            requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+            server.takeRequest(5, TimeUnit.SECONDS)
+            val secondList = requireNotNull(server.takeRequest(5, TimeUnit.SECONDS))
+            assertEquals("session-2", secondList.getHeader("Mcp-Session-Id"))
+            assertEquals(
+                listOf("initialize", "notifications/initialized", "tools/list"),
+                methods.takeLast(3),
+            )
         } finally {
             server.shutdown()
         }

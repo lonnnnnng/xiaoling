@@ -1216,6 +1216,14 @@ interface AgentRunContextAwareToolRegistry {
     fun bindRunContext(context: AgentToolExecutionContext)
 }
 
+/**
+ * long: Run 进入终态后统一释放只存在当前进程的工具状态，避免 MCP session、目录快照或设备引用
+ * 在下一次 Run 中继续可见；恢复入口也必须经过同一条收口路径。
+ */
+interface AgentRunLifecycleAwareToolRegistry {
+    fun onRunFinished(runId: String)
+}
+
 data class AgentToolApprovalEvidence(
     val approved: Boolean,
     val decidedAt: Long,

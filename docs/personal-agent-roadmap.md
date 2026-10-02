@@ -1,5 +1,18 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-02：MCP Streamable HTTP 生命周期监督（已完成当前切片）
+
+- 对照 OmniBot 的取消/close、Eta 的 Run 快照与 executor close、Operit 的 supervisor 边界和 Aether 的进程收敛方式，本轮先完成现有 Streamable HTTP MCP 的 Run 级 owner，不提前接入高风险 stdio/SSE 执行。
+- 客户端跟踪 active OkHttp Call；Run 结束或取消会取消请求并清理 session、session lock 和工具目录缓存，close 可重复调用，旧响应不能在 close 竞态中恢复 session。
+- Runtime 五个入口统一在 `finally` 发送 Run 结束通知；Profile/Skill scoped registry 透传；生产 Registry 释放 MCP 目录、BrowserSession、设备引用和审批候选。MCP 取消继续传播到 Runtime，不再伪装成普通工具失败。
+- 本地门禁：完整 JVM `1296/1296`、`lintDebug`、`assembleDebugAndroidTest` 通过。Redmi `wsvwypiz7xwslvl7`：`McpE2eInstrumentedTest` `2/2`、`ExtendedAgentCapabilitiesInstrumentedTest` `9/9` 通过。
+
+### 本切片边界与后续路线
+
+1. 已完成的是 Streamable HTTP 生命周期监督；SSE、stdio、OAuth、Tasks 的执行扩展和本地进程 supervisor 仍按 fail-closed 处理，Resources/Prompts 继续沿用现有 Streamable HTTP 能力边界。
+2. 不恢复 Room 中的 BrowserSession、MCP session 或旧协程；恢复后必须重新建立当前 Run 的 MCP 目录和授权链。
+3. 下一步按顺序做真实 Provider 下 MCP 取消/终态投影，再做远程 Channel 入站草稿和声明式插件权限；ACI、任意代码执行、多 Agent 扩张和多平台运行时继续后置。
+
 ## 2026-10-02 发布 v0.1.21（versionCode 22）
 
 - 发布修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显，并包含 Room v40 浏览器证据持久化切片。

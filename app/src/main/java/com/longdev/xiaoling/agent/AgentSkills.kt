@@ -851,7 +851,8 @@ private fun selectAgentSkills(
 class SkillScopedToolRegistry(
     private val delegate: ToolRegistry,
     selectedSkills: List<AgentSkillDefinition>,
-) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry {
+) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry,
+    AgentRunLifecycleAwareToolRegistry {
     private val allowedToolNames = selectedSkills.flatMapTo(linkedSetOf()) { it.toolNames }
 
     init {
@@ -872,6 +873,10 @@ class SkillScopedToolRegistry(
 
     override fun afterToolVerification(call: ToolCall, result: ToolExecutionResult) {
         (delegate as? AgentToolExecutionLifecycleAwareToolRegistry)?.afterToolVerification(call, result)
+    }
+
+    override fun onRunFinished(runId: String) {
+        (delegate as? AgentRunLifecycleAwareToolRegistry)?.onRunFinished(runId)
     }
 
     override fun availableTools(): List<ToolDefinition> {

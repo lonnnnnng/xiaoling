@@ -160,6 +160,8 @@ class MinimalAgentRuntime internal constructor(
                 }
             }
             throw error
+        } finally {
+            finishToolRegistryRun(run.id)
         }
     }
 
@@ -272,6 +274,8 @@ class MinimalAgentRuntime internal constructor(
                 }
             }
             throw error
+        } finally {
+            finishToolRegistryRun(run.id)
         }
     }
 
@@ -380,6 +384,8 @@ class MinimalAgentRuntime internal constructor(
                 }
             }
             throw error
+        } finally {
+            finishToolRegistryRun(run.id)
         }
     }
 
@@ -510,6 +516,8 @@ class MinimalAgentRuntime internal constructor(
                 ledger.updateRunStatus(run.id, AgentRunStatus.FAILED, errorMessage = reason)
             }
             throw error
+        } finally {
+            finishToolRegistryRun(run.id)
         }
     }
 
@@ -561,6 +569,8 @@ class MinimalAgentRuntime internal constructor(
                 }
             }
             throw error
+        } finally {
+            finishToolRegistryRun(run.id)
         }
     }
 
@@ -1051,6 +1061,10 @@ class MinimalAgentRuntime internal constructor(
             ledger.appendEvent(runId, "run.cancelled", reason, RunEventMetadata.Reason(reason))
             ledger.updateRunStatus(runId, AgentRunStatus.CANCELLED, errorMessage = reason)
         }
+    }
+
+    private fun finishToolRegistryRun(runId: String) {
+        (toolRegistry as? AgentRunLifecycleAwareToolRegistry)?.onRunFinished(runId)
     }
 
     private suspend fun settleDeviceRecoveryRequired(

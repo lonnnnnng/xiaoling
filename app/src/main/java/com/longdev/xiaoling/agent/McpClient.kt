@@ -9,6 +9,7 @@ import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -358,6 +359,26 @@ class StreamableHttpMcpClient(
     private val sessions = ConcurrentHashMap<String, McpSession>()
     private val sessionLocks = ConcurrentHashMap<String, Mutex>()
     private val toolCache = ConcurrentHashMap<String, CachedTools>()
+    private val lifecycleLock = Any()
+    private val activeCalls = LinkedHashSet<Call>()
+    private var lifecycleGeneration = 0L
+
+    /**
+     * long: Streamable HTTP 的 session、目录缓存和 OkHttp Call 都只属于当前 Run；Run 结束或取消时
+     * 先取消仍在等待的网络请求，再清掉握手状态，避免旧 Run 的响应在下一次 Run 中重新建立 session。
+     */
+    fun close() {
+        val calls = synchronized(lifecycleLock) {
+            lifecycleGeneration += 1
+            activeCalls.toList().also { activeCalls.clear() }
+        }
+        calls.forEach(Call::cancel)
+        sessions.clear()
+        sessionLocks.clear()
+        toolCache.clear()
+    }
+
+    fun reset() = close()
 
     suspend fun listTools(server: McpServerConfig): List<McpToolDescriptor> = withContext(Dispatchers.IO) {
         // long: 工具目录缓存不能绕过最新的地址解析检查；DNS 变化后即使目录仍在 TTL 内，也必须重新确认目标不是私网或回环地址。
@@ -618,6 +639,7 @@ class StreamableHttpMcpClient(
         requireStreamableHttp(server)
         val key = sessionKey(server)
         if (sessions.containsKey(key)) return
+        val generation = currentLifecycleGeneration()
         val lock = sessionLocks.getOrPut(key) { Mutex() }
         lock.withLock {
             if (sessions.containsKey(key)) return
@@ -651,6 +673,7 @@ class StreamableHttpMcpClient(
                 protocolVersion = negotiatedVersion,
                 allowEmptyResponse = true,
             )
+            check(generation == currentLifecycleGeneration()) { "MCP 客户端已关闭" }
             sessions[key] = McpSession(response.sessionId, negotiatedVersion, capabilities)
         }
     }
@@ -701,10 +724,15 @@ class StreamableHttpMcpClient(
             .post(payload.toString().toRequestBody(jsonType))
             .build()
         val call = client.newCall(request)
+        val generation = synchronized(lifecycleLock) {
+            activeCalls += call
+            lifecycleGeneration
+        }
         val cancellation = currentCoroutineContext().job.invokeOnCompletion { cause -> if (cause != null) call.cancel() }
         return try {
             call.execute().use { response ->
                 currentCoroutineContext().ensureActive()
+                check(generation == currentLifecycleGeneration()) { "MCP 客户端已关闭" }
                 require(response.isSuccessful) { "MCP 请求失败：HTTP ${response.code}" }
                 val returnedSessionId = response.header("Mcp-Session-Id") ?: sessionId
                 val body = response.body?.source()?.let { readLimited(it, McpPolicy.MAX_RESPONSE_BYTES) } ?: ByteArray(0)
@@ -724,8 +752,11 @@ class StreamableHttpMcpClient(
             throw IOException("MCP 请求失败：${error.message ?: "网络错误"}", error)
         } finally {
             cancellation.dispose()
+            synchronized(lifecycleLock) { activeCalls.remove(call) }
         }
     }
+
+    private fun currentLifecycleGeneration(): Long = synchronized(lifecycleLock) { lifecycleGeneration }
 
     internal fun parseRpcBody(body: String, expectedId: String? = null): JSONObject {
         val normalized = body.trim()
