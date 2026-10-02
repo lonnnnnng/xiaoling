@@ -77,6 +77,11 @@ interface BrowserPageReader {
     suspend fun navigateSession(sessionId: String, url: String, maxChars: Int = BrowserUrlPolicy.DEFAULT_MAX_CHARS): BrowserSession
     suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession
     suspend fun closeSession(sessionId: String): Boolean
+
+    /**
+     * long: Run 切换或进程内恢复时只撤销内存会话；Room 中的 readable evidence 仍作为审计证据保留，不能伪造成可继续操作的浏览器会话。
+     */
+    fun clearSessions() = Unit
 }
 
 object DisabledBrowserPageReader : BrowserPageReader {
@@ -101,6 +106,8 @@ class OkHttpBrowserPageReader(
         .build(),
 ) : BrowserPageReader {
     private val sessions = ConcurrentHashMap<String, ManagedBrowserSession>()
+    private val sessionLock = Any()
+    @Volatile private var sessionGeneration = 0L
 
     override suspend fun read(url: String, maxChars: Int): BrowserPage = withContext(Dispatchers.IO) {
         val normalizedUrl = BrowserUrlPolicy.validate(url)
@@ -148,13 +155,18 @@ class OkHttpBrowserPageReader(
         require(sessions.size < BrowserUrlPolicy.MAX_SESSIONS) {
             "浏览器会话数量已达到 ${BrowserUrlPolicy.MAX_SESSIONS} 个上限"
         }
+        val generation = sessionGeneration
         val session = BrowserSession(
             id = UUID.randomUUID().toString().replace("-", "").take(16),
             snapshotId = newSnapshotId(),
             page = read(url, maxChars),
         )
+        currentCoroutineContext().ensureActive()
         val withRefs = session.copy(page = session.page.withLinkRefs(session.snapshotId))
-        sessions[withRefs.id] = ManagedBrowserSession(withRefs)
+        synchronized(sessionLock) {
+            check(sessionGeneration == generation) { "浏览器会话上下文已切换，请重新打开页面" }
+            sessions[withRefs.id] = ManagedBrowserSession(withRefs)
+        }
         return withRefs
     }
 
@@ -168,9 +180,16 @@ class OkHttpBrowserPageReader(
     override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession {
         cleanupExpiredSessions()
         require(sessions.containsKey(sessionId)) { "浏览器会话不存在或已关闭" }
+        val generation = sessionGeneration
         val session = BrowserSession(sessionId, newSnapshotId(), read(url, maxChars))
+        currentCoroutineContext().ensureActive()
         val withRefs = session.copy(page = session.page.withLinkRefs(session.snapshotId))
-        sessions[sessionId] = ManagedBrowserSession(withRefs)
+        synchronized(sessionLock) {
+            check(sessionGeneration == generation) { "浏览器会话上下文已切换，请重新打开页面" }
+            require(sessions.containsKey(sessionId)) { "浏览器会话不存在或已关闭" }
+            sessionGeneration += 1
+            sessions[sessionId] = ManagedBrowserSession(withRefs)
+        }
         return withRefs
     }
 
@@ -180,21 +199,44 @@ class OkHttpBrowserPageReader(
         require(current.session.snapshotId == snapshotId) { "浏览器快照已过期，请先重新读取当前页面" }
         val link = current.session.page.linkRefs.firstOrNull { it.ref == ref }
             ?: throw IllegalArgumentException("浏览器链接引用不存在或已失效")
+        val generation = sessionGeneration
         // long: click 只消费当前快照已公开的 HTTP(S) 链接，再走同一 URL、私网和重定向校验，不能把模型传入的 ref 变成任意导航地址。
         val targetUrl = BrowserUrlPolicy.validate(link.href)
         val nextSnapshotId = newSnapshotId()
         val loaded = read(targetUrl)
+        currentCoroutineContext().ensureActive()
         val next = BrowserSession(sessionId, nextSnapshotId, loaded.withLinkRefs(nextSnapshotId))
-        sessions[sessionId] = ManagedBrowserSession(next)
+        synchronized(sessionLock) {
+            check(sessionGeneration == generation) { "浏览器会话上下文已切换，请重新读取当前页面" }
+            val latest = sessions[sessionId]
+            require(latest?.session?.snapshotId == snapshotId) { "浏览器快照已过期，请先重新读取当前页面" }
+            sessionGeneration += 1
+            sessions[sessionId] = ManagedBrowserSession(next)
+        }
         return next
     }
 
-    override suspend fun closeSession(sessionId: String): Boolean = sessions.remove(sessionId) != null
+    override suspend fun closeSession(sessionId: String): Boolean = synchronized(sessionLock) {
+        val removed = sessions.remove(sessionId) != null
+        if (removed) sessionGeneration += 1
+        removed
+    }
+
+    override fun clearSessions() {
+        synchronized(sessionLock) {
+            sessionGeneration += 1
+            sessions.clear()
+        }
+    }
 
     private fun cleanupExpiredSessions() {
-        val cutoff = System.currentTimeMillis() - BrowserUrlPolicy.SESSION_TTL_MILLIS
-        sessions.forEach { (id, session) ->
-            if (session.lastAccessAt < cutoff) sessions.remove(id, session)
+        synchronized(sessionLock) {
+            val cutoff = System.currentTimeMillis() - BrowserUrlPolicy.SESSION_TTL_MILLIS
+            var removed = false
+            sessions.forEach { (id, session) ->
+                if (session.lastAccessAt < cutoff && sessions.remove(id, session)) removed = true
+            }
+            if (removed) sessionGeneration += 1
         }
     }
 
@@ -216,10 +258,11 @@ class OkHttpBrowserPageReader(
     )
 }
 
-private fun readLimited(source: BufferedSource, maxBytes: Int): ByteArray {
+private suspend fun readLimited(source: BufferedSource, maxBytes: Int): ByteArray {
     val output = java.io.ByteArrayOutputStream()
     val buffer = ByteArray(8_192)
     while (output.size() <= maxBytes) {
+        currentCoroutineContext().ensureActive()
         val count = source.read(buffer, 0, minOf(buffer.size, maxBytes + 1 - output.size()))
         if (count < 0) break
         if (count > 0) output.write(buffer, 0, count)

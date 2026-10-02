@@ -1,6 +1,9 @@
 package com.longdev.xiaoling.agent
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -123,6 +126,62 @@ class ExtendedAgentCapabilitiesTest {
             val privateRef = privatePage.page.linkRefs.single()
             assertThrows(IllegalArgumentException::class.java) {
                 runBlocking { reader.clickLink(privatePage.id, privatePage.snapshotId, privateRef.ref) }
+            }
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun cancelledNavigationDoesNotReplaceTheCurrentBrowserSnapshot() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("<title>One</title><p>first page</p>"))
+        server.enqueue(
+            MockResponse()
+                .setBodyDelay(5, TimeUnit.SECONDS)
+                .setBody("<title>Two</title><p>second page</p>"),
+        )
+        server.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
+                }
+                .build()
+            val reader = OkHttpBrowserPageReader(client)
+            val opened = reader.openSession("https://example.com/one")
+
+            val navigation = launch(Dispatchers.Default) {
+                reader.navigateSession(opened.id, "https://example.com/two")
+            }
+            server.takeRequest(2, TimeUnit.SECONDS)
+            navigation.cancelAndJoin()
+
+            val current = reader.readSession(opened.id)
+            assertEquals(opened.snapshotId, current.snapshotId)
+            assertEquals("One", current.page.title)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun clearingBrowserSessionsRevokesTheInMemorySession() = runTest {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("<title>One</title><p>first page</p>"))
+        server.start()
+        try {
+            val client = OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build())
+                }
+                .build()
+            val reader = OkHttpBrowserPageReader(client)
+            val opened = reader.openSession("https://example.com/one")
+            reader.clearSessions()
+
+            assertThrows(IllegalArgumentException::class.java) {
+                runBlocking { reader.readSession(opened.id) }
             }
         } finally {
             server.shutdown()

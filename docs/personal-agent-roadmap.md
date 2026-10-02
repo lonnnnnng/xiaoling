@@ -2678,3 +2678,11 @@ idle -> deciding -> waiting_model -> waiting_approval
 - 当前页面公开链接生成绑定 `snapshotId` 的 `link-{snapshotId}-{index}` 引用；`browser.click` 只允许用户明确意图下消费当前 `sessionId + snapshotId + ref`，并声明 `REQUIRES_APPROVAL`、禁止后台执行。
 - 点击目标仍经同一 `BrowserUrlPolicy` 校验，成功后只做无脚本、无 Cookie 的 GET 并轮换新 snapshot；旧快照、伪造 ref、私网链接和任意模型拼接 URL 均拒绝。表单、脚本、Cookie、登录态、上传下载、截图、坐标注入、多 Tab 和后台动作继续关闭。
 - JVM 覆盖链接引用、成功轮换、旧快照、伪造 ref 和私网目标；Redmi `wsvwypiz7xwslvl7` 覆盖真实公开页面 `open -> click -> 新 snapshot`。下一步再评估跨入口取消与浏览器结果证据的持久化边界，不扩大浏览器权限面。
+
+## 2026-10-02 P2：BrowserSession 取消与 Run 隔离收口
+
+- `BrowserPageReader` 增加进程内会话清理钩子；`XiaoLingToolRegistry.bindRunContext()` 切换 Run 时撤销旧 BrowserSession，避免同一进程把旧 `sessionId` 带入新 Run。Room 中的 `ToolReadableEvidence` 仍只作为审计/恢复证据，进程重建后不伪造可继续操作的会话。
+- `OkHttpBrowserPageReader` 在 `read()`、`navigateSession()`、`clickLink()` 完成网络读取后重新检查协程取消；会话写回使用代际锁，Run 切换、关闭、TTL 清理或并发导航发生后，旧请求不能把新 snapshot 写回内存。
+- 六个 Browser handler 显式重新抛出 `CancellationException`，取消继续交给 `MinimalAgentRuntime` 的正式取消收敛，不再被 `runCatching` 转换为普通失败工具结果。
+- 新增 JVM 回归：取消中的导航保留旧 snapshot、清理后旧会话不可读取、Browser handler 取消保持协程取消态、Run context 切换触发会话清理。该片不新增 Room v41，也不保存网页正文、Cookie 或 link refs。
+- 本片下一步是 Debug/AndroidTest 构建和 Redmi `wsvwypiz7xwslvl7` 定向真机回归；真机只验证公开页面读取、snapshot/click/evidence 和取消/隔离结果，不扩大浏览器权限面。

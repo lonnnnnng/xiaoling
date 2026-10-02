@@ -31,6 +31,10 @@ import com.longdev.xiaoling.knowledge.KnowledgeSearchResult
 import com.longdev.xiaoling.knowledge.KnowledgeTextPolicy
 import java.time.LocalDate
 import java.time.ZoneOffset
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -47,6 +51,77 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XiaoLingToolRegistryTest {
+    @Test
+    fun browserToolCancellationPropagatesInsteadOfReturningFailure() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val reader = object : BrowserPageReader {
+            override suspend fun read(url: String, maxChars: Int): BrowserPage {
+                started.complete(Unit)
+                awaitCancellation()
+            }
+
+            override suspend fun openSession(url: String, maxChars: Int): BrowserSession = error("unused")
+            override suspend fun readSession(sessionId: String): BrowserSession = error("unused")
+            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession = error("unused")
+            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession = error("unused")
+            override suspend fun closeSession(sessionId: String): Boolean = error("unused")
+        }
+        val registry = testRegistry(browserPageReader = reader)
+        registry.bindRunContext(
+            AgentToolExecutionContext(
+                conversationId = "conversation-browser-cancel",
+                userMessageId = "message-browser-cancel",
+                runId = "run-browser-cancel",
+                goal = "读取公开网页",
+                executionOrigin = AgentExecutionOrigin.FOREGROUND,
+                invocationSource = AgentInvocationSource.DIRECT,
+            ),
+        )
+        val execution = launch {
+            registry.execute(
+                ToolCall(
+                    name = "browser.fetch",
+                    arguments = mapOf("url" to "https://example.com"),
+                    risk = ToolRisk.SAFE,
+                ),
+            )
+        }
+
+        started.await()
+        execution.cancelAndJoin()
+        assertTrue(execution.isCancelled)
+    }
+
+    @Test
+    fun browserSessionsAreClearedWhenRunContextChanges() {
+        var clearCount = 0
+        val reader = object : BrowserPageReader {
+            override suspend fun read(url: String, maxChars: Int): BrowserPage = error("unused")
+            override suspend fun openSession(url: String, maxChars: Int): BrowserSession = error("unused")
+            override suspend fun readSession(sessionId: String): BrowserSession = error("unused")
+            override suspend fun navigateSession(sessionId: String, url: String, maxChars: Int): BrowserSession = error("unused")
+            override suspend fun clickLink(sessionId: String, snapshotId: String, ref: String): BrowserSession = error("unused")
+            override suspend fun closeSession(sessionId: String): Boolean = error("unused")
+            override fun clearSessions() {
+                clearCount += 1
+            }
+        }
+        val registry = testRegistry(browserPageReader = reader)
+        val first = AgentToolExecutionContext(
+            conversationId = "conversation-browser-run-1",
+            userMessageId = "message-browser-run-1",
+            runId = "run-browser-1",
+            goal = "读取网页",
+        )
+        val second = first.copy(runId = "run-browser-2")
+
+        registry.bindRunContext(first)
+        registry.bindRunContext(first)
+        assertEquals(1, clearCount)
+        registry.bindRunContext(second)
+        assertEquals(2, clearCount)
+    }
+
     @Test
     fun mcpExtendedToolsAreFrontDirectOnly() = runTest {
         val registry = testRegistry(
@@ -4947,6 +5022,7 @@ class XiaoLingToolRegistryTest {
         storageStatusReader: StorageStatusReader = UnavailableStorageStatusReader,
         notificationReader: NotificationReader = UnavailableNotificationReader,
         deviceController: DeviceController = FakeDeviceController(enabled = false),
+        browserPageReader: BrowserPageReader = DisabledBrowserPageReader,
         mcpServerStore: McpServerStore = DisabledMcpServerStore,
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
@@ -4969,6 +5045,7 @@ class XiaoLingToolRegistryTest {
             storageStatusReader = storageStatusReader,
             notificationReader = notificationReader,
             deviceController = deviceController,
+            browserPageReader = browserPageReader,
             mcpServerStore = mcpServerStore,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )

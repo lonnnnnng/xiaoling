@@ -43,6 +43,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.CancellationException
 import kotlin.math.max
 import kotlin.math.min
 import org.json.JSONArray
@@ -1463,6 +1464,8 @@ class XiaoLingToolRegistry(
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
                 deviceController.clearReferences()
             }
+            // long: BrowserSession 只存在当前进程内；切换 Run 时撤销旧会话，Room readable evidence 继续保留为审计证据但不能跨 Run 继续导航。
+            browserPageReader.clearSessions()
         }
         runContext = context
     }
@@ -1916,24 +1919,20 @@ class XiaoLingToolRegistry(
         }
         val url = call.arguments["url"].orEmpty()
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
-        return runCatching { browserPageReader.read(url, maxChars) }
-            .fold(
-                onSuccess = { page ->
-                    val title = page.title?.let { "标题：$it\n" }.orEmpty()
-                    val links = page.links.takeIf { it.isNotEmpty() }?.joinToString("\n") { "- $it" }.orEmpty()
-                    ToolExecutionResult(
-                        success = true,
-                        content = buildString {
-                            append("URL：${page.url}\n")
-                            append(title)
-                            append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
-                            if (page.truncated) append("）")
-                            if (links.isNotBlank()) append("\n链接：\n$links")
-                        },
-                    )
+        return executeBrowserOperation("网页读取失败", { browserPageReader.read(url, maxChars) }) { page ->
+            val title = page.title?.let { "标题：$it\n" }.orEmpty()
+            val links = page.links.takeIf { it.isNotEmpty() }?.joinToString("\n") { "- $it" }.orEmpty()
+            ToolExecutionResult(
+                success = true,
+                content = buildString {
+                    append("URL：${page.url}\n")
+                    append(title)
+                    append("正文${if (page.truncated) "（已截断" else ""}：\n${page.text}")
+                    if (page.truncated) append("）")
+                    if (links.isNotBlank()) append("\n链接：\n$links")
                 },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "网页读取失败") },
             )
+        }
     }
 
     private suspend fun openBrowserSession(call: ToolCall): ToolExecutionResult {
@@ -1942,34 +1941,26 @@ class XiaoLingToolRegistry(
         }
         val url = call.arguments["url"].orEmpty()
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
-        return runCatching { browserPageReader.openSession(url, maxChars) }
-            .fold(
-                onSuccess = { session ->
-                    ToolExecutionResult(
-                        success = true,
-                        content = "浏览器会话已打开：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
-                        readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
-                    )
-                },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话打开失败") },
+        return executeBrowserOperation("浏览器会话打开失败", { browserPageReader.openSession(url, maxChars) }) { session ->
+            ToolExecutionResult(
+                success = true,
+                content = "浏览器会话已打开：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+                readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
             )
+        }
     }
 
     private suspend fun readBrowserSession(call: ToolCall): ToolExecutionResult {
         if (!extendedCapabilityAllowed(runContext)) {
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
-        return runCatching { browserPageReader.readSession(call.arguments["session_id"].orEmpty()) }
-            .fold(
-                onSuccess = { session ->
-                    ToolExecutionResult(
-                        success = true,
-                        content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
-                        readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
-                    )
-                },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话读取失败") },
+        return executeBrowserOperation("浏览器会话读取失败", { browserPageReader.readSession(call.arguments["session_id"].orEmpty()) }) { session ->
+            ToolExecutionResult(
+                success = true,
+                content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+                readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
             )
+        }
     }
 
     private suspend fun navigateBrowserSession(call: ToolCall): ToolExecutionResult {
@@ -1979,17 +1970,13 @@ class XiaoLingToolRegistry(
         val sessionId = call.arguments["session_id"].orEmpty()
         val url = call.arguments["url"].orEmpty()
         val maxChars = call.arguments["max_chars"]?.toIntOrNull() ?: BrowserUrlPolicy.DEFAULT_MAX_CHARS
-        return runCatching { browserPageReader.navigateSession(sessionId, url, maxChars) }
-            .fold(
-                onSuccess = { session ->
-                    ToolExecutionResult(
-                        success = true,
-                        content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
-                        readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
-                    )
-                },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话导航失败") },
+        return executeBrowserOperation("浏览器会话导航失败", { browserPageReader.navigateSession(sessionId, url, maxChars) }) { session ->
+            ToolExecutionResult(
+                success = true,
+                content = "会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+                readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
             )
+        }
     }
 
     private suspend fun clickBrowserLink(call: ToolCall): ToolExecutionResult {
@@ -1999,17 +1986,13 @@ class XiaoLingToolRegistry(
         val sessionId = call.arguments["session_id"].orEmpty()
         val snapshotId = call.arguments["snapshot_id"].orEmpty()
         val ref = call.arguments["ref"].orEmpty()
-        return runCatching { browserPageReader.clickLink(sessionId, snapshotId, ref) }
-            .fold(
-                onSuccess = { session ->
-                    ToolExecutionResult(
-                        success = true,
-                        content = "已点击链接引用：$ref\n会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
-                        readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
-                    )
-                },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器链接点击失败") },
+        return executeBrowserOperation("浏览器链接点击失败", { browserPageReader.clickLink(sessionId, snapshotId, ref) }) { session ->
+            ToolExecutionResult(
+                success = true,
+                content = "已点击链接引用：$ref\n会话：${session.id}\n快照：${session.snapshotId}\n${formatBrowserPage(session.page)}",
+                readableEvidence = session.page.toReadableEvidence(call.id, session.snapshotId),
             )
+        }
     }
 
     private suspend fun closeBrowserSession(call: ToolCall): ToolExecutionResult {
@@ -2017,11 +2000,24 @@ class XiaoLingToolRegistry(
             return ToolExecutionResult(success = false, content = "浏览器只允许在前台直接 Agent 中执行")
         }
         val sessionId = call.arguments["session_id"].orEmpty()
-        return runCatching { browserPageReader.closeSession(sessionId) }
-            .fold(
-                onSuccess = { closed -> ToolExecutionResult(success = closed, verified = closed, content = if (closed) "浏览器会话已关闭：$sessionId" else "浏览器会话不存在：$sessionId") },
-                onFailure = { error -> ToolExecutionResult(success = false, content = error.message ?: "浏览器会话关闭失败") },
-            )
+        return executeBrowserOperation("浏览器会话关闭失败", { browserPageReader.closeSession(sessionId) }) { closed ->
+            ToolExecutionResult(success = closed, verified = closed, content = if (closed) "浏览器会话已关闭：$sessionId" else "浏览器会话不存在：$sessionId")
+        }
+    }
+
+    private suspend fun <T> executeBrowserOperation(
+        fallbackMessage: String,
+        operation: suspend () -> T,
+        onSuccess: (T) -> ToolExecutionResult,
+    ): ToolExecutionResult {
+        return try {
+            onSuccess(operation())
+        } catch (error: CancellationException) {
+            // long: Agent Run 取消必须沿协程边界继续向上传播，不能伪装成普通浏览器失败并继续写入运行账本。
+            throw error
+        } catch (error: Throwable) {
+            ToolExecutionResult(success = false, content = error.message ?: fallbackMessage)
+        }
     }
 
     private fun formatBrowserPage(page: BrowserPage): String = buildString {

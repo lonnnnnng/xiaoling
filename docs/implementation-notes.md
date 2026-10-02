@@ -2743,6 +2743,13 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - 本片只开放导航型点击，不开放 DOM selector、JavaScript、表单提交、Cookie/登录态、上传下载、截图、坐标注入、多 Tab 或后台浏览器动作；点击结果继续只携带 `ToolReadableEvidence`，不伪造成 `PASSED / COMMITTED`。
 - `ExtendedAgentCapabilitiesTest#browserClickConsumesCurrentSnapshotRefAndRejectsStaleOrUnsafeRefs` 覆盖引用生成、成功轮换、旧快照、伪造 ref 和私网目标拒绝；Redmi `wsvwypiz7xwslvl7` 的 `ExtendedAgentCapabilitiesInstrumentedTest#browserSessionClicksCurrentPublicLinkAndRotatesSnapshot` 覆盖真实公开页面 `open -> click -> 新 snapshot`。
 
+## 2026-10-02 P2：BrowserSession 取消与 Run 隔离收口
+
+- `BrowserPageReader.clearSessions()` 只清理当前进程内的操作会话；`XiaoLingToolRegistry` 在首次绑定和切换 Run 时调用它，防止旧 `sessionId` 跨 Run 继续使用。该钩子不触碰 Room 的 readable evidence，进程重建继续按“只恢复审计证据、要求重新 `browser.open`”处理。
+- `OkHttpBrowserPageReader` 为会话写回增加 `sessionGeneration` 与锁：网络读取完成后先 `ensureActive()`，再核对代际和当前 snapshot；取消、关闭、TTL 回收、Run 清理或并发导航发生后，旧请求不会复活会话或覆盖新页面。响应流循环也逐次检查协程取消。
+- Browser Registry 的 `fetch/open/read/navigate/click/close` 统一使用显式 `CancellationException` 分支；普通异常仍转换为稳定工具失败，取消则继续向上传播到 Runtime/Room 取消边界。
+- JVM 回归新增取消导航、内存会话清理、Registry 取消传播和 Run 切换清理用例；没有新增 Room schema，也没有把页面正文、Cookie、完整 URL 参数或 link refs 写入持久层。
+
 ## 2026-10-02 P2：跨入口取消请求与 attach 统一投影
 
 - Android Room 的 `cancelRequestedAt / cancelRequestedReason` 先于协程终态落库时，`AgentRunRecord.toSharedRunState()` 现在把所有非终态 Run 投影为 shared `CANCEL_REQUESTED`；只有真正的 `CANCELLED`、`FAILED` 或其他终态继续沿原状态映射，避免 shared snapshot 同时出现活动状态和 `cancelRequested=true` 的矛盾组合。
