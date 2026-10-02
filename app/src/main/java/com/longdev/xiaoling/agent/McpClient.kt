@@ -5,15 +5,17 @@ import com.longdev.xiaoling.data.ApiKeyCipher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSource
 import org.json.JSONArray
@@ -728,9 +730,8 @@ class StreamableHttpMcpClient(
             activeCalls += call
             lifecycleGeneration
         }
-        val cancellation = currentCoroutineContext().job.invokeOnCompletion { cause -> if (cause != null) call.cancel() }
         return try {
-            call.execute().use { response ->
+            executeCall(call).use { response ->
                 currentCoroutineContext().ensureActive()
                 check(generation == currentLifecycleGeneration()) { "MCP 客户端已关闭" }
                 require(response.isSuccessful) { "MCP 请求失败：HTTP ${response.code}" }
@@ -751,9 +752,23 @@ class StreamableHttpMcpClient(
             currentCoroutineContext().ensureActive()
             throw IOException("MCP 请求失败：${error.message ?: "网络错误"}", error)
         } finally {
-            cancellation.dispose()
             synchronized(lifecycleLock) { activeCalls.remove(call) }
         }
+    }
+
+    private suspend fun executeCall(call: Call): Response = suspendCancellableCoroutine { continuation ->
+        // long: OkHttp 的 enqueue 与协程取消绑定；取消发生在响应到达前时必须直接 cancel Call，避免阻塞请求继续占用 Run。
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                // long: 取消与响应回调可能并发，交给 continuation 的取消回调关闭竞争窗口内的 Response，避免泄漏连接。
+                continuation.resume(response) { _, _, _ -> response.close() }
+            }
+        })
     }
 
     private fun currentLifecycleGeneration(): Long = synchronized(lifecycleLock) { lifecycleGeneration }

@@ -1,5 +1,20 @@
 # 当前实现说明
 
+## 2026-10-02：MCP Streamable HTTP 取消链稳定验收（已完成）
+
+- `StreamableHttpMcpClient.postRpc()` 改用 `suspendCancellableCoroutine` 桥接 OkHttp `enqueue`；协程取消会立即调用 `Call.cancel()`，响应到达与取消并发时关闭未交付的 `Response`，不再依赖取消完成后的内部协程回调。
+- 生产 Run 生命周期仍通过 `AgentRunLifecycleAwareToolRegistry.onRunFinished()` 触发 `close()`，并保留 active Call、session、目录缓存和生命周期代次清理；取消后的 `CancellationException` 继续向 `MinimalAgentRuntime` 传播，不生成迟到 `tool.result`。
+- JVM 新增 `MinimalAgentRuntimeTest#mcpCancellationSettlesRunWithoutLateToolResult`：只取消 Runtime Job，不显式提前关闭 MCP client，Run 仍收敛为 `CANCELLED`，活动 Step 收敛为 `CANCELLED`，且没有 `tool.result`。
+- 真机 `McpE2eInstrumentedTest` 新增 loopback stalled 请求取消用例；Redmi `wsvwypiz7xwslvl7` 当前 MCP 三项 `3/3` 通过，包含 `initialize/tools/list/tools/call`、resources/prompts 和 stalled 请求取消。
+- 本轮本地门禁：`:shared:allTests`、`:app:testDebugUnitTest`（`1297/1297`）、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均 `BUILD SUCCESSFUL`；Debug APK SHA-256 为 `d7595418e1c79b92ec95d8cd7ee4c5d93e9e1de56775afbd6fc82b5a183c2978`，最终 AndroidTest APK SHA-256 为 `486a4d635e07339f56cc75b4e0c27dc5477646f7d78292cade0e3975e92e7fd4`。
+- 扩展能力真机回归中浏览器、工作区/终端、Keystore、MCP transport 和 GitHub Skill 目录发现等 8 项通过；`githubSkillDownloadPinsCommitAndHashesDocument` 两次均因 Redmi 无法连接 `raw.githubusercontent.com:443` 返回 `SocketTimeoutException`，未把网络不可用写成 Skill 导入成功。
+
+### 当前边界与下一步
+
+1. 当前唯一实际执行的 MCP transport 仍是 Streamable HTTP；SSE、stdio、OAuth、Tasks 和本地进程监督继续 fail-closed。
+2. 取消链已覆盖 JVM 和 Android loopback stalled 请求，但没有把真实外部 Provider、远程 Channel 或后台 Run 自动化接入 MCP。
+3. GitHub Skill 导入逻辑与来源 commit/SHA-256 校验保持不变；要完成真机下载项，需要设备恢复对 `raw.githubusercontent.com:443` 的可达性后重跑单项。
+
 ## 2026-10-02：MCP Streamable HTTP Run 生命周期监督（已完成代码切片）
 
 - `StreamableHttpMcpClient` 现在跟踪当前请求中的 OkHttp `Call`；`close/reset` 会幂等取消 active Call，并清理 session、session lock、工具目录缓存。生命周期代次校验会阻止 close 竞态下的旧响应重新写入 session。

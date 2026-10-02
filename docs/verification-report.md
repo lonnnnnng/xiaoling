@@ -2,6 +2,14 @@
 
 验证日期：2026-10-02（北京时间）
 
+# 2026-10-02 MCP 取消链稳定验收
+
+- 生产实现：`StreamableHttpMcpClient.postRpc()` 使用 `suspendCancellableCoroutine + OkHttp enqueue`；取消会立即调用 `Call.cancel()`，取消/响应竞态下未交付响应会关闭，`MinimalAgentRuntime` 继续通过 Run 生命周期回调清理 MCP session/目录/active Call。
+- 本地门禁：`:shared:allTests`、`:app:testDebugUnitTest`（`1297/1297`）、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均 `BUILD SUCCESSFUL`。Debug APK `d7595418e1c79b92ec95d8cd7ee4c5d93e9e1de56775afbd6fc82b5a183c2978`；最终 AndroidTest APK `486a4d635e07339f56cc75b4e0c27dc5477646f7d78292cade0e3975e92e7fd4`。
+- Redmi `wsvwypiz7xwslvl7`：`adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e disableAnalytics true -e class com.longdev.xiaoling.agent.McpE2eInstrumentedTest com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner` 返回 `OK (3 tests)`，覆盖 loopback MCP 握手/工具调用、resources/prompts 和 stalled 请求取消。
+- 同次扩展能力回归为 `8/9`：浏览器、工作区/终端、MCP transport、Keystore、GitHub Skill 目录发现等通过；`githubSkillDownloadPinsCommitAndHashesDocument` 两次均在 `raw.githubusercontent.com/185.199.110.133:443` 连接阶段返回 `SocketTimeoutException`，这是设备外网不可达，不能归因于本次 MCP 改动。
+- 未验证：GitHub Skill 下载单项在设备恢复外网前不能宣称通过；SSE/stdio/OAuth/MCP Tasks 和真实外部 Provider MCP 仍未开放或未执行。
+
 # 2026-10-02 发布 v0.1.21（versionCode 22）
 
 - 发布提交包含 Activity 重建后的 Agent 审批恢复修复、任务改期结果回显修复和 Room v40 浏览器证据持久化切片。

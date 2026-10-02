@@ -1,11 +1,15 @@
 package com.longdev.xiaoling.agent
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -14,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,10 +28,14 @@ import java.util.concurrent.TimeUnit
 class McpE2eInstrumentedTest {
     private lateinit var server: MockWebServer
     private val requestBodies = mutableListOf<String>()
+    @Volatile private var stallToolsList = false
+    private var stalledRequest = CountDownLatch(1)
 
     @Before
     fun setUp() {
         requestBodies.clear()
+        stallToolsList = false
+        stalledRequest = CountDownLatch(1)
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -51,23 +60,29 @@ class McpE2eInstrumentedTest {
                             .setResponseCode(202)
                             .setHeader("Mcp-Session-Id", SESSION_ID)
 
-                        "tools/list" -> jsonRpcResponse(
-                            rpc.optString("id"),
-                            JSONObject().put("tools", JSONArray().put(
-                                JSONObject()
-                                    .put("name", TOOL_NAME)
-                                    .put("description", "回显文本，用于真机 MCP E2E 验证")
-                                    .put(
-                                        "inputSchema",
-                                        JSONObject()
-                                            .put("type", "object")
-                                            .put("required", JSONArray().put("text"))
-                                            .put("additionalProperties", false)
-                                            .put("properties", JSONObject().put("text", JSONObject().put("type", "string"))),
-                                    )
-                                    .put("annotations", JSONObject().put("readOnlyHint", true)),
-                            )),
-                        ).setHeader("Mcp-Session-Id", SESSION_ID)
+                        "tools/list" -> if (stallToolsList) {
+                            // long: 真机取消回归必须让 tools/list 保持半开，才能证明协程取消真的中断了底层 Call。
+                            stalledRequest.countDown()
+                            MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                        } else {
+                            jsonRpcResponse(
+                                rpc.optString("id"),
+                                JSONObject().put("tools", JSONArray().put(
+                                    JSONObject()
+                                        .put("name", TOOL_NAME)
+                                        .put("description", "回显文本，用于真机 MCP E2E 验证")
+                                        .put(
+                                            "inputSchema",
+                                            JSONObject()
+                                                .put("type", "object")
+                                                .put("required", JSONArray().put("text"))
+                                                .put("additionalProperties", false)
+                                                .put("properties", JSONObject().put("text", JSONObject().put("type", "string"))),
+                                        )
+                                        .put("annotations", JSONObject().put("readOnlyHint", true)),
+                                )),
+                            ).setHeader("Mcp-Session-Id", SESSION_ID)
+                        }
 
                         "tools/call" -> {
                             val params = rpc.getJSONObject("params")
@@ -186,6 +201,28 @@ class McpE2eInstrumentedTest {
             requestBodies.map { JSONObject(it).getString("method") },
         )
         println("DEVICE_MCP_CONTENT resources_list=true resources_read=true prompts_list=true prompts_get=true session=true")
+    }
+
+    @Test
+    fun cancellationCancelsStalledRequestOnRealDevice() = runBlocking {
+        stallToolsList = true
+        val client = StreamableHttpMcpClient()
+        try {
+            val config = McpServerConfig(
+                id = "device-mcp-cancel",
+                name = "Device MCP Cancel",
+                url = server.url("/mcp").toString(),
+            )
+            val request = launch(Dispatchers.IO) { client.listTools(config) }
+            assertTrue(stalledRequest.await(5, TimeUnit.SECONDS))
+            request.cancel()
+            withTimeout(5_000) { request.join() }
+            assertTrue(request.isCancelled)
+            println("DEVICE_MCP_CANCEL stalled_request=true job_cancelled=true")
+        } finally {
+            client.close()
+            stallToolsList = false
+        }
     }
 
     private fun jsonRpcResponse(id: String, result: JSONObject): MockResponse = MockResponse()

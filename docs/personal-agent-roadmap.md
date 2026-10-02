@@ -1,5 +1,14 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-02：MCP Streamable HTTP 取消链稳定验收
+
+- `StreamableHttpMcpClient` 已把阻塞式 RPC 改为可取消的 OkHttp `enqueue` 桥接；Runtime Job 开始取消时立即取消底层 Call，避免网络请求阻塞 Run 终态收敛。
+- JVM 回归覆盖只取消 Runtime Job、Run/Step 进入 `CANCELLED`、无迟到 `tool.result`；本地 `:shared:allTests`、`:app:testDebugUnitTest`、Debug/AndroidTest 构建和 `lintDebug` 全部通过。
+- Redmi `wsvwypiz7xwslvl7` 的 `McpE2eInstrumentedTest` 已扩展为 `3/3`，新增 stalled MCP 请求取消真机证据；扩展能力回归中其余 8 项通过。
+- `githubSkillDownloadPinsCommitAndHashesDocument` 当前因设备连接 `raw.githubusercontent.com:443` 超时而失败，属于外部网络前置未满足；GitHub Skill 目录发现、来源 commit 固定和本地导入边界仍已通过。
+
+本切片不开放 SSE/stdio 实际执行、OAuth、MCP Tasks、远程自动执行或动态插件代码；待设备外网恢复后只重跑 GitHub Skill 下载单项，不改变生产权限边界。
+
 ## 2026-10-02：MCP Streamable HTTP 生命周期监督（已完成当前切片）
 
 - 对照 OmniBot 的取消/close、Eta 的 Run 快照与 executor close、Operit 的 supervisor 边界和 Aether 的进程收敛方式，本轮先完成现有 Streamable HTTP MCP 的 Run 级 owner，不提前接入高风险 stdio/SSE 执行。

@@ -25,7 +25,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
+import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class MinimalAgentRuntimeTest {
     @Test
@@ -2416,6 +2421,103 @@ class MinimalAgentRuntimeTest {
             (AgentExecutionBudgetEvidencePolicy.read(AgentRunDetailRecord(snapshot, emptyList())) as
                 AgentExecutionBudgetEvidenceAssessment.Available).snapshot,
         )
+    }
+
+    @Test
+    fun mcpCancellationSettlesRunWithoutLateToolResult() = runBlocking {
+        val ledger = InMemoryAgentRunLedger()
+        val requestStarted = CompletableDeferred<Unit>()
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val rpc = JSONObject(request.body.readUtf8())
+                return when (rpc.optString("method")) {
+                    "initialize" -> MockResponse()
+                        .setHeader("Mcp-Session-Id", "runtime-mcp-session")
+                        .setBody(JSONObject()
+                            .put("jsonrpc", "2.0")
+                            .put("id", rpc.getString("id"))
+                            .put("result", JSONObject().put("protocolVersion", McpPolicy.PROTOCOL_VERSION))
+                            .toString())
+                    "notifications/initialized" -> MockResponse().setResponseCode(202)
+                    "tools/list" -> {
+                        requestStarted.complete(Unit)
+                        MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE)
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        server.start()
+        val client = StreamableHttpMcpClient()
+        try {
+            val serverConfig = McpServerConfig(
+                id = "runtime-mcp",
+                name = "Runtime MCP",
+                url = server.url("/mcp").toString(),
+            )
+            val definition = ToolDefinition(
+                name = "mcp.list_tools",
+                description = "发现 MCP 工具",
+                risk = ToolRisk.SAFE,
+            )
+            var finishedRunId: String? = null
+            val registry = object : ToolRegistry, AgentRunLifecycleAwareToolRegistry {
+                override fun availableTools(): List<ToolDefinition> = listOf(definition)
+                override fun definition(name: String): ToolDefinition? = definition.takeIf { it.name == name }
+
+                override suspend fun execute(call: ToolCall): ToolExecutionResult {
+                    client.listTools(serverConfig)
+                    return ToolExecutionResult(success = true, content = "不应在取消后返回")
+                }
+
+                override fun onRunFinished(runId: String) {
+                    finishedRunId = runId
+                }
+            }
+            val runtime = MinimalAgentRuntime(
+                ledger = ledger,
+                toolRegistry = registry,
+                llm = object : AgentLlm {
+                    override suspend fun proposeToolCall(goal: String, tools: List<ToolDefinition>): ToolCall = ToolCall(
+                        name = definition.name,
+                        arguments = emptyMap(),
+                        risk = definition.risk,
+                    )
+
+                    override suspend fun summarize(
+                        goal: String,
+                        toolCall: ToolCall,
+                        toolResult: ToolExecutionResult,
+                    ): String = error("MCP 请求取消后不应进入总结")
+                },
+            )
+            val job = launch {
+                runCatching {
+                    runtime.run(
+                        conversationId = "conversation-mcp-cancel",
+                        userMessageId = "message-mcp-cancel",
+                        goal = "取消 MCP 工具发现",
+                    )
+                }
+            }
+
+            requestStarted.await()
+            job.cancel()
+            withTimeout(5_000) { job.join() }
+
+            val runId = requireNotNull(ledger.lastRunId)
+            val snapshot = ledger.snapshot(runId)
+            assertEquals(AgentRunStatus.CANCELLED, snapshot.run.status)
+            assertEquals(AgentStepStatus.CANCELLED, snapshot.steps.last().status)
+            assertEquals(runId, finishedRunId)
+            assertTrue(snapshot.events.any { it.type == "run.cancelled" })
+            assertTrue(snapshot.events.none { it.type == "tool.result" })
+            assertTrue(server.takeRequest(5, TimeUnit.SECONDS) != null)
+        } finally {
+            client.close()
+            server.shutdown()
+        }
     }
 
     @Test
