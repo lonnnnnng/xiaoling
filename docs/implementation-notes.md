@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-02 发布 v0.1.21（versionCode 22）
+
+- 修复 Activity 重建后仅恢复审批卡片、未回填完整 Run detail 到 `agentRunHistory`，导致“批准并继续”无法进入恢复执行的问题。
+- 恢复执行路径补齐已验证任务改期事实的会话内回显，与普通前台 Agent 路径共用可信 ToolResult 展示策略。
+- 正式 APK：`outputs/release/xiaoling-v0.1.21.apk`，大小 `3,396,306` 字节，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`；APK v2、RSA 4096 签名和 `zipalign` 通过。
+- `testDebugUnitTest`、`lintDebug`、Debug/AndroidTest 构建和 `lintVitalRelease` 均通过；Redmi Mock Provider Stage264 真机回归为 `OK (1 test)`。Mock 回归验证恢复契约，不替代真实 Provider/模型兼容性证据。
+
 ## 2026-10-02 发布 v0.1.20（versionCode 21）
 
 - Release 使用新生成的本地 `releaseLocal` RSA 4096 证书构建，R8、资源收缩、`lintVitalRelease`、APK Signature Scheme v2 和 `zipalign` 均通过。
@@ -259,7 +266,7 @@
 - `TaskScheduleControlCompletionPresentation` 与 `TaskInspectionNavigation` 复用同一精确改期结果解析，驱动当前 Workflow 刷新和答案级“查看任务”。`ConversationPage` 只为改期审批完整展示四个可读字段，其他工具审批保持原样。
 - `Stage264TaskRescheduleInstrumentedTest` 使用当前真实 Provider、最小 Profile、唯一提醒和真实 WorkManager。发送与批准只点击可见节点；批准前核对原 Task 未变，批准后从 Tool Ledger 与 Room/WorkManager 共同确认 `APPROVED / PASSED / COMMITTED`、旧取消、新实例唯一入队和历史 Run 不变。
 - Activity 重建后按工具标题归属定位 `tasks.reschedule` 下的“查看任务”，避免误点 inspect 的同名入口；任务页独有标题、展开步骤、当前调度文案及 ViewModel 中同一 Workflow/Task 的 Room 记录共同证明导航与回读。验收固定竖屏并恢复原旋转策略，finally 取消本次所有系统工作、停用夹具 Workflow、移除临时 Profile/会话，保留 Run 审计。
-- 该阶段记录的 Room v36、正式版本 `v0.1.18` 不变。定向 JVM `180/180`、AndroidTest 编译、Debug/AndroidTest APK、Redmi 内存 Room `6/6`（`1.571s`）和真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。新计划没有等待到点执行，不扩大为后台可靠性证明；当前版本已在本文件顶部升级为 `v0.1.19`。
+- 该阶段记录的 Room v36、正式版本 `v0.1.18` 不变。定向 JVM `180/180`、AndroidTest 编译、Debug/AndroidTest APK、Redmi 内存 Room `6/6`（`1.571s`）和真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。新计划没有等待到点执行，不扩大为后台可靠性证明；当前版本已在本文件顶部升级为 `v0.1.21`。
 
 ## 第 263 阶段：发布收尾与主线边界（完成）
 

@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-02 发布 v0.1.21（versionCode 22）
+
+- 发布修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显，并包含 Room v40 浏览器证据持久化切片。
+- 正式 APK `outputs/release/xiaoling-v0.1.21.apk`：`3,396,306` 字节，SHA-256 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`；APK v2/RSA 4096 签名和 `zipalign` 通过。
+- 发布前 JVM、Debug/AndroidTest 构建、Debug Lint、Release 构建和 `lintVitalRelease` 均通过；Redmi Mock Provider Stage264 回归 `OK (1 test)`。真实 Provider 兼容性仍按独立门禁记录。
+
 ## 2026-10-02 发布 v0.1.20（versionCode 21）
 
 - 发布包含第四组 Run/Task Runtime v2 P0-b、Room v39、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。

@@ -7,17 +7,17 @@
 <p align="center">
   <img alt="Android 8+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
-  <img alt="Room v39" src="https://img.shields.io/badge/Room-v39-4285F4">
-  <img alt="Release v0.1.20" src="https://img.shields.io/badge/Release-v0.1.20-2E7D32">
+  <img alt="Room v40" src="https://img.shields.io/badge/Room-v40-4285F4">
+  <img alt="Release v0.1.21" src="https://img.shields.io/badge/Release-v0.1.21-2E7D32">
 </p>
 
 小灵不是一个只会生成文字的聊天客户端，也不是默认拥有全部权限的自动化脚本。它把自然语言目标转换成受控工具调用，在 Android 本地保存计划、审批、执行与验证证据，并让用户始终掌握最终控制权。
 
 ## 下载
 
-- [GitHub Release v0.1.20](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.20)
-- 安装包：`xiaoling-v0.1.20.apk`
-- 完整性校验：`xiaoling-v0.1.20.apk.sha256`
+- [GitHub Release v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21)
+- 安装包：`xiaoling-v0.1.21.apk`
+- 完整性校验：`xiaoling-v0.1.21.apk.sha256`
 - 系统要求：Android 8.0（API 26）及以上
 
 > 安装前请核对 Release 页面中的 SHA-256。Android 可能提示允许从当前来源安装应用，需要由用户在系统设置中显式授权。
@@ -104,17 +104,17 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 | 项目 | 状态 |
 | --- | --- |
-| 正式版本 | `v0.1.20`（`versionCode 21`） |
-| 数据库 | Room v39 |
+| 正式版本 | `v0.1.21`（`versionCode 22`） |
+| 数据库 | Room v40 |
 | 开发里程碑 | 第四组 Run/Task Runtime v2 P0-b 已完成，包含浏览器、工作区/终端、受限 MCP、GitHub Skill、后台可靠性、TTS、系统助手、插件/ACI/GenUI 与任务中心汇总投影 |
 | JVM 历史基线（2026-08-13） | `1118 / 1118` 通过 |
 | Lint 历史基线（2026-08-13） | 通过 |
 | Redmi 全量历史基线（2026-08-13） | `424 tests / 363 passed / 61 skipped / 0 failed / 0 errors` |
 | 验收设备 | Redmi `begonia` 真机；不使用模拟器 |
 
-`v0.1.20` 已发布：完成 Run/Task Runtime v2 的 Room v39 持久化与恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心的超时、部分完成和子 Run 汇总投影。正式 `assembleRelease` 成功；APK 大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`。本版使用新生成的 RSA 4096 正式证书，APK Signature Scheme v2 与 `zipalign` 校验通过。由于证书已更换，不能从 `v0.1.19` 无损覆盖升级，需要先卸载旧版。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
+`v0.1.21` 已发布：修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显；包含 Room v40 浏览器证据持久化切片。正式 APK 大小 `3,396,306` 字节，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`。APK Signature Scheme v2 与 `zipalign` 校验通过。详细证据见 [路线图](docs/personal-agent-roadmap.md) 和 [验证报告](docs/verification-report.md)。
 
-完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.20`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
+完整回归基线完成于 2026-08-13；它与后续阶段的聚焦 Redmi 证据分开记录。当前 Release 为 `v0.1.21`，发布资产、未执行的验证项和未覆盖边界均以验证报告为准。
 
 本版发布前已通过 shared 全测试、app Debug JVM 单测、Debug/AndroidTest APK 构建和 Debug lint；Redmi 聚焦真机回归通过。未把历史全量 AndroidJUnitRunner 结果冒充本版 Release 全量 instrumentation。
 

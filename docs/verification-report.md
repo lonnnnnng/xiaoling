@@ -2,6 +2,15 @@
 
 验证日期：2026-10-02（北京时间）
 
+# 2026-10-02 发布 v0.1.21（versionCode 22）
+
+- 发布提交包含 Activity 重建后的 Agent 审批恢复修复、任务改期结果回显修复和 Room v40 浏览器证据持久化切片。
+- `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:lintVitalRelease --no-daemon --console=plain`：`BUILD SUCCESSFUL in 3m 12s`。
+- 正式 APK：`outputs/release/xiaoling-v0.1.21.apk`，大小 `3,396,306` 字节，SHA-256 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`。
+- `aapt` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.21`、`versionCode=22`；`apksigner` 确认 APK Signature Scheme v2、单一 RSA 4096 签名者，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；`zipalign -c -P 16 -v 4` 通过。
+- Redmi `wsvwypiz7xwslvl7` 使用临时 Mock Provider 完成 Stage264 `OK (1 test)` 真机回归，覆盖 Activity 重建、审批恢复、改期回执和当前任务导航；Mock 回归不替代真实 Provider/模型兼容性验收。
+- GitHub Release 资产将在本次提交和 tag 推送后回传下载回验与远端 digest。
+
 # 2026-10-02 Room v40 浏览器证据发行候选门禁（未发布）
 
 - 正式构建命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:assembleRelease :app:lintVitalRelease`，结果为 `BUILD SUCCESSFUL in 2m 16s`；R8 有工具 warning，无构建错误。
