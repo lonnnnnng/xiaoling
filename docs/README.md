@@ -15,7 +15,7 @@
 - 真实动作链为 `open_app → snapshot → tap_ref → snapshot → type_text → snapshot`；设置授权来源为 `APPROVED`，Executor 与 typed 验证为 `PASSED`。真实 Run 为 `run-d1c5ef43-69a4-4da8-a07b-f17cfe51889f`，Instrumentation `OK (1 test)`，Gradle 用时约 `79.874s`；独立 Stage 281 UI 探针也在同一 Redmi 通过。
 - 同一 Run 正向呈现与不同 Run 隔离均有 Compose/Instrumentation 契约；没有把合成 UI 状态当作真实设备证据。未使用或启动 Pixel_9。
 - 完整 JVM、Lint、Release、全量 instrumentation、任意 App、后台/定时设备自动化继续按分级验证和路线图后置。
-- 当前正式发布为 [小灵 v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21)；远端 APK 资产状态和 GitHub digest 以验证报告中的发布回验为准。
+- 当前正式发布为 [小灵 v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21)；远端 APK 资产已回验，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`。
 
 第281阶段已完成“真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看”主线切片；第280阶段及之前的 2026-09-27 条目保留完整能力边界与验证细节。
 

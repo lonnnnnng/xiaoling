@@ -9,7 +9,7 @@
 - 正式 APK：`outputs/release/xiaoling-v0.1.21.apk`，大小 `3,396,306` 字节，SHA-256 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`。
 - `aapt` 确认包名 `com.longdev.xiaoling`、`versionName=0.1.21`、`versionCode=22`；`apksigner` 确认 APK Signature Scheme v2、单一 RSA 4096 签名者，证书 SHA-256 为 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`；`zipalign -c -P 16 -v 4` 通过。
 - Redmi `wsvwypiz7xwslvl7` 使用临时 Mock Provider 完成 Stage264 `OK (1 test)` 真机回归，覆盖 Activity 重建、审批恢复、改期回执和当前任务导航；Mock 回归不替代真实 Provider/模型兼容性验收。
-- GitHub Release 资产将在本次提交和 tag 推送后回传下载回验与远端 digest。
+- [GitHub Release v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21) 已创建，非草稿、非预发布；APK 与 `.sha256` 资产均为 `uploaded`。下载回验的 APK SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`，与 GitHub asset digest 和本地值一致；校验文件远端 digest 为 `c6b03a8c8161f0599b68770bc663410f1c818831c28f77bb91f2fe403ae2c052`。
 
 # 2026-10-02 Room v40 浏览器证据发行候选门禁（未发布）
 
