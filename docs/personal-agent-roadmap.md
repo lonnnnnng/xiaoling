@@ -2685,4 +2685,4 @@ idle -> deciding -> waiting_model -> waiting_approval
 - `OkHttpBrowserPageReader` 在 `read()`、`navigateSession()`、`clickLink()` 完成网络读取后重新检查协程取消；会话写回使用代际锁，Run 切换、关闭、TTL 清理或并发导航发生后，旧请求不能把新 snapshot 写回内存。
 - 六个 Browser handler 显式重新抛出 `CancellationException`，取消继续交给 `MinimalAgentRuntime` 的正式取消收敛，不再被 `runCatching` 转换为普通失败工具结果。
 - 新增 JVM 回归：取消中的导航保留旧 snapshot、清理后旧会话不可读取、Browser handler 取消保持协程取消态、Run context 切换触发会话清理。该片不新增 Room v41，也不保存网页正文、Cookie 或 link refs。
-- 本片下一步是 Debug/AndroidTest 构建和 Redmi `wsvwypiz7xwslvl7` 定向真机回归；真机只验证公开页面读取、snapshot/click/evidence 和取消/隔离结果，不扩大浏览器权限面。
+- 已验证：聚焦 JVM `ExtendedAgentCapabilitiesTest 22/22`、`XiaoLingToolRegistryTest 121/121`；`:shared:allTests`、`:app:testDebugUnitTest`、Debug/AndroidTest APK 和 `lintDebug` 均成功。Redmi `wsvwypiz7xwslvl7` 重新安装最终 APK 后，`ExtendedAgentCapabilitiesInstrumentedTest 9/9`、`RoomAgentRunRepositoryInstrumentedTest 55/55` 均通过；APK SHA-256 分别为 `af1d47a4e56bdcebdb27199f1919504e67722ecbdf17f0896ba07dc1df446214` 和 `dd0393ec0a5b53de4d8adda9e8106f7ed76717e775e165ab1f5f00979cd9b62e`。真机仍只验证公开页面读取、snapshot/click/evidence 和取消/隔离相关回归，不扩大浏览器权限面。

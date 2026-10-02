@@ -2749,6 +2749,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 - `OkHttpBrowserPageReader` 为会话写回增加 `sessionGeneration` 与锁：网络读取完成后先 `ensureActive()`，再核对代际和当前 snapshot；取消、关闭、TTL 回收、Run 清理或并发导航发生后，旧请求不会复活会话或覆盖新页面。响应流循环也逐次检查协程取消。
 - Browser Registry 的 `fetch/open/read/navigate/click/close` 统一使用显式 `CancellationException` 分支；普通异常仍转换为稳定工具失败，取消则继续向上传播到 Runtime/Room 取消边界。
 - JVM 回归新增取消导航、内存会话清理、Registry 取消传播和 Run 切换清理用例；没有新增 Room schema，也没有把页面正文、Cookie、完整 URL 参数或 link refs 写入持久层。
+- 验证完成：聚焦 JVM `ExtendedAgentCapabilitiesTest 22/22`、`XiaoLingToolRegistryTest 121/121`；`:shared:allTests`、`:app:testDebugUnitTest`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:lintDebug` 均成功。Redmi `wsvwypiz7xwslvl7` 最终 APK 重装后，浏览器 instrumentation `9/9`、Room Run/attach instrumentation `55/55` 通过；未新增 Room v41。
 
 ## 2026-10-02 P2：跨入口取消请求与 attach 统一投影
 
