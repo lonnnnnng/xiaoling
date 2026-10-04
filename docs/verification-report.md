@@ -1,6 +1,15 @@
 # 验证报告
 
-验证日期：2026-10-02（北京时间）
+验证日期：2026-10-04（北京时间）
+
+# 2026-10-04 真实 Provider MCP 取消验收门禁
+
+- 新增 `RealProviderMcpCancellationInstrumentedTest`：真实 Provider 只负责规划 `mcp.list_tools -> mcp.call`，loopback MCP Server 在 `tools/call` 保持半开；测试按正式 `stopGenerating` 顺序先写 `cancelRequested`，再取消 Agent 协程。
+- 测试验收断言固定为：Room Run=`CANCELLED`、`cancelRequestedReason` 保留、活动 Step 全部收敛、存在 `run.cancelled`、没有 `run.completed/run.failed` 覆盖、没有迟到的 MCP `tool.result`，且 Server 只收到一次 `tools/call`。
+- 本地门禁：`:app:testDebugUnitTest`（含 `MinimalAgentRuntimeTest` 与 `ExtendedAgentCapabilitiesTest`）、`:app:compileDebugAndroidTestKotlin`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest` 均 `BUILD SUCCESSFUL`。
+- Redmi `wsvwypiz7xwslvl7` 已确认在线且 FLClash `tun0=172.19.0.1/30`；`McpE2eInstrumentedTest` 仍为 `OK (3 tests)`。
+- 显式真实 Provider 单项命令已执行：`stage283RealRun=true` 返回 `OK (1 test)`，但入口因 `Redmi 当前 Provider Base URL 不可用` 触发 `AssumptionViolatedException`，没有创建 Run、MCP 配置或网络调用；该结果记为“未验证”，不计入通过。
+- 仍未把 loopback Mock Provider 或既有 MCP Client E2E 冒充真实外部 Provider 证据。待 Redmi 恢复合法 Provider 配置后，直接重跑同一单项即可完成本阶段真机闭环；测试不会输出或保存 Provider API Key。
 
 # 2026-10-02 MCP 取消链稳定验收
 

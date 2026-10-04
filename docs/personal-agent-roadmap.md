@@ -2686,6 +2686,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 10. **P3（声明式插件 manifest API 版本门禁，2026-10-02）**：插件 manifest 新增 `apiVersion=1` ABI 字段，未知/非整数版本在安装和 SharedPreferences 恢复时 fail-closed；旧 schema 1 缺字段按版本 1 兼容。该片仍不加载外部代码、不把权限扩大到 ToolRegistry/ACI/MCP/后台，升级默认停用和来源指纹校验保持不变。
 11. **P3（MCP transport 契约已完成，2026-10-02）**：配置层现在能识别 `streamable_http / sse / stdio`，旧 JSON 默认 `streamable_http`；SSE 和 stdio 只保存声明，当前执行层只允许既有 Streamable HTTP，不启动进程、不自动扩充 allowlist。下一步进入受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
+12. **P2（真实 Provider MCP 取消验收门禁，2026-10-04）**：新增受控真机单项，将真实 Provider 的 `mcp.list_tools -> mcp.call` 规划、loopback 半开 MCP 请求、Room `cancelRequested`、Runtime 取消收敛和迟到 `tool.result` 阻断串成一条可重复验收链。代码、JVM、AndroidTest 编译和既有 Redmi MCP E2E 已通过；当前 Redmi 没有可用 Provider Base URL，真实外部 Provider 单项只完成入口跳过，尚未形成通过证据。Provider 恢复后先完成该门禁，再进入 Remote Channel 入站草稿链和声明式插件权限与 ToolRegistry/ACI/MCP 能力交集。
+
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。
 
 ## 2026-10-02 P3：MCP transport 契约切片验收
