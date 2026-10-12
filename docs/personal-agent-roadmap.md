@@ -1,10 +1,16 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-13：Remote Channel 公钥身份配对第一片
+
+- 设置页可手动导入远端 P-256 X.509 SPKI 公钥，固定绑定 `channelId / senderId / keyId` 和本地来源名称；显示 SHA-256 指纹，用户须通过独立可信渠道核对并输入完整指纹后才能保存。新配对默认停用，启用只允许验签，撤销或停用后验签器每次重新读取账本并立即拒绝旧身份。损坏账本拒绝全部公钥入站，不降级为空白配对表。
+- 公钥消息继续使用现有 8 字段长度前缀 canonical payload、5 分钟时效、nonce 和有界持久待确认收件箱；既有 HMAC 验签保持独立。当前仅有身份管理和验签组件，尚未选择或接入生产收件 transport，也没有把持久待确认列表接入前台 UI，因此配对页不会自动收消息或运行 Agent。
+- 参考项目中 OmniBot 的 Ed25519 设备身份属于未接线的客户端草案；[Android Signature API](https://developer.android.com/reference/java/security/Signature) 将 `Ed25519` 列为 API 33+，而本项目最低 API 26。[KeyFactory API](https://developer.android.com/reference/java/security/KeyFactory) 与 Signature API 将 `EC`、`SHA256withECDSA` 列为 API 11+；此片只接受 P-256 曲线。
+
 ## 2026-10-13：Remote Channel 加密待确认收件箱基础
 
 - 签名及 allowlist 校验通过后，持久收件箱把去重键和待确认正文一起写入单份 AES-GCM 快照；正文密钥保留在独立 Android Keystore alias，应用显式数据库备份不包含该偏好文件。写盘失败不交付草稿，也不挤掉旧去重身份。损坏快照直接冻结入站，不把旧消息当作新消息。
 - 未读正文最多 8 条、保留最多 24 小时；达到上限拒绝新消息，过期正文在下次重建或成功接收时物理移除，去重身份仍按 256 键有界保留。窗口滚动先淘汰已处理消息，不逐出仍未读消息的消息 ID 或 nonce。打开或忽略后的显式移除只删除正文，旧去重偏好损坏同样 fail-closed；真机测试使用独立偏好文件。
-- Redmi 已验证 Keystore 密文不含明文、篡改后拒绝、写入及重建去重，并通过“第一轮 instrumentation 写入 → 停止应用进程 → 第二轮 instrumentation 恢复”的真实跨进程测试。当前还没有生产收件者调用该收件箱，也未把恢复列表接入前台 UI；下一切片需先做可配对的远端公钥身份与来源管理，再选择明确的收件 transport 和前台通知/确认接线。
+- Redmi 已验证 Keystore 密文不含明文、篡改后拒绝、写入及重建去重，并通过“第一轮 instrumentation 写入 → 停止应用进程 → 第二轮 instrumentation 恢复”的真实跨进程测试。当前还没有生产收件者调用该收件箱，也未把恢复列表接入前台 UI；远端公钥身份和来源管理已由上方切片补齐，下一步选择明确的收件 transport 和前台通知/确认接线。
 
 ## 2026-10-13：远程草稿前台确认与插件声明管理
 
@@ -2708,7 +2714,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 12. **P2（真实 Provider MCP 取消验收门禁，2026-10-04）**：新增受控真机单项，将真实 Provider 的 `mcp.list_tools -> mcp.call` 规划、loopback 半开 MCP 请求、Room `cancelRequested`、Runtime 取消收敛和迟到 `tool.result` 阻断串成一条可重复验收链。代码、JVM、AndroidTest 编译和既有 Redmi MCP E2E 已通过；2026-10-13 在 Redmi 重试时仍没有可用 Provider Base URL，真实外部 Provider 单项只在入口跳过，尚未形成通过证据。Provider 恢复后继续补跑同一门禁。
 13. **P3（声明式插件只读能力交集预览，2026-10-13）**：已把持久插件 Registry 接入 ACI 设置页，按插件启停、只读权限、有效 manifest、固定 ACI 白名单、Profile、ToolRegistry 注册与动态 SAFE 可用性做纯投影；只展示符合交集与被排除声明，不赋予插件、ACI、MCP 或 Agent Runtime 执行权。后续第 14 项已补 Remote 草稿确认和插件声明管理入口。
 14. **P3（远程确认与插件声明管理，2026-10-13）**：远程草稿强制前台确认并在会话提示中保留来源；设置页支持手动 JSON manifest 的安装、启停、确认移除，仍只影响声明与只读能力预览。本阶段当时仍缺配对、可靠 pending inbox 和 transport；第 15 项已补待处理存储基础，尚不能称为生产 Remote Channel。
-15. **P2（加密待确认收件箱基础，2026-10-13）**：验签消息的去重身份与待确认正文同次写入独立 Keystore 加密快照，8 条容量与 24 小时正文保留上限生效；Redmi 两次独立 instrumentation 加进程停止已验证恢复。远端配对、生产收件 transport 与持久列表到 UI 的投影尚未接入，下一步先解决远端公钥身份配对。
+15. **P2（加密待确认收件箱基础，2026-10-13）**：验签消息的去重身份与待确认正文同次写入独立 Keystore 加密快照，8 条容量与 24 小时正文保留上限生效；Redmi 两次独立 instrumentation 加进程停止已验证恢复。远端配对由第 16 项补齐，生产收件 transport 与持久列表到 UI 的投影尚未接入。
+16. **P2（远端公钥身份配对第一片，2026-10-13）**：手动导入 P-256 公钥、独立渠道核对 SHA-256 指纹、默认停用、启停/撤销和逐次读取的 fail-closed 验签已接入设置页。仍无生产收件 transport；下一步补明确的接收来源与前台待确认列表。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。
 

@@ -73,6 +73,7 @@ import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterProjection
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterUiState
 import com.longdev.xiaoling.ui.aci.AciReadOnlyCapabilitiesPage
 import com.longdev.xiaoling.ui.plugin.AgentPluginManagementPage
+import com.longdev.xiaoling.ui.remote.RemoteChannelPairingPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementProjection
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementUiState
@@ -520,6 +521,9 @@ private fun XiaoLingContent(
                         },
                         onOpenAgentPluginManagement = {
                             navigation.openSettingsPane(SettingsPane.AGENT_PLUGIN_MANAGEMENT)
+                        },
+                        onOpenRemoteChannelPairing = {
+                            navigation.openSettingsPane(SettingsPane.REMOTE_CHANNEL_PAIRING)
                         },
                         onOpenAssistantRole = requestAssistantRole,
                         onTrySkill = { skillId, example ->
@@ -1025,6 +1029,7 @@ private fun SettingsPage(
     onOpenMcpServerManagement: () -> Unit,
     onOpenAciReadOnlyCapabilities: () -> Unit,
     onOpenAgentPluginManagement: () -> Unit,
+    onOpenRemoteChannelPairing: () -> Unit,
     onOpenAssistantRole: () -> Unit,
     onTrySkill: (String, String) -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
@@ -1219,6 +1224,11 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
+            pane == SettingsPane.REMOTE_CHANNEL_PAIRING -> RemoteChannelPairingPage(
+                registry = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelPairingRegistry,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
                 state = state.toWorkflowManagementUiState(),
                 actions = viewModel,
@@ -1265,6 +1275,7 @@ private fun SettingsPage(
                     override fun openMcpServerManagement() = onOpenMcpServerManagement()
                     override fun openAciReadOnlyCapabilities() = onOpenAciReadOnlyCapabilities()
                     override fun openAgentPluginManagement() = onOpenAgentPluginManagement()
+                    override fun openRemoteChannelPairing() = onOpenRemoteChannelPairing()
                     override fun openAssistantRole() = onOpenAssistantRole()
                     override fun openWorkflowManagement() = onOpenWorkflowManagement(null)
                     override fun openAgentRunHistory() = onOpenAgentRunHistory()

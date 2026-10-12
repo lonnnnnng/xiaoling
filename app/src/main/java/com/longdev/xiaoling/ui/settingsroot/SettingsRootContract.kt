@@ -28,6 +28,7 @@ internal interface SettingsRootActions {
     fun openSkillManagement()
     fun openMcpServerManagement() = Unit
     fun openAgentPluginManagement() = Unit
+    fun openRemoteChannelPairing() = Unit
     fun openAciReadOnlyCapabilities() = Unit
     fun openAssistantRole() = Unit
     fun openWorkflowManagement()

@@ -110,6 +110,22 @@ class XiaoLingNavigationInstrumentedTest {
         composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
     }
 
+    @Test
+    fun remotePairingOpensFromRealSettingsAndReturnsThroughHostNavigation() {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithTag("bottom_tab_settings").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("bottom_tab_settings").performClick()
+        composeRule.onNodeWithTag("settings-entry-remote-pairing").performScrollTo().performClick()
+        composeRule.onNodeWithTag("remote-pairing-page", useUnmergedTree = true).assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertDoesNotExist()
+
+        // long: 远端配对页不拥有应用导航，系统返回只退出管理页，不改变已有会话或发送状态。
+        pressSystemBack()
+        composeRule.onNodeWithTag("settings-entry-remote-pairing").assertExists()
+        composeRule.onNodeWithTag("bottom_tab_settings").assertExists()
+    }
+
     private fun pressSystemBack() {
         composeRule.runOnUiThread {
             composeRule.activity.onBackPressedDispatcher.onBackPressed()

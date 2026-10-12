@@ -2,6 +2,15 @@
 
 验证日期：2026-10-13（北京时间）
 
+# 2026-10-13 Remote Channel P-256 公钥身份配对第一片
+
+- 实现：设置页新增远端身份配对入口。用户手动输入 `channelId / senderId / keyId`、来源名称和 X.509 SPKI 公钥，预览 SHA-256 指纹并输入独立可信渠道核对的完整指纹后保存；默认停用。启停、撤销通过独立 SharedPreferences 账本同步提交，公钥验签器每次重新读取账本，损坏或读取失败返回 `PAIRING_STATE_UNAVAILABLE`。相同 keyId 不能静默换公钥，新 keyId 可用于轮换。
+- 协议：公钥验签只接受 P-256 / `SHA256withECDSA`，继续签现有八字段长度前缀载荷并复用时间窗、nonce、消息去重和加密待确认收件箱；原 HMAC 路径不变。[Android Signature API](https://developer.android.com/reference/java/security/Signature) 将 `SHA256withECDSA` 列为 API 11+，`Ed25519` 列为 API 33+；[KeyFactory API](https://developer.android.com/reference/java/security/KeyFactory) 将 `EC` 列为 API 11+。本项目最低 API 26。
+- 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`；App JVM XML `1322 passed / 0 failed / 0 errors / 0 skipped`。聚焦 JVM 覆盖指纹不匹配、默认停用、身份绑定、篡改/过期、轮换、撤销、账本损坏、写盘失败以及公钥签名进入既有持久收件箱。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：Debug 和 AndroidTest APK 覆盖安装成功。真实 Android JCA 公钥验签与持久化重建、配对页预览/确认/启停/撤销、设置入口、原 HMAC Keystore 与加密收件箱回归合计 `OK (5 tests)`；真实 `MainActivity` 的设置卡片进入、系统返回和底栏恢复另为 `OK (1 test)`。该导航单项首轮因测试只查询合并语义树而未找到页面标签；改用未合并语义树后复验通过。测试密钥仅在测试进程生成，未验证跨设备发送方或生产网络接收；测试只清理专属配对偏好文件。
+- 文档语料门禁：README、需求、实现说明、路线图与本报告同步并重新打包 AndroidTest 后，Redmi `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
+- 边界：配对页的启用只让相应身份具备验签资格；当前生产没有调用此认证器的收件 transport，也没有持久待确认列表到前台 UI 的接线，不能据此称为完整远程 Channel。
+
 # 2026-10-13 Remote Channel 加密待确认收件箱基础
 
 - 实现：`InMemoryRemoteChannelInbox` 在签名、allowlist 和重放校验后，先用 `RemoteChannelInboxStateStore` 同次提交有界去重键与待确认正文，成功后才交付草稿；写入失败保持旧内存/磁盘身份。`KeystoreRemoteChannelInboxStateStore` 使用独立 AES-GCM Android Keystore 密钥和单个 SharedPreferences 快照键；本应用手动备份只导出数据库，不包含该偏好文件。损坏密文或旧去重账本均冻结入站。

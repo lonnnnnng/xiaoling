@@ -3,7 +3,9 @@ package com.longdev.xiaoling
 import android.app.Application
 import androidx.work.Configuration
 import com.longdev.xiaoling.agent.AgentPluginRegistry
+import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
 import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
+import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
 
 class XiaoLingApplication : Application(), Configuration.Provider {
     /**
@@ -13,6 +15,11 @@ class XiaoLingApplication : Application(), Configuration.Provider {
      */
     val agentPluginRegistry: AgentPluginRegistry by lazy {
         AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(this))
+    }
+
+    /** long: 配对账本由应用进程统一持有，验签时仍重新读取磁盘，确保停用和撤销即时生效。 */
+    val remoteChannelPairingRegistry: RemoteChannelPairingRegistry by lazy {
+        RemoteChannelPairingRegistry(SharedPreferencesRemoteChannelPairingStateStore(this))
     }
 
     override val workManagerConfiguration: Configuration

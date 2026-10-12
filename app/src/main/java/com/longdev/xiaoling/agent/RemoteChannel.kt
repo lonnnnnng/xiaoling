@@ -49,6 +49,7 @@ enum class RemoteChannelRejectionReason {
     MISSING_SIGNATURE,
     UNKNOWN_KEY_ID,
     INVALID_SIGNATURE,
+    PAIRING_STATE_UNAVAILABLE,
     SENDER_NOT_ALLOWED,
     DUPLICATE_MESSAGE,
     DEDUPE_PERSISTENCE_FAILURE,
@@ -98,6 +99,31 @@ object RemoteChannelPolicy {
         ?.trim()
         ?.takeIf(String::isNotBlank)
         ?.let { nonce -> "nonce\u0000${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000$nonce" }
+
+    /** long: 对称签名与公钥签名共用同一份有长度前缀的业务载荷，防止算法迁移时字段顺序漂移。 */
+    fun canonicalBytes(envelope: RemoteChannelEnvelope): ByteArray {
+        val fields = listOf(
+            envelope.channelId.trim(),
+            envelope.messageId.trim(),
+            envelope.senderId.trim(),
+            envelope.conversationKey.trim(),
+            normalizeText(envelope.text),
+            envelope.receivedAtMillis.toString(),
+            envelope.nonce?.trim().orEmpty(),
+            envelope.keyId?.trim().orEmpty(),
+        )
+        return ByteArrayOutputStream().use { buffer ->
+            DataOutputStream(buffer).use { output ->
+                output.writeInt(fields.size)
+                fields.forEach { field ->
+                    val bytes = field.toByteArray(Charsets.UTF_8)
+                    output.writeInt(bytes.size)
+                    output.write(bytes)
+                }
+            }
+            buffer.toByteArray()
+        }
+    }
 
     fun validate(envelope: RemoteChannelEnvelope): RemoteChannelRejectionReason? {
         val channelId = envelope.channelId.trim()
@@ -196,31 +222,7 @@ class HmacRemoteChannelAuthenticator private constructor(
     private fun sign(envelope: RemoteChannelEnvelope, secret: HmacSigningKey): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
         secret.init(mac)
-        return mac.doFinal(canonicalBytes(envelope))
-    }
-
-    private fun canonicalBytes(envelope: RemoteChannelEnvelope): ByteArray {
-        val fields = listOf(
-            envelope.channelId.trim(),
-            envelope.messageId.trim(),
-            envelope.senderId.trim(),
-            envelope.conversationKey.trim(),
-            RemoteChannelPolicy.normalizeText(envelope.text),
-            envelope.receivedAtMillis.toString(),
-            envelope.nonce?.trim().orEmpty(),
-            envelope.keyId?.trim().orEmpty(),
-        )
-        return ByteArrayOutputStream().use { buffer ->
-            DataOutputStream(buffer).use { output ->
-                output.writeInt(fields.size)
-                fields.forEach { field ->
-                    val bytes = field.toByteArray(Charsets.UTF_8)
-                    output.writeInt(bytes.size)
-                    output.write(bytes)
-                }
-            }
-            buffer.toByteArray()
-        }
+        return mac.doFinal(RemoteChannelPolicy.canonicalBytes(envelope))
     }
 
     private interface HmacSigningKey {

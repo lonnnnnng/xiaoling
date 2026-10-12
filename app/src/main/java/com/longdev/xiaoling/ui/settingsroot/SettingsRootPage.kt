@@ -212,6 +212,14 @@ internal fun SettingsRootPage(
             )
 
             SettingsEntryCard(
+                title = "远端身份配对",
+                subtitle = "核对公钥指纹，管理远程 Channel 发送方的验签身份",
+                icon = Icons.Default.Link,
+                onClick = actions::openRemoteChannelPairing,
+                testTag = "settings-entry-remote-pairing",
+            )
+
+            SettingsEntryCard(
                 title = "ACI 只读能力",
                 subtitle = "查看当前 Profile 可发现的 SAFE 能力；此页不会执行工具",
                 icon = Icons.Default.Visibility,
