@@ -2,6 +2,13 @@
 
 验证日期：2026-10-13（北京时间）
 
+# 2026-10-13 Remote Channel 手动签名导入与前台待确认列表
+
+- 生产接线：`XiaoLingApplication` 持有公钥验签器和 Keystore 加密收件 Gateway。设置页只接受完整九字段签名 JSON，验签及去重通过后入箱；待确认列表跨 Channel 读取同一快照，损坏状态显示不可用。点击列表“打开”只进入会话确认卡，确认卡的“打开/忽略”才提交持久正文删除；停用或撤销配对不抹掉先前已验签入箱的正文。
+- 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`；App JVM XML `1326 passed / 0 failed / 0 errors / 0 skipped`。新增 JVM 覆盖跨 Channel 共用快照、重建后正文删除与去重保留、写入失败和损坏状态、停用后旧待确认保留、手动 JSON 严格字段。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：最终 Debug 与 AndroidTest APK 覆盖安装成功。配对页 P-256 签名 JSON 导入、列表打开/忽略、配对启停/撤销、Keystore 密文/损坏回归、现有远程草稿提示的合并聚焦组为 `9 discovered / 7 passed / 2 intentionally skipped / 0 failed`。两个按设计跳过的跨进程用例随后以 `seed OK (1 test) → am force-stop com.longdev.xiaoling → restore OK (1 test)` 独立两轮通过；只使用专属测试偏好文件。更新文档后重新打包的语料检索门禁 `1/1` 通过。
+- 边界：当前的真实收件来源仅是用户主动粘贴签名 JSON，不存在 Telegram/Webhook listener、后台推送通知或跨设备真实发送方验收。P-256 UI 用例使用测试进程生成的密钥和独立内存收件 Store；真实加密持久化由同组 Keystore Store 用例分别验证。确认卡决定后的正文删除与编辑器投影尚未做跨进程原子交接，不能把已打开但进程立即中断的编辑器草稿称为可恢复。
+
 # 2026-10-13 Remote Channel P-256 公钥身份配对第一片
 
 - 实现：设置页新增远端身份配对入口。用户手动输入 `channelId / senderId / keyId`、来源名称和 X.509 SPKI 公钥，预览 SHA-256 指纹并输入独立可信渠道核对的完整指纹后保存；默认停用。启停、撤销通过独立 SharedPreferences 账本同步提交，公钥验签器每次重新读取账本，损坏或读取失败返回 `PAIRING_STATE_UNAVAILABLE`。相同 keyId 不能静默换公钥，新 keyId 可用于轮换。

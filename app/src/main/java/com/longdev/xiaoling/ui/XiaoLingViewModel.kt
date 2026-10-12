@@ -37,6 +37,7 @@ import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.RemoteChannelDraft
+import com.longdev.xiaoling.XiaoLingApplication
 import com.longdev.xiaoling.agent.DEVICE_OPEN_APP_TOOL_NAME
 import com.longdev.xiaoling.agent.DEVICE_TAP_REF_TOOL_NAME
 import com.longdev.xiaoling.agent.DeviceTypeTextAuditPolicy
@@ -853,6 +854,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     private var answerabilityShadowSummaryLoadJob: Job? = null
     private val startedTaskRetryWorkflowRunIds = mutableSetOf<String>()
     private val queuedSharedDraftImports = ArrayDeque<SharedDraftImport>()
+    private var remotePendingTransitionInProgress = false
+    private var activeRemotePendingDraft: RemoteChannelDraft? = null
     private var initializationStarted = false
     private var initializationComplete = false
 
@@ -1078,8 +1081,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     }
 
     internal fun acceptSharedDraft(result: SharedDraftImport) {
-        if (!initializationComplete) {
-            // long: 冷启动会在 Room/Keystore 读取完成后重建整份 UI 状态；先排队可避免分享草稿被初始化快照覆盖。
+        if (!initializationComplete || remotePendingTransitionInProgress) {
+            // long: 冷启动恢复或远程确认卡持久变更期间先排队，避免系统分享覆盖尚未提交的远程草稿。
             queuedSharedDraftImports.addLast(result)
             return
         }
@@ -1091,17 +1094,116 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         acceptSharedDraft(draft.toSharedDraftImport())
     }
 
+    suspend fun stagePersistedRemoteChannelDraft(draft: RemoteChannelDraft): Boolean {
+        if (!initializationComplete || remotePendingTransitionInProgress || uiState.pendingSharedDraft != null ||
+            uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument ||
+            uiState.loadingConversationMessages
+        ) {
+            showValidation("请先处理当前草稿或正在进行的操作")
+            return false
+        }
+        remotePendingTransitionInProgress = true
+        try {
+            // long: 列表可能已过期；转到确认卡前重读加密快照，确认仍是同一条已验签正文。
+            val available = withContext(Dispatchers.IO) {
+                runCatching {
+                    val status = (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.status()
+                    status is com.longdev.xiaoling.agent.RemoteChannelInboxStatus.Ready &&
+                        status.pending.any { it.draft == draft }
+                }.getOrDefault(false)
+            }
+            if (!available) {
+                showValidation("远程消息已失效或收件箱不可用，请刷新列表")
+                return false
+            }
+            if (uiState.pendingSharedDraft != null) {
+                showValidation("请先处理当前待确认草稿")
+                return false
+            }
+            // long: 这里只展示确认卡，不删除持久正文；进程在用户确认前中断时仍可恢复这条消息。
+            activeRemotePendingDraft = draft
+            handleSharedDraftImport(draft.toSharedDraftImport())
+            return true
+        } finally {
+            remotePendingTransitionInProgress = false
+            while (queuedSharedDraftImports.isNotEmpty() && initializationComplete) {
+                handleSharedDraftImport(queuedSharedDraftImports.removeFirst())
+            }
+        }
+    }
+
+    suspend fun ignorePersistedRemoteChannelDraft(draft: RemoteChannelDraft): Boolean {
+        if (remotePendingTransitionInProgress) return false
+        remotePendingTransitionInProgress = true
+        try {
+            val removed = withContext(Dispatchers.IO) {
+                runCatching {
+                    (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.discard(draft)
+                }.getOrDefault(false)
+            }
+            if (removed && activeRemotePendingDraft == draft &&
+                uiState.pendingSharedDraftIsRemote && uiState.pendingSharedDraft == draft.payload
+            ) {
+                // long: 用户在设置列表忽略当前确认卡同一条消息时，同步撤销卡片身份，避免之后重复处理已删除正文。
+                activeRemotePendingDraft = null
+                uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false, result = null)
+            }
+            return removed
+        } finally {
+            remotePendingTransitionInProgress = false
+            while (queuedSharedDraftImports.isNotEmpty() && initializationComplete) {
+                handleSharedDraftImport(queuedSharedDraftImports.removeFirst())
+            }
+        }
+    }
+
     fun openPendingSharedDraft() {
         val payload = uiState.pendingSharedDraft ?: return
         if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument || uiState.loadingConversationMessages) {
             showValidation("当前操作结束后再打开草稿")
             return
         }
+        activeRemotePendingDraft?.let { draft ->
+            decidePersistedRemoteChannelDraft(draft, open = true)
+            return
+        }
         openSharedDraft(payload, isRemote = uiState.pendingSharedDraftIsRemote)
     }
 
     fun discardPendingSharedDraft() {
+        activeRemotePendingDraft?.let { draft ->
+            decidePersistedRemoteChannelDraft(draft, open = false)
+            return
+        }
         uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false, result = null)
+    }
+
+    private fun decidePersistedRemoteChannelDraft(draft: RemoteChannelDraft, open: Boolean) {
+        if (remotePendingTransitionInProgress) return
+        val payload = uiState.pendingSharedDraft ?: return
+        remotePendingTransitionInProgress = true
+        viewModelScope.launch {
+            try {
+                // long: 打开和忽略都先提交正文删除；写盘失败时确认卡继续保留，不能谎称已经处理。
+                val removed = withContext(Dispatchers.IO) {
+                    runCatching {
+                        (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.discard(draft)
+                    }.getOrDefault(false)
+                }
+                if (!removed) {
+                    showValidation("远程收件箱未能保存处理结果，请重试")
+                    return@launch
+                }
+                activeRemotePendingDraft = null
+                if (open) openSharedDraft(payload, isRemote = true)
+                else uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false, result = null)
+            } finally {
+                remotePendingTransitionInProgress = false
+                while (queuedSharedDraftImports.isNotEmpty() && initializationComplete) {
+                    handleSharedDraftImport(queuedSharedDraftImports.removeFirst())
+                }
+            }
+        }
     }
 
     fun createAgentNoteDraftFromSharedText() {
@@ -1393,6 +1495,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun openSharedDraft(payload: SharedDraftPayload, isRemote: Boolean = false) {
         // long: 用户明确打开远程消息后才替换编辑器；新会话只填入草稿，不调用发送入口。
+        activeRemotePendingDraft = null
         pendingNotificationTaskSource = null
         uiState = uiState.copy(
             prompt = "",

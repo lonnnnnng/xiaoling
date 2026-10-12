@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.work.Configuration
 import com.longdev.xiaoling.agent.AgentPluginRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
+import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
+import com.longdev.xiaoling.storage.KeystoreRemoteChannelInboxStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
 
@@ -20,6 +22,14 @@ class XiaoLingApplication : Application(), Configuration.Provider {
     /** long: 配对账本由应用进程统一持有，验签时仍重新读取磁盘，确保停用和撤销即时生效。 */
     val remoteChannelPairingRegistry: RemoteChannelPairingRegistry by lazy {
         RemoteChannelPairingRegistry(SharedPreferencesRemoteChannelPairingStateStore(this))
+    }
+
+    /** long: 手动签名消息与恢复列表共用一份加密去重快照；验签器逐次检查当前配对状态。 */
+    val remoteChannelInboxGateway: RemoteChannelInboxGateway by lazy {
+        RemoteChannelInboxGateway(
+            KeystoreRemoteChannelInboxStateStore(this),
+            remoteChannelPairingRegistry,
+        )
     }
 
     override val workManagerConfiguration: Configuration

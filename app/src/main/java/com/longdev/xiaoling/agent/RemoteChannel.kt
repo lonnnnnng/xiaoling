@@ -345,6 +345,17 @@ class InMemoryRemoteChannelInbox(
             it.draft.channelId == allowlist.channelId && it.draft.senderId in allowlist.senderIds }
     }
 
+    /** long: 前台收件页要列出已验签入箱的全部渠道；配对被停用或撤销不会抹掉此前已接收的正文。 */
+    @Synchronized
+    fun allPendingDrafts(): List<RemoteChannelPendingDraft> = if (storageUnavailable) {
+        emptyList()
+    } else {
+        pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS }
+    }
+
+    @Synchronized
+    fun isStorageAvailable(): Boolean = !storageUnavailable
+
     @Synchronized
     fun discardPending(channelId: String, senderId: String, messageId: String): Boolean {
         val durableStore = inboxStateStore ?: return false

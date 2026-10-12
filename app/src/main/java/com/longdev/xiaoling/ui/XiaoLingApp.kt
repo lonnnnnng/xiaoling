@@ -1226,6 +1226,9 @@ private fun SettingsPage(
             )
             pane == SettingsPane.REMOTE_CHANNEL_PAIRING -> RemoteChannelPairingPage(
                 registry = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelPairingRegistry,
+                inboxGateway = (LocalContext.current.applicationContext as XiaoLingApplication).remoteChannelInboxGateway,
+                onOpenPending = viewModel::stagePersistedRemoteChannelDraft,
+                onIgnorePending = viewModel::ignorePersistedRemoteChannelDraft,
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )

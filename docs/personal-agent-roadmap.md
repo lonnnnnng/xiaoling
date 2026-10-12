@@ -1,16 +1,22 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-13：Remote Channel 手动签名导入与前台待确认列表
+
+- 应用级收件入口已接到设置页的手动九字段 JSON 导入；P-256 已启用配对身份验签通过后，跨 Channel 共用同一份 Keystore 加密的 8 条待确认快照与去重账本。每次导入、列出或移除都重新读取快照，损坏时明确展示“不可用”并冻结操作。
+- 前台列表展示已入箱消息。点列表“打开”只进入现有远程来源确认卡，不立即移除正文；用户在确认卡打开或忽略后才持久删除正文，旧去重身份保留。确认前进程中断仍能恢复；配对停用或撤销仅阻止新入站，旧已验签消息仍供用户处理。签名 wire 格式见 `docs/remote-channel-signed-import.md`。
+- 此切片提供明确的用户主动收件来源与前台验收链；下一步选择受控的后台网络收件 transport、送达通知和来源注册。当前无 Telegram/Webhook listener、后台自动 Agent 或远程执行权限。
+
 ## 2026-10-13：Remote Channel 公钥身份配对第一片
 
 - 设置页可手动导入远端 P-256 X.509 SPKI 公钥，固定绑定 `channelId / senderId / keyId` 和本地来源名称；显示 SHA-256 指纹，用户须通过独立可信渠道核对并输入完整指纹后才能保存。新配对默认停用，启用只允许验签，撤销或停用后验签器每次重新读取账本并立即拒绝旧身份。损坏账本拒绝全部公钥入站，不降级为空白配对表。
-- 公钥消息继续使用现有 8 字段长度前缀 canonical payload、5 分钟时效、nonce 和有界持久待确认收件箱；既有 HMAC 验签保持独立。当前仅有身份管理和验签组件，尚未选择或接入生产收件 transport，也没有把持久待确认列表接入前台 UI，因此配对页不会自动收消息或运行 Agent。
+- 公钥消息继续使用现有 8 字段长度前缀 canonical payload、5 分钟时效、nonce 和有界持久待确认收件箱；既有 HMAC 验签保持独立。配对第一片当时仅有身份管理和验签组件；后续已接入手动签名导入与待确认列表，仍不会自动从网络收消息或运行 Agent。
 - 参考项目中 OmniBot 的 Ed25519 设备身份属于未接线的客户端草案；[Android Signature API](https://developer.android.com/reference/java/security/Signature) 将 `Ed25519` 列为 API 33+，而本项目最低 API 26。[KeyFactory API](https://developer.android.com/reference/java/security/KeyFactory) 与 Signature API 将 `EC`、`SHA256withECDSA` 列为 API 11+；此片只接受 P-256 曲线。
 
 ## 2026-10-13：Remote Channel 加密待确认收件箱基础
 
 - 签名及 allowlist 校验通过后，持久收件箱把去重键和待确认正文一起写入单份 AES-GCM 快照；正文密钥保留在独立 Android Keystore alias，应用显式数据库备份不包含该偏好文件。写盘失败不交付草稿，也不挤掉旧去重身份。损坏快照直接冻结入站，不把旧消息当作新消息。
 - 未读正文最多 8 条、保留最多 24 小时；达到上限拒绝新消息，过期正文在下次重建或成功接收时物理移除，去重身份仍按 256 键有界保留。窗口滚动先淘汰已处理消息，不逐出仍未读消息的消息 ID 或 nonce。打开或忽略后的显式移除只删除正文，旧去重偏好损坏同样 fail-closed；真机测试使用独立偏好文件。
-- Redmi 已验证 Keystore 密文不含明文、篡改后拒绝、写入及重建去重，并通过“第一轮 instrumentation 写入 → 停止应用进程 → 第二轮 instrumentation 恢复”的真实跨进程测试。当前还没有生产收件者调用该收件箱，也未把恢复列表接入前台 UI；远端公钥身份和来源管理已由上方切片补齐，下一步选择明确的收件 transport 和前台通知/确认接线。
+- Redmi 已验证 Keystore 密文不含明文、篡改后拒绝、写入及重建去重，并通过“第一轮 instrumentation 写入 → 停止应用进程 → 第二轮 instrumentation 恢复”的真实跨进程测试。该基础阶段尚无生产收件者或恢复列表 UI；上方后续切片已补手动签名导入和前台列表，网络收件与通知仍待接入。
 
 ## 2026-10-13：远程草稿前台确认与插件声明管理
 
