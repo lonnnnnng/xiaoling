@@ -1,5 +1,12 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-13：声明式插件能力交集预览
+
+- 已新增插件能力纯投影：只有插件已启用、声明 `READ_ONLY_CAPABILITIES`、manifest 有效，且能力同时位于 ACI 固定白名单、当前 Profile 白名单、静态 ToolRegistry 和当前可用 SAFE 目录时，才进入只读交集；未知能力、MCP、终端、设备动作及非 SAFE 工具只保留声明。
+- ACI 设置页已接入应用持久插件 Registry，逐插件展示启停、只读权限声明、符合交集及被排除的能力；状态账本损坏时显示不可用并保持空能力面。页面只是静态预览，不给 Profile、ToolRegistry、ACI 调用或 MCP 执行路径增加授权。
+- 插件持久化真机测试改用独立测试偏好文件，不清空用户正式插件状态。安装/升级默认停用、外部插件代码拒绝和其他权限枚举的执行边界保持不变。
+- 下一步继续围绕 Remote Channel 入站草稿链与插件/ACI 的真实用户入口收敛；真实 Provider MCP 取消验收仍需 Redmi 上有效的 Provider Base URL。2026-10-13 再次运行该单项时在前置处明确跳过，没有创建 Run 或 MCP 网络请求。
+
 ## 2026-10-02：MCP Streamable HTTP 取消链稳定验收
 
 - `StreamableHttpMcpClient` 已把阻塞式 RPC 改为可取消的 OkHttp `enqueue` 桥接；Runtime Job 开始取消时立即取消底层 Call，避免网络请求阻塞 Run 终态收敛。
@@ -2686,7 +2693,8 @@ idle -> deciding -> waiting_model -> waiting_approval
 10. **P3（声明式插件 manifest API 版本门禁，2026-10-02）**：插件 manifest 新增 `apiVersion=1` ABI 字段，未知/非整数版本在安装和 SharedPreferences 恢复时 fail-closed；旧 schema 1 缺字段按版本 1 兼容。该片仍不加载外部代码、不把权限扩大到 ToolRegistry/ACI/MCP/后台，升级默认停用和来源指纹校验保持不变。
 11. **P3（MCP transport 契约已完成，2026-10-02）**：配置层现在能识别 `streamable_http / sse / stdio`，旧 JSON 默认 `streamable_http`；SSE 和 stdio 只保存声明，当前执行层只允许既有 Streamable HTTP，不启动进程、不自动扩充 allowlist。下一步进入受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
-12. **P2（真实 Provider MCP 取消验收门禁，2026-10-04）**：新增受控真机单项，将真实 Provider 的 `mcp.list_tools -> mcp.call` 规划、loopback 半开 MCP 请求、Room `cancelRequested`、Runtime 取消收敛和迟到 `tool.result` 阻断串成一条可重复验收链。代码、JVM、AndroidTest 编译和既有 Redmi MCP E2E 已通过；当前 Redmi 没有可用 Provider Base URL，真实外部 Provider 单项只完成入口跳过，尚未形成通过证据。Provider 恢复后先完成该门禁，再进入 Remote Channel 入站草稿链和声明式插件权限与 ToolRegistry/ACI/MCP 能力交集。
+12. **P2（真实 Provider MCP 取消验收门禁，2026-10-04）**：新增受控真机单项，将真实 Provider 的 `mcp.list_tools -> mcp.call` 规划、loopback 半开 MCP 请求、Room `cancelRequested`、Runtime 取消收敛和迟到 `tool.result` 阻断串成一条可重复验收链。代码、JVM、AndroidTest 编译和既有 Redmi MCP E2E 已通过；2026-10-13 在 Redmi 重试时仍没有可用 Provider Base URL，真实外部 Provider 单项只在入口跳过，尚未形成通过证据。Provider 恢复后继续补跑同一门禁。
+13. **P3（声明式插件只读能力交集预览，2026-10-13）**：已把持久插件 Registry 接入 ACI 设置页，按插件启停、只读权限、有效 manifest、固定 ACI 白名单、Profile、ToolRegistry 注册与动态 SAFE 可用性做纯投影；只展示符合交集与被排除声明，不赋予插件、ACI、MCP 或 Agent Runtime 执行权。下一切片处理 Remote Channel 草稿链的真实用户入口和插件声明管理入口。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。
 

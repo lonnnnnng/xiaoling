@@ -56,6 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.longdev.xiaoling.XiaoLingApplication
 import com.longdev.xiaoling.model.AppThemeMode
 import com.longdev.xiaoling.model.DocumentAttachmentPolicy
 import com.longdev.xiaoling.knowledge.KnowledgeDocumentNavigationTarget
@@ -1187,19 +1188,25 @@ private fun SettingsPage(
                 onBack = onBackToSettings,
                 modifier = Modifier.matchParentSize(),
             )
-            pane == SettingsPane.ACI_READ_ONLY_CAPABILITIES -> AciReadOnlyCapabilitiesPage(
-                selectedProfileName = state.agentProfiles
-                    .firstOrNull { it.id == state.selectedAgentProfileId }
-                    ?.name,
-                registeredTools = state.registeredAgentTools,
-                allowedToolNames = state.agentProfiles
-                    .firstOrNull { it.id == state.selectedAgentProfileId }
-                    ?.allowedToolNames
-                    ?.toSet()
-                    .orEmpty(),
-                onBack = onBackToSettings,
-                modifier = Modifier.matchParentSize(),
-            )
+            pane == SettingsPane.ACI_READ_ONLY_CAPABILITIES -> {
+                val pluginRegistry = (LocalContext.current.applicationContext as? XiaoLingApplication)
+                    ?.agentPluginRegistry
+                AciReadOnlyCapabilitiesPage(
+                    selectedProfileName = state.agentProfiles
+                        .firstOrNull { it.id == state.selectedAgentProfileId }
+                        ?.name,
+                    registeredTools = state.registeredAgentTools,
+                    allowedToolNames = state.agentProfiles
+                        .firstOrNull { it.id == state.selectedAgentProfileId }
+                        ?.allowedToolNames
+                        ?.toSet()
+                        .orEmpty(),
+                    onBack = onBackToSettings,
+                    modifier = Modifier.matchParentSize(),
+                    installedPlugins = pluginRegistry?.list().orEmpty(),
+                    pluginStateUnavailable = pluginRegistry == null || pluginRegistry.persistenceFailureReason() != null,
+                )
+            }
             pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
                 state = state.toWorkflowManagementUiState(),
                 actions = viewModel,

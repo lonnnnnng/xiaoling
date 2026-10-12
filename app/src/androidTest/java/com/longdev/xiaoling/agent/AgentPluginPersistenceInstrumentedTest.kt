@@ -16,6 +16,7 @@ class AgentPluginPersistenceInstrumentedTest {
 
     @Before
     fun setUp() {
+        // long: 插件持久化回归只清理自己的测试账本，不能抹掉设备上用户正式插件的启停状态。
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().clear().commit()
     }
 
@@ -26,15 +27,22 @@ class AgentPluginPersistenceInstrumentedTest {
 
     @Test
     fun enabledPluginSurvivesAndroidProcessScopedRegistryRecreation() {
-        val store = SharedPreferencesAgentPluginStateStore(context)
+        val store = SharedPreferencesAgentPluginStateStore(context, PREFERENCES)
         val first = AgentPluginRegistry(store)
         val manifest = manifest()
         assertTrue(first.install(manifest) is AgentPluginInstallResult.Installed)
         assertNotNull(first.setEnabled(manifest.id, true))
 
-        val recreated = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context))
+        val recreated = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context, PREFERENCES))
         assertEquals(true, recreated.get(manifest.id)?.enabled)
         assertEquals(manifest, recreated.get(manifest.id)?.manifest)
+        val projection = AgentPluginCapabilityProjector.projectAll(
+            plugins = recreated.list(),
+            registeredTools = listOf(ToolDefinition("app.current_time", "当前时间", ToolRisk.SAFE)),
+            availableTools = listOf(ToolDefinition("app.current_time", "当前时间", ToolRisk.SAFE)),
+            allowedToolNames = setOf("app.current_time"),
+        )
+        assertEquals(setOf("app.current_time"), projection.single().effectiveReadOnlyCapabilities)
     }
 
     @Test
@@ -43,7 +51,7 @@ class AgentPluginPersistenceInstrumentedTest {
             .putString("state", "{broken")
             .commit()
 
-        val registry = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context))
+        val registry = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context, PREFERENCES))
         assertTrue(registry.list().isEmpty())
         assertNotNull(registry.persistenceFailureReason())
         assertTrue(registry.install(manifest()) is AgentPluginInstallResult.Rejected)
@@ -61,7 +69,7 @@ class AgentPluginPersistenceInstrumentedTest {
             .putString("state", root.toString())
             .commit()
 
-        val registry = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context))
+        val registry = AgentPluginRegistry(SharedPreferencesAgentPluginStateStore(context, PREFERENCES))
         assertTrue(registry.list().isEmpty())
         assertNotNull(registry.persistenceFailureReason())
     }
@@ -72,11 +80,11 @@ class AgentPluginPersistenceInstrumentedTest {
         name = "设备只读插件",
         description = "声明只读能力",
         publisher = "long",
-        capabilities = setOf("device.snapshot"),
+        capabilities = setOf("app.current_time", "device.snapshot"),
         permissions = setOf(AgentPluginPermission.READ_ONLY_CAPABILITIES),
     )
 
     private companion object {
-        const val PREFERENCES = "xiaoling_agent_plugins"
+        const val PREFERENCES = "xiaoling_agent_plugins_instrumentation"
     }
 }

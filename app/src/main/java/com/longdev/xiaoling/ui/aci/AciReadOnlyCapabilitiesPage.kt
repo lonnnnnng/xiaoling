@@ -25,6 +25,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.agent.AciCapabilityDescriptor
 import com.longdev.xiaoling.agent.AciPolicy
+import com.longdev.xiaoling.agent.AgentPluginCapabilityProjector
+import com.longdev.xiaoling.agent.InstalledAgentPlugin
 import com.longdev.xiaoling.agent.ToolDefinition
 import com.longdev.xiaoling.agent.ToolRisk
 
@@ -57,8 +59,17 @@ internal fun AciReadOnlyCapabilitiesPage(
     allowedToolNames: Set<String>,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    installedPlugins: List<InstalledAgentPlugin> = emptyList(),
+    pluginStateUnavailable: Boolean = false,
 ) {
     val capabilities = projectAciReadOnlyCapabilities(registeredTools, allowedToolNames)
+    // long: 设置页只有静态 ToolRegistry 定义；插件区只展示此时的交集预览，真正的 Run 仍需重新检查动态目录和 Profile。
+    val pluginProjections = AgentPluginCapabilityProjector.projectAll(
+        plugins = installedPlugins,
+        registeredTools = registeredTools,
+        availableTools = registeredTools,
+        allowedToolNames = allowedToolNames,
+    )
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -135,6 +146,58 @@ internal fun AciReadOnlyCapabilitiesPage(
                                 Text("SAFE · 当前 Profile 已授权", style = MaterialTheme.typography.labelSmall)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        Text("插件能力声明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            "以下仅是声明与当前 Profile、已注册 SAFE 工具的静态交集预览；不会安装执行器、扩充工具目录或授权 ACI、MCP、终端及设备动作。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (pluginStateUnavailable) {
+            Text(
+                "插件状态无法读取，能力预览已关闭。",
+                modifier = Modifier.testTag("aci-plugin-state-unavailable"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        } else if (pluginProjections.isEmpty()) {
+            Text(
+                "尚无已安装的声明式插件。",
+                modifier = Modifier.testTag("aci-plugin-empty"),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            pluginProjections.forEach { plugin ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("aci-plugin-${plugin.pluginId}"),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(plugin.pluginId, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (plugin.enabled) "已启用" else "已停用",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Text(
+                            if (plugin.readOnlyPermissionDeclared) "已声明只读能力权限" else "未声明只读能力权限",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Text(
+                            "符合只读交集：${plugin.effectiveReadOnlyCapabilities.sorted().joinToString().ifEmpty { "无" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("aci-plugin-effective-${plugin.pluginId}"),
+                        )
+                        Text(
+                            "仅保留声明：${plugin.excludedCapabilities.sorted().joinToString().ifEmpty { "无" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("aci-plugin-excluded-${plugin.pluginId}"),
+                        )
                     }
                 }
             }

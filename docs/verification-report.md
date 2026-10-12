@@ -1,6 +1,14 @@
 # 验证报告
 
-验证日期：2026-10-04（北京时间）
+验证日期：2026-10-13（北京时间）
+
+# 2026-10-13 声明式插件能力交集预览
+
+- 实现：`AgentPluginCapabilityProjector` 固定以插件启用、只读权限、有效 manifest、ACI SAFE 白名单、Profile 白名单、ToolRegistry 静态注册和当前动态可用 SAFE 集合求交；ACI 设置页只显示静态交集与被排除声明，账本读取失败时显示不可用。没有接入外部插件执行器、`ReadOnlyAciCapabilityBridge.call()`、Agent Runtime 或 MCP 工具执行。
+- 隔离：`AgentPluginPersistenceInstrumentedTest` 使用独立 `xiaoling_agent_plugins_instrumentation` 偏好文件，测试前后仅清理该文件；正式 `xiaoling_agent_plugins` 状态不再被测试清空。
+- 本地门禁：最终源码与文档上的 `:shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 均通过；App JVM XML `1304 passed / 0 failed / 0 skipped`。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：最终插件持久化与 ACI 页面聚焦 `OK (7 tests)`，包含损坏账本错误态；文档语料门禁 `OK (1 test)`。未使用 Pixel_9。
+- 真实 Provider MCP 取消单项在同一 Redmi 再次显式执行，入口因 `Redmi 当前 Provider Base URL 不可用` 返回 `AssumptionViolatedException`。Runner 输出 `OK (1 test)` 但该项是跳过，未创建 Run、MCP 配置或 Provider 网络请求，仍记为未验证。设备当前无 `tun0`。
 
 # 2026-10-04 真实 Provider MCP 取消验收门禁
 

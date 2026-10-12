@@ -3,9 +3,12 @@ package com.longdev.xiaoling.storage
 import android.content.Context
 import com.longdev.xiaoling.agent.AgentPluginStateStore
 
-class SharedPreferencesAgentPluginStateStore(context: Context) : AgentPluginStateStore {
+class SharedPreferencesAgentPluginStateStore(
+    context: Context,
+    preferencesName: String = "xiaoling_agent_plugins",
+) : AgentPluginStateStore {
     private val preferences = context.applicationContext.getSharedPreferences(
-        "xiaoling_agent_plugins",
+        preferencesName,
         Context.MODE_PRIVATE,
     )
 
