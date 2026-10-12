@@ -2,6 +2,15 @@
 
 验证日期：2026-10-13（北京时间）
 
+# 2026-10-13 Remote Channel 前台 HTTPS 来源登记与单条拉取
+
+- 生产实现：已配对公钥可登记、移除一条绑定当前 `channelId / senderId / keyId / SHA-256 指纹` 的无凭据 HTTPS 来源。设置页仅在用户点击时 GET 一条九字段 JSON；请求前后核对来源，验签与加密入箱仍由原 Gateway 完成，不创建 Agent Run。
+- 安全边界：拒绝 HTTP、userinfo、query、fragment、IP literal 和 localhost；OkHttp 禁用代理、Cookie 和自动重定向，建连 DNS 拒绝本机、私网及保留地址。只接受 HTTP 200、JSON、解压后最多 64 KiB；20 秒总超时，协程取消覆盖停滞正文读取。来源账本损坏时 fail-closed。
+- 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --offline` 为 `BUILD SUCCESSFUL`；App JVM XML `1331 passed / 0 failed / 0 errors / 0 skipped`。新增 JVM 覆盖来源指纹绑定与损坏、URL/DNS 拒绝、签名入箱与重放、身份错配、跳转、超大响应和停滞正文取消。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：最终 Debug 与 AndroidTest APK 覆盖安装成功。来源登记 → 用户点击拉取 → 签名消息入待确认列表、来源 SharedPreferences 重建/损坏、既有配对与手动导入聚焦组 `OK (4 tests)`；测试使用隔离内存账本或专属测试偏好文件。测试网络响应由测试进程拦截注入，未接真实公网 HTTPS 收件服务。
+- 文档语料门禁：更新 README、需求、实现说明、路线图与收件协议后，重新打包 AndroidTest 资产；Redmi 的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
+- 未验证：真实远端 TLS 服务互通、离线送达、游标/ACK、批量/重试、后台轮询、送达通知和外部发送方跨设备验签。前台确认后编辑器内容与收件箱删除仍不是跨进程原子交接。本轮未构建 Release、未发版。
+
 # 2026-10-13 Remote Channel 手动签名导入与前台待确认列表
 
 - 生产接线：`XiaoLingApplication` 持有公钥验签器和 Keystore 加密收件 Gateway。设置页只接受完整九字段签名 JSON，验签及去重通过后入箱；待确认列表跨 Channel 读取同一快照，损坏状态显示不可用。点击列表“打开”只进入会话确认卡，确认卡的“打开/忽略”才提交持久正文删除；停用或撤销配对不抹掉先前已验签入箱的正文。

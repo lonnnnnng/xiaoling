@@ -39,6 +39,8 @@ import com.longdev.xiaoling.agent.RemoteChannelDraft
 import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
 import com.longdev.xiaoling.agent.RemoteChannelInboxStatus
 import com.longdev.xiaoling.agent.RemoteChannelReceiveResult
+import com.longdev.xiaoling.agent.RemoteChannelPullService
+import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
 import com.longdev.xiaoling.agent.RemoteChannelSignedEnvelopeCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,6 +52,8 @@ internal fun RemoteChannelPairingPage(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     inboxGateway: RemoteChannelInboxGateway? = null,
+    pullSources: RemoteChannelPullSourceRegistry? = null,
+    pullService: RemoteChannelPullService? = null,
     onOpenPending: suspend (RemoteChannelDraft) -> Boolean = { false },
     onIgnorePending: suspend (RemoteChannelDraft) -> Boolean = { false },
 ) {
@@ -69,9 +73,13 @@ internal fun RemoteChannelPairingPage(
     var inboxStatus by remember { mutableStateOf<RemoteChannelInboxStatus?>(null) }
     var inboxBusy by remember { mutableStateOf(false) }
     var signedEnvelopeJson by remember { mutableStateOf("") }
+    var sourceBusy by remember { mutableStateOf(false) }
     val loaded = remember(registry, revision) { runCatching { registry.list() } }
     val peers = loaded.getOrNull().orEmpty()
     val stateFailure = loaded.exceptionOrNull()?.message
+    val sourcesLoaded = remember(pullSources, revision) { runCatching { pullSources?.list().orEmpty() } }
+    val sources = sourcesLoaded.getOrNull().orEmpty()
+    val sourceFailure = sourcesLoaded.exceptionOrNull()?.message
     LaunchedEffect(inboxGateway, inboxRevision) {
         inboxStatus = inboxGateway?.let { gateway ->
             withContext(Dispatchers.IO) { gateway.status() }
@@ -89,12 +97,16 @@ internal fun RemoteChannelPairingPage(
             Text("远端身份配对", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(
-            "从可信来源取得发送方公钥，并在另一可信渠道核对 SHA-256 指纹。配对后默认停用；启用只允许验签，不会开启网络收件或自动运行 Agent。",
+            "从可信来源取得发送方公钥，并在另一可信渠道核对 SHA-256 指纹。配对后默认停用；启用只允许验签。HTTPS 收件需要另行登记地址并由用户主动拉取，不会自动运行 Agent。",
             style = MaterialTheme.typography.bodySmall,
         )
         if (stateFailure != null) {
             Text("配对状态不可用，入站验签与变更已冻结：$stateFailure",
                 color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("remote-pairing-state-error"))
+        }
+        if (sourceFailure != null) {
+            Text("HTTPS 来源账本不可用，已冻结登记与拉取：$sourceFailure",
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("remote-source-state-error"))
         }
         if (inboxGateway != null) {
             Text("待确认消息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -259,6 +271,10 @@ internal fun RemoteChannelPairingPage(
         peers.forEach { peer ->
             val identity = peer.candidate
             val tag = "${identity.channelId}-${identity.senderId}-${identity.keyId}"
+            val savedSource = sources.firstOrNull { it.channelId == identity.channelId &&
+                it.senderId == identity.senderId && it.keyId == identity.keyId &&
+                it.fingerprintSha256 == identity.fingerprintSha256 }
+            var sourceUrl by remember(tag, savedSource?.url) { mutableStateOf(savedSource?.url.orEmpty()) }
             Card(modifier = Modifier.fillMaxWidth().testTag("remote-peer-$tag")) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(identity.sourceLabel, fontWeight = FontWeight.SemiBold)
@@ -266,6 +282,64 @@ internal fun RemoteChannelPairingPage(
                         style = MaterialTheme.typography.bodySmall)
                     Text("SHA-256：${identity.fingerprintSha256.chunked(4).joinToString(" ")}",
                         style = MaterialTheme.typography.bodySmall)
+                    if (pullSources != null && pullService != null) {
+                        // long: 每个地址只与当前公钥指纹绑定；失效或轮换后需重新保存，拉取不能从消息正文派生 URL。
+                        OutlinedTextField(
+                            value = sourceUrl,
+                            onValueChange = { sourceUrl = it.take(com.longdev.xiaoling.agent.RemoteChannelPullPolicy.MAX_URL_CHARS) },
+                            label = { Text("此身份的 HTTPS 收件地址") },
+                            modifier = Modifier.fillMaxWidth().testTag("remote-source-url-$tag"),
+                            enabled = !sourceBusy && sourceFailure == null && stateFailure == null,
+                            singleLine = true,
+                        )
+                        Text("地址会保存在本机配置中，请勿把令牌写入 URL 路径。仅支持无需认证头的单条签名 JSON。",
+                            style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(
+                                onClick = {
+                                    notice = runCatching { pullSources.save(identity, sourceUrl) }.fold(
+                                        onSuccess = { "HTTPS 收件来源已登记" },
+                                        onFailure = { it.message ?: "HTTPS 来源登记失败" },
+                                    )
+                                    revision += 1
+                                },
+                                enabled = !sourceBusy && sourceFailure == null && stateFailure == null && sourceUrl.isNotBlank(),
+                                modifier = Modifier.testTag("remote-source-save-$tag"),
+                            ) { Text("登记来源") }
+                            TextButton(
+                                onClick = {
+                                    sourceBusy = true
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.IO) { runCatching { pullService.pull(identity) } }
+                                        notice = result.fold(
+                                            onSuccess = { received -> when (received) {
+                                                is RemoteChannelReceiveResult.Accepted -> "签名消息已进入待确认收件箱"
+                                                is RemoteChannelReceiveResult.Rejected -> "HTTPS 消息已拒绝：${received.reason}"
+                                            } },
+                                            onFailure = { it.message ?: "HTTPS 收件失败" },
+                                        )
+                                        sourceBusy = false
+                                        inboxRevision += 1
+                                    }
+                                },
+                                enabled = !sourceBusy && !inboxBusy && peer.enabled && savedSource != null &&
+                                    sourceFailure == null && stateFailure == null &&
+                                    inboxStatus is RemoteChannelInboxStatus.Ready,
+                                modifier = Modifier.testTag("remote-source-pull-$tag"),
+                            ) { Text("拉取一条") }
+                            TextButton(
+                                onClick = {
+                                    notice = runCatching { pullSources.remove(identity) }.fold(
+                                        onSuccess = { if (it) "HTTPS 来源已移除" else "没有已登记来源" },
+                                        onFailure = { it.message ?: "HTTPS 来源移除失败" },
+                                    )
+                                    revision += 1
+                                },
+                                enabled = !sourceBusy && savedSource != null && sourceFailure == null,
+                                modifier = Modifier.testTag("remote-source-remove-$tag"),
+                            ) { Text("移除来源") }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("允许验签", modifier = Modifier.weight(1f))
                         Switch(
@@ -297,9 +371,14 @@ internal fun RemoteChannelPairingPage(
             text = { Text("将移除 ${identity.channelId}/${identity.senderId}/${identity.keyId} 的公钥；之后使用此 keyId 的消息会被拒绝。") },
             confirmButton = {
                 TextButton(onClick = {
+                    // long: 撤销先移除这把公钥登记的拉取地址，避免同一身份重新配对后沿用旧来源；即使来源账本不可用，验签撤销仍优先执行。
+                    val sourceRemoval = runCatching { pullSources?.remove(identity) }
                     notice = runCatching {
                         registry.revoke(identity.channelId, identity.senderId, identity.keyId)
-                    }.fold(onSuccess = { if (it) "配对已撤销" else "身份不存在" },
+                    }.fold(onSuccess = { if (it) {
+                        if (sourceRemoval.isFailure) "配对已撤销；HTTPS 来源清理失败：${sourceRemoval.exceptionOrNull()?.message}"
+                        else "配对已撤销"
+                    } else "身份不存在" },
                         onFailure = { it.message ?: "撤销失败" })
                     revoke = null
                     revision += 1

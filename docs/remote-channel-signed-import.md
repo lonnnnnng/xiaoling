@@ -1,6 +1,13 @@
-# Remote Channel 手动签名消息导入
+# Remote Channel 签名消息收件
 
-当前前台来源是“设置 → 远端身份配对”中的手动 JSON 导入。应用不会监听网络、读取 Telegram/Webhook 或自动启动 Agent。发送方需要通过独立可信渠道交付公钥指纹；用户核对完整 SHA-256 指纹并显式启用对应 `channelId / senderId / keyId` 后，才能导入消息。
+当前前台来源是“设置 → 远端身份配对”中的手动 JSON 导入，或用户为已配对公钥登记地址后主动 HTTPS 拉取一条。应用不会监听网络、读取 Telegram/Webhook、后台轮询或自动启动 Agent。发送方需要通过独立可信渠道交付公钥指纹；用户核对完整 SHA-256 指纹并显式启用对应 `channelId / senderId / keyId` 后，才能接收消息。
+
+## HTTPS 单条响应
+
+- 每个已配对身份可登记一条 HTTPS URL，地址持久绑定 Channel、发送方、keyId 和当前公钥指纹；轮换身份须重新登记。地址不允许账号密码、查询参数、片段、IP literal 或 localhost。生产客户端不使用代理、Cookie 或自动跳转，DNS 在实际建连时拒绝本机、私网和保留地址。
+- 地址按本机配置保存，不应在 URL 路径中放置令牌；此协议不支持认证头、Cookie 或带凭据的 URL。
+- 用户点“拉取一条”时，客户端发起无认证 GET，期望 HTTP 200、`Content-Type: application/json`，响应体为下述**单个**九字段 JSON，解压后不得超过 64 KiB。HTTP 非 200、其他类型、超限、格式错误、身份不匹配和验签失败都不会入箱。
+- 服务端每次交付时需要让 `receivedAtMillis` 落在五分钟签名窗口内；同一 `messageId` 或 `nonce` 被重复返回时会被本机拒绝。当前没有分页、批量、游标或 ACK；这是主动读取接口，不提供离线送达保证。
 
 ## JSON envelope
 

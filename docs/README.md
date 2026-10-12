@@ -1,8 +1,8 @@
 # 文档索引
 
-## 当前阶段：Remote Channel 手动签名收件与前台待确认列表（v0.1.21 已发布）
+## 当前阶段：Remote Channel 主动 HTTPS 收件与前台待确认列表
 
-- 当前源码已接入 P-256 已启用配对身份的手动九字段 JSON 导入、加密待确认列表和会话确认卡。列表选择不会消耗正文；确认卡打开或忽略后才持久移除正文，去重身份保留。网络监听与通知仍待下一阶段。详见[签名导入协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
+- 当前源码已接入 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。列表选择不会消耗正文；确认卡打开或忽略后才持久移除正文，去重身份保留。后台收件与通知仍待下一阶段；本阶段源码尚未发布。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
 - 下方第 251 至 284 阶段及既有发布记录是历史验收背景，具体边界以当前源码与报告顶部为准。
 
 - `v0.1.21` 已发布，正式 APK `xiaoling-v0.1.21.apk` 大小 `3,396,306` 字节，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。

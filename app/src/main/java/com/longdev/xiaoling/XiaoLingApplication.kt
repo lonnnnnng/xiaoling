@@ -5,9 +5,12 @@ import androidx.work.Configuration
 import com.longdev.xiaoling.agent.AgentPluginRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
 import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
+import com.longdev.xiaoling.agent.RemoteChannelPullService
+import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
 import com.longdev.xiaoling.storage.KeystoreRemoteChannelInboxStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
+import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullSourceStateStore
 
 class XiaoLingApplication : Application(), Configuration.Provider {
     /**
@@ -30,6 +33,15 @@ class XiaoLingApplication : Application(), Configuration.Provider {
             KeystoreRemoteChannelInboxStateStore(this),
             remoteChannelPairingRegistry,
         )
+    }
+
+    /** long: HTTPS 来源固定在已核对公钥身份下，网络拉取结果仍只进入现有加密待确认箱。 */
+    val remoteChannelPullSourceRegistry: RemoteChannelPullSourceRegistry by lazy {
+        RemoteChannelPullSourceRegistry(SharedPreferencesRemoteChannelPullSourceStateStore(this), remoteChannelPairingRegistry)
+    }
+
+    val remoteChannelPullService: RemoteChannelPullService by lazy {
+        RemoteChannelPullService(remoteChannelPairingRegistry, remoteChannelPullSourceRegistry, remoteChannelInboxGateway)
     }
 
     override val workManagerConfiguration: Configuration

@@ -16,11 +16,21 @@ import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
 import com.longdev.xiaoling.agent.RemoteChannelInboxSnapshot
 import com.longdev.xiaoling.agent.RemoteChannelInboxStateStore
 import com.longdev.xiaoling.agent.RemoteChannelPolicy
+import com.longdev.xiaoling.agent.RemoteChannelPullService
+import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
+import com.longdev.xiaoling.agent.RemoteChannelPullSourceStateStore
+import com.longdev.xiaoling.agent.RemoteChannelHttpsPuller
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 import org.json.JSONObject
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -28,6 +38,62 @@ import org.junit.Test
 
 class RemoteChannelPairingPageInstrumentedTest {
     @get:Rule val composeRule = createComposeRule()
+
+    @Test
+    fun registeredHttpsSourceCanPullOneSignedMessageIntoPendingList() {
+        val now = System.currentTimeMillis()
+        val keyPair = KeyPairGenerator.getInstance("EC")
+            .apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        val registry = RemoteChannelPairingRegistry(TestStore())
+        val peer = RemoteChannelPairingPolicy.prepare(
+            "channel", "sender", "paired", "测试来源",
+            Base64.getEncoder().encodeToString(keyPair.public.encoded),
+        )
+        registry.confirm(peer, peer.fingerprintSha256)
+        registry.setEnabled("channel", "sender", "paired", true)
+        val gateway = RemoteChannelInboxGateway(TestInboxStore(), registry) { now }
+        val sources = RemoteChannelPullSourceRegistry(TestSourceStore(), registry)
+        val unsigned = RemoteChannelEnvelope(
+            "channel", "network-message", "sender", "conversation", "网络待确认正文", now,
+            nonce = "nonce-network-1234567890123456", keyId = "paired",
+        )
+        val signed = unsigned.copy(signature = Signature.getInstance("SHA256withECDSA").run {
+            initSign(keyPair.private)
+            update(RemoteChannelPolicy.canonicalBytes(unsigned))
+            Base64.getUrlEncoder().withoutPadding().encodeToString(sign())
+        })
+        val raw = JSONObject().put("channelId", signed.channelId).put("messageId", signed.messageId)
+            .put("senderId", signed.senderId).put("conversationKey", signed.conversationKey)
+            .put("text", signed.text).put("receivedAtMillis", signed.receivedAtMillis)
+            .put("nonce", signed.nonce).put("keyId", signed.keyId)
+            .put("signature", signed.signature).toString()
+        val puller = RemoteChannelHttpsPuller(client = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+                .header("Content-Type", "application/json")
+                .body(raw.toResponseBody("application/json".toMediaType())).build()
+        }).build())
+        composeRule.setContent {
+            MaterialTheme {
+                RemoteChannelPairingPage(
+                    registry = registry, onBack = {}, inboxGateway = gateway,
+                    pullSources = sources, pullService = RemoteChannelPullService(registry, sources, gateway, puller),
+                )
+            }
+        }
+        val tag = "channel-sender-paired"
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("remote-inbox-empty").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("remote-source-url-$tag").performScrollTo().performTextInput("https://inbox.example/next")
+        composeRule.onNodeWithTag("remote-source-save-$tag").performScrollTo().performClick()
+        composeRule.onNodeWithTag("remote-source-pull-$tag").performScrollTo().performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("remote-inbox-item-channel-sender-network-message")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals("network-message", (gateway.status() as com.longdev.xiaoling.agent.RemoteChannelInboxStatus.Ready)
+            .pending.single().draft.messageId)
+    }
 
     @Test
     fun previewConfirmEnableAndRevokeKeepPublicKeyBoundToOneSender() {
@@ -144,5 +210,11 @@ class RemoteChannelPairingPageInstrumentedTest {
         private var snapshot: RemoteChannelInboxSnapshot? = null
         override fun loadSnapshot(): RemoteChannelInboxSnapshot? = snapshot
         override fun saveSnapshot(snapshot: RemoteChannelInboxSnapshot) { this.snapshot = snapshot }
+    }
+
+    private class TestSourceStore : RemoteChannelPullSourceStateStore {
+        private var state: String? = null
+        override fun loadState(): String? = state
+        override fun saveState(state: String) { this.state = state }
     }
 }

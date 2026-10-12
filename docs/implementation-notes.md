@@ -1,17 +1,23 @@
 # 当前实现说明
 
+## 2026-10-13：Remote Channel 前台 HTTPS 单条拉取
+
+- `RemoteChannelPullSourceRegistry` 在独立 SharedPreferences 中保存规范 HTTPS 地址和 `channelId / senderId / keyId / fingerprintSha256` 绑定；严格 JSON 解码，损坏时拒绝读写。登记必须仍存在对应配对公钥；拉取前后重新核对来源，拉取前要求配对启用，最终 Gateway 再逐次验签。
+- `RemoteChannelHttpsPuller` 只做用户主动 GET。URL 禁止账号、查询、片段与 IP literal；OkHttp 禁止代理、Cookie、HTTP/HTTPS redirect，在建连 DNS 上拒绝本机、私网和保留地址，避免先校验后解析的重绑定窗口。HTTP 200 的单条 JSON 响应按解压后 64 KiB 有界读取，20 秒总超时，后续仍走固定九字段解码与加密入箱。
+- 设置页为每个配对身份显示来源登记、移除及“拉取一条”；只在签名接受后刷新既有待确认列表。没有后台轮询、游标、批量、ACK、收件通知或 Agent 执行。公网真实服务与系统 TLS 的端到端互通尚未验证。
+
 ## 2026-10-13：Remote Channel 手动签名导入与前台收件
 
 - `XiaoLingApplication.remoteChannelInboxGateway` 固定组合 `RemoteChannelPairingRegistry`、`PublicKeyRemoteChannelAuthenticator` 与 `KeystoreRemoteChannelInboxStateStore`；Gateway 不能被配置成仅凭任意 HMAC `keyId` 接收消息。每次接收、读取或丢弃都重建 `InMemoryRemoteChannelInbox`，重新读取同一份跨 Channel 加密快照，避免多入口持有旧去重账本。
 - `RemoteChannelSignedEnvelopeCodec` 只解码完整九字段、64 KiB 内的 JSON；设置页按钮仅在用户主动操作时调用 Gateway。`status()` 区分 `Ready(empty)` 与损坏或密钥不可用的 `Unavailable`。已成功入箱的旧消息在配对停用或撤销后仍可显示，但新消息由逐次配对验签阻断。
 - 设置列表点“打开”只在重新核对快照中的同一草稿后投影到会话确认卡，保留持久正文。确认卡打开/忽略及设置列表忽略都在 IO 线程提交删除；失败时保留正文和确认卡，成功后保留去重身份。当前用户的会话草稿仍是内存态，确认后进程立即中断的编辑器内容尚无与收件箱的原子交接。
-- 签名 wire 格式、字段上限与操作边界见 `docs/remote-channel-signed-import.md`。当前来源为手动粘贴，没有 Telegram/Webhook listener、后台通知或自动 Agent Run。
+- 签名 wire 格式、字段上限与操作边界见 `docs/remote-channel-signed-import.md`。后续已增加前台 HTTPS 单条拉取；没有 Telegram/Webhook listener、后台通知或自动 Agent Run。
 
 ## 2026-10-13：Remote Channel P-256 公钥配对第一片
 
 - `RemoteChannelPairingPolicy.prepare()` 只解析 P-256 X.509 SPKI 公钥并规范化编码，SHA-256 指纹由规范编码计算；`RemoteChannelPairingRegistry.confirm()` 要求再次输入完全匹配的指纹。配对身份绑定 Channel、发送方和 keyId，来源名称仅是本地显示元数据。相同 keyId 不允许静默换公钥，轮换使用新 keyId。
 - 独立 SharedPreferences 账本只保存公钥与启停状态，每次 `PublicKeyRemoteChannelAuthenticator.verify()` 都重新读取和严格解码。状态读取失败、未知字段或损坏公钥返回 `PAIRING_STATE_UNAVAILABLE`；停用、撤销和未知身份返回 `UNKNOWN_KEY_ID`。保存后默认停用，写盘成功才视为变更成功。
-- 公钥与 HMAC 共用 `RemoteChannelPolicy.canonicalBytes()` 的八个长度前缀字段，前者使用 `SHA256withECDSA`，后者仍用 `HmacSHA256`。两种认证器由调用者显式选择，不按未受信输入自动降级或混用。该配对第一片当时仅提供公钥管理；后续已接手动签名导入与前台列表，网络收件 transport 仍未接入。
+- 公钥与 HMAC 共用 `RemoteChannelPolicy.canonicalBytes()` 的八个长度前缀字段，前者使用 `SHA256withECDSA`，后者仍用 `HmacSHA256`。两种认证器由调用者显式选择，不按未受信输入自动降级或混用。该配对第一片当时仅提供公钥管理；后续已接手动签名导入、前台列表及主动 HTTPS 单条拉取。
 
 ## 2026-10-02：MCP Streamable HTTP 取消链稳定验收（已完成）
 
