@@ -1,17 +1,23 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-13：Remote Channel 加密待确认收件箱基础
+
+- 签名及 allowlist 校验通过后，持久收件箱把去重键和待确认正文一起写入单份 AES-GCM 快照；正文密钥保留在独立 Android Keystore alias，应用显式数据库备份不包含该偏好文件。写盘失败不交付草稿，也不挤掉旧去重身份。损坏快照直接冻结入站，不把旧消息当作新消息。
+- 未读正文最多 8 条、保留最多 24 小时；达到上限拒绝新消息，过期正文在下次重建或成功接收时物理移除，去重身份仍按 256 键有界保留。窗口滚动先淘汰已处理消息，不逐出仍未读消息的消息 ID 或 nonce。打开或忽略后的显式移除只删除正文，旧去重偏好损坏同样 fail-closed；真机测试使用独立偏好文件。
+- Redmi 已验证 Keystore 密文不含明文、篡改后拒绝、写入及重建去重，并通过“第一轮 instrumentation 写入 → 停止应用进程 → 第二轮 instrumentation 恢复”的真实跨进程测试。当前还没有生产收件者调用该收件箱，也未把恢复列表接入前台 UI；下一切片需先做可配对的远端公钥身份与来源管理，再选择明确的收件 transport 和前台通知/确认接线。
+
 ## 2026-10-13：远程草稿前台确认与插件声明管理
 
-- Remote Channel 草稿进入共享编辑器前一律待用户确认，即使输入框为空也不会自动打开；确认卡和导入提示保留远程来源。打开后仅创建可编辑草稿，不自动发送或启动 Agent。现有协议验签、allowlist、去重不等于生产入站能力：远端密钥配对、待处理正文可靠持久化与真实 transport 仍未完成。
+- Remote Channel 草稿进入共享编辑器前一律待用户确认，即使输入框为空也不会自动打开；确认卡和导入提示保留远程来源。打开后仅创建可编辑草稿，不自动发送或启动 Agent。本阶段当时尚缺远端密钥配对、待处理正文可靠持久化与真实 transport；待处理存储基础已由上方切片补齐。
 - 设置页新增“Agent 插件声明”入口：手动粘贴单个 16 KiB 以内的 JSON manifest，复用严格 schema 校验后通过持久 Registry 安装、启停和确认移除。安装或升级默认停用；页面不下载代码、不执行插件、不授予工具权限。
-- 本地完整门禁与 Redmi 插件/设置/草稿聚焦测试已通过；真实 Provider MCP 取消验收仍受 Redmi Provider Base URL 不可用阻断，不能计为通过。下一步应先设计可配对的远程验签身份与可靠 pending inbox，再选择明确的接收 transport。
+- 本地完整门禁与 Redmi 插件/设置/草稿聚焦测试已通过；真实 Provider MCP 取消验收仍受 Redmi Provider Base URL 不可用阻断，不能计为通过。可靠 pending inbox 基础已由上方切片补齐，远端配对与明确 transport 仍待继续。
 
 ## 2026-10-13：声明式插件能力交集预览
 
 - 已新增插件能力纯投影：只有插件已启用、声明 `READ_ONLY_CAPABILITIES`、manifest 有效，且能力同时位于 ACI 固定白名单、当前 Profile 白名单、静态 ToolRegistry 和当前可用 SAFE 目录时，才进入只读交集；未知能力、MCP、终端、设备动作及非 SAFE 工具只保留声明。
 - ACI 设置页已接入应用持久插件 Registry，逐插件展示启停、只读权限声明、符合交集及被排除的能力；状态账本损坏时显示不可用并保持空能力面。页面只是静态预览，不给 Profile、ToolRegistry、ACI 调用或 MCP 执行路径增加授权。
 - 插件持久化真机测试改用独立测试偏好文件，不清空用户正式插件状态。安装/升级默认停用、外部插件代码拒绝和其他权限枚举的执行边界保持不变。
-- 下一步继续围绕 Remote Channel 入站草稿链与插件/ACI 的真实用户入口收敛；真实 Provider MCP 取消验收仍需 Redmi 上有效的 Provider Base URL。2026-10-13 再次运行该单项时在前置处明确跳过，没有创建 Run 或 MCP 网络请求。
+- 后续插件声明入口与 Remote Channel 收件箱基础已由上方切片补齐；真实 Provider MCP 取消验收仍需 Redmi 上有效的 Provider Base URL。2026-10-13 再次运行该单项时在前置处明确跳过，没有创建 Run 或 MCP 网络请求。
 
 ## 2026-10-02：MCP Streamable HTTP 取消链稳定验收
 
@@ -2700,8 +2706,9 @@ idle -> deciding -> waiting_model -> waiting_approval
 11. **P3（MCP transport 契约已完成，2026-10-02）**：配置层现在能识别 `streamable_http / sse / stdio`，旧 JSON 默认 `streamable_http`；SSE 和 stdio 只保存声明，当前执行层只允许既有 Streamable HTTP，不启动进程、不自动扩充 allowlist。下一步进入受控浏览器动作；不直接引入任意 QuickJS/Python、PTY、Root/PRoot、无权限插件或远程自动执行。
 
 12. **P2（真实 Provider MCP 取消验收门禁，2026-10-04）**：新增受控真机单项，将真实 Provider 的 `mcp.list_tools -> mcp.call` 规划、loopback 半开 MCP 请求、Room `cancelRequested`、Runtime 取消收敛和迟到 `tool.result` 阻断串成一条可重复验收链。代码、JVM、AndroidTest 编译和既有 Redmi MCP E2E 已通过；2026-10-13 在 Redmi 重试时仍没有可用 Provider Base URL，真实外部 Provider 单项只在入口跳过，尚未形成通过证据。Provider 恢复后继续补跑同一门禁。
-13. **P3（声明式插件只读能力交集预览，2026-10-13）**：已把持久插件 Registry 接入 ACI 设置页，按插件启停、只读权限、有效 manifest、固定 ACI 白名单、Profile、ToolRegistry 注册与动态 SAFE 可用性做纯投影；只展示符合交集与被排除声明，不赋予插件、ACI、MCP 或 Agent Runtime 执行权。下一切片处理 Remote Channel 草稿链的真实用户入口和插件声明管理入口。
-14. **P3（远程确认与插件声明管理，2026-10-13）**：远程草稿强制前台确认并在会话提示中保留来源；设置页支持手动 JSON manifest 的安装、启停、确认移除，仍只影响声明与只读能力预览。真实远端接收需先补密钥配对、可靠 pending inbox 与明确 transport；当前不能称为生产 Remote Channel。
+13. **P3（声明式插件只读能力交集预览，2026-10-13）**：已把持久插件 Registry 接入 ACI 设置页，按插件启停、只读权限、有效 manifest、固定 ACI 白名单、Profile、ToolRegistry 注册与动态 SAFE 可用性做纯投影；只展示符合交集与被排除声明，不赋予插件、ACI、MCP 或 Agent Runtime 执行权。后续第 14 项已补 Remote 草稿确认和插件声明管理入口。
+14. **P3（远程确认与插件声明管理，2026-10-13）**：远程草稿强制前台确认并在会话提示中保留来源；设置页支持手动 JSON manifest 的安装、启停、确认移除，仍只影响声明与只读能力预览。本阶段当时仍缺配对、可靠 pending inbox 和 transport；第 15 项已补待处理存储基础，尚不能称为生产 Remote Channel。
+15. **P2（加密待确认收件箱基础，2026-10-13）**：验签消息的去重身份与待确认正文同次写入独立 Keystore 加密快照，8 条容量与 24 小时正文保留上限生效；Redmi 两次独立 instrumentation 加进程停止已验证恢复。远端配对、生产收件 transport 与持久列表到 UI 的投影尚未接入，下一步先解决远端公钥身份配对。
 
 本组验收固定使用 Android 真机 `wsvwypiz7xwslvl7`：Session 状态在 Activity 重建和进程恢复后可回放；取消不会形成成功回执；父子 Run 关系可追溯；失败 Run 保留 Ledger；Workflow、远程入口和 ACI 不能绕过前台与工具权限边界。Android 真机结果不替代 iOS Simulator 或其他平台验证。
 

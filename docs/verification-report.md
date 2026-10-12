@@ -2,13 +2,21 @@
 
 验证日期：2026-10-13（北京时间）
 
+# 2026-10-13 Remote Channel 加密待确认收件箱基础
+
+- 实现：`InMemoryRemoteChannelInbox` 在签名、allowlist 和重放校验后，先用 `RemoteChannelInboxStateStore` 同次提交有界去重键与待确认正文，成功后才交付草稿；写入失败保持旧内存/磁盘身份。`KeystoreRemoteChannelInboxStateStore` 使用独立 AES-GCM Android Keystore 密钥和单个 SharedPreferences 快照键；本应用手动备份只导出数据库，不包含该偏好文件。损坏密文或旧去重账本均冻结入站。
+- 边界：持久收件箱强制配置签名认证器；最多 8 条正文、24 小时保留，过期正文在下一次重建或成功接收时删除，重放身份仍在 256 键窗口内。当前没有远端配对、生产收件 transport、恢复列表到前台 UI 的接线，也没有后台自动 Agent。
+- 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`；App JVM XML `1316 passed / 0 failed / 0 errors / 0 skipped`，覆盖写入失败、丢弃失败、容量、过期、重放、旧去重窗口回滚，以及窗口滚动时未读消息 ID 和 nonce 不被逐出。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：最终代码的 Debug 和 AndroidTest APK 覆盖安装成功。Keystore 密文不含正文/消息 ID、密文篡改冻结、快照重建与旧去重损坏聚焦 `OK (4 tests)`。另以第一轮 instrumentation 写入测试消息、`am force-stop com.longdev.xiaoling`、第二轮 instrumentation 恢复正文和重放阻断，两个独立单项各 `OK (1 test)`；只清理专属测试偏好文件，未清理正式收件箱或其他用户数据。
+- 文档门禁：README、路线图与本报告同步后重新打包 AndroidTest，在同一 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。
+
 # 2026-10-13 远程草稿确认与插件声明管理入口
 
 - 实现：远程草稿即使在空编辑器也先进入前台待确认，提示区保留“远程 Channel”来源；确认打开后仅导入可编辑草稿。设置根页新增插件声明管理，手动 JSON manifest 经 16 KiB 与严格 schema 校验后进入持久 Registry，支持默认停用的安装、显式启停和确认移除。插件页不下载或执行外部代码，不扩大 Profile、ACI、MCP 或 Agent Runtime 工具权限。
 - 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`；App JVM XML 为 `1306 passed / 0 failed / 0 errors / 0 skipped`。
 - Redmi `wsvwypiz7xwslvl7 / begonia`：Debug 与 AndroidTest APK 覆盖安装成功；插件管理、持久化、设置导航与分享/远程草稿提示聚焦 `OK (13 tests)`。插件管理测试使用独立内存账本，持久化回归沿用专属测试偏好文件，未清理正式 `xiaoling_agent_plugins`。
 - 文档语料门禁：路线图、README 与本报告同步后重新打包 AndroidTest，在同一 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；插件管理页复跑 `OK (2 tests)`。
-- 边界：当前没有生产 Remote Channel 收件 transport、远端密钥配对或可恢复 pending 正文，故本次只验证前台草稿确认与声明管理。真实 Provider MCP 取消单项仍因 Redmi Provider Base URL 不可用而未完成。
+- 边界：本阶段当时没有生产 Remote Channel 收件 transport、远端密钥配对或可恢复 pending 正文，故当时只验证前台草稿确认与声明管理；可恢复存储基础由上方切片补齐。真实 Provider MCP 取消单项仍因 Redmi Provider Base URL 不可用而未完成。
 
 # 2026-10-13 声明式插件能力交集预览
 

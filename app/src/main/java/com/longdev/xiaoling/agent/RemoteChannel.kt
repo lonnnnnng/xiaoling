@@ -5,7 +5,6 @@ import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.security.MessageDigest
 import java.util.Base64
-import java.util.LinkedHashMap
 import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
@@ -44,6 +43,7 @@ enum class RemoteChannelRejectionReason {
     EMPTY_TEXT,
     TEXT_TOO_LONG,
     INVALID_TIMESTAMP,
+    INVALID_IDENTITY,
     TIMESTAMP_OUT_OF_WINDOW,
     INVALID_NONCE,
     MISSING_SIGNATURE,
@@ -52,6 +52,7 @@ enum class RemoteChannelRejectionReason {
     SENDER_NOT_ALLOWED,
     DUPLICATE_MESSAGE,
     DEDUPE_PERSISTENCE_FAILURE,
+    PENDING_INBOX_FULL,
 }
 
 sealed interface RemoteChannelReceiveResult {
@@ -72,7 +73,10 @@ data class RemoteChannelAllowlist(
 
 object RemoteChannelPolicy {
     const val MAX_TEXT_CHARS = 20_000
+    const val MAX_IDENTITY_CHARS = 200
     const val MAX_DEDUPE_ENTRIES = 256
+    const val MAX_PENDING_DRAFTS = 8
+    const val MAX_PENDING_AGE_MILLIS = 24 * 60 * 60 * 1000L
     const val MIN_HMAC_KEY_BYTES = 32
     const val MIN_NONCE_CHARS = 16
     const val MAX_NONCE_CHARS = 256
@@ -87,6 +91,9 @@ object RemoteChannelPolicy {
     fun dedupeKey(envelope: RemoteChannelEnvelope): String =
         "${envelope.channelId.trim()}\u0000${envelope.senderId.trim()}\u0000${envelope.messageId.trim()}"
 
+    fun dedupeKey(draft: RemoteChannelDraft): String =
+        "${draft.channelId}\u0000${draft.senderId}\u0000${draft.messageId}"
+
     fun nonceDedupeKey(envelope: RemoteChannelEnvelope): String? = envelope.nonce
         ?.trim()
         ?.takeIf(String::isNotBlank)
@@ -98,6 +105,10 @@ object RemoteChannelPolicy {
         if (envelope.messageId.trim().isBlank()) return RemoteChannelRejectionReason.EMPTY_MESSAGE_ID
         if (envelope.senderId.trim().isBlank()) return RemoteChannelRejectionReason.EMPTY_SENDER
         if (envelope.conversationKey.trim().isBlank()) return RemoteChannelRejectionReason.EMPTY_CONVERSATION
+        // long: 复合去重键使用 NUL 分隔身份字段；拒绝内嵌 NUL 和无界 ID，防止不同发送方构造相同键或耗尽本地账本。
+        if (listOf(envelope.channelId, envelope.messageId, envelope.senderId, envelope.conversationKey)
+                .any { it.length > MAX_IDENTITY_CHARS || '\u0000' in it }
+        ) return RemoteChannelRejectionReason.INVALID_IDENTITY
         val text = normalizeText(envelope.text)
         if (text.isBlank()) return RemoteChannelRejectionReason.EMPTY_TEXT
         if (text.length > MAX_TEXT_CHARS) return RemoteChannelRejectionReason.TEXT_TOO_LONG
@@ -250,32 +261,109 @@ interface RemoteChannelDedupeStore {
     fun saveKeys(keys: List<String>)
 }
 
+data class RemoteChannelPendingDraft(
+    val draft: RemoteChannelDraft,
+    val acceptedAtMillis: Long,
+    val nonceDedupeKey: String? = null,
+)
+
+data class RemoteChannelInboxSnapshot(
+    val dedupeKeys: List<String>,
+    val pendingDrafts: List<RemoteChannelPendingDraft>,
+)
+
+interface RemoteChannelInboxStateStore {
+    fun loadSnapshot(): RemoteChannelInboxSnapshot?
+
+    fun saveSnapshot(snapshot: RemoteChannelInboxSnapshot)
+}
+
 class InMemoryRemoteChannelInbox(
     private val allowlist: RemoteChannelAllowlist,
     private val maxDedupeEntries: Int = RemoteChannelPolicy.MAX_DEDUPE_ENTRIES,
     private val dedupeStore: RemoteChannelDedupeStore? = null,
     private val authenticator: RemoteChannelAuthenticator? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val inboxStateStore: RemoteChannelInboxStateStore? = null,
 ) {
-    private val seen = object : LinkedHashMap<String, Unit>(maxDedupeEntries, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>): Boolean =
-            size > maxDedupeEntries
-    }
+    private val seen = linkedSetOf<String>()
+    private val pending = mutableListOf<RemoteChannelPendingDraft>()
+    private var storageUnavailable = false
 
     init {
         require(maxDedupeEntries in 1..RemoteChannelPolicy.MAX_DEDUPE_ENTRIES) {
             "远程 Channel 去重窗口必须在 1 到 ${RemoteChannelPolicy.MAX_DEDUPE_ENTRIES} 之间"
         }
-        dedupeStore?.loadKeys()
-            ?.asSequence()
-            ?.filter(String::isNotBlank)
-            ?.toList()
-            ?.takeLast(maxDedupeEntries)
-            ?.forEach { seen[it] = Unit }
+        require(inboxStateStore == null || (dedupeStore == null && authenticator != null)) {
+            "持久待处理收件箱必须单独使用，并启用签名验证"
+        }
+        require(inboxStateStore == null || maxDedupeEntries == RemoteChannelPolicy.MAX_DEDUPE_ENTRIES) {
+            "持久待处理收件箱使用固定去重窗口"
+        }
+        require(authenticator == null || maxDedupeEntries >= 2) { "签名消息至少需要两个去重槽位" }
+        val durableStore = inboxStateStore
+        if (durableStore != null) {
+            // long: 加密快照损坏或密钥不可用时冻结整个入站，不能丢掉旧去重身份后重新接收相同消息。
+            val loaded = runCatching { durableStore.loadSnapshot() }
+                .onFailure { storageUnavailable = true }
+                .getOrNull()
+            loaded?.let { snapshot ->
+                seen.addAll(snapshot.dedupeKeys)
+                pending.addAll(snapshot.pendingDrafts)
+                val active = pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS }
+                if (active.size != pending.size) {
+                    val purged = RemoteChannelInboxSnapshot(seen.toList(), active)
+                    if (runCatching { durableStore.saveSnapshot(purged) }.isSuccess) {
+                        pending.clear()
+                        pending.addAll(active)
+                    } else {
+                        storageUnavailable = true
+                        pending.clear()
+                    }
+                }
+            }
+        } else {
+            val restoredKeys = runCatching { dedupeStore?.loadKeys() }
+                .onFailure { storageUnavailable = true }
+                .getOrNull()
+            restoredKeys
+                ?.asSequence()
+                ?.filter(String::isNotBlank)
+                ?.toList()
+                ?.takeLast(maxDedupeEntries)
+                ?.let(seen::addAll)
+        }
+    }
+
+    @Synchronized
+    fun pendingDrafts(): List<RemoteChannelPendingDraft> = if (storageUnavailable) {
+        emptyList()
+    } else {
+        pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS &&
+            it.draft.channelId == allowlist.channelId && it.draft.senderId in allowlist.senderIds }
+    }
+
+    @Synchronized
+    fun discardPending(channelId: String, senderId: String, messageId: String): Boolean {
+        val durableStore = inboxStateStore ?: return false
+        if (storageUnavailable) return false
+        val next = pending.filterNot { it.draft.channelId == channelId &&
+            it.draft.senderId == senderId && it.draft.messageId == messageId }
+        if (next.size == pending.size) return false
+        // long: 打开或忽略只移除待确认正文，保留去重身份，避免外部发送方用同一消息 ID 再次弹出草稿。
+        if (runCatching { durableStore.saveSnapshot(RemoteChannelInboxSnapshot(seen.toList(), next)) }.isFailure) {
+            return false
+        }
+        pending.clear()
+        pending.addAll(next)
+        return true
     }
 
     @Synchronized
     fun receive(envelope: RemoteChannelEnvelope): RemoteChannelReceiveResult {
+        if (storageUnavailable) {
+            return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE)
+        }
         RemoteChannelPolicy.validate(envelope)?.let { return RemoteChannelReceiveResult.Rejected(it) }
         authenticator?.verify(envelope, clock())?.let { return RemoteChannelReceiveResult.Rejected(it) }
         if (envelope.channelId.trim() != allowlist.channelId) {
@@ -286,23 +374,10 @@ class InMemoryRemoteChannelInbox(
         }
         val key = RemoteChannelPolicy.dedupeKey(envelope)
         val nonceKey = if (authenticator != null) RemoteChannelPolicy.nonceDedupeKey(envelope) else null
-        if (seen.containsKey(key) || nonceKey?.let(seen::containsKey) == true) {
+        if (key in seen || nonceKey?.let(seen::contains) == true) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DUPLICATE_MESSAGE)
         }
-        seen[key] = Unit
-        nonceKey?.let { seen[it] = Unit }
-        val store = dedupeStore
-        if (store != null) {
-            val persisted = runCatching { store.saveKeys(seen.keys.toList()) }.isSuccess
-            if (!persisted) {
-                // long: 去重账本写失败时不能先把消息交给前台，否则进程重启后可能再次生成同一草稿；回滚本次内存占位并明确拒绝。
-                seen.remove(key)
-                nonceKey?.let(seen::remove)
-                return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE)
-            }
-        }
-        return RemoteChannelReceiveResult.Accepted(
-            RemoteChannelDraft(
+        val draft = RemoteChannelDraft(
                 channelId = allowlist.channelId,
                 messageId = envelope.messageId.trim(),
                 senderId = envelope.senderId.trim(),
@@ -313,7 +388,45 @@ class InMemoryRemoteChannelInbox(
                     imageUri = null,
                     documentUri = null,
                 ),
-            ),
-        )
+            )
+        val now = clock()
+        val nextPending = pending.filter { it.acceptedAtMillis > now - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS } +
+            RemoteChannelPendingDraft(draft, now, nonceKey)
+        if (inboxStateStore != null && nextPending.size > RemoteChannelPolicy.MAX_PENDING_DRAFTS) {
+            return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.PENDING_INBOX_FULL)
+        }
+        val nextKeys = (seen.toList() + key + listOfNotNull(nonceKey)).toMutableList()
+        if (inboxStateStore != null) {
+            // long: 未读正文存在时保留其消息 ID 与 nonce 身份；窗口满时先淘汰已处理消息，不能让未读消息被再次投递。
+            val protectedKeys = nextPending.flatMap { entry ->
+                listOf(RemoteChannelPolicy.dedupeKey(entry.draft)) + listOfNotNull(entry.nonceDedupeKey)
+            }.toSet()
+            while (nextKeys.size > maxDedupeEntries) {
+                val evictIndex = nextKeys.indexOfFirst { it !in protectedKeys }
+                if (evictIndex < 0) {
+                    return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.PENDING_INBOX_FULL)
+                }
+                nextKeys.removeAt(evictIndex)
+            }
+        } else {
+            while (nextKeys.size > maxDedupeEntries) nextKeys.removeAt(0)
+        }
+        // long: 先构造下一份完整快照，只有去重身份与待确认正文同次写盘成功后才更新内存和交付草稿。
+        val persisted = runCatching {
+            when {
+                inboxStateStore != null -> inboxStateStore.saveSnapshot(RemoteChannelInboxSnapshot(nextKeys, nextPending))
+                dedupeStore != null -> dedupeStore.saveKeys(nextKeys)
+            }
+        }.isSuccess
+        if (!persisted) {
+            return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE)
+        }
+        seen.clear()
+        seen.addAll(nextKeys)
+        if (inboxStateStore != null) {
+            pending.clear()
+            pending.addAll(nextPending)
+        }
+        return RemoteChannelReceiveResult.Accepted(draft)
     }
 }

@@ -82,6 +82,29 @@ class SecondGroupFoundationTest {
     }
 
     @Test
+    fun fullDedupeWindowDoesNotForgetOldIdentityAfterWriteFailure() {
+        val store = FakeDedupeStore()
+        val inbox = InMemoryRemoteChannelInbox(
+            allowlist = RemoteChannelAllowlist("channel", setOf("sender")),
+            maxDedupeEntries = 2,
+            dedupeStore = store,
+        )
+        fun message(id: String) = RemoteChannelEnvelope("channel", id, "sender", "chat", "hello", 1L)
+        assertTrue(inbox.receive(message("old-1")) is RemoteChannelReceiveResult.Accepted)
+        assertTrue(inbox.receive(message("old-2")) is RemoteChannelReceiveResult.Accepted)
+        store.failWrites = true
+        assertEquals(
+            RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE,
+            (inbox.receive(message("new")) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+        assertEquals(
+            RemoteChannelRejectionReason.DUPLICATE_MESSAGE,
+            (inbox.receive(message("old-1")) as RemoteChannelReceiveResult.Rejected).reason,
+        )
+        assertEquals(2, store.lastKeys.size)
+    }
+
+    @Test
     fun signedRemoteChannelAcceptsRotatedKeysAndRejectsNonceReplay() {
         val now = 1_000_000L
         val authenticator = HmacRemoteChannelAuthenticator(
@@ -289,7 +312,7 @@ class SecondGroupFoundationTest {
     }
 
     private class FakeDedupeStore(
-        private val failWrites: Boolean = false,
+        var failWrites: Boolean = false,
     ) : RemoteChannelDedupeStore {
         var lastKeys: List<String> = emptyList()
 
