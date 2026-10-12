@@ -767,6 +767,7 @@ private fun MessageInputBar(
             state.pendingSharedDraft?.let { payload ->
                 SharedDraftPendingNotice(
                     payload = payload,
+                    isRemote = state.pendingSharedDraftIsRemote,
                     enabled = !state.sendingMessage && !attaching && !state.loadingConversationMessages,
                     onOpen = onOpenPendingSharedDraft,
                     onDiscard = onDiscardPendingSharedDraft,
@@ -777,6 +778,7 @@ private fun MessageInputBar(
                     !attaching && !state.sendingMessage && !state.loadingConversationMessages &&
                     !state.awaitingPersonalTaskPlanConfirmation && state.personalTaskOperationPhase == null
                 SharedDraftSourceLabel(
+                    isRemote = state.sharedDraftImportedIsRemote,
                     noteActionEnabled = sharedTextActionEnabled,
                     memoryActionEnabled = sharedTextActionEnabled,
                     calendarActionEnabled = sharedTextActionEnabled,
@@ -999,6 +1001,7 @@ private fun PersonalTaskTemplateMenu(
 @Composable
 internal fun SharedDraftPendingNotice(
     payload: SharedDraftPayload,
+    isRemote: Boolean = false,
     enabled: Boolean,
     onOpen: () -> Unit,
     onDiscard: () -> Unit,
@@ -1019,7 +1022,7 @@ internal fun SharedDraftPendingNotice(
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "来自外部应用的分享",
+                text = if (isRemote) "来自远程 Channel 的消息" else "来自外部应用的分享",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -1036,16 +1039,17 @@ internal fun SharedDraftPendingNotice(
             )
         }
         TextButton(onClick = onOpen, enabled = enabled) {
-            Text("打开分享", style = MaterialTheme.typography.labelSmall)
+            Text(if (isRemote) "打开远程草稿" else "打开分享", style = MaterialTheme.typography.labelSmall)
         }
         IconButton(onClick = onDiscard, enabled = enabled, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Default.Close, contentDescription = "忽略分享", modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Close, contentDescription = if (isRemote) "忽略远程草稿" else "忽略分享", modifier = Modifier.size(16.dp))
         }
     }
 }
 
 @Composable
 internal fun SharedDraftSourceLabel(
+    isRemote: Boolean = false,
     noteActionEnabled: Boolean = false,
     memoryActionEnabled: Boolean = false,
     calendarActionEnabled: Boolean = false,
@@ -1073,7 +1077,7 @@ internal fun SharedDraftSourceLabel(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "已从外部分享导入",
+                text = if (isRemote) "已从远程 Channel 导入" else "已从外部分享导入",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -316,7 +316,9 @@ data class XiaoLingUiState(
     val pendingImage: ImageAttachment? = null,
     val pendingDocument: DocumentAttachment? = null,
     val pendingSharedDraft: SharedDraftPayload? = null,
+    val pendingSharedDraftIsRemote: Boolean = false,
     val sharedDraftImported: Boolean = false,
+    val sharedDraftImportedIsRemote: Boolean = false,
     val sharedDraftNavigationVersion: Long = 0L,
     val attachingImage: Boolean = false,
     val attachingDocument: Boolean = false,
@@ -1092,14 +1094,14 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     fun openPendingSharedDraft() {
         val payload = uiState.pendingSharedDraft ?: return
         if (uiState.sendingMessage || uiState.attachingImage || uiState.attachingDocument || uiState.loadingConversationMessages) {
-            showValidation("当前操作结束后再打开分享")
+            showValidation("当前操作结束后再打开草稿")
             return
         }
-        openSharedDraft(payload)
+        openSharedDraft(payload, isRemote = uiState.pendingSharedDraftIsRemote)
     }
 
     fun discardPendingSharedDraft() {
-        uiState = uiState.copy(pendingSharedDraft = null, result = null)
+        uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false, result = null)
     }
 
     fun createAgentNoteDraftFromSharedText() {
@@ -1346,11 +1348,18 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
 
     private fun handleSharedDraftImport(result: SharedDraftImport) {
         when (result) {
-            is SharedDraftImport.Accepted -> when (val plan = uiState.planSharedDraftProjection(result.payload)) {
-                is SharedDraftProjectionPlan.OpenNow -> openSharedDraft(plan.payload)
+            is SharedDraftImport.Accepted -> when (
+                val plan = uiState.planSharedDraftProjection(
+                    result.payload,
+                    requiresForegroundConfirmation = result.requiresForegroundConfirmation,
+                )
+            ) {
+                is SharedDraftProjectionPlan.OpenNow -> openSharedDraft(plan.payload, isRemote = result.requiresForegroundConfirmation)
                 is SharedDraftProjectionPlan.ConfirmReplacement -> {
+                    // long: Channel 的前台确认状态与正文一起保留，避免确认卡把远程消息误标为系统分享。
                     uiState = uiState.copy(
                         pendingSharedDraft = plan.payload,
+                        pendingSharedDraftIsRemote = result.requiresForegroundConfirmation,
                         sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
                         result = null,
                     )
@@ -1382,15 +1391,17 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun openSharedDraft(payload: SharedDraftPayload) {
-        // long: 只有空编辑器或用户明确确认替换时才清理原草稿；分享始终进入新会话编辑态，不调用发送入口。
+    private fun openSharedDraft(payload: SharedDraftPayload, isRemote: Boolean = false) {
+        // long: 用户明确打开远程消息后才替换编辑器；新会话只填入草稿，不调用发送入口。
         pendingNotificationTaskSource = null
         uiState = uiState.copy(
             prompt = "",
             pendingImage = null,
             pendingDocument = null,
             pendingSharedDraft = null,
+            pendingSharedDraftIsRemote = false,
             sharedDraftImported = false,
+            sharedDraftImportedIsRemote = false,
             personalTaskMode = false,
             personalTaskFailure = null,
             personalTaskCompletion = null,
@@ -1400,6 +1411,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         uiState = uiState.copy(
             prompt = payload.text,
             sharedDraftImported = true,
+            sharedDraftImportedIsRemote = isRemote,
             sharedDraftNavigationVersion = uiState.sharedDraftNavigationVersion + 1L,
             result = null,
         )

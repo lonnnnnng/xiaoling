@@ -19,6 +19,17 @@ class SharedDraftProjectionPolicyTest {
     }
 
     @Test
+    fun remoteDraftRequiresForegroundConfirmationEvenWhenComposerIsEmpty() {
+        assertEquals(
+            SharedDraftProjectionPlan.ConfirmReplacement(sharedDraft),
+            XiaoLingUiState().planSharedDraftProjection(
+                sharedDraft,
+                requiresForegroundConfirmation = true,
+            ),
+        )
+    }
+
+    @Test
     fun existingComposerContentRequiresExplicitReplacement() {
         val state = XiaoLingUiState(prompt = "不要丢失的原草稿")
 

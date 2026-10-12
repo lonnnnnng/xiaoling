@@ -17,7 +17,10 @@ data class SharedDraftPayload(
 )
 
 internal sealed interface SharedDraftImport {
-    data class Accepted(val payload: SharedDraftPayload) : SharedDraftImport
+    data class Accepted(
+        val payload: SharedDraftPayload,
+        val requiresForegroundConfirmation: Boolean = false,
+    ) : SharedDraftImport
     data class Rejected(val reason: SharedDraftRejectionReason) : SharedDraftImport
     data object Ignored : SharedDraftImport
 }

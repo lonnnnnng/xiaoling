@@ -65,6 +65,20 @@ class AgentPluginPersistenceTest {
     }
 
     @Test
+    fun pastedManifestUsesTheSameStrictSchemaAsPersistedPlugins() {
+        val raw = JSONObject(AgentPluginJsonCodec.encode(listOf(InstalledAgentPlugin(manifest()))))
+            .getJSONArray("plugins").getJSONObject(0).getJSONObject("manifest")
+        assertEquals(manifest(), AgentPluginJsonCodec.decodeManifest(raw.toString()))
+
+        raw.put("unexpected", true)
+        assertTrue(runCatching { AgentPluginJsonCodec.decodeManifest(raw.toString()) }.isFailure)
+        raw.remove("unexpected")
+        raw.put("executionMode", AgentPluginExecutionMode.EXTERNAL_CODE.name)
+        assertTrue(runCatching { AgentPluginJsonCodec.decodeManifest(raw.toString()) }.isFailure)
+        assertTrue(runCatching { AgentPluginJsonCodec.decodeManifest("{" + " ".repeat(16 * 1024) + "}") }.isFailure)
+    }
+
+    @Test
     fun versionRollbackAndFingerprintDriftAreRejectedAfterRecreation() {
         val store = FakeStateStore()
         val installed = manifest().copy(version = "2.0.0")

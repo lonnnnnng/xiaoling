@@ -39,6 +39,29 @@ class SharedDraftNoticeInstrumentedTest {
     }
 
     @Test
+    fun remoteDraftKeepsItsOriginThroughConfirmationAndImport() {
+        composeRule.setContent {
+            XiaoLingTheme {
+                Column {
+                    SharedDraftPendingNotice(
+                        payload = SharedDraftPayload("远程内容", null),
+                        isRemote = true,
+                        enabled = true,
+                        onOpen = {},
+                        onDiscard = {},
+                    )
+                    SharedDraftSourceLabel(isRemote = true)
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("来自远程 Channel 的消息").assertIsDisplayed()
+        composeRule.onNodeWithText("打开远程草稿").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("忽略远程草稿").assertIsDisplayed()
+        composeRule.onNodeWithText("已从远程 Channel 导入").assertIsDisplayed()
+    }
+
+    @Test
     fun sharedDraftShowsSourceAndConflictActions() {
         var opened = 0
         var discarded = 0

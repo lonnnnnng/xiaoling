@@ -60,6 +60,21 @@ object AgentPluginJsonCodec {
         return result
     }
 
+    /**
+     * long: 只解析用户手动粘贴的单个声明式 manifest，不读取 URL，也不加载仓库中的代码。
+     */
+    fun decodeManifest(raw: String): AgentPluginManifest {
+        require(raw.toByteArray(StandardCharsets.UTF_8).size <= 16 * 1024) {
+            "插件 manifest 不能超过 16 KiB"
+        }
+        val manifest = runCatching { JSONObject(raw) }
+            .getOrElse { throw IllegalArgumentException("插件 manifest 不是有效 JSON object", it) }
+        val envelope = JSONObject()
+            .put("schemaVersion", SCHEMA_VERSION)
+            .put("plugins", JSONArray().put(JSONObject().put("manifest", manifest).put("enabled", false)))
+        return decode(envelope.toString()).single().manifest
+    }
+
     private fun encodePlugin(plugin: InstalledAgentPlugin): JSONObject {
         AgentPluginPolicy.validate(plugin.manifest)
         require(plugin.manifest.capabilities.size <= MAX_CAPABILITIES) {

@@ -204,6 +204,14 @@ internal fun SettingsRootPage(
             )
 
             SettingsEntryCard(
+                title = "Agent 插件声明",
+                subtitle = "安装、启停和移除声明式 manifest；不运行插件代码",
+                icon = Icons.Default.Settings,
+                onClick = actions::openAgentPluginManagement,
+                testTag = "settings-entry-agent-plugins",
+            )
+
+            SettingsEntryCard(
                 title = "ACI 只读能力",
                 subtitle = "查看当前 Profile 可发现的 SAFE 能力；此页不会执行工具",
                 icon = Icons.Default.Visibility,

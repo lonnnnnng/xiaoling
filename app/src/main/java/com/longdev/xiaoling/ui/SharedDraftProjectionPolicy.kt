@@ -10,6 +10,7 @@ internal sealed interface SharedDraftProjectionPlan {
 
 internal fun XiaoLingUiState.planSharedDraftProjection(
     payload: SharedDraftPayload,
+    requiresForegroundConfirmation: Boolean = false,
 ): SharedDraftProjectionPlan {
     pendingSharedDraft?.let { return SharedDraftProjectionPlan.KeepPending(it) }
     val hasUnsentContent = prompt.isNotBlank() ||
@@ -19,8 +20,8 @@ internal fun XiaoLingUiState.planSharedDraftProjection(
         attachingDocument ||
         sendingMessage ||
         loadingConversationMessages
-    // long: 外部分享不能静默覆盖输入框或附件；只要编辑器并非稳定空闲状态，就把替换决定留给用户。
-    return if (hasUnsentContent) {
+    // long: 外部草稿不能静默覆盖输入框或附件；远程消息即使编辑器空闲也要由用户决定是否打开。
+    return if (hasUnsentContent || requiresForegroundConfirmation) {
         SharedDraftProjectionPlan.ConfirmReplacement(payload)
     } else {
         SharedDraftProjectionPlan.OpenNow(payload)

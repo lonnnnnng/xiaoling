@@ -72,6 +72,7 @@ import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterDialogs
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterProjection
 import com.longdev.xiaoling.ui.agenttask.AgentTaskCenterUiState
 import com.longdev.xiaoling.ui.aci.AciReadOnlyCapabilitiesPage
+import com.longdev.xiaoling.ui.plugin.AgentPluginManagementPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementPage
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementProjection
 import com.longdev.xiaoling.ui.agentprofile.AgentProfileManagementUiState
@@ -517,6 +518,9 @@ private fun XiaoLingContent(
                         onOpenAciReadOnlyCapabilities = {
                             navigation.openSettingsPane(SettingsPane.ACI_READ_ONLY_CAPABILITIES)
                         },
+                        onOpenAgentPluginManagement = {
+                            navigation.openSettingsPane(SettingsPane.AGENT_PLUGIN_MANAGEMENT)
+                        },
                         onOpenAssistantRole = requestAssistantRole,
                         onTrySkill = { skillId, example ->
                             if (state.sendingMessage || state.pendingPersonalTaskPlan != null) {
@@ -834,7 +838,9 @@ private fun XiaoLingUiState.toConversationUiState(): ConversationUiState {
         pendingImage = pendingImage,
         pendingDocument = pendingDocument,
         pendingSharedDraft = pendingSharedDraft,
+        pendingSharedDraftIsRemote = pendingSharedDraftIsRemote,
         sharedDraftImported = sharedDraftImported,
+        sharedDraftImportedIsRemote = sharedDraftImportedIsRemote,
         attachingImage = attachingImage,
         attachingDocument = attachingDocument,
         loadingConversationMessages = loadingConversationMessages,
@@ -1018,6 +1024,7 @@ private fun SettingsPage(
     onOpenSkillManagement: () -> Unit,
     onOpenMcpServerManagement: () -> Unit,
     onOpenAciReadOnlyCapabilities: () -> Unit,
+    onOpenAgentPluginManagement: () -> Unit,
     onOpenAssistantRole: () -> Unit,
     onTrySkill: (String, String) -> Unit,
     onOpenWorkflowManagement: (String?) -> Unit,
@@ -1207,6 +1214,11 @@ private fun SettingsPage(
                     pluginStateUnavailable = pluginRegistry == null || pluginRegistry.persistenceFailureReason() != null,
                 )
             }
+            pane == SettingsPane.AGENT_PLUGIN_MANAGEMENT -> AgentPluginManagementPage(
+                registry = (LocalContext.current.applicationContext as XiaoLingApplication).agentPluginRegistry,
+                onBack = onBackToSettings,
+                modifier = Modifier.matchParentSize(),
+            )
             pane == SettingsPane.WORKFLOW_MANAGEMENT -> WorkflowManagementPage(
                 state = state.toWorkflowManagementUiState(),
                 actions = viewModel,
@@ -1252,6 +1264,7 @@ private fun SettingsPage(
                     override fun openSkillManagement() = onOpenSkillManagement()
                     override fun openMcpServerManagement() = onOpenMcpServerManagement()
                     override fun openAciReadOnlyCapabilities() = onOpenAciReadOnlyCapabilities()
+                    override fun openAgentPluginManagement() = onOpenAgentPluginManagement()
                     override fun openAssistantRole() = onOpenAssistantRole()
                     override fun openWorkflowManagement() = onOpenWorkflowManagement(null)
                     override fun openAgentRunHistory() = onOpenAgentRunHistory()

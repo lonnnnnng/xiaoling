@@ -21,5 +21,6 @@ class RemoteChannelDraftProjectionTest {
         val projected = draft.toSharedDraftImport()
         assertTrue(projected is SharedDraftImport.Accepted)
         assertEquals(SharedDraftPayload("hello", null), (projected as SharedDraftImport.Accepted).payload)
+        assertTrue(projected.requiresForegroundConfirmation)
     }
 }

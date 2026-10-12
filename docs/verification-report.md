@@ -2,6 +2,14 @@
 
 验证日期：2026-10-13（北京时间）
 
+# 2026-10-13 远程草稿确认与插件声明管理入口
+
+- 实现：远程草稿即使在空编辑器也先进入前台待确认，提示区保留“远程 Channel”来源；确认打开后仅导入可编辑草稿。设置根页新增插件声明管理，手动 JSON manifest 经 16 KiB 与严格 schema 校验后进入持久 Registry，支持默认停用的安装、显式启停和确认移除。插件页不下载或执行外部代码，不扩大 Profile、ACI、MCP 或 Agent Runtime 工具权限。
+- 本地门禁：`./gradlew :shared:allTests :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug` 为 `BUILD SUCCESSFUL`；App JVM XML 为 `1306 passed / 0 failed / 0 errors / 0 skipped`。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：Debug 与 AndroidTest APK 覆盖安装成功；插件管理、持久化、设置导航与分享/远程草稿提示聚焦 `OK (13 tests)`。插件管理测试使用独立内存账本，持久化回归沿用专属测试偏好文件，未清理正式 `xiaoling_agent_plugins`。
+- 文档语料门禁：路线图、README 与本报告同步后重新打包 AndroidTest，在同一 Redmi 执行 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`；插件管理页复跑 `OK (2 tests)`。
+- 边界：当前没有生产 Remote Channel 收件 transport、远端密钥配对或可恢复 pending 正文，故本次只验证前台草稿确认与声明管理。真实 Provider MCP 取消单项仍因 Redmi Provider Base URL 不可用而未完成。
+
 # 2026-10-13 声明式插件能力交集预览
 
 - 实现：`AgentPluginCapabilityProjector` 固定以插件启用、只读权限、有效 manifest、ACI SAFE 白名单、Profile 白名单、ToolRegistry 静态注册和当前动态可用 SAFE 集合求交；ACI 设置页只显示静态交集与被排除声明，账本读取失败时显示不可用。没有接入外部插件执行器、`ReadOnlyAciCapabilityBridge.call()`、Agent Runtime 或 MCP 工具执行。
