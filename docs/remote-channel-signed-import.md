@@ -28,3 +28,7 @@
 签名字节格式由 `RemoteChannelPolicy.canonicalBytes()` 固定：先写大端 32 位整数 `8`，再按 `channelId、messageId、senderId、conversationKey、text、receivedAtMillis、nonce、keyId` 的顺序，对每个字段写大端 32 位 UTF-8 字节长度和内容。身份、nonce、keyId 在签名前去首尾空白；正文把 CRLF/CR 改为 LF 后去首尾空白。签名字段本身不参与签名。公钥使用 P-256 X.509 SPKI 的 Base64 或 PEM；配对页显示的指纹是规范化 SPKI 字节的 SHA-256。
 
 验签、时间窗、allowlist、`messageId` 和 `nonce` 去重都通过后，正文与去重身份才同次提交到本机加密收件箱。未读正文最多 8 条、保留 24 小时。用户在列表点“打开”只进入会话确认卡，确认前中断仍可从列表恢复；在确认卡点“打开”才进入可编辑草稿，在确认卡点“忽略”则丢弃正文。两种决定均先提交持久删除，旧消息 ID 和 nonce 仍保留在有界去重窗口中。配对之后停用或撤销会拒绝新入站，已验签入箱的旧消息仍在列表中等待用户处理。
+
+## 临时公网真机验收夹具
+
+`tools/remote_channel_https_fixture.py` 只用于生成合成消息。用 `python3 tools/remote_channel_https_fixture.py --state-dir <仓库外临时目录> --port 18081` 在本机启动只监听 `127.0.0.1` 的 HTTP 服务；脚本打印测试公钥，不打印私钥。按照 [Cloudflare Quick Tunnels 官方说明](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) 用 `cloudflared tunnel --url http://127.0.0.1:18081` 获得临时 HTTPS 基址。向 `RemoteChannelRealHttpsInstrumentedTest` 的 instrumentation 参数传入 `remotePullBaseUrl` 和 `remotePullPublicKey`，它只使用独立测试配对、来源与收件状态。验收结束停止隧道与本机服务；临时隧道 URL 不作为生产来源保存。

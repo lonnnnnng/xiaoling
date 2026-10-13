@@ -1,11 +1,16 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-14：Remote Channel 前台 HTTPS 真机网络验收
+
+- Redmi `wsvwypiz7xwslvl7 / begonia` 在已验证 Wi-Fi、无 VPN 的条件下，通过短期 Cloudflare HTTPS 隧道向本机合成发送方发起真实 GET。发送方在主机独立生成 P-256 私钥并实时签名，真机只取得公钥；生产 OkHttp 经手机 DNS/TLS 取回九字段消息，设置页将其写入独立 Keystore 加密待确认箱。重建读取、重放拒绝、302 跳转、超大响应、签名篡改及忽略后的正文移除均在同一真机单项通过，结果 `OK (1 test)`。
+- 隧道和本机服务已停止，测试只用专属配对、来源、收件偏好及 Keystore alias。可复用的合成服务见 `tools/remote_channel_https_fixture.py`，真机测试见 `RemoteChannelRealHttpsInstrumentedTest`。该证据覆盖真实公网 TLS transport 和外部进程签名互通；稳定生产服务、游标/ACK、离线送达、后台收件和通知仍待实现或验证。
+
 ## 2026-10-13：Remote Channel 已登记 HTTPS 来源的前台拉取
 
 - 已配对身份现在可以单独登记一条无账号、无查询参数的 HTTPS 收件地址；地址持久绑定 `channelId / senderId / keyId / 公钥指纹`。用户在设置页主动点“拉取一条”，服务端须返回单条九字段签名 JSON。拉取前后重新核对来源及启用状态，响应仍只经现有 Gateway 验签、去重、加密入箱，再由用户前台确认。
 - 传输层关闭 Cookie、代理及自动跳转，DNS 在实际建连时拒绝本机、私网和保留地址，响应限定 HTTP 200、JSON、64 KiB 与 20 秒调用超时。来源账本损坏拒绝拉取；撤销配对时尝试同步移除对应地址。
 - 六仓对照：ZorvAI 的微信长轮询有持久 cursor 与失效退避，QQ/飞书使用常驻 WebSocket；OmniBot 有 ACP WebSocket bridge。RikkaHub、Operit、Aether、Eta 的相关远程实现主要是 MCP 客户端 transport，不构成可直接复用的第三方消息收件协议。因此先固定本机身份绑定和签名入箱，再设计可恢复的服务端游标与 ACK。
-- 下一步需定义服务端游标、ACK、批次与重试契约后，再实现后台收件、独立送达通知和长期运行策略。当前前台拉取每次只取一条，不运行 Agent；公网真实服务互通尚未验收。
+- 下一步需定义服务端游标、ACK、批次与重试契约后，再实现后台收件、独立送达通知和长期运行策略。当前前台拉取每次只取一条，不运行 Agent；合成公网服务的真机互通已由上方切片验收，稳定生产服务尚未验收。
 
 ## 2026-10-13：Remote Channel 手动签名导入与前台待确认列表
 

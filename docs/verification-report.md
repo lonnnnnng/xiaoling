@@ -1,6 +1,15 @@
 # 验证报告
 
-验证日期：2026-10-13（北京时间）
+验证日期：2026-10-14（北京时间）
+
+# 2026-10-14 Remote Channel 前台 HTTPS 真实网络真机验收
+
+- 目标：Redmi `wsvwypiz7xwslvl7 / begonia`，已验证 Wi-Fi 连接且 `tun0` 不存在；安装的 Debug 主包为 `0.1.21 / versionCode 22`。首次执行 `am instrument` 因设备只有测试包、缺少 `com.longdev.xiaoling` 主包，返回 `INSTRUMENTATION_FAILED: Unable to find instrumentation target package`；随后 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 成功，同一测试复跑通过，未清除应用数据。
+- 公网夹具：本机独立 P-256 密钥以 OpenSSL 生成、私钥仅留在仓库外临时目录；本机服务每次 GET 用当前时间签九字段消息。Cloudflare 官方 `cloudflared 2026.10.0` Quick Tunnel 暴露临时 `https://northwest-magazine-darwin-monte.trycloudflare.com`，Release 下载包 SHA-256 `a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70` 与上游资产摘要一致。主机预检得到 `HTTP/2 200`、`application/json`、九字段、395 字节；Cloudflare 仅转发合成数据。真机完成后隧道与本机服务均已停止。
+- 真机命令：`adb -s wsvwypiz7xwslvl7 shell am instrument -w -r -e disableAnalytics true -e remotePullBaseUrl <临时 HTTPS 基址> -e remotePullPublicKey <测试公钥 Base64> -e class com.longdev.xiaoling.ui.remote.RemoteChannelRealHttpsInstrumentedTest#realTlsPullKeepsSignedMessagePendingAndRejectsUnsafeResponses com.longdev.xiaoling.test/androidx.test.runner.AndroidJUnitRunner`，结果 `OK (1 test)`，耗时 `11.424s`。主机请求日志在本次测试时显示 `/next` 两次 200、`/redirect` 302、`/oversized` 200、`/bad-signature` 200；不是 OkHttp 拦截器或 loopback MockWebServer 响应。
+- 断言：设置页登记来源并点击拉取后，真机生产 `RemoteChannelHttpsPuller` 经系统 DNS/TLS 收到外部进程签名消息；当前配对验签通过，Keystore 密文不含正文或消息 ID，重建 Gateway 仍有同一待确认正文。重复返回被 `DUPLICATE_MESSAGE` 拒绝；302 不跟随，超 64 KiB 响应拒绝，正文篡改返回 `INVALID_SIGNATURE`；用户忽略后正文从加密收件箱移除。配对、来源、收件箱和 Keystore alias 均用本轮 UUID 隔离并在测试后清理，正式数据未参与。
+- 边界：这是公网临时合成服务与手机的真实 TLS 互通，不是稳定生产发送方或后台送达验收；没有游标、ACK、批量、离线重试、送达通知，也没有测试真实第三方 Channel。可复用夹具脚本见 `tools/remote_channel_https_fixture.py`，测试仅在显式传入 URL 和公钥时运行。正式 Release 未构建，本轮未发版。
+- 文档语料门禁：本节最终文本重新打包进 AndroidTest 资产后，仅在同一 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`。测试包随后卸载，主 Debug 应用与数据保留。
 
 # 2026-10-13 Remote Channel 前台 HTTPS 来源登记与单条拉取
 
