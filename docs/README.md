@@ -5,7 +5,7 @@
 - `v0.1.22` 已发布 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。Redmi 已通过临时公网 HTTPS 合成发送方的真实 DNS/TLS、验签、加密入箱及拒绝路径单项；稳定生产发送方、后台收件与通知仍待下一阶段。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
 - 下方第 251 至 284 阶段及既有发布记录是历史验收背景，具体边界以当前源码与报告顶部为准。
 
-- `v0.1.22` 已发布，正式 APK `xiaoling-v0.1.22.apk` 大小 `3,445,458` 字节，SHA-256 为 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。该版包含前台 Remote Channel 签名收件和临时公网 HTTPS 真机互通。
+- [v0.1.22](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.22) 已发布为最新正式 Release，正式 APK `xiaoling-v0.1.22.apk` 大小 `3,445,458` 字节，SHA-256 为 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。远端两项资产已重新下载，与本地正式资产逐字节、哈希一致，下载 APK 的版本与正式证书复验通过。该版包含前台 Remote Channel 签名收件和临时公网 HTTPS 真机互通。
 - `v0.1.21` 已发布，正式 APK `xiaoling-v0.1.21.apk` 大小 `3,396,306` 字节，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。
 - `v0.1.21` 修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显，并发布 Room v40 浏览器证据持久化切片。
 
