@@ -2,6 +2,14 @@
 
 验证日期：2026-10-14（北京时间）
 
+# 2026-10-14 发布 v0.1.22（versionCode 23）
+
+- 发布范围：已配对 P-256 身份的手动九字段签名消息导入、已登记 HTTPS 来源的前台单条拉取、Keystore 加密待确认列表和用户打开/忽略确认；不启用后台收件、通知或远端自动 Agent 执行。
+- 本地门禁：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :shared:allTests :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:lintVitalRelease --no-daemon --console=plain` 为 `BUILD SUCCESSFUL in 3m 31s`。App Debug JVM XML 为 `1331 tests / 0 failures / 0 errors / 0 skipped`；shared 测试 XML 合计 `33 tests / 0 failures / 0 errors / 0 skipped`。R8 输出 async parsing 工具 warning，Gradle 提示本次 daemon 的 2 GiB 堆空间偏紧，但构建未失败。
+- 正式 APK `outputs/release/xiaoling-v0.1.22.apk`：`3,445,458` 字节，SHA-256 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；同目录 `.sha256` 文件本地校验为 `OK`。`aapt` 为 `com.longdev.xiaoling / 0.1.22 (23) / minSdk 26 / targetSdk 36`；`apksigner` 为单一 RSA 4096 签名者、APK v2 有效，证书 SHA-256 `23ad3f3662babb32cc0ed98f8d7a6028254fbb2bb3c7c37ba54730bff8a0906c`，与 v0.1.21 一致；`zipalign -c -P 16 -v 4` 通过。
+- Redmi `wsvwypiz7xwslvl7` 已完成下节同源 Debug 包的临时公网 HTTPS 收件单项 `OK (1 test)`；发布文档重新打包后的 `projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (1 test)`。设备原有 `0.1.21 (22)` Debug 包及本轮无损覆盖安装的 `0.1.22 (23)` Debug 包均使用证书 SHA-256 `6c8823ff4295d7b29e8e2c58b13c864f795b082255b67c80aa8cb783155e3899`，与正式证书不一致；未卸载或清除用户数据，因此本版 Release APK 未在该设备覆盖安装，也未运行本版全量 AndroidJUnitRunner。测试 APK 随后卸载。
+- 稳定生产发送方、真实第三方 Channel、游标/ACK、批量/离线重试、后台送达与通知未实现或未验收；本版的公网证据只覆盖临时合成发送方和手机之间的真实 DNS/TLS 与签名互通。
+
 # 2026-10-14 Remote Channel 前台 HTTPS 真实网络真机验收
 
 - 目标：Redmi `wsvwypiz7xwslvl7 / begonia`，已验证 Wi-Fi 连接且 `tun0` 不存在；安装的 Debug 主包为 `0.1.21 / versionCode 22`。首次执行 `am instrument` 因设备只有测试包、缺少 `com.longdev.xiaoling` 主包，返回 `INSTRUMENTATION_FAILED: Unable to find instrumentation target package`；随后 `adb -s wsvwypiz7xwslvl7 install -r app/build/outputs/apk/debug/app-debug.apk` 成功，同一测试复跑通过，未清除应用数据。

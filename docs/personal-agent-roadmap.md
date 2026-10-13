@@ -1,5 +1,11 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-14 发布 v0.1.22（versionCode 23）
+
+- 发布手动九字段 P-256 签名收件、已登记 HTTPS 来源的前台单条拉取、Keystore 加密待确认列表与会话确认卡；不引入后台监听、自动 Agent 或远端工具授权。
+- 正式 APK `outputs/release/xiaoling-v0.1.22.apk`：`3,445,458` 字节，SHA-256 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；APK v2/RSA 4096 签名和 `zipalign` 通过，证书沿用 v0.1.21。
+- shared 全测试、App JVM `1331/1331`、Debug/AndroidTest 构建、Debug Lint、Release 构建和 `lintVitalRelease` 通过；Redmi 的临时公网 HTTPS 单项与最终文档语料门禁均通过。真机当前装有另一证书的 Debug 包，未覆盖安装正式 APK；稳定生产发送方、后台送达和通知仍待后续阶段。
+
 ## 2026-10-14：Remote Channel 前台 HTTPS 真机网络验收
 
 - Redmi `wsvwypiz7xwslvl7 / begonia` 在已验证 Wi-Fi、无 VPN 的条件下，通过短期 Cloudflare HTTPS 隧道向本机合成发送方发起真实 GET。发送方在主机独立生成 P-256 私钥并实时签名，真机只取得公钥；生产 OkHttp 经手机 DNS/TLS 取回九字段消息，设置页将其写入独立 Keystore 加密待确认箱。重建读取、重放拒绝、302 跳转、超大响应、签名篡改及忽略后的正文移除均在同一真机单项通过，结果 `OK (1 test)`。

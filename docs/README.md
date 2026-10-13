@@ -2,11 +2,12 @@
 
 ## 当前阶段：Remote Channel 主动 HTTPS 收件与前台待确认列表
 
-- 当前源码已接入 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。Redmi 已通过临时公网 HTTPS 合成发送方的真实 DNS/TLS、验签、加密入箱及拒绝路径单项；稳定生产发送方、后台收件与通知仍待下一阶段。本阶段源码尚未发布。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
+- `v0.1.22` 已发布 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。Redmi 已通过临时公网 HTTPS 合成发送方的真实 DNS/TLS、验签、加密入箱及拒绝路径单项；稳定生产发送方、后台收件与通知仍待下一阶段。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
 - 下方第 251 至 284 阶段及既有发布记录是历史验收背景，具体边界以当前源码与报告顶部为准。
 
+- `v0.1.22` 已发布，正式 APK `xiaoling-v0.1.22.apk` 大小 `3,445,458` 字节，SHA-256 为 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。该版包含前台 Remote Channel 签名收件和临时公网 HTTPS 真机互通。
 - `v0.1.21` 已发布，正式 APK `xiaoling-v0.1.21.apk` 大小 `3,396,306` 字节，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。
-- 本版修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显，并发布 Room v40 浏览器证据持久化切片。
+- `v0.1.21` 修复 Activity 重建后的 Agent 审批恢复和任务改期结果回显，并发布 Room v40 浏览器证据持久化切片。
 
 - `v0.1.20` 已发布，正式 APK `xiaoling-v0.1.20.apk` 大小 `3,379,922` 字节，SHA-256 为 `2c615f038cf4824a32c2465c4ad16691c50516e0aa2e7020394c2ebf5ea2e945`；Release 构建、APK v2/RSA 4096 签名和 `zipalign` 已通过。
 - 该历史版本包含 Room v39 的 Run Session/lineage/取消恢复边界、后台可靠性/TTS/系统助手入口、浏览器 Agent、工作区/终端、受限 MCP、GitHub Skill 导入、插件/ACI/GenUI 基础能力，以及任务中心超时、部分完成和子 Run 汇总投影。
@@ -17,8 +18,8 @@
 - Redmi `wsvwypiz7xwslvl7 / begonia` 的真实 Provider `gpt-5.6-luna` 短前台链已通过：目标级结果卡片在 Activity 重建后可见，按钮刷新可操作，目标级结论为 `VERIFIED`，设置动作完成后的精确回读成功；刷新后的当前事实正确对应小灵前台窗口 `com.longdev.xiaoling`。
 - 真实动作链为 `open_app → snapshot → tap_ref → snapshot → type_text → snapshot`；设置授权来源为 `APPROVED`，Executor 与 typed 验证为 `PASSED`。真实 Run 为 `run-d1c5ef43-69a4-4da8-a07b-f17cfe51889f`，Instrumentation `OK (1 test)`，Gradle 用时约 `79.874s`；独立 Stage 281 UI 探针也在同一 Redmi 通过。
 - 同一 Run 正向呈现与不同 Run 隔离均有 Compose/Instrumentation 契约；没有把合成 UI 状态当作真实设备证据。未使用或启动 Pixel_9。
-- 完整 JVM、Lint、Release、全量 instrumentation、任意 App、后台/定时设备自动化继续按分级验证和路线图后置。
-- 当前正式发布为 [小灵 v0.1.21](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.21)；远端 APK 资产已回验，SHA-256 为 `2b3c53be83e31c28cd1652f6e1975d52c3baefe427777c20693a4c7474c1b55d`。
+- 第281阶段当时的完整 JVM、Lint、Release 与全量 instrumentation 按分级验证后置；任意 App、后台/定时设备自动化继续受路线图约束。
+- 当前正式发布为 [小灵 v0.1.22](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.22)；正式 APK 的本地 SHA-256 为 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`。
 
 第281阶段已完成“真实 Run → Activity 重建 → 目标级结果 → 当前权威事实查看”主线切片；第280阶段及之前的 2026-09-27 条目保留完整能力边界与验证细节。
 
@@ -65,7 +66,7 @@
 
 第265阶段已完成指定系统计算器的 Redmi 前台计算任务，以及免逐次审批的真实 Provider 重跑：模型生成 6 步计划，用户确认一次后连续完成 `open_app + tap_ref × 5`，6 次审批均来自设置授权，计算器独立显示 `56`，小灵回读为 `7/7` 步骤完成、目标级 `VERIFIED`。此前的 `PARTIAL` Run、过期 ref 和失败 Tool Ledger 均作为历史审计保留，没有被成功 Run 覆盖；当前阶段转入下一条已登记应用的窄前台个人任务。详见[路线图](personal-agent-roadmap.md)、[需求](requirements.md)、[实现说明](implementation-notes.md)和[验证报告](verification-report.md)。
 
-第 264 阶段已完成一次性提醒改期真实前台闭环：`tasks.reschedule / task-reschedule` 使用唯一任务与当前指纹约束、完整时间审批、先入队再事务替换和当前事实导航。定向 JVM `180/180`、Debug/AndroidTest APK、Redmi 存储测试 `6/6`（`1.571s`）及真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。屏幕可见审批、旧工作取消、新工作入队、旧 Run 不变，以及 Activity 重建后从改期结果进入任务页均已验证；未等待新计划到点触发，详见[验证报告](verification-report.md)。该阶段记录的正式版本为 `v0.1.18`、Room v36；当前正式版本已升级为 `v0.1.21`。
+第 264 阶段已完成一次性提醒改期真实前台闭环：`tasks.reschedule / task-reschedule` 使用唯一任务与当前指纹约束、完整时间审批、先入队再事务替换和当前事实导航。定向 JVM `180/180`、Debug/AndroidTest APK、Redmi 存储测试 `6/6`（`1.571s`）及真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。屏幕可见审批、旧工作取消、新工作入队、旧 Run 不变，以及 Activity 重建后从改期结果进入任务页均已验证；未等待新计划到点触发，详见[验证报告](verification-report.md)。该阶段记录的正式版本为 `v0.1.18`、Room v36；当前正式版本已升级为 `v0.1.22`。
 
 第 263 阶段按用户要求移除启动图并固化 R8 精简打包配置。`values-v31` 与 `values-night-v31` 主题把 `windowSplashScreenAnimatedIcon` 换成全透明占位向量、移除 `windowSplashScreenIconBackgroundColor`，`windowSplashScreenBackground` 保持与窗口背景同色，使 Android 12+ 必然存在的系统启动画面在视觉上不可见（Android 12 以下本来没有系统启动图）；`ic_xiaoling_splash_mark` 与 `xiaoling_splash_icon_background` 已删除。`release` 构建 `isMinifyEnabled = true` 本就启用，本轮补上 `isShrinkResources = true` 资源收缩，`optimizeReleaseResources` 生效，aapt2 复核 `Theme.XiaoLing` 正常引用透明图标与同色背景。随后按用户“不要测试，直接发版”的要求发布 `v0.1.18`（`versionCode 19`、Room v36）：正式 `assembleRelease` 为 `BUILD SUCCESSFUL in 1m 4s`，APK 为 `3,247,642` 字节，SHA-256 为 `b67c90f728718537e4b017afbd81a1490a4203cde624504b2d61c869cf3eea3a`；`apksigner` 确认 APK Signature Scheme v2 单一 RSA 4096 签名者（证书 SHA-256 `5e9ecb9a560858b439392af355ecee3af082dc78d74feb84d9cb236947073fa9`），`zipalign` 通过；[GitHub Release](https://github.com/lonnnnnng/xiaoling/releases/tag/v0.1.18) 已发布并成为 latest。本轮没有运行 JVM、Lint、Debug/AndroidTest APK、Redmi 安装或 instrumentation，生产 Tool、权限、Workflow、后台与 Room 边界均未改动。
 

@@ -1,10 +1,15 @@
 # 当前实现说明
 
+## 2026-10-14 发布 v0.1.22（versionCode 23）
+
+- 本版发布前台 Remote Channel：P-256 配对身份、九字段签名 JSON 手动导入、已登记 HTTPS 来源主动拉取一条、Keystore 加密待确认箱与用户确认卡。公网临时合成服务的真机 DNS/TLS 和独立进程签名互通已验证；稳定生产发送方、游标/ACK、后台送达和通知仍未实现或验收。
+- 正式 APK `outputs/release/xiaoling-v0.1.22.apk` 为 `3,445,458` 字节，SHA-256 `0150a377bd030a1d169f01d49c0407ee7161aa11e0a95a4ff93e9a59603a657b`；沿用 v0.1.21 的 RSA 4096 正式证书，APK v2 和 `zipalign` 校验通过。
+
 ## 2026-10-13：Remote Channel 前台 HTTPS 单条拉取
 
 - `RemoteChannelPullSourceRegistry` 在独立 SharedPreferences 中保存规范 HTTPS 地址和 `channelId / senderId / keyId / fingerprintSha256` 绑定；严格 JSON 解码，损坏时拒绝读写。登记必须仍存在对应配对公钥；拉取前后重新核对来源，拉取前要求配对启用，最终 Gateway 再逐次验签。
 - `RemoteChannelHttpsPuller` 只做用户主动 GET。URL 禁止账号、查询、片段与 IP literal；OkHttp 禁止代理、Cookie、HTTP/HTTPS redirect，在建连 DNS 上拒绝本机、私网和保留地址，避免先校验后解析的重绑定窗口。HTTP 200 的单条 JSON 响应按解压后 64 KiB 有界读取，20 秒总超时，后续仍走固定九字段解码与加密入箱。
-- 设置页为每个配对身份显示来源登记、移除及“拉取一条”；只在签名接受后刷新既有待确认列表。没有后台轮询、游标、批量、ACK、收件通知或 Agent 执行。公网真实服务与系统 TLS 的端到端互通尚未验证。
+- 设置页为每个配对身份显示来源登记、移除及“拉取一条”；只在签名接受后刷新既有待确认列表。没有后台轮询、游标、批量、ACK、收件通知或 Agent 执行。后续已用临时公网合成服务验收手机 DNS/TLS 与签名互通；稳定生产发送方尚未验收。
 
 ## 2026-10-13：Remote Channel 手动签名导入与前台收件
 
@@ -314,7 +319,7 @@
 - `TaskScheduleControlCompletionPresentation` 与 `TaskInspectionNavigation` 复用同一精确改期结果解析，驱动当前 Workflow 刷新和答案级“查看任务”。`ConversationPage` 只为改期审批完整展示四个可读字段，其他工具审批保持原样。
 - `Stage264TaskRescheduleInstrumentedTest` 使用当前真实 Provider、最小 Profile、唯一提醒和真实 WorkManager。发送与批准只点击可见节点；批准前核对原 Task 未变，批准后从 Tool Ledger 与 Room/WorkManager 共同确认 `APPROVED / PASSED / COMMITTED`、旧取消、新实例唯一入队和历史 Run 不变。
 - Activity 重建后按工具标题归属定位 `tasks.reschedule` 下的“查看任务”，避免误点 inspect 的同名入口；任务页独有标题、展开步骤、当前调度文案及 ViewModel 中同一 Workflow/Task 的 Room 记录共同证明导航与回读。验收固定竖屏并恢复原旋转策略，finally 取消本次所有系统工作、停用夹具 Workflow、移除临时 Profile/会话，保留 Run 审计。
-- 该阶段记录的 Room v36、正式版本 `v0.1.18` 不变。定向 JVM `180/180`、AndroidTest 编译、Debug/AndroidTest APK、Redmi 内存 Room `6/6`（`1.571s`）和真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。新计划没有等待到点执行，不扩大为后台可靠性证明；当前版本已在本文件顶部升级为 `v0.1.21`。
+- 该阶段记录的 Room v36、正式版本 `v0.1.18` 不变。定向 JVM `180/180`、AndroidTest 编译、Debug/AndroidTest APK、Redmi 内存 Room `6/6`（`1.571s`）和真实 `gpt-5.6-luna` 前台单项 `1/1`（`39.449s`）通过。新计划没有等待到点执行，不扩大为后台可靠性证明；当前版本已在本文件顶部升级为 `v0.1.22`。
 
 ## 第 263 阶段：发布收尾与主线边界（完成）
 
@@ -2232,7 +2237,7 @@ TTS 仍是独立未完成项，但在不方便做声音验收时暂停。下一�
 
 包名：`com.longdev.xiaoling`
 
-当前发布版本：`v0.1.21`（`versionCode 22`，Room v40）
+当前发布版本：`v0.1.22`（`versionCode 23`，Room v40）
 
 ## 第 75 阶段实现与验证边界
 
