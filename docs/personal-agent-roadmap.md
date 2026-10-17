@@ -1,5 +1,83 @@
 # 小灵个人 Agent 路线图
 
+## 2026-10-17：六个参考仓库同步后的路线基线
+
+本轮已在 `refs/` 中用各仓库默认分支 `git fetch --prune` + `git pull --ff-only` 同步，六个仓库工作树均干净：
+
+| 参考仓库 | 分支 | 同步提交 | 对小灵最有价值的事实 |
+| --- | --- | --- | --- |
+| [rikkahub](https://github.com/rikkahub/rikkahub) | `master` | `893e83f84ca0827ac7ae2a617ce6eaa62152e672` | MCP 会话注册表、OAuth、版本化 Memory CAS、按需 Skill、搜索正文与引用、隔离 Workspace |
+| [Operit](https://github.com/AAswordman/Operit) | `main` | `dbf71916fae9750cfdc9f9a774f5a0fee56633fb` | WebView 浏览器、权限等级终端、Skill GitHub 导入、MCP discover/register 分离、手动 Workflow 重试 |
+| [OmniBot](https://github.com/omnimind-ai/OmniBot) | `main` | `06221dfcdf44b8073c4c3bb41514a86a8f8222d4` | ACP WebSocket、远程 Session/Turn 生命周期、子 Agent、Alarm 定时任务、上下文压缩与文件化 Memory |
+| [Eta](https://github.com/Mangi-11/Eta) | `main` | `213e8ed6610007d0758bc64ad54408841b839793` | Agent checkpoint/transcript/contextSnapshot、进程内后台运行、Foreground Service、MCP Streamable HTTP、系统助手入口 |
+| [Aether](https://github.com/Zhou-Shilin/Aether) | `main` | `3d782a5597c1fb3bebaf92beb59e84f0677ec9cb` | session 级 Agent Computer、命令输出持久化、Alpine 浏览器/CDP、Workspace 隔离、Phone Use 权限分层 |
+| [ZorvAI](https://github.com/Quor-a/ZorvAI) | `main` | `7e61f9e7a86987e1707640675372dcc5be80253b` | GenUI/A2UI 流式解析、插件/ACI、WebChat SSE、长程编排、子 Agent/Cluster、本地模型与代码运行时 |
+
+### 当前判断
+
+小灵已经具备六个参考项目共同依赖的安全骨架：前台 Direct Agent、Run/Approval/Tool Ledger、Room 恢复、浏览器只读读取、受限 Workspace/终端、Streamable HTTP MCP、GitHub Skill 导入、声明式插件预览、受限多 Agent、受限 GenUI，以及 P-256 Remote Channel 前台收件。下一阶段不再横向堆叠同类 SAFE 工具，而是补齐“可恢复运行时”和“受控扩展面”。
+
+仍然缺少的主链按影响排序为：
+
+1. Remote Channel 只有用户点击拉取和加密待确认箱，没有服务端游标、ACK、批次、退避、离线恢复、后台送达和通知。
+2. MCP 当前实际执行面是 Streamable HTTP；SSE、stdio、OAuth 和连接成功后再暴露工具的完整生命周期仍未形成统一运行时。
+3. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少经过签名和权限网关的可执行扩展模型。
+4. 多 Agent 仍限前台 Direct、最多两个只读 child；没有持久 child 生命周期、取消、预算、失败聚合和恢复策略。
+5. GenUI 仍是受限 text/button 卡片；没有版本化表单、数据绑定、显式 action、结果证据和流式增量恢复。
+6. Workspace/Browser 仍是受控 HTTP 读取和无持久 shell 的命令白名单；没有 session 级命令 transcript、DOM/action 浏览器和跨平台 actual 实现。
+7. shared 目前主要是 contract，实际 Agent runtime、Memory、MCP、设备和 UI 均在 Android；iOS 不能宣称与 Android 对等。
+
+### 后续执行顺序
+
+#### 第 285 阶段：Remote Channel 可靠收件基线（下一阶段）
+
+- 先冻结 `cursor / batch / ack / retry / expiry` 协议和服务端错误分类；消息仍必须 P-256 验签、去重、加密入箱，入站只产生待确认草稿。
+- 增加可取消的后台收件调度：优先 WorkManager/Foreground Service 的有界单次执行，网络不可用、进程被杀和身份撤销都要留下可恢复状态；不在后台自动运行 Agent。
+- 增加独立送达通知，通知只导航到待确认列表；打开、忽略和过期都保留审计，ACK 只表示已安全入箱，不表示已执行。
+- 退出标准：Redmi 真实网络下完成重复批次、cursor 前进、服务端超时/断网、进程重启、通知导航和 ACK 幂等；稳定发送方与临时合成夹具分开验收。
+
+#### 第 286 阶段：MCP 连接注册表和传输扩展
+
+- 抽出统一 `McpSessionRegistry`：配置变更先关闭旧 session，连接并完成 tool/schema 同步后才进入可用目录；连接状态与“对 AI 暴露”状态分离。
+- 先实现 SSE 的取消、重连、session 过期和工具目录恢复；stdio 仅在明确的本地进程沙箱和生命周期 owner 具备后实现，不能把 `sh -c` 当作 stdio MCP。
+- OAuth discovery/token 刷新沿用前台显式登录和最小持久化；Resources/Prompts 保持已有 schema/分页契约，Tasks 后置。
+- 退出标准：JVM replay 覆盖 connect/disconnect/race/cancel/reconnect；Redmi 真实 Provider 完成 SSE 连接、取消和工具禁用后不再出现在 prompt 的证据。
+
+#### 第 287 阶段：运行上下文、Memory CAS 与后台恢复
+
+- 在现有 Room Memory 上增加显式 `version`/CAS 冲突返回和当前内容回传，避免多轮 Agent、后台整理覆盖用户编辑；禁止默认删除。
+- 为 Agent Run 持久化 bounded transcript、context snapshot 和压缩版本；压缩前冻结未完成 tool response，失败保留原上下文并允许重试。
+- 后台记忆整理只处理已完成轮次，采用有界窗口、失败不推进游标、可重放 outbox；先做显式“整理建议”，再考虑自动写入。
+- 退出标准：Activity/进程重启、CAS 冲突、压缩失败、重复 outbox 和半写入恢复均有测试与 Redmi 单项证据。
+
+#### 第 288 阶段：可执行 Skill/插件最小闭环
+
+- Skill 继续采用 GitHub commit pin、目录逃逸拒绝和默认停用；`SKILL.md` 只进入显式选中的 Run，不默认扩权。
+- 插件先定义签名 manifest、版本/来源指纹、能力声明、升级回滚和权限网关；首期只允许 SAFE 前台工具和只读 UI surface。
+- 插件执行与宿主权限隔离：同进程同签名插件只能作为受信扩展；不可信代码必须另进程/沙箱，不能把声明式 ACI 预览直接升级为执行桥。
+- 退出标准：安装/升级/回滚/禁用、能力交集、恶意 manifest、超时取消和重启恢复均有测试；未通过签名或权限检查的扩展永不进入 ToolRegistry。
+
+#### 第 289 阶段：多 Agent 持久生命周期
+
+- 将当前最多两个只读 child 扩展为受限 child runtime：每个 child 有独立 Run、预算、取消 token、checkpoint、结果摘要和失败类型；父 Run 只接受结构化结果。
+- 保持 `REMOTE / WORKFLOW / BACKGROUND / depth>0` 禁止派生，写工具和设备动作继续逐次审批；先做只读检索/规划 child，再评估可写 child。
+- 退出标准：并发上限、单 child 超时、父取消、子失败部分完成、进程重启和迟到结果都能收敛，旧 Run/ledger 不被覆盖。
+
+#### 第 290 阶段：Workspace、Browser 与 GenUI 统一受控面
+
+- Workspace 引入 `WorkspaceSession(sessionId, executionId)`，保存有界命令 transcript、cwd、退出码和中断状态；终端仍从固定 argv 白名单开始，shell/管道/重定向后置。
+- 浏览器增加 DOM/accessibility snapshot、link/action 引用和显式 click/type；Cookie、登录态、下载、上传、脚本和后台执行继续独立开关，不因 WebView 存在而默认开放。
+- GenUI 从 text/button 扩展为版本化只读组件、表单草稿和显式 action；每个 action 必须映射到现有审批、Tool Ledger 和结果证据，未知组件安全降级。
+- 退出标准：流式半 JSON 恢复、Activity 重组、未知组件、动作重复、引用过期和跨 session 污染均 fail-closed；至少完成 Redmi 浏览器/GenUI 单项。
+
+#### 第 291 阶段：KMP actual 与多平台收口
+
+- 先把 shared contract、context snapshot、MCP schema、Remote Channel wire 和 Tool result codec 固化为跨平台模块；Android 保留 Provider/Room/Accessibility 实现。
+- iOS 先实现本地 workspace、HTTP client、只读浏览器和前台 Agent loop；不承诺 Android Phone Use、后台虚拟屏、Root/Shizuku 或持续后台一致性。
+- 退出标准：Android 既有测试不回归，iOS simulator 完成 contract/codec/runtime smoke；平台能力矩阵写入发布文档。
+
+每个阶段都必须遵循同一验收顺序：先 JVM/contract replay，再 Debug/AndroidTest 构建，随后只跑受影响的 Redmi 真机单项；里程碑或 Release 才运行完整矩阵。任何“源码存在”或“参考项目 README 宣称”都不计为小灵已完成，只有当前实现、测试和真机证据同时存在才进入已完成列表。
+
 ## 2026-10-14 发布 v0.1.22（versionCode 23）
 
 - 发布手动九字段 P-256 签名收件、已登记 HTTPS 来源的前台单条拉取、Keystore 加密待确认列表与会话确认卡；不引入后台监听、自动 Agent 或远端工具授权。

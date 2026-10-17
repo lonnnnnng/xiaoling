@@ -1,5 +1,22 @@
 # `reference-apps` 个人 Agent 实现分析
 
+## 2026-10-17：同步后的六仓对照结论
+
+本轮已同步 `refs/rikkahub` `893e83f`、`refs/Operit` `dbf7191`、`refs/OmniBot` `06221df`、`refs/Eta` `213e8ed`、`refs/Aether` `3d782a5`、`refs/ZorvAI` `7e61f9e`。六个参考工作树均干净；以下结论以源码为准，README 只作为候选线索。
+
+| 能力面 | 参考项目的成熟做法 | 小灵当前状态 | 路线决策 |
+| --- | --- | --- | --- |
+| 远程入口 | OmniBot ACP WebSocket、ZorvAI 长轮询/WebSocket、Eta 后台运行时 | P-256 + HTTPS 前台单条拉取，消息进加密待确认箱 | 先做 cursor/ACK/重试/通知，再做后台收件；不自动执行 |
+| MCP | RikkaHub 会话注册表/OAuth；Operit discover 与 register 分离；Eta Streamable HTTP | 实际执行仅 Streamable HTTP，SSE/stdio 只可声明 | 先统一 session registry，再补 SSE；stdio 后置到本地沙箱 |
+| Memory/Context | RikkaHub 文件 Memory CAS；Eta checkpoint；OmniBot compaction；ZorvAI long horizon | Room Memory、Run/ledger 恢复已有，缺 bounded transcript/context snapshot/CAS 回传 | 先补 CAS 与 context snapshot，再做后台整理 |
+| Skill/插件 | RikkaHub 按需 Skill；Operit GitHub Skill/ToolPkg；ZorvAI 签名插件/ACI | GitHub Skill 可导入；插件为声明和只读能力预览 | 先做签名 manifest + SAFE 前台插件，再做隔离执行 |
+| 多 Agent | OmniBot subagent runtime；ZorvAI child/cluster；Eta 没有多 Agent | 最多 2 个前台只读 child，不能后台/远程/递归 | 先补 child checkpoint/预算/取消/聚合，保持写入与设备动作审批 |
+| Browser/Workspace | Operit WebView DOM/action；Aether Alpine Chromium/CDP、session workspace；RikkaHub rootfs | HTTP(S) 文本读取；固定 argv 命令白名单；终端不持久 shell | 先统一 session transcript 和 DOM/action 引用，再决定 WebView/CDP |
+| GenUI/代码 | ZorvAI GenUI/A2UI、CodeCanvas/QuickJS、本地 MNN/llama | 受限 text/button 卡片，无代码执行 | 先版本化只读组件和显式 action；代码沙箱最后单独验收 |
+| 跨平台 | Aether 有 Android/iOS workspace 但 Phone Use 收窄；RikkaHub/KMP 模块较完整 | shared 主要是 contract，Android 实现占主导 | 先固化 wire/codec/contract，再补 iOS actual，不追求能力对等 |
+
+这张表把“参考项目有实现”与“小灵已验收”分开。后续工作以[路线图第 285 至 291 阶段](personal-agent-roadmap.md)为唯一顺序；每阶段必须有当前源码、自动化测试和真机证据，不能把参考项目的存在直接折算为完成度。
+
 ## 第274阶段：真实 Provider 计划仍需 fail-closed
 
 成熟 Agent 通常把模型计划当作不可信输入，先经过 schema、能力边界和确认前检查，再进入执行层。小灵本阶段用 Redmi 真实 Provider 验证动态应用候选不会绕过这条链：系统计算器被选为有效目标，但计划步骤缺失时直接拒绝，不把部分计划提交给 Workflow。
