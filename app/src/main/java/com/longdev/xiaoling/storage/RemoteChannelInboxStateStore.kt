@@ -11,6 +11,9 @@ import com.longdev.xiaoling.agent.RemoteChannelInboxStateStore
 import com.longdev.xiaoling.agent.RemoteChannelPendingDraft
 import com.longdev.xiaoling.agent.RemoteChannelPolicy
 import com.longdev.xiaoling.agent.RemoteChannelBatchStateCodec
+import com.longdev.xiaoling.agent.RemoteChannelInboxAuditEntry
+import com.longdev.xiaoling.agent.RemoteChannelInboxAuditPolicy
+import com.longdev.xiaoling.agent.RemoteChannelInboxDisposition
 import com.longdev.xiaoling.share.SharedDraftPayload
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -91,11 +94,12 @@ class KeystoreRemoteChannelInboxStateStore(
 }
 
 internal object RemoteChannelInboxSnapshotCodec {
-    private const val SCHEMA_VERSION = 2
+    private const val SCHEMA_VERSION = 3
     private const val MAX_STATE_BYTES = 1024 * 1024
     private const val MAX_KEY_LENGTH = 1024
 
     fun encode(snapshot: RemoteChannelInboxSnapshot): String {
+        RemoteChannelInboxAuditPolicy.validate(snapshot.auditEntries)
         require(snapshot.dedupeKeys.size <= RemoteChannelPolicy.MAX_DEDUPE_ENTRIES) { "远程去重记录过多" }
         require(snapshot.dedupeKeys.distinct().size == snapshot.dedupeKeys.size) { "远程去重记录重复" }
         require(snapshot.dedupeKeys.all { it.isNotBlank() && it.length <= MAX_KEY_LENGTH }) { "远程去重身份无效" }
@@ -113,6 +117,11 @@ internal object RemoteChannelInboxSnapshotCodec {
             .put("schemaVersion", SCHEMA_VERSION)
             .put("dedupeKeys", JSONArray(snapshot.dedupeKeys))
             .put("batchStates", RemoteChannelBatchStateCodec.encode(snapshot.batchStates))
+            .put("auditEntries", JSONArray().apply { snapshot.auditEntries.forEach { entry ->
+                put(JSONObject().put("recordId", entry.recordId).put("messageIdentitySha256", entry.messageIdentitySha256)
+                    .put("acceptedAtMillis", entry.acceptedAtMillis).put("recordedAtMillis", entry.recordedAtMillis)
+                    .put("disposition", entry.disposition.name))
+            } })
             .put("pendingDrafts", JSONArray().apply {
                 snapshot.pendingDrafts.forEach { pending ->
                     val draft = pending.draft
@@ -140,8 +149,9 @@ internal object RemoteChannelInboxSnapshotCodec {
         require(raw.toByteArray(Charsets.UTF_8).size <= MAX_STATE_BYTES) { "远程收件箱快照过大" }
         val root = JSONObject(raw)
         val version = root.requiredLong("schemaVersion")
-        require(version == 1L || version == SCHEMA_VERSION.toLong()) { "远程收件箱 schemaVersion 不受支持" }
-        val fields = setOf("schemaVersion", "dedupeKeys", "pendingDrafts") + if (version == 2L) setOf("batchStates") else emptySet()
+        require(version in 1L..SCHEMA_VERSION.toLong()) { "远程收件箱 schemaVersion 不受支持" }
+        val fields = setOf("schemaVersion", "dedupeKeys", "pendingDrafts") +
+            (if (version >= 2L) setOf("batchStates") else emptySet()) + (if (version == 3L) setOf("auditEntries") else emptySet())
         require(root.keys().asSequence().toSet() == fields) { "远程收件箱字段不完整或含未知字段" }
         val keys = root.getJSONArray("dedupeKeys")
         require(keys.length() <= RemoteChannelPolicy.MAX_DEDUPE_ENTRIES) { "远程去重记录过多" }
@@ -175,9 +185,22 @@ internal object RemoteChannelInboxSnapshotCodec {
         require(pending.all { identityKey(it.draft) in dedupeKeys }) { "远程待处理消息缺少去重身份" }
         require(pending.all { it.nonceDedupeKey in dedupeKeys }) { "远程待处理消息缺少 nonce 去重身份" }
         pending.forEach { validateDraft(it.draft, it.acceptedAtMillis) }
-        // long: 旧 v1 快照没有批次状态，升级只补空列表，不改变正文、去重身份或 Keystore 密钥。
-        val batchStates = if (version == 2L) RemoteChannelBatchStateCodec.decode(root.getJSONArray("batchStates")) else emptyList()
-        return RemoteChannelInboxSnapshot(dedupeKeys, pending, batchStates)
+        // long: 旧 v1/v2 快照不追造历史处理记录；升级只补空审计，保留原正文、去重、cursor、receipt 与 Keystore 密钥。
+        val batchStates = if (version >= 2L) RemoteChannelBatchStateCodec.decode(root.getJSONArray("batchStates")) else emptyList()
+        val audits = if (version == 3L) {
+            val array = root.getJSONArray("auditEntries")
+            require(array.length() <= RemoteChannelInboxAuditPolicy.MAX_ENTRIES) { "远程处理记录过多" }
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                require(item.keys().asSequence().toSet() == setOf("recordId", "messageIdentitySha256", "acceptedAtMillis", "recordedAtMillis", "disposition")) {
+                    "远程处理记录字段不完整或含未知字段"
+                }
+                RemoteChannelInboxAuditEntry(item.requiredString("messageIdentitySha256", 64), item.requiredLong("acceptedAtMillis"),
+                    item.requiredLong("recordedAtMillis"), RemoteChannelInboxDisposition.valueOf(item.requiredString("disposition", 20)),
+                    item.requiredString("recordId", 36))
+            }.also(RemoteChannelInboxAuditPolicy::validate)
+        } else emptyList()
+        return RemoteChannelInboxSnapshot(dedupeKeys, pending, batchStates, audits)
     }
 
     private fun identityKey(draft: RemoteChannelDraft): String = RemoteChannelPolicy.dedupeKey(draft)
@@ -211,8 +234,6 @@ private fun JSONObject.requiredString(key: String, maxLength: Int): String {
 
 private fun JSONObject.requiredLong(key: String): Long {
     val value = opt(key)
-    require(value is Number) { "远程收件箱字段 $key 必须是整数" }
-    val parsed = value.toLong()
-    require(value.toDouble() == parsed.toDouble()) { "远程收件箱字段 $key 必须是整数" }
-    return parsed
+    require(value is Int || value is Long) { "远程收件箱字段 $key 必须是整数" }
+    return (value as Number).toLong()
 }

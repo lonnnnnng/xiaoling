@@ -37,6 +37,9 @@ import com.longdev.xiaoling.agent.NotificationReadResult
 import com.longdev.xiaoling.agent.AgentRunUseCase
 import com.longdev.xiaoling.agent.AgentInvocationSource
 import com.longdev.xiaoling.agent.RemoteChannelDraft
+import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
+import com.longdev.xiaoling.agent.RemoteChannelInboxDisposition
+import com.longdev.xiaoling.agent.RemoteChannelInboxStatus
 import com.longdev.xiaoling.XiaoLingApplication
 import com.longdev.xiaoling.agent.DEVICE_OPEN_APP_TOOL_NAME
 import com.longdev.xiaoling.agent.DEVICE_TAP_REF_TOOL_NAME
@@ -606,7 +609,10 @@ data class AgentApprovalUiState(
     }
 }
 
-class XiaoLingViewModel(application: Application) : AndroidViewModel(application),
+class XiaoLingViewModel @JvmOverloads constructor(
+    application: Application,
+    private val remoteInboxOverride: RemoteChannelInboxGateway? = null,
+) : AndroidViewModel(application),
     WorkflowManagementActions,
     AgentTaskCenterActions,
     MemoryManagementActions,
@@ -616,6 +622,8 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
     PromptSettingsActions,
     ProcessExitObservationActions {
     private val configStore by lazy { ProviderRepository(application) }
+    // long: 收件依赖按需构造，保持启动首帧的惰性初始化；确认决定统一落到同一加密账本。
+    private val remoteInbox by lazy { remoteInboxOverride ?: (application as XiaoLingApplication).remoteChannelInboxGateway }
     private val conversationStore by lazy { ConversationRepository(application) }
     private val imageAttachmentReader by lazy { ImageAttachmentReader(application.contentResolver) }
     private val documentAttachmentReader by lazy { DocumentAttachmentReader(application) }
@@ -1107,7 +1115,7 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
             // long: 列表可能已过期；转到确认卡前重读加密快照，确认仍是同一条已验签正文。
             val available = withContext(Dispatchers.IO) {
                 runCatching {
-                    val status = (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.status()
+                    val status = remoteInbox.status()
                     status is com.longdev.xiaoling.agent.RemoteChannelInboxStatus.Ready &&
                         status.pending.any { it.draft == draft }
                 }.getOrDefault(false)
@@ -1138,13 +1146,13 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         try {
             val removed = withContext(Dispatchers.IO) {
                 runCatching {
-                    (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.discard(draft)
+                    remoteInbox.discard(draft)
                 }.getOrDefault(false)
             }
-            if (removed && activeRemotePendingDraft == draft &&
+            if ((removed || remoteDraftNoLongerPending(draft)) && activeRemotePendingDraft == draft &&
                 uiState.pendingSharedDraftIsRemote && uiState.pendingSharedDraft == draft.payload
             ) {
-                // long: 用户在设置列表忽略当前确认卡同一条消息时，同步撤销卡片身份，避免之后重复处理已删除正文。
+                // long: 列表忽略成功或已检测到正文失效时同步撤销同一确认卡；存储不可用不能被当作已忽略。
                 activeRemotePendingDraft = null
                 uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false, result = null)
             }
@@ -1155,6 +1163,12 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
                 handleSharedDraftImport(queuedSharedDraftImports.removeFirst())
             }
         }
+    }
+
+    private suspend fun remoteDraftNoLongerPending(draft: RemoteChannelDraft): Boolean = withContext(Dispatchers.IO) {
+        val status = runCatching { remoteInbox.status() }.getOrNull()
+        // long: 只有有效快照明确不存在同一正文才撤销缓存，损坏或暂时写失败仍保留用户的确认机会。
+        status is RemoteChannelInboxStatus.Ready && status.pending.none { it.draft == draft }
     }
 
     fun openPendingSharedDraft() {
@@ -1184,14 +1198,21 @@ class XiaoLingViewModel(application: Application) : AndroidViewModel(application
         remotePendingTransitionInProgress = true
         viewModelScope.launch {
             try {
-                // long: 打开和忽略都先提交正文删除；写盘失败时确认卡继续保留，不能谎称已经处理。
+                // long: 打开和忽略都先提交对应处理审计与正文删除；写盘失败时确认卡继续保留，不能谎称已经处理。
                 val removed = withContext(Dispatchers.IO) {
                     runCatching {
-                        (getApplication<Application>() as XiaoLingApplication).remoteChannelInboxGateway.discard(draft)
+                        remoteInbox.discard(draft,
+                            if (open) RemoteChannelInboxDisposition.OPENED else RemoteChannelInboxDisposition.IGNORED)
                     }.getOrDefault(false)
                 }
                 if (!removed) {
-                    showValidation("远程收件箱未能保存处理结果，请重试")
+                    val noLongerPending = remoteDraftNoLongerPending(draft)
+                    // long: 已过期或被别处处理的正文不再留在确认卡；存储不可用或写失败仍保留卡片，避免把失败伪装成忽略。
+                    if (noLongerPending) {
+                        activeRemotePendingDraft = null
+                        uiState = uiState.copy(pendingSharedDraft = null, pendingSharedDraftIsRemote = false)
+                        showValidation("远程消息已处理或过期，请刷新收件列表")
+                    } else showValidation("远程收件箱未能保存处理结果，请重试")
                     return@launch
                 }
                 activeRemotePendingDraft = null

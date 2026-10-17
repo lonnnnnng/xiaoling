@@ -273,6 +273,7 @@ data class RemoteChannelInboxSnapshot(
     val dedupeKeys: List<String>,
     val pendingDrafts: List<RemoteChannelPendingDraft>,
     val batchStates: List<RemoteChannelBatchState> = emptyList(),
+    val auditEntries: List<RemoteChannelInboxAuditEntry> = emptyList(),
 )
 
 interface RemoteChannelInboxStateStore {
@@ -292,6 +293,7 @@ class InMemoryRemoteChannelInbox(
     private val seen = linkedSetOf<String>()
     private val pending = mutableListOf<RemoteChannelPendingDraft>()
     private var batchStates: List<RemoteChannelBatchState> = emptyList()
+    private var auditEntries: List<RemoteChannelInboxAuditEntry> = emptyList()
     private var storageUnavailable = false
 
     init {
@@ -315,17 +317,8 @@ class InMemoryRemoteChannelInbox(
                 seen.addAll(snapshot.dedupeKeys)
                 pending.addAll(snapshot.pendingDrafts)
                 batchStates = snapshot.batchStates
-                val active = pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS }
-                if (active.size != pending.size) {
-                    val purged = RemoteChannelInboxSnapshot(seen.toList(), active, batchStates)
-                    if (runCatching { durableStore.saveSnapshot(purged) }.isSuccess) {
-                        pending.clear()
-                        pending.addAll(active)
-                    } else {
-                        storageUnavailable = true
-                        pending.clear()
-                    }
-                }
+                auditEntries = snapshot.auditEntries
+                purgeExpired(clock())
             }
         } else {
             val restoredKeys = runCatching { dedupeStore?.loadKeys() }
@@ -341,47 +334,74 @@ class InMemoryRemoteChannelInbox(
     }
 
     @Synchronized
-    fun pendingDrafts(): List<RemoteChannelPendingDraft> = if (storageUnavailable) {
+    fun pendingDrafts(): List<RemoteChannelPendingDraft> = if (!purgeExpired(clock())) {
         emptyList()
     } else {
-        pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS &&
-            it.draft.channelId == allowlist.channelId && it.draft.senderId in allowlist.senderIds }
+        pending.filter { it.draft.channelId == allowlist.channelId && it.draft.senderId in allowlist.senderIds }
     }
 
     /** long: 前台收件页要列出已验签入箱的全部渠道；配对被停用或撤销不会抹掉此前已接收的正文。 */
     @Synchronized
-    fun allPendingDrafts(): List<RemoteChannelPendingDraft> = if (storageUnavailable) {
+    fun allPendingDrafts(): List<RemoteChannelPendingDraft> = if (!purgeExpired(clock())) {
         emptyList()
     } else {
-        pending.filter { it.acceptedAtMillis > clock() - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS }
+        pending.toList()
+    }
+
+    @Synchronized
+    fun auditEntries(): List<RemoteChannelInboxAuditEntry> = if (storageUnavailable) emptyList() else auditEntries.toList()
+
+    private fun purgeExpired(now: Long): Boolean {
+        if (storageUnavailable) return false
+        val durableStore = inboxStateStore ?: return true
+        val original = RemoteChannelInboxSnapshot(seen.toList(), pending.toList(), batchStates, auditEntries)
+        val purged = RemoteChannelInboxAuditPolicy.expire(original, now)
+        if (purged == original) return true
+        // long: 检测到过期时，正文删除与过期记录必须同次提交；失败冻结视图，不能显示虚假的已过期结果。
+        if (runCatching { durableStore.saveSnapshot(purged) }.isFailure) {
+            storageUnavailable = true
+            pending.clear()
+            return false
+        }
+        pending.clear()
+        pending.addAll(purged.pendingDrafts)
+        auditEntries = purged.auditEntries
+        return true
     }
 
     @Synchronized
     fun isStorageAvailable(): Boolean = !storageUnavailable
 
     @Synchronized
-    fun discardPending(channelId: String, senderId: String, messageId: String): Boolean {
+    fun discardPending(channelId: String, senderId: String, messageId: String,
+        disposition: RemoteChannelInboxDisposition = RemoteChannelInboxDisposition.IGNORED): Boolean {
+        require(disposition != RemoteChannelInboxDisposition.EXPIRED) { "过期只能由本机保留期判定" }
         val durableStore = inboxStateStore ?: return false
-        if (storageUnavailable) return false
+        val now = clock()
+        if (!purgeExpired(now)) return false
+        val matched = pending.singleOrNull { it.draft.channelId == channelId &&
+            it.draft.senderId == senderId && it.draft.messageId == messageId } ?: return false
         val next = pending.filterNot { it.draft.channelId == channelId &&
             it.draft.senderId == senderId && it.draft.messageId == messageId }
-        if (next.size == pending.size) return false
-        // long: 打开或忽略只移除待确认正文，保留去重身份，避免外部发送方用同一消息 ID 再次弹出草稿。
-        if (runCatching { durableStore.saveSnapshot(RemoteChannelInboxSnapshot(seen.toList(), next, batchStates)) }.isFailure) {
+        val nextAudit = RemoteChannelInboxAuditPolicy.append(auditEntries, listOf(RemoteChannelInboxAuditPolicy.record(matched, disposition, now)))
+        // long: 最终打开或忽略先把无正文审计与正文删除同次提交，保留去重和 outbox；失败不能交付可编辑草稿。
+        if (runCatching { durableStore.saveSnapshot(RemoteChannelInboxSnapshot(seen.toList(), next, batchStates, nextAudit)) }.isFailure) {
             return false
         }
         pending.clear()
         pending.addAll(next)
+        auditEntries = nextAudit
         return true
     }
 
     @Synchronized
     fun receive(envelope: RemoteChannelEnvelope): RemoteChannelReceiveResult {
-        if (storageUnavailable) {
+        val now = clock()
+        if (!purgeExpired(now)) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE)
         }
         RemoteChannelPolicy.validate(envelope)?.let { return RemoteChannelReceiveResult.Rejected(it) }
-        authenticator?.verify(envelope, clock())?.let { return RemoteChannelReceiveResult.Rejected(it) }
+        authenticator?.verify(envelope, now)?.let { return RemoteChannelReceiveResult.Rejected(it) }
         if (envelope.channelId.trim() != allowlist.channelId) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.SENDER_NOT_ALLOWED)
         }
@@ -405,9 +425,7 @@ class InMemoryRemoteChannelInbox(
                     documentUri = null,
                 ),
             )
-        val now = clock()
-        val nextPending = pending.filter { it.acceptedAtMillis > now - RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS } +
-            RemoteChannelPendingDraft(draft, now, nonceKey)
+        val nextPending = pending.toList() + RemoteChannelPendingDraft(draft, now, nonceKey)
         if (inboxStateStore != null && nextPending.size > RemoteChannelPolicy.MAX_PENDING_DRAFTS) {
             return RemoteChannelReceiveResult.Rejected(RemoteChannelRejectionReason.PENDING_INBOX_FULL)
         }
@@ -430,7 +448,7 @@ class InMemoryRemoteChannelInbox(
         // long: 先构造下一份完整快照，只有去重身份与待确认正文同次写盘成功后才更新内存和交付草稿。
         val persisted = runCatching {
             when {
-                inboxStateStore != null -> inboxStateStore.saveSnapshot(RemoteChannelInboxSnapshot(nextKeys, nextPending, batchStates))
+                inboxStateStore != null -> inboxStateStore.saveSnapshot(RemoteChannelInboxSnapshot(nextKeys, nextPending, batchStates, auditEntries))
                 dedupeStore != null -> dedupeStore.saveKeys(nextKeys)
             }
         }.isSuccess

@@ -110,12 +110,16 @@ class RemoteChannelBatchTest {
         now += RemoteChannelPolicy.MAX_PENDING_AGE_MILLIS + 1
         assertTrue((inbox.status() as RemoteChannelInboxStatus.Ready).pending.isEmpty())
         assertEquals(committed, inbox.batchState(source, peer))
+        assertEquals(listOf(RemoteChannelInboxDisposition.IGNORED, RemoteChannelInboxDisposition.EXPIRED),
+            (inbox.status() as RemoteChannelInboxStatus.Ready).auditEntries.map { it.disposition })
     }
 
-    @Test fun v1SnapshotMigratesAndV2StateRoundTripRejectsMissingOrUnknownFields() {
+    @Test fun v1AndV2SnapshotsMigrateAndCurrentStateRejectsMissingOrUnknownFields() {
         inbox.receiveBatch(source, peer, batch(listOf(message("one"))))
         val snapshot = store.snapshot!!
-        val v2 = RemoteChannelInboxSnapshotCodec.encode(snapshot)
+        val current = RemoteChannelInboxSnapshotCodec.encode(snapshot)
+        assertEquals(snapshot, RemoteChannelInboxSnapshotCodec.decode(current))
+        val v2 = JSONObject(current).put("schemaVersion", 2).apply { remove("auditEntries") }.toString()
         assertEquals(snapshot, RemoteChannelInboxSnapshotCodec.decode(v2))
         val v1 = JSONObject(v2).put("schemaVersion", 1).apply { remove("batchStates") }
         assertTrue(RemoteChannelInboxSnapshotCodec.decode(v1.toString()).batchStates.isEmpty())

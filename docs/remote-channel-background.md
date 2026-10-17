@@ -32,4 +32,4 @@
 
 已抓取 Android 官方正文（2026-10-17）：[定义工作](https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work)、[管理与取消工作](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/manage-work)、[通知运行时权限](https://developer.android.com/develop/ui/views/notifications/notification-permission)、[WorkManager 集成测试](https://developer.android.com/develop/background-work/background-tasks/testing/persistent/integration-testing)。正文确认周期执行受约束/系统优化影响、约束失效停止 Worker、`Result.retry` 与退避、用户拒绝通知权限时阻断通知。
 
-JVM 覆盖许可、代次、损坏/写失败、调度失败回滚、对账、取消、通知去重和退避边界。Redmi 测试使用 WorkManager TestDriver 控制网络条件与周期，并由独立 Python/OpenSSL 公网夹具验证 Worker 的真实 DNS/TLS/批次/ACK；它证明受控调度下的实际 Worker 执行，不证明自然 15 分钟周期、Doze、自然 LMK、系统重启、厂商后台策略或稳定生产发送方。通知/令牌测试与公网合成消息分开记录，实际结果见[验证报告](verification-report.md)。正文过期的独立审计及上述自然恢复证据留待后续切片。
+JVM 覆盖许可、代次、损坏/写失败、调度失败回滚、对账、取消、通知去重和退避边界。Redmi 测试使用 WorkManager TestDriver 控制网络条件与周期，并由独立 Python/OpenSSL 公网夹具验证 Worker 的真实 DNS/TLS/批次/ACK；它证明受控调度下的实际 Worker 执行，不证明自然 15 分钟周期、Doze、自然 LMK、系统重启、厂商后台策略或稳定生产发送方。通知/令牌测试与公网合成消息分开记录，实际结果见[验证报告](verification-report.md)。第四片已补[正文处理审计](remote-channel-inbox-audit.md)，上述自然恢复证据仍待后续。

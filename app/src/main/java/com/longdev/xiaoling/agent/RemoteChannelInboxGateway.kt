@@ -5,7 +5,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
 sealed interface RemoteChannelInboxStatus {
-    data class Ready(val pending: List<RemoteChannelPendingDraft>) : RemoteChannelInboxStatus
+    data class Ready(val pending: List<RemoteChannelPendingDraft>, val auditEntries: List<RemoteChannelInboxAuditEntry> = emptyList()) : RemoteChannelInboxStatus
     data object Unavailable : RemoteChannelInboxStatus
 }
 
@@ -21,7 +21,8 @@ class RemoteChannelInboxGateway(
     private val authenticator = PublicKeyRemoteChannelAuthenticator(pairingRegistry)
     fun status(): RemoteChannelInboxStatus = synchronized(STATE_LOCK) {
         val inbox = inbox("__inbox_list__", "__inbox_list__")
-        if (inbox.isStorageAvailable()) RemoteChannelInboxStatus.Ready(inbox.allPendingDrafts())
+        val pending = inbox.allPendingDrafts()
+        if (inbox.isStorageAvailable()) RemoteChannelInboxStatus.Ready(pending, inbox.auditEntries())
         else RemoteChannelInboxStatus.Unavailable
     }
 
@@ -30,8 +31,12 @@ class RemoteChannelInboxGateway(
         inbox(envelope.channelId.trim(), envelope.senderId.trim()).receive(envelope)
     }
 
-    fun discard(draft: RemoteChannelDraft): Boolean = synchronized(STATE_LOCK) {
-        inbox(draft.channelId, draft.senderId).discardPending(draft.channelId, draft.senderId, draft.messageId)
+    fun discard(draft: RemoteChannelDraft, disposition: RemoteChannelInboxDisposition = RemoteChannelInboxDisposition.IGNORED): Boolean = synchronized(STATE_LOCK) {
+        require(disposition != RemoteChannelInboxDisposition.EXPIRED) { "过期只能由本机保留期判定" }
+        val inbox = inbox(draft.channelId, draft.senderId)
+        // long: 确认卡可能已失效，必须匹配当前持久正文；不能用相同 ID 的旧内存内容替新消息记“已打开”。
+        if (inbox.pendingDrafts().none { it.draft == draft }) return@synchronized false
+        inbox.discardPending(draft.channelId, draft.senderId, draft.messageId, disposition)
     }
 
     fun batchState(source: RemoteChannelPullSource, peer: RemoteChannelPeerCandidate): RemoteChannelBatchState = synchronized(STATE_LOCK) {

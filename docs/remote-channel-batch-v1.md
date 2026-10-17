@@ -47,7 +47,7 @@ GET 附带 `X-Xiaoling-Protocol: 1`、`X-Xiaoling-Receiver: <receiverId>`。有�
 
 客户端先冻结当前已登记来源并验证 receiverId、requestCursor、有效期及批次外层签名，再在隔离内存事务中逐条验签、去重和检查全局 8 条待确认容量。任一失败整批回滚，cursor 不前进，不产生 ACK；nonce 被其他 messageId 使用过也必须整批拒绝。只有已经持久存在消息去重身份的重复 messageId 才计为重复接收。
 
-正文、去重身份、新 cursor、`batchId / batchDigestSha256 / nextCursor / messageIds` receipt 同次写入一份 AES-GCM 加密快照。写失败保留原快照；最多 32 个来源状态，满容量拒绝扩容，不淘汰旧 outbox。收件箱明文 schema 从 v1 升级至 v2，旧正文、去重身份与 Keystore 密钥保持不变，新增的 batchStates 初始为空。
+正文、去重身份、新 cursor、`batchId / batchDigestSha256 / nextCursor / messageIds` receipt 同次写入一份 AES-GCM 加密快照。写失败保留原快照；最多 32 个来源状态，满容量拒绝扩容，不淘汰旧 outbox。第二片明文 schema v2 增加 batchStates；第四片[正文处理审计](remote-channel-inbox-audit.md)写 v3 并兼容 v1/v2，保留原正文、去重、cursor/receipt 与 Keystore 密钥。
 
 每个来源最多一个待 ACK 批次。GET 成功提交后才 POST ACK；ACK 请求/回执失败或取消保留 outbox，下次同步先补同一个 receipt，成功后本次调用结束，不再 GET。正常调用最多一次 GET 和一次 POST；恢复调用最多一次 POST。服务端对同一接收端、batchId、digest 和 cursor 的 ACK 必须幂等，响应丢失后能重试，且不能因为 ACK 重复而跳过下一批。
 

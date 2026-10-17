@@ -72,6 +72,7 @@ class RemoteChannelBatchHttpsInstrumentedTest {
             val plaintext = JSONObject(String(decrypt.doFinal(Base64.decode(envelope.getString("ciphertext"), Base64.NO_WRAP)), Charsets.UTF_8))
             // long: 使用同一测试 Keystore 密钥构造旧 v1 密文，确认升级只补批次状态，不清空原消息与重放身份。
             plaintext.put("schemaVersion", 1).remove("batchStates")
+            plaintext.remove("auditEntries")
             val encrypt = Cipher.getInstance("AES/GCM/NoPadding")
             encrypt.init(Cipher.ENCRYPT_MODE, key)
             envelope.put("iv", Base64.encodeToString(encrypt.iv, Base64.NO_WRAP))

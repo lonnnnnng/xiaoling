@@ -223,7 +223,7 @@ internal fun RemoteChannelPairingPage(
                                             inboxBusy = true
                                             scope.launch {
                                                 val opened = onOpenPending(draft)
-                                                inboxNotice = if (opened) "已转到会话页，请确认打开草稿" else "尚未打开；待确认消息仍在收件箱"
+                                                inboxNotice = if (opened) "已转到会话页，请确认打开草稿" else "尚未打开，请刷新列表或先处理当前草稿"
                                                 inboxBusy = false
                                                 inboxRevision += 1
                                             }
@@ -236,7 +236,7 @@ internal fun RemoteChannelPairingPage(
                                             inboxBusy = true
                                             scope.launch {
                                                 val discarded = onIgnorePending(draft)
-                                                inboxNotice = if (discarded) "已忽略，正文已从加密收件箱移除" else "忽略失败；消息仍保留"
+                                                inboxNotice = if (discarded) "已忽略，正文已从加密收件箱移除" else "未提交忽略，请刷新列表查看消息状态"
                                                 inboxBusy = false
                                                 inboxRevision += 1
                                             }
@@ -248,6 +248,7 @@ internal fun RemoteChannelPairingPage(
                             }
                         }
                     }
+                    RemoteChannelInboxAuditSection(current.auditEntries)
                 }
             }
         }

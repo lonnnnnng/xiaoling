@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第四片：加密正文处理记录
+
+- `RemoteChannelInboxAuditPolicy` 以独立 UUID、消息身份摘要、入箱/记录时间和最终结果组成 128 条有界历史。`InMemoryRemoteChannelInbox` 在最终决定和惰性过期清理时，同次提交正文删除与审计，保留去重和 batchStates；并发不重复处理正文。
+- `RemoteChannelInboxSnapshotCodec` 写 v3、读 v1/v2/v3，旧版本补空审计，严格核对类型和字段。Gateway 在共享锁内核对当前正文，投影列表和记录，过期写失败返回 Unavailable。
+- ViewModel 确认打开传 OPENED，忽略传 IGNORED；失败保留卡片，失效正文撤销缓存。inbox 依赖保持惰性，标准 Application 构造器保留，隔离 UI 门禁通过可选依赖执行生产处理器。只读审计 UI 不恢复正文或执行。见[正文处理审计](remote-channel-inbox-audit.md)。
+
 ## 2026-10-17 第 285 阶段第三片：有界后台调度与收件通知
 
 - `RemoteChannelBackgroundRegistry` 在独立偏好保存严格 schema v1 的许可代次、地址指纹、通知摘要与最近结果；每次重读、全进程锁协调，损坏或写失败冻结。`RemoteChannelBackgroundController` 串行管理许可/系统任务，先停用后取消，前台重建对账只修复原已授权任务。

@@ -2,6 +2,18 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第四片：打开、忽略与正文过期审计
+
+- 当前开发基线：最终确认打开、列表/确认卡忽略，以及检测到本机入箱满 24 小时，分别保存 `OPENED / IGNORED / EXPIRED`；正文删除和记录同次 AES-GCM 快照提交，去重身份、cursor 和 receipt/outbox 保留。每条记录只有独立 UUID、消息身份摘要、入箱/记录时间和最终结果，最多保留最近 128 条；只读入口显示最新 10 条。列表“打开”只展示确认卡，不追加已打开记录；OPENED 只表示用户决定已提交，不证明编辑器已显示、发送或执行。见[正文处理审计](remote-channel-inbox-audit.md)。
+- 最终本地命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 14s`。九个聚焦 JVM 类 `81 tests / 0 failures / 0 errors / 0 skipped`，新增审计类 10 项；覆盖原子打开/忽略、同一正文重复与不同 Gateway 并发、旧正文拒绝、24 小时边界及墙钟回拨、决定/过期写失败、容量只滚动旧审计、原未读重放身份保留，以及去重窗口实际滚动后同一身份/入箱时间再次投递使用独立 recordId。严格 codec 拒绝未知/缺失字段、类型转换、无效 UUID/SHA-256/枚举、重复 ID 和超限；旧 v1/v2 兼容且不追造历史。
+- Redmi `wsvwypiz7xwslvl7 / begonia`、实际 SDK `36`：最新 Debug 主包和 AndroidTest APK 均 `install -r` 成功，保留用户数据，版本保持 `0.1.22 (23)`、Room v40。没有修改用户正式 inbox、配对、通知权限或模型配置；未使用模拟器、调用模型 API、推送或发版。
+- 新增真机门禁：`RemoteChannelInboxAuditInstrumentedTest` 首轮 `OK (3 tests)`、`6.367s`；最终补列表忽略失效卡片的分支后，与既有配对页 3 项合并为 `OK (6 tests)`、`20.763s`，无 assumption skip。真实 Keystore 密文重建保留三类审计，明文正文/结果/hash 不出现在外层密文；破坏密文后状态 Unavailable 且原损坏文件保留。用同一隔离 Keystore 密钥构造 v1/v2 密文，处理后升级 v3，保留旧正文、去重及 v2 批次状态。outbox 是本地构造的隔离测试状态，不记作真实服务器 ACK。
+- 确认 UI 门禁使用 UUID inbox 与可选依赖注入的实际 ViewModel，显式设为已完成前台初始化，避免执行用户 Room/Agent 恢复。点击列表打开后正文仍在且审计为空；注入写失败后确认卡保留且没有成功记录，恢复写入后最终打开才记录 OPENED，草稿可编辑而没有发送或创建 Run。确认卡忽略与列表忽略记录 IGNORED；到期后确认打开被阻断并撤销卡片，列表忽略已经过期的卡片也撤销缓存，只记录 EXPIRED，不误记 IGNORED。只读 UI 显示结果及时间；此证据不等同完整冷启动后的真实公网收件闭环。
+- 受影响回归：配对页 3 项、既有密文重建/损坏 2 项、分享确认 UI 3 项与 `SharedDraftActivityInstrumentedTest#coldAndWarmTextSharesStayEditableAndNeverAutoSend` 合计 `OK (9 tests)`、`21.497s`；后者由真实 MainActivity 的默认 Application ViewModel 构造覆盖冷/热分享仍可编辑且不自动发送。最终 6 项重跑与该组的配对页 3 项重叠，不重复累计为不同用例。既有公网批次迁移测试构造 v1 时同步移除 v3 审计字段，但本片没有重新运行公网网络门禁。
+- 执行事实：构建/JVM/真机门禁均通过。两次只读子代理上游 `503 Service Unavailable` 后由主代理继续探索；一次整份文档补丁因最后一处段落锚点不匹配被 `apply_patch verification failed` 原子拒绝，确认文档未改动后按完整段落重新应用成功。没有清除正式配置或用其他设备替代验收。
+- 审计输出：`outputs/verification/stage285-inbox-audit/` 保存 `build.log / jvm-summary.json`、`device-first.log / device-final.log`、`regression.log` 和 `device-state-final.log`。报告与长期文档保存后重新构建 AndroidTest，并在同一 Redmi 运行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果以同目录 `corpus.log` 为准。任务 diff 检查和凭据扫描通过；输出保持忽略，无关 `refs/` 保留。
+- 未验证边界：过期仍是观察触发的惰性清理，不承诺在第 24 小时到点运行。正文处理审计已实现，自然周期/Doze/自然 LMK/系统重启/厂商后台策略，以及稳定生产发送方的认证与队列仍待下一片，第 285 阶段整体退出标准未满足。当前证据是本地/隔离收件箱与受控前台确认，不新增公网 transport、自然恢复或正式 Release 证据；完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 # 2026-10-17 第 285 阶段第三片：显式后台收件与独立送达通知
 
 - 当前开发基线：每来源默认关闭的后台许可绑定配对身份、公钥指纹、HTTPS 地址摘要及 UUID 代次；一个联网约束的 15 分钟 WorkManager 周期任务，每轮只调用一次既有同步服务，瞬时故障至多 3 次重试。停用先持久撤销再取消，旧响应在批次提交及 ACK 清除前复核；旧 Worker 的失效撤销也不能覆盖重新启用的新代次。正文、cursor 和 outbox 继续由原加密快照持有。独立通知默认关闭，只打开待确认列表，不创建 Agent Run、不调用模型、不自动打开草稿或授予工具权限。细则见[后台收件说明](remote-channel-background.md)。
