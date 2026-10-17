@@ -41,7 +41,7 @@ GET 附带 `X-Xiaoling-Protocol: 1`、`X-Xiaoling-Receiver: <receiverId>`。有�
 4. `issuedAtMillis、expiresAtMillis` 两个 64 位整数，随后写 32 位 messages 数量。
 5. 对每条消息写 32 位原有 `RemoteChannelPolicy.canonicalBytes(envelope)` 长度、该字节内容，再写 `field(envelope.signature)`。
 
-`batchDigestSha256` 是上述完整字节的 SHA-256 小写十六进制；外层 batch signature 本身不参与 digest。消息 canonical 格式仍为八字段长度前缀格式，详见[原签名协议](remote-channel-signed-import.md)。独立参考实现位于 `tools/remote_channel_https_fixture.py`。
+`batchDigestSha256` 是上述完整字节的 SHA-256 小写十六进制；外层 batch signature 本身不参与 digest。消息 canonical 格式仍为八字段长度前缀格式，详见[原签名协议](remote-channel-signed-import.md)。临时 HTTPS 夹具参考实现位于 `tools/remote_channel_https_fixture.py`；第六片新增 `tools/remote_channel_sender.py` 的[本地持久发送队列](remote-channel-sender-queue.md)，独立验证签名和 ACK，但不提供 HTTP 或接收端密码学认证，receiverId 不能作为凭据。
 
 ## 原子提交与 ACK outbox
 

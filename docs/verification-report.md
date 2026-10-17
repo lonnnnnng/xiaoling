@@ -2,6 +2,20 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第六片：本地持久发送队列
+
+- 当前开发基线：新增 `tools/remote_channel_sender.py` 的 `LocalSenderQueue`，提供仓库外 SQLite 队列与 `init / register / enqueue / pull / ack / public-info / stats` 本地 CLI。独立 OpenSSL P-256 签名与生产 Kotlin v1 协议互通；每 receiver 一个在途投递，FIFO 最多 8 条/64 KiB，60 秒重签保留消息 ID、nonce、逻辑游标和旧收据。ACK 精确绑定身份/receiver/batch/digest/cursor/messageIds 顺序、逻辑投递及原批次签名；游标推进、正文逻辑清除与签名响应同事务提交，重复旧 ACK 不影响新投递。见[发送队列说明](remote-channel-sender-queue.md)。
+- 持久边界：Python 3.12+、显式 BEGIN IMMEDIATE/COMMIT/ROLLBACK、SQLite mode=rw、DELETE/EXTRA/fullfsync/foreign keys/quick_check；目录 0700，私钥、公钥和 DB 0600，校验属主、链接、SPKI 与 metadata。缺文件、损坏或换钥不重置，不覆盖已有目录。上限 32 receivers、1024 messageId（包含 ACK tombstone）、4096 receipts（包含旧重签/空批次），满额不淘汰。主机 pending 正文/快照为明文；ACK 后 NULL 为逻辑清除，没有物理擦除或长期保留/迁移机制。
+- 最终 Python：`python3 -m unittest discover -s tools -p 'test_remote_channel_sender.py' -v` 为 `19 tests / OK`、`3.799s`，无 ResourceWarning。覆盖 GET/ACK 丢响应、独立进程重建、并发、旧 ACK/重签/时钟回拨、FIFO/容量/UTF-16/报文边界、非法类型/JSON、损坏快照/收据/投递/缓存 ACK、权限/链接/换钥/损坏不重置、签名及 COMMIT 注入失败。未提交 SQLite 事务内 `os._exit(9)` 后原游标与快照恢复，不代表断电或自然 Android LMK。
+- 最终构建与 JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 8s`。11 个聚焦 JVM 类 `90 tests / 0 failures / 0 errors / 0 skipped`；新增一项独立 Python/OpenSSL ↔ 生产 Kotlin 交叉门禁，验证 Unicode/CRLF、重复 GET/ACK、空批次及旧 ACK 不推进新投递。Gradle Test task 新增 Python 脚本文件输入，本轮明确重新执行 testDebugUnitTest，未沿用先前 UP-TO-DATE。
+- Redmi `wsvwypiz7xwslvl7 / begonia`、SDK 36：仅覆盖安装测试 APK，Android 生产代码未改，主 Debug 保持第五片的相同源码；未卸载、清用户数据或修改通知许可。最终版本 `0.1.22 (23)`、Room v40，`POST_NOTIFICATIONS: granted=false`，原 USER_SENSITIVE 标志保留，AppOps `POST_NOTIFICATION: ignore`。本片没有调用模型 API。
+- 离线跨进程最终门禁：新主机状态/receiver/UUID ledger，两轮显式执行 `RemoteChannelSenderQueueInstrumentedTest#seedPersistentSenderBatchAndExportProductionReceipt`（`remoteSenderPhase=seed`）与 `#restoreOutboxVerifySenderAckAndKeepPendingDrafts`（`remoteSenderPhase=restore`），分别 `OK (1 test)`、`0.258s / 0.302s`，无 assumption skip，手机 PID `13846 → 13885`。seed 经生产 Gateway 验签写真实 Keystore 密文/outbox，导出生产 ACK 请求；独立主机 CLI 进程 ACK 并重试同请求返回同响应；restore 新进程验签响应、清待 ACK，保留游标和两条 pending 正文。最后 sender stats 为 `receivers=1 / queuedMessages=0 / acknowledgedMessages=2 / pendingDeliveries=0 / issuedReceipts=1`。
+- 隔离清理与失败记录：restore 成功后断言本轮 UUID 配对/密文 preferences 删除、重读为空及 AES alias 不存在；不触及正式 inbox 或配对。额外 `adb -s wsvwypiz7xwslvl7 shell run-as com.longdev.xiaoling pwd` 被设备 SELinux 拒绝，错误 `couldn't set SELinux security context ... Permission denied`，该失败保存 `run-as-check.log`；未修改系统安全设置，以 instrumentation 内清理断言作为证据。
+- 传输类别：批次和 ACK 通过 instrumentation 参数离线转交，`https://sender-queue.example/batch` 只作 endpoint hash 绑定，没有 DNS/HTTP/TLS。receiverId 只是路由，调用者权限来自主机状态目录管理权限；CLI 没有密码学接收端认证、HTTP listener、生产注册或部署。手机进程重建和独立主机进程证据不能替代自然周期、Doze、LMK、系统重启或稳定公网验收。
+- 官方正文与执行事实：本机 Python `3.14.8`、SQLite `3.54.0`、OpenSSL `4.0.3`；通过 smart-search 抓取 Python sqlite3、SQLite PRAGMA、OpenSSL 4.0 dgst、Gradle incremental build 正文，支持事务/同步/独立签名及额外 task 输入。两路只读探索子代理均上游 503，主代理已直接完成核查。`outputs/verification/stage285-sender-queue/` 保存初轮、第二轮和最终日志、JVM 摘要、公钥与合成 fixture/process trace；私钥仅保留在仓库外 `/var/folders/8b/_k4z7q5n4kg7sq5g800_mcs00000gn/T/xiaoling-sender-device-irfwngjb/state`，未复制至仓库或审计目录。
+- 文档语料门禁：报告及长期文档保存后重新打包 AndroidTest，在同一 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果 `OK (1 test)`、无跳过；最终结果保存该审计目录的 `corpus.log`。暂存 diff、凭据与路径边界检查在本地提交前完成，输出保持忽略，无关 `refs/` 保留；只做中文本地提交，不推送、不发版。
+- 尚未完成：接收端密码学认证/授权注册、稳定 HTTPS 适配与部署、长期安全保留/压缩、断电/备份回滚/跨主机迁移及自然 Android 系统恢复。第 285 阶段仍进行中；完整 JVM、Lint、Release 与全量 instrumentation 按分级策略后置。本片不能宣称生产端到端送达或正式 Release 验收。
+
 # 2026-10-17 第 285 阶段第五片：Application 异步启动任务对账
 
 - 当前开发基线：`XiaoLingApplication.onCreate()` 在 `SupervisorJob + Dispatchers.IO` 启动一轮 `RemoteChannelBackgroundStartupRecovery`，主线程不等待；先读原后台许可，空账本不构建调度器，损坏或构造/调度失败返回 UNAVAILABLE 且保留原存储，取消继续传播。复用应用级 Controller 的互斥锁，只补同一身份/地址/代次的缺失周期任务，已有同代 Work ID 保留；失效或停用来源只撤销/取消，不生成新许可。配对页仍可再次对账。见[启动对账恢复](remote-channel-startup-recovery.md)。

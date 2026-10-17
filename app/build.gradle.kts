@@ -1,4 +1,6 @@
 import java.util.Properties
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     id("com.android.application")
@@ -102,6 +104,13 @@ room {
 
 kotlin {
     jvmToolchain(17)
+}
+
+tasks.withType<Test>().configureEach {
+    // long: 跨实现门禁通过独立进程读取 Python 发送方；把脚本纳入输入，修改签名或持久化逻辑后必须重新验互通。
+    inputs.file(rootProject.file("tools/remote_channel_sender.py"))
+        .withPropertyName("remoteChannelSenderCli")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 dependencies {

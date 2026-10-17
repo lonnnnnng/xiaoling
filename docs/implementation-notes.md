@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第六片：独立 Python/OpenSSL 持久发送方
+
+- `LocalSenderQueue` 用 Python 3.12+ 标准库 SQLite 与独立 OpenSSL P-256，显式事务、DELETE/EXTRA/fullfsync、mode=rw 和每进程密钥/metadata/权限校验。`init / register / enqueue / pull / ack / public-info / stats` 只处理仓库外状态目录；已提交快照才响应，固定错误不暴露正文或私钥。
+- 全发送方 1024 个 messageId（含 tombstone）、32 receivers、4096 receipts；FIFO 最多 8 条/64 KiB，入队预留报文空间。60 秒到期/回拨重签保留逻辑身份，ACK 精确绑定收据、投递及原批次签名，游标推进/正文逻辑删除/签名回复同次提交。缓存回复验签后重放，旧 ACK 不清后续投递。
+- Python 19 项、生产 Kotlin 跨实现 JVM 单项及 Redmi 两进程 Keystore/outbox 门禁均通过；Gradle Test task 显式跟踪 Python 文件输入。仅合成离线协议互通，没有 DNS/HTTP/接收端密码学认证；主机 pending 数据为明文。Android 生产代码、Room 和版本未改，见[发送队列](remote-channel-sender-queue.md)。
+
 ## 2026-10-17 第 285 阶段第五片：异步启动任务对账
 
 - `XiaoLingApplication.onCreate()` 在独立 `SupervisorJob + Dispatchers.IO` 启动一次 `RemoteChannelBackgroundStartupRecovery`，不在主线程等待。预读后台账本后才构建 Controller，空/损坏账本不访问调度器，保留现有 WorkManager 按需初始化和默认配置。

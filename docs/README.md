@@ -1,6 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 285 阶段 Remote Channel 启动对账恢复
+## 当前阶段：第 285 阶段 Remote Channel 本地持久发送队列
+
+- 第六片提供本地 SQLite 发送队列、P-256 签名批次和持久幂等 ACK，已验独立 CLI 与生产 Kotlin、Redmi 跨进程加密 outbox 互通。主机目录存明文，满容量不淘汰，不监听 HTTP，也没有接收端密码学认证。见[发送队列](remote-channel-sender-queue.md)与[验证报告](verification-report.md)。稳定部署、认证/注册、长期保留与自然系统恢复仍待后续。
 
 - 第五片补齐 Application 异步启动对账：只按原身份、地址与许可代次修复缺失任务，已有同代 Work ID 保留；空账本不初始化调度器，损坏或入队失败保留原设置。见[启动对账恢复](remote-channel-startup-recovery.md)与[验证报告](verification-report.md)。自然周期、LMK/Doze/重启和稳定生产发送方仍待验收。
 
