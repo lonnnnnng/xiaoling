@@ -104,9 +104,9 @@ Release 签名从未跟踪文件 `local-signing/xiaoling-release.env` 读取。�
 
 ## 当前状态
 
-开发源码第 285 阶段已增加签名批次、cursor、同址签名 ACK 与原子加密 outbox，并支持按来源单独启用后台收件和送达通知，两个开关均默认关闭。后台每次有界同步，ACK 失败保留并优先补发；通知只打开待确认列表，草稿继续前台确认。最终打开、忽略和正文过期的无正文记录与正文删除同次保存，历史入口只读；Application 异步启动对账已补齐原许可的缺失调度，无需再次打开配对页。第六片新增本地 SQLite 持久发送队列，已验独立 Python/OpenSSL 与生产 Kotlin、Redmi 加密 outbox 跨进程互通；主机状态目录存明文，管理 CLI 不提供 HTTP，接收认证由第七片独立核心承载。开发切片尚未发布，自然系统恢复、稳定 HTTPS 部署、产品注册/认证接线与长期保留仍待验收；详见[发送队列](docs/remote-channel-sender-queue.md)、[后台收件说明](docs/remote-channel-background.md)、[启动对账恢复](docs/remote-channel-startup-recovery.md)和[验证报告](docs/verification-report.md)。
+开发主线第 2 点 MCP（第 286 阶段）已收口：应用级 `McpSessionRegistry` 统一设置/Run 会话，支持 Streamable HTTP 与 legacy SSE；配置变更撤销旧连接，取消/断流清目录，后续显式操作重新发现且不重放工具调用。Redmi 已通过真实 `gpt-6-luna` 的 SSE 成功/取消/停用，以及 Context7 认证 HTTPS 的发现和只读解析。Context7 为真实外部 Streamable HTTP，SSE 服务端仍为隔离 loopback；`query-docs`、OAuth、stdio、Tasks、后台 MCP 和正式 Release 未纳入本轮。下一主线是第 3 点 Context/Memory，详见[MCP 会话契约](docs/mcp-session-registry.md)、[路线图](docs/personal-agent-roadmap.md)和[验证报告](docs/verification-report.md)。
 
-第七片已增加[接收端认证核心](docs/remote-channel-receiver-auth.md)：Android Keystore P-256 签名、本地发送方显式公钥授权/撤销、绑定来源与完整 pull/ACK 的签名请求，以及和队列共事务的持久 nonce。三轮 Redmi 离线跨进程互通通过；尚未接入产品注册/导出 UI、现有 HTTPS puller 或 HTTP 服务，稳定部署、长期保留和自然系统恢复仍待完成。
+第 1 点 Remote Channel（第 285 阶段）按 cursor、批次、ACK、重试、过期、后台收件和通知功能收口，含接收公钥注册/导出、认证 HTTPS 客户端及 HTTP 服务。稳定部署、容量回收、长期自然系统恢复、真实通知和 Release 验收列为独立待办，不阻塞后续主线；既有临时公网合成证据保持原等级。
 
 | 项目 | 状态 |
 | --- | --- |

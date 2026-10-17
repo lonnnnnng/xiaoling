@@ -22,6 +22,7 @@ class McpSseFixture : Closeable {
     val requests = CopyOnWriteArrayList<JSONObject>()
     val authorization = CopyOnWriteArrayList<String>()
     val getCount = AtomicInteger()
+    val activeStreamCount: Int get() = streams.size
     @Volatile var stallMethod: String? = null
     @Volatile var schemaType = "string"
     @Volatile var protocolVersion = McpPolicy.LEGACY_PROTOCOL_VERSION

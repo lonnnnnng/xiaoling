@@ -5,7 +5,8 @@
 - 第 285 阶段按原定 Remote Channel 功能收口；稳定部署、容量回收与长期自然系统/通知/Release 验收独立追踪，不阻塞 MCP。
 - Application 统一管理 owner/server 会话。握手与工具 schema 分页完整同步后才可用；设置发现和 Run 各自独立，Run 结束只撤销本 owner。编辑、停用、删除和白名单变化撤销所有相关连接，旧响应不能恢复目录或重新提交调用。
 - 增加 legacy SSE 的 GET endpoint/POST/message 闭环及设置入口，与 Streamable HTTP 共用六个工具/资源/Prompt API。断流、取消、目录变化和 session 过期后下次显式操作重新发现；不自动重放已提交调用，不宣称取消等于远端回滚。
-- stdio、OAuth、Tasks、后台 MCP 和真实外部 Provider 联合验收后置；前台 Direct 权限边界、Room/发布版本不变。详细契约见[MCP 注册表与 SSE](mcp-session-registry.md)。下方第 285 各切片保留当时范围与验收语境。
+- 真实外部服务与 Provider 联合验收单独执行：Context7 只读发现/解析、真实模型的 SSE 成功/取消/停用均需回读生产 Run 与 Tool Ledger。隔离凭据输入与配置不变检查不能由夹具结果替代。
+- stdio、OAuth、Tasks、后台 MCP 后置；前台 Direct 权限边界、Room/发布版本不变。详细契约见[MCP 注册表与 SSE](mcp-session-registry.md)。下方第 285 各切片保留当时范围与验收语境。
 
 ## 2026-10-17 第 285 阶段第七片：接收端签名认证与本地授权
 

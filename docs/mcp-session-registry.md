@@ -38,6 +38,30 @@ RPC POST 使用 `isOneShot() = true` 请求体，同时关闭网络自动重试�
 
 JVM 与 Redmi 共用真实 loopback socket/分块 SSE 夹具，采用默认生产 OkHttp、合成 Token、内存配置。验证握手与六个 API、分页、owner 隔离、READY 发布、取消、断流/schema 恢复、配置撤销、hash 碰撞、目录通知和 503 不重放。另有 JVM UTF-8/事件/endpoint/JSON-RPC、HTTP body 取消、404 和旧代次错误门禁。实际执行结果及失败修复记录见[验证报告](verification-report.md)。
 
-loopback 证明真实 socket 与 Android 网络栈，不代表真实外部 MCP 服务或模型 Provider 联合验收。OAuth、stdio 沙箱、Tasks、后台 MCP、真实外部 MCP/Provider 联合验收及正式 Release 均后置。本片不改 Room v40 或发布版本 `0.1.22 (23)`。
+loopback 证据与外部服务、真实模型联合验收分别记录。OAuth、stdio 沙箱、Tasks、后台 MCP 及正式 Release 后置。本片不改 Room v40 或发布版本 `0.1.22 (23)`。
+
+## 第 286 阶段真实网络与模型验收
+
+`McpLiveAcceptanceInstrumentedTest` 使用隔离内存 Store 和默认生产 OkHttp；`AgentRunUseCase` 仅增加可选注册表注入，正式调用仍取 Application 单例。Profile 只允许 `mcp.list_tools / mcp.call` 和内置 MCP Skill，不启用长期记忆；只读调用由本轮限定 server/tool 的审批门显式批准。Run、步骤、审批、事件和 Tool Ledger 走生产 Runtime 与 Room。
+
+- Context7 使用 `https://mcp.context7.com/mcp`，Streamable HTTP 协商 `2025-03-26`。发现 `resolve-library-id / query-docs` 后仅解析公开 Kotlin 文档库，核对文档库 ID、确切参数及发现验证先于调用的事件顺序；不执行 `query-docs`。匿名与 Bearer 两种验收必须分别显式选择，认证失败不自动降级。
+- 真实 `gpt-6-luna` 通过生产 Agent Run 验证 legacy SSE 成功、取消、停用三种场景。成功只产生一次远端 echo，结果以 `PASSED` 和原参数回读；Run 结束后外部 settings owner 仍连接。
+- 取消先持久化 Room 请求，再取消执行协程；断言 `CANCELLED`、无活动步骤、无 `mcp.call` 结果及完成/失败覆盖。断流后的迟到投递尝试经过 300 ms 观察，完整 snapshot/ledger 未变且调用计数仍为 1。此证据不代表只写 Room 请求就能中断挂起 SSE，不证明客户端收到了断开的字节或远端回滚。
+- 停用场景以空白名单开始，观察实际发送给模型的全部请求体，只记录请求数及停用名称是否出现；正文/密钥不落日志。证明目录过滤与零远端调用，执行器的拒绝及调用中撤销由已有契约门禁验证。
+
+`roomVerified=true` 表示当前 `RESULT_READABLE` 策略通过及证据已持久化，不表示另一次远端业务回读。公网 Context7 是 Streamable HTTP；legacy SSE 的服务端仍是 Redmi loopback 夹具，真实模型参与不能把它升级为外部 SSE 服务证据。
+
+### 复现与凭据边界
+
+先分别覆盖安装 Debug 主 APK 与 AndroidTest APK，再运行：
+
+```zsh
+python3 tools/verify_mcp_live_acceptance.py \
+  --output outputs/verification/stage286-live-rerun
+```
+
+脚本仅允许 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`；Provider 从未跟踪的根 `AGENTS.md` 读取，Context7 key 从本机 Opencode 配置读取。保持原 `enabled=false`，只在测试内存启用。凭据经新建的 ADB forward 和设备单次 loopback socket 输入，不放入源码、APK、命令参数、共享文件或正式偏好；关闭 Provider HTTP 日志，主机日志先脱敏。每个单项必须有配置 ACK、`OK (1 test)` 和断言后的 evidence，跳过不能计为通过；失败、超时及转发撤销异常均保留报告，仅撤销自己的转发。
+
+`--context7-auth anonymous` 是另一轮显式匿名验收，默认始终为 `bearer`。输出目录必须为空；报告核对原 Opencode 文件前后 SHA-256，外部改动也会使该轮整体门禁失败。实际执行结果、初次失效 key 的失败及用户更新后的结果见[验证报告](verification-report.md)。认证依据为[Context7 官方客户端配置](https://context7.com/docs/resources/all-clients)。
 
 协议依据：[legacy transports](https://modelcontextprotocol.io/specification/2024-11-05/basic/transports)、[Streamable HTTP transports](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports)、[lifecycle](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle)。官方正文经 smart-search 保存于忽略的 `outputs/verification/stage286-mcp/`。

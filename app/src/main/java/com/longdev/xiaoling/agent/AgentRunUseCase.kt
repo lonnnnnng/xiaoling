@@ -20,9 +20,11 @@ import kotlinx.coroutines.CancellationException
 class AgentRunUseCase(
     context: Context,
     private val client: OpenAiCompatibleClient,
+    mcpSessionRegistry: McpSessionRegistry? = null,
 ) {
     private val appContext = context.applicationContext
-    private val mcpSessions = (appContext as? XiaoLingApplication)?.mcpSessionRegistry
+    // long: 验收可注入独立配置账本，生产未传入时仍共用 Application 注册表，不让测试改动用户的 MCP 配置。
+    private val mcpSessions = mcpSessionRegistry ?: (appContext as? XiaoLingApplication)?.mcpSessionRegistry
         ?: McpSessionRegistry(AndroidMcpServerStore(appContext))
     private val mcpServerStore = mcpSessions.store
     private val mcpClient = mcpSessions.client("run-${java.util.UUID.randomUUID()}")

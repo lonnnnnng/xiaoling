@@ -1,6 +1,30 @@
 # 验证报告
 
-验证日期：2026-10-17（北京时间）
+验证日期：2026-10-18（北京时间）
+
+# 2026-10-18 第 286 阶段：Context7 与真实模型联合验收收口
+
+- 范围：补齐第 2 点 MCP 的真实网络/模型证据，未扩展 Remote Channel。`AgentRunUseCase` 增加可选 Registry 注入以隔离测试配置，生产默认仍取 Application 单例；Profile/Skill/Runtime/审批/Run/Tool Ledger 使用生产实现。版本保持 `0.1.22 (23)`、Room v40，未推送/发版。
+- 构建/JVM：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*Mcp*' --tests '*ExtendedAgentCapabilitiesTest' --tests '*MinimalAgentRuntimeTest' --tests '*XiaoLingToolRegistryTest' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 28s`，`240 tests / 0 failures / 0 errors / 0 skipped`。后续只增强验收断言及显式匿名参数，AndroidTest 重编译通过。
+- 主机门禁：`python3 -W error::ResourceWarning -m unittest discover -s tools -p 'test_mcp_live_acceptance.py'` 为 `3/3`。启动失败与转发撤销失败同时保留、ADB 退出 0 不掩盖 JUnit 失败、原配置回读失败仍落失败报告；日志中的模拟 `FAIL` 属于这些反例断言，不是设备测试失败。
+- 设备：只用 `wsvwypiz7xwslvl7 / Redmi begonia / SDK 36`，Debug 主 APK 和 AndroidTest APK 分别 `adb -s ... install -r` 成功；保留数据与权限。每个真实单项独立 instrumentation，均有单次 USB 配置 ACK 和断言后的 `STAGE286_EVIDENCE`，没有 assumption skip。下表耗时为主机编排耗时。
+
+| 真实单项 | 结果 | 耗时 | 关键证据 |
+| --- | --- | --- | --- |
+| Context7 Bearer HTTPS | `OK (1 test)` | 6.98s | 协商 `2025-03-26`、发现 2 个工具、返回 Kotlin 文档库 ID，显式启用/停用有效 |
+| `gpt-6-luna` + SSE 成功 | `OK (1 test)` | 31.82s | Run `run-e1c362c7-f1c8-410e-86d8-a45e0f2ea863` COMPLETED；远端 echo 1 次，原参数与 PASSED 结果已回读，settings owner 存活 |
+| `gpt-6-luna` + SSE 取消 | `OK (1 test)` | 16.17s | Run `run-a6a891b3-28aa-409f-9895-5044a832956e` CANCELLED；无活动步骤/调用结果/终态覆盖；断流后迟到投递尝试的 300ms 观察窗中完整 snapshot/ledger 不变，调用仍为 1 |
+| `gpt-6-luna` + SSE 停用 | `OK (1 test)` | 20.87s | Run `run-ff5ea7c6-5300-4edd-a592-3baf8e61227e` COMPLETED；3 次实际模型请求均无 `fixture.echo`，远端调用为 0 |
+| `gpt-6-luna` + Context7 Bearer | `OK (1 test)` | 31.03s | Run `run-66e1bd2c-1574-48d4-a2bd-473f783ceee7` COMPLETED；唯一 `resolve-library-id`，server/tool/两个参数及发现先于调用的事件链均核对 |
+
+- 外部服务：Context7 默认生产 HTTPS/系统 DNS/TLS 与 Streamable HTTP，无响应/DNS/证书注入，只解析公开 Kotlin 文档库，不调用 `query-docs`。认证按已抓取的[官方客户端文档](https://context7.com/docs/resources/all-clients)使用 `Authorization: Bearer`；原 Opencode 的 `enabled=false` 不变，只有隔离内存 Store 启用。
+- 失败保留：首次 Context7 解析断言失败；补文档库 ID 提取和脱敏错误摘要后确认返回 `Invalid API key`。独立主机用原 `CONTEXT7_API_KEY` 头诊断，握手 200、initialized 202、调用 200，但正文同样为 Invalid API key；两次设备失败及诊断均保留，不把握手/非空正文计为业务通过。本机读取值与本次用户提供值一致，核对只保存布尔结果。
+- 显式匿名轮：官方允许的匿名模式另外执行，Context7 两项均 `OK (1 test)`（主机 6.46s、34.92s）；模型 Run `run-4efc4d98-f495-491c-9a33-98a42a7dc578` COMPLETED。这轮期间用户更新了本机 key，因此报告如实记录 `context7ConfigUnchanged=false / completed=false`，不是匿名单项失败；没有改写该报告。收到“已更新”后重新读取 key 的认证轮，两项通过且 `context7ConfigUnchanged=true / completed=true`。
+- 凭据与配置：设备 `run-as` 被 SELinux 拒绝后，使用新建 ADB forward/单次 loopback socket 输入内存凭据，不放入命令参数、共享文件或 APK。Provider HTTP 日志关闭，日志先脱敏；原 MCP/Provider 正式偏好不写入，Run 审计保留；只撤销本轮转发。SSE 三项和最终认证轮的 Opencode 文件前后 SHA-256 相同，用户更新发生在两轮之间。
+- 证据边界：`roomVerified=true` 是 `RESULT_READABLE` 的 PASSED 及持久化，不是额外远端业务回读。取消联合测试采用 Room 请求加协程取消；迟到仅为断流后的投递尝试，不证明客户端收到迟到字节或远端回滚。停用联合测试证明实际 prompt 过滤/零调用，强制拒绝和调用中撤销仍由已有契约门禁覆盖。外部 Context7 是 Streamable HTTP，legacy SSE 服务端仍是 Redmi loopback 夹具。
+- 既有设备回归：最新测试包定向运行 `McpSseSessionInstrumentedTest` 9 项及 `McpE2eInstrumentedTest` 3 项，`OK (12 tests)`、4.978s，无跳过。最新文档重新打包后的 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 首轮 `OK (1 test)`、4.114s；写回本结果后重新打包复验，日志另存 `corpus-final.log`。
+- 交付检查：任务源码/文档和本轮证据文件的三份实际凭据扫描为 0 命中；两个 APK 的所有解压条目也为 0 命中。密钥不进入交付物；既有失效认证与配置变化报告继续保留。
+- 收口：第 2 点统一 Registry/SSE 与本轮联合验收完成，下一主线按原顺序为第 3 点 Context/Memory（第 287 阶段）；OAuth、stdio 沙箱、Tasks、后台 MCP 和正式 Release 独立后置。忽略的 `outputs/verification/stage286-context7/` 保存官方正文、构建/JVM摘要、主机门禁、失效认证、匿名、最终认证、真实模型 SSE、既有回归与文档门禁日志。无关 `refs/` 保留。
 
 # 2026-10-17 第 286 阶段：统一 McpSessionRegistry 与 legacy SSE
 

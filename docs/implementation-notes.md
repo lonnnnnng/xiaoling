@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-18 第 286 阶段：真实 Provider 与 Context7 验收接缝
+
+- `AgentRunUseCase` 可注入隔离 `McpSessionRegistry`，未注入时生产入口不变；新真机门禁继续使用生产 Profile、Skill、Runtime、审批与 Room，不改正式 MCP/Provider 偏好。
+- 真实模型的 SSE 成功、取消和停用检查实际远端计数、终态及完整 snapshot/Tool Ledger；Context7 默认 HTTPS 发现/解析检查确切参数和事件顺序。`PASSED` 为结果可读验证，非独立远端业务回读。
+- `tools/verify_mcp_live_acceptance.py` 经单次 USB socket 输入内存凭据，固定 Redmi、关闭 HTTP 日志、保存脱敏失败报告并检查原配置哈希。匿名和认证显式分轮，失效 key 不自动降级；三个主机异常门禁防止 JUnit 假通过及收尾证据丢失。具体结果见[验证报告](verification-report.md)。
+
 ## 2026-10-17 第 286 阶段：应用级 MCP 注册表和双传输
 
 - `McpSessionRegistry` 按 owner/server 管理初始化、READY 工具 schema、配置冻结与永久撤销。`AgentRunUseCase` 的设置/Run owner 分开，Application 只惰性创建注册表；所有生产配置写入改走注册表，Run 切换/结束和 ViewModel 清除释放各自 owner。
