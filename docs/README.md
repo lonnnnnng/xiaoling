@@ -1,6 +1,8 @@
 # 文档索引
 
-## 当前阶段：第 285 阶段 Remote Channel 正文处理审计
+## 当前阶段：第 285 阶段 Remote Channel 启动对账恢复
+
+- 第五片补齐 Application 异步启动对账：只按原身份、地址与许可代次修复缺失任务，已有同代 Work ID 保留；空账本不初始化调度器，损坏或入队失败保留原设置。见[启动对账恢复](remote-channel-startup-recovery.md)与[验证报告](verification-report.md)。自然周期、LMK/Doze/重启和稳定生产发送方仍待验收。
 
 - 第四片已将正文最终确认打开、忽略和检测到过期的无正文审计与正文删除同次写入 v3 加密快照；兼容 v1/v2，保留去重和 cursor/outbox，历史入口只读。见[正文处理审计](remote-channel-inbox-audit.md)与[验证报告](verification-report.md)。自然系统恢复与稳定生产发送方仍待后续。
 - 第三片历史：每来源独立、默认关闭的 WorkManager 周期任务绑定地址与许可代次；停用、撤销或地址变更取消旧任务。独立通知默认关闭，只导航到待确认列表；配对页重建按原许可修复缺失调度。见[后台收件说明](remote-channel-background.md)。

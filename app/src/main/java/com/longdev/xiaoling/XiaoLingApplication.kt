@@ -1,6 +1,7 @@
 package com.longdev.xiaoling
 
 import android.app.Application
+import android.util.Log
 import androidx.work.Configuration
 import com.longdev.xiaoling.agent.AgentPluginRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
@@ -16,11 +17,34 @@ import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullCheckpoint
 import com.longdev.xiaoling.agent.RemoteChannelBackgroundRegistry
 import com.longdev.xiaoling.agent.RemoteChannelBackgroundController
 import com.longdev.xiaoling.agent.RemoteChannelBackgroundSynchronizer
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundStartupOutcome
+import com.longdev.xiaoling.agent.RemoteChannelBackgroundStartupRecovery
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelBackgroundStateStore
 import com.longdev.xiaoling.remote.AndroidRemoteChannelInboxNotifier
 import com.longdev.xiaoling.remote.WorkManagerRemoteChannelScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 
 class XiaoLingApplication : Application(), Configuration.Provider {
+    private val remoteChannelRecoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    internal lateinit var remoteChannelStartupRecovery: Deferred<RemoteChannelBackgroundStartupOutcome>
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        // long: 许可落盘后、系统入队前退出的间隙不能依赖用户再次打开配对页；启动异步补同代任务，主线程不等待对账，也不恢复 Agent。
+        remoteChannelStartupRecovery = remoteChannelRecoveryScope.async {
+            RemoteChannelBackgroundStartupRecovery.reconcile({ remoteChannelBackgroundRegistry }) { remoteChannelBackgroundController }
+                .also { outcome ->
+                    // long: 日志只记录固定结果，不输出账本异常、来源地址或身份；失败后的原设置仍可从配对页修复。
+                    if (outcome == RemoteChannelBackgroundStartupOutcome.UNAVAILABLE) Log.w("RemoteChannelRecovery", "后台收件启动对账未完成")
+                }
+        }
+    }
+
     /**
      * 应用级注册表让插件启停状态跨 Activity 和进程重建保持一致。
      *
@@ -75,6 +99,6 @@ class XiaoLingApplication : Application(), Configuration.Provider {
     }
 
     override val workManagerConfiguration: Configuration
-        // long: WorkManager 自动初始化已从进程启动阶段移除；保留默认配置，让现有定时任务在首次访问时按官方入口安全初始化。
+        // long: 自动初始化器继续移除；收件空账本不主动访问 WorkManager，已保存后台设置的异步对账才按需初始化。
         get() = Configuration.Builder().build()
 }

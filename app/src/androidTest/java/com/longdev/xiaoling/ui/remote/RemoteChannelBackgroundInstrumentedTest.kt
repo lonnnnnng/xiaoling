@@ -17,6 +17,7 @@ import androidx.work.WorkerParameters
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.longdev.xiaoling.XiaoLingApplication
 import com.longdev.xiaoling.agent.*
 import com.longdev.xiaoling.remote.*
 import com.longdev.xiaoling.storage.*
@@ -24,6 +25,7 @@ import java.security.KeyStore
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -111,7 +113,9 @@ class RemoteChannelBackgroundInstrumentedTest {
         return BackgroundDeviceFixture(context, url, key)
     }
 
-    private fun initializeWork(fixture: BackgroundDeviceFixture): WorkManager {
+    private suspend fun initializeWork(fixture: BackgroundDeviceFixture): WorkManager {
+        // long: 应用启动对账可能正在访问正式 WorkManager，先等其单轮结束再替换测试委托，防止正式许可进入测试数据库。
+        withTimeout(30_000) { (context.applicationContext as XiaoLingApplication).remoteChannelStartupRecovery.await() }
         val factory = object : WorkerFactory() {
             override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
                 if (workerClassName == RemoteChannelReceiveWorker::class.java.name) RemoteChannelReceiveWorker(appContext, workerParameters, fixture.runner) else null

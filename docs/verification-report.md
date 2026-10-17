@@ -2,6 +2,18 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 285 阶段第五片：Application 异步启动任务对账
+
+- 当前开发基线：`XiaoLingApplication.onCreate()` 在 `SupervisorJob + Dispatchers.IO` 启动一轮 `RemoteChannelBackgroundStartupRecovery`，主线程不等待；先读原后台许可，空账本不构建调度器，损坏或构造/调度失败返回 UNAVAILABLE 且保留原存储，取消继续传播。复用应用级 Controller 的互斥锁，只补同一身份/地址/代次的缺失周期任务，已有同代 Work ID 保留；失效或停用来源只撤销/取消，不生成新许可。配对页仍可再次对账。见[启动对账恢复](remote-channel-startup-recovery.md)。
+- 最终本地命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 9s`，首轮为 `16s`。十个聚焦 JVM 类合计 `89 tests / 0 failures / 0 errors / 0 skipped`，新增启动恢复类 8 项；覆盖空/损坏账本惰性依赖、注册表和调度器构造失败、原代次/通知许可保留、入队失败无自动循环且可再次对账、停用/地址变化取消、协程取消及同 Controller 下启动对账与前台停用交错。所有构建与门禁均通过。
+- Redmi `wsvwypiz7xwslvl7 / begonia`、SDK `36`：Debug 主包和 AndroidTest APK 均 `install -r` 成功，用户数据保留；版本保持 `0.1.22 (23)`、Room v40，收件箱 v3 与后台许可 schema v1 不变。没有修改正式 inbox、配对/后台许可、模型配置或通知权限；最终 `POST_NOTIFICATIONS: granted=false`、原 USER_SENSITIVE 标志及 AppOps `ignore`。未使用模拟器或调用模型 API。
+- 新增 `RemoteChannelStartupRecoveryInstrumentedTest` 为 `OK (4 tests)`、`0.865s`，无 assumption skip。真实 Application 启动协程已完成且保持同一 Deferred，固定日志结果为 `NOT_CONFIGURED`；没有以空配置的结果冒充真实已授权来源恢复。其余隔离门禁使用 UUID SharedPreferences 重新构造注册表：模拟许可已落盘但尚未入队，恢复同代任务；再次对账保留相同 Work ID 与通知设置；地址变化使旧许可 INVALIDATED 并取消旧任务；损坏文件保留且不构建调度器。
+- 调度门禁使用独立 WorkManager 测试数据库和隔离 WorkerFactory，未调用 TestDriver、未满足联网约束、没有 fetch 或通知。替换测试委托前等待正式 Application 启动对账结束，收尾只取消夹具 identity 的任务并移除专属偏好文件；不全局取消用户任务。这是偏好重建与受控系统任务对账证据，不是自然执行、跨进程调度数据库恢复或真实公网收件。
+- 受影响回归合计 `OK (14 tests)`、`27.118s`，无失败或跳过：正文审计 3 项、配对页 3 项、密文重建/损坏 2 项、分享确认 UI 3 项、真实 MainActivity 冷/热分享单项，以及标准 Worker 构造与导航令牌 2 项。真实 Activity 使用默认 ViewModel 构造，分享仍可编辑且不自动发送。既有公网 Worker 夹具的初始化补等待启动对账，但该网络路径本片仅编译，没有重新执行公网/周期门禁。
+- 官方正文：经本机 `smart-search 0.1.25 fetch` 获取 Android [自定义 WorkManager 初始化](https://developer.android.com/develop/background-work/background-tasks/persistent/configuration/custom-configuration)（页面更新 2026-02-26，访问 2026-10-17），确认移除默认 initializer 后，`Configuration.Provider` 与 `getInstance(Context)` 按需初始化，无需再次 `initialize`。继续使用 WorkManager `2.11.2`、原 Manifest 与默认配置，没有引入新依赖或启动广播。
+- 执行事实与输出：两路只读子代理均上游 `503 Service Unavailable` 后转由主代理直接核查。`outputs/verification/stage285-startup-recovery/` 保存首轮/最终构建、JVM 摘要、`device.log / startup-outcome.log`、`regression.log`、最终设备状态及官方正文。报告和长期文档保存后重新打包 AndroidTest，再在同一 Redmi 执行 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate`，结果以该目录 `corpus.log` 为准。任务 diff 与凭据扫描通过，输出保持忽略，无关 `refs/` 保留；只做中文本地提交，不推送、不发版。
+- 未验证边界：恢复依赖系统创建应用进程，不能在进程未启动时修复入队间隙，也不保证 force-stop 后后台启动；启动对账完成不表示消息、通知或 ACK 已送达。本片没有自然 15 分钟周期、Doze、自然 LMK、系统重启、厂商后台策略、新公网 transport 或稳定生产发送方认证/队列证据，第 285 阶段整体退出标准仍未满足。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置。
+
 # 2026-10-17 第 285 阶段第四片：打开、忽略与正文过期审计
 
 - 当前开发基线：最终确认打开、列表/确认卡忽略，以及检测到本机入箱满 24 小时，分别保存 `OPENED / IGNORED / EXPIRED`；正文删除和记录同次 AES-GCM 快照提交，去重身份、cursor 和 receipt/outbox 保留。每条记录只有独立 UUID、消息身份摘要、入箱/记录时间和最终结果，最多保留最近 128 条；只读入口显示最新 10 条。列表“打开”只展示确认卡，不追加已打开记录；OPENED 只表示用户决定已提交，不证明编辑器已显示、发送或执行。见[正文处理审计](remote-channel-inbox-audit.md)。

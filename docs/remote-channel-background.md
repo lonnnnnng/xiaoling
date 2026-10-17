@@ -18,7 +18,7 @@
 
 网络/超时/5xx 和尚未结束的持久退避可返回系统重试，WorkManager 指数退避从 30 秒开始，每个周期最多 3 次重试（加初次共 4 次尝试）。既有 checkpoint 在建连前再次阻断过早请求，不能用系统调度绕过最多 1 小时的持久退避。4xx、格式/签名/身份拒绝和存储错误不进行该周期的网络重试，receipt 不丢弃。约束丢失或 Worker 停止会取消 HTTPS 协程；上一次已提交 outbox 在后续任务优先补发。
 
-许可提交与 WorkManager 入队属于不同存储，配对页重建时进行有界对账：同一来源/地址/代次的有效任务保留，缺失任务补入队，失效或停用任务取消。对账不生成新代次、不替新 URL 授权。WorkManager 自身保留已入队任务；若在许可落盘后、系统入队前中断，这个间隙需要下一次打开配对页修复。应用不会用 force-stop 后的普通后台恢复作为保证，系统对周期工作也不提供准时送达承诺。
+许可提交与 WorkManager 入队属于不同存储。第五片已将有界对账接入 Application 的异步启动入口，配对页也保留原入口：同一来源/地址/代次的有效任务保留，缺失任务补入队，失效或停用任务取消。空账本不构建调度器，损坏或调度失败不清空原设置、不循环重试；对账不生成新代次、不替新 URL 授权。许可落盘后、系统入队前中断的间隙可在下一次进程启动或打开配对页修复；应用进程未启动时不保证修复，force-stop 后普通后台恢复和周期准时送达仍不作承诺。详见[启动对账恢复](remote-channel-startup-recovery.md)。
 
 ## 独立通知
 
@@ -32,4 +32,4 @@
 
 已抓取 Android 官方正文（2026-10-17）：[定义工作](https://developer.android.com/develop/background-work/background-tasks/persistent/getting-started/define-work)、[管理与取消工作](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/manage-work)、[通知运行时权限](https://developer.android.com/develop/ui/views/notifications/notification-permission)、[WorkManager 集成测试](https://developer.android.com/develop/background-work/background-tasks/testing/persistent/integration-testing)。正文确认周期执行受约束/系统优化影响、约束失效停止 Worker、`Result.retry` 与退避、用户拒绝通知权限时阻断通知。
 
-JVM 覆盖许可、代次、损坏/写失败、调度失败回滚、对账、取消、通知去重和退避边界。Redmi 测试使用 WorkManager TestDriver 控制网络条件与周期，并由独立 Python/OpenSSL 公网夹具验证 Worker 的真实 DNS/TLS/批次/ACK；它证明受控调度下的实际 Worker 执行，不证明自然 15 分钟周期、Doze、自然 LMK、系统重启、厂商后台策略或稳定生产发送方。通知/令牌测试与公网合成消息分开记录，实际结果见[验证报告](verification-report.md)。第四片已补[正文处理审计](remote-channel-inbox-audit.md)，上述自然恢复证据仍待后续。
+JVM 覆盖许可、代次、损坏/写失败、调度失败回滚、对账、取消、通知去重和退避边界。Redmi 测试使用 WorkManager TestDriver 控制网络条件与周期，并由独立 Python/OpenSSL 公网夹具验证 Worker 的真实 DNS/TLS/批次/ACK；它证明受控调度下的实际 Worker 执行，不证明自然 15 分钟周期、Doze、自然 LMK、系统重启、厂商后台策略或稳定生产发送方。通知/令牌测试与公网合成消息分开记录，实际结果见[验证报告](verification-report.md)。第四片已补[正文处理审计](remote-channel-inbox-audit.md)，第五片补启动对账入口；上述自然恢复证据仍待后续。

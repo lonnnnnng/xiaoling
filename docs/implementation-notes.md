@@ -1,5 +1,11 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第五片：异步启动任务对账
+
+- `XiaoLingApplication.onCreate()` 在独立 `SupervisorJob + Dispatchers.IO` 启动一次 `RemoteChannelBackgroundStartupRecovery`，不在主线程等待。预读后台账本后才构建 Controller，空/损坏账本不访问调度器，保留现有 WorkManager 按需初始化和默认配置。
+- 复用应用级 `RemoteChannelBackgroundController` 的互斥锁及 `ensureScheduled()`，保留同代 Work ID、许可和通知设置；只对失效或停用来源取消。失败隔离为 `UNAVAILABLE`，固定日志不含异常正文，取消继续传播；原配对页入口保留。
+- JVM 验证空/损坏/构造失败、原代次保留、入队失败后再对账和停用交错；Redmi 另验实际 Application 启动及 UUID 偏好重建、隔离系统任务保留/取消。WorkManager 测试委托替换前等待正式启动对账完成；没有 TestDriver、联网或自然系统回收证据。详见[启动对账恢复](remote-channel-startup-recovery.md)。
+
 ## 2026-10-17 第 285 阶段第四片：加密正文处理记录
 
 - `RemoteChannelInboxAuditPolicy` 以独立 UUID、消息身份摘要、入箱/记录时间和最终结果组成 128 条有界历史。`InMemoryRemoteChannelInbox` 在最终决定和惰性过期清理时，同次提交正文删除与审计，保留去重和 batchStates；并发不重复处理正文。

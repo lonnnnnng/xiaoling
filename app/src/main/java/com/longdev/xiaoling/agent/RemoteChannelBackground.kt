@@ -183,7 +183,7 @@ class RemoteChannelBackgroundController(
             val peer = peers.singleOrNull { it.enabled && RemoteChannelPullReliabilityPolicy.sourceIdentity(it.candidate) == entry.sourceIdentity }?.candidate
             val source = peer?.let(sources::sourceFor)
             if (entry.enabled && source != null && RemoteChannelBatchProtocol.endpointHash(source) == entry.endpointSha256) {
-                // long: 许可提交与系统入队不在同一个数据库；前台重建只补同一已授权代次的缺失任务，不替新地址创建许可。
+                // long: 许可提交与系统入队不在同一个数据库；启动或配对页对账只补同一已授权代次的缺失任务，不替新地址创建许可。
                 scheduler.ensureScheduled(entry)
             } else {
                 if (entry.enabled) registry.disable(entry.sourceIdentity, RemoteChannelBackgroundOutcome.INVALIDATED)
