@@ -8,6 +8,8 @@ import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -82,12 +84,15 @@ class RemoteChannelPullTest {
             assertEquals("GET", request.method)
             jsonResponse(request, envelopeJson(envelope))
         }
-        val service = RemoteChannelPullService(pairings, sources, inbox, puller)
+        val checkpoints = RemoteChannelPullCheckpointRegistry(TestCheckpointStore()) { now }
+        val service = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints)
         assertTrue(service.pull(peer) is RemoteChannelReceiveResult.Accepted)
         assertEquals("message-1", (inbox.status() as RemoteChannelInboxStatus.Ready).pending.single().draft.messageId)
         assertEquals(RemoteChannelRejectionReason.DUPLICATE_MESSAGE,
             (service.pull(peer) as RemoteChannelReceiveResult.Rejected).reason)
         assertEquals(2, calls)
+        assertEquals(emptyList<String>(),
+            checkpoints.get(RemoteChannelPullReliabilityPolicy.sourceIdentity(peer))?.pendingAckMessageIds)
         pairings.setEnabled(peer.channelId, peer.senderId, peer.keyId, false)
         assertTrue(runCatching { service.pull(peer) }.isFailure)
         assertEquals(2, calls)
@@ -124,6 +129,135 @@ class RemoteChannelPullTest {
             assertTrue(job.isCancelled)
         } finally {
             // long: MockWebServer 的延迟响应队列要在关闭前走完；取消时限已经在上面独立断言。
+            Thread.sleep(1_100)
+            server.shutdown()
+        }
+    }
+
+    @Test fun serverBackoffSurvivesRegistryRecreationAndBlocksNetworkUntilDue() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        var clock = now
+        var calls = 0
+        var code = 503
+        val store = TestCheckpointStore()
+        val puller = fakePuller { request ->
+            calls += 1
+            response(request, code, envelopeJson(signed("message-1", "sender")), "application/json")
+        }
+        val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        var checkpoints = RemoteChannelPullCheckpointRegistry(store) { clock }
+        var service = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints)
+        assertTrue(runCatching { service.pull(peer) }.exceptionOrNull() is RemoteChannelPullHttpException)
+        assertEquals(RemoteChannelPullErrorCode.SERVER_5XX.name, checkpoints.get(identity)?.lastErrorCode)
+        checkpoints = RemoteChannelPullCheckpointRegistry(store) { clock }
+        service = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints)
+        assertTrue(runCatching { service.pull(peer) }.exceptionOrNull() is RemoteChannelPullDeferredException)
+        assertEquals(1, calls)
+        clock += 30_000L
+        code = 200
+        assertTrue(service.pull(peer) is RemoteChannelReceiveResult.Accepted)
+        assertEquals(emptyList<String>(), checkpoints.get(identity)?.pendingAckMessageIds)
+        assertEquals("message-1", checkpoints.get(identity)?.lastMessageId)
+        assertEquals(0, checkpoints.get(identity)?.consecutiveFailures)
+        assertEquals(null, checkpoints.get(identity)?.lastErrorCode)
+        assertEquals(2, calls)
+    }
+
+    @Test fun timeoutRemainsTimeoutAndCorruptLedgerNeverStartsRequest() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        var calls = 0
+        val puller = fakePuller { calls += 1; throw java.net.SocketTimeoutException("fixture timeout") }
+        val checkpoints = RemoteChannelPullCheckpointRegistry(TestCheckpointStore()) { now }
+        assertTrue(runCatching {
+            RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints).pull(peer)
+        }.exceptionOrNull() is java.net.SocketTimeoutException)
+        assertEquals(RemoteChannelPullErrorCode.TIMEOUT.name,
+            checkpoints.get(RemoteChannelPullReliabilityPolicy.sourceIdentity(peer))?.lastErrorCode)
+        val corrupt = RemoteChannelPullCheckpointRegistry(TestCheckpointStore("{broken")) { now }
+        assertTrue(runCatching { RemoteChannelPullService(pairings, sources, inbox, puller, corrupt).pull(peer) }.isFailure)
+        assertEquals(1, calls)
+    }
+
+    @Test fun badIdentityAndHttpRejectionRemainManuallyRecoverable() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        val checkpoints = RemoteChannelPullCheckpointRegistry(TestCheckpointStore()) { now }
+        val identity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        val wrong = fakePuller { request -> jsonResponse(request, envelopeJson(signed("wrong", "other"))) }
+        assertTrue(runCatching {
+            RemoteChannelPullService(pairings, sources, inbox, wrong, checkpoints).pull(peer)
+        }.exceptionOrNull() is RemoteChannelPullIdentityMismatchException)
+        assertEquals(RemoteChannelPullErrorCode.IDENTITY_MISMATCH.name, checkpoints.get(identity)?.lastErrorCode)
+        val denied = fakePuller { request -> response(request, 403, "", "application/json") }
+        assertTrue(runCatching { RemoteChannelPullService(pairings, sources, inbox, denied, checkpoints).pull(peer) }.isFailure)
+        assertEquals(RemoteChannelPullErrorCode.SERVER_4XX.name, checkpoints.get(identity)?.lastErrorCode)
+        val good = fakePuller { request -> jsonResponse(request, envelopeJson(signed("good", "sender"))) }
+        assertTrue(RemoteChannelPullService(pairings, sources, inbox, good, checkpoints).pull(peer) is RemoteChannelReceiveResult.Accepted)
+    }
+
+    @Test fun checkpointWriteFailureDoesNotRetryStoreOrLoseAcceptedInboxMessage() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        val store = TestCheckpointStore().apply { failWrites = true }
+        val checkpoints = RemoteChannelPullCheckpointRegistry(store) { now }
+        var calls = 0
+        val puller = fakePuller { request -> calls += 1; jsonResponse(request, envelopeJson(signed("message-1", "sender"))) }
+        val service = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints)
+        assertTrue(runCatching { service.pull(peer) }.isFailure)
+        assertEquals(1, store.writes)
+        assertTrue(!checkpoints.isAvailable())
+        assertEquals("message-1", (inbox.status() as RemoteChannelInboxStatus.Ready).pending.single().draft.messageId)
+        assertTrue(runCatching { service.pull(peer) }.isFailure)
+        assertEquals(1, calls)
+        assertEquals(1, store.writes)
+    }
+
+    @Test fun signatureRejectionIsRecordedWithoutCreatingAckOrInboxDraft() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        val store = TestCheckpointStore()
+        val checkpoints = RemoteChannelPullCheckpointRegistry(store) { now }
+        val envelope = signed("message-1", "sender").copy(text = "篡改后的正文")
+        val puller = fakePuller { request -> jsonResponse(request, envelopeJson(envelope)) }
+        val result = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints).pull(peer)
+        assertEquals(RemoteChannelRejectionReason.INVALID_SIGNATURE, (result as RemoteChannelReceiveResult.Rejected).reason)
+        val checkpoint = checkpoints.get(RemoteChannelPullReliabilityPolicy.sourceIdentity(peer))!!
+        assertEquals(RemoteChannelPullErrorCode.REJECTED_MESSAGE.name, checkpoint.lastErrorCode)
+        assertTrue(checkpoint.pendingAckMessageIds.isEmpty())
+        assertTrue((inbox.status() as RemoteChannelInboxStatus.Ready).pending.isEmpty())
+    }
+
+    @Test fun queuedPullCannotBypassFailureBackoff() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        var calls = 0
+        val puller = fakePuller { request -> calls += 1; response(request, 503, "", "application/json") }
+        val checkpoints = RemoteChannelPullCheckpointRegistry(TestCheckpointStore()) { now }
+        val service = RemoteChannelPullService(pairings, sources, inbox, puller, checkpoints)
+        val results = List(2) { async(Dispatchers.Default) { runCatching { service.pull(peer) } } }.awaitAll()
+        assertEquals(1, calls)
+        assertEquals(1, results.count { it.exceptionOrNull() is RemoteChannelPullHttpException })
+        assertEquals(1, results.count { it.exceptionOrNull() is RemoteChannelPullDeferredException })
+    }
+
+    @Test fun cancelledServicePullDoesNotPoisonCheckpoint() = runBlocking {
+        sources.save(peer, "https://inbox.example/next")
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+            .setBodyDelay(1, TimeUnit.SECONDS).setBody("{}"))
+        server.start()
+        try {
+            val headers = CountDownLatch(1)
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().url(server.url("/fixture")).build()).also { headers.countDown() }
+            }.build()
+            val store = TestCheckpointStore()
+            val checkpoints = RemoteChannelPullCheckpointRegistry(store) { now }
+            val service = RemoteChannelPullService(pairings, sources, inbox, RemoteChannelHttpsPuller(client = client), checkpoints)
+            val job = launch(Dispatchers.Default) { service.pull(peer) }
+            assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+            assertTrue(headers.await(2, TimeUnit.SECONDS))
+            withTimeout(2_000) { job.cancelAndJoin() }
+            assertTrue(checkpoints.isAvailable())
+            assertEquals(null, store.state)
+            assertTrue((inbox.status() as RemoteChannelInboxStatus.Ready).pending.isEmpty())
+        } finally {
             Thread.sleep(1_100)
             server.shutdown()
         }
@@ -168,5 +302,15 @@ class RemoteChannelPullTest {
         var snapshot: RemoteChannelInboxSnapshot? = null
         override fun loadSnapshot(): RemoteChannelInboxSnapshot? = snapshot
         override fun saveSnapshot(snapshot: RemoteChannelInboxSnapshot) { this.snapshot = snapshot }
+    }
+    private class TestCheckpointStore(var state: String? = null) : RemoteChannelPullCheckpointStateStore {
+        var failWrites = false
+        var writes = 0
+        override fun loadState(): String? = state
+        override fun saveState(state: String) {
+            writes += 1
+            check(!failWrites) { "fixture commit failure" }
+            this.state = state
+        }
     }
 }

@@ -7,10 +7,12 @@ import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
 import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
 import com.longdev.xiaoling.agent.RemoteChannelPullService
 import com.longdev.xiaoling.agent.RemoteChannelPullSourceRegistry
+import com.longdev.xiaoling.agent.RemoteChannelPullCheckpointRegistry
 import com.longdev.xiaoling.storage.KeystoreRemoteChannelInboxStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesAgentPluginStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPairingStateStore
 import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullSourceStateStore
+import com.longdev.xiaoling.storage.SharedPreferencesRemoteChannelPullCheckpointStateStore
 
 class XiaoLingApplication : Application(), Configuration.Provider {
     /**
@@ -41,7 +43,17 @@ class XiaoLingApplication : Application(), Configuration.Provider {
     }
 
     val remoteChannelPullService: RemoteChannelPullService by lazy {
-        RemoteChannelPullService(remoteChannelPairingRegistry, remoteChannelPullSourceRegistry, remoteChannelInboxGateway)
+        RemoteChannelPullService(
+            remoteChannelPairingRegistry,
+            remoteChannelPullSourceRegistry,
+            remoteChannelInboxGateway,
+            checkpoints = remoteChannelPullCheckpointRegistry,
+        )
+    }
+
+    /** long: 网络失败后的退避和待 ACK 身份跨进程重建保留；正文仍只在独立 Keystore 收件箱中保存。 */
+    val remoteChannelPullCheckpointRegistry: RemoteChannelPullCheckpointRegistry by lazy {
+        RemoteChannelPullCheckpointRegistry(SharedPreferencesRemoteChannelPullCheckpointStateStore(this))
     }
 
     override val workManagerConfiguration: Configuration

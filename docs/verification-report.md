@@ -1,6 +1,15 @@
 # 验证报告
 
-验证日期：2026-10-14（北京时间）
+验证日期：2026-10-17（北京时间）
+
+# 2026-10-17 第 285 阶段第一片：Remote Channel 持久退避账本
+
+- 当前验证基线：前台 HTTPS 单条收件的独立 checkpoint、网络/超时/5xx 指数退避、取消不记故障、协议拒绝可手动恢复、严格 codec、commit 失败冻结与满容量不淘汰。生产由 `XiaoLingApplication` 注入 SharedPreferences 账本；正式产物和发布提交仍沿用下节 `v0.1.22 / c829fcb`，本轮没有构建或发布新 Release。
+- 最终本地命令：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*RemoteChannel*' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 10s`。六个 Remote Channel JVM 类合计 `45 tests / 0 failures / 0 errors / 0 skipped`。覆盖持久重建、严格字段/类型、时间与计数溢出、身份轮换隔离、ACK 容量/幂等移除、来源容量、协议修复、超时分类、签名拒绝、并发请求退避、取消及入箱后账本写失败。
+- Redmi `wsvwypiz7xwslvl7 / begonia`：Debug 与 AndroidTest APK 均 `install -r` 成功，版本保持 `0.1.22 (23)`，保留用户数据。`RemoteChannelPullCheckpointStateStoreInstrumentedTest#retryAndAckStateSurviveStoreRecreationAndCorruptionFreezesWrites` 与既有来源存储测试合并 `OK (2 tests)`、`0.169s`，使用 UUID 隔离偏好文件。
+- 受控进程恢复：`retrySurvivesSeparateInstrumentationProcesses` 分别以 `remoteCheckpointPhase=seed/restore` 和同一受前缀约束的测试账本运行；seed 为 `OK (1 test)`、`0.067s`、PID `7243`。随后执行 `adb -s wsvwypiz7xwslvl7 shell am force-stop com.longdev.xiaoling`，restore 在不同 PID `7286` 为 `OK (1 test)`、`0.123s`；cursor、预留 ACK 身份和 `31_000` 毫秒退避时间恢复，过早尝试被拒绝。此处是受控进程重建，不是自然 LMK 或生产断网证据；restore 后只移除隔离测试偏好文件，测试 APK 保留。
+- 审计日志：`outputs/verification/stage285/build.log`、`storage.log`、`seed.log`、`restore.log`；本节写入后的文档语料门禁结果以同目录 `corpus.log` 为准。`git diff --check` 通过；早期只读目录检索遇到仓库没有 `.github/`、`scripts/`，未影响构建。两次只读子代理因上游 503 失败，后续核查由主代理完成。
+- 未验证边界：HTTP/超时/并发/取消服务测试使用 JVM 拦截器或 loopback MockWebServer，没有新增真实公网收件证据。当前网络仍为九字段单条响应，成功不累积待 ACK 队列；cursor/ACK 是本地预留能力，没有服务端协议、批次、网络 ACK、后台收件、通知或跨存储事务/outbox 对账。完整 JVM、Lint、Release 和全量 instrumentation 按分级策略后置，未使用模拟器。
 
 # 2026-10-14 发布 v0.1.22（versionCode 23）
 

@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-17 第 285 阶段第一片：Remote Channel 持久退避
+
+- `RemoteChannelPullCheckpointRegistry` 与 `SharedPreferencesRemoteChannelPullCheckpointStateStore` 在独立偏好文件保存来源身份、cursor、待 ACK 消息 ID、失败次数、退避时间及错误码。JSON codec 拒绝隐式字符串/数字转换、非法 null 字段、未知字段、重复来源和越界值；读盘或写盘失败 fail-closed。
+- `RemoteChannelPullService` 由 Application 注入生产账本，Mutex 串行消费前台请求；先核对退避和容量，再建连。网络/超时/5xx 写指数退避；4xx/协议/身份/验签拒绝只记录非重试错误，修复后允许下一次手动尝试。取消原样抛出，不产生 checkpoint；OkHttp 原始超时异常类型保留。
+- 当前兼容单条接口没有 ACK 协议，成功只清除退避和保存最近消息，不积累无法发送的 ACK 队列。Registry 预留显式待 ACK 写入与幂等移除；重复消息不会新增待 ACK 身份，因为同一 nonce 被换成新 messageId 也会被判重。cursor 仅经明确本地写入更新，重复/失败/ACK 移除不推进 cursor。满容量保留原状态，不淘汰旧记录；持久 commit 成功后才发布新内存视图。
+- 收件箱快照与 checkpoint 当前不在同一事务：若入箱成功后 checkpoint commit 失败，正文仍保留，当前注册表冻结，错误返回给用户；下一片必须增加对账/outbox，不能以这片代码宣称 ACK 网络可靠投递。批次/cursor/ACK transport、后台收件、通知和过期审计仍未接入，现有 24 小时正文保留规则继续有效。
+
 ## 2026-10-14 发布 v0.1.22（versionCode 23）
 
 - 本版发布前台 Remote Channel：P-256 配对身份、九字段签名 JSON 手动导入、已登记 HTTPS 来源主动拉取一条、Keystore 加密待确认箱与用户确认卡。公网临时合成服务的真机 DNS/TLS 和独立进程签名互通已验证；稳定生产发送方、游标/ACK、后台送达和通知仍未实现或验收。

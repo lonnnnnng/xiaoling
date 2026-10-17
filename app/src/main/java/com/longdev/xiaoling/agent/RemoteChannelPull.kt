@@ -7,7 +7,12 @@ import java.net.Proxy
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.CookieJar
@@ -193,7 +198,8 @@ class RemoteChannelHttpsPuller(
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    continuation.resumeWith(Result.failure(IOException("HTTPS 收件失败：${e.message ?: "网络错误"}", e)))
+                    // long: 保留原始异常类型供退避账本区分超时与断网，避免包装后所有故障都退化成 NETWORK。
+                    continuation.resumeWith(Result.failure(e))
                 }
 
                 override fun onResponse(call: Call, response: Response) {
@@ -207,7 +213,7 @@ class RemoteChannelHttpsPuller(
     }
 
     private fun readEnvelope(response: Response, isActive: () -> Boolean): RemoteChannelEnvelope {
-        require(response.code == 200) { "HTTPS 收件返回 HTTP ${response.code}" }
+        if (response.code != 200) throw RemoteChannelPullHttpException(response.code)
         require(response.header("Content-Type")?.substringBefore(';')?.trim()?.equals("application/json", true) == true) {
             "HTTPS 收件响应不是 JSON"
         }
@@ -236,15 +242,52 @@ class RemoteChannelPullService(
     private val sources: RemoteChannelPullSourceRegistry,
     private val inbox: RemoteChannelInboxGateway,
     private val puller: RemoteChannelHttpsPuller = RemoteChannelHttpsPuller(),
+    private val checkpoints: RemoteChannelPullCheckpointRegistry? = null,
 ) {
-    suspend fun pull(peer: RemoteChannelPeerCandidate): RemoteChannelReceiveResult {
+    private val pullMutex = Mutex()
+
+    // long: 前台服务串行消费单条响应，后一个请求必须看到前一个请求已提交的退避，避免并发点击绕过账本。
+    suspend fun pull(peer: RemoteChannelPeerCandidate): RemoteChannelReceiveResult = pullMutex.withLock {
         val source = sources.sourceFor(peer) ?: throw IllegalArgumentException("该身份尚未登记 HTTPS 来源")
+        val sourceIdentity = RemoteChannelPullReliabilityPolicy.sourceIdentity(peer)
+        checkpoints?.beforeAttempt(sourceIdentity)
         require(pairings.active(peer.channelId, peer.senderId, peer.keyId) == peer) { "请先启用当前配对身份" }
-        val envelope = puller.fetch(source.url)
-        require(sources.sourceFor(peer) == source) { "HTTPS 来源在拉取期间已变化" }
-        require(envelope.channelId == peer.channelId && envelope.senderId == peer.senderId && envelope.keyId == peer.keyId) {
-            "HTTPS 来源返回了其他身份的签名消息"
+        val envelope = try {
+            val envelope = puller.fetch(source.url)
+            currentCoroutineContext().ensureActive()
+            require(sources.sourceFor(peer) == source) { "HTTPS 来源在拉取期间已变化" }
+            if (envelope.channelId != peer.channelId || envelope.senderId != peer.senderId || envelope.keyId != peer.keyId) {
+                throw RemoteChannelPullIdentityMismatchException()
+            }
+            envelope
+        } catch (cancelled: CancellationException) {
+            // long: 用户离开或取消不等于发送方故障，不能污染跨重启退避或阻止下一次主动收件。
+            throw cancelled
+        } catch (error: Exception) {
+            val code = RemoteChannelPullReliabilityPolicy.classify(error)
+            if (code == RemoteChannelPullErrorCode.NETWORK || code == RemoteChannelPullErrorCode.TIMEOUT ||
+                code == RemoteChannelPullErrorCode.SERVER_5XX
+            ) {
+                checkpoints?.recordRetryableFailure(sourceIdentity, error)
+            } else {
+                checkpoints?.recordNonRetryableFailure(sourceIdentity, code)
+            }
+            throw error
         }
-        return inbox.receive(envelope)
+        // long: 入箱与 checkpoint 属于两份持久存储；账本写失败直接暴露给调用方，不伪造成发送方协议失败再写一次。
+        val result = inbox.receive(envelope)
+        when (result) {
+            // long: 兼容单条接口没有 ACK 协议，成功只清退避并保存最近消息；不能积累永远无法发送的 ACK 队列堵住旧入口。
+            is RemoteChannelReceiveResult.Accepted -> checkpoints?.recordAccepted(sourceIdentity, envelope.messageId.trim(), awaitingAck = false)
+            is RemoteChannelReceiveResult.Rejected -> if (result.reason == RemoteChannelRejectionReason.DUPLICATE_MESSAGE) {
+                // long: 重复 nonce 也会返回 DUPLICATE_MESSAGE，因此不能把这次消息 ID 新增为已安全入箱的 ACK 身份。
+                checkpoints?.recordDuplicate(sourceIdentity, envelope.messageId.trim())
+            } else {
+                checkpoints?.recordNonRetryableFailure(sourceIdentity,
+                    if (result.reason == RemoteChannelRejectionReason.DEDUPE_PERSISTENCE_FAILURE) RemoteChannelPullErrorCode.STORAGE
+                    else RemoteChannelPullErrorCode.REJECTED_MESSAGE)
+            }
+        }
+        result
     }
 }

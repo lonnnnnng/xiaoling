@@ -1,6 +1,8 @@
 # 文档索引
 
-## 当前阶段：Remote Channel 主动 HTTPS 收件与前台待确认列表
+## 当前阶段：第 285 阶段 Remote Channel 持久退避第一片
+
+- 前台 HTTPS 单条拉取已增加独立 checkpoint 与跨重建退避，取消不记故障，损坏/写盘失败冻结，满容量保留旧记录。cursor/待 ACK 身份只为本地预留字段；服务端批次/ACK、后台送达与通知仍待后续切片。验证范围见[最新报告](verification-report.md)，正式 Release 仍为 `v0.1.22`。
 
 - `v0.1.22` 已发布 P-256 已启用配对身份的手动九字段 JSON 导入、已登记 HTTPS 来源的前台单条拉取、加密待确认列表和会话确认卡。Redmi 已通过临时公网 HTTPS 合成发送方的真实 DNS/TLS、验签、加密入箱及拒绝路径单项；稳定生产发送方、后台收件与通知仍待下一阶段。详见[签名收件协议](remote-channel-signed-import.md)、[路线图](personal-agent-roadmap.md)和[最新验证报告](verification-report.md)。
 - 下方第 251 至 284 阶段及既有发布记录是历史验收背景，具体边界以当前源码与报告顶部为准。
