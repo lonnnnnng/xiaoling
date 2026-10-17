@@ -2,6 +2,20 @@
 
 验证日期：2026-10-17（北京时间）
 
+# 2026-10-17 第 286 阶段：统一 McpSessionRegistry 与 legacy SSE
+
+- 主线收口：第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口；稳定部署、容量回收、自然系统恢复、真实通知及 Release 验收独立列在路线图，不再扩展 Remote Channel 切片。当前实现进入第 2 点 MCP，详细契约见[MCP 注册表与 SSE](mcp-session-registry.md)。
+- 生产接入：Application 统一持有注册表，Run/settings owner 分开；完整握手与工具 schema 分页后才发布 READY。编辑、停用、删除、白名单变化先永久撤销所有相关传输，保存失败冻结旧配置。Run 切换/结束只撤销本 owner；ViewModel generation/Job 阻止旧发现恢复目录。指纹改用长度编码 SHA-256，凭据仍在 Keystore 加密保存。
+- SSE：默认生产 OkHttp 完成 GET 事件流、同源 endpoint、POST JSON-RPC 和 message/id 匹配；六个 API、目录分页、断流/目录通知清理、显式重握手与 schema 恢复均接入。严格 UTF-8、512 KiB 事件、15 秒 endpoint/60 秒请求、32 pending/5 分钟流期限。Streamable HTTP SSE 增量读到匹配响应就返回，session 404 后不在原调用内重试。
+- 核验修复：两个只读子代理分别核验生命周期和传输，发现撤销后旧 action 可重握手、OkHttp 503/Retry-After:0 follow-up 可重发 RPC。增加永久 `retire()` 门禁与 `isOneShot()` 请求体，并用可控 dispatch 间隙和两传输 503 反例验证：撤销后 tools/call 为 0，503 后 tools/call 为 1。
+- 失败保留：首轮聚焦 JVM 107 项有 6 项因跨线程 Response.close/read 触发 `Unbalanced enter/exit`；改为 Call.cancel 中断、读取线程 use 关闭后 107 项通过。随后新增 HTTP body 取消测试误用“收到字节”回调观察“开始读取”，115 项中 1 项等待超时；改为第一次 Source.read 观察后通过。失败和修复日志均保留，未用历史通过覆盖失败。
+- 最终 JVM/构建：`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew :app:testDebugUnitTest --tests '*Mcp*' --tests '*ExtendedAgentCapabilitiesTest' --tests '*MinimalAgentRuntimeTest' --tests '*XiaoLingToolRegistryTest' :app:assembleDebug :app:assembleDebugAndroidTest --console=plain` 为 `BUILD SUCCESSFUL in 10s`，6 类合计 `240 tests / 0 failures / 0 errors / 0 skipped`。新增/扩展 21 项覆盖 SSE 九个契约、UTF-8/endpoint/JSON-RPC/大小、body 取消、404、旧代次、503、配置保存失败冻结，以及停用工具不进入模型可见正文、Run结束保留设置连接。
+- 发布边界：版本保持 `0.1.22 (23)`、Room v40；未执行全量 JVM/Lint/Release，不推送、不发版。
+- 首轮设备验证：仅 Redmi `wsvwypiz7xwslvl7 / begonia / SDK 36`，主 APK 和测试 APK `adb -s ... install -r` 均成功，未卸载、清数据或改权限。`McpSseSessionInstrumentedTest` 9 项加既有 `McpE2eInstrumentedTest` 3 项为 `OK (12 tests)`、`5.116s`，无 assumption skip。全部使用默认真实 OkHttp/socket 与 loopback 合成服务、内存 Store/合成 Token，不读取正式 MCP/Provider 配置或调用模型 API。
+- 最终设备/文档：最新源码和文档重新打包并覆盖安装后，同一 Redmi 的 SSE/注册表 9 项、既有 MCP 3 项及 `RoomKnowledgeDocumentStoreInstrumentedTest#projectDocumentationCorpusMeetsGoldenQueryRecallGate` 为 `OK (13 tests)`、`9.12s`，无失败或跳过。日志为 `device-final-with-corpus.log`；本报告补结果后的文档重打包与单项记录另存 `corpus-final.log`。
+- 证据分级：以上证明真实 JVM/Android socket、受控断流与取消，以及模型可见工具目录过滤；尚无真实外部 MCP 服务和真实模型 Provider 联合验收，不宣称公网 DNS/TLS 或正式 Release 已通过。OAuth、stdio 沙箱、Tasks、后台 MCP 后置。取消不证明远端副作用回滚；无 `notifications/cancelled` 或自动 tools/call 重放。
+- 审计目录：忽略的 `outputs/verification/stage286-mcp/` 保存官方正文、编译、失败/最终 JVM、`jvm-summary.json`、设备 MCP 与文档语料日志；源码和长期文档不包含凭据。无关 `refs/` 保留。
+
 # 2026-10-17 第 285 阶段第九片：认证 HTTP 服务与真实 HTTPS 合成验收
 
 - 范围：新增 `tools/remote_channel_http.py`，只绑定 `127.0.0.1`，固定完整 HTTPS endpoint 来自启动配置。网络只调用 `AuthenticatedSender.execute`，没有裸 GET/ACK 或管理旁路；既有队列/认证扩展/发送私钥缺失或损坏时拒绝启动，不自动初始化或换钥。详细契约见[认证 HTTP 服务](remote-channel-http-service.md)。开发版本仍 `0.1.22 (23)`、Room v40，未推送/发版。

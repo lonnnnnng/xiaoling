@@ -5005,6 +5005,33 @@ class XiaoLingToolRegistryTest {
         assertNotNull(profileRegistry.definition("tasks.retry"))
     }
 
+    @Test
+    fun unifiedSseRegistryHidesDisabledToolsFromModelContentAndRunFinishKeepsSettingsAlive() = kotlinx.coroutines.runBlocking {
+        McpSseFixture().use { fixture ->
+            val config = fixture.config()
+            val sessions = McpSessionRegistry(McpFixtureStore(config))
+            try {
+                val settings = sessions.client("settings")
+                val registry = testRegistry(mcpServerStore = sessions.store, mcpClient = sessions.client("run"))
+                registry.bindRunContext(AgentToolExecutionContext("conversation", "message", "run-mcp", "测试 MCP"))
+                val list = ToolCall(name = "mcp.list_tools", arguments = mapOf("server_id" to config.id), risk = ToolRisk.SAFE)
+                assertTrue(registry.execute(list).content.contains("fixture.echo"))
+                val disabled = sessions.updateToolAccess(config.id, setOf("fixture.echo"), "fixture.echo", false)
+                val hidden = registry.execute(list)
+                assertTrue(hidden.success)
+                assertFalse(hidden.content.contains("fixture.echo"))
+                val call = registry.execute(ToolCall(name = "mcp.call", arguments = mapOf("server_id" to config.id,
+                    "tool_name" to "fixture.echo", "arguments_json" to "{\"text\":\"blocked\"}"), risk = ToolRisk.REQUIRES_APPROVAL))
+                assertFalse(call.success)
+                assertEquals(0, fixture.methodCount("tools/call"))
+                settings.listTools(disabled)
+                registry.onRunFinished("run-mcp")
+                assertTrue(settings.isConnected(disabled))
+                assertEquals(McpConnectionState.DISCONNECTED, sessions.state("run", config.id))
+            } finally { sessions.close() }
+        }
+    }
+
     private fun testRegistry(
         conversationStore: AgentConversationStore = InMemoryAgentConversationStore(),
         taskStore: AgentTaskStore = EmptyTestAgentTaskStore,
@@ -5024,6 +5051,7 @@ class XiaoLingToolRegistryTest {
         deviceController: DeviceController = FakeDeviceController(enabled = false),
         browserPageReader: BrowserPageReader = DisabledBrowserPageReader,
         mcpServerStore: McpServerStore = DisabledMcpServerStore,
+        mcpClient: McpClient = StreamableHttpMcpClient(),
         workflowDeviceActionToolNames: Set<String> = setOf("device.tap_ref"),
         clock: AgentClock = FakeAgentClock(),
     ): XiaoLingToolRegistry {
@@ -5047,6 +5075,7 @@ class XiaoLingToolRegistryTest {
             deviceController = deviceController,
             browserPageReader = browserPageReader,
             mcpServerStore = mcpServerStore,
+            mcpClient = mcpClient,
             workflowDeviceActionToolNames = workflowDeviceActionToolNames,
         )
     }

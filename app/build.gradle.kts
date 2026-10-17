@@ -95,6 +95,9 @@ android {
 
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas", "$rootDir/docs")
+        // long: 同一真实 socket 夹具用于 JVM 和 Redmi，避免两个测试实现对 SSE 协议产生不同假设。
+        getByName("test").java.srcDir("src/testSupport/java")
+        getByName("androidTest").java.srcDir("src/testSupport/java")
     }
 }
 

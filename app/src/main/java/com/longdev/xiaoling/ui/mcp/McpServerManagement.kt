@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.longdev.xiaoling.agent.McpServerConfig
+import com.longdev.xiaoling.agent.McpTransportKind
 
 internal interface McpServerManagementActions {
     fun refreshServers()
@@ -128,7 +129,7 @@ internal fun McpServerManagementPage(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(server.name, style = MaterialTheme.typography.titleSmall)
-                                    Text("${server.id} · ${server.url}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${server.id} · ${server.transport.wireName} · ${server.url}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(if (server.bearerToken.isBlank()) "未配置 Token" else "Bearer Token 已配置", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 IconButton(onClick = { editor = McpServerEditorState.from(server) }, enabled = server.id !in state.mutatingIds, modifier = Modifier.size(30.dp)) {
@@ -151,7 +152,7 @@ internal fun McpServerManagementPage(
                             ) {
                                 OutlinedButton(
                                     onClick = { actions.discoverTools(server.id) },
-                                    enabled = server.id !in state.loadingToolServerIds && server.id !in state.mutatingIds,
+                                    enabled = server.enabled && server.transport != McpTransportKind.STDIO && server.id !in state.loadingToolServerIds && server.id !in state.mutatingIds,
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                 ) {
                                     if (server.id in state.loadingToolServerIds) {
@@ -205,7 +206,7 @@ internal fun McpServerManagementPage(
                                                 Switch(
                                                     checked = server.enabledToolNames?.contains(tool.name) ?: true,
                                                     onCheckedChange = { enabled -> actions.setToolEnabled(server.id, tool.name, enabled) },
-                                                    enabled = toolKey !in state.mutatingToolKeys && server.id !in state.mutatingIds,
+                                                    enabled = server.enabled && toolKey !in state.mutatingToolKeys && server.id !in state.mutatingIds,
                                                     modifier = Modifier.size(width = 44.dp, height = 28.dp),
                                                 )
                                             }
@@ -227,7 +228,15 @@ internal fun McpServerManagementPage(
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     TextField(draft.id, { draft.id = it }, label = { Text("ID（小写字母、数字、._-）") }, enabled = !draft.editing && !state.saving, singleLine = true)
                     TextField(draft.name, { draft.name = it }, label = { Text("名称") }, enabled = !state.saving, singleLine = true)
-                    TextField(draft.url, { draft.url = it }, label = { Text("Streamable HTTP URL") }, enabled = !state.saving, singleLine = true)
+                    if (draft.transport == McpTransportKind.STDIO) Text("stdio 声明保留，等待进程沙箱和生命周期机制")
+                    else Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(McpTransportKind.STREAMABLE_HTTP, McpTransportKind.SSE).forEach { kind ->
+                            OutlinedButton(onClick = { draft.transport = kind }, enabled = !state.saving && draft.transport != kind) {
+                                Text(if (kind == McpTransportKind.SSE) "SSE" else "Streamable HTTP")
+                            }
+                        }
+                    }
+                    TextField(draft.url, { draft.url = it }, label = { Text(if (draft.transport == McpTransportKind.SSE) "SSE 事件流 URL" else "Streamable HTTP URL") }, enabled = !state.saving && draft.transport != McpTransportKind.STDIO, singleLine = true)
                     TextField(draft.token, { draft.token = it }, label = { Text("Bearer Token（编辑时留空表示保留）") }, enabled = !state.saving, singleLine = true)
                 }
             },
@@ -237,7 +246,7 @@ internal fun McpServerManagementPage(
                         editor = null
                         actions.saveServer(draft.toConfig())
                     },
-                    enabled = draft.id.isNotBlank() && draft.name.isNotBlank() && draft.url.isNotBlank() && !state.saving,
+                    enabled = draft.id.isNotBlank() && draft.name.isNotBlank() && (draft.url.isNotBlank() || draft.transport == McpTransportKind.STDIO) && !state.saving,
                 ) { Text("保存") }
             },
             dismissButton = { OutlinedButton(onClick = { editor = null }, enabled = !state.saving) { Text("取消") } },
@@ -266,6 +275,9 @@ private class McpServerEditorState(
     var name by mutableStateOf(initialName)
     var url by mutableStateOf(initialUrl)
     var token by mutableStateOf(initialToken)
+    var transport by mutableStateOf(McpTransportKind.STREAMABLE_HTTP)
+    private var command: String? = null
+    private var args: List<String> = emptyList()
 
     fun toConfig(): McpServerConfig = McpServerConfig(
         id = id.trim(),
@@ -274,6 +286,9 @@ private class McpServerEditorState(
         bearerToken = token,
         enabled = enabled,
         enabledToolNames = enabledToolNames,
+        transport = transport,
+        command = command,
+        args = args,
     )
 
     private var enabledToolNames: Set<String>? = null
@@ -282,6 +297,9 @@ private class McpServerEditorState(
         fun new() = McpServerEditorState("", "", "", "", enabled = true, editing = false)
         fun from(server: McpServerConfig) = McpServerEditorState(server.id, server.name, server.url, "", server.enabled, editing = true).also {
             it.enabledToolNames = server.enabledToolNames
+            it.transport = server.transport
+            it.command = server.command
+            it.args = server.args
         }
     }
 }

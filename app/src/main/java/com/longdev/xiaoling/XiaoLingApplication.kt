@@ -4,6 +4,8 @@ import android.app.Application
 import android.util.Log
 import androidx.work.Configuration
 import com.longdev.xiaoling.agent.AgentPluginRegistry
+import com.longdev.xiaoling.agent.AndroidMcpServerStore
+import com.longdev.xiaoling.agent.McpSessionRegistry
 import com.longdev.xiaoling.agent.RemoteChannelPairingRegistry
 import com.longdev.xiaoling.agent.RemoteChannelInboxGateway
 import com.longdev.xiaoling.agent.RemoteChannelPullService
@@ -30,6 +32,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 
 class XiaoLingApplication : Application(), Configuration.Provider {
+    /** long: 所有前台 Run 和设置入口共享配置撤销机制；应用启动只建注册表，不主动连接 MCP。 */
+    val mcpSessionRegistry: McpSessionRegistry by lazy { McpSessionRegistry(AndroidMcpServerStore(this)) }
     private val remoteChannelRecoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     internal lateinit var remoteChannelStartupRecovery: Deferred<RemoteChannelBackgroundStartupOutcome>
         private set

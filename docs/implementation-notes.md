@@ -1,5 +1,12 @@
 # 当前实现说明
 
+## 2026-10-17 第 286 阶段：应用级 MCP 注册表和双传输
+
+- `McpSessionRegistry` 按 owner/server 管理初始化、READY 工具 schema、配置冻结与永久撤销。`AgentRunUseCase` 的设置/Run owner 分开，Application 只惰性创建注册表；所有生产配置写入改走注册表，Run 切换/结束和 ViewModel 清除释放各自 owner。
+- `StreamableHttpMcpClient` 实现共同 `McpClient` 接口，保留 Streamable HTTP，新增 `LegacySseMcpConnection`。事件增量解析/严格 UTF-8、endpoint 同源、请求/事件限额、pending先登记、body阶段取消和断流清目录均已接入。底层 `retire()` 永久失效与 generation 复核阻止旧请求重连和撤销新会话。
+- 关闭 Response 由读取线程负责，其他线程只取消 Call；一次性 RPC body 阻止 OkHttp 的 503 follow-up 重放。设置页保留/选择 transport，并用 UI generation 拒绝旧配置的迟到发现；ToolRegistry 使用 SHA-256 配置指纹、Run显式目录 gate 和当前白名单过滤。
+- Remote Channel 独立部署/长期待办见[路线图](personal-agent-roadmap.md)，本片代码与测试细则见[MCP 注册表与 SSE](mcp-session-registry.md)。历史切片说明保留当时语境。
+
 ## 2026-10-17 第 285 阶段第七片：认证请求与队列共事务
 
 - `RemoteChannelReceiverAuthProtocol` 用独立 domain/长度前缀 canonical 格式摘要完整请求并签 proof，冻结 JSONObject，绑定发送方公钥指纹、endpoint/receiver、操作、nonce 与时效。`AndroidKeystoreRemoteChannelReceiverSigner` 的 alias 绑定同一作用域，只有显式 create 生成；export/sign 核对 P-256 原公钥，缺失不补钥。

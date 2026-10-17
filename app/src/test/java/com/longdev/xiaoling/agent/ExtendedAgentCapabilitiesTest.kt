@@ -315,7 +315,7 @@ class ExtendedAgentCapabilitiesTest {
     }
 
     @Test
-    fun mcpPolicyValidatesSseAndStdioButClientFailsClosedBeforeExecution() = runTest {
+    fun mcpPolicyAcceptsSseDeclarationAndStdioRemainsClosedBeforeExecution() = runTest {
         val sse = McpServerConfig(
             id = "sse-mcp",
             name = "SSE MCP",
@@ -323,9 +323,6 @@ class ExtendedAgentCapabilitiesTest {
             transport = McpTransportKind.SSE,
         )
         McpServerPolicy.validate(sse)
-        assertThrows(IllegalArgumentException::class.java) {
-            kotlinx.coroutines.runBlocking { StreamableHttpMcpClient().listTools(sse) }
-        }
 
         val stdio = McpServerConfig(
             id = "stdio-mcp",

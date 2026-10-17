@@ -853,6 +853,9 @@ class XiaoLingViewModel @JvmOverloads constructor(
     private var memorySearchJob: Job? = null
     private var memoryCandidateLoadJob: Job? = null
     private var skillLoadJob: Job? = null
+    private var mcpRefreshJob: Job? = null
+    private val mcpDiscoveryJobs = mutableMapOf<String, Job>()
+    private val mcpUiGenerations = mutableMapOf<String, Long>()
     private var workflowLoadJob: Job? = null
     private var conversationNavigationLoadJob: Job? = null
     private var conversationNavigationGeneration = 0L
@@ -2076,10 +2079,11 @@ class XiaoLingViewModel @JvmOverloads constructor(
     fun refreshMcpServers() {
         if (uiState.loadingMcpServers) return
         uiState = uiState.copy(loadingMcpServers = true, mcpError = null)
-        viewModelScope.launch {
+        mcpRefreshJob = viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { agentRunUseCase.listMcpServers() } }
                 .onSuccess { servers ->
-                    val existingIds = servers.mapTo(linkedSetOf(), McpServerConfig::id)
+                    val existingIds = servers.filter { server -> server.enabled && uiState.mcpServers.firstOrNull { it.id == server.id } == server }
+                        .mapTo(linkedSetOf(), McpServerConfig::id)
                     uiState = uiState.copy(
                         loadingMcpServers = false,
                         mcpServers = servers,
@@ -2087,19 +2091,26 @@ class XiaoLingViewModel @JvmOverloads constructor(
                         mcpError = null,
                     )
                 }
-                .onFailure { error -> uiState = uiState.copy(loadingMcpServers = false, mcpError = error.message ?: "无法读取 MCP Server") }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    uiState = uiState.copy(loadingMcpServers = false, mcpError = error.message ?: "无法读取 MCP Server")
+                }
         }
     }
 
     fun discoverMcpTools(serverId: String) {
-        if (serverId in uiState.loadingMcpToolServerIds) return
+        val config = uiState.mcpServers.firstOrNull { it.id == serverId && it.enabled } ?: return
+        if (serverId in uiState.loadingMcpToolServerIds || serverId in uiState.mutatingMcpServerIds) return
+        val generation = mcpUiGenerations[serverId] ?: 0L
         uiState = uiState.copy(
             loadingMcpToolServerIds = uiState.loadingMcpToolServerIds + serverId,
             mcpError = null,
         )
-        viewModelScope.launch {
+        mcpDiscoveryJobs[serverId] = viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { agentRunUseCase.discoverMcpTools(serverId) } }
                 .onSuccess { tools ->
+                    // long: 删除、停用或编辑期间到达的旧目录不能重新出现在页面，也不能作为下一次工具开关的依据。
+                    if ((mcpUiGenerations[serverId] ?: 0L) != generation || uiState.mcpServers.none { it == config }) return@onSuccess
                     uiState = uiState.copy(
                         loadingMcpToolServerIds = uiState.loadingMcpToolServerIds - serverId,
                         mcpToolsByServer = uiState.mcpToolsByServer + (serverId to tools),
@@ -2107,6 +2118,8 @@ class XiaoLingViewModel @JvmOverloads constructor(
                     )
                 }
                 .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    if ((mcpUiGenerations[serverId] ?: 0L) != generation) return@onFailure
                     uiState = uiState.copy(
                         loadingMcpToolServerIds = uiState.loadingMcpToolServerIds - serverId,
                         mcpError = error.message ?: "MCP 工具发现失败",
@@ -2118,8 +2131,9 @@ class XiaoLingViewModel @JvmOverloads constructor(
     fun setMcpToolEnabled(serverId: String, toolName: String, enabled: Boolean) {
         val tools = uiState.mcpToolsByServer[serverId] ?: return
         val key = "$serverId::$toolName"
-        if (key in uiState.mutatingMcpToolKeys) return
-        uiState = uiState.copy(mutatingMcpToolKeys = uiState.mutatingMcpToolKeys + key, mcpError = null)
+        if (key in uiState.mutatingMcpToolKeys || serverId in uiState.mutatingMcpServerIds) return
+        invalidateMcpUi(serverId, clearTools = false)
+        uiState = uiState.copy(mutatingMcpToolKeys = uiState.mutatingMcpToolKeys + key, mutatingMcpServerIds = uiState.mutatingMcpServerIds + serverId, mcpError = null)
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -2128,13 +2142,16 @@ class XiaoLingViewModel @JvmOverloads constructor(
             }.onSuccess { saved ->
                 uiState = uiState.copy(
                     mutatingMcpToolKeys = uiState.mutatingMcpToolKeys - key,
+                    mutatingMcpServerIds = uiState.mutatingMcpServerIds - serverId,
                     mcpServers = uiState.mcpServers.map { server -> if (server.id == saved.id) saved else server },
                     result = OperationResult(true, if (enabled) "MCP 工具已启用" else "MCP 工具已停用", toolName),
                     mcpError = null,
                 )
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 uiState = uiState.copy(
                     mutatingMcpToolKeys = uiState.mutatingMcpToolKeys - key,
+                    mutatingMcpServerIds = uiState.mutatingMcpServerIds - serverId,
                     mcpError = error.message ?: "MCP 工具状态更新失败",
                 )
             }
@@ -2142,16 +2159,19 @@ class XiaoLingViewModel @JvmOverloads constructor(
     }
 
     fun saveMcpServer(config: McpServerConfig) {
-        if (uiState.savingMcpServer) return
-        uiState = uiState.copy(savingMcpServer = true, mcpError = null)
+        if (uiState.savingMcpServer || config.id in uiState.mutatingMcpServerIds) return
+        invalidateMcpUi(config.id)
+        uiState = uiState.copy(savingMcpServer = true, mutatingMcpServerIds = uiState.mutatingMcpServerIds + config.id, mcpError = null)
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { agentRunUseCase.upsertMcpServer(config) } }
                 .onSuccess { saved ->
-                    uiState = uiState.copy(savingMcpServer = false, result = OperationResult(true, "MCP Server 已保存", saved.name))
+                    uiState = uiState.copy(savingMcpServer = false, mutatingMcpServerIds = uiState.mutatingMcpServerIds - config.id,
+                        mcpServers = uiState.mcpServers.filterNot { it.id == saved.id } + saved, result = OperationResult(true, "MCP Server 已保存", saved.name))
                     refreshMcpServers()
                 }
                 .onFailure { error ->
-                    uiState = uiState.copy(savingMcpServer = false, mcpError = error.message ?: "MCP Server 保存失败")
+                    if (error is CancellationException) throw error
+                    uiState = uiState.copy(savingMcpServer = false, mutatingMcpServerIds = uiState.mutatingMcpServerIds - config.id, mcpError = error.message ?: "MCP Server 保存失败")
                 }
         }
     }
@@ -2159,14 +2179,19 @@ class XiaoLingViewModel @JvmOverloads constructor(
     fun setMcpServerEnabled(id: String, enabled: Boolean) {
         val server = uiState.mcpServers.firstOrNull { it.id == id } ?: return
         if (id in uiState.mutatingMcpServerIds) return
+        invalidateMcpUi(id)
         uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds + id, mcpError = null)
         viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.upsertMcpServer(server.copy(enabled = enabled)) } }
-                .onSuccess {
-                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id, result = OperationResult(true, if (enabled) "MCP Server 已启用" else "MCP Server 已停用", server.name))
+            runCatching { withContext(Dispatchers.IO) { agentRunUseCase.setMcpServerEnabled(id, enabled) } }
+                .onSuccess { saved ->
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id,
+                        mcpServers = uiState.mcpServers.map { if (it.id == id) saved else it }, result = OperationResult(true, if (enabled) "MCP Server 已启用" else "MCP Server 已停用", server.name))
                     refreshMcpServers()
                 }
-                .onFailure { error -> uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id, mcpError = error.message ?: "MCP Server 状态更新失败") }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - id, mcpError = error.message ?: "MCP Server 状态更新失败")
+                }
         }
     }
 
@@ -2181,15 +2206,33 @@ class XiaoLingViewModel @JvmOverloads constructor(
     fun confirmMcpServerDelete() {
         val server = uiState.pendingMcpServerDelete ?: return
         if (server.id in uiState.mutatingMcpServerIds) return
+        invalidateMcpUi(server.id)
         uiState = uiState.copy(pendingMcpServerDelete = null, mutatingMcpServerIds = uiState.mutatingMcpServerIds + server.id, mcpError = null)
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { agentRunUseCase.deleteMcpServer(server.id) } }
                 .onSuccess { deleted ->
-                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id, result = OperationResult(deleted, if (deleted) "MCP Server 已删除" else "删除失败", server.name))
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id,
+                        mcpServers = uiState.mcpServers.filterNot { deleted && it.id == server.id }, result = OperationResult(deleted, if (deleted) "MCP Server 已删除" else "删除失败", server.name))
                     refreshMcpServers()
                 }
-                .onFailure { error -> uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id, mcpError = error.message ?: "MCP Server 删除失败") }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    uiState = uiState.copy(mutatingMcpServerIds = uiState.mutatingMcpServerIds - server.id, mcpError = error.message ?: "MCP Server 删除失败")
+                }
         }
+    }
+
+    private fun invalidateMcpUi(id: String, clearTools: Boolean = true) {
+        mcpUiGenerations[id] = (mcpUiGenerations[id] ?: 0L) + 1
+        mcpDiscoveryJobs.remove(id)?.cancel()
+        mcpRefreshJob?.cancel()
+        uiState = uiState.copy(loadingMcpServers = false, loadingMcpToolServerIds = uiState.loadingMcpToolServerIds - id,
+            mcpToolsByServer = if (clearTools) uiState.mcpToolsByServer - id else uiState.mcpToolsByServer)
+    }
+
+    override fun onCleared() {
+        agentRunUseCase.closeMcpOwners()
+        super.onCleared()
     }
 
     private suspend fun loadWorkflowUiData(): WorkflowUiData {

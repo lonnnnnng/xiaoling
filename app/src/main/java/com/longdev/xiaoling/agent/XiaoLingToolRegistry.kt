@@ -69,7 +69,7 @@ class XiaoLingToolRegistry(
     private val browserPageReader: BrowserPageReader = DisabledBrowserPageReader,
     private val workspaceSandbox: WorkspaceSandbox = DisabledWorkspaceSandbox,
     private val mcpServerStore: McpServerStore = DisabledMcpServerStore,
-    private val mcpClient: StreamableHttpMcpClient = StreamableHttpMcpClient(),
+    private val mcpClient: McpClient = StreamableHttpMcpClient(),
     workflowDeviceActionToolNames: Set<String> = DEFAULT_WORKFLOW_DEVICE_ACTION_TOOL_NAMES,
 ) : ToolRegistry, AgentRunContextAwareToolRegistry, AgentToolExecutionLifecycleAwareToolRegistry,
     AgentRunLifecycleAwareToolRegistry {
@@ -1460,6 +1460,8 @@ class XiaoLingToolRegistry(
             approvedNoteAppendCallIds.clear()
             listedNotificationIds = emptySet()
             mcpCatalogs.clear()
+            // long: planning/Run 切换也撤销本 owner，不能继承上一轮握手；设置页拥有另一 owner，不受影响。
+            mcpClient.close()
             taskRescheduleTools.clear()
             if (runContext != null) {
                 // long: Controller 的 HMAC viewport 与 ref 共用当前观察生命周期；真正切换 Run 时一起撤销，禁止新 Run 读取上一轮执行期锚点。
@@ -2451,7 +2453,7 @@ class XiaoLingToolRegistry(
     }
 
     private fun mcpServerFingerprint(server: McpServerConfig): String =
-        "${server.id}|${server.transport.wireName}|${server.url}|${server.command.orEmpty()}|${server.args.joinToString("\u0000")}|${server.bearerToken.hashCode()}|${server.enabled}|${server.enabledToolNames?.sorted()?.joinToString(",") ?: "<legacy>"}"
+        mcpServerBinding(server)
 
     private suspend fun getAppInfo(call: ToolCall): ToolExecutionResult {
         if (call.arguments.isNotEmpty()) {

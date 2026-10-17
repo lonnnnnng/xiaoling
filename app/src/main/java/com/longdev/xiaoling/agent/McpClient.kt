@@ -11,10 +11,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSource
@@ -201,21 +199,21 @@ class AndroidMcpServerStore(
 ) : McpServerStore {
     private val preferences = context.applicationContext.getSharedPreferences("xiaoling_mcp", Context.MODE_PRIVATE)
 
-    override fun list(): List<McpServerConfig> = decodeList(preferences.getString(KEY_SERVERS, "[]").orEmpty())
+    @Synchronized override fun list(): List<McpServerConfig> = decodeList(preferences.getString(KEY_SERVERS, "[]").orEmpty())
 
     override fun get(id: String): McpServerConfig? = list().firstOrNull { it.id == id }
 
-    override fun upsert(config: McpServerConfig): McpServerConfig {
+    @Synchronized override fun upsert(config: McpServerConfig): McpServerConfig {
         McpServerPolicy.validate(config)
         val next = list().filterNot { it.id == config.id } + config
-        preferences.edit().putString(KEY_SERVERS, encodeList(next)).apply()
+        check(preferences.edit().putString(KEY_SERVERS, encodeList(next)).commit()) { "MCP 配置保存失败" }
         return config
     }
 
-    override fun delete(id: String): Boolean {
+    @Synchronized override fun delete(id: String): Boolean {
         val next = list().filterNot { it.id == id }
         if (next.size == list().size) return false
-        preferences.edit().putString(KEY_SERVERS, encodeList(next)).apply()
+        check(preferences.edit().putString(KEY_SERVERS, encodeList(next)).commit()) { "MCP 配置删除失败" }
         return true
     }
 
@@ -285,16 +283,18 @@ object McpServerPolicy {
             }
         }
         require(config.bearerToken.length <= 4_096) { "MCP Token 过长" }
+        require(config.bearerToken.none(Char::isISOControl)) { "MCP Token 包含非法控制字符" }
         config.enabledToolNames?.let(::validateToolNames)
     }
 
     private fun validateRemoteUrl(raw: String) {
+        require(raw == raw.trim() && raw.none(Char::isISOControl)) { "MCP 地址包含非法空白或控制字符" }
         val url = raw.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
         require(url.scheme == "https" || isLoopbackHost(url.host)) {
             "MCP 默认要求 HTTPS；本机调试只允许 loopback"
         }
-        require(url.username.isEmpty() && url.password.isEmpty()) {
-            "MCP 地址不能包含账号或密码"
+        require(url.username.isEmpty() && url.password.isEmpty() && url.fragment == null) {
+            "MCP 地址不能包含账号、密码或 fragment"
         }
     }
 
@@ -349,45 +349,71 @@ object McpToolAccessPolicy {
 }
 
 class StreamableHttpMcpClient(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    client: OkHttpClient = OkHttpClient.Builder()
         .followRedirects(false)
         .followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
         .build(),
-) {
-    private val jsonType = "application/json; charset=utf-8".toMediaType()
+) : McpClient {
+    // long: 即使注入测试或定制客户端，也不允许重定向和网络层自动重发已提交的工具调用。
+    private val client = client.newBuilder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+        .connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS).build()
     private val sessions = ConcurrentHashMap<String, McpSession>()
     private val sessionLocks = ConcurrentHashMap<String, Mutex>()
     private val toolCache = ConcurrentHashMap<String, CachedTools>()
+    private val sseConnections = ConcurrentHashMap<String, LegacySseMcpConnection>()
     private val lifecycleLock = Any()
     private val activeCalls = LinkedHashSet<Call>()
     private var lifecycleGeneration = 0L
+    private var retired = false
+
+    override fun retire() {
+        synchronized(lifecycleLock) { retired = true }
+        close()
+    }
 
     /**
-     * long: Streamable HTTP 的 session、目录缓存和 OkHttp Call 都只属于当前 Run；Run 结束或取消时
-     * 先取消仍在等待的网络请求，再清掉握手状态，避免旧 Run 的响应在下一次 Run 中重新建立 session。
+     * long: 传输实例只属于注册表中的一个 owner/server；先撤销代次再取消请求，旧响应不能复活连接或目录。
      */
-    fun close() {
-        val calls = synchronized(lifecycleLock) {
+    override fun close() {
+        val (calls, streams) = synchronized(lifecycleLock) {
             lifecycleGeneration += 1
-            activeCalls.toList().also { activeCalls.clear() }
+            val calls = activeCalls.toList().also { activeCalls.clear() }
+            val streams = sseConnections.values.toList().also { sseConnections.clear() }
+            sessions.clear()
+            sessionLocks.clear()
+            toolCache.clear()
+            calls to streams
         }
         calls.forEach(Call::cancel)
-        sessions.clear()
-        sessionLocks.clear()
-        toolCache.clear()
+        streams.forEach(LegacySseMcpConnection::close)
     }
 
     fun reset() = close()
 
-    suspend fun listTools(server: McpServerConfig): List<McpToolDescriptor> = withContext(Dispatchers.IO) {
+    override suspend fun connect(server: McpServerConfig): McpConnectionInfo = withContext(Dispatchers.IO) {
+        ensureInitialized(server)
+        val session = sessions[sessionKey(server)] ?: error("MCP 会话已断开")
+        McpConnectionInfo(session.protocolVersion, session.capabilities.mapTo(linkedSetOf()) { it.protocolName })
+    }
+
+    override fun isConnected(server: McpServerConfig): Boolean = synchronized(lifecycleLock) {
+        val key = sessionKey(server)
+        !retired && sessions.containsKey(key) && (server.transport != McpTransportKind.SSE || sseConnections[key]?.isOpen == true)
+    }
+
+    override suspend fun listTools(server: McpServerConfig): List<McpToolDescriptor> = withContext(Dispatchers.IO) {
         // long: 工具目录缓存不能绕过最新的地址解析检查；DNS 变化后即使目录仍在 TTL 内，也必须重新确认目标不是私网或回环地址。
         McpServerPolicy.validate(server)
-        requireStreamableHttp(server)
+        requireRemoteTransport(server)
         val serverUrl = server.url.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
         McpServerPolicy.validateResolvedHost(serverUrl)
+        ensureInitialized(server)
+        val generation = currentLifecycleGeneration()
         val key = sessionKey(server)
         val cached = toolCache[key]
         if (cached != null && cached.expiresAtMillis > System.currentTimeMillis()) return@withContext cached.tools
@@ -400,19 +426,24 @@ class StreamableHttpMcpClient(
             cursor?.let { params.put("cursor", it) }
             val page = request(server, "tools/list", params) { result -> parseToolPage(result) }
             page.tools.forEach { descriptor -> descriptors[descriptor.name] = descriptor }
+            require(descriptors.size <= McpPolicy.MAX_CATALOG_ITEMS) { "MCP 工具目录超过限制" }
             cursor = page.nextCursor?.takeIf(String::isNotBlank)
             if (cursor == null) break
         }
         val result = descriptors.values.toList()
-        toolCache[key] = CachedTools(result, System.currentTimeMillis() + McpPolicy.TOOL_CACHE_TTL_MILLIS)
+        currentCoroutineContext().ensureActive()
+        synchronized(lifecycleLock) {
+            check(generation == lifecycleGeneration && isConnected(server)) { "MCP 连接已变化" }
+            toolCache[key] = CachedTools(result, System.currentTimeMillis() + McpPolicy.TOOL_CACHE_TTL_MILLIS)
+        }
         result
     }
 
-    suspend fun callTool(
+    override suspend fun callTool(
         server: McpServerConfig,
         name: String,
         arguments: JSONObject,
-        knownTools: List<McpToolDescriptor>? = null,
+        knownTools: List<McpToolDescriptor>?,
     ): String {
         val descriptor = (knownTools ?: listTools(server)).firstOrNull { it.name == name }
             ?: throw IllegalArgumentException("MCP 工具未在最近目录中发现：$name")
@@ -422,14 +453,14 @@ class StreamableHttpMcpClient(
         }
     }
 
-    suspend fun listResources(server: McpServerConfig): List<McpResourceDescriptor> {
+    override suspend fun listResources(server: McpServerConfig): List<McpResourceDescriptor> {
         requireCapability(server, McpServerCapability.RESOURCES)
         val resources = listPages(server, "resources/list", ::parseResourcePage)
         require(resources.map { it.uri }.distinct().size == resources.size) { "MCP 资源目录包含重复 URI" }
         return resources
     }
 
-    suspend fun readResource(server: McpServerConfig, uri: String): List<McpResourceContent> {
+    override suspend fun readResource(server: McpServerConfig, uri: String): List<McpResourceContent> {
         requireCapability(server, McpServerCapability.RESOURCES)
         McpPolicy.validateResourceUri(uri)
         return request(server, "resources/read", JSONObject().put("uri", uri)) { result ->
@@ -464,17 +495,17 @@ class StreamableHttpMcpClient(
         }
     }
 
-    suspend fun listPrompts(server: McpServerConfig): List<McpPromptDescriptor> {
+    override suspend fun listPrompts(server: McpServerConfig): List<McpPromptDescriptor> {
         requireCapability(server, McpServerCapability.PROMPTS)
         val prompts = listPages(server, "prompts/list", ::parsePromptPage)
         require(prompts.map { it.name }.distinct().size == prompts.size) { "MCP Prompt 目录包含重复名称" }
         return prompts
     }
 
-    suspend fun getPrompt(
+    override suspend fun getPrompt(
         server: McpServerConfig,
         name: String,
-        arguments: Map<String, String> = emptyMap(),
+        arguments: Map<String, String>,
     ): McpPromptResult {
         requireCapability(server, McpServerCapability.PROMPTS)
         McpPolicy.validatePromptName(name)
@@ -628,8 +659,9 @@ class StreamableHttpMcpClient(
         parse: (JSONObject) -> T,
     ): T = withContext(Dispatchers.IO) {
         McpServerPolicy.validate(server)
+        val generation = currentLifecycleGeneration()
         ensureInitialized(server)
-        val response = postRpc(server, method, params, includeId = true)
+        val response = postRpc(server, method, params, includeId = true, expectedGeneration = generation)
         response.payload.optJSONObject("error")?.let { error ->
             throw IllegalStateException("MCP ${method} 失败：${error.optString("message", error.toString())}")
         }
@@ -638,61 +670,90 @@ class StreamableHttpMcpClient(
 
     private suspend fun ensureInitialized(server: McpServerConfig) {
         McpServerPolicy.validate(server)
-        requireStreamableHttp(server)
+        requireRemoteTransport(server)
         val key = sessionKey(server)
-        if (sessions.containsKey(key)) return
+        synchronized(lifecycleLock) { check(!retired) { "MCP 传输实例已撤销" }; if (sessions.containsKey(key)) return }
         val generation = currentLifecycleGeneration()
         val lock = sessionLocks.getOrPut(key) { Mutex() }
         lock.withLock {
+            synchronized(lifecycleLock) { check(!retired && generation == lifecycleGeneration) { "MCP 连接已变化或撤销" } }
             if (sessions.containsKey(key)) return
-            val response = postRpc(
-                server = server,
-                method = "initialize",
-                params = JSONObject()
-                    .put("protocolVersion", McpPolicy.PROTOCOL_VERSION)
-                    .put("capabilities", JSONObject())
-                    .put("clientInfo", JSONObject().put("name", "XiaoLing").put("version", "0.1")),
-                includeId = true,
-                protocolVersion = null,
-            )
-            response.payload.optJSONObject("error")?.let { error ->
-                throw IllegalStateException("MCP 初始化失败：${error.optString("message", error.toString())}")
+            try {
+                if (server.transport == McpTransportKind.SSE) {
+                    lateinit var stream: LegacySseMcpConnection
+                    stream = LegacySseMcpConnection(server, client) {
+                        synchronized(lifecycleLock) {
+                            if (sseConnections[key] === stream) invalidate(server)
+                        }
+                    }
+                    synchronized(lifecycleLock) {
+                        check(!retired && generation == lifecycleGeneration) { "MCP 连接已变化或撤销" }
+                        sseConnections[key] = stream
+                    }
+                    try { stream.start() } catch (error: Exception) { stream.close(); throw error }
+                }
+                val response = postRpc(
+                    server = server,
+                    method = "initialize",
+                    params = JSONObject()
+                        .put("protocolVersion", if (server.transport == McpTransportKind.SSE) McpPolicy.LEGACY_PROTOCOL_VERSION else McpPolicy.PROTOCOL_VERSION)
+                        .put("capabilities", JSONObject())
+                        .put("clientInfo", JSONObject().put("name", "XiaoLing").put("version", "0.1")),
+                    includeId = true,
+                    protocolVersion = null,
+                    expectedGeneration = generation,
+                )
+                response.payload.optJSONObject("error")?.let { error ->
+                    throw IllegalStateException("MCP 初始化失败：${error.optString("message", error.toString())}")
+                }
+                val result = response.payload.optJSONObject("result") ?: throw IllegalStateException("MCP 初始化缺少 result")
+                val negotiatedVersion = result.optString("protocolVersion").ifBlank { McpPolicy.PROTOCOL_VERSION }
+                require(negotiatedVersion in setOf(McpPolicy.PROTOCOL_VERSION, McpPolicy.LEGACY_PROTOCOL_VERSION)) { "MCP 协议版本不支持" }
+                val capabilities = buildSet {
+                    val capabilityObject = result.optJSONObject("capabilities") ?: JSONObject()
+                    if (capabilityObject.has("tools")) add(McpServerCapability.TOOLS)
+                    if (capabilityObject.has("resources")) add(McpServerCapability.RESOURCES)
+                    if (capabilityObject.has("prompts")) add(McpServerCapability.PROMPTS)
+                }
+                postRpc(
+                    server = server,
+                    method = "notifications/initialized",
+                    params = JSONObject(),
+                    includeId = false,
+                    sessionId = response.sessionId,
+                    protocolVersion = negotiatedVersion,
+                    allowEmptyResponse = true,
+                    expectedGeneration = generation,
+                )
+                currentCoroutineContext().ensureActive()
+                synchronized(lifecycleLock) {
+                    check(!retired && generation == lifecycleGeneration && (server.transport != McpTransportKind.SSE || sseConnections[key]?.isOpen == true)) { "MCP 连接已关闭" }
+                    sessions[key] = McpSession(response.sessionId, negotiatedVersion, capabilities)
+                }
+            } catch (error: Exception) {
+                invalidate(server, generation)
+                throw error
             }
-            val result = response.payload.optJSONObject("result") ?: throw IllegalStateException("MCP 初始化缺少 result")
-            val negotiatedVersion = result.optString("protocolVersion").ifBlank { McpPolicy.PROTOCOL_VERSION }
-            val capabilities = buildSet {
-                val capabilityObject = result.optJSONObject("capabilities") ?: JSONObject()
-                if (capabilityObject.has("tools")) add(McpServerCapability.TOOLS)
-                if (capabilityObject.has("resources")) add(McpServerCapability.RESOURCES)
-                if (capabilityObject.has("prompts")) add(McpServerCapability.PROMPTS)
-            }
-            postRpc(
-                server = server,
-                method = "notifications/initialized",
-                params = JSONObject(),
-                includeId = false,
-                sessionId = response.sessionId,
-                protocolVersion = negotiatedVersion,
-                allowEmptyResponse = true,
-            )
-            check(generation == currentLifecycleGeneration()) { "MCP 客户端已关闭" }
-            sessions[key] = McpSession(response.sessionId, negotiatedVersion, capabilities)
         }
     }
 
-    private fun requireStreamableHttp(server: McpServerConfig) {
-        require(server.transport == McpTransportKind.STREAMABLE_HTTP) {
-            "MCP transport ${server.transport.wireName} 已识别，当前客户端仅支持 streamable_http"
+    private fun requireRemoteTransport(server: McpServerConfig) {
+        require(server.transport != McpTransportKind.STDIO) {
+            "MCP stdio 等待进程沙箱和生命周期机制"
         }
     }
 
     private fun sessionKey(server: McpServerConfig): String =
-        "${server.id}|${server.transport.wireName}|${server.url}|${server.command.orEmpty()}|${server.args.joinToString("\u0000")}|${server.bearerToken.hashCode()}"
+        mcpServerBinding(server)
 
-    private fun invalidate(server: McpServerConfig) {
+    private fun invalidate(server: McpServerConfig, expectedGeneration: Long? = null) {
         val key = sessionKey(server)
-        sessions.remove(key)
-        toolCache.remove(key)
+        synchronized(lifecycleLock) {
+            if (expectedGeneration != null && expectedGeneration != lifecycleGeneration) return
+            sessions.remove(key)
+            toolCache.remove(key)
+            sseConnections.remove(key)?.close()
+        }
     }
 
     private suspend fun postRpc(
@@ -703,15 +764,25 @@ class StreamableHttpMcpClient(
         sessionId: String? = sessions[sessionKey(server)]?.sessionId,
         protocolVersion: String? = sessions[sessionKey(server)]?.protocolVersion,
         allowEmptyResponse: Boolean = false,
+        expectedGeneration: Long = currentLifecycleGeneration(),
     ): RpcResponse {
         McpServerPolicy.validate(server)
-        requireStreamableHttp(server)
+        requireRemoteTransport(server)
         val requestId = UUID.randomUUID().toString().takeIf { includeId }
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
             .put("method", method)
             .put("params", params)
         if (requestId != null) payload.put("id", requestId)
+        if (server.transport == McpTransportKind.SSE) {
+            val stream = synchronized(lifecycleLock) {
+                check(!retired && expectedGeneration == lifecycleGeneration) { "MCP 连接已变化或撤销" }
+                sseConnections[sessionKey(server)] ?: throw IOException("MCP SSE 会话未连接")
+            }
+            val reply = stream.request(payload)
+            synchronized(lifecycleLock) { check(expectedGeneration == lifecycleGeneration && sseConnections[sessionKey(server)] === stream) { "MCP 连接已变化" } }
+            return RpcResponse(reply, null)
+        }
         val url = server.url.toHttpUrlOrNull() ?: throw IllegalArgumentException("MCP 地址无效")
         McpServerPolicy.validateResolvedHost(url)
         val request = Request.Builder()
@@ -723,41 +794,28 @@ class StreamableHttpMcpClient(
                 if (sessionId != null) header("Mcp-Session-Id", sessionId)
                 if (server.bearerToken.isNotBlank()) header("Authorization", "Bearer ${server.bearerToken}")
             }
-            .post(payload.toString().toRequestBody(jsonType))
+            .post(mcpOneShotBody(payload.toString()))
             .build()
         val call = client.newCall(request)
         val generation = synchronized(lifecycleLock) {
+            check(!retired && expectedGeneration == lifecycleGeneration) { "MCP 连接已变化或撤销" }
             activeCalls += call
             lifecycleGeneration
         }
         return try {
-            executeCall(call).use { response ->
-                currentCoroutineContext().ensureActive()
-                check(generation == currentLifecycleGeneration()) { "MCP 客户端已关闭" }
-                require(response.isSuccessful) { "MCP 请求失败：HTTP ${response.code}" }
-                val returnedSessionId = response.header("Mcp-Session-Id") ?: sessionId
-                val body = response.body?.source()?.let { readLimited(it, McpPolicy.MAX_RESPONSE_BYTES) } ?: ByteArray(0)
-                require(body.size <= McpPolicy.MAX_RESPONSE_BYTES) { "MCP 响应超过大小限制" }
-                val text = body.toString(Charsets.UTF_8).trim()
-                if (text.isBlank() && allowEmptyResponse) return RpcResponse(JSONObject(), returnedSessionId)
-                val json = parseRpcBody(text, requestId)
-                if (includeId) {
-                    require(json.optString("jsonrpc") == "2.0") { "MCP 响应协议版本无效" }
-                    require(json.optString("id") == requestId) { "MCP 响应 ID 不匹配" }
-                }
-                RpcResponse(json, returnedSessionId)
-            }
-        } catch (error: IOException) {
-            invalidate(server)
+            executeRpcCall(call, requestId, sessionId, allowEmptyResponse, generation)
+        } catch (error: Exception) {
+            invalidate(server, generation)
             currentCoroutineContext().ensureActive()
-            throw IOException("MCP 请求失败：${error.message ?: "网络错误"}", error)
+            if (error is IOException) throw IOException("MCP 请求失败：${error.message ?: "网络错误"}", error)
+            throw error
         } finally {
             synchronized(lifecycleLock) { activeCalls.remove(call) }
         }
     }
 
-    private suspend fun executeCall(call: Call): Response = suspendCancellableCoroutine { continuation ->
-        // long: OkHttp 的 enqueue 与协程取消绑定；取消发生在响应到达前时必须直接 cancel Call，避免阻塞请求继续占用 Run。
+    private suspend fun executeRpcCall(call: Call, requestId: String?, sessionId: String?, allowEmpty: Boolean, generation: Long): RpcResponse = suspendCancellableCoroutine { continuation ->
+        // long: 取消绑定覆盖整个 body/SSE 读取阶段，不能在响应头到达后提前解绑，留下无法中断的半开正文。
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -765,13 +823,46 @@ class StreamableHttpMcpClient(
             }
 
             override fun onResponse(call: Call, response: Response) {
-                // long: 取消与响应回调可能并发，交给 continuation 的取消回调关闭竞争窗口内的 Response，避免泄漏连接。
-                continuation.resume(response) { _, _, _ -> response.close() }
+                try {
+                    val result = response.use {
+                        if (response.code == 404 && sessionId != null) throw IOException("MCP session 已过期，请重新连接")
+                        require(response.isSuccessful) { "MCP 请求失败：HTTP ${response.code}" }
+                        val returnedId = response.header("Mcp-Session-Id") ?: sessionId
+                        require(sessionId == null || returnedId == sessionId) { "MCP session 标识已变化" }
+                        val source = response.body?.source()
+                        val json = if (response.header("Content-Type").orEmpty().substringBefore(';').trim() == "text/event-stream") {
+                            val reader = McpSseEventReader(source ?: throw IOException("MCP SSE 正文为空"), McpPolicy.MAX_RESPONSE_BYTES.toLong())
+                            var matched: JSONObject? = null
+                            while (matched == null) {
+                                val event = reader.next() ?: throw IOException("MCP SSE 在响应前断开")
+                                if (event.type == "message" && event.data.isNotBlank()) {
+                                    val value = JSONObject(event.data)
+                                    if (requestId == null || value.opt("id") == requestId) matched = value
+                                }
+                            }
+                            matched
+                        } else {
+                            val body = source?.let { readLimited(it, McpPolicy.MAX_RESPONSE_BYTES) } ?: ByteArray(0)
+                            require(body.size <= McpPolicy.MAX_RESPONSE_BYTES) { "MCP 响应超过大小限制" }
+                            val text = decodeMcpUtf8(body).trim()
+                            if (text.isBlank() && allowEmpty) JSONObject() else parseRpcBody(text, requestId)
+                        }
+                        if (requestId != null) validateMcpRpcResponse(json, requestId)
+                        synchronized(lifecycleLock) { check(generation == lifecycleGeneration) { "MCP 连接已关闭" } }
+                        RpcResponse(json, returnedId)
+                    }
+                    continuation.resumeWith(Result.success(result))
+                } catch (error: Exception) {
+                    continuation.resumeWith(Result.failure(error))
+                }
             }
         })
     }
 
-    private fun currentLifecycleGeneration(): Long = synchronized(lifecycleLock) { lifecycleGeneration }
+    private fun currentLifecycleGeneration(): Long = synchronized(lifecycleLock) {
+        check(!retired) { "MCP 传输实例已撤销" }
+        lifecycleGeneration
+    }
 
     internal fun parseRpcBody(body: String, expectedId: String? = null): JSONObject {
         val normalized = body.trim()
@@ -819,6 +910,7 @@ private enum class McpServerCapability(val protocolName: String) {
 object McpPolicy {
     // long: 与当前主流 Streamable HTTP MCP Server 的握手版本保持一致，避免把较新的版本号误当成服务器能力声明。
     const val PROTOCOL_VERSION = "2025-03-26"
+    const val LEGACY_PROTOCOL_VERSION = "2024-11-05"
     const val MAX_RESULT_CHARS = 20_000
     const val MAX_ARGUMENT_BYTES = 32 * 1024
     const val MAX_RESPONSE_BYTES = 512 * 1024

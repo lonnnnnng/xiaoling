@@ -1,6 +1,11 @@
 # 文档索引
 
-## 当前阶段：第 285 阶段 Remote Channel 接收端认证核心
+## 当前阶段：第 286 阶段 MCP 注册表与 SSE
+
+- 已统一 Application `McpSessionRegistry`，设置/Run owner 分离、完整握手和 schema 分页后发布 READY，配置变更永久撤销旧连接；新增 legacy SSE 与设置入口、取消/断流恢复及禁止自动重放 RPC。见[MCP 注册表与 SSE](mcp-session-registry.md)与[当前验证报告](verification-report.md)。
+- 第 285 阶段按原定 Remote Channel 功能收口；稳定部署、长期保留/容量回收、自然系统恢复、真实通知及 Release 验收作为[路线图](personal-agent-roadmap.md)中的独立待办，不阻塞 MCP。
+
+## 第 285 阶段切片历史
 
 - 第七片提供独立 Keystore P-256 接收签名、本地显式公钥授权/撤销、来源与完整请求摘要绑定、共事务持久 nonce；JVM/Python 与 Redmi 三进程离线互通已验证。没有接入注册 UI、HTTPS puller 或 HTTP 服务，见[接收端认证](remote-channel-receiver-auth.md)与[验证报告](verification-report.md)。
 

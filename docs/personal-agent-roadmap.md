@@ -19,8 +19,8 @@
 
 仍然缺少的主链按影响排序为：
 
-1. Remote Channel 第 285 阶段已补签名批次、cursor、同址 ACK、原子加密 outbox、持久退避、显式后台收件/通知、正文处理审计、异步启动对账、本地持久发送队列、接收端认证及产品创建/导出、认证 HTTPS 客户端与有界 HTTP 服务；临时公网认证互通已补门禁，稳定部署、长期保留和自然系统恢复仍待后续验收。
-2. MCP 当前实际执行面是 Streamable HTTP；SSE、stdio、OAuth 和连接成功后再暴露工具的完整生命周期仍未形成统一运行时。
+1. Remote Channel 第 285 阶段按原定 cursor、批次、ACK、重试、过期、后台收件和通知功能收口。稳定部署与长期验收列为独立待办，不阻塞后续主线；临时公网认证互通不代表稳定服务和自然系统恢复已验收。
+2. 当前主线为第 286 阶段：统一 `McpSessionRegistry`，接入 legacy SSE。stdio 等待进程沙箱和生命周期机制，OAuth、Tasks 后置。
 3. Skill 已可从 GitHub 导入并固定提交，但插件仍是声明/只读投影，缺少经过签名和权限网关的可执行扩展模型。
 4. 多 Agent 仍限前台 Direct、最多两个只读 child；没有持久 child 生命周期、取消、预算、失败聚合和恢复策略。
 5. GenUI 仍是受限 text/button 卡片；没有版本化表单、数据绑定、显式 action、结果证据和流式增量恢复。
@@ -29,7 +29,7 @@
 
 ### 后续执行顺序
 
-#### 第 285 阶段：Remote Channel 可靠收件基线（批次/outbox 与受控后台调度已实现，整体进行中）
+#### 第 285 阶段：Remote Channel 可靠收件基线（原定功能已收口）
 
 - 第一片：前台单条收件已接入独立持久退避账本，网络/超时/5xx 从 30 秒指数退避至 1 小时；取消不污染故障，协议拒绝可手动恢复，损坏/写失败 fail-closed，满容量不淘汰。cursor/待 ACK 身份仅为本地预留字段，没有服务端回执。验证范围见报告顶部。
 - 第二片：v1 外层签名批次、cursor/receiver/expiry 绑定、同登记地址的签名 ACK、整批原子入箱和加密 outbox 已接入前台“同步收件”；旧 v1 密文兼容升级，单条/忽略/过期均保留 receipt/cursor。取消、并发、ACK 丢失与进程重建证据见报告。
@@ -40,19 +40,26 @@
 - 第七片：Keystore P-256 接收签名、本地公钥授权/撤销、完整请求/来源/nonce/时效绑定和队列共事务已完成，Redmi 三进程离线互通；该片仅提供核心，产品入口和客户端由第八片接入，见[接收端认证](remote-channel-receiver-auth.md)。
 - 第八片：产品显式创建/导出、必须认证的持久标记、同址 pull/ACK POST、原公钥核对和后台认证绑定已接入客户端；兼容来源继续旧协议，认证失败不降级，见[认证 HTTPS 客户端](remote-channel-receiver-https.md)。
 - 第九片：固定启动 endpoint、严格 HTTP wire 映射、有界 loopback listener、连接/速率/累计期限和固定错误已实现；Redmi 默认 HTTPS 传输的未授权、提交后 ACK 故障、撤销及重启恢复由临时公网合成门禁验收，见[认证 HTTP 服务](remote-channel-http-service.md)。
-- 下一片：推进稳定域名/TLS 与受管理服务部署；长期保留和自然系统恢复分别验收，本地核心、受控调度与临时公网夹具不能满足第 285 阶段整体退出标准。
+- 功能收口：九个切片完成原定可靠收件链路，当前主线进入第 286 阶段；下列部署与长期验证独立追踪，不能继续作为第 285 阶段追加切片。
 
 - 先冻结 `cursor / batch / ack / retry / expiry` 协议和服务端错误分类；消息仍必须 P-256 验签、去重、加密入箱，入站只产生待确认草稿。
 - 增加可取消的后台收件调度：优先 WorkManager/Foreground Service 的有界单次执行，网络不可用、进程被杀和身份撤销都要留下可恢复状态；不在后台自动运行 Agent。
 - 增加独立送达通知，通知只导航到待确认列表；打开、忽略和过期都保留审计，ACK 只表示已安全入箱，不表示已执行。
-- 退出标准：Redmi 真实网络下完成重复批次、cursor 前进、服务端超时/断网、进程重启、通知导航和 ACK 幂等；稳定发送方与临时合成夹具分开验收。
+- 已有验证分级及未验证项以报告为准；稳定发送方与临时合成夹具分开验收，功能收口不提升既有证据等级。
 
-#### 第 286 阶段：MCP 连接注册表和传输扩展
+##### Remote Channel 独立待办（不阻塞 MCP）
+
+- 稳定域名/TLS、受管理服务部署、维护与监控。
+- 长期消息保留、容量回收及 tombstone/收据保留策略。
+- 自然周期、Doze、LMK、系统重启下的长期恢复验收。
+- 真实通知送达及导航、稳定公网服务互通和 Release 验收。
+
+#### 第 286 阶段：MCP 连接注册表和传输扩展（当前主线）
 
 - 抽出统一 `McpSessionRegistry`：配置变更先关闭旧 session，连接并完成 tool/schema 同步后才进入可用目录；连接状态与“对 AI 暴露”状态分离。
 - 先实现 SSE 的取消、重连、session 过期和工具目录恢复；stdio 仅在明确的本地进程沙箱和生命周期 owner 具备后实现，不能把 `sh -c` 当作 stdio MCP。
-- OAuth discovery/token 刷新沿用前台显式登录和最小持久化；Resources/Prompts 保持已有 schema/分页契约，Tasks 后置。
-- 退出标准：JVM replay 覆盖 connect/disconnect/race/cancel/reconnect；Redmi 真实 Provider 完成 SSE 连接、取消和工具禁用后不再出现在 prompt 的证据。
+- 本片范围为统一注册表和 SSE；Resources/Prompts 保持既有 schema/分页契约，OAuth discovery/token 刷新、stdio、Tasks 独立后置。
+- 验证分级：JVM 覆盖 connect/disconnect/race/cancel/reconnect，Redmi 默认 OkHttp 验证隔离 loopback SSE 与既有 MCP 回归；真实外部 MCP、真实模型 Provider 的联合验收单独记录，不能用夹具冒充通过。
 
 #### 第 287 阶段：运行上下文、Memory CAS 与后台恢复
 
